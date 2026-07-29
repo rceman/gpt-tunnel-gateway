@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "task": "gpt-tunnel-gateway-v0.2.0 source-tree integration",
+  "base": "97375fb57d2af5d223c5b345a4576c1ee0ec197f",
+  "implementation_commit": "740fe7ff93f5171362a5ed7526e95cdb812c1849",
+  "integration_fix_commits": ["740fe7ff93f5171362a5ed7526e95cdb812c1849", "e6dee889bbc94044d9a85570cb4c706d33ac6a8c"],
+  "source_archive_sha256": "dc1bfde05991646e5a6990eae5972e7c75fdb00c57e07e0902d55fecf4d47ab9",
+  "expected_tree": "96c56e6a7258629d11fb805a6c0ebb3fa2186aea",
+  "gates": {
+    "gofmt": "passed",
+    "go_vet": "passed",
+    "go_test_race": "passed",
+    "static_check": "passed",
+    "build_release": "passed",
+    "three_binaries": "passed",
+    "mcp_smoke": "MCP_SMOKE_OK",
+    "diff_check": "passed"
+  },
+  "deviations": [
+    "Added missing Run.RepromptCount and Run.LastRepromptAt fields referenced by canonical service code.",
+    "Removed empty GIT_WORK_TREE environment assignment so mirror refresh works with current Git.",
+    "Removed generated dist artifacts from implementation commit in follow-up cleanup commit.",
+    "No active tunnel or ai-workspace process was touched."
+  ],
+  "changed_files": 62
+}
