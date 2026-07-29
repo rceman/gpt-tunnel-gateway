@@ -1,0 +1,360 @@
+package model
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+)
+
+const SchemaVersion = 1
+
+var (
+	idRE  = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+	shaRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
+)
+
+type Project struct {
+	SchemaVersion      int       `json:"schema_version"`
+	ID                 string    `json:"id"`
+	RepositoryURL      string    `json:"repository_url"`
+	DefaultBranch      string    `json:"default_branch"`
+	WorkflowRepository string    `json:"workflow_repository"`
+	WorkflowCommit     string    `json:"workflow_commit"`
+	Status             string    `json:"status"`
+	ActiveTaskID       string    `json:"active_task_id,omitempty"`
+	ActiveRunID        string    `json:"active_run_id,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+type Plan struct {
+	SchemaVersion int       `json:"schema_version"`
+	ProjectID     string    `json:"project_id"`
+	Revision      int       `json:"revision"`
+	Summary       string    `json:"summary"`
+	Body          string    `json:"body"`
+	ActiveTaskID  string    `json:"active_task_id,omitempty"`
+	ActiveRunID   string    `json:"active_run_id,omitempty"`
+	UpdatedBy     string    `json:"updated_by"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type ADR struct {
+	SchemaVersion int       `json:"schema_version"`
+	ID            string    `json:"id"`
+	ProjectID     string    `json:"project_id"`
+	Title         string    `json:"title"`
+	Status        string    `json:"status"`
+	Context       string    `json:"context"`
+	Decision      string    `json:"decision"`
+	Consequences  string    `json:"consequences"`
+	Supersedes    string    `json:"supersedes,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type Task struct {
+	SchemaVersion      int       `json:"schema_version"`
+	ID                 string    `json:"id"`
+	SHA256             string    `json:"sha256"`
+	ProjectID          string    `json:"project_id"`
+	Title              string    `json:"title"`
+	Objective          string    `json:"objective"`
+	Branch             string    `json:"branch"`
+	BaseRevision       string    `json:"base_revision"`
+	AcceptanceCriteria []string  `json:"acceptance_criteria"`
+	Constraints        []string  `json:"constraints"`
+	RequiredGates      []string  `json:"required_gates,omitempty"`
+	Status             string    `json:"status"`
+	Supersedes         string    `json:"supersedes,omitempty"`
+	CreatedBy          string    `json:"created_by"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+
+type TaskState struct {
+	SchemaVersion int       `json:"schema_version"`
+	TaskID        string    `json:"task_id"`
+	TaskSHA256    string    `json:"task_sha256"`
+	Status        string    `json:"status"`
+	SupersededBy  string    `json:"superseded_by,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type Run struct {
+	SchemaVersion    int        `json:"schema_version"`
+	ID               string     `json:"id"`
+	TaskID           string     `json:"task_id"`
+	TaskSHA256       string     `json:"task_sha256"`
+	ProjectID        string     `json:"project_id"`
+	GatewayID        string     `json:"gateway_id"`
+	SessionKey       string     `json:"session_key"`
+	Branch           string     `json:"branch"`
+	BaseRevision     string     `json:"base_revision"`
+	HubRevision      string     `json:"hub_revision"`
+	Status           string     `json:"status"`
+	DispatchMessage  string     `json:"dispatch_message,omitempty"`
+	DispatchExitCode *int       `json:"dispatch_exit_code,omitempty"`
+	DispatchStdout   string     `json:"dispatch_stdout,omitempty"`
+	DispatchStderr   string     `json:"dispatch_stderr,omitempty"`
+	ResultPath       string     `json:"result_path"`
+	EvidencePath     string     `json:"evidence_path"`
+	CreatedAt        time.Time  `json:"created_at"`
+	DispatchedAt     *time.Time `json:"dispatched_at,omitempty"`
+	RepromptCount    int        `json:"reprompt_count,omitempty"`
+	LastRepromptAt   *time.Time `json:"last_reprompt_at,omitempty"`
+	FinishedAt       *time.Time `json:"finished_at,omitempty"`
+}
+
+type CommandResult struct {
+	Command  string `json:"command"`
+	ExitCode int    `json:"exit_code"`
+	Result   string `json:"result"`
+}
+
+type AgentResult struct {
+	SchemaVersion      int             `json:"schema_version"`
+	TaskID             string          `json:"task_id"`
+	TaskSHA256         string          `json:"task_sha256"`
+	RunID              string          `json:"run_id"`
+	Status             string          `json:"status"`
+	Summary            string          `json:"summary"`
+	Commits            []string        `json:"commits"`
+	ChangedFiles       []string        `json:"changed_files"`
+	Commands           []CommandResult `json:"commands"`
+	AcceptanceCoverage []string        `json:"acceptance_coverage"`
+	Deviations         []string        `json:"deviations"`
+	RemainingRisks     []string        `json:"remaining_risks"`
+	FinishedAt         time.Time       `json:"finished_at"`
+}
+
+type Evidence struct {
+	SchemaVersion int       `json:"schema_version"`
+	TaskID        string    `json:"task_id"`
+	RunID         string    `json:"run_id"`
+	ProjectHead   string    `json:"project_head"`
+	Branch        string    `json:"branch"`
+	WorktreeClean bool      `json:"worktree_clean"`
+	Notes         []string  `json:"notes,omitempty"`
+	RecordedAt    time.Time `json:"recorded_at"`
+}
+
+type Report struct {
+	SchemaVersion  int             `json:"schema_version"`
+	TaskID         string          `json:"task_id"`
+	RunID          string          `json:"run_id"`
+	ProjectID      string          `json:"project_id"`
+	Status         string          `json:"status"`
+	Summary        string          `json:"summary"`
+	Commits        []string        `json:"commits"`
+	ChangedFiles   []string        `json:"changed_files"`
+	Commands       []CommandResult `json:"commands"`
+	Deviations     []string        `json:"deviations"`
+	RemainingRisks []string        `json:"remaining_risks"`
+	HubCommit      string          `json:"hub_commit"`
+	FinishedAt     time.Time       `json:"finished_at"`
+}
+
+func NewID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
+}
+
+func HashTask(t Task) (string, error) {
+	t.SHA256 = ""
+	data, err := json.Marshal(t)
+	if err != nil {
+		return "", err
+	}
+	s := sha256.Sum256(data)
+	return hex.EncodeToString(s[:]), nil
+}
+
+func ValidateProject(v Project) error {
+	if v.SchemaVersion != SchemaVersion {
+		return fmt.Errorf("unsupported project schema_version")
+	}
+	if !idRE.MatchString(v.ID) {
+		return fmt.Errorf("invalid project id")
+	}
+	if v.RepositoryURL == "" || len(v.RepositoryURL) > 2048 {
+		return fmt.Errorf("invalid repository_url")
+	}
+	if err := ValidateBranch(v.DefaultBranch); err != nil {
+		return err
+	}
+	return nil
+}
+func ValidatePlan(v Plan) error {
+	if v.SchemaVersion != SchemaVersion || !idRE.MatchString(v.ProjectID) {
+		return fmt.Errorf("invalid plan identity")
+	}
+	if len(v.Summary) < 1 || len(v.Summary) > 500 || len(v.Body) > 200000 {
+		return fmt.Errorf("invalid plan content")
+	}
+	return nil
+}
+func ValidateADR(v ADR) error {
+	if v.SchemaVersion != SchemaVersion || !idRE.MatchString(v.ProjectID) || v.ID == "" {
+		return fmt.Errorf("invalid ADR identity")
+	}
+	if len(v.Title) < 3 || len(v.Title) > 300 || len(v.Context) > 100000 || len(v.Decision) > 100000 || len(v.Consequences) > 100000 {
+		return fmt.Errorf("invalid ADR content")
+	}
+	if v.Status != "accepted" && v.Status != "superseded" {
+		return fmt.Errorf("invalid ADR status")
+	}
+	return nil
+}
+func ValidateTask(v Task) error {
+	if v.SchemaVersion != SchemaVersion || !idRE.MatchString(v.ProjectID) || v.ID == "" {
+		return fmt.Errorf("invalid task identity")
+	}
+	if len(v.Title) < 3 || len(v.Title) > 300 || len(v.Objective) < 3 || len(v.Objective) > 200000 {
+		return fmt.Errorf("invalid task content")
+	}
+	if err := ValidateBranch(v.Branch); err != nil {
+		return err
+	}
+	if !shaRE.MatchString(v.BaseRevision) {
+		return fmt.Errorf("base_revision must be a lowercase 40-character SHA")
+	}
+	if len(v.AcceptanceCriteria) > 200 || len(v.Constraints) > 200 || len(v.RequiredGates) > 100 {
+		return fmt.Errorf("too many task entries")
+	}
+	for _, s := range append(append([]string{}, v.AcceptanceCriteria...), v.Constraints...) {
+		if len(s) > 20000 {
+			return fmt.Errorf("task entry too large")
+		}
+	}
+	h, err := HashTask(v)
+	if err != nil {
+		return err
+	}
+	if v.SHA256 != "" && v.SHA256 != h {
+		return fmt.Errorf("task sha256 mismatch")
+	}
+	return nil
+}
+func ValidateTaskState(v TaskState, task Task) error {
+	if v.SchemaVersion != SchemaVersion || v.TaskID != task.ID || v.TaskSHA256 != task.SHA256 || v.UpdatedAt.IsZero() {
+		return fmt.Errorf("invalid task state identity")
+	}
+	switch v.Status {
+	case "created", "ready", "dispatched", "cancelled", "superseded", "completed":
+	default:
+		return fmt.Errorf("invalid task state status")
+	}
+	return nil
+}
+
+func ValidateRun(v Run) error {
+	if v.SchemaVersion != SchemaVersion || v.ID == "" || v.TaskID == "" || !idRE.MatchString(v.ProjectID) {
+		return fmt.Errorf("invalid run identity")
+	}
+	if len(v.DispatchMessage) > 512 {
+		return fmt.Errorf("dispatch message too large")
+	}
+	if !sha256RE(v.TaskSHA256) {
+		return fmt.Errorf("invalid task hash")
+	}
+	return nil
+}
+func ValidateAgentResult(v AgentResult, task Task, run Run) error {
+	if v.SchemaVersion != SchemaVersion || v.TaskID != task.ID || v.TaskSHA256 != task.SHA256 || v.RunID != run.ID {
+		return fmt.Errorf("result identity mismatch")
+	}
+	switch v.Status {
+	case "succeeded", "failed", "blocked", "cancelled", "timed_out":
+	default:
+		return fmt.Errorf("invalid result status")
+	}
+	if len(v.Summary) < 1 || len(v.Summary) > 20000 || len(v.Commits) > 100 || len(v.ChangedFiles) > 5000 || len(v.Commands) > 500 {
+		return fmt.Errorf("result bounds exceeded")
+	}
+	for _, sha := range v.Commits {
+		if !shaRE.MatchString(sha) {
+			return fmt.Errorf("invalid commit SHA %q", sha)
+		}
+	}
+	for _, p := range v.ChangedFiles {
+		if err := ValidateRelativePath(p); err != nil {
+			return fmt.Errorf("changed file: %w", err)
+		}
+	}
+	if v.FinishedAt.IsZero() {
+		return fmt.Errorf("finished_at is required")
+	}
+	if v.Status == "succeeded" {
+		covered := map[string]bool{}
+		for _, c := range v.AcceptanceCoverage {
+			covered[c] = true
+		}
+		for _, c := range task.AcceptanceCriteria {
+			if !covered[c] {
+				return fmt.Errorf("acceptance criterion not covered: %s", c)
+			}
+		}
+		gates := map[string]int{}
+		for _, cmd := range v.Commands {
+			gates[cmd.Command] = cmd.ExitCode
+		}
+		for _, gate := range task.RequiredGates {
+			code, ok := gates[gate]
+			if !ok {
+				return fmt.Errorf("required gate not reported: %s", gate)
+			}
+			if code != 0 {
+				return fmt.Errorf("required gate failed: %s", gate)
+			}
+		}
+	}
+	return nil
+}
+func ValidateEvidence(v Evidence, task Task, run Run) error {
+	if v.SchemaVersion != SchemaVersion || v.TaskID != task.ID || v.RunID != run.ID {
+		return fmt.Errorf("evidence identity mismatch")
+	}
+	if !shaRE.MatchString(v.ProjectHead) || v.Branch != run.Branch || v.RecordedAt.IsZero() {
+		return fmt.Errorf("invalid evidence")
+	}
+	return nil
+}
+func ValidateBranch(s string) error {
+	if s == "" || len(s) > 255 || strings.ContainsAny(s, "\x00\r\n ~^:?*[\\") || strings.HasPrefix(s, "-") || strings.Contains(s, "..") || strings.HasSuffix(s, "/") {
+		return fmt.Errorf("invalid branch")
+	}
+	return nil
+}
+func ValidateRevision(s string) error {
+	if s == "" || len(s) > 255 || strings.ContainsAny(s, "\x00\r\n ~^:?*[\\") || strings.HasPrefix(s, "-") || strings.Contains(s, "..") {
+		return fmt.Errorf("invalid revision")
+	}
+	return nil
+}
+func ValidateRelativePath(p string) error {
+	if p == "" || len(p) > 4096 || filepath.IsAbs(p) || strings.ContainsRune(p, 0) {
+		return fmt.Errorf("invalid relative path")
+	}
+	clean := filepath.ToSlash(filepath.Clean(p))
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+		return fmt.Errorf("path escapes root")
+	}
+	return nil
+}
+func CanonicalStrings(in []string) []string {
+	out := append([]string{}, in...)
+	sort.Strings(out)
+	return out
+}
+func sha256RE(s string) bool { return len(s) == 64 && regexp.MustCompile(`^[0-9a-f]+$`).MatchString(s) }

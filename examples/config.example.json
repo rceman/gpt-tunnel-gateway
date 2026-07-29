@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "gateway_id": "home_pc",
+  "listen_addr": "127.0.0.1:8875",
+  "state_dir": "~/.local/share/gpt-tunnel-gateway",
+  "max_read_bytes": 1048576,
+  "max_diff_bytes": 8388608,
+  "max_list_items": 2000,
+  "dispatch_timeout_seconds": 30,
+  "run_timeout_seconds": 7200,
+  "airelay_command": "airelay",
+  "hub": {
+    "root": "~/git/typer",
+    "remote": "origin",
+    "branch": "main",
+    "protocol_root": "protocol/v4",
+    "author_name": "GPT Tunnel Gateway",
+    "author_email": "gpt-tunnel-gateway@localhost.invalid"
+  },
+  "controller": {
+    "gateway_binary": "~/.local/bin/gpt-tunnel-gatewayd",
+    "tunnel_client_binary": "~/.local/bin/tunnel-client",
+    "tunnel_env_file": "~/.config/gpt-tunnel-gateway/tunnel.env",
+    "pid_dir": "~/.local/state/gpt-tunnel-gateway",
+    "log_dir": "~/.local/state/gpt-tunnel-gateway/logs",
+    "tunnel_ready_url": "http://127.0.0.1:8766/readyz"
+  },
+  "projects": {
+    "gpt-tunnel-gateway": {
+      "root": "~/git/gpt-tunnel-gateway",
+      "mirror": "~/.local/share/gpt-tunnel-gateway/git-mirrors/gpt-tunnel-gateway.git",
+      "remote": "origin",
+      "default_branch": "main",
+      "airelay_session_key": "gpt-tunnel-gateway_master"
+    }
+  }
+}

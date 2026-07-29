@@ -1,15 +1,15 @@
 # Source reuse audit
 
-Audit date: 2026-07-29. All source repositories were cloned/read-only; none
-were modified.
+Baseline date: 2026-07-29.
 
-| Repository | Remote main SHA | Relevant material | Decision |
-|---|---|---|---|
-| `rceman/gpt-github-gateway` | `d40041417e19da8d6934757d28bda75721d34e20` | `protocol/v1`, `protocol/v2`, `protocol/v3`; `internal/task`; supervisor and transactional patterns | Reuse concepts/contracts selectively; Go implementation remains independently versioned. |
-| `rceman/gpt-review-planner` | `b1a45b1e9475ab29dfd3e84d523b70897c7b8918` | executable patch-pack templates, evidence workflow, VERSION `1.3.0` | Canonical workflow pinned in `.gpt-workflow.lock`; no code copied without compatibility review. |
-| `rceman/ai-workspace` | `c24d3bfc4a7cc372aa8093b946e54282e22e3bbc` | host controller behavior documented in README and runtime implementation | Port behavior to Go later; never modify or control its active daemon here. |
-| `rceman/typer` | `c47dd1bcf11a11b65468008fcb024d468db1a62f` | current cross-device hub | Preserve compatible hub paths and schemas; credentials were not read. |
+| Repository | Audited commit | Used in this patch |
+|---|---|---|
+| `rceman/gpt-tunnel-gateway` | `97375fb57d2af5d223c5b345a4576c1ee0ec197f` | Patch base only. The one-time bootstrap finalizer and stubs are replaced. |
+| `rceman/gpt-github-gateway` | `d40041417e19da8d6934757d28bda75721d34e20` | Domain concepts: versioned protocol roots, immutable tasks, supervisor/transaction discipline. No code copied because exact source files were not available inside the GPT sandbox. |
+| `rceman/gpt-review-planner` | `b1a45b1e9475ab29dfd3e84d523b70897c7b8918` / VERSION `1.3.0` | Canonical GPT-authored patch-pack workflow and evidence boundary. |
+| `rceman/ai-workspace` | foundation branch `86916063804ad95c3d4950ec9a843e1dc03ad914`; audited remote main `c24d3bfc4a7cc372aa8093b946e54282e22e3bbc` | Proven loopback, host-native process, PID identity, readiness, logs, and tunnel-client supervision behavior. Rust/direct-Codex design excluded. |
+| `rceman/typer` | `c47dd1bcf11a11b65468008fcb024d468db1a62f` | Existing hub identity. This patch adds an isolated configurable `protocol/v4` root and does not mutate historical protocols. |
 
-Exclusions: Rust runtime, direct Codex spawning, generic shell/filesystem MCP,
-secrets, and changes to source repositories. The hub is canonical; local files
-are limited to config, locks, caches, logs, and temporary artifacts.
+## Reuse disposition
+
+This is a GPT-authored clean implementation using Go standard library only. It intentionally does not ask the local agent to design or author production behavior. Exact legacy v1-v3 read/write compatibility is deferred until those schemas are imported as fixtures; guessing them would risk hub corruption.
