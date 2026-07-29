@@ -1,0 +1,4 @@
+repository: rceman/gpt-review-planner
+ref: refs/heads/main
+commit: b1a45b1e9475ab29dfd3e84d523b70897c7b8918
+version: 1.3.0
