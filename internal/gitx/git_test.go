@@ -54,3 +54,16 @@ func TestMirrorReadsAllRefsWithoutSwitchingWorktree(t *testing.T) {
 		t.Fatalf("worktree changed: %#v", status)
 	}
 }
+
+func TestResolveMirrorRefStatusDistinguishesMissingBranch(t *testing.T) {
+	_, work, _ := testutil.RepoWithBareRemote(t)
+	p := config.ProjectConfig{Root: work, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "x_master"}
+	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	if err := r.Refresh(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	sha, exists, err := r.ResolveMirrorRefStatus(context.Background(), p, "refs/remotes/origin/no-such-branch")
+	if err != nil || exists || sha != "" {
+		t.Fatalf("missing ref result sha=%q exists=%v err=%v", sha, exists, err)
+	}
+}

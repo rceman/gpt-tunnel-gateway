@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
@@ -18,6 +19,9 @@ func snapshotDetail(err error) string {
 		return ""
 	}
 	s := strings.Join(strings.Fields(err.Error()), " ")
+	if strings.Contains(s, "git ") {
+		s = "Git component operation failed"
+	}
 	s = snapshotPathRE.ReplaceAllString(s, "<path>")
 	if len(s) > 240 {
 		s = s[:240]
@@ -30,25 +34,22 @@ func (s *Service) RunReviewSnapshot(ctx context.Context, id string) (model.Revie
 	if err != nil {
 		return model.ReviewSnapshot{}, err
 	}
-	task, err := s.readTaskForRun(ctx, run)
-	if err != nil {
-		return model.ReviewSnapshot{}, err
-	}
-	state, err := s.taskState(ctx, task)
-	if err != nil {
-		return model.ReviewSnapshot{}, err
+	task, taskErr := s.readTaskForRun(ctx, run)
+	state, stateErr := s.taskState(ctx, task)
+	if stateErr != nil {
+		state = model.TaskState{TaskID: task.ID, TaskSHA256: task.SHA256, Status: "unknown"}
 	}
 	snapshot := model.ReviewSnapshot{SchemaVersion: 1,
 		Run:    model.ReviewSnapshotRun{ID: run.ID, TaskID: run.TaskID, ProjectID: run.ProjectID, Status: run.Status, Branch: run.Branch, BaseRevision: run.BaseRevision, CreatedAt: run.CreatedAt, DispatchedAt: run.DispatchedAt, FinishedAt: run.FinishedAt},
-		Task:   model.ReviewSnapshotTask{ID: task.ID, SHA256: task.SHA256, Title: task.Title, Objective: task.Objective, Branch: task.Branch, BaseRevision: task.BaseRevision, AcceptanceCriteria: append([]string{}, task.AcceptanceCriteria...), Constraints: append([]string{}, task.Constraints...), RequiredGates: append([]string{}, task.RequiredGates...), CreatedBy: task.CreatedBy, CreatedAt: task.CreatedAt, TaskStateStatus: state.Status},
+		Task:   model.ReviewSnapshotTask{ID: task.ID, SHA256: task.SHA256, Title: task.Title, Objective: task.Objective, Branch: task.Branch, BaseRevision: task.BaseRevision, AcceptanceCriteria: snapshotStrings(task.AcceptanceCriteria), Constraints: snapshotStrings(task.Constraints), RequiredGates: snapshotStrings(task.RequiredGates), CreatedBy: task.CreatedBy, CreatedAt: task.CreatedAt, TaskStateStatus: state.Status},
 		Checks: []model.ReviewSnapshotCheck{},
 	}
 	terminal := !activeStatus(run.Status)
 	report, reportErr := s.readSnapshotReport(ctx, run, task)
 	evidence, evidenceErr := s.readSnapshotEvidence(ctx, run, task)
 	if !terminal {
-		report = model.ReviewSnapshotArtifact{Available: false}
-		evidence = model.ReviewSnapshotArtifact{Available: false}
+		report = model.ReviewSnapshotReport{Available: false}
+		evidence = model.ReviewSnapshotEvidence{Available: false}
 	}
 	if reportErr != nil && terminal {
 		report.Error = snapshotDetail(reportErr)
@@ -70,7 +71,7 @@ func (s *Service) RunReviewSnapshot(ctx context.Context, id string) (model.Revie
 		s.fillSnapshotRepository(ctx, project, run, snapshot.Evidence, snapshot.Report, &repo)
 	}
 	snapshot.Repository = repo
-	snapshot.Checks = snapshotChecks(run, task, state, snapshot.Report, snapshot.Evidence, repo, terminal)
+	snapshot.Checks = snapshotChecks(run, task, state, taskErr, stateErr, reportErr, evidenceErr, snapshot.Report, snapshot.Evidence, repo, terminal)
 	snapshot.ReviewState = "active"
 	snapshot.NextAction = "wait_for_terminal"
 	if terminal {
@@ -83,6 +84,13 @@ func (s *Service) RunReviewSnapshot(ctx context.Context, id string) (model.Revie
 				break
 			}
 		}
+	}
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		return model.ReviewSnapshot{}, fmt.Errorf("review snapshot encoding failed")
+	}
+	if s.Config.MaxReadBytes > 0 && int64(len(data)) > s.Config.MaxReadBytes {
+		return model.ReviewSnapshot{}, fmt.Errorf("review snapshot exceeds configured output limit")
 	}
 	return snapshot, nil
 }
@@ -98,51 +106,85 @@ func (s *Service) readTaskForRun(ctx context.Context, run model.Run) (model.Task
 	return task, nil
 }
 
-func (s *Service) readSnapshotReport(ctx context.Context, run model.Run, task model.Task) (model.ReviewSnapshotArtifact, error) {
+func (s *Service) readSnapshotReport(ctx context.Context, run model.Run, task model.Task) (model.ReviewSnapshotReport, error) {
 	var report model.Report
 	if err := s.Hub.ReadJSON(ctx, s.reportPath(run.ProjectID, run.ID), &report); err != nil {
-		return model.ReviewSnapshotArtifact{}, err
+		return model.ReviewSnapshotReport{}, err
 	}
 	if report.SchemaVersion != model.SchemaVersion || report.TaskID != task.ID || report.RunID != run.ID || report.ProjectID != run.ProjectID || report.Status == "" || report.FinishedAt.IsZero() {
-		return model.ReviewSnapshotArtifact{}, fmt.Errorf("report identity or completeness mismatch")
+		return model.ReviewSnapshotReport{}, fmt.Errorf("report identity or completeness mismatch")
 	}
-	return model.ReviewSnapshotArtifact{Available: true, Status: report.Status, Summary: report.Summary, Commits: model.CanonicalStrings(report.Commits), ChangedFiles: model.CanonicalStrings(report.ChangedFiles), Commands: report.Commands, Deviations: report.Deviations, RemainingRisks: report.RemainingRisks, FinishedAt: &report.FinishedAt, HubCommit: report.HubCommit}, nil
+	commit, err := s.Hub.LastChange(ctx, s.reportPath(run.ProjectID, run.ID))
+	if err != nil {
+		return model.ReviewSnapshotReport{}, fmt.Errorf("report hub history unavailable")
+	}
+	return model.ReviewSnapshotReport{Available: true, Status: report.Status, Summary: report.Summary, Commits: model.CanonicalStrings(report.Commits), ChangedFiles: model.CanonicalStrings(report.ChangedFiles), Commands: append([]model.CommandResult{}, report.Commands...), Deviations: append([]string{}, report.Deviations...), RemainingRisks: append([]string{}, report.RemainingRisks...), FinishedAt: &report.FinishedAt, HubCommit: commit}, nil
 }
 
-func (s *Service) readSnapshotEvidence(ctx context.Context, run model.Run, task model.Task) (model.ReviewSnapshotArtifact, error) {
+func (s *Service) readSnapshotEvidence(ctx context.Context, run model.Run, task model.Task) (model.ReviewSnapshotEvidence, error) {
 	var evidence model.Evidence
 	if err := s.Hub.ReadJSON(ctx, s.evidencePath(run.ProjectID, run.ID), &evidence); err != nil {
-		return model.ReviewSnapshotArtifact{}, err
+		return model.ReviewSnapshotEvidence{}, err
 	}
 	if err := model.ValidateEvidence(evidence, task, run); err != nil {
-		return model.ReviewSnapshotArtifact{}, err
+		return model.ReviewSnapshotEvidence{}, err
 	}
-	return model.ReviewSnapshotArtifact{Available: true, Head: evidence.ProjectHead, Branch: evidence.Branch, WorktreeClean: &evidence.WorktreeClean, Notes: evidence.Notes, RecordedAt: &evidence.RecordedAt}, nil
+	return model.ReviewSnapshotEvidence{Available: true, Head: evidence.ProjectHead, Branch: evidence.Branch, WorktreeClean: &evidence.WorktreeClean, Notes: append([]string{}, evidence.Notes...), RecordedAt: &evidence.RecordedAt}, nil
 }
 
-func (s *Service) fillSnapshotRepository(ctx context.Context, p config.ProjectConfig, run model.Run, evidence, report model.ReviewSnapshotArtifact, repo *model.ReviewSnapshotRepo) {
+func (s *Service) fillSnapshotRepository(ctx context.Context, p config.ProjectConfig, run model.Run, evidence model.ReviewSnapshotEvidence, report model.ReviewSnapshotReport, repo *model.ReviewSnapshotRepo) {
 	wt, err := s.Git.WorktreeStatus(ctx, p)
-	if err == nil {
+	if err != nil {
+		repo.WorktreeError = snapshotDetail(err)
+	} else {
 		repo.Worktree = model.ReviewSnapshotWorktree{Branch: wt.Branch, Head: wt.Head, Upstream: wt.Upstream, Ahead: wt.Ahead, Behind: wt.Behind, Clean: wt.Clean}
 	}
-	defaultHead, err := s.Git.ResolveMirrorRef(ctx, p, "refs/remotes/origin/"+p.DefaultBranch)
+	defaultRef := "refs/heads/" + p.DefaultBranch
+	defaultHead, exists, err := s.Git.ResolveMirrorRefStatus(ctx, p, defaultRef)
 	if err != nil {
-		defaultHead, _ = s.Git.ResolveMirrorRef(ctx, p, "refs/heads/"+p.DefaultBranch)
+		repo.DefaultHeadError = snapshotDetail(err)
+	} else if !exists {
+		defaultHead, exists, err = s.Git.ResolveMirrorRefStatus(ctx, p, "refs/remotes/origin/"+p.DefaultBranch)
+		if err != nil {
+			repo.DefaultHeadError = snapshotDetail(err)
+		} else if !exists {
+			repo.DefaultHeadError = "default branch ref is missing"
+		}
 	}
 	repo.DefaultHead = defaultHead
-	taskHead, err := s.Git.ResolveMirrorRef(ctx, p, "refs/heads/"+run.Branch)
+	taskHead, taskExists, err := s.Git.ResolveMirrorRefStatus(ctx, p, "refs/heads/"+run.Branch)
 	if err != nil {
-		taskHead, err = s.Git.ResolveMirrorRef(ctx, p, "refs/remotes/origin/"+run.Branch)
-	}
-	if err == nil {
+		repo.TaskBranchError = snapshotDetail(err)
+	} else if taskExists {
 		repo.TaskBranchPublished, repo.TaskBranchHead = true, taskHead
+	} else {
+		taskHead, taskExists, err = s.Git.ResolveMirrorRefStatus(ctx, p, "refs/remotes/origin/"+run.Branch)
+		if err != nil {
+			repo.TaskBranchError = snapshotDetail(err)
+		} else if taskExists {
+			repo.TaskBranchPublished, repo.TaskBranchHead = true, taskHead
+		} else {
+			repo.TaskBranchError = "task branch ref is missing"
+		}
 	}
 	if evidence.Head != "" {
-		_, err = s.Git.ResolveMirrorRef(ctx, p, evidence.Head)
-		repo.EvidenceHeadReachable = err == nil
+		_, evidenceExists, err := s.Git.ResolveMirrorRefStatus(ctx, p, evidence.Head)
+		repo.EvidenceHeadReachable = err == nil && evidenceExists
+		if err != nil {
+			repo.EvidenceHeadError = snapshotDetail(err)
+		} else if !evidenceExists {
+			repo.EvidenceHeadError = "evidence head is missing from mirror"
+		}
 		if repo.EvidenceHeadReachable {
-			repo.ChangedFiles, _ = s.Git.MirrorChangedFiles(ctx, p, run.BaseRevision, evidence.Head)
-			repo.DiffStat, _ = s.Git.MirrorDiffStat(ctx, p, run.BaseRevision, evidence.Head)
+			repo.ChangedFiles, err = s.Git.MirrorChangedFiles(ctx, p, run.BaseRevision, evidence.Head)
+			if err != nil {
+				repo.ChangedFiles = []string{}
+				repo.ChangedFilesError = snapshotDetail(err)
+			}
+			repo.DiffStat, err = s.Git.MirrorDiffStat(ctx, p, run.BaseRevision, evidence.Head)
+			if err != nil {
+				repo.DiffStatError = snapshotDetail(err)
+			}
 		}
 		if run.BaseRevision != "" {
 			if c, e := s.Git.MirrorCompare(ctx, p, run.BaseRevision, evidence.Head); e == nil {
@@ -161,7 +203,7 @@ func (s *Service) fillSnapshotRepository(ctx context.Context, p config.ProjectCo
 	}
 }
 
-func snapshotChecks(run model.Run, task model.Task, state model.TaskState, report, evidence model.ReviewSnapshotArtifact, repo model.ReviewSnapshotRepo, terminal bool) []model.ReviewSnapshotCheck {
+func snapshotChecks(run model.Run, task model.Task, state model.TaskState, taskErr, stateErr, reportErr, evidenceErr error, report model.ReviewSnapshotReport, evidence model.ReviewSnapshotEvidence, repo model.ReviewSnapshotRepo, terminal bool) []model.ReviewSnapshotCheck {
 	checks := []model.ReviewSnapshotCheck{}
 	add := func(id, severity, status, detail string) {
 		checks = append(checks, model.ReviewSnapshotCheck{ID: id, Severity: severity, Status: status, Detail: detail})
@@ -173,20 +215,50 @@ func snapshotChecks(run model.Run, task model.Task, state model.TaskState, repor
 	} else {
 		add("terminal_artifacts", "critical", "fail", "terminal report or evidence is unavailable")
 	}
-	if task.ID == run.TaskID && task.ProjectID == run.ProjectID && task.SHA256 == run.TaskSHA256 && task.Branch == run.Branch {
+	if !terminal {
+		add("report_identity", "critical", "not_applicable", "run is active")
+		add("evidence_identity", "critical", "not_applicable", "run is active")
+	} else {
+		if reportErr == nil && report.Available {
+			add("report_identity", "critical", "pass", "report identity and canonical hub history agree")
+		} else {
+			add("report_identity", "critical", "fail", nonEmpty(snapshotDetail(reportErr), "report identity or hub history is invalid"))
+		}
+		if evidenceErr == nil && evidence.Available {
+			add("evidence_identity", "critical", "pass", "evidence identity agrees with run and task")
+		} else {
+			add("evidence_identity", "critical", "fail", nonEmpty(snapshotDetail(evidenceErr), "evidence identity is invalid"))
+		}
+	}
+	if taskErr == nil && stateErr == nil && task.ID == run.TaskID && task.ProjectID == run.ProjectID && task.SHA256 == run.TaskSHA256 && task.Branch == run.Branch && state.TaskID == task.ID && state.TaskSHA256 == task.SHA256 {
 		add("identity_consistency", "critical", "pass", "run, task, and task-state identities agree")
 	} else {
-		add("identity_consistency", "critical", "fail", "run and task identities disagree")
+		add("identity_consistency", "critical", "fail", snapshotDetail(firstError(taskErr, stateErr, fmt.Errorf("run, task, and task-state identities disagree"))))
 	}
 	if repo.RefreshSucceeded {
 		add("mirror_refresh", "critical", "pass", "managed mirror refreshed once")
 	} else {
 		add("mirror_refresh", "critical", "fail", repo.RefreshError)
 	}
+	if repo.WorktreeError != "" {
+		add("worktree_component", "critical", "fail", repo.WorktreeError)
+	}
+	if repo.DefaultHeadError != "" {
+		add("default_head_component", "critical", "fail", repo.DefaultHeadError)
+	}
+	if repo.TaskBranchError != "" && repo.TaskBranchError != "task branch ref is missing" {
+		add("task_branch_component", "critical", "fail", repo.TaskBranchError)
+	}
+	if repo.ChangedFilesError != "" {
+		add("changed_files_component", "critical", "fail", repo.ChangedFilesError)
+	}
+	if repo.DiffStatError != "" {
+		add("diff_stat_component", "critical", "fail", repo.DiffStatError)
+	}
 	if repo.EvidenceHeadReachable {
 		add("evidence_head_reachable", "critical", "pass", "evidence head is reachable in mirror")
 	} else if terminal {
-		add("evidence_head_reachable", "critical", "fail", "evidence head is not reachable")
+		add("evidence_head_reachable", "critical", "fail", nonEmpty(repo.EvidenceHeadError, "evidence head is not reachable"))
 	} else {
 		add("evidence_head_reachable", "critical", "not_applicable", "run is active")
 	}
@@ -198,7 +270,7 @@ func snapshotChecks(run model.Run, task model.Task, state model.TaskState, repor
 		add("base_ancestor", "critical", "not_applicable", "run is active")
 	}
 	publication := repo.TaskBranchPublished && repo.TaskBranchHead == evidence.Head
-	merged := !repo.TaskBranchPublished && repo.DefaultHead != "" && repo.DefaultToEvidence.Error == "" && repo.DefaultToEvidence.RightOnly == 0
+	merged := !repo.TaskBranchPublished && repo.TaskBranchError == "task branch ref is missing" && repo.DefaultHead != "" && repo.DefaultToEvidence.Error == "" && repo.DefaultToEvidence.RightOnly == 0
 	if publication || merged {
 		add("branch_publication", "critical", "pass", "task branch is published or evidence is merged")
 	} else if terminal {
@@ -206,7 +278,7 @@ func snapshotChecks(run model.Run, task model.Task, state model.TaskState, repor
 	} else {
 		add("branch_publication", "critical", "not_applicable", "run is active")
 	}
-	worktreeOK := repo.Worktree.Clean && ((repo.TaskBranchPublished && repo.Worktree.Branch == run.Branch && repo.Worktree.Head == evidence.Head) || (merged && repo.Worktree.Branch == repo.DefaultBranch && repo.Worktree.Head != ""))
+	worktreeOK := repo.WorktreeError == "" && repo.Worktree.Clean && ((repo.TaskBranchPublished && repo.Worktree.Branch == run.Branch && repo.Worktree.Head == evidence.Head) || (merged && repo.Worktree.Branch == repo.DefaultBranch && repo.Worktree.Head == repo.DefaultHead && repo.DefaultToEvidence.RightOnly == 0))
 	if worktreeOK {
 		add("worktree_consistency", "critical", "pass", "worktree is clean and consistent")
 	} else if terminal {
@@ -216,7 +288,7 @@ func snapshotChecks(run model.Run, task model.Task, state model.TaskState, repor
 	}
 	if !terminal {
 		add("changed_file_equality", "critical", "not_applicable", "run is active")
-	} else if report.Available && strings.Join(repo.ChangedFiles, "\x00") == strings.Join(report.ChangedFiles, "\x00") {
+	} else if repo.ChangedFilesError == "" && report.Available && strings.Join(repo.ChangedFiles, "\x00") == strings.Join(report.ChangedFiles, "\x00") {
 		add("changed_file_equality", "critical", "pass", "actual and reported changed files agree")
 	} else {
 		add("changed_file_equality", "critical", "fail", "actual and reported changed files differ")
@@ -253,4 +325,27 @@ func snapshotChecks(run model.Run, task model.Task, state model.TaskState, repor
 	}
 	sort.Slice(checks, func(i, j int) bool { return checks[i].ID < checks[j].ID })
 	return checks
+}
+
+func firstError(errs ...error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func nonEmpty(value, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
+}
+
+func snapshotStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return append([]string{}, values...)
 }

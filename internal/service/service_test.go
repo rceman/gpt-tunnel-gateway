@@ -94,6 +94,17 @@ func TestTaskPlanDispatchReadFinalize(t *testing.T) {
 	if report.Status != "succeeded" || final.Status != "TASK_FINALIZED" {
 		t.Fatalf("bad final: %#v %#v", report, final)
 	}
+	testutil.Git(t, project.Root, "push", "-u", "origin", "feature/example")
+	snapshot, err := s.RunReviewSnapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.ReviewState != "reviewable" {
+		t.Fatalf("expected reviewable snapshot, got %s checks=%#v", snapshot.ReviewState, snapshot.Checks)
+	}
+	if snapshot.Report.HubCommit == "" || !snapshot.Evidence.Available || !snapshot.Repository.TaskBranchPublished {
+		t.Fatalf("missing canonical review proof: %#v", snapshot)
+	}
 }
 
 func TestRunReviewSnapshotActiveIsBounded(t *testing.T) {
@@ -129,5 +140,26 @@ func TestRunReviewSnapshotActiveIsBounded(t *testing.T) {
 		if strings.Contains(string(data), forbidden) {
 			t.Fatalf("snapshot exposed forbidden field %q", forbidden)
 		}
+	}
+}
+
+func TestRunReviewSnapshotRejectsOversizedAggregate(t *testing.T) {
+	s, hubRev, projectHead := testService(t)
+	ctx := context.Background()
+	task, create, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Bounded review", Objective: "Review bounded output.", Branch: "feature/bounded", BaseRevision: projectHead, AcceptanceCriteria: []string{"bounded"}, CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: hubRev}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Summary: "Bounded review", Body: "Review.", ActiveTaskID: task.ID, UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: create.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Config.MaxReadBytes = 100
+	if _, err := s.RunReviewSnapshot(ctx, run.ID); err == nil || !strings.Contains(err.Error(), "output limit") {
+		t.Fatalf("expected explicit output bound error, got %v", err)
 	}
 }

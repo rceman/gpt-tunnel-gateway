@@ -332,6 +332,51 @@ func (r Runner) ResolveMirrorRef(ctx context.Context, p config.ProjectConfig, re
 	return strings.TrimSpace(string(out)), nil
 }
 
+// ResolveMirrorRefStatus distinguishes an absent canonical ref from failures
+// resolving or reading the managed mirror.
+func (r Runner) ResolveMirrorRefStatus(ctx context.Context, p config.ProjectConfig, ref string) (string, bool, error) {
+	if err := model.ValidateRevision(ref); err != nil && model.ValidateBranch(strings.TrimPrefix(ref, "refs/heads/")) != nil {
+		return "", false, err
+	}
+	if err := r.EnsureMirror(ctx, p); err != nil {
+		return "", false, err
+	}
+	if isCommitSHA(ref) {
+		out, err := r.command(ctx, p.Mirror, true, "rev-parse", "--verify", ref+"^{commit}")
+		if err != nil {
+			if strings.Contains(err.Error(), "exit status 1") || strings.Contains(err.Error(), "exit status 128") {
+				return "", false, nil
+			}
+			return "", false, err
+		}
+		return strings.TrimSpace(string(out)), true, nil
+	}
+	_, err := r.command(ctx, p.Mirror, true, "show-ref", "--verify", "--quiet", ref)
+	if err != nil {
+		if strings.Contains(err.Error(), "exit status 1") {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	out, err := r.command(ctx, p.Mirror, true, "rev-parse", "--verify", ref+"^{commit}")
+	if err != nil {
+		return "", true, err
+	}
+	return strings.TrimSpace(string(out)), true, nil
+}
+
+func isCommitSHA(value string) bool {
+	if len(value) != 40 {
+		return false
+	}
+	for _, r := range value {
+		if !(r >= '0' && r <= '9') && !(r >= 'a' && r <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 func (r Runner) MirrorAncestor(ctx context.Context, p config.ProjectConfig, ancestor, descendant string) (bool, error) {
 	if err := model.ValidateRevision(ancestor); err != nil {
 		return false, err

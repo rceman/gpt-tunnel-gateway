@@ -6,8 +6,8 @@ type ReviewSnapshot struct {
 	SchemaVersion int                    `json:"schema_version"`
 	Run           ReviewSnapshotRun      `json:"run"`
 	Task          ReviewSnapshotTask     `json:"task"`
-	Report        ReviewSnapshotArtifact `json:"report"`
-	Evidence      ReviewSnapshotArtifact `json:"evidence"`
+	Report        ReviewSnapshotReport   `json:"report"`
+	Evidence      ReviewSnapshotEvidence `json:"evidence"`
 	Repository    ReviewSnapshotRepo     `json:"repository"`
 	Checks        []ReviewSnapshotCheck  `json:"checks"`
 	ReviewState   string                 `json:"review_state"`
@@ -41,7 +41,7 @@ type ReviewSnapshotTask struct {
 	TaskStateStatus    string    `json:"task_state_status"`
 }
 
-type ReviewSnapshotArtifact struct {
+type ReviewSnapshotReport struct {
 	Available      bool            `json:"available"`
 	Error          string          `json:"error,omitempty"`
 	Status         string          `json:"status,omitempty"`
@@ -53,11 +53,16 @@ type ReviewSnapshotArtifact struct {
 	RemainingRisks []string        `json:"remaining_risks,omitempty"`
 	FinishedAt     *time.Time      `json:"finished_at,omitempty"`
 	HubCommit      string          `json:"hub_commit,omitempty"`
-	Head           string          `json:"head,omitempty"`
-	Branch         string          `json:"branch,omitempty"`
-	WorktreeClean  *bool           `json:"worktree_clean,omitempty"`
-	Notes          []string        `json:"notes,omitempty"`
-	RecordedAt     *time.Time      `json:"recorded_at,omitempty"`
+}
+
+type ReviewSnapshotEvidence struct {
+	Available     bool       `json:"available"`
+	Error         string     `json:"error,omitempty"`
+	Head          string     `json:"head,omitempty"`
+	Branch        string     `json:"branch,omitempty"`
+	WorktreeClean *bool      `json:"worktree_clean,omitempty"`
+	Notes         []string   `json:"notes,omitempty"`
+	RecordedAt    *time.Time `json:"recorded_at,omitempty"`
 }
 
 type ReviewSnapshotWorktree struct {
@@ -82,13 +87,19 @@ type ReviewSnapshotRepo struct {
 	RefreshError          string                 `json:"refresh_error,omitempty"`
 	DefaultBranch         string                 `json:"default_branch"`
 	DefaultHead           string                 `json:"default_head,omitempty"`
+	DefaultHeadError      string                 `json:"default_head_error,omitempty"`
 	TaskBranch            string                 `json:"task_branch"`
 	TaskBranchPublished   bool                   `json:"task_branch_published"`
 	TaskBranchHead        string                 `json:"task_branch_head,omitempty"`
+	TaskBranchError       string                 `json:"task_branch_error,omitempty"`
 	Worktree              ReviewSnapshotWorktree `json:"worktree"`
+	WorktreeError         string                 `json:"worktree_error,omitempty"`
 	EvidenceHeadReachable bool                   `json:"evidence_head_reachable"`
+	EvidenceHeadError     string                 `json:"evidence_head_error,omitempty"`
 	BaseToEvidence        ReviewSnapshotCompare  `json:"base_to_evidence"`
 	DefaultToEvidence     ReviewSnapshotCompare  `json:"default_to_evidence"`
+	ChangedFilesError     string                 `json:"changed_files_error,omitempty"`
+	DiffStatError         string                 `json:"diff_stat_error,omitempty"`
 	ChangedFiles          []string               `json:"changed_files"`
 	DiffStat              string                 `json:"diff_stat,omitempty"`
 }
