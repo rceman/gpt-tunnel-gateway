@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "implementation_commit": "a787b9c59b0d746b2916a6a46ae05e10bee49b64",
+  "branch": "fix/gpt-tunnelctl-upgrade-review-r3",
+  "base": "f6e67937271522e6abe41b4d8ec952c9a5c9fc26",
+  "gates": [
+    "test -z \"$(gofmt -l .)\"",
+    "go vet ./...",
+    "go test -race ./...",
+    "python3 scripts/static-check.py",
+    "bash scripts/build-release.sh ./dist",
+    "cd dist && sha256sum -c SHA256SUMS && ! grep -Eq '  /' SHA256SUMS",
+    "test \"$(./dist/gpt-tunnel-gatewayd --version)\" = \"0.2.3\"",
+    "test \"$(./dist/gpt-tunnel version)\" = \"0.2.3\"",
+    "test \"$(./dist/gpt-tunnelctl version)\" = \"0.2.3\"",
+    "git diff --check"
+  ],
+  "active_runtime_touched": false,
+  "finished_at": "2026-07-30T14:27:23Z"
+}
