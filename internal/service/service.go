@@ -222,6 +222,30 @@ func (s *Service) ProjectList(ctx context.Context) ([]model.Project, error) {
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	return items, nil
 }
+
+// ValidateConfiguredProjectRecords prevents a fresh deployment from reporting
+// configured projects while the canonical hub has no durable project records.
+func (s *Service) ValidateConfiguredProjectRecords(ctx context.Context) error {
+	items, err := s.ProjectList(ctx)
+	if err != nil {
+		return fmt.Errorf("validate durable project records: %w", err)
+	}
+	seen := make(map[string]bool, len(items))
+	for _, item := range items {
+		seen[item.ID] = true
+	}
+	missing := []string{}
+	for id := range s.Config.Projects {
+		if !seen[id] {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return fmt.Errorf("durable hub project records missing: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
 func (s *Service) ProjectRead(ctx context.Context, id string) (model.Project, error) {
 	var p model.Project
 	err := s.Hub.ReadJSON(ctx, s.projectPath(id), &p)

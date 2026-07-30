@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3 — unreleased
+
+- Add safe transactional `gpt-tunnelctl upgrade` with validation, rollback, and gateway-only restart.
+
 ## 0.2.2 — unreleased
 
 - Accept bounded protocol `_meta` in `tools/call` while retaining strict rejection of unknown envelope fields.

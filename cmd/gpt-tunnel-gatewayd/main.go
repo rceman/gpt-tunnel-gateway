@@ -13,7 +13,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-var version = "0.2.2"
+var version = "0.2.3"
 
 func main() {
 	configPath := flag.String("config", config.DefaultPath(), "configuration file")
@@ -30,6 +30,10 @@ func main() {
 	svc := service.New(c)
 	hubCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	if err := svc.Hub.Ensure(hubCtx); err != nil {
+		cancel()
+		fatal(err)
+	}
+	if err := svc.ValidateConfiguredProjectRecords(hubCtx); err != nil {
 		cancel()
 		fatal(err)
 	}

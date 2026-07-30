@@ -42,6 +42,13 @@ Validate project Git exploration, hub read/write transactions against a test hub
 
 ## Cutover gate
 
+For subsequent source upgrades, run `gpt-tunnelctl upgrade` from the exact clean
+`main` checkout. It does not fetch, merge, download, install a release, restart
+the tunnel-client, or alter `config.json`/`tunnel.env`. The upgrade lock rejects
+concurrent runs; binaries are backed up under the controller state directory,
+replaced atomically, and restored automatically if gateway readiness, doctor, or
+MCP validation fails.
+
 Cutover requires a separate owner-approved task and these proofs:
 
 1. all Go gates pass;

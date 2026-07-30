@@ -10,6 +10,18 @@ The project replaces the Rust `workspace-agentd` runtime after an explicit, veri
 - `gpt-tunnel`: typed project, plan, ADR, task, run, and Git CLI.
 - `gpt-tunnelctl`: host-native install, lifecycle, health, and log controller.
 
+Upgrade an installed runtime only from a clean, synchronized `main` checkout:
+
+```bash
+gpt-tunnelctl upgrade
+```
+
+The command builds the local source, validates the exact release artifact set,
+locks concurrent upgrades, atomically replaces all three binaries, restarts only
+the gateway, verifies MCP/readiness invariants, and rolls back all binaries on
+post-install failure. It never fetches Git, downloads releases, restarts the
+tunnel-client, or changes config/secrets.
+
 ## Canonical workflow
 
 ```text

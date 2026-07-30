@@ -169,6 +169,12 @@ func readTunnelEnv(path string) ([]string, error) {
 	return out, nil
 }
 
+// ValidateTunnelEnv validates the controller-owned environment without exposing values.
+func ValidateTunnelEnv(path string) error {
+	_, err := readTunnelEnv(path)
+	return err
+}
+
 func validEnvName(name string) bool {
 	for i, r := range name {
 		if (r >= 'A' && r <= 'Z') || r == '_' || (i > 0 && r >= '0' && r <= '9') {
@@ -382,6 +388,67 @@ func (c Controller) RestartGateway() error {
 		return fmt.Errorf("gateway restart failed (%v); rollback readiness failed: %w", startErr, err)
 	}
 	return fmt.Errorf("gateway restart failed and previous executable was restored: %w", startErr)
+}
+
+// RestartGatewayAfterUpgrade stops the exact gateway recorded by the controller
+// and starts the currently installed binary. It intentionally does not touch the
+// tunnel process; callers own rollback of the installed gateway binary.
+func (c Controller) RestartGatewayAfterUpgrade() error {
+	lock, err := lockfile.Acquire(c.Config.Controller.PIDDir, "controller")
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+	pid, err := readPID(c.pidPath("gateway"))
+	if err == nil && alive(pid) {
+		cmdline, _ := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+		if !strings.Contains(string(cmdline), c.Config.Controller.GatewayBinary) {
+			return fmt.Errorf("refusing to signal unexpected gateway process")
+		}
+		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+			return err
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for alive(pid) && time.Now().Before(deadline) {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if alive(pid) {
+			return fmt.Errorf("gateway did not stop")
+		}
+	}
+	_ = os.Remove(c.pidPath("gateway"))
+	if err := c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath}); err != nil {
+		return err
+	}
+	return waitURL(c.gatewayReadyURL(), true, 30*time.Second)
+}
+
+// StopGatewayForUpgrade stops only the gateway recorded by this controller.
+func (c Controller) StopGatewayForUpgrade() error {
+	pid, err := readPID(c.pidPath("gateway"))
+	if err != nil {
+		return nil
+	}
+	if !alive(pid) {
+		_ = os.Remove(c.pidPath("gateway"))
+		return nil
+	}
+	cmdline, _ := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+	if !strings.Contains(string(cmdline), c.Config.Controller.GatewayBinary) {
+		return fmt.Errorf("refusing to signal unexpected gateway process")
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for alive(pid) && time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if alive(pid) {
+		return fmt.Errorf("gateway did not stop")
+	}
+	_ = os.Remove(c.pidPath("gateway"))
+	return nil
 }
 func (c Controller) Doctor(ctx context.Context) error {
 	s, err := c.Status(ctx)

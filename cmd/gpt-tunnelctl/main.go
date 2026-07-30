@@ -14,9 +14,10 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
+	"github.com/rceman/gpt-tunnel-gateway/internal/upgrade"
 )
 
-var version = "0.2.2"
+var version = "0.2.3"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -32,6 +33,10 @@ func main() {
 	}
 	if os.Args[1] == "init-config" {
 		initConfig(os.Args[2:])
+		return
+	}
+	if os.Args[1] == "upgrade" {
+		upgradeRuntime()
 		return
 	}
 	path := config.DefaultPath()
@@ -128,6 +133,20 @@ func initConfig(args []string) {
 	}
 	fmt.Println("created", *to)
 }
+
+func upgradeRuntime() {
+	path := config.DefaultPath()
+	c, err := config.Load(path)
+	if err != nil {
+		fatal(err)
+	}
+	r := upgrade.Runner{Config: c, ConfigPath: path}
+	result, err := r.Run(context.Background())
+	output(result)
+	if err != nil {
+		fatal(err)
+	}
+}
 func copyExecutable(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -165,7 +184,7 @@ func copyExecutable(src, dst string) error {
 	return os.Rename(name, dst)
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|start|stop|restart|restart-gateway|status|doctor|logs [gateway|tunnel|all] [lines]|version}")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade|start|stop|restart|restart-gateway|status|doctor|logs [gateway|tunnel|all] [lines]|version}")
 	os.Exit(2)
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnelctl:", err); os.Exit(1) }

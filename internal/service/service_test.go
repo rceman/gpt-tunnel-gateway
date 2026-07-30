@@ -31,6 +31,14 @@ func testService(t *testing.T) (*Service, string, string) {
 	}
 	return s, reg.Hub.After, projectHead
 }
+
+func TestValidateConfiguredProjectRecordsRejectsMissingDurableRecord(t *testing.T) {
+	s, _, _ := testService(t)
+	s.Config.Projects["missing"] = s.Config.Projects["example"]
+	if err := s.ValidateConfiguredProjectRecords(context.Background()); err == nil {
+		t.Fatal("missing durable project record was accepted")
+	}
+}
 func TestTaskPlanDispatchReadFinalize(t *testing.T) {
 	s, hubRev, projectHead := testService(t)
 	ctx := context.Background()
