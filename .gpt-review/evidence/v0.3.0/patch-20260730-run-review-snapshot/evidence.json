@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "base": "86c269a6892e584e67a13357cdf8a265a09af208",
+  "implementation_commit": "5f7a1f53bb3d828b5023e6476f9f0dd186a16278",
+  "integration_fix_commits": [],
+  "commands": [
+    {"command":"test -z \"$(gofmt -l .)\"","exit_code":0,"result":"passed"},
+    {"command":"go vet ./...","exit_code":0,"result":"passed"},
+    {"command":"go test -race ./...","exit_code":0,"result":"passed"},
+    {"command":"python3 scripts/static-check.py","exit_code":0,"result":"STATIC_CHECK_OK"},
+    {"command":"release_dir=\"$(mktemp -d /tmp/gpt-tunnel-gateway-0.3.0.XXXXXX)\"\nbash scripts/build-release.sh \"$release_dir\"\n(\n  cd \"$release_dir\"\n  sha256sum -c SHA256SUMS\n  ! grep -Eq '  /' SHA256SUMS\n)","exit_code":0,"result":"release checksums passed"},
+    {"command":"test \"$(\"$release_dir/gpt-tunnel-gatewayd\" --version)\" = \"0.3.0\"","exit_code":0,"result":"passed"},
+    {"command":"test \"$(\"$release_dir/gpt-tunnel\" version)\" = \"0.3.0\"","exit_code":0,"result":"passed"},
+    {"command":"test \"$(\"$release_dir/gpt-tunnelctl\" version)\" = \"0.3.0\"","exit_code":0,"result":"passed"},
+    {"command":"git diff --check","exit_code":0,"result":"passed"}
+  ],
+  "changed_files": 17,
+  "deviations": [],
+  "user_typer_checkout_required": false,
+  "active_tunnel_touched": false,
+  "runtime_replacement_performed": false,
+  "finished_at": "2026-07-30T15:57:38Z"
+}
