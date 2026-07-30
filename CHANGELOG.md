@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2 — unreleased
+
+- Accept bounded protocol `_meta` in `tools/call` while retaining strict rejection of unknown envelope fields.
+- Declare exact per-tool `outputSchema` contracts and validate successful `structuredContent` before returning it.
+- Declare explicit read-only, destructive, idempotent, and open-world annotations for every MCP tool.
+- Keep tool errors outside `structuredContent` so successful output schemas remain authoritative.
+
 ## 0.2.1 — unreleased
 
 - Reject unsafe ADR identifiers and symlink/path escapes in hub writes.

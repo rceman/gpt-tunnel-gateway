@@ -7,7 +7,9 @@ The daemon implements JSON-RPC Streamable HTTP at `/mcp` and supports:
 - `tools/list`;
 - `tools/call`.
 
-All tool results include object-shaped `structuredContent`. Collections are wrapped in named fields such as `projects`, `tasks`, `runs`, `refs`, or `commits`.
+Every tool descriptor declares an exact object-rooted `outputSchema` and explicit `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint` annotations. Successful results include object-shaped `structuredContent` that is validated against the declared schema before it is returned. Collections are wrapped in named fields such as `projects`, `tasks`, `runs`, `refs`, or `commits`. Tool failures set `isError: true` and omit `structuredContent`.
+
+`tools/call.params` accepts the optional protocol `_meta` object up to 64 KiB. All other unknown envelope fields and all unknown tool arguments remain rejected.
 
 Remote tools mirror typed CLI operations except `run_finalize`, which remains local-agent-only. No generic shell, generic Git, arbitrary path, or unrestricted file tool exists.
 

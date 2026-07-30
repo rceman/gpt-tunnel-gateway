@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -36,12 +37,21 @@ type rpcError struct {
 type toolCall struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
+	Meta      json.RawMessage `json:"_meta,omitempty"`
+}
+type ToolAnnotations struct {
+	ReadOnlyHint    bool `json:"readOnlyHint"`
+	DestructiveHint bool `json:"destructiveHint"`
+	IdempotentHint  bool `json:"idempotentHint"`
+	OpenWorldHint   bool `json:"openWorldHint"`
 }
 type Tool struct {
-	Name        string                                              `json:"name"`
-	Description string                                              `json:"description"`
-	InputSchema map[string]any                                      `json:"inputSchema"`
-	Execute     func(context.Context, json.RawMessage) (any, error) `json:"-"`
+	Name         string                                              `json:"name"`
+	Description  string                                              `json:"description"`
+	InputSchema  map[string]any                                      `json:"inputSchema"`
+	OutputSchema map[string]any                                      `json:"outputSchema"`
+	Annotations  ToolAnnotations                                     `json:"annotations"`
+	Execute      func(context.Context, json.RawMessage) (any, error) `json:"-"`
 }
 
 func (s *Server) Router() http.Handler {
@@ -103,21 +113,32 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	switch req.Method {
 	case "initialize":
-		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "gpt-tunnel-gatewayd", "version": "0.2.1"}}})
+		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "gpt-tunnel-gatewayd", "version": "0.2.2"}}})
 	case "notifications/initialized":
 		w.WriteHeader(http.StatusAccepted)
 	case "ping":
 		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{}})
 	case "tools/list":
-		list := []Tool{}
-		for _, t := range s.tools() {
-			t.Execute = nil
-			list = append(list, t)
+		tools := s.tools()
+		names := make([]string, 0, len(tools))
+		for name := range tools {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		list := make([]Tool, 0, len(names))
+		for _, name := range names {
+			tool := tools[name]
+			tool.Execute = nil
+			list = append(list, tool)
 		}
 		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"tools": list}})
 	case "tools/call":
 		var call toolCall
 		if err := decode(req.Params, &call); err != nil {
+			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params", Data: err.Error()}})
+			return
+		}
+		if err := validateToolCallMeta(call.Meta); err != nil {
 			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params", Data: err.Error()}})
 			return
 		}
@@ -132,10 +153,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		value, err := tool.Execute(r.Context(), call.Arguments)
 		if err != nil {
-			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: toolResult(map[string]any{"error": err.Error()}, true)})
+			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: toolResult(tool, map[string]any{"error": err.Error()}, true)})
 			return
 		}
-		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: toolResult(value, false)})
+		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: toolResult(tool, value, false)})
 	default:
 		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "method not found"}})
 	}
@@ -179,10 +200,41 @@ func validateToolArguments(schema map[string]any, raw json.RawMessage) error {
 	return nil
 }
 
-func toolResult(value any, isError bool) map[string]any {
+const maxToolCallMetaBytes = 64 << 10
+
+func validateToolCallMeta(raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	if len(raw) > maxToolCallMetaBytes {
+		return fmt.Errorf("_meta exceeds %d bytes", maxToolCallMetaBytes)
+	}
+	var value map[string]json.RawMessage
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	if err := decoder.Decode(&value); err != nil || value == nil {
+		return fmt.Errorf("_meta must be an object")
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("_meta has trailing JSON content")
+	}
+	return nil
+}
+
+func toolResult(tool Tool, value any, isError bool) map[string]any {
 	obj := normalizeObject(value)
 	text, _ := json.MarshalIndent(obj, "", "  ")
-	return map[string]any{"content": []map[string]any{{"type": "text", "text": string(text)}}, "structuredContent": obj, "isError": isError}
+	result := map[string]any{"content": []map[string]any{{"type": "text", "text": string(text)}}, "isError": isError}
+	if isError {
+		return result
+	}
+	if err := validateOutputValue(tool.OutputSchema, obj); err != nil {
+		failure := map[string]any{"error": "tool output contract violation: " + err.Error()}
+		failureText, _ := json.MarshalIndent(failure, "", "  ")
+		return map[string]any{"content": []map[string]any{{"type": "text", "text": string(failureText)}}, "isError": true}
+	}
+	result["structuredContent"] = obj
+	return result
 }
 func normalizeObject(v any) map[string]any {
 	if v == nil {
@@ -260,16 +312,22 @@ func intArg(raw json.RawMessage, key string, def int) int {
 func (s *Server) tools() map[string]Tool {
 	t := map[string]Tool{}
 	add := func(name, description string, schema map[string]any, fn func(context.Context, json.RawMessage) (any, error)) {
-		t[name] = Tool{Name: name, Description: description, InputSchema: schema, Execute: fn}
+		output, outputOK := toolOutputSchemas[name]
+		annotations, annotationsOK := toolAnnotations[name]
+		if !outputOK || !annotationsOK {
+			panic("missing MCP contract for tool " + name)
+		}
+		t[name] = Tool{Name: name, Description: description, InputSchema: schema, OutputSchema: output, Annotations: annotations, Execute: fn}
 	}
 	add("system_ping", "Return gateway identity and time.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		return map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.2.1", "gateway_id": s.Service.Config.GatewayID, "time": time.Now().UTC()}, nil
+		return map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.2.2", "gateway_id": s.Service.Config.GatewayID, "time": time.Now().UTC()}, nil
 	})
 	add("gateway_capabilities", "Describe configured limits, projects, and transport.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		ids := []string{}
 		for id := range s.Service.Config.Projects {
 			ids = append(ids, id)
 		}
+		sort.Strings(ids)
 		return map[string]any{"gateway_id": s.Service.Config.GatewayID, "listen_addr": s.Service.Config.ListenAddr, "projects": ids, "hub_protocol_root": hub.ProtocolRoot, "hub_repository_url": s.Service.Config.Hub.RepositoryURL, "hub_branch": s.Service.Config.Hub.Branch, "hub_managed_root": hub.ManagedRoot(s.Service.Config), "airelay_control_only": true, "generic_shell_available": false}, nil
 	})
 	add("project_list", "List durable hub projects.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {

@@ -60,6 +60,22 @@ for token in ("Config.Hub.Root", "Config.Hub.Remote", 'Root string `json:"root"`
 if 'filepath.Join(c.StateDir, "hub", "repository")' not in hub_source:
     errors.append("managed hub clone is not derived from state_dir")
 
+version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+    errors.append(f"invalid VERSION: {version!r}")
+for relative in ("cmd/gpt-tunnel/main.go", "cmd/gpt-tunnel-gatewayd/main.go", "cmd/gpt-tunnelctl/main.go"):
+    text = (ROOT / relative).read_text(encoding="utf-8")
+    if f'var version = "{version}"' not in text:
+        errors.append(f"binary version does not match VERSION: {relative}")
+mcp_source = (ROOT / "internal/mcp/server.go").read_text(encoding="utf-8")
+if mcp_source.count(f'"version": "{version}"') != 2:
+    errors.append("MCP initialize/system_ping versions do not both match VERSION")
+for token in ('json:"outputSchema"', 'json:"annotations"', 'json:"_meta,omitempty"'):
+    if token not in mcp_source:
+        errors.append(f"MCP descriptor/protocol contract missing: {token}")
+if not (ROOT / "internal/mcp/schema.go").is_file():
+    errors.append("missing MCP output schema registry")
+
 if errors:
     print("STATIC_CHECK_FAILED")
     for error in errors:

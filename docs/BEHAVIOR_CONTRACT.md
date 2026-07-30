@@ -25,6 +25,8 @@
 21. The controller owns `MCP_SERVER_URL` and tunnel health binding; the secret env file cannot override them.
 22. Process and transaction locks are kernel-backed and recover automatically when the owning process exits.
 23. The hub is addressed by repository URL and writable branch; the gateway atomically owns the only operational clone under `state_dir`, creates a missing branch from remote HEAD without force, and never requires or mutates a user hub checkout.
+24. Every MCP tool declares an exact output schema and all four behavioral hints; successful structured output is validated before transmission, while tool failures omit `structuredContent`.
+25. `tools/call.params` accepts only `name`, `arguments`, and an optional bounded protocol `_meta` object; all other envelope fields and unknown tool arguments are rejected.
 
 ## Lifecycle
 

@@ -801,6 +801,14 @@ func taskStateStatusForResult(status string) string {
 		return "ready"
 	}
 }
+func canonicalReport(report model.Report) model.Report {
+	report.Commits = append([]string{}, report.Commits...)
+	report.ChangedFiles = append([]string{}, report.ChangedFiles...)
+	report.Commands = append([]model.CommandResult{}, report.Commands...)
+	report.Deviations = append([]string{}, report.Deviations...)
+	report.RemainingRisks = append([]string{}, report.RemainingRisks...)
+	return report
+}
 func (s *Service) failRun(ctx context.Context, run model.Run, task model.Task, status, summary, expected string) (hub.TransactionResult, error) {
 	now := time.Now().UTC()
 	run.Status = status
@@ -816,7 +824,7 @@ func (s *Service) failRun(ctx context.Context, run model.Run, task model.Task, s
 	}
 	result := model.AgentResult{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, RunID: run.ID, Status: status, Summary: summary, FinishedAt: now}
 	evidence := model.Evidence{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectHead: head, Branch: branch, WorktreeClean: clean, Notes: []string{summary}, RecordedAt: now}
-	report := model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: task.ProjectID, Status: status, Summary: summary, FinishedAt: now}
+	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: task.ProjectID, Status: status, Summary: summary, FinishedAt: now})
 	state := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: taskStateStatusForResult(status), UpdatedAt: now}
 	plan, err := s.PlanRead(ctx, task.ProjectID)
 	if err != nil {
@@ -968,7 +976,7 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	now := time.Now().UTC()
 	run.Status = result.Status
 	run.FinishedAt = &now
-	report := model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: run.ProjectID, Status: result.Status, Summary: result.Summary, Commits: append([]string{}, result.Commits...), ChangedFiles: model.CanonicalStrings(result.ChangedFiles), Commands: result.Commands, Deviations: result.Deviations, RemainingRisks: result.RemainingRisks, FinishedAt: result.FinishedAt}
+	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: run.ProjectID, Status: result.Status, Summary: result.Summary, Commits: result.Commits, ChangedFiles: model.CanonicalStrings(result.ChangedFiles), Commands: result.Commands, Deviations: result.Deviations, RemainingRisks: result.RemainingRisks, FinishedAt: result.FinishedAt})
 	expected := in.ExpectedHubRevision
 	if expected == "" {
 		expected, err = s.hubRevision(ctx)
@@ -1019,7 +1027,7 @@ func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error
 		return model.Report{}, err
 	}
 	report.HubCommit = commit
-	return report, nil
+	return canonicalReport(report), nil
 }
 func (s *Service) RunEvidence(ctx context.Context, id string) (model.Evidence, error) {
 	run, err := s.findRun(ctx, id)
