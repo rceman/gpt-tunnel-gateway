@@ -8,7 +8,8 @@
     {"command":"go vet ./...","exit_code":0,"result":"passed"},
     {"command":"go test -race ./...","exit_code":0,"result":"passed"},
     {"command":"python3 scripts/static-check.py","exit_code":0,"result":"STATIC_CHECK_OK"},
-    {"command":"bash scripts/build-release.sh TEMP && (cd TEMP && sha256sum -c SHA256SUMS)","exit_code":0,"result":"all binaries and checksums passed"},
+    {"command":"test -z \"$(gofmt -l .)\"","exit_code":0,"result":"passed"},
+    {"command":"managed_hub_dist=\"$(mktemp -d /tmp/gpt-tunnel-gateway-managed-hub-dist.XXXXXX)\"\nbash scripts/build-release.sh \"$managed_hub_dist\"\n(\n  cd \"$managed_hub_dist\"\n  sha256sum -c SHA256SUMS\n  ! grep -Eq '  /' SHA256SUMS\n)","exit_code":0,"result":"all binaries and checksums passed"},
     {"command":"git diff --check","exit_code":0,"result":"passed"}
   ],
   "changed_files": 19,
