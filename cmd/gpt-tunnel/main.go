@@ -13,7 +13,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-var version = "0.2.0"
+var version = "0.2.1"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -30,6 +30,11 @@ func main() {
 	s := service.New(c)
 	ctx := context.Background()
 	group := os.Args[1]
+	if group != "git" {
+		if err := s.CheckHubCompatibility(ctx); err != nil {
+			fatal(err)
+		}
+	}
 	args := os.Args[2:]
 	switch group {
 	case "project":

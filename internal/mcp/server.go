@@ -102,7 +102,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	switch req.Method {
 	case "initialize":
-		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "gpt-tunnel-gatewayd", "version": "0.2.0"}}})
+		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "gpt-tunnel-gatewayd", "version": "0.2.1"}}})
 	case "notifications/initialized":
 		w.WriteHeader(http.StatusAccepted)
 	case "ping":
@@ -125,6 +125,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "unknown tool"}})
 			return
 		}
+		if err := validateToolArguments(tool.InputSchema, call.Arguments); err != nil {
+			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params", Data: err.Error()}})
+			return
+		}
 		value, err := tool.Execute(r.Context(), call.Arguments)
 		if err != nil {
 			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: toolResult(map[string]any{"error": err.Error()}, true)})
@@ -135,6 +139,45 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "method not found"}})
 	}
 }
+func validateToolArguments(schema map[string]any, raw json.RawMessage) error {
+	if len(raw) == 0 {
+		raw = []byte("{}")
+	}
+	var args map[string]json.RawMessage
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&args); err != nil {
+		return fmt.Errorf("arguments must be an object: %w", err)
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("trailing JSON content")
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	for key := range args {
+		if _, ok := properties[key]; !ok {
+			return fmt.Errorf("unknown argument %q", key)
+		}
+	}
+	if required, ok := schema["required"].([]string); ok {
+		for _, key := range required {
+			if _, exists := args[key]; !exists {
+				return fmt.Errorf("missing required argument %q", key)
+			}
+		}
+	} else if requiredAny, ok := schema["required"].([]any); ok {
+		for _, value := range requiredAny {
+			key, _ := value.(string)
+			if key != "" {
+				if _, exists := args[key]; !exists {
+					return fmt.Errorf("missing required argument %q", key)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func toolResult(value any, isError bool) map[string]any {
 	obj := normalizeObject(value)
 	text, _ := json.MarshalIndent(obj, "", "  ")
@@ -219,7 +262,7 @@ func (s *Server) tools() map[string]Tool {
 		t[name] = Tool{Name: name, Description: description, InputSchema: schema, Execute: fn}
 	}
 	add("system_ping", "Return gateway identity and time.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		return map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.2.0", "gateway_id": s.Service.Config.GatewayID, "time": time.Now().UTC()}, nil
+		return map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.2.1", "gateway_id": s.Service.Config.GatewayID, "time": time.Now().UTC()}, nil
 	})
 	add("gateway_capabilities", "Describe configured limits, projects, and transport.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		ids := []string{}
@@ -330,7 +373,7 @@ func (s *Server) tools() map[string]Tool {
 		if e2 != nil {
 			return nil, e
 		}
-		return map[string]any{"task": task, "active_run": false}, nil
+		return map[string]any{"task": task.Task, "state": task.State, "active_run": false}, nil
 	})
 	add("task_dispatch", "Create and publish a run, prepare branch, and send short Airelay control message.", obj(map[string]any{"task_id": str("Task identifier"), "expected_hub_revision": str("Optimistic hub revision")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.DispatchInput

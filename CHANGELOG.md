@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 — unreleased
+
+- Reject unsafe ADR identifiers and symlink/path escapes in hub writes.
+- Separate immutable task records from mutable task-state listing.
+- Enforce strict top-level MCP arguments at runtime.
+- Serialize persistent sessions and publish cancellation state before Airelay delivery.
+- Derive report hub commits from Git history and verify reported changed files.
+- Add gateway restart rollback and fail-closed legacy hub compatibility checks.
+
 ## 0.2.0 — unreleased
 
 - Replace the bootstrap stubs with a complete Go MCP gateway, CLI, and host-native controller.

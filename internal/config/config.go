@@ -28,12 +28,13 @@ type Config struct {
 }
 
 type HubConfig struct {
-	Root         string `json:"root"`
-	Remote       string `json:"remote"`
-	Branch       string `json:"branch"`
-	ProtocolRoot string `json:"protocol_root"`
-	AuthorName   string `json:"author_name"`
-	AuthorEmail  string `json:"author_email"`
+	Root                  string `json:"root"`
+	Remote                string `json:"remote"`
+	Branch                string `json:"branch"`
+	ProtocolRoot          string `json:"protocol_root"`
+	AllowParallelProtocol bool   `json:"allow_parallel_protocol,omitempty"`
+	AuthorName            string `json:"author_name"`
+	AuthorEmail           string `json:"author_email"`
 }
 type ProjectConfig struct {
 	Root              string `json:"root"`

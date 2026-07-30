@@ -16,8 +16,9 @@ import (
 const SchemaVersion = 1
 
 var (
-	idRE  = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
-	shaRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	idRE    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+	adrIDRE = regexp.MustCompile(`^ADR-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	shaRE   = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
 type Project struct {
@@ -156,7 +157,7 @@ type Report struct {
 	Commands       []CommandResult `json:"commands"`
 	Deviations     []string        `json:"deviations"`
 	RemainingRisks []string        `json:"remaining_risks"`
-	HubCommit      string          `json:"hub_commit"`
+	HubCommit      string          `json:"hub_commit,omitempty"`
 	FinishedAt     time.Time       `json:"finished_at"`
 }
 
@@ -205,8 +206,16 @@ func ValidatePlan(v Plan) error {
 	return nil
 }
 func ValidateADR(v ADR) error {
-	if v.SchemaVersion != SchemaVersion || !idRE.MatchString(v.ProjectID) || v.ID == "" {
+	if v.SchemaVersion != SchemaVersion || !idRE.MatchString(v.ProjectID) {
 		return fmt.Errorf("invalid ADR identity")
+	}
+	if err := ValidateADRIdentifier(v.ID); err != nil {
+		return err
+	}
+	if v.Supersedes != "" {
+		if err := ValidateADRIdentifier(v.Supersedes); err != nil {
+			return fmt.Errorf("invalid supersedes: %w", err)
+		}
 	}
 	if len(v.Title) < 3 || len(v.Title) > 300 || len(v.Context) > 100000 || len(v.Decision) > 100000 || len(v.Consequences) > 100000 {
 		return fmt.Errorf("invalid ADR content")
@@ -330,6 +339,24 @@ func ValidateEvidence(v Evidence, task Task, run Run) error {
 	}
 	return nil
 }
+func ValidateProjectIdentifier(s string) error {
+	if !idRE.MatchString(s) {
+		return fmt.Errorf("invalid project identifier")
+	}
+	return nil
+}
+func ValidateObjectIdentifier(s string) error {
+	if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`).MatchString(s) {
+		return fmt.Errorf("invalid object identifier")
+	}
+	return nil
+}
+func ValidateADRIdentifier(s string) error {
+	if !adrIDRE.MatchString(s) {
+		return fmt.Errorf("invalid ADR identifier")
+	}
+	return nil
+}
 func ValidateBranch(s string) error {
 	if s == "" || len(s) > 255 || strings.ContainsAny(s, "\x00\r\n ~^:?*[\\") || strings.HasPrefix(s, "-") || strings.Contains(s, "..") || strings.HasSuffix(s, "/") {
 		return fmt.Errorf("invalid branch")
@@ -343,11 +370,12 @@ func ValidateRevision(s string) error {
 	return nil
 }
 func ValidateRelativePath(p string) error {
-	if p == "" || len(p) > 4096 || filepath.IsAbs(p) || strings.ContainsRune(p, 0) {
+	if p == "" || len(p) > 4096 || filepath.IsAbs(p) || strings.ContainsRune(p, 0) || strings.Contains(p, `\`) {
 		return fmt.Errorf("invalid relative path")
 	}
 	clean := filepath.ToSlash(filepath.Clean(p))
-	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+	first := strings.Split(clean, "/")[0]
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || strings.EqualFold(first, ".git") {
 		return fmt.Errorf("path escapes root")
 	}
 	return nil

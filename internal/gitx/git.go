@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -255,6 +256,32 @@ func (r Runner) Diff(ctx context.Context, p config.ProjectConfig, from, to strin
 		return "", err
 	}
 	return bounded(out, r.MaxDiffBytes)
+}
+func (r Runner) ChangedFiles(ctx context.Context, root, from, to string) ([]string, error) {
+	if err := model.ValidateRevision(from); err != nil {
+		return nil, err
+	}
+	if err := model.ValidateRevision(to); err != nil {
+		return nil, err
+	}
+	out, err := r.command(ctx, root, false, "diff", "--name-only", "--no-renames", from, to)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return []string{}, nil
+	}
+	if len(lines) > r.MaxListItems {
+		return nil, fmt.Errorf("changed file list exceeds item limit")
+	}
+	for _, path := range lines {
+		if err := model.ValidateRelativePath(path); err != nil {
+			return nil, err
+		}
+	}
+	sort.Strings(lines)
+	return lines, nil
 }
 func (r Runner) MergeBase(ctx context.Context, p config.ProjectConfig, left, right string) (string, error) {
 	if err := model.ValidateRevision(left); err != nil {

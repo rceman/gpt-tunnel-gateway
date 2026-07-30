@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,7 +94,14 @@ func (s Store) ReadJSON(ctx context.Context, path string, out any) error {
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
-	return dec.Decode(out)
+	if err := dec.Decode(out); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("hub JSON has trailing content")
+	}
+	return nil
 }
 func (s Store) List(ctx context.Context, prefix, suffix string) ([]string, error) {
 	if err := validateHubPath(prefix); err != nil {
@@ -232,19 +240,65 @@ func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mu
 	return TransactionResult{Before: before, After: after, Remote: s.Config.Hub.Remote, Branch: s.Config.Hub.Branch, Paths: append([]string{}, paths...)}, nil
 }
 func WriteJSON(worktree, path string, value any) error {
-	return fsutil.WriteJSONAtomic(filepath.Join(worktree, filepath.FromSlash(path)), value, 0o600)
+	target, err := safeWritePath(worktree, path)
+	if err != nil {
+		return err
+	}
+	return fsutil.WriteJSONAtomic(target, value, 0o600)
 }
 func WriteText(worktree, path, text string) error {
-	return fsutil.WriteFileAtomic(filepath.Join(worktree, filepath.FromSlash(path)), []byte(text), 0o600)
+	target, err := safeWritePath(worktree, path)
+	if err != nil {
+		return err
+	}
+	return fsutil.WriteFileAtomic(target, []byte(text), 0o600)
+}
+func safeWritePath(worktree, path string) (string, error) {
+	if err := validateHubPath(path); err != nil {
+		return "", err
+	}
+	root, err := filepath.Abs(worktree)
+	if err != nil {
+		return "", err
+	}
+	target := filepath.Join(root, filepath.FromSlash(filepath.ToSlash(filepath.Clean(path))))
+	rel, err := filepath.Rel(root, target)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("hub path escapes worktree")
+	}
+	current := root
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	for _, part := range parts[:len(parts)-1] {
+		current = filepath.Join(current, part)
+		info, statErr := os.Lstat(current)
+		if statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("hub path traverses symlink: %s", current)
+		}
+		if statErr != nil && !os.IsNotExist(statErr) {
+			return "", statErr
+		}
+	}
+	return target, nil
 }
 func validateHubPath(path string) error {
-	if path == "" || filepath.IsAbs(path) || strings.ContainsRune(path, 0) {
+	if path == "" || filepath.IsAbs(path) || strings.ContainsRune(path, 0) || strings.Contains(path, `\`) {
 		return fmt.Errorf("invalid hub path")
 	}
 	clean := filepath.ToSlash(filepath.Clean(path))
-	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, ".git/") {
+	first := strings.Split(clean, "/")[0]
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || strings.EqualFold(first, ".git") {
 		return fmt.Errorf("hub path escapes root")
 	}
 	return nil
+}
+func (s Store) LastChange(ctx context.Context, path string) (string, error) {
+	history, err := s.History(ctx, path, 1)
+	if err != nil {
+		return "", err
+	}
+	if len(history) != 1 || history[0]["sha"] == "" {
+		return "", fmt.Errorf("no history for %s", path)
+	}
+	return history[0]["sha"], nil
 }
 func Timestamp() time.Time { return time.Now().UTC() }

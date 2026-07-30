@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -91,6 +92,11 @@ type ProjectStatus struct {
 	HubRevision string               `json:"hub_revision"`
 }
 
+type TaskRecord struct {
+	Task  model.Task      `json:"task"`
+	State model.TaskState `json:"state"`
+}
+
 type TaskPacket struct {
 	Task            model.Task    `json:"task"`
 	Run             model.Run     `json:"run"`
@@ -104,20 +110,35 @@ type TaskPacket struct {
 }
 
 func (s *Service) projectPrefix(id string) string {
+	if model.ValidateProjectIdentifier(id) != nil {
+		return "../invalid-project-id"
+	}
 	return filepath.ToSlash(filepath.Join(s.Config.Hub.ProtocolRoot, "projects", id))
 }
 func (s *Service) projectPath(id string) string { return s.projectPrefix(id) + "/project.json" }
 func (s *Service) planPath(id string) string    { return s.projectPrefix(id) + "/plan/current.json" }
 func (s *Service) adrPath(project, id string) string {
+	if model.ValidateADRIdentifier(id) != nil {
+		return "../invalid-adr-id"
+	}
 	return s.projectPrefix(project) + "/adrs/" + id + ".json"
 }
 func (s *Service) taskPath(project, id string) string {
+	if model.ValidateObjectIdentifier(id) != nil {
+		return "../invalid-task-id"
+	}
 	return s.projectPrefix(project) + "/tasks/" + id + ".json"
 }
 func (s *Service) taskStatePath(project, id string) string {
+	if model.ValidateObjectIdentifier(id) != nil {
+		return "../invalid-task-id"
+	}
 	return s.projectPrefix(project) + "/tasks/" + id + ".state.json"
 }
 func (s *Service) runPrefix(project, id string) string {
+	if model.ValidateObjectIdentifier(id) != nil {
+		return "../invalid-run-id"
+	}
 	return s.projectPrefix(project) + "/runs/" + id
 }
 func (s *Service) runPath(project, id string) string { return s.runPrefix(project, id) + "/run.json" }
@@ -134,7 +155,47 @@ func (s *Service) reportPath(project, id string) string {
 func decodeStrict(data []byte, out any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
-	return dec.Decode(out)
+	if err := dec.Decode(out); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("trailing JSON content")
+	}
+	return nil
+}
+func readWorktreeJSON(worktree, path string, out any) error {
+	data, err := os.ReadFile(filepath.Join(worktree, filepath.FromSlash(path)))
+	if err != nil {
+		return err
+	}
+	return decodeStrict(data, out)
+}
+func ensureSessionAvailableInWorktree(worktree, protocolRoot, session string) error {
+	root := filepath.Join(worktree, filepath.FromSlash(protocolRoot), "projects")
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if os.IsNotExist(walkErr) {
+				return nil
+			}
+			return walkErr
+		}
+		if entry.IsDir() || entry.Name() != "run.json" {
+			return nil
+		}
+		var run model.Run
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := decodeStrict(data, &run); err != nil {
+			return fmt.Errorf("decode active run %s: %w", path, err)
+		}
+		if run.SessionKey == session && activeStatus(run.Status) {
+			return fmt.Errorf("session %s already has active run %s", session, run.ID)
+		}
+		return nil
+	})
 }
 func (s *Service) projectConfig(id string) (config.ProjectConfig, error) {
 	p, ok := s.Config.Projects[id]
@@ -228,7 +289,9 @@ func (s *Service) PlanUpdate(ctx context.Context, in PlanUpdateInput) (Operation
 		return OperationResult{}, err
 	}
 	old := model.Plan{}
-	_ = s.Hub.ReadJSON(ctx, s.planPath(in.ProjectID), &old)
+	if err := s.Hub.ReadJSON(ctx, s.planPath(in.ProjectID), &old); err != nil && !IsNotFound(err) {
+		return OperationResult{}, err
+	}
 	plan := model.Plan{SchemaVersion: model.SchemaVersion, ProjectID: in.ProjectID, Revision: old.Revision + 1, Summary: in.Summary, Body: in.Body, ActiveTaskID: in.ActiveTaskID, ActiveRunID: in.ActiveRunID, UpdatedBy: in.UpdatedBy, UpdatedAt: time.Now().UTC()}
 	if err := model.ValidatePlan(plan); err != nil {
 		return OperationResult{}, err
@@ -266,6 +329,9 @@ func (s *Service) ADRList(ctx context.Context, project string) ([]model.ADR, err
 	return items, nil
 }
 func (s *Service) ADRRead(ctx context.Context, project, id string) (model.ADR, error) {
+	if err := model.ValidateADRIdentifier(id); err != nil {
+		return model.ADR{}, err
+	}
 	var v model.ADR
 	err := s.Hub.ReadJSON(ctx, s.adrPath(project, id), &v)
 	return v, err
@@ -344,7 +410,10 @@ func (s *Service) taskState(ctx context.Context, task model.Task) (model.TaskSta
 	var state model.TaskState
 	err := s.Hub.ReadJSON(ctx, s.taskStatePath(task.ProjectID, task.ID), &state)
 	if err != nil {
-		return model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "created", UpdatedAt: task.CreatedAt}, nil
+		if IsNotFound(err) {
+			return model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "created", UpdatedAt: task.CreatedAt}, nil
+		}
+		return model.TaskState{}, err
 	}
 	if err := model.ValidateTaskState(state, task); err != nil {
 		return model.TaskState{}, err
@@ -364,23 +433,27 @@ func (s *Service) updateTaskState(ctx context.Context, task model.Task, state mo
 	})
 }
 
-func (s *Service) TaskList(ctx context.Context, project string) ([]model.Task, error) {
+func (s *Service) TaskList(ctx context.Context, project string) ([]TaskRecord, error) {
 	paths, err := s.Hub.List(ctx, s.projectPrefix(project)+"/tasks", ".json")
 	if err != nil {
 		return nil, err
 	}
-	items := []model.Task{}
+	items := []TaskRecord{}
 	for _, path := range paths {
-		var v model.Task
-		if err := s.Hub.ReadJSON(ctx, path, &v); err != nil {
+		if strings.HasSuffix(path, ".state.json") {
+			continue
+		}
+		var task model.Task
+		if err := s.Hub.ReadJSON(ctx, path, &task); err != nil {
 			return nil, err
 		}
-		if state, err := s.taskState(ctx, v); err == nil {
-			v.Status = state.Status
+		state, err := s.taskState(ctx, task)
+		if err != nil {
+			return nil, err
 		}
-		items = append(items, v)
+		items = append(items, TaskRecord{Task: task, State: state})
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
+	sort.Slice(items, func(i, j int) bool { return items[i].Task.CreatedAt.After(items[j].Task.CreatedAt) })
 	return items, nil
 }
 func (s *Service) findTask(ctx context.Context, id string) (model.Task, error) {
@@ -390,17 +463,26 @@ func (s *Service) findTask(ctx context.Context, id string) (model.Task, error) {
 	}
 	for _, p := range projects {
 		var t model.Task
-		if err := s.Hub.ReadJSON(ctx, s.taskPath(p.ID, id), &t); err == nil {
-			if state, e := s.taskState(ctx, t); e == nil {
-				t.Status = state.Status
-			}
+		err := s.Hub.ReadJSON(ctx, s.taskPath(p.ID, id), &t)
+		if err == nil {
 			return t, nil
+		}
+		if !IsNotFound(err) {
+			return model.Task{}, err
 		}
 	}
 	return model.Task{}, fmt.Errorf("task not found: %s", id)
 }
-func (s *Service) TaskReadRecord(ctx context.Context, id string) (model.Task, error) {
-	return s.findTask(ctx, id)
+func (s *Service) TaskReadRecord(ctx context.Context, id string) (TaskRecord, error) {
+	task, err := s.findTask(ctx, id)
+	if err != nil {
+		return TaskRecord{}, err
+	}
+	state, err := s.taskState(ctx, task)
+	if err != nil {
+		return TaskRecord{}, err
+	}
+	return TaskRecord{Task: task, State: state}, nil
 }
 func (s *Service) TaskSupersede(ctx context.Context, oldID string, in TaskCreateInput) (model.Task, OperationResult, error) {
 	old, err := s.findTask(ctx, oldID)
@@ -428,7 +510,6 @@ func (s *Service) TaskSupersede(ctx context.Context, oldID string, in TaskCreate
 		return model.Task{}, OperationResult{}, err
 	}
 	original := old
-	original.Status = "created"
 	oldState, err := s.taskState(ctx, original)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
@@ -471,7 +552,6 @@ func (s *Service) TaskCancel(ctx context.Context, id, expected string) (Operatio
 		}
 	}
 	original := task
-	original.Status = "created"
 	state, err := s.taskState(ctx, original)
 	if err != nil {
 		return OperationResult{}, err
@@ -511,8 +591,12 @@ func (s *Service) findRun(ctx context.Context, id string) (model.Run, error) {
 	}
 	for _, p := range projects {
 		var r model.Run
-		if err := s.Hub.ReadJSON(ctx, s.runPath(p.ID, id), &r); err == nil {
+		err := s.Hub.ReadJSON(ctx, s.runPath(p.ID, id), &r)
+		if err == nil {
 			return r, nil
+		}
+		if !IsNotFound(err) {
+			return model.Run{}, err
 		}
 	}
 	return model.Run{}, fmt.Errorf("run not found: %s", id)
@@ -527,14 +611,20 @@ func activeStatus(s string) bool {
 	}
 	return false
 }
-func (s *Service) checkSessionAvailable(ctx context.Context, project, session string) error {
-	runs, err := s.RunList(ctx, project)
+func (s *Service) checkSessionAvailable(ctx context.Context, session string) error {
+	projects, err := s.ProjectList(ctx)
 	if err != nil {
 		return err
 	}
-	for _, r := range runs {
-		if r.SessionKey == session && activeStatus(r.Status) {
-			return fmt.Errorf("session %s already has active run %s", session, r.ID)
+	for _, project := range projects {
+		runs, err := s.RunList(ctx, project.ID)
+		if err != nil {
+			return err
+		}
+		for _, r := range runs {
+			if r.SessionKey == session && activeStatus(r.Status) {
+				return fmt.Errorf("session %s already has active run %s", session, r.ID)
+			}
 		}
 	}
 	return nil
@@ -556,8 +646,12 @@ func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
-	if task.Status != "created" && task.Status != "ready" {
-		return model.Run{}, OperationResult{}, fmt.Errorf("task is not dispatchable: %s", task.Status)
+	state, err := s.taskState(ctx, task)
+	if err != nil {
+		return model.Run{}, OperationResult{}, err
+	}
+	if state.Status != "created" && state.Status != "ready" {
+		return model.Run{}, OperationResult{}, fmt.Errorf("task is not dispatchable: %s", state.Status)
 	}
 	plan, err := s.PlanRead(ctx, task.ProjectID)
 	if err != nil {
@@ -570,14 +664,25 @@ func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
-	if err := s.checkSessionAvailable(ctx, task.ProjectID, local.AirelaySessionKey); err != nil {
+	sessionLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "session-"+local.AirelaySessionKey)
+	if err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
+	defer sessionLock.Release()
 	projectLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "project-"+task.ProjectID)
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
 	defer projectLock.Release()
+	if err := s.checkSessionAvailable(ctx, local.AirelaySessionKey); err != nil {
+		return model.Run{}, OperationResult{}, err
+	}
+	if in.ExpectedHubRevision == "" {
+		in.ExpectedHubRevision, err = s.hubRevision(ctx)
+		if err != nil {
+			return model.Run{}, OperationResult{}, err
+		}
+	}
 	wt, err := s.Git.WorktreeStatus(ctx, local)
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
@@ -601,14 +706,35 @@ func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run
 	if err := s.writeLocalRun(run, task); err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
-	plan.Revision++
-	plan.ActiveRunID = run.ID
-	plan.UpdatedBy = s.Config.GatewayID
-	plan.UpdatedAt = now
-	taskState := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "dispatched", UpdatedAt: now}
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: create run "+run.ID, func(w string) ([]string, error) {
+		var currentPlan model.Plan
+		if err := readWorktreeJSON(w, s.planPath(task.ProjectID), &currentPlan); err != nil {
+			return nil, err
+		}
+		var currentState model.TaskState
+		if err := readWorktreeJSON(w, s.taskStatePath(task.ProjectID, task.ID), &currentState); err != nil {
+			return nil, err
+		}
+		if err := model.ValidateTaskState(currentState, task); err != nil {
+			return nil, err
+		}
+		if currentState.Status != "created" && currentState.Status != "ready" {
+			return nil, fmt.Errorf("task state changed before dispatch: %s", currentState.Status)
+		}
+		if currentPlan.ActiveTaskID != task.ID || currentPlan.ActiveRunID != "" {
+			return nil, fmt.Errorf("plan changed before dispatch")
+		}
+		if err := ensureSessionAvailableInWorktree(w, s.Config.Hub.ProtocolRoot, run.SessionKey); err != nil {
+			return nil, err
+		}
+		currentPlan.Revision++
+		currentPlan.ActiveRunID = run.ID
+		currentPlan.UpdatedBy = s.Config.GatewayID
+		currentPlan.UpdatedAt = now
+		currentState.Status = "dispatched"
+		currentState.UpdatedAt = now
 		paths := []string{s.runPath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID), s.planPath(task.ProjectID)}
-		vals := []any{run, taskState, plan}
+		vals := []any{run, currentState, currentPlan}
 		for i, path := range paths {
 			if err := hub.WriteJSON(w, path, vals[i]); err != nil {
 				return nil, err
@@ -820,6 +946,16 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if !ancestor {
 		return model.Report{}, OperationResult{}, fmt.Errorf("final project HEAD is not descended from task base")
 	}
+	if result.Status == "succeeded" {
+		actualFiles, err := s.Git.ChangedFiles(ctx, local.Root, run.BaseRevision, head)
+		if err != nil {
+			return model.Report{}, OperationResult{}, err
+		}
+		reportedFiles := model.CanonicalStrings(result.ChangedFiles)
+		if strings.Join(actualFiles, "\x00") != strings.Join(reportedFiles, "\x00") {
+			return model.Report{}, OperationResult{}, fmt.Errorf("changed_files do not match Git diff")
+		}
+	}
 	now := time.Now().UTC()
 	run.Status = result.Status
 	run.FinishedAt = &now
@@ -843,7 +979,6 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	plan.UpdatedBy = s.Config.GatewayID
 	plan.UpdatedAt = now
 	tx, err := s.Hub.Transact(ctx, expected, "gateway: finalize run "+run.ID, func(w string) ([]string, error) {
-		report.HubCommit = ""
 		state := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: taskStateStatusForResult(result.Status), UpdatedAt: now}
 		paths := []string{s.runPath(run.ProjectID, run.ID), s.resultPath(run.ProjectID, run.ID), s.evidencePath(run.ProjectID, run.ID), s.reportPath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID), s.planPath(task.ProjectID)}
 		vals := []any{run, result, evidence, report, state, plan}
@@ -866,8 +1001,16 @@ func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error
 		return model.Report{}, err
 	}
 	var report model.Report
-	err = s.Hub.ReadJSON(ctx, s.reportPath(run.ProjectID, id), &report)
-	return report, err
+	path := s.reportPath(run.ProjectID, id)
+	if err := s.Hub.ReadJSON(ctx, path, &report); err != nil {
+		return model.Report{}, err
+	}
+	commit, err := s.Hub.LastChange(ctx, path)
+	if err != nil {
+		return model.Report{}, err
+	}
+	report.HubCommit = commit
+	return report, nil
 }
 func (s *Service) RunEvidence(ctx context.Context, id string) (model.Evidence, error) {
 	run, err := s.findRun(ctx, id)
@@ -883,24 +1026,38 @@ func (s *Service) RunCancel(ctx context.Context, id, expected string) (Operation
 	if err != nil {
 		return OperationResult{}, err
 	}
+	sessionLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "session-"+run.SessionKey)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	defer sessionLock.Release()
+	run, err = s.findRun(ctx, id)
+	if err != nil {
+		return OperationResult{}, err
+	}
 	if !activeStatus(run.Status) {
 		return OperationResult{}, fmt.Errorf("run is terminal")
 	}
 	run.Status = "cancel_requested"
+	published, err := s.updateRun(ctx, run, expected, "gateway: request cancellation "+run.ID)
+	if err != nil {
+		return OperationResult{}, err
+	}
 	message := "Cancel task execution. Run: gpt-tunnel run read " + run.ID
 	dispatch, dispatchErr := s.Airelay.Prompt(ctx, run.SessionKey, message)
 	code := dispatch.ExitCode
 	run.DispatchExitCode = &code
 	run.DispatchStdout = dispatch.Stdout
 	run.DispatchStderr = dispatch.Stderr
-	tx, err := s.updateRun(ctx, run, expected, "gateway: request cancellation "+run.ID)
-	if err != nil {
-		return OperationResult{}, err
+	recorded, recordErr := s.updateRun(ctx, run, published.After, "gateway: record cancellation delivery "+run.ID)
+	if recordErr != nil {
+		return OperationResult{Hub: published, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: run.Status}, fmt.Errorf("cancellation published but delivery evidence was not recorded: %w", recordErr)
 	}
+	result := OperationResult{Hub: recorded, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: run.Status}
 	if dispatchErr != nil {
-		return OperationResult{Hub: tx, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: run.Status}, dispatchErr
+		return result, dispatchErr
 	}
-	return OperationResult{Hub: tx, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: run.Status}, nil
+	return result, nil
 }
 
 func (s *Service) ReadResultRaw(ctx context.Context, id string) (map[string]any, error) {
@@ -1004,6 +1161,26 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 	return out, nil
 }
 
+func (s *Service) CheckHubCompatibility(ctx context.Context) error {
+	if s.Config.Hub.AllowParallelProtocol || s.Config.Hub.ProtocolRoot != "protocol/v4" {
+		return nil
+	}
+	for _, root := range []string{"protocol/v1", "protocol/v2", "protocol/v3"} {
+		paths, err := s.Hub.List(ctx, root, "")
+		if err != nil {
+			return err
+		}
+		if len(paths) > 0 {
+			return fmt.Errorf("legacy hub state exists under %s; exact compatibility adapter is required before cutover", root)
+		}
+	}
+	return nil
+}
+
 func IsNotFound(err error) bool {
-	return errors.Is(err, os.ErrNotExist) || strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "not found")
+	if err == nil {
+		return false
+	}
+	text := err.Error()
+	return errors.Is(err, os.ErrNotExist) || strings.Contains(text, "does not exist") || strings.Contains(text, "not found") || strings.Contains(text, "exists on disk, but not in")
 }
