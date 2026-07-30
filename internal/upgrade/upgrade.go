@@ -45,6 +45,13 @@ type Runner struct {
 	Target     string
 }
 
+func cleanupRollbackBackup(path string) error {
+	if path == "" {
+		return fmt.Errorf("rollback backup missing")
+	}
+	return removeUpgradeBackup(path)
+}
+
 func (r Runner) Run(ctx context.Context) (result Result, runErr error) {
 	root, sha, err := sourceRoot()
 	if err != nil {
@@ -191,7 +198,7 @@ func (r Runner) Run(ctx context.Context) (result Result, runErr error) {
 	if err := smoke(ctx, r.Config, target, installed); err != nil {
 		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
 	}
-	if err := os.RemoveAll(backupDir); err != nil {
+	if err := removeUpgradeBackup(backupDir); err != nil {
 		return Result{}, fmt.Errorf("remove upgrade backup: %w", err)
 	}
 	return Result{Status: "UPGRADE_COMPLETE", SourceRoot: root, SourceSHA: sha, Previous: installed, Target: target, GatewayPID: after.Gateway.PID, TunnelPID: after.Tunnel.PID}, nil
@@ -229,8 +236,8 @@ func (r Runner) rollback(ctx context.Context, root, sha, target, previous string
 	if err := smoke(ctx, r.Config, previous, target); err != nil {
 		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback MCP proof failed"}, err
 	}
-	if backupDir == "" {
-		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback backup missing"}, fmt.Errorf("rollback backup missing")
+	if err := cleanupRollbackBackup(backupDir); err != nil {
+		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback backup cleanup failed"}, fmt.Errorf("rollback backup cleanup failed: %w", err)
 	}
 	return Result{Status: "UPGRADE_ROLLED_BACK", SourceRoot: root, SourceSHA: sha, Previous: previous, Target: target, GatewayPID: rolled.Gateway.PID, TunnelPID: rolled.Tunnel.PID, Rollback: true, Error: sanitizeError(cause)}, fmt.Errorf("upgrade rolled back")
 }
@@ -277,26 +284,15 @@ func validateInstalledRuntime(c config.Config) (string, error) {
 	if filepath.Clean(c.Controller.GatewayBinary) != paths[0] {
 		return "", fmt.Errorf("gateway binary is not at canonical install path")
 	}
-	info, err := os.Lstat(c.Controller.TunnelClientBinary)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 || info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("tunnel-client is not a regular executable")
-	}
-	if st, ok := info.Sys().(*syscall.Stat_t); !ok || st.Uid != uint32(os.Getuid()) {
-		return "", fmt.Errorf("tunnel-client owner mismatch")
+	if err := validateOwnedExecutable(c.Controller.TunnelClientBinary, "tunnel-client"); err != nil {
+		return "", err
 	}
 	versions := make([]string, len(paths))
 	for i, path := range paths {
-		info, err := os.Lstat(path)
-		if err != nil {
-			return "", fmt.Errorf("installed binary is not available")
+		if err := validateOwnedExecutable(path, "installed binary"); err != nil {
+			return "", err
 		}
-		uidOK := false
-		if st, ok := info.Sys().(*syscall.Stat_t); ok {
-			uidOK = uint32(os.Getuid()) == st.Uid
-		}
-		if !info.Mode().IsRegular() || info.Mode()&0o111 == 0 || info.Mode()&os.ModeSymlink != 0 || !uidOK {
-			return "", fmt.Errorf("installed binary is not a current-user executable regular file")
-		}
+		var err error
 		versions[i], err = installedVersion(path)
 		if err != nil {
 			return "", err
@@ -306,6 +302,20 @@ func validateInstalledRuntime(c config.Config) (string, error) {
 		return "", fmt.Errorf("installed binary versions disagree")
 	}
 	return versions[2], nil
+}
+
+func validateOwnedExecutable(path, label string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("%s is not available", label)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&0o111 == 0 || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s is not a regular executable", label)
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); !ok || st.Uid != uint32(os.Getuid()) {
+		return fmt.Errorf("%s owner mismatch", label)
+	}
+	return nil
 }
 
 func runGit(root string, args ...string) (string, error) {
@@ -451,10 +461,11 @@ func validateRelease(dir, target string) error {
 }
 
 var (
-	stageCopy    = stageOne
-	stageRename  = os.Rename
-	stageRemove  = os.Remove
-	stageSyncDir = syncDir
+	stageCopy           = stageOne
+	stageRename         = os.Rename
+	stageRemove         = os.Remove
+	stageSyncDir        = syncDir
+	removeUpgradeBackup = os.RemoveAll
 )
 
 func replaceAll(dir string, paths map[string]string, old map[string][]byte) error {
@@ -510,7 +521,14 @@ func replaceAll(dir string, paths map[string]string, old map[string][]byte) erro
 		if err := stageSyncDir(filepath.Dir(paths[name])); err != nil {
 			restoreErr := restoreAll(paths, old)
 			if restoreErr != nil {
+				cleanErr := cleanup()
+				if cleanErr != nil {
+					return fmt.Errorf("commit directory sync failed: %v; restore failed: %w; cleanup failed: %v", err, restoreErr, cleanErr)
+				}
 				return fmt.Errorf("commit directory sync failed: %v; restore failed: %w", err, restoreErr)
+			}
+			if cleanErr := cleanup(); cleanErr != nil {
+				return fmt.Errorf("commit directory sync failed: %v; cleanup failed: %w", err, cleanErr)
 			}
 			return err
 		}
@@ -569,7 +587,10 @@ func stageOne(src, dst string) (string, error) {
 		return cleanup(err)
 	}
 	if _, err := os.Stat(path); err != nil {
-		_ = stageRemove(path)
+		removeErr := stageRemove(path)
+		if removeErr != nil && !os.IsNotExist(removeErr) {
+			return "", fmt.Errorf("staged file stat failed: %v; remove failed: %w", err, removeErr)
+		}
 		return "", err
 	}
 	return path, nil

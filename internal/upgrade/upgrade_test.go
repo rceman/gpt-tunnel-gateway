@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -57,6 +59,148 @@ func TestReplaceAllStagesBeforeCommitAndRestoresCommitFailure(t *testing.T) {
 		if string(got) != string(old[name]) {
 			t.Fatalf("%s was not restored", name)
 		}
+	}
+}
+
+func TestReplaceAllSucceedsAndCoversEveryStagePosition(t *testing.T) {
+	for _, position := range binaryOrder {
+		t.Run(position, func(t *testing.T) {
+			release, paths, old := makeUpgradeFixtures(t)
+			originalCopy := stageCopy
+			t.Cleanup(func() { stageCopy = originalCopy })
+			calls := 0
+			stageCopy = func(src, dst string) (string, error) {
+				calls++
+				if binaryOrder[calls-1] == position {
+					return "", os.ErrPermission
+				}
+				return stageOne(src, dst)
+			}
+			if err := replaceAll(release, paths, old); err == nil {
+				t.Fatal("stage failure accepted")
+			}
+			for _, name := range binaryOrder {
+				got, _ := os.ReadFile(paths[name])
+				if string(got) != string(old[name]) {
+					t.Fatalf("%s changed", name)
+				}
+			}
+		})
+	}
+	// A normal transaction commits all three staged files in deterministic order.
+	release, paths, old := makeUpgradeFixtures(t)
+	if err := replaceAll(release, paths, old); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range binaryOrder {
+		got, _ := os.ReadFile(paths[name])
+		if string(got) != "#!/bin/sh\nprintf '0.2.3\\n'\n" {
+			t.Fatalf("%s was not committed", name)
+		}
+	}
+}
+
+func TestReplaceAllRenameFailureAfterEachCommitRestoresAll(t *testing.T) {
+	for failure := 1; failure <= len(binaryOrder); failure++ {
+		t.Run(fmt.Sprintf("rename-%d", failure), func(t *testing.T) {
+			release, paths, old := makeUpgradeFixtures(t)
+			originalRename := stageRename
+			t.Cleanup(func() { stageRename = originalRename })
+			calls := 0
+			stageRename = func(src, dst string) error {
+				calls++
+				if calls == failure {
+					return os.ErrPermission
+				}
+				return os.Rename(src, dst)
+			}
+			if err := replaceAll(release, paths, old); err == nil {
+				t.Fatal("rename failure accepted")
+			}
+			for _, name := range binaryOrder {
+				got, _ := os.ReadFile(paths[name])
+				if string(got) != string(old[name]) {
+					t.Fatalf("%s was not restored", name)
+				}
+			}
+		})
+	}
+}
+
+func TestReplaceAllDirectorySyncFailureCleansStaging(t *testing.T) {
+	release, paths, old := makeUpgradeFixtures(t)
+	originalSync := stageSyncDir
+	t.Cleanup(func() { stageSyncDir = originalSync })
+	stageSyncDir = func(string) error { return os.ErrPermission }
+	if err := replaceAll(release, paths, old); err == nil {
+		t.Fatal("sync failure accepted")
+	}
+	for _, name := range binaryOrder {
+		got, _ := os.ReadFile(paths[name])
+		if string(got) != string(old[name]) {
+			t.Fatalf("%s was not restored", name)
+		}
+	}
+	entries, _ := os.ReadDir(filepath.Dir(paths["gpt-tunnel"]))
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".gpt-tunnel-upgrade-stage-") {
+			t.Fatalf("staging file remains: %s", entry.Name())
+		}
+	}
+}
+
+func TestReplaceAllPropagatesStagingCleanupFailure(t *testing.T) {
+	release, paths, old := makeUpgradeFixtures(t)
+	originalCopy, originalRemove := stageCopy, stageRemove
+	t.Cleanup(func() { stageCopy, stageRemove = originalCopy, originalRemove })
+	calls := 0
+	stageCopy = func(src, dst string) (string, error) {
+		calls++
+		if calls == 1 {
+			return stageOne(src, dst)
+		}
+		return "", os.ErrPermission
+	}
+	stageRemove = func(string) error { return os.ErrPermission }
+	if err := replaceAll(release, paths, old); err == nil || !strings.Contains(err.Error(), "cleanup") {
+		t.Fatalf("cleanup failure not propagated: %v", err)
+	}
+}
+
+func TestRollbackBackupCleanupPolicy(t *testing.T) {
+	dir := t.TempDir()
+	original := removeUpgradeBackup
+	t.Cleanup(func() { removeUpgradeBackup = original })
+	if err := os.WriteFile(filepath.Join(dir, "binary"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupRollbackBackup(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("successful rollback retained backup: %v", err)
+	}
+
+	dir = t.TempDir()
+	removeUpgradeBackup = func(string) error { return os.ErrPermission }
+	if err := cleanupRollbackBackup(dir); err == nil {
+		t.Fatal("cleanup failure not reported")
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("failed cleanup did not retain backup: %v", err)
+	}
+}
+
+func TestTunnelClientOwnershipRejection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tunnel-client")
+	if err := os.WriteFile(path, []byte("x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(path, os.Getuid()+1, -1); err != nil {
+		t.Skipf("cannot create foreign-owned fixture: %v", err)
+	}
+	if err := validateOwnedExecutable(path, "tunnel-client"); err == nil {
+		t.Fatal("foreign-owned tunnel-client accepted")
 	}
 }
 
@@ -181,5 +325,61 @@ func TestSmokeTimeoutIsBounded(t *testing.T) {
 	}
 	if time.Since(start) > 2*time.Second {
 		t.Fatal("smoke exceeded timeout bound")
+	}
+}
+
+func TestSmokeRejectsMalformedJSONRPCAndToolContracts(t *testing.T) {
+	validInit := `{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","serverInfo":{"version":"0.2.3"}}}`
+	cases := []struct{ name, body string }{
+		{"jsonrpc-version", `{"jsonrpc":"1.0","id":1,"result":{}}`},
+		{"mismatched-id", `{"jsonrpc":"2.0","id":9,"result":{}}`},
+		{"top-level-error", `{"jsonrpc":"2.0","id":1,"error":{"code":-1}}`},
+		{"missing-result", `{"jsonrpc":"2.0","id":1}`},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(test.body)) }))
+			defer server.Close()
+			c := config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://"), GatewayID: "home", StateDir: t.TempDir(), Hub: config.HubConfig{Branch: "gpt-tunnel/home"}}
+			if err := smoke(context.Background(), c, "0.2.3", "0.2.2"); err == nil {
+				t.Fatal("malformed response accepted")
+			}
+		})
+	}
+	contractCases := []struct {
+		name       string
+		list, ping map[string]any
+	}{
+		{"malformed-tool-descriptor", map[string]any{"tools": []any{"bad"}}, nil},
+		{"invalid-input-schema", map[string]any{"tools": []any{map[string]any{"name": "system_ping", "inputSchema": map[string]any{"type": "array"}, "outputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}}}}, nil},
+		{"invalid-annotations", map[string]any{"tools": []any{map[string]any{"name": "system_ping", "inputSchema": map[string]any{"type": "object"}, "outputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": "yes"}}}}, nil},
+		{"ping-error-result", nil, map[string]any{"isError": true, "structuredContent": map[string]any{}}},
+		{"capability-error-result", nil, map[string]any{"isError": true, "structuredContent": map[string]any{}}},
+	}
+	for _, test := range contractCases {
+		t.Run(test.name, func(t *testing.T) {
+			count := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				count++
+				body := validInit
+				if count == 2 {
+					payload := test.list
+					if payload == nil {
+						payload = map[string]any{"tools": []any{map[string]any{"name": "system_ping", "inputSchema": map[string]any{"type": "object"}, "outputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}}}}
+					}
+					bodyBytes, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 2, "result": payload})
+					body = string(bodyBytes)
+				} else if count == 3 && test.ping != nil {
+					bodyBytes, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 3, "result": test.ping})
+					body = string(bodyBytes)
+				}
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+			c := config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://"), GatewayID: "home", StateDir: t.TempDir(), Hub: config.HubConfig{Branch: "gpt-tunnel/home"}}
+			if err := smoke(context.Background(), c, "0.2.3", "0.2.2"); err == nil {
+				t.Fatal("invalid contract accepted")
+			}
+		})
 	}
 }
