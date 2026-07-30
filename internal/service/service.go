@@ -113,7 +113,7 @@ func (s *Service) projectPrefix(id string) string {
 	if model.ValidateProjectIdentifier(id) != nil {
 		return "../invalid-project-id"
 	}
-	return filepath.ToSlash(filepath.Join(s.Config.Hub.ProtocolRoot, "projects", id))
+	return filepath.ToSlash(filepath.Join(hub.ProtocolRoot, "projects", id))
 }
 func (s *Service) projectPath(id string) string { return s.projectPrefix(id) + "/project.json" }
 func (s *Service) planPath(id string) string    { return s.projectPrefix(id) + "/plan/current.json" }
@@ -171,8 +171,8 @@ func readWorktreeJSON(worktree, path string, out any) error {
 	}
 	return decodeStrict(data, out)
 }
-func ensureSessionAvailableInWorktree(worktree, protocolRoot, session string) error {
-	root := filepath.Join(worktree, filepath.FromSlash(protocolRoot), "projects")
+func ensureSessionAvailableInWorktree(worktree, session string) error {
+	root := filepath.Join(worktree, filepath.FromSlash(hub.ProtocolRoot), "projects")
 	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			if os.IsNotExist(walkErr) {
@@ -207,7 +207,7 @@ func (s *Service) projectConfig(id string) (config.ProjectConfig, error) {
 func (s *Service) hubRevision(ctx context.Context) (string, error) { return s.Hub.RemoteRevision(ctx) }
 
 func (s *Service) ProjectList(ctx context.Context) ([]model.Project, error) {
-	paths, err := s.Hub.List(ctx, s.Config.Hub.ProtocolRoot+"/projects", "/project.json")
+	paths, err := s.Hub.List(ctx, hub.ProtocolRoot+"/projects", "/project.json")
 	if err != nil {
 		return nil, err
 	}
@@ -604,6 +604,12 @@ func (s *Service) findRun(ctx context.Context, id string) (model.Run, error) {
 func (s *Service) RunRead(ctx context.Context, id string) (model.Run, error) {
 	return s.findRun(ctx, id)
 }
+func (s *Service) ensureRunOwned(run model.Run) error {
+	if run.GatewayID != s.Config.GatewayID {
+		return fmt.Errorf("run %s is assigned to gateway %s, current gateway is %s", run.ID, run.GatewayID, s.Config.GatewayID)
+	}
+	return nil
+}
 func activeStatus(s string) bool {
 	switch s {
 	case "created", "dispatching", "dispatched", "awaiting_result", "cancel_requested":
@@ -724,7 +730,7 @@ func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run
 		if currentPlan.ActiveTaskID != task.ID || currentPlan.ActiveRunID != "" {
 			return nil, fmt.Errorf("plan changed before dispatch")
 		}
-		if err := ensureSessionAvailableInWorktree(w, s.Config.Hub.ProtocolRoot, run.SessionKey); err != nil {
+		if err := ensureSessionAvailableInWorktree(w, run.SessionKey); err != nil {
 			return nil, err
 		}
 		currentPlan.Revision++
@@ -854,8 +860,8 @@ func (s *Service) TaskRead(ctx context.Context, id string) (TaskPacket, error) {
 		return TaskPacket{}, fmt.Errorf("expected exactly one active run for task, found %d", len(matches))
 	}
 	run := matches[0]
-	if run.GatewayID != s.Config.GatewayID {
-		return TaskPacket{}, fmt.Errorf("run assigned to gateway %s", run.GatewayID)
+	if err := s.ensureRunOwned(run); err != nil {
+		return TaskPacket{}, err
 	}
 	project, err := s.ProjectRead(ctx, task.ProjectID)
 	if err != nil {
@@ -893,6 +899,9 @@ func renderPacket(task model.Task, run model.Run, project model.Project, plan mo
 func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Report, OperationResult, error) {
 	run, err := s.findRun(ctx, in.RunID)
 	if err != nil {
+		return model.Report{}, OperationResult{}, err
+	}
+	if err := s.ensureRunOwned(run); err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
 	if !activeStatus(run.Status) {
@@ -1026,6 +1035,9 @@ func (s *Service) RunCancel(ctx context.Context, id, expected string) (Operation
 	if err != nil {
 		return OperationResult{}, err
 	}
+	if err := s.ensureRunOwned(run); err != nil {
+		return OperationResult{}, err
+	}
 	sessionLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "session-"+run.SessionKey)
 	if err != nil {
 		return OperationResult{}, err
@@ -1033,6 +1045,9 @@ func (s *Service) RunCancel(ctx context.Context, id, expected string) (Operation
 	defer sessionLock.Release()
 	run, err = s.findRun(ctx, id)
 	if err != nil {
+		return OperationResult{}, err
+	}
+	if err := s.ensureRunOwned(run); err != nil {
 		return OperationResult{}, err
 	}
 	if !activeStatus(run.Status) {
@@ -1100,7 +1115,7 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 			return out, err
 		}
 		for _, run := range runs {
-			if !activeStatus(run.Status) {
+			if run.GatewayID != s.Config.GatewayID || !activeStatus(run.Status) {
 				continue
 			}
 			out.Checked++
@@ -1159,22 +1174,6 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 		}
 	}
 	return out, nil
-}
-
-func (s *Service) CheckHubCompatibility(ctx context.Context) error {
-	if s.Config.Hub.AllowParallelProtocol || s.Config.Hub.ProtocolRoot != "protocol/v4" {
-		return nil
-	}
-	for _, root := range []string{"protocol/v1", "protocol/v2", "protocol/v3"} {
-		paths, err := s.Hub.List(ctx, root, "")
-		if err != nil {
-			return err
-		}
-		if len(paths) > 0 {
-			return fmt.Errorf("legacy hub state exists under %s; exact compatibility adapter is required before cutover", root)
-		}
-	}
-	return nil
 }
 
 func IsNotFound(err error) bool {

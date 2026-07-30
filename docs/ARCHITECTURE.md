@@ -36,7 +36,7 @@ Local state is machine-specific and disposable:
 - managed Git mirrors;
 - gateway and session mapping;
 - run result staging paths;
-- locks, PID files, and logs.
+- kernel-backed locks, PID files, and logs.
 
 ## Hub transaction
 
@@ -63,3 +63,7 @@ Committed history is read from managed bare mirrors so refreshes do not race wit
 ## Agent transport
 
 Airelay carries only a short action and task-reading command. The complete execution packet is generated locally by `gpt-tunnel task read <task-id>`. The persistent session is owner-managed; the gateway never starts or resumes Codex.
+
+## Runtime binding
+
+The controller starts `tunnel-client` with a canonical `MCP_SERVER_URL` derived from the configured loopback gateway address and a configured loopback health listen address. The owner-managed mode-0600 env file contains only control-plane credentials and explicitly allowed tunnel options.

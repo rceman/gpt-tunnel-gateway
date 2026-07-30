@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
@@ -116,7 +117,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"tools": list}})
 	case "tools/call":
 		var call toolCall
-		if err := json.Unmarshal(req.Params, &call); err != nil {
+		if err := decode(req.Params, &call); err != nil {
 			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params", Data: err.Error()}})
 			return
 		}
@@ -269,7 +270,7 @@ func (s *Server) tools() map[string]Tool {
 		for id := range s.Service.Config.Projects {
 			ids = append(ids, id)
 		}
-		return map[string]any{"gateway_id": s.Service.Config.GatewayID, "listen_addr": s.Service.Config.ListenAddr, "projects": ids, "hub_protocol_root": s.Service.Config.Hub.ProtocolRoot, "airelay_control_only": true, "generic_shell_available": false}, nil
+		return map[string]any{"gateway_id": s.Service.Config.GatewayID, "listen_addr": s.Service.Config.ListenAddr, "projects": ids, "hub_protocol_root": hub.ProtocolRoot, "airelay_control_only": true, "generic_shell_available": false}, nil
 	})
 	add("project_list", "List durable hub projects.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		v, e := s.Service.ProjectList(ctx)

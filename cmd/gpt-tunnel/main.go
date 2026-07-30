@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -30,11 +31,6 @@ func main() {
 	s := service.New(c)
 	ctx := context.Background()
 	group := os.Args[1]
-	if group != "git" {
-		if err := s.CheckHubCompatibility(ctx); err != nil {
-			fatal(err)
-		}
-	}
 	args := os.Args[2:]
 	switch group {
 	case "project":
@@ -74,6 +70,10 @@ func readFile(path string, out any) {
 	d.DisallowUnknownFields()
 	if err := d.Decode(out); err != nil {
 		fatal(err)
+	}
+	var extra any
+	if err := d.Decode(&extra); err != io.EOF {
+		fatal(fmt.Errorf("trailing JSON content"))
 	}
 }
 func fileFlag(name string, args []string) (string, []string) {

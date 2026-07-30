@@ -28,13 +28,11 @@ type Config struct {
 }
 
 type HubConfig struct {
-	Root                  string `json:"root"`
-	Remote                string `json:"remote"`
-	Branch                string `json:"branch"`
-	ProtocolRoot          string `json:"protocol_root"`
-	AllowParallelProtocol bool   `json:"allow_parallel_protocol,omitempty"`
-	AuthorName            string `json:"author_name"`
-	AuthorEmail           string `json:"author_email"`
+	Root        string `json:"root"`
+	Remote      string `json:"remote"`
+	Branch      string `json:"branch"`
+	AuthorName  string `json:"author_name"`
+	AuthorEmail string `json:"author_email"`
 }
 type ProjectConfig struct {
 	Root              string `json:"root"`
@@ -44,12 +42,12 @@ type ProjectConfig struct {
 	AirelaySessionKey string `json:"airelay_session_key"`
 }
 type ControllerConfig struct {
-	GatewayBinary      string `json:"gateway_binary"`
-	TunnelClientBinary string `json:"tunnel_client_binary"`
-	TunnelEnvFile      string `json:"tunnel_env_file"`
-	PIDDir             string `json:"pid_dir"`
-	LogDir             string `json:"log_dir"`
-	TunnelReadyURL     string `json:"tunnel_ready_url"`
+	GatewayBinary          string `json:"gateway_binary"`
+	TunnelClientBinary     string `json:"tunnel_client_binary"`
+	TunnelEnvFile          string `json:"tunnel_env_file"`
+	PIDDir                 string `json:"pid_dir"`
+	LogDir                 string `json:"log_dir"`
+	TunnelHealthListenAddr string `json:"tunnel_health_listen_addr"`
 }
 
 func DefaultPath() string {
@@ -145,13 +143,8 @@ func (c Config) Validate() error {
 	if !idre.MatchString(c.GatewayID) {
 		return fmt.Errorf("invalid gateway_id")
 	}
-	host, _, err := net.SplitHostPort(c.ListenAddr)
-	if err != nil {
-		return fmt.Errorf("invalid listen_addr")
-	}
-	ip := net.ParseIP(host)
-	if ip == nil || !ip.IsLoopback() {
-		return fmt.Errorf("listen_addr must be loopback")
+	if err := validateLoopbackAddress("listen_addr", c.ListenAddr); err != nil {
+		return err
 	}
 	if c.StateDir == "" || c.MaxReadBytes < 1 || c.MaxReadBytes > 64<<20 || c.MaxDiffBytes < 1 || c.MaxDiffBytes > 64<<20 || c.MaxListItems < 1 || c.MaxListItems > 10000 {
 		return fmt.Errorf("invalid limits")
@@ -162,7 +155,7 @@ func (c Config) Validate() error {
 	if c.AirelayCommand == "" || strings.ContainsRune(c.AirelayCommand, 0) {
 		return fmt.Errorf("invalid airelay command")
 	}
-	if c.Hub.Root == "" || c.Hub.Remote == "" || c.Hub.Branch == "" || c.Hub.ProtocolRoot == "" {
+	if c.Hub.Root == "" || c.Hub.Remote == "" || c.Hub.Branch == "" {
 		return fmt.Errorf("incomplete hub config")
 	}
 	if _, err := canonicalDir(c.Hub.Root); err != nil {
@@ -171,11 +164,11 @@ func (c Config) Validate() error {
 	if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`).MatchString(c.Hub.Remote) {
 		return fmt.Errorf("invalid hub remote")
 	}
-	if filepath.IsAbs(c.Hub.ProtocolRoot) || strings.HasPrefix(filepath.ToSlash(filepath.Clean(c.Hub.ProtocolRoot)), "../") {
-		return fmt.Errorf("invalid protocol_root")
-	}
 	if c.Hub.AuthorName == "" || c.Hub.AuthorEmail == "" || strings.ContainsAny(c.Hub.AuthorName+c.Hub.AuthorEmail, "\r\n\x00") {
 		return fmt.Errorf("invalid hub author identity")
+	}
+	if err := validateLoopbackAddress("controller.tunnel_health_listen_addr", c.Controller.TunnelHealthListenAddr); err != nil {
+		return err
 	}
 	for id, p := range c.Projects {
 		if !idre.MatchString(id) {
@@ -193,6 +186,22 @@ func (c Config) Validate() error {
 		if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`).MatchString(p.Remote) {
 			return fmt.Errorf("invalid project remote: %q", id)
 		}
+	}
+	return nil
+}
+
+func validateLoopbackAddress(name, value string) error {
+	host, port, err := net.SplitHostPort(value)
+	if err != nil {
+		return fmt.Errorf("invalid %s", name)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("%s must be loopback", name)
+	}
+	n, err := net.LookupPort("tcp", port)
+	if err != nil || n < 1 || n > 65535 {
+		return fmt.Errorf("invalid %s port", name)
 	}
 	return nil
 }

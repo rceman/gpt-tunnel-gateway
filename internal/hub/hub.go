@@ -18,6 +18,8 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 )
 
+const ProtocolRoot = "gpt-tunnel/v1"
+
 type Store struct {
 	Config config.Config
 }

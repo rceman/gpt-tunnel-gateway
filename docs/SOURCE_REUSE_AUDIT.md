@@ -8,8 +8,8 @@ Baseline date: 2026-07-29.
 | `rceman/gpt-github-gateway` | `d40041417e19da8d6934757d28bda75721d34e20` | Domain concepts: versioned protocol roots, immutable tasks, supervisor/transaction discipline. No code copied because exact source files were not available inside the GPT sandbox. |
 | `rceman/gpt-review-planner` | `b1a45b1e9475ab29dfd3e84d523b70897c7b8918` / VERSION `1.3.0` | Canonical GPT-authored patch-pack workflow and evidence boundary. |
 | `rceman/ai-workspace` | foundation branch `86916063804ad95c3d4950ec9a843e1dc03ad914`; audited remote main `c24d3bfc4a7cc372aa8093b946e54282e22e3bbc` | Proven loopback, host-native process, PID identity, readiness, logs, and tunnel-client supervision behavior. Rust/direct-Codex design excluded. |
-| `rceman/typer` | `c47dd1bcf11a11b65468008fcb024d468db1a62f` | Existing hub identity. This patch adds an isolated configurable `protocol/v4` root and does not mutate historical protocols. |
+| `rceman/typer` | `c47dd1bcf11a11b65468008fcb024d468db1a62f` | Existing hub identity only. The new gateway uses its own canonical `gpt-tunnel/v1` namespace. |
 
 ## Reuse disposition
 
-This is a GPT-authored clean implementation using Go standard library only. It intentionally does not ask the local agent to design or author production behavior. Exact legacy v1-v3 read/write compatibility is deferred until those schemas are imported as fixtures; guessing them would risk hub corruption.
+This is a GPT-authored clean implementation using Go standard library only. It intentionally does not ask the local agent to design or author production behavior. No compatibility shims, fallback paths, adapters, or legacy protocol support are included.

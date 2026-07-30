@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"net/http"
@@ -28,12 +27,6 @@ func main() {
 		fatal(err)
 	}
 	svc := service.New(c)
-	compatCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	if err := svc.CheckHubCompatibility(compatCtx); err != nil {
-		cancel()
-		fatal(err)
-	}
-	cancel()
 	srv := &http.Server{Addr: c.ListenAddr, Handler: (&mcp.Server{Service: svc}).Router(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 32 << 10}
 	fmt.Fprintf(os.Stderr, "gpt-tunnel-gatewayd %s listening on %s\n", version, c.ListenAddr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

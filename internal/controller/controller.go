@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -70,14 +72,16 @@ func (c Controller) process(name, expected string) ProcessStatus {
 	p.Running = exe == expected
 	return p
 }
+func (c Controller) gatewayReadyURL() string { return "http://" + c.Config.ListenAddr + "/readyz" }
+func (c Controller) tunnelReadyURL() string {
+	return "http://" + c.Config.Controller.TunnelHealthListenAddr + "/readyz"
+}
 func (c Controller) Status(ctx context.Context) (Status, error) {
 	gatewayExpected, _ := filepath.EvalSymlinks(c.Config.Controller.GatewayBinary)
 	tunnelExpected, _ := filepath.EvalSymlinks(c.Config.Controller.TunnelClientBinary)
 	s := Status{Gateway: c.process("gateway", gatewayExpected), Tunnel: c.process("tunnel", tunnelExpected)}
-	s.GatewayReady = checkURL(ctx, "http://"+c.Config.ListenAddr+"/readyz")
-	if c.Config.Controller.TunnelReadyURL != "" {
-		s.TunnelReady = checkURL(ctx, c.Config.Controller.TunnelReadyURL)
-	}
+	s.GatewayReady = checkURL(ctx, c.gatewayReadyURL())
+	s.TunnelReady = checkURL(ctx, c.tunnelReadyURL())
 	return s, nil
 }
 func checkURL(ctx context.Context, url string) bool {
@@ -103,13 +107,24 @@ func waitURL(url string, want bool, timeout time.Duration) error {
 	}
 	return fmt.Errorf("readiness timeout for %s", url)
 }
-func readEnv(path string) ([]string, error) {
+func readTunnelEnv(path string) ([]string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		return nil, fmt.Errorf("tunnel env file must be a regular file with mode 0600 or stricter")
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	out := []string{}
+	values := map[string]string{}
+	reserved := map[string]bool{
+		"MCP_SERVER_URL": true, "MCP_COMMAND": true, "HEALTH_LISTEN_ADDR": true,
+		"TUNNEL_CLIENT_CONFIG": true, "TUNNEL_CLIENT_PROFILE": true, "TUNNEL_CLIENT_PROFILE_FILE": true,
+	}
 	scan := bufio.NewScanner(io.LimitReader(f, 1<<20))
 	for scan.Scan() {
 		line := strings.TrimSpace(scan.Text())
@@ -120,13 +135,76 @@ func readEnv(path string) ([]string, error) {
 			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
 		}
 		k, v, ok := strings.Cut(line, "=")
-		if !ok || k == "" || strings.ContainsAny(k, " \t\r\n") {
-			return nil, fmt.Errorf("invalid env line")
+		if !ok || k == "" || !validEnvName(k) {
+			return nil, fmt.Errorf("invalid tunnel env line")
 		}
-		out = append(out, k+"="+v)
+		if reserved[k] {
+			return nil, fmt.Errorf("tunnel env must not override controller-owned variable %s", k)
+		}
+		if _, exists := values[k]; exists {
+			return nil, fmt.Errorf("duplicate tunnel env variable %s", k)
+		}
+		values[k] = v
 	}
-	return out, scan.Err()
+	if err := scan.Err(); err != nil {
+		return nil, err
+	}
+	for _, required := range []string{"CONTROL_PLANE_API_KEY", "CONTROL_PLANE_TUNNEL_ID"} {
+		if values[required] == "" {
+			return nil, fmt.Errorf("tunnel env is missing %s", required)
+		}
+	}
+	if !regexp.MustCompile(`^tunnel_[0-9a-f]{32}$`).MatchString(values["CONTROL_PLANE_TUNNEL_ID"]) {
+		return nil, fmt.Errorf("CONTROL_PLANE_TUNNEL_ID has invalid format")
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, key+"="+values[key])
+	}
+	return out, nil
 }
+
+func validEnvName(name string) bool {
+	for i, r := range name {
+		if (r >= 'A' && r <= 'Z') || r == '_' || (i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return name != ""
+}
+
+func processEnv(extra []string) []string {
+	values := map[string]string{}
+	values["LC_ALL"] = "C"
+	for _, key := range []string{"HOME", "PATH", "USER", "LOGNAME", "TMPDIR", "SSH_AUTH_SOCK", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"} {
+		if value := os.Getenv(key); value != "" {
+			values[key] = value
+		}
+	}
+	for _, entry := range extra {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && validEnvName(key) {
+			values[key] = value
+		}
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, key+"="+values[key])
+	}
+	return out
+}
+
 func (c Controller) startProcess(name, binary string, args, env []string) error {
 	expected, err := filepath.EvalSymlinks(binary)
 	if err != nil {
@@ -148,7 +226,7 @@ func (c Controller) startProcess(name, binary string, args, env []string) error 
 	}
 	defer log.Close()
 	cmd := exec.Command(binary, args...)
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = processEnv(env)
 	cmd.Stdin = nil
 	cmd.Stdout = log
 	cmd.Stderr = log
@@ -194,25 +272,24 @@ func (c Controller) Start() error {
 	if err := c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath}); err != nil {
 		return err
 	}
-	if err := waitURL("http://"+c.Config.ListenAddr+"/readyz", true, 30*time.Second); err != nil {
+	if err := waitURL(c.gatewayReadyURL(), true, 30*time.Second); err != nil {
 		_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
 		return err
 	}
-	env, err := readEnv(c.Config.Controller.TunnelEnvFile)
+	env, err := readTunnelEnv(c.Config.Controller.TunnelEnvFile)
 	if err != nil {
 		_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
 		return err
 	}
+	env = append(env, "MCP_SERVER_URL=http://"+c.Config.ListenAddr+"/mcp", "HEALTH_LISTEN_ADDR="+c.Config.Controller.TunnelHealthListenAddr)
 	if err := c.startProcess("tunnel", c.Config.Controller.TunnelClientBinary, []string{"run"}, env); err != nil {
 		_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
 		return err
 	}
-	if c.Config.Controller.TunnelReadyURL != "" {
-		if err := waitURL(c.Config.Controller.TunnelReadyURL, true, 30*time.Second); err != nil {
-			_ = c.stopProcess("tunnel", c.Config.Controller.TunnelClientBinary)
-			_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
-			return err
-		}
+	if err := waitURL(c.tunnelReadyURL(), true, 30*time.Second); err != nil {
+		_ = c.stopProcess("tunnel", c.Config.Controller.TunnelClientBinary)
+		_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
+		return err
 	}
 	return nil
 }
@@ -286,7 +363,7 @@ func (c Controller) RestartGateway() error {
 	}
 	startErr := c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath})
 	if startErr == nil {
-		startErr = waitURL("http://"+c.Config.ListenAddr+"/readyz", true, 30*time.Second)
+		startErr = waitURL(c.gatewayReadyURL(), true, 30*time.Second)
 	}
 	if startErr == nil {
 		return nil
@@ -301,7 +378,7 @@ func (c Controller) RestartGateway() error {
 	if err := c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath}); err != nil {
 		return fmt.Errorf("gateway restart failed (%v); rollback start failed: %w", startErr, err)
 	}
-	if err := waitURL("http://"+c.Config.ListenAddr+"/readyz", true, 30*time.Second); err != nil {
+	if err := waitURL(c.gatewayReadyURL(), true, 30*time.Second); err != nil {
 		return fmt.Errorf("gateway restart failed (%v); rollback readiness failed: %w", startErr, err)
 	}
 	return fmt.Errorf("gateway restart failed and previous executable was restored: %w", startErr)

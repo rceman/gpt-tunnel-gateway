@@ -13,8 +13,6 @@
     "root": "~/git/typer",
     "remote": "origin",
     "branch": "main",
-    "protocol_root": "protocol/v4",
-    "allow_parallel_protocol": true,
     "author_name": "GPT Tunnel Gateway",
     "author_email": "gpt-tunnel-gateway@localhost.invalid"
   },
@@ -24,7 +22,7 @@
     "tunnel_env_file": "~/.config/gpt-tunnel-gateway/tunnel.env",
     "pid_dir": "~/.local/state/gpt-tunnel-gateway",
     "log_dir": "~/.local/state/gpt-tunnel-gateway/logs",
-    "tunnel_ready_url": "http://127.0.0.1:8766/readyz"
+    "tunnel_health_listen_addr": "127.0.0.1:8766"
   },
   "projects": {
     "gpt-tunnel-gateway": {

@@ -17,4 +17,5 @@ jobs:
       - run: go test -race ./...
       - run: python3 scripts/static-check.py
       - run: bash scripts/build-release.sh
+      - run: cd dist && sha256sum -c SHA256SUMS && ! grep -Eq "  /" SHA256SUMS
       - run: git diff --check

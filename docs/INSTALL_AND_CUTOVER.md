@@ -1,4 +1,4 @@
-# Installation and migration
+# Installation and cutover
 
 ## Safety boundary
 
@@ -24,7 +24,7 @@ Prepare `config.local.json` from `examples/config.example.json`, then:
   --to ~/.config/gpt-tunnel-gateway/config.json
 ```
 
-Create `~/.config/gpt-tunnel-gateway/tunnel.env` manually with mode `0600`, preserving the existing owner-managed values. Never put those values in a task, prompt, log, commit, or CLI argument.
+Create `~/.config/gpt-tunnel-gateway/tunnel.env` manually with mode `0600`. It must contain `CONTROL_PLANE_API_KEY` and `CONTROL_PLANE_TUNNEL_ID`. Do not place `MCP_SERVER_URL`, `MCP_COMMAND`, or `HEALTH_LISTEN_ADDR` there; the controller derives those bindings from the gateway configuration. Never put those values in a task, prompt, log, commit, or CLI argument.
 
 ## Parallel validation
 

@@ -12,10 +12,10 @@ import (
 
 func TestTransactionPushesAndVerifiesWithoutDirtyingClone(t *testing.T) {
 	_, work, base := testutil.RepoWithBareRemote(t)
-	c := config.Config{StateDir: t.TempDir(), MaxReadBytes: 1 << 20, MaxListItems: 100, Hub: config.HubConfig{Root: work, Remote: "origin", Branch: "main", ProtocolRoot: "protocol/v4", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}}
+	c := config.Config{StateDir: t.TempDir(), MaxReadBytes: 1 << 20, MaxListItems: 100, Hub: config.HubConfig{Root: work, Remote: "origin", Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}}
 	store := Store{Config: c}
 	tx, err := store.Transact(context.Background(), base, "test: write", func(w string) ([]string, error) {
-		path := "protocol/v4/test.json"
+		path := ProtocolRoot + "/test.json"
 		return []string{path}, WriteJSON(w, path, map[string]any{"ok": true})
 	})
 	if err != nil {
@@ -24,7 +24,7 @@ func TestTransactionPushesAndVerifiesWithoutDirtyingClone(t *testing.T) {
 	if tx.After == base {
 		t.Fatal("commit did not advance")
 	}
-	data, err := store.ReadFile(context.Background(), "protocol/v4/test.json")
+	data, err := store.ReadFile(context.Background(), ProtocolRoot+"/test.json")
 	if err != nil {
 		t.Fatal(err)
 	}

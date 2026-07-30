@@ -36,6 +36,19 @@ for path in ROOT.rglob("*"):
     if path.is_file() and any(token in path.name.lower() for token in ("tunnel.env", "api_key", "private_key")):
         errors.append(f"secret-like file committed: {path.relative_to(ROOT)}")
 
+for token in ("allow_parallel_protocol", "CheckHubCompatibility", "protocol/v2", "protocol/v3"):
+    for path in ROOT.rglob("*"):
+        if path.is_file() and ".git" not in path.parts and ".gpt-review" not in path.parts and path != pathlib.Path(__file__):
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            if token in text:
+                errors.append(f"unauthorized compatibility/configurable protocol token {token!r}: {path.relative_to(ROOT)}")
+
+if "gpt-tunnel/v1" not in (ROOT / "internal/hub/hub.go").read_text(encoding="utf-8"):
+    errors.append("canonical hub root gpt-tunnel/v1 is not declared")
+
 if errors:
     print("STATIC_CHECK_FAILED")
     for error in errors:

@@ -116,12 +116,11 @@ func initConfig(args []string) {
 	if _, err := os.Stat(*to); err == nil {
 		fatal(fmt.Errorf("refusing to overwrite %s", *to))
 	}
+	if _, err := config.Load(*from); err != nil {
+		fatal(fmt.Errorf("validate source config: %w", err))
+	}
 	data, err := os.ReadFile(*from)
 	if err != nil {
-		fatal(err)
-	}
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
 		fatal(err)
 	}
 	if err := fsutil.WriteFileAtomic(*to, data, 0o600); err != nil {

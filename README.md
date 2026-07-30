@@ -49,4 +49,4 @@ gpt-tunnelctl init-config \
 
 Secrets are not stored in the JSON config. Preserve the existing owner-managed tunnel environment file separately with mode `0600`.
 
-See `docs/INSTALL_AND_MIGRATION.md` before any runtime cutover.
+See `docs/INSTALL_AND_CUTOVER.md` before any runtime cutover.

@@ -20,6 +20,10 @@
 16. Managed Git mirror operations may fetch remote refs but never modify the project worktree or remote repository.
 17. The controller verifies PID executable identity before signaling any process.
 18. The patch does not stop or replace the active `ai-workspace` runtime; cutover is a separate operation.
+19. Hub records exist only under the compiled canonical `gpt-tunnel/v1` namespace.
+20. A gateway may execute, cancel, finalize, reprompt, or timeout only runs whose `gateway_id` equals its configured identity.
+21. The controller owns `MCP_SERVER_URL` and tunnel health binding; the secret env file cannot override them.
+22. Process and transaction locks are kernel-backed and recover automatically when the owning process exits.
 
 ## Lifecycle
 

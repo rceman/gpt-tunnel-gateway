@@ -26,9 +26,9 @@ GPT authored the architecture, behavior contracts, ADRs, schemas, fixtures, prod
 - Go CLI, daemon, and host-native controller for the existing `tunnel-client`.
 - Installer/config bootstrap, schemas, fixtures, unit/integration tests, static checks, smoke helper, release build script, and CI.
 
-## Deliberately deferred
+## Greenfield compatibility scope
 
-Exact read/write adapters for historical hub protocol v1-v3 are not guessed. The new implementation writes to a configurable additive `protocol/v4` root. Importing actual legacy schemas as fixtures and updating `gpt-github-gateway` to share v4 is a separate compatibility patch after source inspection through the new Git explorer.
+The implementation uses one canonical `gpt-tunnel/v1` hub namespace. No alternate layouts, legacy readers, adapters, migration paths, dual writes, or compatibility flags are part of the project. Such behavior requires explicit user authorization.
 
 The patch does not deploy or switch the active ChatGPT tunnel. Cutover requires a separate owner-approved task after all gates and an end-to-end test pass.
 
