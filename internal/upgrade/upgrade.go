@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
@@ -44,7 +45,7 @@ type Runner struct {
 	Target     string
 }
 
-func (r Runner) Run(ctx context.Context) (Result, error) {
+func (r Runner) Run(ctx context.Context) (result Result, runErr error) {
 	root, sha, err := sourceRoot()
 	if err != nil {
 		return Result{}, err
@@ -111,12 +112,24 @@ func (r Runner) Run(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	defer lock.Release()
+	defer func() {
+		if releaseErr := lock.Release(); releaseErr != nil && runErr == nil {
+			runErr = fmt.Errorf("release upgrade lock: %w", releaseErr)
+		}
+	}()
 	release, err := os.MkdirTemp("/tmp", "gpt-tunnel-upgrade-")
 	if err != nil {
 		return Result{}, err
 	}
-	defer os.RemoveAll(release)
+	defer func() {
+		if cleanupErr := os.RemoveAll(release); cleanupErr != nil {
+			if result.Status != "" {
+				result.Status = "UPGRADE_ROLLBACK_FAILED"
+				result.Error = "release cleanup failed"
+			}
+			runErr = fmt.Errorf("release cleanup failed: %w", cleanupErr)
+		}
+	}()
 	if err := buildRelease(ctx, root, release); err != nil {
 		return Result{}, err
 	}
@@ -128,13 +141,10 @@ func (r Runner) Run(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	defer func() {
-		if err == nil {
-			_ = os.RemoveAll(backupDir)
-		}
-	}()
 	old := map[string][]byte{}
 	oldHashes := map[string]string{}
+	oldVersions := map[string]string{}
+	targetHashes := map[string]string{}
 	for _, name := range binaryOrder {
 		dst := paths[name]
 		b, e := os.ReadFile(dst)
@@ -143,6 +153,14 @@ func (r Runner) Run(ctx context.Context) (Result, error) {
 		}
 		old[name] = b
 		oldHashes[name] = hashBytes(b)
+		oldVersions[name], err = installedVersion(dst)
+		if err != nil {
+			return Result{}, err
+		}
+		targetHashes[name], err = fileHash(filepath.Join(release, name))
+		if err != nil {
+			return Result{}, err
+		}
 		if e = fsutil.WriteFileAtomic(filepath.Join(backupDir, name), b, 0o700); e != nil {
 			return Result{}, e
 		}
@@ -151,58 +169,70 @@ func (r Runner) Run(ctx context.Context) (Result, error) {
 			return Result{}, fmt.Errorf("backup checksum verification failed for %s", name)
 		}
 	}
-	if err := replaceAll(release, paths); err != nil {
-		if restoreErr := restoreAll(paths, old); restoreErr != nil {
-			return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: restoreErr.Error()}, fmt.Errorf("replacement and rollback failed: %w", restoreErr)
-		}
-		if verifyErr := verifyHashes(paths, oldHashes); verifyErr != nil {
-			return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: verifyErr.Error()}, verifyErr
-		}
-		return Result{Status: "UPGRADE_ROLLED_BACK", SourceRoot: root, SourceSHA: sha, Previous: installed, Target: target, TunnelPID: before.Tunnel.PID, Rollback: true, Error: err.Error()}, fmt.Errorf("upgrade rolled back: %w", err)
-	}
-	rollback := func(cause error) (Result, error) {
-		if err := restoreAll(paths, old); err != nil {
-			return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: err.Error()}, fmt.Errorf("rollback restore failed: %w", err)
-		}
-		if err := verifyHashes(paths, oldHashes); err != nil {
-			return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: err.Error()}, err
-		}
-		if err := r.ConfigController().StopGatewayForUpgrade(); err != nil {
-			return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: err.Error()}, err
-		}
-		if err := r.ConfigController().RestartGatewayAfterUpgrade(); err != nil {
-			return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: err.Error()}, err
-		}
-		rolled, statusErr := r.ConfigController().Status(ctx)
-		if statusErr != nil || !rolled.Gateway.Running || !rolled.GatewayReady || !rolled.Tunnel.Running || !rolled.TunnelReady || rolled.Tunnel.PID != before.Tunnel.PID {
-			return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback readiness or tunnel identity proof failed"}, fmt.Errorf("rollback proof failed")
-		}
-		if err := r.ConfigController().Doctor(ctx); err != nil {
-			return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: err.Error()}, err
-		}
-		for _, path := range protectedPaths {
-			h, hashErr := fileHash(path)
-			if hashErr != nil || h != protectedHashes[path] {
-				return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "protected runtime hash changed"}, fmt.Errorf("protected runtime hash changed")
-			}
-		}
-		return Result{Status: "UPGRADE_ROLLED_BACK", SourceRoot: root, SourceSHA: sha, Previous: installed, Target: target, TunnelPID: before.Tunnel.PID, Rollback: true, Error: cause.Error()}, fmt.Errorf("upgrade rolled back: %w", cause)
+	if err := replaceAll(release, paths, old); err != nil {
+		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
 	}
 	if err := r.ConfigController().RestartGatewayAfterUpgrade(); err != nil {
-		return rollback(err)
+		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
 	}
 	after, err := r.ConfigController().Status(ctx)
 	if err != nil {
-		return rollback(err)
+		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
 	}
 	if after.Gateway.PID == before.Gateway.PID || after.Tunnel.PID != before.Tunnel.PID || !after.Gateway.Running || !after.Tunnel.Running || !after.GatewayReady || !after.TunnelReady {
-		return rollback(fmt.Errorf("post-upgrade process or readiness invariant failed"))
+		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, fmt.Errorf("post-upgrade process or readiness invariant failed"))
 	}
-	if err := smoke(ctx, r.Config); err != nil {
-		return rollback(err)
+	if err := r.ConfigController().Doctor(ctx); err != nil {
+		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
 	}
-	_ = os.RemoveAll(backupDir)
+	if err := verifyInstalledProof(paths, target, targetHashes, protectedPaths, protectedHashes, before.Tunnel.PID, after); err != nil {
+		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
+	}
+	if err := smoke(ctx, r.Config, target, installed); err != nil {
+		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
+	}
+	if err := os.RemoveAll(backupDir); err != nil {
+		return Result{}, fmt.Errorf("remove upgrade backup: %w", err)
+	}
 	return Result{Status: "UPGRADE_COMPLETE", SourceRoot: root, SourceSHA: sha, Previous: installed, Target: target, GatewayPID: after.Gateway.PID, TunnelPID: after.Tunnel.PID}, nil
+}
+
+func (r Runner) rollback(ctx context.Context, root, sha, target, previous string, before controller.Status, protectedPaths []string, protectedHashes map[string]string, paths map[string]string, old map[string][]byte, oldHashes, oldVersions map[string]string, backupDir string, cause error) (Result, error) {
+	if err := restoreAll(paths, old); err != nil {
+		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback restore failed"}, fmt.Errorf("rollback restore failed: %w", err)
+	}
+	if err := verifyHashes(paths, oldHashes); err != nil {
+		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback binary proof failed"}, err
+	}
+	for _, name := range binaryOrder {
+		v, err := installedVersion(paths[name])
+		if err != nil || v != oldVersions[name] {
+			return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback version proof failed"}, fmt.Errorf("rollback version proof failed")
+		}
+	}
+	if err := r.ConfigController().StopGatewayForUpgrade(); err != nil {
+		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback gateway stop failed"}, err
+	}
+	if err := r.ConfigController().RestartGatewayAfterUpgrade(); err != nil {
+		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback gateway restart failed"}, err
+	}
+	rolled, err := r.ConfigController().Status(ctx)
+	if err != nil || !rolled.Gateway.Running || !rolled.Tunnel.Running || !rolled.GatewayReady || !rolled.TunnelReady || rolled.Tunnel.PID != before.Tunnel.PID || rolled.Gateway.PID == before.Gateway.PID {
+		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback process or readiness proof failed"}, fmt.Errorf("rollback process or readiness proof failed")
+	}
+	if err := r.ConfigController().Doctor(ctx); err != nil {
+		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback doctor proof failed"}, err
+	}
+	if err := verifyInstalledProof(paths, previous, oldHashes, protectedPaths, protectedHashes, before.Tunnel.PID, rolled); err != nil {
+		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback identity or protected-file proof failed"}, err
+	}
+	if err := smoke(ctx, r.Config, previous, target); err != nil {
+		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback MCP proof failed"}, err
+	}
+	if backupDir == "" {
+		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback backup missing"}, fmt.Errorf("rollback backup missing")
+	}
+	return Result{Status: "UPGRADE_ROLLED_BACK", SourceRoot: root, SourceSHA: sha, Previous: previous, Target: target, GatewayPID: rolled.Gateway.PID, TunnelPID: rolled.Tunnel.PID, Rollback: true, Error: sanitizeError(cause)}, fmt.Errorf("upgrade rolled back")
 }
 
 func (r Runner) ConfigController() controller.Controller {
@@ -247,8 +277,12 @@ func validateInstalledRuntime(c config.Config) (string, error) {
 	if filepath.Clean(c.Controller.GatewayBinary) != paths[0] {
 		return "", fmt.Errorf("gateway binary is not at canonical install path")
 	}
-	if info, err := os.Lstat(c.Controller.TunnelClientBinary); err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 || info.Mode()&os.ModeSymlink != 0 {
+	info, err := os.Lstat(c.Controller.TunnelClientBinary)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 || info.Mode()&os.ModeSymlink != 0 {
 		return "", fmt.Errorf("tunnel-client is not a regular executable")
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); !ok || st.Uid != uint32(os.Getuid()) {
+		return "", fmt.Errorf("tunnel-client owner mismatch")
 	}
 	versions := make([]string, len(paths))
 	for i, path := range paths {
@@ -352,7 +386,11 @@ func buildRelease(ctx context.Context, root, dir string) error {
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("release build failed: %s", strings.TrimSpace(string(out)))
+		message := strings.TrimSpace(string(out))
+		if len(message) > 240 {
+			message = message[:240]
+		}
+		return fmt.Errorf("release build failed: %s", message)
 	}
 	return nil
 }
@@ -411,25 +449,203 @@ func validateRelease(dir, target string) error {
 	}
 	return nil
 }
-func replaceAll(dir string, paths map[string]string) error {
+
+var (
+	stageCopy    = stageOne
+	stageRename  = os.Rename
+	stageRemove  = os.Remove
+	stageSyncDir = syncDir
+)
+
+func replaceAll(dir string, paths map[string]string, old map[string][]byte) error {
+	staged := make(map[string]string, len(binaryOrder))
+	cleanup := func() error {
+		var first error
+		for _, name := range binaryOrder {
+			if path := staged[name]; path != "" {
+				if err := stageRemove(path); err != nil && !os.IsNotExist(err) && first == nil {
+					first = err
+				}
+			}
+		}
+		return first
+	}
 	for _, name := range binaryOrder {
-		dst := paths[name]
-		if err := copyFile(filepath.Join(dir, name), dst); err != nil {
+		path, err := stageCopy(filepath.Join(dir, name), paths[name])
+		if err != nil {
+			if cleanErr := cleanup(); cleanErr != nil {
+				return fmt.Errorf("stage failed: %v; cleanup failed: %w", err, cleanErr)
+			}
+			return err
+		}
+		srcHash, hashErr := fileHash(filepath.Join(dir, name))
+		stagedHash, stagedErr := fileHash(path)
+		if hashErr != nil || stagedErr != nil || srcHash != stagedHash {
+			if cleanErr := cleanup(); cleanErr != nil {
+				return fmt.Errorf("staged checksum verification failed; cleanup failed: %w", cleanErr)
+			}
+			return fmt.Errorf("staged checksum verification failed for %s", name)
+		}
+		if _, err := installedVersion(path); err != nil {
+			if cleanErr := cleanup(); cleanErr != nil {
+				return fmt.Errorf("staged version verification failed; cleanup failed: %w", cleanErr)
+			}
+			return fmt.Errorf("staged version verification failed for %s", name)
+		}
+		staged[name] = path
+	}
+	for _, name := range binaryOrder {
+		if err := stageRename(staged[name], paths[name]); err != nil {
+			restoreErr := restoreAll(paths, old)
+			cleanErr := cleanup()
+			if restoreErr != nil {
+				return fmt.Errorf("commit failed: %v; restore failed: %w", err, restoreErr)
+			}
+			if cleanErr != nil {
+				return fmt.Errorf("commit failed: %v; staging cleanup failed: %w", err, cleanErr)
+			}
+			return err
+		}
+		staged[name] = ""
+		if err := stageSyncDir(filepath.Dir(paths[name])); err != nil {
+			restoreErr := restoreAll(paths, old)
+			if restoreErr != nil {
+				return fmt.Errorf("commit directory sync failed: %v; restore failed: %w", err, restoreErr)
+			}
 			return err
 		}
 	}
-	return nil
+	return cleanup()
+}
+
+func stageOne(src, dst string) (string, error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return "", err
+	}
+	data, readErr := io.ReadAll(in)
+	closeInErr := in.Close()
+	if readErr != nil {
+		return "", readErr
+	}
+	if closeInErr != nil {
+		return "", closeInErr
+	}
+	out, err := os.CreateTemp(filepath.Dir(dst), ".gpt-tunnel-upgrade-stage-")
+	if err != nil {
+		return "", err
+	}
+	path := out.Name()
+	cleanup := func(primary error) (string, error) {
+		closeErr := out.Close()
+		removeErr := stageRemove(path)
+		if primary != nil {
+			if closeErr != nil {
+				primary = fmt.Errorf("%w; close failed: %v", primary, closeErr)
+			}
+			if removeErr != nil && !os.IsNotExist(removeErr) {
+				primary = fmt.Errorf("%w; remove failed: %v", primary, removeErr)
+			}
+			return "", primary
+		}
+		if closeErr != nil {
+			return "", closeErr
+		}
+		if removeErr != nil {
+			return "", removeErr
+		}
+		return "", nil
+	}
+	if _, err := out.Write(data); err != nil {
+		return cleanup(err)
+	}
+	if err := out.Chmod(0o755); err != nil {
+		return cleanup(err)
+	}
+	if err := out.Sync(); err != nil {
+		return cleanup(err)
+	}
+	if err := out.Close(); err != nil {
+		return cleanup(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		_ = stageRemove(path)
+		return "", err
+	}
+	return path, nil
+}
+
+func syncDir(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	syncErr := f.Sync()
+	closeErr := f.Close()
+	if syncErr != nil {
+		return syncErr
+	}
+	return closeErr
 }
 
 func restoreAll(paths map[string]string, old map[string][]byte) error {
 	var first error
 	for _, name := range binaryOrder {
 		dst := paths[name]
-		if err := fsutil.WriteFileAtomic(dst, old[name], 0o755); err != nil && first == nil {
+		if err := writeAtomicStrict(dst, old[name]); err != nil && first == nil {
 			first = err
 		}
 	}
 	return first
+}
+
+func writeAtomicStrict(dst string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(dst), ".gpt-tunnel-restore-")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	cleanup := func(primary error) error {
+		closeErr := f.Close()
+		removeErr := os.Remove(tmp)
+		if primary != nil {
+			if closeErr != nil {
+				primary = fmt.Errorf("%w; close failed: %v", primary, closeErr)
+			}
+			if removeErr != nil && !os.IsNotExist(removeErr) {
+				primary = fmt.Errorf("%w; remove failed: %v", primary, removeErr)
+			}
+			return primary
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		return removeErr
+	}
+	if _, err = f.Write(data); err != nil {
+		return cleanup(err)
+	}
+	if err = f.Chmod(0o755); err != nil {
+		return cleanup(err)
+	}
+	if err = f.Sync(); err != nil {
+		return cleanup(err)
+	}
+	if err = f.Close(); err != nil {
+		removeErr := os.Remove(tmp)
+		if removeErr != nil && !os.IsNotExist(removeErr) {
+			return fmt.Errorf("%w; remove failed: %v", err, removeErr)
+		}
+		return err
+	}
+	if err = os.Rename(tmp, dst); err != nil {
+		removeErr := os.Remove(tmp)
+		if removeErr != nil && !os.IsNotExist(removeErr) {
+			return fmt.Errorf("%w; remove failed: %v", err, removeErr)
+		}
+		return err
+	}
+	return syncDir(filepath.Dir(dst))
 }
 
 func hashBytes(data []byte) string {
@@ -462,20 +678,52 @@ func validatePIDFile(path string) error {
 	}
 	return nil
 }
-func copyFile(src, dst string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
+func verifyInstalledProof(paths map[string]string, version string, expectedHashes map[string]string, protectedPaths []string, protectedHashes map[string]string, tunnelPID int, status controller.Status) error {
+	for _, name := range binaryOrder {
+		got, err := fileHash(paths[name])
+		if err != nil {
+			return err
+		}
+		if got != expectedHashes[name] {
+			return fmt.Errorf("binary hash proof failed")
+		}
+		v, err := installedVersion(paths[name])
+		if err != nil || v != version {
+			return fmt.Errorf("binary version proof failed")
+		}
 	}
-	return fsutil.WriteFileAtomic(dst, data, 0o755)
+	if status.Tunnel.PID != tunnelPID || !status.Gateway.Running || status.Gateway.Executable != paths["gpt-tunnel-gatewayd"] {
+		return fmt.Errorf("runtime identity proof failed")
+	}
+	for _, path := range protectedPaths {
+		got, err := fileHash(path)
+		if err != nil || got != protectedHashes[path] {
+			return fmt.Errorf("protected runtime hash changed")
+		}
+	}
+	return nil
 }
-func smoke(ctx context.Context, c config.Config) error {
+
+func sanitizeError(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := strings.Join(strings.Fields(err.Error()), " ")
+	if len(s) > 240 {
+		s = s[:240]
+	}
+	return s
+}
+
+func smoke(ctx context.Context, c config.Config, expectedVersion, previousVersion string) error {
 	url := "http://" + c.ListenAddr + "/mcp"
 	call := func(id int, method string, params any) (map[string]any, error) {
 		b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))
+		callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		req, _ := http.NewRequestWithContext(callCtx, http.MethodPost, url, bytes.NewReader(b))
 		req.Header.Set("Content-Type", "application/json")
-		resp, e := http.DefaultClient.Do(req)
+		resp, e := (&http.Client{Timeout: 5 * time.Second}).Do(req)
 		if e != nil {
 			return nil, e
 		}
@@ -485,8 +733,15 @@ func smoke(ctx context.Context, c config.Config) error {
 		}
 		var v map[string]any
 		e = json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&v)
-		if e == nil && v["jsonrpc"] != "2.0" {
-			return nil, fmt.Errorf("invalid JSON-RPC envelope")
+		if e != nil || v["jsonrpc"] != "2.0" || v["error"] != nil {
+			return nil, fmt.Errorf("invalid MCP JSON-RPC response")
+		}
+		gotID, ok := v["id"].(float64)
+		if !ok || int(gotID) != id {
+			return nil, fmt.Errorf("MCP response id mismatch")
+		}
+		if _, ok := v["result"].(map[string]any); !ok {
+			return nil, fmt.Errorf("MCP result missing")
 		}
 		return v, e
 	}
@@ -499,7 +754,8 @@ func smoke(ctx context.Context, c config.Config) error {
 		return fmt.Errorf("initialize result missing")
 	}
 	info, ok := result["serverInfo"].(map[string]any)
-	if !ok || info["version"] != "0.2.3" {
+	protocolVersion, protocolOK := result["protocolVersion"].(string)
+	if !ok || info["version"] != expectedVersion || !protocolOK || protocolVersion == "" {
 		return fmt.Errorf("MCP version mismatch")
 	}
 	list, err := call(2, "tools/list", map[string]any{})
@@ -519,10 +775,12 @@ func smoke(ctx context.Context, c config.Config) error {
 		if !ok {
 			return fmt.Errorf("invalid tool descriptor")
 		}
-		if _, ok := tool["inputSchema"].(map[string]any); !ok {
+		inputSchema, ok := tool["inputSchema"].(map[string]any)
+		if !ok || inputSchema["type"] != "object" {
 			return fmt.Errorf("tool input schema missing")
 		}
-		if _, ok := tool["outputSchema"].(map[string]any); !ok {
+		outputSchema, ok := tool["outputSchema"].(map[string]any)
+		if !ok || outputSchema["type"] != "object" {
 			return fmt.Errorf("tool output schema missing")
 		}
 		annotations, ok := tool["annotations"].(map[string]any)
@@ -543,10 +801,12 @@ func smoke(ctx context.Context, c config.Config) error {
 	if !ok {
 		return fmt.Errorf("MCP ping failed")
 	}
-	if pingResult["isError"] == true {
+	isError, isErrorOK := pingResult["isError"].(bool)
+	if !isErrorOK || isError {
 		return fmt.Errorf("MCP ping returned error")
 	}
-	if _, ok := pingResult["structuredContent"].(map[string]any); !ok {
+	pingContent, ok := pingResult["structuredContent"].(map[string]any)
+	if !ok || pingContent["version"] != expectedVersion || pingContent["gateway_id"] != c.GatewayID || pingContent["service"] != "gpt-tunnel-gatewayd" {
 		return fmt.Errorf("MCP ping structured content missing")
 	}
 	cap, err := call(4, "tools/call", map[string]any{"name": "gateway_capabilities", "arguments": map[string]any{}})
@@ -557,11 +817,15 @@ func smoke(ctx context.Context, c config.Config) error {
 	if !ok {
 		return fmt.Errorf("MCP capabilities failed")
 	}
+	capError, capErrorOK := capResult["isError"].(bool)
+	if !capErrorOK || capError {
+		return fmt.Errorf("MCP capabilities returned error")
+	}
 	structured, ok := capResult["structuredContent"].(map[string]any)
 	if !ok {
 		return fmt.Errorf("MCP capabilities structured content missing")
 	}
-	if structured["gateway_id"] != c.GatewayID || structured["hub_protocol_root"] != "gpt-tunnel/v1" || structured["hub_branch"] != c.Hub.Branch || structured["hub_managed_root"] != filepath.Join(c.StateDir, "hub", "repository") {
+	if structured["gateway_id"] != c.GatewayID || structured["hub_protocol_root"] != "gpt-tunnel/v1" || structured["hub_branch"] != c.Hub.Branch || structured["hub_managed_root"] != filepath.Join(c.StateDir, "hub", "repository") || expectedVersion == previousVersion {
 		return fmt.Errorf("MCP capabilities mismatch")
 	}
 	return nil

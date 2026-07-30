@@ -143,12 +143,16 @@ func upgradeRuntime() {
 	r := upgrade.Runner{Config: c, ConfigPath: path}
 	result, err := r.Run(context.Background())
 	if err != nil {
-		if result.Status == "UPGRADE_ROLLED_BACK" {
+		if upgradeResultShouldPrint(result.Status) {
 			output(result)
 		}
 		fatal(err)
 	}
 	output(result)
+}
+
+func upgradeResultShouldPrint(status string) bool {
+	return status == "UPGRADE_ROLLED_BACK" || status == "UPGRADE_ROLLBACK_FAILED"
 }
 func copyExecutable(src, dst string) error {
 	in, err := os.Open(src)
