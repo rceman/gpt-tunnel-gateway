@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "base": "cb1114c71cd3492eb7c76dbe561ce80de6dfea8d",
+  "implementation_commit": "b2ac34bd4e499d81ec2574155d1cd3e53a75706e",
+  "integration_fix_commits": [],
+  "commands": [
+    {"command":"bash gpt-tunnel-gateway-v0.2.1-managed-hub.run","exit_code":0,"result":"two isolated full-gate cycles and managed-hub MCP smoke passed"},
+    {"command":"go vet ./...","exit_code":0,"result":"passed"},
+    {"command":"go test -race ./...","exit_code":0,"result":"passed"},
+    {"command":"python3 scripts/static-check.py","exit_code":0,"result":"STATIC_CHECK_OK"},
+    {"command":"bash scripts/build-release.sh TEMP && (cd TEMP && sha256sum -c SHA256SUMS)","exit_code":0,"result":"all binaries and checksums passed"},
+    {"command":"git diff --check","exit_code":0,"result":"passed"}
+  ],
+  "changed_files": 19,
+  "deviations": [],
+  "user_typer_checkout_required": false,
+  "active_tunnel_touched": false,
+  "runtime_replacement_performed": false,
+  "finished_at": "2026-07-30T09:47:29Z"
+}
