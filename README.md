@@ -47,6 +47,8 @@ gpt-tunnelctl init-config \
   --to ~/.config/gpt-tunnel-gateway/config.json
 ```
 
+The hub configuration contains a Git repository URL and writable branch, not a local checkout path. The gateway creates and owns its managed hub clone under `state_dir/hub/repository`; `rceman/typer` does not need to exist as a user project checkout.
+
 Secrets are not stored in the JSON config. Preserve the existing owner-managed tunnel environment file separately with mode `0600`.
 
 See `docs/INSTALL_AND_CUTOVER.md` before any runtime cutover.

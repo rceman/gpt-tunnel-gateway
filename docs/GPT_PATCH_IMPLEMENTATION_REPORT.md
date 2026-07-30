@@ -15,7 +15,7 @@ GPT authored the architecture, behavior contracts, ADRs, schemas, fixtures, prod
 ## Implemented subsystems
 
 - Go config and allowlisted project registry.
-- Versioned GitHub hub layout and detached-worktree transactional writer.
+- Versioned GitHub hub layout, gateway-managed hub clone, automatic writable-branch initialization, and detached-worktree transactional writer.
 - Project, plan, ADR, immutable task/task-state, run, result, evidence, and report services.
 - Persistent Airelay session dispatch using bounded short messages.
 - Local execution-packet rendering and strict finalization.

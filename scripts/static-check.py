@@ -49,6 +49,17 @@ for token in ("allow_parallel_protocol", "CheckHubCompatibility", "protocol/v2",
 if "gpt-tunnel/v1" not in (ROOT / "internal/hub/hub.go").read_text(encoding="utf-8"):
     errors.append("canonical hub root gpt-tunnel/v1 is not declared")
 
+hub_config = (ROOT / "internal/config/config.go").read_text(encoding="utf-8")
+hub_source = (ROOT / "internal/hub/hub.go").read_text(encoding="utf-8")
+if "RepositoryURL string `json:\"repository_url\"`" not in hub_config:
+    errors.append("hub repository_url is not canonical configuration")
+for token in ("Config.Hub.Root", "Config.Hub.Remote", 'Root string `json:"root"`', 'Remote string `json:"remote"`'):
+    block = hub_config.split("type HubConfig struct {", 1)[1].split("}", 1)[0] if "type HubConfig struct {" in hub_config else ""
+    if token in hub_source or token in block:
+        errors.append(f"user-managed hub checkout configuration remains: {token}")
+if 'filepath.Join(c.StateDir, "hub", "repository")' not in hub_source:
+    errors.append("managed hub clone is not derived from state_dir")
+
 if errors:
     print("STATIC_CHECK_FAILED")
     for error in errors:

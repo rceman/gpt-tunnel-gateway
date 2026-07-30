@@ -16,13 +16,15 @@ bash scripts/build-release.sh ./dist
   --ctl-bin ./dist/gpt-tunnelctl
 ```
 
-Prepare `config.local.json` from `examples/config.example.json`, then:
+Prepare `config.local.json` from `examples/config.example.json`. Set `hub.repository_url` to the private hub repository and `hub.branch` to this gateway's writable branch. Do not clone the hub repository manually and do not add it as a local project unless it is independently needed as source code. Then:
 
 ```bash
 ~/.local/bin/gpt-tunnelctl init-config \
   --from ./config.local.json \
   --to ~/.config/gpt-tunnel-gateway/config.json
 ```
+
+On first daemon start, the gateway creates `~/.local/share/gpt-tunnel-gateway/hub/repository` (or the equivalent configured `state_dir`) and initializes the writable hub branch when necessary.
 
 Create `~/.config/gpt-tunnel-gateway/tunnel.env` manually with mode `0600`. It must contain `CONTROL_PLANE_API_KEY` and `CONTROL_PLANE_TUNNEL_ID`. Do not place `MCP_SERVER_URL`, `MCP_COMMAND`, or `HEALTH_LISTEN_ADDR` there; the controller derives those bindings from the gateway configuration. Never put those values in a task, prompt, log, commit, or CLI argument.
 

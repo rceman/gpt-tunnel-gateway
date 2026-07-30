@@ -34,6 +34,7 @@ func RepoWithBareRemote(t *testing.T) (string, string, string) {
 	Git(t, work, "commit", "-m", "base")
 	Git(t, work, "branch", "-M", "main")
 	Git(t, work, "push", "-u", "origin", "main")
+	Git(t, bare, "symbolic-ref", "HEAD", "refs/heads/main")
 	head := trim(Git(t, work, "rev-parse", "HEAD"))
 	return bare, work, head
 }

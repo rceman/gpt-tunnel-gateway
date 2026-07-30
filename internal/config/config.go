@@ -28,11 +28,10 @@ type Config struct {
 }
 
 type HubConfig struct {
-	Root        string `json:"root"`
-	Remote      string `json:"remote"`
-	Branch      string `json:"branch"`
-	AuthorName  string `json:"author_name"`
-	AuthorEmail string `json:"author_email"`
+	RepositoryURL string `json:"repository_url"`
+	Branch        string `json:"branch"`
+	AuthorName    string `json:"author_name"`
+	AuthorEmail   string `json:"author_email"`
 }
 type ProjectConfig struct {
 	Root              string `json:"root"`
@@ -79,9 +78,7 @@ func Load(path string) (Config, error) {
 	if err := c.Validate(); err != nil {
 		return Config{}, err
 	}
-	if root, err := canonicalDir(c.Hub.Root); err == nil {
-		c.Hub.Root = root
-	}
+	c.StateDir = filepath.Clean(c.StateDir)
 	for id, p := range c.Projects {
 		if root, err := canonicalDir(p.Root); err == nil {
 			p.Root = root
@@ -92,7 +89,6 @@ func Load(path string) (Config, error) {
 }
 func (c *Config) expand() {
 	c.StateDir = expand(c.StateDir)
-	c.Hub.Root = expand(c.Hub.Root)
 	c.Controller.GatewayBinary = expand(c.Controller.GatewayBinary)
 	c.Controller.TunnelClientBinary = expand(c.Controller.TunnelClientBinary)
 	c.Controller.TunnelEnvFile = expand(c.Controller.TunnelEnvFile)
@@ -146,8 +142,8 @@ func (c Config) Validate() error {
 	if err := validateLoopbackAddress("listen_addr", c.ListenAddr); err != nil {
 		return err
 	}
-	if c.StateDir == "" || c.MaxReadBytes < 1 || c.MaxReadBytes > 64<<20 || c.MaxDiffBytes < 1 || c.MaxDiffBytes > 64<<20 || c.MaxListItems < 1 || c.MaxListItems > 10000 {
-		return fmt.Errorf("invalid limits")
+	if c.StateDir == "" || !filepath.IsAbs(c.StateDir) || c.MaxReadBytes < 1 || c.MaxReadBytes > 64<<20 || c.MaxDiffBytes < 1 || c.MaxDiffBytes > 64<<20 || c.MaxListItems < 1 || c.MaxListItems > 10000 {
+		return fmt.Errorf("invalid limits or state_dir")
 	}
 	if c.DispatchTimeoutSeconds < 1 || c.DispatchTimeoutSeconds > 300 || c.RunTimeoutSeconds < 60 || c.RunTimeoutSeconds > 86400 {
 		return fmt.Errorf("invalid timeouts")
@@ -155,14 +151,11 @@ func (c Config) Validate() error {
 	if c.AirelayCommand == "" || strings.ContainsRune(c.AirelayCommand, 0) {
 		return fmt.Errorf("invalid airelay command")
 	}
-	if c.Hub.Root == "" || c.Hub.Remote == "" || c.Hub.Branch == "" {
-		return fmt.Errorf("incomplete hub config")
+	if err := validateRepositoryURL(c.Hub.RepositoryURL); err != nil {
+		return err
 	}
-	if _, err := canonicalDir(c.Hub.Root); err != nil {
-		return fmt.Errorf("invalid hub root: %w", err)
-	}
-	if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`).MatchString(c.Hub.Remote) {
-		return fmt.Errorf("invalid hub remote")
+	if err := validateBranch(c.Hub.Branch); err != nil {
+		return fmt.Errorf("invalid hub branch: %w", err)
 	}
 	if c.Hub.AuthorName == "" || c.Hub.AuthorEmail == "" || strings.ContainsAny(c.Hub.AuthorName+c.Hub.AuthorEmail, "\r\n\x00") {
 		return fmt.Errorf("invalid hub author identity")
@@ -186,6 +179,23 @@ func (c Config) Validate() error {
 		if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`).MatchString(p.Remote) {
 			return fmt.Errorf("invalid project remote: %q", id)
 		}
+	}
+	return nil
+}
+
+func validateRepositoryURL(value string) error {
+	if value == "" || len(value) > 2048 || strings.ContainsAny(value, "\x00\r\n") {
+		return fmt.Errorf("invalid hub repository_url")
+	}
+	if !filepath.IsAbs(value) && !strings.Contains(value, ":") {
+		return fmt.Errorf("hub repository_url must be an absolute path or Git URL")
+	}
+	return nil
+}
+
+func validateBranch(value string) error {
+	if value == "" || len(value) > 255 || strings.ContainsAny(value, "\x00\r\n ~^:?*[\\") || strings.HasPrefix(value, "-") || strings.Contains(value, "..") || strings.HasSuffix(value, "/") {
+		return fmt.Errorf("invalid branch")
 	}
 	return nil
 }

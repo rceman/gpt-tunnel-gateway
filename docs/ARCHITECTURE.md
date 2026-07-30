@@ -33,17 +33,21 @@ GitHub hub state is canonical and cross-device:
 Local state is machine-specific and disposable:
 
 - configured project roots;
-- managed Git mirrors;
+- the gateway-managed hub clone under `state_dir/hub/repository`;
+- managed read-only project Git mirrors;
 - gateway and session mapping;
 - run result staging paths;
 - kernel-backed locks, PID files, and logs.
 
 ## Hub transaction
 
+The hub config declares only `repository_url` and the writable branch. On startup, the gateway atomically creates its own clone under `state_dir/hub/repository`, verifies the exact `origin` URL, fetches refs, and creates the configured branch from the remote default branch only when that branch does not exist. Existing branches are never reset or force-updated.
+
 Every write uses a dedicated detached temporary Git worktree:
 
 ```text
-fetch origin
+ensure managed clone and configured branch
+→ fetch origin
 → resolve exact remote branch revision
 → compare expected_hub_revision
 → create detached temporary worktree
@@ -54,7 +58,7 @@ fetch origin
 → remove temporary worktree
 ```
 
-The active hub clone is not dirtied or switched.
+The managed hub checkout is not dirtied or switched, and no user checkout of the hub repository is required.
 
 ## Git exploration
 

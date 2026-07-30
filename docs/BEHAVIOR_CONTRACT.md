@@ -24,6 +24,7 @@
 20. A gateway may execute, cancel, finalize, reprompt, or timeout only runs whose `gateway_id` equals its configured identity.
 21. The controller owns `MCP_SERVER_URL` and tunnel health binding; the secret env file cannot override them.
 22. Process and transaction locks are kernel-backed and recover automatically when the owning process exits.
+23. The hub is addressed by repository URL and writable branch; the gateway atomically owns the only operational clone under `state_dir`, creates a missing branch from remote HEAD without force, and never requires or mutates a user hub checkout.
 
 ## Lifecycle
 

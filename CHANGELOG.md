@@ -10,6 +10,7 @@
 - Add gateway restart rollback.
 - Remove unauthorized compatibility infrastructure and make `gpt-tunnel/v1` the only hub namespace.
 - Add crash-safe kernel locks, gateway ownership enforcement, canonical tunnel-client bindings, and relocatable release checksums.
+- Replace the required user-managed hub checkout with an atomic gateway-managed clone under `state_dir`.
 
 ## 0.2.0 — unreleased
 

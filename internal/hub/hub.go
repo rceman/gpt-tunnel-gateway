@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -18,7 +20,10 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 )
 
-const ProtocolRoot = "gpt-tunnel/v1"
+const (
+	ProtocolRoot = "gpt-tunnel/v1"
+	RemoteName   = "origin"
+)
 
 type Store struct {
 	Config config.Config
@@ -33,6 +38,10 @@ type TransactionResult struct {
 }
 
 type Mutator func(worktree string) ([]string, error)
+
+func ManagedRoot(c config.Config) string {
+	return filepath.Join(c.StateDir, "hub", "repository")
+}
 
 func cleanEnv(extra ...string) []string {
 	keys := []string{"HOME", "PATH", "SSH_AUTH_SOCK", "USER", "LOGNAME", "TMPDIR"}
@@ -56,31 +65,198 @@ func command(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	}
 	return stdout.Bytes(), nil
 }
-func (s Store) remoteRef() string {
-	return "refs/remotes/" + s.Config.Hub.Remote + "/" + s.Config.Hub.Branch
+func cloneRepository(ctx context.Context, parent, repositoryURL, target string) error {
+	cmd := exec.CommandContext(ctx, "git", "clone", "--origin", RemoteName, "--", repositoryURL, target)
+	cmd.Dir = parent
+	cmd.Env = cleanEnv()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("clone managed hub repository: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
 }
-func (s Store) Refresh(ctx context.Context) error {
-	_, err := command(ctx, s.Config.Hub.Root, "fetch", "--prune", "--tags", s.Config.Hub.Remote)
+func refExists(ctx context.Context, root, ref string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", ref)
+	cmd.Dir = root
+	cmd.Env = cleanEnv()
+	if err := cmd.Run(); err != nil {
+		if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, fmt.Errorf("inspect ref %s: %w", ref, err)
+	}
+	return true, nil
+}
+func acquireRepositoryLock(ctx context.Context, stateDir string) (*lockfile.Lock, error) {
+	for {
+		lock, err := lockfile.Acquire(filepath.Join(stateDir, "locks"), "hub-repository")
+		if err == nil {
+			return lock, nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+func (s Store) remoteRef() string {
+	return "refs/remotes/" + RemoteName + "/" + s.Config.Hub.Branch
+}
+func (s Store) validateManagedRoot(ctx context.Context, root string) error {
+	info, err := os.Lstat(root)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("managed hub root must be a real directory: %s", root)
+	}
+	gitInfo, err := os.Stat(filepath.Join(root, ".git"))
+	if err != nil || !gitInfo.IsDir() {
+		return fmt.Errorf("managed hub root is not a standard Git clone: %s", root)
+	}
+	urlOut, err := command(ctx, root, "remote", "get-url", RemoteName)
+	if err != nil {
+		return err
+	}
+	actualURL := strings.TrimSpace(string(urlOut))
+	if actualURL != s.Config.Hub.RepositoryURL {
+		return fmt.Errorf("managed hub repository URL mismatch: got %q want %q", actualURL, s.Config.Hub.RepositoryURL)
+	}
+	status, err := command(ctx, root, "status", "--porcelain")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(status)) != "" {
+		return fmt.Errorf("managed hub worktree is dirty")
+	}
+	return nil
+}
+func (s Store) cloneIfMissing(ctx context.Context, root string) error {
+	_, err := os.Lstat(root)
+	if err == nil {
+		return s.validateManagedRoot(ctx, root)
+	}
+	if !os.IsNotExist(err) {
+		return err
+	}
+	parent := filepath.Dir(root)
+	if err := fsutil.EnsureDir(parent, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.MkdirTemp(parent, ".repository-clone-")
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(tmp); err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	if err := cloneRepository(ctx, parent, s.Config.Hub.RepositoryURL, tmp); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, root); err != nil {
+		return fmt.Errorf("install managed hub clone: %w", err)
+	}
+	return s.validateManagedRoot(ctx, root)
+}
+func (s Store) ensureBranch(ctx context.Context, root string) error {
+	exists, err := refExists(ctx, root, s.remoteRef())
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	if _, err := command(ctx, root, "remote", "set-head", RemoteName, "--auto"); err != nil {
+		return fmt.Errorf("resolve remote default branch: %w", err)
+	}
+	headRefOut, err := command(ctx, root, "symbolic-ref", "--quiet", "refs/remotes/"+RemoteName+"/HEAD")
+	if err != nil {
+		return fmt.Errorf("resolve remote default branch ref: %w", err)
+	}
+	headRef := strings.TrimSpace(string(headRefOut))
+	baseOut, err := command(ctx, root, "rev-parse", "--verify", headRef+"^{commit}")
+	if err != nil {
+		return fmt.Errorf("resolve remote default branch commit: %w", err)
+	}
+	base := strings.TrimSpace(string(baseOut))
+	if _, err := command(ctx, root, "push", RemoteName, base+":refs/heads/"+s.Config.Hub.Branch); err != nil {
+		if _, fetchErr := command(ctx, root, "fetch", "--prune", "--tags", RemoteName); fetchErr != nil {
+			return err
+		}
+		exists, checkErr := refExists(ctx, root, s.remoteRef())
+		if checkErr != nil || !exists {
+			return err
+		}
+		return nil
+	}
+	_, err = command(ctx, root, "fetch", "--prune", "--tags", RemoteName)
 	return err
 }
-func (s Store) RemoteRevision(ctx context.Context) (string, error) {
-	if err := s.Refresh(ctx); err != nil {
+func (s Store) ensureLocked(ctx context.Context) (string, error) {
+	root := ManagedRoot(s.Config)
+	if err := s.cloneIfMissing(ctx, root); err != nil {
 		return "", err
 	}
-	out, err := command(ctx, s.Config.Hub.Root, "rev-parse", "--verify", s.remoteRef()+"^{commit}")
+	if _, err := command(ctx, root, "fetch", "--prune", "--tags", RemoteName); err != nil {
+		return "", err
+	}
+	if err := s.ensureBranch(ctx, root); err != nil {
+		return "", err
+	}
+	return root, nil
+}
+func (s Store) Ensure(ctx context.Context) error {
+	lock, err := acquireRepositoryLock(ctx, s.Config.StateDir)
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+	_, err = s.ensureLocked(ctx)
+	return err
+}
+func (s Store) Refresh(ctx context.Context) error {
+	return s.Ensure(ctx)
+}
+func (s Store) remoteRevisionLocked(ctx context.Context, root string) (string, error) {
+	out, err := command(ctx, root, "rev-parse", "--verify", s.remoteRef()+"^{commit}")
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+func (s Store) RemoteRevision(ctx context.Context) (string, error) {
+	lock, err := acquireRepositoryLock(ctx, s.Config.StateDir)
+	if err != nil {
+		return "", err
+	}
+	defer lock.Release()
+	root, err := s.ensureLocked(ctx)
+	if err != nil {
+		return "", err
+	}
+	return s.remoteRevisionLocked(ctx, root)
+}
 func (s Store) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	if err := validateHubPath(path); err != nil {
 		return nil, err
 	}
-	if err := s.Refresh(ctx); err != nil {
+	lock, err := acquireRepositoryLock(ctx, s.Config.StateDir)
+	if err != nil {
 		return nil, err
 	}
-	out, err := command(ctx, s.Config.Hub.Root, "show", s.remoteRef()+":"+filepath.ToSlash(path))
+	defer lock.Release()
+	root, err := s.ensureLocked(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out, err := command(ctx, root, "show", s.remoteRef()+":"+filepath.ToSlash(path))
 	if err != nil {
 		return nil, err
 	}
@@ -109,10 +285,16 @@ func (s Store) List(ctx context.Context, prefix, suffix string) ([]string, error
 	if err := validateHubPath(prefix); err != nil {
 		return nil, err
 	}
-	if err := s.Refresh(ctx); err != nil {
+	lock, err := acquireRepositoryLock(ctx, s.Config.StateDir)
+	if err != nil {
 		return nil, err
 	}
-	out, err := command(ctx, s.Config.Hub.Root, "ls-tree", "-r", "--name-only", s.remoteRef(), "--", prefix)
+	defer lock.Release()
+	root, err := s.ensureLocked(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out, err := command(ctx, root, "ls-tree", "-r", "--name-only", s.remoteRef(), "--", prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -136,11 +318,17 @@ func (s Store) History(ctx context.Context, path string, limit int) ([]map[strin
 	if limit < 1 || limit > s.Config.MaxListItems {
 		return nil, fmt.Errorf("invalid history limit")
 	}
-	if err := s.Refresh(ctx); err != nil {
+	lock, err := acquireRepositoryLock(ctx, s.Config.StateDir)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Release()
+	root, err := s.ensureLocked(ctx)
+	if err != nil {
 		return nil, err
 	}
 	format := "%H%x00%aI%x00%an%x00%s%x00"
-	out, err := command(ctx, s.Config.Hub.Root, "log", "--max-count", fmt.Sprint(limit), "--format="+format, s.remoteRef(), "--", path)
+	out, err := command(ctx, root, "log", "--max-count", fmt.Sprint(limit), "--format="+format, s.remoteRef(), "--", path)
 	if err != nil {
 		return nil, err
 	}
@@ -156,19 +344,28 @@ func (s Store) History(ctx context.Context, path string, limit int) ([]map[strin
 	return items, nil
 }
 func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mutator) (TransactionResult, error) {
-	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "hub")
+	transactionLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "hub")
 	if err != nil {
 		return TransactionResult{}, err
 	}
-	defer lock.Release()
-	statusOut, err := command(ctx, s.Config.Hub.Root, "status", "--porcelain")
+	defer transactionLock.Release()
+	repositoryLock, err := acquireRepositoryLock(ctx, s.Config.StateDir)
+	if err != nil {
+		return TransactionResult{}, err
+	}
+	defer repositoryLock.Release()
+	root, err := s.ensureLocked(ctx)
+	if err != nil {
+		return TransactionResult{}, err
+	}
+	statusOut, err := command(ctx, root, "status", "--porcelain")
 	if err != nil {
 		return TransactionResult{}, err
 	}
 	if strings.TrimSpace(string(statusOut)) != "" {
-		return TransactionResult{}, fmt.Errorf("hub worktree is dirty")
+		return TransactionResult{}, fmt.Errorf("managed hub worktree is dirty")
 	}
-	before, err := s.RemoteRevision(ctx)
+	before, err := s.remoteRevisionLocked(ctx, root)
 	if err != nil {
 		return TransactionResult{}, err
 	}
@@ -185,10 +382,10 @@ func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mu
 	}
 	_ = os.Remove(worktree)
 	defer os.RemoveAll(worktree)
-	if _, err = command(ctx, s.Config.Hub.Root, "worktree", "add", "--detach", worktree, before); err != nil {
+	if _, err = command(ctx, root, "worktree", "add", "--detach", worktree, before); err != nil {
 		return TransactionResult{}, err
 	}
-	defer command(context.Background(), s.Config.Hub.Root, "worktree", "remove", "--force", worktree)
+	defer command(context.Background(), root, "worktree", "remove", "--force", worktree)
 	paths, err := mutate(worktree)
 	if err != nil {
 		return TransactionResult{}, err
@@ -228,10 +425,10 @@ func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mu
 		return TransactionResult{}, err
 	}
 	after := strings.TrimSpace(string(afterOut))
-	if _, err = command(ctx, worktree, "push", s.Config.Hub.Remote, "HEAD:refs/heads/"+s.Config.Hub.Branch); err != nil {
+	if _, err = command(ctx, worktree, "push", RemoteName, "HEAD:refs/heads/"+s.Config.Hub.Branch); err != nil {
 		return TransactionResult{}, err
 	}
-	remoteOut, err := command(ctx, s.Config.Hub.Root, "ls-remote", s.Config.Hub.Remote, "refs/heads/"+s.Config.Hub.Branch)
+	remoteOut, err := command(ctx, root, "ls-remote", RemoteName, "refs/heads/"+s.Config.Hub.Branch)
 	if err != nil {
 		return TransactionResult{}, err
 	}
@@ -239,7 +436,7 @@ func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mu
 	if len(fields) < 1 || fields[0] != after {
 		return TransactionResult{}, fmt.Errorf("remote verification failed: got %q want %q", strings.TrimSpace(string(remoteOut)), after)
 	}
-	return TransactionResult{Before: before, After: after, Remote: s.Config.Hub.Remote, Branch: s.Config.Hub.Branch, Paths: append([]string{}, paths...)}, nil
+	return TransactionResult{Before: before, After: after, Remote: RemoteName, Branch: s.Config.Hub.Branch, Paths: append([]string{}, paths...)}, nil
 }
 func WriteJSON(worktree, path string, value any) error {
 	target, err := safeWritePath(worktree, path)

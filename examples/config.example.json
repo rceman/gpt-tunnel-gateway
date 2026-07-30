@@ -10,9 +10,8 @@
   "run_timeout_seconds": 7200,
   "airelay_command": "airelay",
   "hub": {
-    "root": "~/git/typer",
-    "remote": "origin",
-    "branch": "main",
+    "repository_url": "git@github.com:rceman/typer.git",
+    "branch": "gpt-tunnel/home_pc",
     "author_name": "GPT Tunnel Gateway",
     "author_email": "gpt-tunnel-gateway@localhost.invalid"
   },
