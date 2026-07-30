@@ -171,7 +171,14 @@ func readTunnelEnv(path string) ([]string, error) {
 
 // ValidateTunnelEnv validates the controller-owned environment without exposing values.
 func ValidateTunnelEnv(path string) error {
-	_, err := readTunnelEnv(path)
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("tunnel env must be an owner-only regular file")
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); !ok || st.Uid != uint32(os.Getuid()) {
+		return fmt.Errorf("tunnel env owner mismatch")
+	}
+	_, err = readTunnelEnv(path)
 	return err
 }
 

@@ -238,6 +238,11 @@ func (s *Service) ValidateConfiguredProjectRecords(ctx context.Context) error {
 	for id := range s.Config.Projects {
 		if !seen[id] {
 			missing = append(missing, id)
+			continue
+		}
+		var plan model.Plan
+		if err := s.Hub.ReadJSON(ctx, s.planPath(id), &plan); err != nil {
+			return fmt.Errorf("durable hub plan missing or invalid for project %q: %w", id, err)
 		}
 	}
 	if len(missing) > 0 {
