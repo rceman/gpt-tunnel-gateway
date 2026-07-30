@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "base": "5bf4f2fae46d748c89b8a03d057b8d0026616933",
+  "implementation_commit": "b0f31257fd494b7801c1fbf808db15ed0f75e2c9",
+  "integration_fix_commits": [],
+  "commands": [
+    {"command":"bash /home/therceman/patches/gpt-tunnel-gateway-v0.2.2-mcp-contract.run","exit_code":0,"result":"two isolated full-gate cycles and MCP contract smoke passed"},
+    {"command":"test -z \"$(gofmt -l .)\"","exit_code":0,"result":"passed"},
+    {"command":"go vet ./...","exit_code":0,"result":"passed"},
+    {"command":"go test -race ./...","exit_code":0,"result":"passed"},
+    {"command":"python3 scripts/static-check.py","exit_code":0,"result":"STATIC_CHECK_OK"},
+    {"command":"mcp_contract_dist=$(mktemp -d /tmp/gpt-tunnel-gateway-mcp-contract-dist.XXXXXX)\nbash scripts/build-release.sh \"$mcp_contract_dist\"\n(cd \"$mcp_contract_dist\" && sha256sum -c SHA256SUMS && ! grep -Eq '  /' SHA256SUMS && test \"$(./gpt-tunnel-gatewayd --version)\" = 0.2.2 && test \"$(./gpt-tunnel version)\" = 0.2.2 && test \"$(./gpt-tunnelctl version)\" = 0.2.2)","exit_code":0,"result":"release checksums and all versions passed"},
+    {"command":"git diff --check","exit_code":0,"result":"passed"}
+  ],
+  "changed_files": 14,
+  "tools_with_output_schema": 36,
+  "tools_with_explicit_annotations": 36,
+  "deviations": [],
+  "active_tunnel_touched": false,
+  "gateway_restarted": false,
+  "app_refreshed": false,
+  "finished_at": "2026-07-30T11:38:21Z"
+}
