@@ -39,6 +39,13 @@ func TestValidateConfiguredProjectRecordsRejectsMissingDurableRecord(t *testing.
 		t.Fatal("missing durable project record was accepted")
 	}
 }
+
+func TestValidateConfiguredProjectRecordsRejectsMissingPlan(t *testing.T) {
+	s, _, _ := testService(t)
+	if err := s.ValidateConfiguredProjectRecords(context.Background()); err == nil || !strings.Contains(err.Error(), "plan") {
+		t.Fatalf("missing durable plan was not rejected deterministically: %v", err)
+	}
+}
 func TestTaskPlanDispatchReadFinalize(t *testing.T) {
 	s, hubRev, projectHead := testService(t)
 	ctx := context.Background()

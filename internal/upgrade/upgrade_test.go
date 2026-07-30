@@ -15,7 +15,265 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
+	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 )
+
+type fakeUpgradeController struct {
+	statuses                             []controller.Status
+	index                                int
+	doctorCalls, restartCalls, stopCalls int
+}
+
+func (f *fakeUpgradeController) Status(context.Context) (controller.Status, error) {
+	s := f.statuses[f.index]
+	if f.index < len(f.statuses)-1 {
+		f.index++
+	}
+	return s, nil
+}
+func (f *fakeUpgradeController) Doctor(context.Context) error      { f.doctorCalls++; return nil }
+func (f *fakeUpgradeController) RestartGatewayAfterUpgrade() error { f.restartCalls++; return nil }
+func (f *fakeUpgradeController) StopGatewayForUpgrade() error      { f.stopCalls++; return nil }
+
+func upgradeIntegrationFixture(t *testing.T) (config.Config, string, string, *fakeUpgradeController, func()) {
+	t.Helper()
+	dir := t.TempDir()
+	root := filepath.Join(dir, "gpt-tunnel-gateway")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "VERSION"), []byte("0.2.3\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(binDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	paths := make(map[string]string)
+	for _, name := range binaryOrder {
+		path := filepath.Join(binDir, name)
+		paths[name] = path
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf '0.2.2\\n'\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	configPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(configPath, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(dir, "tunnel.env")
+	if err := os.WriteFile(envPath, []byte("CONTROL_PLANE_API_KEY=redacted-test\nCONTROL_PLANE_TUNNEL_ID=tunnel_0123456789abcdef0123456789abcdef\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tunnelPath := filepath.Join(dir, "tunnel-client")
+	if err := os.WriteFile(tunnelPath, []byte("tunnel"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(dir, "state")
+	if err := os.MkdirAll(filepath.Join(stateDir, "pid"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "pid", "gateway.pid"), []byte("10\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "pid", "tunnel.pid"), []byte("20\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := config.Config{GatewayID: "home", ListenAddr: "127.0.0.1:0", StateDir: stateDir, Hub: config.HubConfig{Branch: "gpt-tunnel/home"}, Controller: config.ControllerConfig{GatewayBinary: paths["gpt-tunnel-gatewayd"], TunnelClientBinary: tunnelPath, TunnelEnvFile: envPath, PIDDir: filepath.Join(stateDir, "pid"), LogDir: filepath.Join(stateDir, "logs"), TunnelHealthListenAddr: "127.0.0.1:8766"}}
+	before := controller.Status{Gateway: controller.ProcessStatus{Running: true, PID: 10, Executable: paths["gpt-tunnel-gatewayd"]}, Tunnel: controller.ProcessStatus{Running: true, PID: 20, Executable: tunnelPath}, GatewayReady: true, TunnelReady: true}
+	after := before
+	after.Gateway.PID = 11
+	rolled := before
+	rolled.Gateway.PID = 12
+	fake := &fakeUpgradeController{statuses: []controller.Status{before, after, rolled}}
+	originals := struct {
+		source         func() (string, string, error)
+		sourceValidate func(string, string) error
+		installed      func(config.Config) (string, error)
+		env            func(string) error
+		build          func(context.Context, string, string) error
+		release        func(string, string) error
+		factory        func(config.Config, string) upgradeController
+		smoke          func(context.Context, config.Config, string, string) error
+		remove         func(string) error
+	}{sourceRootFn, validateSourceFn, validateInstalledRuntimeFn, validateTunnelEnvFn, buildReleaseFn, validateReleaseFn, newUpgradeControllerFn, smokeFn, removeUpgradeBackup}
+	cleanup := func() {
+		sourceRootFn, validateSourceFn, validateInstalledRuntimeFn, validateTunnelEnvFn, buildReleaseFn, validateReleaseFn, newUpgradeControllerFn, smokeFn, removeUpgradeBackup = originals.source, originals.sourceValidate, originals.installed, originals.env, originals.build, originals.release, originals.factory, originals.smoke, originals.remove
+	}
+	sourceRootFn = func() (string, string, error) { return root, strings.Repeat("a", 40), nil }
+	validateSourceFn = func(string, string) error { return nil }
+	validateInstalledRuntimeFn = func(config.Config) (string, error) { return "0.2.2", nil }
+	validateTunnelEnvFn = func(string) error { return nil }
+	buildReleaseFn = func(_ context.Context, _ string, release string) error {
+		for _, name := range binaryOrder {
+			if err := os.WriteFile(filepath.Join(release, name), []byte("#!/bin/sh\nprintf '0.2.3\\n'\n"), 0o700); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	validateReleaseFn = func(string, string) error { return nil }
+	newUpgradeControllerFn = func(config.Config, string) upgradeController { return fake }
+	return c, configPath, envPath, fake, cleanup
+}
+
+func integrationMCPServer(t *testing.T, c *config.Config) (*httptest.Server, *string) {
+	t.Helper()
+	version := "0.2.3"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		id := request["id"]
+		method, _ := request["method"].(string)
+		result := map[string]any{}
+		switch method {
+		case "initialize":
+			result = map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]any{"version": version}}
+		case "tools/list":
+			result = map[string]any{"tools": []any{map[string]any{"name": "system_ping", "inputSchema": map[string]any{"type": "object"}, "outputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}}}}
+		case "tools/call":
+			params, _ := request["params"].(map[string]any)
+			name, _ := params["name"].(string)
+			if name == "system_ping" {
+				result = map[string]any{"isError": false, "structuredContent": map[string]any{"service": "gpt-tunnel-gatewayd", "version": version, "gateway_id": c.GatewayID}}
+			} else {
+				result = map[string]any{"isError": false, "structuredContent": map[string]any{"gateway_id": c.GatewayID, "hub_protocol_root": "gpt-tunnel/v1", "hub_branch": c.Hub.Branch, "hub_managed_root": filepath.Join(c.StateDir, "hub", "repository")}}
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
+	}))
+	c.ListenAddr = strings.TrimPrefix(server.URL, "http://")
+	return server, &version
+}
+
+func TestRunnerRunSuccessProofClosure(t *testing.T) {
+	c, configPath, _, fake, cleanup := upgradeIntegrationFixture(t)
+	defer cleanup()
+	server, version := integrationMCPServer(t, &c)
+	defer server.Close()
+	protected := map[string]string{}
+	for _, path := range []string{configPath, c.Controller.TunnelEnvFile, c.Controller.TunnelClientBinary} {
+		protected[path], _ = fileHash(path)
+	}
+	smokeFn = func(ctx context.Context, c config.Config, target, previous string) error {
+		if target != "0.2.3" || previous != "0.2.2" {
+			t.Fatalf("unexpected success versions: %s/%s", target, previous)
+		}
+		*version = target
+		return smoke(ctx, c, target, previous)
+	}
+	r := Runner{Config: c, ConfigPath: configPath, Target: "0.2.3"}
+	result, err := r.Run(context.Background())
+	if err != nil || result.Status != "UPGRADE_COMPLETE" || result.GatewayPID != 11 || result.TunnelPID != 20 {
+		t.Fatalf("success result=%#v err=%v", result, err)
+	}
+	if fake.doctorCalls != 1 || fake.restartCalls != 1 || fake.stopCalls != 0 {
+		t.Fatalf("controller calls: %#v", fake)
+	}
+	for _, name := range binaryOrder {
+		if v, err := installedVersion(filepath.Join(filepath.Dir(c.Controller.GatewayBinary), name)); err != nil || v != "0.2.3" {
+			t.Fatalf("target %s: %s %v", name, v, err)
+		}
+	}
+	for path, want := range protected {
+		got, _ := fileHash(path)
+		if got != want {
+			t.Fatalf("protected file changed: %s", path)
+		}
+	}
+	entries, _ := os.ReadDir(filepath.Join(c.Controller.PIDDir, "upgrades"))
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "backup-") {
+			t.Fatalf("successful upgrade retained backup")
+		}
+	}
+}
+
+func TestRunnerRunSuccessfulRollbackProofClosure(t *testing.T) {
+	c, configPath, _, fake, cleanup := upgradeIntegrationFixture(t)
+	defer cleanup()
+	server, version := integrationMCPServer(t, &c)
+	defer server.Close()
+	protected := map[string]string{}
+	for _, path := range []string{configPath, c.Controller.TunnelEnvFile, c.Controller.TunnelClientBinary} {
+		protected[path], _ = fileHash(path)
+	}
+	calls := 0
+	smokeFn = func(ctx context.Context, c config.Config, target, previous string) error {
+		calls++
+		if calls == 1 {
+			if target != "0.2.3" {
+				t.Fatal("target smoke version mismatch")
+			}
+			return fmt.Errorf("target smoke failure")
+		}
+		if target != "0.2.2" || previous != "0.2.3" {
+			t.Fatalf("unexpected rollback versions: %s/%s", target, previous)
+		}
+		*version = target
+		return smoke(ctx, c, target, previous)
+	}
+	r := Runner{Config: c, ConfigPath: configPath, Target: "0.2.3"}
+	result, err := r.Run(context.Background())
+	if err == nil || result.Status != "UPGRADE_ROLLED_BACK" || result.GatewayPID != 12 || result.TunnelPID != 20 {
+		t.Fatalf("rollback result=%#v err=%v", result, err)
+	}
+	if fake.doctorCalls != 2 || fake.restartCalls != 2 || fake.stopCalls != 1 {
+		t.Fatalf("controller calls: %#v", fake)
+	}
+	for _, name := range binaryOrder {
+		if v, err := installedVersion(filepath.Join(filepath.Dir(c.Controller.GatewayBinary), name)); err != nil || v != "0.2.2" {
+			t.Fatalf("restored %s: %s %v", name, v, err)
+		}
+	}
+	for path, want := range protected {
+		got, _ := fileHash(path)
+		if got != want {
+			t.Fatalf("protected file changed: %s", path)
+		}
+	}
+	entries, _ := os.ReadDir(filepath.Join(c.Controller.PIDDir, "upgrades"))
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "backup-") {
+			t.Fatalf("successful rollback retained backup")
+		}
+	}
+}
+
+func TestRunnerRunRollbackCleanupFailureRetainsBackup(t *testing.T) {
+	c, configPath, _, _, cleanup := upgradeIntegrationFixture(t)
+	defer cleanup()
+	server, version := integrationMCPServer(t, &c)
+	defer server.Close()
+	calls := 0
+	smokeFn = func(ctx context.Context, c config.Config, target, previous string) error {
+		calls++
+		if calls == 1 {
+			return fmt.Errorf("target smoke failure")
+		}
+		*version = target
+		return smoke(ctx, c, target, previous)
+	}
+	originalRemove := removeUpgradeBackup
+	removeUpgradeBackup = func(string) error { return os.ErrPermission }
+	defer func() { removeUpgradeBackup = originalRemove }()
+	r := Runner{Config: c, ConfigPath: configPath, Target: "0.2.3"}
+	result, err := r.Run(context.Background())
+	if err == nil || result.Status != "UPGRADE_ROLLBACK_FAILED" {
+		t.Fatalf("cleanup failure result=%#v err=%v", result, err)
+	}
+	entries, _ := os.ReadDir(filepath.Join(c.Controller.PIDDir, "upgrades"))
+	found := false
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "backup-") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("rollback cleanup failure did not retain backup")
+	}
+}
 
 func makeUpgradeFixtures(t *testing.T) (string, map[string]string, map[string][]byte) {
 	t.Helper()
@@ -204,6 +462,28 @@ func TestTunnelClientOwnershipRejection(t *testing.T) {
 	}
 }
 
+func TestUpgradeLockContentionAndReacquisition(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "upgrades")
+	first, err := lockfile.Acquire(dir, "upgrade")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second, err := lockfile.Acquire(dir, "upgrade"); err == nil {
+		_ = second.Release()
+		t.Fatal("second upgrade acquisition succeeded while held")
+	}
+	if err := first.Release(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := lockfile.Acquire(dir, "upgrade")
+	if err != nil {
+		t.Fatalf("upgrade lock did not reacquire: %v", err)
+	}
+	if err := second.Release(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReplaceAllStageFailureCleansStaging(t *testing.T) {
 	release, paths, old := makeUpgradeFixtures(t)
 	originalCopy := stageCopy
@@ -346,37 +626,52 @@ func TestSmokeRejectsMalformedJSONRPCAndToolContracts(t *testing.T) {
 			}
 		})
 	}
+	validTool := map[string]any{"name": "system_ping", "inputSchema": map[string]any{"type": "object"}, "outputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}}
+	validList := map[string]any{"tools": []any{validTool}}
 	contractCases := []struct {
-		name       string
-		list, ping map[string]any
+		name                       string
+		list                       map[string]any
+		pingError, capabilityError bool
 	}{
-		{"malformed-tool-descriptor", map[string]any{"tools": []any{"bad"}}, nil},
-		{"invalid-input-schema", map[string]any{"tools": []any{map[string]any{"name": "system_ping", "inputSchema": map[string]any{"type": "array"}, "outputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}}}}, nil},
-		{"invalid-annotations", map[string]any{"tools": []any{map[string]any{"name": "system_ping", "inputSchema": map[string]any{"type": "object"}, "outputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": "yes"}}}}, nil},
-		{"ping-error-result", nil, map[string]any{"isError": true, "structuredContent": map[string]any{}}},
-		{"capability-error-result", nil, map[string]any{"isError": true, "structuredContent": map[string]any{}}},
+		{"malformed-tool-descriptor", map[string]any{"tools": []any{"bad"}}, false, false},
+		{"missing-tool-name", map[string]any{"tools": []any{map[string]any{"inputSchema": map[string]any{"type": "object"}, "outputSchema": map[string]any{"type": "object"}, "annotations": validTool["annotations"]}}}, false, false},
+		{"empty-tool-name", map[string]any{"tools": []any{map[string]any{"name": "", "inputSchema": map[string]any{"type": "object"}, "outputSchema": map[string]any{"type": "object"}, "annotations": validTool["annotations"]}}}, false, false},
+		{"invalid-input-schema", map[string]any{"tools": []any{map[string]any{"name": "system_ping", "inputSchema": map[string]any{"type": "array"}, "outputSchema": map[string]any{"type": "object"}, "annotations": validTool["annotations"]}}}, false, false},
+		{"invalid-output-schema", map[string]any{"tools": []any{map[string]any{"name": "system_ping", "inputSchema": map[string]any{"type": "object"}, "outputSchema": map[string]any{"type": "array"}, "annotations": validTool["annotations"]}}}, false, false},
+		{"invalid-annotations", map[string]any{"tools": []any{map[string]any{"name": "system_ping", "inputSchema": map[string]any{"type": "object"}, "outputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": "yes"}}}}, false, false},
+		{"ping-error-result", validList, true, false},
+		{"capability-error-result", validList, false, true},
 	}
 	for _, test := range contractCases {
 		t.Run(test.name, func(t *testing.T) {
 			count := 0
+			stateDir := t.TempDir()
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				count++
 				body := validInit
 				if count == 2 {
 					payload := test.list
-					if payload == nil {
-						payload = map[string]any{"tools": []any{map[string]any{"name": "system_ping", "inputSchema": map[string]any{"type": "object"}, "outputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}}}}
-					}
 					bodyBytes, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 2, "result": payload})
 					body = string(bodyBytes)
-				} else if count == 3 && test.ping != nil {
-					bodyBytes, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 3, "result": test.ping})
+				} else if count == 3 {
+					ping := map[string]any{"isError": false, "structuredContent": map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.2.3", "gateway_id": "home"}}
+					if test.pingError {
+						ping["isError"] = true
+					}
+					bodyBytes, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 3, "result": ping})
+					body = string(bodyBytes)
+				} else if count == 4 {
+					capability := map[string]any{"isError": false, "structuredContent": map[string]any{"gateway_id": "home", "hub_protocol_root": "gpt-tunnel/v1", "hub_branch": "gpt-tunnel/home", "hub_managed_root": filepath.Join(stateDir, "hub", "repository")}}
+					if test.capabilityError {
+						capability["isError"] = true
+					}
+					bodyBytes, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 4, "result": capability})
 					body = string(bodyBytes)
 				}
 				_, _ = w.Write([]byte(body))
 			}))
 			defer server.Close()
-			c := config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://"), GatewayID: "home", StateDir: t.TempDir(), Hub: config.HubConfig{Branch: "gpt-tunnel/home"}}
+			c := config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://"), GatewayID: "home", StateDir: stateDir, Hub: config.HubConfig{Branch: "gpt-tunnel/home"}}
 			if err := smoke(context.Background(), c, "0.2.3", "0.2.2"); err == nil {
 				t.Fatal("invalid contract accepted")
 			}

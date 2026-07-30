@@ -45,6 +45,28 @@ type Runner struct {
 	Target     string
 }
 
+type upgradeController interface {
+	Status(context.Context) (controller.Status, error)
+	Doctor(context.Context) error
+	RestartGatewayAfterUpgrade() error
+	StopGatewayForUpgrade() error
+}
+
+type liveUpgradeController struct{ controller.Controller }
+
+var (
+	sourceRootFn               = sourceRoot
+	validateSourceFn           = validateSource
+	validateInstalledRuntimeFn = validateInstalledRuntime
+	validateTunnelEnvFn        = controller.ValidateTunnelEnv
+	buildReleaseFn             = buildRelease
+	validateReleaseFn          = validateRelease
+	newUpgradeControllerFn     = func(c config.Config, path string) upgradeController {
+		return liveUpgradeController{controller.Controller{Config: c, ConfigPath: path}}
+	}
+	smokeFn = smoke
+)
+
 func cleanupRollbackBackup(path string) error {
 	if path == "" {
 		return fmt.Errorf("rollback backup missing")
@@ -53,11 +75,11 @@ func cleanupRollbackBackup(path string) error {
 }
 
 func (r Runner) Run(ctx context.Context) (result Result, runErr error) {
-	root, sha, err := sourceRoot()
+	root, sha, err := sourceRootFn()
 	if err != nil {
 		return Result{}, err
 	}
-	if err := validateSource(root, sha); err != nil {
+	if err := validateSourceFn(root, sha); err != nil {
 		return Result{}, err
 	}
 	if info, statErr := os.Lstat(r.ConfigPath); statErr != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
@@ -81,17 +103,18 @@ func (r Runner) Run(ctx context.Context) (result Result, runErr error) {
 	if err != nil || strings.TrimSpace(string(sourceVersion)) != target {
 		return Result{}, fmt.Errorf("source VERSION does not equal target version")
 	}
-	installed, err := validateInstalledRuntime(r.Config)
+	installed, err := validateInstalledRuntimeFn(r.Config)
 	if err != nil {
 		return Result{}, err
 	}
 	if compareVersion(target, installed) <= 0 {
 		return Result{}, fmt.Errorf("target version %s is not newer than installed version %s", target, installed)
 	}
-	if err := controller.ValidateTunnelEnv(r.Config.Controller.TunnelEnvFile); err != nil {
+	if err := validateTunnelEnvFn(r.Config.Controller.TunnelEnvFile); err != nil {
 		return Result{}, err
 	}
-	before, err := r.ConfigController().Status(ctx)
+	ctl := r.ConfigController()
+	before, err := ctl.Status(ctx)
 	if err != nil {
 		return Result{}, err
 	}
@@ -137,10 +160,10 @@ func (r Runner) Run(ctx context.Context) (result Result, runErr error) {
 			runErr = fmt.Errorf("release cleanup failed: %w", cleanupErr)
 		}
 	}()
-	if err := buildRelease(ctx, root, release); err != nil {
+	if err := buildReleaseFn(ctx, root, release); err != nil {
 		return Result{}, err
 	}
-	if err := validateRelease(release, target); err != nil {
+	if err := validateReleaseFn(release, target); err != nil {
 		return Result{}, err
 	}
 	paths := map[string]string{"gpt-tunnel-gatewayd": r.Config.Controller.GatewayBinary, "gpt-tunnel": filepath.Join(filepath.Dir(r.Config.Controller.GatewayBinary), "gpt-tunnel"), "gpt-tunnelctl": filepath.Join(filepath.Dir(r.Config.Controller.GatewayBinary), "gpt-tunnelctl")}
@@ -179,23 +202,23 @@ func (r Runner) Run(ctx context.Context) (result Result, runErr error) {
 	if err := replaceAll(release, paths, old); err != nil {
 		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
 	}
-	if err := r.ConfigController().RestartGatewayAfterUpgrade(); err != nil {
+	if err := ctl.RestartGatewayAfterUpgrade(); err != nil {
 		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
 	}
-	after, err := r.ConfigController().Status(ctx)
+	after, err := ctl.Status(ctx)
 	if err != nil {
 		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
 	}
 	if after.Gateway.PID == before.Gateway.PID || after.Tunnel.PID != before.Tunnel.PID || !after.Gateway.Running || !after.Tunnel.Running || !after.GatewayReady || !after.TunnelReady {
 		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, fmt.Errorf("post-upgrade process or readiness invariant failed"))
 	}
-	if err := r.ConfigController().Doctor(ctx); err != nil {
+	if err := ctl.Doctor(ctx); err != nil {
 		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
 	}
 	if err := verifyInstalledProof(paths, target, targetHashes, protectedPaths, protectedHashes, before.Tunnel.PID, after); err != nil {
 		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
 	}
-	if err := smoke(ctx, r.Config, target, installed); err != nil {
+	if err := smokeFn(ctx, r.Config, target, installed); err != nil {
 		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
 	}
 	if err := removeUpgradeBackup(backupDir); err != nil {
@@ -217,23 +240,24 @@ func (r Runner) rollback(ctx context.Context, root, sha, target, previous string
 			return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback version proof failed"}, fmt.Errorf("rollback version proof failed")
 		}
 	}
-	if err := r.ConfigController().StopGatewayForUpgrade(); err != nil {
+	ctl := r.ConfigController()
+	if err := ctl.StopGatewayForUpgrade(); err != nil {
 		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback gateway stop failed"}, err
 	}
-	if err := r.ConfigController().RestartGatewayAfterUpgrade(); err != nil {
+	if err := ctl.RestartGatewayAfterUpgrade(); err != nil {
 		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback gateway restart failed"}, err
 	}
-	rolled, err := r.ConfigController().Status(ctx)
+	rolled, err := ctl.Status(ctx)
 	if err != nil || !rolled.Gateway.Running || !rolled.Tunnel.Running || !rolled.GatewayReady || !rolled.TunnelReady || rolled.Tunnel.PID != before.Tunnel.PID || rolled.Gateway.PID == before.Gateway.PID {
 		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback process or readiness proof failed"}, fmt.Errorf("rollback process or readiness proof failed")
 	}
-	if err := r.ConfigController().Doctor(ctx); err != nil {
+	if err := ctl.Doctor(ctx); err != nil {
 		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback doctor proof failed"}, err
 	}
 	if err := verifyInstalledProof(paths, previous, oldHashes, protectedPaths, protectedHashes, before.Tunnel.PID, rolled); err != nil {
 		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback identity or protected-file proof failed"}, err
 	}
-	if err := smoke(ctx, r.Config, previous, target); err != nil {
+	if err := smokeFn(ctx, r.Config, previous, target); err != nil {
 		return Result{Status: "UPGRADE_ROLLBACK_FAILED", Error: "rollback MCP proof failed"}, err
 	}
 	if err := cleanupRollbackBackup(backupDir); err != nil {
@@ -242,8 +266,8 @@ func (r Runner) rollback(ctx context.Context, root, sha, target, previous string
 	return Result{Status: "UPGRADE_ROLLED_BACK", SourceRoot: root, SourceSHA: sha, Previous: previous, Target: target, GatewayPID: rolled.Gateway.PID, TunnelPID: rolled.Tunnel.PID, Rollback: true, Error: sanitizeError(cause)}, fmt.Errorf("upgrade rolled back")
 }
 
-func (r Runner) ConfigController() controller.Controller {
-	return controller.Controller{Config: r.Config, ConfigPath: r.ConfigPath}
+func (r Runner) ConfigController() upgradeController {
+	return newUpgradeControllerFn(r.Config, r.ConfigPath)
 }
 func parseVersion(v string) (string, error) {
 	if !semverRE.MatchString(v) {
@@ -795,6 +819,10 @@ func smoke(ctx context.Context, c config.Config, expectedVersion, previousVersio
 		tool, ok := raw.(map[string]any)
 		if !ok {
 			return fmt.Errorf("invalid tool descriptor")
+		}
+		name, ok := tool["name"].(string)
+		if !ok || name == "" {
+			return fmt.Errorf("tool name missing")
 		}
 		inputSchema, ok := tool["inputSchema"].(map[string]any)
 		if !ok || inputSchema["type"] != "object" {
