@@ -316,6 +316,125 @@ func (r Runner) Compare(ctx context.Context, p config.ProjectConfig, left, right
 	rr, _ := strconv.Atoi(fields[1])
 	return Compare{MergeBase: base, LeftOnly: l, RightOnly: rr}, nil
 }
+
+// ResolveMirrorRef resolves exactly one commit-ish in a managed mirror.
+func (r Runner) ResolveMirrorRef(ctx context.Context, p config.ProjectConfig, ref string) (string, error) {
+	if err := model.ValidateRevision(ref); err != nil && model.ValidateBranch(strings.TrimPrefix(ref, "refs/heads/")) != nil {
+		return "", err
+	}
+	if err := r.EnsureMirror(ctx, p); err != nil {
+		return "", err
+	}
+	out, err := r.command(ctx, p.Mirror, true, "rev-parse", "--verify", ref+"^{commit}")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func (r Runner) MirrorAncestor(ctx context.Context, p config.ProjectConfig, ancestor, descendant string) (bool, error) {
+	if err := model.ValidateRevision(ancestor); err != nil {
+		return false, err
+	}
+	if err := model.ValidateRevision(descendant); err != nil {
+		return false, err
+	}
+	if err := r.EnsureMirror(ctx, p); err != nil {
+		return false, err
+	}
+	_, err := r.command(ctx, p.Mirror, true, "merge-base", "--is-ancestor", ancestor, descendant)
+	if err == nil {
+		return true, nil
+	}
+	if strings.Contains(err.Error(), "exit status 1") {
+		return false, nil
+	}
+	return false, err
+}
+
+func (r Runner) MirrorChangedFiles(ctx context.Context, p config.ProjectConfig, from, to string) ([]string, error) {
+	if err := model.ValidateRevision(from); err != nil {
+		return nil, err
+	}
+	if err := model.ValidateRevision(to); err != nil {
+		return nil, err
+	}
+	if err := r.EnsureMirror(ctx, p); err != nil {
+		return nil, err
+	}
+	out, err := r.command(ctx, p.Mirror, true, "diff", "--name-only", "--no-renames", from, to)
+	if err != nil {
+		return nil, err
+	}
+	text, err := bounded(out, r.MaxReadBytes)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return []string{}, nil
+	}
+	if len(lines) > r.MaxListItems {
+		return nil, fmt.Errorf("changed file list exceeds item limit")
+	}
+	for _, path := range lines {
+		if err := model.ValidateRelativePath(path); err != nil {
+			return nil, err
+		}
+	}
+	sort.Strings(lines)
+	return lines, nil
+}
+
+func (r Runner) MirrorCompare(ctx context.Context, p config.ProjectConfig, left, right string) (Compare, error) {
+	if err := model.ValidateRevision(left); err != nil {
+		return Compare{}, err
+	}
+	if err := model.ValidateRevision(right); err != nil {
+		return Compare{}, err
+	}
+	if err := r.EnsureMirror(ctx, p); err != nil {
+		return Compare{}, err
+	}
+	baseOut, err := r.command(ctx, p.Mirror, true, "merge-base", left, right)
+	if err != nil {
+		return Compare{}, err
+	}
+	out, err := r.command(ctx, p.Mirror, true, "rev-list", "--left-right", "--count", left+"..."+right)
+	if err != nil {
+		return Compare{}, err
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) != 2 {
+		return Compare{}, fmt.Errorf("unexpected compare output")
+	}
+	l, err := strconv.Atoi(fields[0])
+	if err != nil {
+		return Compare{}, err
+	}
+	rr, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return Compare{}, err
+	}
+	return Compare{MergeBase: strings.TrimSpace(string(baseOut)), LeftOnly: l, RightOnly: rr}, nil
+}
+
+func (r Runner) MirrorDiffStat(ctx context.Context, p config.ProjectConfig, from, to string) (string, error) {
+	if err := model.ValidateRevision(from); err != nil {
+		return "", err
+	}
+	if err := model.ValidateRevision(to); err != nil {
+		return "", err
+	}
+	if err := r.EnsureMirror(ctx, p); err != nil {
+		return "", err
+	}
+	out, err := r.command(ctx, p.Mirror, true, "diff", "--stat", "--summary", from, to)
+	if err != nil {
+		return "", err
+	}
+	return bounded(out, r.MaxDiffBytes)
+}
 func (r Runner) WorktreeStatus(ctx context.Context, p config.ProjectConfig) (WorktreeStatus, error) {
 	out, err := r.command(ctx, p.Root, false, "status", "--porcelain=v2", "--branch")
 	if err != nil {

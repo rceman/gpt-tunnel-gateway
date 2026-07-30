@@ -29,6 +29,7 @@
 25. `tools/call.params` accepts only `name`, `arguments`, and an optional bounded protocol `_meta` object; all other envelope fields and unknown tool arguments are rejected.
 26. `gpt-tunnelctl upgrade` is source-only and requires clean synchronized `main`; it performs a locked transactional three-binary replacement, gateway-only restart, native doctor/MCP validation, and automatic all-binary rollback on failure.
 27. Fresh managed-hub startup fails readiness when configured project IDs lack durable canonical project records; it never silently reports a ready but empty project bus.
+28. `run_review_snapshot` is a bounded read-only aggregate: it refreshes the managed mirror once, omits session and local-path details, and reports deterministic structural checks for active or terminal runs without dispatching work.
 
 ## Lifecycle
 

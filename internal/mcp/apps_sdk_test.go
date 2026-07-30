@@ -41,7 +41,7 @@ func TestToolCallAcceptsBoundedProtocolMeta(t *testing.T) {
 		t.Fatalf("unexpected result: %#v", response)
 	}
 	structured, ok := result["structuredContent"].(map[string]any)
-	if !ok || structured["version"] != "0.2.3" {
+	if !ok || structured["version"] != "0.3.0" {
 		t.Fatalf("unexpected structured result: %#v", result)
 	}
 }
@@ -74,8 +74,8 @@ func TestToolCallRejectsInvalidAndOversizedMeta(t *testing.T) {
 func TestEveryToolDeclaresOutputSchemaAndExplicitAnnotations(t *testing.T) {
 	srv := &Server{Service: service.New(config.Config{})}
 	tools := srv.tools()
-	if len(tools) != 36 {
-		t.Fatalf("tool count=%d want 36", len(tools))
+	if len(tools) != 37 {
+		t.Fatalf("tool count=%d want 37", len(tools))
 	}
 	if len(toolOutputSchemas) != len(tools) || len(toolAnnotations) != len(tools) {
 		t.Fatalf("contract coverage mismatch: tools=%d outputs=%d annotations=%d", len(tools), len(toolOutputSchemas), len(toolAnnotations))
@@ -107,6 +107,7 @@ func TestToolAnnotationsMatchActualSideEffects(t *testing.T) {
 	}
 	assert("system_ping", readOnlyAnnotations())
 	assert("git_read_file", readOnlyAnnotations())
+	assert("run_review_snapshot", ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true})
 	assert("adr_create", additiveExternalAnnotations())
 	assert("task_create", additiveExternalAnnotations())
 	assert("plan_update", destructiveExternalAnnotations())
@@ -120,7 +121,7 @@ func TestToolsListSerializesOutputSchemasAndAllHints(t *testing.T) {
 	response := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
 	result := response["result"].(map[string]any)
 	tools := result["tools"].([]any)
-	if len(tools) != 36 {
+	if len(tools) != 37 {
 		t.Fatalf("tool count=%d", len(tools))
 	}
 	previous := ""
@@ -223,9 +224,11 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	ref := gitx.Ref{Name: "refs/heads/main", ObjectType: "commit", ObjectName: worktree.Head}
 	commit := gitx.Commit{SHA: worktree.Head, Parents: []string{}, AuthorName: "GPT", AuthorEmail: "gpt@example.invalid", AuthorDate: now.Format(time.RFC3339), Subject: "subject"}
 	compare := gitx.Compare{MergeBase: worktree.Head, LeftOnly: 0, RightOnly: 0}
+	clean := true
+	snapshot := model.ReviewSnapshot{SchemaVersion: 1, Run: model.ReviewSnapshotRun{ID: "run", TaskID: "task", ProjectID: "project", Status: "succeeded", Branch: "feature/x", BaseRevision: task.BaseRevision, CreatedAt: now}, Task: model.ReviewSnapshotTask{ID: "task", SHA256: task.SHA256, Title: "title", Objective: "objective", Branch: "feature/x", BaseRevision: task.BaseRevision, AcceptanceCriteria: []string{}, Constraints: []string{}, RequiredGates: []string{}, CreatedBy: "gpt", CreatedAt: now, TaskStateStatus: "completed"}, Report: model.ReviewSnapshotArtifact{Available: true, Status: "succeeded", Summary: "done", Commits: []string{}, ChangedFiles: []string{}, Commands: []model.CommandResult{}, Deviations: []string{}, RemainingRisks: []string{}, FinishedAt: &now}, Evidence: model.ReviewSnapshotArtifact{Available: true, Head: worktree.Head, Branch: "feature/x", WorktreeClean: &clean, Notes: []string{}, RecordedAt: &now}, Repository: model.ReviewSnapshotRepo{RefreshAttempted: true, RefreshSucceeded: true, DefaultBranch: "main", TaskBranch: "feature/x", TaskBranchPublished: true, TaskBranchHead: worktree.Head, Worktree: model.ReviewSnapshotWorktree{Branch: "feature/x", Head: worktree.Head, Clean: true}, EvidenceHeadReachable: true, BaseToEvidence: model.ReviewSnapshotCompare{MergeBase: task.BaseRevision}, DefaultToEvidence: model.ReviewSnapshotCompare{}, ChangedFiles: []string{}}, Checks: []model.ReviewSnapshotCheck{}, ReviewState: "reviewable", NextAction: "perform_static_review"}
 
 	samples := map[string]any{
-		"system_ping":          map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.2.3", "gateway_id": "home_pc", "time": now},
+		"system_ping":          map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.3.0", "gateway_id": "home_pc", "time": now},
 		"gateway_capabilities": map[string]any{"gateway_id": "home_pc", "listen_addr": "127.0.0.1:8765", "projects": []string{"project"}, "hub_protocol_root": "gpt-tunnel/v1", "hub_repository_url": "git@github.com:rceman/typer.git", "hub_branch": "gpt-tunnel/home_pc", "hub_managed_root": "/tmp/state/hub/repository", "airelay_control_only": true, "generic_shell_available": false},
 		"project_list":         map[string]any{"projects": []model.Project{project}}, "project_read": project,
 		"project_status": service.ProjectStatus{Project: project, Local: local, Worktree: worktree, HubRevision: transaction.After}, "project_register": operation,
@@ -234,7 +237,8 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		"task_create": map[string]any{"task": task, "operation": operation}, "task_list": map[string]any{"tasks": []service.TaskRecord{{Task: task, State: state}}}, "task_read": packet,
 		"task_dispatch": map[string]any{"run": run, "operation": operation}, "task_supersede": map[string]any{"task": task, "operation": operation}, "task_cancel": operation,
 		"run_list": map[string]any{"runs": []model.Run{run}}, "run_read": run, "run_status": run, "run_report": report, "run_evidence": evidence,
-		"run_sweep": service.SweepResult{Checked: 1, Items: []service.SweepItem{{RunID: "run", Action: "reprompt", Status: "awaiting_result"}}}, "run_cancel": operation,
+		"run_review_snapshot": snapshot,
+		"run_sweep":           service.SweepResult{Checked: 1, Items: []service.SweepItem{{RunID: "run", Action: "reprompt", Status: "awaiting_result"}}}, "run_cancel": operation,
 		"git_refresh": map[string]any{"project_id": "project", "refreshed": true}, "git_refs": map[string]any{"refs": []gitx.Ref{ref}},
 		"git_log": map[string]any{"commits": []gitx.Commit{commit}}, "git_show": map[string]any{"text": "show"}, "git_tree": map[string]any{"paths": []string{"README.md"}},
 		"git_read_file": map[string]any{"path": "README.md", "revision": "main", "content": "content"}, "git_diff": map[string]any{"diff": "diff"},

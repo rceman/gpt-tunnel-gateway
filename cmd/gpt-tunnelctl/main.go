@@ -17,7 +17,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/upgrade"
 )
 
-var version = "0.2.3"
+var version = "0.3.0"
 
 func main() {
 	if len(os.Args) < 2 {

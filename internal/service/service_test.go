@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,5 +93,41 @@ func TestTaskPlanDispatchReadFinalize(t *testing.T) {
 	}
 	if report.Status != "succeeded" || final.Status != "TASK_FINALIZED" {
 		t.Fatalf("bad final: %#v %#v", report, final)
+	}
+}
+
+func TestRunReviewSnapshotActiveIsBounded(t *testing.T) {
+	s, hubRev, projectHead := testService(t)
+	ctx := context.Background()
+	task, create, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Review feature", Objective: "Review exact behavior.", Branch: "feature/review", BaseRevision: projectHead, AcceptanceCriteria: []string{"feature works"}, Constraints: []string{"no redesign"}, RequiredGates: []string{"go test ./..."}, CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: hubRev}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Summary: "Review feature", Body: "Execute the prepared task.", ActiveTaskID: task.ID, UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: create.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := s.RunReviewSnapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.ReviewState != "active" || snapshot.NextAction != "wait_for_terminal" {
+		t.Fatalf("snapshot state=%s next=%s", snapshot.ReviewState, snapshot.NextAction)
+	}
+	if snapshot.Report.Available || snapshot.Evidence.Available {
+		t.Fatal("active snapshot exposed terminal artifacts")
+	}
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"session_key", "result_path", "evidence_path", "dispatch_stdout", "dispatch_stderr"} {
+		if strings.Contains(string(data), forbidden) {
+			t.Fatalf("snapshot exposed forbidden field %q", forbidden)
+		}
 	}
 }

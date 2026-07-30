@@ -36,6 +36,8 @@ task create
 
 A successful Airelay delivery is non-terminal. Completion exists only after hub finalization succeeds.
 
+For a bounded structural review, use `gpt-tunnel run review-snapshot <run-id>`. It refreshes the managed mirror once and returns deterministic task, artifact, repository, and invariant-check data without dispatching work or exposing session details or local paths.
+
 ## Development gates
 
 ```bash

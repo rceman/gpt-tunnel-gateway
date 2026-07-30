@@ -14,7 +14,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-var version = "0.2.3"
+var version = "0.3.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -297,6 +297,13 @@ func run(ctx context.Context, s *service.Service, args []string) {
 	case "evidence":
 		require(args, 2)
 		v, e := s.RunEvidence(ctx, args[1])
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
+	case "review-snapshot":
+		require(args, 2)
+		v, e := s.RunReviewSnapshot(ctx, args[1])
 		if e != nil {
 			fatal(e)
 		}

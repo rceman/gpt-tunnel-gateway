@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0 — unreleased
+
+- Add the read-only `run_review_snapshot` aggregate for bounded structural review of active and terminal runs.
+
 ## 0.2.3 — unreleased
 
 - Add safe transactional `gpt-tunnelctl upgrade` with validation, rollback, and gateway-only restart.
