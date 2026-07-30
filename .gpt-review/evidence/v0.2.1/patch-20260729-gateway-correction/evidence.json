@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "base": "7b63d946ecd7d094268361cad0aba30d8eda69db",
+  "implementation_commit": "08aac9b889f6790058c62f1358af347073b1eeda",
+  "integration_fix_commits": [],
+  "commands": [
+    {"command":"bash gpt-tunnel-gateway-v0.2.1-correction-r3.run","exit_code":0,"result":"two isolated full-gate validations and source application passed"},
+    {"command":"python3 scripts/smoke_mcp.py --url http://127.0.0.1:18876/mcp","exit_code":0,"result":"MCP_SMOKE_OK"},
+    {"command":"git diff --cached --check","exit_code":0,"result":"passed"}
+  ],
+  "changed_files": 20,
+  "strict_compatibility_guard": "legacy v1-v3 state fail-closed; parallel v4 requires explicit configuration",
+  "deviations": [],
+  "remaining_risks": ["Exact legacy v1-v3 adapters and production cutover remain blocked pending imported schema validation."],
+  "active_tunnel_touched": false,
+  "finished_at": "2026-07-30T00:00:00Z"
+}
