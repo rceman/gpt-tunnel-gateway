@@ -46,6 +46,22 @@ func TestToolCallAcceptsBoundedProtocolMeta(t *testing.T) {
 	}
 }
 
+func TestRunReviewSnapshotToolCallUsesOnlyRunIDAndReturnsToolErrorForUnknownRun(t *testing.T) {
+	srv := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
+	response := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"run_review_snapshot","arguments":{"run_id":"missing"}}}`))
+	result, ok := response["result"].(map[string]any)
+	if !ok || result["isError"] != true {
+		t.Fatalf("unexpected snapshot tool result: %#v", response)
+	}
+	if _, ok := result["structuredContent"]; ok {
+		t.Fatalf("tool error exposed structuredContent: %#v", result)
+	}
+	tool := srv.tools()["run_review_snapshot"]
+	if got := tool.InputSchema["required"].([]string); len(got) != 1 || got[0] != "run_id" {
+		t.Fatalf("unexpected input contract: %#v", tool.InputSchema)
+	}
+}
+
 func TestToolCallRejectsInvalidAndOversizedMeta(t *testing.T) {
 	srv := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
 	for _, meta := range []string{`null`, `[]`, `"value"`} {
