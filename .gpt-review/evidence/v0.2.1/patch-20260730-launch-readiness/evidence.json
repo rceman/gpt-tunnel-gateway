@@ -9,12 +9,12 @@
     {"command":"go vet ./...","exit_code":0,"result":"passed"},
     {"command":"go test -race ./...","exit_code":0,"result":"passed"},
     {"command":"python3 scripts/static-check.py","exit_code":0,"result":"STATIC_CHECK_OK"},
-    {"command":"bash scripts/build-release.sh TEMP && sha256sum -c SHA256SUMS","exit_code":0,"result":"all binaries and checksums passed"},
+    {"command":"launch_dist=$(mktemp -d /tmp/gpt-tunnel-gateway-launch-dist.XXXXXX); bash scripts/build-release.sh \"$launch_dist\"; (cd \"$launch_dist\" && sha256sum -c SHA256SUMS && ! grep -Eq '  /' SHA256SUMS)","exit_code":0,"result":"all binaries and checksums passed"},
     {"command":"git diff --check","exit_code":0,"result":"passed"}
   ],
   "changed_files": 30,
   "deviations": [],
   "active_tunnel_touched": false,
   "cutover_performed": false,
-  "finished_at": "2026-07-30T00:00:00Z"
+  "finished_at": "2026-07-30T05:43:26Z"
 }
