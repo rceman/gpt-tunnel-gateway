@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "base": "40d11f1763f5cc5079a6d75a26feaa7c975b416c",
+  "implementation_commit": "1de04b7a6d51259ac1e067ec3d37424289052344",
+  "integration_fix_commits": [],
+  "commands": [
+    {
+      "command": "go test ./internal/mcp ./cmd/gpt-tunnel",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "test -z \"$(gofmt -l .)\"",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "go vet ./...",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "go test -race ./...",
+      "exit_code": 0,
+      "result": "all packages passed"
+    },
+    {
+      "command": "python3 scripts/static-check.py",
+      "exit_code": 0,
+      "result": "STATIC_CHECK_OK"
+    },
+    {
+      "command": "bash scripts/build-release.sh ./dist",
+      "exit_code": 0,
+      "result": "all release artifacts built"
+    },
+    {
+      "command": "cd dist && sha256sum -c SHA256SUMS && ! grep -Eq \"  /\" SHA256SUMS",
+      "exit_code": 0,
+      "result": "checksums verified and manifest paths are relative"
+    },
+    {
+      "command": "test \"$(./dist/gpt-tunnel-gatewayd --version)\" = \"0.4.0\"",
+      "exit_code": 0,
+      "result": "gpt-tunnel-gatewayd reported 0.4.0"
+    },
+    {
+      "command": "test \"$(./dist/gpt-tunnel version)\" = \"0.4.0\"",
+      "exit_code": 0,
+      "result": "gpt-tunnel reported 0.4.0"
+    },
+    {
+      "command": "test \"$(./dist/gpt-tunnelctl version)\" = \"0.4.0\"",
+      "exit_code": 0,
+      "result": "gpt-tunnelctl reported 0.4.0"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "passed"
+    }
+  ],
+  "changed_files": [
+    "cmd/gpt-tunnel/main_test.go",
+    "internal/mcp/apps_sdk_test.go",
+    ".gpt-review/evidence/v0.4.0/patch-20260731-run-agent-tail-review-r2/AGENT_RESULT.md",
+    ".gpt-review/evidence/v0.4.0/patch-20260731-run-agent-tail-review-r2/evidence.json"
+  ],
+  "deviations": [],
+  "user_typer_checkout_required": false,
+  "active_tunnel_touched": false,
+  "runtime_replacement_performed": false,
+  "finished_at": "2026-07-31T09:32:09Z"
+}
