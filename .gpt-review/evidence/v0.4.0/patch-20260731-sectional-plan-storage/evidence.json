@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "base": "ce711c90f508f75be94df1436680b8b1ed09b209",
+  "implementation_commit": "17d890f4d773695cf04fd97b626897df4d004542",
+  "integration_fix_commits": [],
+  "commands": [
+    {
+      "command": "test -z \"$(gofmt -l .)\"",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "go vet ./...",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "go test -race ./...",
+      "exit_code": 0,
+      "result": "all packages passed"
+    },
+    {
+      "command": "python3 scripts/static-check.py",
+      "exit_code": 0,
+      "result": "STATIC_CHECK_OK"
+    },
+    {
+      "command": "bash scripts/build-release.sh ./dist",
+      "exit_code": 0,
+      "result": "all release artifacts built"
+    },
+    {
+      "command": "cd dist && sha256sum -c SHA256SUMS && ! grep -Eq \"  /\" SHA256SUMS",
+      "exit_code": 0,
+      "result": "checksums verified and manifest paths are relative"
+    },
+    {
+      "command": "release_dir=\"$(mktemp -d /tmp/gpt-tunnel-gateway-sectional-plan.XXXXXX)\"; bash scripts/build-release.sh \"$release_dir\"; (cd \"$release_dir\"; sha256sum -c SHA256SUMS; test \"$(\"$release_dir/gpt-tunnel-gatewayd\" --version)\" = \"0.4.0\"; test \"$(\"$release_dir/gpt-tunnel\" version)\" = \"0.4.0\"; test \"$(\"$release_dir/gpt-tunnelctl\" version)\" = \"0.4.0\")",
+      "exit_code": 0,
+      "result": "all three binaries reported 0.4.0"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "passed"
+    }
+  ],
+  "changed_files": [
+    "CHANGELOG.md",
+    "README.md",
+    "cmd/gpt-tunnel/main.go",
+    "cmd/gpt-tunnel/main_test.go",
+    "docs/ARCHITECTURE.md",
+    "docs/BEHAVIOR_CONTRACT.md",
+    "docs/CLI_CONTRACT.md",
+    "docs/HUB_LAYOUT.md",
+    "docs/MCP_CONTRACT.md",
+    "internal/mcp/apps_sdk_test.go",
+    "internal/mcp/schema.go",
+    "internal/mcp/sectional_plan_test.go",
+    "internal/mcp/server.go",
+    "internal/model/model.go",
+    "internal/model/sectional_plan_test.go",
+    "internal/service/sectional_plan_test.go",
+    "internal/service/service.go",
+    "internal/service/service_test.go",
+    ".gpt-review/evidence/v0.4.0/patch-20260731-sectional-plan-storage/AGENT_RESULT.md",
+    ".gpt-review/evidence/v0.4.0/patch-20260731-sectional-plan-storage/evidence.json"
+  ],
+  "deviations": [],
+  "user_typer_checkout_required": false,
+  "active_tunnel_touched": false,
+  "runtime_replacement_performed": false,
+  "finished_at": "2026-07-31T10:16:16Z"
+}
