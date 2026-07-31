@@ -32,6 +32,7 @@ gpt-tunnel task cancel <task-id> [--expected-hub-revision <sha>]
 
 gpt-tunnel run list <project-id>
 gpt-tunnel run read|status|report|evidence|review-snapshot <run-id>
+gpt-tunnel run agent-tail <run-id> [--lines N]
 gpt-tunnel run cancel <run-id>
 gpt-tunnel run sweep
 gpt-tunnel run finalize <run-id> [--result-file <path>] [--evidence-file <path>]

@@ -633,6 +633,30 @@ func (s *Service) findRun(ctx context.Context, id string) (model.Run, error) {
 func (s *Service) RunRead(ctx context.Context, id string) (model.Run, error) {
 	return s.findRun(ctx, id)
 }
+
+func (s *Service) RunAgentTail(ctx context.Context, id string, lines int) (string, error) {
+	run, err := s.findRun(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if err := s.ensureRunOwned(run); err != nil {
+		return "", err
+	}
+	if !activeStatus(run.Status) {
+		return "", fmt.Errorf("run is not active")
+	}
+	if lines == 0 {
+		lines = 4
+	}
+	if lines < 1 || lines > 200 {
+		return "", fmt.Errorf("invalid tail line count: must be between 1 and 200")
+	}
+	result, err := s.Airelay.Tail(ctx, run.SessionKey, lines)
+	if err != nil {
+		return "", err
+	}
+	return result.Stdout, nil
+}
 func (s *Service) ensureRunOwned(run model.Run) error {
 	if run.GatewayID != s.Config.GatewayID {
 		return fmt.Errorf("run %s is assigned to gateway %s, current gateway is %s", run.ID, run.GatewayID, s.Config.GatewayID)

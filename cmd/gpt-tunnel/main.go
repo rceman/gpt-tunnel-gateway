@@ -14,7 +14,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-var version = "0.3.0"
+var version = "0.4.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -308,6 +308,24 @@ func run(ctx context.Context, s *service.Service, args []string) {
 			fatal(e)
 		}
 		output(v)
+	case "agent-tail":
+		require(args, 2)
+		lines := 4
+		if len(args) > 2 {
+			if len(args) != 4 || args[2] != "--lines" {
+				usage()
+			}
+			value, e := strconv.Atoi(args[3])
+			if e != nil {
+				fatal(fmt.Errorf("invalid tail line count"))
+			}
+			lines = value
+		}
+		v, e := s.RunAgentTail(ctx, args[1], lines)
+		if e != nil {
+			fatal(e)
+		}
+		fmt.Println(strings.TrimRight(v, "\r\n"))
 	case "sweep":
 		v, e := s.RunSweep(ctx)
 		if e != nil {

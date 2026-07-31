@@ -11,6 +11,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
@@ -161,5 +162,79 @@ func TestRunReviewSnapshotRejectsOversizedAggregate(t *testing.T) {
 	s.Config.MaxReadBytes = 100
 	if _, err := s.RunReviewSnapshot(ctx, run.ID); err == nil || !strings.Contains(err.Error(), "output limit") {
 		t.Fatalf("expected explicit output bound error, got %v", err)
+	}
+}
+
+func createActiveTailRun(t *testing.T, s *Service, hubRevision, projectHead string) model.Run {
+	t.Helper()
+	ctx := context.Background()
+	revision := hubRevision
+	task, create, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Tail", Objective: "Inspect tail.", Branch: "feature/tail", BaseRevision: projectHead, AcceptanceCriteria: []string{"tail"}, CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Summary: "Tail", Body: "Tail.", ActiveTaskID: task.ID, UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: create.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return run
+}
+
+func TestRunAgentTailUsesStoredSessionAndDefaultAndExplicitLines(t *testing.T) {
+	s, hubRevision, projectHead := testService(t)
+	dir := t.TempDir()
+	log := filepath.Join(dir, "args")
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \""+log+"\"\nprintf 'tail text\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	run := createActiveTailRun(t, s, hubRevision, projectHead)
+	s.Airelay.Command = script
+	text, err := s.RunAgentTail(context.Background(), run.ID, 0)
+	if err != nil || text != "tail text\n" {
+		t.Fatalf("default tail=%q err=%v", text, err)
+	}
+	args, _ := os.ReadFile(log)
+	if string(args) != "tail\nexample_master\n--lines\n4\n" {
+		t.Fatalf("default argv=%q", args)
+	}
+	_, err = s.RunAgentTail(context.Background(), run.ID, 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, _ = os.ReadFile(log)
+	if !strings.HasSuffix(string(args), "--lines\n9\n") {
+		t.Fatalf("explicit argv=%q", args)
+	}
+}
+
+func TestRunAgentTailRejectsBoundsTerminalAndForeignBeforeAirelay(t *testing.T) {
+	s, revision, _ := testService(t)
+	now := time.Now().UTC()
+	for _, run := range []model.Run{
+		{SchemaVersion: 1, ID: "terminal-tail", TaskID: "task", TaskSHA256: strings.Repeat("a", 64), ProjectID: "example", GatewayID: s.Config.GatewayID, SessionKey: "terminal_secret", Branch: "feature/x", BaseRevision: strings.Repeat("b", 40), Status: "succeeded", CreatedAt: now},
+		{SchemaVersion: 1, ID: "foreign-tail", TaskID: "task", TaskSHA256: strings.Repeat("a", 64), ProjectID: "example", GatewayID: "other_gateway", SessionKey: "foreign_secret", Branch: "feature/x", BaseRevision: strings.Repeat("b", 40), Status: "awaiting_result", CreatedAt: now},
+	} {
+		tx, err := s.Hub.Transact(context.Background(), revision, "test tail run", func(worktree string) ([]string, error) {
+			path := s.runPath(run.ProjectID, run.ID)
+			return []string{path}, hub.WriteJSON(worktree, path, run)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		revision = tx.After
+	}
+	for _, test := range []struct {
+		id    string
+		want  string
+		lines int
+	}{{"terminal-tail", "run is not active", 4}, {"foreign-tail", "assigned to gateway", 4}, {"foreign-tail", "", 201}} {
+		if _, err := s.RunAgentTail(context.Background(), test.id, test.lines); err == nil || !strings.Contains(err.Error(), test.want) {
+			t.Fatalf("%s error=%v", test.id, err)
+		}
 	}
 }

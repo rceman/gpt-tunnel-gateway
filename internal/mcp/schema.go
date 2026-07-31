@@ -259,6 +259,7 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	} {
 		result[name] = readOnlyAnnotations()
 	}
+	result["run_agent_tail"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
 	result["run_review_snapshot"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
 	for _, name := range []string{"project_register", "adr_create", "task_create"} {
 		result[name] = additiveExternalAnnotations()

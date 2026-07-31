@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 var sessionRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
@@ -25,6 +26,24 @@ type Client struct {
 	Command         string
 	Timeout         time.Duration
 	MaxMessageBytes int
+}
+
+type tailBuffer struct {
+	bytes.Buffer
+	max      int
+	exceeded bool
+}
+
+func (b *tailBuffer) Write(p []byte) (int, error) {
+	if b.Len()+len(p) > b.max {
+		remaining := b.max - b.Len()
+		if remaining > 0 {
+			_, _ = b.Buffer.Write(p[:remaining])
+		}
+		b.exceeded = true
+		return len(p), nil
+	}
+	return b.Buffer.Write(p)
 }
 
 func (c Client) Prompt(ctx context.Context, session, message string) (Result, error) {
@@ -58,6 +77,59 @@ func (c Client) Prompt(ctx context.Context, session, message string) (Result, er
 		return result, fmt.Errorf("Airelay prompt failed: %w", err)
 	}
 	return result, nil
+}
+
+func (c Client) Tail(ctx context.Context, session string, lines int) (Result, error) {
+	if !sessionRE.MatchString(session) {
+		return Result{}, fmt.Errorf("invalid Airelay session key")
+	}
+	if lines < 1 || lines > 200 {
+		return Result{}, fmt.Errorf("invalid Airelay tail line count")
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	defer cancel()
+	result := Result{StartedAt: time.Now().UTC()}
+	cmd := exec.CommandContext(ctx, c.Command, "tail", session, "--lines", fmt.Sprintf("%d", lines))
+	cmd.Env = cleanEnv()
+	var stdout, stderr tailBuffer
+	stdout.max, stderr.max = 8192, 8192
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	result.FinishedAt = time.Now().UTC()
+	result.Stdout = normalizeTail(stdout.String())
+	result.Stderr = bounded(stderr.String(), 8192)
+	if cmd.ProcessState != nil {
+		result.ExitCode = cmd.ProcessState.ExitCode()
+	} else {
+		result.ExitCode = -1
+	}
+	if ctx.Err() != nil {
+		return result, fmt.Errorf("Airelay tail timeout: %w", ctx.Err())
+	}
+	if stdout.exceeded || stderr.exceeded {
+		return result, fmt.Errorf("Airelay tail output exceeds limit")
+	}
+	if strings.TrimSpace(result.Stdout) == "" {
+		return result, fmt.Errorf("Airelay tail returned no output")
+	}
+	if err != nil {
+		return result, fmt.Errorf("Airelay tail failed")
+	}
+	return result, nil
+}
+
+var ansiRE = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))`)
+
+func normalizeTail(value string) string {
+	value = ansiRE.ReplaceAllString(value, "")
+	var b strings.Builder
+	for _, r := range value {
+		if r == '\n' || r == '\r' || r == '\t' || (!unicode.IsControl(r) && r != '\u007f') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 func cleanEnv() []string {
 	keys := []string{"HOME", "PATH", "USER", "LOGNAME", "TMPDIR"}

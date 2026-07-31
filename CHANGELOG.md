@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0 — unreleased
+
+- Add read-only active-run Airelay tail inspection through MCP and CLI.
+
 ## 0.3.0 — unreleased
 
 - Add the read-only `run_review_snapshot` aggregate for bounded structural review of active and terminal runs.
