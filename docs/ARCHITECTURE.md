@@ -14,7 +14,7 @@ existing tunnel-client
   ├── local worktree inspection
   ├── project/plan/ADR/task/run service
   ├── Airelay bounded dispatch
-  └── result/evidence validation
+  └── strict completion validation and canonical report derivation
 ```
 
 `gpt-tunnel-gatewayd` is a control plane, not a remote shell. Every operation maps to a bounded typed method.
@@ -28,7 +28,8 @@ GitHub hub state is canonical and cross-device:
 - accepted/superseding ADRs;
 - immutable hashed tasks and mutable task-state records;
 - run lifecycle;
-- results, evidence, and deterministic reports.
+- run lifecycle and one canonical report per finalized run;
+- historical protocol-v1 run projections are read-only and path-redacted.
 
 Local state is machine-specific and disposable:
 
@@ -36,7 +37,7 @@ Local state is machine-specific and disposable:
 - the gateway-managed hub clone under `state_dir/hub/repository`;
 - managed read-only project Git mirrors;
 - gateway and session mapping;
-- run result staging paths;
+- one local `completion.json` staging path per active run;
 - kernel-backed locks, PID files, and logs.
 
 ## Hub transaction
@@ -66,7 +67,7 @@ Committed history is read from managed bare mirrors so refreshes do not race wit
 
 ## Agent transport
 
-Airelay carries only a short action and task-reading command. The complete execution packet is generated locally by `gpt-tunnel task read <task-id>`. The persistent session is owner-managed; the gateway never starts or resumes Codex.
+Airelay carries only a short action and task-reading command. The complete execution packet is generated locally by `gpt-tunnel task read <task-id>`. Agents write one bounded completion document; the gateway derives Git proof and writes only `run.json` and `report.json` to the hub. The persistent session is owner-managed; the gateway never starts or resumes Codex.
 
 ## Runtime binding
 

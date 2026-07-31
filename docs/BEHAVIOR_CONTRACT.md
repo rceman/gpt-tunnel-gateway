@@ -13,13 +13,13 @@
 9. An existing task branch is accepted only when the task base is an ancestor; otherwise dispatch fails without reset, clean, delete, or force-update.
 10. Airelay messages are at most 256 bytes and contain no task body.
 11. Successful prompt delivery moves a run to `awaiting_result`; it never means success.
-12. `run finalize` validates exact task/run identities, task hash, schema version, repository evidence, acceptance coverage, paths, commits, gates, and terminal status.
-13. Failed dispatch, repository preparation failure, cancellation timeout, and result timeout produce committed terminal hub records.
+12. `run finalize` reads one bounded strict `completion.json`, validates exact task/run identity, task hash, positional receipts, and terminal status, then derives repository proof independently.
+13. Failed dispatch, repository preparation failure, cancellation timeout, and completion timeout produce one canonical failed report; they never create result or evidence artifacts.
 14. Cancellation is cooperative and never signals the shared persistent agent process.
 15. The canonical plan is schema-v2: a compact manifest plus independently versioned named sections; no full section description is returned by `plan_read` or compact project status.
 16. Manifest updates are partial and preserve omitted fields. Section updates and deletes require an independent optimistic section revision; unrelated sections do not conflict.
 17. A current schema-v1 monolithic plan is converted only by the explicit owner-invoked `plan_cutover` operation. It decomposes headings, objective, and queue items into schema-v2 records, proves every meaningful source line is represented, and then removes the legacy body; ordinary reads never migrate and there is no v1 fallback, alias, or dual write.
-18. A timed-out active run is reprompted once, then terminalized if no valid finalization appears.
+18. A timed-out active run is reprompted once, then terminalized as failed if no valid finalization appears.
 19. Managed Git mirror operations may fetch remote refs but never modify the project worktree or remote repository.
 20. The controller verifies PID executable identity before signaling any process.
 21. The patch does not stop or replace the active `ai-workspace` runtime; cutover is a separate operation.
@@ -33,15 +33,17 @@
 29. `gpt-tunnelctl upgrade` is source-only and requires clean synchronized `main`; it performs a locked transactional three-binary replacement, gateway-only restart, native doctor/MCP validation, and automatic all-binary rollback on failure.
 30. Fresh managed-hub startup fails readiness when configured project IDs lack durable canonical project records; it never silently reports a ready but empty project bus.
 31. `run_review_snapshot` is a bounded read-only aggregate: it refreshes the managed mirror once, omits session and local-path details, and reports deterministic structural checks for active or terminal runs without dispatching work.
+32. New runs expose only one local `completion.json`; new hub run state is exactly `run.json` plus canonical `report.json`.
+33. Terminal completion statuses are only `succeeded`, `failed`, and `needs_gpt_revision`; every terminal path clears active task/run ownership. Historical protocol-v1 run records are bounded, read-only projections with legacy paths redacted.
 
 ## Lifecycle
 
 ```text
 Task state: created → dispatched → completed
+                         ↘ ready (failed or needs_gpt_revision; recoverable)
                          ↘ cancelled
                          ↘ superseded
 
-Run state: created → dispatching → awaiting_result → succeeded|failed|blocked
-                                      ↘ cancel_requested → cancelled
-                                      ↘ timed_out
+Run state: created → dispatching → awaiting_result → succeeded|failed|needs_gpt_revision
+                                      ↘ cancel_requested → failed
 ```

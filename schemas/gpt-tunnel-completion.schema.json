@@ -8,13 +8,13 @@
     "run_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
     "task_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "status": {"enum": ["succeeded", "failed", "needs_gpt_revision"]},
-    "summary": {"type": "string", "maxLength": 4096},
+    "summary": {"type": "string", "minLength": 1, "maxLength": 4096},
     "gate_results": {
       "type": "array", "maxItems": 128,
       "items": {"type": "object", "additionalProperties": false, "required": ["id", "exit_code"], "properties": {"id": {"type": "string", "pattern": "^G[1-9][0-9]*$"}, "exit_code": {"type": "integer"}}}
     },
     "acceptance_coverage": {"type": "array", "maxItems": 128, "items": {"type": "string", "pattern": "^AC[1-9][0-9]*$"}},
-    "deviations": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 2048}},
-    "remaining_risks": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 2048}}
+    "deviations": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 2048}},
+    "remaining_risks": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 2048}}
   }
 }

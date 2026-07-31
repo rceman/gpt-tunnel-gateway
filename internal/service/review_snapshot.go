@@ -34,6 +34,9 @@ func (s *Service) RunReviewSnapshot(ctx context.Context, id string) (model.Revie
 	if err != nil {
 		return model.ReviewSnapshot{}, err
 	}
+	if run.Historical {
+		return model.ReviewSnapshot{}, fmt.Errorf("workflow-v1 run review snapshot is history-only")
+	}
 	task, taskErr := s.readTaskForRun(ctx, run)
 	state, stateErr := s.taskState(ctx, task)
 	if stateErr != nil {
@@ -47,6 +50,15 @@ func (s *Service) RunReviewSnapshot(ctx context.Context, id string) (model.Revie
 	terminal := !activeStatus(run.Status)
 	report, reportErr := s.readSnapshotReport(ctx, run, task)
 	evidence, evidenceErr := snapshotEvidenceFromReport(report, reportErr)
+	if terminal && reportErr == nil {
+		wantState := "ready"
+		if report.Status == "succeeded" {
+			wantState = "completed"
+		}
+		if state.Status != wantState {
+			reportErr = fmt.Errorf("report status does not match task state")
+		}
+	}
 	if !terminal {
 		report = model.ReviewSnapshotReport{Available: false}
 		evidence = model.ReviewSnapshotEvidence{Available: false}
@@ -114,8 +126,11 @@ func (s *Service) readSnapshotReport(ctx context.Context, run model.Run, task mo
 	if report.SchemaVersion != model.SchemaVersion || report.TaskID != task.ID || report.RunID != run.ID || report.ProjectID != run.ProjectID || report.Status == "" || report.FinishedAt.IsZero() {
 		return model.ReviewSnapshotReport{}, fmt.Errorf("report identity or completeness mismatch")
 	}
-	if err := model.ValidateReport(report, task, run); err != nil {
+	if err := model.ValidateReport(report, task, run, s.Config.MaxListItems); err != nil {
 		return model.ReviewSnapshotReport{}, err
+	}
+	if run.Status != report.Status {
+		return model.ReviewSnapshotReport{}, fmt.Errorf("report status does not match run")
 	}
 	commit, err := s.Hub.LastChange(ctx, s.reportPath(run.ProjectID, run.ID))
 	if err != nil {

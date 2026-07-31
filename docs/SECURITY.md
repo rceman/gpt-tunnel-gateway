@@ -16,13 +16,17 @@
 - typed Git operations with revision/path validation;
 - Git config isolation, pager/external diff disabling, non-interactive authentication;
 - no shell invocation for Git or Airelay;
-- bounded output, list, message, result, and evidence sizes;
+- bounded output, list, message, completion, and report sizes;
 - immutable task hashing;
 - optimistic hub concurrency and plain push;
 - exact remote commit verification;
 - atomic file writes with restrictive modes;
 - executable identity checks before stop/restart;
 - owner-managed secrets outside Git and prompts.
+
+Historical protocol-v1 run records are decoded through a bounded strict read
+model. Legacy local result/evidence paths are never returned publicly, and
+legacy result/evidence files are never accepted as workflow-2.0 completion.
 
 ## Explicitly forbidden
 

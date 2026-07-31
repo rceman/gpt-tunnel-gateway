@@ -46,6 +46,11 @@ gpt-tunnel run finalize <run-id> [--completion-file <path>]
 
 `run finalize` is local-agent-only. It is intentionally not exposed as a remote MCP write tool.
 
+`run report` reads only the canonical workflow-2.0 report. Protocol-v1 runs
+remain visible through bounded `run list`/`run read` history with legacy local
+paths redacted, but report and finalization operations return a stable
+history-only error for those runs.
+
 `plan read` returns only the compact schema-v2 manifest. Full section descriptions are returned by `plan section-read` or the explicit `plan render` operation. Manifest updates are partial and preserve fields omitted from the input. Section updates and deletes require `expected_section_revision`; unrelated sections do not conflict.
 
 ## Git exploration

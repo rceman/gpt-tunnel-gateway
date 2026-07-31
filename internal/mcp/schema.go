@@ -104,17 +104,6 @@ func runOutputSchema() map[string]any {
 	}, "schema_version", "id", "task_id", "task_sha256", "project_id", "gateway_id", "session_key", "branch", "base_revision", "hub_revision", "status", "completion_path", "created_at")
 }
 
-func commandResultOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"command": outputString(), "exit_code": outputInteger(), "result": outputString()}, "command", "exit_code", "result")
-}
-
-func evidenceOutputSchema() map[string]any {
-	return closedOutput(map[string]any{
-		"schema_version": outputInteger(), "task_id": outputString(), "run_id": outputString(), "project_head": outputString(),
-		"branch": outputString(), "worktree_clean": outputBoolean(), "notes": outputArray(outputString()), "recorded_at": outputDateTime(),
-	}, "schema_version", "task_id", "run_id", "project_head", "branch", "worktree_clean", "recorded_at")
-}
-
 func reportOutputSchema() map[string]any {
 	gate := closedOutput(map[string]any{"id": outputString(), "exit_code": outputInteger()}, "id", "exit_code")
 	repository := closedOutput(map[string]any{"branch": outputString(), "head": outputString(), "worktree_clean": outputBoolean(), "base_ancestor": outputBoolean(), "commits": outputArray(outputString()), "changed_files": outputArray(outputString()), "diff_scope": outputString()}, "branch", "head", "worktree_clean", "base_ancestor", "commits", "changed_files", "diff_scope")
@@ -142,9 +131,8 @@ func reviewSnapshotOutputSchema() map[string]any {
 	timeField := outputDateTime()
 	run := closedOutput(map[string]any{"id": outputString(), "task_id": outputString(), "project_id": outputString(), "status": outputString(), "branch": outputString(), "base_revision": outputString(), "created_at": timeField, "dispatched_at": timeField, "finished_at": timeField}, "id", "task_id", "project_id", "status", "branch", "base_revision", "created_at")
 	task := closedOutput(map[string]any{"id": outputString(), "sha256": outputString(), "title": outputString(), "objective": outputString(), "branch": outputString(), "base_revision": outputString(), "acceptance_criteria": outputArray(outputString()), "constraints": outputArray(outputString()), "required_gates": outputArray(outputString()), "created_by": outputString(), "created_at": timeField, "task_state_status": outputString()}, "id", "sha256", "title", "objective", "branch", "base_revision", "acceptance_criteria", "constraints", "required_gates", "created_by", "created_at", "task_state_status")
-	command := commandResultOutputSchema()
 	gate := closedOutput(map[string]any{"id": outputString(), "exit_code": outputInteger()}, "id", "exit_code")
-	report := closedOutput(map[string]any{"available": outputBoolean(), "error": outputString(), "status": outputString(), "summary": outputString(), "repository_head": outputString(), "repository_branch": outputString(), "repository_clean": outputBoolean(), "commits": outputArray(outputString()), "changed_files": outputArray(outputString()), "commands": outputArray(command), "gate_results": outputArray(gate), "acceptance_coverage": outputArray(outputString()), "deviations": outputArray(outputString()), "remaining_risks": outputArray(outputString()), "finished_at": timeField, "hub_commit": outputString()}, "available")
+	report := closedOutput(map[string]any{"available": outputBoolean(), "error": outputString(), "status": outputString(), "summary": outputString(), "repository_head": outputString(), "repository_branch": outputString(), "repository_clean": outputBoolean(), "commits": outputArray(outputString()), "changed_files": outputArray(outputString()), "gate_results": outputArray(gate), "acceptance_coverage": outputArray(outputString()), "deviations": outputArray(outputString()), "remaining_risks": outputArray(outputString()), "finished_at": timeField, "hub_commit": outputString()}, "available")
 	evidence := closedOutput(map[string]any{"available": outputBoolean(), "error": outputString(), "head": outputString(), "branch": outputString(), "worktree_clean": outputBoolean(), "notes": outputArray(outputString()), "recorded_at": timeField}, "available")
 	worktree := closedOutput(map[string]any{"branch": outputString(), "head": outputString(), "upstream": outputString(), "ahead": outputInteger(), "behind": outputInteger(), "clean": outputBoolean()}, "branch", "head", "ahead", "behind", "clean")
 	compare := closedOutput(map[string]any{"merge_base": outputString(), "left_only": outputInteger(), "right_only": outputInteger(), "error": outputString()}, "left_only", "right_only")

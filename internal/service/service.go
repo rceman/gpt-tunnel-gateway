@@ -198,7 +198,7 @@ func readWorktreeJSON(worktree, path string, out any) error {
 	}
 	return decodeStrict(data, out)
 }
-func ensureSessionAvailableInWorktree(worktree, session string) error {
+func ensureSessionAvailableInWorktree(worktree, session string, maxReadBytes int64) error {
 	root := filepath.Join(worktree, filepath.FromSlash(hub.ProtocolRoot), "projects")
 	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -210,12 +210,12 @@ func ensureSessionAvailableInWorktree(worktree, session string) error {
 		if entry.IsDir() || entry.Name() != "run.json" {
 			return nil
 		}
-		var run model.Run
-		data, err := os.ReadFile(path)
+		data, err := fsutil.ReadFileBounded(path, maxReadBytes)
 		if err != nil {
 			return err
 		}
-		if err := decodeStrict(data, &run); err != nil {
+		run, _, err := model.DecodeRunRecord(data)
+		if err != nil {
 			return fmt.Errorf("decode active run %s: %w", path, err)
 		}
 		if run.SessionKey == session && activeStatus(run.Status) {
@@ -921,8 +921,12 @@ func (s *Service) RunList(ctx context.Context, project string) ([]model.Run, err
 	}
 	items := []model.Run{}
 	for _, path := range paths {
-		var v model.Run
-		if err := s.Hub.ReadJSON(ctx, path, &v); err != nil {
+		data, err := s.Hub.ReadFile(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+		v, _, err := model.DecodeRunRecord(data)
+		if err != nil {
 			return nil, err
 		}
 		items = append(items, v)
@@ -936,9 +940,12 @@ func (s *Service) findRun(ctx context.Context, id string) (model.Run, error) {
 		return model.Run{}, err
 	}
 	for _, p := range projects {
-		var r model.Run
-		err := s.Hub.ReadJSON(ctx, s.runPath(p.ID, id), &r)
+		data, err := s.Hub.ReadFile(ctx, s.runPath(p.ID, id))
 		if err == nil {
+			r, _, decodeErr := model.DecodeRunRecord(data)
+			if decodeErr != nil {
+				return model.Run{}, decodeErr
+			}
 			return r, nil
 		}
 		if !IsNotFound(err) {
@@ -1100,7 +1107,7 @@ func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run
 		if currentPlan.ActiveTaskID != task.ID || currentPlan.ActiveRunID != "" {
 			return nil, fmt.Errorf("plan changed before dispatch")
 		}
-		if err := ensureSessionAvailableInWorktree(w, run.SessionKey); err != nil {
+		if err := ensureSessionAvailableInWorktree(w, run.SessionKey, s.Config.MaxReadBytes); err != nil {
 			return nil, err
 		}
 		currentPlan.Revision++
@@ -1182,15 +1189,6 @@ func canonicalReport(report model.Report) model.Report {
 	if report.AcceptanceCoverage == nil {
 		report.AcceptanceCoverage = []string{}
 	}
-	if report.Commits == nil {
-		report.Commits = []string{}
-	}
-	if report.ChangedFiles == nil {
-		report.ChangedFiles = []string{}
-	}
-	if report.Commands == nil {
-		report.Commands = []model.CommandResult{}
-	}
 	return report
 }
 func (s *Service) failRun(ctx context.Context, run model.Run, task model.Task, status, summary, expected string) (hub.TransactionResult, error) {
@@ -1255,6 +1253,9 @@ func (s *Service) TaskRead(ctx context.Context, id string) (TaskPacket, error) {
 		return TaskPacket{}, fmt.Errorf("expected exactly one active run for task, found %d", len(matches))
 	}
 	run := matches[0]
+	if run.Historical && activeStatus(run.Status) {
+		return TaskPacket{}, fmt.Errorf("workflow-v1 active run is history-only")
+	}
 	if err := s.ensureRunOwned(run); err != nil {
 		return TaskPacket{}, err
 	}
@@ -1296,6 +1297,9 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
+	if run.Historical {
+		return model.Report{}, OperationResult{}, fmt.Errorf("workflow-v1 run is history-only; canonical finalization is unavailable")
+	}
 	if err := s.ensureRunOwned(run); err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
@@ -1309,7 +1313,7 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if in.CompletionFile == "" {
 		in.CompletionFile = run.CompletionPath
 	}
-	data, err := os.ReadFile(in.CompletionFile)
+	data, err := fsutil.ReadFileBounded(in.CompletionFile, s.Config.MaxReadBytes)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
@@ -1402,6 +1406,9 @@ func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error
 	if err != nil {
 		return model.Report{}, err
 	}
+	if run.Historical {
+		return model.Report{}, fmt.Errorf("workflow-v1 run report is history-only")
+	}
 	var report model.Report
 	path := s.reportPath(run.ProjectID, id)
 	if err := s.Hub.ReadJSON(ctx, path, &report); err != nil {
@@ -1411,8 +1418,22 @@ func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error
 	if err != nil {
 		return model.Report{}, err
 	}
-	if err := model.ValidateReport(report, task, run); err != nil {
+	if err := model.ValidateReport(report, task, run, s.Config.MaxListItems); err != nil {
 		return model.Report{}, err
+	}
+	if run.Status != report.Status {
+		return model.Report{}, fmt.Errorf("report status does not match run")
+	}
+	state, err := s.taskState(ctx, task)
+	if err != nil {
+		return model.Report{}, err
+	}
+	wantState := "ready"
+	if report.Status == "succeeded" {
+		wantState = "completed"
+	}
+	if state.Status != wantState {
+		return model.Report{}, fmt.Errorf("report status does not match task state")
 	}
 	commit, err := s.Hub.LastChange(ctx, path)
 	if err != nil {

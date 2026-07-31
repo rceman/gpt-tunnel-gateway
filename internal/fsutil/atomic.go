@@ -87,3 +87,32 @@ func ReadJSONBounded(path string, max int64, value any) error {
 	}
 	return nil
 }
+
+func ReadFileBounded(path string, max int64) ([]byte, error) {
+	if max < 1 {
+		return nil, fmt.Errorf("invalid read limit")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("not a regular file: %s", path)
+	}
+	if info.Size() > max {
+		return nil, fmt.Errorf("file %s exceeds %d bytes", path, max)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > max {
+		return nil, fmt.Errorf("file %s exceeds %d bytes", path, max)
+	}
+	return data, nil
+}

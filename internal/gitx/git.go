@@ -188,6 +188,17 @@ func (r Runner) LocalLog(ctx context.Context, root, from, to string, limit int) 
 	if limit < 1 || limit > r.MaxListItems {
 		return nil, fmt.Errorf("invalid log limit")
 	}
+	countOut, err := r.command(ctx, root, false, "rev-list", "--count", from+".."+to)
+	if err != nil {
+		return nil, err
+	}
+	count, err := strconv.Atoi(strings.TrimSpace(string(countOut)))
+	if err != nil {
+		return nil, fmt.Errorf("invalid commit count")
+	}
+	if count > limit {
+		return nil, fmt.Errorf("commit range exceeds configured limit")
+	}
 	format := "%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00"
 	out, err := r.command(ctx, root, false, "log", "--reverse", "--no-decorate", "--max-count="+strconv.Itoa(limit), "--format="+format, from+".."+to)
 	if err != nil {

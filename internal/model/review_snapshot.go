@@ -51,7 +51,6 @@ type ReviewSnapshotReport struct {
 	RepositoryClean    *bool                  `json:"repository_clean,omitempty"`
 	Commits            []string               `json:"commits,omitempty"`
 	ChangedFiles       []string               `json:"changed_files,omitempty"`
-	Commands           []CommandResult        `json:"commands,omitempty"`
 	GateResults        []CompletionGateResult `json:"gate_results,omitempty"`
 	AcceptanceCoverage []string               `json:"acceptance_coverage,omitempty"`
 	Deviations         []string               `json:"deviations,omitempty"`

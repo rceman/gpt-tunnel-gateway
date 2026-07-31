@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "11111111-1111-4111-8111-111111111111",
+  "task_id": "historical-task",
+  "task_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "project_id": "example",
+  "gateway_id": "home_pc",
+  "session_key": "example_master",
+  "branch": "feature/historical",
+  "base_revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "hub_revision": "cccccccccccccccccccccccccccccccccccccccc",
+  "status": "succeeded",
+  "dispatch_message": "Read task and execute it.",
+  "dispatch_exit_code": 0,
+  "dispatch_stdout": "",
+  "dispatch_stderr": "",
+  "result_path": "/home/user/.local/share/gpt-tunnel-gateway/runs/old/agent-result.json",
+  "evidence_path": "/home/user/.local/share/gpt-tunnel-gateway/runs/old/evidence.json",
+  "created_at": "2026-07-30T10:00:00Z",
+  "dispatched_at": "2026-07-30T10:01:00Z",
+  "finished_at": "2026-07-30T10:02:00Z"
+}

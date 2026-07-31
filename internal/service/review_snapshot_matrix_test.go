@@ -27,7 +27,7 @@ func newSnapshotMatrixFixture() snapshotMatrixFixture {
 	return snapshotMatrixFixture{
 		run: run, task: task,
 		state:    model.TaskState{TaskID: task.ID, TaskSHA256: task.SHA256, Status: "completed", UpdatedAt: now},
-		report:   model.ReviewSnapshotReport{Available: true, Status: "succeeded", ChangedFiles: []string{"file.go"}, Commands: []model.CommandResult{{Command: "go test ./...", ExitCode: 0}}, HubCommit: strings.Repeat("d", 40)},
+		report:   model.ReviewSnapshotReport{Available: true, Status: "succeeded", ChangedFiles: []string{"file.go"}, GateResults: []model.CompletionGateResult{{ID: "G1", ExitCode: 0}}, HubCommit: strings.Repeat("d", 40)},
 		evidence: model.ReviewSnapshotEvidence{Available: true, Head: head, Branch: task.Branch, WorktreeClean: &clean},
 		repo:     model.ReviewSnapshotRepo{RefreshSucceeded: true, DefaultBranch: "main", DefaultHead: head, TaskBranch: task.Branch, TaskBranchPublished: true, TaskBranchHead: head, Worktree: model.ReviewSnapshotWorktree{Branch: task.Branch, Head: head, Clean: true}, EvidenceHeadReachable: true, BaseToEvidence: model.ReviewSnapshotCompare{MergeBase: base}, DefaultToEvidence: model.ReviewSnapshotCompare{MergeBase: head}, ChangedFiles: []string{"file.go"}},
 	}
@@ -228,14 +228,14 @@ func TestSnapshotDiffStatFailure(t *testing.T) {
 }
 func TestSnapshotMissingRequiredGate(t *testing.T) {
 	f := newSnapshotMatrixFixture()
-	f.report.Commands = nil
+	f.report.GateResults = nil
 	if got := matrixCheck(t, matrixChecks(f, true), "required_gates"); got.Status != "fail" {
 		t.Fatalf("%#v", got)
 	}
 }
 func TestSnapshotFailingRequiredGate(t *testing.T) {
 	f := newSnapshotMatrixFixture()
-	f.report.Commands[0].ExitCode = 1
+	f.report.GateResults[0].ExitCode = 1
 	if got := matrixCheck(t, matrixChecks(f, true), "required_gates"); got.Status != "fail" {
 		t.Fatalf("%#v", got)
 	}

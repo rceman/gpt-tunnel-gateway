@@ -178,6 +178,9 @@ func completionGates(v any) ([]CompletionGateResult, error) {
 }
 
 func ParseCompletion(data []byte, task Task) (Completion, error) {
+	if !utf8.Valid(data) {
+		return Completion{}, fmt.Errorf("completion is not valid UTF-8")
+	}
 	obj, err := strictJSONObject(data)
 	if err != nil {
 		return Completion{}, err
@@ -243,6 +246,9 @@ func ValidateCompletion(c Completion, task Task) error {
 	if err := utf8Bounded(c.Summary, 4096, "summary"); err != nil {
 		return err
 	}
+	if strings.TrimSpace(c.Summary) == "" {
+		return fmt.Errorf("summary must be non-empty")
+	}
 	if len(c.GateResults) > 128 || len(c.AcceptanceCoverage) > 128 || len(c.Deviations) > 64 || len(c.RemainingRisks) > 64 {
 		return fmt.Errorf("completion bounds exceeded")
 	}
@@ -295,6 +301,9 @@ func ValidateCompletion(c Completion, task Task) error {
 	for _, v := range append(append([]string{}, c.Deviations...), c.RemainingRisks...) {
 		if err := utf8Bounded(v, 2048, "completion entry"); err != nil {
 			return err
+		}
+		if strings.TrimSpace(v) == "" {
+			return fmt.Errorf("completion entry must be non-empty")
 		}
 	}
 	return nil

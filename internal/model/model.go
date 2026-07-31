@@ -160,6 +160,7 @@ type Run struct {
 	DispatchStdout   string `json:"dispatch_stdout,omitempty"`
 	DispatchStderr   string `json:"dispatch_stderr,omitempty"`
 	CompletionPath   string `json:"completion_path"`
+	Historical       bool   `json:"-"`
 	// Deprecated fields are retained only so immutable pre-2.0 local records can
 	// be decoded by maintenance tooling. They are never populated or serialized.
 	ResultPath     string     `json:"-"`
@@ -169,39 +170,6 @@ type Run struct {
 	RepromptCount  int        `json:"reprompt_count,omitempty"`
 	LastRepromptAt *time.Time `json:"last_reprompt_at,omitempty"`
 	FinishedAt     *time.Time `json:"finished_at,omitempty"`
-}
-
-type CommandResult struct {
-	Command  string `json:"command"`
-	ExitCode int    `json:"exit_code"`
-	Result   string `json:"result"`
-}
-
-type AgentResult struct {
-	SchemaVersion      int             `json:"schema_version"`
-	TaskID             string          `json:"task_id"`
-	TaskSHA256         string          `json:"task_sha256"`
-	RunID              string          `json:"run_id"`
-	Status             string          `json:"status"`
-	Summary            string          `json:"summary"`
-	Commits            []string        `json:"commits"`
-	ChangedFiles       []string        `json:"changed_files"`
-	Commands           []CommandResult `json:"commands"`
-	AcceptanceCoverage []string        `json:"acceptance_coverage"`
-	Deviations         []string        `json:"deviations"`
-	RemainingRisks     []string        `json:"remaining_risks"`
-	FinishedAt         time.Time       `json:"finished_at"`
-}
-
-type Evidence struct {
-	SchemaVersion int       `json:"schema_version"`
-	TaskID        string    `json:"task_id"`
-	RunID         string    `json:"run_id"`
-	ProjectHead   string    `json:"project_head"`
-	Branch        string    `json:"branch"`
-	WorktreeClean bool      `json:"worktree_clean"`
-	Notes         []string  `json:"notes,omitempty"`
-	RecordedAt    time.Time `json:"recorded_at"`
 }
 
 type CompletionGateResult struct {
@@ -245,10 +213,6 @@ type Report struct {
 	Repository         RepositoryProof        `json:"repository"`
 	HubCommit          string                 `json:"hub_commit,omitempty"`
 	FinishedAt         time.Time              `json:"finished_at"`
-	// Deprecated projection fields are not part of the canonical report.
-	Commits      []string        `json:"-"`
-	ChangedFiles []string        `json:"-"`
-	Commands     []CommandResult `json:"-"`
 }
 
 func NewID() (string, error) {
@@ -426,68 +390,11 @@ func ValidateRun(v Run) error {
 	}
 	return nil
 }
-func ValidateAgentResult(v AgentResult, task Task, run Run) error {
-	if v.SchemaVersion != SchemaVersion || v.TaskID != task.ID || v.TaskSHA256 != task.SHA256 || v.RunID != run.ID {
-		return fmt.Errorf("result identity mismatch")
+func ValidateReport(v Report, task Task, run Run, limits ...int) error {
+	limit := 10000
+	if len(limits) > 0 && limits[0] > 0 {
+		limit = limits[0]
 	}
-	switch v.Status {
-	case "succeeded", "failed", "blocked", "cancelled", "timed_out":
-	default:
-		return fmt.Errorf("invalid result status")
-	}
-	if len(v.Summary) < 1 || len(v.Summary) > 20000 || len(v.Commits) > 100 || len(v.ChangedFiles) > 5000 || len(v.Commands) > 500 {
-		return fmt.Errorf("result bounds exceeded")
-	}
-	for _, sha := range v.Commits {
-		if !shaRE.MatchString(sha) {
-			return fmt.Errorf("invalid commit SHA %q", sha)
-		}
-	}
-	for _, p := range v.ChangedFiles {
-		if err := ValidateRelativePath(p); err != nil {
-			return fmt.Errorf("changed file: %w", err)
-		}
-	}
-	if v.FinishedAt.IsZero() {
-		return fmt.Errorf("finished_at is required")
-	}
-	if v.Status == "succeeded" {
-		covered := map[string]bool{}
-		for _, c := range v.AcceptanceCoverage {
-			covered[c] = true
-		}
-		for _, c := range task.AcceptanceCriteria {
-			if !covered[c] {
-				return fmt.Errorf("acceptance criterion not covered: %s", c)
-			}
-		}
-		gates := map[string]int{}
-		for _, cmd := range v.Commands {
-			gates[cmd.Command] = cmd.ExitCode
-		}
-		for _, gate := range task.RequiredGates {
-			code, ok := gates[gate]
-			if !ok {
-				return fmt.Errorf("required gate not reported: %s", gate)
-			}
-			if code != 0 {
-				return fmt.Errorf("required gate failed: %s", gate)
-			}
-		}
-	}
-	return nil
-}
-func ValidateEvidence(v Evidence, task Task, run Run) error {
-	if v.SchemaVersion != SchemaVersion || v.TaskID != task.ID || v.RunID != run.ID {
-		return fmt.Errorf("evidence identity mismatch")
-	}
-	if !shaRE.MatchString(v.ProjectHead) || v.Branch != run.Branch || v.RecordedAt.IsZero() {
-		return fmt.Errorf("invalid evidence")
-	}
-	return nil
-}
-
-func ValidateReport(v Report, task Task, run Run) error {
 	if v.SchemaVersion != SchemaVersion || v.TaskID != task.ID || v.RunID != run.ID || v.ProjectID != run.ProjectID || v.FinishedAt.IsZero() {
 		return fmt.Errorf("report identity mismatch")
 	}
@@ -497,13 +404,79 @@ func ValidateReport(v Report, task Task, run Run) error {
 	if err := utf8Bounded(v.Summary, 4096, "report summary"); err != nil {
 		return err
 	}
+	if strings.TrimSpace(v.Summary) == "" {
+		return fmt.Errorf("report summary must be non-empty")
+	}
 	if len(v.GateResults) > 128 || len(v.AcceptanceCoverage) > 128 || len(v.Deviations) > 64 || len(v.RemainingRisks) > 64 {
 		return fmt.Errorf("report bounds exceeded")
 	}
-	if ValidateBranch(v.Repository.Branch) != nil || !shaRE.MatchString(v.Repository.Head) || v.Repository.DiffScope == "" {
+	for i, gate := range v.GateResults {
+		if gate.ID != fmt.Sprintf("G%d", i+1) {
+			return fmt.Errorf("report gate results are not positional")
+		}
+	}
+	if v.Status == "succeeded" {
+		if len(v.GateResults) != len(task.RequiredGates) || len(v.AcceptanceCoverage) != len(task.AcceptanceCriteria) {
+			return fmt.Errorf("report success receipts are incomplete")
+		}
+		for _, gate := range v.GateResults {
+			if gate.ExitCode != 0 {
+				return fmt.Errorf("report success contains failed gate")
+			}
+		}
+		for i, id := range v.AcceptanceCoverage {
+			if id != fmt.Sprintf("AC%d", i+1) {
+				return fmt.Errorf("report success acceptance is not positional")
+			}
+		}
+	} else {
+		if len(v.GateResults) > len(task.RequiredGates) || len(v.AcceptanceCoverage) > len(task.AcceptanceCriteria) {
+			return fmt.Errorf("report receipts exceed task bounds")
+		}
+		last := 0
+		seen := map[string]bool{}
+		for _, id := range v.AcceptanceCoverage {
+			if !completionACRE.MatchString(id) || seen[id] {
+				return fmt.Errorf("report acceptance is not ordered and unique")
+			}
+			var n int
+			_, _ = fmt.Sscanf(id, "AC%d", &n)
+			if n <= last || n > len(task.AcceptanceCriteria) {
+				return fmt.Errorf("report acceptance is out of bounds")
+			}
+			seen[id] = true
+			last = n
+		}
+	}
+	for _, entry := range append(append([]string{}, v.Deviations...), v.RemainingRisks...) {
+		if err := utf8Bounded(entry, 2048, "report entry"); err != nil {
+			return err
+		}
+		if strings.TrimSpace(entry) == "" {
+			return fmt.Errorf("report entry must be non-empty")
+		}
+	}
+	if ValidateBranch(v.Repository.Branch) != nil || !shaRE.MatchString(v.Repository.Head) || v.Repository.DiffScope != run.BaseRevision+".."+v.Repository.Head {
 		return fmt.Errorf("invalid repository proof")
 	}
-	if v.Status == "succeeded" && !v.Repository.BaseAncestor {
+	if len(v.Repository.Commits) > limit || len(v.Repository.ChangedFiles) > limit {
+		return fmt.Errorf("repository proof exceeds configured limit")
+	}
+	seenCommits := map[string]bool{}
+	for _, sha := range v.Repository.Commits {
+		if !shaRE.MatchString(sha) || seenCommits[sha] {
+			return fmt.Errorf("invalid or duplicate repository commit")
+		}
+		seenCommits[sha] = true
+	}
+	if len(v.Repository.Commits) > 0 && v.Repository.Commits[len(v.Repository.Commits)-1] != v.Repository.Head {
+		return fmt.Errorf("repository commit order does not end at HEAD")
+	}
+	canonicalFiles := CanonicalStrings(v.Repository.ChangedFiles)
+	if strings.Join(canonicalFiles, "\x00") != strings.Join(v.Repository.ChangedFiles, "\x00") {
+		return fmt.Errorf("repository changed files are not canonical")
+	}
+	if v.Status == "succeeded" && (!v.Repository.BaseAncestor || !v.Repository.WorktreeClean || v.Repository.Branch != run.Branch) {
 		return fmt.Errorf("successful report lacks base ancestry proof")
 	}
 	for _, path := range v.Repository.ChangedFiles {

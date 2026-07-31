@@ -59,6 +59,64 @@ func TestValidateConfiguredProjectRecordsRejectsMissingPlan(t *testing.T) {
 		t.Fatalf("missing durable plan was not rejected deterministically: %v", err)
 	}
 }
+
+func TestHistoricalRunDoesNotBreakDispatchOrSessionSafety(t *testing.T) {
+	s, hubRev, projectHead := testService(t)
+	fixture, err := os.ReadFile(filepath.Join("..", "..", "fixtures", "historical-run-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportFixture, err := os.ReadFile(filepath.Join("..", "..", "fixtures", "historical-report-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.Hub.Transact(context.Background(), hubRev, "test: historical terminal run", func(worktree string) ([]string, error) {
+		path := s.runPath("example", "11111111-1111-4111-8111-111111111111")
+		return []string{path}, hub.WriteText(worktree, path, string(fixture))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportTx, err := s.Hub.Transact(context.Background(), tx.After, "test: historical report", func(worktree string) ([]string, error) {
+		path := s.reportPath("example", "11111111-1111-4111-8111-111111111111")
+		return []string{path}, hub.WriteText(worktree, path, string(reportFixture))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RunReport(context.Background(), "11111111-1111-4111-8111-111111111111"); err == nil || !strings.Contains(err.Error(), "history-only") {
+		t.Fatalf("historical report was not isolated: %v", err)
+	}
+	runs, err := s.RunList(context.Background(), "example")
+	if err != nil || len(runs) != 1 || !runs[0].Historical || runs[0].CompletionPath != "" {
+		t.Fatalf("historical run list failed: %#v %v", runs, err)
+	}
+	task, created, err := s.TaskCreate(context.Background(), TaskCreateInput{ProjectID: "example", Title: "Dispatch after history", Objective: "Dispatch after history.", Branch: "feature/history-safe", BaseRevision: projectHead, AcceptanceCriteria: []string{"works"}, CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: reportTx.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = reportTx
+	title, summary, objective := "History safe", "Dispatch after history", "Dispatch the new task after historical runs."
+	plan, err := s.PlanUpdate(context.Background(), PlanUpdateInput{ProjectID: "example", Title: &title, Summary: &summary, CurrentObjective: &objective, ActiveTaskID: &task.ID, UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.TaskDispatch(context.Background(), DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}}); err != nil {
+		t.Fatalf("dispatch blocked by terminal historical run: %v", err)
+	}
+	root := t.TempDir()
+	path := filepath.Join(root, "gpt-tunnel", "v1", "projects", "example", "runs", "old", "run.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	activeFixture := strings.Replace(string(fixture), `"status": "succeeded"`, `"status": "awaiting_result"`, 1)
+	if err := os.WriteFile(path, []byte(activeFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureSessionAvailableInWorktree(root, "example_master", 1<<20); err == nil {
+		t.Fatal("active historical run did not protect session")
+	}
+}
 func TestTaskPlanDispatchReadFinalize(t *testing.T) {
 	s, hubRev, projectHead := testService(t)
 	ctx := context.Background()
