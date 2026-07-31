@@ -2,9 +2,12 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +17,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
 func callMCP(t *testing.T, srv *Server, body []byte) map[string]any {
@@ -58,6 +62,54 @@ func TestRunAgentTailSuccessIsPlainTextWithoutStructuredContent(t *testing.T) {
 	}
 	if _, ok := result["structuredContent"]; ok {
 		t.Fatalf("plain text result has structuredContent: %#v", result)
+	}
+}
+
+func TestRunAgentTailToolCallUsesLiveServiceAndPlainTextTransport(t *testing.T) {
+	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
+	_, projectRoot, projectHead := testutil.RepoWithBareRemote(t)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: script, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
+	s := service.New(c)
+	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"}
+	registered, err := s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: project, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Tail", Objective: "Inspect tail", Branch: "feature/tail", BaseRevision: projectHead, AcceptanceCriteria: []string{"tail"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := s.PlanUpdate(context.Background(), service.PlanUpdateInput{ProjectID: "example", Summary: "Tail", Body: "Tail", ActiveTaskID: task.ID, UpdatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _, err := s.TaskDispatch(context.Background(), service.DispatchInput{TaskID: task.ID, WriteOptions: service.WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '⚠ Selected model is at capacity.\\nworkspace status\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	response := callMCP(t, &Server{Service: s}, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"run_agent_tail","arguments":{"run_id":"`+run.ID+`"}}}`))
+	result, ok := response["result"].(map[string]any)
+	if !ok || result["isError"] != false {
+		t.Fatalf("unexpected tail result: %#v", response)
+	}
+	content := result["content"].([]any)
+	if len(content) != 1 {
+		t.Fatalf("content=%#v", content)
+	}
+	item := content[0].(map[string]any)
+	if item["type"] != "text" || !strings.Contains(item["text"].(string), "Selected model is at capacity") {
+		t.Fatalf("tail text=%#v", item)
+	}
+	if _, ok := result["structuredContent"]; ok {
+		t.Fatalf("structured content present: %#v", result)
 	}
 }
 
