@@ -111,6 +111,44 @@ func TestRunAgentTailToolCallUsesLiveServiceAndPlainTextTransport(t *testing.T) 
 	if _, ok := result["structuredContent"]; ok {
 		t.Fatalf("structured content present: %#v", result)
 	}
+	explicit := callMCP(t, &Server{Service: s}, []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"run_agent_tail","arguments":{"run_id":"`+run.ID+`","lines":9}}}`))
+	explicitResult, ok := explicit["result"].(map[string]any)
+	if !ok || explicitResult["isError"] != false || !strings.Contains(explicitResult["content"].([]any)[0].(map[string]any)["text"].(string), "workspace status") {
+		t.Fatalf("unexpected explicit tail result: %#v", explicit)
+	}
+	if _, ok := explicitResult["structuredContent"]; ok {
+		t.Fatalf("explicit plain text result has structured content: %#v", explicitResult)
+	}
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf 'tail failure output\\n'\nprintf 'example_master CONTROL_PLANE_API_KEY=secret-marker\\n' >&2\nexit 23\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	assertToolError := func(body []byte, want string) {
+		t.Helper()
+		response := callMCP(t, &Server{Service: s}, body)
+		result, ok := response["result"].(map[string]any)
+		if !ok || result["isError"] != true {
+			t.Fatalf("unexpected error result: %#v", response)
+		}
+		content := result["content"].([]any)
+		text := content[0].(map[string]any)["text"].(string)
+		if !strings.Contains(text, want) {
+			t.Fatalf("error text=%q want=%q", text, want)
+		}
+		if _, ok := result["structuredContent"]; ok {
+			t.Fatalf("tool error exposed structured content: %#v", result)
+		}
+		if len(text) > 512 {
+			t.Fatalf("error text is not bounded: %d", len(text))
+		}
+		for _, forbidden := range []string{"example_master", "CONTROL_PLANE_API_KEY", "secret-marker"} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("MCP error leaked %q: %q", forbidden, text)
+			}
+		}
+	}
+	assertToolError([]byte(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"run_agent_tail","arguments":{"run_id":"`+run.ID+`","lines":9}}}`), "Airelay tail failed")
+	assertToolError([]byte(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"run_agent_tail","arguments":{"run_id":"missing"}}}`), "run not found")
+	assertToolError([]byte(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"run_agent_tail","arguments":{"run_id":"`+run.ID+`","lines":201}}}`), "invalid tail line count")
 }
 
 func TestRunReviewSnapshotToolCallUsesOnlyRunIDAndReturnsToolErrorForUnknownRun(t *testing.T) {
