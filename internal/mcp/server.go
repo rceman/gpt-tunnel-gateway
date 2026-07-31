@@ -399,6 +399,13 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.PlanRead(ctx, id)
 	})
+	add("plan_cutover", "Owner-invoked one-time conversion of the known schema-v1 plan to schema-v2.", obj(map[string]any{"project_id": str("Project identifier"), "updated_by": str("Owner identity"), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "updated_by"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.PlanCutoverInput
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		return s.Service.PlanCutover(ctx, in)
+	})
 	add("plan_update", "Partially update the compact plan manifest.", obj(map[string]any{"project_id": str("Project identifier"), "title": str("Plan title"), "summary": str("Plan summary"), "current_objective": str("Current objective"), "queue": map[string]any{"type": "array", "items": str("Ordered section identifiers")}, "active_task_id": str("Active task"), "active_run_id": str("Active run"), "updated_by": str("Author identity"), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "updated_by"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.PlanUpdateInput
 		if e := decode(raw, &in); e != nil {
@@ -431,7 +438,7 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.PlanSectionUpdate(ctx, in)
 	})
-	add("plan_section_delete", "Delete one plan section from current state while retaining Git history.", obj(map[string]any{"project_id": str("Project identifier"), "section_id": str("Plan section identifier"), "expected_section_revision": integer("Expected section revision", 1, 1000000), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "section_id", "expected_section_revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("plan_section_delete", "Delete one plan section from current state while retaining Git history.", obj(map[string]any{"project_id": str("Project identifier"), "section_id": str("Plan section identifier"), "updated_by": str("Author identity"), "expected_section_revision": integer("Expected section revision", 1, 1000000), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "section_id", "updated_by", "expected_section_revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.PlanSectionDeleteInput
 		if e := decode(raw, &in); e != nil {
 			return nil, e

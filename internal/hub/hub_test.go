@@ -47,6 +47,21 @@ func TestEnsureCreatesManagedCloneAndMissingBranch(t *testing.T) {
 	}
 }
 
+func TestReadDoesNotCreateCloneBranchOrLockArtifacts(t *testing.T) {
+	bare, _, _ := testutil.RepoWithBareRemote(t)
+	c := testConfig(t, bare, "gpt-tunnel/home_pc")
+	store := Store{Config: c}
+	if _, err := store.ReadFile(context.Background(), ProtocolRoot+"/missing.json"); err == nil {
+		t.Fatal("read succeeded without an initialized managed hub")
+	}
+	if _, err := os.Stat(ManagedRoot(c)); !os.IsNotExist(err) {
+		t.Fatalf("read created managed root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(c.StateDir, "locks")); !os.IsNotExist(err) {
+		t.Fatalf("read created lock directory: %v", err)
+	}
+}
+
 func TestTransactionPushesThroughManagedClone(t *testing.T) {
 	bare, work, base := testutil.RepoWithBareRemote(t)
 	c := testConfig(t, bare, "gpt-tunnel/home_pc")

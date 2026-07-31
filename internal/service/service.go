@@ -73,6 +73,7 @@ type PlanSectionUpdateInput struct {
 type PlanSectionDeleteInput struct {
 	ProjectID               string `json:"project_id"`
 	SectionID               string `json:"section_id"`
+	UpdatedBy               string `json:"updated_by"`
 	ExpectedSectionRevision int    `json:"expected_section_revision"`
 	WriteOptions
 }
@@ -346,119 +347,7 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	return ProjectStatus{Project: p, Local: local, Worktree: wt, Plan: plan.StatusView(), HubRevision: rev}, nil
 }
 
-type legacyPlanV1 struct {
-	SchemaVersion int       `json:"schema_version"`
-	ProjectID     string    `json:"project_id"`
-	Revision      int       `json:"revision"`
-	Summary       string    `json:"summary"`
-	Body          string    `json:"body"`
-	ActiveTaskID  string    `json:"active_task_id,omitempty"`
-	ActiveRunID   string    `json:"active_run_id,omitempty"`
-	UpdatedBy     string    `json:"updated_by"`
-	UpdatedAt     time.Time `json:"updated_at"`
-}
-
-func migrationShortDescription(body string) string {
-	line := strings.TrimSpace(strings.SplitN(body, "\n", 2)[0])
-	if line == "" {
-		line = "Migrated legacy plan content"
-	}
-	if len(line) > 500 {
-		line = line[:500]
-	}
-	return line
-}
-
-func (s *Service) migratePlanV1(ctx context.Context, project string, legacy legacyPlanV1) error {
-	if legacy.SchemaVersion != model.SchemaVersion || legacy.ProjectID != project || legacy.Revision < 1 {
-		return fmt.Errorf("invalid schema-v1 plan for migration")
-	}
-	updatedAt := legacy.UpdatedAt
-	if updatedAt.IsZero() {
-		updatedAt = time.Now().UTC()
-	}
-	updatedBy := legacy.UpdatedBy
-	if updatedBy == "" {
-		updatedBy = "migration"
-	}
-	section := model.PlanSection{SchemaVersion: model.PlanSchemaVersion, ProjectID: project, ID: "overview", Revision: 1, Title: "Migrated plan", ShortDescription: migrationShortDescription(legacy.Body), Description: legacy.Body, UpdatedBy: updatedBy, UpdatedAt: updatedAt}
-	plan := model.Plan{SchemaVersion: model.PlanSchemaVersion, ProjectID: project, Revision: legacy.Revision, Title: "Migrated plan", Summary: legacy.Summary, CurrentObjective: "", Queue: []string{}, Sections: []model.PlanSectionIndex{{ID: section.ID, Title: section.Title, ShortDescription: section.ShortDescription, Revision: section.Revision}}, ActiveTaskID: legacy.ActiveTaskID, ActiveRunID: legacy.ActiveRunID, UpdatedBy: updatedBy, UpdatedAt: updatedAt}
-	if err := model.ValidatePlanSection(section); err != nil {
-		return fmt.Errorf("migration section invalid: %w", err)
-	}
-	if err := model.ValidatePlan(plan); err != nil {
-		return fmt.Errorf("migration manifest invalid: %w", err)
-	}
-	expected, err := s.hubRevision(ctx)
-	if err != nil {
-		return err
-	}
-	tx, err := s.Hub.Transact(ctx, expected, "gateway: migrate plan to schema-v2 "+project, func(w string) ([]string, error) {
-		var current legacyPlanV1
-		if err := readWorktreeJSON(w, s.planPath(project), &current); err != nil {
-			return nil, err
-		}
-		if current.SchemaVersion != model.SchemaVersion {
-			return nil, fmt.Errorf("plan migration source changed")
-		}
-		sectionPath := s.planSectionPath(project, section.ID)
-		planPath := s.planPath(project)
-		if err := hub.WriteJSON(w, sectionPath, section); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(w, planPath, plan); err != nil {
-			return nil, err
-		}
-		var verifiedSection model.PlanSection
-		if err := readWorktreeJSON(w, sectionPath, &verifiedSection); err != nil {
-			return nil, fmt.Errorf("migration verification section: %w", err)
-		}
-		var verifiedPlan model.Plan
-		if err := readWorktreeJSON(w, planPath, &verifiedPlan); err != nil {
-			return nil, fmt.Errorf("migration verification manifest: %w", err)
-		}
-		if verifiedSection.Description != current.Body || verifiedPlan.Sections[0].ID != verifiedSection.ID {
-			return nil, fmt.Errorf("migration did not preserve monolithic plan content")
-		}
-		return []string{sectionPath, planPath}, nil
-	})
-	if err != nil {
-		return err
-	}
-	if tx.After == "" {
-		return fmt.Errorf("plan migration did not produce a commit")
-	}
-	return nil
-}
-
-func (s *Service) ensurePlanV2(ctx context.Context, project string) error {
-	data, err := s.Hub.ReadFile(ctx, s.planPath(project))
-	if err != nil {
-		return err
-	}
-	var header struct {
-		SchemaVersion int `json:"schema_version"`
-	}
-	if err := json.Unmarshal(data, &header); err != nil {
-		return fmt.Errorf("parse plan schema: %w", err)
-	}
-	if header.SchemaVersion == model.PlanSchemaVersion {
-		return nil
-	}
-	if header.SchemaVersion != model.SchemaVersion {
-		return fmt.Errorf("unsupported plan schema_version: %d", header.SchemaVersion)
-	}
-	var legacy legacyPlanV1
-	if err := decodeStrict(data, &legacy); err != nil {
-		return fmt.Errorf("read schema-v1 plan for one-time migration: %w", err)
-	}
-	return s.migratePlanV1(ctx, project, legacy)
-}
-
 func (s *Service) PlanRead(ctx context.Context, project string) (model.Plan, error) {
-	if err := s.ensurePlanV2(ctx, project); err != nil {
-		return model.Plan{}, err
-	}
 	var p model.Plan
 	if err := s.Hub.ReadJSON(ctx, s.planPath(project), &p); err != nil {
 		return model.Plan{}, err
@@ -557,6 +446,36 @@ func (s *Service) PlanSectionRead(ctx context.Context, project, id string) (mode
 	return section, nil
 }
 
+func (s *Service) sectionWriteExpectedRevision(ctx context.Context, supplied string) (string, error) {
+	if supplied == "" {
+		return "", nil
+	}
+	current, err := s.hubRevision(ctx)
+	if err != nil {
+		return "", err
+	}
+	if supplied == current {
+		return supplied, nil
+	}
+	// A stale global revision is intentionally discarded. The transaction
+	// below reads the latest manifest and protects only the target section.
+	return "", nil
+}
+
+func (s *Service) transactSectionWrite(ctx context.Context, expected, subject string, mutate hub.Mutator) (hub.TransactionResult, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		tx, err := s.Hub.Transact(ctx, expected, subject, mutate)
+		if err == nil {
+			return tx, nil
+		}
+		if !strings.Contains(err.Error(), "HUB_REVISION_CONFLICT") {
+			return hub.TransactionResult{}, err
+		}
+		expected = ""
+	}
+	return hub.TransactionResult{}, fmt.Errorf("section transaction retry limit exceeded")
+}
+
 func (s *Service) PlanSectionCreate(ctx context.Context, in PlanSectionCreateInput) (OperationResult, error) {
 	plan, err := s.PlanRead(ctx, in.ProjectID)
 	if err != nil {
@@ -615,15 +534,12 @@ func (s *Service) PlanSectionUpdate(ctx context.Context, in PlanSectionUpdateInp
 	if _, err := s.PlanSectionRead(ctx, in.ProjectID, in.SectionID); err != nil {
 		return OperationResult{}, err
 	}
-	if in.ExpectedHubRevision == "" {
-		var err error
-		in.ExpectedHubRevision, err = s.hubRevision(ctx)
-		if err != nil {
-			return OperationResult{}, err
-		}
+	expectedHubRevision, err := s.sectionWriteExpectedRevision(ctx, in.ExpectedHubRevision)
+	if err != nil {
+		return OperationResult{}, err
 	}
 	now := time.Now().UTC()
-	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: update plan section "+in.SectionID, func(w string) ([]string, error) {
+	tx, err := s.transactSectionWrite(ctx, expectedHubRevision, "gateway: update plan section "+in.SectionID, func(w string) ([]string, error) {
 		var currentPlan model.Plan
 		if err := readWorktreeJSON(w, s.planPath(in.ProjectID), &currentPlan); err != nil {
 			return nil, err
@@ -681,15 +597,12 @@ func (s *Service) PlanSectionDelete(ctx context.Context, in PlanSectionDeleteInp
 	if _, err := s.PlanSectionRead(ctx, in.ProjectID, in.SectionID); err != nil {
 		return OperationResult{}, err
 	}
-	if in.ExpectedHubRevision == "" {
-		var err error
-		in.ExpectedHubRevision, err = s.hubRevision(ctx)
-		if err != nil {
-			return OperationResult{}, err
-		}
+	expectedHubRevision, err := s.sectionWriteExpectedRevision(ctx, in.ExpectedHubRevision)
+	if err != nil {
+		return OperationResult{}, err
 	}
 	now := time.Now().UTC()
-	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: delete plan section "+in.SectionID, func(w string) ([]string, error) {
+	tx, err := s.transactSectionWrite(ctx, expectedHubRevision, "gateway: delete plan section "+in.SectionID, func(w string) ([]string, error) {
 		var currentPlan model.Plan
 		if err := readWorktreeJSON(w, s.planPath(in.ProjectID), &currentPlan); err != nil {
 			return nil, err
@@ -711,7 +624,7 @@ func (s *Service) PlanSectionDelete(ctx context.Context, in PlanSectionDeleteInp
 		}
 		currentPlan.Sections = append(currentPlan.Sections[:index], currentPlan.Sections[index+1:]...)
 		currentPlan.Revision++
-		currentPlan.UpdatedBy, currentPlan.UpdatedAt = "section-delete", now
+		currentPlan.UpdatedBy, currentPlan.UpdatedAt = in.UpdatedBy, now
 		if err := model.ValidatePlan(currentPlan); err != nil {
 			return nil, err
 		}

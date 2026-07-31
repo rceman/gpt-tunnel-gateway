@@ -45,7 +45,7 @@ func ManagedRoot(c config.Config) string {
 
 func cleanEnv(extra ...string) []string {
 	keys := []string{"HOME", "PATH", "SSH_AUTH_SOCK", "USER", "LOGNAME", "TMPDIR"}
-	out := []string{"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "LC_ALL=C"}
+	out := []string{"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C"}
 	for _, k := range keys {
 		if v := os.Getenv(k); v != "" {
 			out = append(out, k+"="+v)
@@ -232,27 +232,42 @@ func (s Store) remoteRevisionLocked(ctx context.Context, root string) (string, e
 	return strings.TrimSpace(string(out)), nil
 }
 func (s Store) RemoteRevision(ctx context.Context) (string, error) {
-	lock, err := acquireRepositoryLock(ctx, s.Config.StateDir)
+	lock, err := s.readOnlyLock()
 	if err != nil {
 		return "", err
 	}
 	defer lock.Release()
-	root, err := s.ensureLocked(ctx)
+	root, err := s.readOnlyRoot(ctx)
 	if err != nil {
 		return "", err
 	}
 	return s.remoteRevisionLocked(ctx, root)
 }
+
+func (s Store) readOnlyLock() (*lockfile.Lock, error) {
+	return lockfile.AcquireReadOnly(filepath.Join(s.Config.StateDir, "locks"), "hub-repository")
+}
+
+func (s Store) readOnlyRoot(ctx context.Context) (string, error) {
+	root := ManagedRoot(s.Config)
+	if err := s.validateManagedRoot(ctx, root); err != nil {
+		return "", err
+	}
+	if _, err := command(ctx, root, "rev-parse", "--verify", s.remoteRef()+"^{commit}"); err != nil {
+		return "", fmt.Errorf("managed hub branch is unavailable: %w", err)
+	}
+	return root, nil
+}
 func (s Store) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	if err := validateHubPath(path); err != nil {
 		return nil, err
 	}
-	lock, err := acquireRepositoryLock(ctx, s.Config.StateDir)
+	lock, err := s.readOnlyLock()
 	if err != nil {
 		return nil, err
 	}
 	defer lock.Release()
-	root, err := s.ensureLocked(ctx)
+	root, err := s.readOnlyRoot(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -285,12 +300,12 @@ func (s Store) List(ctx context.Context, prefix, suffix string) ([]string, error
 	if err := validateHubPath(prefix); err != nil {
 		return nil, err
 	}
-	lock, err := acquireRepositoryLock(ctx, s.Config.StateDir)
+	lock, err := s.readOnlyLock()
 	if err != nil {
 		return nil, err
 	}
 	defer lock.Release()
-	root, err := s.ensureLocked(ctx)
+	root, err := s.readOnlyRoot(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -318,12 +333,12 @@ func (s Store) History(ctx context.Context, path string, limit int) ([]map[strin
 	if limit < 1 || limit > s.Config.MaxListItems {
 		return nil, fmt.Errorf("invalid history limit")
 	}
-	lock, err := acquireRepositoryLock(ctx, s.Config.StateDir)
+	lock, err := s.readOnlyLock()
 	if err != nil {
 		return nil, err
 	}
 	defer lock.Release()
-	root, err := s.ensureLocked(ctx)
+	root, err := s.readOnlyRoot(ctx)
 	if err != nil {
 		return nil, err
 	}

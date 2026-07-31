@@ -18,7 +18,7 @@
 14. Cancellation is cooperative and never signals the shared persistent agent process.
 15. The canonical plan is schema-v2: a compact manifest plus independently versioned named sections; no full section description is returned by `plan_read` or compact project status.
 16. Manifest updates are partial and preserve omitted fields. Section updates and deletes require an independent optimistic section revision; unrelated sections do not conflict.
-17. A current schema-v1 monolithic plan is migrated once by proving its complete body is preserved in a named section before the legacy body is removed. After migration there is no v1 reader, fallback, alias, or dual write.
+17. A current schema-v1 monolithic plan is converted only by the explicit owner-invoked `plan_cutover` operation. It decomposes headings, objective, and queue items into schema-v2 records, proves every meaningful source line is represented, and then removes the legacy body; ordinary reads never migrate and there is no v1 fallback, alias, or dual write.
 18. A timed-out active run is reprompted once, then terminalized if no valid finalization appears.
 19. Managed Git mirror operations may fetch remote refs but never modify the project worktree or remote repository.
 20. The controller verifies PID executable identity before signaling any process.

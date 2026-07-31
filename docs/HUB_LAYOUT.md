@@ -20,7 +20,7 @@ gpt-tunnel/v1/
 
 `plan/current.json` is the schema-v2 compact manifest. It contains plan identity and revision, title, summary, current objective, ordered queue, section index, and active execution references; it never contains a full section description. Each `plan/sections/<section-id>.json` record contains its own revision, title, one-line short description, full description, and update metadata. Section revisions are independent optimistic concurrency domains. The Git history of both the manifest and section records is retained.
 
-The gateway performs one direct schema-v1-to-schema-v2 migration when it encounters the current legacy plan. Migration writes named section records and verifies that the complete legacy body is preserved before replacing the manifest. After that cutover, only the schema-v2 layout is read or written; there is no fallback, alias, dual write, or legacy reader.
+The owner invokes one direct schema-v1-to-schema-v2 cutover through `plan_cutover`. It writes named section records, structured objective and queue fields, and verifies that every meaningful legacy heading and content line is represented before replacing the manifest. Ordinary reads never migrate or write Git state. After cutover, only the schema-v2 layout is read or written; there is no fallback, alias, dual write, or automatic legacy reader. Section writes rebase over unrelated manifest changes while retaining the target section revision check and manifest order.
 
 If the configured writable branch is absent, the gateway creates it from the remote default branch with a normal non-force push. If it already exists, the gateway preserves it exactly. Tasks and ADR documents are immutable. Only task-state and run documents change lifecycle state.
 

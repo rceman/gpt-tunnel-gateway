@@ -154,6 +154,22 @@ func plan(ctx context.Context, s *service.Service, args []string) {
 			fatal(e)
 		}
 		output(map[string]any{"history": v})
+	case "cutover":
+		f, rest := fileFlag("--file", args[1:])
+		ex, _ := expected(rest)
+		if f == "" {
+			usage()
+		}
+		var in service.PlanCutoverInput
+		readFile(f, &in)
+		if ex != "" {
+			in.ExpectedHubRevision = ex
+		}
+		v, e := s.PlanCutover(ctx, in)
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
 	case "update":
 		f, _ := fileFlag("--file", args[1:])
 		if f == "" {

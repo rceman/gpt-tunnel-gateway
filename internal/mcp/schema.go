@@ -220,6 +220,7 @@ var toolOutputSchemas = map[string]map[string]any{
 	"project_status":      closedOutput(map[string]any{"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(), "hub_revision": outputString()}, "project", "local", "worktree", "plan", "hub_revision"),
 	"project_register":    operationOutputSchema(),
 	"plan_read":           planOutputSchema(),
+	"plan_cutover":        operationOutputSchema(),
 	"plan_update":         operationOutputSchema(),
 	"plan_section_read":   planSectionOutputSchema(),
 	"plan_section_create": operationOutputSchema(),
@@ -295,7 +296,7 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	for _, name := range []string{"project_register", "adr_create", "task_create", "plan_section_create"} {
 		result[name] = additiveExternalAnnotations()
 	}
-	for _, name := range []string{"plan_update", "plan_section_update", "plan_section_delete", "task_dispatch", "task_supersede", "task_cancel", "run_sweep", "run_cancel"} {
+	for _, name := range []string{"plan_cutover", "plan_update", "plan_section_update", "plan_section_delete", "task_dispatch", "task_supersede", "task_cancel", "run_sweep", "run_cancel"} {
 		result[name] = destructiveExternalAnnotations()
 	}
 	result["git_refresh"] = ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}

@@ -41,7 +41,7 @@ func TestReviewSnapshotCLISuccessRenderingPath(t *testing.T) {
 func TestReviewSnapshotCLIErrorRenderingPathIsBounded(t *testing.T) {
 	s := service.New(config.Config{})
 	_, err := s.RunReviewSnapshot(context.Background(), "missing")
-	if err == nil || !strings.Contains(err.Error(), "clone managed hub repository") {
+	if err == nil || !strings.Contains(err.Error(), "read-only lock") {
 		t.Fatalf("unexpected CLI error: %v", err)
 	}
 }

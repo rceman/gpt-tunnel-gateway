@@ -11,9 +11,9 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-func TestPlanV1MigrationPreservesBodyBeforeRemovingLegacyField(t *testing.T) {
+func TestPlanCutoverPreservesLegacySemanticsAndIsOneTime(t *testing.T) {
 	s, hubRevision, _ := testService(t)
-	legacy := legacyPlanV1{SchemaVersion: model.SchemaVersion, ProjectID: "example", Revision: 3, Summary: "Legacy summary", Body: "# Legacy\n\nAll original content must survive.", UpdatedBy: "gpt", UpdatedAt: time.Now().UTC()}
+	legacy := legacyPlanV1{SchemaVersion: model.SchemaVersion, ProjectID: "example", Revision: 3, Summary: "Legacy summary", Body: "# Legacy\n\n## Objective\n\nBuild the foundation.\n\n## Queue\n\n- first-task\n- second-task\n\n## Design\n\nKeep the contract exact.", UpdatedBy: "gpt", UpdatedAt: time.Now().UTC()}
 	if _, err := s.Hub.Transact(context.Background(), hubRevision, "test: install legacy plan", func(w string) ([]string, error) {
 		path := s.planPath("example")
 		if err := hub.WriteJSON(w, path, legacy); err != nil {
@@ -23,19 +23,35 @@ func TestPlanV1MigrationPreservesBodyBeforeRemovingLegacyField(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	beforeRead, err := s.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PlanRead(context.Background(), "example"); err == nil {
+		t.Fatal("schema-v1 plan was accepted by a normal read")
+	}
+	afterRead, err := s.Hub.RemoteRevision(context.Background())
+	if err != nil || beforeRead != afterRead {
+		t.Fatalf("normal read mutated hub: before=%s after=%s err=%v", beforeRead, afterRead, err)
+	}
+	cutover, err := s.PlanCutover(context.Background(), PlanCutoverInput{ProjectID: "example", UpdatedBy: "owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cutover.Status != "cut over" {
+		t.Fatalf("unexpected cutover result: %#v", cutover)
+	}
 	plan, err := s.PlanRead(context.Background(), "example")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.SchemaVersion != model.PlanSchemaVersion || len(plan.Sections) != 1 || plan.Sections[0].ID != "overview" {
-		t.Fatalf("unexpected migrated manifest: %#v", plan)
+	if plan.SchemaVersion != model.PlanSchemaVersion || len(plan.Sections) != 4 || plan.CurrentObjective != "Build the foundation." || strings.Join(plan.Queue, ",") != "first-task,second-task" {
+		t.Fatalf("unexpected cutover manifest: %#v", plan)
 	}
-	section, err := s.PlanSectionRead(context.Background(), "example", "overview")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if section.Description != legacy.Body {
-		t.Fatalf("migration lost body: %q", section.Description)
+	for _, index := range plan.Sections {
+		if _, err := s.PlanSectionRead(context.Background(), "example", index.ID); err != nil {
+			t.Fatal(err)
+		}
 	}
 	raw, err := s.Hub.ReadFile(context.Background(), s.planPath("example"))
 	if err != nil {
@@ -47,6 +63,9 @@ func TestPlanV1MigrationPreservesBodyBeforeRemovingLegacyField(t *testing.T) {
 	}
 	if _, ok := manifest["body"]; ok {
 		t.Fatalf("legacy body remains in manifest: %s", raw)
+	}
+	if _, err := s.PlanCutover(context.Background(), PlanCutoverInput{ProjectID: "example", UpdatedBy: "owner"}); err == nil {
+		t.Fatal("second cutover was accepted")
 	}
 }
 
@@ -71,12 +90,13 @@ func TestPlanSectionsSupportPartialUpdatesIndependentConflictsAndRender(t *testi
 	}
 	first := create("first", "First")
 	second := create("second", "Second")
+	staleHubRevision := operation.Hub.After
 	newDescription := "Updated first description"
-	if _, err := s.PlanSectionUpdate(context.Background(), PlanSectionUpdateInput{ProjectID: "example", SectionID: first.ID, Description: &newDescription, UpdatedBy: "gpt", ExpectedSectionRevision: first.Revision}); err != nil {
-		t.Fatal(err)
-	}
 	newShort := "Updated second short description"
 	if _, err := s.PlanSectionUpdate(context.Background(), PlanSectionUpdateInput{ProjectID: "example", SectionID: second.ID, ShortDescription: &newShort, UpdatedBy: "gpt", ExpectedSectionRevision: second.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PlanSectionUpdate(context.Background(), PlanSectionUpdateInput{ProjectID: "example", SectionID: first.ID, Description: &newDescription, UpdatedBy: "gpt", ExpectedSectionRevision: first.Revision, WriteOptions: WriteOptions{ExpectedHubRevision: staleHubRevision}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.PlanSectionUpdate(context.Background(), PlanSectionUpdateInput{ProjectID: "example", SectionID: first.ID, Description: &newDescription, UpdatedBy: "gpt", ExpectedSectionRevision: first.Revision}); err == nil || !strings.Contains(err.Error(), "SECTION_REVISION_CONFLICT") {
@@ -101,8 +121,12 @@ func TestPlanSectionsSupportPartialUpdatesIndependentConflictsAndRender(t *testi
 	if strings.Index(rendered.Text, "## First") > strings.Index(rendered.Text, "## Second") || !strings.Contains(rendered.Text, "Updated first description") || !strings.Contains(rendered.Text, "Updated second short description") {
 		t.Fatalf("render ordering/content incorrect: %q", rendered.Text)
 	}
-	if _, err := s.PlanSectionDelete(context.Background(), PlanSectionDeleteInput{ProjectID: "example", SectionID: first.ID, ExpectedSectionRevision: first.Revision + 1}); err != nil {
+	if _, err := s.PlanSectionDelete(context.Background(), PlanSectionDeleteInput{ProjectID: "example", SectionID: first.ID, UpdatedBy: "delete-owner", ExpectedSectionRevision: first.Revision + 1}); err != nil {
 		t.Fatal(err)
+	}
+	deletedPlan, err := s.PlanRead(context.Background(), "example")
+	if err != nil || deletedPlan.UpdatedBy != "delete-owner" {
+		t.Fatalf("delete actor was not preserved: %v %#v", err, deletedPlan)
 	}
 	if _, err := s.PlanSectionRead(context.Background(), "example", first.ID); err == nil {
 		t.Fatal("deleted section remained readable")

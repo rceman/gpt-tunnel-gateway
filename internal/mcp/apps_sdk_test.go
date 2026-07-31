@@ -196,8 +196,8 @@ func TestToolCallRejectsInvalidAndOversizedMeta(t *testing.T) {
 func TestEveryToolDeclaresOutputSchemaAndExplicitAnnotations(t *testing.T) {
 	srv := &Server{Service: service.New(config.Config{})}
 	tools := srv.tools()
-	if len(tools) != 43 {
-		t.Fatalf("tool count=%d want 43", len(tools))
+	if len(tools) != 44 {
+		t.Fatalf("tool count=%d want 44", len(tools))
 	}
 	if len(toolOutputSchemas) != len(tools)-1 || len(toolAnnotations) != len(tools) {
 		t.Fatalf("contract coverage mismatch: tools=%d outputs=%d annotations=%d", len(tools), len(toolOutputSchemas), len(toolAnnotations))
@@ -234,6 +234,7 @@ func TestToolAnnotationsMatchActualSideEffects(t *testing.T) {
 	assert("run_review_snapshot", ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true})
 	assert("adr_create", additiveExternalAnnotations())
 	assert("task_create", additiveExternalAnnotations())
+	assert("plan_cutover", destructiveExternalAnnotations())
 	assert("plan_update", destructiveExternalAnnotations())
 	assert("plan_section_create", additiveExternalAnnotations())
 	assert("plan_section_update", destructiveExternalAnnotations())
@@ -249,7 +250,7 @@ func TestToolsListSerializesOutputSchemasAndAllHints(t *testing.T) {
 	response := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
 	result := response["result"].(map[string]any)
 	tools := result["tools"].([]any)
-	if len(tools) != 43 {
+	if len(tools) != 44 {
 		t.Fatalf("tool count=%d", len(tools))
 	}
 	previous := ""
@@ -364,7 +365,7 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		"gateway_capabilities": map[string]any{"gateway_id": "home_pc", "listen_addr": "127.0.0.1:8765", "projects": []string{"project"}, "hub_protocol_root": "gpt-tunnel/v1", "hub_repository_url": "git@github.com:rceman/typer.git", "hub_branch": "gpt-tunnel/home_pc", "hub_managed_root": "/tmp/state/hub/repository", "airelay_control_only": true, "generic_shell_available": false},
 		"project_list":         map[string]any{"projects": []model.Project{project}}, "project_read": project,
 		"project_status": service.ProjectStatus{Project: project, Local: local, Worktree: worktree, Plan: plan.StatusView(), HubRevision: transaction.After}, "project_register": operation,
-		"plan_read": plan, "plan_update": operation, "plan_section_read": section, "plan_section_create": operation, "plan_section_update": operation, "plan_section_delete": operation, "plan_render": render, "plan_history": map[string]any{"history": []map[string]string{{"sha": transaction.After, "date": now.Format(time.RFC3339), "author": "GPT", "subject": "subject"}}},
+		"plan_read": plan, "plan_cutover": operation, "plan_update": operation, "plan_section_read": section, "plan_section_create": operation, "plan_section_update": operation, "plan_section_delete": operation, "plan_render": render, "plan_history": map[string]any{"history": []map[string]string{{"sha": transaction.After, "date": now.Format(time.RFC3339), "author": "GPT", "subject": "subject"}}},
 		"adr_list": map[string]any{"adrs": []model.ADR{adr}}, "adr_read": adr, "adr_create": operation,
 		"task_create": map[string]any{"task": task, "operation": operation}, "task_list": map[string]any{"tasks": []service.TaskRecord{{Task: task, State: state}}}, "task_read": packet,
 		"task_dispatch": map[string]any{"run": run, "operation": operation}, "task_supersede": map[string]any{"task": task, "operation": operation}, "task_cancel": operation,

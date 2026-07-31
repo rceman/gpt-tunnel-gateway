@@ -13,6 +13,7 @@ gpt-tunnel project register --file <input.json>
 
 ```text
 gpt-tunnel plan read <project-id>
+gpt-tunnel plan cutover --file <input.json>
 gpt-tunnel plan update --file <input.json>
 gpt-tunnel plan section-read <project-id> <section-id>
 gpt-tunnel plan section-create --file <input.json>
