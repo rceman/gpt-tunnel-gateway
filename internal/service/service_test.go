@@ -302,3 +302,144 @@ func TestRunAgentTailRejectsBoundsTerminalAndForeignBeforeAirelay(t *testing.T) 
 		}
 	}
 }
+
+func TestHistoricalOperationalPathsAreReadOnly(t *testing.T) {
+	s, hubRevision, _ := testService(t)
+	fixture, err := os.ReadFile(filepath.Join("..", "..", "fixtures", "historical-run-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := strings.Replace(string(fixture), `"status": "succeeded"`, `"status": "awaiting_result"`, 1)
+	active = strings.Replace(active, `"gateway_id": "home_pc"`, `"gateway_id": "test_gateway"`, 1)
+	path := s.runPath("example", "11111111-1111-4111-8111-111111111111")
+	tx, err := s.Hub.Transact(context.Background(), hubRevision, "test: historical active run", func(worktree string) ([]string, error) {
+		return []string{path}, hub.WriteText(worktree, path, active)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.Hub.ReadFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := s.RunRead(context.Background(), "11111111-1111-4111-8111-111111111111")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RunAgentTail(context.Background(), run.ID, 4); err == nil || !strings.Contains(err.Error(), "history-only") {
+		t.Fatalf("historical agent tail was not rejected: %v", err)
+	}
+	if _, err := s.RunCancel(context.Background(), run.ID, tx.After); err == nil || !strings.Contains(err.Error(), "history-only") {
+		t.Fatalf("historical cancellation was not rejected: %v", err)
+	}
+	sweep, err := s.RunSweep(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sweep.Items) != 1 || !strings.Contains(sweep.Items[0].Error, "history-only") {
+		t.Fatalf("historical sweep was not rejected: %#v", sweep)
+	}
+	if _, err := s.updateRun(context.Background(), run, tx.After, "test: historical update"); err == nil || !strings.Contains(err.Error(), "history-only") {
+		t.Fatalf("historical shared update was not rejected: %v", err)
+	}
+	if _, err := s.failRun(context.Background(), run, model.Task{}, "failed", "test", tx.After); err == nil || !strings.Contains(err.Error(), "history-only") {
+		t.Fatalf("historical synthetic failure was not rejected: %v", err)
+	}
+	after, err := s.Hub.ReadFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("historical run bytes changed after rejected operations")
+	}
+	current, err := s.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current != tx.After {
+		t.Fatalf("historical operation changed hub revision: got %s want %s", current, tx.After)
+	}
+}
+
+func TestGatewayCompletionPathRejectsOverridesAndSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	completion := filepath.Join(dir, "runs", "run", "completion.json")
+	if err := fsutil.WriteJSONAtomic(completion, map[string]any{"ok": true}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := model.Run{CompletionPath: completion}
+	got, err := gatewayCompletionPath(run, filepath.Join(dir, "runs", "run", ".", "completion.json"))
+	if err != nil || got != completion {
+		t.Fatalf("normalized gateway path rejected: %q %v", got, err)
+	}
+	other := filepath.Join(dir, "source-tree-completion.json")
+	if err := os.WriteFile(other, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gatewayCompletionPath(run, other); err == nil {
+		t.Fatal("arbitrary completion path accepted")
+	}
+	symlink := filepath.Join(dir, "runs", "symlink", "completion.json")
+	if err := os.MkdirAll(filepath.Dir(symlink), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, symlink); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gatewayCompletionPath(model.Run{CompletionPath: symlink}, ""); err == nil {
+		t.Fatal("symlink completion path accepted")
+	}
+}
+
+func TestReportReadsRecomputeGitProof(t *testing.T) {
+	s, hubRevision, projectHead := testService(t)
+	ctx := context.Background()
+	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Proof task", Objective: "Verify report proof.", Branch: "feature/proof", BaseRevision: projectHead, AcceptanceCriteria: []string{"proof"}, CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Title: planString("Proof"), Summary: planString("Proof"), CurrentObjective: planString("Verify proof."), ActiveTaskID: planString(task.ID), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, dispatch, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := s.Config.Projects["example"]
+	if err := os.WriteFile(filepath.Join(project.Root, "proof.txt"), []byte("proof\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, project.Root, "add", "proof.txt")
+	testutil.Git(t, project.Root, "commit", "-m", "proof")
+	completion := model.Completion{SchemaVersion: 1, RunID: run.ID, TaskSHA256: task.SHA256, Status: "succeeded", Summary: "proof", GateResults: []model.CompletionGateResult{}, AcceptanceCoverage: []string{"AC1"}, Deviations: []string{}, RemainingRisks: []string{}}
+	if err := fsutil.WriteJSONAtomic(run.CompletionPath, completion, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	final, _, err := s.RunFinalize(ctx, FinalizeInput{RunID: run.ID, WriteOptions: WriteOptions{ExpectedHubRevision: dispatch.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, project.Root, "push", "-u", "origin", "feature/proof")
+	stored, err := s.RunReport(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.Repository.ChangedFiles = []string{"injected.txt"}
+	if _, err := s.Hub.Transact(ctx, final.HubCommit, "test: tamper report proof", func(worktree string) ([]string, error) {
+		path := s.reportPath(run.ProjectID, run.ID)
+		return []string{path}, hub.WriteJSON(worktree, path, stored)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RunReport(ctx, run.ID); err == nil || !strings.Contains(err.Error(), "changed files") {
+		t.Fatalf("tampered report was accepted: %v", err)
+	}
+	snapshot, err := s.RunReviewSnapshot(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Report.Available || snapshot.Report.Error == "" {
+		t.Fatalf("tampered report was exposed by review snapshot: %#v", snapshot.Report)
+	}
+}

@@ -13,7 +13,7 @@
 9. An existing task branch is accepted only when the task base is an ancestor; otherwise dispatch fails without reset, clean, delete, or force-update.
 10. Airelay messages are at most 256 bytes and contain no task body.
 11. Successful prompt delivery moves a run to `awaiting_result`; it never means success.
-12. `run finalize` reads one bounded strict `completion.json`, validates exact task/run identity, task hash, positional receipts, and terminal status, then derives repository proof independently.
+12. `run finalize` reads only the gateway-owned run `completion.json` path (an optional CLI path must normalize exactly to that path), validates exact task/run identity, task hash, positional receipts, and terminal status, then derives repository proof independently.
 13. Failed dispatch, repository preparation failure, cancellation timeout, and completion timeout produce one canonical failed report; they never create result or evidence artifacts.
 14. Cancellation is cooperative and never signals the shared persistent agent process.
 15. The canonical plan is schema-v2: a compact manifest plus independently versioned named sections; no full section description is returned by `plan_read` or compact project status.
@@ -34,7 +34,7 @@
 30. Fresh managed-hub startup fails readiness when configured project IDs lack durable canonical project records; it never silently reports a ready but empty project bus.
 31. `run_review_snapshot` is a bounded read-only aggregate: it refreshes the managed mirror once, omits session and local-path details, and reports deterministic structural checks for active or terminal runs without dispatching work.
 32. New runs expose only one local `completion.json`; new hub run state is exactly `run.json` plus canonical `report.json`.
-33. Terminal completion statuses are only `succeeded`, `failed`, and `needs_gpt_revision`; every terminal path clears active task/run ownership. Historical protocol-v1 run records are bounded, read-only projections with legacy paths redacted.
+33. Terminal completion statuses are only `succeeded`, `failed`, and `needs_gpt_revision`; every terminal path clears active task/run ownership. Historical protocol-v1 run records are bounded, read-only projections with legacy paths redacted and are rejected by every operational run path.
 
 ## Lifecycle
 

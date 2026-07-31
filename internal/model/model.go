@@ -144,32 +144,28 @@ type TaskState struct {
 }
 
 type Run struct {
-	SchemaVersion    int    `json:"schema_version"`
-	ID               string `json:"id"`
-	TaskID           string `json:"task_id"`
-	TaskSHA256       string `json:"task_sha256"`
-	ProjectID        string `json:"project_id"`
-	GatewayID        string `json:"gateway_id"`
-	SessionKey       string `json:"session_key"`
-	Branch           string `json:"branch"`
-	BaseRevision     string `json:"base_revision"`
-	HubRevision      string `json:"hub_revision"`
-	Status           string `json:"status"`
-	DispatchMessage  string `json:"dispatch_message,omitempty"`
-	DispatchExitCode *int   `json:"dispatch_exit_code,omitempty"`
-	DispatchStdout   string `json:"dispatch_stdout,omitempty"`
-	DispatchStderr   string `json:"dispatch_stderr,omitempty"`
-	CompletionPath   string `json:"completion_path"`
-	Historical       bool   `json:"-"`
-	// Deprecated fields are retained only so immutable pre-2.0 local records can
-	// be decoded by maintenance tooling. They are never populated or serialized.
-	ResultPath     string     `json:"-"`
-	EvidencePath   string     `json:"-"`
-	CreatedAt      time.Time  `json:"created_at"`
-	DispatchedAt   *time.Time `json:"dispatched_at,omitempty"`
-	RepromptCount  int        `json:"reprompt_count,omitempty"`
-	LastRepromptAt *time.Time `json:"last_reprompt_at,omitempty"`
-	FinishedAt     *time.Time `json:"finished_at,omitempty"`
+	SchemaVersion    int        `json:"schema_version"`
+	ID               string     `json:"id"`
+	TaskID           string     `json:"task_id"`
+	TaskSHA256       string     `json:"task_sha256"`
+	ProjectID        string     `json:"project_id"`
+	GatewayID        string     `json:"gateway_id"`
+	SessionKey       string     `json:"session_key"`
+	Branch           string     `json:"branch"`
+	BaseRevision     string     `json:"base_revision"`
+	HubRevision      string     `json:"hub_revision"`
+	Status           string     `json:"status"`
+	DispatchMessage  string     `json:"dispatch_message,omitempty"`
+	DispatchExitCode *int       `json:"dispatch_exit_code,omitempty"`
+	DispatchStdout   string     `json:"dispatch_stdout,omitempty"`
+	DispatchStderr   string     `json:"dispatch_stderr,omitempty"`
+	CompletionPath   string     `json:"completion_path"`
+	Historical       bool       `json:"-"`
+	CreatedAt        time.Time  `json:"created_at"`
+	DispatchedAt     *time.Time `json:"dispatched_at,omitempty"`
+	RepromptCount    int        `json:"reprompt_count,omitempty"`
+	LastRepromptAt   *time.Time `json:"last_reprompt_at,omitempty"`
+	FinishedAt       *time.Time `json:"finished_at,omitempty"`
 }
 
 type CompletionGateResult struct {
@@ -475,6 +471,13 @@ func ValidateReport(v Report, task Task, run Run, limits ...int) error {
 	canonicalFiles := CanonicalStrings(v.Repository.ChangedFiles)
 	if strings.Join(canonicalFiles, "\x00") != strings.Join(v.Repository.ChangedFiles, "\x00") {
 		return fmt.Errorf("repository changed files are not canonical")
+	}
+	seenFiles := map[string]bool{}
+	for _, path := range v.Repository.ChangedFiles {
+		if seenFiles[path] {
+			return fmt.Errorf("repository changed files contain duplicates")
+		}
+		seenFiles[path] = true
 	}
 	if v.Status == "succeeded" && (!v.Repository.BaseAncestor || !v.Repository.WorktreeClean || v.Repository.Branch != run.Branch) {
 		return fmt.Errorf("successful report lacks base ancestry proof")

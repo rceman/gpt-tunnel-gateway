@@ -567,6 +567,27 @@ func (r Runner) Resolve(ctx context.Context, root, rev string) (string, error) {
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+
+// BranchHead resolves a local branch without depending on the checked-out
+// branch. A missing branch is reported separately so callers can validate
+// branch identity when the ref is available without inventing one.
+func (r Runner) BranchHead(ctx context.Context, root, branch string) (string, bool, error) {
+	if err := model.ValidateBranch(branch); err != nil {
+		return "", false, err
+	}
+	ref := "refs/heads/" + branch
+	if _, err := r.command(ctx, root, false, "show-ref", "--verify", "--quiet", ref); err != nil {
+		if strings.Contains(err.Error(), "exit status 1") {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	out, err := r.command(ctx, root, false, "rev-parse", "--verify", ref+"^{commit}")
+	if err != nil {
+		return "", true, err
+	}
+	return strings.TrimSpace(string(out)), true, nil
+}
 func (r Runner) PrepareBranch(ctx context.Context, p config.ProjectConfig, branch, base string) error {
 	if err := model.ValidateBranch(branch); err != nil {
 		return err

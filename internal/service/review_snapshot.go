@@ -129,6 +129,9 @@ func (s *Service) readSnapshotReport(ctx context.Context, run model.Run, task mo
 	if err := model.ValidateReport(report, task, run, s.Config.MaxListItems); err != nil {
 		return model.ReviewSnapshotReport{}, err
 	}
+	if err := s.validateCanonicalReportProof(ctx, report, run); err != nil {
+		return model.ReviewSnapshotReport{}, err
+	}
 	if run.Status != report.Status {
 		return model.ReviewSnapshotReport{}, fmt.Errorf("report status does not match run")
 	}

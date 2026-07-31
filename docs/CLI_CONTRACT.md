@@ -41,7 +41,7 @@ gpt-tunnel run read|status|report|review-snapshot <run-id>
 gpt-tunnel run agent-tail <run-id> [--lines N]
 gpt-tunnel run cancel <run-id>
 gpt-tunnel run sweep
-gpt-tunnel run finalize <run-id> [--completion-file <path>]
+gpt-tunnel run finalize <run-id> [--completion-file <gateway-owned-run-path>]
 ```
 
 `run finalize` is local-agent-only. It is intentionally not exposed as a remote MCP write tool.

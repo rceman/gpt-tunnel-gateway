@@ -963,6 +963,9 @@ func (s *Service) RunAgentTail(ctx context.Context, id string, lines int) (strin
 	if err != nil {
 		return "", err
 	}
+	if err := ensureOperationalRun(run); err != nil {
+		return "", err
+	}
 	if err := s.ensureRunOwned(run); err != nil {
 		return "", err
 	}
@@ -980,6 +983,12 @@ func (s *Service) RunAgentTail(ctx context.Context, id string, lines int) (strin
 		return "", err
 	}
 	return result.Stdout, nil
+}
+func ensureOperationalRun(run model.Run) error {
+	if run.Historical {
+		return fmt.Errorf("workflow-v1 run is history-only")
+	}
+	return nil
 }
 func (s *Service) ensureRunOwned(run model.Run) error {
 	if run.GatewayID != s.Config.GatewayID {
@@ -1160,6 +1169,9 @@ func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run
 	return run, OperationResult{Hub: tx2, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: run.Status}, nil
 }
 func (s *Service) updateRun(ctx context.Context, run model.Run, expected, subject string) (hub.TransactionResult, error) {
+	if err := ensureOperationalRun(run); err != nil {
+		return hub.TransactionResult{}, err
+	}
 	return s.Hub.Transact(ctx, expected, subject, func(w string) ([]string, error) {
 		path := s.runPath(run.ProjectID, run.ID)
 		if err := hub.WriteJSON(w, path, run); err != nil {
@@ -1192,6 +1204,9 @@ func canonicalReport(report model.Report) model.Report {
 	return report
 }
 func (s *Service) failRun(ctx context.Context, run model.Run, task model.Task, status, summary, expected string) (hub.TransactionResult, error) {
+	if err := ensureOperationalRun(run); err != nil {
+		return hub.TransactionResult{}, err
+	}
 	now := time.Now().UTC()
 	run.Status = status
 	run.FinishedAt = &now
@@ -1211,7 +1226,23 @@ func (s *Service) failRun(ctx context.Context, run model.Run, task model.Task, s
 	if head != "" && local.Root != "" {
 		ancestor, _ = s.Git.IsAncestor(ctx, local.Root, run.BaseRevision, head)
 	}
-	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: task.ProjectID, Status: status, Summary: summary, Repository: model.RepositoryProof{Branch: branch, Head: head, WorktreeClean: clean, BaseAncestor: ancestor, DiffScope: run.BaseRevision + ".." + head}, FinishedAt: now})
+	commits := []string{}
+	changedFiles := []string{}
+	if local.Root != "" && head != "" {
+		actualFiles, e := s.Git.ChangedFiles(ctx, local.Root, run.BaseRevision, head)
+		if e != nil {
+			return hub.TransactionResult{}, e
+		}
+		changedFiles = actualFiles
+		log, e := s.Git.LocalLog(ctx, local.Root, run.BaseRevision, head, s.Config.MaxListItems)
+		if e != nil {
+			return hub.TransactionResult{}, e
+		}
+		for _, commit := range log {
+			commits = append(commits, commit.SHA)
+		}
+	}
+	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: task.ProjectID, Status: status, Summary: summary, Repository: model.RepositoryProof{Branch: branch, Head: head, WorktreeClean: clean, BaseAncestor: ancestor, Commits: commits, ChangedFiles: changedFiles, DiffScope: run.BaseRevision + ".." + head}, FinishedAt: now})
 	state := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: taskStateStatusForResult(status), UpdatedAt: now}
 	plan, err := s.PlanRead(ctx, task.ProjectID)
 	if err != nil {
@@ -1292,6 +1323,47 @@ func renderPacket(task model.Task, run model.Run, project model.Project, plan mo
 	return b.String()
 }
 
+func normalizedAbsolutePath(path string) (string, error) {
+	abs, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(abs), nil
+}
+
+func gatewayCompletionPath(run model.Run, requested string) (string, error) {
+	if run.CompletionPath == "" {
+		return "", fmt.Errorf("run has no gateway-owned completion path")
+	}
+	expected, err := normalizedAbsolutePath(run.CompletionPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid gateway completion path")
+	}
+	if requested == "" {
+		requested = run.CompletionPath
+	}
+	actual, err := normalizedAbsolutePath(requested)
+	if err != nil || actual != expected {
+		return "", fmt.Errorf("completion file must equal the gateway-owned run completion path")
+	}
+	info, err := os.Lstat(actual)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("completion file is not a regular gateway-owned file")
+	}
+	resolved, err := filepath.EvalSymlinks(actual)
+	if err != nil {
+		return "", err
+	}
+	resolved, err = normalizedAbsolutePath(resolved)
+	if err != nil || resolved != actual {
+		return "", fmt.Errorf("completion file must not resolve outside the gateway-owned path")
+	}
+	return actual, nil
+}
+
 func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Report, OperationResult, error) {
 	run, err := s.findRun(ctx, in.RunID)
 	if err != nil {
@@ -1310,10 +1382,11 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
-	if in.CompletionFile == "" {
-		in.CompletionFile = run.CompletionPath
+	completionPath, err := gatewayCompletionPath(run, in.CompletionFile)
+	if err != nil {
+		return model.Report{}, OperationResult{}, err
 	}
-	data, err := fsutil.ReadFileBounded(in.CompletionFile, s.Config.MaxReadBytes)
+	data, err := fsutil.ReadFileBounded(completionPath, s.Config.MaxReadBytes)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
@@ -1421,6 +1494,9 @@ func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error
 	if err := model.ValidateReport(report, task, run, s.Config.MaxListItems); err != nil {
 		return model.Report{}, err
 	}
+	if err := s.validateCanonicalReportProof(ctx, report, run); err != nil {
+		return model.Report{}, err
+	}
 	if run.Status != report.Status {
 		return model.Report{}, fmt.Errorf("report status does not match run")
 	}
@@ -1442,9 +1518,69 @@ func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error
 	report.HubCommit = commit
 	return canonicalReport(report), nil
 }
+
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Service) validateCanonicalReportProof(ctx context.Context, report model.Report, run model.Run) error {
+	local, err := s.projectConfig(run.ProjectID)
+	if err != nil {
+		return err
+	}
+	resolvedHead, err := s.Git.Resolve(ctx, local.Root, report.Repository.Head)
+	if err != nil || resolvedHead != report.Repository.Head {
+		return fmt.Errorf("report repository HEAD does not resolve exactly")
+	}
+	ancestor, err := s.Git.IsAncestor(ctx, local.Root, run.BaseRevision, report.Repository.Head)
+	if err != nil {
+		return err
+	}
+	if ancestor != report.Repository.BaseAncestor {
+		return fmt.Errorf("report ancestry proof does not match Git")
+	}
+	actualFiles, err := s.Git.ChangedFiles(ctx, local.Root, run.BaseRevision, report.Repository.Head)
+	if err != nil {
+		return err
+	}
+	if !sameStrings(actualFiles, report.Repository.ChangedFiles) {
+		return fmt.Errorf("report changed files do not match Git")
+	}
+	commits, err := s.Git.LocalLog(ctx, local.Root, run.BaseRevision, report.Repository.Head, s.Config.MaxListItems)
+	if err != nil {
+		return err
+	}
+	actualCommits := make([]string, 0, len(commits))
+	for _, commit := range commits {
+		actualCommits = append(actualCommits, commit.SHA)
+	}
+	if !sameStrings(actualCommits, report.Repository.Commits) {
+		return fmt.Errorf("report commits do not match Git history")
+	}
+	branchHead, exists, err := s.Git.BranchHead(ctx, local.Root, report.Repository.Branch)
+	if err != nil {
+		return err
+	}
+	if exists && branchHead != report.Repository.Head {
+		return fmt.Errorf("report branch does not point at reported HEAD")
+	}
+	return nil
+}
+
 func (s *Service) RunCancel(ctx context.Context, id, expected string) (OperationResult, error) {
 	run, err := s.findRun(ctx, id)
 	if err != nil {
+		return OperationResult{}, err
+	}
+	if err := ensureOperationalRun(run); err != nil {
 		return OperationResult{}, err
 	}
 	if err := s.ensureRunOwned(run); err != nil {
@@ -1460,6 +1596,9 @@ func (s *Service) RunCancel(ctx context.Context, id, expected string) (Operation
 		return OperationResult{}, err
 	}
 	if err := s.ensureRunOwned(run); err != nil {
+		return OperationResult{}, err
+	}
+	if err := ensureOperationalRun(run); err != nil {
 		return OperationResult{}, err
 	}
 	if !activeStatus(run.Status) {
@@ -1511,6 +1650,13 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 			return out, err
 		}
 		for _, run := range runs {
+			if run.Historical {
+				if activeStatus(run.Status) {
+					out.Checked++
+					out.Items = append(out.Items, SweepItem{RunID: run.ID, Action: "error", Status: run.Status, Error: "workflow-v1 run is history-only"})
+				}
+				continue
+			}
 			if run.GatewayID != s.Config.GatewayID || !activeStatus(run.Status) {
 				continue
 			}

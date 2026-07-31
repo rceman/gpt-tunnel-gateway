@@ -18,7 +18,7 @@ func TestDecodeHistoricalRunV1RedactsLegacyPaths(t *testing.T) {
 	if !historical || !run.Historical {
 		t.Fatal("historical marker missing")
 	}
-	if run.CompletionPath != "" || run.ResultPath != "" || run.EvidencePath != "" {
+	if run.CompletionPath != "" {
 		t.Fatalf("legacy paths leaked: %#v", run)
 	}
 	if run.Status != "succeeded" || run.ID != "11111111-1111-4111-8111-111111111111" {
