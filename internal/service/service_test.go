@@ -44,6 +44,15 @@ func TestValidateConfiguredProjectRecordsRejectsMissingDurableRecord(t *testing.
 	}
 }
 
+func TestReadOnlyBootstrapErrorIsBounded(t *testing.T) {
+	state := t.TempDir()
+	s := New(config.Config{StateDir: state})
+	_, err := s.ProjectList(context.Background())
+	if err == nil || err.Error() != "read-only hub lock unavailable" || strings.Contains(err.Error(), state) {
+		t.Fatalf("unbounded read-only error: %v", err)
+	}
+}
+
 func TestValidateConfiguredProjectRecordsRejectsMissingPlan(t *testing.T) {
 	s, _, _ := testService(t)
 	if err := s.ValidateConfiguredProjectRecords(context.Background()); err == nil || !strings.Contains(err.Error(), "plan") {

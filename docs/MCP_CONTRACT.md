@@ -13,6 +13,6 @@ Every tool descriptor declares an exact object-rooted `outputSchema` and explici
 
 Remote tools mirror typed CLI operations except `run_finalize`, which remains local-agent-only. No generic shell, generic Git, arbitrary path, or unrestricted file tool exists.
 
-Plan storage uses schema-v2 sectional records. The plan tools are `plan_read`, `plan_update`, `plan_section_read`, `plan_section_create`, `plan_section_update`, `plan_section_delete`, and `plan_render`. `plan_read` returns only the bounded manifest and section index; full descriptions require an exact section read or explicit render. Manifest updates are partial. Section mutations use independent optimistic `expected_section_revision` values, while Git history retains deleted records.
+Plan storage uses schema-v2 sectional records. The plan tools are `plan_read`, `plan_cutover`, `plan_update`, `plan_section_read`, `plan_section_create`, `plan_section_update`, `plan_section_delete`, and `plan_render`. `plan_read` returns only the bounded manifest and section index; full descriptions require an exact section read or explicit render. Schema-v1 conversion is an owner-invoked one-time `plan_cutover`; ordinary reads never trigger it. Manifest updates are partial. Section mutations use independent optimistic `expected_section_revision` values, while Git history retains deleted records.
 
 Git tools are read-only relative to source and remotes. `git_refresh` updates only a managed bare mirror.

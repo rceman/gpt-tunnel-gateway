@@ -245,16 +245,20 @@ func (s Store) RemoteRevision(ctx context.Context) (string, error) {
 }
 
 func (s Store) readOnlyLock() (*lockfile.Lock, error) {
-	return lockfile.AcquireReadOnly(filepath.Join(s.Config.StateDir, "locks"), "hub-repository")
+	lock, err := lockfile.AcquireReadOnly(filepath.Join(s.Config.StateDir, "locks"), "hub-repository")
+	if err != nil {
+		return nil, errors.New("read-only hub lock unavailable")
+	}
+	return lock, nil
 }
 
 func (s Store) readOnlyRoot(ctx context.Context) (string, error) {
 	root := ManagedRoot(s.Config)
 	if err := s.validateManagedRoot(ctx, root); err != nil {
-		return "", err
+		return "", errors.New("read-only hub unavailable")
 	}
 	if _, err := command(ctx, root, "rev-parse", "--verify", s.remoteRef()+"^{commit}"); err != nil {
-		return "", fmt.Errorf("managed hub branch is unavailable: %w", err)
+		return "", errors.New("read-only hub branch unavailable")
 	}
 	return root, nil
 }

@@ -42,6 +42,7 @@ type legacyPlanBlock struct {
 
 var markdownHeadingRE = regexp.MustCompile(`^(#{1,6})\s+(.+?)\s*#*\s*$`)
 var markdownListRE = regexp.MustCompile(`^\s*(?:[-*+]|[0-9]+[.)])\s+(?:\[[ xX]\]\s*)?(.+?)\s*$`)
+var currentQueueEntryRE = regexp.MustCompile(`^\s*(P[0-9]+)\s+—\s+.+?\s*$`)
 var inlineObjectiveRE = regexp.MustCompile(`(?i)^\s*(?:current objective|objective)\s*:\s*(.+?)\s*$`)
 
 func normalizeHeading(value string) string {
@@ -133,10 +134,14 @@ func legacyQueue(blocks []legacyPlanBlock) []string {
 	used := map[string]bool{}
 	for _, block := range blocks {
 		heading := normalizeHeading(block.Title)
-		if heading != "queue" && heading != "backlog" && heading != "next steps" {
+		if heading != "queue" && heading != "backlog" && heading != "next steps" && heading != "queue — workflow and documentation before optional features" {
 			continue
 		}
 		for _, line := range strings.Split(block.Content, "\n") {
+			if match := currentQueueEntryRE.FindStringSubmatch(line); match != nil {
+				queue = append(queue, match[1])
+				continue
+			}
 			match := markdownListRE.FindStringSubmatch(line)
 			if match == nil {
 				continue

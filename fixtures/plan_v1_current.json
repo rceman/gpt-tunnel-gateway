@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "project_id": "example",
+  "revision": 7,
+  "summary": "Workflow foundation",
+  "body": "# Workflow foundation\n\n## Current objective\n\nPreserve the durable plan contract.\n\n## Queue — workflow and documentation before optional features\n\nP0 — Sectional Plan Review-r2 (active)\nP1 — Single Completion and Durable Task Finalization\nP2 — Bounded Orchestration\n\n## Operating rules\n\nReads are strictly read-only.\n",
+  "active_task_id": "sectional-plan-review-r2",
+  "active_run_id": "run-current",
+  "updated_by": "gpt",
+  "updated_at": "2026-07-31T10:00:00Z"
+}

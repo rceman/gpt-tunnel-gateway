@@ -1,6 +1,7 @@
 package lockfile
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 
 type Lock struct{ file *os.File }
 
+var ErrReadOnlyUnavailable = errors.New("read-only lock unavailable")
+
 // AcquireReadOnly coordinates with writers without creating or modifying the
 // lock file. Read-only callers must run after the owning controller has
 // created the lock files during startup.
@@ -17,11 +20,11 @@ func AcquireReadOnly(dir, name string) (*Lock, error) {
 	path := filepath.Join(dir, name+".lock")
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("open read-only lock %s: %w", name, err)
+		return nil, ErrReadOnlyUnavailable
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("acquire read-only lock %s: %w", name, err)
+		return nil, ErrReadOnlyUnavailable
 	}
 	return &Lock{file: f}, nil
 }

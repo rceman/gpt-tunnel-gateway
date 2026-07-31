@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +12,19 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
+
+func loadCurrentPlanFixture(t *testing.T) legacyPlanV1 {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "fixtures", "plan_v1_current.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy legacyPlanV1
+	if err := decodeStrict(data, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	return legacy
+}
 
 func TestPlanCutoverPreservesLegacySemanticsAndIsOneTime(t *testing.T) {
 	s, hubRevision, _ := testService(t)
@@ -66,6 +81,51 @@ func TestPlanCutoverPreservesLegacySemanticsAndIsOneTime(t *testing.T) {
 	}
 	if _, err := s.PlanCutover(context.Background(), PlanCutoverInput{ProjectID: "example", UpdatedBy: "owner"}); err == nil {
 		t.Fatal("second cutover was accepted")
+	}
+}
+
+func TestPlanCutoverUsesCurrentDurableQueueShape(t *testing.T) {
+	s, hubRevision, _ := testService(t)
+	legacy := loadCurrentPlanFixture(t)
+	if _, err := s.Hub.Transact(context.Background(), hubRevision, "test: install current plan fixture", func(w string) ([]string, error) {
+		path := s.planPath("example")
+		if err := hub.WriteJSON(w, path, legacy); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.PlanCutover(context.Background(), PlanCutoverInput{ProjectID: "example", UpdatedBy: "owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "cut over" {
+		t.Fatalf("unexpected cutover result: %#v", result)
+	}
+	plan, err := s.PlanRead(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(plan.Queue, ",") != "P0,P1,P2" {
+		t.Fatalf("queue=%#v want exact current queue identities", plan.Queue)
+	}
+	if plan.ActiveTaskID != legacy.ActiveTaskID || plan.ActiveRunID != legacy.ActiveRunID {
+		t.Fatalf("active references were not preserved: %#v", plan)
+	}
+	if len(plan.Sections) != 4 || plan.Sections[1].Title != "Current objective" || plan.Sections[2].Title != "Queue — workflow and documentation before optional features" {
+		t.Fatalf("named sections/order not preserved: %#v", plan.Sections)
+	}
+	sections := make([]model.PlanSection, 0, len(plan.Sections))
+	for _, index := range plan.Sections {
+		section, readErr := s.PlanSectionRead(context.Background(), "example", index.ID)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		sections = append(sections, section)
+	}
+	if err := proveLegacyBodyPreserved(legacy.Body, sections); err != nil {
+		t.Fatal(err)
 	}
 }
 
