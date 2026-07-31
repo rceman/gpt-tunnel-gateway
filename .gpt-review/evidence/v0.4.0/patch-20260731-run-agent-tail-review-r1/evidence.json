@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "base": "dba2c2c6e1c850626f6dcfd45fa17e09b795ad3d",
+  "implementation_commit": "c178cfdfc4e146e3ade9133b06b8cbb1c522971c",
+  "integration_fix_commits": [],
+  "commands": [
+    {
+      "command": "go test ./internal/mcp ./cmd/gpt-tunnel",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "test -z \"$(gofmt -l .)\"",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "go vet ./...",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "go test -race ./...",
+      "exit_code": 0,
+      "result": "all packages passed"
+    },
+    {
+      "command": "python3 scripts/static-check.py",
+      "exit_code": 0,
+      "result": "STATIC_CHECK_OK"
+    },
+    {
+      "command": "release_dir=\"$(mktemp -d /tmp/gpt-tunnel-gateway-0.4.0-review-r1.XXXXXX)\"; bash scripts/build-release.sh \"$release_dir\"; ( cd \"$release_dir\"; sha256sum -c SHA256SUMS; ! grep -Eq '  /' SHA256SUMS )",
+      "exit_code": 0,
+      "result": "all release artifacts built and checksums verified"
+    },
+    {
+      "command": "test \"$(\"$release_dir/gpt-tunnel-gatewayd\" --version)\" = \"0.4.0\"; test \"$(\"$release_dir/gpt-tunnel\" version)\" = \"0.4.0\"; test \"$(\"$release_dir/gpt-tunnelctl\" version)\" = \"0.4.0\"",
+      "exit_code": 0,
+      "result": "all three binaries reported 0.4.0"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "passed"
+    }
+  ],
+  "changed_files": [
+    "cmd/gpt-tunnel/main_test.go",
+    "internal/mcp/apps_sdk_test.go",
+    ".gpt-review/evidence/v0.4.0/patch-20260731-run-agent-tail-review-r1/AGENT_RESULT.md",
+    ".gpt-review/evidence/v0.4.0/patch-20260731-run-agent-tail-review-r1/evidence.json"
+  ],
+  "deviations": [],
+  "user_typer_checkout_required": false,
+  "active_tunnel_touched": false,
+  "runtime_replacement_performed": false,
+  "finished_at": "2026-07-31T08:48:10Z"
+}
