@@ -99,9 +99,9 @@ func runOutputSchema() map[string]any {
 		"project_id": outputString(), "gateway_id": outputString(), "session_key": outputString(), "branch": outputString(),
 		"base_revision": outputString(), "hub_revision": outputString(), "status": outputString(),
 		"dispatch_message": outputString(), "dispatch_exit_code": outputInteger(), "dispatch_stdout": outputString(), "dispatch_stderr": outputString(),
-		"result_path": outputString(), "evidence_path": outputString(), "created_at": outputDateTime(), "dispatched_at": outputDateTime(),
+		"completion_path": outputString(), "created_at": outputDateTime(), "dispatched_at": outputDateTime(),
 		"reprompt_count": outputInteger(), "last_reprompt_at": outputDateTime(), "finished_at": outputDateTime(),
-	}, "schema_version", "id", "task_id", "task_sha256", "project_id", "gateway_id", "session_key", "branch", "base_revision", "hub_revision", "status", "result_path", "evidence_path", "created_at")
+	}, "schema_version", "id", "task_id", "task_sha256", "project_id", "gateway_id", "session_key", "branch", "base_revision", "hub_revision", "status", "completion_path", "created_at")
 }
 
 func commandResultOutputSchema() map[string]any {
@@ -116,12 +116,14 @@ func evidenceOutputSchema() map[string]any {
 }
 
 func reportOutputSchema() map[string]any {
+	gate := closedOutput(map[string]any{"id": outputString(), "exit_code": outputInteger()}, "id", "exit_code")
+	repository := closedOutput(map[string]any{"branch": outputString(), "head": outputString(), "worktree_clean": outputBoolean(), "base_ancestor": outputBoolean(), "commits": outputArray(outputString()), "changed_files": outputArray(outputString()), "diff_scope": outputString()}, "branch", "head", "worktree_clean", "base_ancestor", "commits", "changed_files", "diff_scope")
 	return closedOutput(map[string]any{
 		"schema_version": outputInteger(), "task_id": outputString(), "run_id": outputString(), "project_id": outputString(),
-		"status": outputString(), "summary": outputString(), "commits": outputArray(outputString()), "changed_files": outputArray(outputString()),
-		"commands": outputArray(commandResultOutputSchema()), "deviations": outputArray(outputString()), "remaining_risks": outputArray(outputString()),
+		"status": outputString(), "summary": outputString(), "gate_results": outputArray(gate), "acceptance_coverage": outputArray(outputString()),
+		"deviations": outputArray(outputString()), "remaining_risks": outputArray(outputString()), "repository": repository,
 		"hub_commit": outputString(), "finished_at": outputDateTime(),
-	}, "schema_version", "task_id", "run_id", "project_id", "status", "summary", "commits", "changed_files", "commands", "deviations", "remaining_risks", "finished_at")
+	}, "schema_version", "task_id", "run_id", "project_id", "status", "summary", "gate_results", "acceptance_coverage", "deviations", "remaining_risks", "repository", "finished_at")
 }
 
 func transactionOutputSchema() map[string]any {
@@ -141,7 +143,8 @@ func reviewSnapshotOutputSchema() map[string]any {
 	run := closedOutput(map[string]any{"id": outputString(), "task_id": outputString(), "project_id": outputString(), "status": outputString(), "branch": outputString(), "base_revision": outputString(), "created_at": timeField, "dispatched_at": timeField, "finished_at": timeField}, "id", "task_id", "project_id", "status", "branch", "base_revision", "created_at")
 	task := closedOutput(map[string]any{"id": outputString(), "sha256": outputString(), "title": outputString(), "objective": outputString(), "branch": outputString(), "base_revision": outputString(), "acceptance_criteria": outputArray(outputString()), "constraints": outputArray(outputString()), "required_gates": outputArray(outputString()), "created_by": outputString(), "created_at": timeField, "task_state_status": outputString()}, "id", "sha256", "title", "objective", "branch", "base_revision", "acceptance_criteria", "constraints", "required_gates", "created_by", "created_at", "task_state_status")
 	command := commandResultOutputSchema()
-	report := closedOutput(map[string]any{"available": outputBoolean(), "error": outputString(), "status": outputString(), "summary": outputString(), "commits": outputArray(outputString()), "changed_files": outputArray(outputString()), "commands": outputArray(command), "deviations": outputArray(outputString()), "remaining_risks": outputArray(outputString()), "finished_at": timeField, "hub_commit": outputString()}, "available")
+	gate := closedOutput(map[string]any{"id": outputString(), "exit_code": outputInteger()}, "id", "exit_code")
+	report := closedOutput(map[string]any{"available": outputBoolean(), "error": outputString(), "status": outputString(), "summary": outputString(), "repository_head": outputString(), "repository_branch": outputString(), "repository_clean": outputBoolean(), "commits": outputArray(outputString()), "changed_files": outputArray(outputString()), "commands": outputArray(command), "gate_results": outputArray(gate), "acceptance_coverage": outputArray(outputString()), "deviations": outputArray(outputString()), "remaining_risks": outputArray(outputString()), "finished_at": timeField, "hub_commit": outputString()}, "available")
 	evidence := closedOutput(map[string]any{"available": outputBoolean(), "error": outputString(), "head": outputString(), "branch": outputString(), "worktree_clean": outputBoolean(), "notes": outputArray(outputString()), "recorded_at": timeField}, "available")
 	worktree := closedOutput(map[string]any{"branch": outputString(), "head": outputString(), "upstream": outputString(), "ahead": outputInteger(), "behind": outputInteger(), "clean": outputBoolean()}, "branch", "head", "ahead", "behind", "clean")
 	compare := closedOutput(map[string]any{"merge_base": outputString(), "left_only": outputInteger(), "right_only": outputInteger(), "error": outputString()}, "left_only", "right_only")
@@ -170,9 +173,9 @@ func taskRecordOutputSchema() map[string]any {
 func taskPacketOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"task": taskOutputSchema(), "run": runOutputSchema(), "project": projectOutputSchema(), "plan": planOutputSchema(),
-		"repository_root": outputString(), "result_path": outputString(), "evidence_path": outputString(),
+		"repository_root": outputString(), "completion_path": outputString(),
 		"finalize_command": outputString(), "text": outputString(),
-	}, "task", "run", "project", "plan", "repository_root", "result_path", "evidence_path", "finalize_command", "text")
+	}, "task", "run", "project", "plan", "repository_root", "completion_path", "finalize_command", "text")
 }
 
 func taskReadOutputSchema() map[string]any {
@@ -249,7 +252,6 @@ var toolOutputSchemas = map[string]map[string]any{
 	"run_read":            runOutputSchema(),
 	"run_status":          runOutputSchema(),
 	"run_report":          reportOutputSchema(),
-	"run_evidence":        evidenceOutputSchema(),
 	"run_review_snapshot": reviewSnapshotOutputSchema(),
 	"run_sweep":           sweepOutputSchema(),
 	"run_cancel":          operationOutputSchema(),
@@ -285,7 +287,7 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	for _, name := range []string{
 		"system_ping", "gateway_capabilities", "project_list", "project_read", "project_status",
 		"plan_read", "plan_section_read", "plan_render", "plan_history", "adr_list", "adr_read", "task_list", "task_read",
-		"run_list", "run_read", "run_status", "run_report", "run_evidence",
+		"run_list", "run_read", "run_status", "run_report",
 		"git_refs", "git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare",
 		"git_merge_base", "git_worktree_status", "git_worktree_diff",
 	} {

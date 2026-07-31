@@ -13,8 +13,6 @@ gpt-tunnel/v1/
     tasks/<task-id>.json
     tasks/<task-id>.state.json
     runs/<run-id>/run.json
-    runs/<run-id>/agent-result.json
-    runs/<run-id>/evidence.json
     runs/<run-id>/report.json
 ```
 

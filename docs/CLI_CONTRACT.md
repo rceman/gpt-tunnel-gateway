@@ -37,11 +37,11 @@ gpt-tunnel task supersede <task-id> --file <input.json>
 gpt-tunnel task cancel <task-id> [--expected-hub-revision <sha>]
 
 gpt-tunnel run list <project-id>
-gpt-tunnel run read|status|report|evidence|review-snapshot <run-id>
+gpt-tunnel run read|status|report|review-snapshot <run-id>
 gpt-tunnel run agent-tail <run-id> [--lines N]
 gpt-tunnel run cancel <run-id>
 gpt-tunnel run sweep
-gpt-tunnel run finalize <run-id> [--result-file <path>] [--evidence-file <path>]
+gpt-tunnel run finalize <run-id> [--completion-file <path>]
 ```
 
 `run finalize` is local-agent-only. It is intentionally not exposed as a remote MCP write tool.

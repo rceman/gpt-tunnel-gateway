@@ -42,17 +42,22 @@ type ReviewSnapshotTask struct {
 }
 
 type ReviewSnapshotReport struct {
-	Available      bool            `json:"available"`
-	Error          string          `json:"error,omitempty"`
-	Status         string          `json:"status,omitempty"`
-	Summary        string          `json:"summary,omitempty"`
-	Commits        []string        `json:"commits,omitempty"`
-	ChangedFiles   []string        `json:"changed_files,omitempty"`
-	Commands       []CommandResult `json:"commands,omitempty"`
-	Deviations     []string        `json:"deviations,omitempty"`
-	RemainingRisks []string        `json:"remaining_risks,omitempty"`
-	FinishedAt     *time.Time      `json:"finished_at,omitempty"`
-	HubCommit      string          `json:"hub_commit,omitempty"`
+	Available          bool                   `json:"available"`
+	Error              string                 `json:"error,omitempty"`
+	Status             string                 `json:"status,omitempty"`
+	Summary            string                 `json:"summary,omitempty"`
+	RepositoryHead     string                 `json:"repository_head,omitempty"`
+	RepositoryBranch   string                 `json:"repository_branch,omitempty"`
+	RepositoryClean    *bool                  `json:"repository_clean,omitempty"`
+	Commits            []string               `json:"commits,omitempty"`
+	ChangedFiles       []string               `json:"changed_files,omitempty"`
+	Commands           []CommandResult        `json:"commands,omitempty"`
+	GateResults        []CompletionGateResult `json:"gate_results,omitempty"`
+	AcceptanceCoverage []string               `json:"acceptance_coverage,omitempty"`
+	Deviations         []string               `json:"deviations,omitempty"`
+	RemainingRisks     []string               `json:"remaining_risks,omitempty"`
+	FinishedAt         *time.Time             `json:"finished_at,omitempty"`
+	HubCommit          string                 `json:"hub_commit,omitempty"`
 }
 
 type ReviewSnapshotEvidence struct {

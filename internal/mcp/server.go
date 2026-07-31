@@ -572,13 +572,6 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.RunReport(ctx, id)
 	})
-	add("run_evidence", "Read finalized evidence.", obj(map[string]any{"run_id": str("Run identifier")}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		id, e := getString(raw, "run_id")
-		if e != nil {
-			return nil, e
-		}
-		return s.Service.RunEvidence(ctx, id)
-	})
 	add("run_review_snapshot", "Prepare one bounded structural review snapshot for a run.", obj(map[string]any{"run_id": str("Run identifier")}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "run_id")
 		if e != nil {

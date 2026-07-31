@@ -29,9 +29,9 @@ task create
 → plan update / plan section-create
 → task dispatch
 → airelay prompt <session> "Read task and execute it. Run: gpt-tunnel task read <task-id>"
-→ agent writes agent-result.json + evidence.json
+→ agent writes one strict completion.json
 → gpt-tunnel run finalize <run-id>
-→ result/evidence/report committed and pushed to the GitHub hub
+→ the gateway derives repository proof and commits one canonical report to the GitHub hub
 ```
 
 A successful Airelay delivery is non-terminal. Completion exists only after hub finalization succeeds.

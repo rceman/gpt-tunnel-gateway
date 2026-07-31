@@ -196,8 +196,8 @@ func TestToolCallRejectsInvalidAndOversizedMeta(t *testing.T) {
 func TestEveryToolDeclaresOutputSchemaAndExplicitAnnotations(t *testing.T) {
 	srv := &Server{Service: service.New(config.Config{})}
 	tools := srv.tools()
-	if len(tools) != 44 {
-		t.Fatalf("tool count=%d want 44", len(tools))
+	if len(tools) != 43 {
+		t.Fatalf("tool count=%d want 43", len(tools))
 	}
 	if len(toolOutputSchemas) != len(tools)-1 || len(toolAnnotations) != len(tools) {
 		t.Fatalf("contract coverage mismatch: tools=%d outputs=%d annotations=%d", len(tools), len(toolOutputSchemas), len(toolAnnotations))
@@ -250,7 +250,7 @@ func TestToolsListSerializesOutputSchemasAndAllHints(t *testing.T) {
 	response := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
 	result := response["result"].(map[string]any)
 	tools := result["tools"].([]any)
-	if len(tools) != 44 {
+	if len(tools) != 43 {
 		t.Fatalf("tool count=%d", len(tools))
 	}
 	previous := ""
@@ -318,7 +318,7 @@ func TestTaskReadOutputSchemaAcceptsBothDeclaredShapes(t *testing.T) {
 			"schema_version": float64(1), "id": "run", "task_id": "task", "task_sha256": strings.Repeat("a", 64),
 			"project_id": "project", "gateway_id": "home_pc", "session_key": "project_master", "branch": "feature/x",
 			"base_revision": strings.Repeat("b", 40), "hub_revision": strings.Repeat("c", 40), "status": "awaiting_result",
-			"result_path": "/tmp/result", "evidence_path": "/tmp/evidence", "created_at": "2026-07-30T10:00:00Z",
+			"completion_path": "/tmp/completion", "created_at": "2026-07-30T10:00:00Z",
 		},
 		"project": map[string]any{
 			"schema_version": float64(1), "id": "project", "repository_url": "git@example.invalid:project.git", "default_branch": "main",
@@ -329,7 +329,7 @@ func TestTaskReadOutputSchemaAcceptsBothDeclaredShapes(t *testing.T) {
 			"schema_version": float64(model.PlanSchemaVersion), "project_id": "project", "revision": float64(1), "title": "title", "summary": "summary", "current_objective": "objective", "queue": []any{}, "sections": []any{},
 			"updated_by": "gpt", "updated_at": "2026-07-30T10:00:00Z",
 		},
-		"repository_root": "/tmp/project", "result_path": "/tmp/result", "evidence_path": "/tmp/evidence",
+		"repository_root": "/tmp/project", "completion_path": "/tmp/completion",
 		"finalize_command": "gpt-tunnel run finalize run", "text": "packet",
 	}
 	if err := validateOutputValue(toolOutputSchemas["task_read"], active); err != nil {
@@ -346,14 +346,13 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	adr := model.ADR{SchemaVersion: 1, ID: "ADR-TEST", ProjectID: "project", Title: "title", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: now}
 	task := model.Task{SchemaVersion: 1, ID: "task", SHA256: strings.Repeat("b", 64), ProjectID: "project", Title: "title", Objective: "objective", Branch: "feature/x", BaseRevision: strings.Repeat("c", 40), AcceptanceCriteria: []string{}, Constraints: []string{}, Status: "created", CreatedBy: "gpt", CreatedAt: now}
 	state := model.TaskState{SchemaVersion: 1, TaskID: "task", TaskSHA256: task.SHA256, Status: "created", UpdatedAt: now}
-	run := model.Run{SchemaVersion: 1, ID: "run", TaskID: "task", TaskSHA256: task.SHA256, ProjectID: "project", GatewayID: "home_pc", SessionKey: "project_master", Branch: "feature/x", BaseRevision: task.BaseRevision, HubRevision: strings.Repeat("d", 40), Status: "awaiting_result", ResultPath: "/tmp/result", EvidencePath: "/tmp/evidence", CreatedAt: now}
+	run := model.Run{SchemaVersion: 1, ID: "run", TaskID: "task", TaskSHA256: task.SHA256, ProjectID: "project", GatewayID: "home_pc", SessionKey: "project_master", Branch: "feature/x", BaseRevision: task.BaseRevision, HubRevision: strings.Repeat("d", 40), Status: "awaiting_result", CompletionPath: "/tmp/completion", CreatedAt: now}
 	transaction := hub.TransactionResult{Before: strings.Repeat("d", 40), After: strings.Repeat("e", 40), Remote: "origin", Branch: "gpt-tunnel/home_pc", Paths: []string{"gpt-tunnel/v1/test.json"}}
 	operation := service.OperationResult{Hub: transaction, ProjectID: "project", TaskID: "task", RunID: "run", Status: "updated"}
 	local := config.ProjectConfig{Root: "/tmp/project", Mirror: "/tmp/mirror.git", Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "project_master"}
 	worktree := gitx.WorktreeStatus{Branch: "main", Head: strings.Repeat("f", 40), Ahead: 0, Behind: 0, Porcelain: "", Clean: true}
-	evidence := model.Evidence{SchemaVersion: 1, TaskID: "task", RunID: "run", ProjectHead: worktree.Head, Branch: "feature/x", WorktreeClean: true, RecordedAt: now}
-	report := model.Report{SchemaVersion: 1, TaskID: "task", RunID: "run", ProjectID: "project", Status: "succeeded", Summary: "done", Commits: []string{}, ChangedFiles: []string{}, Commands: []model.CommandResult{}, Deviations: []string{}, RemainingRisks: []string{}, FinishedAt: now}
-	packet := service.TaskPacket{Task: task, Run: run, Project: project, Plan: plan, RepositoryRoot: "/tmp/project", ResultPath: run.ResultPath, EvidencePath: run.EvidencePath, FinalizeCommand: "gpt-tunnel run finalize run", Text: "packet"}
+	report := model.Report{SchemaVersion: 1, TaskID: "task", RunID: "run", ProjectID: "project", Status: "succeeded", Summary: "done", GateResults: []model.CompletionGateResult{}, AcceptanceCoverage: []string{}, Deviations: []string{}, RemainingRisks: []string{}, Repository: model.RepositoryProof{Branch: "feature/x", Head: worktree.Head, WorktreeClean: true, BaseAncestor: true, Commits: []string{}, ChangedFiles: []string{}, DiffScope: "base..head"}, FinishedAt: now}
+	packet := service.TaskPacket{Task: task, Run: run, Project: project, Plan: plan, RepositoryRoot: "/tmp/project", CompletionPath: run.CompletionPath, FinalizeCommand: "gpt-tunnel run finalize run", Text: "packet"}
 	ref := gitx.Ref{Name: "refs/heads/main", ObjectType: "commit", ObjectName: worktree.Head}
 	commit := gitx.Commit{SHA: worktree.Head, Parents: []string{}, AuthorName: "GPT", AuthorEmail: "gpt@example.invalid", AuthorDate: now.Format(time.RFC3339), Subject: "subject"}
 	compare := gitx.Compare{MergeBase: worktree.Head, LeftOnly: 0, RightOnly: 0}
@@ -369,7 +368,7 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		"adr_list": map[string]any{"adrs": []model.ADR{adr}}, "adr_read": adr, "adr_create": operation,
 		"task_create": map[string]any{"task": task, "operation": operation}, "task_list": map[string]any{"tasks": []service.TaskRecord{{Task: task, State: state}}}, "task_read": packet,
 		"task_dispatch": map[string]any{"run": run, "operation": operation}, "task_supersede": map[string]any{"task": task, "operation": operation}, "task_cancel": operation,
-		"run_list": map[string]any{"runs": []model.Run{run}}, "run_read": run, "run_status": run, "run_report": report, "run_evidence": evidence,
+		"run_list": map[string]any{"runs": []model.Run{run}}, "run_read": run, "run_status": run, "run_report": report,
 		"run_review_snapshot": snapshot,
 		"run_agent_tail":      "tail text",
 		"run_sweep":           service.SweepResult{Checked: 1, Items: []service.SweepItem{{RunID: "run", Action: "reprompt", Status: "awaiting_result"}}}, "run_cancel": operation,

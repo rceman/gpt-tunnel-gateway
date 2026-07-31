@@ -17,7 +17,7 @@ func TestRunSweepAndCancelDoNotOperateForeignGatewayRun(t *testing.T) {
 		SchemaVersion: 1, ID: "foreign-run", TaskID: "foreign-task", TaskSHA256: strings.Repeat("a", 64),
 		ProjectID: "example", GatewayID: "other_gateway", SessionKey: "example_master",
 		Branch: "feature/foreign", BaseRevision: strings.Repeat("b", 40), Status: "awaiting_result",
-		ResultPath: "/tmp/result.json", EvidencePath: "/tmp/evidence.json", CreatedAt: now,
+		CompletionPath: "/tmp/completion.json", CreatedAt: now,
 	}
 	tx, err := s.Hub.Transact(context.Background(), revision, "test: foreign run", func(worktree string) ([]string, error) {
 		path := s.runPath(run.ProjectID, run.ID)

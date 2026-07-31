@@ -90,13 +90,8 @@ func TestTaskPlanDispatchReadFinalize(t *testing.T) {
 	}
 	testutil.Git(t, project.Root, "add", "feature.txt")
 	testutil.Git(t, project.Root, "commit", "-m", "implement feature")
-	head := strings.TrimSpace(testutil.Git(t, project.Root, "rev-parse", "HEAD"))
-	result := model.AgentResult{SchemaVersion: 1, TaskID: task.ID, TaskSHA256: task.SHA256, RunID: run.ID, Status: "succeeded", Summary: "Implemented.", Commits: []string{head}, ChangedFiles: []string{"feature.txt"}, Commands: []model.CommandResult{{Command: "go test ./...", ExitCode: 0, Result: "passed"}}, AcceptanceCoverage: []string{"feature works"}, FinishedAt: time.Now().UTC()}
-	evidence := model.Evidence{SchemaVersion: 1, TaskID: task.ID, RunID: run.ID, ProjectHead: head, Branch: "feature/example", WorktreeClean: true, RecordedAt: time.Now().UTC()}
-	if err := fsutil.WriteJSONAtomic(run.ResultPath, result, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := fsutil.WriteJSONAtomic(run.EvidencePath, evidence, 0o600); err != nil {
+	completion := model.Completion{SchemaVersion: 1, RunID: run.ID, TaskSHA256: task.SHA256, Status: "succeeded", Summary: "Implemented.", GateResults: []model.CompletionGateResult{{ID: "G1", ExitCode: 0}}, AcceptanceCoverage: []string{"AC1"}, Deviations: []string{}, RemainingRisks: []string{}}
+	if err := fsutil.WriteJSONAtomic(run.CompletionPath, completion, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	report, final, err := s.RunFinalize(ctx, FinalizeInput{RunID: run.ID, WriteOptions: WriteOptions{ExpectedHubRevision: dispatch.Hub.After}})

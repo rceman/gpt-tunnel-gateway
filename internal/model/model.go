@@ -144,28 +144,31 @@ type TaskState struct {
 }
 
 type Run struct {
-	SchemaVersion    int        `json:"schema_version"`
-	ID               string     `json:"id"`
-	TaskID           string     `json:"task_id"`
-	TaskSHA256       string     `json:"task_sha256"`
-	ProjectID        string     `json:"project_id"`
-	GatewayID        string     `json:"gateway_id"`
-	SessionKey       string     `json:"session_key"`
-	Branch           string     `json:"branch"`
-	BaseRevision     string     `json:"base_revision"`
-	HubRevision      string     `json:"hub_revision"`
-	Status           string     `json:"status"`
-	DispatchMessage  string     `json:"dispatch_message,omitempty"`
-	DispatchExitCode *int       `json:"dispatch_exit_code,omitempty"`
-	DispatchStdout   string     `json:"dispatch_stdout,omitempty"`
-	DispatchStderr   string     `json:"dispatch_stderr,omitempty"`
-	ResultPath       string     `json:"result_path"`
-	EvidencePath     string     `json:"evidence_path"`
-	CreatedAt        time.Time  `json:"created_at"`
-	DispatchedAt     *time.Time `json:"dispatched_at,omitempty"`
-	RepromptCount    int        `json:"reprompt_count,omitempty"`
-	LastRepromptAt   *time.Time `json:"last_reprompt_at,omitempty"`
-	FinishedAt       *time.Time `json:"finished_at,omitempty"`
+	SchemaVersion    int    `json:"schema_version"`
+	ID               string `json:"id"`
+	TaskID           string `json:"task_id"`
+	TaskSHA256       string `json:"task_sha256"`
+	ProjectID        string `json:"project_id"`
+	GatewayID        string `json:"gateway_id"`
+	SessionKey       string `json:"session_key"`
+	Branch           string `json:"branch"`
+	BaseRevision     string `json:"base_revision"`
+	HubRevision      string `json:"hub_revision"`
+	Status           string `json:"status"`
+	DispatchMessage  string `json:"dispatch_message,omitempty"`
+	DispatchExitCode *int   `json:"dispatch_exit_code,omitempty"`
+	DispatchStdout   string `json:"dispatch_stdout,omitempty"`
+	DispatchStderr   string `json:"dispatch_stderr,omitempty"`
+	CompletionPath   string `json:"completion_path"`
+	// Deprecated fields are retained only so immutable pre-2.0 local records can
+	// be decoded by maintenance tooling. They are never populated or serialized.
+	ResultPath     string     `json:"-"`
+	EvidencePath   string     `json:"-"`
+	CreatedAt      time.Time  `json:"created_at"`
+	DispatchedAt   *time.Time `json:"dispatched_at,omitempty"`
+	RepromptCount  int        `json:"reprompt_count,omitempty"`
+	LastRepromptAt *time.Time `json:"last_reprompt_at,omitempty"`
+	FinishedAt     *time.Time `json:"finished_at,omitempty"`
 }
 
 type CommandResult struct {
@@ -201,20 +204,51 @@ type Evidence struct {
 	RecordedAt    time.Time `json:"recorded_at"`
 }
 
+type CompletionGateResult struct {
+	ID       string `json:"id"`
+	ExitCode int    `json:"exit_code"`
+}
+
+type Completion struct {
+	SchemaVersion      int                    `json:"schema_version"`
+	RunID              string                 `json:"run_id"`
+	TaskSHA256         string                 `json:"task_sha256"`
+	Status             string                 `json:"status"`
+	Summary            string                 `json:"summary"`
+	GateResults        []CompletionGateResult `json:"gate_results"`
+	AcceptanceCoverage []string               `json:"acceptance_coverage"`
+	Deviations         []string               `json:"deviations"`
+	RemainingRisks     []string               `json:"remaining_risks"`
+}
+
+type RepositoryProof struct {
+	Branch        string   `json:"branch"`
+	Head          string   `json:"head"`
+	WorktreeClean bool     `json:"worktree_clean"`
+	BaseAncestor  bool     `json:"base_ancestor"`
+	Commits       []string `json:"commits"`
+	ChangedFiles  []string `json:"changed_files"`
+	DiffScope     string   `json:"diff_scope"`
+}
+
 type Report struct {
-	SchemaVersion  int             `json:"schema_version"`
-	TaskID         string          `json:"task_id"`
-	RunID          string          `json:"run_id"`
-	ProjectID      string          `json:"project_id"`
-	Status         string          `json:"status"`
-	Summary        string          `json:"summary"`
-	Commits        []string        `json:"commits"`
-	ChangedFiles   []string        `json:"changed_files"`
-	Commands       []CommandResult `json:"commands"`
-	Deviations     []string        `json:"deviations"`
-	RemainingRisks []string        `json:"remaining_risks"`
-	HubCommit      string          `json:"hub_commit,omitempty"`
-	FinishedAt     time.Time       `json:"finished_at"`
+	SchemaVersion      int                    `json:"schema_version"`
+	TaskID             string                 `json:"task_id"`
+	RunID              string                 `json:"run_id"`
+	ProjectID          string                 `json:"project_id"`
+	Status             string                 `json:"status"`
+	Summary            string                 `json:"summary"`
+	GateResults        []CompletionGateResult `json:"gate_results"`
+	AcceptanceCoverage []string               `json:"acceptance_coverage"`
+	Deviations         []string               `json:"deviations"`
+	RemainingRisks     []string               `json:"remaining_risks"`
+	Repository         RepositoryProof        `json:"repository"`
+	HubCommit          string                 `json:"hub_commit,omitempty"`
+	FinishedAt         time.Time              `json:"finished_at"`
+	// Deprecated projection fields are not part of the canonical report.
+	Commits      []string        `json:"-"`
+	ChangedFiles []string        `json:"-"`
+	Commands     []CommandResult `json:"-"`
 }
 
 func NewID() (string, error) {
@@ -384,6 +418,9 @@ func ValidateRun(v Run) error {
 	if len(v.DispatchMessage) > 512 {
 		return fmt.Errorf("dispatch message too large")
 	}
+	if v.CompletionPath == "" {
+		return fmt.Errorf("completion_path is required")
+	}
 	if !sha256RE(v.TaskSHA256) {
 		return fmt.Errorf("invalid task hash")
 	}
@@ -446,6 +483,38 @@ func ValidateEvidence(v Evidence, task Task, run Run) error {
 	}
 	if !shaRE.MatchString(v.ProjectHead) || v.Branch != run.Branch || v.RecordedAt.IsZero() {
 		return fmt.Errorf("invalid evidence")
+	}
+	return nil
+}
+
+func ValidateReport(v Report, task Task, run Run) error {
+	if v.SchemaVersion != SchemaVersion || v.TaskID != task.ID || v.RunID != run.ID || v.ProjectID != run.ProjectID || v.FinishedAt.IsZero() {
+		return fmt.Errorf("report identity mismatch")
+	}
+	if v.Status != "succeeded" && v.Status != "failed" && v.Status != "needs_gpt_revision" {
+		return fmt.Errorf("invalid report status")
+	}
+	if err := utf8Bounded(v.Summary, 4096, "report summary"); err != nil {
+		return err
+	}
+	if len(v.GateResults) > 128 || len(v.AcceptanceCoverage) > 128 || len(v.Deviations) > 64 || len(v.RemainingRisks) > 64 {
+		return fmt.Errorf("report bounds exceeded")
+	}
+	if ValidateBranch(v.Repository.Branch) != nil || !shaRE.MatchString(v.Repository.Head) || v.Repository.DiffScope == "" {
+		return fmt.Errorf("invalid repository proof")
+	}
+	if v.Status == "succeeded" && !v.Repository.BaseAncestor {
+		return fmt.Errorf("successful report lacks base ancestry proof")
+	}
+	for _, path := range v.Repository.ChangedFiles {
+		if err := ValidateRelativePath(path); err != nil {
+			return err
+		}
+	}
+	for _, sha := range v.Repository.Commits {
+		if !shaRE.MatchString(sha) {
+			return fmt.Errorf("invalid repository commit")
+		}
 	}
 	return nil
 }

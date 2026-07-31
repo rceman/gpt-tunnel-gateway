@@ -46,7 +46,7 @@ func (s *Service) RunReviewSnapshot(ctx context.Context, id string) (model.Revie
 	}
 	terminal := !activeStatus(run.Status)
 	report, reportErr := s.readSnapshotReport(ctx, run, task)
-	evidence, evidenceErr := s.readSnapshotEvidence(ctx, run, task)
+	evidence, evidenceErr := snapshotEvidenceFromReport(report, reportErr)
 	if !terminal {
 		report = model.ReviewSnapshotReport{Available: false}
 		evidence = model.ReviewSnapshotEvidence{Available: false}
@@ -114,22 +114,27 @@ func (s *Service) readSnapshotReport(ctx context.Context, run model.Run, task mo
 	if report.SchemaVersion != model.SchemaVersion || report.TaskID != task.ID || report.RunID != run.ID || report.ProjectID != run.ProjectID || report.Status == "" || report.FinishedAt.IsZero() {
 		return model.ReviewSnapshotReport{}, fmt.Errorf("report identity or completeness mismatch")
 	}
+	if err := model.ValidateReport(report, task, run); err != nil {
+		return model.ReviewSnapshotReport{}, err
+	}
 	commit, err := s.Hub.LastChange(ctx, s.reportPath(run.ProjectID, run.ID))
 	if err != nil {
 		return model.ReviewSnapshotReport{}, fmt.Errorf("report hub history unavailable")
 	}
-	return model.ReviewSnapshotReport{Available: true, Status: report.Status, Summary: report.Summary, Commits: model.CanonicalStrings(report.Commits), ChangedFiles: model.CanonicalStrings(report.ChangedFiles), Commands: append([]model.CommandResult{}, report.Commands...), Deviations: append([]string{}, report.Deviations...), RemainingRisks: append([]string{}, report.RemainingRisks...), FinishedAt: &report.FinishedAt, HubCommit: commit}, nil
+	clean := report.Repository.WorktreeClean
+	return model.ReviewSnapshotReport{Available: true, Status: report.Status, Summary: report.Summary, RepositoryHead: report.Repository.Head, RepositoryBranch: report.Repository.Branch, RepositoryClean: &clean, Commits: append([]string{}, report.Repository.Commits...), ChangedFiles: append([]string{}, report.Repository.ChangedFiles...), GateResults: append([]model.CompletionGateResult{}, report.GateResults...), AcceptanceCoverage: append([]string{}, report.AcceptanceCoverage...), Deviations: append([]string{}, report.Deviations...), RemainingRisks: append([]string{}, report.RemainingRisks...), FinishedAt: &report.FinishedAt, HubCommit: commit}, nil
 }
 
-func (s *Service) readSnapshotEvidence(ctx context.Context, run model.Run, task model.Task) (model.ReviewSnapshotEvidence, error) {
-	var evidence model.Evidence
-	if err := s.Hub.ReadJSON(ctx, s.evidencePath(run.ProjectID, run.ID), &evidence); err != nil {
-		return model.ReviewSnapshotEvidence{}, err
+func snapshotEvidenceFromReport(report model.ReviewSnapshotReport, reportErr error) (model.ReviewSnapshotEvidence, error) {
+	if reportErr != nil || !report.Available {
+		return model.ReviewSnapshotEvidence{}, reportErr
 	}
-	if err := model.ValidateEvidence(evidence, task, run); err != nil {
-		return model.ReviewSnapshotEvidence{}, err
+	clean := report.RepositoryClean
+	if clean == nil {
+		v := true
+		clean = &v
 	}
-	return model.ReviewSnapshotEvidence{Available: true, Head: evidence.ProjectHead, Branch: evidence.Branch, WorktreeClean: &evidence.WorktreeClean, Notes: append([]string{}, evidence.Notes...), RecordedAt: &evidence.RecordedAt}, nil
+	return model.ReviewSnapshotEvidence{Available: true, Head: report.RepositoryHead, Branch: report.RepositoryBranch, WorktreeClean: clean}, nil
 }
 
 func (s *Service) fillSnapshotRepository(ctx context.Context, p config.ProjectConfig, run model.Run, evidence model.ReviewSnapshotEvidence, report model.ReviewSnapshotReport, repo *model.ReviewSnapshotRepo) {
@@ -296,19 +301,17 @@ func snapshotChecks(run model.Run, task model.Task, state model.TaskState, taskE
 	if !terminal {
 		add("required_gates", "critical", "not_applicable", "run is active")
 	} else if report.Available {
-		missing := []string{}
-		for _, gate := range task.RequiredGates {
-			found := false
-			for _, command := range report.Commands {
-				if command.Command == gate && command.ExitCode == 0 {
-					found = true
+		missing := len(report.GateResults) != len(task.RequiredGates)
+
+		if !missing {
+			for i, gate := range report.GateResults {
+				if gate.ID != fmt.Sprintf("G%d", i+1) || gate.ExitCode != 0 {
+					missing = true
+					break
 				}
 			}
-			if !found {
-				missing = append(missing, gate)
-			}
 		}
-		if len(missing) == 0 {
+		if !missing {
 			add("required_gates", "critical", "pass", "all required gates are present and passing")
 		} else {
 			add("required_gates", "critical", "fail", "required gates missing or failing")

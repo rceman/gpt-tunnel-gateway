@@ -175,6 +175,35 @@ func (r Runner) Log(ctx context.Context, p config.ProjectConfig, rev string, lim
 	}
 	return items, nil
 }
+
+// LocalLog reads the ordered commits from a configured worktree. It is used
+// for finalization because the task branch may not have been pushed yet.
+func (r Runner) LocalLog(ctx context.Context, root, from, to string, limit int) ([]Commit, error) {
+	if err := model.ValidateRevision(from); err != nil {
+		return nil, err
+	}
+	if err := model.ValidateRevision(to); err != nil {
+		return nil, err
+	}
+	if limit < 1 || limit > r.MaxListItems {
+		return nil, fmt.Errorf("invalid log limit")
+	}
+	format := "%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00"
+	out, err := r.command(ctx, root, false, "log", "--reverse", "--no-decorate", "--max-count="+strconv.Itoa(limit), "--format="+format, from+".."+to)
+	if err != nil {
+		return nil, err
+	}
+	parts := bytes.Split(out, []byte{0})
+	items := []Commit{}
+	for i := 0; i+5 < len(parts) && len(items) < limit; i += 6 {
+		sha := strings.TrimSpace(string(parts[i]))
+		if sha == "" {
+			continue
+		}
+		items = append(items, Commit{SHA: sha, Parents: strings.Fields(string(parts[i+1])), AuthorName: string(parts[i+2]), AuthorEmail: string(parts[i+3]), AuthorDate: string(parts[i+4]), Subject: string(parts[i+5])})
+	}
+	return items, nil
+}
 func (r Runner) Show(ctx context.Context, p config.ProjectConfig, rev string) (string, error) {
 	if err := model.ValidateRevision(rev); err != nil {
 		return "", err

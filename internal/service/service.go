@@ -99,9 +99,8 @@ type DispatchInput struct {
 	WriteOptions
 }
 type FinalizeInput struct {
-	RunID        string `json:"run_id"`
-	ResultFile   string `json:"result_file,omitempty"`
-	EvidenceFile string `json:"evidence_file,omitempty"`
+	RunID          string `json:"run_id"`
+	CompletionFile string `json:"completion_file,omitempty"`
 	WriteOptions
 }
 
@@ -132,8 +131,7 @@ type TaskPacket struct {
 	Project         model.Project `json:"project"`
 	Plan            model.Plan    `json:"plan"`
 	RepositoryRoot  string        `json:"repository_root"`
-	ResultPath      string        `json:"result_path"`
-	EvidencePath    string        `json:"evidence_path"`
+	CompletionPath  string        `json:"completion_path"`
 	FinalizeCommand string        `json:"finalize_command"`
 	Text            string        `json:"text"`
 }
@@ -177,12 +175,6 @@ func (s *Service) runPrefix(project, id string) string {
 	return s.projectPrefix(project) + "/runs/" + id
 }
 func (s *Service) runPath(project, id string) string { return s.runPrefix(project, id) + "/run.json" }
-func (s *Service) resultPath(project, id string) string {
-	return s.runPrefix(project, id) + "/agent-result.json"
-}
-func (s *Service) evidencePath(project, id string) string {
-	return s.runPrefix(project, id) + "/evidence.json"
-}
 func (s *Service) reportPath(project, id string) string {
 	return s.runPrefix(project, id) + "/report.json"
 }
@@ -1083,7 +1075,7 @@ func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run
 		return model.Run{}, OperationResult{}, err
 	}
 	now := time.Now().UTC()
-	run := model.Run{SchemaVersion: model.SchemaVersion, ID: id, TaskID: task.ID, TaskSHA256: task.SHA256, ProjectID: task.ProjectID, GatewayID: s.Config.GatewayID, SessionKey: local.AirelaySessionKey, Branch: task.Branch, BaseRevision: task.BaseRevision, Status: "created", ResultPath: filepath.Join(s.localRunDir(id), "agent-result.json"), EvidencePath: filepath.Join(s.localRunDir(id), "evidence.json"), CreatedAt: now}
+	run := model.Run{SchemaVersion: model.SchemaVersion, ID: id, TaskID: task.ID, TaskSHA256: task.SHA256, ProjectID: task.ProjectID, GatewayID: s.Config.GatewayID, SessionKey: local.AirelaySessionKey, Branch: task.Branch, BaseRevision: task.BaseRevision, Status: "created", CompletionPath: filepath.Join(s.localRunDir(id), "completion.json"), CreatedAt: now}
 	if err := model.ValidateRun(run); err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
@@ -1173,18 +1165,32 @@ func taskStateStatusForResult(status string) string {
 	switch status {
 	case "succeeded":
 		return "completed"
-	case "cancelled":
-		return "cancelled"
 	default:
 		return "ready"
 	}
 }
 func canonicalReport(report model.Report) model.Report {
-	report.Commits = append([]string{}, report.Commits...)
-	report.ChangedFiles = append([]string{}, report.ChangedFiles...)
-	report.Commands = append([]model.CommandResult{}, report.Commands...)
+	report.GateResults = append([]model.CompletionGateResult{}, report.GateResults...)
+	report.AcceptanceCoverage = append([]string{}, report.AcceptanceCoverage...)
 	report.Deviations = append([]string{}, report.Deviations...)
 	report.RemainingRisks = append([]string{}, report.RemainingRisks...)
+	report.Repository.Commits = append([]string{}, report.Repository.Commits...)
+	report.Repository.ChangedFiles = append([]string{}, report.Repository.ChangedFiles...)
+	if report.GateResults == nil {
+		report.GateResults = []model.CompletionGateResult{}
+	}
+	if report.AcceptanceCoverage == nil {
+		report.AcceptanceCoverage = []string{}
+	}
+	if report.Commits == nil {
+		report.Commits = []string{}
+	}
+	if report.ChangedFiles == nil {
+		report.ChangedFiles = []string{}
+	}
+	if report.Commands == nil {
+		report.Commands = []model.CommandResult{}
+	}
 	return report
 }
 func (s *Service) failRun(ctx context.Context, run model.Run, task model.Task, status, summary, expected string) (hub.TransactionResult, error) {
@@ -1200,9 +1206,14 @@ func (s *Service) failRun(ctx context.Context, run model.Run, task model.Task, s
 			head, branch, clean = h, b, c
 		}
 	}
-	result := model.AgentResult{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, RunID: run.ID, Status: status, Summary: summary, FinishedAt: now}
-	evidence := model.Evidence{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectHead: head, Branch: branch, WorktreeClean: clean, Notes: []string{summary}, RecordedAt: now}
-	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: task.ProjectID, Status: status, Summary: summary, FinishedAt: now})
+	ancestor := false
+	if head == run.BaseRevision {
+		ancestor = true
+	}
+	if head != "" && local.Root != "" {
+		ancestor, _ = s.Git.IsAncestor(ctx, local.Root, run.BaseRevision, head)
+	}
+	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: task.ProjectID, Status: status, Summary: summary, Repository: model.RepositoryProof{Branch: branch, Head: head, WorktreeClean: clean, BaseAncestor: ancestor, DiffScope: run.BaseRevision + ".." + head}, FinishedAt: now})
 	state := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: taskStateStatusForResult(status), UpdatedAt: now}
 	plan, err := s.PlanRead(ctx, task.ProjectID)
 	if err != nil {
@@ -1210,14 +1221,12 @@ func (s *Service) failRun(ctx context.Context, run model.Run, task model.Task, s
 	}
 	plan.Revision++
 	plan.ActiveRunID = ""
-	if status == "succeeded" || status == "cancelled" {
-		plan.ActiveTaskID = ""
-	}
+	plan.ActiveTaskID = ""
 	plan.UpdatedBy = s.Config.GatewayID
 	plan.UpdatedAt = now
 	return s.Hub.Transact(ctx, expected, "gateway: finalize failed run "+run.ID, func(w string) ([]string, error) {
-		paths := []string{s.runPath(run.ProjectID, run.ID), s.resultPath(run.ProjectID, run.ID), s.evidencePath(run.ProjectID, run.ID), s.reportPath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID), s.planPath(task.ProjectID)}
-		vals := []any{run, result, evidence, report, state, plan}
+		paths := []string{s.runPath(run.ProjectID, run.ID), s.reportPath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID), s.planPath(task.ProjectID)}
+		vals := []any{run, report, state, plan}
 		for i, p := range paths {
 			if err := hub.WriteJSON(w, p, vals[i]); err != nil {
 				return nil, err
@@ -1262,7 +1271,7 @@ func (s *Service) TaskRead(ctx context.Context, id string) (TaskPacket, error) {
 		return TaskPacket{}, err
 	}
 	text := renderPacket(task, run, project, plan, local.Root)
-	return TaskPacket{Task: task, Run: run, Project: project, Plan: plan, RepositoryRoot: local.Root, ResultPath: run.ResultPath, EvidencePath: run.EvidencePath, FinalizeCommand: "gpt-tunnel run finalize " + run.ID, Text: text}, nil
+	return TaskPacket{Task: task, Run: run, Project: project, Plan: plan, RepositoryRoot: local.Root, CompletionPath: run.CompletionPath, FinalizeCommand: "gpt-tunnel run finalize " + run.ID, Text: text}, nil
 }
 func renderPacket(task model.Task, run model.Run, project model.Project, plan model.Plan, root string) string {
 	var b strings.Builder
@@ -1278,7 +1287,7 @@ func renderPacket(task model.Task, run model.Run, project model.Project, plan mo
 	for _, v := range task.RequiredGates {
 		fmt.Fprintf(&b, "- %s\n", v)
 	}
-	fmt.Fprintf(&b, "\n## Global plan context\n\n%s\n\nCurrent objective: %s\n\n## Completion contract\n\nWrite agent result atomically to:\n  %s\n\nWrite evidence atomically to:\n  %s\n\nFinalize with:\n  gpt-tunnel run finalize %s\n\nThe task is not complete until finalization prints TASK_FINALIZED. Do not finish only in chat or Airelay.\n", plan.Summary, plan.CurrentObjective, run.ResultPath, run.EvidencePath, run.ID)
+	fmt.Fprintf(&b, "\n## Global plan context\n\n%s\n\nCurrent objective: %s\n\n## Completion contract\n\nWrite one strict completion JSON atomically to:\n  %s\n\nFinalize with:\n  gpt-tunnel run finalize %s\n\nThe task is not complete until finalization prints TASK_FINALIZED. Do not finish only in chat or Airelay.\n", plan.Summary, plan.CurrentObjective, run.CompletionPath, run.ID)
 	return b.String()
 }
 
@@ -1297,25 +1306,26 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
-	if in.ResultFile == "" {
-		in.ResultFile = run.ResultPath
+	if in.CompletionFile == "" {
+		in.CompletionFile = run.CompletionPath
 	}
-	if in.EvidenceFile == "" {
-		in.EvidenceFile = run.EvidencePath
-	}
-	var result model.AgentResult
-	if err := fsutil.ReadJSONBounded(in.ResultFile, s.Config.MaxReadBytes, &result); err != nil {
+	data, err := os.ReadFile(in.CompletionFile)
+	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
-	var evidence model.Evidence
-	if err := fsutil.ReadJSONBounded(in.EvidenceFile, s.Config.MaxReadBytes, &evidence); err != nil {
+	if s.Config.MaxReadBytes > 0 && int64(len(data)) > s.Config.MaxReadBytes {
+		return model.Report{}, OperationResult{}, fmt.Errorf("completion exceeds configured output limit")
+	}
+	completion, err := model.ParseCompletion(data, task)
+	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
-	if err := model.ValidateAgentResult(result, task, run); err != nil {
-		return model.Report{}, OperationResult{}, err
+	if completion.RunID != strings.ToLower(run.ID) || completion.TaskSHA256 != run.TaskSHA256 {
+		return model.Report{}, OperationResult{}, fmt.Errorf("completion identity does not match active run")
 	}
-	if err := model.ValidateEvidence(evidence, task, run); err != nil {
-		return model.Report{}, OperationResult{}, err
+	recomputed, err := model.HashTask(task)
+	if err != nil || recomputed != task.SHA256 || run.TaskSHA256 != recomputed {
+		return model.Report{}, OperationResult{}, fmt.Errorf("durable task hash mismatch")
 	}
 	local, err := s.projectConfig(run.ProjectID)
 	if err != nil {
@@ -1325,14 +1335,11 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
-	if branch != run.Branch || head != evidence.ProjectHead || clean != evidence.WorktreeClean {
-		return model.Report{}, OperationResult{}, fmt.Errorf("repository evidence does not match current state")
+	if branch != run.Branch {
+		return model.Report{}, OperationResult{}, fmt.Errorf("repository branch does not match task branch")
 	}
-	if result.Status == "succeeded" && !clean {
+	if completion.Status == "succeeded" && !clean {
 		return model.Report{}, OperationResult{}, fmt.Errorf("successful run must leave clean worktree")
-	}
-	if len(result.Commits) > 0 && result.Commits[len(result.Commits)-1] != head {
-		return model.Report{}, OperationResult{}, fmt.Errorf("final project HEAD does not match last result commit")
 	}
 	ancestor, err := s.Git.IsAncestor(ctx, local.Root, run.BaseRevision, head)
 	if err != nil {
@@ -1341,20 +1348,22 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if !ancestor {
 		return model.Report{}, OperationResult{}, fmt.Errorf("final project HEAD is not descended from task base")
 	}
-	if result.Status == "succeeded" {
-		actualFiles, err := s.Git.ChangedFiles(ctx, local.Root, run.BaseRevision, head)
-		if err != nil {
-			return model.Report{}, OperationResult{}, err
-		}
-		reportedFiles := model.CanonicalStrings(result.ChangedFiles)
-		if strings.Join(actualFiles, "\x00") != strings.Join(reportedFiles, "\x00") {
-			return model.Report{}, OperationResult{}, fmt.Errorf("changed_files do not match Git diff")
-		}
+	actualFiles, err := s.Git.ChangedFiles(ctx, local.Root, run.BaseRevision, head)
+	if err != nil {
+		return model.Report{}, OperationResult{}, err
+	}
+	commits, err := s.Git.LocalLog(ctx, local.Root, run.BaseRevision, head, s.Config.MaxListItems)
+	if err != nil {
+		return model.Report{}, OperationResult{}, err
+	}
+	commitIDs := make([]string, 0, len(commits))
+	for _, c := range commits {
+		commitIDs = append(commitIDs, c.SHA)
 	}
 	now := time.Now().UTC()
-	run.Status = result.Status
+	run.Status = completion.Status
 	run.FinishedAt = &now
-	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: run.ProjectID, Status: result.Status, Summary: result.Summary, Commits: result.Commits, ChangedFiles: model.CanonicalStrings(result.ChangedFiles), Commands: result.Commands, Deviations: result.Deviations, RemainingRisks: result.RemainingRisks, FinishedAt: result.FinishedAt})
+	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: run.ProjectID, Status: completion.Status, Summary: completion.Summary, GateResults: completion.GateResults, AcceptanceCoverage: completion.AcceptanceCoverage, Deviations: completion.Deviations, RemainingRisks: completion.RemainingRisks, Repository: model.RepositoryProof{Branch: branch, Head: head, WorktreeClean: clean, BaseAncestor: ancestor, Commits: commitIDs, ChangedFiles: actualFiles, DiffScope: run.BaseRevision + ".." + head}, FinishedAt: now})
 	expected := in.ExpectedHubRevision
 	if expected == "" {
 		expected, err = s.hubRevision(ctx)
@@ -1368,15 +1377,13 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	}
 	plan.Revision++
 	plan.ActiveRunID = ""
-	if result.Status == "succeeded" || result.Status == "cancelled" {
-		plan.ActiveTaskID = ""
-	}
+	plan.ActiveTaskID = ""
 	plan.UpdatedBy = s.Config.GatewayID
 	plan.UpdatedAt = now
 	tx, err := s.Hub.Transact(ctx, expected, "gateway: finalize run "+run.ID, func(w string) ([]string, error) {
-		state := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: taskStateStatusForResult(result.Status), UpdatedAt: now}
-		paths := []string{s.runPath(run.ProjectID, run.ID), s.resultPath(run.ProjectID, run.ID), s.evidencePath(run.ProjectID, run.ID), s.reportPath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID), s.planPath(task.ProjectID)}
-		vals := []any{run, result, evidence, report, state, plan}
+		state := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: taskStateStatusForResult(completion.Status), UpdatedAt: now}
+		paths := []string{s.runPath(run.ProjectID, run.ID), s.reportPath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID), s.planPath(task.ProjectID)}
+		vals := []any{run, report, state, plan}
 		for i, p := range paths {
 			if err := hub.WriteJSON(w, p, vals[i]); err != nil {
 				return nil, err
@@ -1400,21 +1407,19 @@ func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error
 	if err := s.Hub.ReadJSON(ctx, path, &report); err != nil {
 		return model.Report{}, err
 	}
+	task, err := s.readTaskForRun(ctx, run)
+	if err != nil {
+		return model.Report{}, err
+	}
+	if err := model.ValidateReport(report, task, run); err != nil {
+		return model.Report{}, err
+	}
 	commit, err := s.Hub.LastChange(ctx, path)
 	if err != nil {
 		return model.Report{}, err
 	}
 	report.HubCommit = commit
 	return canonicalReport(report), nil
-}
-func (s *Service) RunEvidence(ctx context.Context, id string) (model.Evidence, error) {
-	run, err := s.findRun(ctx, id)
-	if err != nil {
-		return model.Evidence{}, err
-	}
-	var evidence model.Evidence
-	err = s.Hub.ReadJSON(ctx, s.evidencePath(run.ProjectID, id), &evidence)
-	return evidence, err
 }
 func (s *Service) RunCancel(ctx context.Context, id, expected string) (OperationResult, error) {
 	run, err := s.findRun(ctx, id)
@@ -1459,22 +1464,6 @@ func (s *Service) RunCancel(ctx context.Context, id, expected string) (Operation
 		return result, dispatchErr
 	}
 	return result, nil
-}
-
-func (s *Service) ReadResultRaw(ctx context.Context, id string) (map[string]any, error) {
-	run, err := s.findRun(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	data, err := s.Hub.ReadFile(ctx, s.resultPath(run.ProjectID, id))
-	if err != nil {
-		return nil, err
-	}
-	var out map[string]any
-	if err := decodeStrict(data, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 type SweepItem struct {
@@ -1525,9 +1514,9 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 				return out, e
 			}
 			if run.Status == "cancel_requested" {
-				tx, e := s.failRun(ctx, run, task, "cancelled", "cooperative cancellation timed out", expected)
+				tx, e := s.failRun(ctx, run, task, "failed", "cooperative cancellation timed out", expected)
 				_ = tx
-				item := SweepItem{RunID: run.ID, Action: "finalize_cancelled", Status: "cancelled"}
+				item := SweepItem{RunID: run.ID, Action: "finalize_cancelled", Status: "failed"}
 				if e != nil {
 					item.Error = e.Error()
 				}
@@ -1550,9 +1539,9 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 				out.Items = append(out.Items, item)
 				continue
 			}
-			tx, e := s.failRun(ctx, run, task, "timed_out", "agent result was not finalized before timeout", expected)
+			tx, e := s.failRun(ctx, run, task, "failed", "agent completion was not finalized before timeout", expected)
 			_ = tx
-			item := SweepItem{RunID: run.ID, Action: "finalize_timeout", Status: "timed_out"}
+			item := SweepItem{RunID: run.ID, Action: "finalize_timeout", Status: "failed"}
 			if e != nil {
 				item.Error = e.Error()
 			}

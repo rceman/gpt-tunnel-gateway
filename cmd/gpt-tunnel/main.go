@@ -372,13 +372,6 @@ func run(ctx context.Context, s *service.Service, args []string) {
 			fatal(e)
 		}
 		output(v)
-	case "evidence":
-		require(args, 2)
-		v, e := s.RunEvidence(ctx, args[1])
-		if e != nil {
-			fatal(e)
-		}
-		output(v)
 	case "review-snapshot":
 		require(args, 2)
 		v, e := s.RunReviewSnapshot(ctx, args[1])
@@ -421,11 +414,10 @@ func run(ctx context.Context, s *service.Service, args []string) {
 	case "finalize":
 		require(args, 2)
 		fs := flag.NewFlagSet("run finalize", flag.ExitOnError)
-		rf := fs.String("result-file", "", "agent result JSON")
-		ef := fs.String("evidence-file", "", "evidence JSON")
+		cf := fs.String("completion-file", "", "completion JSON")
 		ex := fs.String("expected-hub-revision", "", "optimistic revision")
 		_ = fs.Parse(args[2:])
-		report, result, e := s.RunFinalize(ctx, service.FinalizeInput{RunID: args[1], ResultFile: *rf, EvidenceFile: *ef, WriteOptions: service.WriteOptions{ExpectedHubRevision: *ex}})
+		report, result, e := s.RunFinalize(ctx, service.FinalizeInput{RunID: args[1], CompletionFile: *cf, WriteOptions: service.WriteOptions{ExpectedHubRevision: *ex}})
 		if e != nil {
 			fatal(e)
 		}
