@@ -41,12 +41,39 @@ type ProjectRegisterInput struct {
 	WriteOptions
 }
 type PlanUpdateInput struct {
-	ProjectID    string `json:"project_id"`
-	Summary      string `json:"summary"`
-	Body         string `json:"body"`
-	ActiveTaskID string `json:"active_task_id,omitempty"`
-	ActiveRunID  string `json:"active_run_id,omitempty"`
-	UpdatedBy    string `json:"updated_by"`
+	ProjectID        string    `json:"project_id"`
+	Title            *string   `json:"title,omitempty"`
+	Summary          *string   `json:"summary,omitempty"`
+	CurrentObjective *string   `json:"current_objective,omitempty"`
+	Queue            *[]string `json:"queue,omitempty"`
+	ActiveTaskID     *string   `json:"active_task_id,omitempty"`
+	ActiveRunID      *string   `json:"active_run_id,omitempty"`
+	UpdatedBy        string    `json:"updated_by"`
+	WriteOptions
+}
+type PlanSectionCreateInput struct {
+	ProjectID        string `json:"project_id"`
+	SectionID        string `json:"section_id"`
+	Title            string `json:"title"`
+	ShortDescription string `json:"short_description"`
+	Description      string `json:"description"`
+	UpdatedBy        string `json:"updated_by"`
+	WriteOptions
+}
+type PlanSectionUpdateInput struct {
+	ProjectID               string  `json:"project_id"`
+	SectionID               string  `json:"section_id"`
+	Title                   *string `json:"title,omitempty"`
+	ShortDescription        *string `json:"short_description,omitempty"`
+	Description             *string `json:"description,omitempty"`
+	UpdatedBy               string  `json:"updated_by"`
+	ExpectedSectionRevision int     `json:"expected_section_revision"`
+	WriteOptions
+}
+type PlanSectionDeleteInput struct {
+	ProjectID               string `json:"project_id"`
+	SectionID               string `json:"section_id"`
+	ExpectedSectionRevision int    `json:"expected_section_revision"`
 	WriteOptions
 }
 type ADRCreateInput struct {
@@ -89,6 +116,7 @@ type ProjectStatus struct {
 	Project     model.Project        `json:"project"`
 	Local       config.ProjectConfig `json:"local"`
 	Worktree    gitx.WorktreeStatus  `json:"worktree"`
+	Plan        model.PlanStatus     `json:"plan"`
 	HubRevision string               `json:"hub_revision"`
 }
 
@@ -117,6 +145,12 @@ func (s *Service) projectPrefix(id string) string {
 }
 func (s *Service) projectPath(id string) string { return s.projectPrefix(id) + "/project.json" }
 func (s *Service) planPath(id string) string    { return s.projectPrefix(id) + "/plan/current.json" }
+func (s *Service) planSectionPath(project, id string) string {
+	if model.ValidateObjectIdentifier(id) != nil {
+		return "../invalid-plan-section-id"
+	}
+	return s.projectPrefix(project) + "/plan/sections/" + id + ".json"
+}
 func (s *Service) adrPath(project, id string) string {
 	if model.ValidateADRIdentifier(id) != nil {
 		return "../invalid-adr-id"
@@ -301,27 +335,185 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	if err != nil {
 		return ProjectStatus{}, err
 	}
+	plan, err := s.PlanRead(ctx, id)
+	if err != nil {
+		return ProjectStatus{}, err
+	}
 	rev, err := s.hubRevision(ctx)
 	if err != nil {
 		return ProjectStatus{}, err
 	}
-	return ProjectStatus{Project: p, Local: local, Worktree: wt, HubRevision: rev}, nil
+	return ProjectStatus{Project: p, Local: local, Worktree: wt, Plan: plan.StatusView(), HubRevision: rev}, nil
+}
+
+type legacyPlanV1 struct {
+	SchemaVersion int       `json:"schema_version"`
+	ProjectID     string    `json:"project_id"`
+	Revision      int       `json:"revision"`
+	Summary       string    `json:"summary"`
+	Body          string    `json:"body"`
+	ActiveTaskID  string    `json:"active_task_id,omitempty"`
+	ActiveRunID   string    `json:"active_run_id,omitempty"`
+	UpdatedBy     string    `json:"updated_by"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+func migrationShortDescription(body string) string {
+	line := strings.TrimSpace(strings.SplitN(body, "\n", 2)[0])
+	if line == "" {
+		line = "Migrated legacy plan content"
+	}
+	if len(line) > 500 {
+		line = line[:500]
+	}
+	return line
+}
+
+func (s *Service) migratePlanV1(ctx context.Context, project string, legacy legacyPlanV1) error {
+	if legacy.SchemaVersion != model.SchemaVersion || legacy.ProjectID != project || legacy.Revision < 1 {
+		return fmt.Errorf("invalid schema-v1 plan for migration")
+	}
+	updatedAt := legacy.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
+	updatedBy := legacy.UpdatedBy
+	if updatedBy == "" {
+		updatedBy = "migration"
+	}
+	section := model.PlanSection{SchemaVersion: model.PlanSchemaVersion, ProjectID: project, ID: "overview", Revision: 1, Title: "Migrated plan", ShortDescription: migrationShortDescription(legacy.Body), Description: legacy.Body, UpdatedBy: updatedBy, UpdatedAt: updatedAt}
+	plan := model.Plan{SchemaVersion: model.PlanSchemaVersion, ProjectID: project, Revision: legacy.Revision, Title: "Migrated plan", Summary: legacy.Summary, CurrentObjective: "", Queue: []string{}, Sections: []model.PlanSectionIndex{{ID: section.ID, Title: section.Title, ShortDescription: section.ShortDescription, Revision: section.Revision}}, ActiveTaskID: legacy.ActiveTaskID, ActiveRunID: legacy.ActiveRunID, UpdatedBy: updatedBy, UpdatedAt: updatedAt}
+	if err := model.ValidatePlanSection(section); err != nil {
+		return fmt.Errorf("migration section invalid: %w", err)
+	}
+	if err := model.ValidatePlan(plan); err != nil {
+		return fmt.Errorf("migration manifest invalid: %w", err)
+	}
+	expected, err := s.hubRevision(ctx)
+	if err != nil {
+		return err
+	}
+	tx, err := s.Hub.Transact(ctx, expected, "gateway: migrate plan to schema-v2 "+project, func(w string) ([]string, error) {
+		var current legacyPlanV1
+		if err := readWorktreeJSON(w, s.planPath(project), &current); err != nil {
+			return nil, err
+		}
+		if current.SchemaVersion != model.SchemaVersion {
+			return nil, fmt.Errorf("plan migration source changed")
+		}
+		sectionPath := s.planSectionPath(project, section.ID)
+		planPath := s.planPath(project)
+		if err := hub.WriteJSON(w, sectionPath, section); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(w, planPath, plan); err != nil {
+			return nil, err
+		}
+		var verifiedSection model.PlanSection
+		if err := readWorktreeJSON(w, sectionPath, &verifiedSection); err != nil {
+			return nil, fmt.Errorf("migration verification section: %w", err)
+		}
+		var verifiedPlan model.Plan
+		if err := readWorktreeJSON(w, planPath, &verifiedPlan); err != nil {
+			return nil, fmt.Errorf("migration verification manifest: %w", err)
+		}
+		if verifiedSection.Description != current.Body || verifiedPlan.Sections[0].ID != verifiedSection.ID {
+			return nil, fmt.Errorf("migration did not preserve monolithic plan content")
+		}
+		return []string{sectionPath, planPath}, nil
+	})
+	if err != nil {
+		return err
+	}
+	if tx.After == "" {
+		return fmt.Errorf("plan migration did not produce a commit")
+	}
+	return nil
+}
+
+func (s *Service) ensurePlanV2(ctx context.Context, project string) error {
+	data, err := s.Hub.ReadFile(ctx, s.planPath(project))
+	if err != nil {
+		return err
+	}
+	var header struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return fmt.Errorf("parse plan schema: %w", err)
+	}
+	if header.SchemaVersion == model.PlanSchemaVersion {
+		return nil
+	}
+	if header.SchemaVersion != model.SchemaVersion {
+		return fmt.Errorf("unsupported plan schema_version: %d", header.SchemaVersion)
+	}
+	var legacy legacyPlanV1
+	if err := decodeStrict(data, &legacy); err != nil {
+		return fmt.Errorf("read schema-v1 plan for one-time migration: %w", err)
+	}
+	return s.migratePlanV1(ctx, project, legacy)
 }
 
 func (s *Service) PlanRead(ctx context.Context, project string) (model.Plan, error) {
+	if err := s.ensurePlanV2(ctx, project); err != nil {
+		return model.Plan{}, err
+	}
 	var p model.Plan
-	err := s.Hub.ReadJSON(ctx, s.planPath(project), &p)
-	return p, err
+	if err := s.Hub.ReadJSON(ctx, s.planPath(project), &p); err != nil {
+		return model.Plan{}, err
+	}
+	if err := model.ValidatePlan(p); err != nil {
+		return model.Plan{}, err
+	}
+	return p, nil
 }
+
 func (s *Service) PlanUpdate(ctx context.Context, in PlanUpdateInput) (OperationResult, error) {
 	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
 		return OperationResult{}, err
 	}
-	old := model.Plan{}
-	if err := s.Hub.ReadJSON(ctx, s.planPath(in.ProjectID), &old); err != nil && !IsNotFound(err) {
+	old, err := s.PlanRead(ctx, in.ProjectID)
+	if err != nil && !IsNotFound(err) {
 		return OperationResult{}, err
 	}
-	plan := model.Plan{SchemaVersion: model.SchemaVersion, ProjectID: in.ProjectID, Revision: old.Revision + 1, Summary: in.Summary, Body: in.Body, ActiveTaskID: in.ActiveTaskID, ActiveRunID: in.ActiveRunID, UpdatedBy: in.UpdatedBy, UpdatedAt: time.Now().UTC()}
+	creating := err != nil
+	if creating && (in.Title == nil || in.Summary == nil) {
+		return OperationResult{}, fmt.Errorf("new plan requires title and summary")
+	}
+	if creating {
+		old = model.Plan{SchemaVersion: model.PlanSchemaVersion, ProjectID: in.ProjectID, Revision: 0, Queue: []string{}, Sections: []model.PlanSectionIndex{}}
+	}
+	plan := old
+	plan.SchemaVersion = model.PlanSchemaVersion
+	plan.ProjectID = in.ProjectID
+	plan.Revision++
+	if in.Title != nil {
+		plan.Title = *in.Title
+	}
+	if in.Summary != nil {
+		plan.Summary = *in.Summary
+	}
+	if in.CurrentObjective != nil {
+		plan.CurrentObjective = *in.CurrentObjective
+	}
+	if in.Queue != nil {
+		plan.Queue = append([]string{}, (*in.Queue)...)
+	}
+	if in.ActiveTaskID != nil {
+		plan.ActiveTaskID = *in.ActiveTaskID
+	}
+	if in.ActiveRunID != nil {
+		plan.ActiveRunID = *in.ActiveRunID
+	}
+	plan.UpdatedBy = in.UpdatedBy
+	plan.UpdatedAt = time.Now().UTC()
+	if plan.Queue == nil {
+		plan.Queue = []string{}
+	}
+	if plan.Sections == nil {
+		plan.Sections = []model.PlanSectionIndex{}
+	}
 	if err := model.ValidatePlan(plan); err != nil {
 		return OperationResult{}, err
 	}
@@ -336,6 +528,226 @@ func (s *Service) PlanUpdate(ctx context.Context, in PlanUpdateInput) (Operation
 		return OperationResult{}, err
 	}
 	return OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: "updated"}, nil
+}
+
+func sectionIndex(plan model.Plan, id string) (int, model.PlanSectionIndex, error) {
+	for i, section := range plan.Sections {
+		if section.ID == id {
+			return i, section, nil
+		}
+	}
+	return -1, model.PlanSectionIndex{}, fmt.Errorf("plan section not found: %s", id)
+}
+
+func (s *Service) PlanSectionRead(ctx context.Context, project, id string) (model.PlanSection, error) {
+	plan, err := s.PlanRead(ctx, project)
+	if err != nil {
+		return model.PlanSection{}, err
+	}
+	if _, _, err := sectionIndex(plan, id); err != nil {
+		return model.PlanSection{}, err
+	}
+	var section model.PlanSection
+	if err := s.Hub.ReadJSON(ctx, s.planSectionPath(project, id), &section); err != nil {
+		return model.PlanSection{}, err
+	}
+	if err := model.ValidatePlanSection(section); err != nil {
+		return model.PlanSection{}, err
+	}
+	return section, nil
+}
+
+func (s *Service) PlanSectionCreate(ctx context.Context, in PlanSectionCreateInput) (OperationResult, error) {
+	plan, err := s.PlanRead(ctx, in.ProjectID)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if _, _, err := sectionIndex(plan, in.SectionID); err == nil {
+		return OperationResult{}, fmt.Errorf("plan section already exists: %s", in.SectionID)
+	}
+	now := time.Now().UTC()
+	section := model.PlanSection{SchemaVersion: model.PlanSchemaVersion, ProjectID: in.ProjectID, ID: in.SectionID, Revision: 1, Title: in.Title, ShortDescription: in.ShortDescription, Description: in.Description, UpdatedBy: in.UpdatedBy, UpdatedAt: now}
+	if err := model.ValidatePlanSection(section); err != nil {
+		return OperationResult{}, err
+	}
+	plan.Revision++
+	plan.Sections = append(append([]model.PlanSectionIndex{}, plan.Sections...), model.PlanSectionIndex{ID: section.ID, Title: section.Title, ShortDescription: section.ShortDescription, Revision: section.Revision})
+	plan.UpdatedBy, plan.UpdatedAt = in.UpdatedBy, now
+	if in.ExpectedHubRevision == "" {
+		in.ExpectedHubRevision, err = s.hubRevision(ctx)
+		if err != nil {
+			return OperationResult{}, err
+		}
+	}
+	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: create plan section "+in.SectionID, func(w string) ([]string, error) {
+		var current model.Plan
+		if err := readWorktreeJSON(w, s.planPath(in.ProjectID), &current); err != nil {
+			return nil, err
+		}
+		if _, _, err := sectionIndex(current, in.SectionID); err == nil {
+			return nil, fmt.Errorf("plan section already exists: %s", in.SectionID)
+		}
+		current.Revision++
+		current.Sections = append(current.Sections, model.PlanSectionIndex{ID: section.ID, Title: section.Title, ShortDescription: section.ShortDescription, Revision: section.Revision})
+		current.UpdatedBy, current.UpdatedAt = in.UpdatedBy, now
+		if err := model.ValidatePlan(current); err != nil {
+			return nil, err
+		}
+		sectionPath := s.planSectionPath(in.ProjectID, in.SectionID)
+		if err := hub.WriteJSON(w, sectionPath, section); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(w, s.planPath(in.ProjectID), current); err != nil {
+			return nil, err
+		}
+		return []string{sectionPath, s.planPath(in.ProjectID)}, nil
+	})
+	if err != nil {
+		return OperationResult{}, err
+	}
+	return OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: "created"}, nil
+}
+
+func (s *Service) PlanSectionUpdate(ctx context.Context, in PlanSectionUpdateInput) (OperationResult, error) {
+	if in.ExpectedSectionRevision < 1 {
+		return OperationResult{}, fmt.Errorf("expected section revision is required")
+	}
+	if _, err := s.PlanSectionRead(ctx, in.ProjectID, in.SectionID); err != nil {
+		return OperationResult{}, err
+	}
+	if in.ExpectedHubRevision == "" {
+		var err error
+		in.ExpectedHubRevision, err = s.hubRevision(ctx)
+		if err != nil {
+			return OperationResult{}, err
+		}
+	}
+	now := time.Now().UTC()
+	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: update plan section "+in.SectionID, func(w string) ([]string, error) {
+		var currentPlan model.Plan
+		if err := readWorktreeJSON(w, s.planPath(in.ProjectID), &currentPlan); err != nil {
+			return nil, err
+		}
+		index, indexEntry, err := sectionIndex(currentPlan, in.SectionID)
+		if err != nil {
+			return nil, err
+		}
+		var section model.PlanSection
+		sectionPath := s.planSectionPath(in.ProjectID, in.SectionID)
+		if err := readWorktreeJSON(w, sectionPath, &section); err != nil {
+			return nil, err
+		}
+		if section.Revision != in.ExpectedSectionRevision || indexEntry.Revision != in.ExpectedSectionRevision {
+			return nil, fmt.Errorf("SECTION_REVISION_CONFLICT expected=%d actual=%d", in.ExpectedSectionRevision, section.Revision)
+		}
+		if in.Title != nil {
+			section.Title = *in.Title
+		}
+		if in.ShortDescription != nil {
+			section.ShortDescription = *in.ShortDescription
+		}
+		if in.Description != nil {
+			section.Description = *in.Description
+		}
+		section.Revision++
+		section.UpdatedBy, section.UpdatedAt = in.UpdatedBy, now
+		if err := model.ValidatePlanSection(section); err != nil {
+			return nil, err
+		}
+		currentPlan.Revision++
+		currentPlan.Sections[index] = model.PlanSectionIndex{ID: section.ID, Title: section.Title, ShortDescription: section.ShortDescription, Revision: section.Revision}
+		currentPlan.UpdatedBy, currentPlan.UpdatedAt = in.UpdatedBy, now
+		if err := model.ValidatePlan(currentPlan); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(w, sectionPath, section); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(w, s.planPath(in.ProjectID), currentPlan); err != nil {
+			return nil, err
+		}
+		return []string{sectionPath, s.planPath(in.ProjectID)}, nil
+	})
+	if err != nil {
+		return OperationResult{}, err
+	}
+	return OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: "updated"}, nil
+}
+
+func (s *Service) PlanSectionDelete(ctx context.Context, in PlanSectionDeleteInput) (OperationResult, error) {
+	if in.ExpectedSectionRevision < 1 {
+		return OperationResult{}, fmt.Errorf("expected section revision is required")
+	}
+	if _, err := s.PlanSectionRead(ctx, in.ProjectID, in.SectionID); err != nil {
+		return OperationResult{}, err
+	}
+	if in.ExpectedHubRevision == "" {
+		var err error
+		in.ExpectedHubRevision, err = s.hubRevision(ctx)
+		if err != nil {
+			return OperationResult{}, err
+		}
+	}
+	now := time.Now().UTC()
+	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: delete plan section "+in.SectionID, func(w string) ([]string, error) {
+		var currentPlan model.Plan
+		if err := readWorktreeJSON(w, s.planPath(in.ProjectID), &currentPlan); err != nil {
+			return nil, err
+		}
+		index, section, err := sectionIndex(currentPlan, in.SectionID)
+		if err != nil {
+			return nil, err
+		}
+		var currentSection model.PlanSection
+		sectionPath := s.planSectionPath(in.ProjectID, in.SectionID)
+		if err := readWorktreeJSON(w, sectionPath, &currentSection); err != nil {
+			return nil, err
+		}
+		if currentSection.Revision != in.ExpectedSectionRevision || section.Revision != in.ExpectedSectionRevision {
+			return nil, fmt.Errorf("SECTION_REVISION_CONFLICT expected=%d actual=%d", in.ExpectedSectionRevision, currentSection.Revision)
+		}
+		if err := os.Remove(filepath.Join(w, filepath.FromSlash(sectionPath))); err != nil {
+			return nil, err
+		}
+		currentPlan.Sections = append(currentPlan.Sections[:index], currentPlan.Sections[index+1:]...)
+		currentPlan.Revision++
+		currentPlan.UpdatedBy, currentPlan.UpdatedAt = "section-delete", now
+		if err := model.ValidatePlan(currentPlan); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(w, s.planPath(in.ProjectID), currentPlan); err != nil {
+			return nil, err
+		}
+		return []string{sectionPath, s.planPath(in.ProjectID)}, nil
+	})
+	if err != nil {
+		return OperationResult{}, err
+	}
+	return OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: "deleted"}, nil
+}
+
+func (s *Service) PlanRender(ctx context.Context, project string) (model.PlanRender, error) {
+	plan, err := s.PlanRead(ctx, project)
+	if err != nil {
+		return model.PlanRender{}, err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n%s\n\n", plan.Title, plan.Summary)
+	if plan.CurrentObjective != "" {
+		fmt.Fprintf(&b, "Current objective: %s\n\n", plan.CurrentObjective)
+	}
+	for _, index := range plan.Sections {
+		section, err := s.PlanSectionRead(ctx, project, index.ID)
+		if err != nil {
+			return model.PlanRender{}, err
+		}
+		fmt.Fprintf(&b, "## %s\n\n%s\n\n%s\n\n", section.Title, section.ShortDescription, section.Description)
+	}
+	text := b.String()
+	if s.Config.MaxReadBytes > 0 && int64(len(text)) > s.Config.MaxReadBytes {
+		return model.PlanRender{}, fmt.Errorf("plan render exceeds configured output limit")
+	}
+	return model.PlanRender{SchemaVersion: model.PlanSchemaVersion, ProjectID: plan.ProjectID, Revision: plan.Revision, Title: plan.Title, Summary: plan.Summary, CurrentObjective: plan.CurrentObjective, Text: text}, nil
 }
 func (s *Service) PlanHistory(ctx context.Context, project string, limit int) ([]map[string]string, error) {
 	return s.Hub.History(ctx, s.planPath(project), limit)
@@ -953,7 +1365,7 @@ func renderPacket(task model.Task, run model.Run, project model.Project, plan mo
 	for _, v := range task.RequiredGates {
 		fmt.Fprintf(&b, "- %s\n", v)
 	}
-	fmt.Fprintf(&b, "\n## Global plan context\n\n%s\n\n%s\n\n## Completion contract\n\nWrite agent result atomically to:\n  %s\n\nWrite evidence atomically to:\n  %s\n\nFinalize with:\n  gpt-tunnel run finalize %s\n\nThe task is not complete until finalization prints TASK_FINALIZED. Do not finish only in chat or Airelay.\n", plan.Summary, plan.Body, run.ResultPath, run.EvidencePath, run.ID)
+	fmt.Fprintf(&b, "\n## Global plan context\n\n%s\n\nCurrent objective: %s\n\n## Completion contract\n\nWrite agent result atomically to:\n  %s\n\nWrite evidence atomically to:\n  %s\n\nFinalize with:\n  gpt-tunnel run finalize %s\n\nThe task is not complete until finalization prints TASK_FINALIZED. Do not finish only in chat or Airelay.\n", plan.Summary, plan.CurrentObjective, run.ResultPath, run.EvidencePath, run.ID)
 	return b.String()
 }
 

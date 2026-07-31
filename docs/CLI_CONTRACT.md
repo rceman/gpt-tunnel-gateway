@@ -14,6 +14,11 @@ gpt-tunnel project register --file <input.json>
 ```text
 gpt-tunnel plan read <project-id>
 gpt-tunnel plan update --file <input.json>
+gpt-tunnel plan section-read <project-id> <section-id>
+gpt-tunnel plan section-create --file <input.json>
+gpt-tunnel plan section-update --file <input.json>
+gpt-tunnel plan section-delete --file <input.json>
+gpt-tunnel plan render <project-id>
 gpt-tunnel plan history <project-id> [limit]
 gpt-tunnel adr list <project-id>
 gpt-tunnel adr read <project-id> <adr-id>
@@ -39,6 +44,8 @@ gpt-tunnel run finalize <run-id> [--result-file <path>] [--evidence-file <path>]
 ```
 
 `run finalize` is local-agent-only. It is intentionally not exposed as a remote MCP write tool.
+
+`plan read` returns only the compact schema-v2 manifest. Full section descriptions are returned by `plan section-read` or the explicit `plan render` operation. Manifest updates are partial and preserve fields omitted from the input. Section updates and deletes require `expected_section_revision`; unrelated sections do not conflict.
 
 ## Git exploration
 

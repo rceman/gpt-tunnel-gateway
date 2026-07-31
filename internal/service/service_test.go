@@ -16,6 +16,8 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
+func planString(value string) *string { return &value }
+
 func testService(t *testing.T) (*Service, string, string) {
 	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
 	_, projectWork, projectHead := testutil.RepoWithBareRemote(t)
@@ -55,7 +57,7 @@ func TestTaskPlanDispatchReadFinalize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Summary: "Implement feature", Body: "Execute the prepared task.", ActiveTaskID: task.ID, UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: create.Hub.After}})
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Title: planString("Implementation"), Summary: planString("Implement feature"), CurrentObjective: planString("Execute the prepared task."), ActiveTaskID: planString(task.ID), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: create.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +117,7 @@ func TestRunReviewSnapshotActiveIsBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Summary: "Review feature", Body: "Execute the prepared task.", ActiveTaskID: task.ID, UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: create.Hub.After}})
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Title: planString("Review"), Summary: planString("Review feature"), CurrentObjective: planString("Execute the prepared task."), ActiveTaskID: planString(task.ID), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: create.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +153,7 @@ func TestRunReviewSnapshotRejectsOversizedAggregate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Summary: "Bounded review", Body: "Review.", ActiveTaskID: task.ID, UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: create.Hub.After}})
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Title: planString("Review"), Summary: planString("Bounded review"), CurrentObjective: planString("Review."), ActiveTaskID: planString(task.ID), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: create.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +175,7 @@ func createActiveTailRun(t *testing.T, s *Service, hubRevision, projectHead stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Summary: "Tail", Body: "Tail.", ActiveTaskID: task.ID, UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: create.Hub.After}})
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Title: planString("Tail"), Summary: planString("Tail"), CurrentObjective: planString("Tail."), ActiveTaskID: planString(task.ID), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: create.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}

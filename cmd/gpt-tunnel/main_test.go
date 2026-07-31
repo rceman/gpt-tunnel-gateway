@@ -17,6 +17,8 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
+func planString(value string) *string { return &value }
+
 func TestReviewSnapshotCLISuccessRenderingPath(t *testing.T) {
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -64,7 +66,7 @@ func TestAgentTailCLIRouteDefaultAndExplicitLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(context.Background(), service.PlanUpdateInput{ProjectID: "example", Summary: "Tail", Body: "Tail", ActiveTaskID: task.ID, UpdatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	plan, err := s.PlanUpdate(context.Background(), service.PlanUpdateInput{ProjectID: "example", Title: planString("Tail"), Summary: planString("Tail"), CurrentObjective: planString("Tail"), ActiveTaskID: planString(task.ID), UpdatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: created.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +118,7 @@ func TestAgentTailCLICommandPathErrorsAreBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(context.Background(), service.PlanUpdateInput{ProjectID: "example", Summary: "Tail", Body: "Tail", ActiveTaskID: task.ID, UpdatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	plan, err := s.PlanUpdate(context.Background(), service.PlanUpdateInput{ProjectID: "example", Title: planString("Tail"), Summary: planString("Tail"), CurrentObjective: planString("Tail"), ActiveTaskID: planString(task.ID), UpdatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: created.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}

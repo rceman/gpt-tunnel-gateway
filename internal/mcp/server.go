@@ -399,12 +399,51 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.PlanRead(ctx, id)
 	})
-	add("plan_update", "Update global plan in a verified hub transaction.", obj(map[string]any{"project_id": str("Project identifier"), "summary": str("Plan summary"), "body": str("Plan body"), "active_task_id": str("Active task"), "active_run_id": str("Active run"), "updated_by": str("Author identity"), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "summary", "body", "updated_by"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("plan_update", "Partially update the compact plan manifest.", obj(map[string]any{"project_id": str("Project identifier"), "title": str("Plan title"), "summary": str("Plan summary"), "current_objective": str("Current objective"), "queue": map[string]any{"type": "array", "items": str("Ordered section identifiers")}, "active_task_id": str("Active task"), "active_run_id": str("Active run"), "updated_by": str("Author identity"), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "updated_by"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.PlanUpdateInput
 		if e := decode(raw, &in); e != nil {
 			return nil, e
 		}
 		return s.Service.PlanUpdate(ctx, in)
+	})
+	add("plan_section_read", "Read one complete plan section by exact identifier.", obj(map[string]any{"project_id": str("Project identifier"), "section_id": str("Plan section identifier")}, "project_id", "section_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		project, e := getString(raw, "project_id")
+		if e != nil {
+			return nil, e
+		}
+		section, e := getString(raw, "section_id")
+		if e != nil {
+			return nil, e
+		}
+		return s.Service.PlanSectionRead(ctx, project, section)
+	})
+	add("plan_section_create", "Create one independently versioned plan section.", obj(map[string]any{"project_id": str("Project identifier"), "section_id": str("Plan section identifier"), "title": str("Section title"), "short_description": str("One-line section description"), "description": str("Full section description"), "updated_by": str("Author identity"), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "section_id", "title", "short_description", "description", "updated_by"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.PlanSectionCreateInput
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		return s.Service.PlanSectionCreate(ctx, in)
+	})
+	add("plan_section_update", "Partially update one plan section with its independent revision.", obj(map[string]any{"project_id": str("Project identifier"), "section_id": str("Plan section identifier"), "title": str("Section title"), "short_description": str("One-line section description"), "description": str("Full section description"), "updated_by": str("Author identity"), "expected_section_revision": integer("Expected section revision", 1, 1000000), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "section_id", "updated_by", "expected_section_revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.PlanSectionUpdateInput
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		return s.Service.PlanSectionUpdate(ctx, in)
+	})
+	add("plan_section_delete", "Delete one plan section from current state while retaining Git history.", obj(map[string]any{"project_id": str("Project identifier"), "section_id": str("Plan section identifier"), "expected_section_revision": integer("Expected section revision", 1, 1000000), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "section_id", "expected_section_revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.PlanSectionDeleteInput
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		return s.Service.PlanSectionDelete(ctx, in)
+	})
+	add("plan_render", "Render the complete plan and all sections explicitly.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		id, e := getString(raw, "project_id")
+		if e != nil {
+			return nil, e
+		}
+		return s.Service.PlanRender(ctx, id)
 	})
 	add("plan_history", "List plan Git history.", obj(map[string]any{"project_id": str("Project identifier"), "limit": integer("Maximum commits", 1, 1000)}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "project_id")

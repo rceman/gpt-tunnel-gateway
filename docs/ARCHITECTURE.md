@@ -24,7 +24,7 @@ existing tunnel-client
 GitHub hub state is canonical and cross-device:
 
 - projects;
-- global plans and history;
+- schema-v2 compact plan manifests and independently versioned section history;
 - accepted/superseding ADRs;
 - immutable hashed tasks and mutable task-state records;
 - run lifecycle;

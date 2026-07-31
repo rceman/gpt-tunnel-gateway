@@ -35,11 +35,37 @@ func projectOutputSchema() map[string]any {
 }
 
 func planOutputSchema() map[string]any {
+	sectionIndex := closedOutput(map[string]any{
+		"id": outputString(), "title": outputString(), "short_description": outputString(), "revision": outputInteger(),
+	}, "id", "title", "short_description", "revision")
 	return closedOutput(map[string]any{
 		"schema_version": outputInteger(), "project_id": outputString(), "revision": outputInteger(),
-		"summary": outputString(), "body": outputString(), "active_task_id": outputString(), "active_run_id": outputString(),
+		"title": outputString(), "summary": outputString(), "current_objective": outputString(), "queue": outputArray(outputString()), "sections": outputArray(sectionIndex),
+		"active_task_id": outputString(), "active_run_id": outputString(),
 		"updated_by": outputString(), "updated_at": outputDateTime(),
-	}, "schema_version", "project_id", "revision", "summary", "body", "updated_by", "updated_at")
+	}, "schema_version", "project_id", "revision", "title", "summary", "current_objective", "queue", "sections", "updated_by", "updated_at")
+}
+
+func planStatusOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"schema_version": outputInteger(), "project_id": outputString(), "revision": outputInteger(),
+		"title": outputString(), "summary": outputString(), "current_objective": outputString(), "queue": outputArray(outputString()), "sections": outputArray(outputString()),
+		"active_task_id": outputString(), "active_run_id": outputString(), "updated_by": outputString(), "updated_at": outputDateTime(),
+	}, "schema_version", "project_id", "revision", "title", "summary", "current_objective", "queue", "sections", "updated_by", "updated_at")
+}
+
+func planSectionOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"schema_version": outputInteger(), "project_id": outputString(), "id": outputString(), "revision": outputInteger(),
+		"title": outputString(), "short_description": outputString(), "description": outputString(), "updated_by": outputString(), "updated_at": outputDateTime(),
+	}, "schema_version", "project_id", "id", "revision", "title", "short_description", "description", "updated_by", "updated_at")
+}
+
+func planRenderOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"schema_version": outputInteger(), "project_id": outputString(), "revision": outputInteger(), "title": outputString(),
+		"summary": outputString(), "current_objective": outputString(), "text": outputString(),
+	}, "schema_version", "project_id", "revision", "title", "summary", "current_objective", "text")
 }
 
 func adrOutputSchema() map[string]any {
@@ -189,12 +215,17 @@ var toolOutputSchemas = map[string]map[string]any{
 		"hub_protocol_root": outputString(), "hub_repository_url": outputString(), "hub_branch": outputString(), "hub_managed_root": outputString(),
 		"airelay_control_only": outputBoolean(), "generic_shell_available": outputBoolean(),
 	}, "gateway_id", "listen_addr", "projects", "hub_protocol_root", "hub_repository_url", "hub_branch", "hub_managed_root", "airelay_control_only", "generic_shell_available"),
-	"project_list":     closedOutput(map[string]any{"projects": outputArray(projectOutputSchema())}, "projects"),
-	"project_read":     projectOutputSchema(),
-	"project_status":   closedOutput(map[string]any{"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "hub_revision": outputString()}, "project", "local", "worktree", "hub_revision"),
-	"project_register": operationOutputSchema(),
-	"plan_read":        planOutputSchema(),
-	"plan_update":      operationOutputSchema(),
+	"project_list":        closedOutput(map[string]any{"projects": outputArray(projectOutputSchema())}, "projects"),
+	"project_read":        projectOutputSchema(),
+	"project_status":      closedOutput(map[string]any{"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(), "hub_revision": outputString()}, "project", "local", "worktree", "plan", "hub_revision"),
+	"project_register":    operationOutputSchema(),
+	"plan_read":           planOutputSchema(),
+	"plan_update":         operationOutputSchema(),
+	"plan_section_read":   planSectionOutputSchema(),
+	"plan_section_create": operationOutputSchema(),
+	"plan_section_update": operationOutputSchema(),
+	"plan_section_delete": operationOutputSchema(),
+	"plan_render":         planRenderOutputSchema(),
 	"plan_history": closedOutput(map[string]any{"history": outputArray(closedOutput(map[string]any{
 		"sha": outputString(), "date": outputString(), "author": outputString(), "subject": outputString(),
 	}, "sha", "date", "author", "subject"))}, "history"),
@@ -252,7 +283,7 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	result := map[string]ToolAnnotations{}
 	for _, name := range []string{
 		"system_ping", "gateway_capabilities", "project_list", "project_read", "project_status",
-		"plan_read", "plan_history", "adr_list", "adr_read", "task_list", "task_read",
+		"plan_read", "plan_section_read", "plan_render", "plan_history", "adr_list", "adr_read", "task_list", "task_read",
 		"run_list", "run_read", "run_status", "run_report", "run_evidence",
 		"git_refs", "git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare",
 		"git_merge_base", "git_worktree_status", "git_worktree_diff",
@@ -261,10 +292,10 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	}
 	result["run_agent_tail"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
 	result["run_review_snapshot"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
-	for _, name := range []string{"project_register", "adr_create", "task_create"} {
+	for _, name := range []string{"project_register", "adr_create", "task_create", "plan_section_create"} {
 		result[name] = additiveExternalAnnotations()
 	}
-	for _, name := range []string{"plan_update", "task_dispatch", "task_supersede", "task_cancel", "run_sweep", "run_cancel"} {
+	for _, name := range []string{"plan_update", "plan_section_update", "plan_section_delete", "task_dispatch", "task_supersede", "task_cancel", "run_sweep", "run_cancel"} {
 		result[name] = destructiveExternalAnnotations()
 	}
 	result["git_refresh"] = ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}

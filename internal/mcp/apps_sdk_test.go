@@ -84,7 +84,8 @@ func TestRunAgentTailToolCallUsesLiveServiceAndPlainTextTransport(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(context.Background(), service.PlanUpdateInput{ProjectID: "example", Summary: "Tail", Body: "Tail", ActiveTaskID: task.ID, UpdatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	title, summary, objective, activeTask := "Tail", "Tail", "Tail", task.ID
+	plan, err := s.PlanUpdate(context.Background(), service.PlanUpdateInput{ProjectID: "example", Title: &title, Summary: &summary, CurrentObjective: &objective, ActiveTaskID: &activeTask, UpdatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: created.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,8 +196,8 @@ func TestToolCallRejectsInvalidAndOversizedMeta(t *testing.T) {
 func TestEveryToolDeclaresOutputSchemaAndExplicitAnnotations(t *testing.T) {
 	srv := &Server{Service: service.New(config.Config{})}
 	tools := srv.tools()
-	if len(tools) != 38 {
-		t.Fatalf("tool count=%d want 38", len(tools))
+	if len(tools) != 43 {
+		t.Fatalf("tool count=%d want 43", len(tools))
 	}
 	if len(toolOutputSchemas) != len(tools)-1 || len(toolAnnotations) != len(tools) {
 		t.Fatalf("contract coverage mismatch: tools=%d outputs=%d annotations=%d", len(tools), len(toolOutputSchemas), len(toolAnnotations))
@@ -234,6 +235,10 @@ func TestToolAnnotationsMatchActualSideEffects(t *testing.T) {
 	assert("adr_create", additiveExternalAnnotations())
 	assert("task_create", additiveExternalAnnotations())
 	assert("plan_update", destructiveExternalAnnotations())
+	assert("plan_section_create", additiveExternalAnnotations())
+	assert("plan_section_update", destructiveExternalAnnotations())
+	assert("plan_section_delete", destructiveExternalAnnotations())
+	assert("plan_render", readOnlyAnnotations())
 	assert("task_dispatch", destructiveExternalAnnotations())
 	assert("run_cancel", destructiveExternalAnnotations())
 	assert("git_refresh", ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true})
@@ -244,7 +249,7 @@ func TestToolsListSerializesOutputSchemasAndAllHints(t *testing.T) {
 	response := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
 	result := response["result"].(map[string]any)
 	tools := result["tools"].([]any)
-	if len(tools) != 38 {
+	if len(tools) != 43 {
 		t.Fatalf("tool count=%d", len(tools))
 	}
 	previous := ""
@@ -320,7 +325,7 @@ func TestTaskReadOutputSchemaAcceptsBothDeclaredShapes(t *testing.T) {
 			"created_at": "2026-07-30T10:00:00Z", "updated_at": "2026-07-30T10:00:00Z",
 		},
 		"plan": map[string]any{
-			"schema_version": float64(1), "project_id": "project", "revision": float64(1), "summary": "summary", "body": "body",
+			"schema_version": float64(model.PlanSchemaVersion), "project_id": "project", "revision": float64(1), "title": "title", "summary": "summary", "current_objective": "objective", "queue": []any{}, "sections": []any{},
 			"updated_by": "gpt", "updated_at": "2026-07-30T10:00:00Z",
 		},
 		"repository_root": "/tmp/project", "result_path": "/tmp/result", "evidence_path": "/tmp/evidence",
@@ -334,7 +339,9 @@ func TestTaskReadOutputSchemaAcceptsBothDeclaredShapes(t *testing.T) {
 func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	now := time.Date(2026, 7, 30, 10, 0, 0, 0, time.UTC)
 	project := model.Project{SchemaVersion: 1, ID: "project", RepositoryURL: "git@example.invalid:project.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active", CreatedAt: now, UpdatedAt: now}
-	plan := model.Plan{SchemaVersion: 1, ProjectID: "project", Revision: 1, Summary: "summary", Body: "body", UpdatedBy: "gpt", UpdatedAt: now}
+	plan := model.Plan{SchemaVersion: model.PlanSchemaVersion, ProjectID: "project", Revision: 1, Title: "title", Summary: "summary", CurrentObjective: "objective", Queue: []string{}, Sections: []model.PlanSectionIndex{}, UpdatedBy: "gpt", UpdatedAt: now}
+	section := model.PlanSection{SchemaVersion: model.PlanSchemaVersion, ProjectID: "project", ID: "section", Revision: 1, Title: "section", ShortDescription: "short", Description: "description", UpdatedBy: "gpt", UpdatedAt: now}
+	render := model.PlanRender{SchemaVersion: model.PlanSchemaVersion, ProjectID: "project", Revision: 1, Title: "title", Summary: "summary", CurrentObjective: "objective", Text: "rendered"}
 	adr := model.ADR{SchemaVersion: 1, ID: "ADR-TEST", ProjectID: "project", Title: "title", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: now}
 	task := model.Task{SchemaVersion: 1, ID: "task", SHA256: strings.Repeat("b", 64), ProjectID: "project", Title: "title", Objective: "objective", Branch: "feature/x", BaseRevision: strings.Repeat("c", 40), AcceptanceCriteria: []string{}, Constraints: []string{}, Status: "created", CreatedBy: "gpt", CreatedAt: now}
 	state := model.TaskState{SchemaVersion: 1, TaskID: "task", TaskSHA256: task.SHA256, Status: "created", UpdatedAt: now}
@@ -356,8 +363,8 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		"system_ping":          map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.4.0", "gateway_id": "home_pc", "time": now},
 		"gateway_capabilities": map[string]any{"gateway_id": "home_pc", "listen_addr": "127.0.0.1:8765", "projects": []string{"project"}, "hub_protocol_root": "gpt-tunnel/v1", "hub_repository_url": "git@github.com:rceman/typer.git", "hub_branch": "gpt-tunnel/home_pc", "hub_managed_root": "/tmp/state/hub/repository", "airelay_control_only": true, "generic_shell_available": false},
 		"project_list":         map[string]any{"projects": []model.Project{project}}, "project_read": project,
-		"project_status": service.ProjectStatus{Project: project, Local: local, Worktree: worktree, HubRevision: transaction.After}, "project_register": operation,
-		"plan_read": plan, "plan_update": operation, "plan_history": map[string]any{"history": []map[string]string{{"sha": transaction.After, "date": now.Format(time.RFC3339), "author": "GPT", "subject": "subject"}}},
+		"project_status": service.ProjectStatus{Project: project, Local: local, Worktree: worktree, Plan: plan.StatusView(), HubRevision: transaction.After}, "project_register": operation,
+		"plan_read": plan, "plan_update": operation, "plan_section_read": section, "plan_section_create": operation, "plan_section_update": operation, "plan_section_delete": operation, "plan_render": render, "plan_history": map[string]any{"history": []map[string]string{{"sha": transaction.After, "date": now.Format(time.RFC3339), "author": "GPT", "subject": "subject"}}},
 		"adr_list": map[string]any{"adrs": []model.ADR{adr}}, "adr_read": adr, "adr_create": operation,
 		"task_create": map[string]any{"task": task, "operation": operation}, "task_list": map[string]any{"tasks": []service.TaskRecord{{Task: task, State: state}}}, "task_read": packet,
 		"task_dispatch": map[string]any{"run": run, "operation": operation}, "task_supersede": map[string]any{"task": task, "operation": operation}, "task_cancel": operation,

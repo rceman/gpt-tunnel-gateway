@@ -16,20 +16,23 @@
 12. `run finalize` validates exact task/run identities, task hash, schema version, repository evidence, acceptance coverage, paths, commits, gates, and terminal status.
 13. Failed dispatch, repository preparation failure, cancellation timeout, and result timeout produce committed terminal hub records.
 14. Cancellation is cooperative and never signals the shared persistent agent process.
-15. A timed-out active run is reprompted once, then terminalized if no valid finalization appears.
-16. Managed Git mirror operations may fetch remote refs but never modify the project worktree or remote repository.
-17. The controller verifies PID executable identity before signaling any process.
-18. The patch does not stop or replace the active `ai-workspace` runtime; cutover is a separate operation.
-19. Hub records exist only under the compiled canonical `gpt-tunnel/v1` namespace.
-20. A gateway may execute, cancel, finalize, reprompt, or timeout only runs whose `gateway_id` equals its configured identity.
-21. The controller owns `MCP_SERVER_URL` and tunnel health binding; the secret env file cannot override them.
-22. Process and transaction locks are kernel-backed and recover automatically when the owning process exits.
-23. The hub is addressed by repository URL and writable branch; the gateway atomically owns the only operational clone under `state_dir`, creates a missing branch from remote HEAD without force, and never requires or mutates a user hub checkout.
-24. Every MCP tool declares an exact output schema and all four behavioral hints; successful structured output is validated before transmission, while tool failures omit `structuredContent`.
-25. `tools/call.params` accepts only `name`, `arguments`, and an optional bounded protocol `_meta` object; all other envelope fields and unknown tool arguments are rejected.
-26. `gpt-tunnelctl upgrade` is source-only and requires clean synchronized `main`; it performs a locked transactional three-binary replacement, gateway-only restart, native doctor/MCP validation, and automatic all-binary rollback on failure.
-27. Fresh managed-hub startup fails readiness when configured project IDs lack durable canonical project records; it never silently reports a ready but empty project bus.
-28. `run_review_snapshot` is a bounded read-only aggregate: it refreshes the managed mirror once, omits session and local-path details, and reports deterministic structural checks for active or terminal runs without dispatching work.
+15. The canonical plan is schema-v2: a compact manifest plus independently versioned named sections; no full section description is returned by `plan_read` or compact project status.
+16. Manifest updates are partial and preserve omitted fields. Section updates and deletes require an independent optimistic section revision; unrelated sections do not conflict.
+17. A current schema-v1 monolithic plan is migrated once by proving its complete body is preserved in a named section before the legacy body is removed. After migration there is no v1 reader, fallback, alias, or dual write.
+18. A timed-out active run is reprompted once, then terminalized if no valid finalization appears.
+19. Managed Git mirror operations may fetch remote refs but never modify the project worktree or remote repository.
+20. The controller verifies PID executable identity before signaling any process.
+21. The patch does not stop or replace the active `ai-workspace` runtime; cutover is a separate operation.
+22. Hub records exist only under the compiled canonical `gpt-tunnel/v1` namespace.
+23. A gateway may execute, cancel, finalize, reprompt, or timeout only runs whose `gateway_id` equals its configured identity.
+24. The controller owns `MCP_SERVER_URL` and tunnel health binding; the secret env file cannot override them.
+25. Process and transaction locks are kernel-backed and recover automatically when the owning process exits.
+26. The hub is addressed by repository URL and writable branch; the gateway atomically owns the only operational clone under `state_dir`, creates a missing branch from remote HEAD without force, and never requires or mutates a user hub checkout.
+27. Every MCP tool declares an exact output schema and all four behavioral hints; successful structured output is validated before transmission, while tool failures omit `structuredContent`.
+28. `tools/call.params` accepts only `name`, `arguments`, and an optional bounded protocol `_meta` object; all other envelope fields and unknown tool arguments are rejected.
+29. `gpt-tunnelctl upgrade` is source-only and requires clean synchronized `main`; it performs a locked transactional three-binary replacement, gateway-only restart, native doctor/MCP validation, and automatic all-binary rollback on failure.
+30. Fresh managed-hub startup fails readiness when configured project IDs lack durable canonical project records; it never silently reports a ready but empty project bus.
+31. `run_review_snapshot` is a bounded read-only aggregate: it refreshes the managed mirror once, omits session and local-path details, and reports deterministic structural checks for active or terminal runs without dispatching work.
 
 ## Lifecycle
 

@@ -166,6 +166,68 @@ func plan(ctx context.Context, s *service.Service, args []string) {
 			fatal(e)
 		}
 		output(v)
+	case "section-read":
+		require(args, 3)
+		v, e := s.PlanSectionRead(ctx, args[1], args[2])
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
+	case "section-create":
+		f, rest := fileFlag("--file", args[1:])
+		ex, _ := expected(rest)
+		if f == "" {
+			usage()
+		}
+		var in service.PlanSectionCreateInput
+		readFile(f, &in)
+		if ex != "" {
+			in.ExpectedHubRevision = ex
+		}
+		v, e := s.PlanSectionCreate(ctx, in)
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
+	case "section-update":
+		f, rest := fileFlag("--file", args[1:])
+		ex, _ := expected(rest)
+		if f == "" {
+			usage()
+		}
+		var in service.PlanSectionUpdateInput
+		readFile(f, &in)
+		if ex != "" {
+			in.ExpectedHubRevision = ex
+		}
+		v, e := s.PlanSectionUpdate(ctx, in)
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
+	case "section-delete":
+		f, rest := fileFlag("--file", args[1:])
+		ex, _ := expected(rest)
+		if f == "" {
+			usage()
+		}
+		var in service.PlanSectionDeleteInput
+		readFile(f, &in)
+		if ex != "" {
+			in.ExpectedHubRevision = ex
+		}
+		v, e := s.PlanSectionDelete(ctx, in)
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
+	case "render":
+		require(args, 2)
+		v, e := s.PlanRender(ctx, args[1])
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
 	default:
 		usage()
 	}

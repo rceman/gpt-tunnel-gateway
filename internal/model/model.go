@@ -14,6 +14,7 @@ import (
 )
 
 const SchemaVersion = 1
+const PlanSchemaVersion = 2
 
 var (
 	idRE    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
@@ -36,15 +37,70 @@ type Project struct {
 }
 
 type Plan struct {
-	SchemaVersion int       `json:"schema_version"`
-	ProjectID     string    `json:"project_id"`
-	Revision      int       `json:"revision"`
-	Summary       string    `json:"summary"`
-	Body          string    `json:"body"`
-	ActiveTaskID  string    `json:"active_task_id,omitempty"`
-	ActiveRunID   string    `json:"active_run_id,omitempty"`
-	UpdatedBy     string    `json:"updated_by"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	SchemaVersion    int                `json:"schema_version"`
+	ProjectID        string             `json:"project_id"`
+	Revision         int                `json:"revision"`
+	Title            string             `json:"title"`
+	Summary          string             `json:"summary"`
+	CurrentObjective string             `json:"current_objective"`
+	Queue            []string           `json:"queue"`
+	Sections         []PlanSectionIndex `json:"sections"`
+	ActiveTaskID     string             `json:"active_task_id,omitempty"`
+	ActiveRunID      string             `json:"active_run_id,omitempty"`
+	UpdatedBy        string             `json:"updated_by"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+}
+
+type PlanSectionIndex struct {
+	ID               string `json:"id"`
+	Title            string `json:"title"`
+	ShortDescription string `json:"short_description"`
+	Revision         int    `json:"revision"`
+}
+
+type PlanSection struct {
+	SchemaVersion    int       `json:"schema_version"`
+	ProjectID        string    `json:"project_id"`
+	ID               string    `json:"id"`
+	Revision         int       `json:"revision"`
+	Title            string    `json:"title"`
+	ShortDescription string    `json:"short_description"`
+	Description      string    `json:"description"`
+	UpdatedBy        string    `json:"updated_by"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+type PlanRender struct {
+	SchemaVersion    int    `json:"schema_version"`
+	ProjectID        string `json:"project_id"`
+	Revision         int    `json:"revision"`
+	Title            string `json:"title"`
+	Summary          string `json:"summary"`
+	CurrentObjective string `json:"current_objective"`
+	Text             string `json:"text"`
+}
+
+type PlanStatus struct {
+	SchemaVersion    int       `json:"schema_version"`
+	ProjectID        string    `json:"project_id"`
+	Revision         int       `json:"revision"`
+	Title            string    `json:"title"`
+	Summary          string    `json:"summary"`
+	CurrentObjective string    `json:"current_objective"`
+	Queue            []string  `json:"queue"`
+	Sections         []string  `json:"sections"`
+	ActiveTaskID     string    `json:"active_task_id,omitempty"`
+	ActiveRunID      string    `json:"active_run_id,omitempty"`
+	UpdatedBy        string    `json:"updated_by"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+func (p Plan) StatusView() PlanStatus {
+	sections := make([]string, 0, len(p.Sections))
+	for _, section := range p.Sections {
+		sections = append(sections, fmt.Sprintf("* %s - %s", section.Title, section.ShortDescription))
+	}
+	return PlanStatus{SchemaVersion: p.SchemaVersion, ProjectID: p.ProjectID, Revision: p.Revision, Title: p.Title, Summary: p.Summary, CurrentObjective: p.CurrentObjective, Queue: append([]string{}, p.Queue...), Sections: sections, ActiveTaskID: p.ActiveTaskID, ActiveRunID: p.ActiveRunID, UpdatedBy: p.UpdatedBy, UpdatedAt: p.UpdatedAt}
 }
 
 type ADR struct {
@@ -197,11 +253,65 @@ func ValidateProject(v Project) error {
 	return nil
 }
 func ValidatePlan(v Plan) error {
-	if v.SchemaVersion != SchemaVersion || !idRE.MatchString(v.ProjectID) {
+	if v.SchemaVersion != PlanSchemaVersion || !idRE.MatchString(v.ProjectID) {
 		return fmt.Errorf("invalid plan identity")
 	}
-	if len(v.Summary) < 1 || len(v.Summary) > 500 || len(v.Body) > 200000 {
+	if v.Revision < 1 || len(v.Title) < 1 || len(v.Title) > 300 || len(v.Summary) < 1 || len(v.Summary) > 500 || len(v.CurrentObjective) > 20000 {
 		return fmt.Errorf("invalid plan content")
+	}
+	if len(v.Queue) > 200 || len(v.Sections) > 200 {
+		return fmt.Errorf("plan bounds exceeded")
+	}
+	seen := map[string]bool{}
+	for _, id := range v.Queue {
+		if err := ValidateObjectIdentifier(id); err != nil {
+			return fmt.Errorf("invalid plan queue item: %w", err)
+		}
+	}
+	for _, section := range v.Sections {
+		if err := ValidatePlanSectionIndex(section); err != nil {
+			return err
+		}
+		if seen[section.ID] {
+			return fmt.Errorf("duplicate plan section %q", section.ID)
+		}
+		seen[section.ID] = true
+	}
+	if v.ActiveTaskID != "" {
+		if err := ValidateObjectIdentifier(v.ActiveTaskID); err != nil {
+			return fmt.Errorf("invalid active task: %w", err)
+		}
+	}
+	if v.ActiveRunID != "" {
+		if err := ValidateObjectIdentifier(v.ActiveRunID); err != nil {
+			return fmt.Errorf("invalid active run: %w", err)
+		}
+	}
+	if v.UpdatedBy == "" || strings.ContainsAny(v.UpdatedBy, "\r\n\x00") || v.UpdatedAt.IsZero() {
+		return fmt.Errorf("invalid plan update metadata")
+	}
+	return nil
+}
+
+func ValidatePlanSectionIndex(v PlanSectionIndex) error {
+	if err := ValidateObjectIdentifier(v.ID); err != nil {
+		return fmt.Errorf("invalid plan section identity: %w", err)
+	}
+	if len(v.Title) < 1 || len(v.Title) > 300 || len(v.ShortDescription) < 1 || len(v.ShortDescription) > 500 || strings.ContainsAny(v.ShortDescription, "\r\n\x00") || v.Revision < 1 {
+		return fmt.Errorf("invalid plan section index")
+	}
+	return nil
+}
+
+func ValidatePlanSection(v PlanSection) error {
+	if v.SchemaVersion != PlanSchemaVersion || !idRE.MatchString(v.ProjectID) {
+		return fmt.Errorf("invalid plan section identity")
+	}
+	if err := ValidatePlanSectionIndex(PlanSectionIndex{ID: v.ID, Title: v.Title, ShortDescription: v.ShortDescription, Revision: v.Revision}); err != nil {
+		return err
+	}
+	if len(v.Description) > 200000 || strings.ContainsRune(v.Description, 0) || v.UpdatedBy == "" || strings.ContainsAny(v.UpdatedBy, "\r\n\x00") || v.UpdatedAt.IsZero() {
+		return fmt.Errorf("invalid plan section content")
 	}
 	return nil
 }

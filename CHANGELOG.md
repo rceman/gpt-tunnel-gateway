@@ -2,6 +2,7 @@
 
 ## 0.4.0 — unreleased
 
+- Replace monolithic plan storage with a schema-v2 compact manifest and independently editable sections, including direct migration and typed CLI/MCP operations.
 - Add read-only active-run Airelay tail inspection through MCP and CLI.
 
 ## 0.3.0 — unreleased

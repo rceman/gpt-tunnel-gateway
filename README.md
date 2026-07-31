@@ -26,7 +26,7 @@ tunnel-client, or changes config/secrets.
 
 ```text
 task create
-→ plan update
+→ plan update / plan section-create
 → task dispatch
 → airelay prompt <session> "Read task and execute it. Run: gpt-tunnel task read <task-id>"
 → agent writes agent-result.json + evidence.json
@@ -35,6 +35,8 @@ task create
 ```
 
 A successful Airelay delivery is non-terminal. Completion exists only after hub finalization succeeds.
+
+Plans use a schema-v2 compact manifest. Use `gpt-tunnel plan read` for the bounded manifest, `plan section-read` for one full section, and `plan render` only when a complete human-readable composition is required. Manifest updates are partial; section updates use independent optimistic revisions.
 
 For a stalled active run, `gpt-tunnel run agent-tail <run-id> [--lines N]` reads a bounded, read-only tail from the run's stored Airelay session; it never accepts a caller-supplied session key or skip option.
 
