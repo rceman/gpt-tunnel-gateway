@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "legacy-run-planner",
+  "task_id": "legacy-task-planner",
+  "task_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "project_id": "gpt-review-planner",
+  "gateway_id": "fixture_gateway",
+  "session_key": "gpt-review-planner_master",
+  "branch": "feature/legacy",
+  "base_revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "hub_revision": "cccccccccccccccccccccccccccccccccccccccc",
+  "status": "awaiting_result",
+  "result_path": "/fixture/runs/legacy/result.json",
+  "evidence_path": "/fixture/runs/legacy/evidence.json",
+  "created_at": "2026-07-31T10:01:00Z"
+}

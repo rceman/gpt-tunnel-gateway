@@ -1,0 +1,279 @@
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"sort"
+	"time"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+)
+
+type StateIssue struct {
+	Code      string `json:"code"`
+	ProjectID string `json:"project_id,omitempty"`
+	TaskID    string `json:"task_id,omitempty"`
+	RunID     string `json:"run_id,omitempty"`
+	Path      string `json:"path,omitempty"`
+	Detail    string `json:"detail"`
+}
+
+type StatePlan struct {
+	ProjectID    string `json:"project_id"`
+	Valid        bool   `json:"valid"`
+	ActiveTaskID string `json:"active_task_id,omitempty"`
+	ActiveRunID  string `json:"active_run_id,omitempty"`
+}
+
+type StateCheckResult struct {
+	Valid                   bool         `json:"valid"`
+	HubRevision             string       `json:"hub_revision,omitempty"`
+	ConfiguredProjectIDs    []string     `json:"configured_project_ids"`
+	DurableProjectIDs       []string     `json:"durable_project_ids"`
+	ValidCurrentPlans       []string     `json:"valid_current_plans"`
+	OperationalTaskRunGraph bool         `json:"operational_task_run_graph"`
+	Plans                   []StatePlan  `json:"plans"`
+	Issues                  []StateIssue `json:"issues"`
+}
+
+type StateRepairAction struct {
+	ProjectID   string `json:"project_id"`
+	Path        string `json:"path"`
+	ClearTaskID bool   `json:"clear_active_task_id"`
+	ClearRunID  bool   `json:"clear_active_run_id"`
+	Reason      string `json:"reason"`
+}
+
+type StateRepairResult struct {
+	DryRun    bool                `json:"dry_run"`
+	Applied   bool                `json:"applied"`
+	OldHubSHA string              `json:"old_hub_sha,omitempty"`
+	NewHubSHA string              `json:"new_hub_sha,omitempty"`
+	Backup    string              `json:"backup,omitempty"`
+	Actions   []StateRepairAction `json:"actions"`
+	Check     StateCheckResult    `json:"check"`
+}
+
+func stateIssue(code, project, task, run, path, detail string) StateIssue {
+	return StateIssue{Code: code, ProjectID: project, TaskID: task, RunID: run, Path: path, Detail: detail}
+}
+
+func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
+	result := StateCheckResult{ConfiguredProjectIDs: []string{}, DurableProjectIDs: []string{}, ValidCurrentPlans: []string{}, Plans: []StatePlan{}, Issues: []StateIssue{}, OperationalTaskRunGraph: true}
+	for id := range s.Config.Projects {
+		result.ConfiguredProjectIDs = append(result.ConfiguredProjectIDs, id)
+	}
+	sort.Strings(result.ConfiguredProjectIDs)
+	revision, err := s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		result.Issues = append(result.Issues, stateIssue("HUB_UNAVAILABLE", "", "", "", "", err.Error()))
+		result.Valid = false
+		return result, nil
+	}
+	result.HubRevision = revision
+	projects, err := s.ProjectList(ctx)
+	if err != nil {
+		result.Issues = append(result.Issues, stateIssue("DURABLE_PROJECTS_UNAVAILABLE", "", "", "", "", err.Error()))
+		result.Valid = false
+		return result, nil
+	}
+	durable := map[string]model.Project{}
+	for _, project := range projects {
+		if err := model.ValidateProject(project); err != nil {
+			result.Issues = append(result.Issues, stateIssue("INVALID_DURABLE_PROJECT", project.ID, "", "", s.projectPath(project.ID), err.Error()))
+			continue
+		}
+		if _, exists := durable[project.ID]; exists {
+			result.Issues = append(result.Issues, stateIssue("DUPLICATE_DURABLE_PROJECT", project.ID, "", "", s.projectPath(project.ID), "duplicate project ID"))
+			continue
+		}
+		durable[project.ID] = project
+		result.DurableProjectIDs = append(result.DurableProjectIDs, project.ID)
+	}
+	sort.Strings(result.DurableProjectIDs)
+	for _, project := range projects {
+		if project.Status == "active" {
+			if _, configured := s.Config.Projects[project.ID]; !configured {
+				result.Issues = append(result.Issues, stateIssue("DURABLE_PROJECT_NOT_CONFIGURED", project.ID, "", "", s.projectPath(project.ID), "active durable project is not configured"))
+			}
+		}
+	}
+	for _, id := range result.ConfiguredProjectIDs {
+		project, exists := durable[id]
+		if !exists {
+			result.Issues = append(result.Issues, stateIssue("CONFIGURED_PROJECT_MISSING", id, "", "", s.projectPath(id), "configured project has no durable project record"))
+			continue
+		}
+		if project.Status != "active" {
+			result.Issues = append(result.Issues, stateIssue("CONFIGURED_PROJECT_NOT_ACTIVE", id, "", "", s.projectPath(id), "configured project is not active"))
+		}
+		plan, planErr := s.PlanRead(ctx, id)
+		if planErr != nil {
+			if raw, rawErr := s.Hub.ReadFile(ctx, s.planPath(id)); rawErr == nil {
+				var object map[string]any
+				if json.Unmarshal(raw, &object) == nil {
+					if _, hasBody := object["body"]; hasBody {
+						result.Issues = append(result.Issues, stateIssue("LEGACY_PLAN_BODY", id, "", "", s.planPath(id), "workflow-v1 plan contains obsolete body field"))
+					}
+				}
+			}
+			result.Issues = append(result.Issues, stateIssue("CURRENT_PLAN_INVALID", id, "", "", s.planPath(id), planErr.Error()))
+			result.Plans = append(result.Plans, StatePlan{ProjectID: id, Valid: false})
+			s.checkProjectTaskRunGraph(ctx, id, model.Plan{}, &result)
+			continue
+		}
+		result.ValidCurrentPlans = append(result.ValidCurrentPlans, id)
+		result.Plans = append(result.Plans, StatePlan{ProjectID: id, Valid: true, ActiveTaskID: plan.ActiveTaskID, ActiveRunID: plan.ActiveRunID})
+		s.checkProjectTaskRunGraph(ctx, id, plan, &result)
+	}
+	sort.Strings(result.ValidCurrentPlans)
+	result.Valid = len(result.Issues) == 0
+	result.OperationalTaskRunGraph = result.OperationalTaskRunGraph && result.Valid
+	return result, nil
+}
+
+func (s *Service) checkProjectTaskRunGraph(ctx context.Context, projectID string, plan model.Plan, result *StateCheckResult) {
+	tasks, err := s.TaskList(ctx, projectID)
+	if err != nil {
+		result.Issues = append(result.Issues, stateIssue("TASK_GRAPH_UNAVAILABLE", projectID, "", "", "", err.Error()))
+		result.OperationalTaskRunGraph = false
+		return
+	}
+	taskByID := map[string]TaskRecord{}
+	for _, record := range tasks {
+		taskByID[record.Task.ID] = record
+	}
+	runs, err := s.RunList(ctx, projectID)
+	if err != nil {
+		result.Issues = append(result.Issues, stateIssue("RUN_GRAPH_UNAVAILABLE", projectID, "", "", "", err.Error()))
+		result.OperationalTaskRunGraph = false
+		return
+	}
+	runByID := map[string]model.Run{}
+	runsByTask := map[string][]model.Run{}
+	for _, run := range runs {
+		runByID[run.ID] = run
+		runsByTask[run.TaskID] = append(runsByTask[run.TaskID], run)
+		if _, ok := taskByID[run.TaskID]; !ok {
+			result.Issues = append(result.Issues, stateIssue("RUN_WITHOUT_TASK", projectID, run.TaskID, run.ID, s.runPath(projectID, run.ID), "run references no task"))
+			result.OperationalTaskRunGraph = false
+		}
+		if run.Historical && plan.ActiveRunID == run.ID {
+			result.Issues = append(result.Issues, stateIssue("HISTORY_RUN_ACTIVE", projectID, run.TaskID, run.ID, s.planPath(projectID), "immutable HistoricalRunV1 cannot be current operational state"))
+			result.OperationalTaskRunGraph = false
+		}
+	}
+	for _, record := range tasks {
+		if record.State.Status == "dispatched" {
+			count := 0
+			for _, run := range runsByTask[record.Task.ID] {
+				if !run.Historical {
+					count++
+				}
+			}
+			if count != 1 {
+				result.Issues = append(result.Issues, stateIssue("DISPATCHED_TASK_RUN_COUNT", projectID, record.Task.ID, "", s.taskPath(projectID, record.Task.ID), fmt.Sprintf("dispatched task has %d operational runs", count)))
+				result.OperationalTaskRunGraph = false
+			}
+		}
+	}
+	if (plan.ActiveTaskID == "") != (plan.ActiveRunID == "") {
+		result.Issues = append(result.Issues, stateIssue("PLAN_POINTER_PAIR_INVALID", projectID, plan.ActiveTaskID, plan.ActiveRunID, s.planPath(projectID), "active task and run pointers must be both empty or both present"))
+		result.OperationalTaskRunGraph = false
+	}
+	if plan.ActiveTaskID != "" {
+		record, ok := taskByID[plan.ActiveTaskID]
+		if !ok {
+			result.Issues = append(result.Issues, stateIssue("ACTIVE_TASK_MISSING", projectID, plan.ActiveTaskID, plan.ActiveRunID, s.planPath(projectID), "active task does not exist"))
+			result.OperationalTaskRunGraph = false
+		} else if record.State.Status == "completed" || record.State.Status == "cancelled" || record.State.Status == "superseded" {
+			result.Issues = append(result.Issues, stateIssue("TERMINAL_TASK_ACTIVE", projectID, plan.ActiveTaskID, plan.ActiveRunID, s.planPath(projectID), "terminal task is active"))
+			result.OperationalTaskRunGraph = false
+		}
+	}
+	if plan.ActiveRunID != "" {
+		run, ok := runByID[plan.ActiveRunID]
+		if !ok {
+			result.Issues = append(result.Issues, stateIssue("ACTIVE_RUN_MISSING", projectID, plan.ActiveTaskID, plan.ActiveRunID, s.planPath(projectID), "active run does not exist"))
+			result.OperationalTaskRunGraph = false
+		} else if run.Historical {
+			result.Issues = append(result.Issues, stateIssue("HISTORY_RUN_ACTIVE", projectID, run.TaskID, run.ID, s.planPath(projectID), "history-only run is active"))
+			result.OperationalTaskRunGraph = false
+		} else if !activeStatus(run.Status) {
+			result.Issues = append(result.Issues, stateIssue("TERMINAL_RUN_ACTIVE", projectID, run.TaskID, run.ID, s.planPath(projectID), "terminal run is active"))
+			result.OperationalTaskRunGraph = false
+		} else if run.TaskID != plan.ActiveTaskID {
+			result.Issues = append(result.Issues, stateIssue("PLAN_POINTER_MISMATCH", projectID, plan.ActiveTaskID, plan.ActiveRunID, s.planPath(projectID), "active task and run do not match"))
+			result.OperationalTaskRunGraph = false
+		}
+	}
+}
+
+func (s *Service) StateRepair(ctx context.Context, apply bool) (StateRepairResult, error) {
+	check, err := s.StateCheck(ctx)
+	if err != nil {
+		return StateRepairResult{}, err
+	}
+	result := StateRepairResult{DryRun: !apply, OldHubSHA: check.HubRevision, Check: check, Actions: []StateRepairAction{}}
+	for _, plan := range check.Plans {
+		if !plan.Valid || plan.ActiveRunID == "" {
+			continue
+		}
+		runs, listErr := s.RunList(ctx, plan.ProjectID)
+		if listErr != nil {
+			continue
+		}
+		for _, run := range runs {
+			if run.ID != plan.ActiveRunID || (!run.Historical && activeStatus(run.Status)) {
+				continue
+			}
+			result.Actions = append(result.Actions, StateRepairAction{ProjectID: plan.ProjectID, Path: s.planPath(plan.ProjectID), ClearTaskID: true, ClearRunID: true, Reason: "clear obsolete active pointer to history-only or terminal run"})
+			break
+		}
+	}
+	if !apply || len(result.Actions) == 0 {
+		result.Applied = false
+		return result, nil
+	}
+	backup, backupErr := s.Hub.Backup(ctx, "state-repair")
+	if backupErr != nil {
+		return result, backupErr
+	}
+	result.Backup = backup.Path
+	tx, txErr := s.Hub.Transact(ctx, check.HubRevision, "gateway: repair durable state", func(worktree string) ([]string, error) {
+		paths := []string{}
+		for _, action := range result.Actions {
+			var plan model.Plan
+			if err := readWorktreeJSON(worktree, action.Path, &plan); err != nil {
+				return nil, err
+			}
+			if action.ClearTaskID {
+				plan.ActiveTaskID = ""
+			}
+			if action.ClearRunID {
+				plan.ActiveRunID = ""
+			}
+			plan.Revision++
+			plan.UpdatedBy = s.Config.GatewayID
+			plan.UpdatedAt = nowUTC()
+			if err := model.ValidatePlan(plan); err != nil {
+				return nil, err
+			}
+			if err := hub.WriteJSON(worktree, action.Path, plan); err != nil {
+				return nil, err
+			}
+			paths = append(paths, action.Path)
+		}
+		return paths, nil
+	})
+	if txErr != nil {
+		return result, txErr
+	}
+	result.Applied = true
+	result.NewHubSHA = tx.After
+	return result, nil
+}
+
+func nowUTC() time.Time { return time.Now().UTC() }

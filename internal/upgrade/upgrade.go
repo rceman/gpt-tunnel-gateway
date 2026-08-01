@@ -22,21 +22,27 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
+	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
 var semverRE = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
 var binaryOrder = []string{"gpt-tunnel-gatewayd", "gpt-tunnel", "gpt-tunnelctl"}
 
 type Result struct {
-	Status     string `json:"status"`
-	SourceRoot string `json:"source_root"`
-	SourceSHA  string `json:"source_sha"`
-	Previous   string `json:"previous_version"`
-	Target     string `json:"target_version"`
-	GatewayPID int    `json:"gateway_pid"`
-	TunnelPID  int    `json:"tunnel_pid"`
-	Rollback   bool   `json:"rollback"`
-	Error      string `json:"error,omitempty"`
+	Status           string             `json:"status"`
+	TransactionID    string             `json:"transaction_id,omitempty"`
+	SourceRoot       string             `json:"source_root"`
+	SourceSHA        string             `json:"source_sha"`
+	Previous         string             `json:"previous_version"`
+	Target           string             `json:"target_version"`
+	InstalledVersion string             `json:"installed_version,omitempty"`
+	RunningVersion   string             `json:"running_version,omitempty"`
+	VersionMatch     bool               `json:"version_match"`
+	GatewayPID       int                `json:"gateway_pid"`
+	TunnelPID        int                `json:"tunnel_pid"`
+	Rollback         bool               `json:"rollback"`
+	Blockers         []PreflightBlocker `json:"blockers,omitempty"`
+	Error            string             `json:"error,omitempty"`
 }
 
 type Runner struct {
@@ -61,7 +67,10 @@ var (
 	validateTunnelEnvFn        = controller.ValidateTunnelEnv
 	buildReleaseFn             = buildRelease
 	validateReleaseFn          = validateRelease
-	newUpgradeControllerFn     = func(c config.Config, path string) upgradeController {
+	preflightFn                = func(ctx context.Context, c config.Config, path string) (InspectResult, error) {
+		return Inspect(ctx, c, path)
+	}
+	newUpgradeControllerFn = func(c config.Config, path string) upgradeController {
 		return liveUpgradeController{controller.Controller{Config: c, ConfigPath: path}}
 	}
 	smokeFn = smoke
@@ -113,6 +122,13 @@ func (r Runner) Run(ctx context.Context) (result Result, runErr error) {
 	if err := validateTunnelEnvFn(r.Config.Controller.TunnelEnvFile); err != nil {
 		return Result{}, err
 	}
+	preflight, err := preflightFn(ctx, r.Config, r.ConfigPath)
+	if err != nil {
+		return Result{}, err
+	}
+	if preflight.Status != "ready" {
+		return Result{Status: "UPGRADE_BLOCKED", SourceRoot: root, SourceSHA: sha, Previous: installed, Target: target, Blockers: preflight.Blockers, GatewayPID: preflight.GatewayPID, TunnelPID: preflight.TunnelPID, InstalledVersion: installed, RunningVersion: preflight.RunningVersion, VersionMatch: preflight.VersionMatch}, fmt.Errorf("upgrade preflight blocked by %d issue(s)", len(preflight.Blockers))
+	}
 	ctl := r.ConfigController()
 	before, err := ctl.Status(ctx)
 	if err != nil {
@@ -138,6 +154,28 @@ func (r Runner) Run(ctx context.Context) (result Result, runErr error) {
 	if err := os.MkdirAll(filepath.Join(r.Config.Controller.PIDDir, "upgrades"), 0o700); err != nil {
 		return Result{}, err
 	}
+	tx, err := newTransaction(r.Config, installed, target, sha)
+	if err != nil {
+		return Result{}, err
+	}
+	tx.TargetReleaseSHA = sha
+	defer func() {
+		if runErr != nil {
+			if result.Status == "UPGRADE_ROLLED_BACK" {
+				_ = tx.complete(r.Config, result.Status)
+			} else {
+				_ = tx.fail(r.Config, runErr)
+			}
+		}
+	}()
+	tx.GatewayPIDBefore, tx.TunnelPIDBefore = before.Gateway.PID, before.Tunnel.PID
+	tx.ConfigSHABefore, _ = fileHash(r.ConfigPath)
+	if hubRevision, hubErr := serviceHubRevision(ctx, r.Config); hubErr == nil {
+		tx.OldHubSHA = hubRevision
+	}
+	if err := tx.phase(r.Config, "prepare"); err != nil {
+		return Result{}, err
+	}
 	lock, err := lockfile.Acquire(filepath.Join(r.Config.Controller.PIDDir, "upgrades"), "upgrade")
 	if err != nil {
 		return Result{}, err
@@ -161,6 +199,9 @@ func (r Runner) Run(ctx context.Context) (result Result, runErr error) {
 		}
 	}()
 	if err := buildReleaseFn(ctx, root, release); err != nil {
+		return Result{}, err
+	}
+	if err := tx.phase(r.Config, "backup"); err != nil {
 		return Result{}, err
 	}
 	if err := validateReleaseFn(release, target); err != nil {
@@ -198,11 +239,32 @@ func (r Runner) Run(ctx context.Context) (result Result, runErr error) {
 		if e != nil || hashBytes(backup) != oldHashes[name] {
 			return Result{}, fmt.Errorf("backup checksum verification failed for %s", name)
 		}
+		tx.InstalledChecksumsBefore[name] = oldHashes[name]
+		tx.ArtifactChecksums[name] = targetHashes[name]
+	}
+	tx.BackupPath, tx.RollbackAvailable = backupDir, true
+	if err := tx.phase(r.Config, "migrate"); err != nil {
+		return Result{}, err
+	}
+	// Inspect is the complete target-state gate. A successful inspection means
+	// no persisted migration is required for this transaction; legacy state is
+	// handled only by the explicit cutover/state-repair operations before
+	// activation. Recording the no-op keeps the durable transaction phase
+	// ordering explicit without adding a compatibility reader or hidden write.
+	tx.MigrationOperations = append(tx.MigrationOperations, "target-state already validated; no persisted migration required")
+	if err := tx.phase(r.Config, "validate"); err != nil {
+		return Result{}, err
 	}
 	if err := replaceAll(release, paths, old); err != nil {
 		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
 	}
+	if err := tx.phase(r.Config, "activate"); err != nil {
+		return Result{}, err
+	}
 	if err := ctl.RestartGatewayAfterUpgrade(); err != nil {
+		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
+	}
+	if err := tx.phase(r.Config, "verify"); err != nil {
 		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
 	}
 	after, err := ctl.Status(ctx)
@@ -224,7 +286,17 @@ func (r Runner) Run(ctx context.Context) (result Result, runErr error) {
 	if err := removeUpgradeBackup(backupDir); err != nil {
 		return Result{}, fmt.Errorf("remove upgrade backup: %w", err)
 	}
-	return Result{Status: "UPGRADE_COMPLETE", SourceRoot: root, SourceSHA: sha, Previous: installed, Target: target, GatewayPID: after.Gateway.PID, TunnelPID: after.Tunnel.PID}, nil
+	tx.GatewayPIDAfter, tx.TunnelPIDAfter = after.Gateway.PID, after.Tunnel.PID
+	tx.InstalledChecksumsAfter = targetHashes
+	tx.ConfigSHAAfter, _ = fileHash(r.ConfigPath)
+	tx.RollbackAvailable = false
+	if hubRevision, hubErr := serviceHubRevision(ctx, r.Config); hubErr == nil {
+		tx.NewHubSHA = hubRevision
+	}
+	if err := tx.complete(r.Config, "UPGRADE_COMPLETE"); err != nil {
+		return Result{}, err
+	}
+	return Result{Status: "UPGRADE_COMPLETE", TransactionID: tx.TransactionID, SourceRoot: root, SourceSHA: sha, Previous: installed, Target: target, InstalledVersion: target, RunningVersion: after.RunningVersion, VersionMatch: after.VersionMatch, GatewayPID: after.Gateway.PID, TunnelPID: after.Tunnel.PID}, nil
 }
 
 func (r Runner) rollback(ctx context.Context, root, sha, target, previous string, before controller.Status, protectedPaths []string, protectedHashes map[string]string, paths map[string]string, old map[string][]byte, oldHashes, oldVersions map[string]string, backupDir string, cause error) (Result, error) {
@@ -268,6 +340,9 @@ func (r Runner) rollback(ctx context.Context, root, sha, target, previous string
 
 func (r Runner) ConfigController() upgradeController {
 	return newUpgradeControllerFn(r.Config, r.ConfigPath)
+}
+func serviceHubRevision(ctx context.Context, c config.Config) (string, error) {
+	return service.New(c).Hub.RemoteRevision(ctx)
 }
 func parseVersion(v string) (string, error) {
 	if !semverRE.MatchString(v) {
@@ -737,7 +812,7 @@ func verifyInstalledProof(paths map[string]string, version string, expectedHashe
 			return fmt.Errorf("binary version proof failed")
 		}
 	}
-	if status.Tunnel.PID != tunnelPID || !status.Gateway.Running || status.Gateway.Executable != paths["gpt-tunnel-gatewayd"] {
+	if status.Tunnel.PID != tunnelPID || !status.Gateway.Running || !status.Gateway.IdentityValid || status.Gateway.Executable != paths["gpt-tunnel-gatewayd"] || status.RunningVersion != version || !status.VersionMatch {
 		return fmt.Errorf("runtime identity proof failed")
 	}
 	for _, path := range protectedPaths {

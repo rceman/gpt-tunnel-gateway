@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "gateway_id": "fixture_gateway",
+  "listen_addr": "127.0.0.1:8765",
+  "state_dir": "/fixture/state",
+  "controller": {
+    "gateway_binary": "/fixture/bin/gpt-tunnel-gatewayd",
+    "tunnel_client_binary": "/fixture/bin/tunnel-client",
+    "tunnel_env_file": "/fixture/config/tunnel.env",
+    "pid_dir": "/fixture/state/pid",
+    "log_dir": "/fixture/state/logs",
+    "tunnel_health_listen_addr": "127.0.0.1:8766"
+  },
+  "hub": {
+    "repository_url": "git@github.com:rceman/typer.git",
+    "branch": "gpt-tunnel/home_pc"
+  },
+  "projects": {
+    "ai-workspace": {"root": "/fixture/git/ai-workspace", "mirror": "/fixture/mirrors/ai-workspace.git", "remote": "origin", "default_branch": "main", "airelay_session_key": "ai-workspace_master"},
+    "gpt-github-gateway": {"root": "/fixture/git/gpt-github-gateway", "mirror": "/fixture/mirrors/gpt-github-gateway.git", "remote": "origin", "default_branch": "main", "airelay_session_key": "gpt-github-gateway_master"},
+    "gpt-review-planner": {"root": "/fixture/git/gpt-review-planner", "mirror": "/fixture/mirrors/gpt-review-planner.git", "remote": "origin", "default_branch": "main", "airelay_session_key": "gpt-review-planner_master"},
+    "gpt-tunnel-gateway": {"root": "/fixture/git/gpt-tunnel-gateway", "mirror": "/fixture/mirrors/gpt-tunnel-gateway.git", "remote": "origin", "default_branch": "main", "airelay_session_key": "gpt-tunnel-gateway_master"}
+  }
+}

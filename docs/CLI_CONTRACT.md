@@ -68,3 +68,20 @@ gpt-tunnel git merge-base <project-id> <left> <right>
 gpt-tunnel git worktree-status <project-id>
 gpt-tunnel git worktree-diff <project-id> [--staged]
 ```
+
+## Runtime operations
+
+```text
+gpt-tunnelctl status
+gpt-tunnelctl doctor
+gpt-tunnelctl upgrade inspect
+gpt-tunnelctl upgrade
+gpt-tunnelctl diagnose-startup
+gpt-tunnelctl state check
+gpt-tunnelctl state repair --dry-run
+gpt-tunnelctl state repair --apply
+```
+
+`upgrade inspect`, `diagnose-startup`, and `state check` are read-only. State
+repair creates a hub backup before its single optimistic transaction. Upgrade
+is gateway-only and preserves the tunnel-client process.

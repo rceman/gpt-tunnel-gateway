@@ -10,17 +10,29 @@ The project replaces the Rust `workspace-agentd` runtime after an explicit, veri
 - `gpt-tunnel`: typed project, plan, ADR, task, run, and Git CLI.
 - `gpt-tunnelctl`: host-native install, lifecycle, health, and log controller.
 
-Upgrade an installed runtime only from a clean, synchronized `main` checkout:
+Inspect and upgrade an installed runtime only from a clean, synchronized
+`main` checkout:
 
 ```bash
+gpt-tunnelctl upgrade inspect
 gpt-tunnelctl upgrade
 ```
 
-The command builds the local source, validates the exact release artifact set,
-locks concurrent upgrades, atomically replaces all three binaries, restarts only
-the gateway, verifies MCP/readiness invariants, and rolls back all binaries on
-post-install failure. It never fetches Git, downloads releases, restarts the
-tunnel-client, or changes config/secrets.
+`upgrade inspect` reports the complete target state graph before activation.
+The upgrade command records a durable transaction under the configured state
+directory, validates the exact release artifact set, locks concurrent upgrades,
+atomically replaces all three binaries, restarts only the gateway, verifies
+MCP/readiness invariants, and rolls back all binaries on post-install failure.
+It never restarts the tunnel-client or changes config/secrets.
+
+For a previous controller that does not know the upgrade command, use the
+verified release bundle entry point:
+
+```bash
+bash scripts/upgrade-bootstrap.sh <verified-release-directory> <clean-main-root>
+```
+
+The bootstrap verifies `SHA256SUMS` before handing off to the target controller.
 
 ## Canonical workflow
 
@@ -42,6 +54,10 @@ For a stalled active run, `gpt-tunnel run agent-tail <run-id> [--lines N]` reads
 
 For a bounded structural review, use `gpt-tunnel run review-snapshot <run-id>`. It refreshes the managed mirror once and returns deterministic task, artifact, repository, and invariant-check data without dispatching work or exposing session details or local paths.
 
+Before activation or recovery, use `gpt-tunnelctl state check` and review
+`gpt-tunnelctl state repair --dry-run`. The apply form creates a hub backup and
+performs only the canonical mutable-state repair transaction.
+
 ## Development gates
 
 ```bash
@@ -51,6 +67,7 @@ go test -race ./...
 python3 scripts/static-check.py
 bash scripts/build-release.sh
 git diff --check
+python3 scripts/upgrade_rehearsal.py
 ```
 
 GPT authors source and tests but does not execute runtime gates in the review-planner workflow. The local agent runs these commands after applying the patch pack.

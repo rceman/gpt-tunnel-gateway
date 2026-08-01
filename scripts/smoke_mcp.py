@@ -41,8 +41,9 @@ assert init["result"]["serverInfo"] == {
 
 tools_response = call({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
 tools = tools_response["result"]["tools"]
-assert len(tools) == 36
 assert [tool["name"] for tool in tools] == sorted(tool["name"] for tool in tools)
+required_tools = {"system_ping", "gateway_capabilities", "project_list", "project_read", "plan_read"}
+assert required_tools.issubset({tool["name"] for tool in tools})
 for tool in tools:
     assert tool["inputSchema"]["type"] == "object"
     assert tool["outputSchema"]["type"] == "object"
@@ -70,6 +71,46 @@ ping = call(
 assert ping["result"]["isError"] is False
 assert ping["result"]["structuredContent"]["version"] == expected_version
 
+capabilities = call(
+    {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "tools/call",
+        "params": {"name": "gateway_capabilities", "arguments": {}},
+    }
+)
+cap = capabilities["result"]["structuredContent"]
+assert cap["hub_protocol_root"] == "gpt-tunnel/v1"
+
+projects = call(
+    {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "tools/call",
+        "params": {"name": "project_list", "arguments": {}},
+    }
+)["result"]["structuredContent"]["projects"]
+for index, project in enumerate(projects, 8):
+    project_id = project["id"]
+    read = call(
+        {
+            "jsonrpc": "2.0",
+            "id": index,
+            "method": "tools/call",
+            "params": {"name": "project_read", "arguments": {"project_id": project_id}},
+        }
+    )
+    assert read["result"]["structuredContent"]["id"] == project_id
+    plan = call(
+        {
+            "jsonrpc": "2.0",
+            "id": index + 100,
+            "method": "tools/call",
+            "params": {"name": "plan_read", "arguments": {"project_id": project_id}},
+        }
+    )["result"]["structuredContent"]
+    assert "body" not in plan
+
 unknown = call(
     {
         "jsonrpc": "2.0",
@@ -90,4 +131,4 @@ invalid_meta = call(
 )
 assert invalid_meta["error"]["code"] == -32602
 
-print("MCP_SMOKE_OK")
+print(f"MCP_SMOKE_OK tools={len(tools)} projects={len(projects)}")

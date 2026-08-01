@@ -9,6 +9,13 @@ The daemon implements JSON-RPC Streamable HTTP at `/mcp` and supports:
 
 Every tool descriptor declares an exact object-rooted `outputSchema` and explicit `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint` annotations. Successful results include object-shaped `structuredContent` that is validated against the declared schema before it is returned. Collections are wrapped in named fields such as `projects`, `tasks`, `runs`, `refs`, or `commits`. Tool failures set `isError: true` and omit `structuredContent`.
 
+Registration, the input/output schema registries, annotations, and contract
+tests share the canonical tool manifest in `internal/mcp/schema.go`. The
+manifest is checked for exact registration parity at runtime. Smoke tests derive
+their assertions from tool names and schemas; they do not assert a frozen tool
+count. `plan_update` advertises the workflow-v2 sectional fields only and never
+advertises the obsolete `body` field.
+
 `tools/call.params` accepts the optional protocol `_meta` object up to 64 KiB. All other unknown envelope fields and all unknown tool arguments remain rejected.
 
 Remote tools mirror typed CLI operations except `run_finalize`, which remains local-agent-only. No generic shell, generic Git, arbitrary path, or unrestricted file tool exists.

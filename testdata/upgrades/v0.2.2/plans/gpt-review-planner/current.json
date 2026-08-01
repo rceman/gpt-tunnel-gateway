@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "project_id": "gpt-review-planner",
+  "revision": 17,
+  "summary": "Legacy planner state",
+  "body": "# Runtime policy\n\n## Current objective\n\nMigrate this plan to the sectional workflow-v2 representation.\n",
+  "active_task_id": "legacy-task-planner",
+  "active_run_id": "legacy-run-planner",
+  "updated_by": "gpt",
+  "updated_at": "2026-07-31T10:00:00Z"
+}

@@ -42,12 +42,23 @@ Validate project Git exploration, hub read/write transactions against a test hub
 
 ## Cutover gate
 
-For subsequent source upgrades, run `gpt-tunnelctl upgrade` from the exact clean
-`main` checkout. It does not fetch, merge, download, install a release, restart
-the tunnel-client, or alter `config.json`/`tunnel.env`. The upgrade lock rejects
-concurrent runs; binaries are backed up under the controller state directory,
-replaced atomically, and restored automatically if gateway readiness, doctor, or
-MCP validation fails.
+For subsequent source upgrades, run `gpt-tunnelctl upgrade inspect` and resolve
+every blocker before running `gpt-tunnelctl upgrade` from the exact clean
+`main` checkout. A controller-independent `scripts/upgrade-bootstrap.sh`
+handoff is available when the installed controller predates the upgrade
+command. It verifies the release checksum manifest and invokes only the target
+controller.
+
+The upgrade lock rejects concurrent runs; the durable transaction records
+backups, persisted-state operations, artifact checksums, installed/live
+versions, hub revisions, PIDs, phase, and rollback availability. Binaries are
+replaced atomically and restored automatically if gateway readiness, doctor, or
+MCP validation fails. The tunnel-client is never restarted by this operation.
+
+For a legacy hub, perform the owner-authorized `gpt-tunnel plan cutover` and
+`gpt-tunnelctl state repair` operations first, review their exact paths and
+revision guards, then rerun the read-only inspect command. Do not edit plan JSON
+by hand or rewrite immutable historical runs.
 
 Cutover requires a separate owner-approved task and these proofs:
 

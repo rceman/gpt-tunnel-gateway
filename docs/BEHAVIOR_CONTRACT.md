@@ -36,6 +36,11 @@
 32. New runs expose only one local `completion.json`; new hub run state is exactly `run.json` plus canonical `report.json`.
 33. Terminal completion statuses are only `succeeded`, `failed`, and `needs_gpt_revision`; every terminal path clears active task/run ownership. Historical protocol-v1 run records are bounded, read-only projections with legacy paths redacted and are rejected by every operational run path.
 34. `run_report` refreshes the managed mirror before validating canonical Git proof. Report proof uses only mirror-resolved HEAD, ancestry, bounded oldest-to-newest commits, canonical changed files, and task/default-branch reachability; an exact immutable task base remains valid when its task branch is absent, while other absent-branch heads must remain reachable from the default branch. It never requires the checked-out project worktree to contain the task commit.
+35. `gpt-tunnelctl upgrade inspect` reports the complete target-runtime blocker set in one pass; readiness timeout is never the only startup diagnostic.
+36. Installed and running gateway versions are independently observable. A successful upgrade requires `version_match`, a new gateway PID, and the unchanged tunnel PID.
+37. Upgrade transaction state is durable under the configured state directory; a temporary release directory cannot be the sole authority for rollback or completion.
+38. Project registration atomically creates a valid idle workflow-v2 plan, so startup cannot observe a configured active project without its current plan.
+39. The MCP descriptor contract is driven by one canonical tool manifest. Tool counts are derived from registration/manifest parity; smoke tests require names and schema/handler parity rather than a stale numeric assertion.
 
 ## Lifecycle
 

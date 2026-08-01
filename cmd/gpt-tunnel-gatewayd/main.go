@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -13,7 +14,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-var version = "0.5.0"
+var version = "0.5.1"
 
 func main() {
 	configPath := flag.String("config", config.DefaultPath(), "configuration file")
@@ -33,9 +34,14 @@ func main() {
 		cancel()
 		fatal(err)
 	}
-	if err := svc.ValidateConfiguredProjectRecords(hubCtx); err != nil {
+	state, err := svc.StateCheck(hubCtx)
+	if err != nil {
 		cancel()
 		fatal(err)
+	}
+	if !state.Valid {
+		cancel()
+		fatal(fmt.Errorf("durable state validation failed: %s", summarizeStateIssues(state.Issues)))
 	}
 	cancel()
 	srv := &http.Server{Addr: c.ListenAddr, Handler: (&mcp.Server{Service: svc}).Router(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 32 << 10}
@@ -45,3 +51,11 @@ func main() {
 	}
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnel-gatewayd:", err); os.Exit(1) }
+
+func summarizeStateIssues(issues []service.StateIssue) string {
+	parts := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		parts = append(parts, issue.Code+": "+issue.Detail)
+	}
+	return strings.Join(parts, "; ")
+}

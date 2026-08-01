@@ -75,6 +75,20 @@ func TestReadOnlyBootstrapErrorIsBounded(t *testing.T) {
 
 func TestValidateConfiguredProjectRecordsRejectsMissingPlan(t *testing.T) {
 	s, _, _ := testService(t)
+	hubRevision, err := s.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Hub.Transact(context.Background(), hubRevision, "test: remove initial plan", func(worktree string) ([]string, error) {
+		path := filepath.Join(worktree, filepath.FromSlash(s.planPath("example")))
+		if err := os.Remove(path); err != nil {
+			return nil, err
+		}
+		return []string{s.planPath("example")}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := s.ValidateConfiguredProjectRecords(context.Background()); err == nil || !strings.Contains(err.Error(), "plan") {
 		t.Fatalf("missing durable plan was not rejected deterministically: %v", err)
 	}

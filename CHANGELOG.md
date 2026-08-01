@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1 — 2026-08-01
+
+- Harden runtime upgrades with complete target-state preflight, durable transaction records, gateway process identity proof, installed-versus-running version reporting, bounded startup diagnosis, state check/repair, atomic project-plan registration, and MCP schema/output parity validation.
+
 ## 0.5.0 — 2026-08-01
 
 - Publish workflow 2.0 with one gateway-owned completion file, planner-2.0 positional receipts, gateway-derived mirror-backed proof, and one canonical report; terminal `needs_gpt_revision`, read-only protocol-v1 history, push-before-finalize, and removal of normal result/evidence authority.

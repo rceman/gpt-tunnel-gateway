@@ -82,8 +82,11 @@ func upgradeIntegrationFixture(t *testing.T) (config.Config, string, string, *fa
 	}
 	c := config.Config{GatewayID: "home", ListenAddr: "127.0.0.1:0", StateDir: stateDir, Hub: config.HubConfig{Branch: "gpt-tunnel/home"}, Controller: config.ControllerConfig{GatewayBinary: paths["gpt-tunnel-gatewayd"], TunnelClientBinary: tunnelPath, TunnelEnvFile: envPath, PIDDir: filepath.Join(stateDir, "pid"), LogDir: filepath.Join(stateDir, "logs"), TunnelHealthListenAddr: "127.0.0.1:8766"}}
 	before := controller.Status{Gateway: controller.ProcessStatus{Running: true, PID: 10, Executable: paths["gpt-tunnel-gatewayd"]}, Tunnel: controller.ProcessStatus{Running: true, PID: 20, Executable: tunnelPath}, GatewayReady: true, TunnelReady: true}
+	before.Gateway.IdentityValid, before.Tunnel.IdentityValid = true, true
+	before.InstalledVersion, before.RunningVersion, before.VersionMatch = "0.2.2", "0.2.2", true
 	after := before
 	after.Gateway.PID = 11
+	after.InstalledVersion, after.RunningVersion, after.VersionMatch = "0.2.3", "0.2.3", true
 	rolled := before
 	rolled.Gateway.PID = 12
 	fake := &fakeUpgradeController{statuses: []controller.Status{before, after, rolled}}
@@ -96,10 +99,11 @@ func upgradeIntegrationFixture(t *testing.T) (config.Config, string, string, *fa
 		release        func(string, string) error
 		factory        func(config.Config, string) upgradeController
 		smoke          func(context.Context, config.Config, string, string) error
+		preflight      func(context.Context, config.Config, string) (InspectResult, error)
 		remove         func(string) error
-	}{sourceRootFn, validateSourceFn, validateInstalledRuntimeFn, validateTunnelEnvFn, buildReleaseFn, validateReleaseFn, newUpgradeControllerFn, smokeFn, removeUpgradeBackup}
+	}{sourceRootFn, validateSourceFn, validateInstalledRuntimeFn, validateTunnelEnvFn, buildReleaseFn, validateReleaseFn, newUpgradeControllerFn, smokeFn, preflightFn, removeUpgradeBackup}
 	cleanup := func() {
-		sourceRootFn, validateSourceFn, validateInstalledRuntimeFn, validateTunnelEnvFn, buildReleaseFn, validateReleaseFn, newUpgradeControllerFn, smokeFn, removeUpgradeBackup = originals.source, originals.sourceValidate, originals.installed, originals.env, originals.build, originals.release, originals.factory, originals.smoke, originals.remove
+		sourceRootFn, validateSourceFn, validateInstalledRuntimeFn, validateTunnelEnvFn, buildReleaseFn, validateReleaseFn, newUpgradeControllerFn, smokeFn, preflightFn, removeUpgradeBackup = originals.source, originals.sourceValidate, originals.installed, originals.env, originals.build, originals.release, originals.factory, originals.smoke, originals.preflight, originals.remove
 	}
 	sourceRootFn = func() (string, string, error) { return root, strings.Repeat("a", 40), nil }
 	validateSourceFn = func(string, string) error { return nil }
@@ -115,6 +119,9 @@ func upgradeIntegrationFixture(t *testing.T) (config.Config, string, string, *fa
 	}
 	validateReleaseFn = func(string, string) error { return nil }
 	newUpgradeControllerFn = func(config.Config, string) upgradeController { return fake }
+	preflightFn = func(context.Context, config.Config, string) (InspectResult, error) {
+		return InspectResult{Status: "ready"}, nil
+	}
 	return c, configPath, envPath, fake, cleanup
 }
 
@@ -167,6 +174,17 @@ func TestRunnerRunSuccessProofClosure(t *testing.T) {
 	result, err := r.Run(context.Background())
 	if err != nil || result.Status != "UPGRADE_COMPLETE" || result.GatewayPID != 11 || result.TunnelPID != 20 {
 		t.Fatalf("success result=%#v err=%v", result, err)
+	}
+	transactionData, err := os.ReadFile(transactionPath(c, result.TransactionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var transaction UpgradeTransaction
+	if err := json.Unmarshal(transactionData, &transaction); err != nil {
+		t.Fatal(err)
+	}
+	if transaction.CurrentPhase != "complete" || transaction.FinalStatus != "UPGRADE_COMPLETE" || len(transaction.MigrationOperations) == 0 || transaction.GatewayPIDBefore != 10 || transaction.GatewayPIDAfter != 11 || transaction.TunnelPIDBefore != 20 || transaction.TunnelPIDAfter != 20 {
+		t.Fatalf("incomplete durable transaction: %#v", transaction)
 	}
 	if fake.doctorCalls != 1 || fake.restartCalls != 1 || fake.stopCalls != 0 {
 		t.Fatalf("controller calls: %#v", fake)

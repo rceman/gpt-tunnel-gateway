@@ -19,6 +19,38 @@ existing tunnel-client
 
 `gpt-tunnel-gatewayd` is a control plane, not a remote shell. Every operation maps to a bounded typed method.
 
+## Transactional runtime upgrade
+
+`gpt-tunnelctl upgrade inspect` evaluates configuration, the configured
+project/durable-project/current-plan graph, task/run invariants, process
+identity, installed and live versions, listeners, hub revision, and release
+artifacts in one pass. It reports every discovered blocker before activation.
+
+`gpt-tunnelctl upgrade` persists an owner-only transaction record under
+`state_dir/upgrade-transactions` and advances through inspect, prepare, backup,
+migrate, validate, activate, verify, and complete. Persisted-state migrations
+are explicit and one-time; a target decoder never silently accepts legacy
+fields. The old gateway remains active until target state and release artifacts
+are valid. Activation replaces and restarts only the gateway, and verification
+requires a changed gateway PID with the exact preserved tunnel PID.
+
+Controller-owned PID records include the process UID, start time, and instance
+token. Status reports the installed binary version separately from the live
+MCP version and exposes `version_match`. `/proc/<pid>/exe` is evidence only; it
+is not the sole ownership proof after atomic binary replacement.
+
+The lifecycle invariant is strict:
+
+```text
+configured active project
+⇔ durable active project record
+⇔ valid workflow-v2 current plan
+```
+
+Project registration writes the durable project and an idle workflow-v2 plan in
+one hub transaction. `state check` validates the complete task/run graph, and
+`state repair` can clear only obsolete mutable pointers after a backup.
+
 ## Durable and local state
 
 GitHub hub state is canonical and cross-device:

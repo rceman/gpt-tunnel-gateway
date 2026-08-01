@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "project_id": "gpt-tunnel-gateway",
+  "revision": 21,
+  "summary": "Legacy gateway state",
+  "body": "# Gateway policy\n\n## Current objective\n\nComplete the transactional upgrade hardening migration.\n",
+  "active_task_id": "legacy-task-gateway",
+  "active_run_id": "legacy-run-gateway",
+  "updated_by": "gpt",
+  "updated_at": "2026-07-31T10:00:00Z"
+}

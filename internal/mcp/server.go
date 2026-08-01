@@ -124,7 +124,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	switch req.Method {
 	case "initialize":
-		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "gpt-tunnel-gatewayd", "version": "0.5.0"}}})
+		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "gpt-tunnel-gatewayd", "version": "0.5.1"}}})
 	case "notifications/initialized":
 		w.WriteHeader(http.StatusAccepted)
 	case "ping":
@@ -351,13 +351,13 @@ func (s *Server) tools() map[string]Tool {
 	add := func(name, description string, schema map[string]any, fn func(context.Context, json.RawMessage) (any, error)) {
 		output, outputOK := toolOutputSchemas[name]
 		annotations, annotationsOK := toolAnnotations[name]
-		if (!outputOK && name != "run_agent_tail") || !annotationsOK {
+		if !outputOK || !annotationsOK {
 			panic("missing MCP contract for tool " + name)
 		}
 		t[name] = Tool{Name: name, Description: description, InputSchema: schema, OutputSchema: output, Annotations: annotations, Execute: fn}
 	}
 	add("system_ping", "Return gateway identity and time.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		return map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.5.0", "gateway_id": s.Service.Config.GatewayID, "time": time.Now().UTC()}, nil
+		return map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.5.1", "gateway_id": s.Service.Config.GatewayID, "time": time.Now().UTC()}, nil
 	})
 	add("gateway_capabilities", "Describe configured limits, projects, and transport.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		ids := []string{}
@@ -588,7 +588,11 @@ func (s *Server) tools() map[string]Tool {
 		if e != nil {
 			return nil, e
 		}
-		return s.Service.RunAgentTail(ctx, id, lines)
+		text, err := s.Service.RunAgentTail(ctx, id, lines)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"text": text}, nil
 	})
 	add("run_sweep", "Reprompt or terminalize overdue active runs.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) { return s.Service.RunSweep(ctx) })
 	add("run_cancel", "Request cooperative cancellation through Airelay.", obj(map[string]any{"run_id": str("Run identifier"), "expected_hub_revision": str("Optimistic hub revision")}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -599,7 +603,35 @@ func (s *Server) tools() map[string]Tool {
 		return s.Service.RunCancel(ctx, id, optionalString(raw, "expected_hub_revision"))
 	})
 	addGitTools(add, s)
+	if err := validateCanonicalToolManifest(t); err != nil {
+		panic(err)
+	}
 	return t
+}
+
+func validateCanonicalToolManifest(tools map[string]Tool) error {
+	want := map[string]bool{}
+	for _, name := range canonicalToolManifest {
+		if want[name] {
+			return fmt.Errorf("duplicate canonical MCP tool %s", name)
+		}
+		want[name] = true
+	}
+	if len(tools) != len(want) {
+		return fmt.Errorf("MCP manifest registration mismatch: registered=%d manifest=%d", len(tools), len(want))
+	}
+	for name := range want {
+		if _, ok := tools[name]; !ok {
+			return fmt.Errorf("MCP manifest tool is not registered: %s", name)
+		}
+		if _, ok := toolOutputSchemas[name]; !ok {
+			return fmt.Errorf("MCP manifest output schema is missing: %s", name)
+		}
+		if _, ok := toolAnnotations[name]; !ok {
+			return fmt.Errorf("MCP manifest annotations are missing: %s", name)
+		}
+	}
+	return nil
 }
 
 func addGitTools(add func(string, string, map[string]any, func(context.Context, json.RawMessage) (any, error)), s *Server) {

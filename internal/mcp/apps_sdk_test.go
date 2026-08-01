@@ -45,12 +45,12 @@ func TestToolCallAcceptsBoundedProtocolMeta(t *testing.T) {
 		t.Fatalf("unexpected result: %#v", response)
 	}
 	structured, ok := result["structuredContent"].(map[string]any)
-	if !ok || structured["version"] != "0.5.0" {
+	if !ok || structured["version"] != "0.5.1" {
 		t.Fatalf("unexpected structured result: %#v", result)
 	}
 }
 
-func TestRunAgentTailSuccessIsPlainTextWithoutStructuredContent(t *testing.T) {
+func TestPlainTextToolResultRemainsUnstructured(t *testing.T) {
 	tool := Tool{}
 	result := toolResult(tool, "Warning: Controller\n⚠ Selected model is at capacity.\n", false)
 	if result["isError"] != false {
@@ -109,16 +109,17 @@ func TestRunAgentTailToolCallUsesLiveServiceAndPlainTextTransport(t *testing.T) 
 	if item["type"] != "text" || !strings.Contains(item["text"].(string), "Selected model is at capacity") {
 		t.Fatalf("tail text=%#v", item)
 	}
-	if _, ok := result["structuredContent"]; ok {
-		t.Fatalf("structured content present: %#v", result)
+	structured, ok := result["structuredContent"].(map[string]any)
+	if !ok || !strings.Contains(structured["text"].(string), "Selected model is at capacity") {
+		t.Fatalf("structured tail=%#v", result)
 	}
 	explicit := callMCP(t, &Server{Service: s}, []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"run_agent_tail","arguments":{"run_id":"`+run.ID+`","lines":9}}}`))
 	explicitResult, ok := explicit["result"].(map[string]any)
 	if !ok || explicitResult["isError"] != false || !strings.Contains(explicitResult["content"].([]any)[0].(map[string]any)["text"].(string), "workspace status") {
 		t.Fatalf("unexpected explicit tail result: %#v", explicit)
 	}
-	if _, ok := explicitResult["structuredContent"]; ok {
-		t.Fatalf("explicit plain text result has structured content: %#v", explicitResult)
+	if structured, ok := explicitResult["structuredContent"].(map[string]any); !ok || !strings.Contains(structured["text"].(string), "workspace status") {
+		t.Fatalf("explicit structured tail=%#v", explicitResult)
 	}
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf 'tail failure output\\n'\nprintf 'example_master CONTROL_PLANE_API_KEY=secret-marker\\n' >&2\nexit 23\n"), 0o700); err != nil {
 		t.Fatal(err)
@@ -196,27 +197,29 @@ func TestToolCallRejectsInvalidAndOversizedMeta(t *testing.T) {
 func TestEveryToolDeclaresOutputSchemaAndExplicitAnnotations(t *testing.T) {
 	srv := &Server{Service: service.New(config.Config{})}
 	tools := srv.tools()
-	if len(tools) != 43 {
-		t.Fatalf("tool count=%d want 43", len(tools))
+	if len(tools) != len(canonicalToolManifest) {
+		t.Fatalf("tool count=%d want manifest count %d", len(tools), len(canonicalToolManifest))
 	}
-	if len(toolOutputSchemas) != len(tools)-1 || len(toolAnnotations) != len(tools) {
+	if len(toolOutputSchemas) != len(tools) || len(toolAnnotations) != len(tools) {
 		t.Fatalf("contract coverage mismatch: tools=%d outputs=%d annotations=%d", len(tools), len(toolOutputSchemas), len(toolAnnotations))
 	}
 	for name, tool := range tools {
-		if name != "run_agent_tail" && (tool.OutputSchema == nil || tool.OutputSchema["type"] != "object") {
+		if tool.OutputSchema == nil || tool.OutputSchema["type"] != "object" {
 			t.Errorf("%s has invalid output schema: %#v", name, tool.OutputSchema)
 		}
 		if _, ok := tool.InputSchema["additionalProperties"]; !ok {
 			t.Errorf("%s input schema is not explicit", name)
 		}
-		if name != "run_agent_tail" {
-			if _, ok := toolOutputSchemas[name]; !ok {
-				t.Errorf("%s missing output schema registry entry", name)
-			}
+		if _, ok := toolOutputSchemas[name]; !ok {
+			t.Errorf("%s missing output schema registry entry", name)
 		}
 		if _, ok := toolAnnotations[name]; !ok {
 			t.Errorf("%s missing annotation registry entry", name)
 		}
+	}
+	properties := tools["plan_update"].InputSchema["properties"].(map[string]any)
+	if _, ok := properties["body"]; ok {
+		t.Fatal("plan_update advertises obsolete body input")
 	}
 }
 
@@ -250,8 +253,8 @@ func TestToolsListSerializesOutputSchemasAndAllHints(t *testing.T) {
 	response := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
 	result := response["result"].(map[string]any)
 	tools := result["tools"].([]any)
-	if len(tools) != 43 {
-		t.Fatalf("tool count=%d", len(tools))
+	if len(tools) != len(canonicalToolManifest) {
+		t.Fatalf("tool count=%d want manifest count %d", len(tools), len(canonicalToolManifest))
 	}
 	previous := ""
 	for _, raw := range tools {
@@ -261,10 +264,8 @@ func TestToolsListSerializesOutputSchemasAndAllHints(t *testing.T) {
 			t.Fatalf("tools/list is not stable: %s before %s", previous, name)
 		}
 		previous = name
-		if name != "run_agent_tail" {
-			if _, ok := tool["outputSchema"].(map[string]any); !ok {
-				t.Errorf("%s outputSchema missing", name)
-			}
+		if _, ok := tool["outputSchema"].(map[string]any); !ok {
+			t.Errorf("%s outputSchema missing", name)
 		}
 		annotations, ok := tool["annotations"].(map[string]any)
 		if !ok {
@@ -360,7 +361,7 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	snapshot := model.ReviewSnapshot{SchemaVersion: 1, Run: model.ReviewSnapshotRun{ID: "run", TaskID: "task", ProjectID: "project", Status: "succeeded", Branch: "feature/x", BaseRevision: task.BaseRevision, CreatedAt: now}, Task: model.ReviewSnapshotTask{ID: "task", SHA256: task.SHA256, Title: "title", Objective: "objective", Branch: "feature/x", BaseRevision: task.BaseRevision, AcceptanceCriteria: []string{}, Constraints: []string{}, RequiredGates: []string{}, CreatedBy: "gpt", CreatedAt: now, TaskStateStatus: "completed"}, Report: model.ReviewSnapshotReport{Available: true, Status: "succeeded", Summary: "done", Commits: []string{}, ChangedFiles: []string{}, GateResults: []model.CompletionGateResult{}, AcceptanceCoverage: []string{}, Deviations: []string{}, RemainingRisks: []string{}, FinishedAt: &now}, Evidence: model.ReviewSnapshotEvidence{Available: true, Head: worktree.Head, Branch: "feature/x", WorktreeClean: &clean, Notes: []string{}, RecordedAt: &now}, Repository: model.ReviewSnapshotRepo{RefreshAttempted: true, RefreshSucceeded: true, DefaultBranch: "main", TaskBranch: "feature/x", TaskBranchPublished: true, TaskBranchHead: worktree.Head, Worktree: model.ReviewSnapshotWorktree{Branch: "feature/x", Head: worktree.Head, Clean: true}, EvidenceHeadReachable: true, BaseToEvidence: model.ReviewSnapshotCompare{MergeBase: task.BaseRevision}, DefaultToEvidence: model.ReviewSnapshotCompare{}, ChangedFiles: []string{}}, Checks: []model.ReviewSnapshotCheck{}, ReviewState: "reviewable", NextAction: "perform_static_review"}
 
 	samples := map[string]any{
-		"system_ping":          map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.5.0", "gateway_id": "home_pc", "time": now},
+		"system_ping":          map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.5.1", "gateway_id": "home_pc", "time": now},
 		"gateway_capabilities": map[string]any{"gateway_id": "home_pc", "listen_addr": "127.0.0.1:8765", "projects": []string{"project"}, "hub_protocol_root": "gpt-tunnel/v1", "hub_repository_url": "git@github.com:rceman/typer.git", "hub_branch": "gpt-tunnel/home_pc", "hub_managed_root": "/tmp/state/hub/repository", "airelay_control_only": true, "generic_shell_available": false},
 		"project_list":         map[string]any{"projects": []model.Project{project}}, "project_read": project,
 		"project_status": service.ProjectStatus{Project: project, Local: local, Worktree: worktree, Plan: plan.StatusView(), HubRevision: transaction.After}, "project_register": operation,
@@ -370,7 +371,7 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		"task_dispatch": map[string]any{"run": run, "operation": operation}, "task_supersede": map[string]any{"task": task, "operation": operation}, "task_cancel": operation,
 		"run_list": map[string]any{"runs": []model.Run{run}}, "run_read": run, "run_status": run, "run_report": report,
 		"run_review_snapshot": snapshot,
-		"run_agent_tail":      "tail text",
+		"run_agent_tail":      map[string]any{"text": "tail text"},
 		"run_sweep":           service.SweepResult{Checked: 1, Items: []service.SweepItem{{RunID: "run", Action: "reprompt", Status: "awaiting_result"}}}, "run_cancel": operation,
 		"git_refresh": map[string]any{"project_id": "project", "refreshed": true}, "git_refs": map[string]any{"refs": []gitx.Ref{ref}},
 		"git_log": map[string]any{"commits": []gitx.Commit{commit}}, "git_show": map[string]any{"text": "show"}, "git_tree": map[string]any{"paths": []string{"README.md"}},
@@ -384,9 +385,6 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		sample, ok := samples[name]
 		if !ok {
 			t.Errorf("missing canonical sample for %s", name)
-			continue
-		}
-		if name == "run_agent_tail" {
 			continue
 		}
 		if err := validateOutputValue(tool.OutputSchema, normalizeObject(sample)); err != nil {

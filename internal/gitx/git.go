@@ -118,6 +118,29 @@ func (r Runner) EnsureMirror(ctx context.Context, p config.ProjectConfig) error 
 	}
 	return nil
 }
+
+// RemoteURL and RemoteDefaultBranch are bounded metadata reads used by
+// target-runtime preflight. They never fetch, update, or mutate a worktree.
+func (r Runner) RemoteURL(ctx context.Context, p config.ProjectConfig) (string, error) {
+	out, err := r.command(ctx, p.Root, false, "remote", "get-url", p.Remote)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func (r Runner) RemoteDefaultBranch(ctx context.Context, p config.ProjectConfig) (string, error) {
+	out, err := r.command(ctx, p.Root, false, "symbolic-ref", "--quiet", "refs/remotes/"+p.Remote+"/HEAD")
+	if err != nil {
+		return "", err
+	}
+	ref := strings.TrimSpace(string(out))
+	prefix := "refs/remotes/" + p.Remote + "/"
+	if !strings.HasPrefix(ref, prefix) || strings.TrimPrefix(ref, prefix) == "" {
+		return "", fmt.Errorf("remote HEAD is not under %s", prefix)
+	}
+	return strings.TrimPrefix(ref, prefix), nil
+}
 func (r Runner) Refresh(ctx context.Context, p config.ProjectConfig) error {
 	if err := r.EnsureMirror(ctx, p); err != nil {
 		return err

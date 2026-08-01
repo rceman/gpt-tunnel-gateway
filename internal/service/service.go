@@ -300,15 +300,37 @@ func (s *Service) ProjectRegister(ctx context.Context, in ProjectRegisterInput) 
 	if _, err := s.projectConfig(p.ID); err != nil {
 		return OperationResult{}, err
 	}
+	plan := model.Plan{
+		SchemaVersion:    model.PlanSchemaVersion,
+		ProjectID:        p.ID,
+		Revision:         1,
+		Title:            "Registered active project",
+		Summary:          "Registered active project with no current authorized work",
+		CurrentObjective: "The " + p.ID + " repository is registered with the gateway and is available for future durable tasks. No task or run is currently active.\n\nNext action: Await an explicitly authorized durable task before implementation, release, runtime mutation or repository changes.",
+		Queue:            []string{},
+		Sections:         []model.PlanSectionIndex{},
+		UpdatedBy:        in.Project.ID,
+		UpdatedAt:        now,
+	}
+	if err := model.ValidatePlan(plan); err != nil {
+		return OperationResult{}, err
+	}
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: register project "+p.ID, func(w string) ([]string, error) {
-		path := s.projectPath(p.ID)
-		if _, err := os.Stat(filepath.Join(w, filepath.FromSlash(path))); err == nil {
+		projectPath := s.projectPath(p.ID)
+		if _, err := os.Stat(filepath.Join(w, filepath.FromSlash(projectPath))); err == nil {
 			return nil, fmt.Errorf("project already exists")
 		}
-		if err := hub.WriteJSON(w, path, p); err != nil {
+		planPath := s.planPath(p.ID)
+		if _, err := os.Stat(filepath.Join(w, filepath.FromSlash(planPath))); err == nil {
+			return nil, fmt.Errorf("project plan already exists")
+		}
+		if err := hub.WriteJSON(w, projectPath, p); err != nil {
 			return nil, err
 		}
-		return []string{path}, nil
+		if err := hub.WriteJSON(w, planPath, plan); err != nil {
+			return nil, err
+		}
+		return []string{projectPath, planPath}, nil
 	})
 	if err != nil {
 		return OperationResult{}, err

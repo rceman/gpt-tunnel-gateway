@@ -2,7 +2,9 @@ package controller
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,12 +33,25 @@ type ProcessStatus struct {
 	PID                int    `json:"pid,omitempty"`
 	Executable         string `json:"executable,omitempty"`
 	ExpectedExecutable string `json:"expected_executable"`
+	IdentityValid      bool   `json:"identity_valid"`
+	IdentityReason     string `json:"identity_reason,omitempty"`
+	StartTimeTicks     uint64 `json:"start_time_ticks,omitempty"`
 }
 type Status struct {
-	Gateway      ProcessStatus `json:"gateway"`
-	Tunnel       ProcessStatus `json:"tunnel"`
-	GatewayReady bool          `json:"gateway_ready"`
-	TunnelReady  bool          `json:"tunnel_ready"`
+	Gateway          ProcessStatus `json:"gateway"`
+	Tunnel           ProcessStatus `json:"tunnel"`
+	GatewayReady     bool          `json:"gateway_ready"`
+	TunnelReady      bool          `json:"tunnel_ready"`
+	InstalledVersion string        `json:"installed_version,omitempty"`
+	RunningVersion   string        `json:"running_version,omitempty"`
+	VersionMatch     bool          `json:"version_match"`
+}
+
+type pidRecord struct {
+	PID            int    `json:"pid"`
+	StartTimeTicks uint64 `json:"start_time_ticks"`
+	UID            uint32 `json:"uid"`
+	InstanceToken  string `json:"instance_token"`
 }
 
 func (c Controller) pidPath(name string) string {
@@ -46,30 +61,119 @@ func (c Controller) logPath(name string) string {
 	return filepath.Join(c.Config.Controller.LogDir, name+".log")
 }
 func readPID(path string) (int, error) {
-	data, err := os.ReadFile(path)
+	record, err := readPIDRecord(path)
 	if err != nil {
 		return 0, err
 	}
-	return strconv.Atoi(strings.TrimSpace(string(data)))
+	return record.PID, nil
+}
+func readPIDRecord(path string) (pidRecord, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return pidRecord{}, err
+	}
+	var record pidRecord
+	if len(bytes.TrimSpace(data)) > 0 && bytes.TrimSpace(data)[0] == '{' {
+		if err := json.Unmarshal(data, &record); err != nil {
+			return pidRecord{}, err
+		}
+		if record.PID < 1 {
+			return pidRecord{}, fmt.Errorf("invalid PID record")
+		}
+		return record, nil
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid < 1 {
+		return pidRecord{}, fmt.Errorf("invalid PID file")
+	}
+	return pidRecord{PID: pid}, nil
 }
 func procExe(pid int) (string, error) {
 	return filepath.EvalSymlinks(filepath.Join("/proc", strconv.Itoa(pid), "exe"))
 }
+func procCmdline(pid int) (string, error) {
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+	if err != nil {
+		return "", err
+	}
+	return strings.Join(strings.FieldsFunc(string(data), func(r rune) bool { return r == 0 }), " "), nil
+}
+func procStartTime(pid int) (uint64, error) {
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return 0, err
+	}
+	closeParen := bytes.LastIndexByte(data, ')')
+	if closeParen < 0 || closeParen+2 >= len(data) {
+		return 0, fmt.Errorf("invalid process stat")
+	}
+	fields := strings.Fields(string(data[closeParen+2:]))
+	if len(fields) < 20 {
+		return 0, fmt.Errorf("invalid process stat fields")
+	}
+	return strconv.ParseUint(fields[19], 10, 64)
+}
+func procUID(pid int) (uint32, error) {
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "status"))
+	if err != nil {
+		return 0, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "Uid:") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			break
+		}
+		value, parseErr := strconv.ParseUint(fields[1], 10, 32)
+		return uint32(value), parseErr
+	}
+	return 0, fmt.Errorf("process UID unavailable")
+}
 func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
 func (c Controller) process(name, expected string) ProcessStatus {
 	p := ProcessStatus{Name: name, ExpectedExecutable: expected}
-	pid, err := readPID(c.pidPath(name))
+	if expected == "" {
+		p.IdentityReason = "configured executable is unavailable"
+		return p
+	}
+	record, err := readPIDRecord(c.pidPath(name))
 	if err != nil {
 		return p
 	}
-	p.PID = pid
-	if !alive(pid) {
+	p.PID = record.PID
+	if !alive(record.PID) {
 		_ = os.Remove(c.pidPath(name))
 		return p
 	}
-	exe, _ := procExe(pid)
+	p.StartTimeTicks, _ = procStartTime(record.PID)
+	uid, uidErr := procUID(record.PID)
+	cmdline, cmdErr := procCmdline(record.PID)
+	if uidErr != nil || cmdErr != nil || uid != uint32(os.Getuid()) {
+		p.IdentityReason = "process UID does not match controller owner"
+		return p
+	}
+	if record.StartTimeTicks != 0 && record.StartTimeTicks != p.StartTimeTicks {
+		p.IdentityReason = "PID was reused after controller record"
+		return p
+	}
+	if !strings.Contains(cmdline, expected) {
+		p.IdentityReason = "configured executable is absent from process command line"
+		return p
+	}
+	if name == "gateway" && c.ConfigPath != "" && !strings.Contains(cmdline, c.ConfigPath) {
+		p.IdentityReason = "configured gateway config is absent from process command line"
+		return p
+	}
+	if name == "tunnel" && !strings.Contains(cmdline, " run") && !strings.HasSuffix(cmdline, " run") {
+		p.IdentityReason = "managed tunnel command is not run"
+		return p
+	}
+	exe, _ := procExe(record.PID)
 	p.Executable = exe
-	p.Running = exe == expected
+	p.Running = true
+	p.IdentityValid = true
 	return p
 }
 func (c Controller) gatewayReadyURL() string { return "http://" + c.Config.ListenAddr + "/readyz" }
@@ -82,7 +186,56 @@ func (c Controller) Status(ctx context.Context) (Status, error) {
 	s := Status{Gateway: c.process("gateway", gatewayExpected), Tunnel: c.process("tunnel", tunnelExpected)}
 	s.GatewayReady = checkURL(ctx, c.gatewayReadyURL())
 	s.TunnelReady = checkURL(ctx, c.tunnelReadyURL())
+	s.InstalledVersion = installedVersion(c.Config.Controller.GatewayBinary)
+	if s.GatewayReady {
+		s.RunningVersion = runningVersion(ctx, c.gatewayReadyURL(), c.Config.GatewayID)
+	}
+	s.VersionMatch = s.InstalledVersion != "" && s.RunningVersion != "" && s.InstalledVersion == s.RunningVersion
 	return s, nil
+}
+func installedVersion(path string) string {
+	out, err := exec.Command(path, "--version").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+func runningVersion(ctx context.Context, readyURL, gatewayID string) string {
+	endpoint := strings.TrimSuffix(readyURL, "/readyz") + "/mcp"
+	payload := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "system_ping", "arguments": map[string]any{}}}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
+	if err != nil {
+		return ""
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := (&http.Client{Timeout: 2 * time.Second}).Do(request)
+	if err != nil {
+		return ""
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return ""
+	}
+	var envelope struct {
+		Result struct {
+			IsError           bool `json:"isError"`
+			StructuredContent struct {
+				Version   string `json:"version"`
+				GatewayID string `json:"gateway_id"`
+			} `json:"structuredContent"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&envelope); err != nil || envelope.Result.IsError {
+		return ""
+	}
+	if gatewayID != "" && envelope.Result.StructuredContent.GatewayID != gatewayID {
+		return ""
+	}
+	return envelope.Result.StructuredContent.Version
 }
 func checkURL(ctx context.Context, url string) bool {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -247,7 +400,13 @@ func (c Controller) startProcess(name, binary string, args, env []string) error 
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	if err := fsutil.WriteFileAtomic(c.pidPath(name), []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
+	startTime, startErr := procStartTime(cmd.Process.Pid)
+	if startErr != nil {
+		_ = cmd.Process.Kill()
+		return startErr
+	}
+	record := pidRecord{PID: cmd.Process.Pid, StartTimeTicks: startTime, UID: uint32(os.Getuid()), InstanceToken: fmt.Sprintf("%d-%d", cmd.Process.Pid, startTime)}
+	if err := fsutil.WriteJSONAtomic(c.pidPath(name), record, 0o600); err != nil {
 		_ = cmd.Process.Kill()
 		return err
 	}
@@ -406,24 +565,9 @@ func (c Controller) RestartGatewayAfterUpgrade() error {
 		return err
 	}
 	defer lock.Release()
-	pid, err := readPID(c.pidPath("gateway"))
-	if err == nil && alive(pid) {
-		cmdline, _ := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
-		if !strings.Contains(string(cmdline), c.Config.Controller.GatewayBinary) {
-			return fmt.Errorf("refusing to signal unexpected gateway process")
-		}
-		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-			return err
-		}
-		deadline := time.Now().Add(5 * time.Second)
-		for alive(pid) && time.Now().Before(deadline) {
-			time.Sleep(100 * time.Millisecond)
-		}
-		if alive(pid) {
-			return fmt.Errorf("gateway did not stop")
-		}
+	if err := c.stopProcess("gateway", c.Config.Controller.GatewayBinary); err != nil {
+		return err
 	}
-	_ = os.Remove(c.pidPath("gateway"))
 	if err := c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath}); err != nil {
 		return err
 	}
@@ -432,30 +576,7 @@ func (c Controller) RestartGatewayAfterUpgrade() error {
 
 // StopGatewayForUpgrade stops only the gateway recorded by this controller.
 func (c Controller) StopGatewayForUpgrade() error {
-	pid, err := readPID(c.pidPath("gateway"))
-	if err != nil {
-		return nil
-	}
-	if !alive(pid) {
-		_ = os.Remove(c.pidPath("gateway"))
-		return nil
-	}
-	cmdline, _ := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
-	if !strings.Contains(string(cmdline), c.Config.Controller.GatewayBinary) {
-		return fmt.Errorf("refusing to signal unexpected gateway process")
-	}
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-		return err
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for alive(pid) && time.Now().Before(deadline) {
-		time.Sleep(100 * time.Millisecond)
-	}
-	if alive(pid) {
-		return fmt.Errorf("gateway did not stop")
-	}
-	_ = os.Remove(c.pidPath("gateway"))
-	return nil
+	return c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
 }
 func (c Controller) Doctor(ctx context.Context) error {
 	s, err := c.Status(ctx)
@@ -467,6 +588,9 @@ func (c Controller) Doctor(ctx context.Context) error {
 	}
 	if !s.Tunnel.Running || !s.TunnelReady {
 		return fmt.Errorf("tunnel is not healthy")
+	}
+	if !s.VersionMatch {
+		return fmt.Errorf("installed and running gateway versions differ")
 	}
 	return nil
 }

@@ -14,10 +14,11 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
+	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	"github.com/rceman/gpt-tunnel-gateway/internal/upgrade"
 )
 
-var version = "0.5.0"
+var version = "0.5.1"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -36,6 +37,10 @@ func main() {
 		return
 	}
 	if os.Args[1] == "upgrade" {
+		if len(os.Args) > 2 && os.Args[2] == "inspect" {
+			upgradeInspect()
+			return
+		}
 		upgradeRuntime()
 		return
 	}
@@ -67,6 +72,14 @@ func main() {
 		if err == nil {
 			fmt.Println("doctor: ok")
 		}
+	case "diagnose-startup":
+		result := ctl.DiagnoseStartup(ctx)
+		output(result)
+		if result.ErrorCode != "" {
+			os.Exit(1)
+		}
+	case "state":
+		stateCommand(ctx, c)
 	case "logs":
 		name := "all"
 		lines := 100
@@ -151,6 +164,51 @@ func upgradeRuntime() {
 	output(result)
 }
 
+func upgradeInspect() {
+	path := config.DefaultPath()
+	c, err := config.Load(path)
+	if err != nil {
+		fatal(err)
+	}
+	result, runErr := upgrade.Inspect(context.Background(), c, path)
+	output(result)
+	if runErr != nil {
+		fatal(runErr)
+	}
+	if result.Status != "ready" {
+		os.Exit(1)
+	}
+}
+
+func stateCommand(ctx context.Context, c config.Config) {
+	if len(os.Args) < 3 {
+		usage()
+	}
+	s := service.New(c)
+	switch os.Args[2] {
+	case "check":
+		result, err := s.StateCheck(ctx)
+		if err != nil {
+			fatal(err)
+		}
+		output(result)
+		if !result.Valid {
+			os.Exit(1)
+		}
+	case "repair":
+		if len(os.Args) < 4 || (os.Args[3] != "--dry-run" && os.Args[3] != "--apply") {
+			usage()
+		}
+		result, err := s.StateRepair(ctx, os.Args[3] == "--apply")
+		if err != nil {
+			fatal(err)
+		}
+		output(result)
+	default:
+		usage()
+	}
+}
+
 func upgradeResultShouldPrint(status string) bool {
 	return status == "UPGRADE_ROLLED_BACK" || status == "UPGRADE_ROLLBACK_FAILED"
 }
@@ -191,7 +249,7 @@ func copyExecutable(src, dst string) error {
 	return os.Rename(name, dst)
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade|start|stop|restart|restart-gateway|status|doctor|logs [gateway|tunnel|all] [lines]|version}")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade [inspect]|start|stop|restart|restart-gateway|status|doctor|diagnose-startup|state {check|repair --dry-run|repair --apply}|logs [gateway|tunnel|all] [lines]|version}")
 	os.Exit(2)
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnelctl:", err); os.Exit(1) }

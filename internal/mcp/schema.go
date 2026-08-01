@@ -241,6 +241,7 @@ var toolOutputSchemas = map[string]map[string]any{
 	"run_status":          runOutputSchema(),
 	"run_report":          reportOutputSchema(),
 	"run_review_snapshot": reviewSnapshotOutputSchema(),
+	"run_agent_tail":      closedOutput(map[string]any{"text": outputString()}, "text"),
 	"run_sweep":           sweepOutputSchema(),
 	"run_cancel":          operationOutputSchema(),
 	"git_refresh": closedOutput(map[string]any{
@@ -263,6 +264,22 @@ var toolOutputSchemas = map[string]map[string]any{
 func readOnlyAnnotations() ToolAnnotations {
 	return ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: false}
 }
+
+// canonicalToolManifest is the single stable inventory used to verify that
+// registration, schemas, annotations, and contract tests describe the same
+// MCP surface. Its length is deliberately not a protocol assertion.
+var canonicalToolManifest = []string{
+	"system_ping", "gateway_capabilities", "project_list", "project_read", "project_status",
+	"project_register", "plan_read", "plan_cutover", "plan_update", "plan_section_read",
+	"plan_section_create", "plan_section_update", "plan_section_delete", "plan_render", "plan_history",
+	"adr_list", "adr_read", "adr_create", "task_create", "task_list", "task_read", "task_dispatch",
+	"task_supersede", "task_cancel", "run_list", "run_read", "run_status", "run_report",
+	"run_review_snapshot", "run_agent_tail", "run_sweep", "run_cancel", "git_refresh", "git_refs",
+	"git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare", "git_merge_base",
+	"git_worktree_status", "git_worktree_diff",
+}
+
+func canonicalToolNames() []string { return append([]string{}, canonicalToolManifest...) }
 func additiveExternalAnnotations() ToolAnnotations {
 	return ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: false, OpenWorldHint: true}
 }
