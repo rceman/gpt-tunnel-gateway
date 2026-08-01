@@ -37,6 +37,25 @@ func testService(t *testing.T) (*Service, string, string) {
 	return s, reg.Hub.After, projectHead
 }
 
+func dispatchedRun(t *testing.T, branch string) (*Service, model.Task, model.Run, string) {
+	t.Helper()
+	s, hubRevision, projectHead := testService(t)
+	ctx := context.Background()
+	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Synthetic proof", Objective: "Exercise durable synthetic proof.", Branch: branch, BaseRevision: projectHead, AcceptanceCriteria: []string{"durable"}, CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Title: planString("Synthetic proof"), Summary: planString("Synthetic proof"), CurrentObjective: planString("Exercise durable synthetic proof."), ActiveTaskID: planString(task.ID), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, task, run, projectHead
+}
+
 func TestValidateConfiguredProjectRecordsRejectsMissingDurableRecord(t *testing.T) {
 	s, _, _ := testService(t)
 	s.Config.Projects["missing"] = s.Config.Projects["example"]
@@ -666,7 +685,7 @@ func TestSyntheticFailureUsesDurableBaseProof(t *testing.T) {
 	}
 	foundRisk := false
 	for _, risk := range report.RemainingRisks {
-		if strings.Contains(risk, "not remotely durable") || strings.Contains(risk, "unpublished") {
+		if strings.Contains(risk, "published task branch was absent") || strings.Contains(risk, "unpublished") {
 			foundRisk = true
 		}
 	}
@@ -677,4 +696,196 @@ func TestSyntheticFailureUsesDurableBaseProof(t *testing.T) {
 	if err != nil || !snapshot.Report.Available {
 		t.Fatalf("synthetic report failed review snapshot validation: available=%v err=%v", snapshot.Report.Available, err)
 	}
+	project = s.Config.Projects["example"]
+	remote := strings.TrimSpace(testutil.Git(t, project.Root, "remote", "get-url", "origin"))
+	coldParent := t.TempDir()
+	cold := filepath.Join(coldParent, "cold")
+	testutil.Git(t, coldParent, "clone", "--no-local", "--single-branch", "--branch", "main", remote, cold)
+	project.Root = cold
+	project.Mirror = filepath.Join(t.TempDir(), "cold-mirror.git")
+	s.Config.Projects["example"] = project
+	if stored, err := s.RunReport(ctx, run.ID); err != nil || stored.Repository.Head != projectHead {
+		t.Fatalf("cold base fallback report failed: head=%s err=%v", stored.Repository.Head, err)
+	}
+	if snapshot, err := s.RunReviewSnapshot(ctx, run.ID); err != nil || !snapshot.Report.Available {
+		t.Fatalf("cold base fallback snapshot failed: available=%v err=%v", snapshot.Report.Available, err)
+	}
+}
+
+func TestSyntheticPublishedBranchProofSelection(t *testing.T) {
+	t.Run("exact local head", func(t *testing.T) {
+		s, task, run, _ := dispatchedRun(t, "feature/synthetic-exact")
+		ctx := context.Background()
+		project := s.Config.Projects["example"]
+		if err := os.WriteFile(filepath.Join(project.Root, "published.txt"), []byte("published\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		testutil.Git(t, project.Root, "add", "published.txt")
+		testutil.Git(t, project.Root, "commit", "-m", "published synthetic proof")
+		testutil.Git(t, project.Root, "push", "origin", "feature/synthetic-exact")
+		publishedHead := strings.TrimSpace(testutil.Git(t, project.Root, "rev-parse", "HEAD"))
+		if _, err := s.failRun(ctx, run, task, "failed", "synthetic failure", mustHubRevision(t, s)); err != nil {
+			t.Fatal(err)
+		}
+		report, err := s.RunReport(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if report.Repository.Head != publishedHead || !report.Repository.WorktreeClean {
+			t.Fatalf("exact published proof mismatch: %#v", report.Repository)
+		}
+		if snapshot, err := s.RunReviewSnapshot(ctx, run.ID); err != nil || !snapshot.Report.Available {
+			t.Fatalf("exact published proof snapshot failed: available=%v err=%v", snapshot.Report.Available, err)
+		}
+	})
+
+	t.Run("published branch behind local head", func(t *testing.T) {
+		s, task, run, _ := dispatchedRun(t, "feature/synthetic-behind")
+		ctx := context.Background()
+		project := s.Config.Projects["example"]
+		if err := os.WriteFile(filepath.Join(project.Root, "published.txt"), []byte("published\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		testutil.Git(t, project.Root, "add", "published.txt")
+		testutil.Git(t, project.Root, "commit", "-m", "published synthetic proof")
+		testutil.Git(t, project.Root, "push", "origin", "feature/synthetic-behind")
+		publishedHead := strings.TrimSpace(testutil.Git(t, project.Root, "rev-parse", "HEAD"))
+		if err := os.WriteFile(filepath.Join(project.Root, "local-only.txt"), []byte("local\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		testutil.Git(t, project.Root, "add", "local-only.txt")
+		testutil.Git(t, project.Root, "commit", "-m", "unpublished local proof")
+		localHead := strings.TrimSpace(testutil.Git(t, project.Root, "rev-parse", "HEAD"))
+		if localHead == publishedHead {
+			t.Fatal("test did not create a local commit ahead of the published branch")
+		}
+		if _, err := s.failRun(ctx, run, task, "failed", "synthetic failure", mustHubRevision(t, s)); err != nil {
+			t.Fatal(err)
+		}
+		report, err := s.RunReport(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if report.Repository.Head != publishedHead || report.Repository.WorktreeClean {
+			t.Fatalf("published-behind proof mismatch: %#v", report.Repository)
+		}
+		foundRisk := false
+		for _, risk := range report.RemainingRisks {
+			if strings.Contains(risk, "local unpublished commits") {
+				foundRisk = true
+			}
+		}
+		if !foundRisk {
+			t.Fatalf("published-behind risk missing: %#v", report.RemainingRisks)
+		}
+		if snapshot, err := s.RunReviewSnapshot(ctx, run.ID); err != nil || !snapshot.Report.Available {
+			t.Fatalf("published-behind snapshot failed: available=%v err=%v", snapshot.Report.Available, err)
+		}
+		remote := strings.TrimSpace(testutil.Git(t, project.Root, "remote", "get-url", "origin"))
+		coldParent := t.TempDir()
+		cold := filepath.Join(coldParent, "cold")
+		testutil.Git(t, coldParent, "clone", "--no-local", "--single-branch", "--branch", "main", remote, cold)
+		project.Root = cold
+		project.Mirror = filepath.Join(t.TempDir(), "cold-mirror.git")
+		s.Config.Projects["example"] = project
+		if stored, err := s.RunReport(ctx, run.ID); err != nil || stored.Repository.Head != publishedHead {
+			t.Fatalf("cold published-behind report failed: head=%s err=%v", stored.Repository.Head, err)
+		}
+		if snapshot, err := s.RunReviewSnapshot(ctx, run.ID); err != nil || !snapshot.Report.Available {
+			t.Fatalf("cold published-behind snapshot failed: available=%v err=%v", snapshot.Report.Available, err)
+		}
+	})
+
+	t.Run("published branch with dirty local state", func(t *testing.T) {
+		s, task, run, _ := dispatchedRun(t, "feature/synthetic-dirty")
+		ctx := context.Background()
+		project := s.Config.Projects["example"]
+		if err := os.WriteFile(filepath.Join(project.Root, "published.txt"), []byte("published\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		testutil.Git(t, project.Root, "add", "published.txt")
+		testutil.Git(t, project.Root, "commit", "-m", "published synthetic proof")
+		testutil.Git(t, project.Root, "push", "origin", "feature/synthetic-dirty")
+		publishedHead := strings.TrimSpace(testutil.Git(t, project.Root, "rev-parse", "HEAD"))
+		if err := os.WriteFile(filepath.Join(project.Root, "dirty.txt"), []byte("dirty\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.failRun(ctx, run, task, "failed", "synthetic failure", mustHubRevision(t, s)); err != nil {
+			t.Fatal(err)
+		}
+		report, err := s.RunReport(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if report.Repository.Head != publishedHead || report.Repository.WorktreeClean {
+			t.Fatalf("dirty published proof mismatch: %#v", report.Repository)
+		}
+		foundRisk := false
+		for _, risk := range report.RemainingRisks {
+			if strings.Contains(risk, "worktree was dirty") {
+				foundRisk = true
+			}
+		}
+		if !foundRisk {
+			t.Fatalf("dirty-state risk missing: %#v", report.RemainingRisks)
+		}
+		if snapshot, err := s.RunReviewSnapshot(ctx, run.ID); err != nil || !snapshot.Report.Available {
+			t.Fatalf("dirty published proof snapshot failed: available=%v err=%v", snapshot.Report.Available, err)
+		}
+	})
+}
+
+func TestSyntheticInvalidPublishedBranchFailsAtomically(t *testing.T) {
+	s, task, run, _ := dispatchedRun(t, "feature/synthetic-invalid")
+	ctx := context.Background()
+	project := s.Config.Projects["example"]
+	remote := strings.TrimSpace(testutil.Git(t, project.Root, "remote", "get-url", "origin"))
+	moverParent := t.TempDir()
+	mover := filepath.Join(moverParent, "mover")
+	testutil.Git(t, moverParent, "clone", "--no-local", remote, mover)
+	testutil.Git(t, mover, "config", "user.name", "Test User")
+	testutil.Git(t, mover, "config", "user.email", "test@example.invalid")
+	testutil.Git(t, mover, "switch", "--orphan", "unrelated")
+	if err := os.WriteFile(filepath.Join(mover, "unrelated.txt"), []byte("unrelated\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, mover, "add", "unrelated.txt")
+	testutil.Git(t, mover, "commit", "-m", "unrelated published proof")
+	testutil.Git(t, mover, "branch", "-M", "feature/synthetic-invalid")
+	testutil.Git(t, mover, "push", "origin", "feature/synthetic-invalid")
+	before, err := s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.failRun(ctx, run, task, "failed", "synthetic failure", before); err == nil || !strings.Contains(err.Error(), "not descended") {
+		t.Fatalf("invalid published branch was accepted: %v", err)
+	}
+	after, err := s.Hub.RemoteRevision(ctx)
+	if err != nil || after != before {
+		t.Fatalf("invalid published branch mutated hub: before=%s after=%s err=%v", before, after, err)
+	}
+	active, err := s.RunRead(ctx, run.ID)
+	if err != nil || active.Status != "awaiting_result" {
+		t.Fatalf("invalid published branch changed run: %#v %v", active, err)
+	}
+	state, err := s.taskState(ctx, task)
+	if err != nil || state.Status != "dispatched" {
+		t.Fatalf("invalid published branch changed task: %#v %v", state, err)
+	}
+	plan, err := s.PlanRead(ctx, task.ProjectID)
+	if err != nil || plan.ActiveRunID != run.ID {
+		t.Fatalf("invalid published branch changed plan: %#v %v", plan, err)
+	}
+	if _, err := s.RunReport(ctx, run.ID); err == nil {
+		t.Fatal("invalid published branch created a report")
+	}
+}
+
+func mustHubRevision(t *testing.T, s *Service) string {
+	t.Helper()
+	revision, err := s.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return revision
 }

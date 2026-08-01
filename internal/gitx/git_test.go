@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -65,5 +66,25 @@ func TestResolveMirrorRefStatusDistinguishesMissingBranch(t *testing.T) {
 	sha, exists, err := r.ResolveMirrorRefStatus(context.Background(), p, "refs/remotes/origin/no-such-branch")
 	if err != nil || exists || sha != "" {
 		t.Fatalf("missing ref result sha=%q exists=%v err=%v", sha, exists, err)
+	}
+}
+
+func TestMirrorBranchHeadRejectsUnresolvableListedBranch(t *testing.T) {
+	_, work, _ := testutil.RepoWithBareRemote(t)
+	p := config.ProjectConfig{Root: work, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "x_master"}
+	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	ctx := context.Background()
+	if err := r.Refresh(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	refPath := filepath.Join(p.Mirror, "refs", "heads", "feature", "broken")
+	if err := os.MkdirAll(filepath.Dir(refPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(refPath, []byte(strings.Repeat("f", 40)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.MirrorBranchHead(ctx, p, "feature/broken"); err == nil {
+		t.Fatal("unresolvable listed branch was treated as absent")
 	}
 }

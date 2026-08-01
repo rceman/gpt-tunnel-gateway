@@ -505,8 +505,38 @@ func (r Runner) MirrorBranchHead(ctx context.Context, p config.ProjectConfig, br
 		if exists {
 			return head, true, nil
 		}
+		listed, err := r.mirrorRefListed(ctx, p, ref)
+		if err != nil {
+			return "", false, err
+		}
+		if listed {
+			return "", false, fmt.Errorf("mirror branch ref does not resolve exactly")
+		}
 	}
 	return "", false, nil
+}
+
+func (r Runner) mirrorRefListed(ctx context.Context, p config.ProjectConfig, ref string) (bool, error) {
+	if err := model.ValidateBranch(strings.TrimPrefix(strings.TrimPrefix(ref, "refs/remotes/origin/"), "refs/heads/")); err != nil {
+		return false, err
+	}
+	if err := r.EnsureMirror(ctx, p); err != nil {
+		return false, err
+	}
+	out, err := r.command(ctx, p.Mirror, true, "for-each-ref", "--format=%(refname)", ref)
+	if err != nil {
+		return false, err
+	}
+	text, err := bounded(out, r.MaxReadBytes)
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
+		if strings.TrimSpace(line) == ref {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (r Runner) MirrorChangedFiles(ctx context.Context, p config.ProjectConfig, from, to string) ([]string, error) {

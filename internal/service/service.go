@@ -1259,16 +1259,16 @@ func (s *Service) durableRepositoryProof(ctx context.Context, run model.Run, pro
 			return model.RepositoryProof{}, nil, fmt.Errorf("final project HEAD is not descended from task base")
 		}
 	} else {
-		if published && publishedHead == localHead {
+		if published {
 			proof, err = s.deriveMirrorRepositoryProof(ctx, run, project, publishedHead)
-			if err != nil || !proof.BaseAncestor {
-				proof = model.RepositoryProof{}
-				addUniqueRisk(&risks, "published task-branch proof was unavailable; canonical proof uses the immutable task base")
+			if err != nil {
+				return model.RepositoryProof{}, nil, err
+			}
+			if !proof.BaseAncestor {
+				return model.RepositoryProof{}, nil, fmt.Errorf("published task branch is not descended from task base")
 			}
 		} else {
-			addUniqueRisk(&risks, "local repository state was not remotely durable; canonical proof uses the immutable task base")
-		}
-		if proof.Head == "" {
+			addUniqueRisk(&risks, "published task branch was absent; canonical proof uses the immutable task base")
 			proof, err = s.deriveMirrorRepositoryProof(ctx, run, project, run.BaseRevision)
 			if err != nil {
 				return model.RepositoryProof{}, nil, err
