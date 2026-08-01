@@ -35,7 +35,7 @@
 31. `run_review_snapshot` is a bounded read-only aggregate: it refreshes the managed mirror once, omits session and local-path details, and reports deterministic structural checks for active or terminal runs without dispatching work.
 32. New runs expose only one local `completion.json`; new hub run state is exactly `run.json` plus canonical `report.json`.
 33. Terminal completion statuses are only `succeeded`, `failed`, and `needs_gpt_revision`; every terminal path clears active task/run ownership. Historical protocol-v1 run records are bounded, read-only projections with legacy paths redacted and are rejected by every operational run path.
-34. `run_report` refreshes the managed mirror before validating canonical Git proof. Report proof uses only mirror-resolved HEAD, ancestry, bounded oldest-to-newest commits, canonical changed files, and task/default-branch reachability; it never requires the checked-out project worktree to contain the task commit.
+34. `run_report` refreshes the managed mirror before validating canonical Git proof. Report proof uses only mirror-resolved HEAD, ancestry, bounded oldest-to-newest commits, canonical changed files, and task/default-branch reachability; an exact immutable task base remains valid when its task branch is absent, while other absent-branch heads must remain reachable from the default branch. It never requires the checked-out project worktree to contain the task commit.
 
 ## Lifecycle
 

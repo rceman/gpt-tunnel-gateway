@@ -1620,6 +1620,9 @@ func (s *Service) validateCanonicalReportProof(ctx context.Context, report model
 		}
 		return nil
 	}
+	if report.Repository.Head == run.BaseRevision {
+		return nil
+	}
 	defaultHead, defaultExists, err := s.Git.MirrorBranchHead(ctx, project, project.DefaultBranch)
 	if err != nil {
 		return err
