@@ -67,7 +67,7 @@ Committed history is read from managed bare mirrors so refreshes do not race wit
 
 ## Agent transport
 
-Airelay carries only a short action and task-reading command. The complete execution packet is generated locally by `gpt-tunnel task read <task-id>`. Agents write one bounded completion document; the gateway derives Git proof and writes only `run.json` and `report.json` to the hub. The persistent session is owner-managed; the gateway never starts or resumes Codex.
+Airelay carries only a short action and task-reading command. The complete execution packet is generated locally by `gpt-tunnel task read <task-id>`. Agents commit changes, run the required gates, push the task branch, and then write one bounded completion document; the gateway refreshes its managed mirror, derives durable Git proof, and writes only `run.json` and `report.json` to the hub. The persistent session is owner-managed; the gateway never starts or resumes Codex.
 
 ## Runtime binding
 

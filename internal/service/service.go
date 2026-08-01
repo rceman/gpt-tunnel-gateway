@@ -1203,6 +1203,91 @@ func canonicalReport(report model.Report) model.Report {
 	}
 	return report
 }
+
+func addUniqueRisk(risks *[]string, risk string) {
+	for _, existing := range *risks {
+		if existing == risk {
+			return
+		}
+	}
+	*risks = append(*risks, risk)
+}
+
+func (s *Service) deriveMirrorRepositoryProof(ctx context.Context, run model.Run, project config.ProjectConfig, head string) (model.RepositoryProof, error) {
+	resolved, exists, err := s.Git.ResolveMirrorRefStatus(ctx, project, head)
+	if err != nil || !exists || resolved != head {
+		return model.RepositoryProof{}, fmt.Errorf("durable report HEAD does not resolve exactly")
+	}
+	ancestor, err := s.Git.MirrorAncestor(ctx, project, run.BaseRevision, head)
+	if err != nil {
+		return model.RepositoryProof{}, err
+	}
+	files, err := s.Git.MirrorChangedFiles(ctx, project, run.BaseRevision, head)
+	if err != nil {
+		return model.RepositoryProof{}, err
+	}
+	commits, err := s.Git.MirrorLog(ctx, project, run.BaseRevision, head, s.Config.MaxListItems)
+	if err != nil {
+		return model.RepositoryProof{}, err
+	}
+	ids := make([]string, 0, len(commits))
+	for _, commit := range commits {
+		ids = append(ids, commit.SHA)
+	}
+	return model.RepositoryProof{Branch: run.Branch, Head: head, BaseAncestor: ancestor, Commits: ids, ChangedFiles: files, DiffScope: run.BaseRevision + ".." + head}, nil
+}
+
+func (s *Service) durableRepositoryProof(ctx context.Context, run model.Run, project config.ProjectConfig, localHead, localBranch string, localClean, requirePublished bool) (model.RepositoryProof, []string, error) {
+	if err := s.Git.Refresh(ctx, project); err != nil {
+		return model.RepositoryProof{}, nil, err
+	}
+	publishedHead, published, err := s.Git.MirrorBranchHead(ctx, project, run.Branch)
+	if err != nil {
+		return model.RepositoryProof{}, nil, err
+	}
+	risks := []string{}
+	var proof model.RepositoryProof
+	if requirePublished {
+		if !published || publishedHead != localHead {
+			return model.RepositoryProof{}, nil, fmt.Errorf("task branch must be pushed before finalization")
+		}
+		proof, err = s.deriveMirrorRepositoryProof(ctx, run, project, localHead)
+		if err != nil {
+			return model.RepositoryProof{}, nil, err
+		}
+		if !proof.BaseAncestor {
+			return model.RepositoryProof{}, nil, fmt.Errorf("final project HEAD is not descended from task base")
+		}
+	} else {
+		if published && publishedHead == localHead {
+			proof, err = s.deriveMirrorRepositoryProof(ctx, run, project, publishedHead)
+			if err != nil || !proof.BaseAncestor {
+				proof = model.RepositoryProof{}
+				addUniqueRisk(&risks, "published task-branch proof was unavailable; canonical proof uses the immutable task base")
+			}
+		} else {
+			addUniqueRisk(&risks, "local repository state was not remotely durable; canonical proof uses the immutable task base")
+		}
+		if proof.Head == "" {
+			proof, err = s.deriveMirrorRepositoryProof(ctx, run, project, run.BaseRevision)
+			if err != nil {
+				return model.RepositoryProof{}, nil, err
+			}
+		}
+	}
+	proof.WorktreeClean = localClean && localBranch == run.Branch && localHead == proof.Head
+	if localBranch != "" && localBranch != run.Branch {
+		addUniqueRisk(&risks, "local worktree was not on the task branch; canonical proof excludes that local state")
+	}
+	if !localClean {
+		addUniqueRisk(&risks, "local worktree was dirty; uncommitted changes were excluded from canonical proof")
+	}
+	if localHead != "" && localHead != proof.Head {
+		addUniqueRisk(&risks, "local unpublished commits were excluded from canonical proof")
+	}
+	return proof, risks, nil
+}
+
 func (s *Service) failRun(ctx context.Context, run model.Run, task model.Task, status, summary, expected string) (hub.TransactionResult, error) {
 	if err := ensureOperationalRun(run); err != nil {
 		return hub.TransactionResult{}, err
@@ -1210,39 +1295,23 @@ func (s *Service) failRun(ctx context.Context, run model.Run, task model.Task, s
 	now := time.Now().UTC()
 	run.Status = status
 	run.FinishedAt = &now
-	local, _ := s.projectConfig(task.ProjectID)
-	head := task.BaseRevision
-	branch := task.Branch
+	local, err := s.projectConfig(task.ProjectID)
+	if err != nil {
+		return hub.TransactionResult{}, err
+	}
+	head := run.BaseRevision
+	branch := run.Branch
 	clean := false
 	if local.Root != "" {
-		if h, _, c, e := s.Git.CurrentHead(ctx, local); e == nil {
-			head, clean = h, c
+		if h, b, c, e := s.Git.CurrentHead(ctx, local); e == nil {
+			head, branch, clean = h, b, c
 		}
 	}
-	ancestor := false
-	if head == run.BaseRevision {
-		ancestor = true
+	proof, risks, err := s.durableRepositoryProof(ctx, run, local, head, branch, clean, false)
+	if err != nil {
+		return hub.TransactionResult{}, err
 	}
-	if head != "" && local.Root != "" {
-		ancestor, _ = s.Git.IsAncestor(ctx, local.Root, run.BaseRevision, head)
-	}
-	commits := []string{}
-	changedFiles := []string{}
-	if local.Root != "" && head != "" {
-		actualFiles, e := s.Git.ChangedFiles(ctx, local.Root, run.BaseRevision, head)
-		if e != nil {
-			return hub.TransactionResult{}, e
-		}
-		changedFiles = actualFiles
-		log, e := s.Git.LocalLog(ctx, local.Root, run.BaseRevision, head, s.Config.MaxListItems)
-		if e != nil {
-			return hub.TransactionResult{}, e
-		}
-		for _, commit := range log {
-			commits = append(commits, commit.SHA)
-		}
-	}
-	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: task.ProjectID, Status: status, Summary: summary, Repository: model.RepositoryProof{Branch: branch, Head: head, WorktreeClean: clean, BaseAncestor: ancestor, Commits: commits, ChangedFiles: changedFiles, DiffScope: run.BaseRevision + ".." + head}, FinishedAt: now})
+	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: task.ProjectID, Status: status, Summary: summary, RemainingRisks: risks, Repository: proof, FinishedAt: now})
 	state := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: taskStateStatusForResult(status), UpdatedAt: now}
 	plan, err := s.PlanRead(ctx, task.ProjectID)
 	if err != nil {
@@ -1319,7 +1388,7 @@ func renderPacket(task model.Task, run model.Run, project model.Project, plan mo
 	for _, v := range task.RequiredGates {
 		fmt.Fprintf(&b, "- %s\n", v)
 	}
-	fmt.Fprintf(&b, "\n## Global plan context\n\n%s\n\nCurrent objective: %s\n\n## Completion contract\n\nWrite one strict completion JSON atomically to:\n  %s\n\nFinalize with:\n  gpt-tunnel run finalize %s\n\nThe task is not complete until finalization prints TASK_FINALIZED. Do not finish only in chat or Airelay.\n", plan.Summary, plan.CurrentObjective, run.CompletionPath, run.ID)
+	fmt.Fprintf(&b, "\n## Global plan context\n\n%s\n\nCurrent objective: %s\n\n## Completion contract\n\nBefore writing completion.json, commit the implementation, run every required gate, and push the task branch. Then write one strict completion JSON atomically to:\n  %s\n\nFinalize with:\n  gpt-tunnel run finalize %s\n\nThe task is not complete until finalization prints TASK_FINALIZED. Do not finish only in chat or Airelay.\n", plan.Summary, plan.CurrentObjective, run.CompletionPath, run.ID)
 	return b.String()
 }
 
@@ -1418,29 +1487,18 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if completion.Status == "succeeded" && !clean {
 		return model.Report{}, OperationResult{}, fmt.Errorf("successful run must leave clean worktree")
 	}
-	ancestor, err := s.Git.IsAncestor(ctx, local.Root, run.BaseRevision, head)
+	proof, risks, err := s.durableRepositoryProof(ctx, run, local, head, branch, clean, true)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
-	}
-	if !ancestor {
-		return model.Report{}, OperationResult{}, fmt.Errorf("final project HEAD is not descended from task base")
-	}
-	actualFiles, err := s.Git.ChangedFiles(ctx, local.Root, run.BaseRevision, head)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	commits, err := s.Git.LocalLog(ctx, local.Root, run.BaseRevision, head, s.Config.MaxListItems)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	commitIDs := make([]string, 0, len(commits))
-	for _, c := range commits {
-		commitIDs = append(commitIDs, c.SHA)
 	}
 	now := time.Now().UTC()
 	run.Status = completion.Status
 	run.FinishedAt = &now
-	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: run.ProjectID, Status: completion.Status, Summary: completion.Summary, GateResults: completion.GateResults, AcceptanceCoverage: completion.AcceptanceCoverage, Deviations: completion.Deviations, RemainingRisks: completion.RemainingRisks, Repository: model.RepositoryProof{Branch: branch, Head: head, WorktreeClean: clean, BaseAncestor: ancestor, Commits: commitIDs, ChangedFiles: actualFiles, DiffScope: run.BaseRevision + ".." + head}, FinishedAt: now})
+	remainingRisks := append([]string{}, completion.RemainingRisks...)
+	for _, risk := range risks {
+		addUniqueRisk(&remainingRisks, risk)
+	}
+	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: run.ProjectID, Status: completion.Status, Summary: completion.Summary, GateResults: completion.GateResults, AcceptanceCoverage: completion.AcceptanceCoverage, Deviations: completion.Deviations, RemainingRisks: remainingRisks, Repository: proof, FinishedAt: now})
 	expected := in.ExpectedHubRevision
 	if expected == "" {
 		expected, err = s.hubRevision(ctx)
@@ -1539,39 +1597,20 @@ func sameStrings(left, right []string) bool {
 }
 
 func (s *Service) validateCanonicalReportProof(ctx context.Context, report model.Report, run model.Run, project config.ProjectConfig) error {
-	if report.Repository.Branch != run.Branch {
-		return fmt.Errorf("report branch does not match task branch")
-	}
-	resolvedHead, exists, err := s.Git.ResolveMirrorRefStatus(ctx, project, report.Repository.Head)
-	if err != nil || !exists || resolvedHead != report.Repository.Head {
-		return fmt.Errorf("report repository HEAD does not resolve exactly")
-	}
-	ancestor, err := s.Git.MirrorAncestor(ctx, project, run.BaseRevision, report.Repository.Head)
+	proof, err := s.deriveMirrorRepositoryProof(ctx, run, project, report.Repository.Head)
 	if err != nil {
 		return err
 	}
-	if ancestor != report.Repository.BaseAncestor {
-		return fmt.Errorf("report ancestry proof does not match Git")
+	if report.Repository.Branch != proof.Branch || report.Repository.BaseAncestor != proof.BaseAncestor || report.Repository.DiffScope != proof.DiffScope {
+		return fmt.Errorf("report repository proof does not match Git")
 	}
-	actualFiles, err := s.Git.MirrorChangedFiles(ctx, project, run.BaseRevision, report.Repository.Head)
-	if err != nil {
-		return err
-	}
-	if !sameStrings(actualFiles, report.Repository.ChangedFiles) {
+	if !sameStrings(proof.ChangedFiles, report.Repository.ChangedFiles) {
 		return fmt.Errorf("report changed files do not match Git")
 	}
-	commits, err := s.Git.MirrorLog(ctx, project, run.BaseRevision, report.Repository.Head, s.Config.MaxListItems)
-	if err != nil {
-		return err
-	}
-	actualCommits := make([]string, 0, len(commits))
-	for _, commit := range commits {
-		actualCommits = append(actualCommits, commit.SHA)
-	}
-	if !sameStrings(actualCommits, report.Repository.Commits) {
+	if !sameStrings(proof.Commits, report.Repository.Commits) {
 		return fmt.Errorf("report commits do not match Git history")
 	}
-	branchHead, branchExists, err := s.Git.MirrorBranchHead(ctx, project, report.Repository.Branch)
+	branchHead, branchExists, err := s.Git.MirrorBranchHead(ctx, project, proof.Branch)
 	if err != nil {
 		return err
 	}

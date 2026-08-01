@@ -13,7 +13,7 @@
 9. An existing task branch is accepted only when the task base is an ancestor; otherwise dispatch fails without reset, clean, delete, or force-update.
 10. Airelay messages are at most 256 bytes and contain no task body.
 11. Successful prompt delivery moves a run to `awaiting_result`; it never means success.
-12. `run finalize` reads only the gateway-owned run `completion.json` path (an optional CLI path must normalize exactly to that path), validates exact task/run identity, task hash, positional receipts, and terminal status, then derives repository proof independently.
+12. The agent order is commit, run every required gate, push the task branch, write the gateway-owned `completion.json`, then finalize. `run finalize` accepts only a task branch published at the final local HEAD and derives repository proof from the refreshed managed mirror.
 13. Failed dispatch, repository preparation failure, cancellation timeout, and completion timeout produce one canonical failed report; they never create result or evidence artifacts.
 14. Cancellation is cooperative and never signals the shared persistent agent process.
 15. The canonical plan is schema-v2: a compact manifest plus independently versioned named sections; no full section description is returned by `plan_read` or compact project status.
