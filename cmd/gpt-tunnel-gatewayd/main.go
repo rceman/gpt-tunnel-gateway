@@ -13,7 +13,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-var version = "0.4.0"
+var version = "0.5.0"
 
 func main() {
 	configPath := flag.String("config", config.DefaultPath(), "configuration file")

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0 — 2026-08-01
+
+- Publish workflow 2.0 with one gateway-owned completion file, planner-2.0 positional receipts, gateway-derived mirror-backed proof, and one canonical report; terminal `needs_gpt_revision`, read-only protocol-v1 history, push-before-finalize, and removal of normal result/evidence authority.
+
 ## 0.4.0 — unreleased
 
 - Replace monolithic plan storage with a schema-v2 compact manifest and independently editable sections, including direct migration and typed CLI/MCP operations.
