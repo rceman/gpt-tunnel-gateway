@@ -48,7 +48,19 @@ func (s *Service) RunReviewSnapshot(ctx context.Context, id string) (model.Revie
 		Checks: []model.ReviewSnapshotCheck{},
 	}
 	terminal := !activeStatus(run.Status)
-	report, reportErr := s.readSnapshotReport(ctx, run, task)
+	project, err := s.projectConfig(run.ProjectID)
+	if err != nil {
+		return model.ReviewSnapshot{}, err
+	}
+	repo := model.ReviewSnapshotRepo{RefreshAttempted: true, DefaultBranch: project.DefaultBranch, TaskBranch: run.Branch, ChangedFiles: []string{}}
+	refreshErr := s.Git.Refresh(ctx, project)
+	var report model.ReviewSnapshotReport
+	var reportErr error
+	if refreshErr != nil {
+		reportErr = refreshErr
+	} else {
+		report, reportErr = s.readSnapshotReport(ctx, run, task, project)
+	}
 	evidence, evidenceErr := snapshotEvidenceFromReport(report, reportErr)
 	if terminal && reportErr == nil {
 		wantState := "ready"
@@ -71,13 +83,8 @@ func (s *Service) RunReviewSnapshot(ctx context.Context, id string) (model.Revie
 	}
 	snapshot.Report, snapshot.Evidence = report, evidence
 
-	project, err := s.projectConfig(run.ProjectID)
-	if err != nil {
-		return model.ReviewSnapshot{}, err
-	}
-	repo := model.ReviewSnapshotRepo{RefreshAttempted: true, DefaultBranch: project.DefaultBranch, TaskBranch: run.Branch, ChangedFiles: []string{}}
-	if err := s.Git.Refresh(ctx, project); err != nil {
-		repo.RefreshError = snapshotDetail(err)
+	if refreshErr != nil {
+		repo.RefreshError = snapshotDetail(refreshErr)
 	} else {
 		repo.RefreshSucceeded = true
 		s.fillSnapshotRepository(ctx, project, run, snapshot.Evidence, snapshot.Report, &repo)
@@ -118,7 +125,7 @@ func (s *Service) readTaskForRun(ctx context.Context, run model.Run) (model.Task
 	return task, nil
 }
 
-func (s *Service) readSnapshotReport(ctx context.Context, run model.Run, task model.Task) (model.ReviewSnapshotReport, error) {
+func (s *Service) readSnapshotReport(ctx context.Context, run model.Run, task model.Task, project config.ProjectConfig) (model.ReviewSnapshotReport, error) {
 	var report model.Report
 	if err := s.Hub.ReadJSON(ctx, s.reportPath(run.ProjectID, run.ID), &report); err != nil {
 		return model.ReviewSnapshotReport{}, err
@@ -129,7 +136,7 @@ func (s *Service) readSnapshotReport(ctx context.Context, run model.Run, task mo
 	if err := model.ValidateReport(report, task, run, s.Config.MaxListItems); err != nil {
 		return model.ReviewSnapshotReport{}, err
 	}
-	if err := s.validateCanonicalReportProof(ctx, report, run); err != nil {
+	if err := s.validateCanonicalReportProof(ctx, report, run, project); err != nil {
 		return model.ReviewSnapshotReport{}, err
 	}
 	if run.Status != report.Status {

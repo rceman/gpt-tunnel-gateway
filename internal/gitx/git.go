@@ -122,7 +122,11 @@ func (r Runner) Refresh(ctx context.Context, p config.ProjectConfig) error {
 	if err := r.EnsureMirror(ctx, p); err != nil {
 		return err
 	}
-	_, err := r.command(ctx, p.Mirror, true, "remote", "update", "--prune")
+	out, err := r.command(ctx, p.Mirror, true, "remote", "update", "--prune")
+	if err != nil {
+		return err
+	}
+	_, err = bounded(out, r.MaxReadBytes)
 	return err
 }
 func (r Runner) Refs(ctx context.Context, p config.ProjectConfig) ([]Ref, error) {
@@ -437,6 +441,74 @@ func (r Runner) MirrorAncestor(ctx context.Context, p config.ProjectConfig, ance
 	return false, err
 }
 
+// MirrorLog returns the exact oldest-to-newest bounded commit range from the
+// managed mirror. It never consults the configured project worktree.
+func (r Runner) MirrorLog(ctx context.Context, p config.ProjectConfig, from, to string, limit int) ([]Commit, error) {
+	if err := model.ValidateRevision(from); err != nil {
+		return nil, err
+	}
+	if err := model.ValidateRevision(to); err != nil {
+		return nil, err
+	}
+	if limit < 1 || limit > r.MaxListItems {
+		return nil, fmt.Errorf("invalid log limit")
+	}
+	if err := r.EnsureMirror(ctx, p); err != nil {
+		return nil, err
+	}
+	countOut, err := r.command(ctx, p.Mirror, true, "rev-list", "--count", from+".."+to)
+	if err != nil {
+		return nil, err
+	}
+	count, err := strconv.Atoi(strings.TrimSpace(string(countOut)))
+	if err != nil {
+		return nil, fmt.Errorf("invalid commit count")
+	}
+	if count > limit {
+		return nil, fmt.Errorf("commit range exceeds configured limit")
+	}
+	format := "%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00"
+	out, err := r.command(ctx, p.Mirror, true, "log", "--reverse", "--no-decorate", "--max-count="+strconv.Itoa(limit), "--format="+format, from+".."+to)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := bounded(out, r.MaxReadBytes); err != nil {
+		return nil, err
+	}
+	parts := bytes.Split(out, []byte{0})
+	items := []Commit{}
+	for i := 0; i+5 < len(parts) && len(items) < limit; i += 6 {
+		sha := strings.TrimSpace(string(parts[i]))
+		if sha == "" {
+			continue
+		}
+		items = append(items, Commit{SHA: sha, Parents: strings.Fields(string(parts[i+1])), AuthorName: string(parts[i+2]), AuthorEmail: string(parts[i+3]), AuthorDate: string(parts[i+4]), Subject: string(parts[i+5])})
+	}
+	if len(items) != count {
+		return nil, fmt.Errorf("commit range output is incomplete")
+	}
+	return items, nil
+}
+
+// MirrorBranchHead resolves a branch from the refreshed managed mirror. The
+// remote-tracking ref is authoritative when present; the local branch ref is
+// supported because a mirror clone stores fetched remote branches there.
+func (r Runner) MirrorBranchHead(ctx context.Context, p config.ProjectConfig, branch string) (string, bool, error) {
+	if err := model.ValidateBranch(branch); err != nil {
+		return "", false, err
+	}
+	for _, ref := range []string{"refs/remotes/origin/" + branch, "refs/heads/" + branch} {
+		head, exists, err := r.ResolveMirrorRefStatus(ctx, p, ref)
+		if err != nil {
+			return "", false, err
+		}
+		if exists {
+			return head, true, nil
+		}
+	}
+	return "", false, nil
+}
+
 func (r Runner) MirrorChangedFiles(ctx context.Context, p config.ProjectConfig, from, to string) ([]string, error) {
 	if err := model.ValidateRevision(from); err != nil {
 		return nil, err
@@ -568,26 +640,6 @@ func (r Runner) Resolve(ctx context.Context, root, rev string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// BranchHead resolves a local branch without depending on the checked-out
-// branch. A missing branch is reported separately so callers can validate
-// branch identity when the ref is available without inventing one.
-func (r Runner) BranchHead(ctx context.Context, root, branch string) (string, bool, error) {
-	if err := model.ValidateBranch(branch); err != nil {
-		return "", false, err
-	}
-	ref := "refs/heads/" + branch
-	if _, err := r.command(ctx, root, false, "show-ref", "--verify", "--quiet", ref); err != nil {
-		if strings.Contains(err.Error(), "exit status 1") {
-			return "", false, nil
-		}
-		return "", false, err
-	}
-	out, err := r.command(ctx, root, false, "rev-parse", "--verify", ref+"^{commit}")
-	if err != nil {
-		return "", true, err
-	}
-	return strings.TrimSpace(string(out)), true, nil
-}
 func (r Runner) PrepareBranch(ctx context.Context, p config.ProjectConfig, branch, base string) error {
 	if err := model.ValidateBranch(branch); err != nil {
 		return err

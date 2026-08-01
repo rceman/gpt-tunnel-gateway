@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -318,6 +319,16 @@ func TestHistoricalOperationalPathsAreReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	foreign := strings.Replace(active, `"id": "11111111-1111-4111-8111-111111111111"`, `"id": "22222222-2222-4222-8222-222222222222"`, 1)
+	foreign = strings.Replace(foreign, `"gateway_id": "test_gateway"`, `"gateway_id": "other_gateway"`, 1)
+	foreignPath := s.runPath("example", "22222222-2222-4222-8222-222222222222")
+	foreignTx, err := s.Hub.Transact(context.Background(), tx.After, "test: foreign historical active run", func(worktree string) ([]string, error) {
+		return []string{foreignPath}, hub.WriteText(worktree, foreignPath, foreign)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx = foreignTx
 	before, err := s.Hub.ReadFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
@@ -421,9 +432,24 @@ func TestReportReadsRecomputeGitProof(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.Git(t, project.Root, "push", "-u", "origin", "feature/proof")
+	remote := strings.TrimSpace(testutil.Git(t, project.Root, "remote", "get-url", "origin"))
+	coldParent := t.TempDir()
+	cold := filepath.Join(coldParent, "cold")
+	testutil.Git(t, coldParent, "clone", "--no-local", "--single-branch", "--branch", "main", remote, cold)
+	missing := exec.Command("git", "cat-file", "-e", final.Repository.Head+"^{commit}")
+	missing.Dir = cold
+	if err := missing.Run(); err == nil {
+		t.Fatal("cold worktree unexpectedly contains the feature commit")
+	}
+	project.Root = cold
+	s.Config.Projects["example"] = project
 	stored, err := s.RunReport(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	snapshot, err := s.RunReviewSnapshot(ctx, run.ID)
+	if err != nil || !snapshot.Report.Available {
+		t.Fatalf("cold review snapshot failed: available=%v err=%v", snapshot.Report.Available, err)
 	}
 	stored.Repository.ChangedFiles = []string{"injected.txt"}
 	if _, err := s.Hub.Transact(ctx, final.HubCommit, "test: tamper report proof", func(worktree string) ([]string, error) {
@@ -435,11 +461,100 @@ func TestReportReadsRecomputeGitProof(t *testing.T) {
 	if _, err := s.RunReport(ctx, run.ID); err == nil || !strings.Contains(err.Error(), "changed files") {
 		t.Fatalf("tampered report was accepted: %v", err)
 	}
-	snapshot, err := s.RunReviewSnapshot(ctx, run.ID)
+	snapshot, err = s.RunReviewSnapshot(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if snapshot.Report.Available || snapshot.Report.Error == "" {
 		t.Fatalf("tampered report was exposed by review snapshot: %#v", snapshot.Report)
+	}
+}
+
+func mirrorProofReport(t *testing.T, s *Service, project config.ProjectConfig, run model.Run, head string) model.Report {
+	t.Helper()
+	ancestor, err := s.Git.MirrorAncestor(context.Background(), project, run.BaseRevision, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := s.Git.MirrorChangedFiles(context.Background(), project, run.BaseRevision, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits, err := s.Git.MirrorLog(context.Background(), project, run.BaseRevision, head, s.Config.MaxListItems)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(commits))
+	for _, commit := range commits {
+		ids = append(ids, commit.SHA)
+	}
+	return model.Report{Repository: model.RepositoryProof{Branch: run.Branch, Head: head, BaseAncestor: ancestor, Commits: ids, ChangedFiles: files, DiffScope: run.BaseRevision + ".." + head}}
+}
+
+func TestMirrorReportBranchReachability(t *testing.T) {
+	s, _, base := testService(t)
+	ctx := context.Background()
+	project := s.Config.Projects["example"]
+	if err := os.WriteFile(filepath.Join(project.Root, "mirror-proof.txt"), []byte("proof\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, project.Root, "add", "mirror-proof.txt")
+	testutil.Git(t, project.Root, "commit", "-m", "mirror proof")
+	testutil.Git(t, project.Root, "push", "origin", "main")
+	head := strings.TrimSpace(testutil.Git(t, project.Root, "rev-parse", "HEAD"))
+	testutil.Git(t, project.Root, "branch", "feature/mirror")
+	testutil.Git(t, project.Root, "push", "origin", "feature/mirror")
+	if err := s.Git.Refresh(ctx, project); err != nil {
+		t.Fatal(err)
+	}
+	run := model.Run{ProjectID: "example", Branch: "feature/mirror", BaseRevision: base}
+	report := mirrorProofReport(t, s, project, run, head)
+	if err := s.validateCanonicalReportProof(ctx, report, run, project); err != nil {
+		t.Fatalf("published task branch rejected: %v", err)
+	}
+	testutil.Git(t, project.Root, "push", "origin", "--delete", "feature/mirror")
+	if err := s.Git.Refresh(ctx, project); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.validateCanonicalReportProof(ctx, report, run, project); err != nil {
+		t.Fatalf("deleted task branch with default reachability rejected: %v", err)
+	}
+
+	testutil.Git(t, project.Root, "switch", "-c", "feature/unmerged")
+	if err := os.WriteFile(filepath.Join(project.Root, "unmerged.txt"), []byte("unmerged\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, project.Root, "add", "unmerged.txt")
+	testutil.Git(t, project.Root, "commit", "-m", "unmerged proof")
+	testutil.Git(t, project.Root, "push", "origin", "feature/unmerged")
+	unmergedHead := strings.TrimSpace(testutil.Git(t, project.Root, "rev-parse", "HEAD"))
+	if err := s.Git.Refresh(ctx, project); err != nil {
+		t.Fatal(err)
+	}
+	unmergedRun := model.Run{ProjectID: "example", Branch: "feature/unmerged", BaseRevision: base}
+	unmergedReport := mirrorProofReport(t, s, project, unmergedRun, unmergedHead)
+	testutil.Git(t, project.Root, "push", "origin", "--delete", "feature/unmerged")
+	if err := s.Git.Refresh(ctx, project); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.validateCanonicalReportProof(ctx, unmergedReport, unmergedRun, project); err == nil || !strings.Contains(err.Error(), "reachable") {
+		t.Fatalf("unmerged deleted branch was accepted: %v", err)
+	}
+
+	testutil.Git(t, project.Root, "branch", "feature/existing")
+	testutil.Git(t, project.Root, "push", "origin", "feature/existing")
+	if err := s.Git.Refresh(ctx, project); err != nil {
+		t.Fatal(err)
+	}
+	existingRun := model.Run{ProjectID: "example", Branch: "feature/existing", BaseRevision: base}
+	existingReport := mirrorProofReport(t, s, project, existingRun, head)
+	if err := s.validateCanonicalReportProof(ctx, existingReport, existingRun, project); err == nil || !strings.Contains(err.Error(), "does not point") {
+		t.Fatalf("existing branch at another HEAD was accepted: %v", err)
+	}
+
+	absentReport := report
+	absentReport.Repository.Head = strings.Repeat("f", 40)
+	if err := s.validateCanonicalReportProof(ctx, absentReport, run, project); err == nil || !strings.Contains(err.Error(), "does not resolve") {
+		t.Fatalf("absent report HEAD was accepted: %v", err)
 	}
 }

@@ -1215,8 +1215,8 @@ func (s *Service) failRun(ctx context.Context, run model.Run, task model.Task, s
 	branch := task.Branch
 	clean := false
 	if local.Root != "" {
-		if h, b, c, e := s.Git.CurrentHead(ctx, local); e == nil {
-			head, branch, clean = h, b, c
+		if h, _, c, e := s.Git.CurrentHead(ctx, local); e == nil {
+			head, clean = h, c
 		}
 	}
 	ancestor := false
@@ -1494,7 +1494,14 @@ func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error
 	if err := model.ValidateReport(report, task, run, s.Config.MaxListItems); err != nil {
 		return model.Report{}, err
 	}
-	if err := s.validateCanonicalReportProof(ctx, report, run); err != nil {
+	local, err := s.projectConfig(run.ProjectID)
+	if err != nil {
+		return model.Report{}, err
+	}
+	if err := s.Git.Refresh(ctx, local); err != nil {
+		return model.Report{}, err
+	}
+	if err := s.validateCanonicalReportProof(ctx, report, run, local); err != nil {
 		return model.Report{}, err
 	}
 	if run.Status != report.Status {
@@ -1531,30 +1538,29 @@ func sameStrings(left, right []string) bool {
 	return true
 }
 
-func (s *Service) validateCanonicalReportProof(ctx context.Context, report model.Report, run model.Run) error {
-	local, err := s.projectConfig(run.ProjectID)
-	if err != nil {
-		return err
+func (s *Service) validateCanonicalReportProof(ctx context.Context, report model.Report, run model.Run, project config.ProjectConfig) error {
+	if report.Repository.Branch != run.Branch {
+		return fmt.Errorf("report branch does not match task branch")
 	}
-	resolvedHead, err := s.Git.Resolve(ctx, local.Root, report.Repository.Head)
-	if err != nil || resolvedHead != report.Repository.Head {
+	resolvedHead, exists, err := s.Git.ResolveMirrorRefStatus(ctx, project, report.Repository.Head)
+	if err != nil || !exists || resolvedHead != report.Repository.Head {
 		return fmt.Errorf("report repository HEAD does not resolve exactly")
 	}
-	ancestor, err := s.Git.IsAncestor(ctx, local.Root, run.BaseRevision, report.Repository.Head)
+	ancestor, err := s.Git.MirrorAncestor(ctx, project, run.BaseRevision, report.Repository.Head)
 	if err != nil {
 		return err
 	}
 	if ancestor != report.Repository.BaseAncestor {
 		return fmt.Errorf("report ancestry proof does not match Git")
 	}
-	actualFiles, err := s.Git.ChangedFiles(ctx, local.Root, run.BaseRevision, report.Repository.Head)
+	actualFiles, err := s.Git.MirrorChangedFiles(ctx, project, run.BaseRevision, report.Repository.Head)
 	if err != nil {
 		return err
 	}
 	if !sameStrings(actualFiles, report.Repository.ChangedFiles) {
 		return fmt.Errorf("report changed files do not match Git")
 	}
-	commits, err := s.Git.LocalLog(ctx, local.Root, run.BaseRevision, report.Repository.Head, s.Config.MaxListItems)
+	commits, err := s.Git.MirrorLog(ctx, project, run.BaseRevision, report.Repository.Head, s.Config.MaxListItems)
 	if err != nil {
 		return err
 	}
@@ -1565,12 +1571,29 @@ func (s *Service) validateCanonicalReportProof(ctx context.Context, report model
 	if !sameStrings(actualCommits, report.Repository.Commits) {
 		return fmt.Errorf("report commits do not match Git history")
 	}
-	branchHead, exists, err := s.Git.BranchHead(ctx, local.Root, report.Repository.Branch)
+	branchHead, branchExists, err := s.Git.MirrorBranchHead(ctx, project, report.Repository.Branch)
 	if err != nil {
 		return err
 	}
-	if exists && branchHead != report.Repository.Head {
-		return fmt.Errorf("report branch does not point at reported HEAD")
+	if branchExists {
+		if branchHead != report.Repository.Head {
+			return fmt.Errorf("report branch does not point at reported HEAD")
+		}
+		return nil
+	}
+	defaultHead, defaultExists, err := s.Git.MirrorBranchHead(ctx, project, project.DefaultBranch)
+	if err != nil {
+		return err
+	}
+	if !defaultExists {
+		return fmt.Errorf("default branch is unavailable for deleted task branch")
+	}
+	reachable, err := s.Git.MirrorAncestor(ctx, project, report.Repository.Head, defaultHead)
+	if err != nil {
+		return err
+	}
+	if !reachable {
+		return fmt.Errorf("reported HEAD is not reachable from the default branch")
 	}
 	return nil
 }
@@ -1650,14 +1673,12 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 			return out, err
 		}
 		for _, run := range runs {
-			if run.Historical {
-				if activeStatus(run.Status) {
-					out.Checked++
-					out.Items = append(out.Items, SweepItem{RunID: run.ID, Action: "error", Status: run.Status, Error: "workflow-v1 run is history-only"})
-				}
+			if run.GatewayID != s.Config.GatewayID || !activeStatus(run.Status) {
 				continue
 			}
-			if run.GatewayID != s.Config.GatewayID || !activeStatus(run.Status) {
+			if run.Historical {
+				out.Checked++
+				out.Items = append(out.Items, SweepItem{RunID: run.ID, Action: "error", Status: run.Status, Error: "workflow-v1 run is history-only"})
 				continue
 			}
 			out.Checked++
