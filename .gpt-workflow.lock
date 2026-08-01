@@ -1,9 +1,9 @@
 {
   "schema_version": 2,
   "repository": "https://github.com/rceman/gpt-review-planner",
-  "version": "2.0.0",
-  "commit": "fb55ce752f03cfe13cfddc4babc8930f8983d034",
+  "version": "2.1.0",
+  "commit": "900d284a97dd745d079134b49e5654b909e88c0a",
   "document": "GPT_REVIEW_PLANNER.md",
   "execution_mode": "gpt_tunnel_managed",
-  "installed_at": "2026-07-29T16:30:00Z"
+  "installed_at": "2026-08-01T20:15:38Z"
 }

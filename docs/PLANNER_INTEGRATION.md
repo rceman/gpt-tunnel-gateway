@@ -1,0 +1,24 @@
+# Planner v2.1.0 integration
+
+The gateway consumes the central planner release through the exact lock:
+
+```text
+repository: https://github.com/rceman/gpt-review-planner
+version: 2.1.0
+commit: 900d284a97dd745d079134b49e5654b909e88c0a
+tag: v2.1.0
+tag_object: 3e43f88718bfab96c5b7713a695ad3a31a2ce780
+```
+
+The planner handoff requires the gateway to preserve one workflow-v2
+`completion.json` authority, target-decoder validation before shutdown,
+installed-versus-running version proof, unchanged tunnel identity, durable
+rollback state, no permanent compatibility readers, no fixed MCP tool count,
+and strict input/output schema parity. The corresponding gateway procedures
+are `upgrade inspect`, `upgrade`, `diagnose-startup`, `state check`, and
+`state repair`.
+
+The release-side policy checks used for this integration are the planner
+runtime-upgrade policy test suite and the project integration validator. They
+are run against the tagged planner tree and this gateway checkout before the
+gateway release commit is merged or tagged.
