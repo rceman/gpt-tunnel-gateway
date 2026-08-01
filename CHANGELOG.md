@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Follow-up work remains tracked in the durable workflow-v2 plan.
+
 ## 0.5.1 — 2026-08-01
 
 - Harden runtime upgrades with complete target-state preflight, durable transaction records, gateway process identity proof, installed-versus-running version reporting, bounded startup diagnosis, state check/repair, atomic project-plan registration, and MCP schema/output parity validation.

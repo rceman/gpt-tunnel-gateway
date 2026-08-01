@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "canonical_version_file": "VERSION",
+  "tag_prefix": "v",
+  "release_commit_message": "chore(release): v{version}",
+  "version_files": [
+    {"path": "VERSION", "kind": "plain"}
+  ],
+  "changelog": {
+    "path": "CHANGELOG.md",
+    "unreleased_heading": "## Unreleased",
+    "release_heading": "## {version} — {date}"
+  }
+}
