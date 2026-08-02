@@ -38,8 +38,9 @@ outside Git.
 - The active tunnel was never stopped, restarted, signalled, or replaced.
 
 The authoritative hub is `git@github.com:rceman/typer.git` on branch
-`gpt-tunnel/home_pc`. The authoritative SHA after the workflow smoke was
-`7383c74edaf7e7169211bb564bc0c067c778c81f`. The managed checkout is an
+`gpt-tunnel/home_pc`. The authoritative SHA after the workflow smoke/report
+commit was `7383c74edaf7e7169211bb564bc0c067c778c81f`; the final plan-closure
+SHA is `fb756bb49201071632905ab9d21c6142eb20094a`. The managed checkout is an
 incidental local checkout on `main` at
 `c47dd1bcf11a11b65468008fcb024d468db1a62f`; these two refs are intentionally
 reported separately. The managed checkout was clean. The configured projects
@@ -152,11 +153,11 @@ The completed workflow-2.0 smoke was:
 ## Durable plans and next action
 
 The three configured projects have valid workflow-v2 current plans with no
-active task or run. The gateway roadmap covers incident closure, v0.5.1
-upgrade hardening, v0.6.0 direct session control, the workflow-2.0 smoke, and
-this handoff. The gateway plan must be marked complete only through the
-canonical `gpt-tunnel plan update --file` transaction after this handoff commit;
-the resulting hub revision is recorded in the final operator report.
+active task or run. The gateway plan is complete at revision `129` in the
+canonical hub transaction at `fb756bb49201071632905ab9d21c6142eb20094a`.
+Its queue marks incident closure, v0.5.1 hardening, v0.6.0 direct session
+control, the workflow-2.0 smoke, and documentation/handoff complete; the next
+original roadmap item remains awaiting explicit authorization.
 
 The next recommended action is to read the completed gateway plan, then create
 one explicitly authorized durable task for the next original orchestration
