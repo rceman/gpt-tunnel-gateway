@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 )
@@ -11,11 +12,14 @@ import (
 func (p ProjectStatus) MarshalJSON() ([]byte, error) {
 	type localView struct {
 		Root          string `json:"root"`
-		Mirror        string `json:"mirror"`
 		Remote        string `json:"remote"`
 		DefaultBranch string `json:"default_branch"`
 	}
-	local := localView{Root: p.Local.Root, Mirror: p.Local.Mirror, Remote: p.Local.Remote, DefaultBranch: p.Local.DefaultBranch}
+	local := localView{Root: p.Local.Root, Remote: p.Local.Remote, DefaultBranch: p.Local.DefaultBranch}
+	progress := p.Progress
+	if p.Local.Mirror != "" {
+		progress.Tail = strings.ReplaceAll(progress.Tail, p.Local.Mirror, "[gateway-internal-path]")
+	}
 	return json.Marshal(struct {
 		Project     interface{}     `json:"project"`
 		Local       localView       `json:"local"`
@@ -23,18 +27,17 @@ func (p ProjectStatus) MarshalJSON() ([]byte, error) {
 		Plan        interface{}     `json:"plan"`
 		HubRevision string          `json:"hub_revision"`
 		Progress    ProjectProgress `json:"progress"`
-	}{Project: p.Project, Local: local, Worktree: p.Worktree, Plan: p.Plan, HubRevision: p.HubRevision, Progress: p.Progress})
+	}{Project: p.Project, Local: local, Worktree: p.Worktree, Plan: p.Plan, HubRevision: p.HubRevision, Progress: progress})
 }
 
 // PublicProjectConfig is used by future output contracts that need to expose
 // local repository metadata without a session identity.
 type PublicProjectConfig struct {
 	Root          string `json:"root"`
-	Mirror        string `json:"mirror"`
 	Remote        string `json:"remote"`
 	DefaultBranch string `json:"default_branch"`
 }
 
 func publicProjectConfig(v config.ProjectConfig) PublicProjectConfig {
-	return PublicProjectConfig{Root: v.Root, Mirror: v.Mirror, Remote: v.Remote, DefaultBranch: v.DefaultBranch}
+	return PublicProjectConfig{Root: v.Root, Remote: v.Remote, DefaultBranch: v.DefaultBranch}
 }

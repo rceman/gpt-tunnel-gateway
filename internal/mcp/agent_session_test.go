@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,6 +58,23 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatalf("status failed: %#v", status)
 	}
 
+	projectStatus := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"project_status","arguments":{"project_id":"example"}}}`))
+	projectStatusResult := projectStatus["result"].(map[string]any)
+	projectStatusContent := projectStatusResult["structuredContent"].(map[string]any)
+	if projectStatusResult["isError"] != false || projectStatusContent["progress"] == nil {
+		t.Fatalf("project status aggregation failed: %#v", projectStatus)
+	}
+	local := projectStatusContent["local"].(map[string]any)
+	if _, ok := local["mirror"]; ok || strings.Contains(string(mustJSON(t, projectStatusContent)), "example_master") {
+		t.Fatalf("project status exposed internal project metadata: %#v", projectStatusContent)
+	}
+
+	resume := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"run_resume","arguments":{"run_id":"11111111-1111-4111-8111-111111111111"}}}`))
+	resumeResult := resume["result"].(map[string]any)
+	if resumeResult["isError"] != true || strings.Contains(string(mustJSON(t, resumeResult)), "example_master") {
+		t.Fatalf("run_resume MCP call did not use the safe service boundary: %#v", resume)
+	}
+
 	unknown := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"agent_send","arguments":{"project_id":"example","message":"hello","session_key":"arbitrary"}}}`))
 	if unknown["error"].(map[string]any)["code"] != float64(-32602) {
 		t.Fatalf("caller-supplied session key was accepted: %#v", unknown)
@@ -65,4 +83,13 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	if err != nil || before != after || registered.Hub.After != before {
 		t.Fatalf("direct agent tools mutated durable workflow: before=%s after=%s err=%v", before, after, err)
 	}
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }

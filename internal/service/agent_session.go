@@ -65,7 +65,7 @@ func (s *Service) AgentSend(ctx context.Context, projectID, message string) (Age
 	if err != nil {
 		return AgentSendResult{}, err
 	}
-	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "agent-sessions"), sessionLockName(session))
+	lock, err := s.acquireSessionSendLock(session)
 	if err != nil {
 		return AgentSendResult{}, fmt.Errorf("agent session send is already in progress")
 	}
@@ -126,5 +126,9 @@ func (s *Service) AgentStatus(ctx context.Context, projectID string) (AgentStatu
 
 func sessionLockName(session string) string {
 	digest := sha256.Sum256([]byte(session))
-	return "send-" + hex.EncodeToString(digest[:8])
+	return "session-send-" + hex.EncodeToString(digest[:8])
+}
+
+func (s *Service) acquireSessionSendLock(session string) (*lockfile.Lock, error) {
+	return lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), sessionLockName(session))
 }

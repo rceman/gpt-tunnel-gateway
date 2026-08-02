@@ -24,7 +24,6 @@ type PublicRun struct {
 	DispatchExitCode *int       `json:"dispatch_exit_code,omitempty"`
 	DispatchStdout   string     `json:"dispatch_stdout,omitempty"`
 	DispatchStderr   string     `json:"dispatch_stderr,omitempty"`
-	CompletionPath   string     `json:"completion_path"`
 	CreatedAt        time.Time  `json:"created_at"`
 	DispatchedAt     *time.Time `json:"dispatched_at,omitempty"`
 	RepromptCount    int        `json:"reprompt_count,omitempty"`
@@ -38,22 +37,27 @@ func PublicRunView(run model.Run) PublicRun {
 		ProjectID: run.ProjectID, GatewayID: run.GatewayID, Branch: run.Branch, BaseRevision: run.BaseRevision,
 		HubRevision: run.HubRevision, Status: run.Status, DispatchMessage: run.DispatchMessage,
 		DispatchExitCode: run.DispatchExitCode, DispatchStdout: run.DispatchStdout, DispatchStderr: run.DispatchStderr,
-		CompletionPath: run.CompletionPath, CreatedAt: run.CreatedAt, DispatchedAt: run.DispatchedAt,
+		CreatedAt: run.CreatedAt, DispatchedAt: run.DispatchedAt,
 		RepromptCount: run.RepromptCount, LastRepromptAt: run.LastRepromptAt, FinishedAt: run.FinishedAt,
 	}
 }
 
+type PublicTaskPacketRun struct {
+	PublicRun
+	CompletionPath string `json:"completion_path"`
+}
+
 type PublicTaskPacket struct {
-	Task            model.Task    `json:"task"`
-	Run             PublicRun     `json:"run"`
-	Project         model.Project `json:"project"`
-	Plan            model.Plan    `json:"plan"`
-	RepositoryRoot  string        `json:"repository_root"`
-	CompletionPath  string        `json:"completion_path"`
-	FinalizeCommand string        `json:"finalize_command"`
-	Text            string        `json:"text"`
+	Task            model.Task          `json:"task"`
+	Run             PublicTaskPacketRun `json:"run"`
+	Project         model.Project       `json:"project"`
+	Plan            model.Plan          `json:"plan"`
+	RepositoryRoot  string              `json:"repository_root"`
+	CompletionPath  string              `json:"completion_path"`
+	FinalizeCommand string              `json:"finalize_command"`
+	Text            string              `json:"text"`
 }
 
 func PublicTaskPacketView(packet TaskPacket) PublicTaskPacket {
-	return PublicTaskPacket{Task: packet.Task, Run: PublicRunView(packet.Run), Project: packet.Project, Plan: packet.Plan, RepositoryRoot: packet.RepositoryRoot, CompletionPath: packet.CompletionPath, FinalizeCommand: packet.FinalizeCommand, Text: packet.Text}
+	return PublicTaskPacket{Task: packet.Task, Run: PublicTaskPacketRun{PublicRun: PublicRunView(packet.Run), CompletionPath: packet.Run.CompletionPath}, Project: packet.Project, Plan: packet.Plan, RepositoryRoot: packet.RepositoryRoot, CompletionPath: packet.CompletionPath, FinalizeCommand: packet.FinalizeCommand, Text: packet.Text}
 }

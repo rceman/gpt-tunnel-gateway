@@ -221,7 +221,7 @@ func ensureSessionAvailableInWorktree(worktree, session string, maxReadBytes int
 			return fmt.Errorf("decode active run %s: %w", path, err)
 		}
 		if run.SessionKey == session && operationalActiveRun(run) {
-			return fmt.Errorf("session %s already has active run %s", session, run.ID)
+			return fmt.Errorf("active operational run %s already owns the project session", run.ID)
 		}
 		return nil
 	})
@@ -340,10 +340,6 @@ func (s *Service) ProjectRegister(ctx context.Context, in ProjectRegisterInput) 
 	return OperationResult{Hub: tx, ProjectID: p.ID, Status: "registered"}, nil
 }
 func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, error) {
-	p, err := s.ProjectRead(ctx, id)
-	if err != nil {
-		return ProjectStatus{}, err
-	}
 	local, err := s.projectConfig(id)
 	if err != nil {
 		return ProjectStatus{}, err
@@ -351,6 +347,8 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	componentCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	var (
+		p              = model.Project{SchemaVersion: model.SchemaVersion, ID: id, DefaultBranch: local.DefaultBranch, Status: "unknown"}
+		projectErr     error
 		wt             gitx.WorktreeStatus
 		wtErr          error
 		plan           model.Plan
@@ -367,7 +365,16 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 		agentTailErr   error
 	)
 	var wg sync.WaitGroup
-	wg.Add(7)
+	wg.Add(8)
+	go func() {
+		defer wg.Done()
+		candidate, err := s.ProjectRead(componentCtx, id)
+		if err != nil {
+			projectErr = err
+			return
+		}
+		p = candidate
+	}()
 	go func() {
 		defer wg.Done()
 		wt, wtErr = s.Git.WorktreeStatus(componentCtx, local)
@@ -398,8 +405,14 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	}()
 	wg.Wait()
 	progress := s.projectProgressFromInputs(plan, planErr, tasks, tasksErr, runs, runsErr, agentStatus, agentStatusErr, agentTail, agentTailErr)
+	appendComponentError(&progress.ComponentErrors, "project", projectErr)
 	appendComponentError(&progress.ComponentErrors, "worktree", wtErr)
 	appendComponentError(&progress.ComponentErrors, "hub_revision", hubRevisionErr)
+	for _, internal := range []string{s.Config.StateDir, local.Mirror, local.AirelaySessionKey} {
+		if internal != "" {
+			progress.Tail = strings.ReplaceAll(progress.Tail, internal, "[gateway-internal-value]")
+		}
+	}
 	sort.Strings(progress.ComponentErrors)
 	return ProjectStatus{Project: p, Local: local, Worktree: wt, Plan: plan.StatusView(), HubRevision: hubRevision, Progress: progress}, nil
 }
@@ -1089,7 +1102,7 @@ func (s *Service) checkSessionAvailable(ctx context.Context, session string) err
 		}
 		for _, r := range runs {
 			if r.SessionKey == session && operationalActiveRun(r) {
-				return fmt.Errorf("session %s already has active run %s", session, r.ID)
+				return fmt.Errorf("active operational run %s already owns the project session", r.ID)
 			}
 		}
 	}
@@ -1130,7 +1143,7 @@ func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
-	sessionLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "session-"+local.AirelaySessionKey)
+	sessionLock, err := s.acquireSessionSendLock(local.AirelaySessionKey)
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
@@ -1725,7 +1738,7 @@ func (s *Service) RunCancel(ctx context.Context, id, expected string) (Operation
 	if err := s.ensureRunOwned(run); err != nil {
 		return OperationResult{}, err
 	}
-	sessionLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "session-"+run.SessionKey)
+	sessionLock, err := s.acquireSessionSendLock(run.SessionKey)
 	if err != nil {
 		return OperationResult{}, err
 	}
@@ -1800,11 +1813,17 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 			if run.LastRepromptAt != nil {
 				start = *run.LastRepromptAt
 			}
-			if now.Sub(start) < time.Duration(s.Config.RunTimeoutSeconds)*time.Second {
-				continue
+			if run.Status != "cancel_requested" {
+				if e := s.observeResumeProgress(ctx, run, now); e != nil {
+					out.Items = append(out.Items, SweepItem{RunID: run.ID, Action: "error", Status: run.Status, Error: "liveness observation failed"})
+					continue
+				}
+				if _, resumeErr := s.runResume(ctx, run.ID, true); resumeErr == nil {
+					out.Items = append(out.Items, SweepItem{RunID: run.ID, Action: "resume", Status: run.Status})
+					continue
+				}
 			}
-			if e := s.observeResumeProgress(ctx, run, now); e != nil {
-				out.Items = append(out.Items, SweepItem{RunID: run.ID, Action: "error", Status: run.Status, Error: "liveness observation failed"})
+			if now.Sub(start) < time.Duration(s.Config.RunTimeoutSeconds)*time.Second {
 				continue
 			}
 			task, e := s.findTask(ctx, run.TaskID)

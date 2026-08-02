@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -189,7 +191,7 @@ func (s *Service) readOperationalEvents(runID string) ([]model.RunOperationalEve
 	return events, nil
 }
 
-func (s *Service) appendOperationalEvent(event model.RunOperationalEvent) error {
+func (s *Service) appendOperationalEvent(event model.RunOperationalEvent) (retErr error) {
 	if err := model.ValidateRunOperationalEvent(event); err != nil {
 		return err
 	}
@@ -200,7 +202,11 @@ func (s *Service) appendOperationalEvent(event model.RunOperationalEvent) error 
 	if err != nil {
 		return err
 	}
-	defer func() { _ = lock.Release() }()
+	defer func() {
+		if err := lock.Release(); err != nil {
+			retErr = errors.Join(retErr, err)
+		}
+	}()
 	current, err := s.readOperationalEvents(event.RunID)
 	if err != nil {
 		return err
@@ -212,17 +218,45 @@ func (s *Service) appendOperationalEvent(event model.RunOperationalEvent) error 
 	if err != nil {
 		return err
 	}
+	line := make([]byte, len(data)+1)
+	copy(line, data)
+	line[len(data)] = '\n'
 	path := s.operationalEventPath(event.RunID)
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if len(existing) > maxOperationalEventFile || len(existing)+len(line) > maxOperationalEventFile {
+		return fmt.Errorf("operational event log exceeds bound")
+	}
+	if info, statErr := os.Lstat(path); statErr == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("operational event log is not a regular file")
+		}
+	} else if !os.IsNotExist(statErr) {
+		return statErr
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	if err := f.Chmod(0o600); err != nil {
-		return err
+	closeWith := func(cause error) error {
+		return errors.Join(cause, f.Close())
 	}
-	_, err = f.Write(append(data, '\n'))
-	return err
+	if err := f.Chmod(0o600); err != nil {
+		return closeWith(err)
+	}
+	n, err := f.Write(line)
+	if err != nil {
+		return closeWith(err)
+	}
+	if n != len(line) {
+		return closeWith(io.ErrShortWrite)
+	}
+	if err := f.Sync(); err != nil {
+		return closeWith(err)
+	}
+	return f.Close()
 }
 
 func newOperationalEvent(run model.Run, eventType, compactionID, tail, message string, exitCode int, resultingState string) (model.RunOperationalEvent, error) {
@@ -325,7 +359,7 @@ func inspectCompaction(run model.Run, tail string, events []model.RunOperational
 		eventID := compactionEventID(run.ID, marker)
 		meaningful, question := false, false
 		for _, line := range lines[lastIndex+1:] {
-			if strings.TrimSpace(line) == "" || isCompactionAcknowledgement(line) {
+			if strings.TrimSpace(line) == "" || isStaticAgentFooterLine(line) || isCompactionAcknowledgement(line) {
 				continue
 			}
 			if questionRE.MatchString(line) {
@@ -450,17 +484,30 @@ func progressRunSummary(run *model.Run) *ProgressRun {
 func warningKind(warnings []string) string {
 	for _, warning := range warnings {
 		lower := strings.ToLower(warning)
-		if strings.Contains(lower, "rate limit") || strings.Contains(lower, "rate-limited") || strings.Contains(lower, "too many requests") {
+		if strings.Contains(lower, "rate limited") || strings.Contains(lower, "rate-limited") || strings.Contains(lower, "too many requests") || strings.Contains(lower, "rate limit exceeded") || strings.Contains(lower, "rate limit unavailable") || strings.Contains(lower, "rate limit rejected") {
 			return model.AgentStateRateLimited
 		}
 	}
 	for _, warning := range warnings {
 		lower := strings.ToLower(warning)
-		if strings.Contains(lower, "capacity") || strings.Contains(lower, "weekly limit") {
+		if explicitCapacityUnavailable(lower) {
 			return model.AgentStateCapacityBlocked
 		}
 	}
 	return ""
+}
+
+func explicitCapacityUnavailable(warning string) bool {
+	for _, exhausted := range []string{
+		"capacity unavailable", "capacity exhausted", "capacity blocked", "capacity rejected", "capacity full", "no capacity",
+		"quota exhausted", "quota exceeded", "quota unavailable", "quota blocked",
+		"weekly limit exhausted", "weekly limit exceeded", "weekly limit unavailable", "weekly limit blocked",
+	} {
+		if strings.Contains(warning, exhausted) {
+			return true
+		}
+	}
+	return strings.Contains(warning, "0%") && (strings.Contains(warning, "quota") || strings.Contains(warning, "limit") || strings.Contains(warning, "capacity"))
 }
 
 func normalIdleTail(tail string) bool {
@@ -469,6 +516,37 @@ func normalIdleTail(tail string) bool {
 	}
 	lower := strings.ToLower(tail)
 	return strings.Contains(lower, "idle") || strings.Contains(lower, "ready") || strings.Contains(lower, "prompt") || strings.Contains(lower, "waiting")
+}
+
+func isStaticAgentFooterLine(line string) bool {
+	lower := strings.ToLower(strings.TrimSpace(line))
+	if lower == "" || lower == "ready" || lower == "idle" || lower == "waiting" || lower == "default prompt" || lower == "idle prompt ready" {
+		return true
+	}
+	for _, prefix := range []string{
+		"model:", "context:", "context window:", "workspace:", "working directory:", "cwd:",
+		"prompt: default", "prompt: idle", "status: idle", "status: ready", "status: waiting",
+		"state: idle", "state: ready", "state: waiting", "controller: reachable",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func meaningfulAgentLine(line string) bool {
+	line = strings.TrimSpace(line)
+	if line == "" || isStaticAgentFooterLine(line) || isCompactionAcknowledgement(line) {
+		return false
+	}
+	if _, started := isCompactionLine(line); started {
+		return false
+	}
+	if _, completed := isCompactionLine(line); completed {
+		return false
+	}
+	return !hasExplicitQuestion(line)
 }
 
 func classifyProgress(e progressEvidence, activeCount int, now time.Time) (string, string, string) {
@@ -505,12 +583,6 @@ func classifyProgress(e progressEvidence, activeCount int, now time.Time) (strin
 	if hasExplicitQuestion(e.Tail) {
 		return model.AgentStateWaitingForInput, "WAITING_FOR_AGENT_INPUT", "answer_agent_question"
 	}
-	if warning := warningKind(e.Status.CapacityWarnings); warning != "" {
-		return warning, strings.ToUpper(warning), "wait_for_capacity"
-	}
-	if e.ActiveRun.Status == "awaiting_result" && e.Status.State == "waiting" {
-		return model.AgentStateCompletionPending, "COMPLETION_PENDING", "inspect_completion_state"
-	}
 	if e.Compaction.Started && !e.Compaction.Completed {
 		return model.AgentStateCompacting, "COMPACTION_IN_PROGRESS", "wait_for_compaction"
 	}
@@ -527,6 +599,12 @@ func classifyProgress(e progressEvidence, activeCount int, now time.Time) (strin
 			return model.AgentStateCompactedResuming, "COMPACTION_RESUME_PENDING", "wait_for_agent_progress"
 		}
 		return model.AgentStateCompactedIdle, "COMPACTION_RECOVERY_AVAILABLE", "run_resume"
+	}
+	if warning := warningKind(e.Status.CapacityWarnings); warning != "" {
+		return warning, strings.ToUpper(warning), "wait_for_capacity"
+	}
+	if e.ActiveRun.Status == "awaiting_result" && e.Status.State == "waiting" {
+		return model.AgentStateCompletionPending, "COMPLETION_PENDING", "inspect_completion_state"
 	}
 	if e.Status.State == "running" {
 		return model.AgentStateRunning, "none", "wait_for_agent_progress"
@@ -597,9 +675,11 @@ func (s *Service) projectProgressFromInputs(plan model.Plan, planErr error, task
 	appendComponentError(&evidence.ComponentErrors, "plan", planErr)
 	appendComponentError(&evidence.ComponentErrors, "tasks", tasksErr)
 	appendComponentError(&evidence.ComponentErrors, "runs", runsErr)
-	appendComponentError(&evidence.ComponentErrors, "agent_status", statusErr)
+	if statusErr != nil && !status.ControllerReachable {
+		appendComponentError(&evidence.ComponentErrors, "agent_status", statusErr)
+	}
 	appendComponentError(&evidence.ComponentErrors, "agent_tail", tailErr)
-	if status.Error != "" {
+	if status.Error != "" && !status.ControllerReachable {
 		appendComponentCode(&evidence.ComponentErrors, "agent_status_unavailable")
 	}
 	if tasksErr == nil && len(tasks) > 0 {
@@ -795,7 +875,7 @@ func (s *Service) runResume(ctx context.Context, id string, automatic bool) (Run
 	if local.AirelaySessionKey != run.SessionKey {
 		return RunResumeResult{}, fmt.Errorf("run session does not match configured project session")
 	}
-	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "session-"+local.AirelaySessionKey)
+	lock, err := s.acquireSessionSendLock(local.AirelaySessionKey)
 	if err != nil {
 		return RunResumeResult{}, fmt.Errorf("agent session resume is already in progress")
 	}
@@ -860,8 +940,13 @@ func (s *Service) resumeRunLocked(ctx context.Context, run model.Run, task model
 			observation.EventID = compactionEventID(run.ID, observation.Marker)
 		}
 		started, e := newOperationalEvent(run, model.EventCompactionStarted, observation.EventID, tail.Stdout, "", status.ExitCode, model.AgentStateCompacting)
-		if e == nil && latestEvent(events, model.EventCompactionStarted, observation.EventID) == nil {
-			_ = s.appendOperationalEvent(started)
+		if e != nil {
+			return RunResumeResult{}, e
+		}
+		if latestEvent(events, model.EventCompactionStarted, observation.EventID) == nil {
+			if err := s.appendOperationalEvent(started); err != nil {
+				return RunResumeResult{}, err
+			}
 		}
 		return RunResumeResult{}, fmt.Errorf("confirmed resumable compaction is required")
 	}
@@ -873,9 +958,6 @@ func (s *Service) resumeRunLocked(ctx context.Context, run model.Run, task model
 	}
 	if prior := latestEvent(events, model.EventResumeSent, observation.EventID); prior != nil {
 		return RunResumeResult{}, fmt.Errorf("resume already sent for compaction event")
-	}
-	if automatic && status.State == "waiting" {
-		return RunResumeResult{}, fmt.Errorf("resume blocked while agent is waiting for input")
 	}
 	message := canonicalResumeMessage(task, run)
 	if len(message) > s.Airelay.MaxMessageBytes {
@@ -914,15 +996,21 @@ func (s *Service) resumeRunLocked(ctx context.Context, run model.Run, task model
 	resumeResult := RunResumeResult{RunID: run.ID, CompactionEventID: observation.EventID, State: resultState, Sent: promptErr == nil, ExitCode: result.ExitCode, ControllerReachable: status.ControllerReachable, MessageDigest: digestText(message)}
 	if promptErr != nil {
 		failed, e := newOperationalEvent(run, model.EventResumeFailed, observation.EventID, "", message, result.ExitCode, model.AgentStateError)
-		if e == nil {
-			_ = s.appendOperationalEvent(failed)
+		if e != nil {
+			return resumeResult, e
+		}
+		if e := s.appendOperationalEvent(failed); e != nil {
+			return resumeResult, e
 		}
 		resumeResult.Error = "resume delivery failed"
 		return resumeResult, fmt.Errorf("resume delivery failed")
 	}
 	completedEvent, e := newOperationalEvent(run, model.EventResumeCompleted, observation.EventID, "", message, result.ExitCode, resultState)
-	if e == nil {
-		_ = s.appendOperationalEvent(completedEvent)
+	if e != nil {
+		return resumeResult, e
+	}
+	if e := s.appendOperationalEvent(completedEvent); e != nil {
+		return resumeResult, e
 	}
 	return resumeResult, nil
 }
@@ -955,13 +1043,7 @@ func (s *Service) activeOperationalRunsForSession(ctx context.Context, session s
 func meaningfulTailAfterResume(tail string) bool {
 	for _, line := range strings.Split(tail, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || isCompactionAcknowledgement(line) || hasExplicitQuestion(line) {
-			continue
-		}
-		if _, started := isCompactionLine(line); started {
-			continue
-		}
-		if _, completed := isCompactionLine(line); completed {
+		if !meaningfulAgentLine(line) {
 			continue
 		}
 		return true
