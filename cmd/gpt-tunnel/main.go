@@ -14,7 +14,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-var version = "0.5.2"
+var version = "0.6.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -43,6 +43,8 @@ func main() {
 		task(ctx, s, args)
 	case "run":
 		run(ctx, s, args)
+	case "agent":
+		agent(ctx, s, args)
 	case "git":
 		gitcmd(ctx, s, args)
 	default:
@@ -50,7 +52,7 @@ func main() {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {project|plan|adr|task|run|git} <command> [args]")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {project|plan|adr|task|run|agent|git} <command> [args]")
 	os.Exit(2)
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnel:", err); os.Exit(1) }
@@ -426,6 +428,65 @@ func run(ctx context.Context, s *service.Service, args []string) {
 		usage()
 	}
 }
+
+func agent(ctx context.Context, s *service.Service, args []string) {
+	require(args, 2)
+	switch args[0] {
+	case "send":
+		if len(args) != 4 || args[2] != "--text" {
+			usage()
+		}
+		v, err := s.AgentSend(ctx, args[1], args[3])
+		if err != nil {
+			fatal(err)
+		}
+		output(v)
+	case "tail":
+		lines, skip := 4, 0
+		seenLines, seenSkip := false, false
+		for i := 2; i < len(args); {
+			if i+1 >= len(args) {
+				usage()
+			}
+			value, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				fatal(fmt.Errorf("invalid agent tail bound"))
+			}
+			switch args[i] {
+			case "--lines":
+				if seenLines {
+					usage()
+				}
+				lines, seenLines = value, true
+			case "--skip":
+				if seenSkip {
+					usage()
+				}
+				skip, seenSkip = value, true
+			default:
+				usage()
+			}
+			i += 2
+		}
+		v, err := s.AgentTail(ctx, args[1], lines, skip)
+		if err != nil {
+			fatal(err)
+		}
+		output(v)
+	case "status":
+		if len(args) != 2 {
+			usage()
+		}
+		v, err := s.AgentStatus(ctx, args[1])
+		if err != nil {
+			fatal(err)
+		}
+		output(v)
+	default:
+		usage()
+	}
+}
+
 func gitcmd(ctx context.Context, s *service.Service, args []string) {
 	require(args, 2)
 	p, ok := s.Config.Projects[args[1]]

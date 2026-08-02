@@ -46,6 +46,21 @@ gpt-tunnel run finalize <run-id> [--completion-file <gateway-owned-run-path>]
 
 `run finalize` is local-agent-only. It is intentionally not exposed as a remote MCP write tool.
 
+## Direct project-agent session control
+
+```text
+gpt-tunnel agent send <project-id> --text '<message>'
+gpt-tunnel agent tail <project-id> [--lines N] [--skip N]
+gpt-tunnel agent status <project-id>
+```
+
+These v0.6.0 operations resolve the Airelay session only from registered
+project configuration. A caller cannot supply a session key. `agent_tail`
+defaults to four lines; `skip` omits the newest lines from the bounded window.
+Messages and output are bounded, sends are serialized per session, and there
+is no retry or automatic continuation. These commands create no durable task,
+run, plan, report, branch, commit, or other Git mutation.
+
 `run report` reads only the canonical workflow-2.0 report. Protocol-v1 runs
 remain visible through bounded `run list`/`run read` history with legacy local
 paths redacted, but report and finalization operations return a stable

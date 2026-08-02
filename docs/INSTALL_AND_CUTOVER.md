@@ -71,3 +71,9 @@ Cutover requires a separate owner-approved task and these proofs:
 7. rollback commands are documented and tested.
 
 Only then stop old `workspace-agentd`/tunnel-client and start `gpt-tunnelctl`. If ChatGPT connector verification fails, stop the new pair and restore the old controller immediately.
+
+The v0.6.0 release adds direct project-session controls after installation. A
+gateway-only upgrade must still preserve the tunnel-client PID. Verify
+`gpt-tunnel agent status` and `agent_tail` after activation; reserve
+`agent_send` for an explicitly authorized harmless message or a real durable
+workflow follow-up.

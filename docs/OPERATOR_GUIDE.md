@@ -23,3 +23,16 @@ installed/live versions, gateway PID, and tunnel PID before activation. A
 successful transaction must expose a new gateway PID and the same tunnel PID;
 if activation fails, use the durable rollback result and enter diagnosis-only
 mode after the second failed activation.
+
+For a short follow-up to a registered project agent, use the direct session
+surface:
+
+```text
+gpt-tunnel agent status <project-id>
+gpt-tunnel agent tail <project-id> --lines 4 --skip 0
+gpt-tunnel agent send <project-id> --text '<short message>'
+```
+
+The send is serialized and returns a delivery receipt. It does not create a
+task or run and must not be used as a substitute for an authorized durable
+workflow.

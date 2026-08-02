@@ -16,5 +16,8 @@ Every descriptor has:
 `tools/call` accepts `name`, `arguments`, and an optional bounded object `_meta`.
 Unknown envelope fields, unknown tool arguments, and the obsolete workflow-v1
 `body` plan field are rejected. `run_agent_tail` returns structured `{text}`
-output. Direct project-session tools are reserved for the v0.6.0 release and
-must not be added to the v0.5.2 surface.
+output. The v0.6.0 direct project-session tools are `agent_send`, `agent_tail`,
+and `agent_status`; they do not create durable workflow or Git state. `agent_send`
+accepts only `project_id` and `message`, `agent_tail` defaults to four lines and
+supports a bounded `skip`, and `agent_status` returns normalized state plus
+capacity warnings. Session keys are never caller-supplied.

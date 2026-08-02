@@ -4,6 +4,15 @@
 
 - Follow-up work remains tracked in the durable workflow-v2 plan.
 
+## 0.6.0 — 2026-08-02
+
+- Add bounded project-level `agent_send`, `agent_tail`, and `agent_status`
+  controls over registered Airelay sessions.
+- Keep direct session control separate from durable tasks, runs, plans and Git;
+  derive session keys from configured project metadata and serialize sends.
+- Expose the direct-session contract through matching CLI/MCP schemas and
+  bounded capacity-aware status results.
+
 ## 0.5.2 — 2026-08-02
 
 - Repair mutable dispatched task state when its only linked runs are immutable

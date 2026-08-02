@@ -20,6 +20,16 @@ advertises the obsolete `body` field.
 
 Remote tools mirror typed CLI operations except `run_finalize`, which remains local-agent-only. No generic shell, generic Git, arbitrary path, or unrestricted file tool exists.
 
+The v0.6.0 direct project-session tools are:
+
+- `agent_send(project_id, message)`: one bounded, serialized Airelay prompt;
+- `agent_tail(project_id, lines=4, skip=0)`: one bounded read window;
+- `agent_status(project_id)`: normalized waiting/running/idle/error state and
+  capacity warnings.
+
+They resolve only configured registered projects and never accept a caller
+session key. They do not create or mutate durable task/run/plan state or Git.
+
 The normal run surface contains `run_read`, `run_report`, and
 `run_review_snapshot`; there is no `run_evidence` operation. New run records
 expose only `completion_path`. Protocol-v1 run records may appear in bounded

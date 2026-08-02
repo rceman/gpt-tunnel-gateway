@@ -17,6 +17,13 @@ func outputDateTime() map[string]any {
 func outputArray(items map[string]any) map[string]any {
 	return map[string]any{"type": "array", "items": items}
 }
+func outputEnum(values ...string) map[string]any {
+	items := make([]any, 0, len(values))
+	for _, value := range values {
+		items = append(items, value)
+	}
+	return map[string]any{"type": "string", "enum": items}
+}
 func closedOutput(properties map[string]any, required ...string) map[string]any {
 	schema := map[string]any{"type": "object", "additionalProperties": false, "properties": properties}
 	if len(required) > 0 {
@@ -125,6 +132,27 @@ func operationOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"hub": transactionOutputSchema(), "project_id": outputString(), "task_id": outputString(), "run_id": outputString(), "status": outputString(),
 	}, "hub", "status")
+}
+
+func agentSendOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"project_id": outputString(), "delivered": outputBoolean(), "exit_code": outputInteger(),
+		"stdout": outputString(), "stderr": outputString(), "started_at": outputDateTime(), "finished_at": outputDateTime(), "error": outputString(),
+	}, "project_id", "delivered", "exit_code", "stdout", "stderr", "started_at", "finished_at")
+}
+
+func agentTailOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"project_id": outputString(), "text": outputString(), "lines": outputInteger(), "skip": outputInteger(),
+	}, "project_id", "text", "lines", "skip")
+}
+
+func agentStatusOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"project_id": outputString(), "state": outputEnum("waiting", "running", "idle", "error"), "controller_reachable": outputBoolean(),
+		"airelay_version": outputString(), "protocol_version": outputString(), "capacity_warnings": outputArray(outputString()),
+		"exit_code": outputInteger(), "error": outputString(),
+	}, "project_id", "state", "controller_reachable", "capacity_warnings", "exit_code")
 }
 
 func reviewSnapshotOutputSchema() map[string]any {
@@ -242,6 +270,9 @@ var toolOutputSchemas = map[string]map[string]any{
 	"run_report":          reportOutputSchema(),
 	"run_review_snapshot": reviewSnapshotOutputSchema(),
 	"run_agent_tail":      closedOutput(map[string]any{"text": outputString()}, "text"),
+	"agent_send":          agentSendOutputSchema(),
+	"agent_tail":          agentTailOutputSchema(),
+	"agent_status":        agentStatusOutputSchema(),
 	"run_sweep":           sweepOutputSchema(),
 	"run_cancel":          operationOutputSchema(),
 	"git_refresh": closedOutput(map[string]any{
@@ -275,6 +306,7 @@ var canonicalToolManifest = []string{
 	"adr_list", "adr_read", "adr_create", "task_create", "task_list", "task_read", "task_dispatch",
 	"task_supersede", "task_cancel", "run_list", "run_read", "run_status", "run_report",
 	"run_review_snapshot", "run_agent_tail", "run_sweep", "run_cancel", "git_refresh", "git_refs",
+	"agent_send", "agent_tail", "agent_status",
 	"git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare", "git_merge_base",
 	"git_worktree_status", "git_worktree_diff",
 }
@@ -300,6 +332,9 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	}
 	result["run_agent_tail"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
 	result["run_review_snapshot"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
+	result["agent_tail"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
+	result["agent_status"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
+	result["agent_send"] = additiveExternalAnnotations()
 	for _, name := range []string{"project_register", "adr_create", "task_create", "plan_section_create"} {
 		result[name] = additiveExternalAnnotations()
 	}

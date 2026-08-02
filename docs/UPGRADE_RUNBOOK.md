@@ -30,3 +30,8 @@ The previous-version rehearsal is executable without a runtime:
 `python3 scripts/upgrade_rehearsal.py`. It covers the sanitized v0.2.2 state
 graph, migration-before-shutdown ordering, rollback proof, process identity,
 and MCP contract matrix.
+
+The v0.6.0 release adds direct project-session controls without changing the
+upgrade transaction. After a verified gateway-only upgrade, check the three
+CLI commands and the three MCP tools; do not use `agent_send` as a release
+health probe unless the owner has authorized a harmless message.

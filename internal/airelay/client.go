@@ -22,6 +22,16 @@ type Result struct {
 	FinishedAt time.Time `json:"finished_at"`
 }
 
+type SessionStatus struct {
+	State               string   `json:"state"`
+	ControllerReachable bool     `json:"controller_reachable"`
+	AirelayVersion      string   `json:"airelay_version,omitempty"`
+	ProtocolVersion     string   `json:"protocol_version,omitempty"`
+	CapacityWarnings    []string `json:"capacity_warnings"`
+	ExitCode            int      `json:"exit_code"`
+	Error               string   `json:"error,omitempty"`
+}
+
 type Client struct {
 	Command         string
 	Timeout         time.Duration
@@ -117,6 +127,101 @@ func (c Client) Tail(ctx context.Context, session string, lines int) (Result, er
 		return result, fmt.Errorf("Airelay tail failed")
 	}
 	return result, nil
+}
+
+// TailWithSkip returns an older bounded window by asking Airelay for the
+// requested window plus the newest lines to skip. It never performs a second
+// request or retries a failed call.
+func (c Client) TailWithSkip(ctx context.Context, session string, lines, skip int) (Result, error) {
+	if lines < 1 || lines > 200 || skip < 0 || lines+skip > 200 {
+		return Result{}, fmt.Errorf("invalid Airelay tail bounds")
+	}
+	result, err := c.Tail(ctx, session, lines+skip)
+	if err != nil || skip == 0 {
+		return result, err
+	}
+	parts := strings.Split(strings.TrimRight(result.Stdout, "\r\n"), "\n")
+	if len(parts) <= skip {
+		return result, fmt.Errorf("Airelay tail skip exceeds available output")
+	}
+	result.Stdout = strings.Join(parts[:len(parts)-skip], "\n") + "\n"
+	return result, nil
+}
+
+func (c Client) Status(ctx context.Context, session string) (SessionStatus, error) {
+	if !sessionRE.MatchString(session) {
+		return SessionStatus{}, fmt.Errorf("invalid Airelay session key")
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	defer cancel()
+	var stdout, stderr tailBuffer
+	stdout.max, stderr.max = 8192, 8192
+	cmd := exec.CommandContext(ctx, c.Command, "session-status", session)
+	cmd.Env = cleanEnv()
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	status := parseSessionStatus(stdout.String())
+	if cmd.ProcessState != nil {
+		status.ExitCode = cmd.ProcessState.ExitCode()
+	} else {
+		status.ExitCode = -1
+	}
+	if ctx.Err() != nil {
+		return status, fmt.Errorf("Airelay session-status timeout: %w", ctx.Err())
+	}
+	if stdout.exceeded || stderr.exceeded {
+		return status, fmt.Errorf("Airelay session-status output exceeds limit")
+	}
+	if err != nil {
+		if status.ExitCode < 0 {
+			return status, fmt.Errorf("Airelay session-status failed")
+		}
+		status.State = "error"
+		status.Error = fmt.Sprintf("Airelay session-status exited with code %d", status.ExitCode)
+	}
+	return status, nil
+}
+
+func parseSessionStatus(output string) SessionStatus {
+	status := SessionStatus{State: "error", CapacityWarnings: []string{}}
+	for _, raw := range strings.Split(normalizeTail(output), "\n") {
+		line := strings.TrimSpace(raw)
+		lower := strings.ToLower(line)
+		switch {
+		case strings.HasPrefix(lower, "controller:"):
+			status.ControllerReachable = strings.Contains(lower, "reachable") && !strings.Contains(lower, "unreachable")
+		case strings.HasPrefix(lower, "airelay version:"):
+			status.AirelayVersion = strings.TrimSpace(line[strings.Index(line, ":")+1:])
+		case strings.HasPrefix(lower, "protocol version:"):
+			status.ProtocolVersion = strings.TrimSpace(line[strings.Index(line, ":")+1:])
+		case strings.HasPrefix(lower, "state:"):
+			status.State = normalizeSessionState(strings.TrimSpace(line[strings.Index(line, ":")+1:]))
+		}
+		if isCapacityWarning(lower) {
+			status.CapacityWarnings = append(status.CapacityWarnings, line)
+		}
+	}
+	return status
+}
+
+func normalizeSessionState(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "busy", "running", "working", "active":
+		return "running"
+	case "waiting", "queued":
+		return "waiting"
+	case "idle", "ready":
+		return "idle"
+	case "error", "failed", "unreachable", "stopped":
+		return "error"
+	default:
+		return "error"
+	}
+}
+
+func isCapacityWarning(lower string) bool {
+	return strings.Contains(lower, "capacity") || strings.Contains(lower, "weekly limit") || strings.Contains(lower, "context") || strings.HasPrefix(lower, "⚠") || strings.Contains(lower, "warning")
 }
 
 var ansiRE = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))`)

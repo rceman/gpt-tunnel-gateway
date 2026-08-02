@@ -80,6 +80,55 @@ func TestTailExplicitLinesAndFailuresAreBounded(t *testing.T) {
 	}
 }
 
+func TestTailWithSkipUsesOneBoundedRequest(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "args")
+	script := filepath.Join(dir, "airelay")
+	body := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + log + "\"\nprintf 'one\\ntwo\\nthree\\nfour\\nfive\\nsix\\n'\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	result, err := c.TailWithSkip(context.Background(), "project_master", 4, 2)
+	if err != nil || result.Stdout != "one\ntwo\nthree\nfour\n" {
+		t.Fatalf("tail window=%q err=%v", result.Stdout, err)
+	}
+	args, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(args) != "tail\nproject_master\n--lines\n6\n" {
+		t.Fatalf("argv=%q", args)
+	}
+}
+
+func TestStatusParsesStateAndCapacityWarnings(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	body := "#!/bin/sh\nprintf 'Controller: reachable (5ms)\\nAirelay version: 0.1.54\\nProtocol version: 1\\nState: busy\\n⚠ Selected model is at capacity.\\n⚠ weekly limit left\\n'\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	status, err := c.Status(context.Background(), "project_master")
+	if err != nil || status.State != "running" || !status.ControllerReachable || status.AirelayVersion != "0.1.54" || status.ProtocolVersion != "1" || len(status.CapacityWarnings) != 2 || status.ExitCode != 0 {
+		t.Fatalf("status=%#v err=%v", status, err)
+	}
+}
+
+func TestStatusPreservesNonZeroExitAsErrorState(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf 'State: idle\\n'; exit 7\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	status, err := c.Status(context.Background(), "project_master")
+	if err != nil || status.State != "error" || status.ExitCode != 7 || status.Error == "" {
+		t.Fatalf("status=%#v err=%v", status, err)
+	}
+}
+
 func TestTailTimeoutDoesNotExposeSession(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "airelay")

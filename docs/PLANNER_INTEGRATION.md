@@ -21,6 +21,9 @@ are `upgrade inspect`, `upgrade`, `diagnose-startup`, `state check`, and
 Gateway `v0.5.2` keeps this exact planner pin; no planner repository mutation
 or alternate workflow reader is part of the release.
 
+Gateway `v0.6.0` uses the same tagged planner pin while adding only the
+separate direct project-session transport defined by the planner policy.
+
 The release-side policy checks used for this integration are the planner
 runtime-upgrade policy test suite and the project integration validator. They
 are run against the tagged planner tree and this gateway checkout before the

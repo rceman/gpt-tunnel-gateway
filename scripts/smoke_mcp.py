@@ -42,8 +42,22 @@ assert init["result"]["serverInfo"] == {
 tools_response = call({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
 tools = tools_response["result"]["tools"]
 assert [tool["name"] for tool in tools] == sorted(tool["name"] for tool in tools)
-required_tools = {"system_ping", "gateway_capabilities", "project_list", "project_read", "plan_read"}
+required_tools = {
+    "system_ping",
+    "gateway_capabilities",
+    "project_list",
+    "project_read",
+    "plan_read",
+    "agent_send",
+    "agent_tail",
+    "agent_status",
+}
 assert required_tools.issubset({tool["name"] for tool in tools})
+tool_by_name = {tool["name"]: tool for tool in tools}
+assert "session_key" not in tool_by_name["agent_send"]["inputSchema"]["properties"]
+assert tool_by_name["agent_tail"]["inputSchema"]["properties"]["lines"]["minimum"] == 1
+assert tool_by_name["agent_tail"]["inputSchema"]["properties"]["skip"]["minimum"] == 0
+assert tool_by_name["agent_status"]["outputSchema"]["properties"]["state"]["enum"] == ["waiting", "running", "idle", "error"]
 for tool in tools:
     assert tool["inputSchema"]["type"] == "object"
     assert tool["outputSchema"]["type"] == "object"
@@ -110,6 +124,16 @@ for index, project in enumerate(projects, 8):
         }
     )["result"]["structuredContent"]
     assert "body" not in plan
+    status = call(
+        {
+            "jsonrpc": "2.0",
+            "id": index + 200,
+            "method": "tools/call",
+            "params": {"name": "agent_status", "arguments": {"project_id": project_id}},
+        }
+    )
+    assert status["result"]["isError"] is False
+    assert status["result"]["structuredContent"]["project_id"] == project_id
 
 unknown = call(
     {
@@ -130,5 +154,18 @@ invalid_meta = call(
     }
 )
 assert invalid_meta["error"]["code"] == -32602
+
+unknown_agent_argument = call(
+    {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": {
+            "name": "agent_send",
+            "arguments": {"project_id": projects[0]["id"], "message": "smoke", "session_key": "forbidden"},
+        },
+    }
+)
+assert unknown_agent_argument["error"]["code"] == -32602
 
 print(f"MCP_SMOKE_OK tools={len(tools)} projects={len(projects)}")

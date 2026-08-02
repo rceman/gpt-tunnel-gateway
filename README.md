@@ -52,6 +52,20 @@ Plans use a schema-v2 compact manifest. Use `gpt-tunnel plan read` for the bound
 
 For a stalled active run, `gpt-tunnel run agent-tail <run-id> [--lines N]` reads a bounded, read-only tail from the run's stored Airelay session; it never accepts a caller-supplied session key or skip option.
 
+For a short follow-up to a registered project agent, use the separate v0.6.0
+direct-session surface:
+
+```text
+gpt-tunnel agent status <project-id>
+gpt-tunnel agent tail <project-id> --lines 4 --skip 0
+gpt-tunnel agent send <project-id> --text '<short message>'
+```
+
+The gateway derives the Airelay session key from project configuration, bounds
+messages and output, serializes sends, and returns exact delivery/status data.
+These calls do not create tasks or runs and do not mutate plans or Git; use the
+durable workflow for authorized implementation work.
+
 For a bounded structural review, use `gpt-tunnel run review-snapshot <run-id>`. It refreshes the managed mirror once and returns deterministic task, artifact, repository, and invariant-check data without dispatching work or exposing session details or local paths.
 
 Before activation or recovery, use `gpt-tunnelctl state check` and review
