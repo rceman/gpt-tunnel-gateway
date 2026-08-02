@@ -218,7 +218,7 @@ func ensureSessionAvailableInWorktree(worktree, session string, maxReadBytes int
 		if err != nil {
 			return fmt.Errorf("decode active run %s: %w", path, err)
 		}
-		if run.SessionKey == session && activeStatus(run.Status) {
+		if run.SessionKey == session && operationalActiveRun(run) {
 			return fmt.Errorf("session %s already has active run %s", session, run.ID)
 		}
 		return nil
@@ -915,7 +915,7 @@ func (s *Service) TaskCancel(ctx context.Context, id, expected string) (Operatio
 		return OperationResult{}, err
 	}
 	for _, run := range runs {
-		if run.TaskID == task.ID && activeStatus(run.Status) {
+		if run.TaskID == task.ID && operationalActiveRun(run) {
 			return OperationResult{}, fmt.Errorf("task has active run %s; cancel the run instead", run.ID)
 		}
 	}
@@ -991,7 +991,7 @@ func (s *Service) RunAgentTail(ctx context.Context, id string, lines int) (strin
 	if err := s.ensureRunOwned(run); err != nil {
 		return "", err
 	}
-	if !activeStatus(run.Status) {
+	if !operationalActiveRun(run) {
 		return "", fmt.Errorf("run is not active")
 	}
 	if lines == 0 {
@@ -1025,6 +1025,15 @@ func activeStatus(s string) bool {
 	}
 	return false
 }
+
+// operationalActiveRun distinguishes current workflow-v2 activity from
+// immutable workflow-v1 history. Historical records retain their original
+// status for auditability and must never own a session or block lifecycle
+// mutations.
+func operationalActiveRun(run model.Run) bool {
+	return !run.Historical && activeStatus(run.Status)
+}
+
 func (s *Service) checkSessionAvailable(ctx context.Context, session string) error {
 	projects, err := s.ProjectList(ctx)
 	if err != nil {
@@ -1036,7 +1045,7 @@ func (s *Service) checkSessionAvailable(ctx context.Context, session string) err
 			return err
 		}
 		for _, r := range runs {
-			if r.SessionKey == session && activeStatus(r.Status) {
+			if r.SessionKey == session && operationalActiveRun(r) {
 				return fmt.Errorf("session %s already has active run %s", session, r.ID)
 			}
 		}
@@ -1367,7 +1376,7 @@ func (s *Service) TaskRead(ctx context.Context, id string) (TaskPacket, error) {
 	}
 	matches := []model.Run{}
 	for _, r := range runs {
-		if r.TaskID == task.ID && activeStatus(r.Status) {
+		if r.TaskID == task.ID && operationalActiveRun(r) {
 			matches = append(matches, r)
 		}
 	}
@@ -1375,7 +1384,7 @@ func (s *Service) TaskRead(ctx context.Context, id string) (TaskPacket, error) {
 		return TaskPacket{}, fmt.Errorf("expected exactly one active run for task, found %d", len(matches))
 	}
 	run := matches[0]
-	if run.Historical && activeStatus(run.Status) {
+	if run.Historical {
 		return TaskPacket{}, fmt.Errorf("workflow-v1 active run is history-only")
 	}
 	if err := s.ensureRunOwned(run); err != nil {
@@ -1466,7 +1475,7 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if err := s.ensureRunOwned(run); err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
-	if !activeStatus(run.Status) {
+	if !operationalActiveRun(run) {
 		return model.Report{}, OperationResult{}, fmt.Errorf("run is not active: %s", run.Status)
 	}
 	task, err := s.findTask(ctx, run.TaskID)
@@ -1688,7 +1697,7 @@ func (s *Service) RunCancel(ctx context.Context, id, expected string) (Operation
 	if err := ensureOperationalRun(run); err != nil {
 		return OperationResult{}, err
 	}
-	if !activeStatus(run.Status) {
+	if !operationalActiveRun(run) {
 		return OperationResult{}, fmt.Errorf("run is terminal")
 	}
 	run.Status = "cancel_requested"
@@ -1737,12 +1746,7 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 			return out, err
 		}
 		for _, run := range runs {
-			if run.GatewayID != s.Config.GatewayID || !activeStatus(run.Status) {
-				continue
-			}
-			if run.Historical {
-				out.Checked++
-				out.Items = append(out.Items, SweepItem{RunID: run.ID, Action: "error", Status: run.Status, Error: "workflow-v1 run is history-only"})
+			if run.GatewayID != s.Config.GatewayID || !operationalActiveRun(run) {
 				continue
 			}
 			out.Checked++

@@ -147,8 +147,8 @@ func TestHistoricalRunDoesNotBreakDispatchOrSessionSafety(t *testing.T) {
 	if err := os.WriteFile(path, []byte(activeFixture), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureSessionAvailableInWorktree(root, "example_master", 1<<20); err == nil {
-		t.Fatal("active historical run did not protect session")
+	if err := ensureSessionAvailableInWorktree(root, "example_master", 1<<20); err != nil {
+		t.Fatalf("active historical run blocked a new operational session: %v", err)
 	}
 }
 func TestTaskPlanDispatchReadFinalize(t *testing.T) {
@@ -380,8 +380,8 @@ func TestHistoricalOperationalPathsAreReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sweep.Items) != 1 || !strings.Contains(sweep.Items[0].Error, "history-only") {
-		t.Fatalf("historical sweep was not rejected: %#v", sweep)
+	if sweep.Checked != 0 || len(sweep.Items) != 0 {
+		t.Fatalf("historical sweep was treated as operational work: %#v", sweep)
 	}
 	if _, err := s.updateRun(context.Background(), run, tx.After, "test: historical update"); err == nil || !strings.Contains(err.Error(), "history-only") {
 		t.Fatalf("historical shared update was not rejected: %v", err)

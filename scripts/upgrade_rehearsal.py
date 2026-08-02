@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "testdata" / "upgrades" / "v0.2.2"
-REQUIRED_CASES = 24
+REQUIRED_CASES = 25
 
 
 def main() -> int:
@@ -26,6 +26,12 @@ def main() -> int:
     assert (FIXTURE / "runs" / "history-only-run.json").is_file()
     assert (FIXTURE / "tasks" / "dispatched-with-run.json").is_file()
     assert (FIXTURE / "tasks" / "terminal.json").is_file()
+    history_only = matrix["history_only_dispatched_state"]
+    assert history_only["task_state"] == "dispatched"
+    assert history_only["run_shape"] == "HistoricalRunV1"
+    assert history_only["repaired_task_state"] == "cancelled"
+    for relative in ("plan.json", "task.json", "task.state.json", "run.json"):
+        assert (FIXTURE / "state-repair" / relative).is_file()
     print(f"UPGRADE_REHEARSAL_MATRIX_OK cases={len(matrix['cases'])} source={matrix['source_version']}")
     return 0
 

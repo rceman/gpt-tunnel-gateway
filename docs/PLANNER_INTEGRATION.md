@@ -18,6 +18,9 @@ and strict input/output schema parity. The corresponding gateway procedures
 are `upgrade inspect`, `upgrade`, `diagnose-startup`, `state check`, and
 `state repair`.
 
+Gateway `v0.5.2` keeps this exact planner pin; no planner repository mutation
+or alternate workflow reader is part of the release.
+
 The release-side policy checks used for this integration are the planner
 runtime-upgrade policy test suite and the project integration validator. They
 are run against the tagged planner tree and this gateway checkout before the

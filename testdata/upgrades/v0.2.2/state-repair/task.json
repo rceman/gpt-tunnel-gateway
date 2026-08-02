@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "legacy-task-planner",
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "project_id": "gpt-review-planner",
+  "title": "Historical fixture task",
+  "objective": "Represent a previous-version dispatched task.",
+  "branch": "feature/legacy",
+  "base_revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "acceptance_criteria": ["preserve history"],
+  "constraints": [],
+  "status": "dispatched",
+  "created_by": "fixture",
+  "created_at": "2026-07-31T10:00:00Z"
+}

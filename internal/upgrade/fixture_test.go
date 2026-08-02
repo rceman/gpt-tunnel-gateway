@@ -18,11 +18,21 @@ func TestPreviousVersionFixtureCoversUpgradeMatrix(t *testing.T) {
 		Cases            []string `json:"cases"`
 		LegacyPlans      []string `json:"legacy_plans"`
 		ExpectedBlockers []string `json:"expected_blockers"`
+		HistoryOnly      struct {
+			ProjectID      string `json:"project_id"`
+			TaskID         string `json:"task_id"`
+			RunID          string `json:"run_id"`
+			ActiveTaskID   string `json:"active_task_id"`
+			ActiveRunID    string `json:"active_run_id"`
+			TaskState      string `json:"task_state"`
+			RunShape       string `json:"run_shape"`
+			RepairedStatus string `json:"repaired_task_state"`
+		} `json:"history_only_dispatched_state"`
 	}
 	if err := json.Unmarshal(data, &matrix); err != nil {
 		t.Fatal(err)
 	}
-	if matrix.SourceVersion != "0.2.2" || len(matrix.Cases) != 24 {
+	if matrix.SourceVersion != "0.2.2" || len(matrix.Cases) != 25 {
 		t.Fatalf("fixture matrix is incomplete: %#v", matrix)
 	}
 	for _, project := range matrix.LegacyPlans {
@@ -51,7 +61,15 @@ func TestPreviousVersionFixtureCoversUpgradeMatrix(t *testing.T) {
 			t.Fatalf("fixture missing %s: %v", relative, err)
 		}
 	}
-	if len(matrix.ExpectedBlockers) < 6 {
+	if matrix.HistoryOnly.ProjectID != "gpt-review-planner" || matrix.HistoryOnly.TaskID != "legacy-task-planner" || matrix.HistoryOnly.RunID != "legacy-run-planner" || matrix.HistoryOnly.ActiveTaskID != "" || matrix.HistoryOnly.ActiveRunID != "" || matrix.HistoryOnly.TaskState != "dispatched" || matrix.HistoryOnly.RunShape != "HistoricalRunV1" || matrix.HistoryOnly.RepairedStatus != "cancelled" {
+		t.Fatalf("history-only mutable-state fixture is incomplete: %#v", matrix.HistoryOnly)
+	}
+	for _, relative := range []string{"state-repair/plan.json", "state-repair/task.json", "state-repair/task.state.json", "state-repair/run.json"} {
+		if _, err := os.Stat(filepath.Join(root, relative)); err != nil {
+			t.Fatalf("history-only repair fixture missing %s: %v", relative, err)
+		}
+	}
+	if len(matrix.ExpectedBlockers) < 7 {
 		t.Fatalf("fixture blocker matrix is incomplete: %#v", matrix.ExpectedBlockers)
 	}
 }

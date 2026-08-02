@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
@@ -39,22 +42,31 @@ type StateCheckResult struct {
 }
 
 type StateRepairAction struct {
+	Kind        string `json:"kind"`
 	ProjectID   string `json:"project_id"`
+	TaskID      string `json:"task_id,omitempty"`
 	Path        string `json:"path"`
 	ClearTaskID bool   `json:"clear_active_task_id"`
 	ClearRunID  bool   `json:"clear_active_run_id"`
+	OldTaskID   string `json:"old_active_task_id,omitempty"`
+	OldRunID    string `json:"old_active_run_id,omitempty"`
+	OldStatus   string `json:"old_task_status,omitempty"`
+	NewStatus   string `json:"new_task_status,omitempty"`
 	Reason      string `json:"reason"`
 }
 
 type StateRepairResult struct {
-	DryRun    bool                `json:"dry_run"`
-	Applied   bool                `json:"applied"`
-	OldHubSHA string              `json:"old_hub_sha,omitempty"`
-	NewHubSHA string              `json:"new_hub_sha,omitempty"`
-	Backup    string              `json:"backup,omitempty"`
-	Actions   []StateRepairAction `json:"actions"`
-	Check     StateCheckResult    `json:"check"`
+	DryRun       bool                `json:"dry_run"`
+	Applied      bool                `json:"applied"`
+	OldHubSHA    string              `json:"old_hub_sha,omitempty"`
+	NewHubSHA    string              `json:"new_hub_sha,omitempty"`
+	Backup       string              `json:"backup,omitempty"`
+	ChangedPaths []string            `json:"changed_paths,omitempty"`
+	Actions      []StateRepairAction `json:"actions"`
+	Check        StateCheckResult    `json:"check"`
 }
+
+const historyOnlyTaskRepairReason = "close mutable dispatched state after linked run became immutable workflow-v1 history during protocol cutover"
 
 func stateIssue(code, project, task, run, path, detail string) StateIssue {
 	return StateIssue{Code: code, ProjectID: project, TaskID: task, RunID: run, Path: path, Detail: detail}
@@ -169,7 +181,7 @@ func (s *Service) checkProjectTaskRunGraph(ctx context.Context, projectID string
 		if record.State.Status == "dispatched" {
 			count := 0
 			for _, run := range runsByTask[record.Task.ID] {
-				if !run.Historical {
+				if operationalActiveRun(run) {
 					count++
 				}
 			}
@@ -201,7 +213,7 @@ func (s *Service) checkProjectTaskRunGraph(ctx context.Context, projectID string
 		} else if run.Historical {
 			result.Issues = append(result.Issues, stateIssue("HISTORY_RUN_ACTIVE", projectID, run.TaskID, run.ID, s.planPath(projectID), "history-only run is active"))
 			result.OperationalTaskRunGraph = false
-		} else if !activeStatus(run.Status) {
+		} else if !operationalActiveRun(run) {
 			result.Issues = append(result.Issues, stateIssue("TERMINAL_RUN_ACTIVE", projectID, run.TaskID, run.ID, s.planPath(projectID), "terminal run is active"))
 			result.OperationalTaskRunGraph = false
 		} else if run.TaskID != plan.ActiveTaskID {
@@ -217,7 +229,9 @@ func (s *Service) StateRepair(ctx context.Context, apply bool) (StateRepairResul
 		return StateRepairResult{}, err
 	}
 	result := StateRepairResult{DryRun: !apply, OldHubSHA: check.HubRevision, Check: check, Actions: []StateRepairAction{}}
+	plans := map[string]StatePlan{}
 	for _, plan := range check.Plans {
+		plans[plan.ProjectID] = plan
 		if !plan.Valid || plan.ActiveRunID == "" {
 			continue
 		}
@@ -226,13 +240,63 @@ func (s *Service) StateRepair(ctx context.Context, apply bool) (StateRepairResul
 			continue
 		}
 		for _, run := range runs {
-			if run.ID != plan.ActiveRunID || (!run.Historical && activeStatus(run.Status)) {
+			if run.ID != plan.ActiveRunID || operationalActiveRun(run) {
 				continue
 			}
-			result.Actions = append(result.Actions, StateRepairAction{ProjectID: plan.ProjectID, Path: s.planPath(plan.ProjectID), ClearTaskID: true, ClearRunID: true, Reason: "clear obsolete active pointer to history-only or terminal run"})
+			result.Actions = append(result.Actions, StateRepairAction{
+				Kind:        "plan_pointer",
+				ProjectID:   plan.ProjectID,
+				Path:        s.planPath(plan.ProjectID),
+				ClearTaskID: true,
+				ClearRunID:  true,
+				OldTaskID:   plan.ActiveTaskID,
+				OldRunID:    plan.ActiveRunID,
+				Reason:      "clear obsolete active pointer to history-only or terminal run",
+			})
 			break
 		}
 	}
+	for _, projectID := range check.ConfiguredProjectIDs {
+		plan, ok := plans[projectID]
+		if !ok || !plan.Valid {
+			continue
+		}
+		tasks, taskErr := s.TaskList(ctx, projectID)
+		if taskErr != nil {
+			continue
+		}
+		runs, runErr := s.RunList(ctx, projectID)
+		if runErr != nil {
+			continue
+		}
+		runsByTask := map[string][]model.Run{}
+		for _, run := range runs {
+			runsByTask[run.TaskID] = append(runsByTask[run.TaskID], run)
+		}
+		for _, record := range tasks {
+			if !historicalOnlyTaskRepairEligible(record, runsByTask[record.Task.ID], plan) {
+				continue
+			}
+			result.Actions = append(result.Actions, StateRepairAction{
+				Kind:      "task_state",
+				ProjectID: projectID,
+				TaskID:    record.Task.ID,
+				Path:      s.taskStatePath(projectID, record.Task.ID),
+				OldStatus: "dispatched",
+				NewStatus: "cancelled",
+				Reason:    historyOnlyTaskRepairReason,
+			})
+		}
+	}
+	sort.Slice(result.Actions, func(i, j int) bool {
+		if result.Actions[i].ProjectID != result.Actions[j].ProjectID {
+			return result.Actions[i].ProjectID < result.Actions[j].ProjectID
+		}
+		if result.Actions[i].Kind != result.Actions[j].Kind {
+			return result.Actions[i].Kind < result.Actions[j].Kind
+		}
+		return result.Actions[i].Path < result.Actions[j].Path
+	})
 	if !apply || len(result.Actions) == 0 {
 		result.Applied = false
 		return result, nil
@@ -242,12 +306,27 @@ func (s *Service) StateRepair(ctx context.Context, apply bool) (StateRepairResul
 		return result, backupErr
 	}
 	result.Backup = backup.Path
-	tx, txErr := s.Hub.Transact(ctx, check.HubRevision, "gateway: repair durable state", func(worktree string) ([]string, error) {
+	reasons := []string{}
+	for _, action := range result.Actions {
+		if !containsString(reasons, action.Reason) {
+			reasons = append(reasons, action.Reason)
+		}
+	}
+	tx, txErr := s.Hub.Transact(ctx, check.HubRevision, "gateway: repair durable state: "+strings.Join(reasons, "; "), func(worktree string) ([]string, error) {
 		paths := []string{}
 		for _, action := range result.Actions {
+			if action.Kind != "plan_pointer" {
+				continue
+			}
 			var plan model.Plan
 			if err := readWorktreeJSON(worktree, action.Path, &plan); err != nil {
 				return nil, err
+			}
+			if err := model.ValidatePlan(plan); err != nil {
+				return nil, err
+			}
+			if plan.ActiveTaskID != action.OldTaskID || plan.ActiveRunID != action.OldRunID {
+				return nil, fmt.Errorf("plan pointer changed before repair: %s", action.Path)
 			}
 			if action.ClearTaskID {
 				plan.ActiveTaskID = ""
@@ -266,6 +345,41 @@ func (s *Service) StateRepair(ctx context.Context, apply bool) (StateRepairResul
 			}
 			paths = append(paths, action.Path)
 		}
+		for _, action := range result.Actions {
+			if action.Kind != "task_state" {
+				continue
+			}
+			var task model.Task
+			taskPath := s.taskPath(action.ProjectID, action.TaskID)
+			if err := readWorktreeJSON(worktree, taskPath, &task); err != nil {
+				return nil, err
+			}
+			if err := model.ValidateTask(task); err != nil {
+				return nil, err
+			}
+			var state model.TaskState
+			if err := readWorktreeJSON(worktree, action.Path, &state); err != nil {
+				return nil, err
+			}
+			if err := model.ValidateTaskState(state, task); err != nil {
+				return nil, err
+			}
+			if state.Status != action.OldStatus {
+				return nil, fmt.Errorf("task state changed before repair: %s", action.Path)
+			}
+			if err := s.validateHistoricalOnlyTaskRepair(worktree, action, check.ConfiguredProjectIDs); err != nil {
+				return nil, err
+			}
+			state.Status = action.NewStatus
+			state.UpdatedAt = nowUTC()
+			if err := model.ValidateTaskState(state, task); err != nil {
+				return nil, err
+			}
+			if err := hub.WriteJSON(worktree, action.Path, state); err != nil {
+				return nil, err
+			}
+			paths = append(paths, action.Path)
+		}
 		return paths, nil
 	})
 	if txErr != nil {
@@ -273,7 +387,99 @@ func (s *Service) StateRepair(ctx context.Context, apply bool) (StateRepairResul
 	}
 	result.Applied = true
 	result.NewHubSHA = tx.After
+	result.ChangedPaths = append([]string{}, tx.Paths...)
+	after, afterErr := s.StateCheck(ctx)
+	if afterErr != nil {
+		return result, afterErr
+	}
+	result.Check = after
+	if !after.Valid {
+		return result, fmt.Errorf("state repair validation failed: %d issue(s)", len(after.Issues))
+	}
 	return result, nil
+}
+
+func historicalOnlyTaskRepairEligible(record TaskRecord, runs []model.Run, plan StatePlan) bool {
+	if record.State.Status != "dispatched" || !plan.Valid {
+		return false
+	}
+	if plan.ActiveTaskID == record.Task.ID {
+		return false
+	}
+	historical := 0
+	for _, run := range runs {
+		if run.TaskID != record.Task.ID {
+			continue
+		}
+		if run.Historical {
+			historical++
+			if run.ID == plan.ActiveRunID {
+				return false
+			}
+			continue
+		}
+		return false
+	}
+	return historical > 0 && plan.ActiveRunID == ""
+}
+
+func (s *Service) validateHistoricalOnlyTaskRepair(worktree string, action StateRepairAction, projects []string) error {
+	linkedHistorical := 0
+	linkedRunIDs := map[string]bool{}
+	root := filepath.Join(worktree, filepath.FromSlash(s.projectPrefix(action.ProjectID)+"/runs"))
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || entry.Name() != "run.json" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		run, historical, err := model.DecodeRunRecord(data)
+		if err != nil {
+			return err
+		}
+		if run.TaskID != action.TaskID {
+			return nil
+		}
+		if !historical || !run.Historical {
+			return fmt.Errorf("task %s has a non-historical linked run", action.TaskID)
+		}
+		linkedHistorical++
+		linkedRunIDs[run.ID] = true
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if linkedHistorical == 0 {
+		return fmt.Errorf("task %s has no linked HistoricalRunV1 record", action.TaskID)
+	}
+	for _, projectID := range projects {
+		var plan model.Plan
+		if err := readWorktreeJSON(worktree, s.planPath(projectID), &plan); err != nil {
+			return err
+		}
+		if err := model.ValidatePlan(plan); err != nil {
+			return err
+		}
+		if plan.ActiveTaskID == action.TaskID || linkedRunIDs[plan.ActiveRunID] {
+			return fmt.Errorf("task %s or linked history is referenced by active plan %s", action.TaskID, projectID)
+		}
+	}
+	return nil
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func nowUTC() time.Time { return time.Now().UTC() }

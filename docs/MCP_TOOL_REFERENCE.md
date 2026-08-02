@@ -17,4 +17,4 @@ Every descriptor has:
 Unknown envelope fields, unknown tool arguments, and the obsolete workflow-v1
 `body` plan field are rejected. `run_agent_tail` returns structured `{text}`
 output. Direct project-session tools are reserved for the v0.6.0 release and
-must not be added to the v0.5.1 surface.
+must not be added to the v0.5.2 surface.

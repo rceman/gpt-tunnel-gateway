@@ -3,16 +3,23 @@
 1. Confirm the source checkout, release identity, configured owner-only files,
    and current gateway/tunnel PIDs. Do not print environment values.
 2. Run `gpt-tunnelctl upgrade inspect`. Resolve every blocker in one read-only
-   pass; do not activate while any blocker remains.
-3. Resolve any explicit migration or state-repair proposal, then run
+   pass; do not activate while any blocker remains. A released but unactivated
+   v0.5.1 is superseded by v0.5.2 for the first activation on the affected
+   host.
+3. Run `gpt-tunnelctl state check` and review
+   `gpt-tunnelctl state repair --dry-run`. For the v0.5.2 cutover repair,
+   apply only the exact backed-up transition from mutable `dispatched` to
+   `cancelled` when the task has only immutable HistoricalRunV1 records and no
+   active plan pointer. Do not rewrite immutable task/run history.
+4. Resolve any remaining explicit migration or state-repair proposal, then run
    `gpt-tunnelctl upgrade` once. The transaction performs prepare, backup,
    migration bookkeeping, target validation, gateway-only activation, MCP
    verification, and durable completion. The tunnel is never restarted.
-4. Confirm `installed_version`, `running_version`, and `version_match`
+5. Confirm `installed_version`, `running_version`, and `version_match`
    independently. Confirm gateway PID changed and tunnel PID is unchanged.
-5. Confirm readiness, `doctor: ok`, MCP initialize/tools/list/calls, and
+6. Confirm readiness, `doctor: ok`, MCP initialize/tools/list/calls, and
    transaction status `complete`.
-6. On activation failure, use the transaction rollback result. After two
+7. On activation failure, use the transaction rollback result. After two
    failed activations enter diagnosis-only mode; use
    `gpt-tunnelctl diagnose-startup` and do not retry automatically.
 

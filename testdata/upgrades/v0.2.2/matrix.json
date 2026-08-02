@@ -7,6 +7,16 @@
   "deprecated_config_projects": ["ai-workspace"],
   "legacy_plans": ["gpt-review-planner", "gpt-tunnel-gateway"],
   "history_only_active_pointers": ["gpt-review-planner", "gpt-tunnel-gateway"],
+  "history_only_dispatched_state": {
+    "project_id": "gpt-review-planner",
+    "task_id": "legacy-task-planner",
+    "run_id": "legacy-run-planner",
+    "active_task_id": "",
+    "active_run_id": "",
+    "task_state": "dispatched",
+    "run_shape": "HistoricalRunV1",
+    "repaired_task_state": "cancelled"
+  },
   "active_project_without_plan": ["gpt-github-gateway"],
   "expected_canonical_projects": ["gpt-github-gateway", "gpt-review-planner", "gpt-tunnel-gateway"],
   "expected_blockers": [
@@ -15,13 +25,14 @@
     "STALE_CONFIGURED_PROJECT",
     "HISTORY_RUN_ACTIVE",
     "CURRENT_PLAN_INVALID",
+    "DISPATCHED_TASK_RUN_COUNT",
     "PROCESS_IDENTITY_RISK",
     "INSTALLED_RUNNING_VERSION_MISMATCH"
   ],
   "cases": [
     "fresh_install",
     "previous_version_bootstrap",
-    "v0.2.2_to_v0.5.1_upgrade",
+    "v0.2.2_to_v0.5.2_upgrade",
     "migration_before_shutdown",
     "complete_preflight_reports_every_blocker",
     "plan_v1_cutover",
@@ -42,6 +53,7 @@
     "mcp_initialize_tools_list_call",
     "advertised_schemas_match_handlers",
     "output_schemas_match_success",
-    "no_hardcoded_tool_count"
+    "no_hardcoded_tool_count",
+    "history_only_task_state_repair"
   ]
 }

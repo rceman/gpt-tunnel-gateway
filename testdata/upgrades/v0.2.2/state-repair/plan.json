@@ -1,0 +1,12 @@
+{
+  "schema_version": 2,
+  "project_id": "gpt-review-planner",
+  "revision": 22,
+  "title": "Recovered idle plan",
+  "summary": "No current authorized work",
+  "current_objective": "Await an explicitly authorized durable task.",
+  "queue": [],
+  "sections": [],
+  "updated_by": "fixture",
+  "updated_at": "2026-07-31T10:00:00Z"
+}

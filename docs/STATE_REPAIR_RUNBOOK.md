@@ -15,5 +15,18 @@ optimistic atomic hub transaction. Repair may clear obsolete active pointers
 only when source semantics prove them stale. Configuration inventory
 reconciliation is a separate owner-authorized operation and is never silently
 performed by state repair.
-It never edits immutable task/run history, invents success, or creates a fake
-completion/report.
+
+For the v0.5.2 protocol-cutover condition, repair may also propose exactly one
+mutable task-state change when all of these are true: the task state is
+`dispatched`, the task has zero operational runs, at least one linked run is an
+immutable `HistoricalRunV1`, and no current plan points to the task or run. The
+canonical transition is `dispatched` → `cancelled`, with the reason
+“close mutable dispatched state after linked run became immutable workflow-v1
+history during protocol cutover”. This closes the obsolete operational state;
+it does not claim success or create completion evidence.
+
+The transaction revalidates the old state and historical-only condition under
+the expected hub revision, changes only the mutable task-state path(s), and
+returns the exact changed paths. It never edits immutable task/run history,
+invents success, or creates a fake completion/report. If a linked operational
+run exists, the repair is refused.

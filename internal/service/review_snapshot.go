@@ -47,7 +47,7 @@ func (s *Service) RunReviewSnapshot(ctx context.Context, id string) (model.Revie
 		Task:   model.ReviewSnapshotTask{ID: task.ID, SHA256: task.SHA256, Title: task.Title, Objective: task.Objective, Branch: task.Branch, BaseRevision: task.BaseRevision, AcceptanceCriteria: snapshotStrings(task.AcceptanceCriteria), Constraints: snapshotStrings(task.Constraints), RequiredGates: snapshotStrings(task.RequiredGates), CreatedBy: task.CreatedBy, CreatedAt: task.CreatedAt, TaskStateStatus: state.Status},
 		Checks: []model.ReviewSnapshotCheck{},
 	}
-	terminal := !activeStatus(run.Status)
+	terminal := !operationalActiveRun(run)
 	project, err := s.projectConfig(run.ProjectID)
 	if err != nil {
 		return model.ReviewSnapshot{}, err

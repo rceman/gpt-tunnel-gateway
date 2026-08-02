@@ -4,6 +4,15 @@
 
 - Follow-up work remains tracked in the durable workflow-v2 plan.
 
+## 0.5.2 — 2026-08-02
+
+- Repair mutable dispatched task state when its only linked runs are immutable
+  workflow-v1 history, while preserving all immutable task/run records.
+- Exclude HistoricalRunV1 records from current session ownership, dispatch,
+  cancellation, sweep, task-read and operational state-repair decisions.
+- Extend the previous-version rehearsal with the history-only task-state
+  repair condition.
+
 ## 0.5.1 — 2026-08-01
 
 - Harden runtime upgrades with complete target-state preflight, durable transaction records, gateway process identity proof, installed-versus-running version reporting, bounded startup diagnosis, state check/repair, atomic project-plan registration, and MCP schema/output parity validation.
