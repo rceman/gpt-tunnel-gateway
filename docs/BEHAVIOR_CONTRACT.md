@@ -41,6 +41,11 @@
 37. Upgrade transaction state is durable under the configured state directory; a temporary release directory cannot be the sole authority for rollback or completion.
 38. Project registration atomically creates a valid idle workflow-v2 plan, so startup cannot observe a configured active project without its current plan.
 39. The MCP descriptor contract is driven by one canonical tool manifest. Tool counts are derived from registration/manifest parity; smoke tests require names and schema/handler parity rather than a stale numeric assertion.
+40. Direct project-session operations resolve only configured active project IDs and derive the Airelay session key from configuration; callers cannot supply arbitrary session keys.
+41. `agent_send`, `agent_tail`, and `agent_status` create no task, run, plan, report, completion, branch, commit, or Git mutation. Generic shell execution is not available.
+42. Direct-session messages and output are bounded, sends are serialized per configured session, and no implicit retry or automatic continuation occurs.
+43. `agent_tail` defaults to four lines and supports a bounded skip window; `agent_status` reports only waiting, running, idle, or error plus bounded capacity warnings.
+44. A v0.6.0 direct-session release must preserve the gateway-only upgrade invariant: a new gateway PID, unchanged tunnel PID, readiness, doctor, and MCP contract verification.
 
 ## Lifecycle
 
