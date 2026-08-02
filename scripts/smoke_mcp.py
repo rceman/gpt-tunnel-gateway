@@ -47,17 +47,33 @@ required_tools = {
     "gateway_capabilities",
     "project_list",
     "project_read",
+    "project_status",
     "plan_read",
     "agent_send",
     "agent_tail",
     "agent_status",
+    "run_resume",
 }
 assert required_tools.issubset({tool["name"] for tool in tools})
 tool_by_name = {tool["name"]: tool for tool in tools}
 assert "session_key" not in tool_by_name["agent_send"]["inputSchema"]["properties"]
 assert tool_by_name["agent_tail"]["inputSchema"]["properties"]["lines"]["minimum"] == 1
 assert tool_by_name["agent_tail"]["inputSchema"]["properties"]["skip"]["minimum"] == 0
-assert tool_by_name["agent_status"]["outputSchema"]["properties"]["state"]["enum"] == ["waiting", "running", "idle", "error"]
+assert tool_by_name["agent_status"]["outputSchema"]["properties"]["state"]["enum"] == [
+    "idle",
+    "running",
+    "waiting_for_input",
+    "compacting",
+    "compacted_resuming",
+    "compacted_idle",
+    "capacity_blocked",
+    "rate_limited",
+    "completion_pending",
+    "finalization_pending",
+    "stalled",
+    "error",
+    "unknown",
+]
 for tool in tools:
     assert tool["inputSchema"]["type"] == "object"
     assert tool["outputSchema"]["type"] == "object"
@@ -129,11 +145,16 @@ for index, project in enumerate(projects, 8):
             "jsonrpc": "2.0",
             "id": index + 200,
             "method": "tools/call",
-            "params": {"name": "agent_status", "arguments": {"project_id": project_id}},
+            "params": {"name": "project_status", "arguments": {"project_id": project_id}},
         }
     )
     assert status["result"]["isError"] is False
-    assert status["result"]["structuredContent"]["project_id"] == project_id
+    snapshot = status["result"]["structuredContent"]
+    assert snapshot["project"]["id"] == project_id
+    assert snapshot["progress"]["agent_state"] in tool_by_name["agent_status"]["outputSchema"]["properties"]["state"]["enum"]
+    assert snapshot["progress"]["tail"] is not None
+    assert isinstance(snapshot["progress"]["component_errors"], list)
+    assert "session_key" not in json.dumps(snapshot)
 
 unknown = call(
     {

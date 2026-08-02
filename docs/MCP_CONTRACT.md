@@ -24,11 +24,27 @@ The v0.6.0 direct project-session tools are:
 
 - `agent_send(project_id, message)`: one bounded, serialized Airelay prompt;
 - `agent_tail(project_id, lines=4, skip=0)`: one bounded read window;
-- `agent_status(project_id)`: normalized waiting/running/idle/error state and
-  capacity warnings.
+- `agent_status(project_id)`: normalized bounded liveness state and capacity
+  and rate-limit warnings.
 
 They resolve only configured registered projects and never accept a caller
 session key. They do not create or mutate durable task/run/plan state or Git.
+`agent_send` is emergency/control-plane communication only; it never grants
+new task scope or merge, release, or deployment authorization. Messages such as
+“implement the next feature”, “merge and release this branch”, “deploy this”,
+or “continue the roadmap” are misuse and must use an explicitly authorized
+durable workflow instead.
+
+`project_status(project_id)` is the canonical aggregated progress snapshot and
+includes the latest task/run, normalized liveness state, bounded tail,
+activity age, blocker classification, recommended action, and safe component
+error codes. Healthy status, tail, repository and bounded hub reads are
+collected concurrently within one bounded request; a component failure does
+not expose raw command output or discard the other components. The new
+`run_resume(run_id)` operation is the only canonical compaction recovery write;
+it accepts no caller message or session key and is one-shot per compaction
+event. `run_sweep` may perform the same bounded recovery only after all safety
+checks pass.
 
 The normal run surface contains `run_read`, `run_report`, and
 `run_review_snapshot`; there is no `run_evidence` operation. New run records

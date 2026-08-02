@@ -124,7 +124,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	switch req.Method {
 	case "initialize":
-		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "gpt-tunnel-gatewayd", "version": "0.6.0"}}})
+		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "gpt-tunnel-gatewayd", "version": "0.6.1"}}})
 	case "notifications/initialized":
 		w.WriteHeader(http.StatusAccepted)
 	case "ping":
@@ -357,7 +357,7 @@ func (s *Server) tools() map[string]Tool {
 		t[name] = Tool{Name: name, Description: description, InputSchema: schema, OutputSchema: output, Annotations: annotations, Execute: fn}
 	}
 	add("system_ping", "Return gateway identity and time.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		return map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.0", "gateway_id": s.Service.Config.GatewayID, "time": time.Now().UTC()}, nil
+		return map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.1", "gateway_id": s.Service.Config.GatewayID, "time": time.Now().UTC()}, nil
 	})
 	add("gateway_capabilities", "Describe configured limits, projects, and transport.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		ids := []string{}
@@ -509,7 +509,7 @@ func (s *Server) tools() map[string]Tool {
 		}
 		packet, e := s.Service.TaskRead(ctx, id)
 		if e == nil {
-			return packet, nil
+			return service.PublicTaskPacketView(packet), nil
 		}
 		task, e2 := s.Service.TaskReadRecord(ctx, id)
 		if e2 != nil {
@@ -523,7 +523,7 @@ func (s *Server) tools() map[string]Tool {
 			return nil, e
 		}
 		run, res, e := s.Service.TaskDispatch(ctx, in)
-		return map[string]any{"run": run, "operation": res}, e
+		return map[string]any{"run": service.PublicRunView(run), "operation": res}, e
 	})
 	add("task_supersede", "Create a replacement immutable task.", obj(map[string]any{"old_task_id": str("Superseded task"), "task": map[string]any{"type": "object"}}, "old_task_id", "task"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var envelope struct {
@@ -549,21 +549,33 @@ func (s *Server) tools() map[string]Tool {
 			return nil, e
 		}
 		v, e := s.Service.RunList(ctx, id)
-		return map[string]any{"runs": v}, e
+		public := make([]service.PublicRun, 0, len(v))
+		for _, run := range v {
+			public = append(public, service.PublicRunView(run))
+		}
+		return map[string]any{"runs": public}, e
 	})
 	add("run_read", "Read one run.", obj(map[string]any{"run_id": str("Run identifier")}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "run_id")
 		if e != nil {
 			return nil, e
 		}
-		return s.Service.RunRead(ctx, id)
+		run, err := s.Service.RunRead(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		return service.PublicRunView(run), nil
 	})
 	add("run_status", "Alias for run_read.", obj(map[string]any{"run_id": str("Run identifier")}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "run_id")
 		if e != nil {
 			return nil, e
 		}
-		return s.Service.RunRead(ctx, id)
+		run, err := s.Service.RunRead(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		return service.PublicRunView(run), nil
 	})
 	add("run_report", "Read finalized report.", obj(map[string]any{"run_id": str("Run identifier")}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "run_id")
@@ -593,6 +605,13 @@ func (s *Server) tools() map[string]Tool {
 			return nil, err
 		}
 		return map[string]any{"text": text}, nil
+	})
+	add("run_resume", "Perform one canonical context-compaction recovery for an owned active run.", obj(map[string]any{"run_id": str("Run identifier")}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		id, e := getString(raw, "run_id")
+		if e != nil {
+			return nil, e
+		}
+		return s.Service.RunResume(ctx, id)
 	})
 	message := str("Bounded message to the registered project session")
 	message["minLength"] = 1

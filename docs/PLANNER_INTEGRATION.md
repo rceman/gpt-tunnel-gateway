@@ -24,6 +24,10 @@ or alternate workflow reader is part of the release.
 Gateway `v0.6.0` uses the same tagged planner pin while adding only the
 separate direct project-session transport defined by the planner policy.
 
+The unreleased gateway `v0.6.1` keeps the exact pin and adds liveness and
+context-compaction recovery. The recovery operation remains separate from the
+workflow completion authority and is bounded by the durable task/run contract.
+
 The release-side policy checks used for this integration are the planner
 runtime-upgrade policy test suite and the project integration validator. They
 are run against the tagged planner tree and this gateway checkout before the

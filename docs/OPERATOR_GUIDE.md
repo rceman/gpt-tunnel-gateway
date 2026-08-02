@@ -35,4 +35,24 @@ gpt-tunnel agent send <project-id> --text '<short message>'
 
 The send is serialized and returns a delivery receipt. It does not create a
 task or run and must not be used as a substitute for an authorized durable
-workflow.
+workflow. It is emergency/control-plane communication only: it cannot create
+new scope, authorize implementation, approve a merge or release, or authorize
+deployment. For example, do not use it to send “implement the next feature”,
+“merge and release this branch”, “deploy this”, or “continue the roadmap”.
+
+Use the aggregated progress snapshot for routine checks:
+
+```text
+gpt-tunnel project status <project-id>
+```
+
+For an active run classified as `compacted_idle`, use exactly one:
+
+```text
+gpt-tunnel run resume <run-id>
+```
+
+The gateway generates the recovery instruction and records bounded operational
+events. Do not send a bare `continue`; do not retry a resume after
+`STALLED_AFTER_COMPACTION` without explicit review. A low-context warning is
+not compaction evidence.

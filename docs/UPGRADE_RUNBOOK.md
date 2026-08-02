@@ -35,3 +35,15 @@ The v0.6.0 release adds direct project-session controls without changing the
 upgrade transaction. After a verified gateway-only upgrade, check the three
 CLI commands and the three MCP tools; do not use `agent_send` as a release
 health probe unless the owner has authorized a harmless message.
+
+## v0.6.1 liveness recovery
+
+Use `gpt-tunnel project status <project-id>` as the single progress check. It
+returns a four-line tail, normalized state, blocker and next action without
+exposing the project session key. A compaction recovery requires an active
+nonterminal run, reachable session, completed compaction marker, no meaningful
+post-marker work, and no unanswered question. Use `gpt-tunnel run resume
+<run-id>` once; never send a bare `continue` or automatically retry after
+`STALLED_AFTER_COMPACTION`. `run_sweep` may perform that same one-shot action
+only after the safety checks pass. Operational events are local bounded
+evidence and are not completion or report state.

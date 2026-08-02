@@ -108,23 +108,19 @@ func (s *Service) AgentTail(ctx context.Context, projectID string, lines, skip i
 }
 
 func (s *Service) AgentStatus(ctx context.Context, projectID string) (AgentStatusResult, error) {
-	session, err := s.resolveAgentSession(ctx, projectID)
-	if err != nil {
-		return AgentStatusResult{}, err
-	}
-	status, err := s.Airelay.Status(ctx, session)
+	progress, err := s.projectProgress(ctx, projectID)
 	if err != nil {
 		return AgentStatusResult{}, err
 	}
 	return AgentStatusResult{
 		ProjectID:           projectID,
-		State:               status.State,
-		ControllerReachable: status.ControllerReachable,
-		AirelayVersion:      status.AirelayVersion,
-		ProtocolVersion:     status.ProtocolVersion,
-		CapacityWarnings:    append([]string{}, status.CapacityWarnings...),
-		ExitCode:            status.ExitCode,
-		Error:               status.Error,
+		State:               progress.AgentState,
+		ControllerReachable: progress.ControllerReachable,
+		AirelayVersion:      progress.AirelayVersion,
+		ProtocolVersion:     progress.ProtocolVersion,
+		CapacityWarnings:    append([]string{}, progress.CapacityWarnings...),
+		ExitCode:            progress.ExitCode,
+		Error:               progress.Error,
 	}, nil
 }
 

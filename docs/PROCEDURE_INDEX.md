@@ -11,6 +11,8 @@
 | Direct agent send | `gpt-tunnel agent send` | Airelay session only |
 | Direct agent tail | `gpt-tunnel agent tail` | read-only |
 | Direct agent status | `gpt-tunnel agent status` | read-only |
+| Aggregated project progress | `gpt-tunnel project status` | read-only |
+| Canonical compaction resume | `gpt-tunnel run resume <run-id>` | one bounded Airelay recovery |
 
 Read the relevant runbook before any mutating procedure. A gateway upgrade
 never restarts tunnel-client. After two activation failures, use diagnosis-only

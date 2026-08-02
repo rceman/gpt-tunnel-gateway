@@ -76,8 +76,9 @@ The direct project-session contract is:
   exact bounded output and exit information.
 - `agent_tail(project_id, lines=4, skip=0)` reads one bounded window without
   retry; it does not accept a session key.
-- `agent_status(project_id)` returns normalized `waiting`, `running`, `idle`,
-  or `error` state and capacity warnings.
+- `agent_status(project_id)` returns the normalized bounded liveness enum plus
+  capacity and rate-limit warnings. The aggregated `project_status` call is
+  the normal progress-check path.
 
 CLI equivalents are:
 
@@ -162,6 +163,30 @@ original roadmap item remains awaiting explicit authorization.
 The next recommended action is to read the completed gateway plan, then create
 one explicitly authorized durable task for the next original orchestration
 roadmap item. Do not infer or invent implementation scope from this handoff.
+
+## v0.6.1 liveness implementation
+
+The unreleased branch `feature/agent-liveness-compaction-recovery-v0.6.1`
+implements the next authorized P1b scope from base
+`05418025235949016146c0af1338052470f4d778`: aggregated project progress,
+bounded liveness classifications, strict compaction detection, durable local
+operational events, one-shot `run_resume`, sweep integration, and explicit
+context-loss recovery instructions in execution packets. It is implementation
+work only until its required gates, branch proof, completion and finalization
+are complete; it is not installed, tagged, released, or activated here.
+
+The canonical progress check is `gpt-tunnel project status <project-id>`.
+The canonical recovery operation is `gpt-tunnel run resume <run-id>`; it derives
+the session and recovery message and never accepts a caller-supplied session or
+bare continue instruction. Read-only status/tail calls never send prompts or
+append operational events. The live v0.6.0 gateway remains installed and
+running on PID `1605876`; tunnel PID `4183857` remains preserved.
+
+Owner policy: `agent_send` is bounded emergency/control-plane communication
+only. It never authorizes new task scope, implementation, merge, release, or
+deployment. Messages such as “implement the next feature”, “merge and release
+this branch”, “deploy this”, or “continue the roadmap” must not be sent through
+it; use an explicitly authorized durable task workflow.
 
 ## Compatibility policy and risks
 

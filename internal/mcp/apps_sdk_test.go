@@ -45,7 +45,7 @@ func TestToolCallAcceptsBoundedProtocolMeta(t *testing.T) {
 		t.Fatalf("unexpected result: %#v", response)
 	}
 	structured, ok := result["structuredContent"].(map[string]any)
-	if !ok || structured["version"] != "0.6.0" {
+	if !ok || structured["version"] != "0.6.1" {
 		t.Fatalf("unexpected structured result: %#v", result)
 	}
 }
@@ -317,7 +317,7 @@ func TestTaskReadOutputSchemaAcceptsBothDeclaredShapes(t *testing.T) {
 		"task": inactive["task"],
 		"run": map[string]any{
 			"schema_version": float64(1), "id": "run", "task_id": "task", "task_sha256": strings.Repeat("a", 64),
-			"project_id": "project", "gateway_id": "home_pc", "session_key": "project_master", "branch": "feature/x",
+			"project_id": "project", "gateway_id": "home_pc", "branch": "feature/x",
 			"base_revision": strings.Repeat("b", 40), "hub_revision": strings.Repeat("c", 40), "status": "awaiting_result",
 			"completion_path": "/tmp/completion", "created_at": "2026-07-30T10:00:00Z",
 		},
@@ -354,6 +354,8 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	worktree := gitx.WorktreeStatus{Branch: "main", Head: strings.Repeat("f", 40), Ahead: 0, Behind: 0, Porcelain: "", Clean: true}
 	report := model.Report{SchemaVersion: 1, TaskID: "task", RunID: "run", ProjectID: "project", Status: "succeeded", Summary: "done", GateResults: []model.CompletionGateResult{}, AcceptanceCoverage: []string{}, Deviations: []string{}, RemainingRisks: []string{}, Repository: model.RepositoryProof{Branch: "feature/x", Head: worktree.Head, WorktreeClean: true, BaseAncestor: true, Commits: []string{}, ChangedFiles: []string{}, DiffScope: "base..head"}, FinishedAt: now}
 	packet := service.TaskPacket{Task: task, Run: run, Project: project, Plan: plan, RepositoryRoot: "/tmp/project", CompletionPath: run.CompletionPath, FinalizeCommand: "gpt-tunnel run finalize run", Text: "packet"}
+	publicRun := service.PublicRunView(run)
+	publicPacket := service.PublicTaskPacketView(packet)
 	ref := gitx.Ref{Name: "refs/heads/main", ObjectType: "commit", ObjectName: worktree.Head}
 	commit := gitx.Commit{SHA: worktree.Head, Parents: []string{}, AuthorName: "GPT", AuthorEmail: "gpt@example.invalid", AuthorDate: now.Format(time.RFC3339), Subject: "subject"}
 	compare := gitx.Compare{MergeBase: worktree.Head, LeftOnly: 0, RightOnly: 0}
@@ -361,17 +363,18 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	snapshot := model.ReviewSnapshot{SchemaVersion: 1, Run: model.ReviewSnapshotRun{ID: "run", TaskID: "task", ProjectID: "project", Status: "succeeded", Branch: "feature/x", BaseRevision: task.BaseRevision, CreatedAt: now}, Task: model.ReviewSnapshotTask{ID: "task", SHA256: task.SHA256, Title: "title", Objective: "objective", Branch: "feature/x", BaseRevision: task.BaseRevision, AcceptanceCriteria: []string{}, Constraints: []string{}, RequiredGates: []string{}, CreatedBy: "gpt", CreatedAt: now, TaskStateStatus: "completed"}, Report: model.ReviewSnapshotReport{Available: true, Status: "succeeded", Summary: "done", Commits: []string{}, ChangedFiles: []string{}, GateResults: []model.CompletionGateResult{}, AcceptanceCoverage: []string{}, Deviations: []string{}, RemainingRisks: []string{}, FinishedAt: &now}, Evidence: model.ReviewSnapshotEvidence{Available: true, Head: worktree.Head, Branch: "feature/x", WorktreeClean: &clean, Notes: []string{}, RecordedAt: &now}, Repository: model.ReviewSnapshotRepo{RefreshAttempted: true, RefreshSucceeded: true, DefaultBranch: "main", TaskBranch: "feature/x", TaskBranchPublished: true, TaskBranchHead: worktree.Head, Worktree: model.ReviewSnapshotWorktree{Branch: "feature/x", Head: worktree.Head, Clean: true}, EvidenceHeadReachable: true, BaseToEvidence: model.ReviewSnapshotCompare{MergeBase: task.BaseRevision}, DefaultToEvidence: model.ReviewSnapshotCompare{}, ChangedFiles: []string{}}, Checks: []model.ReviewSnapshotCheck{}, ReviewState: "reviewable", NextAction: "perform_static_review"}
 
 	samples := map[string]any{
-		"system_ping":          map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.0", "gateway_id": "home_pc", "time": now},
+		"system_ping":          map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.1", "gateway_id": "home_pc", "time": now},
 		"gateway_capabilities": map[string]any{"gateway_id": "home_pc", "listen_addr": "127.0.0.1:8765", "projects": []string{"project"}, "hub_protocol_root": "gpt-tunnel/v1", "hub_repository_url": "git@github.com:rceman/typer.git", "hub_branch": "gpt-tunnel/home_pc", "hub_managed_root": "/tmp/state/hub/repository", "airelay_control_only": true, "generic_shell_available": false},
 		"project_list":         map[string]any{"projects": []model.Project{project}}, "project_read": project,
 		"project_status": service.ProjectStatus{Project: project, Local: local, Worktree: worktree, Plan: plan.StatusView(), HubRevision: transaction.After}, "project_register": operation,
 		"plan_read": plan, "plan_cutover": operation, "plan_update": operation, "plan_section_read": section, "plan_section_create": operation, "plan_section_update": operation, "plan_section_delete": operation, "plan_render": render, "plan_history": map[string]any{"history": []map[string]string{{"sha": transaction.After, "date": now.Format(time.RFC3339), "author": "GPT", "subject": "subject"}}},
 		"adr_list": map[string]any{"adrs": []model.ADR{adr}}, "adr_read": adr, "adr_create": operation,
-		"task_create": map[string]any{"task": task, "operation": operation}, "task_list": map[string]any{"tasks": []service.TaskRecord{{Task: task, State: state}}}, "task_read": packet,
-		"task_dispatch": map[string]any{"run": run, "operation": operation}, "task_supersede": map[string]any{"task": task, "operation": operation}, "task_cancel": operation,
-		"run_list": map[string]any{"runs": []model.Run{run}}, "run_read": run, "run_status": run, "run_report": report,
+		"task_create": map[string]any{"task": task, "operation": operation}, "task_list": map[string]any{"tasks": []service.TaskRecord{{Task: task, State: state}}}, "task_read": publicPacket,
+		"task_dispatch": map[string]any{"run": publicRun, "operation": operation}, "task_supersede": map[string]any{"task": task, "operation": operation}, "task_cancel": operation,
+		"run_list": map[string]any{"runs": []service.PublicRun{publicRun}}, "run_read": publicRun, "run_status": publicRun, "run_report": report,
 		"run_review_snapshot": snapshot,
 		"run_agent_tail":      map[string]any{"text": "tail text"},
+		"run_resume":          service.RunResumeResult{RunID: "run", CompactionEventID: "event", State: "compacted_resuming", Sent: true, ExitCode: 0, ControllerReachable: true, MessageDigest: strings.Repeat("a", 64)},
 		"agent_send":          service.AgentSendResult{ProjectID: "project", Delivered: true, ExitCode: 0, Stdout: "delivered", Stderr: "", StartedAt: now, FinishedAt: now},
 		"agent_tail":          service.AgentTailResult{ProjectID: "project", Text: "tail text", Lines: 4, Skip: 0},
 		"agent_status":        service.AgentStatusResult{ProjectID: "project", State: "running", ControllerReachable: true, CapacityWarnings: []string{}, ExitCode: 0},

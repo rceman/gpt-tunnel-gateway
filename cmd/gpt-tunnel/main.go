@@ -14,7 +14,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-var version = "0.6.0"
+var version = "0.6.1"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -324,7 +324,7 @@ func task(ctx context.Context, s *service.Service, args []string) {
 		if e != nil {
 			fatal(e)
 		}
-		output(map[string]any{"run": r, "operation": o})
+		output(map[string]any{"run": service.PublicRunView(r), "operation": o})
 	case "supersede":
 		require(args, 2)
 		f, _ := fileFlag("--file", args[2:])
@@ -359,14 +359,18 @@ func run(ctx context.Context, s *service.Service, args []string) {
 		if e != nil {
 			fatal(e)
 		}
-		output(map[string]any{"runs": v})
+		public := make([]service.PublicRun, 0, len(v))
+		for _, run := range v {
+			public = append(public, service.PublicRunView(run))
+		}
+		output(map[string]any{"runs": public})
 	case "read", "status":
 		require(args, 2)
 		v, e := s.RunRead(ctx, args[1])
 		if e != nil {
 			fatal(e)
 		}
-		output(v)
+		output(service.PublicRunView(v))
 	case "report":
 		require(args, 2)
 		v, e := s.RunReport(ctx, args[1])
@@ -399,6 +403,13 @@ func run(ctx context.Context, s *service.Service, args []string) {
 			fatal(e)
 		}
 		fmt.Println(strings.TrimRight(v, "\r\n"))
+	case "resume":
+		require(args, 2)
+		v, e := s.RunResume(ctx, args[1])
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
 	case "sweep":
 		v, e := s.RunSweep(ctx)
 		if e != nil {

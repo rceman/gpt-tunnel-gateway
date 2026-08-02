@@ -108,6 +108,17 @@ kernel-backed lock, bound all message/output windows, and return the exact
 bounded Airelay result. They do not create task/run/plan records or mutate Git,
 and caller-supplied session keys and generic shell execution are impossible.
 
+The v0.6.1 liveness layer aggregates plan/task/run/repository and bounded
+Airelay evidence in `project_status`. It classifies the session with one fixed
+enum and recognizes compaction only from a completed marker plus an active
+nonterminal run, reachable session, no explicit question, and no meaningful
+post-marker output. Resume is a gateway-generated `run_resume` operation. Its
+bounded operational event log is local durable evidence for restart recovery,
+never a completion or report authority; read-only status calls never append to
+it. Status, tail, repository and bounded hub components are fetched in
+parallel under one request deadline, and failures are returned as sanitized
+component codes alongside the available snapshot.
+
 ## Runtime binding
 
 The controller starts `tunnel-client` with a canonical `MCP_SERVER_URL` derived from the configured loopback gateway address and a configured loopback health listen address. The owner-managed mode-0600 env file contains only control-plane credentials and explicitly allowed tunnel options.

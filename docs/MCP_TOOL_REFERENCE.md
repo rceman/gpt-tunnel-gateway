@@ -21,3 +21,10 @@ and `agent_status`; they do not create durable workflow or Git state. `agent_sen
 accepts only `project_id` and `message`, `agent_tail` defaults to four lines and
 supports a bounded `skip`, and `agent_status` returns normalized state plus
 capacity warnings. Session keys are never caller-supplied.
+
+`project_status` is the single-call progress snapshot. Healthy bounded status,
+tail, repository and hub components are collected concurrently; partial
+failures are represented by sanitized `component_errors`. `run_resume` accepts
+only `run_id` and performs one gateway-generated context-compaction recovery
+after validating ownership, active-run uniqueness, compaction evidence,
+unanswered questions, and repository conflict state.

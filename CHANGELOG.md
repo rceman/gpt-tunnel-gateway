@@ -2,7 +2,12 @@
 
 ## Unreleased
 
-- Follow-up work remains tracked in the durable workflow-v2 plan.
+- Add v0.6.1 aggregated project progress with bounded task/run, repository,
+  Airelay liveness, activity, blocker and next-action data.
+- Add deterministic agent-state and context-compaction detection with durable
+  bounded operational events and one-shot canonical `run_resume` recovery.
+- Add context-loss recovery instructions to rendered task execution packets,
+  CLI/MCP parity, schema coverage, and isolated liveness tests.
 
 ## 0.6.0 — 2026-08-02
 

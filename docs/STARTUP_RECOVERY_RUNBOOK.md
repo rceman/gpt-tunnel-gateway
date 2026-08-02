@@ -15,3 +15,10 @@ Start the gateway exactly once after preflight. If it fails, retain the bounded
 diagnostic, stop only the gateway if necessary, and preserve the tunnel PID.
 Do not use broad process matching or restart the tunnel as a gateway recovery
 step.
+
+After a context-loss report, inspect the durable run and repository state with
+the aggregated project snapshot. A read-only snapshot must not resume the
+agent. If it reports `compacted_idle`, use the single canonical `run resume`
+operation; if it reports `STALLED_AFTER_COMPACTION`, stop and require explicit
+review. Durable operational events survive gateway restart but cannot create a
+completion or report.

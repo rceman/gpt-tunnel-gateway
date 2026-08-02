@@ -44,8 +44,16 @@
 40. Direct project-session operations resolve only configured active project IDs and derive the Airelay session key from configuration; callers cannot supply arbitrary session keys.
 41. `agent_send`, `agent_tail`, and `agent_status` create no task, run, plan, report, completion, branch, commit, or Git mutation. Generic shell execution is not available.
 42. Direct-session messages and output are bounded, sends are serialized per configured session, and no implicit retry or automatic continuation occurs.
-43. `agent_tail` defaults to four lines and supports a bounded skip window; `agent_status` reports only waiting, running, idle, or error plus bounded capacity warnings.
-44. A v0.6.0 direct-session release must preserve the gateway-only upgrade invariant: a new gateway PID, unchanged tunnel PID, readiness, doctor, and MCP contract verification.
+43. `agent_tail` defaults to four lines and supports a bounded skip window; `agent_status` reports the canonical bounded liveness enum plus bounded capacity and rate-limit warnings.
+44. `agent_send` is emergency/control-plane communication only; it never authorizes new task scope, implementation, merge, release, or deployment. Such requests must use the durable task workflow.
+45. A v0.6.0 direct-session release must preserve the gateway-only upgrade invariant: a new gateway PID, unchanged tunnel PID, readiness, doctor, and MCP contract verification.
+46. `project_status` is the canonical bounded progress snapshot: it includes the compact plan, latest task/run, repository state, normalized agent state, controller reachability, bounded warnings, a four-line tail, activity age, blocker classification, and recommended action.
+47. Public progress/project outputs never expose a raw Airelay session key. Session identity is resolved only inside the gateway from registered project metadata.
+48. The liveness enum is fixed to `idle`, `running`, `waiting_for_input`, `compacting`, `compacted_resuming`, `compacted_idle`, `capacity_blocked`, `rate_limited`, `completion_pending`, `finalization_pending`, `stalled`, `error`, and `unknown`.
+49. Compaction recovery requires an active nonhistorical run, reachable session, completed compaction marker, no meaningful post-marker output, no unanswered question, and a nonterminal run; low-context warnings alone never trigger it.
+50. `run_resume` is the sole canonical recovery operation. It derives task/project/session/message, requires one owned active run and a non-conflicted task worktree, and permits one resume per compaction event.
+51. Compaction/resume lifecycle events are bounded local operational evidence and cannot create completion, report, task, plan, or Git authority. Read-only status/tail calls never append them.
+52. Healthy `project_status` components are fetched concurrently under one bounded request deadline; partial failures return sanitized component error codes without exposing raw command output or paths.
 
 ## Lifecycle
 

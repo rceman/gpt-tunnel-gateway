@@ -39,6 +39,7 @@ gpt-tunnel task cancel <task-id> [--expected-hub-revision <sha>]
 gpt-tunnel run list <project-id>
 gpt-tunnel run read|status|report|review-snapshot <run-id>
 gpt-tunnel run agent-tail <run-id> [--lines N]
+gpt-tunnel run resume <run-id>
 gpt-tunnel run cancel <run-id>
 gpt-tunnel run sweep
 gpt-tunnel run finalize <run-id> [--completion-file <gateway-owned-run-path>]
@@ -59,12 +60,22 @@ project configuration. A caller cannot supply a session key. `agent_tail`
 defaults to four lines; `skip` omits the newest lines from the bounded window.
 Messages and output are bounded, sends are serialized per session, and there
 is no retry or automatic continuation. These commands create no durable task,
-run, plan, report, branch, commit, or other Git mutation.
+run, plan, report, branch, commit, or other Git mutation. `agent_send` is
+emergency/control-plane communication only and never authorizes new scope,
+implementation, merge, release, or deployment. “Implement the next feature”,
+“merge and release this branch”, “deploy this”, and “continue the roadmap” are
+misuse examples, not valid task control.
 
 `run report` reads only the canonical workflow-2.0 report. Protocol-v1 runs
 remain visible through bounded `run list`/`run read` history with legacy local
 paths redacted, but report and finalization operations return a stable
 history-only error for those runs.
+
+`run resume` is the only canonical context-compaction recovery operation. It
+accepts only a run ID; the gateway resolves the task, project, configured
+session, branch, and recovery message. It requires one owned active run, a
+confirmed compaction marker, no unanswered question, and a non-conflicted
+worktree. It sends at most once for each compaction event.
 
 `plan read` returns only the compact schema-v2 manifest. Full section descriptions are returned by `plan section-read` or the explicit `plan render` operation. Manifest updates are partial and preserve fields omitted from the input. Section updates and deletes require `expected_section_revision`; unrelated sections do not conflict.
 

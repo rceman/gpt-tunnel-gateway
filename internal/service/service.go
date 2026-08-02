@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
@@ -118,6 +119,7 @@ type ProjectStatus struct {
 	Worktree    gitx.WorktreeStatus  `json:"worktree"`
 	Plan        model.PlanStatus     `json:"plan"`
 	HubRevision string               `json:"hub_revision"`
+	Progress    ProjectProgress      `json:"progress"`
 }
 
 type TaskRecord struct {
@@ -346,19 +348,60 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	if err != nil {
 		return ProjectStatus{}, err
 	}
-	wt, err := s.Git.WorktreeStatus(ctx, local)
-	if err != nil {
-		return ProjectStatus{}, err
-	}
-	plan, err := s.PlanRead(ctx, id)
-	if err != nil {
-		return ProjectStatus{}, err
-	}
-	rev, err := s.hubRevision(ctx)
-	if err != nil {
-		return ProjectStatus{}, err
-	}
-	return ProjectStatus{Project: p, Local: local, Worktree: wt, Plan: plan.StatusView(), HubRevision: rev}, nil
+	componentCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	var (
+		wt             gitx.WorktreeStatus
+		wtErr          error
+		plan           model.Plan
+		planErr        error
+		tasks          []TaskRecord
+		tasksErr       error
+		runs           []model.Run
+		runsErr        error
+		hubRevision    string
+		hubRevisionErr error
+		agentStatus    airelay.SessionStatus
+		agentStatusErr error
+		agentTail      airelay.Result
+		agentTailErr   error
+	)
+	var wg sync.WaitGroup
+	wg.Add(7)
+	go func() {
+		defer wg.Done()
+		wt, wtErr = s.Git.WorktreeStatus(componentCtx, local)
+	}()
+	go func() {
+		defer wg.Done()
+		plan, planErr = s.PlanRead(componentCtx, id)
+	}()
+	go func() {
+		defer wg.Done()
+		tasks, tasksErr = s.TaskList(componentCtx, id)
+	}()
+	go func() {
+		defer wg.Done()
+		runs, runsErr = s.RunList(componentCtx, id)
+	}()
+	go func() {
+		defer wg.Done()
+		hubRevision, hubRevisionErr = s.hubRevision(componentCtx)
+	}()
+	go func() {
+		defer wg.Done()
+		agentStatus, agentStatusErr = s.Airelay.Status(componentCtx, local.AirelaySessionKey)
+	}()
+	go func() {
+		defer wg.Done()
+		agentTail, agentTailErr = s.Airelay.Tail(componentCtx, local.AirelaySessionKey, progressTailLines)
+	}()
+	wg.Wait()
+	progress := s.projectProgressFromInputs(plan, planErr, tasks, tasksErr, runs, runsErr, agentStatus, agentStatusErr, agentTail, agentTailErr)
+	appendComponentError(&progress.ComponentErrors, "worktree", wtErr)
+	appendComponentError(&progress.ComponentErrors, "hub_revision", hubRevisionErr)
+	sort.Strings(progress.ComponentErrors)
+	return ProjectStatus{Project: p, Local: local, Worktree: wt, Plan: plan.StatusView(), HubRevision: hubRevision, Progress: progress}, nil
 }
 
 func (s *Service) PlanRead(ctx context.Context, project string) (model.Plan, error) {
@@ -1419,7 +1462,7 @@ func renderPacket(task model.Task, run model.Run, project model.Project, plan mo
 	for _, v := range task.RequiredGates {
 		fmt.Fprintf(&b, "- %s\n", v)
 	}
-	fmt.Fprintf(&b, "\n## Global plan context\n\n%s\n\nCurrent objective: %s\n\n## Completion contract\n\nBefore writing completion.json, commit the implementation, run every required gate, and push the task branch. Then write one strict completion JSON atomically to:\n  %s\n\nFinalize with:\n  gpt-tunnel run finalize %s\n\nThe task is not complete until finalization prints TASK_FINALIZED. Do not finish only in chat or Airelay.\n", plan.Summary, plan.CurrentObjective, run.CompletionPath, run.ID)
+	fmt.Fprintf(&b, "\n## Global plan context\n\n%s\n\nCurrent objective: %s\n\n## Context-compaction recovery\n\nIf context is lost or a compaction marker appears, re-read this immutable task packet with `gpt-tunnel task read %s`. Inspect the declared branch, base, current HEAD, worktree, existing commits, and durable run state. Resume from committed and durable evidence; do not rely on conversation memory, redo completed phases, or change task scope. If implementation is already complete, continue through verification, completion evidence, push, and finalization.\n\n## Completion contract\n\nBefore writing completion.json, commit the implementation, run every required gate, and push the task branch. Then write one strict completion JSON atomically to:\n  %s\n\nFinalize with:\n  gpt-tunnel run finalize %s\n\nThe task is not complete until finalization prints TASK_FINALIZED. Do not finish only in chat or Airelay.\n", plan.Summary, plan.CurrentObjective, task.ID, run.CompletionPath, run.ID)
 	return b.String()
 }
 
@@ -1760,16 +1803,20 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 			if now.Sub(start) < time.Duration(s.Config.RunTimeoutSeconds)*time.Second {
 				continue
 			}
+			if e := s.observeResumeProgress(ctx, run, now); e != nil {
+				out.Items = append(out.Items, SweepItem{RunID: run.ID, Action: "error", Status: run.Status, Error: "liveness observation failed"})
+				continue
+			}
 			task, e := s.findTask(ctx, run.TaskID)
 			if e != nil {
 				out.Items = append(out.Items, SweepItem{RunID: run.ID, Action: "error", Status: run.Status, Error: e.Error()})
 				continue
 			}
-			expected, e := s.hubRevision(ctx)
-			if e != nil {
-				return out, e
-			}
 			if run.Status == "cancel_requested" {
+				expected, e := s.hubRevision(ctx)
+				if e != nil {
+					return out, e
+				}
 				tx, e := s.failRun(ctx, run, task, "failed", "cooperative cancellation timed out", expected)
 				_ = tx
 				item := SweepItem{RunID: run.ID, Action: "finalize_cancelled", Status: "failed"}
@@ -1780,20 +1827,21 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 				continue
 			}
 			if run.RepromptCount < 1 {
-				run.RepromptCount++
-				t := now
-				run.LastRepromptAt = &t
-				_, e := s.updateRun(ctx, run, expected, "gateway: record reprompt "+run.ID)
-				if e == nil {
-					message := "Continue task. Run: gpt-tunnel task read " + task.ID
-					_, e = s.Airelay.Prompt(ctx, run.SessionKey, message)
-				}
-				item := SweepItem{RunID: run.ID, Action: "reprompt", Status: run.Status}
-				if e != nil {
-					item.Error = e.Error()
+				_, resumeErr := s.runResume(ctx, run.ID, true)
+				item := SweepItem{RunID: run.ID, Action: "resume", Status: run.Status}
+				if resumeErr != nil {
+					// A stale run without confirmed compaction is not silently
+					// reprompted.  It remains visible for an explicit operator/GPT
+					// decision instead of receiving a bare continue message.
+					item.Action = "review"
+					item.Error = "automatic resume not performed"
 				}
 				out.Items = append(out.Items, item)
 				continue
+			}
+			expected, e := s.hubRevision(ctx)
+			if e != nil {
+				return out, e
 			}
 			tx, e := s.failRun(ctx, run, task, "failed", "agent completion was not finalized before timeout", expected)
 			_ = tx

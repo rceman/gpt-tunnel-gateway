@@ -103,12 +103,12 @@ func taskStateOutputSchema() map[string]any {
 func runOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"schema_version": outputInteger(), "id": outputString(), "task_id": outputString(), "task_sha256": outputString(),
-		"project_id": outputString(), "gateway_id": outputString(), "session_key": outputString(), "branch": outputString(),
+		"project_id": outputString(), "gateway_id": outputString(), "branch": outputString(),
 		"base_revision": outputString(), "hub_revision": outputString(), "status": outputString(),
 		"dispatch_message": outputString(), "dispatch_exit_code": outputInteger(), "dispatch_stdout": outputString(), "dispatch_stderr": outputString(),
 		"completion_path": outputString(), "created_at": outputDateTime(), "dispatched_at": outputDateTime(),
 		"reprompt_count": outputInteger(), "last_reprompt_at": outputDateTime(), "finished_at": outputDateTime(),
-	}, "schema_version", "id", "task_id", "task_sha256", "project_id", "gateway_id", "session_key", "branch", "base_revision", "hub_revision", "status", "completion_path", "created_at")
+	}, "schema_version", "id", "task_id", "task_sha256", "project_id", "gateway_id", "branch", "base_revision", "hub_revision", "status", "completion_path", "created_at")
 }
 
 func reportOutputSchema() map[string]any {
@@ -149,10 +149,17 @@ func agentTailOutputSchema() map[string]any {
 
 func agentStatusOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"project_id": outputString(), "state": outputEnum("waiting", "running", "idle", "error"), "controller_reachable": outputBoolean(),
+		"project_id": outputString(), "state": outputEnum("idle", "running", "waiting_for_input", "compacting", "compacted_resuming", "compacted_idle", "capacity_blocked", "rate_limited", "completion_pending", "finalization_pending", "stalled", "error", "unknown"), "controller_reachable": outputBoolean(),
 		"airelay_version": outputString(), "protocol_version": outputString(), "capacity_warnings": outputArray(outputString()),
 		"exit_code": outputInteger(), "error": outputString(),
 	}, "project_id", "state", "controller_reachable", "capacity_warnings", "exit_code")
+}
+
+func runResumeOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"run_id": outputString(), "compaction_event_id": outputString(), "state": outputEnum("compacted_resuming", "error"),
+		"sent": outputBoolean(), "exit_code": outputInteger(), "controller_reachable": outputBoolean(), "message_digest": outputString(), "error": outputString(),
+	}, "run_id", "compaction_event_id", "state", "sent", "exit_code", "controller_reachable", "message_digest")
 }
 
 func reviewSnapshotOutputSchema() map[string]any {
@@ -171,8 +178,19 @@ func reviewSnapshotOutputSchema() map[string]any {
 
 func projectConfigOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"root": outputString(), "mirror": outputString(), "remote": outputString(), "default_branch": outputString(), "airelay_session_key": outputString(),
-	}, "root", "mirror", "remote", "default_branch", "airelay_session_key")
+		"root": outputString(), "mirror": outputString(), "remote": outputString(), "default_branch": outputString(),
+	}, "root", "mirror", "remote", "default_branch")
+}
+
+func projectProgressOutputSchema() map[string]any {
+	task := closedOutput(map[string]any{"id": outputString(), "title": outputString(), "status": outputString(), "created_at": outputDateTime()}, "id", "title", "status", "created_at")
+	run := closedOutput(map[string]any{"id": outputString(), "task_id": outputString(), "status": outputString(), "branch": outputString(), "base_revision": outputString(), "created_at": outputDateTime(), "dispatched_at": outputDateTime(), "finished_at": outputDateTime()}, "id", "task_id", "status", "branch", "base_revision", "created_at")
+	return closedOutput(map[string]any{
+		"latest_task": task, "latest_run": run,
+		"agent_state":          outputEnum("idle", "running", "waiting_for_input", "compacting", "compacted_resuming", "compacted_idle", "capacity_blocked", "rate_limited", "completion_pending", "finalization_pending", "stalled", "error", "unknown"),
+		"controller_reachable": outputBoolean(), "airelay_version": outputString(), "protocol_version": outputString(), "capacity_warnings": outputArray(outputString()), "exit_code": outputInteger(), "error": outputString(),
+		"last_meaningful_activity": outputDateTime(), "last_meaningful_activity_age_seconds": outputInteger(), "tail": outputString(), "blocker_classification": outputString(), "recommended_next_action": outputString(), "component_errors": outputArray(outputString()),
+	}, "agent_state", "controller_reachable", "capacity_warnings", "exit_code", "last_meaningful_activity_age_seconds", "tail", "blocker_classification", "recommended_next_action", "component_errors")
 }
 
 func worktreeStatusOutputSchema() map[string]any {
@@ -236,7 +254,7 @@ var toolOutputSchemas = map[string]map[string]any{
 	}, "gateway_id", "listen_addr", "projects", "hub_protocol_root", "hub_repository_url", "hub_branch", "hub_managed_root", "airelay_control_only", "generic_shell_available"),
 	"project_list":        closedOutput(map[string]any{"projects": outputArray(projectOutputSchema())}, "projects"),
 	"project_read":        projectOutputSchema(),
-	"project_status":      closedOutput(map[string]any{"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(), "hub_revision": outputString()}, "project", "local", "worktree", "plan", "hub_revision"),
+	"project_status":      closedOutput(map[string]any{"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(), "hub_revision": outputString(), "progress": projectProgressOutputSchema()}, "project", "local", "worktree", "plan", "hub_revision", "progress"),
 	"project_register":    operationOutputSchema(),
 	"plan_read":           planOutputSchema(),
 	"plan_cutover":        operationOutputSchema(),
@@ -270,6 +288,7 @@ var toolOutputSchemas = map[string]map[string]any{
 	"run_report":          reportOutputSchema(),
 	"run_review_snapshot": reviewSnapshotOutputSchema(),
 	"run_agent_tail":      closedOutput(map[string]any{"text": outputString()}, "text"),
+	"run_resume":          runResumeOutputSchema(),
 	"agent_send":          agentSendOutputSchema(),
 	"agent_tail":          agentTailOutputSchema(),
 	"agent_status":        agentStatusOutputSchema(),
@@ -305,7 +324,7 @@ var canonicalToolManifest = []string{
 	"plan_section_create", "plan_section_update", "plan_section_delete", "plan_render", "plan_history",
 	"adr_list", "adr_read", "adr_create", "task_create", "task_list", "task_read", "task_dispatch",
 	"task_supersede", "task_cancel", "run_list", "run_read", "run_status", "run_report",
-	"run_review_snapshot", "run_agent_tail", "run_sweep", "run_cancel", "git_refresh", "git_refs",
+	"run_review_snapshot", "run_agent_tail", "run_resume", "run_sweep", "run_cancel", "git_refresh", "git_refs",
 	"agent_send", "agent_tail", "agent_status",
 	"git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare", "git_merge_base",
 	"git_worktree_status", "git_worktree_diff",
@@ -338,7 +357,7 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	for _, name := range []string{"project_register", "adr_create", "task_create", "plan_section_create"} {
 		result[name] = additiveExternalAnnotations()
 	}
-	for _, name := range []string{"plan_cutover", "plan_update", "plan_section_update", "plan_section_delete", "task_dispatch", "task_supersede", "task_cancel", "run_sweep", "run_cancel"} {
+	for _, name := range []string{"plan_cutover", "plan_update", "plan_section_update", "plan_section_delete", "task_dispatch", "task_supersede", "task_cancel", "run_resume", "run_sweep", "run_cancel"} {
 		result[name] = destructiveExternalAnnotations()
 	}
 	result["git_refresh"] = ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
