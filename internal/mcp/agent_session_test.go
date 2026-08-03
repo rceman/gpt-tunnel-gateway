@@ -65,8 +65,11 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatalf("project status aggregation failed: %#v", projectStatus)
 	}
 	local := projectStatusContent["local"].(map[string]any)
-	if _, ok := local["mirror"]; ok || strings.Contains(string(mustJSON(t, projectStatusContent)), "example_master") {
+	if _, ok := local["root"]; ok || strings.Contains(string(mustJSON(t, projectStatusContent)), c.Projects["example"].Root) || strings.Contains(string(mustJSON(t, projectStatusContent)), "example_master") {
 		t.Fatalf("project status exposed internal project metadata: %#v", projectStatusContent)
+	}
+	if schema, err := json.Marshal(toolOutputSchemas["project_status"]); err != nil || strings.Contains(string(schema), `"root"`) {
+		t.Fatalf("project status schema exposed repository root: %s", schema)
 	}
 
 	resume := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"run_resume","arguments":{"run_id":"11111111-1111-4111-8111-111111111111"}}}`))
@@ -82,6 +85,46 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	after, err := s.Hub.RemoteRevision(context.Background())
 	if err != nil || before != after || registered.Hub.After != before {
 		t.Fatalf("direct agent tools mutated durable workflow: before=%s after=%s err=%v", before, after, err)
+	}
+}
+
+func TestTaskReadMCPRetainsExecutionOnlyPaths(t *testing.T) {
+	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
+	_, projectRoot, projectHead := testutil.RepoWithBareRemote(t)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ncase \"$1\" in\nprompt) printf 'sent\\n' ;;\nesac\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: script, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
+	s := service.New(c)
+	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"}
+	registered, err := s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: project, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Packet", Objective: "Retain execution paths", Branch: "feature/packet", BaseRevision: projectHead, AcceptanceCriteria: []string{"packet"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	title, summary, objective := "Packet", "Packet", "Retain execution paths"
+	plan, err := s.PlanUpdate(context.Background(), service.PlanUpdateInput{ProjectID: "example", Title: &title, Summary: &summary, CurrentObjective: &objective, ActiveTaskID: &task.ID, UpdatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _, err := s.TaskDispatch(context.Background(), service.DispatchInput{TaskID: task.ID, WriteOptions: service.WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := callMCP(t, &Server{Service: s}, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"task_read","arguments":{"task_id":"`+task.ID+`"}}}`))
+	result := response["result"].(map[string]any)
+	packet := result["structuredContent"].(map[string]any)
+	if result["isError"] != false || packet["repository_root"] != projectRoot || packet["completion_path"] != run.CompletionPath {
+		t.Fatalf("task packet did not retain required execution paths: %#v", response)
+	}
+	packetRun := packet["run"].(map[string]any)
+	if packetRun["completion_path"] != run.CompletionPath {
+		t.Fatalf("task packet run did not retain completion path: %#v", packetRun)
 	}
 }
 

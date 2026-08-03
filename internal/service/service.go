@@ -408,7 +408,11 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	appendComponentError(&progress.ComponentErrors, "project", projectErr)
 	appendComponentError(&progress.ComponentErrors, "worktree", wtErr)
 	appendComponentError(&progress.ComponentErrors, "hub_revision", hubRevisionErr)
-	for _, internal := range []string{s.Config.StateDir, local.Mirror, local.AirelaySessionKey} {
+	internalPaths := []string{s.Config.StateDir, local.Root, local.Mirror, local.AirelaySessionKey}
+	for _, run := range runs {
+		internalPaths = append(internalPaths, run.CompletionPath)
+	}
+	for _, internal := range internalPaths {
 		if internal != "" {
 			progress.Tail = strings.ReplaceAll(progress.Tail, internal, "[gateway-internal-value]")
 		}

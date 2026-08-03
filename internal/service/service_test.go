@@ -176,6 +176,14 @@ func TestTaskPlanDispatchReadFinalize(t *testing.T) {
 	if packet.Run.ID != run.ID || packet.FinalizeCommand == "" {
 		t.Fatalf("bad packet: %#v", packet)
 	}
+	publicPacket, err := json.Marshal(PublicTaskPacketView(packet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuredRoot := s.Config.Projects["example"].Root
+	if !strings.Contains(string(publicPacket), configuredRoot) || !strings.Contains(string(publicPacket), run.CompletionPath) {
+		t.Fatalf("active execution packet dropped required paths: %s", publicPacket)
+	}
 	project := s.Config.Projects["example"]
 	if err := os.WriteFile(filepath.Join(project.Root, "feature.txt"), []byte("done\n"), 0o600); err != nil {
 		t.Fatal(err)

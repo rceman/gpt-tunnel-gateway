@@ -46,8 +46,27 @@ func TestProjectStatusAggregatesProgressWithoutSessionIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "session_key") || strings.Contains(string(data), "airelay_session_key") || strings.Contains(string(data), s.Config.Projects["example"].Mirror) {
+	if strings.Contains(string(data), "session_key") || strings.Contains(string(data), "airelay_session_key") || strings.Contains(string(data), s.Config.Projects["example"].Root) || strings.Contains(string(data), s.Config.Projects["example"].Mirror) {
 		t.Fatalf("project status exposed session identity: %s", data)
+	}
+}
+
+func TestProjectStatusRedactsInternalPathsFromTail(t *testing.T) {
+	s, _, run, _ := dispatchedRun(t, "feature/status-redaction")
+	root := s.Config.Projects["example"].Root
+	writeLivenessScript(t, s, root+"\n"+run.CompletionPath+"\n"+s.Config.StateDir, "Controller: reachable\nState: idle", "")
+	status, err := s.ProjectStatus(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{root, run.CompletionPath, s.Config.StateDir} {
+		if strings.Contains(string(data), forbidden) {
+			t.Fatalf("routine project status leaked internal path %q: %s", forbidden, data)
+		}
 	}
 }
 

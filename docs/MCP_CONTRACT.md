@@ -44,7 +44,10 @@ not expose raw command output or discard the other components. The new
 `run_resume(run_id)` operation is the only canonical compaction recovery write;
 it accepts no caller message or session key and is one-shot per compaction
 event. `run_sweep` may perform the same bounded recovery only after all safety
-checks pass.
+checks pass. Routine project status omits the configured repository root,
+mirror, Airelay session key, gateway state path, and completion path. Those
+execution paths remain available only in the active task packet fields required
+for agent execution and finalization.
 
 The normal run surface contains `run_read`, `run_report`, and
 `run_review_snapshot`; there is no `run_evidence` operation. Routine run list,

@@ -11,11 +11,10 @@ import (
 // while ensuring public project status never exposes the raw Airelay key.
 func (p ProjectStatus) MarshalJSON() ([]byte, error) {
 	type localView struct {
-		Root          string `json:"root"`
 		Remote        string `json:"remote"`
 		DefaultBranch string `json:"default_branch"`
 	}
-	local := localView{Root: p.Local.Root, Remote: p.Local.Remote, DefaultBranch: p.Local.DefaultBranch}
+	local := localView{Remote: p.Local.Remote, DefaultBranch: p.Local.DefaultBranch}
 	progress := p.Progress
 	if p.Local.Mirror != "" {
 		progress.Tail = strings.ReplaceAll(progress.Tail, p.Local.Mirror, "[gateway-internal-path]")
@@ -33,11 +32,10 @@ func (p ProjectStatus) MarshalJSON() ([]byte, error) {
 // PublicProjectConfig is used by future output contracts that need to expose
 // local repository metadata without a session identity.
 type PublicProjectConfig struct {
-	Root          string `json:"root"`
 	Remote        string `json:"remote"`
 	DefaultBranch string `json:"default_branch"`
 }
 
 func publicProjectConfig(v config.ProjectConfig) PublicProjectConfig {
-	return PublicProjectConfig{Root: v.Root, Remote: v.Remote, DefaultBranch: v.DefaultBranch}
+	return PublicProjectConfig{Remote: v.Remote, DefaultBranch: v.DefaultBranch}
 }

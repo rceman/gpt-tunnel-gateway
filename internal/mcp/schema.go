@@ -189,8 +189,8 @@ func reviewSnapshotOutputSchema() map[string]any {
 
 func projectConfigOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"root": outputString(), "remote": outputString(), "default_branch": outputString(),
-	}, "root", "remote", "default_branch")
+		"remote": outputString(), "default_branch": outputString(),
+	}, "remote", "default_branch")
 }
 
 func projectProgressOutputSchema() map[string]any {
