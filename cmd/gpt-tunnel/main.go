@@ -87,6 +87,13 @@ func fileFlag(name string, args []string) (string, []string) {
 	return "", args
 }
 func expected(args []string) (string, []string) { return fileFlag("--expected-hub-revision", args) }
+func expectedStrict(args []string) (string, error) {
+	expectedRevision, rest := expected(args)
+	if len(rest) != 0 {
+		return "", fmt.Errorf("unexpected run cancellation acknowledgement arguments")
+	}
+	return expectedRevision, nil
+}
 func require(args []string, n int) {
 	if len(args) < n {
 		usage()
@@ -466,6 +473,17 @@ func run(ctx context.Context, s *service.Service, args []string) {
 		require(args, 2)
 		ex, _ := expected(args[2:])
 		v, e := s.RunCancel(ctx, args[1], ex)
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
+	case "cancel-acknowledge-no-mutation":
+		require(args, 2)
+		ex, e := expectedStrict(args[2:])
+		if e != nil {
+			usage()
+		}
+		v, e := s.RunCancelAcknowledgeNoMutation(ctx, args[1], ex)
 		if e != nil {
 			fatal(e)
 		}

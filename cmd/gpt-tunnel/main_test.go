@@ -21,6 +21,78 @@ import (
 
 func planString(value string) *string { return &value }
 
+func TestCancelAcknowledgeCLIArgumentsAreStrict(t *testing.T) {
+	if got, err := expectedStrict([]string{"--expected-hub-revision", strings.Repeat("a", 40)}); err != nil || got != strings.Repeat("a", 40) {
+		t.Fatalf("valid acknowledgement arguments rejected: value=%q err=%v", got, err)
+	}
+	for _, args := range [][]string{
+		{"--unknown", "value"},
+		{"--expected-hub-revision"},
+		{"--expected-hub-revision", "one", "--expected-hub-revision", "two"},
+		{"run-id-extra"},
+	} {
+		if _, err := expectedStrict(args); err == nil {
+			t.Fatalf("invalid acknowledgement arguments accepted: %#v", args)
+		}
+	}
+}
+
+func TestCancelAcknowledgeCLIRouteUsesCanonicalServiceResult(t *testing.T) {
+	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
+	_, projectRoot, projectHead := testutil.RepoWithBareRemote(t)
+	dir := t.TempDir()
+	airelay := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(airelay, []byte("#!/bin/sh\nprintf 'dispatch output\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: airelay, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
+	s := service.New(c)
+	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"}
+	registered, err := s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: project, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Cancel acknowledgement", Objective: "Exercise the CLI surface", Branch: "feature/cancel-ack-cli", BaseRevision: projectHead, AcceptanceCriteria: []string{"cancel"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := s.PlanUpdate(context.Background(), service.PlanUpdateInput{ProjectID: "example", Title: planString("Cancel acknowledgement"), Summary: planString("Cancel acknowledgement"), CurrentObjective: planString("Exercise the CLI surface"), ActiveTaskID: &task.ID, UpdatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runRecord, _, err := s.TaskDispatch(context.Background(), service.DispatchInput{TaskID: task.ID, WriteOptions: service.WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(airelay, []byte("#!/bin/sh\nprintf 'cancel acknowledged\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cancelRevision, err := s.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RunCancel(context.Background(), runRecord.ID, cancelRevision); err != nil {
+		t.Fatal(err)
+	}
+
+	oldStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writer
+	run(context.Background(), s, []string{"cancel-acknowledge-no-mutation", runRecord.ID})
+	_ = writer.Close()
+	os.Stdout = oldStdout
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"status": "cancelled_no_mutation"`) {
+		t.Fatalf("unexpected acknowledgement output: %s", data)
+	}
+}
+
 func TestReviewSnapshotCLISuccessRenderingPath(t *testing.T) {
 	old := os.Stdout
 	r, w, err := os.Pipe()

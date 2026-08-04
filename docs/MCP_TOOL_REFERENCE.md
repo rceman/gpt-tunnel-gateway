@@ -38,3 +38,26 @@ exact repository HEAD from the latest canonical successful report;
 in the exact remote `develop` HEAD and records that receipt. The actual merge
 is a later integration operation; `task_mark_merged` does not merge, push,
 checkout, or delete branches.
+
+## Cancellation acknowledgement
+
+The CLI command
+
+```text
+gpt-tunnel run cancel-acknowledge-no-mutation <run-id> [--expected-hub-revision <sha>]
+```
+
+and the MCP tool `run_cancel_acknowledge_no_mutation` expose the same existing
+service operation. The MCP input is a closed object containing required
+`run_id` and optional `expected_hub_revision`; its output is the canonical
+operation result. The operation acknowledges an already delivered cooperative
+cancellation and terminalizes it only when the configured task worktree is
+clean at the task's immutable base revision. It does not send a cancellation,
+hard-interrupt Airelay, or mutate the task's implementation.
+
+`run_cancel` remains the cooperative cancellation request through Airelay.
+Neither operation is a hard interrupt. A dirty worktree, committed changes,
+an ambiguous repository identity, failed or incomplete cancellation delivery,
+or any other failed proof blocks terminalization. The acknowledgement command
+rejects missing, duplicate, unknown, or extra arguments and supports the
+optimistic hub revision guard.

@@ -683,6 +683,13 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.RunCancel(ctx, id, optionalString(raw, "expected_hub_revision"))
 	})
+	add("run_cancel_acknowledge_no_mutation", "Acknowledge delivered cancellation and terminalize only when the configured task worktree is clean at its immutable base; this does not send a cancellation or hard-interrupt Airelay.", obj(map[string]any{"run_id": str("Run identifier"), "expected_hub_revision": str("Optimistic hub revision")}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		id, e := getString(raw, "run_id")
+		if e != nil {
+			return nil, e
+		}
+		return s.Service.RunCancelAcknowledgeNoMutation(ctx, id, optionalString(raw, "expected_hub_revision"))
+	})
 	addGitTools(add, s)
 	if err := validateCanonicalToolManifest(t); err != nil {
 		panic(err)

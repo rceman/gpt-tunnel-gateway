@@ -245,6 +245,7 @@ func TestToolAnnotationsMatchActualSideEffects(t *testing.T) {
 	assert("plan_render", readOnlyAnnotations())
 	assert("task_dispatch", destructiveExternalAnnotations())
 	assert("run_cancel", destructiveExternalAnnotations())
+	assert("run_cancel_acknowledge_no_mutation", destructiveExternalAnnotations())
 	assert("git_refresh", ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true})
 }
 
@@ -379,7 +380,7 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		"agent_send":          service.AgentSendResult{ProjectID: "project", Delivered: true, ExitCode: 0, Stdout: "delivered", Stderr: "", StartedAt: now, FinishedAt: now},
 		"agent_tail":          service.AgentTailResult{ProjectID: "project", Text: "tail text", Lines: 4, Skip: 0},
 		"agent_status":        service.AgentStatusResult{ProjectID: "project", State: "running", ControllerReachable: true, CapacityWarnings: []string{}, ExitCode: 0},
-		"run_sweep":           service.SweepResult{Checked: 1, Items: []service.SweepItem{{RunID: "run", Action: "reprompt", Status: "awaiting_result"}}}, "run_cancel": operation,
+		"run_sweep":           service.SweepResult{Checked: 1, Items: []service.SweepItem{{RunID: "run", Action: "reprompt", Status: "awaiting_result"}}}, "run_cancel": operation, "run_cancel_acknowledge_no_mutation": operation,
 		"git_refresh": map[string]any{"project_id": "project", "refreshed": true}, "git_refs": map[string]any{"refs": []gitx.Ref{ref}},
 		"git_log": map[string]any{"commits": []gitx.Commit{commit}}, "git_show": map[string]any{"text": "show"}, "git_tree": map[string]any{"paths": []string{"README.md"}},
 		"git_read_file": map[string]any{"path": "README.md", "revision": "main", "content": "content"}, "git_diff": map[string]any{"diff": "diff"},

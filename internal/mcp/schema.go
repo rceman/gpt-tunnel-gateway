@@ -293,22 +293,23 @@ var toolOutputSchemas = map[string]map[string]any{
 	"task_supersede": closedOutput(map[string]any{
 		"task": taskOutputSchema(), "operation": operationOutputSchema(),
 	}, "task", "operation"),
-	"task_cancel":           operationOutputSchema(),
-	"task_mark_merge_ready": operationOutputSchema(),
-	"task_defer":            operationOutputSchema(),
-	"task_mark_merged":      operationOutputSchema(),
-	"run_list":              closedOutput(map[string]any{"runs": outputArray(runOutputSchema())}, "runs"),
-	"run_read":              runOutputSchema(),
-	"run_status":            runOutputSchema(),
-	"run_report":            reportOutputSchema(),
-	"run_review_snapshot":   reviewSnapshotOutputSchema(),
-	"run_agent_tail":        closedOutput(map[string]any{"text": outputString()}, "text"),
-	"run_resume":            runResumeOutputSchema(),
-	"agent_send":            agentSendOutputSchema(),
-	"agent_tail":            agentTailOutputSchema(),
-	"agent_status":          agentStatusOutputSchema(),
-	"run_sweep":             sweepOutputSchema(),
-	"run_cancel":            operationOutputSchema(),
+	"task_cancel":                        operationOutputSchema(),
+	"task_mark_merge_ready":              operationOutputSchema(),
+	"task_defer":                         operationOutputSchema(),
+	"task_mark_merged":                   operationOutputSchema(),
+	"run_list":                           closedOutput(map[string]any{"runs": outputArray(runOutputSchema())}, "runs"),
+	"run_read":                           runOutputSchema(),
+	"run_status":                         runOutputSchema(),
+	"run_report":                         reportOutputSchema(),
+	"run_review_snapshot":                reviewSnapshotOutputSchema(),
+	"run_agent_tail":                     closedOutput(map[string]any{"text": outputString()}, "text"),
+	"run_resume":                         runResumeOutputSchema(),
+	"agent_send":                         agentSendOutputSchema(),
+	"agent_tail":                         agentTailOutputSchema(),
+	"agent_status":                       agentStatusOutputSchema(),
+	"run_sweep":                          sweepOutputSchema(),
+	"run_cancel":                         operationOutputSchema(),
+	"run_cancel_acknowledge_no_mutation": operationOutputSchema(),
 	"git_refresh": closedOutput(map[string]any{
 		"project_id": outputString(), "refreshed": outputBoolean(),
 	}, "project_id", "refreshed"),
@@ -339,7 +340,7 @@ var canonicalToolManifest = []string{
 	"plan_section_create", "plan_section_update", "plan_section_delete", "plan_render", "plan_history",
 	"adr_list", "adr_read", "adr_create", "task_create", "task_list", "task_read", "task_dispatch",
 	"task_supersede", "task_cancel", "task_mark_merge_ready", "task_defer", "task_mark_merged", "run_list", "run_read", "run_status", "run_report",
-	"run_review_snapshot", "run_agent_tail", "run_resume", "run_sweep", "run_cancel", "git_refresh", "git_refs",
+	"run_review_snapshot", "run_agent_tail", "run_resume", "run_sweep", "run_cancel", "run_cancel_acknowledge_no_mutation", "git_refresh", "git_refs",
 	"agent_send", "agent_tail", "agent_status",
 	"git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare", "git_merge_base",
 	"git_worktree_status", "git_worktree_diff",
@@ -372,7 +373,7 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	for _, name := range []string{"project_register", "adr_create", "task_create", "plan_section_create"} {
 		result[name] = additiveExternalAnnotations()
 	}
-	for _, name := range []string{"plan_cutover", "plan_update", "plan_section_update", "plan_section_delete", "task_dispatch", "task_supersede", "task_cancel", "task_mark_merge_ready", "task_defer", "task_mark_merged", "run_resume", "run_sweep", "run_cancel"} {
+	for _, name := range []string{"plan_cutover", "plan_update", "plan_section_update", "plan_section_delete", "task_dispatch", "task_supersede", "task_cancel", "task_mark_merge_ready", "task_defer", "task_mark_merged", "run_resume", "run_sweep", "run_cancel", "run_cancel_acknowledge_no_mutation"} {
 		result[name] = destructiveExternalAnnotations()
 	}
 	result["git_refresh"] = ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
