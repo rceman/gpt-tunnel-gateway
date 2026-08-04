@@ -371,6 +371,7 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		"adr_list": map[string]any{"adrs": []model.ADR{adr}}, "adr_read": adr, "adr_create": operation,
 		"task_create": map[string]any{"task": task, "operation": operation}, "task_list": map[string]any{"tasks": []service.TaskRecord{{Task: task, State: state}}}, "task_read": publicPacket,
 		"task_dispatch": map[string]any{"run": publicRun, "operation": operation}, "task_supersede": map[string]any{"task": task, "operation": operation}, "task_cancel": operation,
+		"task_mark_merge_ready": operation, "task_defer": operation, "task_mark_merged": operation,
 		"run_list": map[string]any{"runs": []service.PublicRun{publicRun}}, "run_read": publicRun, "run_status": publicRun, "run_report": report,
 		"run_review_snapshot": snapshot,
 		"run_agent_tail":      map[string]any{"text": "tail text"},

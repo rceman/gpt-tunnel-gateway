@@ -346,6 +346,52 @@ func task(ctx context.Context, s *service.Service, args []string) {
 			fatal(e)
 		}
 		output(v)
+	case "mark-merge-ready":
+		require(args, 2)
+		ex, rest := expected(args[2:])
+		if len(rest) != 0 {
+			usage()
+		}
+		v, e := s.TaskMarkMergeReady(ctx, service.TaskMarkMergeReadyInput{TaskID: args[1], WriteOptions: service.WriteOptions{ExpectedHubRevision: ex}})
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
+	case "defer":
+		require(args, 2)
+		reason := ""
+		rest := make([]string, 0, len(args)-2)
+		for i := 2; i < len(args); i++ {
+			if args[i] == "--reason" {
+				if reason != "" || i+1 >= len(args) {
+					usage()
+				}
+				reason = args[i+1]
+				i++
+				continue
+			}
+			rest = append(rest, args[i])
+		}
+		ex, rest := expected(rest)
+		if reason == "" || len(rest) != 0 {
+			usage()
+		}
+		v, e := s.TaskDefer(ctx, service.TaskDeferInput{TaskID: args[1], Reason: reason, WriteOptions: service.WriteOptions{ExpectedHubRevision: ex}})
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
+	case "mark-merged":
+		require(args, 3)
+		ex, rest := expected(args[3:])
+		if len(rest) != 0 {
+			usage()
+		}
+		v, e := s.TaskMarkMerged(ctx, service.TaskMarkMergedInput{TaskID: args[1], IntegrationHead: args[2], WriteOptions: service.WriteOptions{ExpectedHubRevision: ex}})
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
 	default:
 		usage()
 	}

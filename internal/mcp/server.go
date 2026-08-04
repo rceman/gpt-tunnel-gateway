@@ -543,6 +543,32 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.TaskCancel(ctx, id, optionalString(raw, "expected_hub_revision"))
 	})
+	add("task_mark_merge_ready", "Record that a completed task's latest successful report is ready for GPT merge review; this mutates durable lifecycle state only.", obj(map[string]any{"task_id": str("Task identifier"), "expected_hub_revision": str("Optimistic hub revision")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.TaskMarkMergeReadyInput
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		return s.Service.TaskMarkMergeReady(ctx, in)
+	})
+	reason := str("Bounded reason for deferral")
+	reason["minLength"] = 1
+	reason["maxLength"] = 1024
+	add("task_defer", "Defer a completed or merge-ready task with a bounded durable reason; this does not mutate a repository.", obj(map[string]any{"task_id": str("Task identifier"), "reason": reason, "expected_hub_revision": str("Optimistic hub revision")}, "task_id", "reason"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.TaskDeferInput
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		return s.Service.TaskDefer(ctx, in)
+	})
+	integrationHead := str("Exact remote develop commit SHA")
+	integrationHead["pattern"] = "^[0-9a-f]{40}$"
+	add("task_mark_merged", "Record a verified existing remote develop receipt for a merge-ready task; it performs no merge, push, checkout or branch deletion.", obj(map[string]any{"task_id": str("Task identifier"), "integration_head": integrationHead, "expected_hub_revision": str("Optimistic hub revision")}, "task_id", "integration_head"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.TaskMarkMergedInput
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		return s.Service.TaskMarkMerged(ctx, in)
+	})
 	add("run_list", "List project runs.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "project_id")
 		if e != nil {

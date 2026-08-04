@@ -28,3 +28,13 @@ failures are represented by sanitized `component_errors`. `run_resume` accepts
 only `run_id` and performs one gateway-generated context-compaction recovery
 after validating ownership, active-run uniqueness, compaction evidence,
 unanswered questions, and repository conflict state.
+
+The G1 task lifecycle tools are `task_mark_merge_ready`, `task_defer`, and
+`task_mark_merged`. They mutate durable task lifecycle records only and never
+perform repository branch operations. `task_mark_merge_ready` records the
+exact repository HEAD from the latest canonical successful report;
+`task_defer` records a bounded reason while preserving the reviewed HEAD; and
+`task_mark_merged` verifies that the reviewed task HEAD is already contained
+in the exact remote `develop` HEAD and records that receipt. The actual merge
+is a later integration operation; `task_mark_merged` does not merge, push,
+checkout, or delete branches.

@@ -15,6 +15,7 @@ import (
 
 const SchemaVersion = 1
 const PlanSchemaVersion = 2
+const MaxDeferredReasonBytes = 1024
 
 var (
 	idRE    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
@@ -135,12 +136,16 @@ type Task struct {
 }
 
 type TaskState struct {
-	SchemaVersion int       `json:"schema_version"`
-	TaskID        string    `json:"task_id"`
-	TaskSHA256    string    `json:"task_sha256"`
-	Status        string    `json:"status"`
-	SupersededBy  string    `json:"superseded_by,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	SchemaVersion     int       `json:"schema_version"`
+	TaskID            string    `json:"task_id"`
+	TaskSHA256        string    `json:"task_sha256"`
+	Status            string    `json:"status"`
+	SupersededBy      string    `json:"superseded_by,omitempty"`
+	ReviewedHead      string    `json:"reviewed_head,omitempty"`
+	DeferredReason    string    `json:"deferred_reason,omitempty"`
+	IntegrationBranch string    `json:"integration_branch,omitempty"`
+	IntegrationHead   string    `json:"integration_head,omitempty"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type Run struct {
@@ -365,8 +370,52 @@ func ValidateTaskState(v TaskState, task Task) error {
 	}
 	switch v.Status {
 	case "created", "ready", "dispatched", "cancelled", "superseded", "completed":
+		if v.ReviewedHead != "" || v.DeferredReason != "" || v.IntegrationBranch != "" || v.IntegrationHead != "" {
+			return fmt.Errorf("task lifecycle fields are not valid for status %q", v.Status)
+		}
+	case "merge_ready", "deferred", "merged":
+		if err := ValidateCommitSHA(v.ReviewedHead); err != nil {
+			return fmt.Errorf("reviewed_head: %w", err)
+		}
+		if v.Status == "deferred" {
+			if err := validateDeferredReason(v.DeferredReason); err != nil {
+				return err
+			}
+		} else if v.DeferredReason != "" {
+			return fmt.Errorf("deferred_reason is only valid for deferred tasks")
+		}
+		if v.Status == "merged" {
+			if v.IntegrationBranch != "develop" {
+				return fmt.Errorf("integration_branch must be develop for merged tasks")
+			}
+			if err := ValidateCommitSHA(v.IntegrationHead); err != nil {
+				return fmt.Errorf("integration_head: %w", err)
+			}
+		} else if v.IntegrationBranch != "" || v.IntegrationHead != "" {
+			return fmt.Errorf("integration receipt is only valid for merged tasks")
+		}
 	default:
 		return fmt.Errorf("invalid task state status")
+	}
+	return nil
+}
+
+func ValidateCommitSHA(s string) error {
+	if !shaRE.MatchString(s) {
+		return fmt.Errorf("must be a lowercase 40-character SHA")
+	}
+	return nil
+}
+
+func validateDeferredReason(reason string) error {
+	if strings.TrimSpace(reason) == "" {
+		return fmt.Errorf("deferred_reason must be non-empty")
+	}
+	if strings.ContainsRune(reason, '\x00') {
+		return fmt.Errorf("deferred_reason must not contain NUL")
+	}
+	if len([]byte(reason)) > MaxDeferredReasonBytes {
+		return fmt.Errorf("deferred_reason exceeds %d bytes", MaxDeferredReasonBytes)
 	}
 	return nil
 }

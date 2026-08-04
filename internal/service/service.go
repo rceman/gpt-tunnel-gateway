@@ -99,6 +99,20 @@ type DispatchInput struct {
 	TaskID string `json:"task_id"`
 	WriteOptions
 }
+type TaskMarkMergeReadyInput struct {
+	TaskID string `json:"task_id"`
+	WriteOptions
+}
+type TaskDeferInput struct {
+	TaskID string `json:"task_id"`
+	Reason string `json:"reason"`
+	WriteOptions
+}
+type TaskMarkMergedInput struct {
+	TaskID          string `json:"task_id"`
+	IntegrationHead string `json:"integration_head"`
+	WriteOptions
+}
 type FinalizeInput struct {
 	RunID          string `json:"run_id"`
 	CompletionFile string `json:"completion_file,omitempty"`
@@ -994,6 +1008,265 @@ func (s *Service) TaskCancel(ctx context.Context, id, expected string) (Operatio
 		return OperationResult{}, err
 	}
 	return OperationResult{Hub: tx, ProjectID: task.ProjectID, TaskID: id, Status: "cancelled"}, nil
+}
+
+func (s *Service) TaskMarkMergeReady(ctx context.Context, in TaskMarkMergeReadyInput) (OperationResult, error) {
+	task, err := s.findTask(ctx, in.TaskID)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	state, err := s.taskState(ctx, task)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if state.Status != "completed" {
+		return OperationResult{}, fmt.Errorf("task must be completed before merge_ready: %s", state.Status)
+	}
+	report, err := s.latestSuccessfulReport(ctx, task)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if err := model.ValidateCommitSHA(report.Repository.Head); err != nil {
+		return OperationResult{}, fmt.Errorf("successful report repository head: %w", err)
+	}
+	tx, err := s.transitionTaskState(ctx, task, in.ExpectedHubRevision, "gateway: mark task merge-ready "+task.ID, func(current model.TaskState) (model.TaskState, error) {
+		if current.Status != "completed" {
+			return model.TaskState{}, fmt.Errorf("task changed before merge_ready: %s", current.Status)
+		}
+		current.Status = "merge_ready"
+		current.ReviewedHead = report.Repository.Head
+		return current, nil
+	})
+	if err != nil {
+		return OperationResult{}, err
+	}
+	return OperationResult{Hub: tx, ProjectID: task.ProjectID, TaskID: task.ID, Status: "merge_ready"}, nil
+}
+
+func (s *Service) TaskDefer(ctx context.Context, in TaskDeferInput) (OperationResult, error) {
+	task, err := s.findTask(ctx, in.TaskID)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	state, err := s.taskState(ctx, task)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if state.Status != "completed" && state.Status != "merge_ready" {
+		return OperationResult{}, fmt.Errorf("task cannot be deferred from state %s", state.Status)
+	}
+	reason := strings.TrimSpace(in.Reason)
+	if strings.ContainsRune(reason, '\x00') {
+		return OperationResult{}, fmt.Errorf("deferred reason must not contain NUL")
+	}
+	if reason == "" {
+		return OperationResult{}, fmt.Errorf("deferred reason must be non-empty")
+	}
+	if len([]byte(reason)) > model.MaxDeferredReasonBytes {
+		return OperationResult{}, fmt.Errorf("deferred reason exceeds %d bytes", model.MaxDeferredReasonBytes)
+	}
+	reviewedHead := state.ReviewedHead
+	if state.Status == "completed" {
+		report, reportErr := s.latestSuccessfulReport(ctx, task)
+		if reportErr != nil {
+			return OperationResult{}, reportErr
+		}
+		reviewedHead = report.Repository.Head
+	}
+	if err := model.ValidateCommitSHA(reviewedHead); err != nil {
+		return OperationResult{}, fmt.Errorf("reviewed head: %w", err)
+	}
+	tx, err := s.transitionTaskState(ctx, task, in.ExpectedHubRevision, "gateway: defer task "+task.ID, func(current model.TaskState) (model.TaskState, error) {
+		switch current.Status {
+		case "completed":
+			if current.ReviewedHead != "" {
+				return model.TaskState{}, fmt.Errorf("task acquired a reviewed head concurrently")
+			}
+			current.ReviewedHead = reviewedHead
+		case "merge_ready":
+			if current.ReviewedHead != reviewedHead {
+				return model.TaskState{}, fmt.Errorf("reviewed head changed concurrently")
+			}
+		default:
+			return model.TaskState{}, fmt.Errorf("task changed before defer: %s", current.Status)
+		}
+		current.Status = "deferred"
+		current.DeferredReason = reason
+		return current, nil
+	})
+	if err != nil {
+		return OperationResult{}, err
+	}
+	return OperationResult{Hub: tx, ProjectID: task.ProjectID, TaskID: task.ID, Status: "deferred"}, nil
+}
+
+func (s *Service) TaskMarkMerged(ctx context.Context, in TaskMarkMergedInput) (OperationResult, error) {
+	if err := model.ValidateCommitSHA(in.IntegrationHead); err != nil {
+		return OperationResult{}, fmt.Errorf("integration_head: %w", err)
+	}
+	task, err := s.findTask(ctx, in.TaskID)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	state, err := s.taskState(ctx, task)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if state.Status != "merge_ready" {
+		return OperationResult{}, fmt.Errorf("task must be merge_ready before merged: %s", state.Status)
+	}
+	if err := model.ValidateCommitSHA(state.ReviewedHead); err != nil {
+		return OperationResult{}, fmt.Errorf("reviewed head: %w", err)
+	}
+	project, err := s.projectConfig(task.ProjectID)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if err := s.Git.Refresh(ctx, project); err != nil {
+		return OperationResult{}, err
+	}
+	taskBranchHead, taskBranchExists, err := s.mirrorRemoteBranchHead(ctx, project, task.Branch)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if !taskBranchExists || taskBranchHead != state.ReviewedHead {
+		return OperationResult{}, fmt.Errorf("remote task branch %q does not point at reviewed head", task.Branch)
+	}
+	developHead, developExists, err := s.mirrorRemoteBranchHead(ctx, project, "develop")
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if !developExists || developHead != in.IntegrationHead {
+		return OperationResult{}, fmt.Errorf("remote develop does not point at integration head")
+	}
+	ancestor, err := s.Git.MirrorAncestor(ctx, project, state.ReviewedHead, in.IntegrationHead)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if !ancestor {
+		return OperationResult{}, fmt.Errorf("reviewed head is not an ancestor of integration head")
+	}
+	tx, err := s.transitionTaskState(ctx, task, in.ExpectedHubRevision, "gateway: record merged task "+task.ID, func(current model.TaskState) (model.TaskState, error) {
+		if current.Status != "merge_ready" {
+			return model.TaskState{}, fmt.Errorf("task changed before merged: %s", current.Status)
+		}
+		if current.ReviewedHead != state.ReviewedHead {
+			return model.TaskState{}, fmt.Errorf("reviewed head changed concurrently")
+		}
+		current.Status = "merged"
+		current.DeferredReason = ""
+		current.IntegrationBranch = "develop"
+		current.IntegrationHead = in.IntegrationHead
+		return current, nil
+	})
+	if err != nil {
+		return OperationResult{}, err
+	}
+	return OperationResult{Hub: tx, ProjectID: task.ProjectID, TaskID: task.ID, Status: "merged"}, nil
+}
+
+func (s *Service) latestSuccessfulReport(ctx context.Context, task model.Task) (model.Report, error) {
+	runs, err := s.RunList(ctx, task.ProjectID)
+	if err != nil {
+		return model.Report{}, err
+	}
+	for _, run := range runs {
+		if run.TaskID != task.ID || run.Historical || run.Status != "succeeded" {
+			continue
+		}
+		report, reportErr := s.RunReport(ctx, run.ID)
+		if reportErr != nil {
+			return model.Report{}, fmt.Errorf("latest successful report is invalid: %w", reportErr)
+		}
+		if report.Status != "succeeded" {
+			return model.Report{}, fmt.Errorf("latest successful run has non-success report")
+		}
+		return report, nil
+	}
+	return model.Report{}, fmt.Errorf("no canonical successful report for task %s", task.ID)
+}
+
+func (s *Service) transitionTaskState(ctx context.Context, task model.Task, expected, subject string, mutate func(model.TaskState) (model.TaskState, error)) (hub.TransactionResult, error) {
+	if expected == "" {
+		var err error
+		expected, err = s.hubRevision(ctx)
+		if err != nil {
+			return hub.TransactionResult{}, err
+		}
+	}
+	return s.Hub.Transact(ctx, expected, subject, func(worktree string) ([]string, error) {
+		var currentTask model.Task
+		if err := readWorktreeJSON(worktree, s.taskPath(task.ProjectID, task.ID), &currentTask); err != nil {
+			return nil, err
+		}
+		if err := model.ValidateTask(currentTask); err != nil {
+			return nil, err
+		}
+		if currentTask.ID != task.ID || currentTask.SHA256 != task.SHA256 {
+			return nil, fmt.Errorf("task changed concurrently")
+		}
+		var current model.TaskState
+		if err := readWorktreeJSON(worktree, s.taskStatePath(task.ProjectID, task.ID), &current); err != nil {
+			return nil, err
+		}
+		if err := model.ValidateTaskState(current, currentTask); err != nil {
+			return nil, err
+		}
+		next, err := mutate(current)
+		if err != nil {
+			return nil, err
+		}
+		next.UpdatedAt = time.Now().UTC()
+		if err := model.ValidateTaskState(next, currentTask); err != nil {
+			return nil, err
+		}
+		path := s.taskStatePath(task.ProjectID, task.ID)
+		if err := hub.WriteJSON(worktree, path, next); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+}
+
+func (s *Service) mirrorRemoteBranchHead(ctx context.Context, project config.ProjectConfig, branch string) (string, bool, error) {
+	if err := model.ValidateBranch(branch); err != nil {
+		return "", false, err
+	}
+	refs, err := s.Git.Refs(ctx, project)
+	if err != nil {
+		return "", false, err
+	}
+	remoteName := "refs/remotes/" + project.Remote + "/" + branch
+	localName := "refs/heads/" + branch
+	var remoteHead, localHead string
+	for _, ref := range refs {
+		switch ref.Name {
+		case remoteName:
+			if ref.ObjectType != "commit" {
+				return "", false, fmt.Errorf("remote branch %q is not a commit", branch)
+			}
+			remoteHead = ref.ObjectName
+		case localName:
+			if ref.ObjectType != "commit" {
+				return "", false, fmt.Errorf("mirror branch %q is not a commit", branch)
+			}
+			localHead = ref.ObjectName
+		}
+	}
+	if remoteHead != "" && localHead != "" && remoteHead != localHead {
+		return "", false, fmt.Errorf("mirror branch %q has conflicting remote and local heads", branch)
+	}
+	head := remoteHead
+	if head == "" {
+		head = localHead
+	}
+	if head == "" {
+		return "", false, nil
+	}
+	if err := model.ValidateCommitSHA(head); err != nil {
+		return "", false, fmt.Errorf("mirror branch %q head: %w", branch, err)
+	}
+	return head, true, nil
 }
 
 func (s *Service) RunList(ctx context.Context, project string) ([]model.Run, error) {
