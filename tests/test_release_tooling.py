@@ -122,6 +122,78 @@ class ReleaseLifecyclePolicyTests(unittest.TestCase):
                 self.release.command_prepare(repo, config, "2.2.0", "2026-08-03")
             self.assertEqual((repo / "VERSION").read_bytes(), before)
 
+    def test_mismatched_configured_versions_fail_before_mutation(self) -> None:
+        repo = self.make_repo("2.2.0")
+        second_version = repo / "VERSION.secondary"
+        second_version.write_text("2.2.1\n", encoding="utf-8")
+        config_path = repo / "release-config.json"
+        config_data = json.loads(config_path.read_text(encoding="utf-8"))
+        config_data["version_files"] = [
+            {"path": "VERSION", "kind": "plain"},
+            {"path": "VERSION.secondary", "kind": "plain"},
+        ]
+        config_path.write_text(json.dumps(config_data, indent=2) + "\n", encoding="utf-8")
+        git(repo, "add", ".")
+        git(repo, "commit", "-qm", "configure multiple version files")
+        config = self.config(repo)
+        paths = ("VERSION", "VERSION.secondary", "CHANGELOG.md", "release-config.json")
+        before = {path: (repo / path).read_bytes() for path in paths}
+        head_before = git(repo, "rev-parse", "HEAD")
+
+        for checker in (self.release.command_check, self.release.command_check_source):
+            with self.assertRaisesRegex(self.release.ReleaseError, "version files disagree"):
+                checker(repo, config)
+            self.assertEqual(before, {path: (repo / path).read_bytes() for path in paths})
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), head_before)
+            self.assertEqual(git(repo, "status", "--porcelain", "--untracked-files=all"), "")
+
+    def test_existing_annotated_target_tag_blocks_source_prepare_and_tag_operations(self) -> None:
+        source = self.make_repo("2.2.0")
+        source_config = self.config(source)
+        git(source, "tag", "-a", "v2.2.0", "-m", "v2.2.0")
+        source_paths = ("VERSION", "CHANGELOG.md", "release-config.json")
+        source_before = {path: (source / path).read_bytes() for path in source_paths}
+        source_tag = git(source, "rev-parse", "refs/tags/v2.2.0")
+
+        with self.assertRaisesRegex(self.release.ReleaseError, "target tag"):
+            self.release.command_check_source(source, source_config)
+        with self.assertRaisesRegex(self.release.ReleaseError, "target tag"):
+            self.release.command_prepare(source, source_config, "2.2.0", "2026-08-03")
+        self.assertEqual(source_before, {path: (source / path).read_bytes() for path in source_paths})
+        self.assertEqual(git(source, "rev-parse", "refs/tags/v2.2.0"), source_tag)
+        self.assertEqual(git(source, "status", "--porcelain", "--untracked-files=all"), "")
+
+        ready = self.make_repo("2.1.0")
+        ready_config = self.config(ready)
+        self.release.command_prepare(ready, ready_config, "2.2.0", "2026-08-03")
+        self.release.command_commit(ready, ready_config)
+        git(ready, "tag", "-a", "v2.2.0", "-m", "v2.2.0")
+        ready_tag = git(ready, "rev-parse", "refs/tags/v2.2.0")
+        ready_commit = git(ready, "rev-parse", "HEAD")
+
+        with self.assertRaisesRegex(self.release.ReleaseError, "tag already exists"):
+            self.release.command_tag_ready(ready, ready_config)
+        with self.assertRaisesRegex(self.release.ReleaseError, "tag already exists"):
+            self.release.command_tag(ready, ready_config)
+        self.assertEqual(git(ready, "rev-parse", "refs/tags/v2.2.0"), ready_tag)
+        self.assertEqual(git(ready, "rev-parse", "HEAD"), ready_commit)
+        self.assertEqual(git(ready, "status", "--porcelain", "--untracked-files=all"), "")
+
+    def test_verify_tag_rejects_wrong_name_and_wrong_commit_identity(self) -> None:
+        repo = self.make_repo("2.2.0")
+        config = self.config(repo)
+        self.release.command_prepare(repo, config, "2.2.0", "2026-08-03")
+        self.release.command_commit(repo, config)
+
+        with self.assertRaisesRegex(self.release.ReleaseError, "tag/version mismatch"):
+            self.release.command_verify_tag(repo, config, "v2.2.1")
+
+        parent = git(repo, "rev-parse", "HEAD^")
+        git(repo, "tag", "-a", "v2.2.0", "-m", "v2.2.0", parent)
+        with self.assertRaisesRegex(self.release.ReleaseError, "resolves to"):
+            self.release.command_verify_tag(repo, config, "v2.2.0")
+        self.assertEqual(git(repo, "rev-parse", "refs/tags/v2.2.0^{}"), parent)
+
     def test_prepare_application_failure_restores_all_original_bytes(self) -> None:
         repo = self.make_repo("2.1.0")
         config = self.config(repo)
