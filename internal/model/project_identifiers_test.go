@@ -1,0 +1,99 @@
+package model
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func TestProjectIdentifiersValidationAndCompactIDs(t *testing.T) {
+	identifiers := ProjectIdentifiers{
+		SchemaVersion:  SchemaVersion,
+		ProjectID:      "gpt-tunnel-gateway",
+		ProjectCode:    "GTW",
+		NextTaskNumber: 1,
+		NextADRNumber:  MaxSafeInteger,
+	}
+	if err := ValidateProjectIdentifiers(identifiers); err != nil {
+		t.Fatal(err)
+	}
+	taskID, err := FormatTaskID("GTW", MaxSafeInteger)
+	if err != nil || taskID != "GTW-T9007199254740991" {
+		t.Fatalf("format task ID: %q %v", taskID, err)
+	}
+	projectCode, taskNumber, err := ParseTaskID(taskID)
+	if err != nil || projectCode != "GTW" || taskNumber != MaxSafeInteger {
+		t.Fatalf("parse task ID: %q %d %v", projectCode, taskNumber, err)
+	}
+	runID, err := FormatRunID("GTW-T1", MaxSafeInteger)
+	if err != nil || runID != "GTW-T1-R9007199254740991" {
+		t.Fatalf("format run ID: %q %v", runID, err)
+	}
+	parsedTaskID, runNumber, err := ParseRunID(runID)
+	if err != nil || parsedTaskID != "GTW-T1" || runNumber != MaxSafeInteger {
+		t.Fatalf("parse run ID: %q %d %v", parsedTaskID, runNumber, err)
+	}
+	adrID, err := FormatADRID("GTW", 1)
+	if err != nil || adrID != "GTW-A1" {
+		t.Fatalf("format ADR ID: %q %v", adrID, err)
+	}
+	adrCode, adrNumber, err := ParseADRID(adrID)
+	if err != nil || adrCode != "GTW" || adrNumber != 1 {
+		t.Fatalf("parse ADR ID: %q %d %v", adrCode, adrNumber, err)
+	}
+}
+
+func TestProjectIdentifiersRejectInvalidValues(t *testing.T) {
+	base := ProjectIdentifiers{SchemaVersion: SchemaVersion, ProjectID: "example", ProjectCode: "EXM", NextTaskNumber: 1, NextADRNumber: 1}
+	cases := []ProjectIdentifiers{
+		{SchemaVersion: SchemaVersion, ProjectID: "Example", ProjectCode: "EXM", NextTaskNumber: 1, NextADRNumber: 1},
+		{SchemaVersion: SchemaVersion, ProjectID: "example", ProjectCode: "exm", NextTaskNumber: 1, NextADRNumber: 1},
+		{SchemaVersion: SchemaVersion, ProjectID: "example", ProjectCode: "EXM", NextTaskNumber: 0, NextADRNumber: 1},
+		{SchemaVersion: SchemaVersion, ProjectID: "example", ProjectCode: "EXM", NextTaskNumber: 1, NextADRNumber: MaxSafeInteger + 1},
+	}
+	for _, value := range cases {
+		if err := ValidateProjectIdentifiers(value); err == nil {
+			t.Fatalf("accepted invalid identifiers: %#v", value)
+		}
+	}
+	for _, value := range []string{"GTW-T0", "GTW-T01", "gtw-T1", "GTW-T9007199254740992", "GTW-T1-R01", "GTW-T1-R0", "GTW-T1-R9007199254740992", "GTW-A01", "GTW-A0", "GTW-A9007199254740992"} {
+		if strings.Contains(value, "-R") {
+			if _, _, err := ParseRunID(value); err == nil {
+				t.Fatalf("accepted invalid run ID %q", value)
+			}
+		} else if strings.Contains(value, "-A") {
+			if _, _, err := ParseADRID(value); err == nil {
+				t.Fatalf("accepted invalid ADR ID %q", value)
+			}
+		} else if _, _, err := ParseTaskID(value); err == nil {
+			t.Fatalf("accepted invalid task ID %q", value)
+		}
+	}
+	_ = base
+}
+
+func TestProjectIdentifiersJSONIntegerSchemaParity(t *testing.T) {
+	valid := `{"schema_version":1.0,"project_id":"example","project_code":"EXM","next_task_number":1.0,"next_adr_number":9007199254740991.0}`
+	var identifiers ProjectIdentifiers
+	if err := json.Unmarshal([]byte(valid), &identifiers); err != nil {
+		t.Fatalf("integral JSON notation was rejected: %v", err)
+	}
+	if err := ValidateProjectIdentifiers(identifiers); err != nil {
+		t.Fatalf("integral JSON notation failed model validation: %v", err)
+	}
+	for _, replacement := range []string{`true`, `1.5`, `9007199254740992`, `NaN`} {
+		data := strings.Replace(valid, "1.0,\"next_adr_number\"", replacement+",\"next_adr_number\"", 1)
+		var decoded ProjectIdentifiers
+		if err := json.Unmarshal([]byte(data), &decoded); err == nil {
+			t.Fatalf("accepted invalid JSON integer notation %q", replacement)
+		}
+	}
+	unknown := strings.TrimSuffix(valid, "}") + `,"extra":1}`
+	if err := json.Unmarshal([]byte(unknown), &identifiers); err == nil {
+		t.Fatal("accepted unknown project identifiers field")
+	}
+	duplicate := strings.Replace(valid, `"project_code":"EXM"`, `"project_code":"EXM","project_code":"ALT"`, 1)
+	if err := json.Unmarshal([]byte(duplicate), &identifiers); err == nil {
+		t.Fatal("accepted duplicate project identifiers field")
+	}
+}

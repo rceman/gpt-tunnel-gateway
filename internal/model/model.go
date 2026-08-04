@@ -1,14 +1,17 @@
 package model
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -16,11 +19,16 @@ import (
 const SchemaVersion = 1
 const PlanSchemaVersion = 2
 const MaxDeferredReasonBytes = 1024
+const MaxSafeInteger uint64 = 9007199254740991
 
 var (
-	idRE    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
-	adrIDRE = regexp.MustCompile(`^ADR-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
-	shaRE   = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	idRE            = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+	adrIDRE         = regexp.MustCompile(`^ADR-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	projectCodeRE   = regexp.MustCompile(`^[A-Z]{3}$`)
+	compactTaskIDRE = regexp.MustCompile(`^([A-Z]{3})-T([1-9][0-9]*)$`)
+	compactRunIDRE  = regexp.MustCompile(`^([A-Z]{3}-T[1-9][0-9]*)-R([1-9][0-9]*)$`)
+	compactADRIDRE  = regexp.MustCompile(`^([A-Z]{3})-A([1-9][0-9]*)$`)
+	shaRE           = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
 type Project struct {
@@ -35,6 +43,100 @@ type Project struct {
 	ActiveRunID        string    `json:"active_run_id,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+type ProjectIdentifiers struct {
+	SchemaVersion  int    `json:"schema_version"`
+	ProjectID      string `json:"project_id"`
+	ProjectCode    string `json:"project_code"`
+	NextTaskNumber uint64 `json:"next_task_number"`
+	NextADRNumber  uint64 `json:"next_adr_number"`
+}
+
+func (p *ProjectIdentifiers) UnmarshalJSON(data []byte) error {
+	fields, err := decodeProjectIdentifiersObject(data)
+	if err != nil {
+		return err
+	}
+	for key := range fields {
+		switch key {
+		case "schema_version", "project_id", "project_code", "next_task_number", "next_adr_number":
+		default:
+			return fmt.Errorf("unknown project identifiers field %q", key)
+		}
+	}
+	for _, key := range []string{"schema_version", "project_id", "project_code", "next_task_number", "next_adr_number"} {
+		if _, ok := fields[key]; !ok {
+			return fmt.Errorf("project identifiers field %q is required", key)
+		}
+	}
+
+	schemaVersion, err := parseJSONInteger(fields["schema_version"])
+	if err != nil {
+		return fmt.Errorf("schema_version: %w", err)
+	}
+	if schemaVersion > uint64(^uint(0)>>1) {
+		return fmt.Errorf("schema_version overflows int")
+	}
+	var projectID, projectCode string
+	if err := json.Unmarshal(fields["project_id"], &projectID); err != nil {
+		return fmt.Errorf("project_id: %w", err)
+	}
+	if err := json.Unmarshal(fields["project_code"], &projectCode); err != nil {
+		return fmt.Errorf("project_code: %w", err)
+	}
+	nextTaskNumber, err := parseJSONInteger(fields["next_task_number"])
+	if err != nil {
+		return fmt.Errorf("next_task_number: %w", err)
+	}
+	nextADRNumber, err := parseJSONInteger(fields["next_adr_number"])
+	if err != nil {
+		return fmt.Errorf("next_adr_number: %w", err)
+	}
+	*p = ProjectIdentifiers{SchemaVersion: int(schemaVersion), ProjectID: projectID, ProjectCode: projectCode, NextTaskNumber: nextTaskNumber, NextADRNumber: nextADRNumber}
+	return nil
+}
+
+func decodeProjectIdentifiersObject(data []byte) (map[string]json.RawMessage, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	if delimiter, ok := token.(json.Delim); !ok || delimiter != '{' {
+		return nil, fmt.Errorf("project identifiers must be an object")
+	}
+	fields := make(map[string]json.RawMessage)
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return nil, fmt.Errorf("project identifiers object key must be a string")
+		}
+		if _, exists := fields[key]; exists {
+			return nil, fmt.Errorf("duplicate project identifiers field %q", key)
+		}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return nil, err
+		}
+		fields[key] = value
+	}
+	closing, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	if delimiter, ok := closing.(json.Delim); !ok || delimiter != '}' {
+		return nil, fmt.Errorf("project identifiers object is not closed")
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return nil, fmt.Errorf("project identifiers JSON has trailing content")
+	}
+	return fields, nil
 }
 
 type Plan struct {
@@ -548,6 +650,186 @@ func ValidateProjectIdentifier(s string) error {
 		return fmt.Errorf("invalid project identifier")
 	}
 	return nil
+}
+func ValidateProjectCode(s string) error {
+	if !projectCodeRE.MatchString(s) {
+		return fmt.Errorf("project_code must be exactly three uppercase letters")
+	}
+	return nil
+}
+func ValidateCompactIDNumber(n uint64) error {
+	if n < 1 || n > MaxSafeInteger {
+		return fmt.Errorf("compact identifier number must be between 1 and %d", MaxSafeInteger)
+	}
+	return nil
+}
+func ValidateProjectIdentifiers(v ProjectIdentifiers) error {
+	if v.SchemaVersion != SchemaVersion {
+		return fmt.Errorf("invalid project identifiers schema_version")
+	}
+	if err := ValidateProjectIdentifier(v.ProjectID); err != nil {
+		return err
+	}
+	if err := ValidateProjectCode(v.ProjectCode); err != nil {
+		return err
+	}
+	if err := ValidateCompactIDNumber(v.NextTaskNumber); err != nil {
+		return fmt.Errorf("next_task_number: %w", err)
+	}
+	if err := ValidateCompactIDNumber(v.NextADRNumber); err != nil {
+		return fmt.Errorf("next_adr_number: %w", err)
+	}
+	return nil
+}
+func FormatTaskID(projectCode string, number uint64) (string, error) {
+	if err := ValidateProjectCode(projectCode); err != nil {
+		return "", err
+	}
+	if err := ValidateCompactIDNumber(number); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s-T%d", projectCode, number), nil
+}
+func ParseTaskID(value string) (string, uint64, error) {
+	matches := compactTaskIDRE.FindStringSubmatch(value)
+	if len(matches) != 3 {
+		return "", 0, fmt.Errorf("invalid compact task ID")
+	}
+	number, err := parseCompactIDNumber(matches[2])
+	if err != nil {
+		return "", 0, err
+	}
+	return matches[1], number, nil
+}
+func FormatRunID(taskID string, number uint64) (string, error) {
+	if _, _, err := ParseTaskID(taskID); err != nil {
+		return "", fmt.Errorf("task ID: %w", err)
+	}
+	if err := ValidateCompactIDNumber(number); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s-R%d", taskID, number), nil
+}
+func ParseRunID(value string) (string, uint64, error) {
+	matches := compactRunIDRE.FindStringSubmatch(value)
+	if len(matches) != 3 {
+		return "", 0, fmt.Errorf("invalid compact run ID")
+	}
+	if _, _, err := ParseTaskID(matches[1]); err != nil {
+		return "", 0, err
+	}
+	number, err := parseCompactIDNumber(matches[2])
+	if err != nil {
+		return "", 0, err
+	}
+	return matches[1], number, nil
+}
+func FormatADRID(projectCode string, number uint64) (string, error) {
+	if err := ValidateProjectCode(projectCode); err != nil {
+		return "", err
+	}
+	if err := ValidateCompactIDNumber(number); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s-A%d", projectCode, number), nil
+}
+func ParseADRID(value string) (string, uint64, error) {
+	matches := compactADRIDRE.FindStringSubmatch(value)
+	if len(matches) != 3 {
+		return "", 0, fmt.Errorf("invalid compact ADR ID")
+	}
+	number, err := parseCompactIDNumber(matches[2])
+	if err != nil {
+		return "", 0, err
+	}
+	return matches[1], number, nil
+}
+func parseCompactIDNumber(value string) (uint64, error) {
+	number, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid compact identifier number")
+	}
+	if err := ValidateCompactIDNumber(number); err != nil {
+		return 0, err
+	}
+	return number, nil
+}
+func parseJSONInteger(data []byte) (uint64, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return 0, fmt.Errorf("must be a JSON number")
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return 0, fmt.Errorf("must contain one JSON value")
+	}
+	number, ok := value.(json.Number)
+	if !ok {
+		return 0, fmt.Errorf("must be a JSON number")
+	}
+	return parseJSONNumberInteger(number.String())
+}
+func parseJSONNumberInteger(value string) (uint64, error) {
+	if strings.HasPrefix(value, "-") {
+		return 0, fmt.Errorf("must be non-negative")
+	}
+	if strings.HasPrefix(value, "+") {
+		return 0, fmt.Errorf("must be a JSON number")
+	}
+	mantissa := value
+	var exponent int64
+	if index := strings.IndexAny(mantissa, "eE"); index >= 0 {
+		exponentText := mantissa[index+1:]
+		parsed, err := strconv.ParseInt(exponentText, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("number exponent overflows")
+		}
+		exponent = parsed
+		mantissa = mantissa[:index]
+	}
+	parts := strings.SplitN(mantissa, ".", 2)
+	whole := parts[0]
+	frac := ""
+	if len(parts) == 2 {
+		frac = parts[1]
+	}
+	digits := whole + frac
+	if strings.Trim(digits, "0") == "" {
+		return 0, nil
+	}
+	scale := int64(len(frac)) - exponent
+	if scale > int64(len(digits)) {
+		return 0, fmt.Errorf("must be an integer")
+	}
+	integerDigits := digits
+	if scale > 0 {
+		cut := len(digits) - int(scale)
+		if !strings.HasSuffix(digits, strings.Repeat("0", int(scale))) {
+			return 0, fmt.Errorf("must be an integer")
+		}
+		integerDigits = digits[:cut]
+	} else if scale < 0 {
+		zeros := -scale
+		if zeros > int64(len(strconv.FormatUint(MaxSafeInteger, 10))) {
+			return 0, fmt.Errorf("overflows maximum safe integer")
+		}
+		integerDigits += strings.Repeat("0", int(zeros))
+	}
+	integerDigits = strings.TrimLeft(integerDigits, "0")
+	if integerDigits == "" {
+		return 0, nil
+	}
+	maxText := strconv.FormatUint(MaxSafeInteger, 10)
+	if len(integerDigits) > len(maxText) || (len(integerDigits) == len(maxText) && integerDigits > maxText) {
+		return 0, fmt.Errorf("overflows maximum safe integer")
+	}
+	number, err := strconv.ParseUint(integerDigits, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid JSON integer")
+	}
+	return number, nil
 }
 func ValidateObjectIdentifier(s string) error {
 	if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`).MatchString(s) {
