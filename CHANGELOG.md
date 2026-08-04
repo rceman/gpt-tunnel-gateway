@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.1 — 2026-08-04
+
 - Adopt the planner-canonical two-mode release lifecycle and exact Git-object
   provenance/conformance checks for the gateway’s Stage A
   `implementation_unreleased` tooling.
