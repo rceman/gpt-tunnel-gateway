@@ -106,7 +106,17 @@ func TestTaskMarkMergeReadyUsesLatestSuccessfulReportAndDeferReusesHead(t *testi
 	if err != nil || finalized.Status != "TASK_FINALIZED" {
 		t.Fatalf("finalize failed: %#v %v", finalized, err)
 	}
-	ready, err := s.TaskMarkMergeReady(ctx, TaskMarkMergeReadyInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: finalized.Hub.After}})
+	if _, err := s.RunReport(ctx, run.ID); err != nil {
+		t.Fatalf("completed report was not readable: %v", err)
+	}
+	invalidState := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "ready", UpdatedAt: time.Now().UTC()}
+	invalidRevision := installTaskLifecycleState(t, s, task, invalidState, finalized.Hub.After)
+	if _, err := s.RunReport(ctx, run.ID); err == nil {
+		t.Fatal("succeeded report was accepted for unrelated ready task state")
+	}
+	completedState := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "completed", UpdatedAt: time.Now().UTC()}
+	completedRevision := installTaskLifecycleState(t, s, task, completedState, invalidRevision)
+	ready, err := s.TaskMarkMergeReady(ctx, TaskMarkMergeReadyInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: completedRevision}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,9 +127,32 @@ func TestTaskMarkMergeReadyUsesLatestSuccessfulReportAndDeferReusesHead(t *testi
 	if record.State.Status != "merge_ready" || record.State.ReviewedHead == "" || ready.Status != "merge_ready" {
 		t.Fatalf("unexpected merge-ready state: %#v", record.State)
 	}
+	if _, err := s.RunReport(ctx, run.ID); err != nil {
+		t.Fatalf("merge-ready report was not readable: %v", err)
+	}
 	testutil.Git(t, project.Root, "branch", "develop")
 	testutil.Git(t, project.Root, "push", "-u", "origin", "develop")
-	merged, err := s.TaskMarkMerged(ctx, TaskMarkMergedInput{TaskID: task.ID, IntegrationHead: record.State.ReviewedHead, WriteOptions: WriteOptions{ExpectedHubRevision: ready.Hub.After}})
+	testutil.Git(t, project.Mirror, "config", "--unset-all", "remote.origin.fetch")
+	testutil.Git(t, project.Mirror, "config", "--add", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+	testutil.Git(t, project.Mirror, "config", "--unset-all", "remote.origin.mirror")
+	testutil.Git(t, project.Mirror, "fetch", "origin")
+	deferred, err := s.TaskDefer(ctx, TaskDeferInput{TaskID: task.ID, Reason: "later integration", WriteOptions: WriteOptions{ExpectedHubRevision: ready.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RunReport(ctx, run.ID); err != nil {
+		t.Fatalf("deferred report was not readable: %v", err)
+	}
+	record, err = s.TaskReadRecord(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.State.Status != "deferred" || deferred.Status != "deferred" {
+		t.Fatalf("unexpected deferred state: %#v", record.State)
+	}
+	mergeReadyAgain := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "merge_ready", ReviewedHead: record.State.ReviewedHead, UpdatedAt: time.Now().UTC()}
+	reset := installTaskLifecycleState(t, s, task, mergeReadyAgain, deferred.Hub.After)
+	merged, err := s.TaskMarkMerged(ctx, TaskMarkMergedInput{TaskID: task.ID, IntegrationHead: record.State.ReviewedHead, WriteOptions: WriteOptions{ExpectedHubRevision: reset}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,6 +163,9 @@ func TestTaskMarkMergeReadyUsesLatestSuccessfulReportAndDeferReusesHead(t *testi
 	if merged.Status != "merged" || record.State.Status != "merged" || record.State.ReviewedHead == "" || record.State.IntegrationBranch != "develop" || record.State.IntegrationHead != record.State.ReviewedHead {
 		t.Fatalf("unexpected merged result/state: %#v %#v", merged, record.State)
 	}
+	if _, err := s.RunReport(ctx, run.ID); err != nil {
+		t.Fatalf("merged report was not readable: %v", err)
+	}
 }
 
 func TestTaskMarkMergedDoesNotMutateWhenRemoteReceiptIsUnavailable(t *testing.T) {
@@ -139,11 +175,17 @@ func TestTaskMarkMergedDoesNotMutateWhenRemoteReceiptIsUnavailable(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reviewed := strings.Repeat("c", 40)
+	reviewed := projectHead
 	state := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "merge_ready", ReviewedHead: reviewed, UpdatedAt: time.Now().UTC()}
 	revision = installTaskLifecycleState(t, s, task, state, created.Hub.After)
+	project := s.Config.Projects[task.ProjectID]
+	if err := s.Git.Refresh(ctx, project); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, project.Mirror, "update-ref", "refs/heads/"+task.Branch, reviewed)
+	testutil.Git(t, project.Mirror, "update-ref", "refs/heads/develop", reviewed)
 	if _, err := s.TaskMarkMerged(ctx, TaskMarkMergedInput{TaskID: task.ID, IntegrationHead: reviewed, WriteOptions: WriteOptions{ExpectedHubRevision: revision}}); err == nil {
-		t.Fatal("accepted merged receipt without remote branches")
+		t.Fatal("accepted merged receipt without exact remote branches")
 	}
 	current, err := s.Hub.RemoteRevision(ctx)
 	if err != nil {

@@ -1256,17 +1256,16 @@ func (s *Service) mirrorRemoteBranchHead(ctx context.Context, project config.Pro
 	if remoteHead != "" && localHead != "" && remoteHead != localHead {
 		return "", false, fmt.Errorf("mirror branch %q has conflicting remote and local heads", branch)
 	}
-	head := remoteHead
-	if head == "" {
-		head = localHead
-	}
-	if head == "" {
+	if remoteHead == "" {
+		if localHead != "" {
+			return "", false, fmt.Errorf("remote-tracking ref %q is missing; local mirror ref is not authoritative", remoteName)
+		}
 		return "", false, nil
 	}
-	if err := model.ValidateCommitSHA(head); err != nil {
-		return "", false, fmt.Errorf("mirror branch %q head: %w", branch, err)
+	if err := model.ValidateCommitSHA(remoteHead); err != nil {
+		return "", false, fmt.Errorf("remote-tracking ref %q head: %w", remoteName, err)
 	}
-	return head, true, nil
+	return remoteHead, true, nil
 }
 
 func (s *Service) RunList(ctx context.Context, project string) ([]model.Run, error) {
@@ -1933,11 +1932,13 @@ func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error
 	if err != nil {
 		return model.Report{}, err
 	}
-	wantState := "ready"
 	if report.Status == "succeeded" {
-		wantState = "completed"
-	}
-	if state.Status != wantState {
+		switch state.Status {
+		case "completed", "merge_ready", "deferred", "merged":
+		default:
+			return model.Report{}, fmt.Errorf("report status does not match task state")
+		}
+	} else if state.Status != "ready" {
 		return model.Report{}, fmt.Errorf("report status does not match task state")
 	}
 	commit, err := s.Hub.LastChange(ctx, path)
