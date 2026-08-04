@@ -56,3 +56,20 @@ The gateway generates the recovery instruction and records bounded operational
 events. Do not send a bare `continue`; do not retry a resume after
 `STALLED_AFTER_COMPACTION` without explicit review. A low-context warning is
 not compaction evidence.
+
+## Release lifecycle
+
+Gateway v0.6.1 tooling adoption is Stage A `implementation_unreleased`:
+
+```text
+python3 scripts/validate-release-tool-conformance.py --release-script scripts/release.py --ci-script scripts/check-github-ci.py
+python3 scripts/release.py check-source
+python3 scripts/release.py check
+python3 scripts/check-github-ci.py --repository rceman/gpt-tunnel-gateway --sha-from-git HEAD --policy required --wait --format json
+```
+
+These checks do not publish a release. A separate owner-authorized
+`release_publication` task must perform prepare, release readiness, the
+release-only commit, exact-SHA CI, annotated tagging, and tag verification.
+Never manually edit VERSION, synchronized version files, or dated changelog
+headings, and never infer publication from an implementation check.

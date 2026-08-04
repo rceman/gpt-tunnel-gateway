@@ -32,3 +32,17 @@ The release-side policy checks used for this integration are the planner
 runtime-upgrade policy test suite and the project integration validator. They
 are run against the tagged planner tree and this gateway checkout before the
 gateway release commit is merged or tagged.
+
+## Release tooling provenance
+
+Gateway Stage A adopts the canonical release tools from planner commit
+`feeabecf5eb1854e9cd3ce7bb85fe6a601dc4645`:
+
+- `scripts/release.py`;
+- `scripts/check-github-ci.py`;
+- `scripts/validate-release-tool-conformance.py`.
+
+The gateway copies their Git-object bytes and executable modes exactly, and the
+conformance script rejects project-side drift. The gateway release lifecycle
+remains `implementation_unreleased` until a separate owner-authorized
+`release_publication` task.

@@ -21,6 +21,22 @@ outside Git.
 - The gateway workflow lock pins the planner URL, version, commit, and tag
   object above. Do not modify the planner repository as part of gateway work.
 
+## Release lifecycle state
+
+Gateway v0.6.1 remains in Stage A `implementation_unreleased`. The canonical
+release tools are byte-identical to planner commit
+`feeabecf5eb1854e9cd3ce7bb85fe6a601dc4645`:
+
+- `scripts/release.py`;
+- `scripts/check-github-ci.py`;
+- `scripts/validate-release-tool-conformance.py`.
+
+Use `check-source`, conformance, and the exact-SHA CI helper for implementation
+validation. A separate owner-authorized `release_publication` task must run
+prepare, release readiness, the release-only commit, exact-SHA CI, annotated
+tagging, and tag verification. Do not manually edit VERSION, synchronized
+version files, or dated changelog headings; Stage A never publishes.
+
 ## Runtime at handoff
 
 - Installed gateway/controller/CLI: `0.6.0`

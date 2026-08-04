@@ -12,6 +12,8 @@ required = [
     "README.md", "VERSION", "CHANGELOG.md", "AGENTS.md", ".gpt-workflow.lock",
     "cmd/gpt-tunnel/main.go", "cmd/gpt-tunnel-gatewayd/main.go", "cmd/gpt-tunnelctl/main.go",
     "docs/ARCHITECTURE.md", "docs/BEHAVIOR_CONTRACT.md", "docs/HUB_LAYOUT.md",
+    "docs/RELEASE_LIFECYCLE.md", "scripts/release.py", "scripts/check-github-ci.py",
+    "scripts/validate-release-tool-conformance.py",
 ]
 for name in required:
     if not (ROOT / name).is_file():

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Adopt the planner-canonical two-mode release lifecycle and exact Git-object
+  provenance/conformance checks for the gateway’s Stage A
+  `implementation_unreleased` tooling.
 - Add v0.6.1 aggregated project progress with bounded task/run, repository,
   Airelay liveness, activity, blocker and next-action data.
 - Add deterministic agent-state and context-compaction detection with durable
