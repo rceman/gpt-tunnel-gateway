@@ -701,6 +701,23 @@ func ParseTaskID(value string) (string, uint64, error) {
 	}
 	return matches[1], number, nil
 }
+func ValidateTaskIDForProject(value, expectedProjectCode string) error {
+	_, err := ParseTaskIDForProject(value, expectedProjectCode)
+	return err
+}
+func ParseTaskIDForProject(value, expectedProjectCode string) (uint64, error) {
+	if err := ValidateProjectCode(expectedProjectCode); err != nil {
+		return 0, fmt.Errorf("expected project code: %w", err)
+	}
+	projectCode, number, err := ParseTaskID(value)
+	if err != nil {
+		return 0, err
+	}
+	if projectCode != expectedProjectCode {
+		return 0, fmt.Errorf("compact task ID project code %q does not match expected project code %q", projectCode, expectedProjectCode)
+	}
+	return number, nil
+}
 func FormatRunID(taskID string, number uint64) (string, error) {
 	if _, _, err := ParseTaskID(taskID); err != nil {
 		return "", fmt.Errorf("task ID: %w", err)
@@ -724,6 +741,27 @@ func ParseRunID(value string) (string, uint64, error) {
 	}
 	return matches[1], number, nil
 }
+func ValidateRunIDForProject(value, expectedProjectCode string) error {
+	_, _, err := ParseRunIDForProject(value, expectedProjectCode)
+	return err
+}
+func ParseRunIDForProject(value, expectedProjectCode string) (string, uint64, error) {
+	if err := ValidateProjectCode(expectedProjectCode); err != nil {
+		return "", 0, fmt.Errorf("expected project code: %w", err)
+	}
+	taskID, number, err := ParseRunID(value)
+	if err != nil {
+		return "", 0, err
+	}
+	projectCode, _, err := ParseTaskID(taskID)
+	if err != nil {
+		return "", 0, err
+	}
+	if projectCode != expectedProjectCode {
+		return "", 0, fmt.Errorf("compact run ID project code %q does not match expected project code %q", projectCode, expectedProjectCode)
+	}
+	return taskID, number, nil
+}
 func FormatADRID(projectCode string, number uint64) (string, error) {
 	if err := ValidateProjectCode(projectCode); err != nil {
 		return "", err
@@ -743,6 +781,23 @@ func ParseADRID(value string) (string, uint64, error) {
 		return "", 0, err
 	}
 	return matches[1], number, nil
+}
+func ValidateADRIDForProject(value, expectedProjectCode string) error {
+	_, err := ParseADRIDForProject(value, expectedProjectCode)
+	return err
+}
+func ParseADRIDForProject(value, expectedProjectCode string) (uint64, error) {
+	if err := ValidateProjectCode(expectedProjectCode); err != nil {
+		return 0, fmt.Errorf("expected project code: %w", err)
+	}
+	projectCode, number, err := ParseADRID(value)
+	if err != nil {
+		return 0, err
+	}
+	if projectCode != expectedProjectCode {
+		return 0, fmt.Errorf("compact ADR ID project code %q does not match expected project code %q", projectCode, expectedProjectCode)
+	}
+	return number, nil
 }
 func parseCompactIDNumber(value string) (uint64, error) {
 	number, err := strconv.ParseUint(value, 10, 64)

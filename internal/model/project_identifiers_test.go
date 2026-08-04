@@ -44,7 +44,6 @@ func TestProjectIdentifiersValidationAndCompactIDs(t *testing.T) {
 }
 
 func TestProjectIdentifiersRejectInvalidValues(t *testing.T) {
-	base := ProjectIdentifiers{SchemaVersion: SchemaVersion, ProjectID: "example", ProjectCode: "EXM", NextTaskNumber: 1, NextADRNumber: 1}
 	cases := []ProjectIdentifiers{
 		{SchemaVersion: SchemaVersion, ProjectID: "Example", ProjectCode: "EXM", NextTaskNumber: 1, NextADRNumber: 1},
 		{SchemaVersion: SchemaVersion, ProjectID: "example", ProjectCode: "exm", NextTaskNumber: 1, NextADRNumber: 1},
@@ -69,31 +68,70 @@ func TestProjectIdentifiersRejectInvalidValues(t *testing.T) {
 			t.Fatalf("accepted invalid task ID %q", value)
 		}
 	}
-	_ = base
 }
 
 func TestProjectIdentifiersJSONIntegerSchemaParity(t *testing.T) {
-	valid := `{"schema_version":1.0,"project_id":"example","project_code":"EXM","next_task_number":1.0,"next_adr_number":9007199254740991.0}`
+	valid := "{\"schema_version\":1.0,\"project_id\":\"example\",\"project_code\":\"EXM\",\"next_task_number\":1.0,\"next_adr_number\":9007199254740991.0}"
 	var identifiers ProjectIdentifiers
 	if err := json.Unmarshal([]byte(valid), &identifiers); err != nil {
 		t.Fatalf("integral JSON notation was rejected: %v", err)
 	}
-	if err := ValidateProjectIdentifiers(identifiers); err != nil {
-		t.Fatalf("integral JSON notation failed model validation: %v", err)
+	if err := ValidateProjectIdentifiers(identifiers); err != nil || identifiers.SchemaVersion != 1 || identifiers.ProjectID != "example" || identifiers.ProjectCode != "EXM" || identifiers.NextTaskNumber != 1 || identifiers.NextADRNumber != MaxSafeInteger {
+		t.Fatalf("integral JSON notation failed model validation: %#v %v", identifiers, err)
 	}
-	for _, replacement := range []string{`true`, `1.5`, `9007199254740992`, `NaN`} {
-		data := strings.Replace(valid, "1.0,\"next_adr_number\"", replacement+",\"next_adr_number\"", 1)
+	invalid := map[string]string{
+		"bool":       strings.Replace(valid, "\"next_task_number\":1.0", "\"next_task_number\":true", 1),
+		"fraction":   strings.Replace(valid, "\"next_task_number\":1.0", "\"next_task_number\":1.5", 1),
+		"overflow":   strings.Replace(valid, "\"next_adr_number\":9007199254740991.0", "\"next_adr_number\":9007199254740992", 1),
+		"non-finite": strings.Replace(valid, "\"next_task_number\":1.0", "\"next_task_number\":NaN", 1),
+		"unknown":    strings.TrimSuffix(valid, "}") + ",\"extra\":1}",
+		"duplicate":  strings.Replace(valid, "\"project_code\":\"EXM\"", "\"project_code\":\"EXM\",\"project_code\":\"ALT\"", 1),
+		"missing":    strings.Replace(valid, "\"project_code\":\"EXM\",", "", 1),
+		"non-object": "[]",
+		"trailing":   valid + "{}",
+	}
+	for name, data := range invalid {
 		var decoded ProjectIdentifiers
 		if err := json.Unmarshal([]byte(data), &decoded); err == nil {
-			t.Fatalf("accepted invalid JSON integer notation %q", replacement)
+			t.Fatalf("accepted invalid project identifiers JSON case %q", name)
 		}
 	}
-	unknown := strings.TrimSuffix(valid, "}") + `,"extra":1}`
-	if err := json.Unmarshal([]byte(unknown), &identifiers); err == nil {
-		t.Fatal("accepted unknown project identifiers field")
+	if err := json.Unmarshal([]byte(valid+" "), &identifiers); err != nil {
+		t.Fatalf("accepted JSON whitespace should remain valid: %v", err)
 	}
-	duplicate := strings.Replace(valid, `"project_code":"EXM"`, `"project_code":"EXM","project_code":"ALT"`, 1)
-	if err := json.Unmarshal([]byte(duplicate), &identifiers); err == nil {
-		t.Fatal("accepted duplicate project identifiers field")
+}
+
+func TestCompactIDsRequireExpectedProjectCode(t *testing.T) {
+	if number, err := ParseTaskIDForProject("GTW-T9007199254740991", "GTW"); err != nil || number != MaxSafeInteger {
+		t.Fatalf("matching task project code failed: %d %v", number, err)
+	}
+	if taskID, number, err := ParseRunIDForProject("GTW-T1-R9007199254740991", "GTW"); err != nil || taskID != "GTW-T1" || number != MaxSafeInteger {
+		t.Fatalf("matching run project code failed: %q %d %v", taskID, number, err)
+	}
+	if number, err := ParseADRIDForProject("GTW-A9007199254740991", "GTW"); err != nil || number != MaxSafeInteger {
+		t.Fatalf("matching ADR project code failed: %d %v", number, err)
+	}
+	for _, mismatch := range []struct {
+		name string
+		call func() error
+	}{
+		{name: "task", call: func() error { return ValidateTaskIDForProject("GRP-T1", "GTW") }},
+		{name: "run", call: func() error { return ValidateRunIDForProject("GRP-T1-R1", "GTW") }},
+		{name: "adr", call: func() error { return ValidateADRIDForProject("GRP-A1", "GTW") }},
+	} {
+		if err := mismatch.call(); err == nil {
+			t.Fatalf("accepted mismatched %s project code", mismatch.name)
+		}
+	}
+	for _, malformedCode := range []string{"gtw", "GT", "GTWW", "", "G1W"} {
+		if err := ValidateTaskIDForProject("GTW-T1", malformedCode); err == nil {
+			t.Fatalf("accepted malformed expected project code %q", malformedCode)
+		}
+	}
+	if err := ValidateRunIDForProject("GRP-T1-R1", "GTW"); err == nil {
+		t.Fatal("accepted run whose embedded task code mismatches expected project code")
+	}
+	if err := ValidateTaskIDForProject("GTW-T9007199254740992", "GTW"); err == nil {
+		t.Fatal("accepted task number above maximum")
 	}
 }
