@@ -2164,7 +2164,7 @@ func validateCancelDelivery(run model.Run) error {
 	if run.DispatchExitCode == nil || *run.DispatchExitCode != 0 {
 		return fmt.Errorf("cancellation delivery was not successful")
 	}
-	if run.DispatchStdout == "" {
+	if strings.TrimSpace(run.DispatchStdout) == "" {
 		return fmt.Errorf("cancellation delivery produced no stdout")
 	}
 	if run.DispatchStderr != "" {
@@ -2254,6 +2254,11 @@ func (s *Service) RunCancelAcknowledgeNoMutation(ctx context.Context, id, expect
 	if hash, hashErr := model.HashTask(task); hashErr != nil || hash != task.SHA256 {
 		return OperationResult{}, fmt.Errorf("durable task hash mismatch")
 	}
+	projectLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "project-"+task.ProjectID)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	defer projectLock.Release()
 	state, err := s.taskState(ctx, task)
 	if err != nil {
 		return OperationResult{}, err
