@@ -39,6 +39,33 @@ in the exact remote `develop` HEAD and records that receipt. The actual merge
 is a later integration operation; `task_mark_merged` does not merge, push,
 checkout, or delete branches.
 
+## Project compact identifiers
+
+Read the current allocation record with:
+
+```text
+gpt-tunnel project identifiers-read <project-id>
+```
+
+Adopt a three-letter uppercase code atomically with:
+
+```text
+gpt-tunnel project identifiers-adopt <project-id> <PROJECT_CODE> [--expected-hub-revision <sha>]
+```
+
+Examples include `GRP` for `gpt-review-planner` and `GTW` for
+`gpt-tunnel-gateway`. The MCP equivalents are `project_identifiers_read` with
+`{"project_id":"gpt-tunnel-gateway"}` and
+`project_identifiers_adopt` with `project_id`, `project_code`, and optional
+`expected_hub_revision`.
+
+Adoption is one optimistic-revision-guarded hub transaction. It creates one
+immutable allocation record, rejects an existing record or duplicate project
+code, and initializes task and ADR counters. The counters and adopted code
+are not replaced by a later adoption. This slice exposes the record only;
+task, ADR, and run creation still use their existing UUID paths and have not
+switched to compact identifiers.
+
 ## Cancellation acknowledgement
 
 The CLI command

@@ -115,6 +115,27 @@ func project(ctx context.Context, s *service.Service, args []string) {
 			fatal(e)
 		}
 		output(v)
+	case "identifiers-read":
+		require(args, 2)
+		if len(args) != 2 {
+			usage()
+		}
+		v, e := s.ProjectIdentifiersRead(ctx, args[1])
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
+	case "identifiers-adopt":
+		require(args, 3)
+		ex, e := expectedStrict(args[3:])
+		if e != nil {
+			usage()
+		}
+		identifiers, operation, e := s.ProjectIdentifiersAdopt(ctx, service.ProjectIdentifiersAdoptInput{ProjectID: args[1], ProjectCode: args[2], WriteOptions: service.WriteOptions{ExpectedHubRevision: ex}})
+		if e != nil {
+			fatal(e)
+		}
+		output(map[string]any{"identifiers": identifiers, "operation": operation})
 	case "status":
 		require(args, 2)
 		v, e := s.ProjectStatus(ctx, args[1])

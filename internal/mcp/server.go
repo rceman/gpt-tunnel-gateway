@@ -378,6 +378,26 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.ProjectRead(ctx, id)
 	})
+	add("project_identifiers_read", "Read the immutable compact-ID allocation record for a durable project.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		id, e := getString(raw, "project_id")
+		if e != nil {
+			return nil, e
+		}
+		return s.Service.ProjectIdentifiersRead(ctx, id)
+	})
+	projectCode := str("Three-letter uppercase project code")
+	projectCode["pattern"] = "^[A-Z]{3}$"
+	add("project_identifiers_adopt", "Atomically adopt a unique immutable compact-ID project code and initialize its counters; this does not switch task, ADR, or run creation to compact IDs.", obj(map[string]any{"project_id": str("Project identifier"), "project_code": projectCode, "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "project_code"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.ProjectIdentifiersAdoptInput
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		identifiers, operation, e := s.Service.ProjectIdentifiersAdopt(ctx, in)
+		if e != nil {
+			return nil, e
+		}
+		return map[string]any{"identifiers": identifiers, "operation": operation}, nil
+	})
 	add("project_status", "Read durable project, local mapping, worktree, and hub revision.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "project_id")
 		if e != nil {

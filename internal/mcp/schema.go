@@ -146,6 +146,22 @@ func operationOutputSchema() map[string]any {
 	}, "hub", "status")
 }
 
+func projectIdentifiersOutputSchema() map[string]any {
+	schemaVersion := outputInteger()
+	schemaVersion["const"] = float64(1)
+	projectID := outputString()
+	projectID["pattern"] = "^[a-z0-9][a-z0-9_-]{0,63}$"
+	projectID["minLength"] = 1
+	projectID["maxLength"] = 64
+	projectCode := outputString()
+	projectCode["pattern"] = "^[A-Z]{3}$"
+	number := map[string]any{"type": "integer", "minimum": 1, "maximum": 9007199254740991}
+	return closedOutput(map[string]any{
+		"schema_version": schemaVersion, "project_id": projectID, "project_code": projectCode,
+		"next_task_number": number, "next_adr_number": number,
+	}, "schema_version", "project_id", "project_code", "next_task_number", "next_adr_number")
+}
+
 func agentSendOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"project_id": outputString(), "delivered": outputBoolean(), "exit_code": outputInteger(),
@@ -264,18 +280,20 @@ var toolOutputSchemas = map[string]map[string]any{
 		"hub_protocol_root": outputString(), "hub_repository_url": outputString(), "hub_branch": outputString(), "hub_managed_root": outputString(),
 		"airelay_control_only": outputBoolean(), "generic_shell_available": outputBoolean(),
 	}, "gateway_id", "listen_addr", "projects", "hub_protocol_root", "hub_repository_url", "hub_branch", "hub_managed_root", "airelay_control_only", "generic_shell_available"),
-	"project_list":        closedOutput(map[string]any{"projects": outputArray(projectOutputSchema())}, "projects"),
-	"project_read":        projectOutputSchema(),
-	"project_status":      closedOutput(map[string]any{"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(), "hub_revision": outputString(), "progress": projectProgressOutputSchema()}, "project", "local", "worktree", "plan", "hub_revision", "progress"),
-	"project_register":    operationOutputSchema(),
-	"plan_read":           planOutputSchema(),
-	"plan_cutover":        operationOutputSchema(),
-	"plan_update":         operationOutputSchema(),
-	"plan_section_read":   planSectionOutputSchema(),
-	"plan_section_create": operationOutputSchema(),
-	"plan_section_update": operationOutputSchema(),
-	"plan_section_delete": operationOutputSchema(),
-	"plan_render":         planRenderOutputSchema(),
+	"project_list":              closedOutput(map[string]any{"projects": outputArray(projectOutputSchema())}, "projects"),
+	"project_read":              projectOutputSchema(),
+	"project_identifiers_read":  projectIdentifiersOutputSchema(),
+	"project_identifiers_adopt": closedOutput(map[string]any{"identifiers": projectIdentifiersOutputSchema(), "operation": operationOutputSchema()}, "identifiers", "operation"),
+	"project_status":            closedOutput(map[string]any{"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(), "hub_revision": outputString(), "progress": projectProgressOutputSchema()}, "project", "local", "worktree", "plan", "hub_revision", "progress"),
+	"project_register":          operationOutputSchema(),
+	"plan_read":                 planOutputSchema(),
+	"plan_cutover":              operationOutputSchema(),
+	"plan_update":               operationOutputSchema(),
+	"plan_section_read":         planSectionOutputSchema(),
+	"plan_section_create":       operationOutputSchema(),
+	"plan_section_update":       operationOutputSchema(),
+	"plan_section_delete":       operationOutputSchema(),
+	"plan_render":               planRenderOutputSchema(),
 	"plan_history": closedOutput(map[string]any{"history": outputArray(closedOutput(map[string]any{
 		"sha": outputString(), "date": outputString(), "author": outputString(), "subject": outputString(),
 	}, "sha", "date", "author", "subject"))}, "history"),
@@ -335,7 +353,7 @@ func readOnlyAnnotations() ToolAnnotations {
 // registration, schemas, annotations, and contract tests describe the same
 // MCP surface. Its length is deliberately not a protocol assertion.
 var canonicalToolManifest = []string{
-	"system_ping", "gateway_capabilities", "project_list", "project_read", "project_status",
+	"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_identifiers_adopt", "project_status",
 	"project_register", "plan_read", "plan_cutover", "plan_update", "plan_section_read",
 	"plan_section_create", "plan_section_update", "plan_section_delete", "plan_render", "plan_history",
 	"adr_list", "adr_read", "adr_create", "task_create", "task_list", "task_read", "task_dispatch",
@@ -357,7 +375,7 @@ func destructiveExternalAnnotations() ToolAnnotations {
 var toolAnnotations = func() map[string]ToolAnnotations {
 	result := map[string]ToolAnnotations{}
 	for _, name := range []string{
-		"system_ping", "gateway_capabilities", "project_list", "project_read", "project_status",
+		"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_status",
 		"plan_read", "plan_section_read", "plan_render", "plan_history", "adr_list", "adr_read", "task_list", "task_read",
 		"run_list", "run_read", "run_status", "run_report",
 		"git_refs", "git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare",
@@ -370,7 +388,7 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	result["agent_tail"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
 	result["agent_status"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
 	result["agent_send"] = additiveExternalAnnotations()
-	for _, name := range []string{"project_register", "adr_create", "task_create", "plan_section_create"} {
+	for _, name := range []string{"project_register", "project_identifiers_adopt", "adr_create", "task_create", "plan_section_create"} {
 		result[name] = additiveExternalAnnotations()
 	}
 	for _, name := range []string{"plan_cutover", "plan_update", "plan_section_update", "plan_section_delete", "task_dispatch", "task_supersede", "task_cancel", "task_mark_merge_ready", "task_defer", "task_mark_merged", "run_resume", "run_sweep", "run_cancel", "run_cancel_acknowledge_no_mutation"} {
@@ -419,6 +437,14 @@ func validateSchemaValue(schema map[string]any, value any, path string) error {
 			return fmt.Errorf("%s: unsupported schema type %q", path, expected)
 		}
 	}
+	if number, ok := value.(float64); ok {
+		if minimum, ok := schemaNumber(schema["minimum"]); ok && number < minimum {
+			return fmt.Errorf("%s: number is below minimum", path)
+		}
+		if maximum, ok := schemaNumber(schema["maximum"]); ok && number > maximum {
+			return fmt.Errorf("%s: number exceeds maximum", path)
+		}
+	}
 	if options, ok := schema["oneOf"].([]any); ok {
 		matches := 0
 		for _, candidate := range options {
@@ -457,6 +483,12 @@ func validateSchemaValue(schema map[string]any, value any, path string) error {
 			if _, err := time.Parse(time.RFC3339Nano, text); err != nil {
 				return fmt.Errorf("%s: invalid date-time", path)
 			}
+		}
+		if minimum, ok := schemaNumber(schema["minLength"]); ok && float64(len(text)) < minimum {
+			return fmt.Errorf("%s: string is shorter than minLength", path)
+		}
+		if maximum, ok := schemaNumber(schema["maxLength"]); ok && float64(len(text)) > maximum {
+			return fmt.Errorf("%s: string exceeds maxLength", path)
 		}
 	}
 	if object, ok := value.(map[string]any); ok {
@@ -497,6 +529,21 @@ func validateSchemaValue(schema map[string]any, value any, path string) error {
 		}
 	}
 	return nil
+}
+
+func schemaNumber(value any) (float64, bool) {
+	switch number := value.(type) {
+	case int:
+		return float64(number), true
+	case int64:
+		return float64(number), true
+	case uint64:
+		return float64(number), true
+	case float64:
+		return number, true
+	default:
+		return 0, false
+	}
 }
 
 func stringList(value any) []string {
