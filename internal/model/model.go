@@ -526,6 +526,11 @@ func ValidateRun(v Run) error {
 	if v.SchemaVersion != SchemaVersion || v.ID == "" || v.TaskID == "" || !idRE.MatchString(v.ProjectID) {
 		return fmt.Errorf("invalid run identity")
 	}
+	switch v.Status {
+	case "created", "dispatching", "dispatched", "awaiting_result", "cancel_requested", "succeeded", "failed", "needs_gpt_revision":
+	default:
+		return fmt.Errorf("invalid run status")
+	}
 	if len(v.DispatchMessage) > 512 {
 		return fmt.Errorf("dispatch message too large")
 	}
