@@ -74,6 +74,49 @@ func (s *Service) operatorEventPath(projectID, eventID string) string {
 	return s.operatorEventsPrefix(projectID) + "/" + eventID + ".json"
 }
 
+func validateOperatorEventPathIdentity(eventPath, eventsPrefix string, event model.OperatorJournalEvent, projectID, projectCode string) (uint64, error) {
+	if err := model.ValidateOperatorJournalEvent(event); err != nil {
+		return 0, err
+	}
+	if err := model.ValidateOperatorJournalReferencesForProject(event.References, projectCode); err != nil {
+		return 0, err
+	}
+	if event.ProjectID != projectID {
+		return 0, fmt.Errorf("operator event project mismatch")
+	}
+	if err := model.ValidateOperatorEventIDForProject(event.ID, projectCode); err != nil {
+		return 0, err
+	}
+	prefix := strings.TrimSuffix(eventsPrefix, "/") + "/"
+	if !strings.HasPrefix(eventPath, prefix) {
+		return 0, fmt.Errorf("operator event path %q is outside event directory", eventPath)
+	}
+	relative := strings.TrimPrefix(eventPath, prefix)
+	if relative == "" || strings.Contains(relative, "/") || !strings.HasSuffix(relative, ".json") {
+		return 0, fmt.Errorf("invalid operator event path %q", eventPath)
+	}
+	pathID := strings.TrimSuffix(relative, ".json")
+	if pathID != event.ID {
+		return 0, fmt.Errorf("operator event path/body ID mismatch: path %q body %q", pathID, event.ID)
+	}
+	_, number, err := model.ParseOperatorEventID(event.ID)
+	if err != nil {
+		return 0, err
+	}
+	return number, nil
+}
+
+func ensureOperatorEventPathAbsent(worktree, eventPath, eventID string) error {
+	_, err := os.Lstat(filepath.Join(worktree, filepath.FromSlash(eventPath)))
+	if err == nil {
+		return fmt.Errorf("operator journal event %q already exists", eventID)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect operator journal event %q: %w", eventID, err)
+	}
+	return nil
+}
+
 func allowedBootstrapOperatorKind(kind model.OperatorJournalKind) bool {
 	switch kind {
 	case model.OperatorUserTalk, model.OperatorReasoningSummary, model.OperatorTaskPlan, model.OperatorTaskReview, model.OperatorCorrection:
@@ -171,6 +214,9 @@ func (s *Service) operatorRecord(ctx context.Context, in OperatorRecordInput, al
 		if identifiers.ProjectID != in.ProjectID {
 			return nil, fmt.Errorf("project identifiers project_id mismatch")
 		}
+		if err := model.ValidateOperatorJournalReferencesForProject(in.References, identifiers.ProjectCode); err != nil {
+			return nil, err
+		}
 		counterPath := s.operatorCounterPath(in.ProjectID)
 		counter := model.OperatorJournalCounter{SchemaVersion: model.OperatorJournalSchemaVersion, ProjectID: in.ProjectID, NextEventNumber: 1}
 		counterData, readErr := os.ReadFile(filepath.Join(worktree, filepath.FromSlash(counterPath)))
@@ -208,17 +254,15 @@ func (s *Service) operatorRecord(ctx context.Context, in OperatorRecordInput, al
 			if in.SupersedesEventID == eventID {
 				return nil, fmt.Errorf("operator journal event cannot supersede itself")
 			}
+			targetPath := s.operatorEventPath(in.ProjectID, in.SupersedesEventID)
 			var target model.OperatorJournalEvent
-			if err := readWorktreeJSON(worktree, s.operatorEventPath(in.ProjectID, in.SupersedesEventID), &target); err != nil {
+			if err := readWorktreeJSON(worktree, targetPath, &target); err != nil {
 				return nil, fmt.Errorf("supersedes_event_id target: %w", err)
 			}
-			if err := model.ValidateOperatorJournalEvent(target); err != nil {
+			if _, err := validateOperatorEventPathIdentity(targetPath, s.operatorEventsPrefix(in.ProjectID), target, in.ProjectID, identifiers.ProjectCode); err != nil {
 				return nil, fmt.Errorf("supersedes_event_id target: %w", err)
 			}
-			if target.ProjectID != in.ProjectID {
-				return nil, fmt.Errorf("supersedes_event_id target project mismatch")
-			}
-			if err := rejectAlreadySuperseded(worktree, s.operatorEventsPrefix(in.ProjectID), in.SupersedesEventID); err != nil {
+			if err := rejectAlreadySuperseded(worktree, s.operatorEventsPrefix(in.ProjectID), in.ProjectID, identifiers.ProjectCode, in.SupersedesEventID); err != nil {
 				return nil, err
 			}
 		}
@@ -233,11 +277,17 @@ func (s *Service) operatorRecord(ctx context.Context, in OperatorRecordInput, al
 		if err := model.ValidateOperatorJournalEvent(event); err != nil {
 			return nil, err
 		}
+		if err := model.ValidateOperatorJournalReferencesForProject(event.References, identifiers.ProjectCode); err != nil {
+			return nil, err
+		}
 		counter.NextEventNumber = number + 1
 		if err := model.ValidateOperatorJournalCounter(counter); err != nil {
 			return nil, err
 		}
 		eventPath := s.operatorEventPath(in.ProjectID, event.ID)
+		if err := ensureOperatorEventPathAbsent(worktree, eventPath, event.ID); err != nil {
+			return nil, err
+		}
 		if err := hub.WriteJSON(worktree, eventPath, event); err != nil {
 			return nil, err
 		}
@@ -265,7 +315,7 @@ func (s *Service) OperatorCheckpoint(ctx context.Context, in OperatorCheckpointI
 	return event, operation, nil
 }
 
-func rejectAlreadySuperseded(worktree, eventsPrefix, targetID string) error {
+func rejectAlreadySuperseded(worktree, eventsPrefix, projectID, projectCode, targetID string) error {
 	root := filepath.Join(worktree, filepath.FromSlash(eventsPrefix))
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -274,14 +324,26 @@ func rejectAlreadySuperseded(worktree, eventsPrefix, targetID string) error {
 	if err != nil {
 		return err
 	}
+	seenIDs := map[string]bool{}
+	seenNumbers := map[uint64]bool{}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
+		eventPath := eventsPrefix + "/" + entry.Name()
 		var event model.OperatorJournalEvent
-		if err := readWorktreeJSON(worktree, eventsPrefix+"/"+entry.Name(), &event); err != nil {
+		if err := readWorktreeJSON(worktree, eventPath, &event); err != nil {
 			return fmt.Errorf("read operator journal event %q: %w", entry.Name(), err)
 		}
+		number, err := validateOperatorEventPathIdentity(eventPath, eventsPrefix, event, projectID, projectCode)
+		if err != nil {
+			return fmt.Errorf("invalid operator journal event %q: %w", entry.Name(), err)
+		}
+		if seenIDs[event.ID] || seenNumbers[number] {
+			return fmt.Errorf("duplicate operator journal event identity %q", event.ID)
+		}
+		seenIDs[event.ID] = true
+		seenNumbers[number] = true
 		if event.SupersedesEventID == targetID {
 			return fmt.Errorf("operator journal event %q is already superseded", targetID)
 		}
@@ -315,26 +377,28 @@ func (s *Service) OperatorHistory(ctx context.Context, in OperatorHistoryInput) 
 			return OperatorHistoryResult{}, err
 		}
 	}
-	paths, err := s.Hub.List(ctx, s.operatorEventsPrefix(in.ProjectID), ".json")
+	eventsPrefix := s.operatorEventsPrefix(in.ProjectID)
+	paths, err := s.Hub.List(ctx, eventsPrefix, ".json")
 	if err != nil {
 		return OperatorHistoryResult{}, err
 	}
 	items := make([]model.OperatorJournalEvent, 0, len(paths))
+	seenIDs := map[string]bool{}
+	seenNumbers := map[uint64]bool{}
 	for _, path := range paths {
 		var event model.OperatorJournalEvent
 		if err := s.Hub.ReadJSON(ctx, path, &event); err != nil {
 			return OperatorHistoryResult{}, err
 		}
-		if err := model.ValidateOperatorJournalEvent(event); err != nil {
+		number, err := validateOperatorEventPathIdentity(path, eventsPrefix, event, in.ProjectID, identifiers.ProjectCode)
+		if err != nil {
 			return OperatorHistoryResult{}, fmt.Errorf("invalid operator event %s: %w", path, err)
 		}
-		if event.ProjectID != in.ProjectID {
-			return OperatorHistoryResult{}, fmt.Errorf("operator event project mismatch")
+		if seenIDs[event.ID] || seenNumbers[number] {
+			return OperatorHistoryResult{}, fmt.Errorf("duplicate operator journal event identity %q", event.ID)
 		}
-		if err := model.ValidateOperatorEventIDForProject(event.ID, identifiers.ProjectCode); err != nil {
-			return OperatorHistoryResult{}, err
-		}
-		_, number, _ := model.ParseOperatorEventID(event.ID)
+		seenIDs[event.ID] = true
+		seenNumbers[number] = true
 		if number <= afterNumber || (in.Kind != "" && event.Kind != in.Kind) {
 			continue
 		}

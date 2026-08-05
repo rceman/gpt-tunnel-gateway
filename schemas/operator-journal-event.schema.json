@@ -8,12 +8,12 @@
     "schema_version": {"const": 1},
     "id": {"type": "string", "pattern": "^[A-Z]{3}-O[1-9][0-9]*$"},
     "project_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
-    "session_id": {"type": ["string", "null"], "maxLength": 256},
+    "session_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
     "kind": {"type": "string", "enum": ["user_talk", "reasoning_summary", "task_plan", "task_review", "operation", "checkpoint", "correction"]},
     "summary": {"type": "string", "minLength": 1, "maxLength": 4096},
     "content": {"$ref": "#/$defs/content"},
     "references": {"$ref": "#/$defs/references"},
-    "supersedes_event_id": {"type": "string", "pattern": "^[A-Z]{3}-O[1-9][0-9]*$"},
+    "supersedes_event_id": {"type": "string", "minLength": 1, "pattern": "^[A-Z]{3}-O[1-9][0-9]*$"},
     "actor": {"type": "string", "minLength": 1, "maxLength": 256},
     "occurred_at": {"type": "string", "format": "date-time"},
     "recorded_at": {"type": "string", "format": "date-time"}
@@ -36,6 +36,10 @@
       {"properties": {"commits": {"minItems": 1}}},
       {"properties": {"identities": {"minItems": 1}}}
     ]}}}
+  ],
+  "allOf": [
+    {"if": {"properties": {"kind": {"const": "correction"}}, "required": ["kind"]}, "then": {"required": ["supersedes_event_id"]}},
+    {"if": {"required": ["supersedes_event_id"]}, "then": {"properties": {"kind": {"const": "correction"}}}}
   ],
   "$defs": {
     "bounded_entries": {"type": "array", "maxItems": 128, "items": {"type": "string", "minLength": 1, "maxLength": 2048}},
@@ -61,6 +65,9 @@
     },
     "object_ids": {"type": "array", "maxItems": 128, "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"}},
     "plan_section_ids": {"type": "array", "maxItems": 128, "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"}},
-    "adr_ids": {"type": "array", "maxItems": 128, "items": {"type": "string", "pattern": "^ADR-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"}}
+    "adr_ids": {"type": "array", "maxItems": 128, "items": {"anyOf": [
+      {"type": "string", "pattern": "^ADR-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+      {"type": "string", "pattern": "^[A-Z]{3}-A[1-9][0-9]*$"}
+    ]}}
   }
 }

@@ -291,6 +291,18 @@ func (v OperatorJournalContent) HasMaterial() bool {
 }
 
 func ValidateOperatorJournalReferences(v OperatorJournalReferences) error {
+	return ValidateOperatorJournalReferencesForProject(v, "")
+}
+
+// ValidateOperatorJournalReferencesForProject validates journal references and,
+// when a project code is supplied, binds compact ADR references to that
+// project's adopted code. Legacy ADR-* references remain globally valid.
+func ValidateOperatorJournalReferencesForProject(v OperatorJournalReferences, projectCode string) error {
+	if projectCode != "" {
+		if err := ValidateProjectCode(projectCode); err != nil {
+			return err
+		}
+	}
 	values := map[string][]string{"plan_sections": v.PlanSections, "adrs": v.ADRs, "tasks": v.Tasks, "runs": v.Runs, "commits": v.Commits, "identities": v.Identities}
 	for name, items := range values {
 		if len(items) > MaxOperatorReferenceItems {
@@ -311,8 +323,18 @@ func ValidateOperatorJournalReferences(v OperatorJournalReferences) error {
 					return fmt.Errorf("plan_sections: %w", err)
 				}
 			case "adrs":
-				if err := ValidateADRIdentifier(item); err != nil {
+				if strings.HasPrefix(item, "ADR-") {
+					if err := ValidateADRIdentifier(item); err != nil {
+						return fmt.Errorf("adrs: %w", err)
+					}
+					continue
+				}
+				code, _, err := ParseADRID(item)
+				if err != nil {
 					return fmt.Errorf("adrs: %w", err)
+				}
+				if projectCode != "" && code != projectCode {
+					return fmt.Errorf("adrs: compact ADR project code %q does not match expected project code %q", code, projectCode)
 				}
 			case "tasks", "runs":
 				if err := ValidateObjectIdentifier(item); err != nil {

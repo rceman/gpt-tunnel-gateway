@@ -2,6 +2,8 @@ package model
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -78,6 +80,66 @@ func TestOperatorJournalRejectsDuplicateUnknownAndNoOpJSON(t *testing.T) {
 	noOp.Content = OperatorJournalContent{}
 	if err := ValidateOperatorJournalEvent(noOp); err == nil {
 		t.Fatal("empty content and references accepted")
+	}
+}
+
+func TestOperatorJournalCompactADRReferencesAreProjectBound(t *testing.T) {
+	for _, adr := range []string{"ADR-legacy", "EXM-A1"} {
+		if err := ValidateOperatorJournalReferencesForProject(OperatorJournalReferences{ADRs: []string{adr}}, "EXM"); err != nil {
+			t.Fatalf("valid ADR %q rejected: %v", adr, err)
+		}
+	}
+	for _, adr := range []string{"XYZ-A1", "EXM-A0", "EXM-A9007199254740992", "EXM-A1-extra"} {
+		if err := ValidateOperatorJournalReferencesForProject(OperatorJournalReferences{ADRs: []string{adr}}, "EXM"); err == nil {
+			t.Fatalf("invalid ADR %q accepted", adr)
+		}
+	}
+	if err := ValidateOperatorJournalReferences(OperatorJournalReferences{ADRs: []string{"XYZ-A1"}}); err != nil {
+		t.Fatalf("valid unbound compact ADR rejected: %v", err)
+	}
+}
+
+func TestOperatorJournalSessionAndCorrectionSemantics(t *testing.T) {
+	empty := ""
+	event := testOperatorEvent(OperatorUserTalk, "EXM-O1")
+	event.SessionID = &empty
+	if err := ValidateOperatorJournalEvent(event); err == nil {
+		t.Fatal("empty non-null session_id accepted")
+	}
+	event = testOperatorEvent(OperatorCorrection, "EXM-O2")
+	if err := ValidateOperatorJournalEvent(event); err == nil {
+		t.Fatal("correction without supersedes_event_id accepted")
+	}
+	event = testOperatorEvent(OperatorUserTalk, "EXM-O2")
+	event.SupersedesEventID = "EXM-O1"
+	if err := ValidateOperatorJournalEvent(event); err == nil {
+		t.Fatal("non-correction with supersedes_event_id accepted")
+	}
+}
+
+func TestOperatorJournalJSONSchemaDeclaresCorrectionAndADRParity(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "schemas", "operator-journal-event.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	properties := schema["properties"].(map[string]any)
+	session := properties["session_id"].(map[string]any)
+	if session["minLength"] != float64(1) {
+		t.Fatalf("session_id minLength=%v, want 1", session["minLength"])
+	}
+	allOf := schema["allOf"].([]any)
+	if len(allOf) != 2 {
+		t.Fatalf("allOf=%v, want correction bidirectional conditions", allOf)
+	}
+	defs := schema["$defs"].(map[string]any)
+	adrIDs := defs["adr_ids"].(map[string]any)
+	items := adrIDs["items"].(map[string]any)
+	if len(items["anyOf"].([]any)) != 2 {
+		t.Fatalf("ADR schema alternatives=%v, want legacy and compact", items["anyOf"])
 	}
 }
 

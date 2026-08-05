@@ -152,16 +152,25 @@ func operatorJournalEventOutputSchema() map[string]any {
 		"assumptions": outputArray(outputString()), "blockers": outputArray(outputString()), "unresolved": outputArray(outputString()), "next_actions": outputArray(outputString()),
 	}, "decisions", "commitments", "facts", "assumptions", "blockers", "unresolved", "next_actions")
 	references := closedOutput(map[string]any{
-		"plan_sections": outputArray(outputString()), "adrs": outputArray(outputString()), "tasks": outputArray(outputString()),
+		"plan_sections": outputArray(outputString()), "adrs": outputArray(func() map[string]any {
+			value := outputString()
+			value["pattern"] = "^(ADR-[A-Za-z0-9][A-Za-z0-9._-]{0,63}|[A-Z]{3}-A[1-9][0-9]*)$"
+			return value
+		}()), "tasks": outputArray(outputString()),
 		"runs": outputArray(outputString()), "commits": outputArray(outputString()), "identities": outputArray(outputString()),
 	}, "plan_sections", "adrs", "tasks", "runs", "commits", "identities")
-	sessionID := map[string]any{"type": []any{"string", "null"}}
+	sessionID := map[string]any{"type": []any{"string", "null"}, "minLength": 1}
 	kind := outputEnum("user_talk", "reasoning_summary", "task_plan", "task_review", "operation", "checkpoint", "correction")
-	return closedOutput(map[string]any{
+	event := closedOutput(map[string]any{
 		"schema_version": outputInteger(), "id": outputString(), "project_id": outputString(), "session_id": sessionID,
 		"kind": kind, "summary": outputString(), "content": content, "references": references,
 		"supersedes_event_id": outputString(), "actor": outputString(), "occurred_at": outputDateTime(), "recorded_at": outputDateTime(),
 	}, "schema_version", "id", "project_id", "session_id", "kind", "summary", "content", "references", "actor", "occurred_at", "recorded_at")
+	event["allOf"] = []any{
+		map[string]any{"if": map[string]any{"properties": map[string]any{"kind": map[string]any{"const": "correction"}}, "required": []any{"kind"}}, "then": map[string]any{"required": []any{"supersedes_event_id"}}},
+		map[string]any{"if": map[string]any{"required": []any{"supersedes_event_id"}}, "then": map[string]any{"properties": map[string]any{"kind": map[string]any{"const": "correction"}}}},
+	}
+	return event
 }
 
 func operatorJournalWriteOutputSchema() map[string]any {
