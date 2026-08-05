@@ -17,6 +17,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
+	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
 type fakeUpgradeController struct {
@@ -35,6 +36,41 @@ func (f *fakeUpgradeController) Status(context.Context) (controller.Status, erro
 func (f *fakeUpgradeController) Doctor(context.Context) error      { f.doctorCalls++; return nil }
 func (f *fakeUpgradeController) RestartGatewayAfterUpgrade() error { f.restartCalls++; return nil }
 func (f *fakeUpgradeController) StopGatewayForUpgrade() error      { f.stopCalls++; return nil }
+
+func TestInspectConfiguredProjectsUsesManagedSnapshotAndRejectsMalformedRegistry(t *testing.T) {
+	stateDir := t.TempDir()
+	root := t.TempDir()
+	c := config.Config{StateDir: stateDir}
+	s := service.New(c)
+	current := config.EmptyManagedProjectRegistry()
+	digest, err := current.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := config.ManagedProjectRegistry{SchemaVersion: config.ManagedProjectRegistrySchemaVersion, Revision: 1, Projects: map[string]config.ManagedProjectEntry{"managed": {Root: root, RepositoryURL: filepath.Join(stateDir, "managed.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "managed_master"}}}
+	if _, err := config.WriteManagedProjectRegistry(stateDir, digest, registry); err != nil {
+		t.Fatal(err)
+	}
+	resolution, err := s.EffectiveProjectSnapshot()
+	if err != nil {
+		t.Fatalf("resolve managed inspection snapshot: %v", err)
+	}
+	foundManaged := false
+	inspectConfiguredProjects(context.Background(), s.Git, resolution.Projects, func(code, project, task, run, path, detail string) {
+		if project == "managed" {
+			foundManaged = true
+		}
+	})
+	if !foundManaged {
+		t.Fatal("upgrade project inspection omitted managed project")
+	}
+	if err := os.WriteFile(config.ManagedProjectRegistryPath(stateDir), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EffectiveProjectSnapshot(); err == nil {
+		t.Fatal("malformed registry was accepted by upgrade inspection boundary")
+	}
+}
 
 func upgradeIntegrationFixture(t *testing.T) (config.Config, string, string, *fakeUpgradeController, func()) {
 	t.Helper()

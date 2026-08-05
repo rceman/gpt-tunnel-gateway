@@ -121,7 +121,15 @@ func Inspect(ctx context.Context, c config.Config, configPath string) (InspectRe
 		}
 	}
 	s := service.New(c)
-	inspectConfiguredProjects(ctx, s.Git, c, add)
+	resolution, resolutionErr := s.EffectiveProjectSnapshot()
+	if resolutionErr != nil {
+		add("PROJECT_REGISTRY_INVALID", "", "", "", config.ManagedProjectRegistryPath(c.StateDir), resolutionErr.Error())
+	} else {
+		inspectConfiguredProjects(ctx, s.Git, resolution.Projects, add)
+		for _, blocker := range inspectLegacyPlans(ctx, s, resolution.Projects) {
+			result.Blockers = append(result.Blockers, blocker)
+		}
+	}
 	state, stateErr := s.StateCheck(ctx)
 	if stateErr != nil {
 		add("STATE_CHECK_FAILED", "", "", "", "", stateErr.Error())
@@ -154,14 +162,14 @@ func Inspect(ctx context.Context, c config.Config, configPath string) (InspectRe
 	return result, nil
 }
 
-func inspectConfiguredProjects(ctx context.Context, git gitx.Runner, c config.Config, add func(string, string, string, string, string, string)) {
-	ids := make([]string, 0, len(c.Projects))
-	for id := range c.Projects {
+func inspectConfiguredProjects(ctx context.Context, git gitx.Runner, projects map[string]config.ProjectConfig, add func(string, string, string, string, string, string)) {
+	ids := make([]string, 0, len(projects))
+	for id := range projects {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	for _, id := range ids {
-		project := c.Projects[id]
+		project := projects[id]
 		if info, err := os.Stat(project.Root); err != nil || !info.IsDir() {
 			add("PROJECT_ROOT_INVALID", id, "", "", project.Root, "configured project root is not an accessible directory")
 			continue
@@ -177,15 +185,14 @@ func inspectConfiguredProjects(ctx context.Context, git gitx.Runner, c config.Co
 	}
 }
 
-func inspectLegacyPlans(ctx context.Context, c config.Config) []PreflightBlocker {
+func inspectLegacyPlans(ctx context.Context, s *service.Service, projects map[string]config.ProjectConfig) []PreflightBlocker {
 	// Kept as a small helper for future migration previews. Strict reads in
 	// StateCheck already identify the blocker; this function only classifies a
 	// raw legacy body when the caller has an explicit migration preview.
 	result := []PreflightBlocker{}
-	store := service.New(c).Hub
-	for id := range c.Projects {
+	for id := range projects {
 		path := "gpt-tunnel/v1/projects/" + id + "/plan/current.json"
-		data, err := store.ReadFile(ctx, path)
+		data, err := s.Hub.ReadFile(ctx, path)
 		if err != nil {
 			continue
 		}
@@ -198,5 +205,3 @@ func inspectLegacyPlans(ctx context.Context, c config.Config) []PreflightBlocker
 	}
 	return result
 }
-
-var _ = inspectLegacyPlans

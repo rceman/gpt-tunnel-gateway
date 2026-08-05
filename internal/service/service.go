@@ -252,15 +252,7 @@ func ensureSessionAvailableInWorktree(worktree, session string, maxReadBytes int
 	})
 }
 func (s *Service) projectConfig(id string) (config.ProjectConfig, error) {
-	resolution, err := s.resolveProjects()
-	if err != nil {
-		return config.ProjectConfig{}, err
-	}
-	p, ok := resolution.Projects[id]
-	if !ok {
-		return config.ProjectConfig{}, fmt.Errorf("unknown local project %q", id)
-	}
-	return p, nil
+	return s.EffectiveProjectConfig(id)
 }
 func (s *Service) hubRevision(ctx context.Context) (string, error) { return s.Hub.RemoteRevision(ctx) }
 

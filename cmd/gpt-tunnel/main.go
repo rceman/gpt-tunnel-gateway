@@ -585,9 +585,9 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 
 func gitcmd(ctx context.Context, s *service.Service, args []string) {
 	require(args, 2)
-	p, ok := s.Config.Projects[args[1]]
-	if !ok {
-		fatal(fmt.Errorf("unknown project %q", args[1]))
+	p, err := s.EffectiveProjectConfig(args[1])
+	if err != nil {
+		fatal(err)
 	}
 	switch args[0] {
 	case "refresh":
