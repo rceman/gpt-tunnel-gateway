@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
@@ -20,6 +21,7 @@ const (
 	ManagedProjectRegistrySchemaVersion = 1
 	ManagedProjectRegistryMaxBytes      = 1 << 20
 	MaxManagedProjectEntries            = 256
+	MaxManagedProjectRegistryRevision   = uint64(9007199254740991)
 )
 
 var (
@@ -169,8 +171,12 @@ func WriteManagedProjectRegistry(stateDir, expectedDigest string, next ManagedPr
 	if expectedDigest != beforeDigest {
 		return ManagedProjectRegistryWriteReceipt{}, fmt.Errorf("MANAGED_PROJECTS_DIGEST_CONFLICT expected=%s actual=%s", expectedDigest, beforeDigest)
 	}
-	if next.Revision != current.Revision+1 {
-		return ManagedProjectRegistryWriteReceipt{}, fmt.Errorf("managed project registry revision must be %d", current.Revision+1)
+	if current.Revision >= MaxManagedProjectRegistryRevision {
+		return ManagedProjectRegistryWriteReceipt{}, fmt.Errorf("managed project registry revision cannot advance beyond safe integer maximum")
+	}
+	expectedRevision := current.Revision + 1
+	if next.Revision != expectedRevision {
+		return ManagedProjectRegistryWriteReceipt{}, fmt.Errorf("managed project registry revision must be %d", expectedRevision)
 	}
 	next, err = canonicalizeManagedProjectRegistry(next)
 	if err != nil {
@@ -282,6 +288,9 @@ func recordProjectCollision(id, root, mirror, session string, ids, roots, mirror
 func validateManagedProjectRegistry(registry ManagedProjectRegistry, stateDir string) error {
 	if registry.SchemaVersion != ManagedProjectRegistrySchemaVersion {
 		return fmt.Errorf("unsupported managed project registry schema_version")
+	}
+	if registry.Revision > MaxManagedProjectRegistryRevision {
+		return fmt.Errorf("managed project registry revision exceeds safe integer maximum")
 	}
 	if registry.Projects == nil {
 		return fmt.Errorf("managed project registry projects is required")
@@ -411,22 +420,21 @@ func validateStateDir(stateDir string) error {
 func canonicalizeManagedProjectRegistry(registry ManagedProjectRegistry) (ManagedProjectRegistry, error) {
 	copy := registry
 	if registry.Projects == nil {
-		copy.Projects = map[string]ManagedProjectEntry{}
-	} else {
-		copy.Projects = make(map[string]ManagedProjectEntry, len(registry.Projects))
-		for id, entry := range registry.Projects {
-			root, err := canonicalDir(entry.Root)
-			if err != nil {
-				return ManagedProjectRegistry{}, fmt.Errorf("invalid managed project root %q: %w", id, err)
-			}
-			entry.Root = root
-			repositoryURL, err := normalizeManagedRepositoryURL(entry.RepositoryURL)
-			if err != nil {
-				return ManagedProjectRegistry{}, fmt.Errorf("managed project %q: %w", id, err)
-			}
-			entry.RepositoryURL = repositoryURL
-			copy.Projects[id] = entry
+		return ManagedProjectRegistry{}, fmt.Errorf("managed project registry projects is required")
+	}
+	copy.Projects = make(map[string]ManagedProjectEntry, len(registry.Projects))
+	for id, entry := range registry.Projects {
+		root, err := canonicalDir(entry.Root)
+		if err != nil {
+			return ManagedProjectRegistry{}, fmt.Errorf("invalid managed project root %q: %w", id, err)
 		}
+		entry.Root = root
+		repositoryURL, err := normalizeManagedRepositoryURL(entry.RepositoryURL)
+		if err != nil {
+			return ManagedProjectRegistry{}, fmt.Errorf("managed project %q: %w", id, err)
+		}
+		entry.RepositoryURL = repositoryURL
+		copy.Projects[id] = entry
 	}
 	return copy, nil
 }
@@ -442,6 +450,103 @@ func decodeManagedJSON(data []byte, out any) error {
 		return fmt.Errorf("trailing JSON content")
 	}
 	return nil
+}
+
+func decodeManagedSafeInteger(data []byte, name string) (uint64, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return 0, fmt.Errorf("%s: %w", name, err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return 0, fmt.Errorf("%s: trailing JSON content", name)
+	}
+	number, ok := value.(json.Number)
+	if !ok {
+		return 0, fmt.Errorf("%s must be a JSON number", name)
+	}
+	text := number.String()
+	if strings.HasPrefix(text, "-") {
+		return 0, fmt.Errorf("%s must be non-negative", name)
+	}
+
+	mantissa := text
+	exponent := 0
+	if index := strings.IndexAny(mantissa, "eE"); index >= 0 {
+		parsed, err := parseManagedExponent(mantissa[index+1:], len(data)+32)
+		if err != nil {
+			return 0, fmt.Errorf("%s: %w", name, err)
+		}
+		exponent = parsed
+		mantissa = mantissa[:index]
+	}
+	parts := strings.Split(mantissa, ".")
+	if len(parts) > 2 || parts[0] == "" || (len(parts) == 2 && parts[1] == "") {
+		return 0, fmt.Errorf("%s must be a valid JSON number", name)
+	}
+	fracDigits := ""
+	if len(parts) == 2 {
+		fracDigits = parts[1]
+	}
+	digits := strings.TrimLeft(parts[0]+fracDigits, "0")
+	if digits == "" {
+		return 0, nil
+	}
+	scale := exponent - len(fracDigits)
+	if scale >= 0 {
+		if len(digits)+scale > 16 {
+			return 0, fmt.Errorf("%s exceeds safe integer maximum", name)
+		}
+		digits += strings.Repeat("0", scale)
+	} else {
+		cut := -scale
+		if cut >= len(digits) {
+			return 0, fmt.Errorf("%s must be integral", name)
+		}
+		fraction := digits[len(digits)-cut:]
+		if strings.Trim(fraction, "0") != "" {
+			return 0, fmt.Errorf("%s must be integral", name)
+		}
+		digits = digits[:len(digits)-cut]
+	}
+	if len(digits) > 16 {
+		return 0, fmt.Errorf("%s exceeds safe integer maximum", name)
+	}
+	parsed, err := strconv.ParseUint(digits, 10, 64)
+	if err != nil || parsed > MaxManagedProjectRegistryRevision {
+		return 0, fmt.Errorf("%s exceeds safe integer maximum", name)
+	}
+	return parsed, nil
+}
+
+func parseManagedExponent(text string, limit int) (int, error) {
+	if text == "" {
+		return 0, fmt.Errorf("exponent is empty")
+	}
+	sign := 1
+	if text[0] == '+' || text[0] == '-' {
+		if text[0] == '-' {
+			sign = -1
+		}
+		text = text[1:]
+	}
+	if text == "" {
+		return 0, fmt.Errorf("exponent is empty")
+	}
+	value := 0
+	for _, character := range text {
+		if character < '0' || character > '9' {
+			return 0, fmt.Errorf("exponent is invalid")
+		}
+		digit := int(character - '0')
+		if value > (limit-digit)/10 {
+			return 0, fmt.Errorf("exponent exceeds bounded range")
+		}
+		value = value*10 + digit
+	}
+	return sign * value, nil
 }
 
 func decodeManagedObject(data []byte) (map[string]json.RawMessage, error) {
@@ -508,8 +613,8 @@ func (r *ManagedProjectRegistry) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(fields["schema_version"], &schemaVersion); err != nil {
 		return fmt.Errorf("schema_version: %w", err)
 	}
-	var revision uint64
-	if err := json.Unmarshal(fields["revision"], &revision); err != nil {
+	revision, err := decodeManagedSafeInteger(fields["revision"], "revision")
+	if err != nil {
 		return fmt.Errorf("revision: %w", err)
 	}
 	projectFields, err := decodeManagedObject(fields["projects"])

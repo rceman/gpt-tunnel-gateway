@@ -111,6 +111,95 @@ func TestManagedProjectRegistryStrictDecode(t *testing.T) {
 	requireManagedLoadError(t, symlink)
 }
 
+func TestManagedProjectRegistryRejectsNullOmittedAndNilProjects(t *testing.T) {
+	stateDir := t.TempDir()
+	for name, projects := range map[string]string{
+		"null":    "null",
+		"omitted": "",
+	} {
+		path := filepath.Join(stateDir, name+".json")
+		data := `{"schema_version":1,"revision":0}`
+		if projects != "" {
+			data = `{"schema_version":1,"revision":0,"projects":` + projects + `}`
+		}
+		writeManagedTestFile(t, path, []byte(data))
+		requireManagedLoadError(t, path)
+	}
+
+	nilRegistry := ManagedProjectRegistry{SchemaVersion: ManagedProjectRegistrySchemaVersion}
+	if err := nilRegistry.Validate(); err == nil {
+		t.Fatalf("nil projects unexpectedly validated")
+	}
+	if _, err := nilRegistry.CanonicalJSON(); err == nil {
+		t.Fatalf("nil projects unexpectedly canonicalized")
+	}
+	if _, err := nilRegistry.Digest(); err == nil {
+		t.Fatalf("nil projects unexpectedly digested")
+	}
+	if _, err := EffectiveProjects(nil, nilRegistry, stateDir); err == nil {
+		t.Fatalf("nil projects unexpectedly resolved")
+	}
+}
+
+func TestManagedProjectRegistryRevisionSafeIntegerJSONParity(t *testing.T) {
+	stateDir := t.TempDir()
+	valid := []string{
+		"0",
+		"0.0",
+		"0e0",
+		"1",
+		"1.0",
+		"1e0",
+		"9007199254740991",
+		"9007199254740991.0",
+		"9007199254740991e0",
+	}
+	var canonical []byte
+	for index, number := range valid {
+		path := filepath.Join(stateDir, "valid-"+string(rune('a'+index))+".json")
+		writeManagedTestFile(t, path, []byte(`{"schema_version":1,"revision":`+number+`,"projects":{}}`))
+		registry, err := LoadManagedProjectRegistry(path)
+		if err != nil {
+			t.Fatalf("load valid revision %s: %v", number, err)
+		}
+		want := uint64(0)
+		if strings.HasPrefix(number, "1") {
+			want = 1
+		}
+		if strings.HasPrefix(number, "9") {
+			want = MaxManagedProjectRegistryRevision
+		}
+		if registry.Revision != want {
+			t.Fatalf("revision %s decoded as %d, want %d", number, registry.Revision, want)
+		}
+		encoded, err := registry.CanonicalJSON()
+		if err != nil {
+			t.Fatalf("canonicalize revision %s: %v", number, err)
+		}
+		if canonical == nil {
+			canonical = encoded
+		} else if !strings.Contains(string(encoded), `"revision":`+strings.TrimSuffix(strings.TrimSuffix(number, ".0"), "e0")) && strings.HasPrefix(number, "1") {
+			t.Fatalf("canonical revision lost integer value for %s: %s", number, encoded)
+		}
+	}
+
+	invalid := []string{"true", "null", "-0", "-1", "1.5", "1e-1", "1e-999999", "9007199254740992", "9007199254740992.0", "1e999999"}
+	for index, number := range invalid {
+		path := filepath.Join(stateDir, "invalid-"+string(rune('a'+index))+".json")
+		writeManagedTestFile(t, path, []byte(`{"schema_version":1,"revision":`+number+`,"projects":{}}`))
+		requireManagedLoadError(t, path)
+	}
+
+	programmatic := EmptyManagedProjectRegistry()
+	programmatic.Revision = MaxManagedProjectRegistryRevision + 1
+	if err := programmatic.Validate(); err == nil {
+		t.Fatalf("programmatic revision overflow unexpectedly validated")
+	}
+	if _, err := programmatic.Digest(); err == nil {
+		t.Fatalf("programmatic revision overflow unexpectedly digested")
+	}
+}
+
 func TestManagedProjectRegistryCanonicalizesRootsAndRejectsInvalidValues(t *testing.T) {
 	stateDir := t.TempDir()
 	root := filepath.Join(stateDir, "root")
