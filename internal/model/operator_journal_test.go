@@ -50,6 +50,14 @@ func TestOperatorJournalIDsAreNumericAndBounded(t *testing.T) {
 	if err != nil || number != 10 {
 		t.Fatalf("unexpected O10 parse: %d %v", number, err)
 	}
+	_, number, err = ParseOperatorEventID("EXM-O9007199254740991")
+	if err != nil || number != MaxSafeInteger {
+		t.Fatalf("unexpected maximum operator event parse: %d %v", number, err)
+	}
+	_, number, err = ParseADRID("EXM-A9007199254740991")
+	if err != nil || number != MaxSafeInteger {
+		t.Fatalf("unexpected maximum ADR parse: %d %v", number, err)
+	}
 	if _, _, err := ParseOperatorEventID("EXM-O01"); err == nil {
 		t.Fatal("leading-zero event ID accepted")
 	}

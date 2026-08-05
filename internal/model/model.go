@@ -27,7 +27,7 @@ var (
 	projectCodeRE   = regexp.MustCompile(`^[A-Z]{3}$`)
 	compactTaskIDRE = regexp.MustCompile(`^([A-Z]{3})-T([1-9][0-9]*)$`)
 	compactRunIDRE  = regexp.MustCompile(`^([A-Z]{3}-T[1-9][0-9]*)-R([1-9][0-9]*)$`)
-	compactADRIDRE  = regexp.MustCompile(`^([A-Z]{3})-A([1-9][0-9]*)$`)
+	compactADRIDRE  = regexp.MustCompile(`^([A-Z]{3})-A(` + OperatorJournalNumberPattern + `)$`)
 	shaRE           = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 

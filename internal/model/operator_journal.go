@@ -23,7 +23,15 @@ const (
 	MaxOperatorHistoryLimit      = 200
 )
 
-var operatorEventIDRE = regexp.MustCompile(`^([A-Z]{3})-O([1-9][0-9]*)$`)
+// OperatorJournalNumberPattern is the exact decimal range accepted by the
+// compact-ID model: positive integers through JavaScript's safe integer
+// maximum, without leading zeroes.
+const OperatorJournalNumberPattern = `[1-9][0-9]{0,14}|[1-8][0-9]{15}|900[0-6][0-9]{12}|90070[0-9]{11}|90071[0-8][0-9]{10}|900719[0-8][0-9]{9}|9007199[0-1][0-9]{8}|90071992[0-4][0-9]{7}|900719925[0-3][0-9]{6}|9007199254[0-6][0-9]{5}|90071992547[0-3][0-9]{4}|9007199254740[0-8][0-9]{2}|90071992547409[0-8][0-9]|9007199254740990|9007199254740991`
+
+const OperatorEventIDPattern = `^[A-Z]{3}-O(` + OperatorJournalNumberPattern + `)$`
+const OperatorCompactADRPattern = `^[A-Z]{3}-A(` + OperatorJournalNumberPattern + `)$`
+
+var operatorEventIDRE = regexp.MustCompile(`^([A-Z]{3})-O(` + OperatorJournalNumberPattern + `)$`)
 
 type OperatorJournalKind string
 

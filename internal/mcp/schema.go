@@ -5,7 +5,11 @@ import (
 	"math"
 	"reflect"
 	"regexp"
+	"sort"
 	"time"
+	"unicode/utf8"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 func outputString() map[string]any  { return map[string]any{"type": "string"} }
@@ -147,24 +151,25 @@ func operationOutputSchema() map[string]any {
 }
 
 func operatorJournalEventOutputSchema() map[string]any {
+	contentItem := operatorJournalBoundedString(outputString(), model.MaxOperatorContentItemBytes)
 	content := closedOutput(map[string]any{
-		"decisions": outputArray(outputString()), "commitments": outputArray(outputString()), "facts": outputArray(outputString()),
-		"assumptions": outputArray(outputString()), "blockers": outputArray(outputString()), "unresolved": outputArray(outputString()), "next_actions": outputArray(outputString()),
+		"decisions": operatorJournalArray(contentItem, model.MaxOperatorContentItems), "commitments": operatorJournalArray(contentItem, model.MaxOperatorContentItems), "facts": operatorJournalArray(contentItem, model.MaxOperatorContentItems),
+		"assumptions": operatorJournalArray(contentItem, model.MaxOperatorContentItems), "blockers": operatorJournalArray(contentItem, model.MaxOperatorContentItems), "unresolved": operatorJournalArray(contentItem, model.MaxOperatorContentItems), "next_actions": operatorJournalArray(contentItem, model.MaxOperatorContentItems),
 	}, "decisions", "commitments", "facts", "assumptions", "blockers", "unresolved", "next_actions")
 	references := closedOutput(map[string]any{
-		"plan_sections": outputArray(outputString()), "adrs": outputArray(func() map[string]any {
-			value := outputString()
-			value["pattern"] = "^(ADR-[A-Za-z0-9][A-Za-z0-9._-]{0,63}|[A-Z]{3}-A[1-9][0-9]*)$"
-			return value
-		}()), "tasks": outputArray(outputString()),
-		"runs": outputArray(outputString()), "commits": outputArray(outputString()), "identities": outputArray(outputString()),
+		"plan_sections": operatorJournalArray(operatorJournalObjectID(outputString()), model.MaxOperatorReferenceItems), "adrs": operatorJournalArray(operatorJournalADR(outputString()), model.MaxOperatorReferenceItems), "tasks": operatorJournalArray(operatorJournalObjectID(outputString()), model.MaxOperatorReferenceItems),
+		"runs": operatorJournalArray(operatorJournalObjectID(outputString()), model.MaxOperatorReferenceItems), "commits": operatorJournalArray(operatorJournalCommit(outputString()), model.MaxOperatorReferenceItems), "identities": operatorJournalArray(operatorJournalBoundedString(outputString(), model.MaxOperatorContentItemBytes), model.MaxOperatorReferenceItems),
 	}, "plan_sections", "adrs", "tasks", "runs", "commits", "identities")
-	sessionID := map[string]any{"type": []any{"string", "null"}, "minLength": 1}
+	sessionID := operatorJournalNullableString(outputString())
 	kind := outputEnum("user_talk", "reasoning_summary", "task_plan", "task_review", "operation", "checkpoint", "correction")
 	event := closedOutput(map[string]any{
-		"schema_version": outputInteger(), "id": outputString(), "project_id": outputString(), "session_id": sessionID,
-		"kind": kind, "summary": outputString(), "content": content, "references": references,
-		"supersedes_event_id": outputString(), "actor": outputString(), "occurred_at": outputDateTime(), "recorded_at": outputDateTime(),
+		"schema_version": func() map[string]any {
+			value := outputInteger()
+			value["const"] = float64(model.OperatorJournalSchemaVersion)
+			return value
+		}(), "id": operatorJournalEventID(outputString()), "project_id": operatorJournalProjectID(outputString()), "session_id": sessionID,
+		"kind": kind, "summary": operatorJournalBoundedString(outputString(), model.MaxOperatorSummaryBytes), "content": content, "references": references,
+		"supersedes_event_id": operatorJournalEventID(outputString()), "actor": operatorJournalBoundedString(outputString(), model.MaxOperatorActorBytes), "occurred_at": outputDateTime(), "recorded_at": outputDateTime(),
 	}, "schema_version", "id", "project_id", "session_id", "kind", "summary", "content", "references", "actor", "occurred_at", "recorded_at")
 	event["allOf"] = []any{
 		map[string]any{"if": map[string]any{"properties": map[string]any{"kind": map[string]any{"const": "correction"}}, "required": []any{"kind"}}, "then": map[string]any{"required": []any{"supersedes_event_id"}}},
@@ -179,8 +184,8 @@ func operatorJournalWriteOutputSchema() map[string]any {
 
 func operatorJournalHistoryOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"project_id": outputString(), "events": outputArray(operatorJournalEventOutputSchema()), "hub_revision": outputString(),
-		"has_more": outputBoolean(), "next_after_event_id": outputString(),
+		"project_id": operatorJournalProjectID(outputString()), "events": operatorJournalArray(operatorJournalEventOutputSchema(), model.MaxOperatorHistoryLimit), "hub_revision": outputString(),
+		"has_more": outputBoolean(), "next_after_event_id": operatorJournalEventID(outputString()),
 	}, "project_id", "events", "hub_revision", "has_more")
 }
 
@@ -451,38 +456,46 @@ func validateSchemaValue(schema map[string]any, value any, path string) error {
 	if schema == nil {
 		return fmt.Errorf("%s: missing schema", path)
 	}
-	if expected, ok := schema["type"].(string); ok {
-		switch expected {
-		case "object":
-			if _, ok := value.(map[string]any); !ok {
-				return fmt.Errorf("%s: expected object, got %T", path, value)
+	if options, ok := schema["anyOf"].([]any); ok {
+		matched := false
+		for _, candidate := range options {
+			candidateSchema, ok := candidate.(map[string]any)
+			if ok && validateSchemaValue(candidateSchema, value, path) == nil {
+				matched = true
+				break
 			}
-		case "array":
-			if _, ok := value.([]any); !ok {
-				return fmt.Errorf("%s: expected array, got %T", path, value)
-			}
-		case "string":
-			if _, ok := value.(string); !ok {
-				return fmt.Errorf("%s: expected string, got %T", path, value)
-			}
-		case "boolean":
-			if _, ok := value.(bool); !ok {
-				return fmt.Errorf("%s: expected boolean, got %T", path, value)
-			}
-		case "integer":
-			n, ok := value.(float64)
-			if !ok || math.Trunc(n) != n {
-				return fmt.Errorf("%s: expected integer, got %T", path, value)
-			}
-		case "number":
-			if _, ok := value.(float64); !ok {
-				return fmt.Errorf("%s: expected number, got %T", path, value)
-			}
-		default:
-			return fmt.Errorf("%s: unsupported schema type %q", path, expected)
+		}
+		if !matched {
+			return fmt.Errorf("%s: no anyOf schema matched", path)
 		}
 	}
+	if allOf, ok := schema["allOf"].([]any); ok {
+		for _, candidate := range allOf {
+			candidateSchema, ok := candidate.(map[string]any)
+			if !ok {
+				return fmt.Errorf("%s: invalid allOf schema", path)
+			}
+			if err := validateSchemaValue(candidateSchema, value, path); err != nil {
+				return err
+			}
+		}
+	}
+	if condition, ok := schema["if"].(map[string]any); ok && validateSchemaValue(condition, value, path) == nil {
+		thenSchema, ok := schema["then"].(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s: invalid then schema", path)
+		}
+		if err := validateSchemaValue(thenSchema, value, path); err != nil {
+			return err
+		}
+	}
+	if expected, ok := schema["type"]; ok && !schemaTypeMatches(expected, value) {
+		return fmt.Errorf("%s: value has wrong type %T", path, value)
+	}
 	if number, ok := value.(float64); ok {
+		if math.IsNaN(number) || math.IsInf(number, 0) {
+			return fmt.Errorf("%s: number is not finite", path)
+		}
 		if minimum, ok := schemaNumber(schema["minimum"]); ok && number < minimum {
 			return fmt.Errorf("%s: number is below minimum", path)
 		}
@@ -529,10 +542,10 @@ func validateSchemaValue(schema map[string]any, value any, path string) error {
 				return fmt.Errorf("%s: invalid date-time", path)
 			}
 		}
-		if minimum, ok := schemaNumber(schema["minLength"]); ok && float64(len(text)) < minimum {
+		if minimum, ok := schemaNumber(schema["minLength"]); ok && float64(utf8.RuneCountInString(text)) < minimum {
 			return fmt.Errorf("%s: string is shorter than minLength", path)
 		}
-		if maximum, ok := schemaNumber(schema["maxLength"]); ok && float64(len(text)) > maximum {
+		if maximum, ok := schemaNumber(schema["maxLength"]); ok && float64(utf8.RuneCountInString(text)) > maximum {
 			return fmt.Errorf("%s: string exceeds maxLength", path)
 		}
 	}
@@ -543,7 +556,13 @@ func validateSchemaValue(schema map[string]any, value any, path string) error {
 				return fmt.Errorf("%s: missing required property %q", path, required)
 			}
 		}
-		for key, child := range object {
+		keys := make([]string, 0, len(object))
+		for key := range object {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			child := object[key]
 			childSchemaRaw, exists := properties[key]
 			if !exists {
 				if schema["additionalProperties"] == false {
@@ -561,6 +580,12 @@ func validateSchemaValue(schema map[string]any, value any, path string) error {
 		}
 	}
 	if values, ok := value.([]any); ok {
+		if minimum, ok := schemaNumber(schema["minItems"]); ok && float64(len(values)) < minimum {
+			return fmt.Errorf("%s: array has fewer than minItems", path)
+		}
+		if maximum, ok := schemaNumber(schema["maxItems"]); ok && float64(len(values)) > maximum {
+			return fmt.Errorf("%s: array exceeds maxItems", path)
+		}
 		if itemRaw, exists := schema["items"]; exists {
 			itemSchema, ok := itemRaw.(map[string]any)
 			if !ok {
@@ -574,6 +599,45 @@ func validateSchemaValue(schema map[string]any, value any, path string) error {
 		}
 	}
 	return nil
+}
+
+func schemaTypeMatches(typeValue any, value any) bool {
+	if types, ok := typeValue.([]any); ok {
+		for _, candidate := range types {
+			if schemaTypeMatches(candidate, value) {
+				return true
+			}
+		}
+		return false
+	}
+	typeName, ok := typeValue.(string)
+	if !ok {
+		return false
+	}
+	switch typeName {
+	case "null":
+		return value == nil
+	case "object":
+		_, ok := value.(map[string]any)
+		return ok
+	case "array":
+		_, ok := value.([]any)
+		return ok
+	case "string":
+		_, ok := value.(string)
+		return ok
+	case "boolean":
+		_, ok := value.(bool)
+		return ok
+	case "integer":
+		n, ok := value.(float64)
+		return ok && !math.IsNaN(n) && !math.IsInf(n, 0) && math.Trunc(n) == n
+	case "number":
+		n, ok := value.(float64)
+		return ok && !math.IsNaN(n) && !math.IsInf(n, 0)
+	default:
+		return false
+	}
 }
 
 func schemaNumber(value any) (float64, bool) {
