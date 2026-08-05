@@ -1,0 +1,403 @@
+package onboarding
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+)
+
+func journalTestStateDir(t *testing.T) string {
+	t.Helper()
+	return t.TempDir()
+}
+
+func journalTestReceipt(t *testing.T) (Request, Receipt) {
+	t.Helper()
+	request := receiptTestRequest(t)
+	return request, preparedReceiptForTest(t, request)
+}
+
+func journalTestPath(t *testing.T, stateDir, operationID string) string {
+	t.Helper()
+	path, err := PreparedJournalPath(stateDir, operationID)
+	if err != nil {
+		t.Fatalf("prepared journal path: %v", err)
+	}
+	return path
+}
+
+func writeJournalRaw(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("create journal directory: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write raw journal: %v", err)
+	}
+}
+
+func journalCanonicalFileBytes(t *testing.T, receipt Receipt) []byte {
+	t.Helper()
+	data, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("marshal receipt: %v", err)
+	}
+	return append(data, '\n')
+}
+
+func TestPreparedJournalPathExactAndStrict(t *testing.T) {
+	stateDir := journalTestStateDir(t)
+	operationID := "11111111-1111-1111-1111-111111111111"
+	expected := filepath.Join(stateDir, "onboarding", operationID+".json")
+	actual, err := PreparedJournalPath(stateDir, operationID)
+	if err != nil {
+		t.Fatalf("PreparedJournalPath: %v", err)
+	}
+	if actual != expected {
+		t.Fatalf("journal path = %q, want %q", actual, expected)
+	}
+
+	for _, invalid := range []string{
+		"",
+		"relative/state",
+		stateDir + "/.",
+		stateDir + "/..",
+		stateDir + "/nested/../state",
+		stateDir + "\x00bad",
+		stateDir + "\rbad",
+		stateDir + "\nbad",
+	} {
+		t.Run("state_"+strings.NewReplacer("/", "_", "\x00", "nul", "\r", "cr", "\n", "lf").Replace(invalid), func(t *testing.T) {
+			if _, err := PreparedJournalPath(invalid, operationID); err == nil {
+				t.Fatalf("accepted invalid state directory %q", invalid)
+			}
+		})
+	}
+	for _, invalid := range []string{
+		"11111111-1111-1111-1111-11111111111",
+		"11111111-1111-1111-1111-111111111111X",
+		"11111111-1111-1111-1111-11111111111A",
+		"{11111111-1111-1111-1111-111111111111}",
+		"../../outside",
+	} {
+		t.Run("operation_"+invalid, func(t *testing.T) {
+			if _, err := PreparedJournalPath(stateDir, invalid); err == nil {
+				t.Fatalf("accepted invalid operation ID %q", invalid)
+			}
+		})
+	}
+}
+
+func TestPreparedJournalCreateLoadDigestAndMode(t *testing.T) {
+	request, receipt := journalTestReceipt(t)
+	stateDir := journalTestStateDir(t)
+	result, err := WritePreparedJournal(stateDir, request, receipt)
+	if err != nil {
+		t.Fatalf("WritePreparedJournal: %v", err)
+	}
+	if !result.Created || result.OperationID != receipt.OperationID {
+		t.Fatalf("unexpected write result: %#v", result)
+	}
+	wantPath := journalTestPath(t, stateDir, receipt.OperationID)
+	if result.JournalPath != wantPath {
+		t.Fatalf("journal path = %q, want %q", result.JournalPath, wantPath)
+	}
+	wantDigest, err := PreparedReceiptDigest(receipt, request)
+	if err != nil {
+		t.Fatalf("PreparedReceiptDigest: %v", err)
+	}
+	if result.ReceiptSHA256 != wantDigest {
+		t.Fatalf("receipt digest = %q, want %q", result.ReceiptSHA256, wantDigest)
+	}
+	loaded, err := LoadPreparedJournal(stateDir, receipt.OperationID)
+	if err != nil {
+		t.Fatalf("LoadPreparedJournal: %v", err)
+	}
+	if !bytes.Equal(journalCanonicalFileBytes(t, loaded), mustJournalFile(t, wantPath)) {
+		t.Fatalf("loaded journal is not canonical")
+	}
+	info, err := os.Stat(wantPath)
+	if err != nil {
+		t.Fatalf("stat journal: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("journal mode = %o, want 600", info.Mode().Perm())
+	}
+	onboardingInfo, err := os.Stat(filepath.Dir(wantPath))
+	if err != nil {
+		t.Fatalf("stat onboarding directory: %v", err)
+	}
+	if onboardingInfo.Mode().Perm() != 0o700 {
+		t.Fatalf("onboarding directory mode = %o, want 700", onboardingInfo.Mode().Perm())
+	}
+	locksInfo, err := os.Stat(filepath.Join(stateDir, "locks"))
+	if err != nil {
+		t.Fatalf("stat locks directory: %v", err)
+	}
+	if locksInfo.Mode().Perm() != 0o700 {
+		t.Fatalf("locks directory mode = %o, want 700", locksInfo.Mode().Perm())
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "projects")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unexpected managed-project directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "hub")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unexpected hub directory: %v", err)
+	}
+}
+
+func mustJournalFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read journal: %v", err)
+	}
+	return data
+}
+
+func TestPreparedJournalSamePayloadIsIdempotentWithoutRewrite(t *testing.T) {
+	request, receipt := journalTestReceipt(t)
+	stateDir := journalTestStateDir(t)
+	first, err := WritePreparedJournal(stateDir, request, receipt)
+	if err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+	before, err := os.Stat(first.JournalPath)
+	if err != nil {
+		t.Fatalf("stat before retry: %v", err)
+	}
+	beforeBytes := mustJournalFile(t, first.JournalPath)
+	second, err := WritePreparedJournal(stateDir, request, receipt)
+	if err != nil {
+		t.Fatalf("idempotent retry: %v", err)
+	}
+	if second.Created || second.JournalPath != first.JournalPath || second.ReceiptSHA256 != first.ReceiptSHA256 {
+		t.Fatalf("unexpected idempotent result: %#v", second)
+	}
+	after, err := os.Stat(first.JournalPath)
+	if err != nil {
+		t.Fatalf("stat after retry: %v", err)
+	}
+	if !os.SameFile(before, after) {
+		t.Fatal("idempotent retry rewrote the journal inode")
+	}
+	if !bytes.Equal(beforeBytes, mustJournalFile(t, first.JournalPath)) {
+		t.Fatal("idempotent retry changed journal bytes")
+	}
+}
+
+func TestPreparedJournalConflictingPayloadPreservesBytes(t *testing.T) {
+	request, receipt := journalTestReceipt(t)
+	stateDir := journalTestStateDir(t)
+	first, err := WritePreparedJournal(stateDir, request, receipt)
+	if err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+	before := mustJournalFile(t, first.JournalPath)
+	conflict := receipt
+	conflict.WorktreeProof.StatusSHA256 = strings.Repeat("9", 64)
+	if _, err := WritePreparedJournal(stateDir, request, conflict); err == nil || !strings.Contains(err.Error(), "ONBOARDING_OPERATION_CONFLICT") {
+		t.Fatalf("conflicting write error = %v, want ONBOARDING_OPERATION_CONFLICT", err)
+	}
+	if !bytes.Equal(before, mustJournalFile(t, first.JournalPath)) {
+		t.Fatal("conflicting write changed journal bytes")
+	}
+}
+
+func TestPreparedJournalLoadValidationAndMissingSentinel(t *testing.T) {
+	request, receipt := journalTestReceipt(t)
+	stateDir := journalTestStateDir(t)
+	if _, err := LoadPreparedJournal(stateDir, receipt.OperationID); !errors.Is(err, ErrPreparedJournalNotFound) {
+		t.Fatalf("missing journal error = %v, want ErrPreparedJournalNotFound", err)
+	}
+	if _, err := WritePreparedJournal(stateDir, request, Receipt{OperationID: receipt.OperationID, State: StateHubCommitted}); err == nil {
+		t.Fatal("invalid prepared receipt was written")
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "onboarding")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid receipt created journal directory: %v", err)
+	}
+}
+
+func TestPreparedJournalOperationPathMismatch(t *testing.T) {
+	_, receipt := journalTestReceipt(t)
+	stateDir := journalTestStateDir(t)
+	path := journalTestPath(t, stateDir, receipt.OperationID)
+	other := receipt
+	other.OperationID = "22222222-2222-2222-2222-222222222222"
+	writeJournalRaw(t, path, journalCanonicalFileBytes(t, other))
+	if _, err := LoadPreparedJournal(stateDir, receipt.OperationID); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("operation/path mismatch error = %v", err)
+	}
+}
+
+func TestPreparedJournalRejectsUnsafeFiles(t *testing.T) {
+	request, receipt := journalTestReceipt(t)
+	base := journalCanonicalFileBytes(t, receipt)
+	tests := []struct {
+		name string
+		make func(t *testing.T, path string, data []byte)
+	}{
+		{name: "symlink", make: func(t *testing.T, path string, data []byte) {
+			target := filepath.Join(t.TempDir(), "target.json")
+			if err := os.WriteFile(target, data, 0o600); err != nil {
+				t.Fatalf("write symlink target: %v", err)
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatalf("create symlink directory: %v", err)
+			}
+			if err := os.Symlink(target, path); err != nil {
+				t.Fatalf("create symlink: %v", err)
+			}
+		}},
+		{name: "directory", make: func(t *testing.T, path string, _ []byte) {
+			if err := os.MkdirAll(path, 0o700); err != nil {
+				t.Fatalf("create journal directory: %v", err)
+			}
+		}},
+		{name: "oversized", make: func(t *testing.T, path string, _ []byte) {
+			writeJournalRaw(t, path, bytes.Repeat([]byte("x"), int(preparedJournalMaxBytes)+1))
+		}},
+		{name: "wrong mode", make: func(t *testing.T, path string, data []byte) {
+			writeJournalRaw(t, path, data)
+			if err := os.Chmod(path, 0o644); err != nil {
+				t.Fatalf("chmod journal: %v", err)
+			}
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stateDir := journalTestStateDir(t)
+			path := journalTestPath(t, stateDir, receipt.OperationID)
+			test.make(t, path, base)
+			if _, err := LoadPreparedJournal(stateDir, receipt.OperationID); err == nil {
+				t.Fatalf("LoadPreparedJournal accepted %s", test.name)
+			}
+		})
+	}
+	_ = request
+}
+
+func TestPreparedJournalRejectsMalformedStrictJSON(t *testing.T) {
+	request, receipt := journalTestReceipt(t)
+	base := journalCanonicalFileBytes(t, receipt)
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{name: "malformed", data: []byte("{")},
+		{name: "unknown", data: func() []byte {
+			object := receiptJSON(t, receiptObjectReceipt(t, receipt))
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(object, &fields); err != nil {
+				t.Fatalf("unmarshal receipt: %v", err)
+			}
+			fields["unknown"] = json.RawMessage(`true`)
+			data, err := json.Marshal(fields)
+			if err != nil {
+				t.Fatalf("marshal unknown receipt: %v", err)
+			}
+			return append(data, '\n')
+		}()},
+		{name: "duplicate", data: func() []byte {
+			trimmed := bytes.TrimSuffix(base, []byte{'\n'})
+			return append(append([]byte(nil), trimmed[:len(trimmed)-1]...), []byte(`,"state":"prepared"}`+"\n")...)
+		}()},
+		{name: "trailing", data: append(append([]byte(nil), base...), []byte("{}")...)},
+		{name: "invalid utf8", data: append(append([]byte(nil), base...), 0xff)},
+		{name: "null", data: bytes.Replace(base, []byte(`"project_id":"`+receipt.ProjectID+`"`), []byte(`"project_id":null`), 1)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stateDir := journalTestStateDir(t)
+			path := journalTestPath(t, stateDir, receipt.OperationID)
+			writeJournalRaw(t, path, test.data)
+			if _, err := LoadPreparedJournal(stateDir, receipt.OperationID); err == nil {
+				t.Fatalf("LoadPreparedJournal accepted %s", test.name)
+			}
+		})
+	}
+	_ = request
+}
+
+func receiptObjectReceipt(t *testing.T, receipt Receipt) Receipt {
+	t.Helper()
+	return receipt
+}
+
+func TestPreparedJournalConcurrentSameAndConflictingWriters(t *testing.T) {
+	request, receipt := journalTestReceipt(t)
+	stateDir := journalTestStateDir(t)
+	const writers = 8
+	type writeResult struct {
+		result PreparedJournalWriteReceipt
+		err    error
+	}
+	start := make(chan struct{})
+	results := make(chan writeResult, writers)
+	var group sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			<-start
+			result, err := WritePreparedJournal(stateDir, request, receipt)
+			results <- writeResult{result: result, err: err}
+		}()
+	}
+	close(start)
+	group.Wait()
+	close(results)
+	created := 0
+	for result := range results {
+		if result.err != nil && strings.Contains(result.err.Error(), "ONBOARDING_OPERATION_CONFLICT") {
+			t.Fatalf("same-payload writer reported conflict: %v", result.err)
+		}
+		if result.err == nil && result.result.Created {
+			created++
+		}
+	}
+	if created != 1 {
+		t.Fatalf("same-payload writers created %d journals, want 1", created)
+	}
+
+	conflictStateDir := journalTestStateDir(t)
+	conflict := receipt
+	conflict.WorktreeProof.StatusSHA256 = strings.Repeat("9", 64)
+	start = make(chan struct{})
+	results = make(chan writeResult, 2)
+	group = sync.WaitGroup{}
+	for _, candidate := range []Receipt{receipt, conflict} {
+		candidate := candidate
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			<-start
+			result, err := WritePreparedJournal(conflictStateDir, request, candidate)
+			results <- writeResult{result: result, err: err}
+		}()
+	}
+	close(start)
+	group.Wait()
+	close(results)
+	successes := 0
+	conflicts := 0
+	for result := range results {
+		if result.err == nil {
+			successes++
+		} else if strings.Contains(result.err.Error(), "ONBOARDING_OPERATION_CONFLICT") || strings.Contains(result.err.Error(), "acquire lock") {
+			conflicts++
+		} else {
+			t.Fatalf("unexpected conflicting writer error: %v", result.err)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("conflicting writers successes=%d conflicts=%d, want one each", successes, conflicts)
+	}
+	if _, err := LoadPreparedJournal(conflictStateDir, receipt.OperationID); err != nil {
+		t.Fatalf("final conflicting journal is not loadable: %v", err)
+	}
+}
