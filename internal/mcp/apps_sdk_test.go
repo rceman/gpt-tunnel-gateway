@@ -359,6 +359,9 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	packet := service.TaskPacket{Task: task, Run: run, Project: project, Plan: plan, RepositoryRoot: "/tmp/project", CompletionPath: run.CompletionPath, FinalizeCommand: "gpt-tunnel run finalize run", Text: "packet"}
 	publicRun := service.PublicRunView(run)
 	publicPacket := service.PublicTaskPacketView(packet)
+	sessionID := "project_master"
+	operatorEvent := model.OperatorJournalEvent{SchemaVersion: 1, ID: "GTW-O1", ProjectID: "project", SessionID: &sessionID, Kind: model.OperatorUserTalk, Summary: "operator context", Content: model.OperatorJournalContent{Facts: []string{"fact"}}, References: model.OperatorJournalReferences{}, Actor: "owner", OccurredAt: now, RecordedAt: now}
+	operatorHistory := service.OperatorHistoryResult{ProjectID: "project", Events: []model.OperatorJournalEvent{operatorEvent}, HubRevision: transaction.After, HasMore: false}
 	ref := gitx.Ref{Name: "refs/heads/main", ObjectType: "commit", ObjectName: worktree.Head}
 	commit := gitx.Commit{SHA: worktree.Head, Parents: []string{}, AuthorName: "GPT", AuthorEmail: "gpt@example.invalid", AuthorDate: now.Format(time.RFC3339), Subject: "subject"}
 	compare := gitx.Compare{MergeBase: worktree.Head, LeftOnly: 0, RightOnly: 0}
@@ -384,7 +387,8 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		"agent_send":          service.AgentSendResult{ProjectID: "project", Delivered: true, ExitCode: 0, Stdout: "delivered", Stderr: "", StartedAt: now, FinishedAt: now},
 		"agent_tail":          service.AgentTailResult{ProjectID: "project", Text: "tail text", Lines: 4, Skip: 0},
 		"agent_status":        service.AgentStatusResult{ProjectID: "project", State: "running", ControllerReachable: true, CapacityWarnings: []string{}, ExitCode: 0},
-		"run_sweep":           service.SweepResult{Checked: 1, Items: []service.SweepItem{{RunID: "run", Action: "reprompt", Status: "awaiting_result"}}}, "run_cancel": operation, "run_cancel_acknowledge_no_mutation": operation,
+		"operator_record":     map[string]any{"event": operatorEvent, "operation": operation}, "operator_history": operatorHistory, "operator_checkpoint": map[string]any{"event": operatorEvent, "operation": operation},
+		"run_sweep": service.SweepResult{Checked: 1, Items: []service.SweepItem{{RunID: "run", Action: "reprompt", Status: "awaiting_result"}}}, "run_cancel": operation, "run_cancel_acknowledge_no_mutation": operation,
 		"git_refresh": map[string]any{"project_id": "project", "refreshed": true}, "git_refs": map[string]any{"refs": []gitx.Ref{ref}},
 		"git_log": map[string]any{"commits": []gitx.Commit{commit}}, "git_show": map[string]any{"text": "show"}, "git_tree": map[string]any{"paths": []string{"README.md"}},
 		"git_read_file": map[string]any{"path": "README.md", "revision": "main", "content": "content"}, "git_diff": map[string]any{"diff": "diff"},

@@ -14,6 +14,8 @@ gpt-tunnel/v1/
     tasks/<task-id>.state.json
     runs/<run-id>/run.json
     runs/<run-id>/report.json
+    operator-journal/counter.json
+    operator-journal/events/<PROJECT-CODE>-O<N>.json
 ```
 
 New workflow-2.0 finalization writes only the two files shown above. Existing
@@ -32,3 +34,7 @@ The owner invokes one direct schema-v1-to-schema-v2 cutover through `plan_cutove
 If the configured writable branch is absent, the gateway creates it from the remote default branch with a normal non-force push. If it already exists, the gateway preserves it exactly. Tasks and ADR documents are immutable. Only task-state and run documents change lifecycle state.
 
 No alternate layouts, fallback readers, dual writes, adapters, or protocol negotiation are implemented. The one direct v1-to-v2 migration described above is the only migration operation.
+
+The operator journal is an append-only context record. Its dedicated counter
+and event file are written in one optimistic hub transaction; correction is a
+new event with a supersession link, never an update or delete.

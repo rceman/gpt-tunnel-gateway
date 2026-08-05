@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rceman.github.io/gpt-tunnel-gateway/operator-journal-event.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "project_id", "session_id", "kind", "summary", "content", "references", "actor", "occurred_at", "recorded_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "pattern": "^[A-Z]{3}-O[1-9][0-9]*$"},
+    "project_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
+    "session_id": {"type": ["string", "null"], "maxLength": 256},
+    "kind": {"type": "string", "enum": ["user_talk", "reasoning_summary", "task_plan", "task_review", "operation", "checkpoint", "correction"]},
+    "summary": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "content": {"$ref": "#/$defs/content"},
+    "references": {"$ref": "#/$defs/references"},
+    "supersedes_event_id": {"type": "string", "pattern": "^[A-Z]{3}-O[1-9][0-9]*$"},
+    "actor": {"type": "string", "minLength": 1, "maxLength": 256},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "recorded_at": {"type": "string", "format": "date-time"}
+  },
+  "anyOf": [
+    {"properties": {"content": {"anyOf": [
+      {"properties": {"decisions": {"minItems": 1}}},
+      {"properties": {"commitments": {"minItems": 1}}},
+      {"properties": {"facts": {"minItems": 1}}},
+      {"properties": {"assumptions": {"minItems": 1}}},
+      {"properties": {"blockers": {"minItems": 1}}},
+      {"properties": {"unresolved": {"minItems": 1}}},
+      {"properties": {"next_actions": {"minItems": 1}}}
+    ]}}},
+    {"properties": {"references": {"anyOf": [
+      {"properties": {"plan_sections": {"minItems": 1}}},
+      {"properties": {"adrs": {"minItems": 1}}},
+      {"properties": {"tasks": {"minItems": 1}}},
+      {"properties": {"runs": {"minItems": 1}}},
+      {"properties": {"commits": {"minItems": 1}}},
+      {"properties": {"identities": {"minItems": 1}}}
+    ]}}}
+  ],
+  "$defs": {
+    "bounded_entries": {"type": "array", "maxItems": 128, "items": {"type": "string", "minLength": 1, "maxLength": 2048}},
+    "content": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decisions", "commitments", "facts", "assumptions", "blockers", "unresolved", "next_actions"],
+      "properties": {
+        "decisions": {"$ref": "#/$defs/bounded_entries"}, "commitments": {"$ref": "#/$defs/bounded_entries"},
+        "facts": {"$ref": "#/$defs/bounded_entries"}, "assumptions": {"$ref": "#/$defs/bounded_entries"},
+        "blockers": {"$ref": "#/$defs/bounded_entries"}, "unresolved": {"$ref": "#/$defs/bounded_entries"},
+        "next_actions": {"$ref": "#/$defs/bounded_entries"}
+      }
+    },
+    "references": {
+      "type": "object", "additionalProperties": false,
+      "required": ["plan_sections", "adrs", "tasks", "runs", "commits", "identities"],
+      "properties": {
+        "plan_sections": {"$ref": "#/$defs/plan_section_ids"}, "adrs": {"$ref": "#/$defs/adr_ids"},
+        "tasks": {"$ref": "#/$defs/object_ids"}, "runs": {"$ref": "#/$defs/object_ids"},
+        "commits": {"type": "array", "maxItems": 128, "items": {"type": "string", "pattern": "^[0-9a-f]{40}$"}},
+        "identities": {"$ref": "#/$defs/bounded_entries"}
+      }
+    },
+    "object_ids": {"type": "array", "maxItems": 128, "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"}},
+    "plan_section_ids": {"type": "array", "maxItems": 128, "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"}},
+    "adr_ids": {"type": "array", "maxItems": 128, "items": {"type": "string", "pattern": "^ADR-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"}}
+  }
+}

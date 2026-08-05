@@ -709,6 +709,7 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.RunCancelAcknowledgeNoMutation(ctx, id, optionalString(raw, "expected_hub_revision"))
 	})
+	addOperatorJournalTools(add, s)
 	addGitTools(add, s)
 	if err := validateCanonicalToolManifest(t); err != nil {
 		panic(err)

@@ -146,6 +146,35 @@ func operationOutputSchema() map[string]any {
 	}, "hub", "status")
 }
 
+func operatorJournalEventOutputSchema() map[string]any {
+	content := closedOutput(map[string]any{
+		"decisions": outputArray(outputString()), "commitments": outputArray(outputString()), "facts": outputArray(outputString()),
+		"assumptions": outputArray(outputString()), "blockers": outputArray(outputString()), "unresolved": outputArray(outputString()), "next_actions": outputArray(outputString()),
+	}, "decisions", "commitments", "facts", "assumptions", "blockers", "unresolved", "next_actions")
+	references := closedOutput(map[string]any{
+		"plan_sections": outputArray(outputString()), "adrs": outputArray(outputString()), "tasks": outputArray(outputString()),
+		"runs": outputArray(outputString()), "commits": outputArray(outputString()), "identities": outputArray(outputString()),
+	}, "plan_sections", "adrs", "tasks", "runs", "commits", "identities")
+	sessionID := map[string]any{"type": []any{"string", "null"}}
+	kind := outputEnum("user_talk", "reasoning_summary", "task_plan", "task_review", "operation", "checkpoint", "correction")
+	return closedOutput(map[string]any{
+		"schema_version": outputInteger(), "id": outputString(), "project_id": outputString(), "session_id": sessionID,
+		"kind": kind, "summary": outputString(), "content": content, "references": references,
+		"supersedes_event_id": outputString(), "actor": outputString(), "occurred_at": outputDateTime(), "recorded_at": outputDateTime(),
+	}, "schema_version", "id", "project_id", "session_id", "kind", "summary", "content", "references", "actor", "occurred_at", "recorded_at")
+}
+
+func operatorJournalWriteOutputSchema() map[string]any {
+	return closedOutput(map[string]any{"event": operatorJournalEventOutputSchema(), "operation": operationOutputSchema()}, "event", "operation")
+}
+
+func operatorJournalHistoryOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"project_id": outputString(), "events": outputArray(operatorJournalEventOutputSchema()), "hub_revision": outputString(),
+		"has_more": outputBoolean(), "next_after_event_id": outputString(),
+	}, "project_id", "events", "hub_revision", "has_more")
+}
+
 func projectIdentifiersOutputSchema() map[string]any {
 	schemaVersion := outputInteger()
 	schemaVersion["const"] = float64(1)
@@ -328,6 +357,9 @@ var toolOutputSchemas = map[string]map[string]any{
 	"run_sweep":                          sweepOutputSchema(),
 	"run_cancel":                         operationOutputSchema(),
 	"run_cancel_acknowledge_no_mutation": operationOutputSchema(),
+	"operator_record":                    operatorJournalWriteOutputSchema(),
+	"operator_history":                   operatorJournalHistoryOutputSchema(),
+	"operator_checkpoint":                operatorJournalWriteOutputSchema(),
 	"git_refresh": closedOutput(map[string]any{
 		"project_id": outputString(), "refreshed": outputBoolean(),
 	}, "project_id", "refreshed"),
@@ -360,6 +392,7 @@ var canonicalToolManifest = []string{
 	"task_supersede", "task_cancel", "task_mark_merge_ready", "task_defer", "task_mark_merged", "run_list", "run_read", "run_status", "run_report",
 	"run_review_snapshot", "run_agent_tail", "run_resume", "run_sweep", "run_cancel", "run_cancel_acknowledge_no_mutation", "git_refresh", "git_refs",
 	"agent_send", "agent_tail", "agent_status",
+	"operator_record", "operator_history", "operator_checkpoint",
 	"git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare", "git_merge_base",
 	"git_worktree_status", "git_worktree_diff",
 }
@@ -388,6 +421,9 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	result["agent_tail"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
 	result["agent_status"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
 	result["agent_send"] = additiveExternalAnnotations()
+	result["operator_record"] = additiveExternalAnnotations()
+	result["operator_checkpoint"] = additiveExternalAnnotations()
+	result["operator_history"] = readOnlyAnnotations()
 	for _, name := range []string{"project_register", "project_identifiers_adopt", "adr_create", "task_create", "plan_section_create"} {
 		result[name] = additiveExternalAnnotations()
 	}

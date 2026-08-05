@@ -66,6 +66,20 @@ implementation, merge, release, or deployment. “Implement the next feature”,
 “merge and release this branch”, “deploy this”, and “continue the roadmap” are
 misuse examples, not valid task control.
 
+## Operator journal bootstrap
+
+```text
+gpt-tunnel operator record --file <input.json>
+gpt-tunnel operator history <project-id> [--after-event-id <CODE-O1>] [--kind <kind>] [--limit N]
+gpt-tunnel operator checkpoint --file <input.json>
+```
+
+The journal is append-only. Bootstrap `operator record` accepts only
+`user_talk`, `reasoning_summary`, `task_plan`, `task_review`, and
+`correction`; `operation` and `checkpoint` are reserved for later mutation
+recording and the explicit checkpoint command. Records contain concise
+structured context, not prompts or transcripts.
+
 `run report` reads only the canonical workflow-2.0 report. Protocol-v1 runs
 remain visible through bounded `run list`/`run read` history with legacy local
 paths redacted, but report and finalization operations return a stable

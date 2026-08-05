@@ -39,6 +39,18 @@ in the exact remote `develop` HEAD and records that receipt. The actual merge
 is a later integration operation; `task_mark_merged` does not merge, push,
 checkout, or delete branches.
 
+## Operator journal bootstrap
+
+The immutable bootstrap tools are `operator_record`, `operator_history`, and
+`operator_checkpoint`. They store concise structured context under each
+adopted project's journal. `operator_record` accepts only
+`user_talk`, `reasoning_summary`, `task_plan`, `task_review`, and `correction`;
+reserved `operation` and `checkpoint` kinds are not caller-created through
+that endpoint. History is numeric by event number, supports an exclusive
+project-scoped cursor and exact kind filtering, and preserves correction
+links. Prompts, hidden reasoning, secrets, paths, and unbounded logs are not
+accepted.
+
 ## Project compact identifiers
 
 Read the current allocation record with:
