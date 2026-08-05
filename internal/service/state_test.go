@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
@@ -26,6 +27,27 @@ func TestProjectRegisterCreatesCanonicalIdlePlan(t *testing.T) {
 	}
 	if plan.ActiveTaskID != "" || plan.ActiveRunID != "" || len(plan.Queue) != 0 || len(plan.Sections) != 0 {
 		t.Fatalf("registration created non-idle plan: %#v", plan)
+	}
+}
+
+func TestStateCheckIncludesManagedProjectsFromOneEffectiveResolution(t *testing.T) {
+	s, _, _ := testService(t)
+	writeManagedServiceTestRegistry(t, s, map[string]config.ManagedProjectEntry{"managed": managedServiceTestEntry(t.TempDir(), "managed")})
+	result, err := s.StateCheck(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(result.ConfiguredProjectIDs, []string{"example", "managed"}) {
+		t.Fatalf("configured project IDs = %v", result.ConfiguredProjectIDs)
+	}
+	foundMissing := false
+	for _, issue := range result.Issues {
+		if issue.Code == "CONFIGURED_PROJECT_MISSING" && issue.ProjectID == "managed" {
+			foundMissing = true
+		}
+	}
+	if !foundMissing {
+		t.Fatalf("state check did not validate managed project durable state: %#v", result.Issues)
 	}
 }
 

@@ -252,7 +252,11 @@ func ensureSessionAvailableInWorktree(worktree, session string, maxReadBytes int
 	})
 }
 func (s *Service) projectConfig(id string) (config.ProjectConfig, error) {
-	p, ok := s.Config.Projects[id]
+	resolution, err := s.resolveProjects()
+	if err != nil {
+		return config.ProjectConfig{}, err
+	}
+	p, ok := resolution.Projects[id]
 	if !ok {
 		return config.ProjectConfig{}, fmt.Errorf("unknown local project %q", id)
 	}
@@ -280,6 +284,10 @@ func (s *Service) ProjectList(ctx context.Context) ([]model.Project, error) {
 // ValidateConfiguredProjectRecords prevents a fresh deployment from reporting
 // configured projects while the canonical hub has no durable project records.
 func (s *Service) ValidateConfiguredProjectRecords(ctx context.Context) error {
+	ids, _, err := s.effectiveProjectIDs()
+	if err != nil {
+		return fmt.Errorf("validate configured projects: %w", err)
+	}
 	items, err := s.ProjectList(ctx)
 	if err != nil {
 		return fmt.Errorf("validate durable project records: %w", err)
@@ -289,7 +297,7 @@ func (s *Service) ValidateConfiguredProjectRecords(ctx context.Context) error {
 		seen[item.ID] = true
 	}
 	missing := []string{}
-	for id := range s.Config.Projects {
+	for _, id := range ids {
 		if !seen[id] {
 			missing = append(missing, id)
 			continue

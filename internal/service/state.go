@@ -74,10 +74,14 @@ func stateIssue(code, project, task, run, path, detail string) StateIssue {
 
 func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
 	result := StateCheckResult{ConfiguredProjectIDs: []string{}, DurableProjectIDs: []string{}, ValidCurrentPlans: []string{}, Plans: []StatePlan{}, Issues: []StateIssue{}, OperationalTaskRunGraph: true}
-	for id := range s.Config.Projects {
-		result.ConfiguredProjectIDs = append(result.ConfiguredProjectIDs, id)
+	configuredIDs, resolution, err := s.effectiveProjectIDs()
+	if err != nil {
+		result.Issues = append(result.Issues, stateIssue("CONFIGURED_PROJECTS_INVALID", "", "", "", "", err.Error()))
+		result.Valid = false
+		result.OperationalTaskRunGraph = false
+		return result, nil
 	}
-	sort.Strings(result.ConfiguredProjectIDs)
+	result.ConfiguredProjectIDs = append(result.ConfiguredProjectIDs, configuredIDs...)
 	revision, err := s.Hub.RemoteRevision(ctx)
 	if err != nil {
 		result.Issues = append(result.Issues, stateIssue("HUB_UNAVAILABLE", "", "", "", "", err.Error()))
@@ -107,7 +111,7 @@ func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
 	sort.Strings(result.DurableProjectIDs)
 	for _, project := range projects {
 		if project.Status == "active" {
-			if _, configured := s.Config.Projects[project.ID]; !configured {
+			if _, configured := resolution.Projects[project.ID]; !configured {
 				result.Issues = append(result.Issues, stateIssue("DURABLE_PROJECT_NOT_CONFIGURED", project.ID, "", "", s.projectPath(project.ID), "active durable project is not configured"))
 			}
 		}
