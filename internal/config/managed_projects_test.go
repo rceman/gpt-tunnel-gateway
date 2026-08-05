@@ -407,6 +407,60 @@ func TestManagedProjectRegistryWriterRejectsBusyLock(t *testing.T) {
 	}
 }
 
+func TestManagedProjectRegistryWriterRejectsPersistedMaximumRevisionWithoutMutation(t *testing.T) {
+	stateDir := t.TempDir()
+	path := ManagedProjectRegistryPath(stateDir)
+	persisted := EmptyManagedProjectRegistry()
+	persisted.Revision = MaxManagedProjectRegistryRevision
+	data, err := persisted.CanonicalJSON()
+	if err != nil {
+		t.Fatalf("canonicalize maximum revision registry: %v", err)
+	}
+	writeManagedTestFile(t, path, data)
+	beforeBytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read maximum revision registry: %v", err)
+	}
+	loaded, err := LoadManagedProjectRegistry(path)
+	if err != nil {
+		t.Fatalf("load maximum revision registry: %v", err)
+	}
+	beforeDigest, err := loaded.Digest()
+	if err != nil {
+		t.Fatalf("digest maximum revision registry: %v", err)
+	}
+	if loaded.Revision != MaxManagedProjectRegistryRevision {
+		t.Fatalf("loaded revision = %d, want %d", loaded.Revision, MaxManagedProjectRegistryRevision)
+	}
+
+	candidate := EmptyManagedProjectRegistry()
+	if _, err := WriteManagedProjectRegistry(stateDir, beforeDigest, candidate); err == nil || !strings.Contains(err.Error(), "cannot advance beyond safe integer maximum") {
+		t.Fatalf("maximum revision write error = %v, want safe-integer advance rejection", err)
+	}
+
+	afterBytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read registry after maximum revision rejection: %v", err)
+	}
+	if string(afterBytes) != string(beforeBytes) {
+		t.Fatalf("maximum revision rejection changed persisted bytes")
+	}
+	after, err := LoadManagedProjectRegistry(path)
+	if err != nil {
+		t.Fatalf("reload maximum revision registry: %v", err)
+	}
+	afterDigest, err := after.Digest()
+	if err != nil {
+		t.Fatalf("digest registry after maximum revision rejection: %v", err)
+	}
+	if afterDigest != beforeDigest {
+		t.Fatalf("maximum revision rejection changed digest: %q versus %q", afterDigest, beforeDigest)
+	}
+	if after.Revision != MaxManagedProjectRegistryRevision {
+		t.Fatalf("revision after rejection = %d, want %d", after.Revision, MaxManagedProjectRegistryRevision)
+	}
+}
+
 func TestManagedProjectRegistryNestedDuplicateAndTrailingFieldsRejected(t *testing.T) {
 	stateDir := t.TempDir()
 	root := filepath.Join(stateDir, "root")
