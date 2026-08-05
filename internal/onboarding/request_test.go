@@ -194,7 +194,7 @@ func requestWithUnicodeFields(t *testing.T, title, summary, objective, updatedBy
 }
 
 func TestUnicodeStringLengthMatchesPlanner(t *testing.T) {
-	valid := requestWithUnicodeFields(t, strings.Repeat("é", 150), strings.Repeat("é", 250), strings.Repeat("é", 10000), strings.Repeat("é", 128), strings.Repeat("é", 150), strings.Repeat("é", 250))
+	valid := requestWithUnicodeFields(t, strings.Repeat("é", 150), strings.Repeat("é", 250), strings.Repeat("é", 20000), strings.Repeat("é", 128), strings.Repeat("é", 150), strings.Repeat("é", 250))
 	if _, err := DecodeRequest(valid); err != nil {
 		t.Fatalf("Unicode values within character limits should be valid: %v", err)
 	}

@@ -196,7 +196,7 @@ func validateInitialPlan(plan InitialPlan, projectID string) error {
 	if err := validateString(plan.Summary, "initial_plan.summary", 1, 500); err != nil {
 		return err
 	}
-	if len(plan.CurrentObjective) > 20000 || strings.IndexByte(plan.CurrentObjective, 0) >= 0 {
+	if utf8.RuneCountInString(plan.CurrentObjective) > 20000 || strings.IndexByte(plan.CurrentObjective, 0) >= 0 {
 		return fmt.Errorf("initial_plan.current_objective is invalid")
 	}
 	if plan.Queue == nil || len(plan.Queue) > 200 {
