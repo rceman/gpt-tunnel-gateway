@@ -247,6 +247,65 @@ func EffectiveProjects(static map[string]ProjectConfig, managed ManagedProjectRe
 	return result, nil
 }
 
+// EffectiveProjectsFromValidatedStatic combines static projects that were
+// already validated and canonicalized by Config.Load with a dynamically
+// validated managed registry. Static roots and mirrors are checked only for
+// structural safety here; their current filesystem existence is intentionally
+// not required because component operations own that check.
+func EffectiveProjectsFromValidatedStatic(static map[string]ProjectConfig, managed ManagedProjectRegistry, stateDir string) (map[string]ProjectConfig, error) {
+	managedProjects, err := EffectiveProjects(nil, managed, stateDir)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]ProjectConfig, len(static)+len(managedProjects))
+	roots := map[string]string{}
+	mirrors := map[string]string{}
+	sessions := map[string]string{}
+	ids := map[string]string{}
+	for id, project := range static {
+		if err := validateValidatedStaticProject(id, project); err != nil {
+			return nil, err
+		}
+		if err := recordProjectCollision(id, project.Root, project.Mirror, project.AirelaySessionKey, ids, roots, mirrors, sessions); err != nil {
+			return nil, err
+		}
+		result[id] = project
+	}
+	for id, project := range managedProjects {
+		if err := recordProjectCollision(id, project.Root, project.Mirror, project.AirelaySessionKey, ids, roots, mirrors, sessions); err != nil {
+			return nil, err
+		}
+		result[id] = project
+	}
+	return result, nil
+}
+
+func validateValidatedStaticProject(id string, project ProjectConfig) error {
+	if err := validateManagedProjectID(id); err != nil {
+		return err
+	}
+	if err := validateValidatedStaticPath(project.Root, "root"); err != nil {
+		return err
+	}
+	if err := validateValidatedStaticPath(project.Mirror, "mirror"); err != nil {
+		return err
+	}
+	if err := validateProjectValues(project.Remote, project.DefaultBranch, project.AirelaySessionKey); err != nil {
+		return fmt.Errorf("invalid static project %q: %w", id, err)
+	}
+	return nil
+}
+
+func validateValidatedStaticPath(path, name string) error {
+	if err := rejectUnsafeManagedValue(path, name); err != nil {
+		return err
+	}
+	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return fmt.Errorf("static project %s must be an absolute clean path", name)
+	}
+	return nil
+}
+
 func validateStaticProject(id string, project ProjectConfig) (string, string, error) {
 	if err := validateManagedProjectID(id); err != nil {
 		return "", "", err
