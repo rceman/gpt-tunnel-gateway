@@ -61,7 +61,13 @@ func TestStateCheckReportsLegacyPlanAndGraphIssuesTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.Config.Projects["missing"] = s.Config.Projects["example"]
+	s.Config.Projects["missing"] = config.ProjectConfig{
+		Root:              t.TempDir(),
+		Mirror:            filepath.Join(t.TempDir(), "missing-mirror.git"),
+		Remote:            "origin",
+		DefaultBranch:     "main",
+		AirelaySessionKey: "missing_master",
+	}
 	result, err := s.StateCheck(context.Background())
 	if err != nil {
 		t.Fatal(err)

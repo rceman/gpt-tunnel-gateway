@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -38,9 +39,53 @@ func writeManagedServiceTestRegistry(t *testing.T, s *Service, projects map[stri
 	return next
 }
 
+type resolverPathSnapshot struct {
+	Exists  bool
+	Mode    os.FileMode
+	Size    int64
+	ModTime int64
+	Entries []string
+	Data    []byte
+}
+
+func snapshotResolverPath(t *testing.T, path string) resolverPathSnapshot {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return resolverPathSnapshot{}
+	}
+	if err != nil {
+		t.Fatalf("stat resolver path %q: %v", path, err)
+	}
+	snapshot := resolverPathSnapshot{Exists: true, Mode: info.Mode(), Size: info.Size(), ModTime: info.ModTime().UnixNano()}
+	if info.IsDir() {
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			t.Fatalf("read resolver directory %q: %v", path, err)
+		}
+		for _, entry := range entries {
+			snapshot.Entries = append(snapshot.Entries, entry.Name()+":"+entry.Type().String())
+		}
+	} else if info.Mode().IsRegular() {
+		snapshot.Data, err = os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read resolver file %q: %v", path, err)
+		}
+	}
+	return snapshot
+}
+
 func TestProjectResolutionAbsentRegistryPreservesStaticBehaviorAndFreshMaps(t *testing.T) {
 	s, _, _ := testService(t)
 	path := config.ManagedProjectRegistryPath(s.Config.StateDir)
+	paths := []string{path, filepath.Join(s.Config.StateDir, "locks"), filepath.Join(s.Config.StateDir, "git-mirrors")}
+	before := make(map[string]resolverPathSnapshot, len(paths))
+	for _, path := range paths {
+		before[path] = snapshotResolverPath(t, path)
+	}
+	if before[path].Exists {
+		t.Fatalf("test setup unexpectedly created managed registry %q", path)
+	}
 	resolution, err := s.resolveProjects()
 	if err != nil {
 		t.Fatalf("resolve static projects without registry: %v", err)
@@ -48,11 +93,11 @@ func TestProjectResolutionAbsentRegistryPreservesStaticBehaviorAndFreshMaps(t *t
 	if resolution.ManagedRegistryRevision != 0 || len(resolution.Projects) != 1 {
 		t.Fatalf("unexpected absent-registry resolution: %#v", resolution)
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("read resolution created registry, stat error=%v", err)
-	}
-	if _, err := os.Stat(filepath.Join(s.Config.StateDir, "locks")); !os.IsNotExist(err) {
-		t.Fatalf("read resolution created registry lock directory, stat error=%v", err)
+	for _, path := range paths {
+		after := snapshotResolverPath(t, path)
+		if !reflect.DeepEqual(before[path], after) {
+			t.Fatalf("read resolution changed %q: before=%#v after=%#v", path, before[path], after)
+		}
 	}
 
 	resolution.Projects["example"] = config.ProjectConfig{}
@@ -62,6 +107,12 @@ func TestProjectResolutionAbsentRegistryPreservesStaticBehaviorAndFreshMaps(t *t
 	}
 	if next.Projects["example"].Root != s.Config.Projects["example"].Root {
 		t.Fatalf("effective map mutation changed service config")
+	}
+	for _, path := range paths {
+		after := snapshotResolverPath(t, path)
+		if !reflect.DeepEqual(before[path], after) {
+			t.Fatalf("second read resolution changed %q: before=%#v after=%#v", path, before[path], after)
+		}
 	}
 }
 
