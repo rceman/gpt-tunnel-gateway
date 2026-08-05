@@ -5,13 +5,18 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 const MaxSafeInteger uint64 = 9007199254740991
@@ -191,7 +196,7 @@ func validateInitialPlan(plan InitialPlan, projectID string) error {
 	if err := validateString(plan.Summary, "initial_plan.summary", 1, 500); err != nil {
 		return err
 	}
-	if len(plan.CurrentObjective) > 20000 || strings.IndexByte(plan.CurrentObjective, 0) >= 0 {
+	if utf8.RuneCountInString(plan.CurrentObjective) > 20000 || strings.IndexByte(plan.CurrentObjective, 0) >= 0 {
 		return fmt.Errorf("initial_plan.current_objective is invalid")
 	}
 	if plan.Queue == nil || len(plan.Queue) > 200 {
@@ -250,7 +255,8 @@ func validatePositiveInteger(value PositiveInteger, name string) error {
 }
 
 func validateString(value, name string, minimum, maximum int) error {
-	if len(value) < minimum || len(value) > maximum {
+	length := utf8.RuneCountInString(value)
+	if length < minimum || length > maximum {
 		return fmt.Errorf("%s length is outside the allowed range", name)
 	}
 	return nil
@@ -299,7 +305,7 @@ func validateSHA40(value, name string) error {
 }
 
 func validateAbsolutePath(value, name string) error {
-	if len(value) < 2 || !strings.HasPrefix(value, "/") || strings.Contains(value, "\\") || strings.Contains(value, "//") || path.Clean(value) != value {
+	if utf8.RuneCountInString(value) < 2 || !strings.HasPrefix(value, "/") || strings.Contains(value, "\\") || strings.Contains(value, "//") || path.Clean(value) != value {
 		return fmt.Errorf("%s must be a normalized absolute POSIX path", name)
 	}
 	for _, character := range value {
@@ -307,15 +313,19 @@ func validateAbsolutePath(value, name string) error {
 			return fmt.Errorf("%s must be a normalized absolute POSIX path", name)
 		}
 	}
+	resolved, err := realpathWithMissingSuffix(value)
+	if err != nil || resolved != value {
+		return fmt.Errorf("%s must be a normalized absolute POSIX path", name)
+	}
 	return nil
 }
 
 func validateRepositoryURL(value, name string) error {
-	if len(value) < 1 || len(value) > 2048 || strings.TrimSpace(value) != value {
+	if utf8.RuneCountInString(value) < 1 || utf8.RuneCountInString(value) > 2048 || strings.TrimSpace(value) != value {
 		return fmt.Errorf("%s contains surrounding whitespace or is too long", name)
 	}
 	for _, character := range value {
-		if character < 0x20 || character == 0x7f || character == ' ' || character == '\t' {
+		if character < 0x20 || character == 0x7f || unicode.IsSpace(character) {
 			return fmt.Errorf("%s contains whitespace or control characters", name)
 		}
 	}
@@ -340,13 +350,45 @@ func validateDateTime(value, name string) error {
 	if value == "" || (!strings.Contains(value, "T") && !strings.Contains(value, "t")) {
 		return fmt.Errorf("%s must include a timezone and time separator", name)
 	}
-	if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
+	parseValue := value
+	if len(parseValue) > 10 && parseValue[10] == 't' {
+		parseValue = parseValue[:10] + "T" + parseValue[11:]
+	}
+	if _, err := time.Parse(time.RFC3339Nano, parseValue); err != nil {
 		return fmt.Errorf("%s must be RFC3339 date-time", name)
 	}
 	return nil
 }
 
+func realpathWithMissingSuffix(value string) (string, error) {
+	candidate := value
+	suffix := make([]string, 0)
+	for {
+		_, err := os.Lstat(candidate)
+		if err == nil {
+			resolved, err := filepath.EvalSymlinks(candidate)
+			if err != nil {
+				return "", err
+			}
+			parts := append([]string{resolved}, suffix...)
+			return path.Clean(path.Join(parts...)), nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := path.Dir(candidate)
+		if parent == candidate {
+			return "", fmt.Errorf("cannot resolve absolute path")
+		}
+		suffix = append([]string{path.Base(candidate)}, suffix...)
+		candidate = parent
+	}
+}
+
 func decodeStrictObject(data []byte, destination any) error {
+	if !utf8.Valid(data) {
+		return fmt.Errorf("request is not valid UTF-8")
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	if err := scanJSONValue(decoder, true); err != nil {
 		return err
@@ -357,6 +399,9 @@ func decodeStrictObject(data []byte, destination any) error {
 		}
 		return fmt.Errorf("trailing JSON content after %v", token)
 	}
+	if err := requireRequestFields(data); err != nil {
+		return err
+	}
 
 	decoder = json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -364,6 +409,78 @@ func decodeStrictObject(data []byte, destination any) error {
 		return fmt.Errorf("decode request: %w", err)
 	}
 	return nil
+}
+
+func requireRequestFields(data []byte) error {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		return fmt.Errorf("decode request shape: %w", err)
+	}
+	if top == nil {
+		return fmt.Errorf("request must be a JSON object")
+	}
+	if err := requireFields(top, "request", "schema_version", "project_id", "root", "remote", "repository_url", "default_branch", "airelay", "project_code", "gateway_state_dir", "initial_plan", "expected_hub_revision"); err != nil {
+		return err
+	}
+
+	airelay, err := objectFields(top["airelay"], "request.airelay")
+	if err != nil {
+		return err
+	}
+	if err := requireFields(airelay, "request.airelay", "session_required"); err != nil {
+		return err
+	}
+	if raw, ok := top["workflow"]; ok {
+		workflow, err := objectFields(raw, "request.workflow")
+		if err != nil {
+			return err
+		}
+		if err := requireFields(workflow, "request.workflow", "repository", "commit"); err != nil {
+			return err
+		}
+	}
+
+	plan, err := objectFields(top["initial_plan"], "request.initial_plan")
+	if err != nil {
+		return err
+	}
+	if err := requireFields(plan, "request.initial_plan", "schema_version", "project_id", "revision", "title", "summary", "current_objective", "queue", "sections", "updated_by", "updated_at"); err != nil {
+		return err
+	}
+	var sections []json.RawMessage
+	if err := json.Unmarshal(plan["sections"], &sections); err != nil {
+		return fmt.Errorf("request.initial_plan.sections must be an array: %w", err)
+	}
+	for index, raw := range sections {
+		section, err := objectFields(raw, fmt.Sprintf("request.initial_plan.sections[%d]", index))
+		if err != nil {
+			return err
+		}
+		if err := requireFields(section, fmt.Sprintf("request.initial_plan.sections[%d]", index), "id", "title", "short_description", "revision"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func requireFields(object map[string]json.RawMessage, name string, fields ...string) error {
+	for _, field := range fields {
+		if _, ok := object[field]; !ok {
+			return fmt.Errorf("%s is missing required field %q", name, field)
+		}
+	}
+	return nil
+}
+
+func objectFields(raw json.RawMessage, name string) (map[string]json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil || object == nil {
+		if err != nil {
+			return nil, fmt.Errorf("%s must be an object: %w", name, err)
+		}
+		return nil, fmt.Errorf("%s must be an object", name)
+	}
+	return object, nil
 }
 
 func scanJSONValue(decoder *json.Decoder, root bool) error {
