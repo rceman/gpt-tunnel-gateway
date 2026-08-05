@@ -1270,6 +1270,14 @@ func (s *Service) taskSupersedeOnce(ctx context.Context, oldID string, in TaskCr
 		updatedIdentifiers.NextTaskNumber++
 	}
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: supersede task "+old.ID, func(w string) ([]string, error) {
+		targetPaths := []string{s.taskPath(newTask.ProjectID, newTask.ID), s.taskStatePath(newTask.ProjectID, newTask.ID), s.taskRunCounterPath(newTask.ProjectID, newTask.ID)}
+		for _, path := range targetPaths {
+			if _, err := os.Lstat(filepath.Join(w, filepath.FromSlash(path))); err == nil {
+				return nil, fmt.Errorf("task supersede target already exists: %s", path)
+			} else if !os.IsNotExist(err) {
+				return nil, err
+			}
+		}
 		paths := []string{s.taskPath(newTask.ProjectID, newTask.ID), s.taskStatePath(newTask.ProjectID, newTask.ID), s.taskStatePath(old.ProjectID, old.ID)}
 		var current model.ProjectIdentifiers
 		if err := readWorktreeJSON(w, s.projectIdentifiersPath(old.ProjectID), &current); err != nil {
@@ -1722,6 +1730,13 @@ func activeStatus(s string) bool {
 // immutable workflow-v1 history. Historical records retain their original
 // status for auditability and must never own a session or block lifecycle
 // mutations.
+func validateTaskRunCounterIdentity(counter model.TaskRunCounter, task model.Task) error {
+	if counter.ProjectID != task.ProjectID || counter.TaskID != task.ID {
+		return fmt.Errorf("task run counter identity mismatch: project_id=%q task_id=%q task_project_id=%q task_id=%q", counter.ProjectID, counter.TaskID, task.ProjectID, task.ID)
+	}
+	return nil
+}
+
 func operationalActiveRun(run model.Run) bool {
 	return !run.Historical && activeStatus(run.Status)
 }
@@ -1828,6 +1843,9 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 	if err := model.ValidateTaskRunCounter(counter); err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
+	if err := validateTaskRunCounterIdentity(counter, task); err != nil {
+		return model.Run{}, OperationResult{}, err
+	}
 	id, err := model.FormatRunID(task.ID, counter.NextRunNumber)
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
@@ -1870,7 +1888,13 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 		if err := readWorktreeJSON(w, s.taskRunCounterPath(task.ProjectID, task.ID), &currentCounter); err != nil {
 			return nil, err
 		}
-		if currentCounter.NextRunNumber != counter.NextRunNumber || currentCounter.TaskID != task.ID {
+		if err := model.ValidateTaskRunCounter(currentCounter); err != nil {
+			return nil, err
+		}
+		if err := validateTaskRunCounterIdentity(currentCounter, task); err != nil {
+			return nil, err
+		}
+		if currentCounter.NextRunNumber != counter.NextRunNumber {
 			return nil, fmt.Errorf("task run counter changed before dispatch")
 		}
 		if currentCounter.NextRunNumber < model.MaxSafeInteger {
