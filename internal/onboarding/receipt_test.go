@@ -350,6 +350,59 @@ func TestValidatePreparedReceiptSessionRules(t *testing.T) {
 	}
 }
 
+func receiptProtocolJSON(t *testing.T, request Request, spelling string) []byte {
+	t.Helper()
+	data := receiptJSON(t, preparedReceiptForTest(t, request))
+	old := []byte(`"controller_protocol_version":1`)
+	if !bytes.Contains(data, old) {
+		t.Fatalf("prepared receipt did not contain the protocol field")
+	}
+	return bytes.Replace(data, old, []byte(`"controller_protocol_version":`+spelling), 1)
+}
+
+func TestControllerProtocolJSONNumberParity(t *testing.T) {
+	request := receiptTestRequest(t)
+	if !request.Airelay.SessionRequired {
+		t.Fatal("protocol parity fixture must require a session")
+	}
+	for _, spelling := range []string{"1.0", "1e0"} {
+		t.Run("accept_"+spelling, func(t *testing.T) {
+			decoded, err := DecodeReceipt(receiptProtocolJSON(t, request, spelling))
+			if err != nil {
+				t.Fatalf("DecodeReceipt rejected integral protocol spelling %s: %v", spelling, err)
+			}
+			if err := ValidatePreparedReceipt(decoded, request); err != nil {
+				t.Fatalf("ValidatePreparedReceipt rejected integral protocol spelling %s: %v", spelling, err)
+			}
+		})
+	}
+	for _, spelling := range []string{
+		"true",
+		"1.5",
+		"0",
+		"-1",
+		"NaN",
+		"Infinity",
+		"9007199254740992",
+		"1e999999",
+	} {
+		t.Run("reject_"+spelling, func(t *testing.T) {
+			if _, err := DecodeReceipt(receiptProtocolJSON(t, request, spelling)); err == nil {
+				t.Fatalf("DecodeReceipt accepted invalid protocol value %s", spelling)
+			}
+		})
+	}
+}
+
+func TestValidatePreparedReceiptRejectsProgrammaticUnsafeProtocol(t *testing.T) {
+	request := receiptTestRequest(t)
+	receipt := preparedReceiptForTest(t, request)
+	receipt.SessionProof.ControllerProtocolVersion = receiptTestPositive(MaxSafeInteger + 1)
+	if err := ValidatePreparedReceipt(receipt, request); err == nil {
+		t.Fatal("ValidatePreparedReceipt accepted protocol above the JSON-safe maximum")
+	}
+}
+
 func TestValidatePreparedReceiptTimestampsAndState(t *testing.T) {
 	request := receiptTestRequest(t)
 	base := preparedReceiptForTest(t, request)

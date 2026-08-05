@@ -480,8 +480,11 @@ func validateSessionProof(proof SessionProof, airelay Airelay) error {
 		if proof.Status != "active" {
 			return errors.New("required receipt session must be active")
 		}
-		if proof.ControllerProtocolVersion == nil || *proof.ControllerProtocolVersion == 0 {
+		if proof.ControllerProtocolVersion == nil {
 			return errors.New("required receipt session needs a positive controller protocol version")
+		}
+		if err := validatePositiveInteger(*proof.ControllerProtocolVersion, "receipt session_proof.controller_protocol_version"); err != nil {
+			return err
 		}
 		if proof.SessionKey != nil {
 			if err := validateSessionKey(*proof.SessionKey, "receipt session_proof.session_key"); err != nil {
