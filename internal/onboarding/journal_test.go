@@ -16,9 +16,10 @@ func journalTestStateDir(t *testing.T) string {
 	return t.TempDir()
 }
 
-func journalTestReceipt(t *testing.T) (Request, Receipt) {
+func journalTestReceipt(t *testing.T, stateDir string) (Request, Receipt) {
 	t.Helper()
 	request := receiptTestRequest(t)
+	request.GatewayStateDir = stateDir
 	return request, preparedReceiptForTest(t, request)
 }
 
@@ -94,8 +95,8 @@ func TestPreparedJournalPathExactAndStrict(t *testing.T) {
 }
 
 func TestPreparedJournalCreateLoadDigestAndMode(t *testing.T) {
-	request, receipt := journalTestReceipt(t)
 	stateDir := journalTestStateDir(t)
+	request, receipt := journalTestReceipt(t, stateDir)
 	result, err := WritePreparedJournal(stateDir, request, receipt)
 	if err != nil {
 		t.Fatalf("WritePreparedJournal: %v", err)
@@ -160,8 +161,8 @@ func mustJournalFile(t *testing.T, path string) []byte {
 }
 
 func TestPreparedJournalSamePayloadIsIdempotentWithoutRewrite(t *testing.T) {
-	request, receipt := journalTestReceipt(t)
 	stateDir := journalTestStateDir(t)
+	request, receipt := journalTestReceipt(t, stateDir)
 	first, err := WritePreparedJournal(stateDir, request, receipt)
 	if err != nil {
 		t.Fatalf("first write: %v", err)
@@ -191,8 +192,8 @@ func TestPreparedJournalSamePayloadIsIdempotentWithoutRewrite(t *testing.T) {
 }
 
 func TestPreparedJournalConflictingPayloadPreservesBytes(t *testing.T) {
-	request, receipt := journalTestReceipt(t)
 	stateDir := journalTestStateDir(t)
+	request, receipt := journalTestReceipt(t, stateDir)
 	first, err := WritePreparedJournal(stateDir, request, receipt)
 	if err != nil {
 		t.Fatalf("first write: %v", err)
@@ -209,8 +210,8 @@ func TestPreparedJournalConflictingPayloadPreservesBytes(t *testing.T) {
 }
 
 func TestPreparedJournalLoadValidationAndMissingSentinel(t *testing.T) {
-	request, receipt := journalTestReceipt(t)
 	stateDir := journalTestStateDir(t)
+	request, receipt := journalTestReceipt(t, stateDir)
 	if _, err := LoadPreparedJournal(stateDir, receipt.OperationID); !errors.Is(err, ErrPreparedJournalNotFound) {
 		t.Fatalf("missing journal error = %v, want ErrPreparedJournalNotFound", err)
 	}
@@ -222,9 +223,61 @@ func TestPreparedJournalLoadValidationAndMissingSentinel(t *testing.T) {
 	}
 }
 
-func TestPreparedJournalOperationPathMismatch(t *testing.T) {
-	_, receipt := journalTestReceipt(t)
+func TestPreparedJournalStateDirMustMatchRequestWithoutMutation(t *testing.T) {
 	stateDir := journalTestStateDir(t)
+	request := receiptTestRequest(t)
+	receipt := preparedReceiptForTest(t, request)
+	request.GatewayStateDir = filepath.Join(stateDir, "different-state")
+	if _, err := WritePreparedJournal(stateDir, request, receipt); err == nil || !strings.Contains(err.Error(), "does not match request") {
+		t.Fatalf("state directory mismatch error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "onboarding")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("state mismatch created onboarding directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "locks")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("state mismatch created locks directory: %v", err)
+	}
+}
+
+func TestPreparedJournalLoadRejectsCanonicalIntrinsicInvalidReceipts(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Receipt)
+	}{
+		{name: "dirty worktree", mutate: func(receipt *Receipt) { receipt.WorktreeProof.Clean = false }},
+		{name: "relative repository root", mutate: func(receipt *Receipt) { receipt.RepositoryProof.Root = "relative" }},
+		{name: "invalid registry digest", mutate: func(receipt *Receipt) { receipt.RegistryDigests.PlanSHA256 = "invalid" }},
+		{name: "foreign hub path", mutate: func(receipt *Receipt) { receipt.Hub.Paths[0] = "gpt-tunnel/v1/projects/other/project.json" }},
+		{name: "invalid timestamp order", mutate: func(receipt *Receipt) { receipt.Timestamps.StartedAt = *receipt.Timestamps.PreparedAt }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stateDir := journalTestStateDir(t)
+			_, receipt := journalTestReceipt(t, stateDir)
+			test.mutate(&receipt)
+			path := journalTestPath(t, stateDir, receipt.OperationID)
+			writeJournalRaw(t, path, journalCanonicalFileBytes(t, receipt))
+			if _, err := LoadPreparedJournal(stateDir, receipt.OperationID); err == nil {
+				t.Fatalf("LoadPreparedJournal accepted intrinsic-invalid %s receipt", test.name)
+			}
+		})
+	}
+}
+
+func TestPreparedJournalLoadRejectsForeignGatewayStateDir(t *testing.T) {
+	stateDir := journalTestStateDir(t)
+	_, receipt := journalTestReceipt(t, stateDir)
+	receipt.RepositoryProof.GatewayStateDir = filepath.Join(t.TempDir(), "foreign-state")
+	path := journalTestPath(t, stateDir, receipt.OperationID)
+	writeJournalRaw(t, path, journalCanonicalFileBytes(t, receipt))
+	if _, err := LoadPreparedJournal(stateDir, receipt.OperationID); err == nil || !strings.Contains(err.Error(), "does not match state directory") {
+		t.Fatalf("foreign gateway state directory error = %v", err)
+	}
+}
+
+func TestPreparedJournalOperationPathMismatch(t *testing.T) {
+	stateDir := journalTestStateDir(t)
+	_, receipt := journalTestReceipt(t, stateDir)
 	path := journalTestPath(t, stateDir, receipt.OperationID)
 	other := receipt
 	other.OperationID = "22222222-2222-2222-2222-222222222222"
@@ -235,7 +288,7 @@ func TestPreparedJournalOperationPathMismatch(t *testing.T) {
 }
 
 func TestPreparedJournalRejectsUnsafeFiles(t *testing.T) {
-	request, receipt := journalTestReceipt(t)
+	_, receipt := journalTestReceipt(t, journalTestStateDir(t))
 	base := journalCanonicalFileBytes(t, receipt)
 	tests := []struct {
 		name string
@@ -278,11 +331,10 @@ func TestPreparedJournalRejectsUnsafeFiles(t *testing.T) {
 			}
 		})
 	}
-	_ = request
 }
 
 func TestPreparedJournalRejectsMalformedStrictJSON(t *testing.T) {
-	request, receipt := journalTestReceipt(t)
+	_, receipt := journalTestReceipt(t, journalTestStateDir(t))
 	base := journalCanonicalFileBytes(t, receipt)
 	tests := []struct {
 		name string
@@ -320,7 +372,6 @@ func TestPreparedJournalRejectsMalformedStrictJSON(t *testing.T) {
 			}
 		})
 	}
-	_ = request
 }
 
 func receiptObjectReceipt(t *testing.T, receipt Receipt) Receipt {
@@ -329,8 +380,8 @@ func receiptObjectReceipt(t *testing.T, receipt Receipt) Receipt {
 }
 
 func TestPreparedJournalConcurrentSameAndConflictingWriters(t *testing.T) {
-	request, receipt := journalTestReceipt(t)
 	stateDir := journalTestStateDir(t)
+	request, receipt := journalTestReceipt(t, stateDir)
 	const writers = 8
 	type writeResult struct {
 		result PreparedJournalWriteReceipt
@@ -352,31 +403,39 @@ func TestPreparedJournalConcurrentSameAndConflictingWriters(t *testing.T) {
 	group.Wait()
 	close(results)
 	created := 0
+	succeeded := 0
 	for result := range results {
-		if result.err != nil && strings.Contains(result.err.Error(), "ONBOARDING_OPERATION_CONFLICT") {
-			t.Fatalf("same-payload writer reported conflict: %v", result.err)
+		if result.err != nil {
+			t.Fatalf("same-payload writer failed: %v", result.err)
 		}
-		if result.err == nil && result.result.Created {
+		succeeded++
+		if result.result.Created {
 			created++
 		}
+	}
+	if succeeded != writers {
+		t.Fatalf("same-payload writers succeeded %d/%d", succeeded, writers)
 	}
 	if created != 1 {
 		t.Fatalf("same-payload writers created %d journals, want 1", created)
 	}
 
 	conflictStateDir := journalTestStateDir(t)
-	conflict := receipt
+	conflictRequest := request
+	conflictRequest.GatewayStateDir = conflictStateDir
+	conflictReceipt := preparedReceiptForTest(t, conflictRequest)
+	conflict := conflictReceipt
 	conflict.WorktreeProof.StatusSHA256 = strings.Repeat("9", 64)
 	start = make(chan struct{})
 	results = make(chan writeResult, 2)
 	group = sync.WaitGroup{}
-	for _, candidate := range []Receipt{receipt, conflict} {
+	for _, candidate := range []Receipt{conflictReceipt, conflict} {
 		candidate := candidate
 		group.Add(1)
 		go func() {
 			defer group.Done()
 			<-start
-			result, err := WritePreparedJournal(conflictStateDir, request, candidate)
+			result, err := WritePreparedJournal(conflictStateDir, conflictRequest, candidate)
 			results <- writeResult{result: result, err: err}
 		}()
 	}

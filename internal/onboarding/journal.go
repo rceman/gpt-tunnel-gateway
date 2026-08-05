@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
@@ -49,13 +51,16 @@ func LoadPreparedJournal(stateDir, operationID string) (Receipt, error) {
 	if err != nil {
 		return Receipt{}, err
 	}
-	return readPreparedJournal(path, operationID)
+	return readPreparedJournal(path, operationID, stateDir)
 }
 
 // WritePreparedJournal validates and atomically persists a prepared Receipt.
 // Repeating the exact same canonical payload is idempotent; a different
 // payload for the same operation is rejected without rewriting the journal.
 func WritePreparedJournal(stateDir string, request Request, receipt Receipt) (result PreparedJournalWriteReceipt, err error) {
+	if stateDir != request.GatewayStateDir {
+		return PreparedJournalWriteReceipt{}, errors.New("prepared journal state directory does not match request gateway_state_dir")
+	}
 	path, err := PreparedJournalPath(stateDir, receipt.OperationID)
 	if err != nil {
 		return PreparedJournalWriteReceipt{}, err
@@ -73,7 +78,7 @@ func WritePreparedJournal(stateDir string, request Request, receipt Receipt) (re
 	}
 	fileBytes := append(append([]byte(nil), canonical...), '\n')
 
-	operationLock, err := lockfile.Acquire(filepath.Join(stateDir, "locks"), receipt.OperationID)
+	operationLock, err := acquirePreparedJournalLock(stateDir, receipt.OperationID)
 	if err != nil {
 		return PreparedJournalWriteReceipt{}, err
 	}
@@ -83,7 +88,7 @@ func WritePreparedJournal(stateDir string, request Request, receipt Receipt) (re
 		}
 	}()
 
-	existing, existingErr := readPreparedJournal(path, receipt.OperationID)
+	existing, existingErr := readPreparedJournal(path, receipt.OperationID, stateDir)
 	if existingErr == nil {
 		existingCanonical, err := CanonicalPreparedReceiptJSON(existing, request)
 		if err != nil {
@@ -110,7 +115,7 @@ func WritePreparedJournal(stateDir string, request Request, receipt Receipt) (re
 	if err := fsutil.WriteFileAtomic(path, fileBytes, 0o600); err != nil {
 		return PreparedJournalWriteReceipt{}, err
 	}
-	loaded, verifyErr := readPreparedJournal(path, receipt.OperationID)
+	loaded, verifyErr := readPreparedJournal(path, receipt.OperationID, stateDir)
 	if verifyErr != nil {
 		return PreparedJournalWriteReceipt{}, removePreparedJournalAfterFailure(path, verifyErr)
 	}
@@ -131,6 +136,29 @@ func WritePreparedJournal(stateDir string, request Request, receipt Receipt) (re
 		ReceiptSHA256: digest,
 		Created:       true,
 	}, nil
+}
+
+const (
+	preparedJournalLockAttempts = 200
+	preparedJournalLockDelay    = 5 * time.Millisecond
+)
+
+func acquirePreparedJournalLock(stateDir, operationID string) (*lockfile.Lock, error) {
+	var lastErr error
+	for attempt := 0; attempt < preparedJournalLockAttempts; attempt++ {
+		operationLock, err := lockfile.Acquire(filepath.Join(stateDir, "locks"), operationID)
+		if err == nil {
+			return operationLock, nil
+		}
+		lastErr = err
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			return nil, err
+		}
+		if attempt+1 < preparedJournalLockAttempts {
+			time.Sleep(preparedJournalLockDelay)
+		}
+	}
+	return nil, fmt.Errorf("acquire prepared journal lock after bounded contention retry: %w", lastErr)
 }
 
 func validatePreparedJournalStateDir(stateDir string) error {
@@ -156,7 +184,7 @@ func validatePreparedJournalOperationID(operationID string) error {
 	return nil
 }
 
-func readPreparedJournal(path, operationID string) (Receipt, error) {
+func readPreparedJournal(path, operationID, stateDir string) (Receipt, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -194,6 +222,12 @@ func readPreparedJournal(path, operationID string) (Receipt, error) {
 	canonical = append(canonical, '\n')
 	if !bytes.Equal(data, canonical) {
 		return Receipt{}, errors.New("prepared journal is not canonical")
+	}
+	if err := ValidatePreparedReceiptIntrinsic(receipt); err != nil {
+		return Receipt{}, fmt.Errorf("invalid prepared journal receipt: %w", err)
+	}
+	if receipt.RepositoryProof.GatewayStateDir != stateDir {
+		return Receipt{}, errors.New("prepared journal gateway_state_dir does not match state directory")
 	}
 	return receipt, nil
 }

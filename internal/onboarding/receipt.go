@@ -349,12 +349,10 @@ func requireReceiptPairedFields(raw json.RawMessage, name, first, second string)
 	return nil
 }
 
-// ValidatePreparedReceipt validates the O3a2 prepared receipt and binds it to
-// the already validated onboarding request.
-func ValidatePreparedReceipt(receipt Receipt, request Request) error {
-	if err := ValidateRequest(request); err != nil {
-		return fmt.Errorf("invalid onboarding request: %w", err)
-	}
+// ValidatePreparedReceiptIntrinsic validates every prepared Receipt invariant
+// that does not depend on an onboarding Request. It is shared by the journal
+// loader and the Request-bound validator.
+func ValidatePreparedReceiptIntrinsic(receipt Receipt) error {
 	switch receipt.State {
 	case StatePrepared:
 	case StateHubCommitted, StateActivated, StateRecoveryRequired, StateRolledBack:
@@ -371,47 +369,27 @@ func ValidatePreparedReceipt(receipt Receipt, request Request) error {
 	if !receiptSHA256Pattern.MatchString(receipt.RequestSHA256) {
 		return fmt.Errorf("receipt request_sha256 must be a lowercase SHA-256 digest")
 	}
-	expectedRequestDigest, err := RequestDigest(request)
-	if err != nil {
-		return fmt.Errorf("compute request digest: %w", err)
-	}
-	if receipt.RequestSHA256 != expectedRequestDigest {
-		return fmt.Errorf("receipt request_sha256 does not match request")
-	}
 	if err := validateProjectID(receipt.ProjectID, "receipt project_id"); err != nil {
 		return fmt.Errorf("receipt project_id: %w", err)
 	}
-	if receipt.ProjectID != request.ProjectID {
-		return fmt.Errorf("receipt project_id does not match request")
-	}
-
 	proof := receipt.RepositoryProof
 	if err := validateAbsolutePath(proof.Root, "receipt repository_proof.root"); err != nil {
 		return fmt.Errorf("receipt repository_proof.root: %w", err)
 	}
-	if proof.Root != request.Root {
-		return fmt.Errorf("receipt repository_proof.root does not match request")
-	}
 	if err := validateRemote(proof.Remote, "receipt repository_proof.remote"); err != nil {
 		return fmt.Errorf("receipt repository_proof.remote: %w", err)
-	}
-	if proof.Remote != request.Remote {
-		return fmt.Errorf("receipt repository_proof.remote does not match request")
 	}
 	if err := validateRepositoryURL(proof.RepositoryURL, "receipt repository_proof.repository_url"); err != nil {
 		return fmt.Errorf("receipt repository_proof.repository_url: %w", err)
 	}
-	if proof.RepositoryURL != request.RepositoryURL {
-		return fmt.Errorf("receipt repository_proof.repository_url does not match request")
-	}
 	if err := validateBranch(proof.DefaultBranch, "receipt repository_proof.default_branch"); err != nil {
 		return fmt.Errorf("receipt repository_proof.default_branch: %w", err)
 	}
-	if proof.DefaultBranch != request.DefaultBranch || proof.Branch != request.DefaultBranch {
-		return fmt.Errorf("receipt repository branch does not match request default branch")
-	}
 	if err := validateBranch(proof.Branch, "receipt repository_proof.branch"); err != nil {
 		return fmt.Errorf("receipt repository_proof.branch: %w", err)
+	}
+	if proof.Branch != proof.DefaultBranch {
+		return errors.New("receipt repository_proof.branch must equal default_branch")
 	}
 	if err := validateSHA40(proof.Head, "receipt repository_proof.head"); err != nil {
 		return fmt.Errorf("receipt repository_proof.head: %w", err)
@@ -419,24 +397,17 @@ func ValidatePreparedReceipt(receipt Receipt, request Request) error {
 	if err := validateAbsolutePath(proof.GatewayStateDir, "receipt repository_proof.gateway_state_dir"); err != nil {
 		return fmt.Errorf("receipt repository_proof.gateway_state_dir: %w", err)
 	}
-	if proof.GatewayStateDir != request.GatewayStateDir {
-		return fmt.Errorf("receipt repository_proof.gateway_state_dir does not match request")
-	}
-
 	if !receipt.WorktreeProof.Clean {
 		return errors.New("receipt worktree_proof.clean must be true")
 	}
 	if err := validateSHA256(receipt.WorktreeProof.StatusSHA256, "worktree_proof.status_sha256"); err != nil {
 		return err
 	}
-	if err := validateSessionProof(receipt.SessionProof, request.Airelay); err != nil {
+	if err := validateSessionProofIntrinsic(receipt.SessionProof); err != nil {
 		return err
 	}
 	if err := validateRegistryDigests(receipt.RegistryDigests); err != nil {
 		return err
-	}
-	if receipt.Hub.Before != request.ExpectedHubRevision {
-		return fmt.Errorf("receipt hub.before does not match request expected hub revision")
 	}
 	if err := validateSHA40(receipt.Hub.Before, "receipt hub.before"); err != nil {
 		return fmt.Errorf("receipt hub.before: %w", err)
@@ -459,6 +430,50 @@ func ValidatePreparedReceipt(receipt Receipt, request Request) error {
 	return nil
 }
 
+// ValidatePreparedReceipt validates the O3a2 prepared receipt and binds it to
+// the already validated onboarding request.
+func ValidatePreparedReceipt(receipt Receipt, request Request) error {
+	if err := ValidateRequest(request); err != nil {
+		return fmt.Errorf("invalid onboarding request: %w", err)
+	}
+	if err := ValidatePreparedReceiptIntrinsic(receipt); err != nil {
+		return err
+	}
+	expectedRequestDigest, err := RequestDigest(request)
+	if err != nil {
+		return fmt.Errorf("compute request digest: %w", err)
+	}
+	if receipt.RequestSHA256 != expectedRequestDigest {
+		return fmt.Errorf("receipt request_sha256 does not match request")
+	}
+	if receipt.ProjectID != request.ProjectID {
+		return fmt.Errorf("receipt project_id does not match request")
+	}
+	proof := receipt.RepositoryProof
+	if proof.Root != request.Root {
+		return fmt.Errorf("receipt repository_proof.root does not match request")
+	}
+	if proof.Remote != request.Remote {
+		return fmt.Errorf("receipt repository_proof.remote does not match request")
+	}
+	if proof.RepositoryURL != request.RepositoryURL {
+		return fmt.Errorf("receipt repository_proof.repository_url does not match request")
+	}
+	if proof.DefaultBranch != request.DefaultBranch || proof.Branch != request.DefaultBranch {
+		return fmt.Errorf("receipt repository branch does not match request default branch")
+	}
+	if proof.GatewayStateDir != request.GatewayStateDir {
+		return fmt.Errorf("receipt repository_proof.gateway_state_dir does not match request")
+	}
+	if err := validateSessionProof(receipt.SessionProof, request.Airelay); err != nil {
+		return err
+	}
+	if receipt.Hub.Before != request.ExpectedHubRevision {
+		return fmt.Errorf("receipt hub.before does not match request expected hub revision")
+	}
+	return nil
+}
+
 func validateSHA256(value, field string) error {
 	if !receiptSHA256Pattern.MatchString(value) {
 		return fmt.Errorf("receipt %s must be a lowercase SHA-256 digest", field)
@@ -467,6 +482,9 @@ func validateSHA256(value, field string) error {
 }
 
 func validateSessionProof(proof SessionProof, airelay Airelay) error {
+	if err := validateSessionProofIntrinsic(proof); err != nil {
+		return err
+	}
 	if proof.Required != airelay.SessionRequired {
 		return errors.New("receipt session_proof.required does not match request")
 	}
@@ -477,21 +495,26 @@ func validateSessionProof(proof SessionProof, airelay Airelay) error {
 		if proof.SessionKey == nil || *proof.SessionKey != *airelay.SessionKey {
 			return errors.New("receipt session_proof.session_key does not match request")
 		}
+		return nil
+	}
+	return nil
+}
+
+func validateSessionProofIntrinsic(proof SessionProof) error {
+	if proof.Required {
+		if proof.SessionKey == nil {
+			return errors.New("required receipt session needs a session key")
+		}
+		if err := validateSessionKey(*proof.SessionKey, "receipt session_proof.session_key"); err != nil {
+			return fmt.Errorf("receipt session_proof.session_key: %w", err)
+		}
 		if proof.Status != "active" {
 			return errors.New("required receipt session must be active")
 		}
 		if proof.ControllerProtocolVersion == nil {
 			return errors.New("required receipt session needs a positive controller protocol version")
 		}
-		if err := validatePositiveInteger(*proof.ControllerProtocolVersion, "receipt session_proof.controller_protocol_version"); err != nil {
-			return err
-		}
-		if proof.SessionKey != nil {
-			if err := validateSessionKey(*proof.SessionKey, "receipt session_proof.session_key"); err != nil {
-				return fmt.Errorf("receipt session_proof.session_key: %w", err)
-			}
-		}
-		return nil
+		return validatePositiveInteger(*proof.ControllerProtocolVersion, "receipt session_proof.controller_protocol_version")
 	}
 	if proof.Status != "not_required" {
 		return errors.New("optional receipt session must have status not_required")
