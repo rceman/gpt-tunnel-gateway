@@ -360,11 +360,10 @@ func (s *Server) tools() map[string]Tool {
 		return map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.1", "gateway_id": s.Service.Config.GatewayID, "time": time.Now().UTC()}, nil
 	})
 	add("gateway_capabilities", "Describe configured limits, projects, and transport.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		ids := []string{}
-		for id := range s.Service.Config.Projects {
-			ids = append(ids, id)
+		ids, err := s.Service.EffectiveProjectIDs()
+		if err != nil {
+			return nil, err
 		}
-		sort.Strings(ids)
 		return map[string]any{"gateway_id": s.Service.Config.GatewayID, "listen_addr": s.Service.Config.ListenAddr, "projects": ids, "hub_protocol_root": hub.ProtocolRoot, "hub_repository_url": s.Service.Config.Hub.RepositoryURL, "hub_branch": s.Service.Config.Hub.Branch, "hub_managed_root": hub.ManagedRoot(s.Service.Config), "airelay_control_only": true, "generic_shell_available": false}, nil
 	})
 	add("project_list", "List durable hub projects.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -748,9 +747,9 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 		if e != nil {
 			return "", config.ProjectConfig{}, e
 		}
-		p, ok := s.Service.Config.Projects[id]
-		if !ok {
-			return "", config.ProjectConfig{}, fmt.Errorf("unknown project %q", id)
+		p, err := s.Service.EffectiveProjectConfig(id)
+		if err != nil {
+			return "", config.ProjectConfig{}, err
 		}
 		return id, p, nil
 	}

@@ -50,3 +50,29 @@ func (s *Service) effectiveProjectIDs() ([]string, ProjectResolution, error) {
 	sort.Strings(ids)
 	return ids, resolution, nil
 }
+
+// EffectiveProjectSnapshot returns one fresh static-plus-managed project
+// snapshot for trusted internal callers.
+func (s *Service) EffectiveProjectSnapshot() (ProjectResolution, error) {
+	return s.resolveProjects()
+}
+
+// EffectiveProjectIDs returns sorted IDs from one fresh effective snapshot.
+func (s *Service) EffectiveProjectIDs() ([]string, error) {
+	ids, _, err := s.effectiveProjectIDs()
+	return ids, err
+}
+
+// EffectiveProjectConfig resolves one project from the current effective
+// snapshot without mutating the bootstrap configuration.
+func (s *Service) EffectiveProjectConfig(id string) (config.ProjectConfig, error) {
+	resolution, err := s.resolveProjects()
+	if err != nil {
+		return config.ProjectConfig{}, err
+	}
+	project, ok := resolution.Projects[id]
+	if !ok {
+		return config.ProjectConfig{}, fmt.Errorf("unknown local project %q", id)
+	}
+	return project, nil
+}
