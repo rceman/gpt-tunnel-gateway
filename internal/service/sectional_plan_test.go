@@ -131,7 +131,7 @@ func TestPlanCutoverUsesCurrentDurableQueueShape(t *testing.T) {
 
 func TestPlanSectionsSupportPartialUpdatesIndependentConflictsAndRender(t *testing.T) {
 	s, hubRevision, _ := testService(t)
-	title, summary, objective, queue, activeTask := "Plan", "Summary", "Objective", []string{"first", "second"}, "task"
+	title, summary, objective, queue, activeTask := "Plan", "Summary", "Objective", []string{"first", "second"}, "EXM-TSK1"
 	operation, err := s.PlanUpdate(context.Background(), PlanUpdateInput{ProjectID: "example", Title: &title, Summary: &summary, CurrentObjective: &objective, Queue: &queue, ActiveTaskID: &activeTask, UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
 	if err != nil {
 		t.Fatal(err)

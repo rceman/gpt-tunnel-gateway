@@ -231,7 +231,7 @@ func loadOperatorJournalSchema(t *testing.T) map[string]any {
 
 func operatorJournalSchemaFixture() map[string]any {
 	return map[string]any{
-		"schema_version": float64(1), "id": "EXM-O1", "project_id": "example", "session_id": nil,
+		"schema_version": float64(1), "id": "EXM-OPR1", "project_id": "example", "session_id": nil,
 		"kind": "user_talk", "summary": "context", "content": map[string]any{
 			"decisions": []any{}, "commitments": []any{}, "facts": []any{"fact"}, "assumptions": []any{}, "blockers": []any{}, "unresolved": []any{}, "next_actions": []any{},
 		}, "references": map[string]any{
@@ -272,20 +272,20 @@ func TestOperatorJournalStaticSchemaEvaluatesCompleteParityFixtures(t *testing.T
 		{"normal", operatorJournalSchemaFixture()},
 		{"max_event_id", func() map[string]any {
 			value := operatorJournalSchemaFixture()
-			value["id"] = "EXM-O9007199254740991"
+			value["id"] = "EXM-OPR9007199254740991"
 			value["session_id"] = "session"
 			return value
 		}()},
 		{"max_minus_one_event_id", func() map[string]any {
 			value := operatorJournalSchemaFixture()
-			value["id"] = "EXM-O9007199254740990"
+			value["id"] = "EXM-OPR9007199254740990"
 			return value
 		}()},
 		{"correction", func() map[string]any {
 			value := operatorJournalSchemaFixture()
-			value["id"] = "EXM-O2"
+			value["id"] = "EXM-OPR2"
 			value["kind"] = "correction"
-			value["supersedes_event_id"] = "EXM-O1"
+			value["supersedes_event_id"] = "EXM-OPR1"
 			return value
 		}()},
 		{"legacy_adr", func() map[string]any {
@@ -295,7 +295,7 @@ func TestOperatorJournalStaticSchemaEvaluatesCompleteParityFixtures(t *testing.T
 		}()},
 		{"max_compact_adr", func() map[string]any {
 			value := operatorJournalSchemaFixture()
-			value["references"].(map[string]any)["adrs"] = []any{"EXM-A9007199254740991"}
+			value["references"].(map[string]any)["adrs"] = []any{"EXM-ADR9007199254740991"}
 			return value
 		}()},
 	}
@@ -315,7 +315,7 @@ func TestOperatorJournalStaticSchemaEvaluatesCompleteParityFixtures(t *testing.T
 		}()},
 		{"non_correction_with_supersedes", func() map[string]any {
 			value := operatorJournalSchemaFixture()
-			value["supersedes_event_id"] = "EXM-O1"
+			value["supersedes_event_id"] = "EXM-OPR1"
 			return value
 		}()},
 		{"empty_session", func() map[string]any { value := operatorJournalSchemaFixture(); value["session_id"] = ""; return value }()},
@@ -324,36 +324,40 @@ func TestOperatorJournalStaticSchemaEvaluatesCompleteParityFixtures(t *testing.T
 			value["session_id"] = float64(1)
 			return value
 		}()},
-		{"zero_event_id", func() map[string]any { value := operatorJournalSchemaFixture(); value["id"] = "EXM-O0"; return value }()},
-		{"leading_zero_event_id", func() map[string]any { value := operatorJournalSchemaFixture(); value["id"] = "EXM-O01"; return value }()},
+		{"zero_event_id", func() map[string]any { value := operatorJournalSchemaFixture(); value["id"] = "EXM-OPR0"; return value }()},
+		{"leading_zero_event_id", func() map[string]any {
+			value := operatorJournalSchemaFixture()
+			value["id"] = "EXM-OPR01"
+			return value
+		}()},
 		{"overflow_event_id", func() map[string]any {
 			value := operatorJournalSchemaFixture()
-			value["id"] = "EXM-O9007199254740992"
+			value["id"] = "EXM-OPR9007199254740992"
 			return value
 		}()},
 		{"long_event_id", func() map[string]any {
 			value := operatorJournalSchemaFixture()
-			value["id"] = "EXM-O90071992547409910"
+			value["id"] = "EXM-OPR90071992547409910"
 			return value
 		}()},
 		{"zero_compact_adr", func() map[string]any {
 			value := operatorJournalSchemaFixture()
-			value["references"].(map[string]any)["adrs"] = []any{"EXM-A0"}
+			value["references"].(map[string]any)["adrs"] = []any{"EXM-ADR0"}
 			return value
 		}()},
 		{"leading_zero_compact_adr", func() map[string]any {
 			value := operatorJournalSchemaFixture()
-			value["references"].(map[string]any)["adrs"] = []any{"EXM-A01"}
+			value["references"].(map[string]any)["adrs"] = []any{"EXM-ADR01"}
 			return value
 		}()},
 		{"overflow_compact_adr", func() map[string]any {
 			value := operatorJournalSchemaFixture()
-			value["references"].(map[string]any)["adrs"] = []any{"EXM-A9007199254740992"}
+			value["references"].(map[string]any)["adrs"] = []any{"EXM-ADR9007199254740992"}
 			return value
 		}()},
 		{"malformed_compact_adr", func() map[string]any {
 			value := operatorJournalSchemaFixture()
-			value["references"].(map[string]any)["adrs"] = []any{"EXM-A1-extra"}
+			value["references"].(map[string]any)["adrs"] = []any{"EXM-ADR1-extra"}
 			return value
 		}()},
 	}

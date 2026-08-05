@@ -74,6 +74,42 @@ func (s *Service) operatorEventPath(projectID, eventID string) string {
 	return s.operatorEventsPrefix(projectID) + "/" + eventID + ".json"
 }
 
+func (s *Service) operatorHistoryEventPath(projectID, eventID string) string {
+	if model.ValidateProjectIdentifier(projectID) != nil || model.ValidateAnyOperatorEventID(eventID) != nil {
+		return "../invalid-operator-event"
+	}
+	return s.operatorEventsPrefix(projectID) + "/" + eventID + ".json"
+}
+
+func validateOperationalOperatorReferences(references model.OperatorJournalReferences, projectCode string) error {
+	if err := model.ValidateOperatorJournalReferencesForProject(references, projectCode); err != nil {
+		return err
+	}
+	for _, adr := range references.ADRs {
+		if strings.HasPrefix(adr, "ADR-") || model.ValidateCanonicalADRIdentifier(adr) != nil {
+			return fmt.Errorf("adrs: historical ADR identifiers are read-only")
+		}
+	}
+	return nil
+}
+
+func parseAnyOperatorEventIDForProject(value, projectCode string) (string, uint64, error) {
+	code, number, err := model.ParseOperatorEventID(value)
+	if err == nil && code == projectCode {
+		return code, number, nil
+	}
+	code, number, err = model.ParseHistoricalOperatorEventID(value)
+	if err != nil || code != projectCode {
+		return "", 0, fmt.Errorf("operator event ID does not belong to project %q", projectCode)
+	}
+	return code, number, nil
+}
+
+func validateAnyOperatorEventIDForProject(value, projectCode string) error {
+	_, _, err := parseAnyOperatorEventIDForProject(value, projectCode)
+	return err
+}
+
 func validateOperatorEventPathIdentity(eventPath, eventsPrefix string, event model.OperatorJournalEvent, projectID, projectCode string) (uint64, error) {
 	if err := model.ValidateOperatorJournalEvent(event); err != nil {
 		return 0, err
@@ -85,7 +121,10 @@ func validateOperatorEventPathIdentity(eventPath, eventsPrefix string, event mod
 		return 0, fmt.Errorf("operator event project mismatch")
 	}
 	if err := model.ValidateOperatorEventIDForProject(event.ID, projectCode); err != nil {
-		return 0, err
+		code, _, historicalErr := model.ParseHistoricalOperatorEventID(event.ID)
+		if historicalErr != nil || code != projectCode {
+			return 0, err
+		}
 	}
 	prefix := strings.TrimSuffix(eventsPrefix, "/") + "/"
 	if !strings.HasPrefix(eventPath, prefix) {
@@ -101,7 +140,10 @@ func validateOperatorEventPathIdentity(eventPath, eventsPrefix string, event mod
 	}
 	_, number, err := model.ParseOperatorEventID(event.ID)
 	if err != nil {
-		return 0, err
+		_, number, err = model.ParseHistoricalOperatorEventID(event.ID)
+		if err != nil {
+			return 0, err
+		}
 	}
 	return number, nil
 }
@@ -134,7 +176,7 @@ func validateOperatorInput(projectID string, sessionID *string, kind model.Opera
 		return fmt.Errorf("operator_record kind %q is reserved or invalid", kind)
 	}
 	now := time.Now().UTC()
-	probe := model.OperatorJournalEvent{SchemaVersion: model.OperatorJournalSchemaVersion, ID: "AAA-O1", ProjectID: projectID, SessionID: sessionID, Kind: kind, Summary: summary, Content: content, References: references, SupersedesEventID: supersedes, Actor: actor, OccurredAt: now, RecordedAt: now}
+	probe := model.OperatorJournalEvent{SchemaVersion: model.OperatorJournalSchemaVersion, ID: "AAA-OPR1", ProjectID: projectID, SessionID: sessionID, Kind: kind, Summary: summary, Content: content, References: references, SupersedesEventID: supersedes, Actor: actor, OccurredAt: now, RecordedAt: now}
 	return model.ValidateOperatorJournalEvent(probe)
 }
 
@@ -163,7 +205,7 @@ func isOperatorHubConflict(err error) bool {
 func (s *Service) operatorTransact(ctx context.Context, expected, subject string, mutate hub.Mutator) (hub.TransactionResult, error) {
 	attempts := 1
 	if expected == "" {
-		attempts = 20
+		attempts = allocatorRetryLimit
 	}
 	var last error
 	for attempt := 0; attempt < attempts; attempt++ {
@@ -214,7 +256,7 @@ func (s *Service) operatorRecord(ctx context.Context, in OperatorRecordInput, al
 		if identifiers.ProjectID != in.ProjectID {
 			return nil, fmt.Errorf("project identifiers project_id mismatch")
 		}
-		if err := model.ValidateOperatorJournalReferencesForProject(in.References, identifiers.ProjectCode); err != nil {
+		if err := validateOperationalOperatorReferences(in.References, identifiers.ProjectCode); err != nil {
 			return nil, err
 		}
 		counterPath := s.operatorCounterPath(in.ProjectID)
@@ -240,7 +282,7 @@ func (s *Service) operatorRecord(ctx context.Context, in OperatorRecordInput, al
 			return nil, fmt.Errorf("operator journal counter project_id mismatch")
 		}
 		number := counter.NextEventNumber
-		if number >= model.MaxSafeInteger {
+		if number > model.MaxSafeInteger {
 			return nil, fmt.Errorf("operator journal counter exhausted")
 		}
 		eventID, err := model.FormatOperatorEventID(identifiers.ProjectCode, number)
@@ -277,10 +319,12 @@ func (s *Service) operatorRecord(ctx context.Context, in OperatorRecordInput, al
 		if err := model.ValidateOperatorJournalEvent(event); err != nil {
 			return nil, err
 		}
-		if err := model.ValidateOperatorJournalReferencesForProject(event.References, identifiers.ProjectCode); err != nil {
+		if err := validateOperationalOperatorReferences(event.References, identifiers.ProjectCode); err != nil {
 			return nil, err
 		}
-		counter.NextEventNumber = number + 1
+		if number < model.MaxSafeInteger {
+			counter.NextEventNumber = number + 1
+		}
 		if err := model.ValidateOperatorJournalCounter(counter); err != nil {
 			return nil, err
 		}
@@ -367,10 +411,10 @@ func (s *Service) OperatorHistory(ctx context.Context, in OperatorHistoryInput) 
 	}
 	var afterNumber uint64
 	if in.AfterEventID != "" {
-		if err := model.ValidateOperatorEventIDForProject(in.AfterEventID, identifiers.ProjectCode); err != nil {
+		if err := validateAnyOperatorEventIDForProject(in.AfterEventID, identifiers.ProjectCode); err != nil {
 			return OperatorHistoryResult{}, fmt.Errorf("after_event_id: %w", err)
 		}
-		_, afterNumber, _ = model.ParseOperatorEventID(in.AfterEventID)
+		_, afterNumber, _ = parseAnyOperatorEventIDForProject(in.AfterEventID, identifiers.ProjectCode)
 	}
 	if in.Kind != "" {
 		if err := model.ValidateOperatorJournalKind(in.Kind); err != nil {
@@ -405,8 +449,8 @@ func (s *Service) OperatorHistory(ctx context.Context, in OperatorHistoryInput) 
 		items = append(items, event)
 	}
 	sort.Slice(items, func(i, j int) bool {
-		_, left, _ := model.ParseOperatorEventID(items[i].ID)
-		_, right, _ := model.ParseOperatorEventID(items[j].ID)
+		_, left, _ := parseAnyOperatorEventIDForProject(items[i].ID, identifiers.ProjectCode)
+		_, right, _ := parseAnyOperatorEventIDForProject(items[j].ID, identifiers.ProjectCode)
 		return left < right
 	})
 	hasMore := len(items) > in.Limit

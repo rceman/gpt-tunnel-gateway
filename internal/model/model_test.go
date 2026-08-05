@@ -13,7 +13,7 @@ func TestTaskHashAndCompletionValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	task.SHA256 = h
-	res := Completion{SchemaVersion: 1, RunID: "00000000-0000-4000-8000-000000000001", TaskSHA256: h, Status: "succeeded", Summary: "ok", GateResults: []CompletionGateResult{}, AcceptanceCoverage: []string{"AC1"}, Deviations: []string{}, RemainingRisks: []string{}}
+	res := Completion{SchemaVersion: 1, RunID: "GTW-TSK1-RUN1", TaskSHA256: h, Status: "succeeded", Summary: "ok", GateResults: []CompletionGateResult{}, AcceptanceCoverage: []string{"AC1"}, Deviations: []string{}, RemainingRisks: []string{}}
 	if err := ValidateCompletion(res, task); err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestCompletionRejectsDuplicateUnknownAndTrailingJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	task.SHA256 = h
-	base := `{"schema_version":1,"run_id":"00000000-0000-4000-8000-000000000001","task_sha256":"` + h + `","status":"succeeded","summary":"ok","gate_results":[{"id":"G1","exit_code":0}],"acceptance_coverage":["AC1"],"deviations":[],"remaining_risks":[]}`
+	base := `{"schema_version":1,"run_id":"GTW-TSK1-RUN1","task_sha256":"` + h + `","status":"succeeded","summary":"ok","gate_results":[{"id":"G1","exit_code":0}],"acceptance_coverage":["AC1"],"deviations":[],"remaining_risks":[]}`
 	if _, err := ParseCompletion([]byte(base+" "+base), task); err == nil {
 		t.Fatal("trailing JSON accepted")
 	}
@@ -50,7 +50,7 @@ func TestCompletionNeedsRevisionAllowsOrderedAcceptanceSubset(t *testing.T) {
 		t.Fatal(err)
 	}
 	task.SHA256 = h
-	c := Completion{SchemaVersion: 1, RunID: "00000000-0000-4000-8000-000000000001", TaskSHA256: h, Status: "needs_gpt_revision", Summary: "revision needed", GateResults: []CompletionGateResult{{ID: "G1", ExitCode: 1}}, AcceptanceCoverage: []string{"AC2"}, Deviations: []string{}, RemainingRisks: []string{}}
+	c := Completion{SchemaVersion: 1, RunID: "GTW-TSK1-RUN1", TaskSHA256: h, Status: "needs_gpt_revision", Summary: "revision needed", GateResults: []CompletionGateResult{{ID: "G1", ExitCode: 1}}, AcceptanceCoverage: []string{"AC2"}, Deviations: []string{}, RemainingRisks: []string{}}
 	if err := ValidateCompletion(c, task); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestCompletionRejectsWhitespaceAndInvalidUTF8(t *testing.T) {
 		t.Fatal(err)
 	}
 	task.SHA256 = h
-	base := `{"schema_version":1,"run_id":"00000000-0000-4000-8000-000000000001","task_sha256":"` + h + `","status":"succeeded","summary":"ok","gate_results":[{"id":"G1","exit_code":0}],"acceptance_coverage":["AC1"],"deviations":[],"remaining_risks":[]}`
+	base := `{"schema_version":1,"run_id":"GTW-TSK1-RUN1","task_sha256":"` + h + `","status":"succeeded","summary":"ok","gate_results":[{"id":"G1","exit_code":0}],"acceptance_coverage":["AC1"],"deviations":[],"remaining_risks":[]}`
 	for _, bad := range []string{
 		strings.Replace(base, `"summary":"ok"`, `"summary":" \t"`, 1),
 		strings.Replace(base, `"deviations":[]`, `"deviations":["  "]`, 1),

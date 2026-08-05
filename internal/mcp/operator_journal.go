@@ -34,8 +34,8 @@ func operatorJournalProjectID(base map[string]any) map[string]any {
 
 func operatorJournalEventID(base map[string]any) map[string]any {
 	base["pattern"] = model.OperatorEventIDPattern
-	base["minLength"] = 6
-	base["maxLength"] = 21
+	base["minLength"] = 8
+	base["maxLength"] = 23
 	return base
 }
 
@@ -56,7 +56,7 @@ func operatorJournalCommit(base map[string]any) map[string]any {
 func operatorJournalADR(base map[string]any) map[string]any {
 	return map[string]any{"anyOf": []any{
 		map[string]any{"type": "string", "minLength": 5, "maxLength": 68, "pattern": "^ADR-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
-		map[string]any{"type": "string", "minLength": 6, "maxLength": 21, "pattern": model.OperatorCompactADRPattern},
+		map[string]any{"type": "string", "minLength": 8, "maxLength": 23, "pattern": model.OperatorCompactADRPattern},
 	}}
 }
 

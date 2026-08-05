@@ -90,7 +90,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 
 func TestTaskReadMCPRetainsExecutionOnlyPaths(t *testing.T) {
 	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
-	_, projectRoot, projectHead := testutil.RepoWithBareRemote(t)
+	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
 	script := filepath.Join(dir, "airelay")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\ncase \"$1\" in\nprompt) printf 'sent\\n' ;;\nesac\n"), 0o700); err != nil {
@@ -103,7 +103,11 @@ func TestTaskReadMCPRetainsExecutionOnlyPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Packet", Objective: "Retain execution paths", Branch: "feature/packet", BaseRevision: projectHead, AcceptanceCriteria: []string{"packet"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Packet", Objective: "Retain execution paths", Slug: "packet", AcceptanceCriteria: []string{"packet"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}

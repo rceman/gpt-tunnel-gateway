@@ -46,7 +46,7 @@ func TestOperatorJournalMCPContractsAndHappyPath(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	session := "session"
-	validEvent := model.OperatorJournalEvent{SchemaVersion: 1, ID: "EXM-O1", ProjectID: "example", SessionID: &session, Kind: model.OperatorUserTalk, Summary: "context", Content: model.OperatorJournalContent{Facts: []string{"fact"}}, References: model.OperatorJournalReferences{}, Actor: "owner", OccurredAt: now, RecordedAt: now}
+	validEvent := model.OperatorJournalEvent{SchemaVersion: 1, ID: "EXM-OPR1", ProjectID: "example", SessionID: &session, Kind: model.OperatorUserTalk, Summary: "context", Content: model.OperatorJournalContent{Facts: []string{"fact"}}, References: model.OperatorJournalReferences{}, Actor: "owner", OccurredAt: now, RecordedAt: now}
 	if err := validateOutputValue(tools["operator_record"].OutputSchema, normalizeObject(map[string]any{"event": validEvent, "operation": service.OperationResult{Hub: testOperationHub(), ProjectID: "example", Status: "recorded"}})); err != nil {
 		t.Fatalf("operator output schema rejected valid event: %v", err)
 	}
@@ -114,16 +114,16 @@ func TestOperatorJournalMCPSchemaParityRejectsInvalidOutputsAndInputs(t *testing
 	tools := server.tools()
 	now := time.Now().UTC()
 	session := "session"
-	baseEvent := model.OperatorJournalEvent{SchemaVersion: model.OperatorJournalSchemaVersion, ID: "EXM-O1", ProjectID: "example", SessionID: &session, Kind: model.OperatorUserTalk, Summary: "context", Content: model.OperatorJournalContent{Facts: []string{"fact"}}, References: model.OperatorJournalReferences{}, Actor: "owner", OccurredAt: now, RecordedAt: now}
+	baseEvent := model.OperatorJournalEvent{SchemaVersion: model.OperatorJournalSchemaVersion, ID: "EXM-OPR1", ProjectID: "example", SessionID: &session, Kind: model.OperatorUserTalk, Summary: "context", Content: model.OperatorJournalContent{Facts: []string{"fact"}}, References: model.OperatorJournalReferences{}, Actor: "owner", OccurredAt: now, RecordedAt: now}
 	valid := operatorMCPOutputFixture(t, baseEvent)
 	if err := validateOutputValue(tools["operator_record"].OutputSchema, valid); err != nil {
 		t.Fatalf("valid operator output rejected: %v", err)
 	}
 	correction := cloneOperatorMCPValue(t, valid)
 	event := correction["event"].(map[string]any)
-	event["id"] = "EXM-O2"
+	event["id"] = "EXM-OPR2"
 	event["kind"] = "correction"
-	event["supersedes_event_id"] = "EXM-O1"
+	event["supersedes_event_id"] = "EXM-OPR1"
 	if err := validateOutputValue(tools["operator_record"].OutputSchema, correction); err != nil {
 		t.Fatalf("valid correction output rejected: %v", err)
 	}
@@ -133,12 +133,12 @@ func TestOperatorJournalMCPSchemaParityRejectsInvalidOutputsAndInputs(t *testing
 	}{
 		{"wrong_session_type", func(value map[string]any) { value["event"].(map[string]any)["session_id"] = float64(1) }},
 		{"empty_session", func(value map[string]any) { value["event"].(map[string]any)["session_id"] = "" }},
-		{"overflow_event_id", func(value map[string]any) { value["event"].(map[string]any)["id"] = "EXM-O9007199254740992" }},
+		{"overflow_event_id", func(value map[string]any) { value["event"].(map[string]any)["id"] = "EXM-OPR9007199254740992" }},
 		{"overflow_adr", func(value map[string]any) {
 			value["event"].(map[string]any)["references"].(map[string]any)["adrs"] = []any{"EXM-A9007199254740992"}
 		}},
 		{"correction_without_supersedes", func(value map[string]any) { value["event"].(map[string]any)["kind"] = "correction" }},
-		{"non_correction_with_supersedes", func(value map[string]any) { value["event"].(map[string]any)["supersedes_event_id"] = "EXM-O1" }},
+		{"non_correction_with_supersedes", func(value map[string]any) { value["event"].(map[string]any)["supersedes_event_id"] = "EXM-OPR1" }},
 	}
 	for _, test := range invalidOutputs {
 		value := cloneOperatorMCPValue(t, valid)
@@ -158,7 +158,7 @@ func TestOperatorJournalMCPSchemaParityRejectsInvalidOutputsAndInputs(t *testing
 		{"summary_too_long", func(value map[string]any) { value["summary"] = strings.Repeat("x", model.MaxOperatorSummaryBytes+1) }},
 		{"actor_too_long", func(value map[string]any) { value["actor"] = strings.Repeat("x", model.MaxOperatorActorBytes+1) }},
 		{"session_empty", func(value map[string]any) { value["session_id"] = "" }},
-		{"overflow_supersedes", func(value map[string]any) { value["supersedes_event_id"] = "EXM-O9007199254740992" }},
+		{"overflow_supersedes", func(value map[string]any) { value["supersedes_event_id"] = "EXM-OPR9007199254740992" }},
 		{"too_many_facts", func(value map[string]any) {
 			value["content"].(map[string]any)["facts"] = make([]any, model.MaxOperatorContentItems+1)
 		}},
@@ -173,7 +173,7 @@ func TestOperatorJournalMCPSchemaParityRejectsInvalidOutputsAndInputs(t *testing
 			t.Errorf("invalid input %s accepted", test.name)
 		}
 	}
-	historyInput := normalizeObject(map[string]any{"project_id": "example", "after_event_id": "EXM-O9007199254740991", "limit": float64(model.MaxOperatorHistoryLimit)})
+	historyInput := normalizeObject(map[string]any{"project_id": "example", "after_event_id": "EXM-OPR9007199254740991", "limit": float64(model.MaxOperatorHistoryLimit)})
 	if err := validateSchemaValue(tools["operator_history"].InputSchema, historyInput, "$input"); err != nil {
 		t.Fatalf("valid history input rejected: %v", err)
 	}
@@ -184,5 +184,5 @@ func TestOperatorJournalMCPSchemaParityRejectsInvalidOutputsAndInputs(t *testing
 }
 
 func testOperationHub() hub.TransactionResult {
-	return hub.TransactionResult{Before: strings.Repeat("a", 40), After: strings.Repeat("b", 40), Remote: "origin", Branch: "main", Paths: []string{"gpt-tunnel/v1/projects/example/operator-journal/events/EXM-O1.json"}}
+	return hub.TransactionResult{Before: strings.Repeat("a", 40), After: strings.Repeat("b", 40), Remote: "origin", Branch: "main", Paths: []string{"gpt-tunnel/v1/projects/example/operator-journal/events/EXM-OPR1.json"}}
 }

@@ -54,6 +54,8 @@
 50. `run_resume` is the sole canonical recovery operation. It derives task/project/session/message, requires one owned active run and a non-conflicted task worktree, and permits one resume per compaction event.
 51. Compaction/resume lifecycle events are bounded local operational evidence and cannot create completion, report, task, plan, or Git authority. Read-only status/tail calls never append them.
 52. Healthy `project_status` components are fetched concurrently under one bounded request deadline; partial failures return sanitized component error codes without exposing raw command output or paths.
+53. New operational identifiers are canonical compact values: `CODE-TSK<N>` for tasks, `CODE-TSK<N>-RUN<M>` for runs, `CODE-ADR<N>` for ADRs, and `CODE-OPR<N>` for operator records/corrections. Each project-owned counter is bounded by the positive safe-integer maximum; unpinned allocation conflicts retry within one shared bound and pinned writes fail fast.
+54. Task creation requires a validated slug and derives both `task/<task-id>-<slug>` and the exact remote default-branch base revision. Branch and base overrides are not accepted. Historical workflow-v1 identifiers remain readable only through bounded history/task-state surfaces and cannot become current execution or mutation identities.
 
 ## Lifecycle
 

@@ -73,7 +73,7 @@ func TestRunCancelAcknowledgeNoMutationMCPContract(t *testing.T) {
 
 func TestRunCancelAcknowledgeNoMutationMCPHappyPath(t *testing.T) {
 	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
-	_, projectRoot, projectHead := testutil.RepoWithBareRemote(t)
+	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
 	airelay := filepath.Join(dir, "airelay")
 	if err := os.WriteFile(airelay, []byte("#!/bin/sh\nprintf 'dispatch output\\n'\n"), 0o700); err != nil {
@@ -86,7 +86,11 @@ func TestRunCancelAcknowledgeNoMutationMCPHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "MCP cancel acknowledgement", Objective: "Exercise the MCP surface", Branch: "feature/mcp-cancel-ack", BaseRevision: projectHead, AcceptanceCriteria: []string{"cancel"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "MCP cancel acknowledgement", Objective: "Exercise the MCP surface", Slug: "mcp-cancel-ack", AcceptanceCriteria: []string{"cancel"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}

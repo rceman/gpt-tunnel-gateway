@@ -22,52 +22,52 @@ func testOperatorEvent(kind OperatorJournalKind, id string) OperatorJournalEvent
 func TestOperatorJournalKindParityAndStrictValidation(t *testing.T) {
 	for _, kind := range []OperatorJournalKind{OperatorUserTalk, OperatorReasoningSummary, OperatorTaskPlan, OperatorTaskReview, OperatorOperation, OperatorCheckpoint, OperatorCorrection} {
 		if kind == OperatorCorrection {
-			event := testOperatorEvent(kind, "EXM-O2")
-			event.SupersedesEventID = "EXM-O1"
+			event := testOperatorEvent(kind, "EXM-OPR2")
+			event.SupersedesEventID = "EXM-OPR1"
 			if err := ValidateOperatorJournalEvent(event); err != nil {
 				t.Fatalf("correction rejected: %v", err)
 			}
 			continue
 		}
-		if err := ValidateOperatorJournalEvent(testOperatorEvent(kind, "EXM-O1")); err != nil {
+		if err := ValidateOperatorJournalEvent(testOperatorEvent(kind, "EXM-OPR1")); err != nil {
 			t.Fatalf("kind %q rejected: %v", kind, err)
 		}
 	}
-	if err := ValidateOperatorJournalEvent(testOperatorEvent(OperatorJournalKind("unknown"), "EXM-O1")); err == nil {
+	if err := ValidateOperatorJournalEvent(testOperatorEvent(OperatorJournalKind("unknown"), "EXM-OPR1")); err == nil {
 		t.Fatal("unknown operator kind accepted")
 	}
-	if err := ValidateOperatorJournalEvent(testOperatorEvent(OperatorCorrection, "EXM-O1")); err == nil {
+	if err := ValidateOperatorJournalEvent(testOperatorEvent(OperatorCorrection, "EXM-OPR1")); err == nil {
 		t.Fatal("correction without supersession accepted")
 	}
 }
 
 func TestOperatorJournalIDsAreNumericAndBounded(t *testing.T) {
-	code, number, err := ParseOperatorEventID("EXM-O2")
+	code, number, err := ParseOperatorEventID("EXM-OPR2")
 	if err != nil || code != "EXM" || number != 2 {
 		t.Fatalf("unexpected O2 parse: %q %d %v", code, number, err)
 	}
-	_, number, err = ParseOperatorEventID("EXM-O10")
+	_, number, err = ParseOperatorEventID("EXM-OPR10")
 	if err != nil || number != 10 {
 		t.Fatalf("unexpected O10 parse: %d %v", number, err)
 	}
-	_, number, err = ParseOperatorEventID("EXM-O9007199254740991")
+	_, number, err = ParseOperatorEventID("EXM-OPR9007199254740991")
 	if err != nil || number != MaxSafeInteger {
 		t.Fatalf("unexpected maximum operator event parse: %d %v", number, err)
 	}
-	_, number, err = ParseADRID("EXM-A9007199254740991")
+	_, number, err = ParseADRID("EXM-ADR9007199254740991")
 	if err != nil || number != MaxSafeInteger {
 		t.Fatalf("unexpected maximum ADR parse: %d %v", number, err)
 	}
-	if _, _, err := ParseOperatorEventID("EXM-O01"); err == nil {
+	if _, _, err := ParseOperatorEventID("EXM-OPR01"); err == nil {
 		t.Fatal("leading-zero event ID accepted")
 	}
-	if _, _, err := ParseOperatorEventID("EXM-O9007199254740992"); err == nil {
+	if _, _, err := ParseOperatorEventID("EXM-OPR9007199254740992"); err == nil {
 		t.Fatal("overflow event ID accepted")
 	}
 }
 
 func TestOperatorJournalRejectsDuplicateUnknownAndNoOpJSON(t *testing.T) {
-	base := `{"schema_version":1,"id":"EXM-O1","project_id":"example","session_id":null,"kind":"user_talk","summary":"context","content":{"decisions":[],"commitments":[],"facts":["fact"],"assumptions":[],"blockers":[],"unresolved":[],"next_actions":[]},"references":{"plan_sections":[],"adrs":[],"tasks":[],"runs":[],"commits":[],"identities":[]},"actor":"owner","occurred_at":"2026-08-05T12:00:00Z","recorded_at":"2026-08-05T12:00:00Z"}`
+	base := `{"schema_version":1,"id":"EXM-OPR1","project_id":"example","session_id":null,"kind":"user_talk","summary":"context","content":{"decisions":[],"commitments":[],"facts":["fact"],"assumptions":[],"blockers":[],"unresolved":[],"next_actions":[]},"references":{"plan_sections":[],"adrs":[],"tasks":[],"runs":[],"commits":[],"identities":[]},"actor":"owner","occurred_at":"2026-08-05T12:00:00Z","recorded_at":"2026-08-05T12:00:00Z"}`
 	var event OperatorJournalEvent
 	if err := json.Unmarshal([]byte(base), &event); err != nil {
 		t.Fatalf("valid event rejected: %v", err)
@@ -84,7 +84,7 @@ func TestOperatorJournalRejectsDuplicateUnknownAndNoOpJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.Replace(base, `"actor":"owner"`, `"actor":"owner","actor":"other"`, 1)), &event); err == nil {
 		t.Fatal("duplicate event field accepted")
 	}
-	noOp := testOperatorEvent(OperatorUserTalk, "EXM-O1")
+	noOp := testOperatorEvent(OperatorUserTalk, "EXM-OPR1")
 	noOp.Content = OperatorJournalContent{}
 	if err := ValidateOperatorJournalEvent(noOp); err == nil {
 		t.Fatal("empty content and references accepted")
@@ -92,34 +92,34 @@ func TestOperatorJournalRejectsDuplicateUnknownAndNoOpJSON(t *testing.T) {
 }
 
 func TestOperatorJournalCompactADRReferencesAreProjectBound(t *testing.T) {
-	for _, adr := range []string{"ADR-legacy", "EXM-A1"} {
+	for _, adr := range []string{"ADR-legacy", "EXM-ADR1"} {
 		if err := ValidateOperatorJournalReferencesForProject(OperatorJournalReferences{ADRs: []string{adr}}, "EXM"); err != nil {
 			t.Fatalf("valid ADR %q rejected: %v", adr, err)
 		}
 	}
-	for _, adr := range []string{"XYZ-A1", "EXM-A0", "EXM-A9007199254740992", "EXM-A1-extra"} {
+	for _, adr := range []string{"XYZ-ADR1", "EXM-ADR0", "EXM-ADR9007199254740992", "EXM-ADR1-extra"} {
 		if err := ValidateOperatorJournalReferencesForProject(OperatorJournalReferences{ADRs: []string{adr}}, "EXM"); err == nil {
 			t.Fatalf("invalid ADR %q accepted", adr)
 		}
 	}
-	if err := ValidateOperatorJournalReferences(OperatorJournalReferences{ADRs: []string{"XYZ-A1"}}); err != nil {
+	if err := ValidateOperatorJournalReferences(OperatorJournalReferences{ADRs: []string{"XYZ-ADR1"}}); err != nil {
 		t.Fatalf("valid unbound compact ADR rejected: %v", err)
 	}
 }
 
 func TestOperatorJournalSessionAndCorrectionSemantics(t *testing.T) {
 	empty := ""
-	event := testOperatorEvent(OperatorUserTalk, "EXM-O1")
+	event := testOperatorEvent(OperatorUserTalk, "EXM-OPR1")
 	event.SessionID = &empty
 	if err := ValidateOperatorJournalEvent(event); err == nil {
 		t.Fatal("empty non-null session_id accepted")
 	}
-	event = testOperatorEvent(OperatorCorrection, "EXM-O2")
+	event = testOperatorEvent(OperatorCorrection, "EXM-OPR2")
 	if err := ValidateOperatorJournalEvent(event); err == nil {
 		t.Fatal("correction without supersedes_event_id accepted")
 	}
-	event = testOperatorEvent(OperatorUserTalk, "EXM-O2")
-	event.SupersedesEventID = "EXM-O1"
+	event = testOperatorEvent(OperatorUserTalk, "EXM-OPR2")
+	event.SupersedesEventID = "EXM-OPR1"
 	if err := ValidateOperatorJournalEvent(event); err == nil {
 		t.Fatal("non-correction with supersedes_event_id accepted")
 	}

@@ -505,7 +505,7 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.ADRCreate(ctx, in)
 	})
-	add("task_create", "Create immutable hashed task.", obj(map[string]any{"project_id": str("Project identifier"), "title": str("Task title"), "objective": str("Full objective"), "branch": str("Required branch"), "base_revision": str("Exact base SHA"), "acceptance_criteria": array(str("Criterion")), "constraints": array(str("Constraint")), "required_gates": array(str("Gate")), "created_by": str("Creator identity"), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "title", "objective", "branch", "base_revision", "created_by"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("task_create", "Create immutable hashed task from a normalized slug and the refreshed project default branch.", obj(map[string]any{"project_id": str("Project identifier"), "slug": str("Lowercase task slug"), "title": str("Task title"), "objective": str("Full objective"), "acceptance_criteria": array(str("Criterion")), "constraints": array(str("Constraint")), "required_gates": array(str("Gate")), "created_by": str("Creator identity"), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "slug", "title", "objective", "created_by"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.TaskCreateInput
 		if e := decode(raw, &in); e != nil {
 			return nil, e

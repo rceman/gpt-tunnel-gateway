@@ -52,7 +52,7 @@ func TestOperatorCLIRecordCheckpointAndHistoryRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := captureOperatorCLI(t, func() { operator(context.Background(), s, []string{"record", "--file", inputPath}) })
-	if !strings.Contains(record, `"id": "EXM-O1"`) || !strings.Contains(record, `"status": "recorded"`) {
+	if !strings.Contains(record, `"id": "EXM-OPR1"`) || !strings.Contains(record, `"status": "recorded"`) {
 		t.Fatalf("unexpected operator record CLI output: %s", record)
 	}
 	checkpointInput := `{"project_id":"example","session_id":null,"summary":"cli checkpoint","content":{"decisions":[],"commitments":["keep"],"facts":[],"assumptions":[],"blockers":[],"unresolved":[],"next_actions":[]},"references":{"plan_sections":[],"adrs":[],"tasks":[],"runs":[],"commits":[],"identities":[]},"actor":"owner"}`
@@ -60,11 +60,11 @@ func TestOperatorCLIRecordCheckpointAndHistoryRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkpoint := captureOperatorCLI(t, func() { operator(context.Background(), s, []string{"checkpoint", "--file", inputPath}) })
-	if !strings.Contains(checkpoint, `"id": "EXM-O2"`) || !strings.Contains(checkpoint, `"status": "checkpointed"`) {
+	if !strings.Contains(checkpoint, `"id": "EXM-OPR2"`) || !strings.Contains(checkpoint, `"status": "checkpointed"`) {
 		t.Fatalf("unexpected operator checkpoint CLI output: %s", checkpoint)
 	}
 	history := captureOperatorCLI(t, func() { operator(context.Background(), s, []string{"history", "example", "--limit", "1"}) })
-	if !strings.Contains(history, `"has_more": true`) || !strings.Contains(history, `"next_after_event_id": "EXM-O1"`) {
+	if !strings.Contains(history, `"has_more": true`) || !strings.Contains(history, `"next_after_event_id": "EXM-OPR1"`) {
 		t.Fatalf("unexpected operator history CLI output: %s", history)
 	}
 }

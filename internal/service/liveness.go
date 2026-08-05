@@ -855,8 +855,8 @@ func (s *Service) runResume(ctx context.Context, id string, automatic bool) (Run
 	if err != nil {
 		return RunResumeResult{}, err
 	}
-	if run.Historical {
-		return RunResumeResult{}, fmt.Errorf("workflow-v1 run is history-only")
+	if err := requireCanonicalRun(run); err != nil {
+		return RunResumeResult{}, err
 	}
 	if err := s.ensureRunOwned(run); err != nil {
 		return RunResumeResult{}, err

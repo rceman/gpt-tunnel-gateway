@@ -28,10 +28,13 @@ const (
 // maximum, without leading zeroes.
 const OperatorJournalNumberPattern = `[1-9][0-9]{0,14}|[1-8][0-9]{15}|900[0-6][0-9]{12}|90070[0-9]{11}|90071[0-8][0-9]{10}|900719[0-8][0-9]{9}|9007199[0-1][0-9]{8}|90071992[0-4][0-9]{7}|900719925[0-3][0-9]{6}|9007199254[0-6][0-9]{5}|90071992547[0-3][0-9]{4}|9007199254740[0-8][0-9]{2}|90071992547409[0-8][0-9]|9007199254740990|9007199254740991`
 
-const OperatorEventIDPattern = `^[A-Z]{3}-O(` + OperatorJournalNumberPattern + `)$`
-const OperatorCompactADRPattern = `^[A-Z]{3}-A(` + OperatorJournalNumberPattern + `)$`
+const OperatorEventIDPattern = `^[A-Z]{3}-OPR(` + OperatorJournalNumberPattern + `)$`
+const OperatorHistoricalEventIDPattern = `^[A-Z]{3}-O(` + OperatorJournalNumberPattern + `)$`
+const OperatorCompactADRPattern = `^[A-Z]{3}-ADR(` + OperatorJournalNumberPattern + `)$`
+const OperatorHistoricalADRPattern = `^[A-Z]{3}-A(` + OperatorJournalNumberPattern + `)$`
 
-var operatorEventIDRE = regexp.MustCompile(`^([A-Z]{3})-O(` + OperatorJournalNumberPattern + `)$`)
+var operatorEventIDRE = regexp.MustCompile(`^([A-Z]{3})-OPR(` + OperatorJournalNumberPattern + `)$`)
+var historicalOperatorEventIDRE = regexp.MustCompile(`^([A-Z]{3})-O(` + OperatorJournalNumberPattern + `)$`)
 
 type OperatorJournalKind string
 
@@ -339,7 +342,10 @@ func ValidateOperatorJournalReferencesForProject(v OperatorJournalReferences, pr
 				}
 				code, _, err := ParseADRID(item)
 				if err != nil {
-					return fmt.Errorf("adrs: %w", err)
+					code, _, err = ParseHistoricalADRID(item)
+					if err != nil {
+						return fmt.Errorf("adrs: %w", err)
+					}
 				}
 				if projectCode != "" && code != projectCode {
 					return fmt.Errorf("adrs: compact ADR project code %q does not match expected project code %q", code, projectCode)
@@ -365,7 +371,7 @@ func ValidateOperatorJournalEvent(v OperatorJournalEvent) error {
 	if err := ValidateProjectIdentifier(v.ProjectID); err != nil {
 		return err
 	}
-	if err := ValidateOperatorEventID(v.ID); err != nil {
+	if err := ValidateAnyOperatorEventID(v.ID); err != nil {
 		return err
 	}
 	if err := ValidateOperatorJournalKind(v.Kind); err != nil {
@@ -398,7 +404,7 @@ func ValidateOperatorJournalEvent(v OperatorJournalEvent) error {
 		return fmt.Errorf("occurred_at cannot be after recorded_at")
 	}
 	if v.SupersedesEventID != "" {
-		if err := ValidateOperatorEventID(v.SupersedesEventID); err != nil {
+		if err := ValidateAnyOperatorEventID(v.SupersedesEventID); err != nil {
 			return fmt.Errorf("supersedes_event_id: %w", err)
 		}
 		if v.Kind != OperatorCorrection {
@@ -417,19 +423,39 @@ func FormatOperatorEventID(projectCode string, number uint64) (string, error) {
 	if err := ValidateCompactIDNumber(number); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s-O%d", projectCode, number), nil
+	return fmt.Sprintf("%s-OPR%d", projectCode, number), nil
 }
 
 func ParseOperatorEventID(value string) (string, uint64, error) {
 	matches := operatorEventIDRE.FindStringSubmatch(value)
 	if len(matches) != 3 {
-		return "", 0, fmt.Errorf("invalid compact operator event ID")
+		return "", 0, fmt.Errorf("invalid canonical operator event ID")
 	}
 	number, err := parseCompactIDNumber(matches[2])
 	if err != nil {
 		return "", 0, err
 	}
 	return matches[1], number, nil
+}
+
+func ParseHistoricalOperatorEventID(value string) (string, uint64, error) {
+	matches := historicalOperatorEventIDRE.FindStringSubmatch(value)
+	if len(matches) != 3 {
+		return "", 0, fmt.Errorf("invalid historical operator event ID")
+	}
+	number, err := parseCompactIDNumber(matches[2])
+	if err != nil {
+		return "", 0, err
+	}
+	return matches[1], number, nil
+}
+
+func ValidateAnyOperatorEventID(value string) error {
+	if _, _, err := ParseOperatorEventID(value); err == nil {
+		return nil
+	}
+	_, _, err := ParseHistoricalOperatorEventID(value)
+	return err
 }
 
 func ValidateOperatorEventID(value string) error {

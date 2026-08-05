@@ -48,6 +48,27 @@ task create
 
 A successful Airelay delivery is non-terminal. Completion exists only after hub finalization succeeds.
 
+## Canonical identifiers
+
+New operational records use compact project-coded identifiers with a positive
+safe-integer counter:
+
+- tasks: `CODE-TSK<N>`;
+- runs: `CODE-TSK<N>-RUN<M>`;
+- ADRs: `CODE-ADR<N>`;
+- operator journal events and corrections: `CODE-OPR<N>`.
+
+Each adopted project owns separate task, ADR, run, and operator counters. A
+task-create input must include `project_id`, `slug`, `title`, and `objective`;
+the gateway derives the task branch as `task/<task-id>-<slug>` and resolves
+`base_revision` from the authoritative remote default-branch head. Callers do
+not provide `branch` or `base_revision`, and allocator conflicts are retried
+only for unpinned writes within a bounded limit; pinned writes fail fast.
+
+Pre-cutover workflow-v1 task, run, ADR, and operator identifiers remain
+readable as immutable history where supported. They are never selected as
+current execution state and are rejected by operational mutation paths.
+
 Plans use a schema-v2 compact manifest. Use `gpt-tunnel plan read` for the bounded manifest, `plan section-read` for one full section, and `plan render` only when a complete human-readable composition is required. Manifest updates are partial; section updates use independent optimistic revisions.
 
 For a stalled active run, `gpt-tunnel run agent-tail <run-id> [--lines N]` reads a bounded, read-only tail from the run's stored Airelay session; it never accepts a caller-supplied session key or skip option.

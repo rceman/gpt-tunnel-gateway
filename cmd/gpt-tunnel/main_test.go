@@ -145,7 +145,7 @@ func TestProjectIdentifiersCLIRoutesAdoptAndRead(t *testing.T) {
 
 func TestCancelAcknowledgeCLIRouteUsesCanonicalServiceResult(t *testing.T) {
 	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
-	_, projectRoot, projectHead := testutil.RepoWithBareRemote(t)
+	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
 	airelay := filepath.Join(dir, "airelay")
 	if err := os.WriteFile(airelay, []byte("#!/bin/sh\nprintf 'dispatch output\\n'\n"), 0o700); err != nil {
@@ -158,7 +158,11 @@ func TestCancelAcknowledgeCLIRouteUsesCanonicalServiceResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Cancel acknowledgement", Objective: "Exercise the CLI surface", Branch: "feature/cancel-ack-cli", BaseRevision: projectHead, AcceptanceCriteria: []string{"cancel"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Cancel acknowledgement", Objective: "Exercise the CLI surface", Slug: "cancel-ack-cli", AcceptanceCriteria: []string{"cancel"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +286,7 @@ func TestPlanCutoverCLIRouteUsesCurrentFixture(t *testing.T) {
 
 func TestAgentTailCLIRouteDefaultAndExplicitLines(t *testing.T) {
 	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
-	_, projectRoot, projectHead := testutil.RepoWithBareRemote(t)
+	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
 	log := filepath.Join(dir, "args")
 	script := filepath.Join(dir, "airelay")
@@ -296,7 +300,11 @@ func TestAgentTailCLIRouteDefaultAndExplicitLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Tail", Objective: "Inspect tail", Branch: "feature/tail", BaseRevision: projectHead, AcceptanceCriteria: []string{"tail"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Tail", Objective: "Inspect tail", Slug: "tail", AcceptanceCriteria: []string{"tail"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +342,7 @@ func TestAgentTailCLIRouteDefaultAndExplicitLines(t *testing.T) {
 
 func TestAgentTailCLICommandPathErrorsAreBounded(t *testing.T) {
 	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
-	_, projectRoot, projectHead := testutil.RepoWithBareRemote(t)
+	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
 	log := filepath.Join(dir, "args")
 	script := filepath.Join(dir, "airelay")
@@ -348,7 +356,11 @@ func TestAgentTailCLICommandPathErrorsAreBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Tail", Objective: "Inspect tail", Branch: "feature/tail", BaseRevision: projectHead, AcceptanceCriteria: []string{"tail"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Tail", Objective: "Inspect tail", Slug: "tail", AcceptanceCriteria: []string{"tail"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +438,7 @@ func TestAgentTailCLICommandPathErrorsAreBounded(t *testing.T) {
 
 func TestDirectAgentSessionCLIParity(t *testing.T) {
 	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
-	_, projectRoot, projectHead := testutil.RepoWithBareRemote(t)
+	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
 	script := filepath.Join(dir, "airelay")
 	body := "#!/bin/sh\ncase \"$1\" in\nprompt) printf 'delivered\\n' ;;\ntail) printf 'one\\ntwo\\nthree\\nfour\\nfive\\n' ;;\nsession-status) printf 'Controller: reachable (5ms)\\nAirelay version: 0.1.54\\nProtocol version: 1\\nState: busy\\n' ;;\nesac\n"
@@ -437,6 +449,10 @@ func TestDirectAgentSessionCLIParity(t *testing.T) {
 	s := service.New(dirConfig)
 	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"}
 	registered, err := s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: project, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +486,7 @@ func TestDirectAgentSessionCLIParity(t *testing.T) {
 	if !strings.Contains(status, `"state": "running"`) || !strings.Contains(status, `"airelay_version": "0.1.54"`) {
 		t.Fatalf("unexpected direct status output: %s", status)
 	}
-	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Resume", Objective: "Exercise CLI resume", Branch: "feature/cli-resume", BaseRevision: projectHead, AcceptanceCriteria: []string{"resume"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Resume", Objective: "Exercise CLI resume", Slug: "cli-resume", AcceptanceCriteria: []string{"resume"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -494,7 +510,7 @@ func TestDirectAgentSessionCLIParity(t *testing.T) {
 
 func TestTaskLifecycleDeferCLIRoute(t *testing.T) {
 	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
-	_, projectRoot, projectHead := testutil.RepoWithBareRemote(t)
+	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
 	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
 	s := service.New(c)
@@ -503,7 +519,11 @@ func TestTaskLifecycleDeferCLIRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	taskRecord, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "CLI lifecycle", Objective: "Exercise the defer command.", Branch: "feature/cli-lifecycle", BaseRevision: projectHead, AcceptanceCriteria: []string{"state"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskRecord, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "CLI lifecycle", Objective: "Exercise the defer command.", Slug: "cli-lifecycle", AcceptanceCriteria: []string{"state"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -45,6 +45,21 @@ gpt-tunnel run sweep
 gpt-tunnel run finalize <run-id> [--completion-file <gateway-owned-run-path>]
 ```
 
+New operational identifiers are compact and project-coded: tasks use
+`CODE-TSK<N>`, runs use `CODE-TSK<N>-RUN<M>`, ADRs use `CODE-ADR<N>`, and
+operator journal events/corrections use `CODE-OPR<N>`. Each counter is a
+positive safe integer owned by the adopted project. Task-create JSON requires
+`slug`; the gateway derives `task/<task-id>-<slug>` and the exact remote
+default-branch `base_revision`, so `branch` and `base_revision` are not caller
+fields. Unpinned allocator conflicts receive bounded retries; an explicit
+`expected_hub_revision` is pinned and fails fast.
+
+`task read` first returns the active execution packet when exactly one
+canonical operational run exists. For a historical task or a task without an
+active run, it falls back to the task and mutable-state record. Historical
+workflow-v1 task/run/ADR/operator identifiers remain read-only; they are not
+accepted by execution or mutation operations.
+
 `run finalize` is local-agent-only. It is intentionally not exposed as a remote MCP write tool.
 
 ## Direct project-agent session control
@@ -70,7 +85,7 @@ misuse examples, not valid task control.
 
 ```text
 gpt-tunnel operator record --file <input.json>
-gpt-tunnel operator history <project-id> [--after-event-id <CODE-O1>] [--kind <kind>] [--limit N]
+gpt-tunnel operator history <project-id> [--after-event-id <CODE-OPR1>] [--kind <kind>] [--limit N]
 gpt-tunnel operator checkpoint --file <input.json>
 ```
 
@@ -84,6 +99,9 @@ structured context, not prompts or transcripts.
 remain visible through bounded `run list`/`run read` history with legacy local
 paths redacted, but report and finalization operations return a stable
 history-only error for those runs.
+
+`adr list` and `adr read` are read surfaces and preserve historical ADR
+records; new ADR creation allocates only canonical `CODE-ADR<N>` identifiers.
 
 `run resume` is the only canonical context-compaction recovery operation. It
 accepts only a run ID; the gateway resolves the task, project, configured

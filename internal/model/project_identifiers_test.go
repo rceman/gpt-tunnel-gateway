@@ -18,23 +18,23 @@ func TestProjectIdentifiersValidationAndCompactIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 	taskID, err := FormatTaskID("GTW", MaxSafeInteger)
-	if err != nil || taskID != "GTW-T9007199254740991" {
+	if err != nil || taskID != "GTW-TSK9007199254740991" {
 		t.Fatalf("format task ID: %q %v", taskID, err)
 	}
 	projectCode, taskNumber, err := ParseTaskID(taskID)
 	if err != nil || projectCode != "GTW" || taskNumber != MaxSafeInteger {
 		t.Fatalf("parse task ID: %q %d %v", projectCode, taskNumber, err)
 	}
-	runID, err := FormatRunID("GTW-T1", MaxSafeInteger)
-	if err != nil || runID != "GTW-T1-R9007199254740991" {
+	runID, err := FormatRunID("GTW-TSK1", MaxSafeInteger)
+	if err != nil || runID != "GTW-TSK1-RUN9007199254740991" {
 		t.Fatalf("format run ID: %q %v", runID, err)
 	}
 	parsedTaskID, runNumber, err := ParseRunID(runID)
-	if err != nil || parsedTaskID != "GTW-T1" || runNumber != MaxSafeInteger {
+	if err != nil || parsedTaskID != "GTW-TSK1" || runNumber != MaxSafeInteger {
 		t.Fatalf("parse run ID: %q %d %v", parsedTaskID, runNumber, err)
 	}
 	adrID, err := FormatADRID("GTW", 1)
-	if err != nil || adrID != "GTW-A1" {
+	if err != nil || adrID != "GTW-ADR1" {
 		t.Fatalf("format ADR ID: %q %v", adrID, err)
 	}
 	adrCode, adrNumber, err := ParseADRID(adrID)
@@ -102,36 +102,36 @@ func TestProjectIdentifiersJSONIntegerSchemaParity(t *testing.T) {
 }
 
 func TestCompactIDsRequireExpectedProjectCode(t *testing.T) {
-	if number, err := ParseTaskIDForProject("GTW-T9007199254740991", "GTW"); err != nil || number != MaxSafeInteger {
+	if number, err := ParseTaskIDForProject("GTW-TSK9007199254740991", "GTW"); err != nil || number != MaxSafeInteger {
 		t.Fatalf("matching task project code failed: %d %v", number, err)
 	}
-	if taskID, number, err := ParseRunIDForProject("GTW-T1-R9007199254740991", "GTW"); err != nil || taskID != "GTW-T1" || number != MaxSafeInteger {
+	if taskID, number, err := ParseRunIDForProject("GTW-TSK1-RUN9007199254740991", "GTW"); err != nil || taskID != "GTW-TSK1" || number != MaxSafeInteger {
 		t.Fatalf("matching run project code failed: %q %d %v", taskID, number, err)
 	}
-	if number, err := ParseADRIDForProject("GTW-A9007199254740991", "GTW"); err != nil || number != MaxSafeInteger {
+	if number, err := ParseADRIDForProject("GTW-ADR9007199254740991", "GTW"); err != nil || number != MaxSafeInteger {
 		t.Fatalf("matching ADR project code failed: %d %v", number, err)
 	}
 	for _, mismatch := range []struct {
 		name string
 		call func() error
 	}{
-		{name: "task", call: func() error { return ValidateTaskIDForProject("GRP-T1", "GTW") }},
-		{name: "run", call: func() error { return ValidateRunIDForProject("GRP-T1-R1", "GTW") }},
-		{name: "adr", call: func() error { return ValidateADRIDForProject("GRP-A1", "GTW") }},
+		{name: "task", call: func() error { return ValidateTaskIDForProject("GRP-TSK1", "GTW") }},
+		{name: "run", call: func() error { return ValidateRunIDForProject("GRP-TSK1-RUN1", "GTW") }},
+		{name: "adr", call: func() error { return ValidateADRIDForProject("GRP-ADR1", "GTW") }},
 	} {
 		if err := mismatch.call(); err == nil {
 			t.Fatalf("accepted mismatched %s project code", mismatch.name)
 		}
 	}
 	for _, malformedCode := range []string{"gtw", "GT", "GTWW", "", "G1W"} {
-		if err := ValidateTaskIDForProject("GTW-T1", malformedCode); err == nil {
+		if err := ValidateTaskIDForProject("GTW-TSK1", malformedCode); err == nil {
 			t.Fatalf("accepted malformed expected project code %q", malformedCode)
 		}
 	}
-	if err := ValidateRunIDForProject("GRP-T1-R1", "GTW"); err == nil {
+	if err := ValidateRunIDForProject("GRP-TSK1-RUN1", "GTW"); err == nil {
 		t.Fatal("accepted run whose embedded task code mismatches expected project code")
 	}
-	if err := ValidateTaskIDForProject("GTW-T9007199254740992", "GTW"); err == nil {
+	if err := ValidateTaskIDForProject("GTW-TSK9007199254740992", "GTW"); err == nil {
 		t.Fatal("accepted task number above maximum")
 	}
 }

@@ -14,7 +14,7 @@ func TestRunSweepAndCancelDoNotOperateForeignGatewayRun(t *testing.T) {
 	s, revision, _ := testService(t)
 	now := time.Now().UTC().Add(-2 * time.Hour)
 	run := model.Run{
-		SchemaVersion: 1, ID: "foreign-run", TaskID: "foreign-task", TaskSHA256: strings.Repeat("a", 64),
+		SchemaVersion: 1, ID: "EXM-TSK98-RUN1", TaskID: "foreign-task", TaskSHA256: strings.Repeat("a", 64),
 		ProjectID: "example", GatewayID: "other_gateway", SessionKey: "example_master",
 		Branch: "feature/foreign", BaseRevision: strings.Repeat("b", 40), Status: "awaiting_result",
 		CompletionPath: "/tmp/completion.json", CreatedAt: now,

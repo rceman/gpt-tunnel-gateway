@@ -13,14 +13,14 @@ import (
 )
 
 func TestProjectIdentifiersReadRequiresExistingStrictRecord(t *testing.T) {
-	s, _, _ := testService(t)
+	s, _, _ := testServiceWithoutIdentifiers(t)
 	if _, err := s.ProjectIdentifiersRead(context.Background(), "example"); err == nil || !IsNotFound(err) {
 		t.Fatalf("missing identifiers record was not reported as not found: %v", err)
 	}
 }
 
 func TestProjectIdentifiersAdoptAndRead(t *testing.T) {
-	s, revision, _ := testService(t)
+	s, revision, _ := testServiceWithoutIdentifiers(t)
 	record, operation, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
 		ProjectID: "example", ProjectCode: "EXM",
 		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
@@ -51,7 +51,7 @@ func TestProjectIdentifiersAdoptAndRead(t *testing.T) {
 }
 
 func TestProjectIdentifiersAdoptRejectsDuplicateCodes(t *testing.T) {
-	s, revision, _ := testService(t)
+	s, revision, _ := testServiceWithoutIdentifiers(t)
 	secondRevision := registerIdentifierProject(t, s, "second", revision)
 	first, firstOperation, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "DUP", WriteOptions: WriteOptions{ExpectedHubRevision: secondRevision}})
 	if err != nil {
@@ -66,7 +66,7 @@ func TestProjectIdentifiersAdoptRejectsDuplicateCodes(t *testing.T) {
 }
 
 func TestProjectIdentifiersAdoptConcurrentDuplicateCodesHasOneWinner(t *testing.T) {
-	s, revision, _ := testService(t)
+	s, revision, _ := testServiceWithoutIdentifiers(t)
 	secondRevision := registerIdentifierProject(t, s, "second", revision)
 	_ = secondRevision
 	start := make(chan struct{})

@@ -22,13 +22,16 @@ const MaxDeferredReasonBytes = 1024
 const MaxSafeInteger uint64 = 9007199254740991
 
 var (
-	idRE            = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
-	adrIDRE         = regexp.MustCompile(`^ADR-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
-	projectCodeRE   = regexp.MustCompile(`^[A-Z]{3}$`)
-	compactTaskIDRE = regexp.MustCompile(`^([A-Z]{3})-T([1-9][0-9]*)$`)
-	compactRunIDRE  = regexp.MustCompile(`^([A-Z]{3}-T[1-9][0-9]*)-R([1-9][0-9]*)$`)
-	compactADRIDRE  = regexp.MustCompile(`^([A-Z]{3})-A(` + OperatorJournalNumberPattern + `)$`)
-	shaRE           = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	idRE              = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+	adrIDRE           = regexp.MustCompile(`^ADR-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	projectCodeRE     = regexp.MustCompile(`^[A-Z]{3}$`)
+	canonicalTaskIDRE = regexp.MustCompile(`^([A-Z]{3})-TSK(` + OperatorJournalNumberPattern + `)$`)
+	canonicalRunIDRE  = regexp.MustCompile(`^([A-Z]{3}-TSK(` + OperatorJournalNumberPattern + `))-RUN(` + OperatorJournalNumberPattern + `)$`)
+	canonicalADRIDRE  = regexp.MustCompile(`^([A-Z]{3})-ADR(` + OperatorJournalNumberPattern + `)$`)
+	legacyTaskIDRE    = regexp.MustCompile(`^([A-Z]{3})-T([1-9][0-9]*)$`)
+	legacyRunIDRE     = regexp.MustCompile(`^([A-Z]{3}-T[1-9][0-9]*)-R([1-9][0-9]*)$`)
+	legacyADRIDRE     = regexp.MustCompile(`^([A-Z]{3})-A(` + OperatorJournalNumberPattern + `)$`)
+	shaRE             = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
 type Project struct {
@@ -51,6 +54,56 @@ type ProjectIdentifiers struct {
 	ProjectCode    string `json:"project_code"`
 	NextTaskNumber uint64 `json:"next_task_number"`
 	NextADRNumber  uint64 `json:"next_adr_number"`
+}
+
+// TaskRunCounter is stored next to one canonical task and is the only
+// allocator for that task's run numbers.  It is deliberately separate from
+// project-wide identifiers so concurrent tasks cannot consume each other's
+// run sequence.
+type TaskRunCounter struct {
+	SchemaVersion int    `json:"schema_version"`
+	ProjectID     string `json:"project_id"`
+	TaskID        string `json:"task_id"`
+	NextRunNumber uint64 `json:"next_run_number"`
+}
+
+func (c *TaskRunCounter) UnmarshalJSON(data []byte) error {
+	fields, err := decodeProjectIdentifiersObject(data)
+	if err != nil {
+		return err
+	}
+	for key := range fields {
+		switch key {
+		case "schema_version", "project_id", "task_id", "next_run_number":
+		default:
+			return fmt.Errorf("unknown task run counter field %q", key)
+		}
+	}
+	for _, key := range []string{"schema_version", "project_id", "task_id", "next_run_number"} {
+		if _, ok := fields[key]; !ok {
+			return fmt.Errorf("task run counter field %q is required", key)
+		}
+	}
+	schemaVersion, err := parseJSONInteger(fields["schema_version"])
+	if err != nil || schemaVersion > uint64(^uint(0)>>1) {
+		if err == nil {
+			err = fmt.Errorf("overflows int")
+		}
+		return fmt.Errorf("schema_version: %w", err)
+	}
+	var projectID, taskID string
+	if err := json.Unmarshal(fields["project_id"], &projectID); err != nil {
+		return fmt.Errorf("project_id: %w", err)
+	}
+	if err := json.Unmarshal(fields["task_id"], &taskID); err != nil {
+		return fmt.Errorf("task_id: %w", err)
+	}
+	next, err := parseJSONInteger(fields["next_run_number"])
+	if err != nil {
+		return fmt.Errorf("next_run_number: %w", err)
+	}
+	*c = TaskRunCounter{SchemaVersion: int(schemaVersion), ProjectID: projectID, TaskID: taskID, NextRunNumber: next}
+	return nil
 }
 
 func (p *ProjectIdentifiers) UnmarshalJSON(data []byte) error {
@@ -420,11 +473,11 @@ func ValidateADR(v ADR) error {
 	if v.SchemaVersion != SchemaVersion || !idRE.MatchString(v.ProjectID) {
 		return fmt.Errorf("invalid ADR identity")
 	}
-	if err := ValidateADRIdentifier(v.ID); err != nil {
+	if err := validateAnyADRIdentifier(v.ID); err != nil {
 		return err
 	}
 	if v.Supersedes != "" {
-		if err := ValidateADRIdentifier(v.Supersedes); err != nil {
+		if err := validateAnyADRIdentifier(v.Supersedes); err != nil {
 			return fmt.Errorf("invalid supersedes: %w", err)
 		}
 	}
@@ -686,6 +739,23 @@ func ValidateProjectIdentifiers(v ProjectIdentifiers) error {
 	}
 	return nil
 }
+
+func ValidateTaskRunCounter(v TaskRunCounter) error {
+	if v.SchemaVersion != SchemaVersion {
+		return fmt.Errorf("invalid task run counter schema_version")
+	}
+	if err := ValidateProjectIdentifier(v.ProjectID); err != nil {
+		return err
+	}
+	if _, _, err := ParseTaskID(v.TaskID); err != nil {
+		return fmt.Errorf("task_id: %w", err)
+	}
+	if v.NextRunNumber == 0 || v.NextRunNumber > MaxSafeInteger {
+		return fmt.Errorf("next_run_number must be between 1 and %d", MaxSafeInteger)
+	}
+	return nil
+}
+
 func FormatTaskID(projectCode string, number uint64) (string, error) {
 	if err := ValidateProjectCode(projectCode); err != nil {
 		return "", err
@@ -693,12 +763,26 @@ func FormatTaskID(projectCode string, number uint64) (string, error) {
 	if err := ValidateCompactIDNumber(number); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s-T%d", projectCode, number), nil
+	return fmt.Sprintf("%s-TSK%d", projectCode, number), nil
 }
 func ParseTaskID(value string) (string, uint64, error) {
-	matches := compactTaskIDRE.FindStringSubmatch(value)
+	matches := canonicalTaskIDRE.FindStringSubmatch(value)
 	if len(matches) != 3 {
-		return "", 0, fmt.Errorf("invalid compact task ID")
+		return "", 0, fmt.Errorf("invalid canonical task ID")
+	}
+	number, err := parseCompactIDNumber(matches[2])
+	if err != nil {
+		return "", 0, err
+	}
+	return matches[1], number, nil
+}
+
+// ParseHistoricalTaskID is for exact read-only decoding of pre-cutover task
+// records. Operational creation and mutation must use ParseTaskID.
+func ParseHistoricalTaskID(value string) (string, uint64, error) {
+	matches := legacyTaskIDRE.FindStringSubmatch(value)
+	if len(matches) != 3 {
+		return "", 0, fmt.Errorf("invalid historical task ID")
 	}
 	number, err := parseCompactIDNumber(matches[2])
 	if err != nil {
@@ -730,14 +814,29 @@ func FormatRunID(taskID string, number uint64) (string, error) {
 	if err := ValidateCompactIDNumber(number); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s-R%d", taskID, number), nil
+	return fmt.Sprintf("%s-RUN%d", taskID, number), nil
 }
 func ParseRunID(value string) (string, uint64, error) {
-	matches := compactRunIDRE.FindStringSubmatch(value)
-	if len(matches) != 3 {
-		return "", 0, fmt.Errorf("invalid compact run ID")
+	matches := canonicalRunIDRE.FindStringSubmatch(value)
+	if len(matches) != 4 {
+		return "", 0, fmt.Errorf("invalid canonical run ID")
 	}
 	if _, _, err := ParseTaskID(matches[1]); err != nil {
+		return "", 0, err
+	}
+	number, err := parseCompactIDNumber(matches[3])
+	if err != nil {
+		return "", 0, err
+	}
+	return matches[1], number, nil
+}
+
+func ParseHistoricalRunID(value string) (string, uint64, error) {
+	matches := legacyRunIDRE.FindStringSubmatch(value)
+	if len(matches) != 3 {
+		return "", 0, fmt.Errorf("invalid historical run ID")
+	}
+	if _, _, err := ParseHistoricalTaskID(matches[1]); err != nil {
 		return "", 0, err
 	}
 	number, err := parseCompactIDNumber(matches[2])
@@ -763,7 +862,7 @@ func ParseRunIDForProject(value, expectedProjectCode string) (string, uint64, er
 		return "", 0, err
 	}
 	if projectCode != expectedProjectCode {
-		return "", 0, fmt.Errorf("compact run ID project code %q does not match expected project code %q", projectCode, expectedProjectCode)
+		return "", 0, fmt.Errorf("run ID project code %q does not match expected project code %q", projectCode, expectedProjectCode)
 	}
 	return taskID, number, nil
 }
@@ -774,12 +873,24 @@ func FormatADRID(projectCode string, number uint64) (string, error) {
 	if err := ValidateCompactIDNumber(number); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s-A%d", projectCode, number), nil
+	return fmt.Sprintf("%s-ADR%d", projectCode, number), nil
 }
 func ParseADRID(value string) (string, uint64, error) {
-	matches := compactADRIDRE.FindStringSubmatch(value)
+	matches := canonicalADRIDRE.FindStringSubmatch(value)
 	if len(matches) != 3 {
-		return "", 0, fmt.Errorf("invalid compact ADR ID")
+		return "", 0, fmt.Errorf("invalid canonical ADR ID")
+	}
+	number, err := parseCompactIDNumber(matches[2])
+	if err != nil {
+		return "", 0, err
+	}
+	return matches[1], number, nil
+}
+
+func ParseHistoricalADRID(value string) (string, uint64, error) {
+	matches := legacyADRIDRE.FindStringSubmatch(value)
+	if len(matches) != 3 {
+		return "", 0, fmt.Errorf("invalid historical ADR ID")
 	}
 	number, err := parseCompactIDNumber(matches[2])
 	if err != nil {
@@ -902,6 +1013,42 @@ func ValidateADRIdentifier(s string) error {
 		return fmt.Errorf("invalid ADR identifier")
 	}
 	return nil
+}
+
+func validateAnyADRIdentifier(s string) error {
+	if ValidateADRIdentifier(s) == nil || ValidateCanonicalADRIdentifier(s) == nil {
+		return nil
+	}
+	return fmt.Errorf("invalid ADR identifier")
+}
+
+func ValidateCanonicalTaskID(s string) error {
+	_, _, err := ParseTaskID(s)
+	return err
+}
+
+func ValidateCanonicalRunID(s string) error {
+	_, _, err := ParseRunID(s)
+	return err
+}
+
+func ValidateCanonicalADRIdentifier(s string) error {
+	_, _, err := ParseADRID(s)
+	return err
+}
+
+func ValidateTaskSlug(s string) error {
+	if len(s) < 1 || len(s) > 80 || !regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`).MatchString(s) {
+		return fmt.Errorf("invalid task slug")
+	}
+	return nil
+}
+
+func ValidateDurableIdentifier(s string) error {
+	if ValidateCanonicalTaskID(s) == nil || ValidateCanonicalRunID(s) == nil || ValidateCanonicalADRIdentifier(s) == nil || ValidateOperatorEventID(s) == nil {
+		return nil
+	}
+	return fmt.Errorf("invalid canonical durable identifier")
 }
 func ValidateBranch(s string) error {
 	if s == "" || len(s) > 255 || strings.ContainsAny(s, "\x00\r\n ~^:?*[\\") || strings.HasPrefix(s, "-") || strings.Contains(s, "..") || strings.HasSuffix(s, "/") {

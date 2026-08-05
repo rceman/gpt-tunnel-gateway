@@ -67,7 +67,7 @@ func TestPlainTextToolResultRemainsUnstructured(t *testing.T) {
 
 func TestRunAgentTailToolCallUsesLiveServiceAndPlainTextTransport(t *testing.T) {
 	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
-	_, projectRoot, projectHead := testutil.RepoWithBareRemote(t)
+	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
 	script := filepath.Join(dir, "airelay")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
@@ -80,7 +80,11 @@ func TestRunAgentTailToolCallUsesLiveServiceAndPlainTextTransport(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Tail", Objective: "Inspect tail", Branch: "feature/tail", BaseRevision: projectHead, AcceptanceCriteria: []string{"tail"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Tail", Objective: "Inspect tail", Slug: "tail", AcceptanceCriteria: []string{"tail"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +354,7 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	adr := model.ADR{SchemaVersion: 1, ID: "ADR-TEST", ProjectID: "project", Title: "title", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: now}
 	task := model.Task{SchemaVersion: 1, ID: "task", SHA256: strings.Repeat("b", 64), ProjectID: "project", Title: "title", Objective: "objective", Branch: "feature/x", BaseRevision: strings.Repeat("c", 40), AcceptanceCriteria: []string{}, Constraints: []string{}, Status: "created", CreatedBy: "gpt", CreatedAt: now}
 	state := model.TaskState{SchemaVersion: 1, TaskID: "task", TaskSHA256: task.SHA256, Status: "created", UpdatedAt: now}
-	run := model.Run{SchemaVersion: 1, ID: "run", TaskID: "task", TaskSHA256: task.SHA256, ProjectID: "project", GatewayID: "home_pc", SessionKey: "project_master", Branch: "feature/x", BaseRevision: task.BaseRevision, HubRevision: strings.Repeat("d", 40), Status: "awaiting_result", CompletionPath: "/tmp/completion", CreatedAt: now}
+	run := model.Run{SchemaVersion: 1, ID: "run", TaskID: "task", TaskSHA256: task.SHA256, ProjectID: "project", GatewayID: "home_pc", SessionKey: "project_master", Branch: task.Branch, BaseRevision: task.BaseRevision, HubRevision: strings.Repeat("d", 40), Status: "awaiting_result", CompletionPath: "/tmp/completion", CreatedAt: now}
 	transaction := hub.TransactionResult{Before: strings.Repeat("d", 40), After: strings.Repeat("e", 40), Remote: "origin", Branch: "gpt-tunnel/home_pc", Paths: []string{"gpt-tunnel/v1/test.json"}}
 	operation := service.OperationResult{Hub: transaction, ProjectID: "project", TaskID: "task", RunID: "run", Status: "updated"}
 	local := config.ProjectConfig{Root: "/tmp/project", Mirror: "/tmp/mirror.git", Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "project_master"}
@@ -360,13 +364,13 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	publicRun := service.PublicRunView(run)
 	publicPacket := service.PublicTaskPacketView(packet)
 	sessionID := "project_master"
-	operatorEvent := model.OperatorJournalEvent{SchemaVersion: 1, ID: "GTW-O1", ProjectID: "project", SessionID: &sessionID, Kind: model.OperatorUserTalk, Summary: "operator context", Content: model.OperatorJournalContent{Facts: []string{"fact"}}, References: model.OperatorJournalReferences{}, Actor: "owner", OccurredAt: now, RecordedAt: now}
+	operatorEvent := model.OperatorJournalEvent{SchemaVersion: 1, ID: "GTW-OPR1", ProjectID: "project", SessionID: &sessionID, Kind: model.OperatorUserTalk, Summary: "operator context", Content: model.OperatorJournalContent{Facts: []string{"fact"}}, References: model.OperatorJournalReferences{}, Actor: "owner", OccurredAt: now, RecordedAt: now}
 	operatorHistory := service.OperatorHistoryResult{ProjectID: "project", Events: []model.OperatorJournalEvent{operatorEvent}, HubRevision: transaction.After, HasMore: false}
 	ref := gitx.Ref{Name: "refs/heads/main", ObjectType: "commit", ObjectName: worktree.Head}
 	commit := gitx.Commit{SHA: worktree.Head, Parents: []string{}, AuthorName: "GPT", AuthorEmail: "gpt@example.invalid", AuthorDate: now.Format(time.RFC3339), Subject: "subject"}
 	compare := gitx.Compare{MergeBase: worktree.Head, LeftOnly: 0, RightOnly: 0}
 	clean := true
-	snapshot := model.ReviewSnapshot{SchemaVersion: 1, Run: model.ReviewSnapshotRun{ID: "run", TaskID: "task", ProjectID: "project", Status: "succeeded", Branch: "feature/x", BaseRevision: task.BaseRevision, CreatedAt: now}, Task: model.ReviewSnapshotTask{ID: "task", SHA256: task.SHA256, Title: "title", Objective: "objective", Branch: "feature/x", BaseRevision: task.BaseRevision, AcceptanceCriteria: []string{}, Constraints: []string{}, RequiredGates: []string{}, CreatedBy: "gpt", CreatedAt: now, TaskStateStatus: "completed"}, Report: model.ReviewSnapshotReport{Available: true, Status: "succeeded", Summary: "done", Commits: []string{}, ChangedFiles: []string{}, GateResults: []model.CompletionGateResult{}, AcceptanceCoverage: []string{}, Deviations: []string{}, RemainingRisks: []string{}, FinishedAt: &now}, Evidence: model.ReviewSnapshotEvidence{Available: true, Head: worktree.Head, Branch: "feature/x", WorktreeClean: &clean, Notes: []string{}, RecordedAt: &now}, Repository: model.ReviewSnapshotRepo{RefreshAttempted: true, RefreshSucceeded: true, DefaultBranch: "main", TaskBranch: "feature/x", TaskBranchPublished: true, TaskBranchHead: worktree.Head, Worktree: model.ReviewSnapshotWorktree{Branch: "feature/x", Head: worktree.Head, Clean: true}, EvidenceHeadReachable: true, BaseToEvidence: model.ReviewSnapshotCompare{MergeBase: task.BaseRevision}, DefaultToEvidence: model.ReviewSnapshotCompare{}, ChangedFiles: []string{}}, Checks: []model.ReviewSnapshotCheck{}, ReviewState: "reviewable", NextAction: "perform_static_review"}
+	snapshot := model.ReviewSnapshot{SchemaVersion: 1, Run: model.ReviewSnapshotRun{ID: "run", TaskID: "task", ProjectID: "project", Status: "succeeded", CreatedAt: now}, Task: model.ReviewSnapshotTask{ID: "task", SHA256: task.SHA256, Title: "title", Objective: "objective", AcceptanceCriteria: []string{}, Constraints: []string{}, RequiredGates: []string{}, CreatedBy: "gpt", CreatedAt: now, TaskStateStatus: "completed"}, Report: model.ReviewSnapshotReport{Available: true, Status: "succeeded", Summary: "done", Commits: []string{}, ChangedFiles: []string{}, GateResults: []model.CompletionGateResult{}, AcceptanceCoverage: []string{}, Deviations: []string{}, RemainingRisks: []string{}, FinishedAt: &now}, Evidence: model.ReviewSnapshotEvidence{Available: true, Head: worktree.Head, Branch: "feature/x", WorktreeClean: &clean, Notes: []string{}, RecordedAt: &now}, Repository: model.ReviewSnapshotRepo{RefreshAttempted: true, RefreshSucceeded: true, DefaultBranch: "main", TaskBranch: "feature/x", TaskBranchPublished: true, TaskBranchHead: worktree.Head, Worktree: model.ReviewSnapshotWorktree{Branch: "feature/x", Head: worktree.Head, Clean: true}, EvidenceHeadReachable: true, BaseToEvidence: model.ReviewSnapshotCompare{MergeBase: task.BaseRevision}, DefaultToEvidence: model.ReviewSnapshotCompare{}, ChangedFiles: []string{}}, Checks: []model.ReviewSnapshotCheck{}, ReviewState: "reviewable", NextAction: "perform_static_review"}
 
 	samples := map[string]any{
 		"system_ping":          map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.1", "gateway_id": "home_pc", "time": now},

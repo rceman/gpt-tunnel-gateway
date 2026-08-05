@@ -89,10 +89,9 @@ type ADRCreateInput struct {
 }
 type TaskCreateInput struct {
 	ProjectID          string   `json:"project_id"`
+	Slug               string   `json:"slug"`
 	Title              string   `json:"title"`
 	Objective          string   `json:"objective"`
-	Branch             string   `json:"branch"`
-	BaseRevision       string   `json:"base_revision"`
 	AcceptanceCriteria []string `json:"acceptance_criteria"`
 	Constraints        []string `json:"constraints"`
 	RequiredGates      []string `json:"required_gates,omitempty"`
@@ -178,7 +177,7 @@ func (s *Service) planSectionPath(project, id string) string {
 	return s.projectPrefix(project) + "/plan/sections/" + id + ".json"
 }
 func (s *Service) adrPath(project, id string) string {
-	if model.ValidateADRIdentifier(id) != nil {
+	if model.ValidateADRIdentifier(id) != nil && model.ValidateCanonicalADRIdentifier(id) != nil {
 		return "../invalid-adr-id"
 	}
 	return s.projectPrefix(project) + "/adrs/" + id + ".json"
@@ -194,6 +193,12 @@ func (s *Service) taskStatePath(project, id string) string {
 		return "../invalid-task-id"
 	}
 	return s.projectPrefix(project) + "/tasks/" + id + ".state.json"
+}
+func (s *Service) taskRunCounterPath(project, id string) string {
+	if model.ValidateProjectIdentifier(project) != nil || model.ValidateCanonicalTaskID(id) != nil {
+		return "../invalid-task-run-counter"
+	}
+	return s.projectPrefix(project) + "/tasks/" + id + ".run-counter.json"
 }
 func (s *Service) runPrefix(project, id string) string {
 	if model.ValidateObjectIdentifier(id) != nil {
@@ -552,6 +557,16 @@ func (s *Service) PlanUpdate(ctx context.Context, in PlanUpdateInput) (Operation
 	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
 		return OperationResult{}, err
 	}
+	if in.ActiveTaskID != nil && *in.ActiveTaskID != "" {
+		if err := requireCanonicalTaskID(*in.ActiveTaskID); err != nil {
+			return OperationResult{}, err
+		}
+	}
+	if in.ActiveRunID != nil && *in.ActiveRunID != "" {
+		if err := requireCanonicalRunID(*in.ActiveRunID); err != nil {
+			return OperationResult{}, err
+		}
+	}
 	old, err := s.PlanRead(ctx, in.ProjectID)
 	if err != nil && !IsNotFound(err) {
 		return OperationResult{}, err
@@ -880,35 +895,88 @@ func (s *Service) ADRRead(ctx context.Context, project, id string) (model.ADR, e
 	err := s.Hub.ReadJSON(ctx, s.adrPath(project, id), &v)
 	return v, err
 }
+func allocatorConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "project identifiers changed before") ||
+		strings.Contains(message, "already exists") ||
+		strings.Contains(message, "HUB_REVISION_CONFLICT")
+}
+
+// allocatorRetryLimit bounds optimistic allocator retries for every canonical
+// ID family, including operator journal events and corrections.
+const allocatorRetryLimit = 20
+
 func (s *Service) ADRCreate(ctx context.Context, in ADRCreateInput) (OperationResult, error) {
+	for attempt := 0; ; attempt++ {
+		result, err := s.adrCreateOnce(ctx, in)
+		if in.ExpectedHubRevision != "" || err == nil || !allocatorConflict(err) || attempt+1 >= allocatorRetryLimit {
+			return result, err
+		}
+	}
+}
+
+func (s *Service) adrCreateOnce(ctx context.Context, in ADRCreateInput) (OperationResult, error) {
 	v := in.ADR
 	v.SchemaVersion = model.SchemaVersion
-	if v.ID == "" {
-		id, err := model.NewID()
-		if err != nil {
-			return OperationResult{}, err
-		}
-		v.ID = "ADR-" + strings.ToUpper(strings.ReplaceAll(id[:8], "-", ""))
+	if v.ID != "" {
+		return OperationResult{}, fmt.Errorf("ADR id is allocated by the gateway")
 	}
 	v.CreatedAt = time.Now().UTC()
 	if v.Status == "" {
 		v.Status = "accepted"
 	}
-	if err := model.ValidateADR(v); err != nil {
-		return OperationResult{}, err
-	}
 	if _, err := s.ProjectRead(ctx, v.ProjectID); err != nil {
 		return OperationResult{}, err
 	}
+	identifiers, err := s.ProjectIdentifiersRead(ctx, v.ProjectID)
+	if err != nil {
+		return OperationResult{}, fmt.Errorf("read project identifiers: %w", err)
+	}
+	v.ID, err = model.FormatADRID(identifiers.ProjectCode, identifiers.NextADRNumber)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if identifiers.NextADRNumber == model.MaxSafeInteger {
+		if _, readErr := s.Hub.ReadFile(ctx, s.adrPath(v.ProjectID, v.ID)); readErr == nil {
+			return OperationResult{}, fmt.Errorf("ADR allocator exhausted for project %q", v.ProjectID)
+		} else if !IsNotFound(readErr) {
+			return OperationResult{}, readErr
+		}
+	}
+	if err := model.ValidateADR(v); err != nil {
+		return OperationResult{}, err
+	}
+	nextADR := identifiers.NextADRNumber
+	if nextADR < model.MaxSafeInteger {
+		nextADR++
+	}
+	updatedIdentifiers := identifiers
+	updatedIdentifiers.NextADRNumber = nextADR
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: create ADR "+v.ID, func(w string) ([]string, error) {
+		var current model.ProjectIdentifiers
+		if err := readWorktreeJSON(w, s.projectIdentifiersPath(v.ProjectID), &current); err != nil {
+			return nil, err
+		}
+		if current.ProjectCode != identifiers.ProjectCode || current.NextADRNumber != identifiers.NextADRNumber {
+			return nil, fmt.Errorf("project identifiers changed before ADR allocation")
+		}
 		path := s.adrPath(v.ProjectID, v.ID)
-		if _, err := os.Stat(filepath.Join(w, filepath.FromSlash(path))); err == nil {
+		if _, err := os.Lstat(filepath.Join(w, filepath.FromSlash(path))); err == nil {
 			return nil, fmt.Errorf("ADR already exists")
+		} else if !os.IsNotExist(err) {
+			return nil, err
 		}
 		if err := hub.WriteJSON(w, path, v); err != nil {
 			return nil, err
 		}
-		return []string{path}, nil
+		identifiersPath := s.projectIdentifiersPath(v.ProjectID)
+		if err := hub.WriteJSON(w, identifiersPath, updatedIdentifiers); err != nil {
+			return nil, err
+		}
+		return []string{path, identifiersPath}, nil
 	})
 	if err != nil {
 		return OperationResult{}, err
@@ -917,14 +985,58 @@ func (s *Service) ADRCreate(ctx context.Context, in ADRCreateInput) (OperationRe
 }
 
 func (s *Service) TaskCreate(ctx context.Context, in TaskCreateInput) (model.Task, OperationResult, error) {
-	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
-		return model.Task{}, OperationResult{}, err
+	for attempt := 0; ; attempt++ {
+		task, result, err := s.taskCreateOnce(ctx, in)
+		if in.ExpectedHubRevision != "" || err == nil || !allocatorConflict(err) || attempt+1 >= allocatorRetryLimit {
+			return task, result, err
+		}
 	}
-	id, err := model.NewID()
+}
+
+func (s *Service) taskCreateOnce(ctx context.Context, in TaskCreateInput) (model.Task, OperationResult, error) {
+	if in.Slug == "" {
+		return model.Task{}, OperationResult{}, fmt.Errorf("slug is required")
+	}
+	project, err := s.ProjectRead(ctx, in.ProjectID)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
 	}
-	task := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Title: in.Title, Objective: in.Objective, Branch: in.Branch, BaseRevision: strings.ToLower(in.BaseRevision), AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), Status: "created", Supersedes: in.Supersedes, CreatedBy: in.CreatedBy, CreatedAt: time.Now().UTC()}
+	local, err := s.projectConfig(in.ProjectID)
+	if err != nil {
+		return model.Task{}, OperationResult{}, err
+	}
+	identifiers, err := s.ProjectIdentifiersRead(ctx, in.ProjectID)
+	if err != nil {
+		return model.Task{}, OperationResult{}, fmt.Errorf("read project identifiers: %w", err)
+	}
+	var id, branch, base string
+	if err := model.ValidateTaskSlug(in.Slug); err != nil {
+		return model.Task{}, OperationResult{}, err
+	}
+	if err := s.Git.Refresh(ctx, local); err != nil {
+		return model.Task{}, OperationResult{}, fmt.Errorf("refresh project default branch: %w", err)
+	}
+	var exists bool
+	base, exists, err = s.Git.MirrorBranchHead(ctx, local, project.DefaultBranch)
+	if err != nil || !exists {
+		if err == nil {
+			err = fmt.Errorf("default branch %q is unavailable", project.DefaultBranch)
+		}
+		return model.Task{}, OperationResult{}, err
+	}
+	id, err = model.FormatTaskID(identifiers.ProjectCode, identifiers.NextTaskNumber)
+	if err != nil {
+		return model.Task{}, OperationResult{}, err
+	}
+	if identifiers.NextTaskNumber == model.MaxSafeInteger {
+		if _, readErr := s.Hub.ReadFile(ctx, s.taskPath(in.ProjectID, id)); readErr == nil {
+			return model.Task{}, OperationResult{}, fmt.Errorf("task allocator exhausted for project %q", in.ProjectID)
+		} else if !IsNotFound(readErr) {
+			return model.Task{}, OperationResult{}, readErr
+		}
+	}
+	branch = "task/" + id + "-" + in.Slug
+	task := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Title: in.Title, Objective: in.Objective, Branch: branch, BaseRevision: base, AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), Status: "created", Supersedes: in.Supersedes, CreatedBy: in.CreatedBy, CreatedAt: time.Now().UTC()}
 	hash, err := model.HashTask(task)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
@@ -934,16 +1046,55 @@ func (s *Service) TaskCreate(ctx context.Context, in TaskCreateInput) (model.Tas
 		return model.Task{}, OperationResult{}, err
 	}
 	state := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "created", UpdatedAt: time.Now().UTC()}
+	updatedIdentifiers := identifiers
+	if updatedIdentifiers.NextTaskNumber < model.MaxSafeInteger {
+		updatedIdentifiers.NextTaskNumber++
+	}
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: create task "+task.ID, func(w string) ([]string, error) {
 		path := s.taskPath(task.ProjectID, task.ID)
 		statePath := s.taskStatePath(task.ProjectID, task.ID)
+		if _, err := os.Lstat(filepath.Join(w, filepath.FromSlash(path))); err == nil {
+			return nil, fmt.Errorf("task already exists")
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
+		if _, err := os.Lstat(filepath.Join(w, filepath.FromSlash(statePath))); err == nil {
+			return nil, fmt.Errorf("task state already exists")
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
+		paths := []string{path, statePath}
+		var current model.ProjectIdentifiers
+		if err := readWorktreeJSON(w, s.projectIdentifiersPath(task.ProjectID), &current); err != nil {
+			return nil, err
+		}
+		if current.ProjectCode != identifiers.ProjectCode || current.NextTaskNumber != identifiers.NextTaskNumber {
+			return nil, fmt.Errorf("project identifiers changed before task allocation")
+		}
+		counterPath := s.taskRunCounterPath(task.ProjectID, task.ID)
+		if _, err := os.Lstat(filepath.Join(w, filepath.FromSlash(counterPath))); err == nil {
+			return nil, fmt.Errorf("task run counter already exists")
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
+		paths = append(paths, counterPath, s.projectIdentifiersPath(task.ProjectID))
 		if err := hub.WriteJSON(w, path, task); err != nil {
 			return nil, err
 		}
 		if err := hub.WriteJSON(w, statePath, state); err != nil {
 			return nil, err
 		}
-		return []string{path, statePath}, nil
+		counter := model.TaskRunCounter{SchemaVersion: model.SchemaVersion, ProjectID: task.ProjectID, TaskID: task.ID, NextRunNumber: 1}
+		if err := model.ValidateTaskRunCounter(counter); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(w, s.taskRunCounterPath(task.ProjectID, task.ID), counter); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(w, s.projectIdentifiersPath(task.ProjectID), updatedIdentifiers); err != nil {
+			return nil, err
+		}
+		return paths, nil
 	})
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
@@ -984,7 +1135,7 @@ func (s *Service) TaskList(ctx context.Context, project string) ([]TaskRecord, e
 	}
 	items := []TaskRecord{}
 	for _, path := range paths {
-		if strings.HasSuffix(path, ".state.json") {
+		if strings.HasSuffix(path, ".state.json") || strings.HasSuffix(path, ".run-counter.json") {
 			continue
 		}
 		var task model.Task
@@ -1029,6 +1180,18 @@ func (s *Service) TaskReadRecord(ctx context.Context, id string) (TaskRecord, er
 	return TaskRecord{Task: task, State: state}, nil
 }
 func (s *Service) TaskSupersede(ctx context.Context, oldID string, in TaskCreateInput) (model.Task, OperationResult, error) {
+	for attempt := 0; ; attempt++ {
+		task, result, err := s.taskSupersedeOnce(ctx, oldID, in)
+		if in.ExpectedHubRevision != "" || err == nil || !allocatorConflict(err) || attempt+1 >= allocatorRetryLimit {
+			return task, result, err
+		}
+	}
+}
+
+func (s *Service) taskSupersedeOnce(ctx context.Context, oldID string, in TaskCreateInput) (model.Task, OperationResult, error) {
+	if err := requireCanonicalTaskID(oldID); err != nil {
+		return model.Task{}, OperationResult{}, err
+	}
 	old, err := s.findTask(ctx, oldID)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
@@ -1039,12 +1202,49 @@ func (s *Service) TaskSupersede(ctx context.Context, oldID string, in TaskCreate
 	if in.ProjectID != old.ProjectID {
 		return model.Task{}, OperationResult{}, fmt.Errorf("superseding task must remain in project")
 	}
-	id, err := model.NewID()
+	if in.Slug == "" {
+		return model.Task{}, OperationResult{}, fmt.Errorf("slug is required")
+	}
+	if err := model.ValidateTaskSlug(in.Slug); err != nil {
+		return model.Task{}, OperationResult{}, err
+	}
+	identifiers, err := s.ProjectIdentifiersRead(ctx, old.ProjectID)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
 	}
+	project, err := s.ProjectRead(ctx, old.ProjectID)
+	if err != nil {
+		return model.Task{}, OperationResult{}, err
+	}
+	local, err := s.projectConfig(old.ProjectID)
+	if err != nil {
+		return model.Task{}, OperationResult{}, err
+	}
+	if err := s.Git.Refresh(ctx, local); err != nil {
+		return model.Task{}, OperationResult{}, err
+	}
+	var exists bool
+	base, exists, err := s.Git.MirrorBranchHead(ctx, local, project.DefaultBranch)
+	if err != nil || !exists {
+		if err == nil {
+			err = fmt.Errorf("default branch %q is unavailable", project.DefaultBranch)
+		}
+		return model.Task{}, OperationResult{}, err
+	}
+	id, err := model.FormatTaskID(identifiers.ProjectCode, identifiers.NextTaskNumber)
+	if err != nil {
+		return model.Task{}, OperationResult{}, err
+	}
+	if identifiers.NextTaskNumber == model.MaxSafeInteger {
+		if _, readErr := s.Hub.ReadFile(ctx, s.taskPath(old.ProjectID, id)); readErr == nil {
+			return model.Task{}, OperationResult{}, fmt.Errorf("task allocator exhausted for project %q", old.ProjectID)
+		} else if !IsNotFound(readErr) {
+			return model.Task{}, OperationResult{}, readErr
+		}
+	}
+	branch := "task/" + id + "-" + in.Slug
 	now := time.Now().UTC()
-	newTask := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Title: in.Title, Objective: in.Objective, Branch: in.Branch, BaseRevision: strings.ToLower(in.BaseRevision), AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), Status: "created", Supersedes: old.ID, CreatedBy: in.CreatedBy, CreatedAt: now}
+	newTask := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Title: in.Title, Objective: in.Objective, Branch: branch, BaseRevision: base, AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), Status: "created", Supersedes: old.ID, CreatedBy: in.CreatedBy, CreatedAt: now}
 	hash, err := model.HashTask(newTask)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
@@ -1065,13 +1265,38 @@ func (s *Service) TaskSupersede(ctx context.Context, oldID string, in TaskCreate
 	oldState.SupersededBy = newTask.ID
 	oldState.UpdatedAt = now
 	newState := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: newTask.ID, TaskSHA256: newTask.SHA256, Status: "created", UpdatedAt: now}
+	updatedIdentifiers := identifiers
+	if updatedIdentifiers.NextTaskNumber < model.MaxSafeInteger {
+		updatedIdentifiers.NextTaskNumber++
+	}
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: supersede task "+old.ID, func(w string) ([]string, error) {
 		paths := []string{s.taskPath(newTask.ProjectID, newTask.ID), s.taskStatePath(newTask.ProjectID, newTask.ID), s.taskStatePath(old.ProjectID, old.ID)}
+		var current model.ProjectIdentifiers
+		if err := readWorktreeJSON(w, s.projectIdentifiersPath(old.ProjectID), &current); err != nil {
+			return nil, err
+		}
+		if current.ProjectCode != identifiers.ProjectCode || current.NextTaskNumber != identifiers.NextTaskNumber {
+			return nil, fmt.Errorf("project identifiers changed before task allocation")
+		}
+		paths = append(paths, s.taskRunCounterPath(newTask.ProjectID, newTask.ID), s.projectIdentifiersPath(old.ProjectID))
 		vals := []any{newTask, newState, oldState}
 		for i, p := range paths {
+			if i >= len(vals) {
+				break
+			}
 			if err := hub.WriteJSON(w, p, vals[i]); err != nil {
 				return nil, err
 			}
+		}
+		counter := model.TaskRunCounter{SchemaVersion: model.SchemaVersion, ProjectID: newTask.ProjectID, TaskID: newTask.ID, NextRunNumber: 1}
+		if err := model.ValidateTaskRunCounter(counter); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(w, s.taskRunCounterPath(newTask.ProjectID, newTask.ID), counter); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(w, s.projectIdentifiersPath(old.ProjectID), updatedIdentifiers); err != nil {
+			return nil, err
 		}
 		return paths, nil
 	})
@@ -1082,6 +1307,9 @@ func (s *Service) TaskSupersede(ctx context.Context, oldID string, in TaskCreate
 }
 
 func (s *Service) TaskCancel(ctx context.Context, id, expected string) (OperationResult, error) {
+	if err := requireCanonicalTaskID(id); err != nil {
+		return OperationResult{}, err
+	}
 	task, err := s.findTask(ctx, id)
 	if err != nil {
 		return OperationResult{}, err
@@ -1113,6 +1341,9 @@ func (s *Service) TaskCancel(ctx context.Context, id, expected string) (Operatio
 }
 
 func (s *Service) TaskMarkMergeReady(ctx context.Context, in TaskMarkMergeReadyInput) (OperationResult, error) {
+	if err := requireCanonicalTaskID(in.TaskID); err != nil {
+		return OperationResult{}, err
+	}
 	task, err := s.findTask(ctx, in.TaskID)
 	if err != nil {
 		return OperationResult{}, err
@@ -1146,6 +1377,9 @@ func (s *Service) TaskMarkMergeReady(ctx context.Context, in TaskMarkMergeReadyI
 }
 
 func (s *Service) TaskDefer(ctx context.Context, in TaskDeferInput) (OperationResult, error) {
+	if err := requireCanonicalTaskID(in.TaskID); err != nil {
+		return OperationResult{}, err
+	}
 	task, err := s.findTask(ctx, in.TaskID)
 	if err != nil {
 		return OperationResult{}, err
@@ -1205,6 +1439,9 @@ func (s *Service) TaskDefer(ctx context.Context, in TaskDeferInput) (OperationRe
 func (s *Service) TaskMarkMerged(ctx context.Context, in TaskMarkMergedInput) (OperationResult, error) {
 	if err := model.ValidateCommitSHA(in.IntegrationHead); err != nil {
 		return OperationResult{}, fmt.Errorf("integration_head: %w", err)
+	}
+	if err := requireCanonicalTaskID(in.TaskID); err != nil {
+		return OperationResult{}, err
 	}
 	task, err := s.findTask(ctx, in.TaskID)
 	if err != nil {
@@ -1419,7 +1656,7 @@ func (s *Service) RunAgentTail(ctx context.Context, id string, lines int) (strin
 	if err != nil {
 		return "", err
 	}
-	if err := ensureOperationalRun(run); err != nil {
+	if err := requireCanonicalRun(run); err != nil {
 		return "", err
 	}
 	if err := s.ensureRunOwned(run); err != nil {
@@ -1445,6 +1682,27 @@ func ensureOperationalRun(run model.Run) error {
 		return fmt.Errorf("workflow-v1 run is history-only")
 	}
 	return nil
+}
+
+func requireCanonicalTaskID(id string) error {
+	if err := model.ValidateCanonicalTaskID(id); err != nil {
+		return fmt.Errorf("task %q is read-only: canonical task ID required", id)
+	}
+	return nil
+}
+
+func requireCanonicalRunID(id string) error {
+	if err := model.ValidateCanonicalRunID(id); err != nil {
+		return fmt.Errorf("run %q is read-only: canonical run ID required", id)
+	}
+	return nil
+}
+
+func requireCanonicalRun(run model.Run) error {
+	if err := requireCanonicalRunID(run.ID); err != nil {
+		return err
+	}
+	return ensureOperationalRun(run)
 }
 func (s *Service) ensureRunOwned(run model.Run) error {
 	if run.GatewayID != s.Config.GatewayID {
@@ -1499,6 +1757,18 @@ func (s *Service) writeLocalRun(run model.Run, task model.Task) error {
 }
 
 func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run, OperationResult, error) {
+	for attempt := 0; ; attempt++ {
+		run, result, err := s.taskDispatchOnce(ctx, in)
+		if in.ExpectedHubRevision != "" || err == nil || !allocatorConflict(err) || attempt+1 >= allocatorRetryLimit {
+			return run, result, err
+		}
+	}
+}
+
+func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model.Run, OperationResult, error) {
+	if err := requireCanonicalTaskID(in.TaskID); err != nil {
+		return model.Run{}, OperationResult{}, err
+	}
 	task, err := s.findTask(ctx, in.TaskID)
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
@@ -1551,16 +1821,30 @@ func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run
 	if err != nil || resolved != task.BaseRevision {
 		return model.Run{}, OperationResult{}, fmt.Errorf("task base unavailable or mismatched")
 	}
-	id, err := model.NewID()
+	var counter model.TaskRunCounter
+	if err := s.Hub.ReadJSON(ctx, s.taskRunCounterPath(task.ProjectID, task.ID), &counter); err != nil {
+		return model.Run{}, OperationResult{}, fmt.Errorf("read task run counter: %w", err)
+	}
+	if err := model.ValidateTaskRunCounter(counter); err != nil {
+		return model.Run{}, OperationResult{}, err
+	}
+	id, err := model.FormatRunID(task.ID, counter.NextRunNumber)
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
+	}
+	if counter.NextRunNumber == model.MaxSafeInteger {
+		if _, readErr := s.Hub.ReadFile(ctx, s.runPath(task.ProjectID, id)); readErr == nil {
+			return model.Run{}, OperationResult{}, fmt.Errorf("run allocator exhausted for task %q", task.ID)
+		} else if !IsNotFound(readErr) {
+			return model.Run{}, OperationResult{}, readErr
+		}
 	}
 	now := time.Now().UTC()
 	run := model.Run{SchemaVersion: model.SchemaVersion, ID: id, TaskID: task.ID, TaskSHA256: task.SHA256, ProjectID: task.ProjectID, GatewayID: s.Config.GatewayID, SessionKey: local.AirelaySessionKey, Branch: task.Branch, BaseRevision: task.BaseRevision, Status: "created", CompletionPath: filepath.Join(s.localRunDir(id), "completion.json"), CreatedAt: now}
 	if err := model.ValidateRun(run); err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
-	if err := s.writeLocalRun(run, task); err != nil {
+	if err := model.ValidateCanonicalRunID(run.ID); err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: create run "+run.ID, func(w string) ([]string, error) {
@@ -1581,6 +1865,22 @@ func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run
 		if currentPlan.ActiveTaskID != task.ID || currentPlan.ActiveRunID != "" {
 			return nil, fmt.Errorf("plan changed before dispatch")
 		}
+		paths := []string{s.runPath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID), s.planPath(task.ProjectID)}
+		var currentCounter model.TaskRunCounter
+		if err := readWorktreeJSON(w, s.taskRunCounterPath(task.ProjectID, task.ID), &currentCounter); err != nil {
+			return nil, err
+		}
+		if currentCounter.NextRunNumber != counter.NextRunNumber || currentCounter.TaskID != task.ID {
+			return nil, fmt.Errorf("task run counter changed before dispatch")
+		}
+		if currentCounter.NextRunNumber < model.MaxSafeInteger {
+			currentCounter.NextRunNumber++
+		}
+		if err := model.ValidateTaskRunCounter(currentCounter); err != nil {
+			return nil, err
+		}
+		paths = append(paths, s.taskRunCounterPath(task.ProjectID, task.ID))
+		counter = currentCounter
 		if err := ensureSessionAvailableInWorktree(w, run.SessionKey, s.Config.MaxReadBytes); err != nil {
 			return nil, err
 		}
@@ -1590,12 +1890,15 @@ func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run
 		currentPlan.UpdatedAt = now
 		currentState.Status = "dispatched"
 		currentState.UpdatedAt = now
-		paths := []string{s.runPath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID), s.planPath(task.ProjectID)}
 		vals := []any{run, currentState, currentPlan}
-		for i, path := range paths {
+		basePaths := []string{s.runPath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID), s.planPath(task.ProjectID)}
+		for i, path := range basePaths {
 			if err := hub.WriteJSON(w, path, vals[i]); err != nil {
 				return nil, err
 			}
+		}
+		if err := hub.WriteJSON(w, s.taskRunCounterPath(task.ProjectID, task.ID), counter); err != nil {
+			return nil, err
 		}
 		return paths, nil
 	})
@@ -1603,6 +1906,9 @@ func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run
 		return model.Run{}, OperationResult{}, err
 	}
 	run.HubRevision = tx.After
+	if err := s.writeLocalRun(run, task); err != nil {
+		return model.Run{}, OperationResult{}, err
+	}
 	if err := s.Git.PrepareBranch(ctx, local, task.Branch, task.BaseRevision); err != nil {
 		_, _ = s.failRun(ctx, run, task, "failed", "repository preparation failed: "+err.Error(), tx.After)
 		return run, OperationResult{}, err
@@ -1634,7 +1940,7 @@ func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run
 	return run, OperationResult{Hub: tx2, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: run.Status}, nil
 }
 func (s *Service) updateRun(ctx context.Context, run model.Run, expected, subject string) (hub.TransactionResult, error) {
-	if err := ensureOperationalRun(run); err != nil {
+	if err := requireCanonicalRun(run); err != nil {
 		return hub.TransactionResult{}, err
 	}
 	return s.Hub.Transact(ctx, expected, subject, func(w string) ([]string, error) {
@@ -1754,7 +2060,7 @@ func (s *Service) durableRepositoryProof(ctx context.Context, run model.Run, pro
 }
 
 func (s *Service) failRun(ctx context.Context, run model.Run, task model.Task, status, summary, expected string) (hub.TransactionResult, error) {
-	if err := ensureOperationalRun(run); err != nil {
+	if err := requireCanonicalRun(run); err != nil {
 		return hub.TransactionResult{}, err
 	}
 	now := time.Now().UTC()
@@ -1810,7 +2116,7 @@ func (s *Service) TaskRead(ctx context.Context, id string) (TaskPacket, error) {
 	}
 	matches := []model.Run{}
 	for _, r := range runs {
-		if r.TaskID == task.ID && operationalActiveRun(r) {
+		if r.TaskID == task.ID && operationalActiveRun(r) && model.ValidateCanonicalRunID(r.ID) == nil {
 			matches = append(matches, r)
 		}
 	}
@@ -1818,8 +2124,8 @@ func (s *Service) TaskRead(ctx context.Context, id string) (TaskPacket, error) {
 		return TaskPacket{}, fmt.Errorf("expected exactly one active run for task, found %d", len(matches))
 	}
 	run := matches[0]
-	if run.Historical {
-		return TaskPacket{}, fmt.Errorf("workflow-v1 active run is history-only")
+	if err := requireCanonicalRun(run); err != nil {
+		return TaskPacket{}, err
 	}
 	if err := s.ensureRunOwned(run); err != nil {
 		return TaskPacket{}, err
@@ -1899,12 +2205,15 @@ func gatewayCompletionPath(run model.Run, requested string) (string, error) {
 }
 
 func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Report, OperationResult, error) {
+	if err := requireCanonicalRunID(in.RunID); err != nil {
+		return model.Report{}, OperationResult{}, err
+	}
 	run, err := s.findRun(ctx, in.RunID)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
-	if run.Historical {
-		return model.Report{}, OperationResult{}, fmt.Errorf("workflow-v1 run is history-only; canonical finalization is unavailable")
+	if err := requireCanonicalRun(run); err != nil {
+		return model.Report{}, OperationResult{}, err
 	}
 	if err := s.ensureRunOwned(run); err != nil {
 		return model.Report{}, OperationResult{}, err
@@ -1931,7 +2240,7 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
-	if completion.RunID != strings.ToLower(run.ID) || completion.TaskSHA256 != run.TaskSHA256 {
+	if completion.RunID != run.ID || completion.TaskSHA256 != run.TaskSHA256 {
 		return model.Report{}, OperationResult{}, fmt.Errorf("completion identity does not match active run")
 	}
 	recomputed, err := model.HashTask(task)
@@ -2108,11 +2417,14 @@ func (s *Service) validateCanonicalReportProof(ctx context.Context, report model
 }
 
 func (s *Service) RunCancel(ctx context.Context, id, expected string) (OperationResult, error) {
+	if err := requireCanonicalRunID(id); err != nil {
+		return OperationResult{}, err
+	}
 	run, err := s.findRun(ctx, id)
 	if err != nil {
 		return OperationResult{}, err
 	}
-	if err := ensureOperationalRun(run); err != nil {
+	if err := requireCanonicalRun(run); err != nil {
 		return OperationResult{}, err
 	}
 	if err := s.ensureRunOwned(run); err != nil {
@@ -2130,7 +2442,7 @@ func (s *Service) RunCancel(ctx context.Context, id, expected string) (Operation
 	if err := s.ensureRunOwned(run); err != nil {
 		return OperationResult{}, err
 	}
-	if err := ensureOperationalRun(run); err != nil {
+	if err := requireCanonicalRun(run); err != nil {
 		return OperationResult{}, err
 	}
 	if !operationalActiveRun(run) {
@@ -2218,6 +2530,9 @@ func (s *Service) validateCancelNoMutationWorktree(ctx context.Context, task mod
 // RunCancelAcknowledgeNoMutation closes a successfully delivered cancellation
 // only when the task branch proves that no source mutation occurred.
 func (s *Service) RunCancelAcknowledgeNoMutation(ctx context.Context, id, expected string) (OperationResult, error) {
+	if err := requireCanonicalRunID(id); err != nil {
+		return OperationResult{}, err
+	}
 	run, err := s.findRun(ctx, id)
 	if err != nil {
 		return OperationResult{}, err
@@ -2225,7 +2540,7 @@ func (s *Service) RunCancelAcknowledgeNoMutation(ctx context.Context, id, expect
 	if err := model.ValidateRun(run); err != nil {
 		return OperationResult{}, err
 	}
-	if err := ensureOperationalRun(run); err != nil {
+	if err := requireCanonicalRun(run); err != nil {
 		return OperationResult{}, err
 	}
 	if err := s.ensureRunOwned(run); err != nil {
@@ -2324,7 +2639,7 @@ func (s *Service) RunCancelAcknowledgeNoMutation(ctx context.Context, id, expect
 		if currentRun.ID != run.ID || currentRun.TaskID != task.ID || currentRun.TaskSHA256 != task.SHA256 || currentRun.ProjectID != task.ProjectID || currentRun.CompletionPath != run.CompletionPath || currentRun.Branch != task.Branch || currentRun.BaseRevision != task.BaseRevision {
 			return nil, fmt.Errorf("run changed before cancellation acknowledgement")
 		}
-		if err := ensureOperationalRun(currentRun); err != nil {
+		if err := requireCanonicalRun(currentRun); err != nil {
 			return nil, err
 		}
 		if currentRun.Status != "cancel_requested" {
@@ -2415,7 +2730,7 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 			return out, err
 		}
 		for _, run := range runs {
-			if run.GatewayID != s.Config.GatewayID || !operationalActiveRun(run) {
+			if model.ValidateCanonicalRunID(run.ID) != nil || run.GatewayID != s.Config.GatewayID || !operationalActiveRun(run) {
 				continue
 			}
 			out.Checked++

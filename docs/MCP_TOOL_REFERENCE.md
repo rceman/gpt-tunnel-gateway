@@ -74,9 +74,13 @@ Examples include `GRP` for `gpt-review-planner` and `GTW` for
 Adoption is one optimistic-revision-guarded hub transaction. It creates one
 immutable allocation record, rejects an existing record or duplicate project
 code, and initializes task and ADR counters. The counters and adopted code
-are not replaced by a later adoption. This slice exposes the record only;
-task, ADR, and run creation still use their existing UUID paths and have not
-switched to compact identifiers.
+are not replaced by a later adoption. New task, ADR, run, operator-record, and
+correction writes allocate canonical `CODE-TSK<N>`,
+`CODE-TSK<N>-RUN<M>`, `CODE-ADR<N>`, and `CODE-OPR<N>` identifiers from their
+bounded project counters. Task creation accepts a slug and derives its branch
+and authoritative default-branch base revision; callers cannot provide either
+field. Historical workflow-v1 identifiers remain read-only compatibility for
+bounded history reads only.
 
 ## Cancellation acknowledgement
 

@@ -108,6 +108,24 @@ kernel-backed lock, bound all message/output windows, and return the exact
 bounded Airelay result. They do not create task/run/plan records or mutate Git,
 and caller-supplied session keys and generic shell execution are impossible.
 
+## Identifier allocation
+
+Operational identifiers are canonical compact values: `CODE-TSK<N>` for tasks,
+`CODE-TSK<N>-RUN<M>` for runs, `CODE-ADR<N>` for ADRs, and `CODE-OPR<N>` for
+operator records and corrections. Project adoption initializes the task and
+ADR allocation records; run and operator counters are maintained with their
+own optimistic hub transactions. All counters are bounded by the positive
+JavaScript-safe integer maximum, so the maximum value may be allocated once
+but can never be reused. Unpinned conflicts retry within the shared bounded
+allocator limit, while pinned writes fail immediately.
+
+Task creation requires a validated slug. The gateway derives the task branch
+from the allocated task ID and slug and resolves the task base from the
+authoritative remote default branch; branch/base overrides are not an
+operational input. Workflow-v1 identifiers and history records remain
+read-only inputs to list/read surfaces and are excluded from execution,
+session ownership, dispatch, cancellation, sweep, and other mutations.
+
 The v0.6.1 liveness layer aggregates plan/task/run/repository and bounded
 Airelay evidence in `project_status`. It classifies the session with one fixed
 enum and recognizes compaction only from a completed marker plus an active

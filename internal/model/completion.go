@@ -10,7 +10,6 @@ import (
 	"unicode/utf8"
 )
 
-var completionUUIDRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 var completionHashRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var completionGateRE = regexp.MustCompile(`^G[1-9][0-9]*$`)
 var completionACRE = regexp.MustCompile(`^AC[1-9][0-9]*$`)
@@ -232,7 +231,7 @@ func ParseCompletion(data []byte, task Task) (Completion, error) {
 }
 
 func ValidateCompletion(c Completion, task Task) error {
-	if c.SchemaVersion != 1 || !completionUUIDRE.MatchString(c.RunID) || strings.ToLower(c.RunID) != c.RunID {
+	if c.SchemaVersion != 1 || ValidateCanonicalRunID(c.RunID) != nil {
 		return fmt.Errorf("invalid completion identity")
 	}
 	if !completionHashRE.MatchString(c.TaskSHA256) || strings.ToLower(c.TaskSHA256) != c.TaskSHA256 || c.TaskSHA256 != task.SHA256 {
