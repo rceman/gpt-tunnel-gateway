@@ -39,6 +39,24 @@ in the exact remote `develop` HEAD and records that receipt. The actual merge
 is a later integration operation; `task_mark_merged` does not merge, push,
 checkout, or delete branches.
 
+## Run-bound Delivery review
+
+The Delivery review tools are `task_review_report_start`,
+`task_review_report_section_update`, `task_review_report_validate`,
+`task_review_report_finalize`, and `task_report_read`. They use the same
+implementation/correction Task and Run; they never create a review-only Task,
+Run, branch, source commit or independent report number. Draft section updates
+are local and optimistic. Only `finalize` publishes the immutable
+`<run-id>-REPORT` Hub record, and it derives identity, gates, repository state,
+reviewed head and changed files from existing authorities. The typed sections
+are `outcome`, `findings`, `scope_coverage`, `unexpected_surfaces`,
+`historical_compatibility`, `prohibited_actions`, and `next_action`; machine
+sections cannot be caller-overridden. `task_read` exposes all ordered Run
+summaries and `task_report_read` discovers the latest applicable report without
+requiring a report ID. A succeeded Agent Run with no Delivery report is
+`awaiting_review`; a rejection blocks merge-ready and only
+`accepted_reviewed_merge_ready` permits reviewed merge-ready state.
+
 ## Operator journal bootstrap
 
 The immutable bootstrap tools are `operator_record`, `operator_history`, and

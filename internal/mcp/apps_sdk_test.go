@@ -339,9 +339,42 @@ func TestTaskReadOutputSchemaAcceptsBothDeclaredShapes(t *testing.T) {
 		},
 		"repository_root": "/tmp/project", "completion_path": "/tmp/completion",
 		"finalize_command": "gpt-tunnel run finalize run", "text": "packet",
+		"run_summaries": []any{},
 	}
 	if err := validateOutputValue(toolOutputSchemas["task_read"], active); err != nil {
+		if packetErr := validateOutputValue(taskPacketOutputSchema(), active); packetErr != nil {
+			t.Fatalf("active task shape rejected: %v (packet: %v)", err, packetErr)
+		}
 		t.Fatalf("active task shape rejected: %v", err)
+	}
+}
+
+func TestRunReviewReportSchemasKeepDraftAndFinalParityClosed(t *testing.T) {
+	draft := runReviewDraftOutputSchema()
+	final := runReviewReportOutputSchema()
+	if draft["additionalProperties"] != false || final["additionalProperties"] != false {
+		t.Fatal("review report schemas must be closed")
+	}
+	draftProperties := draft["properties"].(map[string]any)
+	finalProperties := final["properties"].(map[string]any)
+	for _, name := range []string{"repository_state", "gates", "findings", "scope_coverage", "changed_files"} {
+		if _, ok := draftProperties[name]; !ok {
+			t.Fatalf("draft schema missing %s", name)
+		}
+		if _, ok := finalProperties[name]; !ok {
+			t.Fatalf("final schema missing %s", name)
+		}
+	}
+	if _, ok := finalProperties["draft_revision"]; ok {
+		t.Fatal("final report advertises mutable draft_revision")
+	}
+	if _, ok := finalProperties["completed_sections"]; ok {
+		t.Fatal("final report advertises mutable completed_sections")
+	}
+	findings := draftProperties["findings"].(map[string]any)
+	items := findings["items"].(map[string]any)
+	if items["additionalProperties"] != false {
+		t.Fatalf("draft findings are not closed: %#v", findings)
 	}
 }
 
@@ -360,7 +393,7 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	local := config.ProjectConfig{Root: "/tmp/project", Mirror: "/tmp/mirror.git", Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "project_master"}
 	worktree := gitx.WorktreeStatus{Branch: "main", Head: strings.Repeat("f", 40), Ahead: 0, Behind: 0, Porcelain: "", Clean: true}
 	report := model.Report{SchemaVersion: 1, TaskID: "task", RunID: "run", ProjectID: "project", Status: "succeeded", Summary: "done", GateResults: []model.CompletionGateResult{}, AcceptanceCoverage: []string{}, Deviations: []string{}, RemainingRisks: []string{}, Repository: model.RepositoryProof{Branch: "feature/x", Head: worktree.Head, WorktreeClean: true, BaseAncestor: true, Commits: []string{}, ChangedFiles: []string{}, DiffScope: "base..head"}, FinishedAt: now}
-	packet := service.TaskPacket{Task: task, Run: run, Project: project, Plan: plan, RepositoryRoot: "/tmp/project", CompletionPath: run.CompletionPath, FinalizeCommand: "gpt-tunnel run finalize run", Text: "packet"}
+	packet := service.TaskPacket{Task: task, Run: run, RunSummaries: []model.RunReviewSummary{}, Project: project, Plan: plan, RepositoryRoot: "/tmp/project", CompletionPath: run.CompletionPath, FinalizeCommand: "gpt-tunnel run finalize run", Text: "packet"}
 	publicRun := service.PublicRunView(run)
 	publicPacket := service.PublicTaskPacketView(packet)
 	sessionID := "project_master"
@@ -370,6 +403,10 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	commit := gitx.Commit{SHA: worktree.Head, Parents: []string{}, AuthorName: "GPT", AuthorEmail: "gpt@example.invalid", AuthorDate: now.Format(time.RFC3339), Subject: "subject"}
 	compare := gitx.Compare{MergeBase: worktree.Head, LeftOnly: 0, RightOnly: 0}
 	clean := true
+	reviewState := model.ReviewRepositoryState{Branch: "feature/x", BaseRevision: task.BaseRevision, ReviewedHead: worktree.Head, WorktreeClean: true, BaseAncestor: true}
+	reviewReport := model.RunReviewReport{SchemaVersion: model.RunReviewReportSchemaVersion, ID: "run-REPORT", TaskID: "task", RunID: "run", ProjectID: "project", TaskSHA256: task.SHA256, Branch: "feature/x", BaseRevision: task.BaseRevision, ReviewedHead: worktree.Head, Outcome: model.ReviewOutcomeAccepted, RepositoryState: reviewState, Gates: []model.CompletionGateResult{}, Findings: []model.ReviewFinding{}, ScopeCoverage: []model.ReviewScopeCoverage{}, ChangedFiles: []string{}, UnexpectedSurfaces: []string{}, HistoricalCompatibility: []string{}, ProhibitedActions: []string{}, NextAction: "reviewed_merge_ready", FinishedAt: now}
+	reviewDraft := model.RunReviewReportDraft{SchemaVersion: model.RunReviewReportSchemaVersion, ID: "run-REPORT", TaskID: "task", RunID: "run", ProjectID: "project", TaskSHA256: task.SHA256, Branch: "feature/x", BaseRevision: task.BaseRevision, ReviewedHead: worktree.Head, RepositoryState: reviewState, Gates: []model.CompletionGateResult{}, Findings: []model.ReviewFinding{}, ScopeCoverage: []model.ReviewScopeCoverage{}, ChangedFiles: []string{}, UnexpectedSurfaces: []string{}, HistoricalCompatibility: []string{}, ProhibitedActions: []string{}, CompletedSections: model.RunReviewReportSections, DraftRevision: 1, UpdatedAt: now}
+	reviewValidation := model.RunReviewValidation{Valid: true, Errors: []string{}, Draft: reviewDraft}
 	snapshot := model.ReviewSnapshot{SchemaVersion: 1, Run: model.ReviewSnapshotRun{ID: "run", TaskID: "task", ProjectID: "project", Status: "succeeded", CreatedAt: now}, Task: model.ReviewSnapshotTask{ID: "task", SHA256: task.SHA256, Title: "title", Objective: "objective", AcceptanceCriteria: []string{}, Constraints: []string{}, RequiredGates: []string{}, CreatedBy: "gpt", CreatedAt: now, TaskStateStatus: "completed"}, Report: model.ReviewSnapshotReport{Available: true, Status: "succeeded", Summary: "done", Commits: []string{}, ChangedFiles: []string{}, GateResults: []model.CompletionGateResult{}, AcceptanceCoverage: []string{}, Deviations: []string{}, RemainingRisks: []string{}, FinishedAt: &now}, Evidence: model.ReviewSnapshotEvidence{Available: true, Head: worktree.Head, Branch: "feature/x", WorktreeClean: &clean, Notes: []string{}, RecordedAt: &now}, Repository: model.ReviewSnapshotRepo{RefreshAttempted: true, RefreshSucceeded: true, DefaultBranch: "main", TaskBranch: "feature/x", TaskBranchPublished: true, TaskBranchHead: worktree.Head, Worktree: model.ReviewSnapshotWorktree{Branch: "feature/x", Head: worktree.Head, Clean: true}, EvidenceHeadReachable: true, BaseToEvidence: model.ReviewSnapshotCompare{MergeBase: task.BaseRevision}, DefaultToEvidence: model.ReviewSnapshotCompare{}, ChangedFiles: []string{}}, Checks: []model.ReviewSnapshotCheck{}, ReviewState: "reviewable", NextAction: "perform_static_review"}
 
 	samples := map[string]any{
@@ -381,7 +418,9 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		"project_status":            service.ProjectStatus{Project: project, Local: local, Worktree: worktree, Plan: plan.StatusView(), HubRevision: transaction.After}, "project_register": operation,
 		"plan_read": plan, "plan_cutover": operation, "plan_update": operation, "plan_section_read": section, "plan_section_create": operation, "plan_section_update": operation, "plan_section_delete": operation, "plan_render": render, "plan_history": map[string]any{"history": []map[string]string{{"sha": transaction.After, "date": now.Format(time.RFC3339), "author": "GPT", "subject": "subject"}}},
 		"adr_list": map[string]any{"adrs": []model.ADR{adr}}, "adr_read": adr, "adr_create": operation,
-		"task_create": map[string]any{"task": task, "operation": operation}, "task_list": map[string]any{"tasks": []service.TaskRecord{{Task: task, State: state}}}, "task_read": publicPacket,
+		"task_create": map[string]any{"task": task, "operation": operation}, "task_list": map[string]any{"tasks": []service.TaskRecord{{Task: task, State: state, RunSummaries: []model.RunReviewSummary{}}}}, "task_read": publicPacket,
+		"task_review_report_start": reviewDraft, "task_review_report_section_update": reviewDraft, "task_review_report_validate": reviewValidation,
+		"task_review_report_finalize": map[string]any{"report": reviewReport, "operation": operation}, "task_report_read": reviewReport,
 		"task_dispatch": map[string]any{"run": publicRun, "operation": operation}, "task_supersede": map[string]any{"task": task, "operation": operation}, "task_cancel": operation,
 		"task_mark_merge_ready": operation, "task_defer": operation, "task_mark_merged": operation,
 		"run_list": map[string]any{"runs": []service.PublicRun{publicRun}}, "run_read": publicRun, "run_status": publicRun, "run_report": report,

@@ -115,8 +115,9 @@ func TestTaskMarkMergeReadyUsesLatestSuccessfulReportAndDeferReusesHead(t *testi
 		t.Fatal("succeeded report was accepted for unrelated ready task state")
 	}
 	completedState := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "completed", UpdatedAt: time.Now().UTC()}
-	completedRevision := installTaskLifecycleState(t, s, task, completedState, invalidRevision)
-	ready, err := s.TaskMarkMergeReady(ctx, TaskMarkMergeReadyInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: completedRevision}})
+	installTaskLifecycleState(t, s, task, completedState, invalidRevision)
+	delivery := finalizeAcceptedDeliveryReview(t, s, task, run)
+	ready, err := s.TaskMarkMergeReady(ctx, TaskMarkMergeReadyInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: delivery.HubCommit}})
 	if err != nil {
 		t.Fatal(err)
 	}

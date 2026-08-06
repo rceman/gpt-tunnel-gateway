@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "task_id", "run_id", "project_id", "task_sha256", "branch", "base_revision", "reviewed_head", "repository_state", "gates", "changed_files", "completed_sections", "draft_revision", "updated_at"],
+  "properties": {
+    "schema_version": {"const": 1}, "id": {"type": "string"}, "task_id": {"type": "string"}, "run_id": {"type": "string"}, "project_id": {"type": "string"}, "task_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "branch": {"type": "string"}, "base_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "reviewed_head": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "repository_state": {"$ref": "#/$defs/repository_state"},
+    "gates": {"$ref": "#/$defs/gates"}, "changed_files": {"type": "array", "maxItems": 1024, "items": {"type": "string"}},
+    "outcome": {"enum": ["accepted_reviewed_merge_ready", "rejected_needs_correction", "blocked_planner_decision_required", "inconclusive_review_required"]},
+    "findings": {"$ref": "#/$defs/findings"}, "scope_coverage": {"$ref": "#/$defs/scope_coverage"}, "unexpected_surfaces": {"type": "array", "maxItems": 256, "items": {"type": "string"}}, "historical_compatibility": {"type": "array", "maxItems": 256, "items": {"type": "string"}}, "prohibited_actions": {"type": "array", "maxItems": 256, "items": {"type": "string"}}, "next_action": {"type": "string", "maxLength": 20000}, "completed_sections": {"type": "array", "items": {"type": "string"}}, "draft_revision": {"type": "integer", "minimum": 1}, "updated_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "repository_state": {"type": "object", "additionalProperties": false, "required": ["branch", "base_revision", "reviewed_head", "worktree_clean", "base_ancestor"], "properties": {"branch": {"type": "string"}, "base_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "reviewed_head": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "worktree_clean": {"type": "boolean"}, "base_ancestor": {"type": "boolean"}}},
+    "gates": {"type": "array", "maxItems": 128, "items": {"type": "object", "additionalProperties": false, "required": ["id", "exit_code"], "properties": {"id": {"type": "string"}, "exit_code": {"type": "integer", "minimum": 0}}}},
+    "findings": {"type": "array", "maxItems": 256, "items": {"type": "object", "additionalProperties": false, "required": ["id", "severity", "title", "detail"], "properties": {"id": {"type": "string"}, "severity": {"type": "string"}, "title": {"type": "string"}, "detail": {"type": "string"}}}},
+    "scope_coverage": {"type": "array", "maxItems": 256, "items": {"type": "object", "additionalProperties": false, "required": ["surface", "status", "detail"], "properties": {"surface": {"type": "string"}, "status": {"enum": ["covered", "inspected_no_change", "blocked"]}, "detail": {"type": "string"}}}}
+  }
+}

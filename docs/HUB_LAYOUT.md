@@ -14,11 +14,19 @@ gpt-tunnel/v1/
     tasks/<task-id>.state.json
     runs/<run-id>/run.json
     runs/<run-id>/report.json
+    runs/<run-id>/review-report.json
     operator-journal/counter.json
     operator-journal/events/<PROJECT-CODE>-OPR<N>.json
 ```
 
-New workflow-2.0 finalization writes only the two files shown above. Existing
+The Agent completion report and Delivery review report are separate
+authorities. The Delivery report is immutable, deterministic
+(`<run-id>-REPORT`), and is published only after its Gateway-local draft has
+passed strict validation. Gateway-local drafts live under the configured state
+directory and never enter the Hub.
+
+New workflow-2.0 finalization writes the Agent files shown above; Delivery
+review publication adds only the separate `review-report.json`. Existing
 protocol-v1 result/evidence records remain immutable history and are not read
 as completion input or copied into new reports.
 

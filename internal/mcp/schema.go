@@ -272,12 +272,22 @@ func worktreeStatusOutputSchema() map[string]any {
 }
 
 func taskRecordOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"task": taskOutputSchema(), "state": taskStateOutputSchema()}, "task", "state")
+	summary := runReviewSummaryOutputSchema()
+	return closedOutput(map[string]any{"task": taskOutputSchema(), "state": taskStateOutputSchema(), "run_summaries": outputArray(summary)}, "task", "state")
+}
+
+func runReviewSummaryOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"run_id": outputString(), "agent_status": outputString(), "delivery_status": outputString(),
+		"delivery_report_id": outputString(), "delivery_outcome": outputEnum(model.ReviewOutcomeAccepted, model.ReviewOutcomeRejected, model.ReviewOutcomeBlocked, model.ReviewOutcomeInconclusive),
+		"reviewed_head": outputString(), "blocker": outputString(), "next_action": outputString(), "history_only": outputBoolean(),
+	}, "run_id", "agent_status", "delivery_status", "history_only")
 }
 
 func taskPacketOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"task": taskOutputSchema(), "run": taskPacketRunOutputSchema(), "project": projectOutputSchema(), "plan": planOutputSchema(),
+		"run_summaries":   outputArray(runReviewSummaryOutputSchema()),
 		"repository_root": outputString(), "completion_path": outputString(),
 		"finalize_command": outputString(), "text": outputString(),
 	}, "task", "run", "project", "plan", "repository_root", "completion_path", "finalize_command", "text")
@@ -285,9 +295,50 @@ func taskPacketOutputSchema() map[string]any {
 
 func taskReadOutputSchema() map[string]any {
 	inactive := closedOutput(map[string]any{
-		"task": taskOutputSchema(), "state": taskStateOutputSchema(), "active_run": outputBoolean(),
+		"task": taskOutputSchema(), "state": taskStateOutputSchema(), "run_summaries": outputArray(runReviewSummaryOutputSchema()), "active_run": outputBoolean(),
 	}, "task", "state", "active_run")
 	return map[string]any{"type": "object", "oneOf": []any{taskPacketOutputSchema(), inactive}}
+}
+
+func runReviewReportOutputSchema() map[string]any {
+	state := closedOutput(map[string]any{
+		"branch": outputString(), "base_revision": outputString(), "reviewed_head": outputString(),
+		"worktree_clean": outputBoolean(), "base_ancestor": outputBoolean(),
+	}, "branch", "base_revision", "reviewed_head", "worktree_clean", "base_ancestor")
+	gate := closedOutput(map[string]any{"id": outputString(), "exit_code": outputInteger()}, "id", "exit_code")
+	finding := closedOutput(map[string]any{"id": outputString(), "severity": outputString(), "title": outputString(), "detail": outputString()}, "id", "severity", "title", "detail")
+	coverage := closedOutput(map[string]any{"surface": outputString(), "status": outputEnum("covered", "inspected_no_change", "blocked"), "detail": outputString()}, "surface", "status", "detail")
+	return closedOutput(map[string]any{
+		"schema_version": outputInteger(), "id": outputString(), "task_id": outputString(), "run_id": outputString(), "project_id": outputString(),
+		"task_sha256": outputString(), "branch": outputString(), "base_revision": outputString(), "reviewed_head": outputString(),
+		"outcome":          outputEnum(model.ReviewOutcomeAccepted, model.ReviewOutcomeRejected, model.ReviewOutcomeBlocked, model.ReviewOutcomeInconclusive),
+		"repository_state": state, "gates": outputArray(gate), "findings": outputArray(finding), "scope_coverage": outputArray(coverage),
+		"changed_files": outputArray(outputString()), "unexpected_surfaces": outputArray(outputString()), "historical_compatibility": outputArray(outputString()),
+		"prohibited_actions": outputArray(outputString()), "next_action": outputString(), "finished_at": outputDateTime(), "hub_commit": outputString(),
+	}, "schema_version", "id", "task_id", "run_id", "project_id", "task_sha256", "branch", "base_revision", "reviewed_head", "outcome", "repository_state", "gates", "findings", "scope_coverage", "changed_files", "unexpected_surfaces", "historical_compatibility", "prohibited_actions", "next_action", "finished_at")
+}
+
+func runReviewDraftOutputSchema() map[string]any {
+	state := closedOutput(map[string]any{
+		"branch": outputString(), "base_revision": outputString(), "reviewed_head": outputString(),
+		"worktree_clean": outputBoolean(), "base_ancestor": outputBoolean(),
+	}, "branch", "base_revision", "reviewed_head", "worktree_clean", "base_ancestor")
+	gate := closedOutput(map[string]any{"id": outputString(), "exit_code": outputInteger()}, "id", "exit_code")
+	finding := closedOutput(map[string]any{"id": outputString(), "severity": outputString(), "title": outputString(), "detail": outputString()}, "id", "severity", "title", "detail")
+	coverage := closedOutput(map[string]any{"surface": outputString(), "status": outputEnum("covered", "inspected_no_change", "blocked"), "detail": outputString()}, "surface", "status", "detail")
+	return closedOutput(map[string]any{
+		"schema_version": outputInteger(), "id": outputString(), "task_id": outputString(), "run_id": outputString(), "project_id": outputString(),
+		"task_sha256": outputString(), "branch": outputString(), "base_revision": outputString(), "reviewed_head": outputString(),
+		"repository_state": state, "gates": outputArray(gate), "changed_files": outputArray(outputString()),
+		"outcome":  outputEnum(model.ReviewOutcomeAccepted, model.ReviewOutcomeRejected, model.ReviewOutcomeBlocked, model.ReviewOutcomeInconclusive),
+		"findings": outputArray(finding), "scope_coverage": outputArray(coverage), "unexpected_surfaces": outputArray(outputString()),
+		"historical_compatibility": outputArray(outputString()), "prohibited_actions": outputArray(outputString()), "next_action": outputString(),
+		"completed_sections": outputArray(outputString()), "draft_revision": outputInteger(), "updated_at": outputDateTime(),
+	}, "schema_version", "id", "task_id", "run_id", "project_id", "task_sha256", "branch", "base_revision", "reviewed_head", "repository_state", "gates", "changed_files", "completed_sections", "draft_revision", "updated_at")
+}
+
+func runReviewValidationOutputSchema() map[string]any {
+	return closedOutput(map[string]any{"valid": outputBoolean(), "errors": outputArray(outputString()), "draft": runReviewDraftOutputSchema()}, "valid", "errors", "draft")
 }
 
 func sweepOutputSchema() map[string]any {
@@ -346,8 +397,13 @@ var toolOutputSchemas = map[string]map[string]any{
 	"task_create": closedOutput(map[string]any{
 		"task": taskOutputSchema(), "operation": operationOutputSchema(),
 	}, "task", "operation"),
-	"task_list": closedOutput(map[string]any{"tasks": outputArray(taskRecordOutputSchema())}, "tasks"),
-	"task_read": taskReadOutputSchema(),
+	"task_list":                         closedOutput(map[string]any{"tasks": outputArray(taskRecordOutputSchema())}, "tasks"),
+	"task_read":                         taskReadOutputSchema(),
+	"task_review_report_start":          runReviewDraftOutputSchema(),
+	"task_review_report_section_update": runReviewDraftOutputSchema(),
+	"task_review_report_validate":       runReviewValidationOutputSchema(),
+	"task_review_report_finalize":       closedOutput(map[string]any{"report": runReviewReportOutputSchema(), "operation": operationOutputSchema()}, "report", "operation"),
+	"task_report_read":                  runReviewReportOutputSchema(),
 	"task_dispatch": closedOutput(map[string]any{
 		"run": runOutputSchema(), "operation": operationOutputSchema(),
 	}, "run", "operation"),
@@ -402,7 +458,7 @@ var canonicalToolManifest = []string{
 	"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_identifiers_adopt", "project_status",
 	"project_register", "plan_read", "plan_cutover", "plan_update", "plan_section_read",
 	"plan_section_create", "plan_section_update", "plan_section_delete", "plan_render", "plan_history",
-	"adr_list", "adr_read", "adr_create", "task_create", "task_list", "task_read", "task_dispatch",
+	"adr_list", "adr_read", "adr_create", "task_create", "task_list", "task_read", "task_review_report_start", "task_review_report_section_update", "task_review_report_validate", "task_review_report_finalize", "task_report_read", "task_dispatch",
 	"task_supersede", "task_cancel", "task_mark_merge_ready", "task_defer", "task_mark_merged", "run_list", "run_read", "run_status", "run_report",
 	"run_review_snapshot", "run_agent_tail", "run_resume", "run_sweep", "run_cancel", "run_cancel_acknowledge_no_mutation", "git_refresh", "git_refs",
 	"agent_send", "agent_tail", "agent_status",
@@ -424,7 +480,7 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	for _, name := range []string{
 		"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_status",
 		"plan_read", "plan_section_read", "plan_render", "plan_history", "adr_list", "adr_read", "task_list", "task_read",
-		"run_list", "run_read", "run_status", "run_report",
+		"run_list", "run_read", "run_status", "run_report", "task_review_report_validate", "task_report_read",
 		"git_refs", "git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare",
 		"git_merge_base", "git_worktree_status", "git_worktree_diff",
 	} {
@@ -441,6 +497,9 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	for _, name := range []string{"project_register", "project_identifiers_adopt", "adr_create", "task_create", "plan_section_create"} {
 		result[name] = additiveExternalAnnotations()
 	}
+	result["task_review_report_start"] = additiveExternalAnnotations()
+	result["task_review_report_section_update"] = additiveExternalAnnotations()
+	result["task_review_report_finalize"] = destructiveExternalAnnotations()
 	for _, name := range []string{"plan_cutover", "plan_update", "plan_section_update", "plan_section_delete", "task_dispatch", "task_supersede", "task_cancel", "task_mark_merge_ready", "task_defer", "task_mark_merged", "run_resume", "run_sweep", "run_cancel", "run_cancel_acknowledge_no_mutation"} {
 		result[name] = destructiveExternalAnnotations()
 	}

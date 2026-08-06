@@ -35,6 +35,11 @@ gpt-tunnel task read <task-id>
 gpt-tunnel task dispatch <task-id> [--expected-hub-revision <sha>]
 gpt-tunnel task supersede <task-id> --file <input.json>
 gpt-tunnel task cancel <task-id> [--expected-hub-revision <sha>]
+gpt-tunnel task review-report start <task-id> <run-id>
+gpt-tunnel task review-report update <task-id> <run-id> <section-id> --revision <N> --file <payload.json>
+gpt-tunnel task review-report validate <task-id> <run-id>
+gpt-tunnel task review-report finalize <task-id> <run-id> --revision <N> [--expected-hub-revision <sha>]
+gpt-tunnel task report-read <task-id> [<run-id>]
 
 gpt-tunnel run list <project-id>
 gpt-tunnel run read|status|report|review-snapshot <run-id>
@@ -59,6 +64,18 @@ canonical operational run exists. For a historical task or a task without an
 active run, it falls back to the task and mutable-state record. Historical
 workflow-v1 task/run/ADR/operator identifiers remain read-only; they are not
 accepted by execution or mutation operations.
+
+Delivery review is bound to the same completed Agent Run. `review-report
+start`, `update`, and `validate` write only a Gateway-local atomic draft under
+the configured state directory. `finalize` revalidates the immutable Task
+hash, Run identity, branch, base and reviewed source head, then publishes one
+`<run-id>-REPORT` report in one Hub transaction. A second report, stale draft,
+stale Hub revision or changed source head is rejected without publication.
+`task read` includes ordered Run summaries with Agent status, Delivery status,
+outcome, reviewed head, blocker and next action. A succeeded Agent Run without
+a Delivery report is explicitly `awaiting_review`; only
+`accepted_reviewed_merge_ready` is merge-ready. No routine review-only Task,
+Run, branch or commit exists.
 
 `run finalize` is local-agent-only. It is intentionally not exposed as a remote MCP write tool.
 

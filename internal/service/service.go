@@ -141,19 +141,21 @@ type ProjectStatus struct {
 }
 
 type TaskRecord struct {
-	Task  model.Task      `json:"task"`
-	State model.TaskState `json:"state"`
+	Task         model.Task               `json:"task"`
+	State        model.TaskState          `json:"state"`
+	RunSummaries []model.RunReviewSummary `json:"run_summaries"`
 }
 
 type TaskPacket struct {
-	Task            model.Task    `json:"task"`
-	Run             model.Run     `json:"run"`
-	Project         model.Project `json:"project"`
-	Plan            model.Plan    `json:"plan"`
-	RepositoryRoot  string        `json:"repository_root"`
-	CompletionPath  string        `json:"completion_path"`
-	FinalizeCommand string        `json:"finalize_command"`
-	Text            string        `json:"text"`
+	Task            model.Task               `json:"task"`
+	Run             model.Run                `json:"run"`
+	RunSummaries    []model.RunReviewSummary `json:"run_summaries"`
+	Project         model.Project            `json:"project"`
+	Plan            model.Plan               `json:"plan"`
+	RepositoryRoot  string                   `json:"repository_root"`
+	CompletionPath  string                   `json:"completion_path"`
+	FinalizeCommand string                   `json:"finalize_command"`
+	Text            string                   `json:"text"`
 }
 
 func (s *Service) projectPrefix(id string) string {
@@ -1146,7 +1148,15 @@ func (s *Service) TaskList(ctx context.Context, project string) ([]TaskRecord, e
 		if err != nil {
 			return nil, err
 		}
-		items = append(items, TaskRecord{Task: task, State: state})
+		runs, err := s.RunList(ctx, project)
+		if err != nil {
+			return nil, err
+		}
+		summaries, err := s.taskReviewSummaries(ctx, task, runs)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, TaskRecord{Task: task, State: state, RunSummaries: summaries})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Task.CreatedAt.After(items[j].Task.CreatedAt) })
 	return items, nil
@@ -1177,7 +1187,15 @@ func (s *Service) TaskReadRecord(ctx context.Context, id string) (TaskRecord, er
 	if err != nil {
 		return TaskRecord{}, err
 	}
-	return TaskRecord{Task: task, State: state}, nil
+	runs, err := s.RunList(ctx, task.ProjectID)
+	if err != nil {
+		return TaskRecord{}, err
+	}
+	summaries, err := s.taskReviewSummaries(ctx, task, runs)
+	if err != nil {
+		return TaskRecord{}, err
+	}
+	return TaskRecord{Task: task, State: state, RunSummaries: summaries}, nil
 }
 func (s *Service) TaskSupersede(ctx context.Context, oldID string, in TaskCreateInput) (model.Task, OperationResult, error) {
 	for attempt := 0; ; attempt++ {
@@ -1370,9 +1388,30 @@ func (s *Service) TaskMarkMergeReady(ctx context.Context, in TaskMarkMergeReadyI
 	if err := model.ValidateCommitSHA(report.Repository.Head); err != nil {
 		return OperationResult{}, fmt.Errorf("successful report repository head: %w", err)
 	}
-	tx, err := s.transitionTaskState(ctx, task, in.ExpectedHubRevision, "gateway: mark task merge-ready "+task.ID, func(current model.TaskState) (model.TaskState, error) {
+	delivery, err := s.TaskReportRead(ctx, task.ID, "")
+	if err != nil {
+		return OperationResult{}, fmt.Errorf("task requires a finalized Delivery review: %w", err)
+	}
+	if delivery.Outcome != model.ReviewOutcomeAccepted {
+		return OperationResult{}, fmt.Errorf("Delivery review outcome %q does not permit merge-ready", delivery.Outcome)
+	}
+	if delivery.ReviewedHead != report.Repository.Head {
+		return OperationResult{}, fmt.Errorf("Delivery review head does not match successful Agent report")
+	}
+	tx, err := s.transitionTaskStateWithWorktree(ctx, task, in.ExpectedHubRevision, "gateway: mark task merge-ready "+task.ID, func(worktree string, current model.TaskState) (model.TaskState, error) {
 		if current.Status != "completed" {
 			return model.TaskState{}, fmt.Errorf("task changed before merge_ready: %s", current.Status)
+		}
+		deliveryData, err := os.ReadFile(filepath.Join(worktree, filepath.FromSlash(s.reviewReportPath(task.ProjectID, delivery.RunID))))
+		if err != nil {
+			return model.TaskState{}, fmt.Errorf("Delivery review changed before merge_ready: %w", err)
+		}
+		currentDelivery, err := model.ParseRunReviewReport(deliveryData)
+		if err != nil {
+			return model.TaskState{}, fmt.Errorf("Delivery review changed before merge_ready: %w", err)
+		}
+		if err := model.ValidateRunReviewReport(currentDelivery); err != nil || currentDelivery.TaskID != task.ID || currentDelivery.ProjectID != task.ProjectID || currentDelivery.Outcome != model.ReviewOutcomeAccepted || currentDelivery.ReviewedHead != report.Repository.Head {
+			return model.TaskState{}, fmt.Errorf("Delivery review no longer permits merge-ready")
 		}
 		current.Status = "merge_ready"
 		current.ReviewedHead = report.Repository.Head
@@ -1534,6 +1573,12 @@ func (s *Service) latestSuccessfulReport(ctx context.Context, task model.Task) (
 }
 
 func (s *Service) transitionTaskState(ctx context.Context, task model.Task, expected, subject string, mutate func(model.TaskState) (model.TaskState, error)) (hub.TransactionResult, error) {
+	return s.transitionTaskStateWithWorktree(ctx, task, expected, subject, func(_ string, current model.TaskState) (model.TaskState, error) {
+		return mutate(current)
+	})
+}
+
+func (s *Service) transitionTaskStateWithWorktree(ctx context.Context, task model.Task, expected, subject string, mutate func(string, model.TaskState) (model.TaskState, error)) (hub.TransactionResult, error) {
 	if expected == "" {
 		var err error
 		expected, err = s.hubRevision(ctx)
@@ -1559,7 +1604,7 @@ func (s *Service) transitionTaskState(ctx context.Context, task model.Task, expe
 		if err := model.ValidateTaskState(current, currentTask); err != nil {
 			return nil, err
 		}
-		next, err := mutate(current)
+		next, err := mutate(worktree, current)
 		if err != nil {
 			return nil, err
 		}
@@ -2167,7 +2212,11 @@ func (s *Service) TaskRead(ctx context.Context, id string) (TaskPacket, error) {
 		return TaskPacket{}, err
 	}
 	text := renderPacket(task, run, project, plan, local.Root)
-	return TaskPacket{Task: task, Run: run, Project: project, Plan: plan, RepositoryRoot: local.Root, CompletionPath: run.CompletionPath, FinalizeCommand: "gpt-tunnel run finalize " + run.ID, Text: text}, nil
+	summaries, err := s.taskReviewSummaries(ctx, task, runs)
+	if err != nil {
+		return TaskPacket{}, err
+	}
+	return TaskPacket{Task: task, Run: run, RunSummaries: summaries, Project: project, Plan: plan, RepositoryRoot: local.Root, CompletionPath: run.CompletionPath, FinalizeCommand: "gpt-tunnel run finalize " + run.ID, Text: text}, nil
 }
 func renderPacket(task model.Task, run model.Run, project model.Project, plan model.Plan, root string) string {
 	var b strings.Builder

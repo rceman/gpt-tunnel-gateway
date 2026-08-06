@@ -534,7 +534,56 @@ func (s *Server) tools() map[string]Tool {
 		if e2 != nil {
 			return nil, e
 		}
-		return map[string]any{"task": task.Task, "state": task.State, "active_run": false}, nil
+		return map[string]any{"task": task.Task, "state": task.State, "run_summaries": task.RunSummaries, "active_run": false}, nil
+	})
+	add("task_review_report_start", "Start the Gateway-local Delivery review draft for the completed Agent Run.", obj(map[string]any{"task_id": str("Task identifier"), "run_id": str("Same implementation Run identifier")}, "task_id", "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in struct {
+			TaskID string `json:"task_id"`
+			RunID  string `json:"run_id"`
+		}
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		return s.Service.TaskReviewReportStart(ctx, in.TaskID, in.RunID)
+	})
+	sectionPayload := map[string]any{"anyOf": []any{map[string]any{"type": "string"}, map[string]any{"type": "array"}, map[string]any{"type": "object"}}}
+	add("task_review_report_section_update", "Update one bounded Gateway-local Delivery review section with an optimistic draft revision.", obj(map[string]any{
+		"task_id": str("Task identifier"), "run_id": str("Same implementation Run identifier"), "section_id": str("Typed review section"),
+		"expected_draft_revision": integer("Expected draft revision", 1, 1000000), "payload": sectionPayload,
+	}, "task_id", "run_id", "section_id", "expected_draft_revision", "payload"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.TaskReviewReportSectionUpdateInput
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		return s.Service.TaskReviewReportSectionUpdate(ctx, in)
+	})
+	add("task_review_report_validate", "Validate the complete Gateway-local Delivery review draft without publishing it.", obj(map[string]any{"task_id": str("Task identifier"), "run_id": str("Same implementation Run identifier")}, "task_id", "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in struct {
+			TaskID string `json:"task_id"`
+			RunID  string `json:"run_id"`
+		}
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		return s.Service.TaskReviewReportValidate(ctx, in.TaskID, in.RunID)
+	})
+	add("task_review_report_finalize", "Publish the one immutable Run-bound Delivery review report in one Hub transaction.", obj(map[string]any{
+		"task_id": str("Task identifier"), "run_id": str("Same implementation Run identifier"),
+		"expected_draft_revision": integer("Expected draft revision", 1, 1000000), "expected_hub_revision": str("Optimistic Hub revision"),
+	}, "task_id", "run_id", "expected_draft_revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.TaskReviewReportFinalizeInput
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		report, operation, e := s.Service.TaskReviewReportFinalize(ctx, in)
+		return map[string]any{"report": report, "operation": operation}, e
+	})
+	add("task_report_read", "Read the latest applicable immutable Delivery review report for a Task.", obj(map[string]any{"task_id": str("Task identifier"), "run_id": str("Optional exact Run identifier")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		id, e := getString(raw, "task_id")
+		if e != nil {
+			return nil, e
+		}
+		return s.Service.TaskReportRead(ctx, id, optionalString(raw, "run_id"))
 	})
 	add("task_dispatch", "Create and publish a run, prepare branch, and send short Airelay control message.", obj(map[string]any{"task_id": str("Task identifier"), "expected_hub_revision": str("Optimistic hub revision")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.DispatchInput
