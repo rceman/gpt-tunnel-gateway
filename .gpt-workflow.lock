@@ -4,6 +4,7 @@
   "version": "2.1.0",
   "commit": "900d284a97dd745d079134b49e5654b909e88c0a",
   "document": "GPT_REVIEW_PLANNER.md",
+  "sha256": "41dccda33a5e23dda69a85c9f7480fafa2431e1ea74170a7b7f2ec8392375b78",
   "execution_mode": "gpt_tunnel_managed",
   "installed_at": "2026-08-01T20:15:38Z"
 }
