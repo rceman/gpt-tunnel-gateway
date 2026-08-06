@@ -270,6 +270,7 @@ class ReleaseLifecyclePolicyTests(unittest.TestCase):
         repo = Path(tempfile.mkdtemp())
         for path in ("VERSION", "CHANGELOG.md", "release-config.json"):
             (repo / path).write_bytes((ROOT / path).read_bytes())
+        (repo / "CHANGELOG.md").write_text("# Changelog\n\n## Unreleased\n\n- tooling source-state fixture.\n\n## 0.6.2 — 2026-08-06\n\n- Prior.\n", encoding="utf-8")
         git(repo, "init", "-q")
         git(repo, "config", "user.name", "Gateway source-state test")
         git(repo, "config", "user.email", "source@example.invalid")
@@ -281,13 +282,14 @@ class ReleaseLifecyclePolicyTests(unittest.TestCase):
         self.release.command_check(repo, config)
         self.assertEqual(before, {path: (repo / path).read_bytes() for path in before})
         self.assertEqual(git(repo, "status", "--porcelain", "--untracked-files=all"), "")
-        self.assertEqual((repo / "VERSION").read_text(encoding="utf-8"), "0.6.1\n")
-        self.assertNotIn("## 0.6.1 — ", (repo / "CHANGELOG.md").read_text(encoding="utf-8"))
+        self.assertEqual((repo / "VERSION").read_text(encoding="utf-8"), "0.6.3\n")
+        self.assertNotIn("## 0.6.3 — ", (repo / "CHANGELOG.md").read_text(encoding="utf-8"))
 
     def test_gateway_preset_target_prepare_preserves_version_bytes(self) -> None:
         repo = Path(tempfile.mkdtemp())
         for path in ("VERSION", "CHANGELOG.md", "release-config.json"):
             (repo / path).write_bytes((ROOT / path).read_bytes())
+        (repo / "CHANGELOG.md").write_text("# Changelog\n\n## Unreleased\n\n- tooling release fixture.\n\n## 0.6.2 — 2026-08-06\n\n- Prior.\n", encoding="utf-8")
         git(repo, "init", "-q")
         git(repo, "config", "user.name", "Gateway release test")
         git(repo, "config", "user.email", "release@example.invalid")
@@ -295,10 +297,10 @@ class ReleaseLifecyclePolicyTests(unittest.TestCase):
         git(repo, "commit", "-qm", "source state")
         config = self.release.load_config(repo, "release-config.json")
         version_before = (repo / "VERSION").read_bytes()
-        self.release.command_prepare(repo, config, "0.6.1", "2026-08-04")
+        self.release.command_prepare(repo, config, "0.6.3", "2026-08-07")
         self.assertEqual((repo / "VERSION").read_bytes(), version_before)
         self.assertEqual(git(repo, "status", "--porcelain"), "M CHANGELOG.md")
-        self.assertIn("## 0.6.1 — 2026-08-04", (repo / "CHANGELOG.md").read_text(encoding="utf-8"))
+        self.assertIn("## 0.6.3 — 2026-08-07", (repo / "CHANGELOG.md").read_text(encoding="utf-8"))
 
     def test_conformance_rejects_mutated_release_or_ci_script(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
