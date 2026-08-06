@@ -46,14 +46,18 @@ it accepts no caller message or session key and is one-shot per compaction
 event. `run_sweep` may perform the same bounded recovery only after all safety
 checks pass. Routine project status omits the configured repository root,
 mirror, Airelay session key, gateway state path, and completion path. Those
-execution paths remain available only in the active task packet fields required
-for agent execution and finalization.
+execution details remain bounded and are not completion destinations. The
+active Agent packet requires the canonical `gpt-tunnel run write-completion
+<RUN-ID> --completion-file <INPUT>` operation; the Gateway derives the
+completion destination internally.
 
 The normal run surface contains `run_read`, `run_report`, and
 `run_review_snapshot`; there is no `run_evidence` operation. Routine run list,
 read, and status projections omit gateway-internal completion paths. The
 active task execution packet retains only the exact gateway-owned
-`completion_path` required by the established finalization contract.
+The active task execution packet does not expose a caller-actionable
+`completion_path`; finalization reads only the exact Run-specific path derived
+from configured StateDir and the canonical Run ID.
 Protocol-v1 run records may appear in bounded run history with legacy paths
 redacted, but their reports are history-only and cannot be finalized or
 converted into workflow-2.0 reports.

@@ -122,9 +122,9 @@ func taskPacketRunOutputSchema() map[string]any {
 		"project_id": outputString(), "gateway_id": outputString(), "branch": outputString(),
 		"base_revision": outputString(), "hub_revision": outputString(), "status": outputString(),
 		"dispatch_message": outputString(), "dispatch_exit_code": outputInteger(), "dispatch_stdout": outputString(), "dispatch_stderr": outputString(),
-		"completion_path": outputString(), "created_at": outputDateTime(), "dispatched_at": outputDateTime(),
+		"created_at": outputDateTime(), "dispatched_at": outputDateTime(),
 		"reprompt_count": outputInteger(), "last_reprompt_at": outputDateTime(), "finished_at": outputDateTime(),
-	}, "schema_version", "id", "task_id", "task_sha256", "project_id", "gateway_id", "branch", "base_revision", "hub_revision", "status", "completion_path", "created_at")
+	}, "schema_version", "id", "task_id", "task_sha256", "project_id", "gateway_id", "branch", "base_revision", "hub_revision", "status", "created_at")
 }
 
 func reportOutputSchema() map[string]any {
@@ -287,10 +287,10 @@ func runReviewSummaryOutputSchema() map[string]any {
 func taskPacketOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"task": taskOutputSchema(), "run": taskPacketRunOutputSchema(), "project": projectOutputSchema(), "plan": planOutputSchema(),
-		"run_summaries":   outputArray(runReviewSummaryOutputSchema()),
-		"repository_root": outputString(), "completion_path": outputString(),
+		"run_summaries":    outputArray(runReviewSummaryOutputSchema()),
+		"repository_root":  outputString(),
 		"finalize_command": outputString(), "text": outputString(),
-	}, "task", "run", "project", "plan", "repository_root", "completion_path", "finalize_command", "text")
+	}, "task", "run", "project", "plan", "repository_root", "finalize_command", "text")
 }
 
 func taskReadOutputSchema() map[string]any {

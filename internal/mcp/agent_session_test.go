@@ -123,12 +123,15 @@ func TestTaskReadMCPRetainsExecutionOnlyPaths(t *testing.T) {
 	response := callMCP(t, &Server{Service: s}, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"task_read","arguments":{"task_id":"`+task.ID+`"}}}`))
 	result := response["result"].(map[string]any)
 	packet := result["structuredContent"].(map[string]any)
-	if result["isError"] != false || packet["repository_root"] != projectRoot || packet["completion_path"] != run.CompletionPath {
-		t.Fatalf("task packet did not retain required execution paths: %#v", response)
+	if result["isError"] != false || packet["repository_root"] != projectRoot || packet["completion_path"] != nil {
+		t.Fatalf("task packet exposed a completion destination: %#v", response)
+	}
+	if !strings.Contains(packet["text"].(string), "gpt-tunnel run write-completion "+run.ID+" --completion-file <INPUT>") || strings.Contains(packet["text"].(string), run.CompletionPath) {
+		t.Fatalf("task packet did not require the canonical writer: %#v", response)
 	}
 	packetRun := packet["run"].(map[string]any)
-	if packetRun["completion_path"] != run.CompletionPath {
-		t.Fatalf("task packet run did not retain completion path: %#v", packetRun)
+	if _, exists := packetRun["completion_path"]; exists {
+		t.Fatalf("task packet run exposed a completion destination: %#v", packetRun)
 	}
 }
 

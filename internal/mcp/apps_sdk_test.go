@@ -326,7 +326,7 @@ func TestTaskReadOutputSchemaAcceptsBothDeclaredShapes(t *testing.T) {
 			"schema_version": float64(1), "id": "run", "task_id": "task", "task_sha256": strings.Repeat("a", 64),
 			"project_id": "project", "gateway_id": "home_pc", "branch": "feature/x",
 			"base_revision": strings.Repeat("b", 40), "hub_revision": strings.Repeat("c", 40), "status": "awaiting_result",
-			"completion_path": "/tmp/completion", "created_at": "2026-07-30T10:00:00Z",
+			"created_at": "2026-07-30T10:00:00Z",
 		},
 		"project": map[string]any{
 			"schema_version": float64(1), "id": "project", "repository_url": "git@example.invalid:project.git", "default_branch": "main",
@@ -337,7 +337,7 @@ func TestTaskReadOutputSchemaAcceptsBothDeclaredShapes(t *testing.T) {
 			"schema_version": float64(model.PlanSchemaVersion), "project_id": "project", "revision": float64(1), "title": "title", "summary": "summary", "current_objective": "objective", "queue": []any{}, "sections": []any{},
 			"updated_by": "gpt", "updated_at": "2026-07-30T10:00:00Z",
 		},
-		"repository_root": "/tmp/project", "completion_path": "/tmp/completion",
+		"repository_root":  "/tmp/project",
 		"finalize_command": "gpt-tunnel run finalize run", "text": "packet",
 		"run_summaries": []any{},
 	}

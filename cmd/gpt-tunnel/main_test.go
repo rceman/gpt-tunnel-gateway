@@ -91,6 +91,24 @@ func TestCancelAcknowledgeCLIArgumentsAreStrict(t *testing.T) {
 	}
 }
 
+func TestWriteCompletionCLIArgumentsAreStrict(t *testing.T) {
+	if got, err := completionFileStrict([]string{"--completion-file", "input.json"}); err != nil || got != "input.json" {
+		t.Fatalf("valid completion arguments rejected: value=%q err=%v", got, err)
+	}
+	for _, args := range [][]string{
+		{},
+		{"--completion-file"},
+		{"--completion-file", ""},
+		{"--completion-file", "one", "--completion-file", "two"},
+		{"--completion-file", "input.json", "extra"},
+		{"--output", "manual.json"},
+	} {
+		if _, err := completionFileStrict(args); err == nil {
+			t.Fatalf("invalid completion arguments accepted: %#v", args)
+		}
+	}
+}
+
 func TestProjectIdentifiersCLIArgumentsAreStrict(t *testing.T) {
 	if got, err := expectedStrict([]string{"--expected-hub-revision", strings.Repeat("a", 40)}); err != nil || got != strings.Repeat("a", 40) {
 		t.Fatalf("valid identifier arguments rejected: value=%q err=%v", got, err)

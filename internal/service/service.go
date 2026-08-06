@@ -160,15 +160,18 @@ type TaskRecord struct {
 }
 
 type TaskPacket struct {
-	Task            model.Task               `json:"task"`
-	Run             model.Run                `json:"run"`
-	RunSummaries    []model.RunReviewSummary `json:"run_summaries"`
-	Project         model.Project            `json:"project"`
-	Plan            model.Plan               `json:"plan"`
-	RepositoryRoot  string                   `json:"repository_root"`
-	CompletionPath  string                   `json:"completion_path"`
-	FinalizeCommand string                   `json:"finalize_command"`
-	Text            string                   `json:"text"`
+	Task           model.Task               `json:"task"`
+	Run            model.Run                `json:"run"`
+	RunSummaries   []model.RunReviewSummary `json:"run_summaries"`
+	Project        model.Project            `json:"project"`
+	Plan           model.Plan               `json:"plan"`
+	RepositoryRoot string                   `json:"repository_root"`
+	// CompletionPath is an internal diagnostic value only. The Agent packet
+	// never instructs callers to use it; RunWriteCompletion derives the only
+	// legal destination from StateDir and the canonical Run ID.
+	CompletionPath  string `json:"-"`
+	FinalizeCommand string `json:"finalize_command"`
+	Text            string `json:"text"`
 }
 
 func (s *Service) projectPrefix(id string) string {
@@ -1988,8 +1991,12 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 			return model.Run{}, OperationResult{}, readErr
 		}
 	}
+	completionPath, err := canonicalCompletionDestination(s.Config.StateDir, id)
+	if err != nil {
+		return model.Run{}, OperationResult{}, err
+	}
 	now := time.Now().UTC()
-	run := model.Run{SchemaVersion: model.SchemaVersion, ID: id, TaskID: task.ID, TaskSHA256: task.SHA256, ProjectID: task.ProjectID, GatewayID: s.Config.GatewayID, SessionKey: local.AirelaySessionKey, Branch: task.Branch, BaseRevision: task.BaseRevision, Status: "created", CompletionPath: filepath.Join(s.localRunDir(id), "completion.json"), CreatedAt: now}
+	run := model.Run{SchemaVersion: model.SchemaVersion, ID: id, TaskID: task.ID, TaskSHA256: task.SHA256, ProjectID: task.ProjectID, GatewayID: s.Config.GatewayID, SessionKey: local.AirelaySessionKey, Branch: task.Branch, BaseRevision: task.BaseRevision, Status: "created", CompletionPath: completionPath, CreatedAt: now}
 	if err := model.ValidateRun(run); err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
@@ -2318,7 +2325,7 @@ func renderPacket(task model.Task, run model.Run, project model.Project, plan mo
 	for _, v := range task.RequiredGates {
 		fmt.Fprintf(&b, "- %s\n", v)
 	}
-	fmt.Fprintf(&b, "\n## Global plan context\n\n%s\n\nCurrent objective: %s\n\n## Context-compaction recovery\n\nIf context is lost or a compaction marker appears, re-read this immutable task packet with `gpt-tunnel task read %s`. Inspect the declared branch, base, current HEAD, worktree, existing commits, and durable run state. Resume from committed and durable evidence; do not rely on conversation memory, redo completed phases, or change task scope. If implementation is already complete, continue through verification, completion evidence, push, and finalization.\n\n## Completion contract\n\nBefore writing completion.json, commit the implementation, run every required gate, and push the task branch. Then write one strict completion JSON atomically to:\n  %s\n\nFinalize with:\n  gpt-tunnel run finalize %s\n\nThe task is not complete until finalization prints TASK_FINALIZED. Do not finish only in chat or Airelay.\n", plan.Summary, plan.CurrentObjective, task.ID, run.CompletionPath, run.ID)
+	fmt.Fprintf(&b, "\n## Global plan context\n\n%s\n\nCurrent objective: %s\n\n## Context-compaction recovery\n\nIf context is lost or a compaction marker appears, re-read this immutable task packet with `gpt-tunnel task read %s`. Inspect the declared branch, base, current HEAD, worktree, existing commits, and durable run state. Resume from committed and durable evidence; do not rely on conversation memory, redo completed phases, or change task scope. If implementation is already complete, continue through verification, completion evidence, push, and finalization.\n\n## Completion contract\n\nBefore writing completion.json, commit the implementation, run every required gate, and push the task branch. Then prepare one strict completion JSON input and invoke exactly:\n  gpt-tunnel run write-completion %s --completion-file <INPUT>\n\nThe Gateway obtains the canonical Task and Run, validates the receipt, and derives the only legal completion destination. Do not write directly to a filesystem completion path. Then finalize with:\n  gpt-tunnel run finalize %s\n\nThe task is not complete until finalization prints TASK_FINALIZED. Do not finish only in chat or Airelay.\n", plan.Summary, plan.CurrentObjective, task.ID, run.ID, run.ID)
 	return b.String()
 }
 
@@ -2363,17 +2370,35 @@ func gatewayCompletionPath(run model.Run, requested string) (string, error) {
 	return actual, nil
 }
 
-func gatewayCompletionDestination(stateDir string, run model.Run) (string, error) {
-	if run.CompletionPath == "" {
-		return "", fmt.Errorf("run has no gateway-owned completion path")
+func canonicalCompletionDestination(stateDir, runID string) (string, error) {
+	if err := requireCanonicalRunID(runID); err != nil {
+		return "", err
 	}
 	stateRoot, err := normalizedAbsolutePath(stateDir)
 	if err != nil {
 		return "", fmt.Errorf("invalid gateway state directory")
 	}
+	return filepath.Join(stateRoot, "runs", runID, "completion.json"), nil
+}
+
+func gatewayCompletionDestination(stateDir string, run model.Run) (string, error) {
+	if run.CompletionPath == "" {
+		return "", fmt.Errorf("run has no gateway-owned completion path")
+	}
+	expected, err := canonicalCompletionDestination(stateDir, run.ID)
+	if err != nil {
+		return "", err
+	}
 	destination, err := normalizedAbsolutePath(run.CompletionPath)
 	if err != nil {
 		return "", fmt.Errorf("invalid gateway completion path")
+	}
+	if destination != expected {
+		return "", fmt.Errorf("gateway completion path must equal the canonical Run-specific path")
+	}
+	stateRoot, err := normalizedAbsolutePath(stateDir)
+	if err != nil {
+		return "", fmt.Errorf("invalid gateway state directory")
 	}
 	relative, err := filepath.Rel(stateRoot, destination)
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
@@ -2404,6 +2429,15 @@ func gatewayCompletionDestination(stateDir string, run model.Run) (string, error
 		return "", err
 	}
 	return destination, nil
+}
+
+type completionDirectory interface {
+	Sync() error
+	Close() error
+}
+
+var completionOpenDirectory = func(path string) (completionDirectory, error) {
+	return os.Open(path)
 }
 
 func writeCompletionExclusive(path string, data []byte, task model.Task, maxReadBytes int64) (bool, error) {
@@ -2459,12 +2493,18 @@ func writeCompletionExclusive(path string, data []byte, task model.Task, maxRead
 		return false, err
 	}
 	if err := os.Link(temporaryPath, path); err == nil {
-		directory, openErr := os.Open(filepath.Dir(path))
-		if openErr == nil {
-			_ = directory.Sync()
-			_ = directory.Close()
+		directory, openErr := completionOpenDirectory(filepath.Dir(path))
+		if openErr != nil {
+			return false, fmt.Errorf("open completion directory for sync: %w", openErr)
 		}
-		return false, openErr
+		if syncErr := directory.Sync(); syncErr != nil {
+			_ = directory.Close()
+			return false, fmt.Errorf("sync completion directory: %w", syncErr)
+		}
+		if closeErr := directory.Close(); closeErr != nil {
+			return false, fmt.Errorf("close completion directory: %w", closeErr)
+		}
+		return false, nil
 	} else if !errors.Is(err, os.ErrExist) {
 		return false, err
 	}
@@ -2588,9 +2628,16 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
+	canonicalCompletionPath, err := gatewayCompletionDestination(s.Config.StateDir, run)
+	if err != nil {
+		return model.Report{}, OperationResult{}, err
+	}
 	completionPath, err := gatewayCompletionPath(run, in.CompletionFile)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
+	}
+	if completionPath != canonicalCompletionPath {
+		return model.Report{}, OperationResult{}, fmt.Errorf("completion file must equal the canonical Run-specific path")
 	}
 	data, err := fsutil.ReadFileBounded(completionPath, s.Config.MaxReadBytes)
 	if err != nil {

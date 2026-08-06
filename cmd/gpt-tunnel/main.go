@@ -100,6 +100,12 @@ func expectedStrict(args []string) (string, error) {
 	}
 	return expectedRevision, nil
 }
+func completionFileStrict(args []string) (string, error) {
+	if len(args) != 2 || args[0] != "--completion-file" || args[1] == "" {
+		return "", fmt.Errorf("expected exactly one --completion-file input")
+	}
+	return args[1], nil
+}
 func require(args []string, n int) {
 	if len(args) < n {
 		usage()
@@ -650,10 +656,11 @@ func run(ctx context.Context, s *service.Service, args []string) {
 		output(map[string]any{"status": "TASK_FINALIZED", "report": report, "operation": result})
 	case "write-completion":
 		require(args, 2)
-		fs := flag.NewFlagSet("run write-completion", flag.ExitOnError)
-		cf := fs.String("completion-file", "", "receipt input JSON")
-		_ = fs.Parse(args[2:])
-		result, e := s.RunWriteCompletion(ctx, service.CompletionWriteInput{RunID: args[1], CompletionFile: *cf})
+		cf, parseErr := completionFileStrict(args[2:])
+		if parseErr != nil {
+			usage()
+		}
+		result, e := s.RunWriteCompletion(ctx, service.CompletionWriteInput{RunID: args[1], CompletionFile: cf})
 		if e != nil {
 			fatal(e)
 		}
