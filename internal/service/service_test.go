@@ -80,6 +80,52 @@ func TestValidateConfiguredProjectRecordsRejectsMissingDurableRecord(t *testing.
 	}
 }
 
+func TestTaskListLoadsRunIndexOnceForStartupStateCheck(t *testing.T) {
+	s, hubRevision, _ := testService(t)
+	for _, slug := range []string{"startup-one", "startup-two"} {
+		created, result, err := s.TaskCreate(context.Background(), TaskCreateInput{
+			ProjectID:          "example",
+			Title:              "Startup task " + slug,
+			Objective:          "Exercise startup state graph performance.",
+			Slug:               slug,
+			AcceptanceCriteria: []string{"bounded"},
+			CreatedBy:          "test",
+			WriteOptions:       WriteOptions{ExpectedHubRevision: hubRevision},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		hubRevision = result.Hub.After
+		if created.ID == "" {
+			t.Fatal("task ID was empty")
+		}
+	}
+
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(t.TempDir(), "git-args.log")
+	wrapper := filepath.Join(filepath.Dir(logPath), "git")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + logPath + "'\nexec '" + gitPath + "' \"$@\"\n"
+	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", filepath.Dir(wrapper)+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if _, err := s.TaskList(context.Background(), "example"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "ls-tree -r --name-only refs/remotes/origin/main -- gpt-tunnel/v1/projects/example/runs"
+	if got := strings.Count(string(data), want); got != 1 {
+		t.Fatalf("run index was loaded %d times, want once; git calls:\n%s", got, data)
+	}
+}
+
 func TestReadOnlyBootstrapErrorIsBounded(t *testing.T) {
 	state := t.TempDir()
 	s := New(config.Config{StateDir: state})

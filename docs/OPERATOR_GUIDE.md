@@ -10,6 +10,7 @@ Routine checks:
 gpt-tunnelctl status
 gpt-tunnelctl doctor
 gpt-tunnelctl upgrade inspect
+gpt-tunnelctl upgrade status
 gpt-tunnelctl state check
 gpt-tunnelctl diagnose-startup
 ```

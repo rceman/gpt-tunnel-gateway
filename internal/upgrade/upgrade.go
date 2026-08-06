@@ -58,6 +58,10 @@ type upgradeController interface {
 	StopGatewayForUpgrade() error
 }
 
+type startupDiagnosticController interface {
+	RestartGatewayAfterUpgradeDiagnostics() (controller.GatewayStartupDiagnostics, error)
+}
+
 type liveUpgradeController struct{ controller.Controller }
 
 var (
@@ -73,7 +77,8 @@ var (
 	newUpgradeControllerFn = func(c config.Config, path string) upgradeController {
 		return liveUpgradeController{controller.Controller{Config: c, ConfigPath: path}}
 	}
-	smokeFn = smoke
+	smokeFn                     = smoke
+	persistStartupDiagnosticsFn = writeTransaction
 )
 
 func cleanupRollbackBackup(path string) error {
@@ -261,8 +266,19 @@ func (r Runner) Run(ctx context.Context) (result Result, runErr error) {
 	if err := tx.phase(r.Config, "activate"); err != nil {
 		return Result{}, err
 	}
-	if err := ctl.RestartGatewayAfterUpgrade(); err != nil {
-		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
+	startupDiagnostics, restartErr := restartGatewayAfterUpgrade(ctl)
+	if restartErr != nil {
+		tx.TargetStartup = targetStartupDiagnostics(startupDiagnostics)
+		tx.PrimaryError = sanitizeError(restartErr)
+		tx.CurrentPhase = "rollback_pending"
+		if diagnosticErr := persistStartupDiagnosticsFn(r.Config, tx); diagnosticErr != nil {
+			tx.TargetStartup.DiagnosticCaptureError = sanitizeError(diagnosticErr)
+			tx.TargetStartup.CaptureStatus = "failed"
+			restartErr = fmt.Errorf("target diagnostic persistence failed: %v; %w", diagnosticErr, restartErr)
+			tx.PrimaryError = sanitizeError(restartErr)
+			_ = writeTransaction(r.Config, tx)
+		}
+		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, restartErr)
 	}
 	if err := tx.phase(r.Config, "verify"); err != nil {
 		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
@@ -297,6 +313,59 @@ func (r Runner) Run(ctx context.Context) (result Result, runErr error) {
 		return Result{}, err
 	}
 	return Result{Status: "UPGRADE_COMPLETE", TransactionID: tx.TransactionID, SourceRoot: root, SourceSHA: sha, Previous: installed, Target: target, InstalledVersion: target, RunningVersion: after.RunningVersion, VersionMatch: after.VersionMatch, GatewayPID: after.Gateway.PID, TunnelPID: after.Tunnel.PID}, nil
+}
+
+func restartGatewayAfterUpgrade(ctl upgradeController) (controller.GatewayStartupDiagnostics, error) {
+	if diagnosticCtl, ok := ctl.(startupDiagnosticController); ok {
+		return diagnosticCtl.RestartGatewayAfterUpgradeDiagnostics()
+	}
+	err := ctl.RestartGatewayAfterUpgrade()
+	return controller.GatewayStartupDiagnostics{ReadinessPassed: err == nil, Error: err}, err
+}
+
+func targetStartupDiagnostics(in controller.GatewayStartupDiagnostics) *TargetStartupDiagnostics {
+	captureStatus := in.CaptureStatus
+	if in.ProcessStateError != nil && captureStatus == "captured" {
+		captureStatus = "partial"
+	}
+	d := &TargetStartupDiagnostics{
+		Phase:                in.Phase,
+		CaptureStatus:        captureStatus,
+		TargetPID:            in.TargetPID,
+		TargetProcessRunning: in.TargetProcessRunning,
+		TargetProcessExited:  in.TargetProcessExited,
+		ProcessStateError:    sanitizeError(in.ProcessStateError),
+		AliveButUnready:      in.AliveButUnready,
+		ElapsedMilliseconds:  in.Elapsed.Milliseconds(),
+		ReadinessPassed:      in.ReadinessPassed,
+		LogDelta:             sanitizeLogDelta(in.LogDelta),
+		LogDeltaTruncated:    in.LogDeltaTruncated,
+	}
+	if in.Error != nil {
+		d.Error = sanitizeError(in.Error)
+	}
+	if in.LogCaptureError != nil {
+		d.DiagnosticCaptureError = sanitizeError(in.LogCaptureError)
+	}
+	return d
+}
+
+func sanitizeLogDelta(value string) string {
+	lines := strings.Split(value, "\n")
+	for i, line := range lines {
+		lines[i] = sanitizeStatusText(line)
+	}
+	value = strings.Join(lines, "\n")
+	const maxLogDelta = 16 << 10
+	if len(value) > maxLogDelta {
+		value = value[len(value)-maxLogDelta:]
+		if newline := strings.IndexByte(value, '\n'); newline >= 0 {
+			value = value[newline+1:]
+		} else {
+			value = ""
+		}
+	}
+	return value
 }
 
 func (r Runner) rollback(ctx context.Context, root, sha, target, previous string, before controller.Status, protectedPaths []string, protectedHashes map[string]string, paths map[string]string, old map[string][]byte, oldHashes, oldVersions map[string]string, backupDir string, cause error) (Result, error) {
@@ -828,7 +897,7 @@ func sanitizeError(err error) string {
 	if err == nil {
 		return ""
 	}
-	s := strings.Join(strings.Fields(err.Error()), " ")
+	s := sanitizeStatusText(err.Error())
 	if len(s) > 240 {
 		s = s[:240]
 	}

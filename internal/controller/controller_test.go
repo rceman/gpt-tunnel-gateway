@@ -7,12 +7,55 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 )
+
+func TestReadGatewayLogDeltaIsBoundedAndSanitized(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway.log")
+	data := strings.Repeat("padding\n", 3000) + "CONTROL_PLANE_API_KEY=do-not-leak\nfinal error\n"
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	delta, truncated, err := (Controller{}).readGatewayLogDelta(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !truncated || len(delta) > 16<<10 {
+		t.Fatalf("delta truncated=%v len=%d", truncated, len(delta))
+	}
+	if !strings.HasPrefix(delta, "padding\n") {
+		t.Fatalf("truncated delta retained a partial first line: %q", delta[:min(len(delta), 32)])
+	}
+	if strings.Contains(delta, "do-not-leak") || !strings.Contains(delta, "final error") {
+		t.Fatalf("unsanitized or incomplete delta: %q", delta)
+	}
+}
+
+func TestReadGatewayLogDeltaRejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.log")
+	path := filepath.Join(dir, "gateway.log")
+	if err := os.WriteFile(target, []byte("error"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := (Controller{}).readGatewayLogDelta(path, 0); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("symlink read error=%v", err)
+	}
+}
+
+func TestReadGatewayLogDeltaReportsMissingLog(t *testing.T) {
+	if _, _, err := (Controller{}).readGatewayLogDelta(filepath.Join(t.TempDir(), "missing.log"), 0); err == nil {
+		t.Fatal("missing log was reported as captured")
+	}
+}
 
 func TestProcessIdentityRejectsMismatchedPIDFile(t *testing.T) {
 	cmd := exec.Command("sleep", "30")

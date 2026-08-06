@@ -15,6 +15,7 @@ Inspect and upgrade an installed runtime only from a clean, synchronized
 
 ```bash
 gpt-tunnelctl upgrade inspect
+gpt-tunnelctl upgrade status
 gpt-tunnelctl upgrade
 ```
 

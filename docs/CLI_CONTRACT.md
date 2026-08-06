@@ -150,6 +150,7 @@ gpt-tunnel git worktree-diff <project-id> [--staged]
 gpt-tunnelctl status
 gpt-tunnelctl doctor
 gpt-tunnelctl upgrade inspect
+gpt-tunnelctl upgrade status
 gpt-tunnelctl upgrade
 gpt-tunnelctl diagnose-startup
 gpt-tunnelctl state check
@@ -157,6 +158,7 @@ gpt-tunnelctl state repair --dry-run
 gpt-tunnelctl state repair --apply
 ```
 
-`upgrade inspect`, `diagnose-startup`, and `state check` are read-only. State
-repair creates a hub backup before its single optimistic transaction. Upgrade
+`upgrade inspect`, `upgrade status`, `diagnose-startup`, and `state check` are read-only.
+`upgrade status` returns bounded durable transaction state or a typed no-history/corrupt-history result.
+State repair creates a hub backup before its single optimistic transaction. Upgrade
 is gateway-only and preserves the tunnel-client process.

@@ -18,7 +18,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/upgrade"
 )
 
-var version = "0.6.2"
+var version = "0.6.3"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -37,11 +37,9 @@ func main() {
 		return
 	}
 	if os.Args[1] == "upgrade" {
-		if len(os.Args) > 2 && os.Args[2] == "inspect" {
-			upgradeInspect()
-			return
+		if err := dispatchUpgrade(os.Args[2:], upgradeRuntime, upgradeInspect, upgradeStatus); err != nil {
+			fatal(err)
 		}
-		upgradeRuntime()
 		return
 	}
 	path := config.DefaultPath()
@@ -180,6 +178,48 @@ func upgradeInspect() {
 	}
 }
 
+func upgradeStatus() {
+	path := config.DefaultPath()
+	c, err := config.Load(path)
+	if err != nil {
+		fatal(err)
+	}
+	result, runErr := upgrade.Status(c)
+	output(result)
+	if runErr != nil {
+		fatal(runErr)
+	}
+}
+
+func parseUpgradeArgs(args []string) (string, error) {
+	switch len(args) {
+	case 0:
+		return "run", nil
+	case 1:
+		switch args[0] {
+		case "inspect", "status":
+			return args[0], nil
+		}
+	}
+	return "", fmt.Errorf("invalid upgrade arguments; use upgrade, upgrade inspect, or upgrade status")
+}
+
+func dispatchUpgrade(args []string, run, inspect, status func()) error {
+	action, err := parseUpgradeArgs(args)
+	if err != nil {
+		return err
+	}
+	switch action {
+	case "inspect":
+		inspect()
+	case "status":
+		status()
+	default:
+		run()
+	}
+	return nil
+}
+
 func stateCommand(ctx context.Context, c config.Config) {
 	if len(os.Args) < 3 {
 		usage()
@@ -249,7 +289,7 @@ func copyExecutable(src, dst string) error {
 	return os.Rename(name, dst)
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade [inspect]|start|stop|restart|restart-gateway|status|doctor|diagnose-startup|state {check|repair --dry-run|repair --apply}|logs [gateway|tunnel|all] [lines]|version}")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade [inspect|status]|start|stop|restart|restart-gateway|status|doctor|diagnose-startup|state {check|repair --dry-run|repair --apply}|logs [gateway|tunnel|all] [lines]|version}")
 	os.Exit(2)
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnelctl:", err); os.Exit(1) }

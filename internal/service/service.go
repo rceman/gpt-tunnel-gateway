@@ -1135,6 +1135,10 @@ func (s *Service) TaskList(ctx context.Context, project string) ([]TaskRecord, e
 	if err != nil {
 		return nil, err
 	}
+	runs, err := s.RunList(ctx, project)
+	if err != nil {
+		return nil, err
+	}
 	items := []TaskRecord{}
 	for _, path := range paths {
 		if strings.HasSuffix(path, ".state.json") || strings.HasSuffix(path, ".run-counter.json") {
@@ -1145,10 +1149,6 @@ func (s *Service) TaskList(ctx context.Context, project string) ([]TaskRecord, e
 			return nil, err
 		}
 		state, err := s.taskState(ctx, task)
-		if err != nil {
-			return nil, err
-		}
-		runs, err := s.RunList(ctx, project)
 		if err != nil {
 			return nil, err
 		}
