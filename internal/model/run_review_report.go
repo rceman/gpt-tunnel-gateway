@@ -7,21 +7,22 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const RunReviewReportSchemaVersion = 1
 
 const (
-	MaxReviewFindings           = 256
-	MaxReviewScopeCoverage      = 256
-	MaxReviewStringArrayEntries = 256
-	MaxReviewFindingIDBytes     = 64
-	MaxReviewFindingTitleBytes  = 512
-	MaxReviewFindingDetailBytes = 20000
-	MaxReviewScopeSurfaceBytes  = 512
-	MaxReviewScopeDetailBytes   = 20000
-	MaxReviewStringEntryBytes   = 20000
-	MaxReviewNextActionBytes    = 20000
+	MaxReviewFindings                = 256
+	MaxReviewScopeCoverage           = 256
+	MaxReviewStringArrayEntries      = 256
+	MaxReviewFindingIDLength         = 64
+	MaxReviewFindingTitleCodePoints  = 512
+	MaxReviewFindingDetailCodePoints = 20000
+	MaxReviewScopeSurfaceCodePoints  = 512
+	MaxReviewScopeDetailCodePoints   = 20000
+	MaxReviewStringEntryCodePoints   = 20000
+	MaxReviewNextActionCodePoints    = 20000
 )
 
 const (
@@ -266,13 +267,13 @@ func validateReviewManual(findings []ReviewFinding, coverage []ReviewScopeCovera
 		return fmt.Errorf("review section bounds exceeded")
 	}
 	for _, finding := range findings {
-		if !reviewFindingIDRE.MatchString(finding.ID) || len(finding.ID) > MaxReviewFindingIDBytes || !reviewFindingSeverities[finding.Severity] || strings.TrimSpace(finding.Title) == "" || strings.TrimSpace(finding.Detail) == "" {
+		if !reviewFindingIDRE.MatchString(finding.ID) || len(finding.ID) > MaxReviewFindingIDLength || !reviewFindingSeverities[finding.Severity] || strings.TrimSpace(finding.Title) == "" || strings.TrimSpace(finding.Detail) == "" {
 			return fmt.Errorf("invalid review finding")
 		}
-		if err := utf8Bounded(finding.Title, MaxReviewFindingTitleBytes, "review finding title"); err != nil {
+		if err := reviewTextBounded(finding.Title, MaxReviewFindingTitleCodePoints, "review finding title"); err != nil {
 			return err
 		}
-		if err := utf8Bounded(finding.Detail, MaxReviewFindingDetailBytes, "review finding detail"); err != nil {
+		if err := reviewTextBounded(finding.Detail, MaxReviewFindingDetailCodePoints, "review finding detail"); err != nil {
 			return err
 		}
 	}
@@ -280,10 +281,10 @@ func validateReviewManual(findings []ReviewFinding, coverage []ReviewScopeCovera
 		if strings.TrimSpace(item.Surface) == "" || (item.Status != "covered" && item.Status != "inspected_no_change" && item.Status != "blocked") || strings.TrimSpace(item.Detail) == "" {
 			return fmt.Errorf("invalid review scope coverage")
 		}
-		if err := utf8Bounded(item.Surface, MaxReviewScopeSurfaceBytes, "review scope surface"); err != nil {
+		if err := reviewTextBounded(item.Surface, MaxReviewScopeSurfaceCodePoints, "review scope surface"); err != nil {
 			return err
 		}
-		if err := utf8Bounded(item.Detail, MaxReviewScopeDetailBytes, "review scope detail"); err != nil {
+		if err := reviewTextBounded(item.Detail, MaxReviewScopeDetailCodePoints, "review scope detail"); err != nil {
 			return err
 		}
 	}
@@ -292,7 +293,7 @@ func validateReviewManual(findings []ReviewFinding, coverage []ReviewScopeCovera
 			if strings.TrimSpace(value) == "" {
 				return fmt.Errorf("invalid %s entry", name)
 			}
-			if err := utf8Bounded(value, MaxReviewStringEntryBytes, name+" entry"); err != nil {
+			if err := reviewTextBounded(value, MaxReviewStringEntryCodePoints, name+" entry"); err != nil {
 				return err
 			}
 		}
@@ -300,8 +301,20 @@ func validateReviewManual(findings []ReviewFinding, coverage []ReviewScopeCovera
 	if final && strings.TrimSpace(next) == "" {
 		return fmt.Errorf("invalid next_action")
 	}
-	if next != "" && (strings.TrimSpace(next) == "" || len(next) > MaxReviewNextActionBytes) {
-		return fmt.Errorf("invalid next_action")
+	if next != "" {
+		if err := reviewTextBounded(next, MaxReviewNextActionCodePoints, "next_action"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func reviewTextBounded(value string, maxCodePoints int, field string) error {
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("invalid UTF-8 %s", field)
+	}
+	if utf8.RuneCountInString(value) > maxCodePoints {
+		return fmt.Errorf("oversized %s", field)
 	}
 	return nil
 }
