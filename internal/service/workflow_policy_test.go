@@ -102,3 +102,43 @@ func TestTaskCreateRequiresDurableWorkflowPolicy(t *testing.T) {
 		t.Fatalf("missing policy was not enforced: %v", err)
 	}
 }
+
+func TestProjectStatusUsesPersistedActiveTaskPolicyAcrossRevisionDrift(t *testing.T) {
+	s, revision, _ := testService(t)
+	ctx := context.Background()
+	task, created, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID: "example", Slug: "policy-drift", Title: "Policy drift", Objective: "Preserve the task policy snapshot.",
+		AcceptanceCriteria: []string{"status"}, OperationClass: "implementation", CreatedBy: "test",
+		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	title, summary, objective := "Policy drift", "Policy drift", "Policy drift"
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: task.ProjectID, Title: &title, Summary: &summary, CurrentObjective: &objective, ActiveTaskID: &task.ID, UpdatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.ProjectWorkflowPolicyRead(ctx, task.ProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.Revision = 2
+	current.Agent.WaitForCI = true
+	current.CI.Task = model.WorkflowCIModeRequire
+	current.UpdatedBy = "planner"
+	current.UpdatedAt = time.Now().UTC()
+	if _, _, err := s.ProjectWorkflowPolicyUpdate(ctx, ProjectWorkflowPolicyInput{Policy: current, AuthorizationContext: WorkflowPolicyAuthorizationPlanner, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}}); err != nil {
+		t.Fatal(err)
+	}
+	status, err := s.ProjectStatus(ctx, task.ProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.WorkflowPolicy.Revision != 2 || status.WorkflowPolicy.AgentWaitForCI != true || status.WorkflowPolicy.CI.Task != model.WorkflowCIModeRequire {
+		t.Fatalf("current policy projection was not retained: %#v", status.WorkflowPolicy)
+	}
+	if status.WorkflowPolicy.ActiveOperationClass != task.OperationClass || status.WorkflowPolicy.ActiveCIMode != task.EffectiveCIMode || status.WorkflowPolicy.CIBlocking != task.CIBlocking {
+		t.Fatalf("active task policy was recomputed instead of persisted: task=%#v status=%#v", task, status.WorkflowPolicy)
+	}
+}

@@ -148,16 +148,13 @@ func workflowPolicyStatus(policy model.ProjectWorkflowPolicy, err error, plan mo
 		if item.Task.ID != plan.ActiveTaskID || item.Task.OperationClass == "" {
 			continue
 		}
-		effective, effectiveErr := model.WorkflowPolicyForOperation(policy, item.Task.OperationClass)
-		if effectiveErr != nil {
-			status.State = "invalid"
-			status.Conflicts = append(status.Conflicts, "active_task_policy_invalid")
-			status.CorrectiveAction = "supersede or repair the active task under the durable project policy"
-			break
-		}
-		status.ActiveOperationClass = effective.OperationClass
-		status.ActiveCIMode = effective.EffectiveCIMode
-		status.CIBlocking = effective.CIBlocking
+		// The task projection is immutable evidence of the policy used when the
+		// task was created. Do not recompute it from the current policy: a later
+		// policy revision must remain visible separately above without changing
+		// the meaning of an active task.
+		status.ActiveOperationClass = item.Task.OperationClass
+		status.ActiveCIMode = item.Task.EffectiveCIMode
+		status.CIBlocking = item.Task.CIBlocking
 	}
 	return status
 }
