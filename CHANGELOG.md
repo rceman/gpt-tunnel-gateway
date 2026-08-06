@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.3 — 2026-08-06
+
 - Bound startup state validation to one run-index load per project and add bounded target-startup rollback diagnostics.
 - Add fail-closed upgrade argument parsing and read-only durable upgrade status reporting.
 
