@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -194,5 +195,101 @@ func TestRunReviewReportDraftFinalizeAndTaskFirstRead(t *testing.T) {
 	record, err := s.TaskReadRecord(ctx, task.ID)
 	if err != nil || len(record.RunSummaries) != 1 || record.RunSummaries[0].DeliveryOutcome != model.ReviewOutcomeAccepted || record.RunSummaries[0].Blocker != "" {
 		t.Fatalf("task review summary failed: %#v %v", record, err)
+	}
+}
+
+func addNewerSucceededRun(t *testing.T, s *Service, task model.Task, base model.Run) model.Run {
+	t.Helper()
+	ctx := context.Background()
+	agent, err := s.RunReport(ctx, base.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := base
+	run.ID = "EXM-TSK1-RUN2"
+	run.CreatedAt = base.CreatedAt.Add(time.Second)
+	run.HubRevision = ""
+	run.CompletionPath = filepath.Join(s.Config.StateDir, "runs", run.ID, "completion.json")
+	report := agent
+	report.RunID = run.ID
+	report.HubCommit = ""
+	latest, err := s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Hub.Transact(ctx, latest, "test: add newer successful run", func(worktree string) ([]string, error) {
+		return []string{s.runPath(task.ProjectID, run.ID), s.reportPath(task.ProjectID, run.ID)}, func() error {
+			if err := hub.WriteJSON(worktree, s.runPath(task.ProjectID, run.ID), run); err != nil {
+				return err
+			}
+			return hub.WriteJSON(worktree, s.reportPath(task.ProjectID, run.ID), report)
+		}()
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return run
+}
+
+func TestTaskReportReadAndMergeReadyNeverSubstituteOlderAcceptedRun(t *testing.T) {
+	s, task, older := makeReviewableRun(t)
+	ctx := context.Background()
+	finalizeAcceptedDeliveryReview(t, s, task, older)
+	newer := addNewerSucceededRun(t, s, task, older)
+	if _, err := s.TaskReportRead(ctx, task.ID, ""); err == nil || !strings.Contains(err.Error(), newer.ID) {
+		t.Fatalf("latest unreviewed run was not the blocker: %v", err)
+	}
+	revision, err := s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.TaskMarkMergeReady(ctx, TaskMarkMergeReadyInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: revision}}); err == nil || !strings.Contains(err.Error(), newer.ID) {
+		t.Fatalf("merge-ready admitted older accepted report: %v", err)
+	}
+	if got, err := s.Hub.RemoteRevision(ctx); err != nil || got != revision {
+		t.Fatalf("blocked merge-ready mutated hub: got %s want %s err=%v", got, revision, err)
+	}
+}
+
+func TestRunReviewReportFinalizationDetectsChangedMachineAuthority(t *testing.T) {
+	for _, name := range []string{"gates", "changed_files", "repository_state"} {
+		t.Run(name, func(t *testing.T) {
+			s, task, run := makeReviewableRun(t)
+			ctx := context.Background()
+			draft, err := s.TaskReviewReportStart(ctx, task.ID, run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, err := s.Hub.RemoteRevision(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.Hub.Transact(ctx, before, "test: mutate agent machine authority", func(worktree string) ([]string, error) {
+				path := s.reportPath(task.ProjectID, run.ID)
+				var report model.Report
+				if err := readWorktreeJSON(worktree, path, &report); err != nil {
+					return nil, err
+				}
+				switch name {
+				case "gates":
+					report.GateResults = []model.CompletionGateResult{{ID: "G1", ExitCode: 0}}
+				case "changed_files":
+					report.Repository.ChangedFiles = []string{"synthetic.txt"}
+				case "repository_state":
+					report.Repository.WorktreeClean = !report.Repository.WorktreeClean
+				}
+				return []string{path}, hub.WriteJSON(worktree, path, report)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{TaskID: task.ID, RunID: run.ID, ExpectedDraftRevision: draft.DraftRevision}); err == nil {
+				t.Fatal("changed Agent machine authority was published")
+			}
+			if _, err := s.Hub.ReadFile(ctx, s.reviewReportPath(task.ProjectID, run.ID)); err == nil {
+				t.Fatal("failed finalization created immutable Delivery report")
+			}
+			if _, err := s.readReviewDraft(run.ID); err != nil {
+				t.Fatalf("failed finalization did not preserve draft: %v", err)
+			}
+		})
 	}
 }

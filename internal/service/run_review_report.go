@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -41,6 +42,12 @@ type reviewContext struct {
 	repository model.ReviewRepositoryState
 	gates      []model.CompletionGateResult
 	changed    []string
+}
+
+func sameAgentAuthority(left, right model.Report) bool {
+	left.HubCommit = ""
+	right.HubCommit = ""
+	return reflect.DeepEqual(left, right)
 }
 
 func (s *Service) reviewReportPath(project, runID string) string {
@@ -415,7 +422,10 @@ func (s *Service) TaskReviewReportFinalize(ctx context.Context, in TaskReviewRep
 		if err := readWorktreeJSON(worktree, s.reportPath(context.task.ProjectID, context.run.ID), &currentAgent); err != nil {
 			return nil, err
 		}
-		if currentAgent.TaskID != context.task.ID || currentAgent.RunID != context.run.ID || currentAgent.ProjectID != context.task.ProjectID || currentAgent.Repository.Head != context.head || currentAgent.Repository.Branch != context.branch || currentAgent.Repository.DiffScope != context.run.BaseRevision+".."+context.head || currentAgent.Status != currentRun.Status {
+		if err := model.ValidateReport(currentAgent, currentTask, currentRun, s.Config.MaxListItems); err != nil {
+			return nil, fmt.Errorf("Agent report changed before delivery review publication: %w", err)
+		}
+		if currentAgent.TaskID != context.task.ID || currentAgent.RunID != context.run.ID || currentAgent.ProjectID != context.task.ProjectID || currentAgent.Repository.Head != context.head || currentAgent.Repository.Branch != context.branch || currentAgent.Repository.DiffScope != context.run.BaseRevision+".."+context.head || currentAgent.Status != currentRun.Status || !sameAgentAuthority(currentAgent, context.agent) {
 			return nil, fmt.Errorf("Agent report changed before delivery review publication")
 		}
 		if _, err := os.Lstat(filepath.Join(worktree, filepath.FromSlash(path))); err == nil {
@@ -475,19 +485,18 @@ func (s *Service) TaskReportRead(ctx context.Context, taskID, runID string) (mod
 		}
 		return model.RunReviewReport{}, fmt.Errorf("run not found for task")
 	}
-	for _, run := range runs {
-		if run.TaskID != task.ID || run.Historical {
-			continue
-		}
-		report, err := s.readFinalReviewReport(ctx, task, run)
-		if err == nil {
-			return report, nil
-		}
-		if !IsNotFound(err) {
-			return model.RunReviewReport{}, err
-		}
+	latest, ok := latestApplicableRun(runs, task.ID)
+	if !ok {
+		return model.RunReviewReport{}, fmt.Errorf("no applicable run for task %s", task.ID)
 	}
-	return model.RunReviewReport{}, fmt.Errorf("delivery review report not found for task")
+	report, err := s.readFinalReviewReport(ctx, task, latest)
+	if err == nil {
+		return report, nil
+	}
+	if IsNotFound(err) {
+		return model.RunReviewReport{}, fmt.Errorf("latest applicable run %s is awaiting Delivery review", latest.ID)
+	}
+	return model.RunReviewReport{}, err
 }
 
 func (s *Service) taskReviewSummaries(ctx context.Context, task model.Task, runs []model.Run) ([]model.RunReviewSummary, error) {

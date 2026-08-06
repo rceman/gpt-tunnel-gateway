@@ -2,15 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "schema_version", "id", "task_id", "run_id", "project_id", "task_sha256",
-    "branch", "base_revision", "reviewed_head", "outcome", "repository_state",
-    "gates", "findings", "scope_coverage", "changed_files", "unexpected_surfaces",
-    "historical_compatibility", "prohibited_actions", "next_action", "finished_at"
-  ],
+  "required": ["schema_version", "id", "task_id", "run_id", "project_id", "task_sha256", "branch", "base_revision", "reviewed_head", "outcome", "repository_state", "gates", "findings", "scope_coverage", "changed_files", "unexpected_surfaces", "historical_compatibility", "prohibited_actions", "next_action", "finished_at"],
   "properties": {
     "schema_version": {"const": 1},
-    "id": {"type": "string", "minLength": 1, "maxLength": 192},
+    "id": {"type": "string", "minLength": 1, "maxLength": 135},
     "task_id": {"type": "string", "minLength": 1, "maxLength": 128},
     "run_id": {"type": "string", "minLength": 1, "maxLength": 128},
     "project_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
@@ -19,21 +14,14 @@
     "base_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "reviewed_head": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "outcome": {"enum": ["accepted_reviewed_merge_ready", "rejected_needs_correction", "blocked_planner_decision_required", "inconclusive_review_required"]},
-    "repository_state": {
-      "type": "object", "additionalProperties": false,
-      "required": ["branch", "base_revision", "reviewed_head", "worktree_clean", "base_ancestor"],
-      "properties": {
-        "branch": {"type": "string"}, "base_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-        "reviewed_head": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "worktree_clean": {"type": "boolean"}, "base_ancestor": {"type": "boolean"}
-      }
-    },
-    "gates": {"type": "array", "maxItems": 128, "items": {"type": "object", "additionalProperties": false, "required": ["id", "exit_code"], "properties": {"id": {"type": "string"}, "exit_code": {"type": "integer", "minimum": 0}}}},
-    "findings": {"type": "array", "maxItems": 256, "items": {"type": "object", "additionalProperties": false, "required": ["id", "severity", "title", "detail"], "properties": {"id": {"type": "string"}, "severity": {"type": "string"}, "title": {"type": "string"}, "detail": {"type": "string"}}}},
-    "scope_coverage": {"type": "array", "maxItems": 256, "items": {"type": "object", "additionalProperties": false, "required": ["surface", "status", "detail"], "properties": {"surface": {"type": "string"}, "status": {"enum": ["covered", "inspected_no_change", "blocked"]}, "detail": {"type": "string"}}}},
-    "changed_files": {"type": "array", "maxItems": 1024, "items": {"type": "string"}},
-    "unexpected_surfaces": {"type": "array", "maxItems": 256, "items": {"type": "string"}},
-    "historical_compatibility": {"type": "array", "maxItems": 256, "items": {"type": "string"}},
-    "prohibited_actions": {"type": "array", "maxItems": 256, "items": {"type": "string"}},
+    "repository_state": {"$ref": "#/$defs/repository_state"},
+    "gates": {"$ref": "#/$defs/gates"},
+    "findings": {"$ref": "#/$defs/findings"},
+    "scope_coverage": {"$ref": "#/$defs/scope_coverage"},
+    "changed_files": {"$ref": "#/$defs/changed_files"},
+    "unexpected_surfaces": {"$ref": "#/$defs/string_array"},
+    "historical_compatibility": {"$ref": "#/$defs/string_array"},
+    "prohibited_actions": {"$ref": "#/$defs/string_array"},
     "next_action": {"type": "string", "minLength": 1, "maxLength": 20000},
     "finished_at": {"type": "string", "format": "date-time"},
     "hub_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
@@ -42,10 +30,27 @@
     "repository_state": {
       "type": "object", "additionalProperties": false,
       "required": ["branch", "base_revision", "reviewed_head", "worktree_clean", "base_ancestor"],
-      "properties": {"branch": {"type": "string"}, "base_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "reviewed_head": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "worktree_clean": {"type": "boolean"}, "base_ancestor": {"type": "boolean"}}
+      "properties": {
+        "branch": {"type": "string", "minLength": 1, "maxLength": 255},
+        "base_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "reviewed_head": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "worktree_clean": {"type": "boolean"},
+        "base_ancestor": {"type": "boolean"}
+      }
     },
     "gates": {
-      "type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["id", "exit_code"], "properties": {"id": {"type": "string"}, "exit_code": {"type": "integer", "minimum": 0}}}
-    }
+      "type": "array", "maxItems": 128,
+      "items": {"type": "object", "additionalProperties": false, "required": ["id", "exit_code"], "properties": {"id": {"type": "string", "pattern": "^G[1-9][0-9]*$", "maxLength": 4}, "exit_code": {"type": "integer", "minimum": 0}}}
+    },
+    "findings": {
+      "type": "array", "maxItems": 256,
+      "items": {"type": "object", "additionalProperties": false, "required": ["id", "severity", "title", "detail"], "properties": {"id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", "minLength": 1, "maxLength": 64}, "severity": {"enum": ["critical", "high", "medium", "low", "info"]}, "title": {"type": "string", "minLength": 1, "maxLength": 512}, "detail": {"type": "string", "minLength": 1, "maxLength": 20000}}}
+    },
+    "scope_coverage": {
+      "type": "array", "maxItems": 256,
+      "items": {"type": "object", "additionalProperties": false, "required": ["surface", "status", "detail"], "properties": {"surface": {"type": "string", "minLength": 1, "maxLength": 512}, "status": {"enum": ["covered", "inspected_no_change", "blocked"]}, "detail": {"type": "string", "minLength": 1, "maxLength": 20000}}}
+    },
+    "changed_files": {"type": "array", "maxItems": 1024, "items": {"type": "string", "minLength": 1, "maxLength": 4096}},
+    "string_array": {"type": "array", "maxItems": 256, "items": {"type": "string", "minLength": 1, "maxLength": 20000}}
   }
 }

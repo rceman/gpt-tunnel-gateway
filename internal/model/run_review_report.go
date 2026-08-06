@@ -12,6 +12,19 @@ import (
 const RunReviewReportSchemaVersion = 1
 
 const (
+	MaxReviewFindings           = 256
+	MaxReviewScopeCoverage      = 256
+	MaxReviewStringArrayEntries = 256
+	MaxReviewFindingIDBytes     = 64
+	MaxReviewFindingTitleBytes  = 512
+	MaxReviewFindingDetailBytes = 20000
+	MaxReviewScopeSurfaceBytes  = 512
+	MaxReviewScopeDetailBytes   = 20000
+	MaxReviewStringEntryBytes   = 20000
+	MaxReviewNextActionBytes    = 20000
+)
+
+const (
 	ReviewOutcomeAccepted     = "accepted_reviewed_merge_ready"
 	ReviewOutcomeRejected     = "rejected_needs_correction"
 	ReviewOutcomeBlocked      = "blocked_planner_decision_required"
@@ -32,6 +45,14 @@ var RunReviewReportSections = []string{
 }
 
 var reviewFindingIDRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+
+var reviewFindingSeverities = map[string]bool{
+	"critical": true,
+	"high":     true,
+	"medium":   true,
+	"low":      true,
+	"info":     true,
+}
 
 type ReviewRepositoryState struct {
 	Branch        string `json:"branch"`
@@ -157,7 +178,7 @@ func ValidateRunReviewReportDraft(v RunReviewReportDraft) error {
 			return err
 		}
 	}
-	if err := validateReviewManual(v.Findings, v.ScopeCoverage, v.UnexpectedSurfaces, v.HistoricalCompatibility, v.ProhibitedActions, v.NextAction); err != nil {
+	if err := validateReviewManual(v.Findings, v.ScopeCoverage, v.UnexpectedSurfaces, v.HistoricalCompatibility, v.ProhibitedActions, v.NextAction, false); err != nil {
 		return err
 	}
 	return validateReviewSections(v.CompletedSections, false)
@@ -176,7 +197,7 @@ func ValidateRunReviewReport(v RunReviewReport) error {
 	if err := validateReviewMachine(v.Branch, v.BaseRevision, v.ReviewedHead, v.RepositoryState, v.Gates, v.ChangedFiles); err != nil {
 		return err
 	}
-	if err := validateReviewManual(v.Findings, v.ScopeCoverage, v.UnexpectedSurfaces, v.HistoricalCompatibility, v.ProhibitedActions, v.NextAction); err != nil {
+	if err := validateReviewManual(v.Findings, v.ScopeCoverage, v.UnexpectedSurfaces, v.HistoricalCompatibility, v.ProhibitedActions, v.NextAction, true); err != nil {
 		return err
 	}
 	if v.FinishedAt.IsZero() {
@@ -240,31 +261,46 @@ func validateReviewMachine(branch, base, head string, state ReviewRepositoryStat
 	return nil
 }
 
-func validateReviewManual(findings []ReviewFinding, coverage []ReviewScopeCoverage, unexpected, historical, prohibited []string, next string) error {
-	if len(findings) > 256 || len(coverage) > 256 || len(unexpected) > 256 || len(historical) > 256 || len(prohibited) > 256 {
+func validateReviewManual(findings []ReviewFinding, coverage []ReviewScopeCoverage, unexpected, historical, prohibited []string, next string, final bool) error {
+	if len(findings) > MaxReviewFindings || len(coverage) > MaxReviewScopeCoverage || len(unexpected) > MaxReviewStringArrayEntries || len(historical) > MaxReviewStringArrayEntries || len(prohibited) > MaxReviewStringArrayEntries {
 		return fmt.Errorf("review section bounds exceeded")
 	}
 	for _, finding := range findings {
-		if !reviewFindingIDRE.MatchString(finding.ID) || finding.Severity == "" || strings.TrimSpace(finding.Title) == "" || strings.TrimSpace(finding.Detail) == "" {
+		if !reviewFindingIDRE.MatchString(finding.ID) || len(finding.ID) > MaxReviewFindingIDBytes || !reviewFindingSeverities[finding.Severity] || strings.TrimSpace(finding.Title) == "" || strings.TrimSpace(finding.Detail) == "" {
 			return fmt.Errorf("invalid review finding")
 		}
-		if len(finding.Title) > 512 || len(finding.Detail) > 20000 {
-			return fmt.Errorf("review finding too large")
+		if err := utf8Bounded(finding.Title, MaxReviewFindingTitleBytes, "review finding title"); err != nil {
+			return err
+		}
+		if err := utf8Bounded(finding.Detail, MaxReviewFindingDetailBytes, "review finding detail"); err != nil {
+			return err
 		}
 	}
 	for _, item := range coverage {
 		if strings.TrimSpace(item.Surface) == "" || (item.Status != "covered" && item.Status != "inspected_no_change" && item.Status != "blocked") || strings.TrimSpace(item.Detail) == "" {
 			return fmt.Errorf("invalid review scope coverage")
 		}
+		if err := utf8Bounded(item.Surface, MaxReviewScopeSurfaceBytes, "review scope surface"); err != nil {
+			return err
+		}
+		if err := utf8Bounded(item.Detail, MaxReviewScopeDetailBytes, "review scope detail"); err != nil {
+			return err
+		}
 	}
 	for name, values := range map[string][]string{"unexpected_surfaces": unexpected, "historical_compatibility": historical, "prohibited_actions": prohibited} {
 		for _, value := range values {
-			if strings.TrimSpace(value) == "" || len(value) > 20000 {
+			if strings.TrimSpace(value) == "" {
 				return fmt.Errorf("invalid %s entry", name)
+			}
+			if err := utf8Bounded(value, MaxReviewStringEntryBytes, name+" entry"); err != nil {
+				return err
 			}
 		}
 	}
-	if next != "" && (strings.TrimSpace(next) == "" || len(next) > 20000) {
+	if final && strings.TrimSpace(next) == "" {
+		return fmt.Errorf("invalid next_action")
+	}
+	if next != "" && (strings.TrimSpace(next) == "" || len(next) > MaxReviewNextActionBytes) {
 		return fmt.Errorf("invalid next_action")
 	}
 	return nil
