@@ -54,7 +54,6 @@ completion destination internally.
 The normal run surface contains `run_read`, `run_report`, and
 `run_review_snapshot`; there is no `run_evidence` operation. Routine run list,
 read, and status projections omit gateway-internal completion paths. The
-active task execution packet retains only the exact gateway-owned
 The active task execution packet does not expose a caller-actionable
 `completion_path`; finalization reads only the exact Run-specific path derived
 from configured StateDir and the canonical Run ID.
