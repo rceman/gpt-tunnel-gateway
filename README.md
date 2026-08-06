@@ -106,6 +106,12 @@ git diff --check
 python3 scripts/upgrade_rehearsal.py
 ```
 
+Canonical proof helpers are documented in
+[`docs/CANONICAL_AGENT_TOOLING.md`](docs/CANONICAL_AGENT_TOOLING.md). Use the
+exact-SHA CI checker, release-publication verifier, pinned-workflow loader and
+derived-path completion receipt writer rather than ad hoc GitHub/API or
+handcrafted receipt commands.
+
 GPT authors source and tests but does not execute runtime gates in the review-planner workflow. The local agent runs these commands after applying the patch pack.
 
 ## Configuration

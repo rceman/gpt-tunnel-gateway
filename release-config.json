@@ -10,5 +10,10 @@
     "path": "CHANGELOG.md",
     "unreleased_heading": "## Unreleased",
     "release_heading": "## {version} — {date}"
+  },
+  "publication": {
+    "topology": "tag_only",
+    "github_release": false,
+    "assets": []
   }
 }

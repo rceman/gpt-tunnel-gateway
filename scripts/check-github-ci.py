@@ -10,15 +10,17 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+
+from github_tooling import GitHubAPIError, JobSetMismatch, complete_job_set, fetch_json, run_identity
 
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 STATES = {
     "success", "pending", "failed", "cancelled", "timed_out", "action_required",
-    "neutral", "skipped", "no_run", "unavailable", "not_applicable", "invalid_response",
+    "neutral", "skipped", "no_run", "unavailable", "authentication_failure",
+    "rate_limited", "not_found", "api_failure", "job_set_mismatch", "not_applicable",
+    "invalid_response",
 }
 EXIT = {
     "success": 0,
@@ -31,17 +33,29 @@ EXIT = {
     "neutral": 3,
     "skipped": 3,
     "no_run": 0,
-    "unavailable": 0,
+    "unavailable": 4,
+    "authentication_failure": 4,
+    "rate_limited": 4,
+    "not_found": 4,
+    "api_failure": 5,
+    "job_set_mismatch": 5,
     "invalid_response": 5,
+}
+REQUIRED_PROOF_GAPS = {
+    "unavailable", "authentication_failure", "rate_limited", "not_found", "no_run",
+    "timed_out", "api_failure", "job_set_mismatch", "invalid_response",
 }
 
 
 def result(args: argparse.Namespace, state: str, message: str, *, quiet: bool = False, **values: object) -> dict[str, object]:
     blocking = (
-        state in {"failed", "cancelled", "timed_out", "action_required", "neutral", "skipped", "invalid_response"}
-        or (state in {"no_run", "unavailable"} and args.policy == "required")
+        state in {"failed", "cancelled", "timed_out", "action_required", "neutral", "skipped", "api_failure", "job_set_mismatch", "invalid_response"}
+        or (state in {"no_run", "unavailable", "authentication_failure", "rate_limited", "not_found"} and args.policy == "required")
         or state == "pending"
     )
+    outcome = "success" if state in {"success", "not_applicable", "no_run"} else state.upper()
+    if state in REQUIRED_PROOF_GAPS and args.policy == "required":
+        outcome = "BLOCKED_CANONICAL_TOOLING_GAP"
     data: dict[str, object] = {
         "schema_version": 1,
         "repository": args.repository,
@@ -49,16 +63,20 @@ def result(args: argparse.Namespace, state: str, message: str, *, quiet: bool = 
         "policy": args.policy,
         "state": state,
         "blocking": blocking,
+        "outcome": outcome,
         "source": "policy" if state == "not_applicable" else "github-actions-rest",
         "run_id": None,
         "job_id": None,
         "run_url": None,
         "job_url": None,
         "workflow": None,
+        "workflow_path": None,
         "event": None,
+        "branch": None,
         "status": None,
         "conclusion": None,
         "checked_sha": None,
+        "jobs": [],
         "message": message,
     }
     data.update(values)
@@ -68,20 +86,6 @@ def result(args: argparse.Namespace, state: str, message: str, *, quiet: bool = 
         else:
             print(f"{state}: {message}")
     return data
-
-
-def fetch(url: str, token: str | None) -> object:
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-        "User-Agent": "gpt-review-planner-ci-check",
-    }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    with urlopen(Request(url, headers=headers), timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
 
 
 def resolve_head_sha() -> str:
@@ -168,16 +172,10 @@ def main(argv: list[str] | None = None) -> int:
     deadline = time.monotonic() + args.timeout
     while True:
         try:
-            payload = fetch(runs_url, token)
-        except HTTPError as exc:
-            state = "unavailable" if exc.code in {401, 403, 404} else "invalid_response"
-            result(args, state, f"GitHub Actions query returned HTTP {exc.code}")
-            if state == "unavailable":
-                return 4 if args.policy == "required" else 0
-            return 5
-        except (URLError, OSError, json.JSONDecodeError) as exc:
-            result(args, "unavailable", f"GitHub Actions query unavailable: {exc}")
-            return 4 if args.policy == "required" else 0
+            payload = fetch_json(runs_url, token)
+        except GitHubAPIError as exc:
+            result(args, exc.state, str(exc))
+            return EXIT.get(exc.state, 4) if args.policy == "required" else 0
         if not isinstance(payload, dict) or not isinstance(payload.get("workflow_runs"), list):
             return invalid(args, "GitHub Actions response has invalid workflow_runs")
         candidates = [
@@ -199,43 +197,57 @@ def main(argv: list[str] | None = None) -> int:
 
         run = sorted(candidates, key=run_sort_key, reverse=True)[0]
         state = classify(run)
+        try:
+            identity = run_identity(run, args.sha)
+        except ValueError as exc:
+            return invalid(args, str(exc))
         values: dict[str, object] = {
-            "run_id": run.get("id"),
-            "run_url": run.get("html_url"),
-            "workflow": run.get("name") or run.get("path"),
-            "event": run.get("event"),
-            "status": run.get("status"),
-            "conclusion": run.get("conclusion"),
-            "checked_sha": run.get("head_sha"),
+            "run_id": identity["id"],
+            "run_url": identity["url"],
+            "workflow": identity["workflow"],
+            "workflow_path": identity["workflow_path"],
+            "event": identity["event"],
+            "branch": identity["branch"],
+            "status": identity["status"],
+            "conclusion": identity["conclusion"],
+            "checked_sha": identity["head_sha"],
         }
         try:
-            jobs = fetch(f"{base}/repos/{args.repository}/actions/runs/{run['id']}/jobs?per_page=100", token)
-        except (HTTPError, URLError, OSError, json.JSONDecodeError, KeyError) as exc:
-            message = f"exact-SHA run {run.get('id')} resolved as {state}; job metadata unavailable: {exc}"
-            result(args, state, message, quiet=state == "pending" and args.wait, **values)
+            jobs = fetch_json(f"{base}/repos/{args.repository}/actions/runs/{identity['id']}/jobs?per_page=100", token)
+            normalized_jobs = complete_job_set(jobs)
+        except GitHubAPIError as exc:
+            if state == "pending":
+                result(args, state, f"exact-SHA run {identity['id']} is pending; job metadata unavailable: {exc}", quiet=args.wait, **values)
+            else:
+                result(args, "job_set_mismatch", f"exact-SHA run {identity['id']} resolved as {state}; job metadata unavailable: {exc}", **values)
             if state == "pending" and args.wait and time.monotonic() < deadline:
                 time.sleep(min(args.interval, max(0, deadline - time.monotonic())))
                 continue
             if state == "pending" and args.wait:
+                result(args, "timed_out", f"timed out waiting for complete job proof for exact-SHA run {identity['id']}", **values)
                 return 6
-            return EXIT[state]
-        if not isinstance(jobs, dict) or not isinstance(jobs.get("jobs"), list):
-            message = f"exact-SHA run {run.get('id')} resolved as {state}; job metadata unavailable: malformed jobs response"
-            result(args, state, message, quiet=state == "pending" and args.wait, **values)
+            return EXIT[state] if state == "pending" else EXIT["job_set_mismatch"]
+        except JobSetMismatch as exc:
+            if state == "pending":
+                result(args, state, f"exact-SHA run {identity['id']} is pending; job metadata is incomplete: {exc}", quiet=args.wait, **values)
+            else:
+                result(args, "job_set_mismatch", f"exact-SHA run {identity['id']} has incomplete job proof: {exc}", **values)
             if state == "pending" and args.wait and time.monotonic() < deadline:
                 time.sleep(min(args.interval, max(0, deadline - time.monotonic())))
                 continue
             if state == "pending" and args.wait:
+                result(args, "timed_out", f"timed out waiting for complete job proof for exact-SHA run {identity['id']}", **values)
                 return 6
-            return EXIT[state]
-        job = (jobs.get("jobs") or [None])[0]
-        if isinstance(job, dict):
-            values.update(job_id=job.get("id"), job_url=job.get("html_url"))
-        result(args, state, f"exact-SHA run {run.get('id')} is {state}", quiet=state == "pending" and args.wait, **values)
+            return EXIT[state] if state == "pending" else EXIT["job_set_mismatch"]
+        values["jobs"] = normalized_jobs
+        if normalized_jobs:
+            values.update(job_id=normalized_jobs[0]["id"], job_url=normalized_jobs[0]["url"])
+        result(args, state, f"exact-SHA run {identity['id']} is {state}", quiet=state == "pending" and args.wait, **values)
         if state == "pending" and args.wait and time.monotonic() < deadline:
             time.sleep(min(args.interval, max(0, deadline - time.monotonic())))
             continue
         if state == "pending" and args.wait:
+            result(args, "timed_out", "timed out waiting for a successful exact-SHA workflow run", **values)
             return 6
         return EXIT.get(state, 5)
 
