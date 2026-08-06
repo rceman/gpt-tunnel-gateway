@@ -483,6 +483,24 @@ func TestCoordinatorCorruptHubScanReturnsTypedRecovery(t *testing.T) {
 	}
 }
 
+func TestCoordinatorMalformedPreflightHubRecordAtExpectedRevisionReturnsTypedRecovery(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	path := "gpt-tunnel/v1/projects/foreign/project.json"
+	seed, err := fixture.coordinator.Hub.Transact(context.Background(), fixture.base, "seed malformed preflight project", func(worktree string) ([]string, error) {
+		if err := hub.WriteText(worktree, path, "{malformed\n"); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.request.ExpectedHubRevision = seed.After
+	prepareCoordinatorJournal(t, fixture)
+	_, err = fixture.coordinator.Execute(trustedCoordinatorContext(), fixture.request, fixture.operation)
+	requireCoordinatorErrorCode(t, err, OnboardingRecoveryRequired)
+}
+
 func TestCoordinatorRejectsManagedRegistryDigestDrift(t *testing.T) {
 	fixture := newCoordinatorFixture(t)
 	prepareCoordinatorJournal(t, fixture)

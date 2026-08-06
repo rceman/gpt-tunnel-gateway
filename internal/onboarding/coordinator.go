@@ -71,6 +71,17 @@ type registryAuthority struct {
 
 var beforeOnboardingJournalHook = func(context.Context, hub.Store, hub.TransactionResult, string) error { return nil }
 
+func onboardingRecoveryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var coordinatorErr *CoordinatorError
+	if errors.As(err, &coordinatorErr) {
+		return err
+	}
+	return &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+}
+
 func NewCoordinator(store hub.Store) *Coordinator {
 	return &Coordinator{Hub: store, StateDir: store.Config.StateDir}
 }
@@ -160,7 +171,7 @@ func (c *Coordinator) Execute(ctx context.Context, request Request, operationID 
 
 	currentRevision, state, afterRevision, err := c.inspectTarget(ctx, request, project, plan, identifiers)
 	if err != nil {
-		return Result{}, err
+		return Result{}, onboardingRecoveryError(err)
 	}
 	if state == targetStateConflict {
 		return Result{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: errors.New("target durable objects are partial or conflicting")}
@@ -332,7 +343,7 @@ func (c *Coordinator) inspectTarget(ctx context.Context, request Request, projec
 	paths := canonicalOnboardingPaths(request.ProjectID)
 	collision, err := c.remoteCollision(ctx, request)
 	if err != nil {
-		return "", targetStateConflict, "", err
+		return "", targetStateConflict, "", onboardingRecoveryError(err)
 	}
 	if collision {
 		return "", targetStateConflict, "", errors.New("ONBOARDING_RECOVERY_REQUIRED: repository or project code collision")
@@ -345,7 +356,7 @@ func (c *Coordinator) inspectTarget(ctx context.Context, request Request, projec
 			if isHubNotFound(err) {
 				continue
 			}
-			return "", targetStateConflict, "", err
+			return "", targetStateConflict, "", onboardingRecoveryError(err)
 		}
 		present++
 		var value any
@@ -359,11 +370,11 @@ func (c *Coordinator) inspectTarget(ctx context.Context, request Request, projec
 		}
 		decoded, err := decodeHubObject(data, index)
 		if err != nil {
-			return "", targetStateConflict, "", err
+			return "", targetStateConflict, "", onboardingRecoveryError(err)
 		}
 		canonical, err := json.MarshalIndent(decoded, "", "  ")
 		if err != nil {
-			return "", targetStateConflict, "", err
+			return "", targetStateConflict, "", onboardingRecoveryError(err)
 		}
 		canonical = append(canonical, '\n')
 		if !bytes.Equal(data, canonical) {
@@ -371,7 +382,7 @@ func (c *Coordinator) inspectTarget(ctx context.Context, request Request, projec
 		}
 		want, err := digestObject(value)
 		if err != nil {
-			return "", targetStateConflict, "", err
+			return "", targetStateConflict, "", onboardingRecoveryError(err)
 		}
 		have, err := digestObject(decoded)
 		if err == nil && want == have {
@@ -381,18 +392,18 @@ func (c *Coordinator) inspectTarget(ctx context.Context, request Request, projec
 	if present == 0 {
 		revision, err := c.Hub.RemoteRevision(ctx)
 		if err != nil {
-			return "", targetStateConflict, "", err
+			return "", targetStateConflict, "", onboardingRecoveryError(err)
 		}
 		return revision, targetStateEmpty, "", nil
 	}
 	if present == len(paths) && exact == len(paths) {
 		revision, err := c.Hub.RemoteRevision(ctx)
 		if err != nil {
-			return "", targetStateConflict, "", err
+			return "", targetStateConflict, "", onboardingRecoveryError(err)
 		}
 		after, err := c.commonPathLastChange(ctx, request.ProjectID)
 		if err != nil {
-			return "", targetStateConflict, "", err
+			return "", targetStateConflict, "", onboardingRecoveryError(err)
 		}
 		return revision, targetStateExact, after, nil
 	}
@@ -551,19 +562,19 @@ func managedEntryEqual(left, right config.ManagedProjectEntry) bool {
 func (c *Coordinator) remoteCollision(ctx context.Context, request Request) (bool, error) {
 	projectPaths, err := c.Hub.List(ctx, "gpt-tunnel/v1/projects", "/project.json")
 	if err != nil {
-		return false, err
+		return false, onboardingRecoveryError(err)
 	}
 	for _, path := range projectPaths {
 		data, err := c.Hub.ReadFile(ctx, path)
 		if err != nil {
-			return false, err
+			return false, onboardingRecoveryError(err)
 		}
 		var project model.Project
 		if err := decodeStrictHubFile(data, &project); err != nil {
-			return false, err
+			return false, onboardingRecoveryError(err)
 		}
 		if err := model.ValidateProject(project); err != nil {
-			return false, err
+			return false, onboardingRecoveryError(err)
 		}
 		if project.ID == request.ProjectID && path != canonicalOnboardingPaths(request.ProjectID)[0] {
 			return true, nil
@@ -574,19 +585,19 @@ func (c *Coordinator) remoteCollision(ctx context.Context, request Request) (boo
 	}
 	identifierPaths, err := c.Hub.List(ctx, "gpt-tunnel/v1/projects", "/identifiers.json")
 	if err != nil {
-		return false, err
+		return false, onboardingRecoveryError(err)
 	}
 	for _, path := range identifierPaths {
 		data, err := c.Hub.ReadFile(ctx, path)
 		if err != nil {
-			return false, err
+			return false, onboardingRecoveryError(err)
 		}
 		var identifiers model.ProjectIdentifiers
 		if err := decodeStrictHubFile(data, &identifiers); err != nil {
-			return false, err
+			return false, onboardingRecoveryError(err)
 		}
 		if err := model.ValidateProjectIdentifiers(identifiers); err != nil {
-			return false, err
+			return false, onboardingRecoveryError(err)
 		}
 		if identifiers.ProjectID == request.ProjectID && path != canonicalOnboardingPaths(request.ProjectID)[2] {
 			return true, nil
