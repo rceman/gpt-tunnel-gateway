@@ -106,7 +106,7 @@ func (c *Coordinator) Execute(ctx context.Context, request Request, operationID 
 
 	receipt, err := LoadOnboardingJournal(c.StateDir, operationID)
 	if err != nil {
-		return Result{}, err
+		return Result{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
 	}
 	if receipt.OperationID != operationID || receipt.RequestSHA256 != requestDigest || receipt.ProjectID != request.ProjectID {
 		return Result{}, &CoordinatorError{Code: ErrOnboardingOperationConflict.Error(), Cause: errors.New("journal identity does not match request")}
@@ -119,7 +119,7 @@ func (c *Coordinator) Execute(ctx context.Context, request Request, operationID 
 	switch receipt.State {
 	case StateHubCommitted:
 		if err := ValidateHubCommittedReceipt(receipt, request); err != nil {
-			return Result{}, &CoordinatorError{Code: ErrOnboardingOperationConflict.Error(), Cause: err}
+			return Result{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
 		}
 		if _, err := c.verifyRegistryAuthority(request, receipt, true); err != nil {
 			return Result{}, err
@@ -138,7 +138,7 @@ func (c *Coordinator) Execute(ctx context.Context, request Request, operationID 
 		return Result{OperationID: operationID, ProjectID: request.ProjectID, State: StateHubCommitted, RequestSHA256: requestDigest, ReceiptSHA256: digest, Hub: receiptHubTransaction(receipt, c.Hub)}, nil
 	case StatePrepared:
 		if err := ValidatePreparedReceipt(receipt, request); err != nil {
-			return Result{}, &CoordinatorError{Code: ErrOnboardingOperationConflict.Error(), Cause: err}
+			return Result{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
 		}
 	default:
 		return Result{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: fmt.Errorf("unsupported onboarding journal state %q", receipt.State)}

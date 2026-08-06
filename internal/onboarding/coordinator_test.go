@@ -102,6 +102,68 @@ func TestCoordinatorRequiresTrustedAuthorityBeforeJournalAccess(t *testing.T) {
 	}
 }
 
+func requireCoordinatorErrorCode(t *testing.T, err error, code string) {
+	t.Helper()
+	var coordinatorErr *CoordinatorError
+	if err == nil || !errors.As(err, &coordinatorErr) || coordinatorErr.Code != code {
+		t.Fatalf("error = %v, want coordinator code %s", err, code)
+	}
+}
+
+func TestCoordinatorMissingJournalReturnsTypedRecovery(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	_, err := fixture.coordinator.Execute(trustedCoordinatorContext(), fixture.request, fixture.operation)
+	requireCoordinatorErrorCode(t, err, OnboardingRecoveryRequired)
+}
+
+func TestCoordinatorMalformedJournalReturnsTypedRecovery(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	path, err := PreparedJournalPath(fixture.coordinator.StateDir, fixture.operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeJournalRaw(t, path, []byte("{\n"))
+	_, err = fixture.coordinator.Execute(trustedCoordinatorContext(), fixture.request, fixture.operation)
+	requireCoordinatorErrorCode(t, err, OnboardingRecoveryRequired)
+}
+
+func TestCoordinatorSameIdentityPreparedValidationFailureReturnsTypedRecovery(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	prepareCoordinatorJournal(t, fixture)
+	receipt, err := LoadPreparedJournal(fixture.coordinator.StateDir, fixture.operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.RepositoryProof.Root = filepath.Join(t.TempDir(), "different-root")
+	path, err := PreparedJournalPath(fixture.coordinator.StateDir, fixture.operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeJournalRaw(t, path, journalCanonicalFileBytes(t, receipt))
+	_, err = fixture.coordinator.Execute(trustedCoordinatorContext(), fixture.request, fixture.operation)
+	requireCoordinatorErrorCode(t, err, OnboardingRecoveryRequired)
+}
+
+func TestCoordinatorSameIdentityCommittedValidationFailureReturnsTypedRecovery(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	prepareCoordinatorJournal(t, fixture)
+	if _, err := fixture.coordinator.Execute(trustedCoordinatorContext(), fixture.request, fixture.operation); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := LoadOnboardingJournal(fixture.coordinator.StateDir, fixture.operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.CreatedIdentifiers.ProjectCode = "XYZ"
+	path, err := PreparedJournalPath(fixture.coordinator.StateDir, fixture.operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeJournalRaw(t, path, journalCanonicalFileBytes(t, receipt))
+	_, err = fixture.coordinator.Execute(trustedCoordinatorContext(), fixture.request, fixture.operation)
+	requireCoordinatorErrorCode(t, err, OnboardingRecoveryRequired)
+}
+
 func TestCoordinatorCommitsExactlyThreeObjectsAndRetriesIdempotently(t *testing.T) {
 	fixture := newCoordinatorFixture(t)
 	prepareCoordinatorJournal(t, fixture)
