@@ -70,6 +70,14 @@ type pidRecord struct {
 	InstanceToken  string `json:"instance_token"`
 }
 
+var (
+	restartGatewayStopFn  = func(c Controller) error { return c.stopProcess("gateway", c.Config.Controller.GatewayBinary) }
+	restartGatewayStartFn = func(c Controller) error {
+		return c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath})
+	}
+	restartGatewayWaitFn = waitURL
+)
+
 func (c Controller) pidPath(name string) string {
 	return filepath.Join(c.Config.Controller.PIDDir, name+".pid")
 }
@@ -593,19 +601,18 @@ func (c Controller) RestartGatewayAfterUpgradeDiagnostics() (GatewayStartupDiagn
 	logPath := c.logPath("gateway")
 	var logOffset int64
 	var logStatErr error
-	if info, statErr := os.Stat(logPath); statErr == nil {
-		logOffset = info.Size()
-	} else if !os.IsNotExist(statErr) {
-		logStatErr = statErr
-	}
+	captureReady := false
 	capture := func() {
-		if logStatErr != nil {
+		if !captureReady {
+			diagnostics.LogCaptureError = fmt.Errorf("target log baseline unavailable")
+		} else if logStatErr != nil {
 			diagnostics.LogCaptureError = logStatErr
-		}
-		var captureErr error
-		diagnostics.LogDelta, diagnostics.LogDeltaTruncated, captureErr = c.readGatewayLogDelta(logPath, logOffset)
-		if diagnostics.LogCaptureError == nil {
-			diagnostics.LogCaptureError = captureErr
+		} else {
+			var captureErr error
+			diagnostics.LogDelta, diagnostics.LogDeltaTruncated, captureErr = c.readGatewayLogDelta(logPath, logOffset)
+			if captureErr != nil {
+				diagnostics.LogCaptureError = captureErr
+			}
 		}
 		if diagnostics.LogCaptureError != nil {
 			diagnostics.CaptureStatus = "failed"
@@ -621,16 +628,26 @@ func (c Controller) RestartGatewayAfterUpgradeDiagnostics() (GatewayStartupDiagn
 		capture()
 		return diagnostics, startErr
 	}
-	if err := c.stopProcess("gateway", c.Config.Controller.GatewayBinary); err != nil {
+	if err := restartGatewayStopFn(c); err != nil {
 		return failed(err)
 	}
-	if err := c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath}); err != nil {
+	if info, statErr := os.Lstat(logPath); statErr == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			logStatErr = fmt.Errorf("target log baseline is not a regular file")
+		} else {
+			logOffset = info.Size()
+		}
+	} else if !os.IsNotExist(statErr) {
+		logStatErr = statErr
+	}
+	captureReady = true
+	if err := restartGatewayStartFn(c); err != nil {
 		return failed(err)
 	}
 	if record, readErr := readPIDRecord(c.pidPath("gateway")); readErr == nil {
 		diagnostics.TargetPID = record.PID
 	}
-	readyErr := waitURL(c.gatewayReadyURL(), true, 30*time.Second)
+	readyErr := restartGatewayWaitFn(c.gatewayReadyURL(), true, 30*time.Second)
 	diagnostics.Elapsed = time.Since(started)
 	diagnostics.ReadinessPassed = readyErr == nil
 	expected, evalErr := filepath.EvalSymlinks(c.Config.Controller.GatewayBinary)

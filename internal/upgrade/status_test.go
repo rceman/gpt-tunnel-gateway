@@ -71,6 +71,27 @@ func TestStatusRejectsCorruptLatestTransaction(t *testing.T) {
 	}
 }
 
+func TestStatusRejectsFilenameBodyTransactionIdentityMismatch(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "upgrade-transactions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tx := UpgradeTransaction{TransactionID: "upgrade-20260806T121311Z-actual", SourceVersion: "0.6.2", TargetVersion: "0.6.3", CurrentPhase: "complete", FinalStatus: "UPGRADE_ROLLED_BACK", BackupPath: "/unsafe/private/backup"}
+	data, err := json.Marshal(tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "upgrade-20260806T121311Z-1.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Status(config.Config{StateDir: root})
+	if err == nil || result.Status != "corrupt" || result.ErrorClass != "history_invalid" || result.TransactionID != "" {
+		t.Fatalf("status=%#v err=%v", result, err)
+	}
+}
+
 func TestStatusIgnoresNonCanonicalJSONRecords(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "upgrade-transactions")

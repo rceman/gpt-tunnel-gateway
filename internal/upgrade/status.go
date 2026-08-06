@@ -88,6 +88,9 @@ func Status(c config.Config) (StatusResult, error) {
 	if dec != nil || tx.TransactionID == "" {
 		return StatusResult{Status: "corrupt", ErrorClass: "history_invalid"}, fmt.Errorf("latest upgrade transaction is invalid")
 	}
+	if tx.TransactionID != strings.TrimSuffix(name, ".json") {
+		return StatusResult{Status: "corrupt", ErrorClass: "history_invalid"}, fmt.Errorf("latest upgrade transaction identity is invalid")
+	}
 	errorClass := ""
 	if tx.PrimaryError != "" {
 		errorClass = "transaction_error"

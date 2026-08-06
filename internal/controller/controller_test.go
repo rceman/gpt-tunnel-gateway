@@ -36,6 +36,40 @@ func TestReadGatewayLogDeltaIsBoundedAndSanitized(t *testing.T) {
 	}
 }
 
+func TestRestartGatewayDiagnosticsExcludesPreviousShutdownOutput(t *testing.T) {
+	dir := t.TempDir()
+	logDir := filepath.Join(dir, "logs")
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(logDir, "gateway.log")
+	if err := os.WriteFile(logPath, []byte("OLD_START\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := Controller{Config: config.Config{ListenAddr: "127.0.0.1:18767", Controller: config.ControllerConfig{GatewayBinary: "/bin/true", PIDDir: filepath.Join(dir, "pid"), LogDir: logDir}}}
+	appendLog := func(line string) error {
+		f, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		_, err = f.WriteString(line + "\n")
+		return err
+	}
+	oldStop, oldStart, oldWait := restartGatewayStopFn, restartGatewayStartFn, restartGatewayWaitFn
+	defer func() { restartGatewayStopFn, restartGatewayStartFn, restartGatewayWaitFn = oldStop, oldStart, oldWait }()
+	restartGatewayStopFn = func(Controller) error { return appendLog("OLD_SHUTDOWN") }
+	restartGatewayStartFn = func(Controller) error { return appendLog("TARGET_FATAL") }
+	restartGatewayWaitFn = func(string, bool, time.Duration) error { return fmt.Errorf("target readiness failed") }
+	diagnostics, err := c.RestartGatewayAfterUpgradeDiagnostics()
+	if err == nil {
+		t.Fatal("target readiness failure was accepted")
+	}
+	if strings.Contains(diagnostics.LogDelta, "OLD_SHUTDOWN") || !strings.Contains(diagnostics.LogDelta, "TARGET_FATAL") {
+		t.Fatalf("target log delta=%q", diagnostics.LogDelta)
+	}
+}
+
 func TestReadGatewayLogDeltaRejectsSymlink(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target.log")
