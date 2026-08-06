@@ -230,6 +230,43 @@ func TestCoordinatorReplayRejectsTamperedCommittedObjects(t *testing.T) {
 	}
 }
 
+func TestCoordinatorConcurrentAllPathTamperBeforeJournalRequiresRecovery(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	prepareCoordinatorJournal(t, fixture)
+	originalHook := beforeOnboardingJournalHook
+	defer func() { beforeOnboardingJournalHook = originalHook }()
+	beforeOnboardingJournalHook = func(ctx context.Context, store hub.Store, transaction hub.TransactionResult, projectID string) error {
+		project, plan, identifiers, _, err := buildDurableObjects(fixture.request)
+		if err != nil {
+			return err
+		}
+		project.RepositoryURL = "git@example.invalid:owner/tampered.git"
+		plan.Summary = "tampered after transaction"
+		identifiers.ProjectCode = "ZZZ"
+		paths := canonicalOnboardingPaths(projectID)
+		_, err = store.Transact(ctx, transaction.After, "concurrent all-path tamper", func(worktree string) ([]string, error) {
+			if err := hub.WriteJSON(worktree, paths[0], project); err != nil {
+				return nil, err
+			}
+			if err := hub.WriteJSON(worktree, paths[1], plan); err != nil {
+				return nil, err
+			}
+			if err := hub.WriteJSON(worktree, paths[2], identifiers); err != nil {
+				return nil, err
+			}
+			return paths, nil
+		})
+		return err
+	}
+	result, err := fixture.coordinator.Execute(trustedCoordinatorContext(), fixture.request, fixture.operation)
+	if err == nil || !strings.Contains(err.Error(), OnboardingRecoveryRequired) {
+		t.Fatalf("all-path tamper error = %v, result=%+v, want recovery required", err, result)
+	}
+	if result.State != StateRecoveryRequired || result.Hub.After == "" {
+		t.Fatalf("all-path tamper result = %+v, want recovery evidence", result)
+	}
+}
+
 func TestCoordinatorRejectsManagedRegistryCollisions(t *testing.T) {
 	tests := []struct {
 		name   string

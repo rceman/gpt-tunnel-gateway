@@ -69,6 +69,8 @@ type registryAuthority struct {
 	After  string
 }
 
+var beforeOnboardingJournalHook = func(context.Context, hub.Store, hub.TransactionResult, string) error { return nil }
+
 func NewCoordinator(store hub.Store) *Coordinator {
 	return &Coordinator{Hub: store, StateDir: store.Config.StateDir}
 }
@@ -198,14 +200,19 @@ func (c *Coordinator) Execute(ctx context.Context, request Request, operationID 
 		return Result{}, err
 	}
 	lastChange, err := c.commonPathLastChange(ctx, request.ProjectID)
-	if err != nil || lastChange == request.ExpectedHubRevision {
+	if err != nil || lastChange != transaction.After {
 		if err == nil {
-			err = errors.New("committed onboarding paths do not have a new common last-change revision")
+			err = fmt.Errorf("committed onboarding paths last-change %s does not match Hub transaction %s", lastChange, transaction.After)
 		}
 		return Result{OperationID: operationID, ProjectID: request.ProjectID, State: StateRecoveryRequired, RequestSHA256: requestDigest, Hub: transaction, HubTransaction: true}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
 	}
-	transaction.After = lastChange
-	committed := committedReceipt(receipt, request, lastChange, project, plan, identifiers, true)
+	committed := committedReceipt(receipt, request, transaction.After, project, plan, identifiers, true)
+	if err := beforeOnboardingJournalHook(ctx, c.Hub, transaction, request.ProjectID); err != nil {
+		return Result{OperationID: operationID, ProjectID: request.ProjectID, State: StateRecoveryRequired, RequestSHA256: requestDigest, Hub: transaction, HubTransaction: true}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+	}
+	if err := c.validateCommittedHubState(ctx, request, committed, project, plan, identifiers, objectDigests); err != nil {
+		return Result{OperationID: operationID, ProjectID: request.ProjectID, State: StateRecoveryRequired, RequestSHA256: requestDigest, Hub: transaction, HubTransaction: true}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+	}
 	journal, err := writeHubCommittedJournalLocked(c.StateDir, request, committed)
 	if err != nil {
 		return Result{OperationID: operationID, ProjectID: request.ProjectID, State: StateRecoveryRequired, RequestSHA256: requestDigest, Hub: transaction, HubTransaction: true}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: fmt.Errorf("hub committed at %s but journal reconciliation failed: %w", transaction.After, err)}
