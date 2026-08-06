@@ -358,6 +358,69 @@ func TestCoordinatorRejectsProjectCodeCollisionInHub(t *testing.T) {
 	}
 }
 
+func TestScanWorktreeRecordsRejectsPathMismatchAndOrphans(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	project, _, identifiers, _, err := buildDurableObjects(fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name  string
+		write func(string) error
+		want  string
+	}{
+		{name: "orphan project", write: func(worktree string) error {
+			return hub.WriteJSON(worktree, "gpt-tunnel/v1/projects/example/project.json", project)
+		}, want: "missing identifiers"},
+		{name: "orphan identifiers", write: func(worktree string) error {
+			return hub.WriteJSON(worktree, "gpt-tunnel/v1/projects/example/identifiers.json", identifiers)
+		}, want: "missing project"},
+		{name: "path embedded mismatch", write: func(worktree string) error {
+			return hub.WriteJSON(worktree, "gpt-tunnel/v1/projects/wrong/project.json", project)
+		}, want: "does not match embedded project ID"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			worktree := t.TempDir()
+			if err := test.write(worktree); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := scanWorktreeRecords(worktree); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("scan error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestCoordinatorCorruptHubScanReturnsTypedRecovery(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	corruptRequest := fixture.request
+	corruptRequest.ProjectID = "corrupt"
+	corruptRequest.InitialPlan.ProjectID = "corrupt"
+	corruptRequest.RepositoryURL = "git@example.invalid:owner/corrupt.git"
+	project, _, _, _, err := buildDurableObjects(corruptRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "gpt-tunnel/v1/projects/corrupt/project.json"
+	corruptTransaction, err := fixture.coordinator.Hub.Transact(context.Background(), fixture.base, "seed orphan corrupt project", func(worktree string) ([]string, error) {
+		if err := hub.WriteJSON(worktree, path, project); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.request.ExpectedHubRevision = corruptTransaction.After
+	prepareCoordinatorJournal(t, fixture)
+	result, err := fixture.coordinator.Execute(trustedCoordinatorContext(), fixture.request, fixture.operation)
+	var coordinatorErr *CoordinatorError
+	if err == nil || !errors.As(err, &coordinatorErr) || coordinatorErr.Code != OnboardingRecoveryRequired {
+		t.Fatalf("corrupt Hub error = %v, result=%+v, want typed recovery", err, result)
+	}
+}
+
 func TestCoordinatorRejectsManagedRegistryDigestDrift(t *testing.T) {
 	fixture := newCoordinatorFixture(t)
 	prepareCoordinatorJournal(t, fixture)

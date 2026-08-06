@@ -182,7 +182,7 @@ func (c *Coordinator) Execute(ctx context.Context, request Request, operationID 
 
 	transaction, err := c.Hub.Transact(ctx, request.ExpectedHubRevision, "gateway: onboard project "+request.ProjectID, func(worktree string) ([]string, error) {
 		if err := validateWorktreeTarget(worktree, request, project, plan, identifiers); err != nil {
-			return nil, err
+			return nil, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
 		}
 		paths := canonicalOnboardingPaths(request.ProjectID)
 		if err := hub.WriteJSON(worktree, paths[0], project); err != nil {
@@ -197,7 +197,11 @@ func (c *Coordinator) Execute(ctx context.Context, request Request, operationID 
 		return paths, nil
 	})
 	if err != nil {
-		return Result{}, err
+		var coordinatorErr *CoordinatorError
+		if errors.As(err, &coordinatorErr) {
+			return Result{}, err
+		}
+		return Result{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
 	}
 	lastChange, err := c.commonPathLastChange(ctx, request.ProjectID)
 	if err != nil || lastChange != transaction.After {
@@ -676,12 +680,29 @@ func scanWorktreeRecords(worktree string) ([]worktreeRecord, error) {
 		if entry.IsDir() {
 			return nil
 		}
+		slash := filepath.ToSlash(path)
+		isProject := strings.HasSuffix(slash, "/project.json")
+		isIdentifiers := strings.HasSuffix(slash, "/identifiers.json")
+		if !isProject && !isIdentifiers {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		parts := strings.Split(filepath.ToSlash(relative), "/")
+		if len(parts) != 2 || parts[0] == "" {
+			return fmt.Errorf("non-canonical durable project path %q", relative)
+		}
+		pathProjectID := parts[0]
+		if err := model.ValidateProjectIdentifier(pathProjectID); err != nil {
+			return fmt.Errorf("invalid durable project path ID %q: %w", pathProjectID, err)
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		slash := filepath.ToSlash(path)
-		if strings.HasSuffix(slash, "/project.json") {
+		if isProject {
 			var value model.Project
 			if err := decodeStrictHubFile(data, &value); err != nil {
 				return err
@@ -689,8 +710,14 @@ func scanWorktreeRecords(worktree string) ([]worktreeRecord, error) {
 			if err := model.ValidateProject(value); err != nil {
 				return err
 			}
-			projects[value.ID] = value
-		} else if strings.HasSuffix(slash, "/identifiers.json") {
+			if value.ID != pathProjectID {
+				return fmt.Errorf("durable project path ID %q does not match embedded project ID %q", pathProjectID, value.ID)
+			}
+			if _, exists := projects[pathProjectID]; exists {
+				return fmt.Errorf("duplicate durable project ID %q", pathProjectID)
+			}
+			projects[pathProjectID] = value
+		} else if isIdentifiers {
 			var value model.ProjectIdentifiers
 			if err := decodeStrictHubFile(data, &value); err != nil {
 				return err
@@ -698,12 +725,28 @@ func scanWorktreeRecords(worktree string) ([]worktreeRecord, error) {
 			if err := model.ValidateProjectIdentifiers(value); err != nil {
 				return err
 			}
-			identifiers[value.ProjectID] = value
+			if value.ProjectID != pathProjectID {
+				return fmt.Errorf("durable identifiers path ID %q does not match embedded project ID %q", pathProjectID, value.ProjectID)
+			}
+			if _, exists := identifiers[pathProjectID]; exists {
+				return fmt.Errorf("duplicate durable identifiers ID %q", pathProjectID)
+			}
+			identifiers[pathProjectID] = value
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+	for id := range projects {
+		if _, ok := identifiers[id]; !ok {
+			return nil, fmt.Errorf("durable project %q is missing identifiers", id)
+		}
+	}
+	for id := range identifiers {
+		if _, ok := projects[id]; !ok {
+			return nil, fmt.Errorf("durable identifiers %q are missing project", id)
+		}
 	}
 	ids := make([]string, 0, len(projects))
 	for id := range projects {
