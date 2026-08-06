@@ -1,16 +1,16 @@
 # Canonical agent tooling
 
-This repository keeps proof-producing helper commands in `scripts/`. They are
-the only supported surfaces for the corresponding evidence. They use bounded
-typed inputs and fail closed with `BLOCKED_CANONICAL_TOOLING_GAP` when required
-proof cannot be established.
+This repository keeps proof-producing helper commands in `scripts/` and
+canonical service operations in the Go CLI. They are the only supported
+surfaces for the corresponding evidence. They use bounded typed inputs and
+fail closed when required proof cannot be established.
 
 | Helper | Purpose | Existing tooling was insufficient because | Canonical use | Retention |
 | --- | --- | --- | --- | --- |
 | `check-github-ci.py` | Prove an exact-SHA Actions run and its complete job set | The previous checker exposed only a selected job and could accept incomplete job metadata | CI gates and release verification | Retain as the canonical CI checker |
 | `verify-release-publication.py` | Prove release commit, annotated tag object, peeled commit, exact-SHA CI/jobs and declared publication topology | Local tag checks did not prove remote CI/job completeness or whether a GitHub Release was unexpectedly present | Release publication gate | Retain as the canonical publication verifier |
 | `load-pinned-workflow.py` | Retrieve and verify the exact workflow document named by `.gpt-workflow.lock` | Ad hoc planner-document downloads did not bind repository, commit, path and content digest in one result | Before substantial implementation/review work | Retain as the canonical pinned-workflow loader |
-| `write-completion-receipt.py` | Validate and atomically place a task completion receipt at the derived task/run path | A caller-supplied completion destination permits duplicate or misplaced authorities | Agent completion preparation; final hub publication remains `gpt-tunnel run finalize` | Retain as the canonical receipt writer |
+| `gpt-tunnel run write-completion` | Validate and atomically place a task completion receipt at the authoritative Run.CompletionPath | Python-side task hashing and caller-selected local task/run files diverged from Gateway authority | Agent completion preparation; final hub publication remains `gpt-tunnel run finalize` | Retain as the canonical receipt writer |
 
 ## Contracts
 
@@ -38,17 +38,15 @@ It validates strict lock JSON, the exact HTTPS GitHub repository, lowercase
 commit, safe relative document path, bounded response size and SHA-256 content
 digest. The resulting provenance binds the retrieved bytes to the lock.
 
-`write-completion-receipt.py` accepts the receipt on standard input and derives
-`.gpt/run/<task-id>/run-<n>/completion.json` from the validated task and run
-identities. It requires the contained canonical `run.json` authority record and
-matches its task ID and task hash; a caller-provided task file cannot override
-that authority. Task content is independently hashed using the canonical task
-wire representation. It rejects repository-root escapes and symlink ancestors.
-It does not accept an output-path argument. It validates positional gate and
-ordered acceptance coverage (including bounded non-success subsets), task hash,
-bounded text and duplicate/non-finite JSON rejection, then performs an
-owner-only atomic write. An existing identical receipt is idempotent; different
-content is rejected.
+`gpt-tunnel run write-completion` accepts only a receipt input file and a
+canonical Run ID. The Gateway independently reads the Task and Run from the
+authoritative Hub, verifies `model.HashTask`, ownership, active operational
+status, task/run identity and the canonical completion protocol, then derives
+the destination solely from the authoritative Run.CompletionPath. The command
+does not accept a task file or an output path. It rejects symlink or escaping
+gateway paths, duplicate/non-finite/oversized or conflicting content, performs
+an owner-only exclusive atomic write, and treats an identical existing receipt
+as idempotent. Final hub publication remains `gpt-tunnel run finalize`.
 
 ## Operating discipline
 

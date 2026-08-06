@@ -70,6 +70,7 @@ def fetch_json(url: str, token: str | None) -> object:
             state = "not_found"
         else:
             state = "api_failure"
+        exc.close()
         raise GitHubAPIError(state, exc.code, url, "GitHub API request failed") from exc
     except (URLError, OSError, TimeoutError) as exc:
         raise GitHubAPIError("unavailable", None, url, "GitHub API request unavailable") from exc

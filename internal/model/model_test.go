@@ -1,6 +1,9 @@
 package model
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +19,51 @@ func TestTaskHashAndCompletionValidation(t *testing.T) {
 	res := Completion{SchemaVersion: 1, RunID: "GTW-TSK1-RUN1", TaskSHA256: h, Status: "succeeded", Summary: "ok", GateResults: []CompletionGateResult{}, AcceptanceCoverage: []string{"AC1"}, Deviations: []string{}, RemainingRisks: []string{}}
 	if err := ValidateCompletion(res, task); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHashTaskUsesCanonicalGoJSONForUnicodeAndTimestampFields(t *testing.T) {
+	task := Task{
+		SchemaVersion:      1,
+		ID:                 "GTW-TSK1",
+		ProjectID:          "gpt-tunnel-gateway",
+		Title:              "Quotes \"and\" HTML-sensitive <tag>& unicode Привет",
+		Objective:          "Line one\nLine two; emoji 🚀; preserve <, > and &",
+		Branch:             "task/GTW-TSK1-unicode",
+		BaseRevision:       strings.Repeat("a", 40),
+		AcceptanceCriteria: []string{"AC1: preserve \u0000-free text"},
+		Constraints:        []string{"bounded / exact / unicode"},
+		RequiredGates:      []string{"G1"},
+		Status:             "created",
+		CreatedBy:          "tester",
+		CreatedAt:          time.Date(2026, 8, 6, 12, 34, 56, 123456789, time.UTC),
+	}
+	wireTask := task
+	wireTask.SHA256 = ""
+	wire, err := json.Marshal(wireTask)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(wire)
+	want := hex.EncodeToString(digest[:])
+	got, err := HashTask(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("HashTask diverged from canonical Go JSON: got %s want %s", got, want)
+	}
+	if again, err := HashTask(task); err != nil || again != got {
+		t.Fatalf("HashTask was not stable: got %s/%v", again, err)
+	}
+	changed := task
+	changed.CreatedAt = changed.CreatedAt.Add(time.Nanosecond)
+	changedHash, err := HashTask(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changedHash == got {
+		t.Fatal("HashTask ignored a timestamp change")
 	}
 }
 func TestRelativePathRejectsEscape(t *testing.T) {

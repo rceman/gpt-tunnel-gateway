@@ -648,6 +648,16 @@ func run(ctx context.Context, s *service.Service, args []string) {
 			fatal(e)
 		}
 		output(map[string]any{"status": "TASK_FINALIZED", "report": report, "operation": result})
+	case "write-completion":
+		require(args, 2)
+		fs := flag.NewFlagSet("run write-completion", flag.ExitOnError)
+		cf := fs.String("completion-file", "", "receipt input JSON")
+		_ = fs.Parse(args[2:])
+		result, e := s.RunWriteCompletion(ctx, service.CompletionWriteInput{RunID: args[1], CompletionFile: *cf})
+		if e != nil {
+			fatal(e)
+		}
+		output(result)
 	default:
 		usage()
 	}

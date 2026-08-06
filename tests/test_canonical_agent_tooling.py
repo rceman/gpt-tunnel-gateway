@@ -7,7 +7,6 @@ import sys
 import tempfile
 import threading
 import unittest
-import shutil
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,7 +28,6 @@ def load_script(name, filename):
 
 loader = load_script("pinned_workflow_loader", "load-pinned-workflow.py")
 publication = load_script("release_publication_verifier", "verify-release-publication.py")
-receipt = load_script("completion_receipt", "completion_receipt.py")
 
 
 class PublicationHandler(BaseHTTPRequestHandler):
@@ -67,12 +65,14 @@ class CanonicalAgentToolingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), PublicationHandler)
-        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.server_thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.server_thread.start()
         cls.api_url = f"http://127.0.0.1:{cls.server.server_port}"
 
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
+        cls.server_thread.join(timeout=5)
         cls.server.server_close()
 
     def setUp(self):
@@ -290,114 +290,13 @@ class CanonicalAgentToolingTests(unittest.TestCase):
     def test_canonical_tooling_prohibits_direct_or_regex_proof_bypasses(self):
         tool_paths = [
             SCRIPTS / "check-github-ci.py", SCRIPTS / "github_tooling.py", SCRIPTS / "verify-release-publication.py",
-            SCRIPTS / "load-pinned-workflow.py", SCRIPTS / "completion_receipt.py", SCRIPTS / "write-completion-receipt.py",
+            SCRIPTS / "load-pinned-workflow.py",
         ]
         for path in tool_paths:
             text = path.read_text(encoding="utf-8")
             self.assertNotIn("curl", text.lower(), path.name)
             self.assertNotIn("beautifulsoup", text.lower(), path.name)
             self.assertNotRegex(text, r"(?i)(?:run|job)[_-]?id.{0,80}re\.(?:compile|search|match|findall|finditer)", path.name)
-
-    def task_fixture(self, root):
-        task_path = root / "task.json"
-        task = {
-            "schema_version": 1,
-            "id": "GTW-TSK1",
-            "sha256": "",
-            "project_id": "gpt-tunnel-gateway",
-            "title": "Tooling",
-            "objective": "Test canonical receipts",
-            "branch": "task/GTW-TSK1-tooling",
-            "base_revision": "a" * 40,
-            "acceptance_criteria": ["AC1", "AC2"],
-            "constraints": ["bounded"],
-            "required_gates": ["G1", "G2"],
-            "status": "created",
-            "created_by": "test",
-            "created_at": "2026-08-06T00:00:00Z",
-        }
-        task["sha256"] = receipt.canonical_task_sha256(task)
-        self.task_hash = task["sha256"]
-        task_path.write_text(json.dumps(task), encoding="utf-8")
-        run_dir = root / ".gpt" / "run" / "GTW-TSK1" / "run-1"
-        run_dir.mkdir(parents=True)
-        (run_dir / "run.json").write_text(json.dumps({"schema_version": 1, "id": "GTW-TSK1-RUN1", "task_id": "GTW-TSK1", "task_sha256": task["sha256"]}), encoding="utf-8")
-        return task_path
-
-    def valid_receipt(self):
-        return {
-            "schema_version": 1,
-            "run_id": "GTW-TSK1-RUN1",
-            "task_sha256": self.task_hash,
-            "status": "succeeded",
-            "summary": "canonical tooling passed",
-            "gate_results": [{"id": "G1", "exit_code": 0}, {"id": "G2", "exit_code": 0}],
-            "acceptance_coverage": ["AC1", "AC2"],
-            "deviations": [],
-            "remaining_risks": [],
-        }
-
-    def test_completion_receipt_derives_atomic_path_and_is_idempotent(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            task_path = self.task_fixture(root)
-            raw = json.dumps(self.valid_receipt()).encode()
-            destination, created = receipt.prepare_receipt(root, task_path, "GTW-TSK1-RUN1", raw)
-            self.assertTrue(created)
-            self.assertEqual(destination, root / ".gpt/run/GTW-TSK1/run-1/completion.json")
-            self.assertEqual(destination.stat().st_mode & 0o777, 0o600)
-            _, created_again = receipt.prepare_receipt(root, task_path, "GTW-TSK1-RUN1", raw)
-            self.assertFalse(created_again)
-            changed = self.valid_receipt()
-            changed["summary"] = "different"
-            with self.assertRaises(receipt.CompletionReceiptError):
-                receipt.prepare_receipt(root, task_path, "GTW-TSK1-RUN1", json.dumps(changed).encode())
-
-    def test_completion_receipt_rejects_handcrafted_destination_and_invalid_order(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            task_path = self.task_fixture(root)
-            bad = self.valid_receipt()
-            bad["gate_results"] = [{"id": "G2", "exit_code": 0}]
-            with self.assertRaises(receipt.CompletionReceiptError):
-                receipt.prepare_receipt(root, task_path, "GTW-TSK1-RUN1", json.dumps(bad).encode())
-            result = subprocess.run([sys.executable, str(SCRIPTS / "write-completion-receipt.py"), "--repository-root", str(root), "--task-file", str(task_path), "--run-id", "GTW-TSK1-RUN1", "--output", str(root / "manual.json")], input=json.dumps(self.valid_receipt()), text=True, capture_output=True)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertFalse((root / "manual.json").exists())
-
-    def test_completion_receipt_accepts_ordered_non_success_subset(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            task_path = self.task_fixture(root)
-            non_success = self.valid_receipt()
-            non_success["status"] = "needs_gpt_revision"
-            non_success["gate_results"] = [{"id": "G1", "exit_code": 1}]
-            non_success["acceptance_coverage"] = ["AC2"]
-            destination, created = receipt.prepare_receipt(root, task_path, "GTW-TSK1-RUN1", json.dumps(non_success).encode())
-            self.assertTrue(created)
-            self.assertTrue(destination.is_file())
-
-    def test_completion_receipt_rejects_fabricated_task_authority_and_symlink_escape(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            task_path = self.task_fixture(root)
-            task = json.loads(task_path.read_text(encoding="utf-8"))
-            task["title"] = "fabricated"
-            task_path.write_text(json.dumps(task), encoding="utf-8")
-            with self.assertRaises(receipt.CompletionReceiptError):
-                receipt.prepare_receipt(root, task_path, "GTW-TSK1-RUN1", json.dumps(self.valid_receipt()).encode())
-
-            outside = root.parent / "outside-task"
-            outside.mkdir()
-            self.addCleanup(lambda: shutil.rmtree(outside, ignore_errors=True))
-            link = root / "escape"
-            os.symlink(outside, link)
-            with self.assertRaises(receipt.CompletionReceiptError):
-                receipt.prepare_receipt(root, link / "task.json", "GTW-TSK1-RUN1", json.dumps(self.valid_receipt()).encode())
-            with tempfile.NamedTemporaryFile() as external_task:
-                with self.assertRaises(receipt.CompletionReceiptError):
-                    receipt.prepare_receipt(root, Path(external_task.name), "GTW-TSK1-RUN1", json.dumps(self.valid_receipt()).encode())
-
 
 if __name__ == "__main__":
     unittest.main()

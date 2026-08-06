@@ -20,9 +20,9 @@ class Handler(BaseHTTPRequestHandler):
 class CICapabilityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.server=ThreadingHTTPServer(('127.0.0.1',0),Handler); threading.Thread(target=cls.server.serve_forever,daemon=True).start(); cls.api=f'http://127.0.0.1:{cls.server.server_port}'
+        cls.server=ThreadingHTTPServer(('127.0.0.1',0),Handler); cls.server_thread=threading.Thread(target=cls.server.serve_forever,daemon=True); cls.server_thread.start(); cls.api=f'http://127.0.0.1:{cls.server.server_port}'
     @classmethod
-    def tearDownClass(cls): cls.server.shutdown()
+    def tearDownClass(cls): cls.server.shutdown(); cls.server_thread.join(timeout=5); cls.server.server_close()
     def setUp(self): Handler.calls=0; Handler.payload={'workflow_runs':[]}; Handler.jobs_payload={'total_count':1,'jobs':[{'id':101,'name':'Validate','html_url':'https://github.com/owner/repo/actions/runs/1/jobs/101','status':'completed','conclusion':'success'}]}; Handler.jobs_status=200; Handler.runs_status=200; Handler.rate_limited=False; os.environ.pop('GITHUB_TOKEN',None)
     def run_tool(self, policy='auto', fmt='json', extra=(), sha=SHA, sha_from_git=None, cwd=None, env=None, api_url=None):
         e=os.environ.copy(); e.update(env or {})

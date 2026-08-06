@@ -47,6 +47,7 @@ gpt-tunnel run agent-tail <run-id> [--lines N]
 gpt-tunnel run resume <run-id>
 gpt-tunnel run cancel <run-id>
 gpt-tunnel run sweep
+gpt-tunnel run write-completion <run-id> --completion-file <receipt-input>
 gpt-tunnel run finalize <run-id> [--completion-file <gateway-owned-run-path>]
 ```
 

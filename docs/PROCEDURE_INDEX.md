@@ -18,7 +18,7 @@
 | Check exact-SHA CI | `python3 scripts/check-github-ci.py --repository rceman/gpt-tunnel-gateway --sha-from-git HEAD --policy required --wait --format json` | read-only |
 | Load pinned workflow | `python3 scripts/load-pinned-workflow.py` | bounded read-only |
 | Verify release publication | `python3 scripts/verify-release-publication.py --repository rceman/gpt-tunnel-gateway --commit <SHA> --tag <TAG>` | read-only |
-| Write agent completion receipt | `python3 scripts/write-completion-receipt.py --task-file <TASK> --run-id <RUN>` (JSON on stdin) | derived-path atomic write |
+| Write agent completion receipt | `gpt-tunnel run write-completion <run-id> --completion-file <receipt-input>` | authoritative Run.CompletionPath atomic write |
 
 Read the relevant runbook before any mutating procedure. A gateway upgrade
 never restarts tunnel-client. After two activation failures, use diagnosis-only

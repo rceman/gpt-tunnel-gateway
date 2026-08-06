@@ -123,6 +123,19 @@ type FinalizeInput struct {
 	WriteOptions
 }
 
+type CompletionWriteInput struct {
+	RunID          string `json:"run_id"`
+	CompletionFile string `json:"completion_file"`
+}
+
+type CompletionWriteResult struct {
+	Status    string `json:"status"`
+	Path      string `json:"path"`
+	ProjectID string `json:"project_id"`
+	TaskID    string `json:"task_id"`
+	RunID     string `json:"run_id"`
+}
+
 type OperationResult struct {
 	Hub       hub.TransactionResult `json:"hub"`
 	ProjectID string                `json:"project_id,omitempty"`
@@ -2348,6 +2361,210 @@ func gatewayCompletionPath(run model.Run, requested string) (string, error) {
 		return "", fmt.Errorf("completion file must not resolve outside the gateway-owned path")
 	}
 	return actual, nil
+}
+
+func gatewayCompletionDestination(stateDir string, run model.Run) (string, error) {
+	if run.CompletionPath == "" {
+		return "", fmt.Errorf("run has no gateway-owned completion path")
+	}
+	stateRoot, err := normalizedAbsolutePath(stateDir)
+	if err != nil {
+		return "", fmt.Errorf("invalid gateway state directory")
+	}
+	destination, err := normalizedAbsolutePath(run.CompletionPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid gateway completion path")
+	}
+	relative, err := filepath.Rel(stateRoot, destination)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return "", fmt.Errorf("gateway completion path escapes state directory")
+	}
+	parent := filepath.Dir(destination)
+	parentInfo, err := os.Lstat(parent)
+	if err != nil {
+		return "", err
+	}
+	if !parentInfo.IsDir() {
+		return "", fmt.Errorf("gateway completion directory is not a directory")
+	}
+	resolvedParent, err := filepath.EvalSymlinks(parent)
+	if err != nil {
+		return "", fmt.Errorf("gateway completion directory cannot be resolved: %w", err)
+	}
+	resolvedParent, err = normalizedAbsolutePath(resolvedParent)
+	if err != nil || resolvedParent != parent {
+		return "", fmt.Errorf("gateway completion directory must not contain symlinks")
+	}
+	info, err := os.Lstat(destination)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return "", fmt.Errorf("gateway completion path is not a regular file")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	return destination, nil
+}
+
+func writeCompletionExclusive(path string, data []byte, task model.Task, maxReadBytes int64) (bool, error) {
+	readExisting := func() (bool, error) {
+		info, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return false, fmt.Errorf("gateway completion path is not a regular file")
+		}
+		existing, err := fsutil.ReadFileBounded(path, maxReadBytes)
+		if err != nil {
+			return false, err
+		}
+		if bytes.Equal(existing, data) {
+			return true, nil
+		}
+		parsed, err := model.ParseCompletion(existing, task)
+		if err == nil {
+			canonical, canonicalErr := model.CompletionJSON(parsed)
+			if canonicalErr == nil && bytes.Equal(append(canonical, '\n'), data) {
+				return true, nil
+			}
+		}
+		return false, fmt.Errorf("gateway completion already exists with different content")
+	}
+	if same, err := readExisting(); err != nil || same {
+		return same, err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".completion-*")
+	if err != nil {
+		return false, err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return false, err
+	}
+	if _, err := temporary.Write(data); err != nil {
+		_ = temporary.Close()
+		return false, err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return false, err
+	}
+	if err := temporary.Close(); err != nil {
+		return false, err
+	}
+	if err := os.Link(temporaryPath, path); err == nil {
+		directory, openErr := os.Open(filepath.Dir(path))
+		if openErr == nil {
+			_ = directory.Sync()
+			_ = directory.Close()
+		}
+		return false, openErr
+	} else if !errors.Is(err, os.ErrExist) {
+		return false, err
+	}
+	if same, err := readExisting(); err != nil {
+		return false, err
+	} else if same {
+		return true, nil
+	}
+	return false, fmt.Errorf("gateway completion appeared with different content")
+}
+
+func (s *Service) RunWriteCompletion(ctx context.Context, in CompletionWriteInput) (CompletionWriteResult, error) {
+	if err := requireCanonicalRunID(in.RunID); err != nil {
+		return CompletionWriteResult{}, err
+	}
+	if in.CompletionFile == "" {
+		return CompletionWriteResult{}, fmt.Errorf("completion file is required")
+	}
+	inputInfo, err := os.Lstat(in.CompletionFile)
+	if err != nil {
+		return CompletionWriteResult{}, err
+	}
+	if inputInfo.Mode()&os.ModeSymlink != 0 || !inputInfo.Mode().IsRegular() {
+		return CompletionWriteResult{}, fmt.Errorf("completion input must be a regular non-symlink file")
+	}
+	loadAuthority := func() (model.Run, model.Task, string, error) {
+		run, err := s.findRun(ctx, in.RunID)
+		if err != nil {
+			return model.Run{}, model.Task{}, "", err
+		}
+		if err := requireCanonicalRun(run); err != nil {
+			return model.Run{}, model.Task{}, "", err
+		}
+		if err := s.ensureRunOwned(run); err != nil {
+			return model.Run{}, model.Task{}, "", err
+		}
+		if !operationalActiveRun(run) {
+			return model.Run{}, model.Task{}, "", fmt.Errorf("run is not active: %s", run.Status)
+		}
+		task, err := s.findTask(ctx, run.TaskID)
+		if err != nil {
+			return model.Run{}, model.Task{}, "", err
+		}
+		if err := model.ValidateTask(task); err != nil {
+			return model.Run{}, model.Task{}, "", err
+		}
+		if err := requireCanonicalTaskID(task.ID); err != nil {
+			return model.Run{}, model.Task{}, "", err
+		}
+		if task.ID != run.TaskID || task.ProjectID != run.ProjectID || task.SHA256 != run.TaskSHA256 {
+			return model.Run{}, model.Task{}, "", fmt.Errorf("canonical task/run identity mismatch")
+		}
+		hash, err := model.HashTask(task)
+		if err != nil || hash != task.SHA256 || hash != run.TaskSHA256 {
+			return model.Run{}, model.Task{}, "", fmt.Errorf("durable task hash mismatch")
+		}
+		destination, err := gatewayCompletionDestination(s.Config.StateDir, run)
+		if err != nil {
+			return model.Run{}, model.Task{}, "", err
+		}
+		return run, task, destination, nil
+	}
+	run, task, destination, err := loadAuthority()
+	if err != nil {
+		return CompletionWriteResult{}, err
+	}
+	projectLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "project-"+run.ProjectID)
+	if err != nil {
+		return CompletionWriteResult{}, err
+	}
+	defer projectLock.Release()
+	run, task, destination, err = loadAuthority()
+	if err != nil {
+		return CompletionWriteResult{}, err
+	}
+	data, err := fsutil.ReadFileBounded(in.CompletionFile, s.Config.MaxReadBytes)
+	if err != nil {
+		return CompletionWriteResult{}, err
+	}
+	completion, err := model.ParseCompletion(data, task)
+	if err != nil {
+		return CompletionWriteResult{}, err
+	}
+	if completion.RunID != run.ID || completion.TaskSHA256 != run.TaskSHA256 {
+		return CompletionWriteResult{}, fmt.Errorf("completion identity does not match canonical run")
+	}
+	canonical, err := model.CompletionJSON(completion)
+	if err != nil {
+		return CompletionWriteResult{}, err
+	}
+	canonical = append(canonical, '\n')
+	alreadyPresent, err := writeCompletionExclusive(destination, canonical, task, s.Config.MaxReadBytes)
+	if err != nil {
+		return CompletionWriteResult{}, err
+	}
+	status := "WRITTEN"
+	if alreadyPresent {
+		status = "ALREADY_PRESENT"
+	}
+	return CompletionWriteResult{Status: status, Path: destination, ProjectID: run.ProjectID, TaskID: task.ID, RunID: run.ID}, nil
 }
 
 func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Report, OperationResult, error) {
