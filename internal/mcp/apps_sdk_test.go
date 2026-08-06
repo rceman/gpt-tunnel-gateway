@@ -45,7 +45,7 @@ func TestToolCallAcceptsBoundedProtocolMeta(t *testing.T) {
 		t.Fatalf("unexpected result: %#v", response)
 	}
 	structured, ok := result["structuredContent"].(map[string]any)
-	if !ok || structured["version"] != "0.6.1" {
+	if !ok || structured["version"] != "0.6.2" {
 		t.Fatalf("unexpected structured result: %#v", result)
 	}
 }
@@ -410,7 +410,7 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	snapshot := model.ReviewSnapshot{SchemaVersion: 1, Run: model.ReviewSnapshotRun{ID: "run", TaskID: "task", ProjectID: "project", Status: "succeeded", CreatedAt: now}, Task: model.ReviewSnapshotTask{ID: "task", SHA256: task.SHA256, Title: "title", Objective: "objective", AcceptanceCriteria: []string{}, Constraints: []string{}, RequiredGates: []string{}, CreatedBy: "gpt", CreatedAt: now, TaskStateStatus: "completed"}, Report: model.ReviewSnapshotReport{Available: true, Status: "succeeded", Summary: "done", Commits: []string{}, ChangedFiles: []string{}, GateResults: []model.CompletionGateResult{}, AcceptanceCoverage: []string{}, Deviations: []string{}, RemainingRisks: []string{}, FinishedAt: &now}, Evidence: model.ReviewSnapshotEvidence{Available: true, Head: worktree.Head, Branch: "feature/x", WorktreeClean: &clean, Notes: []string{}, RecordedAt: &now}, Repository: model.ReviewSnapshotRepo{RefreshAttempted: true, RefreshSucceeded: true, DefaultBranch: "main", TaskBranch: "feature/x", TaskBranchPublished: true, TaskBranchHead: worktree.Head, Worktree: model.ReviewSnapshotWorktree{Branch: "feature/x", Head: worktree.Head, Clean: true}, EvidenceHeadReachable: true, BaseToEvidence: model.ReviewSnapshotCompare{MergeBase: task.BaseRevision}, DefaultToEvidence: model.ReviewSnapshotCompare{}, ChangedFiles: []string{}}, Checks: []model.ReviewSnapshotCheck{}, ReviewState: "reviewable", NextAction: "perform_static_review"}
 
 	samples := map[string]any{
-		"system_ping":          map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.1", "gateway_id": "home_pc", "time": now},
+		"system_ping":          map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.2", "gateway_id": "home_pc", "time": now},
 		"gateway_capabilities": map[string]any{"gateway_id": "home_pc", "listen_addr": "127.0.0.1:8765", "projects": []string{"project"}, "hub_protocol_root": "gpt-tunnel/v1", "hub_repository_url": "git@github.com:rceman/typer.git", "hub_branch": "gpt-tunnel/home_pc", "hub_managed_root": "/tmp/state/hub/repository", "airelay_control_only": true, "generic_shell_available": false},
 		"project_list":         map[string]any{"projects": []model.Project{project}}, "project_read": project,
 		"project_identifiers_read":  model.ProjectIdentifiers{SchemaVersion: 1, ProjectID: "project", ProjectCode: "GTW", NextTaskNumber: 1, NextADRNumber: 1},
