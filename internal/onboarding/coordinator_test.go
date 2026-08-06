@@ -8,9 +8,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
+	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
@@ -38,8 +40,9 @@ func newCoordinatorFixture(t *testing.T) coordinatorFixture {
 	request.GatewayStateDir = stateDir
 	request.ExpectedHubRevision = base
 	request.Workflow = nil
-	request.Airelay.SessionRequired = false
-	request.Airelay.SessionKey = nil
+	request.Airelay.SessionRequired = true
+	sessionKey := "example_master"
+	request.Airelay.SessionKey = &sessionKey
 	operation := "22222222-2222-2222-2222-222222222222"
 	store := hub.Store{Config: config.Config{
 		StateDir:     stateDir,
@@ -65,6 +68,19 @@ func prepareCoordinatorJournal(t *testing.T, fixture coordinatorFixture) {
 	_ = identifiers
 	receipt := preparedReceiptForTest(t, fixture.request)
 	receipt.OperationID = fixture.operation
+	managed := config.EmptyManagedProjectRegistry()
+	beforeDigest, err := managed.Digest()
+	if err != nil {
+		t.Fatalf("managed registry before digest: %v", err)
+	}
+	managed.Revision = 1
+	managed.Projects[fixture.request.ProjectID] = config.ManagedProjectEntry{Root: fixture.request.Root, RepositoryURL: fixture.request.RepositoryURL, Remote: fixture.request.Remote, DefaultBranch: fixture.request.DefaultBranch, AirelaySessionKey: *fixture.request.Airelay.SessionKey}
+	afterDigest, err := managed.Digest()
+	if err != nil {
+		t.Fatalf("managed registry after digest: %v", err)
+	}
+	receipt.RegistryDigests.ManagedBeforeSHA256 = beforeDigest
+	receipt.RegistryDigests.ManagedAfterSHA256 = afterDigest
 	receipt.RegistryDigests.ProjectSHA256 = digests.project
 	receipt.RegistryDigests.PlanSHA256 = digests.plan
 	receipt.RegistryDigests.IdentifiersSHA256 = digests.identifiers
@@ -108,8 +124,8 @@ func TestCoordinatorCommitsExactlyThreeObjectsAndRetriesIdempotently(t *testing.
 	if err != nil {
 		t.Fatalf("idempotent Execute: %v", err)
 	}
-	if second.HubTransaction || second.JournalRepairOnly || second.Hub.After != "" {
-		t.Fatalf("idempotent result = %+v, want no second Hub transaction", second)
+	if second.HubTransaction || second.JournalRepairOnly || second.Hub.After == "" || len(second.Hub.Paths) != 3 {
+		t.Fatalf("idempotent result = %+v, want recorded committed Hub evidence without a second transaction", second)
 	}
 	receipt, err := LoadOnboardingJournal(fixture.coordinator.StateDir, fixture.operation)
 	if err != nil || receipt.State != StateHubCommitted {
@@ -148,6 +164,230 @@ func TestCoordinatorReconcilesExactObjectsWithoutSecondTransaction(t *testing.T)
 	}
 }
 
+func TestCoordinatorReconciliationUsesCommonLastChangeNotRemoteTip(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	prepareCoordinatorJournal(t, fixture)
+	project, plan, identifiers, _, err := buildDurableObjects(fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := canonicalOnboardingPaths(fixture.request.ProjectID)
+	targetTransaction, err := fixture.coordinator.Hub.Transact(context.Background(), fixture.base, "seed onboarding objects", func(worktree string) ([]string, error) {
+		if err := hub.WriteJSON(worktree, paths[0], project); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(worktree, paths[1], plan); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(worktree, paths[2], identifiers); err != nil {
+			return nil, err
+		}
+		return paths, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.coordinator.Hub.Transact(context.Background(), targetTransaction.After, "unrelated hub change", func(worktree string) ([]string, error) {
+		if err := hub.WriteText(worktree, "unrelated.txt", "unrelated\n"); err != nil {
+			return nil, err
+		}
+		return []string{"unrelated.txt"}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := fixture.coordinator.Execute(trustedCoordinatorContext(), fixture.request, fixture.operation)
+	if err != nil {
+		t.Fatalf("reconcile after unrelated commit: %v", err)
+	}
+	if !result.JournalRepairOnly || result.Hub.After != targetTransaction.After {
+		t.Fatalf("result = %+v, want common target last-change %s", result, targetTransaction.After)
+	}
+}
+
+func TestCoordinatorReplayRejectsTamperedCommittedObjects(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	prepareCoordinatorJournal(t, fixture)
+	first, err := fixture.coordinator.Execute(trustedCoordinatorContext(), fixture.request, fixture.operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, _, _, _, err := buildDurableObjects(fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project.RepositoryURL = "git@example.invalid:owner/tampered.git"
+	path := canonicalOnboardingPaths(fixture.request.ProjectID)[0]
+	if _, err := fixture.coordinator.Hub.Transact(context.Background(), first.Hub.After, "tamper onboarding project", func(worktree string) ([]string, error) {
+		if err := hub.WriteJSON(worktree, path, project); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.coordinator.Execute(trustedCoordinatorContext(), fixture.request, fixture.operation); err == nil || !strings.Contains(err.Error(), OnboardingRecoveryRequired) {
+		t.Fatalf("tampered replay error = %v, want recovery required", err)
+	}
+}
+
+func TestCoordinatorRejectsManagedRegistryCollisions(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(config.ManagedProjectEntry, Request) config.ManagedProjectEntry
+	}{
+		{name: "id", mutate: func(entry config.ManagedProjectEntry, request Request) config.ManagedProjectEntry { return entry }},
+		{name: "root", mutate: func(entry config.ManagedProjectEntry, request Request) config.ManagedProjectEntry {
+			entry.Root = request.Root
+			return entry
+		}},
+		{name: "session", mutate: func(entry config.ManagedProjectEntry, request Request) config.ManagedProjectEntry {
+			entry.AirelaySessionKey = *request.Airelay.SessionKey
+			return entry
+		}},
+		{name: "repository", mutate: func(entry config.ManagedProjectEntry, request Request) config.ManagedProjectEntry {
+			entry.RepositoryURL = request.RepositoryURL
+			return entry
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newCoordinatorFixture(t)
+			otherBare, otherRoot, _ := testutil.RepoWithBareRemote(t)
+			managed := config.EmptyManagedProjectRegistry()
+			before, err := managed.Digest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry := config.ManagedProjectEntry{Root: otherRoot, RepositoryURL: otherBare, Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "other_master"}
+			if test.name == "id" {
+				entry = config.ManagedProjectEntry{Root: fixture.request.Root, RepositoryURL: fixture.request.RepositoryURL, Remote: fixture.request.Remote, DefaultBranch: fixture.request.DefaultBranch, AirelaySessionKey: *fixture.request.Airelay.SessionKey}
+			}
+			entry = test.mutate(entry, fixture.request)
+			managed.Revision = 1
+			managed.Projects[map[bool]string{true: fixture.request.ProjectID, false: "other"}[test.name == "id"]] = entry
+			if _, err := config.WriteManagedProjectRegistry(fixture.coordinator.StateDir, before, managed); err != nil {
+				t.Fatal(err)
+			}
+			prepareCoordinatorJournalWithCurrentRegistry(t, fixture)
+			if _, err := fixture.coordinator.Execute(trustedCoordinatorContext(), fixture.request, fixture.operation); err == nil || !strings.Contains(err.Error(), OnboardingRecoveryRequired) {
+				t.Fatalf("collision Execute error = %v, want recovery required", err)
+			}
+		})
+	}
+}
+
+func TestCoordinatorRejectsManagedMirrorCollision(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	_, otherRoot, _ := testutil.RepoWithBareRemote(t)
+	fixture.coordinator.Hub.Config.Projects = map[string]config.ProjectConfig{
+		"static": {
+			Root:              otherRoot,
+			Mirror:            config.ManagedProjectMirrorPath(fixture.coordinator.StateDir, fixture.request.ProjectID),
+			Remote:            "origin",
+			DefaultBranch:     "main",
+			AirelaySessionKey: "static_master",
+		},
+	}
+	prepareCoordinatorJournal(t, fixture)
+	if _, err := fixture.coordinator.Execute(trustedCoordinatorContext(), fixture.request, fixture.operation); err == nil || !strings.Contains(err.Error(), "duplicate project mirror") {
+		t.Fatalf("mirror collision Execute error = %v, want effective registry mirror collision", err)
+	}
+}
+
+func TestCoordinatorRejectsProjectCodeCollisionInHub(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	prepareCoordinatorJournal(t, fixture)
+	otherRequest := fixture.request
+	otherRequest.ProjectID = "other"
+	otherRequest.InitialPlan.ProjectID = "other"
+	project, plan, identifiers, _, err := buildDurableObjects(otherRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identifiers.ProjectCode = fixture.request.ProjectCode
+	path := canonicalOnboardingPaths(otherRequest.ProjectID)[2]
+	if _, err := fixture.coordinator.Hub.Transact(context.Background(), fixture.base, "seed project code collision", func(worktree string) ([]string, error) {
+		if err := hub.WriteJSON(worktree, path, identifiers); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_ = project
+	_ = plan
+	if _, err := fixture.coordinator.Execute(trustedCoordinatorContext(), fixture.request, fixture.operation); err == nil || !strings.Contains(err.Error(), OnboardingRecoveryRequired) {
+		t.Fatalf("project code collision Execute error = %v, want recovery required", err)
+	}
+}
+
+func TestCoordinatorRejectsManagedRegistryDigestDrift(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	prepareCoordinatorJournal(t, fixture)
+	otherBare, otherRoot, _ := testutil.RepoWithBareRemote(t)
+	managed := config.EmptyManagedProjectRegistry()
+	before, err := managed.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed.Revision = 1
+	managed.Projects["other"] = config.ManagedProjectEntry{Root: otherRoot, RepositoryURL: otherBare, Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "other_master"}
+	if _, err := config.WriteManagedProjectRegistry(fixture.coordinator.StateDir, before, managed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.coordinator.Execute(trustedCoordinatorContext(), fixture.request, fixture.operation); err == nil || !strings.Contains(err.Error(), "managed registry") {
+		t.Fatalf("registry drift Execute error = %v, want managed registry rejection", err)
+	}
+}
+
+func prepareCoordinatorJournalWithCurrentRegistry(t *testing.T, fixture coordinatorFixture) {
+	t.Helper()
+	project, plan, identifiers, digests, err := buildDurableObjects(fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := config.LoadManagedProjects(fixture.coordinator.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := current.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := preparedReceiptForTest(t, fixture.request)
+	receipt.OperationID = fixture.operation
+	receipt.RegistryDigests.ManagedBeforeSHA256 = before
+	receipt.RegistryDigests.ManagedAfterSHA256 = strings.Repeat("e", 64)
+	receipt.RegistryDigests.ProjectSHA256 = digests.project
+	receipt.RegistryDigests.PlanSHA256 = digests.plan
+	receipt.RegistryDigests.IdentifiersSHA256 = digests.identifiers
+	_ = project
+	_ = plan
+	_ = identifiers
+	if _, err := WritePreparedJournal(fixture.coordinator.StateDir, fixture.request, receipt); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHubCommittedReceiptRejectsForgedIdentifierCounters(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	prepareCoordinatorJournal(t, fixture)
+	prepared, err := LoadPreparedJournal(fixture.coordinator.StateDir, fixture.operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, plan, identifiers, _, err := buildDurableObjects(fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := strings.Repeat("f", 40)
+	committed := committedReceipt(prepared, fixture.request, after, project, plan, identifiers, true)
+	committed.CreatedIdentifiers.NextTaskNumber = 2
+	if err := ValidateHubCommittedReceiptIntrinsic(committed); err == nil || !strings.Contains(err.Error(), "counters must both equal 1") {
+		t.Fatalf("forged counters validation error = %v", err)
+	}
+}
+
 func TestCoordinatorJournalFailureReconcilesOnExactRetry(t *testing.T) {
 	fixture := newCoordinatorFixture(t)
 	prepareCoordinatorJournal(t, fixture)
@@ -158,7 +398,7 @@ func TestCoordinatorJournalFailureReconcilesOnExactRetry(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), OnboardingRecoveryRequired) {
 		t.Fatalf("first result err = %v, want recovery required", err)
 	}
-	if !first.HubTransaction || first.Hub.After == "" {
+	if !first.HubTransaction || first.State != StateRecoveryRequired || first.Hub.After == "" {
 		t.Fatalf("failed journal result must report committed Hub transaction for recovery: %+v", first)
 	}
 	writeOnboardingJournalAtomic = original
@@ -207,6 +447,20 @@ func TestCoordinatorRejectsConflictingOperationJournal(t *testing.T) {
 	_, err := fixture.coordinator.Execute(trustedCoordinatorContext(), conflicting, fixture.operation)
 	if err == nil || !strings.Contains(err.Error(), OnboardingOperationConflict) {
 		t.Fatalf("conflicting Execute error = %v, want operation conflict", err)
+	}
+}
+
+func TestManagedProjectsLockRetriesWithContextBound(t *testing.T) {
+	stateDir := t.TempDir()
+	held, err := lockfile.Acquire(filepath.Join(stateDir, "locks"), "managed-projects")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Release()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := acquireManagedProjectsLock(ctx, stateDir); err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("contended managed lock error = %v, want context deadline", err)
 	}
 }
 

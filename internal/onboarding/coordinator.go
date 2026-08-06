@@ -13,9 +13,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
+	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
@@ -61,6 +64,11 @@ type Result struct {
 	JournalRepairOnly bool
 }
 
+type registryAuthority struct {
+	Before string
+	After  string
+}
+
 func NewCoordinator(store hub.Store) *Coordinator {
 	return &Coordinator{Hub: store, StateDir: store.Config.StateDir}
 }
@@ -101,16 +109,31 @@ func (c *Coordinator) Execute(ctx context.Context, request Request, operationID 
 	if receipt.OperationID != operationID || receipt.RequestSHA256 != requestDigest || receipt.ProjectID != request.ProjectID {
 		return Result{}, &CoordinatorError{Code: ErrOnboardingOperationConflict.Error(), Cause: errors.New("journal identity does not match request")}
 	}
+	managedProjectsLock, err := acquireManagedProjectsLock(ctx, c.StateDir)
+	if err != nil {
+		return Result{}, err
+	}
+	defer managedProjectsLock.Release()
 	switch receipt.State {
 	case StateHubCommitted:
 		if err := ValidateHubCommittedReceipt(receipt, request); err != nil {
 			return Result{}, &CoordinatorError{Code: ErrOnboardingOperationConflict.Error(), Cause: err}
 		}
+		if _, err := c.verifyRegistryAuthority(request, receipt, true); err != nil {
+			return Result{}, err
+		}
+		project, plan, identifiers, objectDigests, err := buildDurableObjects(request)
+		if err != nil {
+			return Result{}, err
+		}
+		if err := c.validateCommittedHubState(ctx, request, receipt, project, plan, identifiers, objectDigests); err != nil {
+			return Result{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+		}
 		digest, err := HubCommittedReceiptDigest(receipt, request)
 		if err != nil {
 			return Result{}, err
 		}
-		return Result{OperationID: operationID, ProjectID: request.ProjectID, State: StateHubCommitted, RequestSHA256: requestDigest, ReceiptSHA256: digest}, nil
+		return Result{OperationID: operationID, ProjectID: request.ProjectID, State: StateHubCommitted, RequestSHA256: requestDigest, ReceiptSHA256: digest, Hub: receiptHubTransaction(receipt, c.Hub)}, nil
 	case StatePrepared:
 		if err := ValidatePreparedReceipt(receipt, request); err != nil {
 			return Result{}, &CoordinatorError{Code: ErrOnboardingOperationConflict.Error(), Cause: err}
@@ -126,11 +149,14 @@ func (c *Coordinator) Execute(ctx context.Context, request Request, operationID 
 	if receipt.RegistryDigests.ProjectSHA256 != objectDigests.project || receipt.RegistryDigests.PlanSHA256 != objectDigests.plan || receipt.RegistryDigests.IdentifiersSHA256 != objectDigests.identifiers {
 		return Result{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: errors.New("prepared receipt registry digests do not match canonical durable objects")}
 	}
+	if _, err := c.verifyRegistryAuthority(request, receipt, false); err != nil {
+		return Result{}, err
+	}
 	if err := c.Hub.Ensure(ctx); err != nil {
 		return Result{}, err
 	}
 
-	currentRevision, state, err := c.inspectTarget(ctx, request, project, plan, identifiers)
+	currentRevision, state, afterRevision, err := c.inspectTarget(ctx, request, project, plan, identifiers)
 	if err != nil {
 		return Result{}, err
 	}
@@ -138,12 +164,15 @@ func (c *Coordinator) Execute(ctx context.Context, request Request, operationID 
 		return Result{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: errors.New("target durable objects are partial or conflicting")}
 	}
 	if state == targetStateExact {
-		committed := committedReceipt(receipt, request, currentRevision, project, plan, identifiers, false)
+		if currentRevision == request.ExpectedHubRevision {
+			return Result{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: errors.New("exact target objects already exist at the expected pre-transaction revision")}
+		}
+		committed := committedReceipt(receipt, request, afterRevision, project, plan, identifiers, false)
 		journal, err := writeHubCommittedJournalLocked(c.StateDir, request, committed)
 		if err != nil {
 			return Result{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
 		}
-		return Result{OperationID: operationID, ProjectID: request.ProjectID, State: StateHubCommitted, RequestSHA256: requestDigest, ReceiptSHA256: journal.ReceiptSHA256, JournalRepairOnly: true}, nil
+		return Result{OperationID: operationID, ProjectID: request.ProjectID, State: StateHubCommitted, RequestSHA256: requestDigest, ReceiptSHA256: journal.ReceiptSHA256, Hub: receiptHubTransaction(committed, c.Hub), JournalRepairOnly: true}, nil
 	}
 	if currentRevision != request.ExpectedHubRevision {
 		return Result{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: fmt.Errorf("HUB_REVISION_CONFLICT expected=%s actual=%s", request.ExpectedHubRevision, currentRevision)}
@@ -168,12 +197,50 @@ func (c *Coordinator) Execute(ctx context.Context, request Request, operationID 
 	if err != nil {
 		return Result{}, err
 	}
-	committed := committedReceipt(receipt, request, transaction.After, project, plan, identifiers, true)
+	lastChange, err := c.commonPathLastChange(ctx, request.ProjectID)
+	if err != nil || lastChange == request.ExpectedHubRevision {
+		if err == nil {
+			err = errors.New("committed onboarding paths do not have a new common last-change revision")
+		}
+		return Result{OperationID: operationID, ProjectID: request.ProjectID, State: StateRecoveryRequired, RequestSHA256: requestDigest, Hub: transaction, HubTransaction: true}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+	}
+	transaction.After = lastChange
+	committed := committedReceipt(receipt, request, lastChange, project, plan, identifiers, true)
 	journal, err := writeHubCommittedJournalLocked(c.StateDir, request, committed)
 	if err != nil {
-		return Result{OperationID: operationID, ProjectID: request.ProjectID, State: StatePrepared, RequestSHA256: requestDigest, Hub: transaction, HubTransaction: true}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: fmt.Errorf("hub committed at %s but journal reconciliation failed: %w", transaction.After, err)}
+		return Result{OperationID: operationID, ProjectID: request.ProjectID, State: StateRecoveryRequired, RequestSHA256: requestDigest, Hub: transaction, HubTransaction: true}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: fmt.Errorf("hub committed at %s but journal reconciliation failed: %w", transaction.After, err)}
 	}
 	return Result{OperationID: operationID, ProjectID: request.ProjectID, State: StateHubCommitted, RequestSHA256: requestDigest, ReceiptSHA256: journal.ReceiptSHA256, Hub: transaction, HubTransaction: true}, nil
+}
+
+const (
+	managedProjectsLockAttempts = 200
+	managedProjectsLockDelay    = 5 * time.Millisecond
+)
+
+func acquireManagedProjectsLock(ctx context.Context, stateDir string) (*lockfile.Lock, error) {
+	var lastErr error
+	for attempt := 0; attempt < managedProjectsLockAttempts; attempt++ {
+		managedLock, err := lockfile.Acquire(filepath.Join(stateDir, "locks"), "managed-projects")
+		if err == nil {
+			return managedLock, nil
+		}
+		lastErr = err
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			return nil, err
+		}
+		if attempt+1 == managedProjectsLockAttempts {
+			break
+		}
+		timer := time.NewTimer(managedProjectsLockDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return nil, fmt.Errorf("acquire managed project lock after bounded contention retry: %w", lastErr)
 }
 
 type targetState string
@@ -250,14 +317,14 @@ func canonicalOnboardingPaths(projectID string) []string {
 	}
 }
 
-func (c *Coordinator) inspectTarget(ctx context.Context, request Request, project model.Project, plan model.Plan, identifiers model.ProjectIdentifiers) (string, targetState, error) {
+func (c *Coordinator) inspectTarget(ctx context.Context, request Request, project model.Project, plan model.Plan, identifiers model.ProjectIdentifiers) (string, targetState, string, error) {
 	paths := canonicalOnboardingPaths(request.ProjectID)
 	collision, err := c.remoteCollision(ctx, request)
 	if err != nil {
-		return "", targetStateConflict, err
+		return "", targetStateConflict, "", err
 	}
 	if collision {
-		return "", targetStateConflict, errors.New("ONBOARDING_RECOVERY_REQUIRED: repository or project code collision")
+		return "", targetStateConflict, "", errors.New("ONBOARDING_RECOVERY_REQUIRED: repository or project code collision")
 	}
 	present := 0
 	exact := 0
@@ -267,7 +334,7 @@ func (c *Coordinator) inspectTarget(ctx context.Context, request Request, projec
 			if isHubNotFound(err) {
 				continue
 			}
-			return "", targetStateConflict, err
+			return "", targetStateConflict, "", err
 		}
 		present++
 		var value any
@@ -281,19 +348,19 @@ func (c *Coordinator) inspectTarget(ctx context.Context, request Request, projec
 		}
 		decoded, err := decodeHubObject(data, index)
 		if err != nil {
-			return "", targetStateConflict, err
+			return "", targetStateConflict, "", err
 		}
 		canonical, err := json.MarshalIndent(decoded, "", "  ")
 		if err != nil {
-			return "", targetStateConflict, err
+			return "", targetStateConflict, "", err
 		}
 		canonical = append(canonical, '\n')
 		if !bytes.Equal(data, canonical) {
-			return "", targetStateConflict, errors.New("target durable object is not canonical")
+			return "", targetStateConflict, "", errors.New("target durable object is not canonical")
 		}
 		want, err := digestObject(value)
 		if err != nil {
-			return "", targetStateConflict, err
+			return "", targetStateConflict, "", err
 		}
 		have, err := digestObject(decoded)
 		if err == nil && want == have {
@@ -303,23 +370,171 @@ func (c *Coordinator) inspectTarget(ctx context.Context, request Request, projec
 	if present == 0 {
 		revision, err := c.Hub.RemoteRevision(ctx)
 		if err != nil {
-			return "", targetStateConflict, err
+			return "", targetStateConflict, "", err
 		}
-		return revision, targetStateEmpty, nil
+		return revision, targetStateEmpty, "", nil
 	}
 	if present == len(paths) && exact == len(paths) {
 		revision, err := c.Hub.RemoteRevision(ctx)
 		if err != nil {
-			return "", targetStateConflict, err
+			return "", targetStateConflict, "", err
 		}
-		return revision, targetStateExact, nil
+		after, err := c.commonPathLastChange(ctx, request.ProjectID)
+		if err != nil {
+			return "", targetStateConflict, "", err
+		}
+		return revision, targetStateExact, after, nil
 	}
-	return "", targetStateConflict, nil
+	return "", targetStateConflict, "", nil
 }
 
 func isHubNotFound(err error) bool {
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "does not exist") || strings.Contains(message, "pathspec") || strings.Contains(message, "not found") || strings.Contains(message, "fatal: path")
+}
+
+func (c *Coordinator) commonPathLastChange(ctx context.Context, projectID string) (string, error) {
+	paths := canonicalOnboardingPaths(projectID)
+	var common string
+	for _, path := range paths {
+		lastChange, err := c.Hub.LastChange(ctx, path)
+		if err != nil {
+			return "", err
+		}
+		if common == "" {
+			common = lastChange
+			continue
+		}
+		if common != lastChange {
+			return "", fmt.Errorf("onboarding paths have different last-change commits: %s versus %s", common, lastChange)
+		}
+	}
+	if common == "" {
+		return "", errors.New("onboarding paths have no common last-change commit")
+	}
+	return common, nil
+}
+
+func (c *Coordinator) validateCommittedHubState(ctx context.Context, request Request, receipt Receipt, project model.Project, plan model.Plan, identifiers model.ProjectIdentifiers, digests objectDigests) error {
+	objects := []any{project, plan, identifiers}
+	for index, path := range canonicalOnboardingPaths(request.ProjectID) {
+		data, err := c.Hub.ReadFile(ctx, path)
+		if err != nil {
+			return fmt.Errorf("read committed onboarding object %s: %w", path, err)
+		}
+		decoded, err := decodeHubObject(data, index)
+		if err != nil {
+			return fmt.Errorf("decode committed onboarding object %s: %w", path, err)
+		}
+		canonical, err := json.MarshalIndent(decoded, "", "  ")
+		if err != nil {
+			return err
+		}
+		canonical = append(canonical, '\n')
+		if !bytes.Equal(data, canonical) {
+			return fmt.Errorf("committed onboarding object %s is not canonical", path)
+		}
+		want := []string{digests.project, digests.plan, digests.identifiers}[index]
+		have, err := digestObject(decoded)
+		if err != nil || have != want {
+			return fmt.Errorf("committed onboarding object %s digest does not match receipt", path)
+		}
+		if !objectsMatch(decoded, objects[index]) {
+			return fmt.Errorf("committed onboarding object %s does not match request", path)
+		}
+	}
+	lastChange, err := c.commonPathLastChange(ctx, request.ProjectID)
+	if err != nil {
+		return err
+	}
+	if receipt.Hub.After == nil || lastChange != *receipt.Hub.After {
+		return fmt.Errorf("committed onboarding last-change commit %s does not match recorded hub.after", lastChange)
+	}
+	return nil
+}
+
+func objectsMatch(left, right any) bool {
+	leftJSON, leftErr := json.Marshal(left)
+	rightJSON, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
+}
+
+func receiptHubTransaction(receipt Receipt, store hub.Store) hub.TransactionResult {
+	after := ""
+	if receipt.Hub.After != nil {
+		after = *receipt.Hub.After
+	}
+	return hub.TransactionResult{Before: receipt.Hub.Before, After: after, Remote: hub.RemoteName, Branch: store.Config.Hub.Branch, Paths: append([]string(nil), receipt.Hub.Paths...)}
+}
+
+func (c *Coordinator) verifyRegistryAuthority(request Request, receipt Receipt, committed bool) (registryAuthority, error) {
+	if request.Airelay.SessionKey == nil || !request.Airelay.SessionRequired {
+		return registryAuthority{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: errors.New("managed registry projection requires a required Airelay session key")}
+	}
+	current, err := config.LoadManagedProjects(c.StateDir)
+	if err != nil {
+		return registryAuthority{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: fmt.Errorf("load managed project registry: %w", err)}
+	}
+	before, err := current.Digest()
+	if err != nil {
+		return registryAuthority{}, err
+	}
+	entry := config.ManagedProjectEntry{Root: request.Root, RepositoryURL: request.RepositoryURL, Remote: request.Remote, DefaultBranch: request.DefaultBranch, AirelaySessionKey: *request.Airelay.SessionKey}
+	mirror := config.ManagedProjectMirrorPath(c.StateDir, request.ProjectID)
+	for id, existing := range current.Projects {
+		if id == request.ProjectID {
+			if committed && before == receipt.RegistryDigests.ManagedAfterSHA256 && managedEntryEqual(existing, entry) {
+				continue
+			}
+			return registryAuthority{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: fmt.Errorf("managed registry project ID collision: %s", request.ProjectID)}
+		}
+		if existing.Root == entry.Root || config.ManagedProjectMirrorPath(c.StateDir, id) == mirror || existing.AirelaySessionKey == entry.AirelaySessionKey || existing.RepositoryURL == entry.RepositoryURL {
+			return registryAuthority{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: fmt.Errorf("managed registry collision with project %s", id)}
+		}
+	}
+
+	if committed && before == receipt.RegistryDigests.ManagedAfterSHA256 {
+		if existing, ok := current.Projects[request.ProjectID]; !ok || !managedEntryEqual(existing, entry) {
+			return registryAuthority{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: errors.New("managed registry after digest does not contain the exact onboarding entry")}
+		}
+		if _, err := config.EffectiveProjectsFromValidatedStatic(c.Hub.Config.Projects, current, c.StateDir); err != nil {
+			return registryAuthority{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+		}
+		return registryAuthority{Before: before, After: before}, nil
+	}
+	if before != receipt.RegistryDigests.ManagedBeforeSHA256 {
+		return registryAuthority{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: fmt.Errorf("managed registry before digest mismatch: got %s want %s", before, receipt.RegistryDigests.ManagedBeforeSHA256)}
+	}
+	if current.Revision >= config.MaxManagedProjectRegistryRevision {
+		return registryAuthority{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: errors.New("managed registry revision cannot advance")}
+	}
+	next := cloneManagedRegistry(current)
+	next.Revision++
+	next.Projects[request.ProjectID] = entry
+	if _, err := config.EffectiveProjectsFromValidatedStatic(c.Hub.Config.Projects, next, c.StateDir); err != nil {
+		return registryAuthority{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+	}
+	after, err := next.Digest()
+	if err != nil {
+		return registryAuthority{}, err
+	}
+	if after != receipt.RegistryDigests.ManagedAfterSHA256 {
+		return registryAuthority{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: fmt.Errorf("managed registry after digest mismatch: got %s want %s", after, receipt.RegistryDigests.ManagedAfterSHA256)}
+	}
+	return registryAuthority{Before: before, After: after}, nil
+}
+
+func cloneManagedRegistry(current config.ManagedProjectRegistry) config.ManagedProjectRegistry {
+	next := current
+	next.Projects = make(map[string]config.ManagedProjectEntry, len(current.Projects)+1)
+	for id, entry := range current.Projects {
+		next.Projects[id] = entry
+	}
+	return next
+}
+
+func managedEntryEqual(left, right config.ManagedProjectEntry) bool {
+	return left.Root == right.Root && left.RepositoryURL == right.RepositoryURL && left.Remote == right.Remote && left.DefaultBranch == right.DefaultBranch && left.AirelaySessionKey == right.AirelaySessionKey
 }
 
 func (c *Coordinator) remoteCollision(ctx context.Context, request Request) (bool, error) {

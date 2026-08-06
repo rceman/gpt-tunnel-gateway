@@ -702,6 +702,9 @@ func ValidateHubCommittedReceiptIntrinsic(receipt Receipt) error {
 	if err := validateSHA40(*receipt.Hub.After, "receipt hub.after"); err != nil {
 		return fmt.Errorf("receipt hub.after: %w", err)
 	}
+	if *receipt.Hub.After == receipt.Hub.Before {
+		return errors.New("hub-committed receipt hub.after must differ from hub.before")
+	}
 	if err := validatePreparedHubPaths(receipt.Hub.Paths, receipt.ProjectID); err != nil {
 		return err
 	}
@@ -774,11 +777,8 @@ func validateCreatedIdentifiers(created *CreatedIdentifiers, projectID string) e
 	if err := validateProjectCode(created.ProjectCode, "created_identifiers.project_code"); err != nil {
 		return err
 	}
-	if err := validatePositiveInteger(created.NextTaskNumber, "created_identifiers.next_task_number"); err != nil {
-		return err
-	}
-	if err := validatePositiveInteger(created.NextADRNumber, "created_identifiers.next_adr_number"); err != nil {
-		return err
+	if created.NextTaskNumber != PositiveInteger(1) || created.NextADRNumber != PositiveInteger(1) {
+		return errors.New("created_identifiers counters must both equal 1")
 	}
 	return nil
 }
