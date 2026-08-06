@@ -24,6 +24,19 @@ type workflowPolicyAuthority struct {
 	role string
 }
 
+// WithPlannerWorkflowPolicyAuthority and WithDeliveryWorkflowPolicyAuthority
+// are server-owned authority constructors. Callers cannot select an arbitrary
+// role string; transport adapters must obtain the appropriate context from
+// the trusted Planner or Delivery boundary before invoking a mutating
+// service.
+func WithPlannerWorkflowPolicyAuthority(ctx context.Context) context.Context {
+	return context.WithValue(ctx, workflowPolicyAuthorityContextKey{}, workflowPolicyAuthority{role: workflowPolicyAuthorityPlanner})
+}
+
+func WithDeliveryWorkflowPolicyAuthority(ctx context.Context) context.Context {
+	return context.WithValue(ctx, workflowPolicyAuthorityContextKey{}, workflowPolicyAuthority{role: workflowPolicyAuthorityDelivery})
+}
+
 func RequireWorkflowPolicyAuthority(ctx context.Context) error {
 	authority, ok := ctx.Value(workflowPolicyAuthorityContextKey{}).(workflowPolicyAuthority)
 	if !ok || (authority.role != workflowPolicyAuthorityPlanner && authority.role != workflowPolicyAuthorityDelivery) {

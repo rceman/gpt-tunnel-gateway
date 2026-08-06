@@ -636,3 +636,245 @@ func PreparedReceiptDigest(receipt Receipt, request Request) (string, error) {
 	digest := sha256.Sum256(data)
 	return hex.EncodeToString(digest[:]), nil
 }
+
+// ValidateHubCommittedReceiptIntrinsic validates the only post-preparation
+// state currently owned by the onboarding coordinator. Later activation and
+// rollback states remain modelled but are intentionally outside O3b.
+func ValidateHubCommittedReceiptIntrinsic(receipt Receipt) error {
+	if receipt.State != StateHubCommitted {
+		return fmt.Errorf("invalid hub-committed receipt state %q", receipt.State)
+	}
+	if receipt.SchemaVersion != PositiveInteger(1) {
+		return errors.New("receipt schema_version must be 1")
+	}
+	if !receiptUUIDPattern.MatchString(receipt.OperationID) {
+		return errors.New("receipt operation_id must be a lowercase UUID")
+	}
+	if !receiptSHA256Pattern.MatchString(receipt.RequestSHA256) {
+		return errors.New("receipt request_sha256 must be a lowercase SHA-256 digest")
+	}
+	if err := validateProjectID(receipt.ProjectID, "receipt project_id"); err != nil {
+		return fmt.Errorf("receipt project_id: %w", err)
+	}
+	proof := receipt.RepositoryProof
+	if err := validateAbsolutePath(proof.Root, "receipt repository_proof.root"); err != nil {
+		return fmt.Errorf("receipt repository_proof.root: %w", err)
+	}
+	if err := validateRemote(proof.Remote, "receipt repository_proof.remote"); err != nil {
+		return fmt.Errorf("receipt repository_proof.remote: %w", err)
+	}
+	if err := validateRepositoryURL(proof.RepositoryURL, "receipt repository_proof.repository_url"); err != nil {
+		return fmt.Errorf("receipt repository_proof.repository_url: %w", err)
+	}
+	if err := validateBranch(proof.DefaultBranch, "receipt repository_proof.default_branch"); err != nil {
+		return fmt.Errorf("receipt repository_proof.default_branch: %w", err)
+	}
+	if err := validateBranch(proof.Branch, "receipt repository_proof.branch"); err != nil {
+		return fmt.Errorf("receipt repository_proof.branch: %w", err)
+	}
+	if proof.Branch != proof.DefaultBranch {
+		return errors.New("receipt repository_proof.branch must equal default_branch")
+	}
+	if err := validateSHA40(proof.Head, "receipt repository_proof.head"); err != nil {
+		return fmt.Errorf("receipt repository_proof.head: %w", err)
+	}
+	if err := validateAbsolutePath(proof.GatewayStateDir, "receipt repository_proof.gateway_state_dir"); err != nil {
+		return fmt.Errorf("receipt repository_proof.gateway_state_dir: %w", err)
+	}
+	if !receipt.WorktreeProof.Clean {
+		return errors.New("receipt worktree_proof.clean must be true")
+	}
+	if err := validateSHA256(receipt.WorktreeProof.StatusSHA256, "worktree_proof.status_sha256"); err != nil {
+		return err
+	}
+	if err := validateSessionProofIntrinsic(receipt.SessionProof); err != nil {
+		return err
+	}
+	if err := validateRegistryDigests(receipt.RegistryDigests); err != nil {
+		return err
+	}
+	if err := validateSHA40(receipt.Hub.Before, "receipt hub.before"); err != nil {
+		return fmt.Errorf("receipt hub.before: %w", err)
+	}
+	if receipt.Hub.After == nil {
+		return errors.New("hub-committed receipt requires hub.after")
+	}
+	if err := validateSHA40(*receipt.Hub.After, "receipt hub.after"); err != nil {
+		return fmt.Errorf("receipt hub.after: %w", err)
+	}
+	if err := validatePreparedHubPaths(receipt.Hub.Paths, receipt.ProjectID); err != nil {
+		return err
+	}
+	if receipt.MirrorProof != nil {
+		return errors.New("hub-committed receipt must not contain mirror_proof")
+	}
+	if err := validateCreatedProject(receipt.CreatedProject, receipt.ProjectID, receipt.RepositoryProof); err != nil {
+		return err
+	}
+	if err := validateCreatedPlan(receipt.CreatedPlan, receipt.ProjectID); err != nil {
+		return err
+	}
+	if err := validateCreatedIdentifiers(receipt.CreatedIdentifiers, receipt.ProjectID); err != nil {
+		return err
+	}
+	if err := validateCommittedTimestamps(receipt.Timestamps); err != nil {
+		return err
+	}
+	if err := validateCommittedRecovery(receipt.Recovery); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateCreatedProject(created *CreatedProject, projectID string, proof RepositoryProof) error {
+	if created == nil {
+		return errors.New("hub-committed receipt requires created_project")
+	}
+	if created.ProjectID != projectID || created.RepositoryURL != proof.RepositoryURL || created.DefaultBranch != proof.DefaultBranch {
+		return errors.New("created_project does not match repository proof")
+	}
+	if err := validateProjectID(created.ProjectID, "created_project.project_id"); err != nil {
+		return err
+	}
+	if err := validateRepositoryURL(created.RepositoryURL, "created_project.repository_url"); err != nil {
+		return err
+	}
+	if err := validateBranch(created.DefaultBranch, "created_project.default_branch"); err != nil {
+		return err
+	}
+	if created.Status != "active" {
+		return errors.New("created_project.status must be active")
+	}
+	if (created.WorkflowRepository == nil) != (created.WorkflowCommit == nil) {
+		return errors.New("created_project workflow fields must be provided together")
+	}
+	return nil
+}
+
+func validateCreatedPlan(created *CreatedPlan, projectID string) error {
+	if created == nil {
+		return errors.New("hub-committed receipt requires created_plan")
+	}
+	if created.SchemaVersion != PositiveInteger(2) || created.ProjectID != projectID || created.Revision < 1 {
+		return errors.New("created_plan is invalid")
+	}
+	if created.Path != fmt.Sprintf("gpt-tunnel/v1/projects/%s/plan/current.json", projectID) {
+		return errors.New("created_plan.path is not canonical")
+	}
+	return nil
+}
+
+func validateCreatedIdentifiers(created *CreatedIdentifiers, projectID string) error {
+	if created == nil {
+		return errors.New("hub-committed receipt requires created_identifiers")
+	}
+	if created.SchemaVersion != PositiveInteger(1) || created.ProjectID != projectID {
+		return errors.New("created_identifiers identity is invalid")
+	}
+	if err := validateProjectCode(created.ProjectCode, "created_identifiers.project_code"); err != nil {
+		return err
+	}
+	if err := validatePositiveInteger(created.NextTaskNumber, "created_identifiers.next_task_number"); err != nil {
+		return err
+	}
+	if err := validatePositiveInteger(created.NextADRNumber, "created_identifiers.next_adr_number"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateCommittedTimestamps(timestamps Timestamps) error {
+	if timestamps.PreparedAt == nil || timestamps.HubCommittedAt == nil || timestamps.ActivatedAt != nil || timestamps.RolledBackAt != nil {
+		return errors.New("hub-committed receipt timestamps are invalid")
+	}
+	started, err := parseReceiptTime(timestamps.StartedAt)
+	if err != nil {
+		return fmt.Errorf("receipt timestamps.started_at: %w", err)
+	}
+	prepared, err := parseReceiptTime(*timestamps.PreparedAt)
+	if err != nil {
+		return fmt.Errorf("receipt timestamps.prepared_at: %w", err)
+	}
+	committed, err := parseReceiptTime(*timestamps.HubCommittedAt)
+	if err != nil {
+		return fmt.Errorf("receipt timestamps.hub_committed_at: %w", err)
+	}
+	updated, err := parseReceiptTime(timestamps.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("receipt timestamps.updated_at: %w", err)
+	}
+	if !started.Before(prepared) || prepared.After(committed) || committed.After(updated) {
+		return errors.New("hub-committed receipt timestamp order is invalid")
+	}
+	return nil
+}
+
+func validateCommittedRecovery(recovery Recovery) error {
+	if recovery.Status != "not_required" || recovery.LastCompletedState != nil || recovery.Reason != nil || recovery.RolledBackAt != nil || recovery.RollbackProof != nil {
+		return errors.New("hub-committed receipt recovery must be not_required without later fields")
+	}
+	return nil
+}
+
+func ValidateHubCommittedReceipt(receipt Receipt, request Request) error {
+	if err := ValidateRequest(request); err != nil {
+		return fmt.Errorf("invalid onboarding request: %w", err)
+	}
+	if err := ValidateHubCommittedReceiptIntrinsic(receipt); err != nil {
+		return err
+	}
+	if err := validateReceiptRequestBinding(receipt, request); err != nil {
+		return err
+	}
+	if receipt.CreatedProject.WorkflowRepository != nil {
+		if request.Workflow == nil || *receipt.CreatedProject.WorkflowRepository != request.Workflow.Repository || receipt.CreatedProject.WorkflowCommit == nil || *receipt.CreatedProject.WorkflowCommit != request.Workflow.Commit {
+			return errors.New("created_project workflow does not match request")
+		}
+	} else if request.Workflow != nil {
+		return errors.New("created_project workflow is missing")
+	}
+	if receipt.CreatedPlan.Revision != request.InitialPlan.Revision || receipt.CreatedPlan.ProjectID != request.InitialPlan.ProjectID {
+		return errors.New("created_plan does not match request initial plan")
+	}
+	if receipt.CreatedIdentifiers.ProjectCode != request.ProjectCode {
+		return errors.New("created_identifiers project code does not match request")
+	}
+	return nil
+}
+
+func validateReceiptRequestBinding(receipt Receipt, request Request) error {
+	expectedRequestDigest, err := RequestDigest(request)
+	if err != nil {
+		return fmt.Errorf("compute request digest: %w", err)
+	}
+	if receipt.RequestSHA256 != expectedRequestDigest || receipt.ProjectID != request.ProjectID {
+		return errors.New("receipt does not match request identity")
+	}
+	proof := receipt.RepositoryProof
+	if proof.Root != request.Root || proof.Remote != request.Remote || proof.RepositoryURL != request.RepositoryURL || proof.DefaultBranch != request.DefaultBranch || proof.Branch != request.DefaultBranch || proof.GatewayStateDir != request.GatewayStateDir {
+		return errors.New("receipt repository proof does not match request")
+	}
+	if err := validateSessionProof(receipt.SessionProof, request.Airelay); err != nil {
+		return err
+	}
+	if receipt.Hub.Before != request.ExpectedHubRevision {
+		return errors.New("receipt hub.before does not match request expected hub revision")
+	}
+	return nil
+}
+
+func CanonicalHubCommittedReceiptJSON(receipt Receipt, request Request) ([]byte, error) {
+	if err := ValidateHubCommittedReceipt(receipt, request); err != nil {
+		return nil, err
+	}
+	return json.Marshal(receipt)
+}
+
+func HubCommittedReceiptDigest(receipt Receipt, request Request) (string, error) {
+	data, err := CanonicalHubCommittedReceiptJSON(receipt, request)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:]), nil
+}
