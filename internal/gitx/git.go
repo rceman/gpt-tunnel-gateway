@@ -53,6 +53,13 @@ type Compare struct {
 	RightOnly int    `json:"right_only"`
 }
 
+type MirrorVerification struct {
+	Path          string
+	RepositoryURL string
+	Head          string
+	Created       bool
+}
+
 func (r Runner) command(ctx context.Context, dir string, gitDir bool, args ...string) ([]byte, error) {
 	base := []string{"-c", "core.pager=cat", "-c", "pager.log=false", "-c", "pager.show=false", "-c", "diff.external=", "-c", "color.ui=false"}
 	base = append(base, args...)
@@ -117,6 +124,49 @@ func (r Runner) EnsureMirror(ctx context.Context, p config.ProjectConfig) error 
 		return fmt.Errorf("create mirror: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
+}
+
+// ReconcileManagedMirror creates or reuses only the configured managed mirror,
+// verifies its repository identity, refreshes it once, and resolves the exact
+// configured default branch. It never writes the source worktree.
+func (r Runner) ReconcileManagedMirror(ctx context.Context, p config.ProjectConfig, expectedURL, defaultBranch string) (MirrorVerification, error) {
+	info, err := os.Lstat(p.Mirror)
+	created := false
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return MirrorVerification{}, err
+		}
+		if err := r.EnsureMirror(ctx, p); err != nil {
+			return MirrorVerification{}, err
+		}
+		created = true
+	} else {
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return MirrorVerification{}, fmt.Errorf("managed mirror must be a real directory")
+		}
+		if headInfo, err := os.Stat(filepath.Join(p.Mirror, "HEAD")); err != nil || !headInfo.Mode().IsRegular() {
+			return MirrorVerification{}, fmt.Errorf("managed mirror is not a valid Git mirror")
+		}
+	}
+	urlOut, err := r.command(ctx, p.Mirror, true, "remote", "get-url", p.Remote)
+	if err != nil {
+		return MirrorVerification{}, err
+	}
+	actualURL := strings.TrimSpace(string(urlOut))
+	if actualURL != expectedURL {
+		return MirrorVerification{}, fmt.Errorf("managed mirror repository URL mismatch")
+	}
+	if err := r.Refresh(ctx, p); err != nil {
+		return MirrorVerification{}, err
+	}
+	head, exists, err := r.MirrorBranchHead(ctx, p, defaultBranch)
+	if err != nil {
+		return MirrorVerification{}, err
+	}
+	if !exists || !isCommitSHA(head) {
+		return MirrorVerification{}, fmt.Errorf("managed mirror default branch is unavailable")
+	}
+	return MirrorVerification{Path: filepath.Clean(p.Mirror), RepositoryURL: actualURL, Head: head, Created: created}, nil
 }
 
 // RemoteURL and RemoteDefaultBranch are bounded metadata reads used by

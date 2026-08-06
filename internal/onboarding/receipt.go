@@ -637,12 +637,21 @@ func PreparedReceiptDigest(receipt Receipt, request Request) (string, error) {
 	return hex.EncodeToString(digest[:]), nil
 }
 
-// ValidateHubCommittedReceiptIntrinsic validates the only post-preparation
-// state currently owned by the onboarding coordinator. Later activation and
-// rollback states remain modelled but are intentionally outside O3b.
+// ValidateHubCommittedReceiptIntrinsic validates the hub-committed receipt
+// before local activation begins.
 func ValidateHubCommittedReceiptIntrinsic(receipt Receipt) error {
-	if receipt.State != StateHubCommitted {
-		return fmt.Errorf("invalid hub-committed receipt state %q", receipt.State)
+	return validatePostHubReceiptIntrinsic(receipt, StateHubCommitted)
+}
+
+// ValidateActivatedReceiptIntrinsic validates the durable receipt after the
+// local registry, mirror and readiness proofs have completed.
+func ValidateActivatedReceiptIntrinsic(receipt Receipt) error {
+	return validatePostHubReceiptIntrinsic(receipt, StateActivated)
+}
+
+func validatePostHubReceiptIntrinsic(receipt Receipt, expectedState ReceiptState) error {
+	if receipt.State != expectedState {
+		return fmt.Errorf("invalid %s receipt state %q", expectedState, receipt.State)
 	}
 	if receipt.SchemaVersion != PositiveInteger(1) {
 		return errors.New("receipt schema_version must be 1")
@@ -708,8 +717,12 @@ func ValidateHubCommittedReceiptIntrinsic(receipt Receipt) error {
 	if err := validatePreparedHubPaths(receipt.Hub.Paths, receipt.ProjectID); err != nil {
 		return err
 	}
-	if receipt.MirrorProof != nil {
-		return errors.New("hub-committed receipt must not contain mirror_proof")
+	if expectedState == StateHubCommitted {
+		if receipt.MirrorProof != nil {
+			return errors.New("hub-committed receipt must not contain mirror_proof")
+		}
+	} else if err := validateMirrorProof(receipt.MirrorProof); err != nil {
+		return err
 	}
 	if err := validateCreatedProject(receipt.CreatedProject, receipt.ProjectID, receipt.RepositoryProof); err != nil {
 		return err
@@ -720,13 +733,35 @@ func ValidateHubCommittedReceiptIntrinsic(receipt Receipt) error {
 	if err := validateCreatedIdentifiers(receipt.CreatedIdentifiers, receipt.ProjectID); err != nil {
 		return err
 	}
-	if err := validateCommittedTimestamps(receipt.Timestamps); err != nil {
-		return err
-	}
-	if err := validateCommittedRecovery(receipt.Recovery); err != nil {
-		return err
+	if expectedState == StateHubCommitted {
+		if err := validateCommittedTimestamps(receipt.Timestamps); err != nil {
+			return err
+		}
+		if err := validateCommittedRecovery(receipt.Recovery); err != nil {
+			return err
+		}
+	} else {
+		if err := validateActivatedTimestamps(receipt.Timestamps); err != nil {
+			return err
+		}
+		if err := validateActivatedRecovery(receipt.Recovery); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func validateMirrorProof(proof *MirrorProof) error {
+	if proof == nil {
+		return errors.New("activated receipt requires mirror_proof")
+	}
+	if err := validateAbsolutePath(proof.Path, "mirror_proof.path"); err != nil {
+		return err
+	}
+	if err := validateRepositoryURL(proof.RepositoryURL, "mirror_proof.repository_url"); err != nil {
+		return err
+	}
+	return validateSHA40(proof.Head, "mirror_proof.head")
 }
 
 func validateCreatedProject(created *CreatedProject, projectID string, proof RepositoryProof) error {
@@ -816,6 +851,40 @@ func validateCommittedRecovery(recovery Recovery) error {
 	return nil
 }
 
+func validateActivatedTimestamps(timestamps Timestamps) error {
+	if timestamps.PreparedAt == nil || timestamps.HubCommittedAt == nil || timestamps.ActivatedAt == nil || timestamps.RolledBackAt != nil {
+		return errors.New("activated receipt timestamps are invalid")
+	}
+	started, err := parseReceiptTime(timestamps.StartedAt)
+	if err != nil {
+		return fmt.Errorf("receipt timestamps.started_at: %w", err)
+	}
+	prepared, err := parseReceiptTime(*timestamps.PreparedAt)
+	if err != nil {
+		return fmt.Errorf("receipt timestamps.prepared_at: %w", err)
+	}
+	committed, err := parseReceiptTime(*timestamps.HubCommittedAt)
+	if err != nil {
+		return fmt.Errorf("receipt timestamps.hub_committed_at: %w", err)
+	}
+	activated, err := parseReceiptTime(*timestamps.ActivatedAt)
+	if err != nil {
+		return fmt.Errorf("receipt timestamps.activated_at: %w", err)
+	}
+	updated, err := parseReceiptTime(timestamps.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("receipt timestamps.updated_at: %w", err)
+	}
+	if !started.Before(prepared) || prepared.After(committed) || committed.After(activated) || activated.After(updated) {
+		return errors.New("activated receipt timestamp order is invalid")
+	}
+	return nil
+}
+
+func validateActivatedRecovery(recovery Recovery) error {
+	return validateCommittedRecovery(recovery)
+}
+
 func ValidateHubCommittedReceipt(receipt Receipt, request Request) error {
 	if err := ValidateRequest(request); err != nil {
 		return fmt.Errorf("invalid onboarding request: %w", err)
@@ -838,6 +907,35 @@ func ValidateHubCommittedReceipt(receipt Receipt, request Request) error {
 	}
 	if receipt.CreatedIdentifiers.ProjectCode != request.ProjectCode {
 		return errors.New("created_identifiers project code does not match request")
+	}
+	return nil
+}
+
+func ValidateActivatedReceipt(receipt Receipt, request Request) error {
+	if err := ValidateRequest(request); err != nil {
+		return fmt.Errorf("invalid onboarding request: %w", err)
+	}
+	if err := ValidateActivatedReceiptIntrinsic(receipt); err != nil {
+		return err
+	}
+	if err := validateReceiptRequestBinding(receipt, request); err != nil {
+		return err
+	}
+	if receipt.CreatedProject.WorkflowRepository != nil {
+		if request.Workflow == nil || *receipt.CreatedProject.WorkflowRepository != request.Workflow.Repository || receipt.CreatedProject.WorkflowCommit == nil || *receipt.CreatedProject.WorkflowCommit != request.Workflow.Commit {
+			return errors.New("created_project workflow does not match request")
+		}
+	} else if request.Workflow != nil {
+		return errors.New("created_project workflow is missing")
+	}
+	if receipt.CreatedPlan.Revision != request.InitialPlan.Revision || receipt.CreatedPlan.ProjectID != request.InitialPlan.ProjectID {
+		return errors.New("created_plan does not match request initial plan")
+	}
+	if receipt.CreatedIdentifiers.ProjectCode != request.ProjectCode {
+		return errors.New("created_identifiers project code does not match request")
+	}
+	if receipt.MirrorProof.RepositoryURL != request.RepositoryURL {
+		return errors.New("mirror_proof repository URL does not match request")
 	}
 	return nil
 }
@@ -872,6 +970,22 @@ func CanonicalHubCommittedReceiptJSON(receipt Receipt, request Request) ([]byte,
 
 func HubCommittedReceiptDigest(receipt Receipt, request Request) (string, error) {
 	data, err := CanonicalHubCommittedReceiptJSON(receipt, request)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func CanonicalActivatedReceiptJSON(receipt Receipt, request Request) ([]byte, error) {
+	if err := ValidateActivatedReceipt(receipt, request); err != nil {
+		return nil, err
+	}
+	return json.Marshal(receipt)
+}
+
+func ActivatedReceiptDigest(receipt Receipt, request Request) (string, error) {
+	data, err := CanonicalActivatedReceiptJSON(receipt, request)
 	if err != nil {
 		return "", err
 	}

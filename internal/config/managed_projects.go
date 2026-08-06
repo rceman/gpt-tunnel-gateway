@@ -153,12 +153,23 @@ func WriteManagedProjectRegistry(stateDir, expectedDigest string, next ManagedPr
 		return ManagedProjectRegistryWriteReceipt{}, err
 	}
 	stateDir = filepath.Clean(stateDir)
-	path := ManagedProjectRegistryPath(stateDir)
 	lock, err := lockfile.Acquire(filepath.Join(stateDir, "locks"), "managed-projects")
 	if err != nil {
 		return ManagedProjectRegistryWriteReceipt{}, err
 	}
 	defer lock.Release()
+	return WriteManagedProjectRegistryLocked(stateDir, expectedDigest, next)
+}
+
+// WriteManagedProjectRegistryLocked performs the registry transaction while
+// the caller owns the canonical managed-projects lock. It re-reads the file,
+// checks the expected digest/revision, and verifies the atomic replacement.
+func WriteManagedProjectRegistryLocked(stateDir, expectedDigest string, next ManagedProjectRegistry) (ManagedProjectRegistryWriteReceipt, error) {
+	if err := validateStateDir(stateDir); err != nil {
+		return ManagedProjectRegistryWriteReceipt{}, err
+	}
+	stateDir = filepath.Clean(stateDir)
+	path := ManagedProjectRegistryPath(stateDir)
 
 	current, err := loadManagedProjectRegistry(path)
 	if err != nil {
