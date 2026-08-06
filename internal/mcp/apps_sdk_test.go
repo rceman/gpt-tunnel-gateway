@@ -301,7 +301,7 @@ func TestWorkflowPolicyMutationFailsClosedWithoutTrustedAuthorityMCP(t *testing.
 	}
 	response := callMCP(t, &Server{Service: service.New(config.Config{})}, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "project_workflow_policy_adopt", "arguments": map[string]any{"policy": map[string]any{}}},
+		"params": map[string]any{"name": "project_workflow_policy_adopt", "arguments": map[string]any{"policy": validWorkflowPolicyArgument()}},
 	}))
 	result, ok := response["result"].(map[string]any)
 	if !ok && response["error"] == nil {
@@ -314,6 +314,58 @@ func TestWorkflowPolicyMutationFailsClosedWithoutTrustedAuthorityMCP(t *testing.
 		text := result["content"].([]any)[0].(map[string]any)["text"].(string)
 		if !strings.Contains(text, "AUTHORITY_UNAVAILABLE") {
 			t.Fatalf("unexpected unavailable-authority error: %q", text)
+		}
+	}
+}
+
+func validWorkflowPolicyArgument() map[string]any {
+	return map[string]any{
+		"schema_version":     1,
+		"project_id":         "example",
+		"revision":           1,
+		"workflow_stage":     "transitional_main",
+		"integration_branch": "main",
+		"agent":              map[string]any{"wait_for_ci": false},
+		"ci":                 map[string]any{"task": "disabled", "task_merge": "observe", "release": "observe"},
+		"updated_by":         "test",
+		"updated_at":         "2026-08-07T00:00:00Z",
+	}
+}
+
+func TestWorkflowPolicyMutationSchemasAreClosedAndNestedStrict(t *testing.T) {
+	tools := (&Server{Service: service.New(config.Config{})}).tools()
+	for _, name := range []string{"project_workflow_policy_adopt", "project_workflow_policy_update"} {
+		tool := tools[name]
+		properties := tool.InputSchema["properties"].(map[string]any)
+		policySchema := properties["policy"].(map[string]any)
+		if policySchema["additionalProperties"] != false {
+			t.Fatalf("%s policy schema is open: %#v", name, policySchema)
+		}
+		valid := map[string]any{"policy": validWorkflowPolicyArgument()}
+		validRaw, err := json.Marshal(valid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validateToolArguments(tool.InputSchema, validRaw); err != nil {
+			t.Fatalf("%s rejected canonical policy: %v", name, err)
+		}
+		missing := validWorkflowPolicyArgument()
+		delete(missing["ci"].(map[string]any), "release")
+		missingRaw, err := json.Marshal(map[string]any{"policy": missing})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validateToolArguments(tool.InputSchema, missingRaw); err == nil {
+			t.Fatalf("%s accepted missing nested policy field", name)
+		}
+		unknown := validWorkflowPolicyArgument()
+		unknown["unexpected"] = true
+		unknownRaw, err := json.Marshal(map[string]any{"policy": unknown})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validateToolArguments(tool.InputSchema, unknownRaw); err == nil {
+			t.Fatalf("%s accepted unknown nested policy field", name)
 		}
 	}
 }
