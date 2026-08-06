@@ -156,7 +156,7 @@ func installHistoricalOnlyDispatchedTask(t *testing.T, s *Service, hubRevision, 
 	ctx := context.Background()
 	task, created, err := s.TaskCreate(ctx, TaskCreateInput{
 		ProjectID: "example", Title: "Historical-only task", Objective: "Close stale mutable state after protocol cutover.",
-		Slug: strings.TrimPrefix(branch, "feature/"), AcceptanceCriteria: []string{"immutable history remains unchanged"}, CreatedBy: "test",
+		Slug: strings.TrimPrefix(branch, "feature/"), AcceptanceCriteria: []string{"immutable history remains unchanged"}, OperationClass: "implementation", CreatedBy: "test",
 		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
 	})
 	if err != nil {
@@ -267,7 +267,7 @@ func TestStateRepairDoesNotTerminalizeWithoutHistoricalOnlyEvidence(t *testing.T
 	s, hubRevision, _ := testService(t)
 	task, created, err := s.TaskCreate(context.Background(), TaskCreateInput{
 		ProjectID: "example", Title: "Unlinked dispatched task", Objective: "Remain invalid without historical evidence.",
-		Slug: "unlinked", AcceptanceCriteria: []string{"no automatic repair"}, CreatedBy: "test",
+		Slug: "unlinked", AcceptanceCriteria: []string{"no automatic repair"}, OperationClass: "implementation", CreatedBy: "test",
 		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
 	})
 	if err != nil {

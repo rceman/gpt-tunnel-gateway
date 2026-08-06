@@ -35,7 +35,7 @@ func TestTaskLifecycleStateRejectsInvalidConditionalFields(t *testing.T) {
 	tests := []TaskState{
 		{SchemaVersion: SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "merge_ready", UpdatedAt: now},
 		{SchemaVersion: SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "deferred", ReviewedHead: validHead, DeferredReason: "\x00", UpdatedAt: now},
-		{SchemaVersion: SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "merged", ReviewedHead: validHead, IntegrationBranch: "main", IntegrationHead: validHead, UpdatedAt: now},
+		{SchemaVersion: SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "merged", ReviewedHead: validHead, IntegrationBranch: "feature/invalid", IntegrationHead: validHead, UpdatedAt: now},
 		{SchemaVersion: SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "completed", ReviewedHead: validHead, UpdatedAt: now},
 	}
 	for _, state := range tests {

@@ -47,16 +47,17 @@ type PublicTaskPacketRun struct {
 }
 
 type PublicTaskPacket struct {
-	Task            model.Task               `json:"task"`
-	Run             PublicTaskPacketRun      `json:"run"`
-	RunSummaries    []model.RunReviewSummary `json:"run_summaries"`
-	Project         model.Project            `json:"project"`
-	Plan            model.Plan               `json:"plan"`
-	RepositoryRoot  string                   `json:"repository_root"`
-	FinalizeCommand string                   `json:"finalize_command"`
-	Text            string                   `json:"text"`
+	Task            model.Task                  `json:"task"`
+	Run             PublicTaskPacketRun         `json:"run"`
+	RunSummaries    []model.RunReviewSummary    `json:"run_summaries"`
+	Project         model.Project               `json:"project"`
+	Plan            model.Plan                  `json:"plan"`
+	WorkflowPolicy  model.ProjectWorkflowPolicy `json:"workflow_policy"`
+	RepositoryRoot  string                      `json:"repository_root"`
+	FinalizeCommand string                      `json:"finalize_command"`
+	Text            string                      `json:"text"`
 }
 
 func PublicTaskPacketView(packet TaskPacket) PublicTaskPacket {
-	return PublicTaskPacket{Task: packet.Task, Run: PublicTaskPacketRun{PublicRun: PublicRunView(packet.Run)}, RunSummaries: append([]model.RunReviewSummary{}, packet.RunSummaries...), Project: packet.Project, Plan: packet.Plan, RepositoryRoot: packet.RepositoryRoot, FinalizeCommand: packet.FinalizeCommand, Text: packet.Text}
+	return PublicTaskPacket{Task: packet.Task, Run: PublicTaskPacketRun{PublicRun: PublicRunView(packet.Run)}, RunSummaries: append([]model.RunReviewSummary{}, packet.RunSummaries...), Project: packet.Project, Plan: packet.Plan, WorkflowPolicy: packet.WorkflowPolicy, RepositoryRoot: packet.RepositoryRoot, FinalizeCommand: packet.FinalizeCommand, Text: packet.Text}
 }

@@ -34,6 +34,30 @@ func callMCP(t *testing.T, srv *Server, body []byte) map[string]any {
 	return response
 }
 
+func adoptTestWorkflowPolicy(t *testing.T, s *service.Service, projectID, revision string) string {
+	t.Helper()
+	now := time.Now().UTC()
+	_, result, err := s.ProjectWorkflowPolicyAdopt(context.Background(), service.ProjectWorkflowPolicyInput{
+		Policy: model.ProjectWorkflowPolicy{
+			SchemaVersion:     model.SchemaVersion,
+			ProjectID:         projectID,
+			Revision:          1,
+			WorkflowStage:     model.WorkflowStageTransitionalMain,
+			IntegrationBranch: "main",
+			Agent:             model.WorkflowPolicyAgent{WaitForCI: false},
+			CI:                model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve},
+			UpdatedBy:         "test",
+			UpdatedAt:         now,
+		},
+		AuthorizationContext: service.WorkflowPolicyAuthorizationOperator,
+		WriteOptions:         service.WriteOptions{ExpectedHubRevision: revision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result.Hub.After
+}
+
 func TestToolCallAcceptsBoundedProtocolMeta(t *testing.T) {
 	srv := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
 	response := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"system_ping","arguments":{},"_meta":{"openai/locale":"en","nested":{"request":"value"}}}}`))
@@ -80,11 +104,12 @@ func TestRunAgentTailToolCallUsesLiveServiceAndPlainTextTransport(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	policyRevision := adoptTestWorkflowPolicy(t, s, "example", registered.Hub.After)
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: policyRevision}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Tail", Objective: "Inspect tail", Slug: "tail", AcceptanceCriteria: []string{"tail"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Tail", Objective: "Inspect tail", Slug: "tail", AcceptanceCriteria: []string{"tail"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,6 +265,27 @@ func TestToolAnnotationsMatchActualSideEffects(t *testing.T) {
 	assert("git_read_file", readOnlyAnnotations())
 	assert("project_identifiers_read", readOnlyAnnotations())
 	assert("project_identifiers_adopt", additiveExternalAnnotations())
+	assert("project_workflow_policy_read", readOnlyAnnotations())
+	assert("project_workflow_policy_adopt", additiveExternalAnnotations())
+	assert("project_workflow_policy_update", additiveExternalAnnotations())
+	for _, name := range []string{"project_workflow_policy_adopt", "project_workflow_policy_update"} {
+		tool := tools[name]
+		properties := tool.InputSchema["properties"].(map[string]any)
+		authorization := properties["authorization_context"].(map[string]any)
+		if authorization["enum"] == nil {
+			t.Fatalf("%s does not constrain authorization_context", name)
+		}
+		required := tool.InputSchema["required"].([]string)
+		found := false
+		for _, field := range required {
+			if field == "authorization_context" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("%s does not require authorization_context", name)
+		}
+	}
 	assert("run_review_snapshot", ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true})
 	assert("adr_create", additiveExternalAnnotations())
 	assert("task_create", additiveExternalAnnotations())
@@ -253,6 +299,38 @@ func TestToolAnnotationsMatchActualSideEffects(t *testing.T) {
 	assert("run_cancel", destructiveExternalAnnotations())
 	assert("run_cancel_acknowledge_no_mutation", destructiveExternalAnnotations())
 	assert("git_refresh", ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true})
+	supersedeTask := tools["task_supersede"].InputSchema["properties"].(map[string]any)["task"].(map[string]any)
+	if supersedeTask["additionalProperties"] != false {
+		t.Fatal("task_supersede task input is not closed")
+	}
+	supersedeProperties := supersedeTask["properties"].(map[string]any)
+	if _, ok := supersedeProperties["operation_class"]; !ok {
+		t.Fatal("task_supersede does not advertise operation_class")
+	}
+}
+
+func TestWorkflowPolicyMutationRequiresExplicitAuthorizationMCP(t *testing.T) {
+	tools := (&Server{Service: service.New(config.Config{})}).tools()
+	for _, name := range []string{"project_workflow_policy_adopt", "project_workflow_policy_update"} {
+		if _, ok := tools[name]; !ok {
+			t.Fatalf("%s is not exposed to Planner/Delivery", name)
+		}
+	}
+	read, ok := tools["project_workflow_policy_read"]
+	if !ok || read.Annotations != readOnlyAnnotations() {
+		t.Fatalf("workflow policy read is not the permitted public surface: %#v", read)
+	}
+	response := callMCP(t, &Server{Service: service.New(config.Config{})}, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "project_workflow_policy_adopt", "arguments": map[string]any{"policy": map[string]any{}}},
+	}))
+	result, ok := response["result"].(map[string]any)
+	if !ok && response["error"] == nil {
+		t.Fatalf("missing authorization context was accepted: %#v", response)
+	}
+	if ok && result["isError"] != true {
+		t.Fatalf("missing authorization context was accepted: %#v", response)
+	}
 }
 
 func TestToolsListSerializesOutputSchemasAndAllHints(t *testing.T) {
@@ -337,6 +415,12 @@ func TestTaskReadOutputSchemaAcceptsBothDeclaredShapes(t *testing.T) {
 			"schema_version": float64(model.PlanSchemaVersion), "project_id": "project", "revision": float64(1), "title": "title", "summary": "summary", "current_objective": "objective", "queue": []any{}, "sections": []any{},
 			"updated_by": "gpt", "updated_at": "2026-07-30T10:00:00Z",
 		},
+		"workflow_policy": map[string]any{
+			"schema_version": float64(1), "project_id": "project", "revision": float64(1), "workflow_stage": model.WorkflowStageTransitionalMain,
+			"integration_branch": "main", "agent": map[string]any{"wait_for_ci": false},
+			"ci":         map[string]any{"task": model.WorkflowCIModeDisabled, "task_merge": model.WorkflowCIModeObserve, "release": model.WorkflowCIModeObserve},
+			"updated_by": "gpt", "updated_at": "2026-07-30T10:00:00Z",
+		},
 		"repository_root":  "/tmp/project",
 		"finalize_command": "gpt-tunnel run finalize run", "text": "packet",
 		"run_summaries": []any{},
@@ -385,7 +469,8 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	section := model.PlanSection{SchemaVersion: model.PlanSchemaVersion, ProjectID: "project", ID: "section", Revision: 1, Title: "section", ShortDescription: "short", Description: "description", UpdatedBy: "gpt", UpdatedAt: now}
 	render := model.PlanRender{SchemaVersion: model.PlanSchemaVersion, ProjectID: "project", Revision: 1, Title: "title", Summary: "summary", CurrentObjective: "objective", Text: "rendered"}
 	adr := model.ADR{SchemaVersion: 1, ID: "ADR-TEST", ProjectID: "project", Title: "title", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: now}
-	task := model.Task{SchemaVersion: 1, ID: "task", SHA256: strings.Repeat("b", 64), ProjectID: "project", Title: "title", Objective: "objective", Branch: "feature/x", BaseRevision: strings.Repeat("c", 40), AcceptanceCriteria: []string{}, Constraints: []string{}, Status: "created", CreatedBy: "gpt", CreatedAt: now}
+	policy := model.ProjectWorkflowPolicy{SchemaVersion: model.SchemaVersion, ProjectID: "project", Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", Agent: model.WorkflowPolicyAgent{WaitForCI: false}, CI: model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve}, UpdatedBy: "gpt", UpdatedAt: now}
+	task := model.Task{SchemaVersion: 1, ID: "task", SHA256: strings.Repeat("b", 64), ProjectID: "project", Title: "title", Objective: "objective", Branch: "feature/x", BaseRevision: strings.Repeat("c", 40), AcceptanceCriteria: []string{}, Constraints: []string{}, WorkflowPolicyRevision: 1, OperationClass: "implementation", EffectiveCIField: "task", EffectiveCIMode: model.WorkflowCIModeDisabled, Status: "created", CreatedBy: "gpt", CreatedAt: now}
 	state := model.TaskState{SchemaVersion: 1, TaskID: "task", TaskSHA256: task.SHA256, Status: "created", UpdatedAt: now}
 	run := model.Run{SchemaVersion: 1, ID: "run", TaskID: "task", TaskSHA256: task.SHA256, ProjectID: "project", GatewayID: "home_pc", SessionKey: "project_master", Branch: task.Branch, BaseRevision: task.BaseRevision, HubRevision: strings.Repeat("d", 40), Status: "awaiting_result", CompletionPath: "/tmp/completion", CreatedAt: now}
 	transaction := hub.TransactionResult{Before: strings.Repeat("d", 40), After: strings.Repeat("e", 40), Remote: "origin", Branch: "gpt-tunnel/home_pc", Paths: []string{"gpt-tunnel/v1/test.json"}}
@@ -393,7 +478,7 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	local := config.ProjectConfig{Root: "/tmp/project", Mirror: "/tmp/mirror.git", Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "project_master"}
 	worktree := gitx.WorktreeStatus{Branch: "main", Head: strings.Repeat("f", 40), Ahead: 0, Behind: 0, Porcelain: "", Clean: true}
 	report := model.Report{SchemaVersion: 1, TaskID: "task", RunID: "run", ProjectID: "project", Status: "succeeded", Summary: "done", GateResults: []model.CompletionGateResult{}, AcceptanceCoverage: []string{}, Deviations: []string{}, RemainingRisks: []string{}, Repository: model.RepositoryProof{Branch: "feature/x", Head: worktree.Head, WorktreeClean: true, BaseAncestor: true, Commits: []string{}, ChangedFiles: []string{}, DiffScope: "base..head"}, FinishedAt: now}
-	packet := service.TaskPacket{Task: task, Run: run, RunSummaries: []model.RunReviewSummary{}, Project: project, Plan: plan, RepositoryRoot: "/tmp/project", CompletionPath: run.CompletionPath, FinalizeCommand: "gpt-tunnel run finalize run", Text: "packet"}
+	packet := service.TaskPacket{Task: task, Run: run, RunSummaries: []model.RunReviewSummary{}, Project: project, Plan: plan, WorkflowPolicy: policy, RepositoryRoot: "/tmp/project", CompletionPath: run.CompletionPath, FinalizeCommand: "gpt-tunnel run finalize run", Text: "packet"}
 	publicRun := service.PublicRunView(run)
 	publicPacket := service.PublicTaskPacketView(packet)
 	sessionID := "project_master"
@@ -413,10 +498,14 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		"system_ping":          map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.3", "gateway_id": "home_pc", "time": now},
 		"gateway_capabilities": map[string]any{"gateway_id": "home_pc", "listen_addr": "127.0.0.1:8765", "projects": []string{"project"}, "hub_protocol_root": "gpt-tunnel/v1", "hub_repository_url": "git@github.com:rceman/typer.git", "hub_branch": "gpt-tunnel/home_pc", "hub_managed_root": "/tmp/state/hub/repository", "airelay_control_only": true, "generic_shell_available": false},
 		"project_list":         map[string]any{"projects": []model.Project{project}}, "project_read": project,
-		"project_identifiers_read":  model.ProjectIdentifiers{SchemaVersion: 1, ProjectID: "project", ProjectCode: "GTW", NextTaskNumber: 1, NextADRNumber: 1},
-		"project_identifiers_adopt": map[string]any{"identifiers": model.ProjectIdentifiers{SchemaVersion: 1, ProjectID: "project", ProjectCode: "GTW", NextTaskNumber: 1, NextADRNumber: 1}, "operation": operation},
-		"project_status":            service.ProjectStatus{Project: project, Local: local, Worktree: worktree, Plan: plan.StatusView(), HubRevision: transaction.After}, "project_register": operation,
-		"plan_read": plan, "plan_cutover": operation, "plan_update": operation, "plan_section_read": section, "plan_section_create": operation, "plan_section_update": operation, "plan_section_delete": operation, "plan_render": render, "plan_history": map[string]any{"history": []map[string]string{{"sha": transaction.After, "date": now.Format(time.RFC3339), "author": "GPT", "subject": "subject"}}},
+		"project_identifiers_read":       model.ProjectIdentifiers{SchemaVersion: 1, ProjectID: "project", ProjectCode: "GTW", NextTaskNumber: 1, NextADRNumber: 1},
+		"project_identifiers_adopt":      map[string]any{"identifiers": model.ProjectIdentifiers{SchemaVersion: 1, ProjectID: "project", ProjectCode: "GTW", NextTaskNumber: 1, NextADRNumber: 1}, "operation": operation},
+		"project_status":                 service.ProjectStatus{Project: project, Local: local, Worktree: worktree, Plan: plan.StatusView(), HubRevision: transaction.After, WorkflowPolicy: service.ProjectWorkflowPolicyStatus{State: "adopted", Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", AgentWaitForCI: false, CI: policy.CI, Conflicts: []string{}, CorrectiveAction: "none"}},
+		"project_workflow_policy_read":   policy,
+		"project_workflow_policy_adopt":  map[string]any{"policy": policy, "operation": operation},
+		"project_workflow_policy_update": map[string]any{"policy": policy, "operation": operation},
+		"project_register":               operation,
+		"plan_read":                      plan, "plan_cutover": operation, "plan_update": operation, "plan_section_read": section, "plan_section_create": operation, "plan_section_update": operation, "plan_section_delete": operation, "plan_render": render, "plan_history": map[string]any{"history": []map[string]string{{"sha": transaction.After, "date": now.Format(time.RFC3339), "author": "GPT", "subject": "subject"}}},
 		"adr_list": map[string]any{"adrs": []model.ADR{adr}}, "adr_read": adr, "adr_create": operation,
 		"task_create": map[string]any{"task": task, "operation": operation}, "task_list": map[string]any{"tasks": []service.TaskRecord{{Task: task, State: state, RunSummaries: []model.RunReviewSummary{}}}}, "task_read": publicPacket,
 		"task_review_report_start": reviewDraft, "task_review_report_section_update": reviewDraft, "task_review_report_validate": reviewValidation,

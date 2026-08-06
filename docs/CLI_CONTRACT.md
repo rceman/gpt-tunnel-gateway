@@ -6,6 +6,7 @@
 gpt-tunnel project list
 gpt-tunnel project read <project-id>
 gpt-tunnel project status <project-id>
+gpt-tunnel project workflow-policy-read <project-id>
 gpt-tunnel project register --file <input.json>
 ```
 
@@ -29,7 +30,7 @@ gpt-tunnel adr create --file <input.json>
 ## Task and run
 
 ```text
-gpt-tunnel task create --file <input.json>
+gpt-tunnel task create --file <input.json> # input includes operation_class
 gpt-tunnel task list <project-id>
 gpt-tunnel task read <task-id>
 gpt-tunnel task dispatch <task-id> [--expected-hub-revision <sha>]
@@ -65,6 +66,22 @@ canonical operational run exists. For a historical task or a task without an
 active run, it falls back to the task and mutable-state record. Historical
 workflow-v1 task/run/ADR/operator identifiers remain read-only; they are not
 accepted by execution or mutation operations.
+
+Each active project has one revisioned workflow policy under the canonical Hub
+project tree. It owns `transitional_main`/`develop_active`, the integration
+branch, and CI modes for task, task-merge, and release operations. Task-create
+and task-supersede inputs must declare one of `implementation`, `correction`,
+`integration`, `release`, or `activation`; the gateway persists the policy
+revision and effective CI projection on the immutable task. `disabled` and
+`observe` are non-blocking modes: they do not authorize waiting for hosted CI.
+Missing or invalid policy blocks new operational task creation rather than
+falling back to a local default. `project status`, `task read`, and the active
+execution packet expose the policy and its effective operation projection.
+Policy adoption and updates are internal authorized service operations only;
+they are not exposed as ordinary Agent CLI commands. The service requires an
+explicit `authorization_context` of `operator` or `planner`, and rejects
+missing, `agent`, or arbitrary contexts before any Hub write. Policy reads
+remain available through the normal CLI.
 
 Delivery review is bound to the same completed Agent Run. `review-report
 start`, `update`, and `validate` write only a Gateway-local atomic draft under

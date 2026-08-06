@@ -12,6 +12,7 @@
 | Direct agent tail | `gpt-tunnel agent tail` | read-only |
 | Direct agent status | `gpt-tunnel agent status` | read-only |
 | Aggregated project progress | `gpt-tunnel project status` | read-only |
+| Read workflow policy | `gpt-tunnel project workflow-policy-read <project-id>` | read-only |
 | Canonical compaction resume | `gpt-tunnel run resume <run-id>` | one bounded Airelay recovery |
 | Validate implementation release state | `python3 scripts/release.py check-source` | read-only |
 | Validate release tooling provenance | `python3 scripts/validate-release-tool-conformance.py --release-script scripts/release.py --ci-script scripts/check-github-ci.py` | read-only |

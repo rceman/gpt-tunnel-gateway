@@ -25,7 +25,7 @@ func TestCanonicalTaskRunAndADRAllocation(t *testing.T) {
 	task, created, err := s.TaskCreate(ctx, TaskCreateInput{
 		ProjectID: "example", Slug: "canonical-cutover", Title: "Canonical task",
 		Objective: "Exercise canonical durable allocation.", AcceptanceCriteria: []string{"allocation"},
-		CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		OperationClass: "implementation", CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: revision},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestTaskSupersedeRejectsEveryAllocatedTargetCollision(t *testing.T) {
 			ctx := context.Background()
 			old, created, err := s.TaskCreate(ctx, TaskCreateInput{
 				ProjectID: "example", Slug: "supersede-source", Title: "Source task", Objective: "Source task for collision proof.",
-				AcceptanceCriteria: []string{"rollback"}, CreatedBy: "test",
+				AcceptanceCriteria: []string{"rollback"}, OperationClass: "implementation", CreatedBy: "test",
 				WriteOptions: WriteOptions{ExpectedHubRevision: revision},
 			})
 			if err != nil {
@@ -161,7 +161,7 @@ func TestTaskSupersedeRejectsEveryAllocatedTargetCollision(t *testing.T) {
 			}
 			_, _, err = s.TaskSupersede(ctx, old.ID, TaskCreateInput{
 				ProjectID: "example", Slug: "replacement", Title: "Replacement", Objective: "Must not overwrite collision target.",
-				AcceptanceCriteria: []string{"rollback"}, CreatedBy: "test",
+				AcceptanceCriteria: []string{"rollback"}, OperationClass: "implementation", CreatedBy: "test",
 				WriteOptions: WriteOptions{ExpectedHubRevision: collision.After},
 			})
 			if err == nil || !strings.Contains(err.Error(), targetPath) {
@@ -204,7 +204,7 @@ func TestTaskDispatchRejectsTaskRunCounterIdentityMismatch(t *testing.T) {
 			ctx := context.Background()
 			task, created, err := s.TaskCreate(ctx, TaskCreateInput{
 				ProjectID: "example", Slug: "dispatch-counter", Title: "Dispatch task", Objective: "Reject mismatched run counter.",
-				AcceptanceCriteria: []string{"rollback"}, CreatedBy: "test",
+				AcceptanceCriteria: []string{"rollback"}, OperationClass: "implementation", CreatedBy: "test",
 				WriteOptions: WriteOptions{ExpectedHubRevision: revision},
 			})
 			if err != nil {

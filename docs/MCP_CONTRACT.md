@@ -16,6 +16,18 @@ their assertions from tool names and schemas; they do not assert a frozen tool
 count. `plan_update` advertises the workflow-v2 sectional fields only and never
 advertises the obsolete `body` field.
 
+Project workflow policy is a durable, revisioned Hub record. The
+`project_workflow_policy_read`, `project_workflow_policy_adopt`, and
+`project_workflow_policy_update` tools expose it to Planner/Delivery with
+optimistic Hub revision guards. `project_status`, `task_read`, and active task
+packets include the policy projection. Task creation and supersession require
+an explicit operation class; the gateway derives the effective CI field and
+mode from the policy. `disabled` and `observe` never become a hosted-CI wait
+request, and missing or invalid policy is a visible blocking error. Policy
+writes require a closed `authorization_context` enum of `operator` or
+`planner`; Agent calls without that explicit context are rejected before Hub
+mutation. Policy reads remain available without write authorization.
+
 `tools/call.params` accepts the optional protocol `_meta` object up to 64 KiB. All other unknown envelope fields and all unknown tool arguments remain rejected.
 
 Remote tools mirror typed CLI operations except `run_finalize`, which remains local-agent-only. No generic shell, generic Git, arbitrary path, or unrestricted file tool exists.
@@ -54,7 +66,7 @@ completion destination internally.
 The normal run surface contains `run_read`, `run_report`, and
 `run_review_snapshot`; there is no `run_evidence` operation. Routine run list,
 read, and status projections omit gateway-internal completion paths. The
-The active task execution packet does not expose a caller-actionable
+active task execution packet does not expose a caller-actionable
 `completion_path`; finalization reads only the exact Run-specific path derived
 from configured StateDir and the canonical Run ID.
 Protocol-v1 run records may appear in bounded run history with legacy paths

@@ -33,6 +33,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
+	adoptedPolicyRevision := adoptTestWorkflowPolicy(t, s, "example", registered.Hub.After)
 	srv := &Server{Service: s}
 	before, err := s.Hub.RemoteRevision(context.Background())
 	if err != nil {
@@ -83,7 +84,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatalf("caller-supplied session key was accepted: %#v", unknown)
 	}
 	after, err := s.Hub.RemoteRevision(context.Background())
-	if err != nil || before != after || registered.Hub.After != before {
+	if err != nil || before != after || adoptedPolicyRevision != before {
 		t.Fatalf("direct agent tools mutated durable workflow: before=%s after=%s err=%v", before, after, err)
 	}
 }
@@ -103,11 +104,12 @@ func TestTaskReadMCPRetainsExecutionOnlyPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	policyRevision := adoptTestWorkflowPolicy(t, s, "example", registered.Hub.After)
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: policyRevision}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Packet", Objective: "Retain execution paths", Slug: "packet", AcceptanceCriteria: []string{"packet"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Packet", Objective: "Retain execution paths", Slug: "packet", AcceptanceCriteria: []string{"packet"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}

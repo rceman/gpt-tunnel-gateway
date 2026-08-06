@@ -20,13 +20,14 @@ func (p ProjectStatus) MarshalJSON() ([]byte, error) {
 		progress.Tail = strings.ReplaceAll(progress.Tail, p.Local.Mirror, "[gateway-internal-path]")
 	}
 	return json.Marshal(struct {
-		Project     interface{}     `json:"project"`
-		Local       localView       `json:"local"`
-		Worktree    interface{}     `json:"worktree"`
-		Plan        interface{}     `json:"plan"`
-		HubRevision string          `json:"hub_revision"`
-		Progress    ProjectProgress `json:"progress"`
-	}{Project: p.Project, Local: local, Worktree: p.Worktree, Plan: p.Plan, HubRevision: p.HubRevision, Progress: progress})
+		Project        interface{}     `json:"project"`
+		Local          localView       `json:"local"`
+		Worktree       interface{}     `json:"worktree"`
+		Plan           interface{}     `json:"plan"`
+		HubRevision    string          `json:"hub_revision"`
+		Progress       ProjectProgress `json:"progress"`
+		WorkflowPolicy interface{}     `json:"workflow_policy"`
+	}{Project: p.Project, Local: local, Worktree: p.Worktree, Plan: p.Plan, HubRevision: p.HubRevision, Progress: progress, WorkflowPolicy: p.WorkflowPolicy})
 }
 
 // PublicProjectConfig is used by future output contracts that need to expose

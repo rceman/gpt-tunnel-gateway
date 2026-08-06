@@ -13,6 +13,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
@@ -404,6 +405,32 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.ProjectStatus(ctx, id)
 	})
+	add("project_workflow_policy_read", "Read the durable revisioned project workflow policy.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		id, e := getString(raw, "project_id")
+		if e != nil {
+			return nil, e
+		}
+		return s.Service.ProjectWorkflowPolicyRead(ctx, id)
+	})
+	authorizationContext := str("Explicit operator or planner authorization context; agent execution is not authorized")
+	authorizationContext["enum"] = []string{service.WorkflowPolicyAuthorizationOperator, service.WorkflowPolicyAuthorizationPlanner}
+	policyWriteSchema := obj(map[string]any{"policy": map[string]any{"type": "object"}, "authorization_context": authorizationContext, "expected_hub_revision": str("Optimistic hub revision")}, "policy", "authorization_context")
+	add("project_workflow_policy_adopt", "Planner or Delivery adoption of the durable project workflow policy; agent execution is rejected without explicit authorization context.", policyWriteSchema, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.ProjectWorkflowPolicyInput
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		policy, operation, e := s.Service.ProjectWorkflowPolicyAdopt(ctx, in)
+		return map[string]any{"policy": policy, "operation": operation}, e
+	})
+	add("project_workflow_policy_update", "Planner or Delivery revisioned update of the durable project workflow policy; agent execution is rejected without explicit authorization context.", policyWriteSchema, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.ProjectWorkflowPolicyInput
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		policy, operation, e := s.Service.ProjectWorkflowPolicyUpdate(ctx, in)
+		return map[string]any{"policy": policy, "operation": operation}, e
+	})
 	add("project_register", "Register a durable project from a JSON object.", obj(map[string]any{"project": map[string]any{"type": "object"}, "expected_hub_revision": str("Optimistic hub revision")}, "project"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.ProjectRegisterInput
 		if e := decode(raw, &in); e != nil {
@@ -505,7 +532,10 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.ADRCreate(ctx, in)
 	})
-	add("task_create", "Create immutable hashed task from a normalized slug and the refreshed project default branch.", obj(map[string]any{"project_id": str("Project identifier"), "slug": str("Lowercase task slug"), "title": str("Task title"), "objective": str("Full objective"), "acceptance_criteria": array(str("Criterion")), "constraints": array(str("Constraint")), "required_gates": array(str("Gate")), "created_by": str("Creator identity"), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "slug", "title", "objective", "created_by"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	operationClass := str("Closed workflow operation class")
+	operationClass["enum"] = model.WorkflowOperationClasses()
+	taskInputSchema := obj(map[string]any{"project_id": str("Project identifier"), "slug": str("Lowercase task slug"), "title": str("Task title"), "objective": str("Full objective"), "acceptance_criteria": array(str("Criterion")), "constraints": array(str("Constraint")), "required_gates": array(str("Gate")), "operation_class": operationClass, "created_by": str("Creator identity"), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "slug", "title", "objective", "operation_class", "created_by")
+	add("task_create", "Create immutable hashed task from a normalized slug and the refreshed project default branch; CI behavior is derived from durable project policy.", taskInputSchema, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.TaskCreateInput
 		if e := decode(raw, &in); e != nil {
 			return nil, e
@@ -534,7 +564,11 @@ func (s *Server) tools() map[string]Tool {
 		if e2 != nil {
 			return nil, e
 		}
-		return map[string]any{"task": task.Task, "state": task.State, "run_summaries": task.RunSummaries, "active_run": false}, nil
+		response := map[string]any{"task": task.Task, "state": task.State, "run_summaries": task.RunSummaries, "active_run": false}
+		if task.WorkflowPolicy != nil {
+			response["workflow_policy"] = task.WorkflowPolicy
+		}
+		return response, nil
 	})
 	add("task_review_report_start", "Start the Gateway-local Delivery review draft for the completed Agent Run.", obj(map[string]any{"task_id": str("Task identifier"), "run_id": str("Same implementation Run identifier")}, "task_id", "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in struct {
@@ -593,7 +627,7 @@ func (s *Server) tools() map[string]Tool {
 		run, res, e := s.Service.TaskDispatch(ctx, in)
 		return map[string]any{"run": service.PublicRunView(run), "operation": res}, e
 	})
-	add("task_supersede", "Create a replacement immutable task.", obj(map[string]any{"old_task_id": str("Superseded task"), "task": map[string]any{"type": "object"}}, "old_task_id", "task"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("task_supersede", "Create a replacement immutable task.", obj(map[string]any{"old_task_id": str("Superseded task"), "task": taskInputSchema}, "old_task_id", "task"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var envelope struct {
 			OldTaskID string                  `json:"old_task_id"`
 			Task      service.TaskCreateInput `json:"task"`

@@ -273,21 +273,28 @@ type ADR struct {
 }
 
 type Task struct {
-	SchemaVersion      int       `json:"schema_version"`
-	ID                 string    `json:"id"`
-	SHA256             string    `json:"sha256"`
-	ProjectID          string    `json:"project_id"`
-	Title              string    `json:"title"`
-	Objective          string    `json:"objective"`
-	Branch             string    `json:"branch"`
-	BaseRevision       string    `json:"base_revision"`
-	AcceptanceCriteria []string  `json:"acceptance_criteria"`
-	Constraints        []string  `json:"constraints"`
-	RequiredGates      []string  `json:"required_gates,omitempty"`
-	Status             string    `json:"status"`
-	Supersedes         string    `json:"supersedes,omitempty"`
-	CreatedBy          string    `json:"created_by"`
-	CreatedAt          time.Time `json:"created_at"`
+	SchemaVersion          int       `json:"schema_version"`
+	ID                     string    `json:"id"`
+	SHA256                 string    `json:"sha256"`
+	ProjectID              string    `json:"project_id"`
+	Title                  string    `json:"title"`
+	Objective              string    `json:"objective"`
+	Branch                 string    `json:"branch"`
+	BaseRevision           string    `json:"base_revision"`
+	AcceptanceCriteria     []string  `json:"acceptance_criteria"`
+	Constraints            []string  `json:"constraints"`
+	RequiredGates          []string  `json:"required_gates,omitempty"`
+	WorkflowPolicyRevision int       `json:"workflow_policy_revision"`
+	OperationClass         string    `json:"operation_class"`
+	EffectiveCIField       string    `json:"effective_ci_field"`
+	EffectiveCIMode        string    `json:"effective_ci_mode"`
+	WaitForCI              bool      `json:"wait_for_ci"`
+	CIBlocking             bool      `json:"ci_blocking"`
+	AgentMayWait           bool      `json:"agent_may_wait"`
+	Status                 string    `json:"status"`
+	Supersedes             string    `json:"supersedes,omitempty"`
+	CreatedBy              string    `json:"created_by"`
+	CreatedAt              time.Time `json:"created_at"`
 }
 
 type TaskState struct {
@@ -384,6 +391,33 @@ func NewID() (string, error) {
 func HashTask(t Task) (string, error) {
 	t.SHA256 = ""
 	data, err := json.Marshal(t)
+	if err != nil {
+		return "", err
+	}
+	s := sha256.Sum256(data)
+	return hex.EncodeToString(s[:]), nil
+}
+
+func legacyTaskHash(t Task) (string, error) {
+	t.SHA256 = ""
+	legacy := struct {
+		SchemaVersion      int       `json:"schema_version"`
+		ID                 string    `json:"id"`
+		SHA256             string    `json:"sha256"`
+		ProjectID          string    `json:"project_id"`
+		Title              string    `json:"title"`
+		Objective          string    `json:"objective"`
+		Branch             string    `json:"branch"`
+		BaseRevision       string    `json:"base_revision"`
+		AcceptanceCriteria []string  `json:"acceptance_criteria"`
+		Constraints        []string  `json:"constraints"`
+		RequiredGates      []string  `json:"required_gates,omitempty"`
+		Status             string    `json:"status"`
+		Supersedes         string    `json:"supersedes,omitempty"`
+		CreatedBy          string    `json:"created_by"`
+		CreatedAt          time.Time `json:"created_at"`
+	}{t.SchemaVersion, t.ID, t.SHA256, t.ProjectID, t.Title, t.Objective, t.Branch, t.BaseRevision, t.AcceptanceCriteria, t.Constraints, t.RequiredGates, t.Status, t.Supersedes, t.CreatedBy, t.CreatedAt}
+	data, err := json.Marshal(legacy)
 	if err != nil {
 		return "", err
 	}
@@ -505,6 +539,12 @@ func ValidateTask(v Task) error {
 	if len(v.AcceptanceCriteria) > 200 || len(v.Constraints) > 200 || len(v.RequiredGates) > 100 {
 		return fmt.Errorf("too many task entries")
 	}
+	if v.OperationClass != "" {
+		effective := EffectiveWorkflowPolicy{WorkflowPolicyRevision: v.WorkflowPolicyRevision, OperationClass: v.OperationClass, EffectiveCIField: v.EffectiveCIField, EffectiveCIMode: v.EffectiveCIMode, WaitForCI: v.WaitForCI, CIBlocking: v.CIBlocking, AgentMayWait: v.AgentMayWait}
+		if err := ValidateEffectiveWorkflowPolicy(effective); err != nil {
+			return err
+		}
+	}
 	for _, s := range append(append([]string{}, v.AcceptanceCriteria...), v.Constraints...) {
 		if len(s) > 20000 {
 			return fmt.Errorf("task entry too large")
@@ -515,6 +555,12 @@ func ValidateTask(v Task) error {
 		return err
 	}
 	if v.SHA256 != "" && v.SHA256 != h {
+		if v.OperationClass == "" {
+			legacy, legacyErr := legacyTaskHash(v)
+			if legacyErr == nil && v.SHA256 == legacy {
+				return nil
+			}
+		}
 		return fmt.Errorf("task sha256 mismatch")
 	}
 	return nil
@@ -540,8 +586,8 @@ func ValidateTaskState(v TaskState, task Task) error {
 			return fmt.Errorf("deferred_reason is only valid for deferred tasks")
 		}
 		if v.Status == "merged" {
-			if v.IntegrationBranch != "develop" {
-				return fmt.Errorf("integration_branch must be develop for merged tasks")
+			if v.IntegrationBranch != "main" && v.IntegrationBranch != "develop" {
+				return fmt.Errorf("integration_branch must be main or develop for merged tasks")
 			}
 			if err := ValidateCommitSHA(v.IntegrationHead); err != nil {
 				return fmt.Errorf("integration_head: %w", err)

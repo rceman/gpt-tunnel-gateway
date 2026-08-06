@@ -46,6 +46,11 @@ type ProjectIdentifiersAdoptInput struct {
 	ProjectCode string `json:"project_code"`
 	WriteOptions
 }
+type ProjectWorkflowPolicyInput struct {
+	Policy               model.ProjectWorkflowPolicy `json:"policy"`
+	AuthorizationContext string                      `json:"authorization_context"`
+	WriteOptions
+}
 type PlanUpdateInput struct {
 	ProjectID        string    `json:"project_id"`
 	Title            *string   `json:"title,omitempty"`
@@ -95,6 +100,7 @@ type TaskCreateInput struct {
 	AcceptanceCriteria []string `json:"acceptance_criteria"`
 	Constraints        []string `json:"constraints"`
 	RequiredGates      []string `json:"required_gates,omitempty"`
+	OperationClass     string   `json:"operation_class"`
 	CreatedBy          string   `json:"created_by"`
 	Supersedes         string   `json:"supersedes,omitempty"`
 	WriteOptions
@@ -145,27 +151,44 @@ type OperationResult struct {
 }
 
 type ProjectStatus struct {
-	Project     model.Project        `json:"project"`
-	Local       config.ProjectConfig `json:"local"`
-	Worktree    gitx.WorktreeStatus  `json:"worktree"`
-	Plan        model.PlanStatus     `json:"plan"`
-	HubRevision string               `json:"hub_revision"`
-	Progress    ProjectProgress      `json:"progress"`
+	Project        model.Project               `json:"project"`
+	Local          config.ProjectConfig        `json:"local"`
+	Worktree       gitx.WorktreeStatus         `json:"worktree"`
+	Plan           model.PlanStatus            `json:"plan"`
+	HubRevision    string                      `json:"hub_revision"`
+	Progress       ProjectProgress             `json:"progress"`
+	WorkflowPolicy ProjectWorkflowPolicyStatus `json:"workflow_policy"`
+}
+
+type ProjectWorkflowPolicyStatus struct {
+	State                string                 `json:"state"`
+	Revision             int                    `json:"revision"`
+	WorkflowStage        string                 `json:"workflow_stage"`
+	IntegrationBranch    string                 `json:"integration_branch"`
+	AgentWaitForCI       bool                   `json:"agent_wait_for_ci"`
+	CI                   model.WorkflowPolicyCI `json:"ci"`
+	ActiveOperationClass string                 `json:"active_operation_class"`
+	ActiveCIMode         string                 `json:"active_ci_mode"`
+	CIBlocking           bool                   `json:"ci_blocking"`
+	Conflicts            []string               `json:"conflicts"`
+	CorrectiveAction     string                 `json:"corrective_action"`
 }
 
 type TaskRecord struct {
-	Task         model.Task               `json:"task"`
-	State        model.TaskState          `json:"state"`
-	RunSummaries []model.RunReviewSummary `json:"run_summaries"`
+	Task           model.Task                   `json:"task"`
+	State          model.TaskState              `json:"state"`
+	RunSummaries   []model.RunReviewSummary     `json:"run_summaries"`
+	WorkflowPolicy *model.ProjectWorkflowPolicy `json:"workflow_policy,omitempty"`
 }
 
 type TaskPacket struct {
-	Task           model.Task               `json:"task"`
-	Run            model.Run                `json:"run"`
-	RunSummaries   []model.RunReviewSummary `json:"run_summaries"`
-	Project        model.Project            `json:"project"`
-	Plan           model.Plan               `json:"plan"`
-	RepositoryRoot string                   `json:"repository_root"`
+	Task           model.Task                  `json:"task"`
+	Run            model.Run                   `json:"run"`
+	RunSummaries   []model.RunReviewSummary    `json:"run_summaries"`
+	Project        model.Project               `json:"project"`
+	Plan           model.Plan                  `json:"plan"`
+	WorkflowPolicy model.ProjectWorkflowPolicy `json:"workflow_policy"`
+	RepositoryRoot string                      `json:"repository_root"`
 	// CompletionPath is an internal diagnostic value only. The Agent packet
 	// never instructs callers to use it; RunWriteCompletion derives the only
 	// legal destination from StateDir and the canonical Run ID.
@@ -486,25 +509,27 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	componentCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	var (
-		p              = model.Project{SchemaVersion: model.SchemaVersion, ID: id, DefaultBranch: local.DefaultBranch, Status: "unknown"}
-		projectErr     error
-		wt             gitx.WorktreeStatus
-		wtErr          error
-		plan           model.Plan
-		planErr        error
-		tasks          []TaskRecord
-		tasksErr       error
-		runs           []model.Run
-		runsErr        error
-		hubRevision    string
-		hubRevisionErr error
-		agentStatus    airelay.SessionStatus
-		agentStatusErr error
-		agentTail      airelay.Result
-		agentTailErr   error
+		p                 = model.Project{SchemaVersion: model.SchemaVersion, ID: id, DefaultBranch: local.DefaultBranch, Status: "unknown"}
+		projectErr        error
+		wt                gitx.WorktreeStatus
+		wtErr             error
+		plan              model.Plan
+		planErr           error
+		workflowPolicy    model.ProjectWorkflowPolicy
+		workflowPolicyErr error
+		tasks             []TaskRecord
+		tasksErr          error
+		runs              []model.Run
+		runsErr           error
+		hubRevision       string
+		hubRevisionErr    error
+		agentStatus       airelay.SessionStatus
+		agentStatusErr    error
+		agentTail         airelay.Result
+		agentTailErr      error
 	)
 	var wg sync.WaitGroup
-	wg.Add(8)
+	wg.Add(9)
 	go func() {
 		defer wg.Done()
 		candidate, err := s.ProjectRead(componentCtx, id)
@@ -542,11 +567,16 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 		defer wg.Done()
 		agentTail, agentTailErr = s.Airelay.Tail(componentCtx, local.AirelaySessionKey, progressTailLines)
 	}()
+	go func() {
+		defer wg.Done()
+		workflowPolicy, workflowPolicyErr = s.ProjectWorkflowPolicyRead(componentCtx, id)
+	}()
 	wg.Wait()
 	progress := s.projectProgressFromInputs(plan, planErr, tasks, tasksErr, runs, runsErr, agentStatus, agentStatusErr, agentTail, agentTailErr)
 	appendComponentError(&progress.ComponentErrors, "project", projectErr)
 	appendComponentError(&progress.ComponentErrors, "worktree", wtErr)
 	appendComponentError(&progress.ComponentErrors, "hub_revision", hubRevisionErr)
+	appendComponentError(&progress.ComponentErrors, "workflow_policy", workflowPolicyErr)
 	internalPaths := []string{s.Config.StateDir, local.Root, local.Mirror, local.AirelaySessionKey}
 	for _, run := range runs {
 		internalPaths = append(internalPaths, run.CompletionPath)
@@ -557,7 +587,7 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 		}
 	}
 	sort.Strings(progress.ComponentErrors)
-	return ProjectStatus{Project: p, Local: local, Worktree: wt, Plan: plan.StatusView(), HubRevision: hubRevision, Progress: progress}, nil
+	return ProjectStatus{Project: p, Local: local, Worktree: wt, Plan: plan.StatusView(), HubRevision: hubRevision, Progress: progress, WorkflowPolicy: workflowPolicyStatus(workflowPolicy, workflowPolicyErr, plan, tasks)}, nil
 }
 
 func (s *Service) PlanRead(ctx context.Context, project string) (model.Plan, error) {
@@ -1019,6 +1049,10 @@ func (s *Service) taskCreateOnce(ctx context.Context, in TaskCreateInput) (model
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
 	}
+	_, effectivePolicy, err := s.deriveTaskWorkflowPolicy(ctx, in.ProjectID, in.OperationClass, in.RequiredGates)
+	if err != nil {
+		return model.Task{}, OperationResult{}, err
+	}
 	local, err := s.projectConfig(in.ProjectID)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
@@ -1054,7 +1088,7 @@ func (s *Service) taskCreateOnce(ctx context.Context, in TaskCreateInput) (model
 		}
 	}
 	branch = "task/" + id + "-" + in.Slug
-	task := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Title: in.Title, Objective: in.Objective, Branch: branch, BaseRevision: base, AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), Status: "created", Supersedes: in.Supersedes, CreatedBy: in.CreatedBy, CreatedAt: time.Now().UTC()}
+	task := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Title: in.Title, Objective: in.Objective, Branch: branch, BaseRevision: base, AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), WorkflowPolicyRevision: effectivePolicy.WorkflowPolicyRevision, OperationClass: effectivePolicy.OperationClass, EffectiveCIField: effectivePolicy.EffectiveCIField, EffectiveCIMode: effectivePolicy.EffectiveCIMode, WaitForCI: effectivePolicy.WaitForCI, CIBlocking: effectivePolicy.CIBlocking, AgentMayWait: effectivePolicy.AgentMayWait, Status: "created", Supersedes: in.Supersedes, CreatedBy: in.CreatedBy, CreatedAt: time.Now().UTC()}
 	hash, err := model.HashTask(task)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
@@ -1211,7 +1245,13 @@ func (s *Service) TaskReadRecord(ctx context.Context, id string) (TaskRecord, er
 	if err != nil {
 		return TaskRecord{}, err
 	}
-	return TaskRecord{Task: task, State: state, RunSummaries: summaries}, nil
+	var policy *model.ProjectWorkflowPolicy
+	if current, policyErr := s.ProjectWorkflowPolicyRead(ctx, task.ProjectID); policyErr == nil {
+		policy = &current
+	} else if !IsNotFound(policyErr) {
+		return TaskRecord{}, policyErr
+	}
+	return TaskRecord{Task: task, State: state, RunSummaries: summaries, WorkflowPolicy: policy}, nil
 }
 func (s *Service) TaskSupersede(ctx context.Context, oldID string, in TaskCreateInput) (model.Task, OperationResult, error) {
 	for attempt := 0; ; attempt++ {
@@ -1250,6 +1290,10 @@ func (s *Service) taskSupersedeOnce(ctx context.Context, oldID string, in TaskCr
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
 	}
+	_, effectivePolicy, err := s.deriveTaskWorkflowPolicy(ctx, old.ProjectID, in.OperationClass, in.RequiredGates)
+	if err != nil {
+		return model.Task{}, OperationResult{}, err
+	}
 	local, err := s.projectConfig(old.ProjectID)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
@@ -1278,7 +1322,7 @@ func (s *Service) taskSupersedeOnce(ctx context.Context, oldID string, in TaskCr
 	}
 	branch := "task/" + id + "-" + in.Slug
 	now := time.Now().UTC()
-	newTask := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Title: in.Title, Objective: in.Objective, Branch: branch, BaseRevision: base, AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), Status: "created", Supersedes: old.ID, CreatedBy: in.CreatedBy, CreatedAt: now}
+	newTask := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Title: in.Title, Objective: in.Objective, Branch: branch, BaseRevision: base, AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), WorkflowPolicyRevision: effectivePolicy.WorkflowPolicyRevision, OperationClass: effectivePolicy.OperationClass, EffectiveCIField: effectivePolicy.EffectiveCIField, EffectiveCIMode: effectivePolicy.EffectiveCIMode, WaitForCI: effectivePolicy.WaitForCI, CIBlocking: effectivePolicy.CIBlocking, AgentMayWait: effectivePolicy.AgentMayWait, Status: "created", Supersedes: old.ID, CreatedBy: in.CreatedBy, CreatedAt: now}
 	hash, err := model.HashTask(newTask)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
@@ -1549,6 +1593,10 @@ func (s *Service) TaskMarkMerged(ctx context.Context, in TaskMarkMergedInput) (O
 	if err != nil {
 		return OperationResult{}, err
 	}
+	policy, err := s.ProjectWorkflowPolicyRead(ctx, task.ProjectID)
+	if err != nil {
+		return OperationResult{}, fmt.Errorf("read project workflow policy: %w", err)
+	}
 	if err := s.Git.Refresh(ctx, project); err != nil {
 		return OperationResult{}, err
 	}
@@ -1559,12 +1607,12 @@ func (s *Service) TaskMarkMerged(ctx context.Context, in TaskMarkMergedInput) (O
 	if !taskBranchExists || taskBranchHead != state.ReviewedHead {
 		return OperationResult{}, fmt.Errorf("remote task branch %q does not point at reviewed head", task.Branch)
 	}
-	developHead, developExists, err := s.mirrorRemoteBranchHead(ctx, project, "develop")
+	integrationHead, integrationExists, err := s.Git.MirrorBranchHead(ctx, project, policy.IntegrationBranch)
 	if err != nil {
 		return OperationResult{}, err
 	}
-	if !developExists || developHead != in.IntegrationHead {
-		return OperationResult{}, fmt.Errorf("remote develop does not point at integration head")
+	if !integrationExists || integrationHead != in.IntegrationHead {
+		return OperationResult{}, fmt.Errorf("remote %s does not point at integration head", policy.IntegrationBranch)
 	}
 	ancestor, err := s.Git.MirrorAncestor(ctx, project, state.ReviewedHead, in.IntegrationHead)
 	if err != nil {
@@ -1582,7 +1630,7 @@ func (s *Service) TaskMarkMerged(ctx context.Context, in TaskMarkMergedInput) (O
 		}
 		current.Status = "merged"
 		current.DeferredReason = ""
-		current.IntegrationBranch = "develop"
+		current.IntegrationBranch = policy.IntegrationBranch
 		current.IntegrationHead = in.IntegrationHead
 		return current, nil
 	})
@@ -1662,43 +1710,7 @@ func (s *Service) transitionTaskStateWithWorktree(ctx context.Context, task mode
 }
 
 func (s *Service) mirrorRemoteBranchHead(ctx context.Context, project config.ProjectConfig, branch string) (string, bool, error) {
-	if err := model.ValidateBranch(branch); err != nil {
-		return "", false, err
-	}
-	refs, err := s.Git.Refs(ctx, project)
-	if err != nil {
-		return "", false, err
-	}
-	remoteName := "refs/remotes/" + project.Remote + "/" + branch
-	localName := "refs/heads/" + branch
-	var remoteHead, localHead string
-	for _, ref := range refs {
-		switch ref.Name {
-		case remoteName:
-			if ref.ObjectType != "commit" {
-				return "", false, fmt.Errorf("remote branch %q is not a commit", branch)
-			}
-			remoteHead = ref.ObjectName
-		case localName:
-			if ref.ObjectType != "commit" {
-				return "", false, fmt.Errorf("mirror branch %q is not a commit", branch)
-			}
-			localHead = ref.ObjectName
-		}
-	}
-	if remoteHead != "" && localHead != "" && remoteHead != localHead {
-		return "", false, fmt.Errorf("mirror branch %q has conflicting remote and local heads", branch)
-	}
-	if remoteHead == "" {
-		if localHead != "" {
-			return "", false, fmt.Errorf("remote-tracking ref %q is missing; local mirror ref is not authoritative", remoteName)
-		}
-		return "", false, nil
-	}
-	if err := model.ValidateCommitSHA(remoteHead); err != nil {
-		return "", false, fmt.Errorf("remote-tracking ref %q head: %w", remoteName, err)
-	}
-	return remoteHead, true, nil
+	return s.Git.MirrorBranchHead(ctx, project, branch)
 }
 
 func (s *Service) RunList(ctx context.Context, project string) ([]model.Run, error) {
@@ -2304,14 +2316,18 @@ func (s *Service) TaskRead(ctx context.Context, id string) (TaskPacket, error) {
 	if err != nil {
 		return TaskPacket{}, err
 	}
-	text := renderPacket(task, run, project, plan, local.Root)
+	policy, err := s.ProjectWorkflowPolicyRead(ctx, task.ProjectID)
+	if err != nil {
+		return TaskPacket{}, fmt.Errorf("read task workflow policy: %w", err)
+	}
+	text := renderPacket(task, run, project, plan, policy, local.Root)
 	summaries, err := s.taskReviewSummaries(ctx, task, runs)
 	if err != nil {
 		return TaskPacket{}, err
 	}
-	return TaskPacket{Task: task, Run: run, RunSummaries: summaries, Project: project, Plan: plan, RepositoryRoot: local.Root, CompletionPath: run.CompletionPath, FinalizeCommand: "gpt-tunnel run finalize " + run.ID, Text: text}, nil
+	return TaskPacket{Task: task, Run: run, RunSummaries: summaries, Project: project, Plan: plan, WorkflowPolicy: policy, RepositoryRoot: local.Root, CompletionPath: run.CompletionPath, FinalizeCommand: "gpt-tunnel run finalize " + run.ID, Text: text}, nil
 }
-func renderPacket(task model.Task, run model.Run, project model.Project, plan model.Plan, root string) string {
+func renderPacket(task model.Task, run model.Run, project model.Project, plan model.Plan, policy model.ProjectWorkflowPolicy, root string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# GPT Tunnel Agent Execution Packet\n\nTask: %s\nRun: %s\nProject: %s\nRepository: %s\nBranch: %s\nBase: %s\n\n## Objective\n\n%s\n\n## Acceptance criteria\n", task.ID, run.ID, project.ID, root, task.Branch, task.BaseRevision, task.Objective)
 	for _, v := range task.AcceptanceCriteria {
@@ -2325,7 +2341,7 @@ func renderPacket(task model.Task, run model.Run, project model.Project, plan mo
 	for _, v := range task.RequiredGates {
 		fmt.Fprintf(&b, "- %s\n", v)
 	}
-	fmt.Fprintf(&b, "\n## Global plan context\n\n%s\n\nCurrent objective: %s\n\n## Context-compaction recovery\n\nIf context is lost or a compaction marker appears, re-read this immutable task packet with `gpt-tunnel task read %s`. Inspect the declared branch, base, current HEAD, worktree, existing commits, and durable run state. Resume from committed and durable evidence; do not rely on conversation memory, redo completed phases, or change task scope. If implementation is already complete, continue through verification, completion evidence, push, and finalization.\n\n## Completion contract\n\nBefore writing completion.json, commit the implementation, run every required gate, and push the task branch. Then prepare one strict completion JSON input and invoke exactly:\n  gpt-tunnel run write-completion %s --completion-file <INPUT>\n\nThe Gateway obtains the canonical Task and Run, validates the receipt, and derives the only legal completion destination. Do not write directly to a filesystem completion path. Then finalize with:\n  gpt-tunnel run finalize %s\n\nThe task is not complete until finalization prints TASK_FINALIZED. Do not finish only in chat or Airelay.\n", plan.Summary, plan.CurrentObjective, task.ID, run.ID, run.ID)
+	fmt.Fprintf(&b, "\n## Durable workflow policy\n\nWorkflow stage: %s\nIntegration branch authority: %s\nAgent wait for hosted CI: %t\nCI modes: task=%s, task_merge=%s, release=%s\nEffective operation class: %s\nEffective CI field/mode: %s/%s\nEffective wait_for_ci: %t\nEffective ci_blocking: %t\nAgent may wait: %t\n\nCurrent Gateway implementation, integration and release tasks do not wait for hosted CI unless the durable project policy explicitly requires it.\n\n## Global plan context\n\n%s\n\nCurrent objective: %s\n\n## Context-compaction recovery\n\nIf context is lost or a compaction marker appears, re-read this immutable task packet with `gpt-tunnel task read %s`. Inspect the declared branch, base, current HEAD, worktree, existing commits, and durable run state. Resume from committed and durable evidence; do not rely on conversation memory, redo completed phases, or change task scope. If implementation is already complete, continue through verification, completion evidence, push, and finalization.\n\n## Completion contract\n\nBefore writing completion.json, commit the implementation, run every required gate, and push the task branch. Then prepare one strict completion JSON input and invoke exactly:\n  gpt-tunnel run write-completion %s --completion-file <INPUT>\n\nThe Gateway obtains the canonical Task and Run, validates the receipt, and derives the only legal completion destination. Do not write directly to a filesystem completion path. Then finalize with:\n  gpt-tunnel run finalize %s\n\nTo read a prior Delivery report, use exactly `gpt-tunnel task report-read <TASK-ID> [RUN-ID]`.\n\nThe task is not complete until finalization prints TASK_FINALIZED. Do not finish only in chat or Airelay.\n", policy.WorkflowStage, policy.IntegrationBranch, policy.Agent.WaitForCI, policy.CI.Task, policy.CI.TaskMerge, policy.CI.Release, task.OperationClass, task.EffectiveCIField, task.EffectiveCIMode, task.WaitForCI, task.CIBlocking, task.AgentMayWait, plan.Summary, plan.CurrentObjective, task.ID, run.ID, run.ID)
 	return b.String()
 }
 

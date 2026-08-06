@@ -9,7 +9,7 @@ func TestTaskListSeparatesImmutableTaskAndState(t *testing.T) {
 	s, hubRev, _ := testService(t)
 	task, _, err := s.TaskCreate(context.Background(), TaskCreateInput{
 		ProjectID: "example", Title: "List task", Objective: "Verify task listing.",
-		Slug: "list", CreatedBy: "gpt",
+		Slug: "list", OperationClass: "implementation", CreatedBy: "gpt",
 		WriteOptions: WriteOptions{ExpectedHubRevision: hubRev},
 	})
 	if err != nil {

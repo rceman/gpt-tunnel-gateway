@@ -148,6 +148,16 @@ func project(ctx context.Context, s *service.Service, args []string) {
 			fatal(e)
 		}
 		output(map[string]any{"identifiers": identifiers, "operation": operation})
+	case "workflow-policy-read":
+		require(args, 2)
+		if len(args) != 2 {
+			usage()
+		}
+		v, e := s.ProjectWorkflowPolicyRead(ctx, args[1])
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
 	case "status":
 		require(args, 2)
 		v, e := s.ProjectStatus(ctx, args[1])

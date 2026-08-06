@@ -21,6 +21,30 @@ import (
 
 func planString(value string) *string { return &value }
 
+func adoptTestWorkflowPolicyCLI(t *testing.T, s *service.Service, projectID, revision string) string {
+	t.Helper()
+	now := time.Now().UTC()
+	_, result, err := s.ProjectWorkflowPolicyAdopt(context.Background(), service.ProjectWorkflowPolicyInput{
+		Policy: model.ProjectWorkflowPolicy{
+			SchemaVersion:     model.SchemaVersion,
+			ProjectID:         projectID,
+			Revision:          1,
+			WorkflowStage:     model.WorkflowStageTransitionalMain,
+			IntegrationBranch: "main",
+			Agent:             model.WorkflowPolicyAgent{WaitForCI: false},
+			CI:                model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve},
+			UpdatedBy:         "test",
+			UpdatedAt:         now,
+		},
+		AuthorizationContext: service.WorkflowPolicyAuthorizationOperator,
+		WriteOptions:         service.WriteOptions{ExpectedHubRevision: revision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result.Hub.After
+}
+
 func TestGitcmdResolvesManagedProjectAfterServiceConstruction(t *testing.T) {
 	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	stateDir := t.TempDir()
@@ -176,11 +200,12 @@ func TestCancelAcknowledgeCLIRouteUsesCanonicalServiceResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	policyRevision := adoptTestWorkflowPolicyCLI(t, s, "example", registered.Hub.After)
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: policyRevision}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Cancel acknowledgement", Objective: "Exercise the CLI surface", Slug: "cancel-ack-cli", AcceptanceCriteria: []string{"cancel"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Cancel acknowledgement", Objective: "Exercise the CLI surface", Slug: "cancel-ack-cli", AcceptanceCriteria: []string{"cancel"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,11 +343,12 @@ func TestAgentTailCLIRouteDefaultAndExplicitLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	policyRevision := adoptTestWorkflowPolicyCLI(t, s, "example", registered.Hub.After)
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: policyRevision}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Tail", Objective: "Inspect tail", Slug: "tail", AcceptanceCriteria: []string{"tail"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Tail", Objective: "Inspect tail", Slug: "tail", AcceptanceCriteria: []string{"tail"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,11 +400,12 @@ func TestAgentTailCLICommandPathErrorsAreBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	policyRevision := adoptTestWorkflowPolicyCLI(t, s, "example", registered.Hub.After)
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: policyRevision}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Tail", Objective: "Inspect tail", Slug: "tail", AcceptanceCriteria: []string{"tail"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Tail", Objective: "Inspect tail", Slug: "tail", AcceptanceCriteria: []string{"tail"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +497,8 @@ func TestDirectAgentSessionCLIParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	policyRevision := adoptTestWorkflowPolicyCLI(t, s, "example", registered.Hub.After)
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: policyRevision}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +532,7 @@ func TestDirectAgentSessionCLIParity(t *testing.T) {
 	if !strings.Contains(status, `"state": "running"`) || !strings.Contains(status, `"airelay_version": "0.1.54"`) {
 		t.Fatalf("unexpected direct status output: %s", status)
 	}
-	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Resume", Objective: "Exercise CLI resume", Slug: "cli-resume", AcceptanceCriteria: []string{"resume"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Resume", Objective: "Exercise CLI resume", Slug: "cli-resume", AcceptanceCriteria: []string{"resume"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -537,11 +565,12 @@ func TestTaskLifecycleDeferCLIRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	policyRevision := adoptTestWorkflowPolicyCLI(t, s, "example", registered.Hub.After)
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: policyRevision}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	taskRecord, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "CLI lifecycle", Objective: "Exercise the defer command.", Slug: "cli-lifecycle", AcceptanceCriteria: []string{"state"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
+	taskRecord, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "CLI lifecycle", Objective: "Exercise the defer command.", Slug: "cli-lifecycle", AcceptanceCriteria: []string{"state"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}

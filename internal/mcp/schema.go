@@ -93,6 +93,7 @@ func taskOutputSchema() map[string]any {
 		"schema_version": outputInteger(), "id": outputString(), "sha256": outputString(), "project_id": outputString(),
 		"title": outputString(), "objective": outputString(), "branch": outputString(), "base_revision": outputString(),
 		"acceptance_criteria": strings, "constraints": strings, "required_gates": strings,
+		"workflow_policy_revision": outputInteger(), "operation_class": outputString(), "effective_ci_field": outputString(), "effective_ci_mode": outputString(), "wait_for_ci": outputBoolean(), "ci_blocking": outputBoolean(), "agent_may_wait": outputBoolean(),
 		"status": outputString(), "supersedes": outputString(), "created_by": outputString(), "created_at": outputDateTime(),
 	}, "schema_version", "id", "sha256", "project_id", "title", "objective", "branch", "base_revision", "acceptance_criteria", "constraints", "status", "created_by", "created_at")
 }
@@ -253,6 +254,17 @@ func projectConfigOutputSchema() map[string]any {
 	}, "remote", "default_branch")
 }
 
+func workflowPolicyOutputSchema() map[string]any {
+	ci := closedOutput(map[string]any{"task": outputEnum(model.WorkflowCIModeDisabled, model.WorkflowCIModeObserve, model.WorkflowCIModeRequire), "task_merge": outputEnum(model.WorkflowCIModeDisabled, model.WorkflowCIModeObserve, model.WorkflowCIModeRequire), "release": outputEnum(model.WorkflowCIModeDisabled, model.WorkflowCIModeObserve, model.WorkflowCIModeRequire)}, "task", "task_merge", "release")
+	agent := closedOutput(map[string]any{"wait_for_ci": outputBoolean()}, "wait_for_ci")
+	return closedOutput(map[string]any{"schema_version": outputInteger(), "project_id": outputString(), "revision": outputInteger(), "workflow_stage": outputEnum(model.WorkflowStageTransitionalMain, model.WorkflowStageDevelopActive), "integration_branch": outputEnum("main", "develop"), "agent": agent, "ci": ci, "updated_by": outputString(), "updated_at": outputDateTime()}, "schema_version", "project_id", "revision", "workflow_stage", "integration_branch", "agent", "ci", "updated_by", "updated_at")
+}
+
+func workflowPolicyStatusOutputSchema() map[string]any {
+	ci := closedOutput(map[string]any{"task": outputEnum(model.WorkflowCIModeDisabled, model.WorkflowCIModeObserve, model.WorkflowCIModeRequire), "task_merge": outputEnum(model.WorkflowCIModeDisabled, model.WorkflowCIModeObserve, model.WorkflowCIModeRequire), "release": outputEnum(model.WorkflowCIModeDisabled, model.WorkflowCIModeObserve, model.WorkflowCIModeRequire)}, "task", "task_merge", "release")
+	return closedOutput(map[string]any{"state": outputEnum("adopted", "missing", "invalid"), "revision": outputInteger(), "workflow_stage": outputString(), "integration_branch": outputString(), "agent_wait_for_ci": outputBoolean(), "ci": ci, "active_operation_class": outputString(), "active_ci_mode": outputString(), "ci_blocking": outputBoolean(), "conflicts": outputArray(outputString()), "corrective_action": outputString()}, "state", "revision", "workflow_stage", "integration_branch", "agent_wait_for_ci", "ci", "active_operation_class", "active_ci_mode", "ci_blocking", "conflicts", "corrective_action")
+}
+
 func projectProgressOutputSchema() map[string]any {
 	task := closedOutput(map[string]any{"id": outputString(), "title": outputString(), "status": outputString(), "created_at": outputDateTime()}, "id", "title", "status", "created_at")
 	run := closedOutput(map[string]any{"id": outputString(), "task_id": outputString(), "status": outputString(), "branch": outputString(), "base_revision": outputString(), "created_at": outputDateTime(), "dispatched_at": outputDateTime(), "finished_at": outputDateTime()}, "id", "task_id", "status", "branch", "base_revision", "created_at")
@@ -273,7 +285,7 @@ func worktreeStatusOutputSchema() map[string]any {
 
 func taskRecordOutputSchema() map[string]any {
 	summary := runReviewSummaryOutputSchema()
-	return closedOutput(map[string]any{"task": taskOutputSchema(), "state": taskStateOutputSchema(), "run_summaries": outputArray(summary)}, "task", "state")
+	return closedOutput(map[string]any{"task": taskOutputSchema(), "state": taskStateOutputSchema(), "run_summaries": outputArray(summary), "workflow_policy": workflowPolicyOutputSchema()}, "task", "state")
 }
 
 func runReviewSummaryOutputSchema() map[string]any {
@@ -286,16 +298,16 @@ func runReviewSummaryOutputSchema() map[string]any {
 
 func taskPacketOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"task": taskOutputSchema(), "run": taskPacketRunOutputSchema(), "project": projectOutputSchema(), "plan": planOutputSchema(),
+		"task": taskOutputSchema(), "run": taskPacketRunOutputSchema(), "project": projectOutputSchema(), "plan": planOutputSchema(), "workflow_policy": workflowPolicyOutputSchema(),
 		"run_summaries":    outputArray(runReviewSummaryOutputSchema()),
 		"repository_root":  outputString(),
 		"finalize_command": outputString(), "text": outputString(),
-	}, "task", "run", "project", "plan", "repository_root", "finalize_command", "text")
+	}, "task", "run", "project", "plan", "workflow_policy", "repository_root", "finalize_command", "text")
 }
 
 func taskReadOutputSchema() map[string]any {
 	inactive := closedOutput(map[string]any{
-		"task": taskOutputSchema(), "state": taskStateOutputSchema(), "run_summaries": outputArray(runReviewSummaryOutputSchema()), "active_run": outputBoolean(),
+		"task": taskOutputSchema(), "state": taskStateOutputSchema(), "run_summaries": outputArray(runReviewSummaryOutputSchema()), "workflow_policy": workflowPolicyOutputSchema(), "active_run": outputBoolean(),
 	}, "task", "state", "active_run")
 	return map[string]any{"type": "object", "oneOf": []any{taskPacketOutputSchema(), inactive}}
 }
@@ -374,20 +386,23 @@ var toolOutputSchemas = map[string]map[string]any{
 		"hub_protocol_root": outputString(), "hub_repository_url": outputString(), "hub_branch": outputString(), "hub_managed_root": outputString(),
 		"airelay_control_only": outputBoolean(), "generic_shell_available": outputBoolean(),
 	}, "gateway_id", "listen_addr", "projects", "hub_protocol_root", "hub_repository_url", "hub_branch", "hub_managed_root", "airelay_control_only", "generic_shell_available"),
-	"project_list":              closedOutput(map[string]any{"projects": outputArray(projectOutputSchema())}, "projects"),
-	"project_read":              projectOutputSchema(),
-	"project_identifiers_read":  projectIdentifiersOutputSchema(),
-	"project_identifiers_adopt": closedOutput(map[string]any{"identifiers": projectIdentifiersOutputSchema(), "operation": operationOutputSchema()}, "identifiers", "operation"),
-	"project_status":            closedOutput(map[string]any{"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(), "hub_revision": outputString(), "progress": projectProgressOutputSchema()}, "project", "local", "worktree", "plan", "hub_revision", "progress"),
-	"project_register":          operationOutputSchema(),
-	"plan_read":                 planOutputSchema(),
-	"plan_cutover":              operationOutputSchema(),
-	"plan_update":               operationOutputSchema(),
-	"plan_section_read":         planSectionOutputSchema(),
-	"plan_section_create":       operationOutputSchema(),
-	"plan_section_update":       operationOutputSchema(),
-	"plan_section_delete":       operationOutputSchema(),
-	"plan_render":               planRenderOutputSchema(),
+	"project_list":                   closedOutput(map[string]any{"projects": outputArray(projectOutputSchema())}, "projects"),
+	"project_read":                   projectOutputSchema(),
+	"project_identifiers_read":       projectIdentifiersOutputSchema(),
+	"project_identifiers_adopt":      closedOutput(map[string]any{"identifiers": projectIdentifiersOutputSchema(), "operation": operationOutputSchema()}, "identifiers", "operation"),
+	"project_status":                 closedOutput(map[string]any{"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(), "hub_revision": outputString(), "progress": projectProgressOutputSchema(), "workflow_policy": workflowPolicyStatusOutputSchema()}, "project", "local", "worktree", "plan", "hub_revision", "progress", "workflow_policy"),
+	"project_workflow_policy_read":   workflowPolicyOutputSchema(),
+	"project_workflow_policy_adopt":  closedOutput(map[string]any{"policy": workflowPolicyOutputSchema(), "operation": operationOutputSchema()}, "policy", "operation"),
+	"project_workflow_policy_update": closedOutput(map[string]any{"policy": workflowPolicyOutputSchema(), "operation": operationOutputSchema()}, "policy", "operation"),
+	"project_register":               operationOutputSchema(),
+	"plan_read":                      planOutputSchema(),
+	"plan_cutover":                   operationOutputSchema(),
+	"plan_update":                    operationOutputSchema(),
+	"plan_section_read":              planSectionOutputSchema(),
+	"plan_section_create":            operationOutputSchema(),
+	"plan_section_update":            operationOutputSchema(),
+	"plan_section_delete":            operationOutputSchema(),
+	"plan_render":                    planRenderOutputSchema(),
 	"plan_history": closedOutput(map[string]any{"history": outputArray(closedOutput(map[string]any{
 		"sha": outputString(), "date": outputString(), "author": outputString(), "subject": outputString(),
 	}, "sha", "date", "author", "subject"))}, "history"),
@@ -455,7 +470,7 @@ func readOnlyAnnotations() ToolAnnotations {
 // registration, schemas, annotations, and contract tests describe the same
 // MCP surface. Its length is deliberately not a protocol assertion.
 var canonicalToolManifest = []string{
-	"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_identifiers_adopt", "project_status",
+	"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_identifiers_adopt", "project_status", "project_workflow_policy_read", "project_workflow_policy_adopt", "project_workflow_policy_update",
 	"project_register", "plan_read", "plan_cutover", "plan_update", "plan_section_read",
 	"plan_section_create", "plan_section_update", "plan_section_delete", "plan_render", "plan_history",
 	"adr_list", "adr_read", "adr_create", "task_create", "task_list", "task_read", "task_review_report_start", "task_review_report_section_update", "task_review_report_validate", "task_review_report_finalize", "task_report_read", "task_dispatch",
@@ -478,7 +493,7 @@ func destructiveExternalAnnotations() ToolAnnotations {
 var toolAnnotations = func() map[string]ToolAnnotations {
 	result := map[string]ToolAnnotations{}
 	for _, name := range []string{
-		"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_status",
+		"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_status", "project_workflow_policy_read",
 		"plan_read", "plan_section_read", "plan_render", "plan_history", "adr_list", "adr_read", "task_list", "task_read",
 		"run_list", "run_read", "run_status", "run_report", "task_review_report_validate", "task_report_read",
 		"git_refs", "git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare",
@@ -494,7 +509,7 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	result["operator_record"] = additiveExternalAnnotations()
 	result["operator_checkpoint"] = additiveExternalAnnotations()
 	result["operator_history"] = readOnlyAnnotations()
-	for _, name := range []string{"project_register", "project_identifiers_adopt", "adr_create", "task_create", "plan_section_create"} {
+	for _, name := range []string{"project_register", "project_identifiers_adopt", "project_workflow_policy_adopt", "project_workflow_policy_update", "adr_create", "task_create", "plan_section_create"} {
 		result[name] = additiveExternalAnnotations()
 	}
 	result["task_review_report_start"] = additiveExternalAnnotations()

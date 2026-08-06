@@ -29,7 +29,7 @@ func installTaskLifecycleState(t *testing.T, s *Service, task model.Task, state 
 func TestTaskDeferPreservesReviewedHeadAndNormalizesReason(t *testing.T) {
 	s, revision, _ := testService(t)
 	ctx := context.Background()
-	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Defer task", Objective: "Exercise task deferral.", Slug: "defer", AcceptanceCriteria: []string{"state"}, CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Defer task", Objective: "Exercise task deferral.", Slug: "defer", AcceptanceCriteria: []string{"state"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestTaskDeferPreservesReviewedHeadAndNormalizesReason(t *testing.T) {
 func TestTaskMarkMergeReadyRequiresCanonicalSuccessfulReport(t *testing.T) {
 	s, revision, _ := testService(t)
 	ctx := context.Background()
-	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Merge review", Objective: "Require a canonical report.", Slug: "merge-review", AcceptanceCriteria: []string{"report"}, CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Merge review", Objective: "Require a canonical report.", Slug: "merge-review", AcceptanceCriteria: []string{"report"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestTaskMarkMergeReadyRequiresCanonicalSuccessfulReport(t *testing.T) {
 func TestTaskMarkMergeReadyUsesLatestSuccessfulReportAndDeferReusesHead(t *testing.T) {
 	s, revision, _ := testService(t)
 	ctx := context.Background()
-	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Lifecycle report", Objective: "Use a canonical successful report.", Slug: "lifecycle-report", AcceptanceCriteria: []string{"report"}, RequiredGates: []string{"gate"}, CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Lifecycle report", Objective: "Use a canonical successful report.", Slug: "lifecycle-report", AcceptanceCriteria: []string{"report"}, RequiredGates: []string{"gate"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,13 +131,25 @@ func TestTaskMarkMergeReadyUsesLatestSuccessfulReportAndDeferReusesHead(t *testi
 	if _, err := s.RunReport(ctx, run.ID); err != nil {
 		t.Fatalf("merge-ready report was not readable: %v", err)
 	}
+	policy, err := s.ProjectWorkflowPolicyRead(ctx, task.ProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy.Revision = 2
+	policy.WorkflowStage = model.WorkflowStageDevelopActive
+	policy.IntegrationBranch = "develop"
+	policy.UpdatedAt = time.Now().UTC()
+	_, policyUpdate, err := s.ProjectWorkflowPolicyUpdate(ctx, ProjectWorkflowPolicyInput{Policy: policy, AuthorizationContext: WorkflowPolicyAuthorizationOperator, WriteOptions: WriteOptions{ExpectedHubRevision: ready.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	testutil.Git(t, project.Root, "branch", "develop")
 	testutil.Git(t, project.Root, "push", "-u", "origin", "develop")
 	testutil.Git(t, project.Mirror, "config", "--unset-all", "remote.origin.fetch")
 	testutil.Git(t, project.Mirror, "config", "--add", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
 	testutil.Git(t, project.Mirror, "config", "--unset-all", "remote.origin.mirror")
 	testutil.Git(t, project.Mirror, "fetch", "origin")
-	deferred, err := s.TaskDefer(ctx, TaskDeferInput{TaskID: task.ID, Reason: "later integration", WriteOptions: WriteOptions{ExpectedHubRevision: ready.Hub.After}})
+	deferred, err := s.TaskDefer(ctx, TaskDeferInput{TaskID: task.ID, Reason: "later integration", WriteOptions: WriteOptions{ExpectedHubRevision: policyUpdate.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +184,7 @@ func TestTaskMarkMergeReadyUsesLatestSuccessfulReportAndDeferReusesHead(t *testi
 func TestTaskMarkMergedDoesNotMutateWhenRemoteReceiptIsUnavailable(t *testing.T) {
 	s, revision, projectHead := testService(t)
 	ctx := context.Background()
-	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Merge receipt", Objective: "Require remote receipt.", Slug: "merge-receipt", AcceptanceCriteria: []string{"remote"}, CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Merge receipt", Objective: "Require remote receipt.", Slug: "merge-receipt", AcceptanceCriteria: []string{"remote"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
 	if err != nil {
 		t.Fatal(err)
 	}

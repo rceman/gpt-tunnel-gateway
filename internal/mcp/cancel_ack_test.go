@@ -86,11 +86,12 @@ func TestRunCancelAcknowledgeNoMutationMCPHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
+	policyRevision := adoptTestWorkflowPolicy(t, s, "example", registered.Hub.After)
+	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: policyRevision}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "MCP cancel acknowledgement", Objective: "Exercise the MCP surface", Slug: "mcp-cancel-ack", AcceptanceCriteria: []string{"cancel"}, CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "MCP cancel acknowledgement", Objective: "Exercise the MCP surface", Slug: "mcp-cancel-ack", AcceptanceCriteria: []string{"cancel"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
