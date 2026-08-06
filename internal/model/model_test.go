@@ -66,6 +66,37 @@ func TestHashTaskUsesCanonicalGoJSONForUnicodeAndTimestampFields(t *testing.T) {
 		t.Fatal("HashTask ignored a timestamp change")
 	}
 }
+
+func TestValidateTaskHashAcceptsStoredLegacyProjection(t *testing.T) {
+	task := Task{
+		SchemaVersion:      SchemaVersion,
+		ID:                 "GTW-TSK1",
+		ProjectID:          "gpt-tunnel-gateway",
+		Title:              "Historical task",
+		Objective:          "Preserve additive historical readability.",
+		Branch:             "task/GTW-TSK1-historical",
+		BaseRevision:       strings.Repeat("a", 40),
+		AcceptanceCriteria: []string{"readable"},
+		Constraints:        []string{"read-only compatibility"},
+		Status:             "created",
+		CreatedBy:          "test",
+		CreatedAt:          time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC),
+	}
+	legacy, err := legacyTaskHash(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.SHA256 = legacy
+	if err := ValidateTaskHash(task); err != nil {
+		t.Fatalf("stored legacy task hash rejected: %v", err)
+	}
+	if err := ValidateTask(task); err != nil {
+		t.Fatalf("legacy task rejected by ValidateTask: %v", err)
+	}
+	if canonical, err := HashTask(task); err != nil || canonical == task.SHA256 {
+		t.Fatalf("fixture did not exercise legacy projection: canonical=%q err=%v", canonical, err)
+	}
+}
 func TestRelativePathRejectsEscape(t *testing.T) {
 	if ValidateRelativePath("../x") == nil {
 		t.Fatal("escape accepted")

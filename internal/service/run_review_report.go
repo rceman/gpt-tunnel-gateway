@@ -87,8 +87,7 @@ func (s *Service) loadReviewContext(ctx context.Context, taskID, runID string) (
 	if err := model.ValidateTask(task); err != nil {
 		return out, err
 	}
-	hash, err := model.HashTask(task)
-	if err != nil || hash != task.SHA256 || run.TaskSHA256 != task.SHA256 {
+	if err := model.ValidateTaskHash(task); err != nil || run.TaskSHA256 != task.SHA256 {
 		return out, fmt.Errorf("task hash does not match run")
 	}
 	agent, err := s.RunReport(ctx, run.ID)
@@ -407,8 +406,7 @@ func (s *Service) TaskReviewReportFinalize(ctx context.Context, in TaskReviewRep
 		if err := model.ValidateTask(currentTask); err != nil || currentTask.ID != context.task.ID || currentTask.SHA256 != context.task.SHA256 {
 			return nil, fmt.Errorf("task changed before delivery review publication")
 		}
-		computed, err := model.HashTask(currentTask)
-		if err != nil || computed != context.task.SHA256 {
+		if err := model.ValidateTaskHash(currentTask); err != nil || currentTask.SHA256 != context.task.SHA256 {
 			return nil, fmt.Errorf("task hash changed before delivery review publication")
 		}
 		var currentRun model.Run

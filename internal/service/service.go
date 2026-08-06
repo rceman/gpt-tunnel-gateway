@@ -2573,8 +2573,7 @@ func (s *Service) RunWriteCompletion(ctx context.Context, in CompletionWriteInpu
 		if task.ID != run.TaskID || task.ProjectID != run.ProjectID || task.SHA256 != run.TaskSHA256 {
 			return model.Run{}, model.Task{}, "", fmt.Errorf("canonical task/run identity mismatch")
 		}
-		hash, err := model.HashTask(task)
-		if err != nil || hash != task.SHA256 || hash != run.TaskSHA256 {
+		if err := model.ValidateTaskHash(task); err != nil || run.TaskSHA256 != task.SHA256 {
 			return model.Run{}, model.Task{}, "", fmt.Errorf("durable task hash mismatch")
 		}
 		destination, err := gatewayCompletionDestination(s.Config.StateDir, run)
@@ -2669,8 +2668,7 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if completion.RunID != run.ID || completion.TaskSHA256 != run.TaskSHA256 {
 		return model.Report{}, OperationResult{}, fmt.Errorf("completion identity does not match active run")
 	}
-	recomputed, err := model.HashTask(task)
-	if err != nil || recomputed != task.SHA256 || run.TaskSHA256 != recomputed {
+	if err := model.ValidateTaskHash(task); err != nil || run.TaskSHA256 != task.SHA256 {
 		return model.Report{}, OperationResult{}, fmt.Errorf("durable task hash mismatch")
 	}
 	local, err := s.projectConfig(run.ProjectID)
@@ -2992,7 +2990,7 @@ func (s *Service) RunCancelAcknowledgeNoMutation(ctx context.Context, id, expect
 	if run.Branch != task.Branch || run.BaseRevision != task.BaseRevision {
 		return OperationResult{}, fmt.Errorf("cancelled run repository identity does not match task")
 	}
-	if hash, hashErr := model.HashTask(task); hashErr != nil || hash != task.SHA256 {
+	if hashErr := model.ValidateTaskHash(task); hashErr != nil {
 		return OperationResult{}, fmt.Errorf("durable task hash mismatch")
 	}
 	projectLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "project-"+task.ProjectID)
@@ -3083,7 +3081,7 @@ func (s *Service) RunCancelAcknowledgeNoMutation(ctx context.Context, id, expect
 		if currentTask.ID != task.ID || currentTask.ProjectID != task.ProjectID || currentTask.SHA256 != task.SHA256 {
 			return nil, fmt.Errorf("task changed before cancellation acknowledgement")
 		}
-		if hash, hashErr := model.HashTask(currentTask); hashErr != nil || hash != currentTask.SHA256 {
+		if hashErr := model.ValidateTaskHash(currentTask); hashErr != nil {
 			return nil, fmt.Errorf("durable task hash mismatch")
 		}
 		if err := model.ValidateTaskState(currentState, currentTask); err != nil {

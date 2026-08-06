@@ -425,6 +425,29 @@ func legacyTaskHash(t Task) (string, error) {
 	return hex.EncodeToString(s[:]), nil
 }
 
+// ValidateTaskHash accepts the canonical task projection and the additive
+// legacy projection used by historical tasks that predate workflow policy.
+// The stored hash remains authoritative; this helper only validates it.
+func ValidateTaskHash(t Task) error {
+	if t.SHA256 == "" {
+		return fmt.Errorf("task sha256 is empty")
+	}
+	h, err := HashTask(t)
+	if err != nil {
+		return err
+	}
+	if t.SHA256 == h {
+		return nil
+	}
+	if t.OperationClass == "" {
+		legacy, legacyErr := legacyTaskHash(t)
+		if legacyErr == nil && t.SHA256 == legacy {
+			return nil
+		}
+	}
+	return fmt.Errorf("task sha256 mismatch")
+}
+
 func ValidateProject(v Project) error {
 	if v.SchemaVersion != SchemaVersion {
 		return fmt.Errorf("unsupported project schema_version")
@@ -550,18 +573,10 @@ func ValidateTask(v Task) error {
 			return fmt.Errorf("task entry too large")
 		}
 	}
-	h, err := HashTask(v)
-	if err != nil {
-		return err
-	}
-	if v.SHA256 != "" && v.SHA256 != h {
-		if v.OperationClass == "" {
-			legacy, legacyErr := legacyTaskHash(v)
-			if legacyErr == nil && v.SHA256 == legacy {
-				return nil
-			}
+	if v.SHA256 != "" {
+		if err := ValidateTaskHash(v); err != nil {
+			return err
 		}
-		return fmt.Errorf("task sha256 mismatch")
 	}
 	return nil
 }
