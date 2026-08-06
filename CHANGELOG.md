@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add canonical project-scoped TSK/RUN/ADR/OPR identifiers with bounded allocator and cutover behavior.
+- Add Run-bound Delivery review draft, finalization, read and discovery authority.
+- Enforce latest-Run precedence for Delivery review reads and merge-ready admission.
+- Protect immutable Delivery reports from stale complete Agent machine snapshots during publication.
+- Enforce strict closed report model/schema bounds, the exact finding severity enum, and Unicode code-point parity.
+
 ## 0.6.1 — 2026-08-04
 
 - Adopt the planner-canonical two-mode release lifecycle and exact Git-object
