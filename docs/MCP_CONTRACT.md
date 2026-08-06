@@ -22,11 +22,17 @@ Project workflow policy is a durable, revisioned Hub record. The
 optimistic Hub revision guards. `project_status`, `task_read`, and active task
 packets include the policy projection. Task creation and supersession require
 an explicit operation class; the gateway derives the effective CI field and
-mode from the policy. `disabled` and `observe` never become a hosted-CI wait
-request, and missing or invalid policy is a visible blocking error. Policy
-writes require a closed `authorization_context` enum of `operator` or
-`planner`; Agent calls without that explicit context are rejected before Hub
-mutation. Policy reads remain available without write authorization.
+mode from the policy. `activation` is explicitly disabled, non-blocking and
+never inherits task-merge CI. `disabled` and `observe` never become a hosted-CI
+wait request, and missing or invalid policy is a visible blocking error.
+Policy mutation authority comes only from a trusted server-owned MCP
+connection/session/capability context outside serialized arguments. The current
+transport has no such authority and therefore returns stable
+`AUTHORITY_UNAVAILABLE` before policy mutation. `updated_by` is provenance and
+`expected_hub_revision` is concurrency control; neither grants authority.
+Even trusted policy mutation rejects any relevant active operational Run before
+Hub mutation and rechecks the durable Run snapshot inside the transaction.
+Policy reads remain available without write authorization.
 
 `tools/call.params` accepts the optional protocol `_meta` object up to 64 KiB. All other unknown envelope fields and all unknown tool arguments remain rejected.
 

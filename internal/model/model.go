@@ -439,13 +439,23 @@ func ValidateTaskHash(t Task) error {
 	if t.SHA256 == h {
 		return nil
 	}
-	if t.OperationClass == "" {
+	if t.OperationClass == "" && legacyWorkflowPolicyProjection(t) {
 		legacy, legacyErr := legacyTaskHash(t)
 		if legacyErr == nil && t.SHA256 == legacy {
 			return nil
 		}
 	}
 	return fmt.Errorf("task sha256 mismatch")
+}
+
+func legacyWorkflowPolicyProjection(t Task) bool {
+	return t.WorkflowPolicyRevision == 0 &&
+		t.OperationClass == "" &&
+		t.EffectiveCIField == "" &&
+		t.EffectiveCIMode == "" &&
+		!t.WaitForCI &&
+		!t.CIBlocking &&
+		!t.AgentMayWait
 }
 
 func ValidateProject(v Project) error {
@@ -567,6 +577,8 @@ func ValidateTask(v Task) error {
 		if err := ValidateEffectiveWorkflowPolicy(effective); err != nil {
 			return err
 		}
+	} else if !legacyWorkflowPolicyProjection(v) {
+		return fmt.Errorf("mixed legacy and workflow-policy task projection")
 	}
 	for _, s := range append(append([]string{}, v.AcceptanceCriteria...), v.Constraints...) {
 		if len(s) > 20000 {

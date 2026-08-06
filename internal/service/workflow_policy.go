@@ -7,18 +7,27 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
+	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 const (
-	WorkflowPolicyAuthorizationOperator = "operator"
-	WorkflowPolicyAuthorizationPlanner  = "planner"
+	workflowPolicyAuthorityPlanner  = "planner"
+	workflowPolicyAuthorityDelivery = "delivery"
 )
 
-func validateWorkflowPolicyAuthorization(value string) error {
-	if value != WorkflowPolicyAuthorizationOperator && value != WorkflowPolicyAuthorizationPlanner {
-		return fmt.Errorf("workflow policy write requires authorization_context operator or planner")
+type workflowPolicyAuthorityContextKey struct{}
+
+type workflowPolicyAuthority struct {
+	role string
+}
+
+func RequireWorkflowPolicyAuthority(ctx context.Context) error {
+	authority, ok := ctx.Value(workflowPolicyAuthorityContextKey{}).(workflowPolicyAuthority)
+	if !ok || (authority.role != workflowPolicyAuthorityPlanner && authority.role != workflowPolicyAuthorityDelivery) {
+		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
 	}
 	return nil
 }
@@ -48,7 +57,7 @@ func (s *Service) ProjectWorkflowPolicyRead(ctx context.Context, projectID strin
 }
 
 func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWorkflowPolicyInput) (model.ProjectWorkflowPolicy, OperationResult, error) {
-	if err := validateWorkflowPolicyAuthorization(in.AuthorizationContext); err != nil {
+	if err := RequireWorkflowPolicyAuthority(ctx); err != nil {
 		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
 	}
 	policy := in.Policy
@@ -58,9 +67,20 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 	if _, err := s.ProjectRead(ctx, policy.ProjectID); err != nil {
 		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
 	}
+	projectLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "project-"+policy.ProjectID)
+	if err != nil {
+		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
+	}
+	defer projectLock.Release()
+	if err := s.rejectActiveWorkflowPolicyRun(ctx, policy.ProjectID); err != nil {
+		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
+	}
 	path := s.workflowPolicyPath(policy.ProjectID)
 	status := "adopted"
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: adopt workflow policy "+policy.ProjectID, func(worktree string) ([]string, error) {
+		if err := s.rejectActiveWorkflowPolicyRunInWorktree(worktree, policy.ProjectID); err != nil {
+			return nil, err
+		}
 		projectPath := s.projectPath(policy.ProjectID)
 		var project model.Project
 		if err := readWorktreeJSON(worktree, projectPath, &project); err != nil {
@@ -99,6 +119,46 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
 	}
 	return policy, OperationResult{Hub: tx, ProjectID: policy.ProjectID, Status: status}, nil
+}
+
+func (s *Service) rejectActiveWorkflowPolicyRun(ctx context.Context, projectID string) error {
+	runs, err := s.RunList(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		if run.ProjectID == projectID && operationalActiveRun(run) {
+			return fmt.Errorf("workflow policy mutation blocked by active run %s", run.ID)
+		}
+	}
+	return nil
+}
+
+func (s *Service) rejectActiveWorkflowPolicyRunInWorktree(worktree, projectID string) error {
+	root := filepath.Join(worktree, filepath.FromSlash(s.projectPrefix(projectID)+"/runs"))
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if os.IsNotExist(walkErr) {
+				return nil
+			}
+			return walkErr
+		}
+		if entry.IsDir() || entry.Name() != "run.json" {
+			return nil
+		}
+		data, err := fsutil.ReadFileBounded(path, s.Config.MaxReadBytes)
+		if err != nil {
+			return err
+		}
+		run, _, err := model.DecodeRunRecord(data)
+		if err != nil {
+			return fmt.Errorf("decode policy run: %w", err)
+		}
+		if run.ProjectID == projectID && operationalActiveRun(run) {
+			return fmt.Errorf("workflow policy mutation blocked by active run %s", run.ID)
+		}
+		return nil
+	})
 }
 
 func (s *Service) ProjectWorkflowPolicyUpdate(ctx context.Context, in ProjectWorkflowPolicyInput) (model.ProjectWorkflowPolicy, OperationResult, error) {

@@ -78,10 +78,13 @@ Missing or invalid policy blocks new operational task creation rather than
 falling back to a local default. `project status`, `task read`, and the active
 execution packet expose the policy and its effective operation projection.
 Policy adoption and updates are internal authorized service operations only;
-they are not exposed as ordinary Agent CLI commands. The service requires an
-explicit `authorization_context` of `operator` or `planner`, and rejects
-missing, `agent`, or arbitrary contexts before any Hub write. Policy reads
-remain available through the normal CLI.
+they are not exposed as ordinary Agent CLI commands. The service requires a
+trusted server-owned Planner/Delivery connection, session or capability
+context outside serialized arguments; the current transport fails closed with
+`AUTHORITY_UNAVAILABLE`. `updated_by` is provenance only and cannot grant
+authority. Activation tasks have explicit disabled, non-blocking hosted-CI
+semantics and never inherit task-merge policy. Policy reads remain available
+through the normal CLI.
 
 Delivery review is bound to the same completed Agent Run. `review-report
 start`, `update`, and `validate` write only a Gateway-local atomic draft under

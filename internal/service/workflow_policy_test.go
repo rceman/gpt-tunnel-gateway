@@ -11,6 +11,10 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
+func trustedWorkflowPolicyContext(ctx context.Context, role string) context.Context {
+	return context.WithValue(ctx, workflowPolicyAuthorityContextKey{}, workflowPolicyAuthority{role: role})
+}
+
 func TestWorkflowPolicyRevisionAndTaskProjection(t *testing.T) {
 	s, revision, _ := testService(t)
 	ctx := context.Background()
@@ -25,10 +29,10 @@ func TestWorkflowPolicyRevisionAndTaskProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, authorization := range []string{"", "agent", "arbitrary"} {
-		_, _, authErr := s.ProjectWorkflowPolicyUpdate(ctx, ProjectWorkflowPolicyInput{Policy: policy, AuthorizationContext: authorization, WriteOptions: WriteOptions{ExpectedHubRevision: beforeAuthorizationCheck}})
-		if authErr == nil || !strings.Contains(authErr.Error(), "authorization_context") {
-			t.Fatalf("unauthorized policy write %q was accepted: %v", authorization, authErr)
+	for _, unauthorized := range []context.Context{ctx, context.WithValue(ctx, workflowPolicyAuthorityContextKey{}, workflowPolicyAuthority{role: "agent"})} {
+		_, _, authErr := s.ProjectWorkflowPolicyUpdate(unauthorized, ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: WriteOptions{ExpectedHubRevision: beforeAuthorizationCheck}})
+		if authErr == nil || authErr.Error() != "AUTHORITY_UNAVAILABLE" {
+			t.Fatalf("unauthorized policy write was accepted: %v", authErr)
 		}
 	}
 	afterAuthorizationCheck, err := s.Hub.RemoteRevision(ctx)
@@ -67,7 +71,7 @@ func TestWorkflowPolicyRevisionAndTaskProjection(t *testing.T) {
 	policy.IntegrationBranch = "develop"
 	policy.UpdatedBy = "owner"
 	policy.UpdatedAt = time.Now().UTC()
-	_, updated, err := s.ProjectWorkflowPolicyUpdate(ctx, ProjectWorkflowPolicyInput{Policy: policy, AuthorizationContext: WorkflowPolicyAuthorizationPlanner, WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	_, updated, err := s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, workflowPolicyAuthorityPlanner), ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +132,7 @@ func TestProjectStatusUsesPersistedActiveTaskPolicyAcrossRevisionDrift(t *testin
 	current.CI.Task = model.WorkflowCIModeRequire
 	current.UpdatedBy = "planner"
 	current.UpdatedAt = time.Now().UTC()
-	if _, _, err := s.ProjectWorkflowPolicyUpdate(ctx, ProjectWorkflowPolicyInput{Policy: current, AuthorizationContext: WorkflowPolicyAuthorizationPlanner, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}}); err != nil {
+	if _, _, err := s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, workflowPolicyAuthorityPlanner), ProjectWorkflowPolicyInput{Policy: current, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}}); err != nil {
 		t.Fatal(err)
 	}
 	status, err := s.ProjectStatus(ctx, task.ProjectID)
@@ -140,5 +144,51 @@ func TestProjectStatusUsesPersistedActiveTaskPolicyAcrossRevisionDrift(t *testin
 	}
 	if status.WorkflowPolicy.ActiveOperationClass != task.OperationClass || status.WorkflowPolicy.ActiveCIMode != task.EffectiveCIMode || status.WorkflowPolicy.CIBlocking != task.CIBlocking {
 		t.Fatalf("active task policy was recomputed instead of persisted: task=%#v status=%#v", task, status.WorkflowPolicy)
+	}
+}
+
+func TestWorkflowPolicyMutationRejectsActiveRunWithoutHubMutation(t *testing.T) {
+	s, _, run, _ := dispatchedRun(t, "policy-active-run")
+	ctx := context.Background()
+	policy, err := s.ProjectWorkflowPolicyRead(ctx, run.ProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy.Revision++
+	policy.UpdatedBy = "planner"
+	policy.UpdatedAt = time.Now().UTC()
+	_, _, err = s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, workflowPolicyAuthorityPlanner), ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: WriteOptions{ExpectedHubRevision: before}})
+	if err == nil || !strings.Contains(err.Error(), "active run "+run.ID) {
+		t.Fatalf("active run did not block policy mutation: %v", err)
+	}
+	after, err := s.Hub.RemoteRevision(ctx)
+	if err != nil || after != before {
+		t.Fatalf("active-run rejection changed Hub revision: before=%s after=%s err=%v", before, after, err)
+	}
+	unchanged, err := s.ProjectWorkflowPolicyRead(ctx, run.ProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Revision != 1 {
+		t.Fatalf("active-run rejection changed policy: %#v", unchanged)
+	}
+}
+
+func TestActivationTaskUsesExplicitNonHostedCIPolicy(t *testing.T) {
+	s, revision, _ := testService(t)
+	task, _, err := s.TaskCreate(context.Background(), TaskCreateInput{
+		ProjectID: "example", Slug: "activation", Title: "Activation task", Objective: "Verify explicit activation policy.",
+		AcceptanceCriteria: []string{"activation"}, OperationClass: "activation", CreatedBy: "test",
+		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.EffectiveCIField != "activation" || task.EffectiveCIMode != model.WorkflowCIModeDisabled || task.WaitForCI || task.CIBlocking || task.AgentMayWait {
+		t.Fatalf("activation task inherited task-merge policy: %#v", task)
 	}
 }

@@ -412,10 +412,11 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.ProjectWorkflowPolicyRead(ctx, id)
 	})
-	authorizationContext := str("Explicit operator or planner authorization context; agent execution is not authorized")
-	authorizationContext["enum"] = []string{service.WorkflowPolicyAuthorizationOperator, service.WorkflowPolicyAuthorizationPlanner}
-	policyWriteSchema := obj(map[string]any{"policy": map[string]any{"type": "object"}, "authorization_context": authorizationContext, "expected_hub_revision": str("Optimistic hub revision")}, "policy", "authorization_context")
-	add("project_workflow_policy_adopt", "Planner or Delivery adoption of the durable project workflow policy; agent execution is rejected without explicit authorization context.", policyWriteSchema, func(ctx context.Context, raw json.RawMessage) (any, error) {
+	policyWriteSchema := obj(map[string]any{"policy": map[string]any{"type": "object"}, "expected_hub_revision": str("Optimistic hub revision")}, "policy")
+	add("project_workflow_policy_adopt", "Planner or Delivery adoption of the durable project workflow policy through trusted server-owned authority; unavailable authority fails closed.", policyWriteSchema, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		if err := service.RequireWorkflowPolicyAuthority(ctx); err != nil {
+			return nil, err
+		}
 		var in service.ProjectWorkflowPolicyInput
 		if e := decode(raw, &in); e != nil {
 			return nil, e
@@ -423,7 +424,10 @@ func (s *Server) tools() map[string]Tool {
 		policy, operation, e := s.Service.ProjectWorkflowPolicyAdopt(ctx, in)
 		return map[string]any{"policy": policy, "operation": operation}, e
 	})
-	add("project_workflow_policy_update", "Planner or Delivery revisioned update of the durable project workflow policy; agent execution is rejected without explicit authorization context.", policyWriteSchema, func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("project_workflow_policy_update", "Planner or Delivery revisioned update of the durable project workflow policy through trusted server-owned authority; unavailable authority fails closed.", policyWriteSchema, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		if err := service.RequireWorkflowPolicyAuthority(ctx); err != nil {
+			return nil, err
+		}
 		var in service.ProjectWorkflowPolicyInput
 		if e := decode(raw, &in); e != nil {
 			return nil, e

@@ -139,7 +139,7 @@ func TestTaskMarkMergeReadyUsesLatestSuccessfulReportAndDeferReusesHead(t *testi
 	policy.WorkflowStage = model.WorkflowStageDevelopActive
 	policy.IntegrationBranch = "develop"
 	policy.UpdatedAt = time.Now().UTC()
-	_, policyUpdate, err := s.ProjectWorkflowPolicyUpdate(ctx, ProjectWorkflowPolicyInput{Policy: policy, AuthorizationContext: WorkflowPolicyAuthorizationOperator, WriteOptions: WriteOptions{ExpectedHubRevision: ready.Hub.After}})
+	_, policyUpdate, err := s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, workflowPolicyAuthorityDelivery), ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: WriteOptions{ExpectedHubRevision: ready.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -97,6 +97,48 @@ func TestValidateTaskHashAcceptsStoredLegacyProjection(t *testing.T) {
 		t.Fatalf("fixture did not exercise legacy projection: canonical=%q err=%v", canonical, err)
 	}
 }
+
+func TestValidateTaskHashRejectsMixedLegacyWorkflowProjection(t *testing.T) {
+	task := Task{
+		SchemaVersion:          SchemaVersion,
+		ID:                     "GTW-TSK1",
+		ProjectID:              "gpt-tunnel-gateway",
+		Title:                  "Mixed task",
+		Objective:              "Reject mixed historical and workflow policy fields.",
+		Branch:                 "task/GTW-TSK1-mixed",
+		BaseRevision:           strings.Repeat("a", 40),
+		AcceptanceCriteria:     []string{"rejected"},
+		Status:                 "created",
+		CreatedBy:              "test",
+		CreatedAt:              time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC),
+		WorkflowPolicyRevision: 1,
+	}
+	legacy, err := legacyTaskHash(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.SHA256 = legacy
+	if err := ValidateTask(task); err == nil || !strings.Contains(err.Error(), "mixed legacy") {
+		t.Fatalf("mixed legacy projection accepted: %v", err)
+	}
+}
+
+func TestWorkflowPolicyActivationIsExplicitlyNonHostedCI(t *testing.T) {
+	policy := ProjectWorkflowPolicy{
+		SchemaVersion: SchemaVersion, ProjectID: "gpt-tunnel-gateway", Revision: 1,
+		WorkflowStage: WorkflowStageTransitionalMain, IntegrationBranch: "main",
+		Agent:     WorkflowPolicyAgent{WaitForCI: true},
+		CI:        WorkflowPolicyCI{Task: WorkflowCIModeDisabled, TaskMerge: WorkflowCIModeRequire, Release: WorkflowCIModeRequire},
+		UpdatedBy: "test", UpdatedAt: time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC),
+	}
+	effective, err := WorkflowPolicyForOperation(policy, "activation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effective.EffectiveCIField != "activation" || effective.EffectiveCIMode != WorkflowCIModeDisabled || effective.WaitForCI || effective.CIBlocking || effective.AgentMayWait {
+		t.Fatalf("activation inherited hosted CI policy: %#v", effective)
+	}
+}
 func TestRelativePathRejectsEscape(t *testing.T) {
 	if ValidateRelativePath("../x") == nil {
 		t.Fatal("escape accepted")

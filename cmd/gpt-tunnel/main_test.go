@@ -24,25 +24,15 @@ func planString(value string) *string { return &value }
 func adoptTestWorkflowPolicyCLI(t *testing.T, s *service.Service, projectID, revision string) string {
 	t.Helper()
 	now := time.Now().UTC()
-	_, result, err := s.ProjectWorkflowPolicyAdopt(context.Background(), service.ProjectWorkflowPolicyInput{
-		Policy: model.ProjectWorkflowPolicy{
-			SchemaVersion:     model.SchemaVersion,
-			ProjectID:         projectID,
-			Revision:          1,
-			WorkflowStage:     model.WorkflowStageTransitionalMain,
-			IntegrationBranch: "main",
-			Agent:             model.WorkflowPolicyAgent{WaitForCI: false},
-			CI:                model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve},
-			UpdatedBy:         "test",
-			UpdatedAt:         now,
-		},
-		AuthorizationContext: service.WorkflowPolicyAuthorizationOperator,
-		WriteOptions:         service.WriteOptions{ExpectedHubRevision: revision},
+	policy := model.ProjectWorkflowPolicy{SchemaVersion: model.SchemaVersion, ProjectID: projectID, Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", Agent: model.WorkflowPolicyAgent{WaitForCI: false}, CI: model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve}, UpdatedBy: "test", UpdatedAt: now}
+	path := hub.ProtocolRoot + "/projects/" + projectID + "/workflow-policy/current.json"
+	result, err := s.Hub.Transact(context.Background(), revision, "test: install workflow policy", func(worktree string) ([]string, error) {
+		return []string{path}, hub.WriteJSON(worktree, path, policy)
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return result.Hub.After
+	return result.After
 }
 
 func TestGitcmdResolvesManagedProjectAfterServiceConstruction(t *testing.T) {

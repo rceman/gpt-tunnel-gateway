@@ -47,8 +47,7 @@ type ProjectIdentifiersAdoptInput struct {
 	WriteOptions
 }
 type ProjectWorkflowPolicyInput struct {
-	Policy               model.ProjectWorkflowPolicy `json:"policy"`
-	AuthorizationContext string                      `json:"authorization_context"`
+	Policy model.ProjectWorkflowPolicy `json:"policy"`
 	WriteOptions
 }
 type PlanUpdateInput struct {

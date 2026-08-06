@@ -37,25 +37,15 @@ func callMCP(t *testing.T, srv *Server, body []byte) map[string]any {
 func adoptTestWorkflowPolicy(t *testing.T, s *service.Service, projectID, revision string) string {
 	t.Helper()
 	now := time.Now().UTC()
-	_, result, err := s.ProjectWorkflowPolicyAdopt(context.Background(), service.ProjectWorkflowPolicyInput{
-		Policy: model.ProjectWorkflowPolicy{
-			SchemaVersion:     model.SchemaVersion,
-			ProjectID:         projectID,
-			Revision:          1,
-			WorkflowStage:     model.WorkflowStageTransitionalMain,
-			IntegrationBranch: "main",
-			Agent:             model.WorkflowPolicyAgent{WaitForCI: false},
-			CI:                model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve},
-			UpdatedBy:         "test",
-			UpdatedAt:         now,
-		},
-		AuthorizationContext: service.WorkflowPolicyAuthorizationOperator,
-		WriteOptions:         service.WriteOptions{ExpectedHubRevision: revision},
+	policy := model.ProjectWorkflowPolicy{SchemaVersion: model.SchemaVersion, ProjectID: projectID, Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", Agent: model.WorkflowPolicyAgent{WaitForCI: false}, CI: model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve}, UpdatedBy: "test", UpdatedAt: now}
+	path := hub.ProtocolRoot + "/projects/" + projectID + "/workflow-policy/current.json"
+	result, err := s.Hub.Transact(context.Background(), revision, "test: install workflow policy", func(worktree string) ([]string, error) {
+		return []string{path}, hub.WriteJSON(worktree, path, policy)
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return result.Hub.After
+	return result.After
 }
 
 func TestToolCallAcceptsBoundedProtocolMeta(t *testing.T) {
@@ -271,19 +261,8 @@ func TestToolAnnotationsMatchActualSideEffects(t *testing.T) {
 	for _, name := range []string{"project_workflow_policy_adopt", "project_workflow_policy_update"} {
 		tool := tools[name]
 		properties := tool.InputSchema["properties"].(map[string]any)
-		authorization := properties["authorization_context"].(map[string]any)
-		if authorization["enum"] == nil {
-			t.Fatalf("%s does not constrain authorization_context", name)
-		}
-		required := tool.InputSchema["required"].([]string)
-		found := false
-		for _, field := range required {
-			if field == "authorization_context" {
-				found = true
-			}
-		}
-		if !found {
-			t.Fatalf("%s does not require authorization_context", name)
+		if _, ok := properties["authorization_context"]; ok {
+			t.Fatalf("%s exposes caller-controlled authorization_context", name)
 		}
 	}
 	assert("run_review_snapshot", ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true})
@@ -309,7 +288,7 @@ func TestToolAnnotationsMatchActualSideEffects(t *testing.T) {
 	}
 }
 
-func TestWorkflowPolicyMutationRequiresExplicitAuthorizationMCP(t *testing.T) {
+func TestWorkflowPolicyMutationFailsClosedWithoutTrustedAuthorityMCP(t *testing.T) {
 	tools := (&Server{Service: service.New(config.Config{})}).tools()
 	for _, name := range []string{"project_workflow_policy_adopt", "project_workflow_policy_update"} {
 		if _, ok := tools[name]; !ok {
@@ -326,10 +305,16 @@ func TestWorkflowPolicyMutationRequiresExplicitAuthorizationMCP(t *testing.T) {
 	}))
 	result, ok := response["result"].(map[string]any)
 	if !ok && response["error"] == nil {
-		t.Fatalf("missing authorization context was accepted: %#v", response)
+		t.Fatalf("missing trusted authority was accepted: %#v", response)
 	}
 	if ok && result["isError"] != true {
-		t.Fatalf("missing authorization context was accepted: %#v", response)
+		t.Fatalf("missing trusted authority was accepted: %#v", response)
+	}
+	if ok {
+		text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+		if !strings.Contains(text, "AUTHORITY_UNAVAILABLE") {
+			t.Fatalf("unexpected unavailable-authority error: %q", text)
+		}
 	}
 }
 

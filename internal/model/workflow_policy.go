@@ -20,7 +20,7 @@ var workflowOperationClasses = map[string]string{
 	"correction":     "task",
 	"integration":    "task_merge",
 	"release":        "release",
-	"activation":     "task_merge",
+	"activation":     "activation",
 }
 
 type WorkflowPolicyAgent struct {
@@ -92,6 +92,17 @@ func WorkflowPolicyForOperation(policy ProjectWorkflowPolicy, operationClass str
 	field, ok := workflowOperationClasses[operationClass]
 	if !ok {
 		return EffectiveWorkflowPolicy{}, fmt.Errorf("invalid operation class")
+	}
+	if operationClass == "activation" {
+		return EffectiveWorkflowPolicy{
+			WorkflowPolicyRevision: policy.Revision,
+			OperationClass:         operationClass,
+			EffectiveCIField:       "activation",
+			EffectiveCIMode:        WorkflowCIModeDisabled,
+			WaitForCI:              false,
+			CIBlocking:             false,
+			AgentMayWait:           false,
+		}, nil
 	}
 	mode := policy.CI.Task
 	switch field {
