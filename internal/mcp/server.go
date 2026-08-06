@@ -177,8 +177,9 @@ func validateToolArguments(schema map[string]any, raw json.RawMessage) error {
 	if len(raw) == 0 {
 		raw = []byte("{}")
 	}
-	var args any
+	var args map[string]json.RawMessage
 	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.DisallowUnknownFields()
 	if err := dec.Decode(&args); err != nil {
 		return fmt.Errorf("arguments must be an object: %w", err)
 	}
@@ -186,55 +187,26 @@ func validateToolArguments(schema map[string]any, raw json.RawMessage) error {
 	if err := dec.Decode(&extra); err != io.EOF {
 		return fmt.Errorf("trailing JSON content")
 	}
-	if _, ok := args.(map[string]any); !ok {
-		return fmt.Errorf("arguments must be an object")
-	}
-	return validateToolArgumentShape(schema, args, "$")
-}
-
-func validateToolArgumentShape(schema map[string]any, value any, path string) error {
-	for _, branchKey := range []string{"anyOf", "oneOf"} {
-		branches, ok := schema[branchKey].([]any)
-		if !ok {
-			continue
-		}
-		for _, branch := range branches {
-			branchSchema, ok := branch.(map[string]any)
-			if ok && validateToolArgumentShape(branchSchema, value, path) == nil {
-				return nil
-			}
-		}
-		return fmt.Errorf("%s: no %s schema matched", path, branchKey)
-	}
-	object, isObject := value.(map[string]any)
-	if !isObject {
-		return nil
-	}
 	properties, _ := schema["properties"].(map[string]any)
-	for _, required := range stringList(schema["required"]) {
-		if _, exists := object[required]; !exists {
-			return fmt.Errorf("%s: missing required property %q", path, required)
+	for key := range args {
+		if _, ok := properties[key]; !ok {
+			return fmt.Errorf("unknown argument %q", key)
 		}
 	}
-	keys := make([]string, 0, len(object))
-	for key := range object {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		child, exists := properties[key]
-		if !exists {
-			if schema["additionalProperties"] == false {
-				return fmt.Errorf("%s: unknown property %q", path, key)
+	if required, ok := schema["required"].([]string); ok {
+		for _, key := range required {
+			if _, exists := args[key]; !exists {
+				return fmt.Errorf("missing required argument %q", key)
 			}
-			continue
 		}
-		childSchema, ok := child.(map[string]any)
-		if !ok {
-			continue
-		}
-		if err := validateToolArgumentShape(childSchema, object[key], path+"."+key); err != nil {
-			return err
+	} else if requiredAny, ok := schema["required"].([]any); ok {
+		for _, value := range requiredAny {
+			key, _ := value.(string)
+			if key != "" {
+				if _, exists := args[key]; !exists {
+					return fmt.Errorf("missing required argument %q", key)
+				}
+			}
 		}
 	}
 	return nil

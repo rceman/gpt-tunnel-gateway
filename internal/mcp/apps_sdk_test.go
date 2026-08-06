@@ -301,7 +301,7 @@ func TestWorkflowPolicyMutationFailsClosedWithoutTrustedAuthorityMCP(t *testing.
 	}
 	response := callMCP(t, &Server{Service: service.New(config.Config{})}, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "project_workflow_policy_adopt", "arguments": map[string]any{"policy": validWorkflowPolicyArgument()}},
+		"params": map[string]any{"name": "project_workflow_policy_adopt", "arguments": map[string]any{"policy": map[string]any{}}},
 	}))
 	result, ok := response["result"].(map[string]any)
 	if !ok && response["error"] == nil {
@@ -341,33 +341,60 @@ func TestWorkflowPolicyMutationSchemasAreClosedAndNestedStrict(t *testing.T) {
 		if policySchema["additionalProperties"] != false {
 			t.Fatalf("%s policy schema is open: %#v", name, policySchema)
 		}
-		valid := map[string]any{"policy": validWorkflowPolicyArgument()}
-		validRaw, err := json.Marshal(valid)
-		if err != nil {
-			t.Fatal(err)
+		for _, field := range []string{"schema_version", "project_id", "revision", "workflow_stage", "integration_branch", "agent", "ci", "updated_by", "updated_at"} {
+			if !containsString(stringList(policySchema["required"]), field) {
+				t.Fatalf("%s policy schema omitted required field %q", name, field)
+			}
 		}
-		if err := validateToolArguments(tool.InputSchema, validRaw); err != nil {
-			t.Fatalf("%s rejected canonical policy: %v", name, err)
+		policyProperties := policySchema["properties"].(map[string]any)
+		for _, field := range []string{"agent", "ci"} {
+			nested := policyProperties[field].(map[string]any)
+			if nested["additionalProperties"] != false {
+				t.Fatalf("%s nested %s schema is open: %#v", name, field, nested)
+			}
 		}
-		missing := validWorkflowPolicyArgument()
-		delete(missing["ci"].(map[string]any), "release")
-		missingRaw, err := json.Marshal(map[string]any{"policy": missing})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := validateToolArguments(tool.InputSchema, missingRaw); err == nil {
-			t.Fatalf("%s accepted missing nested policy field", name)
-		}
-		unknown := validWorkflowPolicyArgument()
-		unknown["unexpected"] = true
-		unknownRaw, err := json.Marshal(map[string]any{"policy": unknown})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := validateToolArguments(tool.InputSchema, unknownRaw); err == nil {
-			t.Fatalf("%s accepted unknown nested policy field", name)
+		ci := policyProperties["ci"].(map[string]any)
+		for _, field := range []string{"task", "task_merge", "release"} {
+			if !containsString(stringList(ci["required"]), field) {
+				t.Fatalf("%s policy ci schema omitted required field %q", name, field)
+			}
 		}
 	}
+}
+
+func TestWorkflowPolicyMutationPolicyDecodeAndModelValidationAfterAuthorityBoundary(t *testing.T) {
+	valid := validWorkflowPolicyArgument()
+	valid["unexpected"] = true
+	raw, err := json.Marshal(map[string]any{"policy": valid})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var in service.ProjectWorkflowPolicyInput
+	if err := decode(raw, &in); err == nil {
+		t.Fatal("policy decoder accepted unknown nested field")
+	}
+	missing := validWorkflowPolicyArgument()
+	delete(missing["ci"].(map[string]any), "release")
+	raw, err = json.Marshal(map[string]any{"policy": missing})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in = service.ProjectWorkflowPolicyInput{}
+	if err := decode(raw, &in); err != nil {
+		t.Fatalf("policy decoder rejected structurally valid missing-field input: %v", err)
+	}
+	if err := model.ValidateProjectWorkflowPolicy(in.Policy); err == nil {
+		t.Fatal("policy model validation accepted missing nested field")
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestToolsListSerializesOutputSchemasAndAllHints(t *testing.T) {
