@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.2 — 2026-08-06
+
 - Add canonical project-scoped TSK/RUN/ADR/OPR identifiers with bounded allocator and cutover behavior.
 - Add Run-bound Delivery review draft, finalization, read and discovery authority.
 - Enforce latest-Run precedence for Delivery review reads and merge-ready admission.
