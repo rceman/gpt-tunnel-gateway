@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
+import stat
 import tempfile
 from pathlib import Path
 
@@ -13,6 +15,10 @@ MAX_RECEIPT_BYTES = 1 << 20
 TASK_RE = re.compile(r"^(?P<code>[A-Z]{3})-TSK(?P<number>[1-9][0-9]*)$")
 RUN_RE = re.compile(r"^(?P<task>[A-Z]{3}-TSK[1-9][0-9]*)-RUN(?P<number>[1-9][0-9]*)$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+TASK_WIRE_FIELDS = (
+    "schema_version", "id", "sha256", "project_id", "title", "objective", "branch", "base_revision",
+    "acceptance_criteria", "constraints", "required_gates", "status", "supersedes", "created_by", "created_at",
+)
 
 
 class CompletionReceiptError(ValueError):
@@ -62,11 +68,50 @@ def run_identity(value: object) -> tuple[str, int]:
     return match.group("task"), int(match.group("number"))
 
 
+def canonical_task_sha256(task: dict[str, object]) -> str:
+    wire: dict[str, object] = {}
+    for field in TASK_WIRE_FIELDS:
+        if field == "required_gates" and not task.get(field):
+            continue
+        if field == "supersedes" and not task.get(field):
+            continue
+        wire[field] = "" if field == "sha256" else task.get(field)
+    encoded = json.dumps(wire, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def canonical_repository_root(path: Path) -> Path:
+    if path.is_symlink() or not path.is_dir():
+        raise CompletionReceiptError("repository root must be a regular directory")
+    return path.resolve(strict=True)
+
+
+def ensure_contained(root: Path, path: Path) -> Path:
+    root = canonical_repository_root(root)
+    candidate = Path(os.path.abspath(path))
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError as exc:
+        raise CompletionReceiptError("path escapes repository root") from exc
+    current = root
+    for index, part in enumerate(relative.parts):
+        current /= part
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(info.st_mode):
+            raise CompletionReceiptError("symlink path component is not allowed")
+        if index < len(relative.parts) - 1 and not stat.S_ISDIR(info.st_mode):
+            raise CompletionReceiptError("path ancestor is not a directory")
+    return candidate
+
+
 def load_task(path: Path) -> dict[str, object]:
     if path.is_symlink() or not path.is_file():
         raise CompletionReceiptError("task file must be a regular non-symlink file")
     task = load_json_bytes(path.read_bytes(), "task file")
-    required = {"schema_version", "id", "sha256", "acceptance_criteria", "required_gates"}
+    required = {"schema_version", "id", "sha256", "project_id", "title", "objective", "branch", "base_revision", "acceptance_criteria", "constraints", "status", "created_by", "created_at"}
     unknown = set(task) - {
         "schema_version", "id", "sha256", "project_id", "title", "objective", "branch", "base_revision",
         "acceptance_criteria", "constraints", "required_gates", "status", "supersedes", "created_by", "created_at",
@@ -80,9 +125,13 @@ def load_task(path: Path) -> dict[str, object]:
     task_id = compact_task_id(task["id"])
     if not isinstance(task["sha256"], str) or SHA_RE.fullmatch(task["sha256"]) is None:
         raise CompletionReceiptError("task sha256 must be a lowercase SHA-256 digest")
-    for field in ("acceptance_criteria", "required_gates"):
-        if not isinstance(task[field], list) or not all(isinstance(item, str) for item in task[field]):
+    for field in ("acceptance_criteria", "constraints", "required_gates"):
+        value = task.get(field, [])
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
             raise CompletionReceiptError(f"task {field} must be a string array")
+        task[field] = value
+    if task["sha256"] != canonical_task_sha256(task):
+        raise CompletionReceiptError("task authority hash does not match canonical task content")
     task["id"] = task_id
     return task
 
@@ -115,8 +164,15 @@ def validate_completion(receipt: dict[str, object], task: dict[str, object], run
         if not isinstance(gate, dict) or set(gate) != {"id", "exit_code"} or gate["id"] != f"G{index}" or not isinstance(gate["exit_code"], int) or isinstance(gate["exit_code"], bool):
             raise CompletionReceiptError("gate_results must be the exact positional gate sequence")
     for index, value in enumerate(acceptance, 1):
-        if not isinstance(value, str) or value != f"AC{index}":
-            raise CompletionReceiptError("acceptance_coverage must be ordered and positional")
+        if not isinstance(value, str) or not re.fullmatch(r"AC[1-9][0-9]*", value):
+            raise CompletionReceiptError("acceptance_coverage must contain canonical identifiers")
+    if receipt["status"] != "succeeded":
+        previous = 0
+        for value in acceptance:
+            number = int(value[2:])
+            if number <= previous or number > len(task["acceptance_criteria"]):
+                raise CompletionReceiptError("non-success acceptance coverage must be an ordered bounded subset")
+            previous = number
     if receipt["status"] == "succeeded":
         if len(gates) != len(task["required_gates"]) or len(acceptance) != len(task["acceptance_criteria"]):
             raise CompletionReceiptError("successful completion must cover every gate and criterion")
@@ -134,9 +190,22 @@ def receipt_path(repository_root: Path, task_id: str, run_number: int) -> Path:
     return repository_root / ".gpt" / "run" / task_id / f"run-{run_number}" / "completion.json"
 
 
-def write_atomic(path: Path, data: bytes) -> bool:
+def load_run_authority(path: Path, task: dict[str, object], run_id: str) -> None:
+    if path.is_symlink() or not path.is_file():
+        raise CompletionReceiptError("canonical run authority must be a regular non-symlink file")
+    authority = load_json_bytes(path.read_bytes(), "run authority")
+    if authority.get("schema_version") != 1 or authority.get("id") != run_id or authority.get("task_id") != task["id"]:
+        raise CompletionReceiptError("run authority identity mismatch")
+    task_hash = authority.get("task_sha256")
+    if not isinstance(task_hash, str) or not SHA_RE.fullmatch(task_hash) or task_hash != task["sha256"]:
+        raise CompletionReceiptError("run authority task hash mismatch")
+
+
+def write_atomic(path: Path, data: bytes, root: Path) -> bool:
+    ensure_contained(root, path)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(path.parent, 0o700)
+    ensure_contained(root, path)
     if path.exists() or path.is_symlink():
         if path.is_symlink() or not path.is_file():
             raise CompletionReceiptError("canonical completion path is not a regular file")
@@ -163,12 +232,17 @@ def write_atomic(path: Path, data: bytes) -> bool:
 
 
 def prepare_receipt(repository_root: Path, task_path: Path, run_id: str, raw_receipt: bytes) -> tuple[Path, bool]:
+    root = canonical_repository_root(repository_root)
+    task_path = ensure_contained(root, task_path)
     task = load_task(task_path)
     task_from_run, run_number = run_identity(run_id)
     if task_from_run != task["id"]:
         raise CompletionReceiptError("run id does not belong to task file")
     receipt = load_json_bytes(raw_receipt, "completion receipt")
     validate_completion(receipt, task, run_id)
-    destination = receipt_path(repository_root.resolve(), str(task["id"]), run_number)
+    destination = receipt_path(root, str(task["id"]), run_number)
+    run_authority = destination.parent / "run.json"
+    ensure_contained(root, run_authority)
+    load_run_authority(run_authority, task, run_id)
     data = (json.dumps(receipt, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
-    return destination, write_atomic(destination, data)
+    return destination, write_atomic(destination, data, root)

@@ -7,9 +7,11 @@ import sys
 import tempfile
 import threading
 import unittest
+import shutil
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,21 +35,27 @@ receipt = load_script("completion_receipt", "completion_receipt.py")
 class PublicationHandler(BaseHTTPRequestHandler):
     run = {}
     jobs = {}
+    runs_status = 200
+    jobs_status = 200
     release_status = 404
+    release_payload = {"message": "not found"}
+    rate_limited = False
 
     def do_GET(self):
         if "/actions/runs/" in self.path and "/jobs" in self.path:
-            status, payload = 200, type(self).jobs
+            status, payload = type(self).jobs_status, type(self).jobs
         elif "/actions/runs" in self.path:
-            status, payload = 200, {"workflow_runs": [type(self).run]}
+            status, payload = type(self).runs_status, {"workflow_runs": [type(self).run]}
         elif "/releases/tags/" in self.path:
-            status, payload = type(self).release_status, {"message": "not found"}
+            status, payload = type(self).release_status, type(self).release_payload
         else:
             status, payload = 404, {"message": "not found"}
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if type(self).rate_limited:
+            self.send_header("X-RateLimit-Remaining", "0")
         self.end_headers()
         self.wfile.write(body)
 
@@ -65,14 +73,19 @@ class CanonicalAgentToolingTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
+        cls.server.server_close()
 
     def setUp(self):
         PublicationHandler.release_status = 404
+        PublicationHandler.release_payload = {"message": "not found"}
+        PublicationHandler.runs_status = 200
+        PublicationHandler.jobs_status = 200
+        PublicationHandler.rate_limited = False
 
     def git(self, repo, *args):
         return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
 
-    def make_release_repo(self):
+    def make_release_repo(self, github_release=False):
         directory = tempfile.TemporaryDirectory()
         repo = Path(directory.name) / "repo"
         remote = Path(directory.name) / "remote.git"
@@ -81,7 +94,8 @@ class CanonicalAgentToolingTests(unittest.TestCase):
         self.git(repo, "config", "user.name", "Tooling Test")
         self.git(repo, "config", "user.email", "tooling@example.invalid")
         (repo / "VERSION").write_text("9.9.9\n", encoding="utf-8")
-        (repo / "release-config.json").write_text(json.dumps({"publication": {"topology": "tag_only", "github_release": False, "assets": []}}), encoding="utf-8")
+        topology = "github_release" if github_release else "tag_only"
+        (repo / "release-config.json").write_text(json.dumps({"publication": {"topology": topology, "github_release": github_release, "assets": []}}), encoding="utf-8")
         self.git(repo, "add", "VERSION", "release-config.json")
         self.git(repo, "commit", "-m", "fixture")
         commit = self.git(repo, "rev-parse", "HEAD")
@@ -129,6 +143,73 @@ class CanonicalAgentToolingTests(unittest.TestCase):
         self.assertEqual(result["jobs"][0]["id"], 501)
         self.assertEqual(result["release"]["state"], "not_found_expected")
 
+    def test_release_topology_is_loaded_from_exact_release_commit(self):
+        directory, repo, commit = self.make_release_repo()
+        self.addCleanup(directory.cleanup)
+        (repo / "release-config.json").write_text(json.dumps({"publication": {"topology": "github_release", "github_release": True, "assets": ["mutable.zip"]}}), encoding="utf-8")
+        PublicationHandler.run = {"id": 41, "head_sha": commit, "status": "completed", "conclusion": "success", "name": "Validate", "html_url": "https://github.com/owner/repo/actions/runs/41"}
+        PublicationHandler.jobs = {"total_count": 1, "jobs": [{"id": 501, "name": "unit", "status": "completed", "conclusion": "success", "html_url": "https://github.com/owner/repo/actions/runs/41/jobs/501"}]}
+        result = publication.verify(self.publication_args(repo, commit))
+        self.assertFalse(result["release"]["declared"])
+        self.assertEqual(result["release"]["state"], "not_found_expected")
+
+    def test_release_transport_states_are_preserved_by_endpoint(self):
+        directory, repo, commit = self.make_release_repo()
+        self.addCleanup(directory.cleanup)
+        PublicationHandler.run = {"id": 41, "head_sha": commit, "status": "completed", "conclusion": "success", "name": "Validate", "html_url": "https://github.com/owner/repo/actions/runs/41"}
+        PublicationHandler.jobs = {"total_count": 1, "jobs": [{"id": 501, "name": "unit", "status": "completed", "conclusion": "success", "html_url": "https://github.com/owner/repo/actions/runs/41/jobs/501"}]}
+        for status, expected in ((503, "ci_api_failure"), (401, "authentication_failure"), (403, "rate_limited")):
+            PublicationHandler.runs_status = status; PublicationHandler.rate_limited = status == 403
+            with self.assertRaises(publication.PublicationError) as raised:
+                publication.verify(self.publication_args(repo, commit))
+            self.assertEqual(raised.exception.state, expected)
+        PublicationHandler.runs_status = 200; PublicationHandler.rate_limited = False
+        for status, expected in ((503, "ci_api_failure"), (401, "authentication_failure"), (403, "rate_limited")):
+            PublicationHandler.jobs_status = status; PublicationHandler.rate_limited = status == 403
+            with self.assertRaises(publication.PublicationError) as raised:
+                publication.verify(self.publication_args(repo, commit))
+            self.assertEqual(raised.exception.state, expected)
+        PublicationHandler.jobs_status = 200; PublicationHandler.rate_limited = False
+        for status, expected in ((503, "api_failure"), (401, "authentication_failure"), (403, "rate_limited")):
+            PublicationHandler.release_status = status; PublicationHandler.rate_limited = status == 403
+            with self.assertRaises(publication.PublicationError) as raised:
+                publication.verify(self.publication_args(repo, commit))
+            self.assertEqual(raised.exception.state, expected)
+
+    def test_release_unavailable_transport_is_preserved_for_runs_jobs_and_release(self):
+        directory, repo, commit = self.make_release_repo()
+        self.addCleanup(directory.cleanup)
+        PublicationHandler.run = {"id": 41, "head_sha": commit, "status": "completed", "conclusion": "success", "name": "Validate", "html_url": "https://github.com/owner/repo/actions/runs/41"}
+        PublicationHandler.jobs = {"total_count": 1, "jobs": [{"id": 501, "name": "unit", "status": "completed", "conclusion": "success", "html_url": "https://github.com/owner/repo/actions/runs/41/jobs/501"}]}
+        run_payload = {"workflow_runs": [PublicationHandler.run]}
+        jobs_payload = PublicationHandler.jobs
+        def fail_runs(url, token):
+            raise publication.GitHubAPIError("unavailable", None, url, "test unavailable")
+        with mock.patch.object(publication, "fetch_json", side_effect=fail_runs):
+            with self.assertRaises(publication.PublicationError) as raised:
+                publication.verify(self.publication_args(repo, commit))
+        self.assertEqual(raised.exception.state, "unavailable")
+
+        def fail_jobs(url, token):
+            if "/jobs" in url:
+                raise publication.GitHubAPIError("unavailable", None, url, "test unavailable")
+            return run_payload
+        with mock.patch.object(publication, "fetch_json", side_effect=fail_jobs):
+            with self.assertRaises(publication.PublicationError) as raised:
+                publication.verify(self.publication_args(repo, commit))
+        self.assertEqual(raised.exception.state, "unavailable")
+
+        def fail_release(url, token):
+            if "/releases/" in url:
+                raise publication.GitHubAPIError("unavailable", None, url, "test unavailable")
+            if "/jobs" in url:
+                return jobs_payload
+            return run_payload
+        with mock.patch.object(publication, "fetch_json", side_effect=fail_release):
+            with self.assertRaises(publication.PublicationError) as raised:
+                publication.verify(self.publication_args(repo, commit))
+        self.assertEqual(raised.exception.state, "unavailable")
+
     def test_release_publication_rejects_incomplete_job_proof(self):
         directory, repo, commit = self.make_release_repo()
         self.addCleanup(directory.cleanup)
@@ -144,6 +225,27 @@ class CanonicalAgentToolingTests(unittest.TestCase):
         with self.assertRaises(publication.PublicationError) as raised:
             publication.verify(self.publication_args(repo, commit))
         self.assertEqual(raised.exception.state, "ci_job_set_mismatch")
+
+    def test_release_publication_emits_distinct_not_found_api_and_asset_states(self):
+        directory, repo, commit = self.make_release_repo(github_release=True)
+        self.addCleanup(directory.cleanup)
+        PublicationHandler.run = {"id": 41, "head_sha": commit, "status": "completed", "conclusion": "success", "name": "Validate", "html_url": "https://github.com/owner/repo/actions/runs/41"}
+        PublicationHandler.jobs = {"total_count": 1, "jobs": [{"id": 501, "name": "unit", "status": "completed", "conclusion": "success", "html_url": "https://github.com/owner/repo/actions/runs/41/jobs/501"}]}
+        with self.assertRaises(publication.PublicationError) as raised:
+            publication.verify(self.publication_args(repo, commit))
+        self.assertEqual(raised.exception.state, "release_not_found")
+        PublicationHandler.runs_status = 404
+        with self.assertRaises(publication.PublicationError) as raised:
+            publication.verify(self.publication_args(repo, commit))
+        self.assertEqual(raised.exception.state, "ci_run_not_found")
+        PublicationHandler.runs_status = 200; PublicationHandler.release_status = 200; PublicationHandler.release_payload = {"tag_name": "v9.9.9", "assets": [{"name": "unexpected.zip"}]}
+        with self.assertRaises(publication.PublicationError) as raised:
+            publication.verify(self.publication_args(repo, commit))
+        self.assertEqual(raised.exception.state, "asset_mismatch")
+        PublicationHandler.release_status = 404; PublicationHandler.release_payload = {"message": "not found"}; PublicationHandler.jobs_status = 500
+        with self.assertRaises(publication.PublicationError) as raised:
+            publication.verify(self.publication_args(repo, commit))
+        self.assertEqual(raised.exception.state, "ci_api_failure")
 
     def test_release_publication_preserves_typed_auth_failure(self):
         directory, repo, commit = self.make_release_repo()
@@ -185,22 +287,48 @@ class CanonicalAgentToolingTests(unittest.TestCase):
             with self.assertRaises(loader.CanonicalToolingGap):
                 loader.read_lock(path)
 
+    def test_canonical_tooling_prohibits_direct_or_regex_proof_bypasses(self):
+        tool_paths = [
+            SCRIPTS / "check-github-ci.py", SCRIPTS / "github_tooling.py", SCRIPTS / "verify-release-publication.py",
+            SCRIPTS / "load-pinned-workflow.py", SCRIPTS / "completion_receipt.py", SCRIPTS / "write-completion-receipt.py",
+        ]
+        for path in tool_paths:
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("curl", text.lower(), path.name)
+            self.assertNotIn("beautifulsoup", text.lower(), path.name)
+            self.assertNotRegex(text, r"(?i)(?:run|job)[_-]?id.{0,80}re\.(?:compile|search|match|findall|finditer)", path.name)
+
     def task_fixture(self, root):
         task_path = root / "task.json"
-        task_path.write_text(json.dumps({
+        task = {
             "schema_version": 1,
             "id": "GTW-TSK1",
-            "sha256": "a" * 64,
+            "sha256": "",
+            "project_id": "gpt-tunnel-gateway",
+            "title": "Tooling",
+            "objective": "Test canonical receipts",
+            "branch": "task/GTW-TSK1-tooling",
+            "base_revision": "a" * 40,
             "acceptance_criteria": ["AC1", "AC2"],
+            "constraints": ["bounded"],
             "required_gates": ["G1", "G2"],
-        }), encoding="utf-8")
+            "status": "created",
+            "created_by": "test",
+            "created_at": "2026-08-06T00:00:00Z",
+        }
+        task["sha256"] = receipt.canonical_task_sha256(task)
+        self.task_hash = task["sha256"]
+        task_path.write_text(json.dumps(task), encoding="utf-8")
+        run_dir = root / ".gpt" / "run" / "GTW-TSK1" / "run-1"
+        run_dir.mkdir(parents=True)
+        (run_dir / "run.json").write_text(json.dumps({"schema_version": 1, "id": "GTW-TSK1-RUN1", "task_id": "GTW-TSK1", "task_sha256": task["sha256"]}), encoding="utf-8")
         return task_path
 
     def valid_receipt(self):
         return {
             "schema_version": 1,
             "run_id": "GTW-TSK1-RUN1",
-            "task_sha256": "a" * 64,
+            "task_sha256": self.task_hash,
             "status": "succeeded",
             "summary": "canonical tooling passed",
             "gate_results": [{"id": "G1", "exit_code": 0}, {"id": "G2", "exit_code": 0}],
@@ -236,6 +364,39 @@ class CanonicalAgentToolingTests(unittest.TestCase):
             result = subprocess.run([sys.executable, str(SCRIPTS / "write-completion-receipt.py"), "--repository-root", str(root), "--task-file", str(task_path), "--run-id", "GTW-TSK1-RUN1", "--output", str(root / "manual.json")], input=json.dumps(self.valid_receipt()), text=True, capture_output=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse((root / "manual.json").exists())
+
+    def test_completion_receipt_accepts_ordered_non_success_subset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            task_path = self.task_fixture(root)
+            non_success = self.valid_receipt()
+            non_success["status"] = "needs_gpt_revision"
+            non_success["gate_results"] = [{"id": "G1", "exit_code": 1}]
+            non_success["acceptance_coverage"] = ["AC2"]
+            destination, created = receipt.prepare_receipt(root, task_path, "GTW-TSK1-RUN1", json.dumps(non_success).encode())
+            self.assertTrue(created)
+            self.assertTrue(destination.is_file())
+
+    def test_completion_receipt_rejects_fabricated_task_authority_and_symlink_escape(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            task_path = self.task_fixture(root)
+            task = json.loads(task_path.read_text(encoding="utf-8"))
+            task["title"] = "fabricated"
+            task_path.write_text(json.dumps(task), encoding="utf-8")
+            with self.assertRaises(receipt.CompletionReceiptError):
+                receipt.prepare_receipt(root, task_path, "GTW-TSK1-RUN1", json.dumps(self.valid_receipt()).encode())
+
+            outside = root.parent / "outside-task"
+            outside.mkdir()
+            self.addCleanup(lambda: shutil.rmtree(outside, ignore_errors=True))
+            link = root / "escape"
+            os.symlink(outside, link)
+            with self.assertRaises(receipt.CompletionReceiptError):
+                receipt.prepare_receipt(root, link / "task.json", "GTW-TSK1-RUN1", json.dumps(self.valid_receipt()).encode())
+            with tempfile.NamedTemporaryFile() as external_task:
+                with self.assertRaises(receipt.CompletionReceiptError):
+                    receipt.prepare_receipt(root, Path(external_task.name), "GTW-TSK1-RUN1", json.dumps(self.valid_receipt()).encode())
 
 
 if __name__ == "__main__":
