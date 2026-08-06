@@ -19,7 +19,8 @@ associated job (`id`, `name`, URL, status and conclusion). A completed run with
 missing, malformed or incomplete jobs is `job_set_mismatch`; required policy
 reports `BLOCKED_CANONICAL_TOOLING_GAP` and exits nonzero.
 
-`verify-release-publication.py` reads the declared topology from
+`verify-release-publication.py` reads the declared topology from the exact
+release commit being verified, never from a mutable worktree copy of
 `release-config.json`. `tag_only` requires the annotated remote tag and exact
 successful CI, and treats a missing GitHub Release as expected. A declared
 GitHub Release must have exactly the configured assets. Authentication,
@@ -39,18 +40,24 @@ digest. The resulting provenance binds the retrieved bytes to the lock.
 
 `write-completion-receipt.py` accepts the receipt on standard input and derives
 `.gpt/run/<task-id>/run-<n>/completion.json` from the validated task and run
-identities. It does not accept an output-path argument. It validates positional
-gate and acceptance coverage, task hash, bounded text and duplicate/non-finite
-JSON rejection, then performs an owner-only atomic write. An existing identical
-receipt is idempotent; different content is rejected.
+identities. It requires the contained canonical `run.json` authority record and
+matches its task ID and task hash; a caller-provided task file cannot override
+that authority. Task content is independently hashed using the canonical task
+wire representation. It rejects repository-root escapes and symlink ancestors.
+It does not accept an output-path argument. It validates positional gate and
+ordered acceptance coverage (including bounded non-success subsets), task hash,
+bounded text and duplicate/non-finite JSON rejection, then performs an
+owner-only atomic write. An existing identical receipt is idempotent; different
+content is rejected.
 
 ## Operating discipline
 
 - Prefer one aggregated canonical call at an unchanged revision; do not repeat
   identical remote reads or serially reconstruct proof from weaker calls.
 - Use the shared GitHub transport and typed result states. Direct `curl`, HTML
-  scraping, guessed job IDs, inline publication verifiers and hand-authored
-  alternate receipt destinations are prohibited.
+  scraping, regular-expression extraction of Actions Run/job IDs, guessed job
+  IDs, inline publication verifiers and hand-authored alternate receipt
+  destinations are prohibited.
 - Keep API polling bounded. Record failed calls, rejected invocations and any
   approved tooling substitution in the run completion review; never hide a
   missing capability by adding an undocumented flag or fallback path.

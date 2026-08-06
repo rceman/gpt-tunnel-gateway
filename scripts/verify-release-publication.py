@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from pathlib import PurePosixPath
 
 from github_tooling import GitHubAPIError, JobSetMismatch, complete_job_set, fetch_json, run_identity
 
@@ -33,16 +34,24 @@ def unique_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return result
 
 
+def parse_object(raw: str, label: str) -> dict[str, object]:
+    try:
+        value = json.loads(raw, object_pairs_hook=unique_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PublicationError("api_failure", f"invalid JSON: {label}") from exc
+    if not isinstance(value, dict):
+        raise PublicationError("api_failure", f"JSON object required: {label}")
+    return value
+
+
 def read_object(path: Path) -> dict[str, object]:
     if path.is_symlink() or not path.is_file():
         raise PublicationError("api_failure", f"not a regular file: {path}")
     try:
-        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_pairs)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
         raise PublicationError("api_failure", f"invalid JSON: {path}") from exc
-    if not isinstance(value, dict):
-        raise PublicationError("api_failure", f"JSON object required: {path}")
-    return value
+    return parse_object(raw, str(path))
 
 
 def git(repo: Path, *args: str) -> str:
@@ -75,8 +84,7 @@ def prove_git(repo: Path, remote: str, tag: str, commit: str) -> tuple[str, str]
     return tag_object, peeled
 
 
-def publication_config(path: Path) -> tuple[bool, list[str]]:
-    config = read_object(path)
+def publication_config(config: dict[str, object]) -> tuple[bool, list[str]]:
     publication = config.get("publication")
     if not isinstance(publication, dict):
         raise PublicationError("api_failure", "release-config.json lacks publication declaration")
@@ -97,9 +105,26 @@ def api_error(exc: GitHubAPIError, context: str) -> PublicationError:
     state = exc.state
     if context == "ci" and state == "not_found":
         state = "ci_run_not_found"
+    elif context == "ci" and state == "api_failure":
+        state = "ci_api_failure"
+    elif context == "jobs" and state == "not_found":
+        state = "ci_job_set_mismatch"
+    elif context == "jobs" and state == "api_failure":
+        state = "ci_api_failure"
     if context == "release" and state == "not_found":
         state = "release_not_found"
     return PublicationError(state, str(exc))
+
+
+def publication_config_from_commit(repo: Path, commit: str, config_path: str) -> tuple[bool, list[str]]:
+    relative = PurePosixPath(config_path)
+    if relative.is_absolute() or not config_path or ".." in relative.parts or "\\" in config_path:
+        raise PublicationError("release_commit_mismatch", "publication config path must be a safe relative path")
+    try:
+        raw = git(repo, "show", f"{commit}:{config_path}")
+    except PublicationError as exc:
+        raise PublicationError("release_commit_mismatch", "publication config is unavailable in the exact release commit") from exc
+    return publication_config(parse_object(raw, f"{commit}:{config_path}"))
 
 
 def verify(args: argparse.Namespace) -> dict[str, object]:
@@ -107,7 +132,7 @@ def verify(args: argparse.Namespace) -> dict[str, object]:
         raise PublicationError("api_failure", "repository, commit, or tag format is invalid")
     repo = Path(args.repository_root).resolve()
     tag_object, peeled = prove_git(repo, args.remote, args.tag, args.commit)
-    github_release_expected, expected_assets = publication_config(repo / args.config)
+    github_release_expected, expected_assets = publication_config_from_commit(repo, args.commit, args.config)
     token = os.environ.get("GITHUB_TOKEN")
     base = args.api_url.rstrip("/")
     runs_url = f"{base}/repos/{args.repository}/actions/runs?head_sha={args.commit}&per_page=100"
@@ -116,7 +141,7 @@ def verify(args: argparse.Namespace) -> dict[str, object]:
     except GitHubAPIError as exc:
         raise api_error(exc, "ci") from exc
     if not isinstance(runs_payload, dict) or not isinstance(runs_payload.get("workflow_runs"), list):
-        raise PublicationError("api_failure", "workflow run response is malformed")
+        raise PublicationError("ci_api_failure", "workflow run response is malformed")
     candidates = [run for run in runs_payload["workflow_runs"] if isinstance(run, dict) and run.get("head_sha") == args.commit]
     if not candidates:
         raise PublicationError("ci_run_not_found", "no exact-SHA workflow run was found")
@@ -124,12 +149,12 @@ def verify(args: argparse.Namespace) -> dict[str, object]:
     try:
         run = run_identity(candidates[0], args.commit)
     except ValueError as exc:
-        raise PublicationError("api_failure", str(exc)) from exc
+        raise PublicationError("ci_api_failure", str(exc)) from exc
     try:
         jobs_payload = fetch_json(f"{base}/repos/{args.repository}/actions/runs/{run['id']}/jobs?per_page=100", token)
         jobs = complete_job_set(jobs_payload)
     except GitHubAPIError as exc:
-        raise PublicationError("ci_job_set_mismatch", str(exc)) from exc
+        raise api_error(exc, "jobs") from exc
     except JobSetMismatch as exc:
         raise PublicationError("ci_job_set_mismatch", str(exc)) from exc
     if run["status"] != "completed" or run["conclusion"] != "success" or any(job["status"] != "completed" or job["conclusion"] != "success" for job in jobs):

@@ -33,13 +33,17 @@ EXIT = {
     "neutral": 3,
     "skipped": 3,
     "no_run": 0,
-    "unavailable": 0,
+    "unavailable": 4,
     "authentication_failure": 4,
     "rate_limited": 4,
     "not_found": 4,
     "api_failure": 5,
     "job_set_mismatch": 5,
     "invalid_response": 5,
+}
+REQUIRED_PROOF_GAPS = {
+    "unavailable", "authentication_failure", "rate_limited", "not_found", "no_run",
+    "timed_out", "api_failure", "job_set_mismatch", "invalid_response",
 }
 
 
@@ -50,7 +54,7 @@ def result(args: argparse.Namespace, state: str, message: str, *, quiet: bool = 
         or state == "pending"
     )
     outcome = "success" if state in {"success", "not_applicable", "no_run"} else state.upper()
-    if state in {"unavailable", "authentication_failure", "rate_limited", "not_found", "api_failure", "job_set_mismatch"} and args.policy == "required":
+    if state in REQUIRED_PROOF_GAPS and args.policy == "required":
         outcome = "BLOCKED_CANONICAL_TOOLING_GAP"
     data: dict[str, object] = {
         "schema_version": 1,
@@ -220,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
                 time.sleep(min(args.interval, max(0, deadline - time.monotonic())))
                 continue
             if state == "pending" and args.wait:
+                result(args, "timed_out", f"timed out waiting for complete job proof for exact-SHA run {identity['id']}", **values)
                 return 6
             return EXIT[state] if state == "pending" else EXIT["job_set_mismatch"]
         except JobSetMismatch as exc:
@@ -231,6 +236,7 @@ def main(argv: list[str] | None = None) -> int:
                 time.sleep(min(args.interval, max(0, deadline - time.monotonic())))
                 continue
             if state == "pending" and args.wait:
+                result(args, "timed_out", f"timed out waiting for complete job proof for exact-SHA run {identity['id']}", **values)
                 return 6
             return EXIT[state] if state == "pending" else EXIT["job_set_mismatch"]
         values["jobs"] = normalized_jobs
@@ -241,6 +247,7 @@ def main(argv: list[str] | None = None) -> int:
             time.sleep(min(args.interval, max(0, deadline - time.monotonic())))
             continue
         if state == "pending" and args.wait:
+            result(args, "timed_out", "timed out waiting for a successful exact-SHA workflow run", **values)
             return 6
         return EXIT.get(state, 5)
 
