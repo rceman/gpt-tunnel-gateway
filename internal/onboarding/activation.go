@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
-	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
 type ActivationResult struct {
@@ -55,7 +55,7 @@ func NewActivationCoordinator(store hub.Store) *ActivationCoordinator {
 }
 
 func (c *ActivationCoordinator) Activate(ctx context.Context, request Request, operationID string) (ActivationResult, error) {
-	if err := service.RequireWorkflowPolicyAuthority(ctx); err != nil {
+	if err := authority.RequireOnboarding(ctx); err != nil {
 		return ActivationResult{}, &CoordinatorError{Code: ErrOnboardingAuthorityUnavailable.Error(), Cause: err}
 	}
 	if c == nil || c.StateDir == "" || c.StateDir != request.GatewayStateDir {

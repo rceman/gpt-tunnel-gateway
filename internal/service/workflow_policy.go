@@ -7,22 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
-
-const (
-	workflowPolicyAuthorityPlanner  = "planner"
-	workflowPolicyAuthorityDelivery = "delivery"
-)
-
-type workflowPolicyAuthorityContextKey struct{}
-
-type workflowPolicyAuthority struct {
-	role string
-}
 
 // WithPlannerWorkflowPolicyAuthority and WithDeliveryWorkflowPolicyAuthority
 // are server-owned authority constructors. Callers cannot select an arbitrary
@@ -30,19 +20,28 @@ type workflowPolicyAuthority struct {
 // the trusted Planner or Delivery boundary before invoking a mutating
 // service.
 func WithPlannerWorkflowPolicyAuthority(ctx context.Context) context.Context {
-	return context.WithValue(ctx, workflowPolicyAuthorityContextKey{}, workflowPolicyAuthority{role: workflowPolicyAuthorityPlanner})
+	return authority.WithPlanner(ctx)
 }
 
 func WithDeliveryWorkflowPolicyAuthority(ctx context.Context) context.Context {
-	return context.WithValue(ctx, workflowPolicyAuthorityContextKey{}, workflowPolicyAuthority{role: workflowPolicyAuthorityDelivery})
+	return authority.WithDelivery(ctx)
+}
+
+// WithOperatorWorkflowPolicyAuthority is only for the local dispatcher. It
+// is intentionally not accepted by workflow-policy mutation methods.
+func WithOperatorWorkflowPolicyAuthority(ctx context.Context) context.Context {
+	return authority.WithOperator(ctx)
 }
 
 func RequireWorkflowPolicyAuthority(ctx context.Context) error {
-	authority, ok := ctx.Value(workflowPolicyAuthorityContextKey{}).(workflowPolicyAuthority)
-	if !ok || (authority.role != workflowPolicyAuthorityPlanner && authority.role != workflowPolicyAuthorityDelivery) {
-		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
-	}
-	return nil
+	return authority.RequirePlannerOrDelivery(ctx)
+}
+
+// RequireOnboardingAuthority accepts only server-owned Planner/Delivery
+// authority or the local dispatcher-owned operator context. Serialized role
+// fields are never consulted.
+func RequireOnboardingAuthority(ctx context.Context) error {
+	return authority.RequireOnboarding(ctx)
 }
 
 func (s *Service) workflowPolicyPath(projectID string) string {
