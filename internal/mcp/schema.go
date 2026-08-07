@@ -279,7 +279,12 @@ func taskPacketRunOutputSchema() map[string]any {
 }
 
 func reportOutputSchema() map[string]any {
-	gate := closedOutput(map[string]any{"id": outputString(), "exit_code": outputInteger()}, "id", "exit_code")
+	gate := closedOutput(map[string]any{
+		"id": outputString(), "exit_code": outputInteger(), "kind": outputEnum("executable", "manual", "unsupported"),
+		"outcome": outputEnum("passed", "failed", "timeout", "manual", "unsupported"), "command": outputString(), "evidence": outputString(),
+		"stdout": outputString(), "stderr": outputString(), "started_at": outputDateTime(), "finished_at": outputDateTime(),
+		"timed_out": outputBoolean(), "output_truncated": outputBoolean(),
+	}, "id", "exit_code")
 	repository := closedOutput(map[string]any{"branch": outputString(), "head": outputString(), "worktree_clean": outputBoolean(), "base_ancestor": outputBoolean(), "commits": outputArray(outputString()), "changed_files": outputArray(outputString()), "diff_scope": outputString()}, "branch", "head", "worktree_clean", "base_ancestor", "commits", "changed_files", "diff_scope")
 	feedbackCandidate := closedOutput(map[string]any{"problem": outputString(), "proposed_tool": outputString(), "expected_reuse": outputEnum("one_off", "occasional", "recurring"), "expected_saving": outputString(), "safety_boundary": outputString()}, "problem", "proposed_tool", "expected_reuse", "expected_saving", "safety_boundary")
 	feedback := closedOutput(map[string]any{"summary": outputString(), "friction": outputArray(outputString()), "improvements": outputArray(outputString()), "tool_candidates": outputArray(feedbackCandidate), "none_observed": outputBoolean()}, "friction", "improvements", "tool_candidates", "none_observed")
@@ -662,6 +667,7 @@ var toolOutputSchemas = map[string]map[string]any{
 	"run_read":                           runOutputSchema(),
 	"run_status":                         runOutputSchema(),
 	"run_report":                         reportOutputSchema(),
+	"run_finalize":                       closedOutput(map[string]any{"report": reportOutputSchema(), "operation": operationOutputSchema()}, "report", "operation"),
 	"run_review_snapshot":                reviewSnapshotOutputSchema(),
 	"run_agent_tail":                     closedOutput(map[string]any{"text": outputString()}, "text"),
 	"run_resume":                         runResumeOutputSchema(),
@@ -704,7 +710,7 @@ var canonicalToolManifest = []string{
 	"project_register", "plan_read", "plan_cutover", "plan_update", "plan_section_read",
 	"plan_section_create", "plan_section_update", "plan_section_delete", "plan_render", "plan_history",
 	"adr_list", "adr_read", "adr_create", "task_create", "task_revision_list", "task_revision_read", "task_revision_status", "task_correction_create", "task_list", "task_read", "task_review_report_start", "task_review_report_section_update", "task_review_report_validate", "task_review_report_finalize", "task_report_read", "task_dispatch",
-	"task_supersede", "task_cancel", "task_mark_merge_ready", "task_defer", "task_mark_merged", "run_list", "run_read", "run_status", "run_report",
+	"task_supersede", "task_cancel", "task_mark_merge_ready", "task_defer", "task_mark_merged", "run_list", "run_read", "run_status", "run_report", "run_finalize",
 	"run_review_snapshot", "run_agent_tail", "run_resume", "run_sweep", "run_cancel", "run_cancel_acknowledge_no_mutation", "git_refresh", "git_refs",
 	"agent_send", "agent_tail", "agent_status",
 	"operator_record", "operator_history", "operator_checkpoint",
@@ -738,6 +744,7 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	}
 	result["run_agent_tail"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
 	result["run_review_snapshot"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
+	result["run_finalize"] = destructiveExternalAnnotations()
 	result["agent_tail"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
 	result["agent_status"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
 	result["agent_send"] = additiveExternalAnnotations()

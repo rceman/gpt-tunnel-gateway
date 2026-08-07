@@ -339,8 +339,18 @@ type Run struct {
 }
 
 type CompletionGateResult struct {
-	ID       string `json:"id"`
-	ExitCode int    `json:"exit_code"`
+	ID              string     `json:"id"`
+	ExitCode        int        `json:"exit_code"`
+	Kind            string     `json:"kind,omitempty"`
+	Outcome         string     `json:"outcome,omitempty"`
+	Command         string     `json:"command,omitempty"`
+	Evidence        string     `json:"evidence,omitempty"`
+	Stdout          string     `json:"stdout,omitempty"`
+	Stderr          string     `json:"stderr,omitempty"`
+	StartedAt       *time.Time `json:"started_at,omitempty"`
+	FinishedAt      *time.Time `json:"finished_at,omitempty"`
+	TimedOut        bool       `json:"timed_out,omitempty"`
+	OutputTruncated bool       `json:"output_truncated,omitempty"`
 }
 
 type Completion struct {
@@ -724,13 +734,41 @@ func ValidateReport(v Report, task Task, run Run, limits ...int) error {
 		if gate.ID != fmt.Sprintf("G%d", i+1) {
 			return fmt.Errorf("report gate results are not positional")
 		}
+		if gate.Kind != "" {
+			switch gate.Kind {
+			case "executable", "manual", "unsupported":
+			default:
+				return fmt.Errorf("invalid report gate kind")
+			}
+			if gate.Outcome == "" {
+				return fmt.Errorf("automatic report gate outcome is required")
+			}
+			if gate.Outcome != "passed" && gate.Outcome != "failed" && gate.Outcome != "timeout" && gate.Outcome != "manual" && gate.Outcome != "unsupported" {
+				return fmt.Errorf("invalid report gate outcome")
+			}
+			if err := utf8Bounded(gate.Command, 1024, "gate command"); err != nil {
+				return err
+			}
+			if err := utf8Bounded(gate.Evidence, 4096, "gate evidence"); err != nil {
+				return err
+			}
+			if err := utf8Bounded(gate.Stdout, 1<<20, "gate stdout"); err != nil {
+				return err
+			}
+			if err := utf8Bounded(gate.Stderr, 1<<20, "gate stderr"); err != nil {
+				return err
+			}
+			if gate.Kind == "executable" && (gate.StartedAt == nil || gate.FinishedAt == nil || strings.TrimSpace(gate.Command) == "") {
+				return fmt.Errorf("executable report gate evidence is incomplete")
+			}
+		}
 	}
 	if v.Status == "succeeded" {
 		if len(v.GateResults) != len(task.RequiredGates) || len(v.AcceptanceCoverage) != len(task.AcceptanceCriteria) {
 			return fmt.Errorf("report success receipts are incomplete")
 		}
 		for _, gate := range v.GateResults {
-			if gate.ExitCode != 0 {
+			if gate.ExitCode != 0 || (gate.Outcome != "" && gate.Outcome != "passed") {
 				return fmt.Errorf("report success contains failed gate")
 			}
 		}

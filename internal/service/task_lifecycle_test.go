@@ -79,7 +79,7 @@ func TestTaskMarkMergeReadyRequiresCanonicalSuccessfulReport(t *testing.T) {
 func TestTaskMarkMergeReadyUsesLatestSuccessfulReportAndDeferReusesHead(t *testing.T) {
 	s, revision, _ := testService(t)
 	ctx := context.Background()
-	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Lifecycle report", Objective: "Use a canonical successful report.", Slug: "lifecycle-report", AcceptanceCriteria: []string{"report"}, RequiredGates: []string{"gate"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Lifecycle report", Objective: "Use a canonical successful report.", Slug: "lifecycle-report", AcceptanceCriteria: []string{"report"}, RequiredGates: []string{"git diff --check"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
 	if err != nil {
 		t.Fatal(err)
 	}

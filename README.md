@@ -42,9 +42,8 @@ task create
 → plan update / plan section-create
 → task dispatch
 → airelay prompt <session> "Read task and execute it. Run: gpt-tunnel task read <task-id>"
-→ agent writes one strict completion.json
 → gpt-tunnel run finalize <run-id>
-→ the gateway derives repository proof and commits one canonical report to the GitHub hub
+→ the gateway executes allowlisted gates, derives coverage and commits one canonical report to the GitHub hub
 ```
 
 A successful Airelay delivery is non-terminal. Completion exists only after hub finalization succeeds.
@@ -105,6 +104,14 @@ bash scripts/build-release.sh
 git diff --check
 python3 scripts/upgrade_rehearsal.py
 ```
+
+Run completion is server-owned. After the implementation is committed and the
+task branch is pushed, call `gpt-tunnel run finalize <RUN-ID>` directly. The
+gateway executes only allowlisted Linux gate definitions from the immutable
+Task, captures bounded command evidence, and derives positional G1..Gn and
+AC1..ACn coverage. Agents must not write completion JSON, submit gate exit
+codes, or execute arbitrary shell commands; unsupported or manual gates fail
+closed with explicit evidence.
 
 Canonical proof helpers are documented in
 [`docs/CANONICAL_AGENT_TOOLING.md`](docs/CANONICAL_AGENT_TOOLING.md). Use the

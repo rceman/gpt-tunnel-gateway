@@ -17,6 +17,17 @@ import (
 
 var version = "0.6.4"
 
+type stringListFlag []string
+
+func (v *stringListFlag) String() string { return strings.Join(*v, ",") }
+func (v *stringListFlag) Set(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("value must be non-empty")
+	}
+	*v = append(*v, value)
+	return nil
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
@@ -658,8 +669,12 @@ func run(ctx context.Context, s *service.Service, args []string) {
 		fs := flag.NewFlagSet("run finalize", flag.ExitOnError)
 		cf := fs.String("completion-file", "", "completion JSON")
 		ex := fs.String("expected-hub-revision", "", "optimistic revision")
+		summary := fs.String("summary", "", "bounded advisory summary")
+		var deviations, risks stringListFlag
+		fs.Var(&deviations, "deviation", "bounded advisory deviation (repeatable)")
+		fs.Var(&risks, "remaining-risk", "bounded advisory remaining risk (repeatable)")
 		_ = fs.Parse(args[2:])
-		report, result, e := s.RunFinalize(ctx, service.FinalizeInput{RunID: args[1], CompletionFile: *cf, WriteOptions: service.WriteOptions{ExpectedHubRevision: *ex}})
+		report, result, e := s.RunFinalize(ctx, service.FinalizeInput{RunID: args[1], CompletionFile: *cf, Summary: *summary, Deviations: deviations, RemainingRisks: risks, WriteOptions: service.WriteOptions{ExpectedHubRevision: *ex}})
 		if e != nil {
 			fatal(e)
 		}

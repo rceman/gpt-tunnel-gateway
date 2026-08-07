@@ -926,6 +926,24 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return service.PublicRunView(run), nil
 	})
+	finalizeSummary := str("Bounded advisory summary; gate and acceptance evidence are server-owned")
+	finalizeSummary["maxLength"] = 4096
+	finalizeSummary["minLength"] = 1
+	finalizeDeviations := array(str("Bounded advisory deviation"))
+	finalizeDeviations["maxItems"] = 64
+	finalizeRisks := array(str("Bounded advisory remaining risk"))
+	finalizeRisks["maxItems"] = 64
+	add("run_finalize", "Execute the immutable Task's allowlisted gates and atomically finalize the run; no completion file or Agent gate results are accepted.", obj(map[string]any{
+		"run_id": str("Run identifier"), "summary": finalizeSummary, "deviations": finalizeDeviations, "remaining_risks": finalizeRisks,
+		"agent_feedback": map[string]any{"type": "object"}, "expected_hub_revision": str("Optimistic Hub revision"),
+	}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.FinalizeInput
+		if err := decode(raw, &in); err != nil {
+			return nil, err
+		}
+		report, operation, err := s.Service.RunFinalize(ctx, in)
+		return map[string]any{"report": report, "operation": operation}, err
+	})
 	add("run_report", "Read finalized report.", obj(map[string]any{"run_id": str("Run identifier")}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "run_id")
 		if e != nil {

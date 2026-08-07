@@ -123,8 +123,12 @@ type TaskMarkMergedInput struct {
 	WriteOptions
 }
 type FinalizeInput struct {
-	RunID          string `json:"run_id"`
-	CompletionFile string `json:"completion_file,omitempty"`
+	RunID          string               `json:"run_id"`
+	CompletionFile string               `json:"completion_file,omitempty"`
+	Summary        string               `json:"summary,omitempty"`
+	Deviations     []string             `json:"deviations,omitempty"`
+	RemainingRisks []string             `json:"remaining_risks,omitempty"`
+	AgentFeedback  *model.AgentFeedback `json:"agent_feedback,omitempty"`
 	WriteOptions
 }
 
@@ -2422,7 +2426,7 @@ func renderPacket(task model.Task, run model.Run, project model.Project, plan mo
 	for _, v := range task.RequiredGates {
 		fmt.Fprintf(&b, "- %s\n", v)
 	}
-	fmt.Fprintf(&b, "\n## Durable workflow policy\n\nWorkflow stage: %s\nIntegration branch authority: %s\nAgent wait for hosted CI: %t\nCI modes: task=%s, task_merge=%s, release=%s\nEffective operation class: %s\nEffective CI field/mode: %s/%s\nEffective wait_for_ci: %t\nEffective ci_blocking: %t\nAgent may wait: %t\n\nCurrent Gateway implementation, integration and release tasks do not wait for hosted CI unless the durable project policy explicitly requires it.\n\n## Global plan context\n\n%s\n\nCurrent objective: %s\n\n## Context-compaction recovery\n\nIf context is lost or a compaction marker appears, re-read this immutable task packet with `gpt-tunnel task read %s`. Inspect the declared branch, base, current HEAD, worktree, existing commits, and durable run state. Resume from committed and durable evidence; do not rely on conversation memory, redo completed phases, or change task scope. If implementation is already complete, continue through verification, completion evidence, push, and finalization.\n\n## Completion contract\n\nBefore writing completion.json, commit the implementation, run every required gate, and push the task branch. Then prepare one strict completion JSON input and invoke exactly:\n  gpt-tunnel run write-completion %s --completion-file <INPUT>\n\nThe Gateway obtains the canonical Task and Run, validates the receipt, and derives the only legal completion destination. Do not write directly to a filesystem completion path. Then finalize with:\n  gpt-tunnel run finalize %s\n\nTo read a prior Delivery report, use exactly `gpt-tunnel task report-read <TASK-ID> [RUN-ID]`.\n\nThe task is not complete until finalization prints TASK_FINALIZED. Do not finish only in chat or Airelay.\n", policy.WorkflowStage, policy.IntegrationBranch, policy.Agent.WaitForCI, policy.CI.Task, policy.CI.TaskMerge, policy.CI.Release, task.OperationClass, task.EffectiveCIField, task.EffectiveCIMode, task.WaitForCI, task.CIBlocking, task.AgentMayWait, plan.Summary, plan.CurrentObjective, task.ID, run.ID, run.ID)
+	fmt.Fprintf(&b, "\n## Durable workflow policy\n\nWorkflow stage: %s\nIntegration branch authority: %s\nAgent wait for hosted CI: %t\nCI modes: task=%s, task_merge=%s, release=%s\nEffective operation class: %s\nEffective CI field/mode: %s/%s\nEffective wait_for_ci: %t\nEffective ci_blocking: %t\nAgent may wait: %t\n\nCurrent Gateway implementation, integration and release tasks do not wait for hosted CI unless the durable project policy explicitly requires it.\n\n## Global plan context\n\n%s\n\nCurrent objective: %s\n\n## Context-compaction recovery\n\nIf context is lost or a compaction marker appears, re-read this immutable task packet with `gpt-tunnel task read %s`. Inspect the declared branch, base, current HEAD, worktree, existing commits, and durable run state. Resume from committed and durable evidence; do not rely on conversation memory, redo completed phases, or change task scope. If implementation is already complete, continue through verification, completion evidence, push, and finalization.\n\n## Completion contract\n\nCommit the implementation, run every required gate, and push the task branch. Then invoke exactly:\n  gpt-tunnel run finalize %s\n\nThe Gateway executes every allowlisted executable gate from the immutable Task in order, captures bounded evidence, derives positional G1..Gn and AC1..ACn coverage, and builds the immutable report. Do not write completion JSON, submit gate IDs or exit codes, run arbitrary shell commands, or copy gate results into a temporary file. Advisory summary, deviations and risks may be supplied only through the bounded finalize operation.\n\nTo read a prior Delivery report, use exactly `gpt-tunnel task report-read <TASK-ID> [RUN-ID]`.\n\nThe task is not complete until finalization prints TASK_FINALIZED. Do not finish only in chat or Airelay.\n", policy.WorkflowStage, policy.IntegrationBranch, policy.Agent.WaitForCI, policy.CI.Task, policy.CI.TaskMerge, policy.CI.Release, task.OperationClass, task.EffectiveCIField, task.EffectiveCIMode, task.WaitForCI, task.CIBlocking, task.AgentMayWait, plan.Summary, plan.CurrentObjective, task.ID, run.ID)
 	return b.String()
 }
 
@@ -2704,112 +2708,18 @@ func (s *Service) RunWriteCompletion(ctx context.Context, in CompletionWriteInpu
 }
 
 func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Report, OperationResult, error) {
-	if err := requireCanonicalRunID(in.RunID); err != nil {
-		return model.Report{}, OperationResult{}, err
+	if in.CompletionFile != "" {
+		return s.runLegacyCompletionAdvisoryFinalize(ctx, in)
 	}
-	run, err := s.findRun(ctx, in.RunID)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	if err := requireCanonicalRun(run); err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	if err := s.ensureRunOwned(run); err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	if !operationalActiveRun(run) {
-		return model.Report{}, OperationResult{}, fmt.Errorf("run is not active: %s", run.Status)
-	}
-	task, err := s.findTask(ctx, run.TaskID)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	canonicalCompletionPath, err := gatewayCompletionDestination(s.Config.StateDir, run)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	completionPath, err := gatewayCompletionPath(run, in.CompletionFile)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	if completionPath != canonicalCompletionPath {
-		return model.Report{}, OperationResult{}, fmt.Errorf("completion file must equal the canonical Run-specific path")
-	}
-	data, err := fsutil.ReadFileBounded(completionPath, s.Config.MaxReadBytes)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	if s.Config.MaxReadBytes > 0 && int64(len(data)) > s.Config.MaxReadBytes {
-		return model.Report{}, OperationResult{}, fmt.Errorf("completion exceeds configured output limit")
-	}
-	completion, err := model.ParseCompletion(data, task)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	if completion.RunID != run.ID || completion.TaskSHA256 != run.TaskSHA256 || completion.TaskRevision != run.TaskRevision || completion.TaskRevisionSHA256 != run.TaskRevisionSHA256 || completion.TaskRunNumber != run.TaskRunNumber {
-		return model.Report{}, OperationResult{}, fmt.Errorf("completion identity does not match active run")
-	}
-	if err := model.ValidateTaskHash(task); err != nil || run.TaskSHA256 != task.SHA256 {
-		return model.Report{}, OperationResult{}, fmt.Errorf("durable task hash mismatch")
-	}
-	local, err := s.projectConfig(run.ProjectID)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	head, branch, clean, err := s.Git.CurrentHead(ctx, local)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	if branch != run.Branch {
-		return model.Report{}, OperationResult{}, fmt.Errorf("repository branch does not match task branch")
-	}
-	if completion.Status == "succeeded" && !clean {
-		return model.Report{}, OperationResult{}, fmt.Errorf("successful run must leave clean worktree")
-	}
-	proof, risks, err := s.durableRepositoryProof(ctx, run, local, head, branch, clean, true)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	now := time.Now().UTC()
-	run.Status = completion.Status
-	run.FinishedAt = &now
-	remainingRisks := append([]string{}, completion.RemainingRisks...)
-	for _, risk := range risks {
-		addUniqueRisk(&remainingRisks, risk)
-	}
-	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, TaskRevision: run.TaskRevision, TaskRevisionSHA256: run.TaskRevisionSHA256, TaskRunNumber: run.TaskRunNumber, ProjectID: run.ProjectID, Status: completion.Status, Summary: completion.Summary, GateResults: completion.GateResults, AcceptanceCoverage: completion.AcceptanceCoverage, Deviations: completion.Deviations, RemainingRisks: remainingRisks, AgentFeedback: completion.AgentFeedback, Repository: proof, FinishedAt: now})
-	expected := in.ExpectedHubRevision
-	if expected == "" {
-		expected, err = s.hubRevision(ctx)
-		if err != nil {
-			return model.Report{}, OperationResult{}, err
-		}
-	}
-	plan, err := s.PlanRead(ctx, task.ProjectID)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	plan.Revision++
-	plan.ActiveRunID = ""
-	plan.ActiveTaskID = ""
-	plan.UpdatedBy = s.Config.GatewayID
-	plan.UpdatedAt = now
-	tx, err := s.Hub.Transact(ctx, expected, "gateway: finalize run "+run.ID, func(w string) ([]string, error) {
-		state := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: taskStateStatusForResult(completion.Status), UpdatedAt: now}
-		paths := []string{s.runPath(run.ProjectID, run.ID), s.reportPath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID), s.planPath(task.ProjectID)}
-		vals := []any{run, report, state, plan}
-		for i, p := range paths {
-			if err := hub.WriteJSON(w, p, vals[i]); err != nil {
-				return nil, err
+	if run, err := s.findRun(ctx, in.RunID); err == nil && run.CompletionPath != "" {
+		if path, pathErr := gatewayCompletionDestination(s.Config.StateDir, run); pathErr == nil {
+			if _, statErr := os.Lstat(path); statErr == nil {
+				in.CompletionFile = path
+				return s.runLegacyCompletionAdvisoryFinalize(ctx, in)
 			}
 		}
-		return paths, nil
-	})
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
 	}
-	report.HubCommit = tx.After
-	return report, OperationResult{Hub: tx, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: "TASK_FINALIZED"}, nil
+	return s.RunFinalizeAutomatic(ctx, AutomaticFinalizeInput{RunID: in.RunID, Summary: in.Summary, Deviations: in.Deviations, RemainingRisks: in.RemainingRisks, AgentFeedback: in.AgentFeedback, WriteOptions: in.WriteOptions})
 }
 func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error) {
 	run, err := s.findRun(ctx, id)

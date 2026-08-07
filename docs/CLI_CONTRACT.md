@@ -44,11 +44,12 @@ gpt-tunnel task report-read <task-id> [<run-id>]
 
 gpt-tunnel run list <project-id>
 gpt-tunnel run read|status|report|review-snapshot <run-id>
+gpt-tunnel run finalize <run-id> [--summary TEXT] [--deviation TEXT] [--remaining-risk TEXT]
 gpt-tunnel run agent-tail <run-id> [--lines N]
 gpt-tunnel run resume <run-id>
 gpt-tunnel run cancel <run-id>
 gpt-tunnel run sweep
-gpt-tunnel run write-completion <run-id> --completion-file <receipt-input>
+gpt-tunnel run write-completion <run-id> --completion-file <receipt-input>  # bounded legacy compatibility only
 gpt-tunnel run finalize <run-id> [--completion-file <gateway-owned-run-path>]
 ```
 

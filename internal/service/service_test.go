@@ -250,7 +250,7 @@ func TestTaskPlanDispatchReadFinalize(t *testing.T) {
 		t.Fatal(err)
 	}
 	configuredRoot := s.Config.Projects["example"].Root
-	if !strings.Contains(string(publicPacket), configuredRoot) || strings.Contains(string(publicPacket), run.CompletionPath) || !strings.Contains(string(publicPacket), "gpt-tunnel run write-completion "+run.ID+" --completion-file") {
+	if !strings.Contains(string(publicPacket), configuredRoot) || strings.Contains(string(publicPacket), run.CompletionPath) || !strings.Contains(string(publicPacket), "gpt-tunnel run finalize "+run.ID) || strings.Contains(string(publicPacket), "write-completion") {
 		t.Fatalf("active execution packet exposed the wrong completion authority: %s", publicPacket)
 	}
 	project := s.Config.Projects["example"]
@@ -268,15 +268,15 @@ func TestTaskPlanDispatchReadFinalize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Status != "succeeded" || final.Status != "TASK_FINALIZED" {
+	if report.Status != "failed" || final.Status != "TASK_FINALIZED" || len(report.GateResults) != 1 || report.GateResults[0].ExitCode == 0 || report.GateResults[0].Outcome != "failed" {
 		t.Fatalf("bad final: %#v %#v", report, final)
 	}
 	snapshot, err := s.RunReviewSnapshot(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.ReviewState != "reviewable" {
-		t.Fatalf("expected reviewable snapshot, got %s checks=%#v", snapshot.ReviewState, snapshot.Checks)
+	if snapshot.ReviewState != "blocked" {
+		t.Fatalf("expected blocked snapshot for a server-observed failed gate, got %s checks=%#v", snapshot.ReviewState, snapshot.Checks)
 	}
 	if snapshot.Report.HubCommit == "" || !snapshot.Evidence.Available || !snapshot.Repository.TaskBranchPublished {
 		t.Fatalf("missing canonical review proof: %#v", snapshot)

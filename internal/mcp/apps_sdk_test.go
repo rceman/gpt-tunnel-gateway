@@ -621,6 +621,7 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		"task_dispatch": map[string]any{"run": publicRun, "operation": operation}, "task_supersede": map[string]any{"task": task, "operation": operation}, "task_cancel": operation,
 		"task_mark_merge_ready": operation, "task_defer": operation, "task_mark_merged": operation,
 		"run_list": map[string]any{"runs": []service.PublicRun{publicRun}}, "run_read": publicRun, "run_status": publicRun, "run_report": report,
+		"run_finalize":        map[string]any{"report": report, "operation": operation},
 		"run_review_snapshot": snapshot,
 		"run_agent_tail":      map[string]any{"text": "tail text"},
 		"run_resume":          service.RunResumeResult{RunID: "run", CompactionEventID: "event", State: "compacted_resuming", Sent: true, ExitCode: 0, ControllerReachable: true, MessageDigest: strings.Repeat("a", 64)},
