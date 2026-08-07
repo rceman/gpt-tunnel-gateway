@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"go/ast"
 	"go/format"
+	"go/importer"
 	"go/parser"
 	"go/scanner"
 	"go/token"
+	"go/types"
 	"sort"
 )
 
@@ -20,20 +22,72 @@ type edit struct {
 // FormatSource rewrites multi-field keyed struct literals vertically and then
 // applies gofmt. It does not rewrite maps, arrays, slices, or unkeyed literals.
 func FormatSource(filename string, source []byte) ([]byte, error) {
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, filename, source, parser.ParseComments)
+	formatted, err := FormatPackage(map[string][]byte{filename: source})
 	if err != nil {
 		return nil, err
 	}
+	return formatted[filename], nil
+}
+
+// FormatPackage formats the supplied Go package files with one type index.
+// Keeping the package index here lets a file be classified using declarations
+// from its sibling files and imported package export data.
+func FormatPackage(sources map[string][]byte) (map[string][]byte, error) {
+	fset := token.NewFileSet()
+	parsed := make(map[string]*ast.File, len(sources))
+	packages := make(map[string][]*ast.File)
+	for filename, source := range sources {
+		file, err := parser.ParseFile(fset, filename, source, parser.ParseComments)
+		if err != nil {
+			return nil, err
+		}
+		parsed[filename] = file
+		packages[file.Name.Name] = append(packages[file.Name.Name], file)
+	}
+	formatted := make(map[string][]byte, len(sources))
+	for packageName, files := range packages {
+		resolver := newTypeResolver(fset, packageName, files)
+		for filename, file := range parsed {
+			if file.Name.Name != packageName {
+				continue
+			}
+			formattedSource, err := formatFile(fset, file, sources[filename], resolver)
+			if err != nil {
+				return nil, err
+			}
+			formatted[filename] = formattedSource
+		}
+	}
+	return formatted, nil
+}
+
+type typeResolver struct {
+	types    map[ast.Expr]types.TypeAndValue
+	declared map[string]bool
+}
+
+func newTypeResolver(fset *token.FileSet, packageName string, files []*ast.File) *typeResolver {
+	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue)}
+	checker := types.Config{
+		Importer: importer.Default(),
+		Error:    func(error) {},
+	}
+	_, _ = checker.Check(packageName, fset, files, info)
+	return &typeResolver{
+		types:    info.Types,
+		declared: declaredTypeKinds(files),
+	}
+}
+
+func formatFile(fset *token.FileSet, file *ast.File, source []byte, resolver *typeResolver) ([]byte, error) {
 	commas, err := commaOffsets(fset, file.Pos(), source)
 	if err != nil {
 		return nil, err
 	}
-	typeKinds := declaredTypeKinds(file)
 	edits := make([]edit, 0)
 	ast.Inspect(file, func(node ast.Node) bool {
 		literal, ok := node.(*ast.CompositeLit)
-		if !ok || !isKeyedStructLiteral(literal, typeKinds) || len(literal.Elts) < 2 {
+		if !ok || !isKeyedStructLiteral(literal, resolver) || len(literal.Elts) < 2 {
 			return true
 		}
 		for _, element := range literal.Elts {
@@ -136,40 +190,44 @@ func firstCommaAfter(commas []int, start, limit int) int {
 	return -1
 }
 
-func declaredTypeKinds(file *ast.File) map[string]bool {
+func declaredTypeKinds(files []*ast.File) map[string]bool {
 	kinds := make(map[string]bool)
-	for _, declaration := range file.Decls {
-		gen, ok := declaration.(*ast.GenDecl)
-		if !ok || gen.Tok.String() != "type" {
-			continue
-		}
-		for _, specification := range gen.Specs {
-			typeSpec, ok := specification.(*ast.TypeSpec)
-			if !ok {
+	for _, file := range files {
+		for _, declaration := range file.Decls {
+			gen, ok := declaration.(*ast.GenDecl)
+			if !ok || gen.Tok != token.TYPE {
 				continue
 			}
-			if _, ok := typeSpec.Type.(*ast.StructType); ok {
-				kinds[typeSpec.Name.Name] = true
-			} else {
-				kinds[typeSpec.Name.Name] = false
+			for _, specification := range gen.Specs {
+				typeSpec, ok := specification.(*ast.TypeSpec)
+				if !ok {
+					continue
+				}
+				if _, ok := typeSpec.Type.(*ast.StructType); ok {
+					kinds[typeSpec.Name.Name] = true
+				} else if _, exists := kinds[typeSpec.Name.Name]; !exists {
+					kinds[typeSpec.Name.Name] = false
+				}
 			}
 		}
 	}
 	return kinds
 }
 
-func isKeyedStructLiteral(literal *ast.CompositeLit, kinds map[string]bool) bool {
+func isKeyedStructLiteral(literal *ast.CompositeLit, resolver *typeResolver) bool {
 	switch literal.Type.(type) {
 	case *ast.MapType, *ast.ArrayType:
 		return false
 	case *ast.StructType:
 		return true
-	case *ast.Ident:
-		kind, known := kinds[literal.Type.(*ast.Ident).Name]
-		return !known || kind
-	default:
-		// A selector expression such as package.Struct is structurally a named
-		// type. The explicit map/array forms were excluded above.
-		return true
 	}
+	if typed, ok := resolver.types[literal.Type]; ok && typed.Type != nil {
+		_, isStruct := typed.Type.Underlying().(*types.Struct)
+		return isStruct
+	}
+	if ident, ok := literal.Type.(*ast.Ident); ok {
+		kind, known := resolver.declared[ident.Name]
+		return known && kind
+	}
+	return false
 }

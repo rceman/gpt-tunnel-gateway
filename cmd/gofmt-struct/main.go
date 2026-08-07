@@ -39,24 +39,38 @@ func run(args []string, out, errOut io.Writer) error {
 		return err
 	}
 	changed := make([]string, 0)
+	byDirectory := make(map[string][]string)
 	for _, path := range files {
-		source, err := os.ReadFile(path)
+		path = filepath.Clean(path)
+		byDirectory[filepath.Dir(path)] = append(byDirectory[filepath.Dir(path)], path)
+	}
+	for directory, selected := range byDirectory {
+		packageSources, err := directoryGoSources(directory)
 		if err != nil {
-			return fmt.Errorf("read %s: %w", path, err)
+			return err
 		}
-		canonical, err := gofmtstruct.FormatSource(path, source)
+		formatted, err := gofmtstruct.FormatPackage(packageSources)
 		if err != nil {
-			return fmt.Errorf("format %s: %w", path, err)
+			return fmt.Errorf("format package %s: %w", directory, err)
 		}
-		if bytes.Equal(source, canonical) {
-			continue
-		}
-		changed = append(changed, path)
-		if *write {
-			if err := os.WriteFile(path, canonical, 0o644); err != nil {
-				return fmt.Errorf("write %s: %w", path, err)
+		for _, path := range selected {
+			source, err := os.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("read %s: %w", path, err)
 			}
-			continue
+			canonical, ok := formatted[path]
+			if !ok {
+				return fmt.Errorf("format package %s did not return %s", directory, path)
+			}
+			if bytes.Equal(source, canonical) {
+				continue
+			}
+			changed = append(changed, path)
+			if *write {
+				if err := os.WriteFile(path, canonical, 0o644); err != nil {
+					return fmt.Errorf("write %s: %w", path, err)
+				}
+			}
 		}
 	}
 	if len(changed) > 0 && *check {
@@ -68,6 +82,26 @@ func run(args []string, out, errOut io.Writer) error {
 	return nil
 }
 
+func directoryGoSources(directory string) (map[string][]byte, error) {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return nil, err
+	}
+	sources := make(map[string][]byte)
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".go" {
+			continue
+		}
+		path := filepath.Join(directory, entry.Name())
+		source, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", path, err)
+		}
+		sources[filepath.Clean(path)] = source
+	}
+	return sources, nil
+}
+
 func goFiles(paths []string) ([]string, error) {
 	files := make([]string, 0)
 	for _, path := range paths {
@@ -77,7 +111,7 @@ func goFiles(paths []string) ([]string, error) {
 		}
 		if !info.IsDir() {
 			if filepath.Ext(path) == ".go" {
-				files = append(files, path)
+				files = append(files, filepath.Clean(path))
 			}
 			continue
 		}
@@ -89,7 +123,7 @@ func goFiles(paths []string) ([]string, error) {
 				return filepath.SkipDir
 			}
 			if !entry.IsDir() && filepath.Ext(current) == ".go" {
-				files = append(files, current)
+				files = append(files, filepath.Clean(current))
 			}
 			return nil
 		})

@@ -76,3 +76,28 @@ var _ = Named{
 		t.Fatalf("formatter is not idempotent:\nfirst:\n%s\nsecond:\n%s", first, second)
 	}
 }
+
+func TestFormatPackageLeavesNamedMapDeclaredInAnotherFileUnchanged(t *testing.T) {
+	sources := map[string][]byte{
+		"types.go": []byte("package fixture\n\ntype Alias map[string]int\n"),
+		"use.go":   []byte("package fixture\n\nvar _ = Alias{\"a\": 1, \"b\": 2}\n"),
+	}
+	formatted, err := FormatPackage(sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(formatted["use.go"]) != string(sources["use.go"]) {
+		t.Fatalf("cross-file named map changed:\n%s", formatted["use.go"])
+	}
+}
+
+func TestFormatSourceLeavesImportedNamedMapUnchanged(t *testing.T) {
+	source := []byte("package fixture\n\nimport \"net/http\"\n\nvar _ = http.Header{\"a\": []string{\"b\"}, \"c\": []string{\"d\"}}\n")
+	formatted, err := FormatSource("use.go", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(formatted) != string(source) {
+		t.Fatalf("imported named map changed:\n%s", formatted)
+	}
+}
