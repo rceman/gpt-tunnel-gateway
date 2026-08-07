@@ -8,11 +8,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 func trustedWorkflowPolicyContext(ctx context.Context, role string) context.Context {
-	return context.WithValue(ctx, workflowPolicyAuthorityContextKey{}, workflowPolicyAuthority{role: role})
+	switch role {
+	case "planner":
+		return authority.WithPlanner(ctx)
+	case "delivery":
+		return authority.WithDelivery(ctx)
+	default:
+		return ctx
+	}
 }
 
 func TestWorkflowPolicyRevisionAndTaskProjection(t *testing.T) {
@@ -29,7 +37,7 @@ func TestWorkflowPolicyRevisionAndTaskProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, unauthorized := range []context.Context{ctx, context.WithValue(ctx, workflowPolicyAuthorityContextKey{}, workflowPolicyAuthority{role: "agent"})} {
+	for _, unauthorized := range []context.Context{ctx, trustedWorkflowPolicyContext(ctx, "agent")} {
 		_, _, authErr := s.ProjectWorkflowPolicyUpdate(unauthorized, ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: WriteOptions{ExpectedHubRevision: beforeAuthorizationCheck}})
 		if authErr == nil || authErr.Error() != "AUTHORITY_UNAVAILABLE" {
 			t.Fatalf("unauthorized policy write was accepted: %v", authErr)
@@ -71,7 +79,7 @@ func TestWorkflowPolicyRevisionAndTaskProjection(t *testing.T) {
 	policy.IntegrationBranch = "develop"
 	policy.UpdatedBy = "owner"
 	policy.UpdatedAt = time.Now().UTC()
-	_, updated, err := s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, workflowPolicyAuthorityPlanner), ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	_, updated, err := s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, "planner"), ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +140,7 @@ func TestProjectStatusUsesPersistedActiveTaskPolicyAcrossRevisionDrift(t *testin
 	current.CI.Task = model.WorkflowCIModeRequire
 	current.UpdatedBy = "planner"
 	current.UpdatedAt = time.Now().UTC()
-	if _, _, err := s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, workflowPolicyAuthorityPlanner), ProjectWorkflowPolicyInput{Policy: current, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}}); err != nil {
+	if _, _, err := s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, "planner"), ProjectWorkflowPolicyInput{Policy: current, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}}); err != nil {
 		t.Fatal(err)
 	}
 	status, err := s.ProjectStatus(ctx, task.ProjectID)
@@ -161,7 +169,7 @@ func TestWorkflowPolicyMutationRejectsActiveRunWithoutHubMutation(t *testing.T) 
 	policy.Revision++
 	policy.UpdatedBy = "planner"
 	policy.UpdatedAt = time.Now().UTC()
-	_, _, err = s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, workflowPolicyAuthorityPlanner), ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: WriteOptions{ExpectedHubRevision: before}})
+	_, _, err = s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, "planner"), ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: WriteOptions{ExpectedHubRevision: before}})
 	if err == nil || !strings.Contains(err.Error(), "active run "+run.ID) {
 		t.Fatalf("active run did not block policy mutation: %v", err)
 	}
