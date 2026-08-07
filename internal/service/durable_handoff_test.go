@@ -231,8 +231,26 @@ func TestDeliveryHandoffLifecycleAndAtomicReportPublication(t *testing.T) {
 	if err != nil || resumedStatus.OwnerSummary.Status != handoffSummary().Status || resumedStatus.OwnerSummary.Goal != handoffSummary().Goal {
 		t.Fatalf("resumed handoff did not restore original working summary: %#v %v", resumedStatus, err)
 	}
+	later, laterOp, err := s.PlannerReportPublish(authority.WithDelivery(ctx), PlannerReportPublishInput{
+		HandoffID: handoff.ID,
+		Report: model.PlannerReport{
+			ReportType:        model.PlannerReportBlocked,
+			OwnerSummary:      handoffSummaryStatus(model.PlannerReportBlocked),
+			TechnicalEvidence: blockedReportEvidence(),
+			PublishedBy:       "delivery",
+		},
+		WriteOptions: WriteOptions{ExpectedHubRevision: resolvedReportOp.Hub.After},
+	})
+	if err != nil || later.SupersedesReportID != "" {
+		t.Fatalf("resumed handoff did not accept a fresh report: %#v %v", later, err)
+	}
+	current, err = s.DeliveryHandoffRead(ctx, handoff.ID)
+	if err != nil || current.Status != model.DeliveryHandoffBlocked || current.CurrentReportID != later.ID {
+		t.Fatalf("fresh report was not made current after resume: %#v %v", current, err)
+	}
+	assertHandoffJournalEvent(t, journalEventForOperation(t, s, laterOp), 7, "delivery", next, later.ID)
+	assertJournalCounter(t, s, 8)
 	assertHandoffJournalEvent(t, journalEventForOperation(t, s, resolvedReportOp), 6, "planner", next, report.ID)
-	assertJournalCounter(t, s, 7)
 	_ = resolvedReportOp
 	handoffStatuses, err := s.DeliveryHandoffList(ctx, DeliveryHandoffListInput{ProjectID: "example"})
 	if err != nil {
@@ -253,8 +271,20 @@ func TestDeliveryHandoffLifecycleAndAtomicReportPublication(t *testing.T) {
 	if err != nil || strings.Contains(string(reportStatusJSON), "technical_evidence") {
 		t.Fatalf("report list exposed technical evidence: %s %v", reportStatusJSON, err)
 	}
-	if len(reportStatuses) != 1 || reportStatuses[0].Status != model.PlannerReportResolved {
+	if len(reportStatuses) != 2 {
 		t.Fatalf("report lifecycle status was not projected: %#v", reportStatuses)
+	}
+	seenResolved, seenPublished := false, false
+	for _, item := range reportStatuses {
+		if item.ID == report.ID && item.Status == model.PlannerReportResolved {
+			seenResolved = true
+		}
+		if item.ID == later.ID && item.Status == model.PlannerReportPublished {
+			seenPublished = true
+		}
+	}
+	if !seenResolved || !seenPublished {
+		t.Fatalf("report lifecycle statuses were not projected: %#v", reportStatuses)
 	}
 	if _, err := s.DeliveryHandoffList(ctx, DeliveryHandoffListInput{ProjectID: "example", Limit: s.Config.MaxListItems + 1}); err == nil {
 		t.Fatal("over-limit handoff list was accepted")

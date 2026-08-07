@@ -1188,6 +1188,7 @@ func (s *Service) PlannerReportNext(ctx context.Context, in PlannerReportNextInp
 	nextHandoff := handoff
 	if resumeHandoff {
 		nextHandoff.Status = model.DeliveryHandoffInProgress
+		nextHandoff.CurrentReportID = ""
 		nextHandoff.UpdatedAt = now
 		if err := model.ValidateDeliveryHandoff(nextHandoff); err != nil {
 			return model.PlannerReportState{}, OperationResult{}, err
