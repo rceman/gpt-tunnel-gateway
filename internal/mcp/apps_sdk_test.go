@@ -564,6 +564,8 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	plannerReport := map[string]any{"schema_version": 1, "id": "report", "project_id": "project", "handoff_id": "handoff", "task_id": task.ID, "run_id": run.ID, "task_sha256": task.SHA256, "report_type": "blocked", "owner_summary": map[string]any{"status": "blocked", "goal": "goal", "currently_doing": "doing", "why_it_matters": "matters", "completed_so_far": []string{"done"}, "next_step": "next", "owner_action_required": nil}, "technical_evidence": reportEvidence, "published_by": "delivery", "published_at": now}
 	plannerReportStatus := map[string]any{"schema_version": 1, "id": "report", "project_id": "project", "handoff_id": "handoff", "task_id": task.ID, "run_id": run.ID, "report_type": "blocked", "owner_summary": plannerReport["owner_summary"], "published_by": "delivery", "published_at": now, "status": "published"}
 	plannerReportState := map[string]any{"schema_version": 1, "report_id": "report", "report_sha256": strings.Repeat("b", 64), "status": "resolved", "updated_at": now}
+	revisionSample := map[string]any{"schema_version": 1, "id": "GTW-TSK1.REV1", "task_id": "GTW-TSK1", "task_revision": 1, "revision_sha256": strings.Repeat("e", 64), "project_id": "project", "title": "title", "objective": "objective", "branch": "feature/x", "base_revision": strings.Repeat("b", 40), "acceptance_criteria": []string{"criterion"}, "constraints": []string{}, "status": "created", "created_by": "delivery", "created_at": now}
+	revisionStatusSample := map[string]any{"schema_version": 1, "id": "GTW-TSK1.REV1", "task_id": "GTW-TSK1", "task_revision": 1, "revision_sha256": strings.Repeat("e", 64), "status": "created", "branch": "feature/x", "base_revision": strings.Repeat("b", 40), "created_at": now}
 
 	samples := map[string]any{
 		"system_ping":          map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.4", "gateway_id": "home_pc", "time": now},
@@ -612,6 +614,8 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		"plan_read":                      plan, "plan_cutover": operation, "plan_update": operation, "plan_section_read": section, "plan_section_create": operation, "plan_section_update": operation, "plan_section_delete": operation, "plan_render": render, "plan_history": map[string]any{"history": []map[string]string{{"sha": transaction.After, "date": now.Format(time.RFC3339), "author": "GPT", "subject": "subject"}}},
 		"adr_list": map[string]any{"adrs": []model.ADR{adr}}, "adr_read": adr, "adr_create": operation,
 		"task_create": map[string]any{"task": task, "operation": operation}, "task_list": map[string]any{"tasks": []service.TaskRecord{{Task: task, State: state, RunSummaries: []model.RunReviewSummary{}}}}, "task_read": publicPacket,
+		"task_revision_list": map[string]any{"revisions": []any{revisionSample}}, "task_revision_read": revisionSample, "task_revision_status": revisionStatusSample,
+		"task_correction_create":   map[string]any{"revision": revisionSample, "operation": operation},
 		"task_review_report_start": reviewDraft, "task_review_report_section_update": reviewDraft, "task_review_report_validate": reviewValidation,
 		"task_review_report_finalize": map[string]any{"report": reviewReport, "operation": operation}, "task_report_read": reviewReport,
 		"task_dispatch": map[string]any{"run": publicRun, "operation": operation}, "task_supersede": map[string]any{"task": task, "operation": operation}, "task_cancel": operation,

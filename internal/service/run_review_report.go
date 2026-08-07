@@ -134,6 +134,9 @@ func (s *Service) reviewMachineDraft(ctx reviewContext, draft *model.RunReviewRe
 	draft.RunID = ctx.run.ID
 	draft.ProjectID = ctx.task.ProjectID
 	draft.TaskSHA256 = ctx.task.SHA256
+	draft.TaskRevision = ctx.run.TaskRevision
+	draft.TaskRevisionSHA256 = ctx.run.TaskRevisionSHA256
+	draft.TaskRunNumber = ctx.run.TaskRunNumber
 	draft.Branch = ctx.branch
 	draft.BaseRevision = ctx.run.BaseRevision
 	draft.ReviewedHead = ctx.head
@@ -372,6 +375,9 @@ func (s *Service) TaskReviewReportFinalize(ctx context.Context, in TaskReviewRep
 		RunID:                   context.run.ID,
 		ProjectID:               context.task.ProjectID,
 		TaskSHA256:              context.task.SHA256,
+		TaskRevision:            context.run.TaskRevision,
+		TaskRevisionSHA256:      context.run.TaskRevisionSHA256,
+		TaskRunNumber:           context.run.TaskRunNumber,
 		Branch:                  context.branch,
 		BaseRevision:            context.run.BaseRevision,
 		ReviewedHead:            context.head,
@@ -413,7 +419,7 @@ func (s *Service) TaskReviewReportFinalize(ctx context.Context, in TaskReviewRep
 		if err := readWorktreeJSON(worktree, s.runPath(context.task.ProjectID, context.run.ID), &currentRun); err != nil {
 			return nil, err
 		}
-		if err := model.ValidateRun(currentRun); err != nil || currentRun.Historical || currentRun.ID != context.run.ID || currentRun.TaskID != context.task.ID || currentRun.TaskSHA256 != context.task.SHA256 || currentRun.ProjectID != context.task.ProjectID || currentRun.Branch != context.run.Branch || currentRun.BaseRevision != context.run.BaseRevision || operationalActiveRun(currentRun) {
+		if err := model.ValidateRun(currentRun); err != nil || currentRun.Historical || currentRun.ID != context.run.ID || currentRun.TaskID != context.task.ID || currentRun.TaskSHA256 != context.task.SHA256 || currentRun.TaskRevision != context.run.TaskRevision || currentRun.TaskRevisionSHA256 != context.run.TaskRevisionSHA256 || currentRun.TaskRunNumber != context.run.TaskRunNumber || currentRun.ProjectID != context.task.ProjectID || currentRun.Branch != context.run.Branch || currentRun.BaseRevision != context.run.BaseRevision || operationalActiveRun(currentRun) {
 			return nil, fmt.Errorf("run changed or is still operational before delivery review publication")
 		}
 		var currentAgent model.Report
@@ -423,7 +429,7 @@ func (s *Service) TaskReviewReportFinalize(ctx context.Context, in TaskReviewRep
 		if err := model.ValidateReport(currentAgent, currentTask, currentRun, s.Config.MaxListItems); err != nil {
 			return nil, fmt.Errorf("Agent report changed before delivery review publication: %w", err)
 		}
-		if currentAgent.TaskID != context.task.ID || currentAgent.RunID != context.run.ID || currentAgent.ProjectID != context.task.ProjectID || currentAgent.Repository.Head != context.head || currentAgent.Repository.Branch != context.branch || currentAgent.Repository.DiffScope != context.run.BaseRevision+".."+context.head || currentAgent.Status != currentRun.Status || !sameAgentAuthority(currentAgent, context.agent) {
+		if currentAgent.TaskID != context.task.ID || currentAgent.RunID != context.run.ID || currentAgent.TaskRevision != context.run.TaskRevision || currentAgent.TaskRevisionSHA256 != context.run.TaskRevisionSHA256 || currentAgent.TaskRunNumber != context.run.TaskRunNumber || currentAgent.ProjectID != context.task.ProjectID || currentAgent.Repository.Head != context.head || currentAgent.Repository.Branch != context.branch || currentAgent.Repository.DiffScope != context.run.BaseRevision+".."+context.head || currentAgent.Status != currentRun.Status || !sameAgentAuthority(currentAgent, context.agent) {
 			return nil, fmt.Errorf("Agent report changed before delivery review publication")
 		}
 		if _, err := os.Lstat(filepath.Join(worktree, filepath.FromSlash(path))); err == nil {
@@ -453,7 +459,7 @@ func (s *Service) readFinalReviewReport(ctx context.Context, task model.Task, ru
 	if err != nil {
 		return model.RunReviewReport{}, err
 	}
-	if report.TaskID != task.ID || report.RunID != run.ID || report.ProjectID != task.ProjectID || report.TaskSHA256 != task.SHA256 || report.Branch != run.Branch || report.BaseRevision != run.BaseRevision {
+	if report.TaskID != task.ID || report.RunID != run.ID || report.ProjectID != task.ProjectID || report.TaskSHA256 != task.SHA256 || report.TaskRevision != run.TaskRevision || report.TaskRevisionSHA256 != run.TaskRevisionSHA256 || report.TaskRunNumber != run.TaskRunNumber || report.Branch != run.Branch || report.BaseRevision != run.BaseRevision {
 		return model.RunReviewReport{}, fmt.Errorf("delivery review report identity mismatch")
 	}
 	if report.HubCommit == "" {
@@ -483,7 +489,17 @@ func (s *Service) TaskReportRead(ctx context.Context, taskID, runID string) (mod
 		}
 		return model.RunReviewReport{}, fmt.Errorf("run not found for task")
 	}
-	latest, ok := latestApplicableRun(runs, task.ID)
+	revision := 0
+	var revisionSHA string
+	if model.ValidateCanonicalTaskID(task.ID) == nil {
+		current, revisionErr := s.currentTaskRevision(ctx, task)
+		if revisionErr != nil {
+			return model.RunReviewReport{}, revisionErr
+		}
+		revision = current.TaskRevision
+		revisionSHA = current.RevisionSHA256
+	}
+	latest, ok := latestApplicableRunForRevision(runs, task.ID, revision, revisionSHA)
 	if !ok {
 		return model.RunReviewReport{}, fmt.Errorf("no applicable run for task %s", task.ID)
 	}

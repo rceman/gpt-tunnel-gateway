@@ -311,28 +311,31 @@ type TaskState struct {
 }
 
 type Run struct {
-	SchemaVersion    int        `json:"schema_version"`
-	ID               string     `json:"id"`
-	TaskID           string     `json:"task_id"`
-	TaskSHA256       string     `json:"task_sha256"`
-	ProjectID        string     `json:"project_id"`
-	GatewayID        string     `json:"gateway_id"`
-	SessionKey       string     `json:"session_key"`
-	Branch           string     `json:"branch"`
-	BaseRevision     string     `json:"base_revision"`
-	HubRevision      string     `json:"hub_revision"`
-	Status           string     `json:"status"`
-	DispatchMessage  string     `json:"dispatch_message,omitempty"`
-	DispatchExitCode *int       `json:"dispatch_exit_code,omitempty"`
-	DispatchStdout   string     `json:"dispatch_stdout,omitempty"`
-	DispatchStderr   string     `json:"dispatch_stderr,omitempty"`
-	CompletionPath   string     `json:"completion_path"`
-	Historical       bool       `json:"-"`
-	CreatedAt        time.Time  `json:"created_at"`
-	DispatchedAt     *time.Time `json:"dispatched_at,omitempty"`
-	RepromptCount    int        `json:"reprompt_count,omitempty"`
-	LastRepromptAt   *time.Time `json:"last_reprompt_at,omitempty"`
-	FinishedAt       *time.Time `json:"finished_at,omitempty"`
+	SchemaVersion      int        `json:"schema_version"`
+	ID                 string     `json:"id"`
+	TaskID             string     `json:"task_id"`
+	TaskSHA256         string     `json:"task_sha256"`
+	TaskRevision       int        `json:"task_revision,omitempty"`
+	TaskRevisionSHA256 string     `json:"task_revision_sha256,omitempty"`
+	TaskRunNumber      uint64     `json:"task_run_number,omitempty"`
+	ProjectID          string     `json:"project_id"`
+	GatewayID          string     `json:"gateway_id"`
+	SessionKey         string     `json:"session_key"`
+	Branch             string     `json:"branch"`
+	BaseRevision       string     `json:"base_revision"`
+	HubRevision        string     `json:"hub_revision"`
+	Status             string     `json:"status"`
+	DispatchMessage    string     `json:"dispatch_message,omitempty"`
+	DispatchExitCode   *int       `json:"dispatch_exit_code,omitempty"`
+	DispatchStdout     string     `json:"dispatch_stdout,omitempty"`
+	DispatchStderr     string     `json:"dispatch_stderr,omitempty"`
+	CompletionPath     string     `json:"completion_path"`
+	Historical         bool       `json:"-"`
+	CreatedAt          time.Time  `json:"created_at"`
+	DispatchedAt       *time.Time `json:"dispatched_at,omitempty"`
+	RepromptCount      int        `json:"reprompt_count,omitempty"`
+	LastRepromptAt     *time.Time `json:"last_reprompt_at,omitempty"`
+	FinishedAt         *time.Time `json:"finished_at,omitempty"`
 }
 
 type CompletionGateResult struct {
@@ -344,6 +347,9 @@ type Completion struct {
 	SchemaVersion      int                    `json:"schema_version"`
 	RunID              string                 `json:"run_id"`
 	TaskSHA256         string                 `json:"task_sha256"`
+	TaskRevision       int                    `json:"task_revision,omitempty"`
+	TaskRevisionSHA256 string                 `json:"task_revision_sha256,omitempty"`
+	TaskRunNumber      uint64                 `json:"task_run_number,omitempty"`
 	Status             string                 `json:"status"`
 	Summary            string                 `json:"summary"`
 	GateResults        []CompletionGateResult `json:"gate_results"`
@@ -366,6 +372,9 @@ type Report struct {
 	SchemaVersion      int                    `json:"schema_version"`
 	TaskID             string                 `json:"task_id"`
 	RunID              string                 `json:"run_id"`
+	TaskRevision       int                    `json:"task_revision,omitempty"`
+	TaskRevisionSHA256 string                 `json:"task_revision_sha256,omitempty"`
+	TaskRunNumber      uint64                 `json:"task_run_number,omitempty"`
 	ProjectID          string                 `json:"project_id"`
 	Status             string                 `json:"status"`
 	Summary            string                 `json:"summary"`
@@ -666,6 +675,19 @@ func ValidateRun(v Run) error {
 	if !sha256RE(v.TaskSHA256) {
 		return fmt.Errorf("invalid task hash")
 	}
+	if v.TaskRevision != 0 || v.TaskRevisionSHA256 != "" || v.TaskRunNumber != 0 {
+		if v.TaskRevision < 1 || !sha256RE(v.TaskRevisionSHA256) || v.TaskRunNumber == 0 || v.TaskRunNumber > MaxSafeInteger {
+			return fmt.Errorf("invalid revision-aware run binding")
+		}
+		revisionID, err := FormatTaskRevisionID(v.TaskID, v.TaskRevision)
+		if err != nil {
+			return err
+		}
+		want, err := FormatTaskRevisionRunID(revisionID, v.TaskRunNumber)
+		if err != nil || v.ID != want {
+			return fmt.Errorf("run id does not match revision-aware binding")
+		}
+	}
 	return nil
 }
 func ValidateReport(v Report, task Task, run Run, limits ...int) error {
@@ -675,6 +697,9 @@ func ValidateReport(v Report, task Task, run Run, limits ...int) error {
 	}
 	if v.SchemaVersion != SchemaVersion || v.TaskID != task.ID || v.RunID != run.ID || v.ProjectID != run.ProjectID || v.FinishedAt.IsZero() {
 		return fmt.Errorf("report identity mismatch")
+	}
+	if run.TaskRevision != 0 && (v.TaskRevision != run.TaskRevision || v.TaskRevisionSHA256 != run.TaskRevisionSHA256 || v.TaskRunNumber != run.TaskRunNumber) {
+		return fmt.Errorf("report revision-aware binding mismatch")
 	}
 	if v.Status != "succeeded" && v.Status != "failed" && v.Status != "needs_gpt_revision" {
 		return fmt.Errorf("invalid report status")
