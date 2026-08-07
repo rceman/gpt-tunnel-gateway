@@ -128,9 +128,22 @@ func TestDurableHandoffMCPRejectsMalformedUnauthorizedMutationBeforeDecode(t *te
 			"jsonrpc": "2.0", "id": name, "method": "tools/call",
 			"params": map[string]any{"name": name, "arguments": map[string]any{"unknown": map[string]any{"malformed": true}}},
 		})
-		text := mcpResultText(callMCP(t, server, body))
+		response := callMCP(t, server, body)
+		text := mcpResultText(response)
 		if !strings.Contains(text, "AUTHORITY_UNAVAILABLE") {
-			t.Fatalf("malformed unauthorized mutation %s was decoded before auth: %q", name, text)
+			t.Fatalf("malformed unauthorized mutation %s was decoded before auth: %q response=%#v", name, text, response)
+		}
+	}
+	unauthenticated := &Server{Service: service.New(config.Config{})}
+	for _, name := range []string{"project_onboard", "project_onboard_recover", "project_workflow_policy_adopt", "project_workflow_policy_update"} {
+		body := mustJSON(t, map[string]any{
+			"jsonrpc": "2.0", "id": name, "method": "tools/call",
+			"params": map[string]any{"name": name, "arguments": map[string]any{"unknown": map[string]any{"malformed": true}}},
+		})
+		response := callMCP(t, unauthenticated, body)
+		text := mcpResultText(response)
+		if !strings.Contains(text, "AUTHORITY_UNAVAILABLE") {
+			t.Fatalf("malformed unauthenticated mutation %s was decoded before auth: %q response=%#v", name, text, response)
 		}
 	}
 }

@@ -189,6 +189,8 @@ func requireToolAuthority(ctx context.Context, toolName string) error {
 		return authority.RequirePlanner(ctx)
 	case "delivery_handoff_acknowledge", "delivery_handoff_next", "planner_report_publish":
 		return authority.RequireDelivery(ctx)
+	case "project_onboard", "project_onboard_recover", "project_workflow_policy_adopt", "project_workflow_policy_update":
+		return authority.RequirePlannerOrDelivery(ctx)
 	default:
 		return nil
 	}
