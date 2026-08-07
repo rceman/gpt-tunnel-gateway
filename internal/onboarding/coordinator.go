@@ -16,11 +16,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
-	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
 const (
@@ -90,7 +90,7 @@ func NewCoordinator(store hub.Store) *Coordinator {
 // spans journal inspection, collision checks and journal replacement; the Hub
 // transaction supplies the optimistic repository lock and revision guard.
 func (c *Coordinator) Execute(ctx context.Context, request Request, operationID string) (Result, error) {
-	if err := service.RequireWorkflowPolicyAuthority(ctx); err != nil {
+	if err := authority.RequireOnboarding(ctx); err != nil {
 		return Result{}, &CoordinatorError{Code: ErrOnboardingAuthorityUnavailable.Error(), Cause: err}
 	}
 	if c == nil || c.StateDir == "" {
