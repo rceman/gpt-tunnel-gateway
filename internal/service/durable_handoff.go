@@ -289,6 +289,44 @@ func (s *Service) validateHandoffPlanAndJournalRefs(ctx context.Context, project
 	return nil
 }
 
+func activeDeliveryHandoffStatus(status string) bool {
+	switch status {
+	case model.DeliveryHandoffPending, model.DeliveryHandoffAcknowledged, model.DeliveryHandoffInProgress, model.DeliveryHandoffBlocked, model.DeliveryHandoffAwaitingDecision:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Service) rejectDuplicateActiveHandoffInWorktree(worktree, projectID, taskID, runID string) error {
+	prefix := s.deliveryHandoffPrefix(projectID)
+	root := filepath.Join(worktree, filepath.FromSlash(prefix))
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := prefix + "/" + entry.Name()
+		var existing model.DeliveryHandoff
+		if err := readWorktreeJSON(worktree, path, &existing); err != nil {
+			return fmt.Errorf("validate existing delivery handoff %q: %w", entry.Name(), err)
+		}
+		if err := model.ValidateDeliveryHandoff(existing); err != nil {
+			return fmt.Errorf("validate existing delivery handoff %q: %w", entry.Name(), err)
+		}
+		if existing.TaskID == taskID && existing.RunID == runID && activeDeliveryHandoffStatus(existing.Status) {
+			return fmt.Errorf("active delivery handoff already exists for task %s and run %s", taskID, runID)
+		}
+	}
+	return nil
+}
+
 func (s *Service) validateHandoffPlanAuthority(ctx context.Context, handoff model.DeliveryHandoff, expectedHubRevision string) error {
 	if strings.TrimSpace(expectedHubRevision) == "" {
 		return fmt.Errorf("expected hub revision is required")
@@ -302,6 +340,9 @@ func (s *Service) validateHandoffPlanAuthority(ctx context.Context, handoff mode
 func (s *Service) DeliveryHandoffCreate(ctx context.Context, in DeliveryHandoffCreateInput) (model.DeliveryHandoff, OperationResult, error) {
 	if err := authority.RequirePlanner(ctx); err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
+	}
+	if strings.TrimSpace(in.SupersedesID) != "" {
+		return model.DeliveryHandoff{}, OperationResult{}, fmt.Errorf("delivery handoff create does not accept supersedes_handoff_id; use delivery handoff supersede")
 	}
 	if err := validateHandoffSummaryAndEvidence(in.OwnerSummary, in.TechnicalEvidence); err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
@@ -322,21 +363,12 @@ func (s *Service) DeliveryHandoffCreate(ctx context.Context, in DeliveryHandoffC
 	if err := s.validateHandoffPlanAndJournalRefs(ctx, in.ProjectID, in.PlanSectionRefs, in.OperatorEventRefs); err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
 	}
-	if in.SupersedesID != "" {
-		old, readErr := s.deliveryHandoffReadInProject(ctx, in.ProjectID, in.SupersedesID)
-		if readErr != nil {
-			return model.DeliveryHandoff{}, OperationResult{}, readErr
-		}
-		if old.Status == model.DeliveryHandoffCompleted || old.Status == model.DeliveryHandoffCancelled || old.Status == model.DeliveryHandoffSuperseded {
-			return model.DeliveryHandoff{}, OperationResult{}, fmt.Errorf("handoff cannot supersede terminal status %q", old.Status)
-		}
-	}
 	id, err := newDurableRecordID()
 	if err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
 	}
 	now := time.Now().UTC()
-	handoff := model.DeliveryHandoff{SchemaVersion: model.DurableHandoffSchemaVersion, ID: id, ProjectID: in.ProjectID, TaskID: task.ID, RunID: run.ID, TaskSHA256: task.SHA256, Status: model.DeliveryHandoffPending, OwnerSummary: in.OwnerSummary, TechnicalEvidence: append(json.RawMessage(nil), in.TechnicalEvidence...), SupersedesHandoffID: in.SupersedesID, PlanRevision: in.PlanRevision, HubRevision: in.HubRevision, TaskRefs: append([]model.TaskRef(nil), in.TaskRefs...), TrainRefs: append([]string(nil), in.TrainRefs...), PlanSectionRefs: append([]string(nil), in.PlanSectionRefs...), OperatorEventRefs: append([]string(nil), in.OperatorEventRefs...), ExpectedRepoBase: in.ExpectedRepoBase, ExpectedRepoHead: in.ExpectedRepoHead, FirstAction: in.FirstAction, StopBoundary: in.StopBoundary, ProhibitedOperations: append([]string(nil), in.ProhibitedOperations...), InstructionBody: in.InstructionBody, RoleRefs: append([]string(nil), in.RoleRefs...), DelegationRefs: append([]string(nil), in.DelegationRefs...), AuthorRole: "planner", ConsumerRole: "delivery", CreatedBy: in.CreatedBy, CreatedAt: now, UpdatedAt: now}
+	handoff := model.DeliveryHandoff{SchemaVersion: model.DurableHandoffSchemaVersion, ID: id, ProjectID: in.ProjectID, TaskID: task.ID, RunID: run.ID, TaskSHA256: task.SHA256, Status: model.DeliveryHandoffPending, OwnerSummary: in.OwnerSummary, TechnicalEvidence: append(json.RawMessage(nil), in.TechnicalEvidence...), PlanRevision: in.PlanRevision, HubRevision: in.HubRevision, TaskRefs: append([]model.TaskRef(nil), in.TaskRefs...), TrainRefs: append([]string(nil), in.TrainRefs...), PlanSectionRefs: append([]string(nil), in.PlanSectionRefs...), OperatorEventRefs: append([]string(nil), in.OperatorEventRefs...), ExpectedRepoBase: in.ExpectedRepoBase, ExpectedRepoHead: in.ExpectedRepoHead, FirstAction: in.FirstAction, StopBoundary: in.StopBoundary, ProhibitedOperations: append([]string(nil), in.ProhibitedOperations...), InstructionBody: in.InstructionBody, RoleRefs: append([]string(nil), in.RoleRefs...), DelegationRefs: append([]string(nil), in.DelegationRefs...), AuthorRole: "planner", ConsumerRole: "delivery", CreatedBy: in.CreatedBy, CreatedAt: now, UpdatedAt: now}
 	handoff.CanonicalDigest, err = model.CanonicalDeliveryHandoffDigest(handoff)
 	if err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
@@ -347,6 +379,9 @@ func (s *Service) DeliveryHandoffCreate(ctx context.Context, in DeliveryHandoffC
 	path := s.deliveryHandoffPath(in.ProjectID, id)
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "planner: create delivery handoff "+id, func(worktree string) ([]string, error) {
 		changed := make([]string, 0, 3)
+		if err := s.rejectDuplicateActiveHandoffInWorktree(worktree, handoff.ProjectID, handoff.TaskID, handoff.RunID); err != nil {
+			return nil, err
+		}
 		if _, statErr := os.Lstat(filepath.Join(worktree, filepath.FromSlash(path))); statErr == nil {
 			return nil, fmt.Errorf("delivery handoff already exists")
 		} else if !os.IsNotExist(statErr) {
@@ -380,6 +415,17 @@ func (s *Service) deliveryHandoffReadInProject(ctx context.Context, projectID, i
 	return handoff, nil
 }
 
+func (s *Service) deliveryHandoffReadInWorktree(worktree, projectID, id string) (model.DeliveryHandoff, error) {
+	var handoff model.DeliveryHandoff
+	if err := readWorktreeJSON(worktree, s.deliveryHandoffPath(projectID, id), &handoff); err != nil {
+		return model.DeliveryHandoff{}, err
+	}
+	if err := model.ValidateDeliveryHandoff(handoff); err != nil {
+		return model.DeliveryHandoff{}, err
+	}
+	return handoff, nil
+}
+
 func (s *Service) findDeliveryHandoff(ctx context.Context, id string) (model.DeliveryHandoff, error) {
 	projects, err := s.ProjectList(ctx)
 	if err != nil {
@@ -401,8 +447,28 @@ func (s *Service) DeliveryHandoffRead(ctx context.Context, id string) (model.Del
 	return s.findDeliveryHandoff(ctx, id)
 }
 
-func deliveryHandoffStatusProjection(item model.DeliveryHandoff) model.DeliveryHandoffStatus {
-	return model.DeliveryHandoffStatus{SchemaVersion: item.SchemaVersion, ID: item.ID, ProjectID: item.ProjectID, TaskID: item.TaskID, RunID: item.RunID, Status: item.Status, OwnerSummary: item.OwnerSummary, CurrentReportID: item.CurrentReportID, SupersedesHandoffID: item.SupersedesHandoffID, SupersededByHandoffID: item.SupersededByHandoffID, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}
+func (s *Service) deliveryHandoffStatusSummary(ctx context.Context, item model.DeliveryHandoff) (model.OwnerSummary, error) {
+	if item.CurrentReportID == "" {
+		return item.OwnerSummary, nil
+	}
+	report, state, err := s.plannerReportStateReadInProjectWithReport(ctx, item.ProjectID, item.CurrentReportID)
+	if err != nil {
+		return model.OwnerSummary{}, err
+	}
+	if item.Status == model.DeliveryHandoffBlocked || item.Status == model.DeliveryHandoffAwaitingDecision {
+		if state.Status == model.PlannerReportResolved || state.Status == model.PlannerReportSuperseded {
+			return item.OwnerSummary, nil
+		}
+		return report.OwnerSummary, nil
+	}
+	if item.Status == model.DeliveryHandoffCompleted && state.Status != model.PlannerReportSuperseded {
+		return report.OwnerSummary, nil
+	}
+	return item.OwnerSummary, nil
+}
+
+func deliveryHandoffStatusProjection(item model.DeliveryHandoff, summary model.OwnerSummary) model.DeliveryHandoffStatus {
+	return model.DeliveryHandoffStatus{SchemaVersion: item.SchemaVersion, ID: item.ID, ProjectID: item.ProjectID, TaskID: item.TaskID, RunID: item.RunID, Status: item.Status, OwnerSummary: summary, CurrentReportID: item.CurrentReportID, SupersedesHandoffID: item.SupersedesHandoffID, SupersededByHandoffID: item.SupersededByHandoffID, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}
 }
 
 func (s *Service) DeliveryHandoffStatus(ctx context.Context, id string) (model.DeliveryHandoffStatus, error) {
@@ -410,7 +476,11 @@ func (s *Service) DeliveryHandoffStatus(ctx context.Context, id string) (model.D
 	if err != nil {
 		return model.DeliveryHandoffStatus{}, err
 	}
-	return deliveryHandoffStatusProjection(handoff), nil
+	summary, err := s.deliveryHandoffStatusSummary(ctx, handoff)
+	if err != nil {
+		return model.DeliveryHandoffStatus{}, err
+	}
+	return deliveryHandoffStatusProjection(handoff, summary), nil
 }
 
 func (s *Service) DeliveryHandoffList(ctx context.Context, in DeliveryHandoffListInput) ([]model.DeliveryHandoffStatus, error) {
@@ -431,7 +501,11 @@ func (s *Service) DeliveryHandoffList(ctx context.Context, in DeliveryHandoffLis
 		if err := model.ValidateDeliveryHandoff(item); err != nil {
 			return nil, err
 		}
-		items = append(items, deliveryHandoffStatusProjection(item))
+		summary, err := s.deliveryHandoffStatusSummary(ctx, item)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, deliveryHandoffStatusProjection(item, summary))
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
@@ -949,26 +1023,43 @@ func (s *Service) PlannerReportRead(ctx context.Context, id string) (model.Plann
 	return model.PlannerReport{}, fmt.Errorf("planner report not found: %s", id)
 }
 
+func (s *Service) PlannerReportStatus(ctx context.Context, id string) (model.PlannerReportStatus, error) {
+	report, err := s.PlannerReportRead(ctx, id)
+	if err != nil {
+		return model.PlannerReportStatus{}, err
+	}
+	_, state, err := s.plannerReportStateReadInProjectWithReport(ctx, report.ProjectID, report.ID)
+	if err != nil {
+		return model.PlannerReportStatus{}, err
+	}
+	return plannerReportStatusProjection(report, state), nil
+}
+
 func (s *Service) plannerReportStateReadInProject(ctx context.Context, projectID, id string) (model.PlannerReportState, error) {
+	_, state, err := s.plannerReportStateReadInProjectWithReport(ctx, projectID, id)
+	return state, err
+}
+
+func (s *Service) plannerReportStateReadInProjectWithReport(ctx context.Context, projectID, id string) (model.PlannerReport, model.PlannerReportState, error) {
 	var report model.PlannerReport
 	if err := s.Hub.ReadJSON(ctx, s.plannerReportPath(projectID, id), &report); err != nil {
-		return model.PlannerReportState{}, err
+		return model.PlannerReport{}, model.PlannerReportState{}, err
 	}
 	if err := model.ValidatePlannerReport(report); err != nil {
-		return model.PlannerReportState{}, err
+		return model.PlannerReport{}, model.PlannerReportState{}, err
 	}
 	var state model.PlannerReportState
 	if err := s.Hub.ReadJSON(ctx, s.plannerReportStatePath(projectID, id), &state); err != nil {
-		return model.PlannerReportState{}, err
+		return model.PlannerReport{}, model.PlannerReportState{}, err
 	}
 	if err := model.ValidatePlannerReportState(state); err != nil {
-		return model.PlannerReportState{}, err
+		return model.PlannerReport{}, model.PlannerReportState{}, err
 	}
 	digest, err := model.CanonicalPlannerReportDigest(report)
 	if err != nil || state.ReportSHA256 != digest || state.ReportID != report.ID {
-		return model.PlannerReportState{}, fmt.Errorf("planner report state does not match immutable report")
+		return model.PlannerReport{}, model.PlannerReportState{}, fmt.Errorf("planner report state does not match immutable report")
 	}
-	return state, nil
+	return report, state, nil
 }
 
 func validatePlannerReportStateInWorktree(worktree string, s *Service, projectID, id string) (model.PlannerReport, model.PlannerReportState, error) {
@@ -1063,6 +1154,30 @@ func (s *Service) PlannerReportNext(ctx context.Context, in PlannerReportNextInp
 	if state.Status != model.PlannerReportAcknowledged {
 		return model.PlannerReportState{}, OperationResult{}, fmt.Errorf("planner report cannot be resolved from %q", state.Status)
 	}
+	handoff, err := s.deliveryHandoffReadInProject(ctx, report.ProjectID, report.HandoffID)
+	if err != nil {
+		return model.PlannerReportState{}, OperationResult{}, err
+	}
+	if handoff.CurrentReportID != report.ID {
+		return model.PlannerReportState{}, OperationResult{}, fmt.Errorf("planner report is not the current handoff report")
+	}
+	resumeHandoff := false
+	switch report.ReportType {
+	case model.PlannerReportBlocked:
+		if handoff.Status != model.DeliveryHandoffBlocked {
+			return model.PlannerReportState{}, OperationResult{}, fmt.Errorf("blocked planner report requires a blocked handoff")
+		}
+		resumeHandoff = true
+	case model.PlannerReportDecisionRequired:
+		if handoff.Status != model.DeliveryHandoffAwaitingDecision {
+			return model.PlannerReportState{}, OperationResult{}, fmt.Errorf("decision planner report requires an awaiting-decision handoff")
+		}
+		resumeHandoff = true
+	case model.PlannerReportCompleted:
+		if handoff.Status != model.DeliveryHandoffCompleted {
+			return model.PlannerReportState{}, OperationResult{}, fmt.Errorf("completed planner report requires a completed handoff")
+		}
+	}
 	now := time.Now().UTC()
 	next := state
 	next.Status = model.PlannerReportResolved
@@ -1070,7 +1185,23 @@ func (s *Service) PlannerReportNext(ctx context.Context, in PlannerReportNextInp
 	next.ResolvedAt = &now
 	next.UpdatedAt = now
 	path := s.plannerReportStatePath(report.ProjectID, report.ID)
+	nextHandoff := handoff
+	if resumeHandoff {
+		nextHandoff.Status = model.DeliveryHandoffInProgress
+		nextHandoff.UpdatedAt = now
+		if err := model.ValidateDeliveryHandoff(nextHandoff); err != nil {
+			return model.PlannerReportState{}, OperationResult{}, err
+		}
+	}
+	handoffPath := s.deliveryHandoffPath(handoff.ProjectID, handoff.ID)
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "planner: resolve report "+report.ID, func(worktree string) ([]string, error) {
+		storedHandoff, err := s.deliveryHandoffReadInWorktree(worktree, handoff.ProjectID, handoff.ID)
+		if err != nil {
+			return nil, err
+		}
+		if storedHandoff.ID != handoff.ID || storedHandoff.CurrentReportID != handoff.CurrentReportID || storedHandoff.Status != handoff.Status || !storedHandoff.UpdatedAt.Equal(handoff.UpdatedAt) {
+			return nil, fmt.Errorf("handoff changed before report resolution")
+		}
 		storedReport, stored, err := validatePlannerReportStateInWorktree(worktree, s, report.ProjectID, report.ID)
 		if err != nil {
 			return nil, err
@@ -1084,12 +1215,22 @@ func (s *Service) PlannerReportNext(ctx context.Context, in PlannerReportNextInp
 		if err := hub.WriteJSON(worktree, path, next); err != nil {
 			return nil, err
 		}
-		journalHandoff := model.DeliveryHandoff{ID: report.HandoffID, ProjectID: report.ProjectID, TaskID: report.TaskID, RunID: report.RunID}
-		_, journalPaths, err := s.appendOperatorEventInWorktree(worktree, handoffJournalInput(journalHandoff, report.ID, nil, "planner report resolved", "planner"))
+		changed := []string{path}
+		journalHandoff := storedHandoff
+		summary := "planner report resolved"
+		if resumeHandoff {
+			if err := hub.WriteJSON(worktree, handoffPath, nextHandoff); err != nil {
+				return nil, err
+			}
+			changed = append(changed, handoffPath)
+			journalHandoff = nextHandoff
+			summary = "planner report resolved and handoff resumed"
+		}
+		_, journalPaths, err := s.appendOperatorEventInWorktree(worktree, handoffJournalInput(journalHandoff, report.ID, nil, summary, "planner"))
 		if err != nil {
 			return nil, err
 		}
-		return append([]string{path}, journalPaths...), nil
+		return append(changed, journalPaths...), nil
 	})
 	if err != nil {
 		return model.PlannerReportState{}, OperationResult{}, err

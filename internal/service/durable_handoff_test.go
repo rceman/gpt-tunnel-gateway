@@ -201,9 +201,17 @@ func TestDeliveryHandoffLifecycleAndAtomicReportPublication(t *testing.T) {
 	if current.Status != model.DeliveryHandoffBlocked || current.CurrentReportID != report.ID {
 		t.Fatalf("handoff transition missing: %#v", current)
 	}
+	status, err := s.DeliveryHandoffStatus(ctx, handoff.ID)
+	if err != nil || status.OwnerSummary.Status != model.PlannerReportBlocked {
+		t.Fatalf("blocked report summary was not projected: %#v %v", status, err)
+	}
 	readReport, err := s.PlannerReportRead(ctx, report.ID)
 	if err != nil || readReport.ID != report.ID {
 		t.Fatalf("published report was not readable: %#v %v", readReport, err)
+	}
+	reportStatus, err := s.PlannerReportStatus(ctx, report.ID)
+	if err != nil || reportStatus.Status != model.PlannerReportPublished {
+		t.Fatalf("report status projection was not bound to immutable report state: %#v %v", reportStatus, err)
 	}
 	ackState, ackReportOp, err := s.PlannerReportAcknowledge(authority.WithPlanner(ctx), PlannerReportAcknowledgeInput{ReportID: report.ID, AcknowledgedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: published.Hub.After}})
 	if err != nil || ackState.Status != model.PlannerReportAcknowledged {
@@ -214,6 +222,14 @@ func TestDeliveryHandoffLifecycleAndAtomicReportPublication(t *testing.T) {
 	resolvedState, resolvedReportOp, err := s.PlannerReportNext(authority.WithPlanner(ctx), PlannerReportNextInput{ReportID: report.ID, ResolvedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: ackReportOp.Hub.After}})
 	if err != nil || resolvedState.Status != model.PlannerReportResolved {
 		t.Fatalf("planner report resolution failed: %#v %v", resolvedState, err)
+	}
+	resumed, err := s.DeliveryHandoffRead(ctx, handoff.ID)
+	if err != nil || resumed.Status != model.DeliveryHandoffInProgress {
+		t.Fatalf("blocked handoff did not resume after report resolution: %#v %v", resumed, err)
+	}
+	resumedStatus, err := s.DeliveryHandoffStatus(ctx, handoff.ID)
+	if err != nil || resumedStatus.OwnerSummary.Status != handoffSummary().Status || resumedStatus.OwnerSummary.Goal != handoffSummary().Goal {
+		t.Fatalf("resumed handoff did not restore original working summary: %#v %v", resumedStatus, err)
 	}
 	assertHandoffJournalEvent(t, journalEventForOperation(t, s, resolvedReportOp), 6, "planner", next, report.ID)
 	assertJournalCounter(t, s, 7)
@@ -269,12 +285,27 @@ func TestCompletedPlannerReportRequiresImmutableDeliveryProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, _, err := s.PlannerReportPublish(authority.WithDelivery(ctx), PlannerReportPublishInput{HandoffID: next.ID, Report: model.PlannerReport{ReportType: model.PlannerReportCompleted, OwnerSummary: handoffSummaryStatus(model.PlannerReportCompleted), TechnicalEvidence: evidence, PublishedBy: "delivery"}, WriteOptions: WriteOptions{ExpectedHubRevision: nextOp.Hub.After}})
+	report, published, err := s.PlannerReportPublish(authority.WithDelivery(ctx), PlannerReportPublishInput{HandoffID: next.ID, Report: model.PlannerReport{ReportType: model.PlannerReportCompleted, OwnerSummary: handoffSummaryStatus(model.PlannerReportCompleted), TechnicalEvidence: evidence, PublishedBy: "delivery"}, WriteOptions: WriteOptions{ExpectedHubRevision: nextOp.Hub.After}})
 	if err != nil {
 		t.Fatalf("completed report with exact immutable proof was rejected: %v", err)
 	}
 	if report.ReportType != model.PlannerReportCompleted {
 		t.Fatalf("unexpected completed report: %#v", report)
+	}
+	status, err := s.DeliveryHandoffStatus(ctx, handoff.ID)
+	if err != nil || status.Status != model.DeliveryHandoffCompleted || status.OwnerSummary.Status != model.PlannerReportCompleted {
+		t.Fatalf("completed report summary was not projected: %#v %v", status, err)
+	}
+	_, acknowledged, err := s.PlannerReportAcknowledge(authority.WithPlanner(ctx), PlannerReportAcknowledgeInput{ReportID: report.ID, AcknowledgedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: published.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.PlannerReportNext(authority.WithPlanner(ctx), PlannerReportNextInput{ReportID: report.ID, ResolvedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: acknowledged.Hub.After}}); err != nil {
+		t.Fatal(err)
+	}
+	terminal, err := s.DeliveryHandoffRead(ctx, handoff.ID)
+	if err != nil || terminal.Status != model.DeliveryHandoffCompleted {
+		t.Fatalf("completed handoff was resumed unexpectedly: %#v %v", terminal, err)
 	}
 }
 
@@ -353,6 +384,42 @@ func TestDeliveryHandoffCreateReferenceValidationIsZeroMutation(t *testing.T) {
 				t.Fatalf("invalid reference mutated hub: %s -> %s", before, after)
 			}
 		})
+	}
+}
+
+func TestDeliveryHandoffCreateRejectsSupersedesAndDuplicateActive(t *testing.T) {
+	s, _, _, _ := dispatchedRun(t, "task/durable-handoff-create-lifecycle")
+	ctx := context.Background()
+	revision, err := s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := withHandoffPlan(s, DeliveryHandoffCreateInput{
+		ProjectID: "example", TaskID: "EXM-TSK1", RunID: "EXM-TSK1-RUN1", SupersedesID: "handoff-old",
+		OwnerSummary: handoffSummary(), TechnicalEvidence: handoffEvidence(false, false), CreatedBy: "planner",
+		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+	}, revision)
+	if _, _, err := s.DeliveryHandoffCreate(authority.WithPlanner(ctx), input); err == nil {
+		t.Fatal("create accepted supersedes_handoff_id")
+	}
+	if got, err := s.Hub.RemoteRevision(ctx); err != nil || got != revision {
+		t.Fatalf("supersedes rejection mutated hub: %s %v", got, err)
+	}
+	input.SupersedesID = ""
+	handoff, created, err := s.DeliveryHandoffCreate(authority.WithPlanner(ctx), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate := withHandoffPlan(s, DeliveryHandoffCreateInput{
+		ProjectID: "example", TaskID: handoff.TaskID, RunID: handoff.RunID,
+		OwnerSummary: handoffSummary(), TechnicalEvidence: handoffEvidence(false, false), CreatedBy: "planner",
+		WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After},
+	}, created.Hub.After)
+	if _, _, err := s.DeliveryHandoffCreate(authority.WithPlanner(ctx), duplicate); err == nil {
+		t.Fatal("duplicate active handoff was accepted")
+	}
+	if got, err := s.Hub.RemoteRevision(ctx); err != nil || got != created.Hub.After {
+		t.Fatalf("duplicate rejection mutated hub: %s %v", got, err)
 	}
 }
 
