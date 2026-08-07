@@ -113,6 +113,50 @@ func TestCompletionAgentFeedbackRoundTripAndOptionalCompatibility(t *testing.T) 
 	}
 }
 
+func TestAgentFeedbackSummaryIsOptionalButPresentValueMustBeNonEmpty(t *testing.T) {
+	data, err := json.Marshal(validAgentFeedback())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var object map[string]any
+	if err := json.Unmarshal(data, &object); err != nil {
+		t.Fatal(err)
+	}
+	delete(object, "summary")
+	data, err = json.Marshal(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	feedback, err := ParseAgentFeedback(data)
+	if err != nil {
+		t.Fatalf("feedback without summary rejected: %v", err)
+	}
+	if feedback.Summary != "" {
+		t.Fatalf("omitted summary did not use empty default: %q", feedback.Summary)
+	}
+	roundTrip, err := json.Marshal(feedback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roundTripObject map[string]any
+	if err := json.Unmarshal(roundTrip, &roundTripObject); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := roundTripObject["summary"]; ok {
+		t.Fatal("empty default summary was serialized as present")
+	}
+	for _, summary := range []string{"", "  \t"} {
+		object["summary"] = summary
+		data, err = json.Marshal(object)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ParseAgentFeedback(data); err == nil {
+			t.Fatalf("present invalid summary %q accepted", summary)
+		}
+	}
+}
+
 func TestAgentFeedbackSchemasAreOptionalClosedAndBounded(t *testing.T) {
 	for _, filename := range []string{"gpt-tunnel-completion.schema.json", "report.schema.json"} {
 		data, err := os.ReadFile(filepath.Join("..", "..", "schemas", filename))
@@ -135,6 +179,12 @@ func TestAgentFeedbackSchemasAreOptionalClosedAndBounded(t *testing.T) {
 		candidate := feedbackProperties["tool_candidates"].(map[string]any)["items"].(map[string]any)
 		if candidate["additionalProperties"] != false {
 			t.Fatalf("%s candidate schema is not closed", filename)
+		}
+		feedbackRequired := feedback["required"].([]any)
+		for _, item := range feedbackRequired {
+			if item == "summary" {
+				t.Fatalf("%s feedback summary remains required", filename)
+			}
 		}
 		for _, item := range schema["required"].([]any) {
 			if item == "agent_feedback" {

@@ -13,8 +13,13 @@ func TestRunReportOutputSchemaIncludesOptionalClosedAgentFeedback(t *testing.T) 
 		t.Fatal("agent_feedback output schema is not closed")
 	}
 	required := feedback["required"].([]string)
-	if len(required) != 5 {
+	if len(required) != 4 {
 		t.Fatalf("agent_feedback required fields = %#v", required)
+	}
+	for _, item := range required {
+		if item == "summary" {
+			t.Fatal("agent_feedback summary remains required")
+		}
 	}
 	feedbackProperties := feedback["properties"].(map[string]any)
 	candidates := feedbackProperties["tool_candidates"].(map[string]any)

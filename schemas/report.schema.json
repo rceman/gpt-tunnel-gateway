@@ -9,7 +9,7 @@
     "agent_feedback": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["summary", "friction", "improvements", "tool_candidates", "none_observed"],
+      "required": ["friction", "improvements", "tool_candidates", "none_observed"],
       "properties": {
         "summary": {"type": "string", "minLength": 1, "maxLength": 1024},
         "friction": {"type": "array", "maxItems": 3, "items": {"type": "string", "minLength": 1, "maxLength": 512}},

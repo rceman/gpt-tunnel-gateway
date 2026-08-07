@@ -18,7 +18,7 @@ const (
 // Run report. It never participates in gates, Delivery authority, or lifecycle
 // decisions.
 type AgentFeedback struct {
-	Summary        string                       `json:"summary"`
+	Summary        string                       `json:"summary,omitempty"`
 	Friction       []string                     `json:"friction"`
 	Improvements   []string                     `json:"improvements"`
 	ToolCandidates []AgentFeedbackToolCandidate `json:"tool_candidates"`
@@ -44,9 +44,6 @@ func validateAgentFeedbackText(value, field string, max int) error {
 }
 
 func ValidateAgentFeedback(value AgentFeedback) error {
-	if err := validateAgentFeedbackText(value.Summary, "agent_feedback.summary", MaxAgentFeedbackSummaryBytes); err != nil {
-		return err
-	}
 	if len(value.Friction) > MaxAgentFeedbackFriction || len(value.Improvements) > MaxAgentFeedbackImprovements || len(value.ToolCandidates) > MaxAgentFeedbackCandidates {
 		return fmt.Errorf("agent_feedback bounds exceeded")
 	}
@@ -115,14 +112,20 @@ func ParseAgentFeedback(data []byte) (AgentFeedback, error) {
 			return AgentFeedback{}, fmt.Errorf("unknown agent_feedback field %q", key)
 		}
 	}
-	for _, key := range []string{"summary", "friction", "improvements", "tool_candidates", "none_observed"} {
+	for _, key := range []string{"friction", "improvements", "tool_candidates", "none_observed"} {
 		if _, ok := obj[key]; !ok {
 			return AgentFeedback{}, fmt.Errorf("missing agent_feedback field %q", key)
 		}
 	}
-	summary, err := agentFeedbackString(obj, "summary")
-	if err != nil {
-		return AgentFeedback{}, err
+	var summary string
+	if _, present := obj["summary"]; present {
+		summary, err = agentFeedbackString(obj, "summary")
+		if err != nil {
+			return AgentFeedback{}, err
+		}
+		if err := validateAgentFeedbackText(summary, "agent_feedback.summary", MaxAgentFeedbackSummaryBytes); err != nil {
+			return AgentFeedback{}, err
+		}
 	}
 	friction, err := agentFeedbackStringArray(obj, "friction")
 	if err != nil {
