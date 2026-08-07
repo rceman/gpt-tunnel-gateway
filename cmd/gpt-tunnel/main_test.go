@@ -105,6 +105,19 @@ func TestCancelAcknowledgeCLIArgumentsAreStrict(t *testing.T) {
 	}
 }
 
+func TestOnboardingIsNotExposedByCLI(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(data)
+	for _, forbidden := range []string{"onboard", "onboard-status", "onboard-recover", "ProjectOnboard"} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("onboarding CLI surface contains %q", forbidden)
+		}
+	}
+}
+
 func TestWriteCompletionCLIArgumentsAreStrict(t *testing.T) {
 	if got, err := completionFileStrict([]string{"--completion-file", "input.json"}); err != nil || got != "input.json" {
 		t.Fatalf("valid completion arguments rejected: value=%q err=%v", got, err)

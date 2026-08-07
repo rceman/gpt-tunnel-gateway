@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/mcp"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
@@ -44,7 +45,8 @@ func main() {
 		fatal(fmt.Errorf("durable state validation failed: %s", summarizeStateIssues(state.Issues)))
 	}
 	cancel()
-	srv := &http.Server{Addr: c.ListenAddr, Handler: (&mcp.Server{Service: svc}).Router(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 32 << 10}
+	trustedMCPContext := authority.WithDelivery(context.Background())
+	srv := &http.Server{Addr: c.ListenAddr, Handler: (&mcp.Server{Service: svc, AuthorityContext: trustedMCPContext}).Router(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 32 << 10}
 	fmt.Fprintf(os.Stderr, "gpt-tunnel-gatewayd %s listening on %s\n", version, c.ListenAddr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		fatal(err)

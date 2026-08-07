@@ -285,7 +285,9 @@ func onboardingRequestSchema() map[string]any {
 }
 
 func projectOnboardingInputSchema() map[string]any {
-	return obj(map[string]any{"operation_id": str("Canonical onboarding operation UUID"), "request": onboardingRequestSchema()}, "operation_id", "request")
+	operationID := str("Canonical onboarding operation UUID")
+	operationID["pattern"] = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+	return obj(map[string]any{"operation_id": operationID, "request": onboardingRequestSchema()}, "operation_id", "request")
 }
 
 func projectOnboardingResultSchema() map[string]any {

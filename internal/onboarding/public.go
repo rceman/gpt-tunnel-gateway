@@ -85,6 +85,15 @@ func (o *PublicOrchestrator) Onboard(ctx context.Context, in PublicInput) (Publi
 	receipt, err := LoadOnboardingJournal(o.StateDir, in.OperationID)
 	if errors.Is(err, ErrPreparedJournalNotFound) {
 		receipt, err = o.prepare(ctx, in.Request, in.OperationID)
+		if err != nil {
+			// Another identical caller may have persisted and advanced the
+			// journal after the initial not-found snapshot. Re-read the
+			// durable receipt; normal request binding and state validation in
+			// advance still reject conflicts.
+			if persisted, loadErr := LoadOnboardingJournal(o.StateDir, in.OperationID); loadErr == nil {
+				receipt, err = persisted, nil
+			}
+		}
 	}
 	if err != nil {
 		return PublicResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}

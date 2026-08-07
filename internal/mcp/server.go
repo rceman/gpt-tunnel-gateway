@@ -11,13 +11,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-type Server struct{ Service *service.Service }
+type Server struct {
+	Service          *service.Service
+	AuthorityContext context.Context
+}
 type request struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      any             `json:"id,omitempty"`
@@ -163,7 +167,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params", Data: err.Error()}})
 			return
 		}
-		value, err := tool.Execute(r.Context(), call.Arguments)
+		value, err := tool.Execute(authority.Attach(r.Context(), s.AuthorityContext), call.Arguments)
 		if err != nil {
 			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: toolResult(tool, map[string]any{"error": err.Error()}, true)})
 			return

@@ -2,14 +2,19 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
 func TestToolsListAndToolResultsUseObjects(t *testing.T) {
@@ -44,6 +49,58 @@ func TestToolsListAndToolResultsUseObjects(t *testing.T) {
 	result = response["result"].(map[string]any)
 	if _, ok := result["structuredContent"].(map[string]any); !ok {
 		t.Fatalf("structuredContent is not object: %#v", result)
+	}
+}
+
+func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
+	state := t.TempDir()
+	bare, _, _ := testutil.RepoWithBareRemote(t)
+	serviceConfig := config.Config{StateDir: state, Hub: config.HubConfig{RepositoryURL: bare, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"}}
+	svc := service.New(serviceConfig)
+	if err := svc.Hub.Ensure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	beforeHub, err := svc.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeState, err := os.ReadDir(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	arguments := map[string]any{
+		"operation_id": "11111111-1111-1111-1111-111111111111",
+		"request":      map[string]any{"unexpected": true},
+	}
+	body := mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "project_onboard", "arguments": arguments, "_meta": map[string]any{"role": "delivery"}},
+	})
+	without := callMCP(t, &Server{Service: svc}, body)
+	withoutResult := without["result"].(map[string]any)
+	withoutText := withoutResult["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(withoutText, "AUTHORITY_UNAVAILABLE") {
+		t.Fatalf("unconfigured server did not fail closed: %q", withoutText)
+	}
+	afterHub, err := svc.Hub.RemoteRevision(context.Background())
+	if err != nil || afterHub != beforeHub {
+		t.Fatalf("unauthorized MCP call changed Hub: before=%s after=%s err=%v", beforeHub, afterHub, err)
+	}
+	afterState, err := os.ReadDir(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(afterState) != len(beforeState) {
+		t.Fatalf("unauthorized MCP call changed local state: before=%v after=%v", beforeState, afterState)
+	}
+	with := callMCP(t, &Server{Service: svc, AuthorityContext: authority.WithDelivery(context.Background())}, body)
+	withResult := with["result"].(map[string]any)
+	withText := withResult["content"].([]any)[0].(map[string]any)["text"].(string)
+	if strings.Contains(withText, "AUTHORITY_UNAVAILABLE") {
+		t.Fatalf("trusted server ignored configured authority: %q", withText)
+	}
+	if strings.Contains(withText, "delivery") {
+		t.Fatalf("serialized _meta influenced authority: %q", withText)
 	}
 }
 
