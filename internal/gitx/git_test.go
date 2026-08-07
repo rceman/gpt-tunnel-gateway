@@ -148,3 +148,59 @@ func TestReconcileManagedMirrorRejectsMissingDefaultBranchWithoutChangingSource(
 		t.Fatalf("source worktree changed: before head/status=%s/%q after=%s/%q", beforeHead, beforeStatus, afterHead, afterStatus)
 	}
 }
+
+func TestReconcileManagedMirrorFailedInitialCloneLeavesCanonicalAbsentForRetry(t *testing.T) {
+	bare, work, _ := testutil.RepoWithBareRemote(t)
+	mirror := filepath.Join(t.TempDir(), "mirror.git")
+	p := config.ProjectConfig{Root: work, Mirror: mirror, Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "x_master"}
+	badURL := filepath.Join(t.TempDir(), "missing-remote.git")
+	testutil.Git(t, work, "remote", "set-url", "origin", badURL)
+	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	if _, err := r.ReconcileManagedMirror(context.Background(), p, badURL, "main"); err == nil {
+		t.Fatal("failed initial clone unexpectedly succeeded")
+	}
+	if _, err := os.Lstat(mirror); !os.IsNotExist(err) {
+		t.Fatalf("canonical mirror after failed clone: err=%v", err)
+	}
+	if matches, err := filepath.Glob(filepath.Join(filepath.Dir(mirror), "."+filepath.Base(mirror)+".onboarding-*")); err != nil || len(matches) != 0 {
+		t.Fatalf("temporary mirrors remain: matches=%v err=%v", matches, err)
+	}
+	testutil.Git(t, work, "remote", "set-url", "origin", bare)
+	verification, err := r.ReconcileManagedMirror(context.Background(), p, bare, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verification.Created || verification.Path != mirror {
+		t.Fatalf("retry verification = %#v", verification)
+	}
+}
+
+func TestReconcileManagedMirrorRejectsSymlinkParentWithoutExternalMutation(t *testing.T) {
+	bare, work, _ := testutil.RepoWithBareRemote(t)
+	root := t.TempDir()
+	external := filepath.Join(t.TempDir(), "external")
+	if err := os.Mkdir(external, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(root, "git-mirrors")
+	if err := os.Symlink(external, parent); err != nil {
+		t.Fatal(err)
+	}
+	mirror := filepath.Join(parent, "project.git")
+	p := config.ProjectConfig{Root: work, Mirror: mirror, Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "x_master"}
+	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	if _, err := r.ReconcileManagedMirror(context.Background(), p, bare, "main"); err == nil {
+		t.Fatal("symlink mirror parent unexpectedly accepted")
+	}
+	entries, err := os.ReadDir(external)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("external symlink target was modified: %#v", entries)
+	}
+	info, err := os.Lstat(parent)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("mirror parent symlink changed: info=%v err=%v", info, err)
+	}
+}

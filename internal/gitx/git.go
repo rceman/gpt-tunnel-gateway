@@ -132,11 +132,33 @@ func (r Runner) EnsureMirror(ctx context.Context, p config.ProjectConfig) error 
 func (r Runner) ReconcileManagedMirror(ctx context.Context, p config.ProjectConfig, expectedURL, defaultBranch string) (MirrorVerification, error) {
 	info, err := os.Lstat(p.Mirror)
 	created := false
+	working := p
+	temporaryMirror := ""
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return MirrorVerification{}, err
 		}
-		if err := r.EnsureMirror(ctx, p); err != nil {
+		parent := filepath.Dir(p.Mirror)
+		if err := os.MkdirAll(parent, 0o700); err != nil {
+			return MirrorVerification{}, err
+		}
+		parentInfo, err := os.Lstat(parent)
+		if err != nil {
+			return MirrorVerification{}, err
+		}
+		if parentInfo.Mode()&os.ModeSymlink != 0 || !parentInfo.IsDir() {
+			return MirrorVerification{}, fmt.Errorf("managed mirror parent must be a real directory")
+		}
+		temporaryMirror, err = os.MkdirTemp(parent, "."+filepath.Base(p.Mirror)+".onboarding-")
+		if err != nil {
+			return MirrorVerification{}, err
+		}
+		defer os.RemoveAll(temporaryMirror)
+		if err := os.Remove(temporaryMirror); err != nil {
+			return MirrorVerification{}, err
+		}
+		working.Mirror = temporaryMirror
+		if err := r.EnsureMirror(ctx, working); err != nil {
 			return MirrorVerification{}, err
 		}
 		created = true
@@ -148,7 +170,7 @@ func (r Runner) ReconcileManagedMirror(ctx context.Context, p config.ProjectConf
 			return MirrorVerification{}, fmt.Errorf("managed mirror is not a valid Git mirror")
 		}
 	}
-	urlOut, err := r.command(ctx, p.Mirror, true, "remote", "get-url", p.Remote)
+	urlOut, err := r.command(ctx, working.Mirror, true, "remote", "get-url", p.Remote)
 	if err != nil {
 		return MirrorVerification{}, err
 	}
@@ -156,15 +178,25 @@ func (r Runner) ReconcileManagedMirror(ctx context.Context, p config.ProjectConf
 	if actualURL != expectedURL {
 		return MirrorVerification{}, fmt.Errorf("managed mirror repository URL mismatch")
 	}
-	if err := r.Refresh(ctx, p); err != nil {
+	if err := r.Refresh(ctx, working); err != nil {
 		return MirrorVerification{}, err
 	}
-	head, exists, err := r.MirrorBranchHead(ctx, p, defaultBranch)
+	head, exists, err := r.MirrorBranchHead(ctx, working, defaultBranch)
 	if err != nil {
 		return MirrorVerification{}, err
 	}
 	if !exists || !isCommitSHA(head) {
 		return MirrorVerification{}, fmt.Errorf("managed mirror default branch is unavailable")
+	}
+	if temporaryMirror != "" {
+		if _, err := os.Lstat(p.Mirror); err == nil {
+			return MirrorVerification{}, fmt.Errorf("managed mirror target appeared during atomic activation")
+		} else if !os.IsNotExist(err) {
+			return MirrorVerification{}, err
+		}
+		if err := os.Rename(temporaryMirror, p.Mirror); err != nil {
+			return MirrorVerification{}, fmt.Errorf("install managed mirror atomically: %w", err)
+		}
 	}
 	return MirrorVerification{Path: filepath.Clean(p.Mirror), RepositoryURL: actualURL, Head: head, Created: created}, nil
 }

@@ -116,6 +116,60 @@ func TestActivationCoordinatorActivatesAndRetriesIdempotently(t *testing.T) {
 	}
 }
 
+func TestActivatedRetryReturnsWithoutLocalActivationOrRecovery(t *testing.T) {
+	fixture := newActivationFixture(t)
+	fixture.coordinator.Hooks = testActivationHooks(t)
+	if _, err := fixture.coordinator.Activate(trustedCoordinatorContext(), fixture.request, fixture.operation); err != nil {
+		t.Fatal(err)
+	}
+	calls := map[string]int{}
+	hooks := ActivationHooks{
+		Mirror: func(context.Context, config.ProjectConfig, string, string) (gitx.MirrorVerification, error) {
+			calls["mirror"]++
+			return gitx.MirrorVerification{}, errors.New("activated retry must not reconcile mirror")
+		},
+		ProjectReady: func(context.Context, Request, config.ProjectConfig, model.Project, model.Plan, model.ProjectIdentifiers) error {
+			calls["project"]++
+			return errors.New("activated retry must not rerun project readiness")
+		},
+		SessionReady: func(context.Context, Request) (SessionProof, error) {
+			calls["session"]++
+			return SessionProof{}, errors.New("activated retry must not rerun Airelay readiness")
+		},
+		JournalWrite: func(string, Request, Receipt) (HubCommittedJournalWriteReceipt, error) {
+			calls["journal"]++
+			return HubCommittedJournalWriteReceipt{}, errors.New("activated retry must not rewrite journal")
+		},
+		RecoveryWrite: func(string, Request, Receipt) (HubCommittedJournalWriteReceipt, error) {
+			calls["recovery"]++
+			return HubCommittedJournalWriteReceipt{}, errors.New("activated retry must not downgrade recovery")
+		},
+	}
+	fixture.coordinator.Hooks = hooks
+	result, err := fixture.coordinator.Activate(trustedCoordinatorContext(), fixture.request, fixture.operation)
+	if err != nil || result.State != StateActivated || !result.JournalRepairOnly {
+		t.Fatalf("activated retry = %+v, err=%v", result, err)
+	}
+	for name, count := range calls {
+		if count != 0 {
+			t.Fatalf("activated retry invoked %s hook %d times", name, count)
+		}
+	}
+
+	if err := os.WriteFile(config.ManagedProjectRegistryPath(fixture.coordinator.StateDir), []byte("{\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err = fixture.coordinator.Activate(trustedCoordinatorContext(), fixture.request, fixture.operation)
+	requireCoordinatorErrorCode(t, err, OnboardingRecoveryRequired)
+	if result.State != StateActivated || calls["recovery"] != 0 {
+		t.Fatalf("activated verification failure downgraded: result=%+v calls=%v", result, calls)
+	}
+	final, err := LoadOnboardingJournal(fixture.coordinator.StateDir, fixture.operation)
+	if err != nil || final.State != StateActivated {
+		t.Fatalf("activated journal after verification failure = %#v, err=%v", final, err)
+	}
+}
+
 func TestActivationRegistryFailureLeavesHubCommittedAndNoUnrelatedMutation(t *testing.T) {
 	fixture := newActivationFixture(t)
 	hooks := testActivationHooks(t)

@@ -147,8 +147,19 @@ func (c *ActivationCoordinator) Activate(ctx context.Context, request Request, o
 		}
 		return result, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: errors.New(reason)}
 	}
-	if _, err := base.verifyRegistryAuthority(request, receipt, true); err != nil {
+	authority, err := base.verifyRegistryAuthority(request, receipt, true)
+	if err != nil {
+		if receipt.State == StateActivated {
+			return ActivationResult{OperationID: operationID, ProjectID: request.ProjectID, State: StateActivated, Mirror: mirrorProofFromReceipt(receipt)}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+		}
 		return persistRecovery(RecoveryStepHubCommitted, "managed registry authority verification failed", nil)
+	}
+	if receipt.State == StateActivated {
+		digest, err := ActivatedReceiptDigest(receipt, request)
+		if err != nil {
+			return ActivationResult{OperationID: operationID, ProjectID: request.ProjectID, State: StateActivated, Mirror: mirrorProofFromReceipt(receipt)}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+		}
+		return ActivationResult{OperationID: operationID, ProjectID: request.ProjectID, State: StateActivated, ReceiptSHA256: digest, RegistryBefore: authority.Before, RegistryAfter: authority.After, Mirror: mirrorProofFromReceipt(receipt), JournalRepairOnly: true}, nil
 	}
 	current, err := config.LoadManagedProjects(c.StateDir)
 	if err != nil {
@@ -264,6 +275,13 @@ func sessionKey(request Request) string {
 		return ""
 	}
 	return *request.Airelay.SessionKey
+}
+
+func mirrorProofFromReceipt(receipt Receipt) MirrorProof {
+	if receipt.MirrorProof == nil {
+		return MirrorProof{}
+	}
+	return *receipt.MirrorProof
 }
 
 func sameSessionProof(left, right SessionProof) bool {
