@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add MCP-only project onboarding with durable coordinator, activation and recovery.
+- Add durable Planner-to-Delivery handoff and Delivery-to-Planner reports with separate owner summaries and technical evidence, plus trusted authority hardening.
+- Restrict hosted CI to release tags matching `v*`.
+
 ## 0.6.3 — 2026-08-06
 
 - Bound startup state validation to one run-index load per project and add bounded target-startup rollback diagnostics.
