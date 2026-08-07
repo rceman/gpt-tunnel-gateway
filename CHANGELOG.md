@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.5 — 2026-08-07
+
 - Add stable Task revisions and post-finalization correction handling.
 - Add optional bounded `run_report.agent_feedback` with strict schema, model and MCP parity.
 
