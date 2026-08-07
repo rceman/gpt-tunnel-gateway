@@ -121,6 +121,20 @@ func TestDurableHandoffMCPUsesOnlyServerAuthorityContext(t *testing.T) {
 	}
 }
 
+func TestDurableHandoffMCPRejectsMalformedUnauthorizedMutationBeforeDecode(t *testing.T) {
+	server := &Server{Service: service.New(config.Config{}), AuthorityContext: authority.WithDelivery(context.Background())}
+	for _, name := range []string{"delivery_handoff_publish", "delivery_handoff_cancel", "planner_report_acknowledge"} {
+		body := mustJSON(t, map[string]any{
+			"jsonrpc": "2.0", "id": name, "method": "tools/call",
+			"params": map[string]any{"name": name, "arguments": map[string]any{"unknown": map[string]any{"malformed": true}}},
+		})
+		text := mcpResultText(callMCP(t, server, body))
+		if !strings.Contains(text, "AUTHORITY_UNAVAILABLE") {
+			t.Fatalf("malformed unauthorized mutation %s was decoded before auth: %q", name, text)
+		}
+	}
+}
+
 func TestDurableHandoffMCPSchemasAreClosedAndBounded(t *testing.T) {
 	tools := (&Server{Service: service.New(config.Config{MaxListItems: 2})}).tools()
 	owner := tools["delivery_handoff_publish"].InputSchema["properties"].(map[string]any)["owner_summary"].(map[string]any)

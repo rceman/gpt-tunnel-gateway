@@ -163,11 +163,16 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "unknown tool"}})
 			return
 		}
+		trustedContext := authority.Attach(r.Context(), s.AuthorityContext)
+		if err := requireToolAuthority(trustedContext, call.Name); err != nil {
+			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: toolResult(tool, map[string]any{"error": err.Error()}, true)})
+			return
+		}
 		if err := validateToolArguments(tool.InputSchema, call.Arguments); err != nil {
 			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params", Data: err.Error()}})
 			return
 		}
-		value, err := tool.Execute(authority.Attach(r.Context(), s.AuthorityContext), call.Arguments)
+		value, err := tool.Execute(trustedContext, call.Arguments)
 		if err != nil {
 			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: toolResult(tool, map[string]any{"error": err.Error()}, true)})
 			return
@@ -177,6 +182,18 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "method not found"}})
 	}
 }
+
+func requireToolAuthority(ctx context.Context, toolName string) error {
+	switch toolName {
+	case "delivery_handoff_publish", "delivery_handoff_cancel", "delivery_handoff_supersede", "planner_report_acknowledge", "planner_report_next":
+		return authority.RequirePlanner(ctx)
+	case "delivery_handoff_acknowledge", "delivery_handoff_next", "planner_report_publish":
+		return authority.RequireDelivery(ctx)
+	default:
+		return nil
+	}
+}
+
 func validateToolArguments(schema map[string]any, raw json.RawMessage) error {
 	if len(raw) == 0 {
 		raw = []byte("{}")
