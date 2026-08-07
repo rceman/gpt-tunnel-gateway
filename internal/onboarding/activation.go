@@ -147,8 +147,7 @@ func (c *ActivationCoordinator) Activate(ctx context.Context, request Request, o
 		}
 		return result, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: errors.New(reason)}
 	}
-	authority, err := base.verifyRegistryAuthority(request, receipt, true)
-	if err != nil {
+	if _, err := base.verifyRegistryAuthority(request, receipt, true); err != nil {
 		if receipt.State == StateActivated {
 			return ActivationResult{OperationID: operationID, ProjectID: request.ProjectID, State: StateActivated, Mirror: mirrorProofFromReceipt(receipt)}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
 		}
@@ -159,7 +158,7 @@ func (c *ActivationCoordinator) Activate(ctx context.Context, request Request, o
 		if err != nil {
 			return ActivationResult{OperationID: operationID, ProjectID: request.ProjectID, State: StateActivated, Mirror: mirrorProofFromReceipt(receipt)}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
 		}
-		return ActivationResult{OperationID: operationID, ProjectID: request.ProjectID, State: StateActivated, ReceiptSHA256: digest, RegistryBefore: authority.Before, RegistryAfter: authority.After, Mirror: mirrorProofFromReceipt(receipt), JournalRepairOnly: true}, nil
+		return ActivationResult{OperationID: operationID, ProjectID: request.ProjectID, State: StateActivated, ReceiptSHA256: digest, RegistryBefore: receipt.RegistryDigests.ManagedBeforeSHA256, RegistryAfter: receipt.RegistryDigests.ManagedAfterSHA256, Mirror: mirrorProofFromReceipt(receipt), JournalRepairOnly: true}, nil
 	}
 	current, err := config.LoadManagedProjects(c.StateDir)
 	if err != nil {

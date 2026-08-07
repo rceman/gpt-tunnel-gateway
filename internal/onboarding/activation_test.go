@@ -150,6 +150,13 @@ func TestActivatedRetryReturnsWithoutLocalActivationOrRecovery(t *testing.T) {
 	if err != nil || result.State != StateActivated || !result.JournalRepairOnly {
 		t.Fatalf("activated retry = %+v, err=%v", result, err)
 	}
+	receipt, err := LoadOnboardingJournal(fixture.coordinator.StateDir, fixture.operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RegistryBefore != receipt.RegistryDigests.ManagedBeforeSHA256 || result.RegistryAfter != receipt.RegistryDigests.ManagedAfterSHA256 || result.RegistryBefore == result.RegistryAfter {
+		t.Fatalf("activated replay registry proof = before=%q after=%q receipt=%#v", result.RegistryBefore, result.RegistryAfter, receipt.RegistryDigests)
+	}
 	for name, count := range calls {
 		if count != 0 {
 			t.Fatalf("activated retry invoked %s hook %d times", name, count)
