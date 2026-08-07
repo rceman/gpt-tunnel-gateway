@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add stable Task revisions and post-finalization correction handling.
+- Add optional bounded `run_report.agent_feedback` with strict schema, model and MCP parity.
+
 ## 0.6.4 — 2026-08-07
 
 - Add MCP-only project onboarding with durable coordinator, activation and recovery.
