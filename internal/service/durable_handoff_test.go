@@ -334,7 +334,7 @@ func TestCompletedPlannerReportRequiresImmutableDeliveryProof(t *testing.T) {
 		t.Fatal(err)
 	}
 	terminal, err := s.DeliveryHandoffRead(ctx, handoff.ID)
-	if err != nil || terminal.Status != model.DeliveryHandoffCompleted {
+	if err != nil || terminal.Status != model.DeliveryHandoffCompleted || terminal.CurrentReportID != report.ID {
 		t.Fatalf("completed handoff was resumed unexpectedly: %#v %v", terminal, err)
 	}
 }
