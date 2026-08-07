@@ -2,6 +2,8 @@ package onboarding
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -231,14 +233,16 @@ func writeActivatedJournalLocked(stateDir string, request Request, receipt Recei
 				return HubCommittedJournalWriteReceipt{}, errors.New("ONBOARDING_OPERATION_CONFLICT")
 			}
 			return HubCommittedJournalWriteReceipt{OperationID: receipt.OperationID, JournalPath: path, ReceiptSHA256: existingDigest, Created: false}, nil
-		case StateHubCommitted:
-			if err := ValidateHubCommittedReceipt(existing, request); err != nil {
+		case StateHubCommitted, StateRecoveryRequired:
+			if err := validateActivationTransition(existing, receipt, request); err != nil {
 				return HubCommittedJournalWriteReceipt{}, err
 			}
 		default:
 			return HubCommittedJournalWriteReceipt{}, fmt.Errorf("onboarding journal has unsupported transition state %q", existing.State)
 		}
-	} else if !errors.Is(existingErr, ErrPreparedJournalNotFound) {
+	} else if errors.Is(existingErr, ErrPreparedJournalNotFound) {
+		return HubCommittedJournalWriteReceipt{}, fmt.Errorf("activation requires the prior hub-committed journal: %w", existingErr)
+	} else {
 		return HubCommittedJournalWriteReceipt{}, existingErr
 	}
 	if err := writeOnboardingJournalAtomic(path, fileBytes, 0o600); err != nil {
@@ -258,6 +262,56 @@ func writeActivatedJournalLocked(stateDir string, request Request, receipt Recei
 	}
 	if loaded.State != StateActivated || !bytes.Equal(verifiedCanonical, canonical) || verifiedDigest != digest {
 		return HubCommittedJournalWriteReceipt{}, errors.New("activated journal verification mismatch")
+	}
+	return HubCommittedJournalWriteReceipt{OperationID: receipt.OperationID, JournalPath: path, ReceiptSHA256: digest, Created: true}, nil
+}
+
+func writeRecoveryJournalLocked(stateDir string, request Request, receipt Receipt) (result HubCommittedJournalWriteReceipt, err error) {
+	path, err := PreparedJournalPath(stateDir, receipt.OperationID)
+	if err != nil {
+		return HubCommittedJournalWriteReceipt{}, err
+	}
+	if err := ValidateRecoveryReceipt(receipt, request); err != nil {
+		return HubCommittedJournalWriteReceipt{}, err
+	}
+	canonical, err := json.Marshal(receipt)
+	if err != nil {
+		return HubCommittedJournalWriteReceipt{}, fmt.Errorf("canonicalize recovery journal: %w", err)
+	}
+	digestBytes := sha256.Sum256(canonical)
+	digest := hex.EncodeToString(digestBytes[:])
+	fileBytes := append(append([]byte(nil), canonical...), '\n')
+	existing, existingErr := readOnboardingJournal(path, receipt.OperationID, stateDir)
+	if existingErr != nil {
+		if errors.Is(existingErr, ErrPreparedJournalNotFound) {
+			return HubCommittedJournalWriteReceipt{}, fmt.Errorf("recovery requires the prior hub-committed journal: %w", existingErr)
+		}
+		return HubCommittedJournalWriteReceipt{}, existingErr
+	}
+	if err := validateRecoveryTransition(existing, receipt, request); err != nil {
+		return HubCommittedJournalWriteReceipt{}, err
+	}
+	existingCanonical, err := json.Marshal(existing)
+	if err != nil {
+		return HubCommittedJournalWriteReceipt{}, err
+	}
+	if existing.State == StateRecoveryRequired && bytes.Equal(existingCanonical, canonical) {
+		existingDigest := sha256.Sum256(existingCanonical)
+		return HubCommittedJournalWriteReceipt{OperationID: receipt.OperationID, JournalPath: path, ReceiptSHA256: hex.EncodeToString(existingDigest[:]), Created: false}, nil
+	}
+	if err := writeOnboardingJournalAtomic(path, fileBytes, 0o600); err != nil {
+		return HubCommittedJournalWriteReceipt{}, err
+	}
+	loaded, verifyErr := readOnboardingJournal(path, receipt.OperationID, stateDir)
+	if verifyErr != nil {
+		return HubCommittedJournalWriteReceipt{}, verifyErr
+	}
+	verifiedCanonical, verifyErr := json.Marshal(loaded)
+	if verifyErr != nil {
+		return HubCommittedJournalWriteReceipt{}, verifyErr
+	}
+	if loaded.State != StateRecoveryRequired || !bytes.Equal(verifiedCanonical, canonical) {
+		return HubCommittedJournalWriteReceipt{}, errors.New("recovery journal verification mismatch")
 	}
 	return HubCommittedJournalWriteReceipt{OperationID: receipt.OperationID, JournalPath: path, ReceiptSHA256: digest, Created: true}, nil
 }
@@ -468,6 +522,10 @@ func readOnboardingJournal(path, operationID, stateDir string) (Receipt, error) 
 	case StateActivated:
 		if err := ValidateActivatedReceiptIntrinsic(receipt); err != nil {
 			return Receipt{}, fmt.Errorf("invalid activated journal receipt: %w", err)
+		}
+	case StateRecoveryRequired:
+		if err := validatePostHubReceiptIntrinsic(receipt, StateRecoveryRequired); err != nil {
+			return Receipt{}, fmt.Errorf("invalid recovery-required journal receipt: %w", err)
 		}
 	default:
 		return Receipt{}, fmt.Errorf("onboarding journal has unsupported state %q", receipt.State)
