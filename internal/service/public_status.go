@@ -27,7 +27,8 @@ func (p ProjectStatus) MarshalJSON() ([]byte, error) {
 		HubRevision    string          `json:"hub_revision"`
 		Progress       ProjectProgress `json:"progress"`
 		WorkflowPolicy interface{}     `json:"workflow_policy"`
-	}{Project: p.Project, Local: local, Worktree: p.Worktree, Plan: p.Plan, HubRevision: p.HubRevision, Progress: progress, WorkflowPolicy: p.WorkflowPolicy})
+		StatusToken    string          `json:"status_token"`
+	}{Project: p.Project, Local: local, Worktree: p.Worktree, Plan: p.Plan, HubRevision: p.HubRevision, Progress: progress, WorkflowPolicy: p.WorkflowPolicy, StatusToken: p.StatusToken})
 }
 
 // PublicProjectConfig is used by future output contracts that need to expose

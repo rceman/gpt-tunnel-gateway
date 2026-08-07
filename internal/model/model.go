@@ -244,7 +244,7 @@ type PlanStatus struct {
 	Summary          string    `json:"summary"`
 	CurrentObjective string    `json:"current_objective"`
 	Queue            []string  `json:"queue"`
-	Sections         []string  `json:"sections"`
+	Sections         []string  `json:"-"`
 	ActiveTaskID     string    `json:"active_task_id,omitempty"`
 	ActiveRunID      string    `json:"active_run_id,omitempty"`
 	UpdatedBy        string    `json:"updated_by"`
@@ -252,11 +252,7 @@ type PlanStatus struct {
 }
 
 func (p Plan) StatusView() PlanStatus {
-	sections := make([]string, 0, len(p.Sections))
-	for _, section := range p.Sections {
-		sections = append(sections, fmt.Sprintf("* %s - %s", section.Title, section.ShortDescription))
-	}
-	return PlanStatus{SchemaVersion: p.SchemaVersion, ProjectID: p.ProjectID, Revision: p.Revision, Title: p.Title, Summary: p.Summary, CurrentObjective: p.CurrentObjective, Queue: append([]string{}, p.Queue...), Sections: sections, ActiveTaskID: p.ActiveTaskID, ActiveRunID: p.ActiveRunID, UpdatedBy: p.UpdatedBy, UpdatedAt: p.UpdatedAt}
+	return PlanStatus{SchemaVersion: p.SchemaVersion, ProjectID: p.ProjectID, Revision: p.Revision, Title: p.Title, Summary: p.Summary, CurrentObjective: p.CurrentObjective, Queue: append([]string{}, p.Queue...), ActiveTaskID: p.ActiveTaskID, ActiveRunID: p.ActiveRunID, UpdatedBy: p.UpdatedBy, UpdatedAt: p.UpdatedAt}
 }
 
 type ADR struct {

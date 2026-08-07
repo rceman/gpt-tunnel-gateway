@@ -423,12 +423,12 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return map[string]any{"identifiers": identifiers, "operation": operation}, nil
 	})
-	add("project_status", "Read durable project, local mapping, worktree, and hub revision.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		id, e := getString(raw, "project_id")
-		if e != nil {
+	add("project_status", "Read bounded durable and live project status, or an incremental delta from a prior status token.", obj(map[string]any{"project_id": str("Project identifier"), "since": str("Opaque project status token")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.ProjectStatusInput
+		if e := decode(raw, &in); e != nil {
 			return nil, e
 		}
-		return s.Service.ProjectStatus(ctx, id)
+		return s.Service.ProjectStatusRead(ctx, in.ProjectID, in.Since)
 	})
 	add("project_onboard", "Create or resume one trusted durable project onboarding operation.", projectOnboardingInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		if err := service.RequireOnboardingAuthority(ctx); err != nil {
@@ -626,12 +626,13 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.ProjectRegister(ctx, in)
 	})
-	add("plan_read", "Read current global plan.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		id, e := getString(raw, "project_id")
-		if e != nil {
+	planReadLimit := integer("Maximum section-index rows", 1, 10)
+	add("plan_read", "Read the bounded current plan manifest and section index; use plan_section_read or plan_render for detail.", obj(map[string]any{"project_id": str("Project identifier"), "limit": planReadLimit, "cursor": str("Opaque plan section cursor")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.PlanReadInput
+		if e := decode(raw, &in); e != nil {
 			return nil, e
 		}
-		return s.Service.PlanRead(ctx, id)
+		return s.Service.PlanReadPage(ctx, in.ProjectID, in.Limit, in.Cursor)
 	})
 	add("plan_cutover", "Owner-invoked one-time conversion of the known schema-v1 plan to schema-v2.", obj(map[string]any{"project_id": str("Project identifier"), "updated_by": str("Owner identity"), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "updated_by"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.PlanCutoverInput

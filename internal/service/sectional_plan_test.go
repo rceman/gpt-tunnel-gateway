@@ -213,14 +213,11 @@ func TestProjectStatusReturnsCompactPlanOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(status.Plan.Sections) != 1 || status.Plan.Sections[0] != "* Compact - Status line" {
-		t.Fatalf("compact plan missing section index: %#v", status.Plan)
-	}
 	encoded, err := json.Marshal(status)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(encoded), "full description") {
-		t.Fatal("project status loaded full section description")
+	if strings.Contains(string(encoded), "full description") || strings.Contains(string(encoded), "sections") {
+		t.Fatal("project status exposed unbounded plan section data")
 	}
 }

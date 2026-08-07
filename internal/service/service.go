@@ -157,6 +157,7 @@ type ProjectStatus struct {
 	HubRevision    string                      `json:"hub_revision"`
 	Progress       ProjectProgress             `json:"progress"`
 	WorkflowPolicy ProjectWorkflowPolicyStatus `json:"workflow_policy"`
+	StatusToken    string                      `json:"status_token"`
 }
 
 type ProjectWorkflowPolicyStatus struct {

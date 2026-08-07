@@ -39,7 +39,6 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	send := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_send","arguments":{"project_id":"example","message":"hello"}}}`))
 	sendResult := send["result"].(map[string]any)
 	if sendResult["isError"] != false || sendResult["structuredContent"].(map[string]any)["delivered"] != true {

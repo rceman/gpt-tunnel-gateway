@@ -57,12 +57,23 @@ func planOutputSchema() map[string]any {
 	}, "schema_version", "project_id", "revision", "title", "summary", "current_objective", "queue", "sections", "updated_by", "updated_at")
 }
 
+func planReadProjectionOutputSchema() map[string]any {
+	sectionIndex := closedOutput(map[string]any{
+		"id": outputString(), "title": outputString(), "short_description": outputString(), "revision": outputInteger(),
+	}, "id", "title", "short_description", "revision")
+	return closedOutput(map[string]any{
+		"schema_version": outputInteger(), "project_id": outputString(), "revision": outputInteger(), "title": outputString(),
+		"summary": outputString(), "current_objective": outputString(), "active_task_id": outputString(), "active_run_id": outputString(),
+		"sections": outputArray(sectionIndex), "next_cursor": outputString(),
+	}, "schema_version", "project_id", "revision", "title", "summary", "current_objective", "sections")
+}
+
 func planStatusOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"schema_version": outputInteger(), "project_id": outputString(), "revision": outputInteger(),
-		"title": outputString(), "summary": outputString(), "current_objective": outputString(), "queue": outputArray(outputString()), "sections": outputArray(outputString()),
+		"title": outputString(), "summary": outputString(), "current_objective": outputString(), "queue": outputArray(outputString()),
 		"active_task_id": outputString(), "active_run_id": outputString(), "updated_by": outputString(), "updated_at": outputDateTime(),
-	}, "schema_version", "project_id", "revision", "title", "summary", "current_objective", "queue", "sections", "updated_by", "updated_at")
+	}, "schema_version", "project_id", "revision", "title", "summary", "current_objective", "queue", "updated_by", "updated_at")
 }
 
 func planSectionOutputSchema() map[string]any {
@@ -473,6 +484,19 @@ func workflowPolicyStatusOutputSchema() map[string]any {
 	return closedOutput(map[string]any{"state": outputEnum("adopted", "missing", "invalid"), "revision": outputInteger(), "workflow_stage": outputString(), "integration_branch": outputString(), "agent_wait_for_ci": outputBoolean(), "ci": ci, "active_operation_class": outputString(), "active_ci_mode": outputString(), "ci_blocking": outputBoolean(), "conflicts": outputArray(outputString()), "corrective_action": outputString()}, "state", "revision", "workflow_stage", "integration_branch", "agent_wait_for_ci", "ci", "active_operation_class", "active_ci_mode", "ci_blocking", "conflicts", "corrective_action")
 }
 
+func projectStatusOutputSchema() map[string]any {
+	baselineProperties := map[string]any{
+		"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(),
+		"hub_revision": outputString(), "progress": projectProgressOutputSchema(), "workflow_policy": workflowPolicyStatusOutputSchema(), "status_token": outputString(),
+	}
+	baseline := closedOutput(baselineProperties, "project", "local", "worktree", "plan", "hub_revision", "progress", "workflow_policy", "status_token")
+	changes := closedOutput(baselineProperties)
+	delta := closedOutput(map[string]any{
+		"project_id": outputString(), "changed": outputBoolean(), "status_token": outputString(), "changed_components": outputArray(outputString()), "changes": changes,
+	}, "project_id", "changed", "status_token")
+	return map[string]any{"oneOf": []any{baseline, delta}}
+}
+
 func projectProgressOutputSchema() map[string]any {
 	task := closedOutput(map[string]any{"id": outputString(), "title": outputString(), "status": outputString(), "created_at": outputDateTime()}, "id", "title", "status", "created_at")
 	run := closedOutput(map[string]any{"id": outputString(), "task_id": outputString(), "status": outputString(), "branch": outputString(), "base_revision": outputString(), "created_at": outputDateTime(), "dispatched_at": outputDateTime(), "finished_at": outputDateTime()}, "id", "task_id", "status", "branch", "base_revision", "created_at")
@@ -598,7 +622,7 @@ var toolOutputSchemas = map[string]map[string]any{
 	"project_read":                   projectOutputSchema(),
 	"project_identifiers_read":       projectIdentifiersOutputSchema(),
 	"project_identifiers_adopt":      closedOutput(map[string]any{"identifiers": projectIdentifiersOutputSchema(), "operation": operationOutputSchema()}, "identifiers", "operation"),
-	"project_status":                 closedOutput(map[string]any{"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(), "hub_revision": outputString(), "progress": projectProgressOutputSchema(), "workflow_policy": workflowPolicyStatusOutputSchema()}, "project", "local", "worktree", "plan", "hub_revision", "progress", "workflow_policy"),
+	"project_status":                 projectStatusOutputSchema(),
 	"project_workflow_policy_read":   workflowPolicyOutputSchema(),
 	"project_workflow_policy_adopt":  closedOutput(map[string]any{"policy": workflowPolicyOutputSchema(), "operation": operationOutputSchema()}, "policy", "operation"),
 	"project_workflow_policy_update": closedOutput(map[string]any{"policy": workflowPolicyOutputSchema(), "operation": operationOutputSchema()}, "policy", "operation"),
@@ -620,7 +644,7 @@ var toolOutputSchemas = map[string]map[string]any{
 	"project_onboard":                projectOnboardingResultSchema(),
 	"project_onboard_status":         projectOnboardingStatusSchema(),
 	"project_onboard_recover":        projectOnboardingResultSchema(),
-	"plan_read":                      planOutputSchema(),
+	"plan_read":                      planReadProjectionOutputSchema(),
 	"plan_cutover":                   operationOutputSchema(),
 	"plan_update":                    operationOutputSchema(),
 	"plan_section_read":              planSectionOutputSchema(),

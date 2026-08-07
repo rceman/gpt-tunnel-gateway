@@ -530,6 +530,7 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	now := time.Date(2026, 7, 30, 10, 0, 0, 0, time.UTC)
 	project := model.Project{SchemaVersion: 1, ID: "project", RepositoryURL: "git@example.invalid:project.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active", CreatedAt: now, UpdatedAt: now}
 	plan := model.Plan{SchemaVersion: model.PlanSchemaVersion, ProjectID: "project", Revision: 1, Title: "title", Summary: "summary", CurrentObjective: "objective", Queue: []string{}, Sections: []model.PlanSectionIndex{}, UpdatedBy: "gpt", UpdatedAt: now}
+	planProjection := service.PlanReadProjection{SchemaVersion: plan.SchemaVersion, ProjectID: plan.ProjectID, Revision: plan.Revision, Title: plan.Title, Summary: plan.Summary, CurrentObjective: plan.CurrentObjective, Sections: []model.PlanSectionIndex{}}
 	section := model.PlanSection{SchemaVersion: model.PlanSchemaVersion, ProjectID: "project", ID: "section", Revision: 1, Title: "section", ShortDescription: "short", Description: "description", UpdatedBy: "gpt", UpdatedAt: now}
 	render := model.PlanRender{SchemaVersion: model.PlanSchemaVersion, ProjectID: "project", Revision: 1, Title: "title", Summary: "summary", CurrentObjective: "objective", Text: "rendered"}
 	adr := model.ADR{SchemaVersion: 1, ID: "ADR-TEST", ProjectID: "project", Title: "title", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: now}
@@ -573,7 +574,7 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		"project_list":         map[string]any{"projects": []model.Project{project}}, "project_read": project,
 		"project_identifiers_read":  model.ProjectIdentifiers{SchemaVersion: 1, ProjectID: "project", ProjectCode: "GTW", NextTaskNumber: 1, NextADRNumber: 1},
 		"project_identifiers_adopt": map[string]any{"identifiers": model.ProjectIdentifiers{SchemaVersion: 1, ProjectID: "project", ProjectCode: "GTW", NextTaskNumber: 1, NextADRNumber: 1}, "operation": operation},
-		"project_status":            service.ProjectStatus{Project: project, Local: local, Worktree: worktree, Plan: plan.StatusView(), HubRevision: transaction.After, WorkflowPolicy: service.ProjectWorkflowPolicyStatus{State: "adopted", Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", AgentWaitForCI: false, CI: policy.CI, Conflicts: []string{}, CorrectiveAction: "none"}},
+		"project_status":            service.ProjectStatus{Project: project, Local: local, Worktree: worktree, Plan: plan.StatusView(), HubRevision: transaction.After, WorkflowPolicy: service.ProjectWorkflowPolicyStatus{State: "adopted", Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", AgentWaitForCI: false, CI: policy.CI, Conflicts: []string{}, CorrectiveAction: "none"}, StatusToken: "status-token"},
 		"project_onboard": map[string]any{
 			"operation_id": "11111111-1111-4111-8111-111111111111", "project_id": "project", "state": "activated",
 			"request_sha256": strings.Repeat("a", 64), "receipt_sha256": strings.Repeat("b", 64), "hub_transaction": true,
@@ -611,7 +612,7 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		"planner_report_acknowledge":     map[string]any{"state": plannerReportState, "operation": operation},
 		"planner_report_next":            map[string]any{"state": plannerReportState, "operation": operation},
 		"project_register":               operation,
-		"plan_read":                      plan, "plan_cutover": operation, "plan_update": operation, "plan_section_read": section, "plan_section_create": operation, "plan_section_update": operation, "plan_section_delete": operation, "plan_render": render, "plan_history": map[string]any{"history": []map[string]string{{"sha": transaction.After, "date": now.Format(time.RFC3339), "author": "GPT", "subject": "subject"}}},
+		"plan_read":                      planProjection, "plan_cutover": operation, "plan_update": operation, "plan_section_read": section, "plan_section_create": operation, "plan_section_update": operation, "plan_section_delete": operation, "plan_render": render, "plan_history": map[string]any{"history": []map[string]string{{"sha": transaction.After, "date": now.Format(time.RFC3339), "author": "GPT", "subject": "subject"}}},
 		"adr_list": map[string]any{"adrs": []model.ADR{adr}}, "adr_read": adr, "adr_create": operation,
 		"task_create": map[string]any{"task": task, "operation": operation}, "task_list": map[string]any{"tasks": []service.TaskRecord{{Task: task, State: state, RunSummaries: []model.RunReviewSummary{}}}}, "task_read": publicPacket,
 		"task_revision_list": map[string]any{"revisions": []any{revisionSample}}, "task_revision_read": revisionSample, "task_revision_status": revisionStatusSample,
