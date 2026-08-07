@@ -256,6 +256,10 @@ func projectConfigOutputSchema() map[string]any {
 
 func onboardingRequestSchema() map[string]any {
 	positive := integer("JSON Schema positive integer", 1, 9007199254740991)
+	requestSchemaVersion := integer("Onboarding request schema version", 1, 1)
+	requestSchemaVersion["const"] = 1
+	planSchemaVersion := integer("Initial workflow-v2 plan schema version", 2, 2)
+	planSchemaVersion["const"] = 2
 	sha := str("40-character Git revision")
 	sha["pattern"] = "^[0-9a-f]{40}$"
 	projectID := str("Project identifier")
@@ -272,13 +276,13 @@ func onboardingRequestSchema() map[string]any {
 		"id": str("Section identifier"), "title": str("Section title"), "short_description": str("Short description"), "revision": positive,
 	}, "id", "title", "short_description", "revision")
 	initialPlan := obj(map[string]any{
-		"schema_version": positive, "project_id": projectID, "revision": positive, "title": str("Plan title"), "summary": str("Plan summary"),
+		"schema_version": planSchemaVersion, "project_id": projectID, "revision": positive, "title": str("Plan title"), "summary": str("Plan summary"),
 		"current_objective": str("Current objective"), "queue": array(str("Queue item")), "sections": array(section), "updated_by": str("Updater"), "updated_at": outputDateTime(),
 	}, "schema_version", "project_id", "revision", "title", "summary", "current_objective", "queue", "sections", "updated_by", "updated_at")
 	airelay := obj(map[string]any{"session_required": outputBoolean(), "session_key": session}, "session_required")
 	workflow := obj(map[string]any{"repository": str("Workflow repository"), "commit": sha}, "repository", "commit")
 	return obj(map[string]any{
-		"schema_version": positive, "project_id": projectID, "root": str("Source repository root"), "remote": remote, "repository_url": str("Repository URL"),
+		"schema_version": requestSchemaVersion, "project_id": projectID, "root": str("Source repository root"), "remote": remote, "repository_url": str("Repository URL"),
 		"default_branch": branch, "airelay": airelay, "project_code": code, "gateway_state_dir": str("Gateway state directory"),
 		"workflow": workflow, "initial_plan": initialPlan, "expected_hub_revision": sha,
 	}, "schema_version", "project_id", "root", "remote", "repository_url", "default_branch", "airelay", "project_code", "gateway_state_dir", "initial_plan", "expected_hub_revision")

@@ -3,6 +3,9 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -54,6 +57,15 @@ func TestProjectOnboardingSchemasUseCanonicalUUIDAndClosedNestedRequest(t *testi
 		if request["additionalProperties"] != false {
 			t.Fatalf("%s request schema is not closed", name)
 		}
+		requestVersion := request["properties"].(map[string]any)["schema_version"].(map[string]any)
+		if requestVersion["const"] != 1 {
+			t.Fatalf("%s request schema_version = %#v, want const 1", name, requestVersion["const"])
+		}
+		initialPlan := request["properties"].(map[string]any)["initial_plan"].(map[string]any)
+		planVersion := initialPlan["properties"].(map[string]any)["schema_version"].(map[string]any)
+		if planVersion["const"] != 2 {
+			t.Fatalf("%s initial_plan schema_version = %#v, want const 2", name, planVersion["const"])
+		}
 		expectedRequired := []string{"schema_version", "project_id", "root", "remote", "repository_url", "default_branch", "airelay", "project_code", "gateway_state_dir", "initial_plan", "expected_hub_revision"}
 		if got := stringList(request["required"]); len(got) != len(expectedRequired) {
 			t.Fatalf("%s request required fields = %v, want %v", name, got, expectedRequired)
@@ -77,6 +89,34 @@ func TestProjectOnboardingSchemasUseCanonicalUUIDAndClosedNestedRequest(t *testi
 	}
 	if annotations := server.tools()["project_onboard_status"].Annotations; annotations != readOnlyAnnotations() {
 		t.Fatalf("project_onboard_status annotations = %#v", annotations)
+	}
+}
+
+func TestProjectRegisterRemainsSeparateFromOnboarding(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Join(filepath.Dir(sourceFile), "..", "..")
+	registerSource, err := os.ReadFile(filepath.Join(root, "internal", "service", "service.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(registerSource), "ProjectOnboard") {
+		t.Fatal("ProjectRegister source references ProjectOnboard")
+	}
+	serverSource, err := os.ReadFile(filepath.Join(root, "internal", "mcp", "server.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(serverSource)
+	start := strings.Index(text, `add("project_register"`)
+	end := strings.Index(text[start:], `add("plan_read"`)
+	if start < 0 || end < 0 {
+		t.Fatal("could not isolate project_register MCP handler")
+	}
+	if strings.Contains(text[start:start+end], "ProjectOnboard") {
+		t.Fatal("project_register MCP handler references ProjectOnboard")
 	}
 }
 
