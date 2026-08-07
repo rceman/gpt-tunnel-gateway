@@ -50,7 +50,6 @@ gpt-tunnel run resume <run-id>
 gpt-tunnel run cancel <run-id>
 gpt-tunnel run sweep
 gpt-tunnel run write-completion <run-id> --completion-file <receipt-input>  # bounded legacy compatibility only
-gpt-tunnel run finalize <run-id> [--completion-file <gateway-owned-run-path>]
 ```
 
 New operational identifiers are compact and project-coded: tasks use

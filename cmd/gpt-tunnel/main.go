@@ -667,14 +667,13 @@ func run(ctx context.Context, s *service.Service, args []string) {
 	case "finalize":
 		require(args, 2)
 		fs := flag.NewFlagSet("run finalize", flag.ExitOnError)
-		cf := fs.String("completion-file", "", "completion JSON")
 		ex := fs.String("expected-hub-revision", "", "optimistic revision")
 		summary := fs.String("summary", "", "bounded advisory summary")
 		var deviations, risks stringListFlag
 		fs.Var(&deviations, "deviation", "bounded advisory deviation (repeatable)")
 		fs.Var(&risks, "remaining-risk", "bounded advisory remaining risk (repeatable)")
 		_ = fs.Parse(args[2:])
-		report, result, e := s.RunFinalize(ctx, service.FinalizeInput{RunID: args[1], CompletionFile: *cf, Summary: *summary, Deviations: deviations, RemainingRisks: risks, WriteOptions: service.WriteOptions{ExpectedHubRevision: *ex}})
+		report, result, e := s.RunFinalize(ctx, service.FinalizeInput{RunID: args[1], Summary: *summary, Deviations: deviations, RemainingRisks: risks, WriteOptions: service.WriteOptions{ExpectedHubRevision: *ex}})
 		if e != nil {
 			fatal(e)
 		}
