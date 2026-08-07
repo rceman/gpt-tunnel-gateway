@@ -59,7 +59,7 @@ func TestToolCallAcceptsBoundedProtocolMeta(t *testing.T) {
 		t.Fatalf("unexpected result: %#v", response)
 	}
 	structured, ok := result["structuredContent"].(map[string]any)
-	if !ok || structured["version"] != "0.6.3" {
+	if !ok || structured["version"] != "0.6.4" {
 		t.Fatalf("unexpected structured result: %#v", result)
 	}
 }
@@ -566,7 +566,7 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	plannerReportState := map[string]any{"schema_version": 1, "report_id": "report", "report_sha256": strings.Repeat("b", 64), "status": "resolved", "updated_at": now}
 
 	samples := map[string]any{
-		"system_ping":          map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.3", "gateway_id": "home_pc", "time": now},
+		"system_ping":          map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.4", "gateway_id": "home_pc", "time": now},
 		"gateway_capabilities": map[string]any{"gateway_id": "home_pc", "listen_addr": "127.0.0.1:8765", "projects": []string{"project"}, "hub_protocol_root": "gpt-tunnel/v1", "hub_repository_url": "git@github.com:rceman/typer.git", "hub_branch": "gpt-tunnel/home_pc", "hub_managed_root": "/tmp/state/hub/repository", "airelay_control_only": true, "generic_shell_available": false},
 		"project_list":         map[string]any{"projects": []model.Project{project}}, "project_read": project,
 		"project_identifiers_read":  model.ProjectIdentifiers{SchemaVersion: 1, ProjectID: "project", ProjectCode: "GTW", NextTaskNumber: 1, NextADRNumber: 1},
