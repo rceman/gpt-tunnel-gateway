@@ -72,6 +72,15 @@ func TestCanonicalTaskRunAndADRAllocation(t *testing.T) {
 	if err != nil || len(adrs) != 1 || adrs[0].ID != "EXM-ADR1" {
 		t.Fatalf("unexpected ADR list: %#v %v", adrs, err)
 	}
+	readADR, err := s.ADRRead(ctx, task.ProjectID, adrs[0].ID)
+	if err != nil || readADR.ID != adrs[0].ID {
+		t.Fatalf("compact ADR read did not match list: %#v %v", readADR, err)
+	}
+	for _, invalid := range []string{"GRP-ADR1", "EXM-A1", "EXM-ADR01", "EXM-ADR1-extra"} {
+		if _, err := s.ADRRead(ctx, task.ProjectID, invalid); err == nil {
+			t.Fatalf("accepted invalid compact ADR read ID %q", invalid)
+		}
+	}
 	if _, _, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: task.ProjectID, Title: "Missing slug", Objective: "This must fail", AcceptanceCriteria: []string{"reject"}, CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: adrResult.Hub.After}}); err == nil || !strings.Contains(err.Error(), "slug is required") {
 		t.Fatalf("missing slug was accepted: %v", err)
 	}

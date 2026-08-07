@@ -135,3 +135,24 @@ func TestCompactIDsRequireExpectedProjectCode(t *testing.T) {
 		t.Fatal("accepted task number above maximum")
 	}
 }
+
+func TestCanonicalADRIdentifierRejectsMalformedAndUnsupportedAliases(t *testing.T) {
+	for _, value := range []string{
+		"GTW-ADR0",
+		"GTW-ADR01",
+		"gtw-ADR1",
+		"GT-ADR1",
+		"GTWW-ADR1",
+		"GTW-A1",
+		"ADR1",
+		"GTW-ADR1-extra",
+		"GTW-ADR9007199254740992",
+	} {
+		if err := ValidateCanonicalADRIdentifier(value); err == nil {
+			t.Fatalf("accepted invalid or unsupported compact ADR ID %q", value)
+		}
+	}
+	if err := ValidateADRIDForProject("GRP-ADR1", "GTW"); err == nil {
+		t.Fatal("accepted compact ADR ID for the wrong project")
+	}
+}
