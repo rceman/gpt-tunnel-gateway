@@ -16,20 +16,40 @@ import (
 )
 
 type DeliveryHandoffCreateInput struct {
-	ProjectID         string             `json:"project_id"`
-	TaskID            string             `json:"task_id"`
-	RunID             string             `json:"run_id"`
-	TaskSHA256        string             `json:"task_sha256"`
-	OwnerSummary      model.OwnerSummary `json:"owner_summary"`
-	TechnicalEvidence json.RawMessage    `json:"technical_evidence"`
-	CreatedBy         string             `json:"created_by"`
-	SupersedesID      string             `json:"supersedes_handoff_id,omitempty"`
+	ProjectID            string             `json:"project_id"`
+	TaskID               string             `json:"task_id"`
+	RunID                string             `json:"run_id"`
+	TaskSHA256           string             `json:"task_sha256"`
+	OwnerSummary         model.OwnerSummary `json:"owner_summary"`
+	TechnicalEvidence    json.RawMessage    `json:"technical_evidence"`
+	PlanRevision         int                `json:"plan_revision"`
+	HubRevision          string             `json:"hub_revision"`
+	TaskRefs             []model.TaskRef    `json:"task_refs"`
+	TrainRefs            []string           `json:"train_refs"`
+	PlanSectionRefs      []string           `json:"plan_section_refs"`
+	OperatorEventRefs    []string           `json:"operator_event_refs"`
+	ExpectedRepoBase     string             `json:"expected_repo_base"`
+	ExpectedRepoHead     string             `json:"expected_repo_head"`
+	FirstAction          string             `json:"first_action"`
+	StopBoundary         string             `json:"stop_boundary"`
+	ProhibitedOperations []string           `json:"prohibited_operations"`
+	InstructionBody      string             `json:"instruction_body"`
+	RoleRefs             []string           `json:"role_refs"`
+	DelegationRefs       []string           `json:"delegation_refs"`
+	CreatedBy            string             `json:"created_by"`
+	SupersedesID         string             `json:"supersedes_handoff_id,omitempty"`
 	WriteOptions
 }
 
 type DeliveryHandoffAcknowledgeInput struct {
 	HandoffID      string `json:"handoff_id"`
 	AcknowledgedBy string `json:"acknowledged_by"`
+	WriteOptions
+}
+
+type DeliveryHandoffNextInput struct {
+	HandoffID string `json:"handoff_id"`
+	NextBy    string `json:"next_by"`
 	WriteOptions
 }
 
@@ -41,16 +61,42 @@ type DeliveryHandoffCancelInput struct {
 }
 
 type DeliveryHandoffSupersedeInput struct {
-	HandoffID         string             `json:"handoff_id"`
-	OwnerSummary      model.OwnerSummary `json:"owner_summary"`
-	TechnicalEvidence json.RawMessage    `json:"technical_evidence"`
-	CreatedBy         string             `json:"created_by"`
+	HandoffID            string             `json:"handoff_id"`
+	OwnerSummary         model.OwnerSummary `json:"owner_summary"`
+	TechnicalEvidence    json.RawMessage    `json:"technical_evidence"`
+	PlanRevision         int                `json:"plan_revision"`
+	HubRevision          string             `json:"hub_revision"`
+	TaskRefs             []model.TaskRef    `json:"task_refs"`
+	TrainRefs            []string           `json:"train_refs"`
+	PlanSectionRefs      []string           `json:"plan_section_refs"`
+	OperatorEventRefs    []string           `json:"operator_event_refs"`
+	ExpectedRepoBase     string             `json:"expected_repo_base"`
+	ExpectedRepoHead     string             `json:"expected_repo_head"`
+	FirstAction          string             `json:"first_action"`
+	StopBoundary         string             `json:"stop_boundary"`
+	ProhibitedOperations []string           `json:"prohibited_operations"`
+	InstructionBody      string             `json:"instruction_body"`
+	RoleRefs             []string           `json:"role_refs"`
+	DelegationRefs       []string           `json:"delegation_refs"`
+	CreatedBy            string             `json:"created_by"`
 	WriteOptions
 }
 
 type PlannerReportPublishInput struct {
 	HandoffID string              `json:"handoff_id"`
 	Report    model.PlannerReport `json:"report"`
+	WriteOptions
+}
+
+type PlannerReportAcknowledgeInput struct {
+	ReportID       string `json:"report_id"`
+	AcknowledgedBy string `json:"acknowledged_by"`
+	WriteOptions
+}
+
+type PlannerReportNextInput struct {
+	ReportID   string `json:"report_id"`
+	ResolvedBy string `json:"resolved_by"`
 	WriteOptions
 }
 
@@ -82,6 +128,13 @@ func (s *Service) plannerReportPath(project, id string) string {
 	return s.plannerReportPrefix(project) + "/" + id + ".json"
 }
 
+func (s *Service) plannerReportStatePath(project, id string) string {
+	if model.ValidateProjectIdentifier(project) != nil || model.ValidateObjectIdentifier(id) != nil {
+		return "../invalid-planner-report-state"
+	}
+	return s.plannerReportPrefix(project) + "/" + id + ".state.json"
+}
+
 func newDurableRecordID() (string, error) {
 	id, err := model.NewID()
 	if err != nil {
@@ -98,6 +151,15 @@ func validateHandoffSummaryAndEvidence(summary model.OwnerSummary, evidence json
 		return err
 	}
 	return model.ValidateTechnicalEvidence(evidence)
+}
+
+func handoffJournalInput(handoff model.DeliveryHandoff, reportID string, extraIdentities []string, summary, actor string) OperatorRecordInput {
+	identities := []string{handoff.ID}
+	identities = append(identities, extraIdentities...)
+	if reportID != "" {
+		identities = append(identities, reportID)
+	}
+	return OperatorRecordInput{ProjectID: handoff.ProjectID, Kind: model.OperatorOperation, Summary: summary, Content: model.OperatorJournalContent{Facts: []string{summary}}, References: model.OperatorJournalReferences{PlanSections: append([]string(nil), handoff.PlanSectionRefs...), Tasks: []string{handoff.TaskID}, Runs: []string{handoff.RunID}, Identities: identities}, Actor: actor}
 }
 
 func (s *Service) validateHandoffReferences(ctx context.Context, projectID, taskID, runID, taskSHA string) (model.Task, model.Run, error) {
@@ -130,6 +192,85 @@ func (s *Service) validateHandoffReferences(ctx context.Context, projectID, task
 	return task, run, nil
 }
 
+func (s *Service) validateTaskRefsAgainstDurable(ctx context.Context, projectID, primaryTaskID, primarySHA string, refs []model.TaskRef) error {
+	foundPrimary := false
+	for _, ref := range refs {
+		task, err := s.findTask(ctx, ref.TaskID)
+		if err != nil {
+			return fmt.Errorf("task reference %s: %w", ref.TaskID, err)
+		}
+		if task.ProjectID != projectID || task.SHA256 != ref.TaskSHA256 {
+			return fmt.Errorf("task reference %s does not match durable task", ref.TaskID)
+		}
+		if ref.TaskID == primaryTaskID && ref.TaskSHA256 == primarySHA {
+			foundPrimary = true
+		}
+	}
+	if !foundPrimary {
+		return fmt.Errorf("task_refs must include the handoff task and exact hash")
+	}
+	return nil
+}
+
+func (s *Service) validateCandidatePlanAuthority(ctx context.Context, projectID string, planRevision int, hubRevision, expectedHubRevision string) error {
+	plan, err := s.PlanRead(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("read current durable plan: %w", err)
+	}
+	if plan.Revision != planRevision {
+		return fmt.Errorf("handoff plan revision %d is stale; current plan revision is %d", planRevision, plan.Revision)
+	}
+	if strings.TrimSpace(expectedHubRevision) == "" || hubRevision != expectedHubRevision {
+		return fmt.Errorf("handoff hub revision must equal expected hub revision")
+	}
+	currentHubRevision, err := s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		return err
+	}
+	if currentHubRevision != expectedHubRevision {
+		return fmt.Errorf("expected hub revision is stale")
+	}
+	return nil
+}
+
+func (s *Service) validateHandoffPlanAndJournalRefs(ctx context.Context, projectID string, planSectionRefs, operatorEventRefs []string) error {
+	if len(planSectionRefs) > 0 {
+		plan, err := s.PlanRead(ctx, projectID)
+		if err != nil {
+			return fmt.Errorf("read current plan sections: %w", err)
+		}
+		known := make(map[string]bool, len(plan.Sections))
+		for _, section := range plan.Sections {
+			known[section.ID] = true
+		}
+		for _, ref := range planSectionRefs {
+			if !known[ref] {
+				return fmt.Errorf("plan section reference %q is missing", ref)
+			}
+		}
+	}
+	for _, eventID := range operatorEventRefs {
+		var event model.OperatorJournalEvent
+		if err := s.Hub.ReadJSON(ctx, s.operatorHistoryEventPath(projectID, eventID), &event); err != nil {
+			return fmt.Errorf("operator event reference %q is missing: %w", eventID, err)
+		}
+		if err := model.ValidateOperatorJournalEvent(event); err != nil || event.ProjectID != projectID || event.ID != eventID {
+			return fmt.Errorf("operator event reference %q is invalid", eventID)
+		}
+	}
+	return nil
+}
+
+func (s *Service) validateHandoffPlanAuthority(ctx context.Context, handoff model.DeliveryHandoff, expectedHubRevision string) error {
+	if strings.TrimSpace(expectedHubRevision) == "" {
+		return fmt.Errorf("expected hub revision is required")
+	}
+	if handoff.HubRevision != expectedHubRevision {
+		return fmt.Errorf("handoff hub revision is not the transaction revision")
+	}
+	return nil
+}
+
 func (s *Service) DeliveryHandoffCreate(ctx context.Context, in DeliveryHandoffCreateInput) (model.DeliveryHandoff, OperationResult, error) {
 	if err := authority.RequirePlanner(ctx); err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
@@ -142,6 +283,12 @@ func (s *Service) DeliveryHandoffCreate(ctx context.Context, in DeliveryHandoffC
 	}
 	task, run, err := s.validateHandoffReferences(ctx, in.ProjectID, in.TaskID, in.RunID, in.TaskSHA256)
 	if err != nil {
+		return model.DeliveryHandoff{}, OperationResult{}, err
+	}
+	if err := s.validateCandidatePlanAuthority(ctx, in.ProjectID, in.PlanRevision, in.HubRevision, in.ExpectedHubRevision); err != nil {
+		return model.DeliveryHandoff{}, OperationResult{}, err
+	}
+	if err := s.validateTaskRefsAgainstDurable(ctx, in.ProjectID, task.ID, task.SHA256, in.TaskRefs); err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
 	}
 	if in.SupersedesID != "" {
@@ -158,12 +305,17 @@ func (s *Service) DeliveryHandoffCreate(ctx context.Context, in DeliveryHandoffC
 		return model.DeliveryHandoff{}, OperationResult{}, err
 	}
 	now := time.Now().UTC()
-	handoff := model.DeliveryHandoff{SchemaVersion: model.DurableHandoffSchemaVersion, ID: id, ProjectID: in.ProjectID, TaskID: task.ID, RunID: run.ID, TaskSHA256: task.SHA256, Status: model.DeliveryHandoffPending, OwnerSummary: in.OwnerSummary, TechnicalEvidence: append(json.RawMessage(nil), in.TechnicalEvidence...), SupersedesHandoffID: in.SupersedesID, CreatedBy: in.CreatedBy, CreatedAt: now, UpdatedAt: now}
+	handoff := model.DeliveryHandoff{SchemaVersion: model.DurableHandoffSchemaVersion, ID: id, ProjectID: in.ProjectID, TaskID: task.ID, RunID: run.ID, TaskSHA256: task.SHA256, Status: model.DeliveryHandoffPending, OwnerSummary: in.OwnerSummary, TechnicalEvidence: append(json.RawMessage(nil), in.TechnicalEvidence...), SupersedesHandoffID: in.SupersedesID, PlanRevision: in.PlanRevision, HubRevision: in.HubRevision, TaskRefs: append([]model.TaskRef(nil), in.TaskRefs...), TrainRefs: append([]string(nil), in.TrainRefs...), PlanSectionRefs: append([]string(nil), in.PlanSectionRefs...), OperatorEventRefs: append([]string(nil), in.OperatorEventRefs...), ExpectedRepoBase: in.ExpectedRepoBase, ExpectedRepoHead: in.ExpectedRepoHead, FirstAction: in.FirstAction, StopBoundary: in.StopBoundary, ProhibitedOperations: append([]string(nil), in.ProhibitedOperations...), InstructionBody: in.InstructionBody, RoleRefs: append([]string(nil), in.RoleRefs...), DelegationRefs: append([]string(nil), in.DelegationRefs...), AuthorRole: "planner", ConsumerRole: "delivery", CreatedBy: in.CreatedBy, CreatedAt: now, UpdatedAt: now}
+	handoff.CanonicalDigest, err = model.CanonicalDeliveryHandoffDigest(handoff)
+	if err != nil {
+		return model.DeliveryHandoff{}, OperationResult{}, err
+	}
 	if err := model.ValidateDeliveryHandoff(handoff); err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
 	}
 	path := s.deliveryHandoffPath(in.ProjectID, id)
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "planner: create delivery handoff "+id, func(worktree string) ([]string, error) {
+		changed := make([]string, 0, 3)
 		if _, statErr := os.Lstat(filepath.Join(worktree, filepath.FromSlash(path))); statErr == nil {
 			return nil, fmt.Errorf("delivery handoff already exists")
 		} else if !os.IsNotExist(statErr) {
@@ -172,7 +324,13 @@ func (s *Service) DeliveryHandoffCreate(ctx context.Context, in DeliveryHandoffC
 		if err := hub.WriteJSON(worktree, path, handoff); err != nil {
 			return nil, err
 		}
-		return []string{path}, nil
+		_, journalPaths, err := s.appendOperatorEventInWorktree(worktree, handoffJournalInput(handoff, "", nil, "delivery handoff created", "planner"))
+		if err != nil {
+			return nil, err
+		}
+		changed = append(changed, path)
+		changed = append(changed, journalPaths...)
+		return changed, nil
 	})
 	if err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
@@ -279,7 +437,60 @@ func (s *Service) DeliveryHandoffAcknowledge(ctx context.Context, in DeliveryHan
 		if err := hub.WriteJSON(worktree, path, next); err != nil {
 			return nil, err
 		}
-		return []string{path}, nil
+		_, journalPaths, err := s.appendOperatorEventInWorktree(worktree, handoffJournalInput(next, "", nil, "delivery handoff acknowledged", "delivery"))
+		if err != nil {
+			return nil, err
+		}
+		return append([]string{path}, journalPaths...), nil
+	})
+	if err != nil {
+		return model.DeliveryHandoff{}, OperationResult{}, err
+	}
+	return next, OperationResult{Hub: tx, ProjectID: next.ProjectID, Status: next.Status}, nil
+}
+
+// DeliveryHandoffNext claims the exact acknowledged handoff for Delivery and
+// advances it into the only state from which a report may be published.
+func (s *Service) DeliveryHandoffNext(ctx context.Context, in DeliveryHandoffNextInput) (model.DeliveryHandoff, OperationResult, error) {
+	if err := authority.RequireDelivery(ctx); err != nil {
+		return model.DeliveryHandoff{}, OperationResult{}, err
+	}
+	if strings.TrimSpace(in.NextBy) == "" {
+		return model.DeliveryHandoff{}, OperationResult{}, fmt.Errorf("next_by is required")
+	}
+	current, err := s.findDeliveryHandoff(ctx, in.HandoffID)
+	if err != nil {
+		return model.DeliveryHandoff{}, OperationResult{}, err
+	}
+	if current.Status != model.DeliveryHandoffAcknowledged {
+		return model.DeliveryHandoff{}, OperationResult{}, fmt.Errorf("handoff cannot advance from %q", current.Status)
+	}
+	path := s.deliveryHandoffPath(current.ProjectID, current.ID)
+	now := time.Now().UTC()
+	next := current
+	next.Status = model.DeliveryHandoffInProgress
+	next.StartedBy = in.NextBy
+	next.StartedAt = &now
+	next.UpdatedAt = now
+	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "delivery: advance handoff "+current.ID, func(worktree string) ([]string, error) {
+		var stored model.DeliveryHandoff
+		if err := readWorktreeJSON(worktree, path, &stored); err != nil {
+			return nil, err
+		}
+		if err := model.ValidateDeliveryHandoff(stored); err != nil {
+			return nil, err
+		}
+		if stored.Status != model.DeliveryHandoffAcknowledged || stored.UpdatedAt != current.UpdatedAt {
+			return nil, fmt.Errorf("handoff changed before advancement")
+		}
+		if err := hub.WriteJSON(worktree, path, next); err != nil {
+			return nil, err
+		}
+		_, journalPaths, err := s.appendOperatorEventInWorktree(worktree, handoffJournalInput(next, "", nil, "delivery handoff advanced to in_progress", "delivery"))
+		if err != nil {
+			return nil, err
+		}
+		return append([]string{path}, journalPaths...), nil
 	})
 	if err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
@@ -288,7 +499,7 @@ func (s *Service) DeliveryHandoffAcknowledge(ctx context.Context, in DeliveryHan
 }
 
 func (s *Service) DeliveryHandoffCancel(ctx context.Context, in DeliveryHandoffCancelInput) (model.DeliveryHandoff, OperationResult, error) {
-	if err := authority.RequirePlannerOrDelivery(ctx); err != nil {
+	if err := authority.RequirePlanner(ctx); err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
 	}
 	if strings.TrimSpace(in.CancelledBy) == "" || strings.TrimSpace(in.Reason) == "" {
@@ -323,7 +534,11 @@ func (s *Service) DeliveryHandoffCancel(ctx context.Context, in DeliveryHandoffC
 		if err := hub.WriteJSON(worktree, path, next); err != nil {
 			return nil, err
 		}
-		return []string{path}, nil
+		_, journalPaths, err := s.appendOperatorEventInWorktree(worktree, handoffJournalInput(next, "", nil, "delivery handoff cancelled", "planner"))
+		if err != nil {
+			return nil, err
+		}
+		return append([]string{path}, journalPaths...), nil
 	})
 	if err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
@@ -345,6 +560,15 @@ func (s *Service) DeliveryHandoffSupersede(ctx context.Context, in DeliveryHando
 	if err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
 	}
+	if err := s.validateCandidatePlanAuthority(ctx, old.ProjectID, in.PlanRevision, in.HubRevision, in.ExpectedHubRevision); err != nil {
+		return model.DeliveryHandoff{}, OperationResult{}, err
+	}
+	if err := s.validateTaskRefsAgainstDurable(ctx, old.ProjectID, old.TaskID, old.TaskSHA256, in.TaskRefs); err != nil {
+		return model.DeliveryHandoff{}, OperationResult{}, err
+	}
+	if err := s.validateHandoffPlanAndJournalRefs(ctx, old.ProjectID, in.PlanSectionRefs, in.OperatorEventRefs); err != nil {
+		return model.DeliveryHandoff{}, OperationResult{}, err
+	}
 	if old.Status == model.DeliveryHandoffCompleted || old.Status == model.DeliveryHandoffCancelled || old.Status == model.DeliveryHandoffSuperseded {
 		return model.DeliveryHandoff{}, OperationResult{}, fmt.Errorf("handoff cannot be superseded from %q", old.Status)
 	}
@@ -353,7 +577,11 @@ func (s *Service) DeliveryHandoffSupersede(ctx context.Context, in DeliveryHando
 		return model.DeliveryHandoff{}, OperationResult{}, err
 	}
 	now := time.Now().UTC()
-	next := model.DeliveryHandoff{SchemaVersion: model.DurableHandoffSchemaVersion, ID: id, ProjectID: old.ProjectID, TaskID: old.TaskID, RunID: old.RunID, TaskSHA256: old.TaskSHA256, Status: model.DeliveryHandoffPending, OwnerSummary: in.OwnerSummary, TechnicalEvidence: append(json.RawMessage(nil), in.TechnicalEvidence...), SupersedesHandoffID: old.ID, CreatedBy: in.CreatedBy, CreatedAt: now, UpdatedAt: now}
+	next := model.DeliveryHandoff{SchemaVersion: model.DurableHandoffSchemaVersion, ID: id, ProjectID: old.ProjectID, TaskID: old.TaskID, RunID: old.RunID, TaskSHA256: old.TaskSHA256, Status: model.DeliveryHandoffPending, OwnerSummary: in.OwnerSummary, TechnicalEvidence: append(json.RawMessage(nil), in.TechnicalEvidence...), SupersedesHandoffID: old.ID, PlanRevision: in.PlanRevision, HubRevision: in.HubRevision, TaskRefs: append([]model.TaskRef(nil), in.TaskRefs...), TrainRefs: append([]string(nil), in.TrainRefs...), PlanSectionRefs: append([]string(nil), in.PlanSectionRefs...), OperatorEventRefs: append([]string(nil), in.OperatorEventRefs...), ExpectedRepoBase: in.ExpectedRepoBase, ExpectedRepoHead: in.ExpectedRepoHead, FirstAction: in.FirstAction, StopBoundary: in.StopBoundary, ProhibitedOperations: append([]string(nil), in.ProhibitedOperations...), InstructionBody: in.InstructionBody, RoleRefs: append([]string(nil), in.RoleRefs...), DelegationRefs: append([]string(nil), in.DelegationRefs...), AuthorRole: "planner", ConsumerRole: "delivery", CreatedBy: in.CreatedBy, CreatedAt: now, UpdatedAt: now}
+	next.CanonicalDigest, err = model.CanonicalDeliveryHandoffDigest(next)
+	if err != nil {
+		return model.DeliveryHandoff{}, OperationResult{}, err
+	}
 	if err := model.ValidateDeliveryHandoff(next); err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
 	}
@@ -384,7 +612,11 @@ func (s *Service) DeliveryHandoffSupersede(ctx context.Context, in DeliveryHando
 		if err := hub.WriteJSON(worktree, nextPath, next); err != nil {
 			return nil, err
 		}
-		return []string{oldPath, nextPath}, nil
+		_, journalPaths, err := s.appendOperatorEventInWorktree(worktree, handoffJournalInput(next, "", []string{old.ID}, "delivery handoff superseded", "planner"))
+		if err != nil {
+			return nil, err
+		}
+		return append([]string{oldPath, nextPath}, journalPaths...), nil
 	})
 	if err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
@@ -515,7 +747,10 @@ func (s *Service) PlannerReportPublish(ctx context.Context, in PlannerReportPubl
 	if err != nil {
 		return model.PlannerReport{}, OperationResult{}, err
 	}
-	if handoff.Status != model.DeliveryHandoffAcknowledged && handoff.Status != model.DeliveryHandoffBlocked && handoff.Status != model.DeliveryHandoffAwaitingDecision {
+	if err := s.validateTaskRefsAgainstDurable(ctx, handoff.ProjectID, handoff.TaskID, handoff.TaskSHA256, handoff.TaskRefs); err != nil {
+		return model.PlannerReport{}, OperationResult{}, err
+	}
+	if handoff.Status != model.DeliveryHandoffInProgress && handoff.Status != model.DeliveryHandoffBlocked && handoff.Status != model.DeliveryHandoffAwaitingDecision {
 		return model.PlannerReport{}, OperationResult{}, fmt.Errorf("handoff cannot receive a report from %q", handoff.Status)
 	}
 	report := in.Report
@@ -559,10 +794,16 @@ func (s *Service) PlannerReportPublish(ctx context.Context, in PlannerReportPubl
 	if handoff.CurrentReportID != "" && report.SupersedesReportID != handoff.CurrentReportID {
 		return model.PlannerReport{}, OperationResult{}, fmt.Errorf("report supersession does not match current report")
 	}
-	if report.ReportType == model.PlannerReportCompleted && handoff.Status != model.DeliveryHandoffAcknowledged {
-		return model.PlannerReport{}, OperationResult{}, fmt.Errorf("completed report cannot convert an already blocked or decision-required handoff")
+	if report.ReportType == model.PlannerReportCompleted && handoff.Status != model.DeliveryHandoffInProgress {
+		return model.PlannerReport{}, OperationResult{}, fmt.Errorf("completed report requires an in-progress handoff")
 	}
+	reportDigest, err := model.CanonicalPlannerReportDigest(report)
+	if err != nil {
+		return model.PlannerReport{}, OperationResult{}, err
+	}
+	reportState := model.PlannerReportState{SchemaVersion: model.DurableHandoffSchemaVersion, ReportID: report.ID, ReportSHA256: reportDigest, Status: model.PlannerReportPublished, UpdatedAt: report.PublishedAt}
 	reportPath := s.plannerReportPath(handoff.ProjectID, report.ID)
+	reportStatePath := s.plannerReportStatePath(handoff.ProjectID, report.ID)
 	handoffPath := s.deliveryHandoffPath(handoff.ProjectID, handoff.ID)
 	nextHandoff := handoff
 	nextHandoff.CurrentReportID = report.ID
@@ -579,6 +820,7 @@ func (s *Service) PlannerReportPublish(ctx context.Context, in PlannerReportPubl
 		return model.PlannerReport{}, OperationResult{}, err
 	}
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "delivery: publish planner report "+report.ID, func(worktree string) ([]string, error) {
+		changed := make([]string, 0, 4)
 		var stored model.DeliveryHandoff
 		if err := readWorktreeJSON(worktree, handoffPath, &stored); err != nil {
 			return nil, err
@@ -594,6 +836,25 @@ func (s *Service) PlannerReportPublish(ctx context.Context, in PlannerReportPubl
 				return nil, err
 			}
 		}
+		if stored.CurrentReportID != "" {
+			oldReport, oldState, err := validatePlannerReportStateInWorktree(worktree, s, stored.ProjectID, stored.CurrentReportID)
+			if err != nil {
+				return nil, err
+			}
+			oldStatePath := s.plannerReportStatePath(stored.ProjectID, stored.CurrentReportID)
+			if oldReport.ID != stored.CurrentReportID {
+				return nil, fmt.Errorf("current planner report identity mismatch")
+			}
+			if oldState.Status == model.PlannerReportResolved || oldState.Status == model.PlannerReportSuperseded {
+				return nil, fmt.Errorf("planner report cannot supersede state %q", oldState.Status)
+			}
+			oldState.Status = model.PlannerReportSuperseded
+			oldState.UpdatedAt = report.PublishedAt
+			if err := hub.WriteJSON(worktree, oldStatePath, oldState); err != nil {
+				return nil, err
+			}
+			changed = append(changed, oldStatePath)
+		}
 		if _, statErr := os.Lstat(filepath.Join(worktree, filepath.FromSlash(reportPath))); statErr == nil {
 			return nil, fmt.Errorf("planner report already exists")
 		} else if !os.IsNotExist(statErr) {
@@ -602,10 +863,23 @@ func (s *Service) PlannerReportPublish(ctx context.Context, in PlannerReportPubl
 		if err := hub.WriteJSON(worktree, reportPath, report); err != nil {
 			return nil, err
 		}
+		if err := hub.WriteJSON(worktree, reportStatePath, reportState); err != nil {
+			return nil, err
+		}
 		if err := hub.WriteJSON(worktree, handoffPath, nextHandoff); err != nil {
 			return nil, err
 		}
-		return []string{reportPath, handoffPath}, nil
+		extraReportIDs := []string{}
+		if handoff.CurrentReportID != "" {
+			extraReportIDs = append(extraReportIDs, handoff.CurrentReportID)
+		}
+		_, journalPaths, err := s.appendOperatorEventInWorktree(worktree, handoffJournalInput(nextHandoff, report.ID, extraReportIDs, "planner report published and handoff advanced", "delivery"))
+		if err != nil {
+			return nil, err
+		}
+		changed = append(changed, reportPath, reportStatePath, handoffPath)
+		changed = append(changed, journalPaths...)
+		return changed, nil
 	})
 	if err != nil {
 		return model.PlannerReport{}, OperationResult{}, err
@@ -632,8 +906,156 @@ func (s *Service) PlannerReportRead(ctx context.Context, id string) (model.Plann
 	return model.PlannerReport{}, fmt.Errorf("planner report not found: %s", id)
 }
 
-func plannerReportStatusProjection(item model.PlannerReport) model.PlannerReportStatus {
-	return model.PlannerReportStatus{SchemaVersion: item.SchemaVersion, ID: item.ID, ProjectID: item.ProjectID, HandoffID: item.HandoffID, TaskID: item.TaskID, RunID: item.RunID, ReportType: item.ReportType, OwnerSummary: item.OwnerSummary, SupersedesReportID: item.SupersedesReportID, PublishedBy: item.PublishedBy, PublishedAt: item.PublishedAt}
+func (s *Service) plannerReportStateReadInProject(ctx context.Context, projectID, id string) (model.PlannerReportState, error) {
+	var report model.PlannerReport
+	if err := s.Hub.ReadJSON(ctx, s.plannerReportPath(projectID, id), &report); err != nil {
+		return model.PlannerReportState{}, err
+	}
+	if err := model.ValidatePlannerReport(report); err != nil {
+		return model.PlannerReportState{}, err
+	}
+	var state model.PlannerReportState
+	if err := s.Hub.ReadJSON(ctx, s.plannerReportStatePath(projectID, id), &state); err != nil {
+		return model.PlannerReportState{}, err
+	}
+	if err := model.ValidatePlannerReportState(state); err != nil {
+		return model.PlannerReportState{}, err
+	}
+	digest, err := model.CanonicalPlannerReportDigest(report)
+	if err != nil || state.ReportSHA256 != digest || state.ReportID != report.ID {
+		return model.PlannerReportState{}, fmt.Errorf("planner report state does not match immutable report")
+	}
+	return state, nil
+}
+
+func validatePlannerReportStateInWorktree(worktree string, s *Service, projectID, id string) (model.PlannerReport, model.PlannerReportState, error) {
+	var report model.PlannerReport
+	if err := readWorktreeJSON(worktree, s.plannerReportPath(projectID, id), &report); err != nil {
+		return model.PlannerReport{}, model.PlannerReportState{}, err
+	}
+	if err := model.ValidatePlannerReport(report); err != nil {
+		return model.PlannerReport{}, model.PlannerReportState{}, err
+	}
+	var state model.PlannerReportState
+	if err := readWorktreeJSON(worktree, s.plannerReportStatePath(projectID, id), &state); err != nil {
+		return model.PlannerReport{}, model.PlannerReportState{}, err
+	}
+	if err := model.ValidatePlannerReportState(state); err != nil {
+		return model.PlannerReport{}, model.PlannerReportState{}, err
+	}
+	digest, err := model.CanonicalPlannerReportDigest(report)
+	if err != nil || state.ReportID != report.ID || state.ReportSHA256 != digest {
+		return model.PlannerReport{}, model.PlannerReportState{}, fmt.Errorf("planner report state does not match immutable report")
+	}
+	return report, state, nil
+}
+
+func (s *Service) PlannerReportAcknowledge(ctx context.Context, in PlannerReportAcknowledgeInput) (model.PlannerReportState, OperationResult, error) {
+	if err := authority.RequirePlanner(ctx); err != nil {
+		return model.PlannerReportState{}, OperationResult{}, err
+	}
+	if strings.TrimSpace(in.AcknowledgedBy) == "" {
+		return model.PlannerReportState{}, OperationResult{}, fmt.Errorf("acknowledged_by is required")
+	}
+	report, err := s.PlannerReportRead(ctx, in.ReportID)
+	if err != nil {
+		return model.PlannerReportState{}, OperationResult{}, err
+	}
+	state, err := s.plannerReportStateReadInProject(ctx, report.ProjectID, report.ID)
+	if err != nil {
+		return model.PlannerReportState{}, OperationResult{}, err
+	}
+	if state.Status != model.PlannerReportPublished {
+		return model.PlannerReportState{}, OperationResult{}, fmt.Errorf("planner report cannot be acknowledged from %q", state.Status)
+	}
+	now := time.Now().UTC()
+	next := state
+	next.Status = model.PlannerReportAcknowledged
+	next.AcknowledgedBy = in.AcknowledgedBy
+	next.AcknowledgedAt = &now
+	next.UpdatedAt = now
+	path := s.plannerReportStatePath(report.ProjectID, report.ID)
+	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "planner: acknowledge report "+report.ID, func(worktree string) ([]string, error) {
+		storedReport, stored, err := validatePlannerReportStateInWorktree(worktree, s, report.ProjectID, report.ID)
+		if err != nil {
+			return nil, err
+		}
+		if storedReport.ID != report.ID {
+			return nil, fmt.Errorf("planner report identity mismatch")
+		}
+		if stored.ReportID != state.ReportID || stored.ReportSHA256 != state.ReportSHA256 || stored.Status != model.PlannerReportPublished || !stored.UpdatedAt.Equal(state.UpdatedAt) {
+			return nil, fmt.Errorf("planner report changed before acknowledgement")
+		}
+		if err := hub.WriteJSON(worktree, path, next); err != nil {
+			return nil, err
+		}
+		journalHandoff := model.DeliveryHandoff{ID: report.HandoffID, ProjectID: report.ProjectID, TaskID: report.TaskID, RunID: report.RunID}
+		_, journalPaths, err := s.appendOperatorEventInWorktree(worktree, handoffJournalInput(journalHandoff, report.ID, nil, "planner report acknowledged", "planner"))
+		if err != nil {
+			return nil, err
+		}
+		return append([]string{path}, journalPaths...), nil
+	})
+	if err != nil {
+		return model.PlannerReportState{}, OperationResult{}, err
+	}
+	return next, OperationResult{Hub: tx, ProjectID: report.ProjectID, Status: next.Status}, nil
+}
+
+func (s *Service) PlannerReportNext(ctx context.Context, in PlannerReportNextInput) (model.PlannerReportState, OperationResult, error) {
+	if err := authority.RequirePlanner(ctx); err != nil {
+		return model.PlannerReportState{}, OperationResult{}, err
+	}
+	if strings.TrimSpace(in.ResolvedBy) == "" {
+		return model.PlannerReportState{}, OperationResult{}, fmt.Errorf("resolved_by is required")
+	}
+	report, err := s.PlannerReportRead(ctx, in.ReportID)
+	if err != nil {
+		return model.PlannerReportState{}, OperationResult{}, err
+	}
+	state, err := s.plannerReportStateReadInProject(ctx, report.ProjectID, report.ID)
+	if err != nil {
+		return model.PlannerReportState{}, OperationResult{}, err
+	}
+	if state.Status != model.PlannerReportAcknowledged {
+		return model.PlannerReportState{}, OperationResult{}, fmt.Errorf("planner report cannot be resolved from %q", state.Status)
+	}
+	now := time.Now().UTC()
+	next := state
+	next.Status = model.PlannerReportResolved
+	next.ResolvedBy = in.ResolvedBy
+	next.ResolvedAt = &now
+	next.UpdatedAt = now
+	path := s.plannerReportStatePath(report.ProjectID, report.ID)
+	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "planner: resolve report "+report.ID, func(worktree string) ([]string, error) {
+		storedReport, stored, err := validatePlannerReportStateInWorktree(worktree, s, report.ProjectID, report.ID)
+		if err != nil {
+			return nil, err
+		}
+		if storedReport.ID != report.ID {
+			return nil, fmt.Errorf("planner report identity mismatch")
+		}
+		if stored.ReportID != state.ReportID || stored.ReportSHA256 != state.ReportSHA256 || stored.Status != model.PlannerReportAcknowledged || !stored.UpdatedAt.Equal(state.UpdatedAt) {
+			return nil, fmt.Errorf("planner report changed before resolution")
+		}
+		if err := hub.WriteJSON(worktree, path, next); err != nil {
+			return nil, err
+		}
+		journalHandoff := model.DeliveryHandoff{ID: report.HandoffID, ProjectID: report.ProjectID, TaskID: report.TaskID, RunID: report.RunID}
+		_, journalPaths, err := s.appendOperatorEventInWorktree(worktree, handoffJournalInput(journalHandoff, report.ID, nil, "planner report resolved", "planner"))
+		if err != nil {
+			return nil, err
+		}
+		return append([]string{path}, journalPaths...), nil
+	})
+	if err != nil {
+		return model.PlannerReportState{}, OperationResult{}, err
+	}
+	return next, OperationResult{Hub: tx, ProjectID: report.ProjectID, Status: next.Status}, nil
+}
+
+func plannerReportStatusProjection(item model.PlannerReport, state model.PlannerReportState) model.PlannerReportStatus {
+	return model.PlannerReportStatus{SchemaVersion: item.SchemaVersion, ID: item.ID, ProjectID: item.ProjectID, HandoffID: item.HandoffID, TaskID: item.TaskID, RunID: item.RunID, ReportType: item.ReportType, OwnerSummary: item.OwnerSummary, SupersedesReportID: item.SupersedesReportID, PublishedBy: item.PublishedBy, PublishedAt: item.PublishedAt, Status: state.Status}
 }
 
 func (s *Service) PlannerReportList(ctx context.Context, projectID string) ([]model.PlannerReportStatus, error) {
@@ -643,6 +1065,9 @@ func (s *Service) PlannerReportList(ctx context.Context, projectID string) ([]mo
 	}
 	items := make([]model.PlannerReportStatus, 0, len(paths))
 	for _, path := range paths {
+		if strings.HasSuffix(path, ".state.json") {
+			continue
+		}
 		var report model.PlannerReport
 		if err := s.Hub.ReadJSON(ctx, path, &report); err != nil {
 			return nil, err
@@ -650,7 +1075,11 @@ func (s *Service) PlannerReportList(ctx context.Context, projectID string) ([]mo
 		if err := model.ValidatePlannerReport(report); err != nil {
 			return nil, err
 		}
-		items = append(items, plannerReportStatusProjection(report))
+		state, err := s.plannerReportStateReadInProject(ctx, projectID, report.ID)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, plannerReportStatusProjection(report, state))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].PublishedAt.After(items[j].PublishedAt) })
 	return items, nil
