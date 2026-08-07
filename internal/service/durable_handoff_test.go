@@ -33,6 +33,14 @@ func handoffEvidence(terminal, reviewed bool) json.RawMessage {
 	return json.RawMessage(`{"terminal":` + strings.ToLower(boolString(terminal)) + `,"reviewed":` + strings.ToLower(boolString(reviewed)) + `,"head":"` + strings.Repeat("a", 40) + `"}`)
 }
 
+func blockedReportEvidence() json.RawMessage {
+	return json.RawMessage(`{"blocker_class":"external_dependency","severity":"medium","failed_precondition":"required evidence was not available","verified_facts":["repository state was preserved"],"preservation_resume":"resume from the durable handoff","same_run_correction_available":false}`)
+}
+
+func decisionReportEvidence() json.RawMessage {
+	return json.RawMessage(`{"decision_question":"which bounded next action is authorized","options":["wait","review"],"tradeoffs":"waiting preserves state","recommendation":"review the evidence","deferral_consequence":"no mutation occurs","preserved_state":"hub and worktree remain unchanged","unauthorized_choice_implemented":false}`)
+}
+
 func withHandoffPlan(s *Service, in DeliveryHandoffCreateInput, revision string) DeliveryHandoffCreateInput {
 	plan, err := s.PlanRead(context.Background(), in.ProjectID)
 	if err == nil {
@@ -175,7 +183,7 @@ func TestDeliveryHandoffLifecycleAndAtomicReportPublication(t *testing.T) {
 	assertJournalCounter(t, s, 4)
 	report, published, err := s.PlannerReportPublish(delivery, PlannerReportPublishInput{
 		HandoffID:    handoff.ID,
-		Report:       model.PlannerReport{ReportType: model.PlannerReportBlocked, OwnerSummary: handoffSummaryStatus(model.PlannerReportBlocked), TechnicalEvidence: handoffEvidence(false, true), PublishedBy: "delivery"},
+		Report:       model.PlannerReport{ReportType: model.PlannerReportBlocked, OwnerSummary: handoffSummaryStatus(model.PlannerReportBlocked), TechnicalEvidence: blockedReportEvidence(), PublishedBy: "delivery"},
 		WriteOptions: WriteOptions{ExpectedHubRevision: nextOp.Hub.After},
 	})
 	if err != nil {
@@ -210,7 +218,7 @@ func TestDeliveryHandoffLifecycleAndAtomicReportPublication(t *testing.T) {
 	assertHandoffJournalEvent(t, journalEventForOperation(t, s, resolvedReportOp), 6, "planner", next, report.ID)
 	assertJournalCounter(t, s, 7)
 	_ = resolvedReportOp
-	handoffStatuses, err := s.DeliveryHandoffList(ctx, "example")
+	handoffStatuses, err := s.DeliveryHandoffList(ctx, DeliveryHandoffListInput{ProjectID: "example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +229,7 @@ func TestDeliveryHandoffLifecycleAndAtomicReportPublication(t *testing.T) {
 	if err != nil || strings.Contains(string(statusJSON), "technical_evidence") {
 		t.Fatalf("handoff list exposed technical evidence: %s %v", statusJSON, err)
 	}
-	reportStatuses, err := s.PlannerReportList(ctx, "example")
+	reportStatuses, err := s.PlannerReportList(ctx, PlannerReportListInput{ProjectID: "example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,6 +239,12 @@ func TestDeliveryHandoffLifecycleAndAtomicReportPublication(t *testing.T) {
 	}
 	if len(reportStatuses) != 1 || reportStatuses[0].Status != model.PlannerReportResolved {
 		t.Fatalf("report lifecycle status was not projected: %#v", reportStatuses)
+	}
+	if _, err := s.DeliveryHandoffList(ctx, DeliveryHandoffListInput{ProjectID: "example", Limit: s.Config.MaxListItems + 1}); err == nil {
+		t.Fatal("over-limit handoff list was accepted")
+	}
+	if _, err := s.PlannerReportList(ctx, PlannerReportListInput{ProjectID: "example", Limit: s.Config.MaxListItems + 1}); err == nil {
+		t.Fatal("over-limit report list was accepted")
 	}
 }
 
@@ -295,12 +309,50 @@ func TestDeliveryHandoffAuthorityAndTerminalReportFailClosedWithoutMutation(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = s.PlannerReportPublish(authority.WithDelivery(ctx), PlannerReportPublishInput{HandoffID: next.ID, Report: model.PlannerReport{ReportType: model.PlannerReportCompleted, OwnerSummary: handoffSummaryStatus(model.PlannerReportCompleted), TechnicalEvidence: handoffEvidence(false, false), PublishedBy: "delivery"}, WriteOptions: WriteOptions{ExpectedHubRevision: nextOp.Hub.After}})
-	if err == nil || !strings.Contains(err.Error(), "terminal technical evidence") {
-		t.Fatalf("invalid completed report was accepted: %v", err)
+	invalidCompletedEvidence := json.RawMessage(`{"terminal":false,"reviewed":true,"task_sha256":"` + strings.Repeat("a", 64) + `","run_id":"EXM-TSK1-RUN1","delivery_report_id":"report-proof","reviewed_head":"` + strings.Repeat("b", 40) + `"}`)
+	_, _, err = s.PlannerReportPublish(authority.WithDelivery(ctx), PlannerReportPublishInput{HandoffID: next.ID, Report: model.PlannerReport{ReportType: model.PlannerReportCompleted, OwnerSummary: handoffSummaryStatus(model.PlannerReportCompleted), TechnicalEvidence: invalidCompletedEvidence, PublishedBy: "delivery"}, WriteOptions: WriteOptions{ExpectedHubRevision: nextOp.Hub.After}})
+	if err == nil {
+		t.Fatal("invalid completed report was accepted")
 	}
 	if got, err := s.Hub.RemoteRevision(ctx); err != nil || got != before {
 		t.Fatalf("invalid report mutated hub: %s %v", got, err)
+	}
+}
+
+func TestDeliveryHandoffCreateReferenceValidationIsZeroMutation(t *testing.T) {
+	s, _, _, _ := dispatchedRun(t, "task/durable-handoff-create-refs")
+	ctx := context.Background()
+	revision, err := s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := withHandoffPlan(s, DeliveryHandoffCreateInput{ProjectID: "example", TaskID: "EXM-TSK1", RunID: "EXM-TSK1-RUN1", OwnerSummary: handoffSummary(), TechnicalEvidence: handoffEvidence(false, false), CreatedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: revision}}, revision)
+	cases := []struct {
+		name   string
+		mutate func(*DeliveryHandoffCreateInput)
+	}{
+		{name: "missing plan section", mutate: func(in *DeliveryHandoffCreateInput) { in.PlanSectionRefs = []string{"missing-section"} }},
+		{name: "missing operator event", mutate: func(in *DeliveryHandoffCreateInput) { in.OperatorEventRefs = []string{"EXM-OPR1"} }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			input := base
+			tc.mutate(&input)
+			before, err := s.Hub.RemoteRevision(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := s.DeliveryHandoffCreate(authority.WithPlanner(ctx), input); err == nil {
+				t.Fatal("invalid reference was accepted")
+			}
+			after, err := s.Hub.RemoteRevision(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after != before {
+				t.Fatalf("invalid reference mutated hub: %s -> %s", before, after)
+			}
+		})
 	}
 }
 
@@ -354,11 +406,11 @@ func TestPlannerReportCorrectionSupersedesWithAtomicJournal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	blocked, published, err := s.PlannerReportPublish(authority.WithDelivery(ctx), PlannerReportPublishInput{HandoffID: handoff.ID, Report: model.PlannerReport{ReportType: model.PlannerReportBlocked, OwnerSummary: handoffSummaryStatus(model.PlannerReportBlocked), TechnicalEvidence: handoffEvidence(false, false), PublishedBy: "delivery"}, WriteOptions: WriteOptions{ExpectedHubRevision: nextOp.Hub.After}})
+	blocked, published, err := s.PlannerReportPublish(authority.WithDelivery(ctx), PlannerReportPublishInput{HandoffID: handoff.ID, Report: model.PlannerReport{ReportType: model.PlannerReportBlocked, OwnerSummary: handoffSummaryStatus(model.PlannerReportBlocked), TechnicalEvidence: blockedReportEvidence(), PublishedBy: "delivery"}, WriteOptions: WriteOptions{ExpectedHubRevision: nextOp.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	corrected, correctionOp, err := s.PlannerReportPublish(authority.WithDelivery(ctx), PlannerReportPublishInput{HandoffID: handoff.ID, Report: model.PlannerReport{ReportType: model.PlannerReportDecisionRequired, OwnerSummary: handoffSummaryStatus(model.PlannerReportDecisionRequired), TechnicalEvidence: handoffEvidence(false, false), SupersedesReportID: blocked.ID, PublishedBy: "delivery"}, WriteOptions: WriteOptions{ExpectedHubRevision: published.Hub.After}})
+	corrected, correctionOp, err := s.PlannerReportPublish(authority.WithDelivery(ctx), PlannerReportPublishInput{HandoffID: handoff.ID, Report: model.PlannerReport{ReportType: model.PlannerReportDecisionRequired, OwnerSummary: handoffSummaryStatus(model.PlannerReportDecisionRequired), TechnicalEvidence: decisionReportEvidence(), SupersedesReportID: blocked.ID, PublishedBy: "delivery"}, WriteOptions: WriteOptions{ExpectedHubRevision: published.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -24,6 +24,10 @@ func testTechnicalEvidence(terminal, reviewed bool) json.RawMessage {
 	return json.RawMessage(`{"terminal":` + boolText(terminal) + `,"reviewed":` + boolText(reviewed) + `,"proof":"bounded"}`)
 }
 
+func testCompletedEvidence(terminal, reviewed bool) json.RawMessage {
+	return json.RawMessage(`{"terminal":` + boolText(terminal) + `,"reviewed":` + boolText(reviewed) + `,"task_sha256":"` + strings.Repeat("a", 64) + `","run_id":"EXM-TSK1-RUN1","delivery_report_id":"report-proof","reviewed_head":"` + strings.Repeat("b", 40) + `"}`)
+}
+
 func boolText(value bool) string {
 	if value {
 		return "true"
@@ -114,6 +118,19 @@ func TestDurableHandoffSeparatesObjectTechnicalEvidence(t *testing.T) {
 	}
 }
 
+func TestDurableHandoffRejectsDuplicateReferences(t *testing.T) {
+	handoff := testHandoff()
+	handoff.TaskRefs = append(handoff.TaskRefs, handoff.TaskRefs[0])
+	if err := ValidateDeliveryHandoff(handoff); err == nil {
+		t.Fatal("duplicate task reference was accepted")
+	}
+	handoff = testHandoff()
+	handoff.TrainRefs = []string{"train-1", "train-1"}
+	if err := ValidateDeliveryHandoff(handoff); err == nil {
+		t.Fatal("duplicate bounded reference was accepted")
+	}
+}
+
 func TestPlannerReportTypeAndTerminalEvidenceAreClosed(t *testing.T) {
 	report := PlannerReport{
 		SchemaVersion:     DurableHandoffSchemaVersion,
@@ -125,7 +142,7 @@ func TestPlannerReportTypeAndTerminalEvidenceAreClosed(t *testing.T) {
 		TaskSHA256:        strings.Repeat("a", 64),
 		ReportType:        PlannerReportCompleted,
 		OwnerSummary:      testOwnerSummary(),
-		TechnicalEvidence: testTechnicalEvidence(false, true),
+		TechnicalEvidence: testCompletedEvidence(true, true),
 		PublishedBy:       "delivery",
 		PublishedAt:       time.Now().UTC(),
 	}
@@ -133,8 +150,12 @@ func TestPlannerReportTypeAndTerminalEvidenceAreClosed(t *testing.T) {
 	if err := ValidatePlannerReport(report); err != nil {
 		t.Fatal(err)
 	}
+	report.TechnicalEvidence = testCompletedEvidence(false, true)
 	if err := PlannerReportRequiresTerminalEvidence(report); err == nil {
 		t.Fatal("unreviewed terminal report evidence was accepted")
+	}
+	if err := ValidatePlannerReport(report); err == nil {
+		t.Fatal("invalid completed report evidence was accepted")
 	}
 	report.ReportType = "unknown"
 	if err := ValidatePlannerReport(report); err == nil {
@@ -144,7 +165,14 @@ func TestPlannerReportTypeAndTerminalEvidenceAreClosed(t *testing.T) {
 
 func TestPlannerReportTypeMatchesOwnerSummaryStatus(t *testing.T) {
 	for _, reportType := range []string{PlannerReportCompleted, PlannerReportBlocked, PlannerReportDecisionRequired} {
-		report := PlannerReport{SchemaVersion: DurableHandoffSchemaVersion, ID: "report-" + reportType, ProjectID: "example", HandoffID: "handoff-1", TaskID: "EXM-TSK1", RunID: "EXM-TSK1-RUN1", TaskSHA256: strings.Repeat("a", 64), ReportType: reportType, OwnerSummary: testOwnerSummary(), TechnicalEvidence: testTechnicalEvidence(false, false), PublishedBy: "delivery", PublishedAt: time.Now().UTC()}
+		evidence := testCompletedEvidence(true, true)
+		if reportType == PlannerReportBlocked {
+			evidence = json.RawMessage(`{"blocker_class":"dependency","severity":"high","failed_precondition":"approval missing","verified_facts":["state preserved"],"preservation_resume":"resume from the durable receipt","same_run_correction_available":false}`)
+		}
+		if reportType == PlannerReportDecisionRequired {
+			evidence = json.RawMessage(`{"decision_question":"choose next action","options":["wait","review"],"tradeoffs":"waiting preserves state","recommendation":"review","deferral_consequence":"work remains paused","preserved_state":"no mutation","unauthorized_choice_implemented":false}`)
+		}
+		report := PlannerReport{SchemaVersion: DurableHandoffSchemaVersion, ID: "report-" + reportType, ProjectID: "example", HandoffID: "handoff-1", TaskID: "EXM-TSK1", RunID: "EXM-TSK1-RUN1", TaskSHA256: strings.Repeat("a", 64), ReportType: reportType, OwnerSummary: testOwnerSummary(), TechnicalEvidence: evidence, PublishedBy: "delivery", PublishedAt: time.Now().UTC()}
 		report.OwnerSummary.Status = reportType
 		if err := ValidatePlannerReport(report); err != nil {
 			t.Fatalf("valid %s report rejected: %v", reportType, err)
@@ -152,6 +180,42 @@ func TestPlannerReportTypeMatchesOwnerSummaryStatus(t *testing.T) {
 		report.OwnerSummary.Status = "working"
 		if err := ValidatePlannerReport(report); err == nil {
 			t.Fatalf("mismatched %s report was accepted", reportType)
+		}
+	}
+}
+
+func TestPlannerReportTypedBlockedAndDecisionEvidence(t *testing.T) {
+	blockedEvidence := json.RawMessage(`{"blocker_class":"dependency","severity":"high","failed_precondition":"approval missing","verified_facts":["state preserved"],"preservation_resume":"resume from the durable receipt","same_run_correction_available":false}`)
+	decisionEvidence := json.RawMessage(`{"decision_question":"choose next action","options":["wait","review"],"tradeoffs":"waiting preserves state","recommendation":"review","deferral_consequence":"work remains paused","preserved_state":"no mutation","unauthorized_choice_implemented":false}`)
+	for _, tc := range []struct {
+		name     string
+		typeName string
+		evidence json.RawMessage
+	}{
+		{name: "blocked", typeName: PlannerReportBlocked, evidence: blockedEvidence},
+		{name: "decision", typeName: PlannerReportDecisionRequired, evidence: decisionEvidence},
+	} {
+		report := PlannerReport{SchemaVersion: DurableHandoffSchemaVersion, ID: "report-" + tc.name, ProjectID: "example", HandoffID: "handoff-1", TaskID: "EXM-TSK1", RunID: "EXM-TSK1-RUN1", TaskSHA256: strings.Repeat("a", 64), ReportType: tc.typeName, OwnerSummary: testOwnerSummary(), TechnicalEvidence: tc.evidence, PublishedBy: "delivery", PublishedAt: time.Now().UTC()}
+		report.OwnerSummary.Status = tc.typeName
+		if err := ValidatePlannerReport(report); err != nil {
+			t.Fatalf("valid %s evidence rejected: %v", tc.name, err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(tc.evidence, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if tc.typeName == PlannerReportBlocked {
+			fields["same_run_correction_available"] = json.RawMessage(`true`)
+		} else {
+			fields["unauthorized_choice_implemented"] = json.RawMessage(`true`)
+		}
+		invalid, err := json.Marshal(fields)
+		if err != nil {
+			t.Fatal(err)
+		}
+		report.TechnicalEvidence = invalid
+		if err := ValidatePlannerReport(report); err == nil {
+			t.Fatalf("malformed %s evidence was accepted", tc.name)
 		}
 	}
 }

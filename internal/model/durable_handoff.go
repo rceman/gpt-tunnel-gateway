@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 	"time"
@@ -23,7 +24,7 @@ var ownerIdentifierRE = regexp.MustCompile(`(?i)([a-z0-9]+-(tsk|run|adr|opr)[a-z
 
 func containsOwnerTechnical(value string) bool {
 	value = strings.ToLower(value)
-	for _, marker := range []string{"refs/heads/", "feature/", "go test", "gofmt", "sha256sum", "git diff", "required gates", "prohibited operations"} {
+	for _, marker := range []string{"refs/heads/", "refs/remotes/", "feature/", "task/", "fix/", "release/", "ops/", "go test", "gofmt", "sha256sum", "git diff", "required gates", "prohibited operations"} {
 		if strings.Contains(value, marker) {
 			return true
 		}
@@ -248,6 +249,13 @@ func validateBoundedRefs(name string, refs []string) error {
 			return err
 		}
 	}
+	seen := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		if seen[ref] {
+			return fmt.Errorf("%s contains duplicate reference %q", name, ref)
+		}
+		seen[ref] = true
+	}
 	return nil
 }
 
@@ -261,6 +269,11 @@ func validateTaskRefs(refs []TaskRef) error {
 		}
 		if !durableSHA256RE.MatchString(ref.TaskSHA256) {
 			return fmt.Errorf("task_refs[%d].task_sha256 is invalid", i)
+		}
+		for j := 0; j < i; j++ {
+			if refs[j].TaskID == ref.TaskID {
+				return fmt.Errorf("task_refs contains duplicate task_id %q", ref.TaskID)
+			}
 		}
 	}
 	return nil
@@ -470,6 +483,9 @@ func ValidatePlannerReport(v PlannerReport) error {
 	if err := ValidateTechnicalEvidence(v.TechnicalEvidence); err != nil {
 		return err
 	}
+	if err := validateTypedPlannerReportEvidence(v); err != nil {
+		return err
+	}
 	if v.SupersedesReportID != "" {
 		if err := ValidateObjectIdentifier(v.SupersedesReportID); err != nil {
 			return fmt.Errorf("supersedes_report_id: %w", err)
@@ -488,6 +504,155 @@ func CanonicalPlannerReportDigest(v PlannerReport) (string, error) {
 	}
 	digest := sha256.Sum256(data)
 	return fmt.Sprintf("%x", digest[:]), nil
+}
+
+func evidenceText(fields map[string]json.RawMessage, name string) error {
+	var value string
+	if err := json.Unmarshal(fields[name], &value); err != nil || strings.TrimSpace(value) == "" || len([]byte(value)) > MaxOwnerSummaryFieldBytes || strings.ContainsAny(value, "\x00\r\n") {
+		return fmt.Errorf("technical_evidence.%s is required and bounded", name)
+	}
+	return nil
+}
+
+func evidenceBoolFalse(fields map[string]json.RawMessage, name string) error {
+	var value bool
+	if err := json.Unmarshal(fields[name], &value); err != nil || value {
+		return fmt.Errorf("technical_evidence.%s must be false", name)
+	}
+	return nil
+}
+
+func evidenceFacts(fields map[string]json.RawMessage, name string) error {
+	var values []string
+	if err := json.Unmarshal(fields[name], &values); err != nil || len(values) == 0 || len(values) > 8 {
+		return fmt.Errorf("technical_evidence.%s must be a bounded string array", name)
+	}
+	for _, value := range values {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("technical_evidence.%s is invalid", name)
+		}
+		if err := evidenceText(map[string]json.RawMessage{name: encoded}, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type blockedPlannerReportEvidence struct {
+	BlockerClass               *string  `json:"blocker_class"`
+	Severity                   *string  `json:"severity"`
+	FailedPrecondition         *string  `json:"failed_precondition"`
+	VerifiedFacts              []string `json:"verified_facts"`
+	PreservationResume         *string  `json:"preservation_resume"`
+	SameRunCorrectionAvailable *bool    `json:"same_run_correction_available"`
+}
+
+type decisionPlannerReportEvidence struct {
+	DecisionQuestion              *string  `json:"decision_question"`
+	Options                       []string `json:"options"`
+	Tradeoffs                     *string  `json:"tradeoffs"`
+	Recommendation                *string  `json:"recommendation"`
+	DeferralConsequence           *string  `json:"deferral_consequence"`
+	PreservedState                *string  `json:"preserved_state"`
+	UnauthorizedChoiceImplemented *bool    `json:"unauthorized_choice_implemented"`
+}
+
+type completedPlannerReportEvidence struct {
+	Terminal         *bool   `json:"terminal"`
+	Reviewed         *bool   `json:"reviewed"`
+	TaskSHA256       *string `json:"task_sha256"`
+	RunID            *string `json:"run_id"`
+	DeliveryReportID *string `json:"delivery_report_id"`
+	ReviewedHead     *string `json:"reviewed_head"`
+}
+
+func decodeClosedPlannerEvidence(data json.RawMessage, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("technical_evidence has trailing content")
+	}
+	return nil
+}
+
+func requireEvidencePointer(name string, value *string) error {
+	if value == nil {
+		return fmt.Errorf("technical_evidence.%s is required", name)
+	}
+	return validateBoundedText("technical_evidence."+name, *value)
+}
+
+func validateTypedPlannerReportEvidence(v PlannerReport) error {
+	switch v.ReportType {
+	case PlannerReportBlocked:
+		var evidence blockedPlannerReportEvidence
+		if err := decodeClosedPlannerEvidence(v.TechnicalEvidence, &evidence); err != nil {
+			return fmt.Errorf("blocked technical_evidence is closed and invalid: %w", err)
+		}
+		for name, value := range map[string]*string{"blocker_class": evidence.BlockerClass, "severity": evidence.Severity, "failed_precondition": evidence.FailedPrecondition, "preservation_resume": evidence.PreservationResume} {
+			if err := requireEvidencePointer(name, value); err != nil {
+				return err
+			}
+		}
+		if evidence.Severity != nil {
+			switch *evidence.Severity {
+			case "low", "medium", "high", "critical":
+			default:
+				return fmt.Errorf("technical_evidence.severity is invalid")
+			}
+		}
+		if len(evidence.VerifiedFacts) == 0 || len(evidence.VerifiedFacts) > 8 {
+			return fmt.Errorf("technical_evidence.verified_facts must be a bounded string array")
+		}
+		for _, fact := range evidence.VerifiedFacts {
+			if err := validateBoundedText("technical_evidence.verified_facts", fact); err != nil {
+				return err
+			}
+		}
+		if evidence.SameRunCorrectionAvailable == nil || *evidence.SameRunCorrectionAvailable {
+			return fmt.Errorf("technical_evidence.same_run_correction_available must be false")
+		}
+	case PlannerReportDecisionRequired:
+		var evidence decisionPlannerReportEvidence
+		if err := decodeClosedPlannerEvidence(v.TechnicalEvidence, &evidence); err != nil {
+			return fmt.Errorf("decision technical_evidence is closed and invalid: %w", err)
+		}
+		for name, value := range map[string]*string{"decision_question": evidence.DecisionQuestion, "tradeoffs": evidence.Tradeoffs, "recommendation": evidence.Recommendation, "deferral_consequence": evidence.DeferralConsequence, "preserved_state": evidence.PreservedState} {
+			if err := requireEvidencePointer(name, value); err != nil {
+				return err
+			}
+		}
+		if len(evidence.Options) == 0 || len(evidence.Options) > 8 {
+			return fmt.Errorf("technical_evidence.options must be a bounded string array")
+		}
+		for _, option := range evidence.Options {
+			if err := validateBoundedText("technical_evidence.options", option); err != nil {
+				return err
+			}
+		}
+		if evidence.UnauthorizedChoiceImplemented == nil || *evidence.UnauthorizedChoiceImplemented {
+			return fmt.Errorf("technical_evidence.unauthorized_choice_implemented must be false")
+		}
+	case PlannerReportCompleted:
+		var evidence completedPlannerReportEvidence
+		if err := decodeClosedPlannerEvidence(v.TechnicalEvidence, &evidence); err != nil {
+			return fmt.Errorf("completed technical_evidence is closed and invalid: %w", err)
+		}
+		if evidence.Terminal == nil || !*evidence.Terminal || evidence.Reviewed == nil || !*evidence.Reviewed {
+			return fmt.Errorf("completed technical_evidence requires terminal and reviewed true")
+		}
+		for name, value := range map[string]*string{"task_sha256": evidence.TaskSHA256, "run_id": evidence.RunID, "delivery_report_id": evidence.DeliveryReportID, "reviewed_head": evidence.ReviewedHead} {
+			if err := requireEvidencePointer(name, value); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func PlannerReportRequiresTerminalEvidence(v PlannerReport) error {

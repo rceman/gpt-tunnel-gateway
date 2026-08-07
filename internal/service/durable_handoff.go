@@ -100,6 +100,34 @@ type PlannerReportNextInput struct {
 	WriteOptions
 }
 
+const DefaultDurableHandoffListLimit = 20
+
+type DeliveryHandoffListInput struct {
+	ProjectID string `json:"project_id"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+type PlannerReportListInput struct {
+	ProjectID string `json:"project_id"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+func boundedDurableListLimit(limit, max int) (int, error) {
+	if max < 1 {
+		return 0, fmt.Errorf("configured max list items is invalid")
+	}
+	if limit == 0 {
+		limit = DefaultDurableHandoffListLimit
+		if limit > max {
+			limit = max
+		}
+	}
+	if limit < 0 || limit > max {
+		return 0, fmt.Errorf("list limit must be between 1 and %d", max)
+	}
+	return limit, nil
+}
+
 func (s *Service) deliveryHandoffPrefix(project string) string {
 	if model.ValidateProjectIdentifier(project) != nil {
 		return "../invalid-delivery-handoff"
@@ -291,6 +319,9 @@ func (s *Service) DeliveryHandoffCreate(ctx context.Context, in DeliveryHandoffC
 	if err := s.validateTaskRefsAgainstDurable(ctx, in.ProjectID, task.ID, task.SHA256, in.TaskRefs); err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
 	}
+	if err := s.validateHandoffPlanAndJournalRefs(ctx, in.ProjectID, in.PlanSectionRefs, in.OperatorEventRefs); err != nil {
+		return model.DeliveryHandoff{}, OperationResult{}, err
+	}
 	if in.SupersedesID != "" {
 		old, readErr := s.deliveryHandoffReadInProject(ctx, in.ProjectID, in.SupersedesID)
 		if readErr != nil {
@@ -382,8 +413,12 @@ func (s *Service) DeliveryHandoffStatus(ctx context.Context, id string) (model.D
 	return deliveryHandoffStatusProjection(handoff), nil
 }
 
-func (s *Service) DeliveryHandoffList(ctx context.Context, projectID string) ([]model.DeliveryHandoffStatus, error) {
-	paths, err := s.Hub.List(ctx, s.deliveryHandoffPrefix(projectID), ".json")
+func (s *Service) DeliveryHandoffList(ctx context.Context, in DeliveryHandoffListInput) ([]model.DeliveryHandoffStatus, error) {
+	limit, err := boundedDurableListLimit(in.Limit, s.Config.MaxListItems)
+	if err != nil {
+		return nil, err
+	}
+	paths, err := s.Hub.List(ctx, s.deliveryHandoffPrefix(in.ProjectID), ".json")
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +433,15 @@ func (s *Service) DeliveryHandoffList(ctx context.Context, projectID string) ([]
 		}
 		items = append(items, deliveryHandoffStatusProjection(item))
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].UpdatedAt.After(items[j].UpdatedAt) })
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].ID > items[j].ID
+		}
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+	if len(items) > limit {
+		items = items[:limit]
+	}
 	return items, nil
 }
 
@@ -1058,8 +1101,12 @@ func plannerReportStatusProjection(item model.PlannerReport, state model.Planner
 	return model.PlannerReportStatus{SchemaVersion: item.SchemaVersion, ID: item.ID, ProjectID: item.ProjectID, HandoffID: item.HandoffID, TaskID: item.TaskID, RunID: item.RunID, ReportType: item.ReportType, OwnerSummary: item.OwnerSummary, SupersedesReportID: item.SupersedesReportID, PublishedBy: item.PublishedBy, PublishedAt: item.PublishedAt, Status: state.Status}
 }
 
-func (s *Service) PlannerReportList(ctx context.Context, projectID string) ([]model.PlannerReportStatus, error) {
-	paths, err := s.Hub.List(ctx, s.plannerReportPrefix(projectID), ".json")
+func (s *Service) PlannerReportList(ctx context.Context, in PlannerReportListInput) ([]model.PlannerReportStatus, error) {
+	limit, err := boundedDurableListLimit(in.Limit, s.Config.MaxListItems)
+	if err != nil {
+		return nil, err
+	}
+	paths, err := s.Hub.List(ctx, s.plannerReportPrefix(in.ProjectID), ".json")
 	if err != nil {
 		return nil, err
 	}
@@ -1075,12 +1122,20 @@ func (s *Service) PlannerReportList(ctx context.Context, projectID string) ([]mo
 		if err := model.ValidatePlannerReport(report); err != nil {
 			return nil, err
 		}
-		state, err := s.plannerReportStateReadInProject(ctx, projectID, report.ID)
+		state, err := s.plannerReportStateReadInProject(ctx, in.ProjectID, report.ID)
 		if err != nil {
 			return nil, err
 		}
 		items = append(items, plannerReportStatusProjection(report, state))
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].PublishedAt.After(items[j].PublishedAt) })
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].PublishedAt.Equal(items[j].PublishedAt) {
+			return items[i].ID > items[j].ID
+		}
+		return items[i].PublishedAt.After(items[j].PublishedAt)
+	})
+	if len(items) > limit {
+		items = items[:limit]
+	}
 	return items, nil
 }
