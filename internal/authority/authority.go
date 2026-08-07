@@ -53,9 +53,5 @@ func RequirePlannerOrDelivery(ctx context.Context) error {
 }
 
 func RequireOnboarding(ctx context.Context) error {
-	v, ok := ctx.Value(contextKey{}).(role)
-	if !ok || (v != planner && v != delivery && v != operator) {
-		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
-	}
-	return nil
+	return RequirePlannerOrDelivery(ctx)
 }

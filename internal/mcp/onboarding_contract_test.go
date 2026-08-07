@@ -21,6 +21,12 @@ func TestProjectOnboardingMutationAuthorityPrecedesDecode(t *testing.T) {
 			t.Fatalf("%s error = %v, want authority before decode", name, err)
 		}
 	}
+	for _, name := range []string{"project_onboard", "project_onboard_recover"} {
+		_, err := server.tools()[name].Execute(authority.WithOperator(context.Background()), malformed)
+		if err == nil || err.Error() != "AUTHORITY_UNAVAILABLE" {
+			t.Fatalf("%s accepted operator authority: %v", name, err)
+		}
+	}
 }
 
 func TestProjectOnboardingTrustedContextReachesStrictDecoder(t *testing.T) {
