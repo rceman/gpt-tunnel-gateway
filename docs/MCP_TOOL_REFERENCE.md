@@ -57,6 +57,20 @@ requiring a report ID. A succeeded Agent Run with no Delivery report is
 `awaiting_review`; a rejection blocks merge-ready and only
 `accepted_reviewed_merge_ready` permits reviewed merge-ready state.
 
+## Stable task revisions and corrections
+
+`task_revision_list`, `task_revision_read`, and `task_revision_status` expose
+the immutable revision chain for a stable project-scoped Task ID. Revision
+identities are exact values such as `GTW-TSK31.REV2`; revision 1 is the
+read-only projection of the original task record. A correction is created only
+by `task_correction_create`, which requires an accepted Delivery report with
+an actionable finding, the exact terminal revision Run, a clean reviewed
+branch/head, and an optimistic Hub revision. It appends one immutable revision
+and changes only the mutable task state; existing Task, Run, Agent report and
+Delivery report records are never rewritten. Revision-aware Runs use
+`<TASK-ID>.REV<N>-RUN<M>` and carry the revision digest, while legacy REV1
+records remain readable through their existing paths.
+
 ## Operator journal bootstrap
 
 The immutable bootstrap tools are `operator_record`, `operator_history`, and

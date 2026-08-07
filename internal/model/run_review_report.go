@@ -85,6 +85,9 @@ type RunReviewReportDraft struct {
 	RunID                   string                 `json:"run_id"`
 	ProjectID               string                 `json:"project_id"`
 	TaskSHA256              string                 `json:"task_sha256"`
+	TaskRevision            int                    `json:"task_revision,omitempty"`
+	TaskRevisionSHA256      string                 `json:"task_revision_sha256,omitempty"`
+	TaskRunNumber           uint64                 `json:"task_run_number,omitempty"`
 	Branch                  string                 `json:"branch"`
 	BaseRevision            string                 `json:"base_revision"`
 	ReviewedHead            string                 `json:"reviewed_head"`
@@ -112,6 +115,9 @@ type RunReviewReport struct {
 	RunID                   string                 `json:"run_id"`
 	ProjectID               string                 `json:"project_id"`
 	TaskSHA256              string                 `json:"task_sha256"`
+	TaskRevision            int                    `json:"task_revision,omitempty"`
+	TaskRevisionSHA256      string                 `json:"task_revision_sha256,omitempty"`
+	TaskRunNumber           uint64                 `json:"task_run_number,omitempty"`
 	Branch                  string                 `json:"branch"`
 	BaseRevision            string                 `json:"base_revision"`
 	ReviewedHead            string                 `json:"reviewed_head"`
@@ -168,6 +174,9 @@ func ValidateRunReviewReportDraft(v RunReviewReportDraft) error {
 	if err := validateReviewIdentity(v.TaskID, v.RunID, v.ProjectID, v.TaskSHA256, v.Branch, v.BaseRevision, v.ReviewedHead); err != nil {
 		return err
 	}
+	if err := validateReviewRevisionBinding(v.TaskID, v.RunID, v.TaskRevision, v.TaskRevisionSHA256, v.TaskRunNumber); err != nil {
+		return err
+	}
 	if v.DraftRevision < 1 || v.UpdatedAt.IsZero() {
 		return fmt.Errorf("invalid review draft revision")
 	}
@@ -192,6 +201,9 @@ func ValidateRunReviewReport(v RunReviewReport) error {
 	if err := validateReviewIdentity(v.TaskID, v.RunID, v.ProjectID, v.TaskSHA256, v.Branch, v.BaseRevision, v.ReviewedHead); err != nil {
 		return err
 	}
+	if err := validateReviewRevisionBinding(v.TaskID, v.RunID, v.TaskRevision, v.TaskRevisionSHA256, v.TaskRunNumber); err != nil {
+		return err
+	}
 	if err := ValidateReviewOutcome(v.Outcome); err != nil {
 		return err
 	}
@@ -208,6 +220,24 @@ func ValidateRunReviewReport(v RunReviewReport) error {
 		if err := ValidateCommitSHA(v.HubCommit); err != nil {
 			return fmt.Errorf("hub_commit: %w", err)
 		}
+	}
+	return nil
+}
+
+func validateReviewRevisionBinding(taskID, runID string, revision int, revisionHash string, runNumber uint64) error {
+	if revision == 0 && revisionHash == "" && runNumber == 0 {
+		return nil
+	}
+	if revision < 1 || !sha256RE(revisionHash) || runNumber == 0 || runNumber > MaxSafeInteger {
+		return fmt.Errorf("invalid revision-aware review binding")
+	}
+	revisionID, err := FormatTaskRevisionID(taskID, revision)
+	if err != nil {
+		return err
+	}
+	want, err := FormatTaskRevisionRunID(revisionID, runNumber)
+	if err != nil || runID != want {
+		return fmt.Errorf("review run id does not match revision-aware binding")
 	}
 	return nil
 }

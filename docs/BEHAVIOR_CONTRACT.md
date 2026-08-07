@@ -56,6 +56,8 @@
 52. Healthy `project_status` components are fetched concurrently under one bounded request deadline; partial failures return sanitized component error codes without exposing raw command output or paths.
 53. New operational identifiers are canonical compact values: `CODE-TSK<N>` for tasks, `CODE-TSK<N>-RUN<M>` for runs, `CODE-ADR<N>` for ADRs, and `CODE-OPR<N>` for operator records/corrections. Each project-owned counter is bounded by the positive safe-integer maximum; unpinned allocation conflicts retry within one shared bound and pinned writes fail fast.
 54. Task creation requires a validated slug and derives both `task/<task-id>-<slug>` and the exact remote default-branch base revision. Branch and base overrides are not accepted. Historical workflow-v1 identifiers remain readable only through bounded history/task-state surfaces and cannot become current execution or mutation identities.
+55. Stable canonical Task IDs have an append-only revision chain. Revision identities are `<TASK-ID>.REV<N>`, revision 1 is the immutable projection of the root Task record, and later revisions are immutable child records linked by the parent revision number and digest.
+56. Revision-aware Runs and reports bind exactly to the revision identity, revision digest, and per-revision run number. A correction requires an accepted actionable Delivery report, the exact terminal Run, a clean reviewed branch/head, and an optimistic Hub transaction; it never rewrites existing Task, Run, Agent report, or Delivery report records.
 
 ## Lifecycle
 

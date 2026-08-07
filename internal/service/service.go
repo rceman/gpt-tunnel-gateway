@@ -174,20 +174,22 @@ type ProjectWorkflowPolicyStatus struct {
 }
 
 type TaskRecord struct {
-	Task           model.Task                   `json:"task"`
-	State          model.TaskState              `json:"state"`
-	RunSummaries   []model.RunReviewSummary     `json:"run_summaries"`
-	WorkflowPolicy *model.ProjectWorkflowPolicy `json:"workflow_policy,omitempty"`
+	Task            model.Task                   `json:"task"`
+	State           model.TaskState              `json:"state"`
+	CurrentRevision *model.TaskRevision          `json:"current_revision,omitempty"`
+	RunSummaries    []model.RunReviewSummary     `json:"run_summaries"`
+	WorkflowPolicy  *model.ProjectWorkflowPolicy `json:"workflow_policy,omitempty"`
 }
 
 type TaskPacket struct {
-	Task           model.Task                  `json:"task"`
-	Run            model.Run                   `json:"run"`
-	RunSummaries   []model.RunReviewSummary    `json:"run_summaries"`
-	Project        model.Project               `json:"project"`
-	Plan           model.Plan                  `json:"plan"`
-	WorkflowPolicy model.ProjectWorkflowPolicy `json:"workflow_policy"`
-	RepositoryRoot string                      `json:"repository_root"`
+	Task            model.Task                  `json:"task"`
+	CurrentRevision *model.TaskRevision         `json:"current_revision,omitempty"`
+	Run             model.Run                   `json:"run"`
+	RunSummaries    []model.RunReviewSummary    `json:"run_summaries"`
+	Project         model.Project               `json:"project"`
+	Plan            model.Plan                  `json:"plan"`
+	WorkflowPolicy  model.ProjectWorkflowPolicy `json:"workflow_policy"`
+	RepositoryRoot  string                      `json:"repository_root"`
 	// CompletionPath is an internal diagnostic value only. The Agent packet
 	// never instructs callers to use it; RunWriteCompletion derives the only
 	// legal destination from StateDir and the canonical Run ID.
@@ -1190,7 +1192,7 @@ func (s *Service) TaskList(ctx context.Context, project string) ([]TaskRecord, e
 	}
 	items := []TaskRecord{}
 	for _, path := range paths {
-		if strings.HasSuffix(path, ".state.json") || strings.HasSuffix(path, ".run-counter.json") {
+		if strings.HasSuffix(path, ".state.json") || strings.HasSuffix(path, ".run-counter.json") || strings.Contains(path, "/revisions/") {
 			continue
 		}
 		var task model.Task
@@ -1201,11 +1203,19 @@ func (s *Service) TaskList(ctx context.Context, project string) ([]TaskRecord, e
 		if err != nil {
 			return nil, err
 		}
+		var currentRevision *model.TaskRevision
+		if model.ValidateCanonicalTaskID(task.ID) == nil {
+			if revision, revisionErr := s.currentTaskRevision(ctx, task); revisionErr != nil {
+				return nil, revisionErr
+			} else {
+				currentRevision = &revision
+			}
+		}
 		summaries, err := s.taskReviewSummaries(ctx, task, runs)
 		if err != nil {
 			return nil, err
 		}
-		items = append(items, TaskRecord{Task: task, State: state, RunSummaries: summaries})
+		items = append(items, TaskRecord{Task: task, State: state, CurrentRevision: currentRevision, RunSummaries: summaries})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Task.CreatedAt.After(items[j].Task.CreatedAt) })
 	return items, nil
@@ -1236,6 +1246,14 @@ func (s *Service) TaskReadRecord(ctx context.Context, id string) (TaskRecord, er
 	if err != nil {
 		return TaskRecord{}, err
 	}
+	var currentRevision *model.TaskRevision
+	if model.ValidateCanonicalTaskID(task.ID) == nil {
+		revision, revisionErr := s.currentTaskRevision(ctx, task)
+		if revisionErr != nil {
+			return TaskRecord{}, revisionErr
+		}
+		currentRevision = &revision
+	}
 	runs, err := s.RunList(ctx, task.ProjectID)
 	if err != nil {
 		return TaskRecord{}, err
@@ -1250,7 +1268,7 @@ func (s *Service) TaskReadRecord(ctx context.Context, id string) (TaskRecord, er
 	} else if !IsNotFound(policyErr) {
 		return TaskRecord{}, policyErr
 	}
-	return TaskRecord{Task: task, State: state, RunSummaries: summaries, WorkflowPolicy: policy}, nil
+	return TaskRecord{Task: task, State: state, CurrentRevision: currentRevision, RunSummaries: summaries, WorkflowPolicy: policy}, nil
 }
 func (s *Service) TaskSupersede(ctx context.Context, oldID string, in TaskCreateInput) (model.Task, OperationResult, error) {
 	for attempt := 0; ; attempt++ {
@@ -1444,7 +1462,17 @@ func (s *Service) TaskMarkMergeReady(ctx context.Context, in TaskMarkMergeReadyI
 	if err != nil {
 		return OperationResult{}, err
 	}
-	latest, ok := latestApplicableRun(runs, task.ID)
+	revision := 0
+	var revisionSHA string
+	if model.ValidateCanonicalTaskID(task.ID) == nil {
+		current, revisionErr := s.currentTaskRevision(ctx, task)
+		if revisionErr != nil {
+			return OperationResult{}, revisionErr
+		}
+		revision = current.TaskRevision
+		revisionSHA = current.RevisionSHA256
+	}
+	latest, ok := latestApplicableRunForRevision(runs, task.ID, revision, revisionSHA)
 	if !ok {
 		return OperationResult{}, fmt.Errorf("no canonical successful report for task %s", task.ID)
 	}
@@ -1738,8 +1766,24 @@ func (s *Service) RunList(ctx context.Context, project string) ([]model.Run, err
 	return items, nil
 }
 
-func latestApplicableRun(runs []model.Run, taskID string) (model.Run, bool) {
+func latestApplicableRunForRevision(runs []model.Run, taskID string, revision int, revisionSHA string) (model.Run, bool) {
 	for _, run := range runs {
+		if run.TaskID != taskID || run.Historical {
+			continue
+		}
+		runRevision := run.TaskRevision
+		if runRevision == 0 {
+			runRevision = 1
+		}
+		if runRevision != revision {
+			continue
+		}
+		if revision > 1 && run.TaskRevisionSHA256 != revisionSHA {
+			continue
+		}
+		if revision == 1 && run.TaskRevision != 0 && run.TaskRevisionSHA256 != revisionSHA {
+			continue
+		}
 		if run.TaskID == taskID && !run.Historical {
 			return run, true
 		}
@@ -1845,14 +1889,18 @@ func requireCanonicalTaskID(id string) error {
 }
 
 func requireCanonicalRunID(id string) error {
-	if err := model.ValidateCanonicalRunID(id); err != nil {
+	if model.ValidateCanonicalRunID(id) != nil && model.ValidateTaskRevisionRunID(id) != nil {
 		return fmt.Errorf("run %q is read-only: canonical run ID required", id)
 	}
 	return nil
 }
 
 func requireCanonicalRun(run model.Run) error {
-	if err := requireCanonicalRunID(run.ID); err != nil {
+	if run.TaskRevision != 0 {
+		if err := model.ValidateTaskRevisionRunID(run.ID); err != nil {
+			return fmt.Errorf("run %q is read-only: revision-aware run ID required", run.ID)
+		}
+	} else if err := requireCanonicalRunID(run.ID); err != nil {
 		return err
 	}
 	return ensureOperationalRun(run)
@@ -1933,6 +1981,11 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
+	revision, err := s.currentTaskRevision(ctx, task)
+	if err != nil {
+		return model.Run{}, OperationResult{}, err
+	}
+	revisionAware := revision.TaskRevision > 1
 	state, err := s.taskState(ctx, task)
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
@@ -1977,8 +2030,8 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 	if !wt.Clean {
 		return model.Run{}, OperationResult{}, fmt.Errorf("project worktree is dirty")
 	}
-	resolved, err := s.Git.Resolve(ctx, local.Root, task.BaseRevision)
-	if err != nil || resolved != task.BaseRevision {
+	resolved, err := s.Git.Resolve(ctx, local.Root, revision.BaseRevision)
+	if err != nil || resolved != revision.BaseRevision {
 		return model.Run{}, OperationResult{}, fmt.Errorf("task base unavailable or mismatched")
 	}
 	var counter model.TaskRunCounter
@@ -1992,6 +2045,13 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 		return model.Run{}, OperationResult{}, err
 	}
 	id, err := model.FormatRunID(task.ID, counter.NextRunNumber)
+	if revisionAware {
+		revisionID, revisionErr := model.FormatTaskRevisionID(task.ID, revision.TaskRevision)
+		if revisionErr != nil {
+			return model.Run{}, OperationResult{}, revisionErr
+		}
+		id, err = model.FormatTaskRevisionRunID(revisionID, counter.NextRunNumber)
+	}
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
@@ -2007,12 +2067,15 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 		return model.Run{}, OperationResult{}, err
 	}
 	now := time.Now().UTC()
-	run := model.Run{SchemaVersion: model.SchemaVersion, ID: id, TaskID: task.ID, TaskSHA256: task.SHA256, ProjectID: task.ProjectID, GatewayID: s.Config.GatewayID, SessionKey: local.AirelaySessionKey, Branch: task.Branch, BaseRevision: task.BaseRevision, Status: "created", CompletionPath: completionPath, CreatedAt: now}
+	run := model.Run{SchemaVersion: model.SchemaVersion, ID: id, TaskID: task.ID, TaskSHA256: task.SHA256, ProjectID: task.ProjectID, GatewayID: s.Config.GatewayID, SessionKey: local.AirelaySessionKey, Branch: revision.Branch, BaseRevision: revision.BaseRevision, Status: "created", CompletionPath: completionPath, CreatedAt: now}
+	if revisionAware {
+		run.TaskRevision, run.TaskRevisionSHA256, run.TaskRunNumber = revision.TaskRevision, revision.RevisionSHA256, counter.NextRunNumber
+	}
 	if err := model.ValidateRun(run); err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
-	if err := model.ValidateCanonicalRunID(run.ID); err != nil {
-		return model.Run{}, OperationResult{}, err
+	if (revisionAware && model.ValidateTaskRevisionRunID(run.ID) != nil) || (!revisionAware && model.ValidateCanonicalRunID(run.ID) != nil) {
+		return model.Run{}, OperationResult{}, fmt.Errorf("invalid run identity")
 	}
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: create run "+run.ID, func(w string) ([]string, error) {
 		var currentPlan model.Plan
@@ -2082,7 +2145,7 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 	if err := s.writeLocalRun(run, task); err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
-	if err := s.Git.PrepareBranch(ctx, local, task.Branch, task.BaseRevision); err != nil {
+	if err := s.Git.PrepareBranch(ctx, local, revision.Branch, revision.BaseRevision); err != nil {
 		_, _ = s.failRun(ctx, run, task, "failed", "repository preparation failed: "+err.Error(), tx.After)
 		return run, OperationResult{}, err
 	}
@@ -2283,13 +2346,25 @@ func (s *Service) TaskRead(ctx context.Context, id string) (TaskPacket, error) {
 	if err != nil {
 		return TaskPacket{}, err
 	}
+	var currentRevision *model.TaskRevision
+	if model.ValidateCanonicalTaskID(task.ID) == nil {
+		revision, revisionErr := s.currentTaskRevision(ctx, task)
+		if revisionErr != nil {
+			return TaskPacket{}, revisionErr
+		}
+		currentRevision = &revision
+	}
 	runs, err := s.RunList(ctx, task.ProjectID)
 	if err != nil {
 		return TaskPacket{}, err
 	}
 	matches := []model.Run{}
 	for _, r := range runs {
-		if r.TaskID == task.ID && operationalActiveRun(r) && model.ValidateCanonicalRunID(r.ID) == nil {
+		canonicalRun := model.ValidateCanonicalRunID(r.ID) == nil
+		if r.TaskRevision != 0 {
+			canonicalRun = model.ValidateTaskRevisionRunID(r.ID) == nil
+		}
+		if r.TaskID == task.ID && operationalActiveRun(r) && canonicalRun {
 			matches = append(matches, r)
 		}
 	}
@@ -2324,7 +2399,7 @@ func (s *Service) TaskRead(ctx context.Context, id string) (TaskPacket, error) {
 	if err != nil {
 		return TaskPacket{}, err
 	}
-	return TaskPacket{Task: task, Run: run, RunSummaries: summaries, Project: project, Plan: plan, WorkflowPolicy: policy, RepositoryRoot: local.Root, CompletionPath: run.CompletionPath, FinalizeCommand: "gpt-tunnel run finalize " + run.ID, Text: text}, nil
+	return TaskPacket{Task: task, CurrentRevision: currentRevision, Run: run, RunSummaries: summaries, Project: project, Plan: plan, WorkflowPolicy: policy, RepositoryRoot: local.Root, CompletionPath: run.CompletionPath, FinalizeCommand: "gpt-tunnel run finalize " + run.ID, Text: text}, nil
 }
 func renderPacket(task model.Task, run model.Run, project model.Project, plan model.Plan, policy model.ProjectWorkflowPolicy, root string) string {
 	var b strings.Builder
@@ -2602,7 +2677,7 @@ func (s *Service) RunWriteCompletion(ctx context.Context, in CompletionWriteInpu
 	if err != nil {
 		return CompletionWriteResult{}, err
 	}
-	if completion.RunID != run.ID || completion.TaskSHA256 != run.TaskSHA256 {
+	if completion.RunID != run.ID || completion.TaskSHA256 != run.TaskSHA256 || completion.TaskRevision != run.TaskRevision || completion.TaskRevisionSHA256 != run.TaskRevisionSHA256 || completion.TaskRunNumber != run.TaskRunNumber {
 		return CompletionWriteResult{}, fmt.Errorf("completion identity does not match canonical run")
 	}
 	canonical, err := model.CompletionJSON(completion)
@@ -2664,7 +2739,7 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
-	if completion.RunID != run.ID || completion.TaskSHA256 != run.TaskSHA256 {
+	if completion.RunID != run.ID || completion.TaskSHA256 != run.TaskSHA256 || completion.TaskRevision != run.TaskRevision || completion.TaskRevisionSHA256 != run.TaskRevisionSHA256 || completion.TaskRunNumber != run.TaskRunNumber {
 		return model.Report{}, OperationResult{}, fmt.Errorf("completion identity does not match active run")
 	}
 	if err := model.ValidateTaskHash(task); err != nil || run.TaskSHA256 != task.SHA256 {
@@ -2695,7 +2770,7 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	for _, risk := range risks {
 		addUniqueRisk(&remainingRisks, risk)
 	}
-	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: run.ProjectID, Status: completion.Status, Summary: completion.Summary, GateResults: completion.GateResults, AcceptanceCoverage: completion.AcceptanceCoverage, Deviations: completion.Deviations, RemainingRisks: remainingRisks, Repository: proof, FinishedAt: now})
+	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, TaskRevision: run.TaskRevision, TaskRevisionSHA256: run.TaskRevisionSHA256, TaskRunNumber: run.TaskRunNumber, ProjectID: run.ProjectID, Status: completion.Status, Summary: completion.Summary, GateResults: completion.GateResults, AcceptanceCoverage: completion.AcceptanceCoverage, Deviations: completion.Deviations, RemainingRisks: remainingRisks, Repository: proof, FinishedAt: now})
 	expected := in.ExpectedHubRevision
 	if expected == "" {
 		expected, err = s.hubRevision(ctx)

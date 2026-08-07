@@ -185,6 +185,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 func requireToolAuthority(ctx context.Context, toolName string) error {
 	switch toolName {
+	case "task_correction_create":
+		return authority.RequireDelivery(ctx)
 	case "delivery_handoff_publish", "delivery_handoff_cancel", "delivery_handoff_supersede", "planner_report_acknowledge", "planner_report_next":
 		return authority.RequirePlanner(ctx)
 	case "delivery_handoff_acknowledge", "delivery_handoff_next", "planner_report_publish":
@@ -728,6 +730,39 @@ func (s *Server) tools() map[string]Tool {
 		}
 		task, res, e := s.Service.TaskCreate(ctx, in)
 		return map[string]any{"task": task, "operation": res}, e
+	})
+	add("task_revision_list", "List the immutable revisions of one stable Task.", obj(map[string]any{"task_id": str("Stable task identifier")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		id, err := getString(raw, "task_id")
+		if err != nil {
+			return nil, err
+		}
+		items, err := s.Service.TaskRevisionList(ctx, id)
+		return map[string]any{"revisions": items}, err
+	})
+	add("task_revision_read", "Read one complete immutable Task revision.", obj(map[string]any{"revision_id": str("Exact TASK.REV<N> identifier")}, "revision_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		id, err := getString(raw, "revision_id")
+		if err != nil {
+			return nil, err
+		}
+		return s.Service.TaskRevisionRead(ctx, id)
+	})
+	add("task_revision_status", "Read one bounded Task revision status projection.", obj(map[string]any{"revision_id": str("Exact TASK.REV<N> identifier")}, "revision_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		id, err := getString(raw, "revision_id")
+		if err != nil {
+			return nil, err
+		}
+		return s.Service.TaskRevisionStatus(ctx, id)
+	})
+	add("task_correction_create", "Delivery-authorized creation of one immutable bounded post-finalization Task revision.", taskCorrectionInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.TaskCorrectionCreateInput
+		if err := decode(raw, &in); err != nil {
+			return nil, err
+		}
+		revision, operation, err := s.Service.TaskCorrectionCreate(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"revision": revision, "operation": operation}, nil
 	})
 	add("task_list", "List project tasks.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "project_id")

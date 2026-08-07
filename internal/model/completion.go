@@ -86,13 +86,13 @@ func strictJSONObject(data []byte) (map[string]any, error) {
 }
 
 func requiredCompletionFields(obj map[string]any) error {
-	allowed := map[string]bool{"schema_version": true, "run_id": true, "task_sha256": true, "status": true, "summary": true, "gate_results": true, "acceptance_coverage": true, "deviations": true, "remaining_risks": true}
+	allowed := map[string]bool{"schema_version": true, "run_id": true, "task_sha256": true, "task_revision": true, "task_revision_sha256": true, "task_run_number": true, "status": true, "summary": true, "gate_results": true, "acceptance_coverage": true, "deviations": true, "remaining_risks": true}
 	for key := range obj {
 		if !allowed[key] {
 			return fmt.Errorf("unknown completion field %q", key)
 		}
 	}
-	for key := range allowed {
+	for _, key := range []string{"schema_version", "run_id", "task_sha256", "status", "summary", "gate_results", "acceptance_coverage", "deviations", "remaining_risks"} {
 		if _, ok := obj[key]; !ok {
 			return fmt.Errorf("missing completion field %q", key)
 		}
@@ -140,6 +140,19 @@ func completionStringArray(v any, name string) ([]string, error) {
 		out = append(out, value)
 	}
 	return out, nil
+}
+
+func optionalCompletionUint(obj map[string]any, name string) (uint64, bool, error) {
+	value, ok := obj[name]
+	if !ok {
+		return 0, false, nil
+	}
+	var number uint64
+	if err := decodeCompletionField(obj, name, &number); err != nil || number == 0 || number > MaxSafeInteger {
+		return 0, true, fmt.Errorf("completion field %q must be a positive safe integer", name)
+	}
+	_ = value
+	return number, true, nil
 }
 
 func completionGates(v any) ([]CompletionGateResult, error) {
@@ -224,6 +237,30 @@ func ParseCompletion(data []byte, task Task) (Completion, error) {
 		return Completion{}, err
 	}
 	c := Completion{SchemaVersion: 1, RunID: runID, TaskSHA256: taskHash, Status: status, Summary: summary, GateResults: gates, AcceptanceCoverage: acceptance, Deviations: deviations, RemainingRisks: risks}
+	if raw, ok := obj["task_revision_sha256"]; ok {
+		value, valid := raw.(string)
+		if !valid {
+			return Completion{}, fmt.Errorf("completion field %q must be a string", "task_revision_sha256")
+		}
+		c.TaskRevisionSHA256 = value
+	}
+	if revisionID, runNumber, revisionErr := ParseTaskRevisionRunID(runID); revisionErr == nil {
+		taskID, revision, parseErr := ParseTaskRevisionID(revisionID)
+		if parseErr != nil || taskID != task.ID {
+			return Completion{}, fmt.Errorf("completion revision identity does not match task")
+		}
+		c.TaskRevision, c.TaskRunNumber = revision, runNumber
+	}
+	if value, present, err := optionalCompletionUint(obj, "task_revision"); err != nil {
+		return Completion{}, err
+	} else if present {
+		c.TaskRevision = int(value)
+	}
+	if value, present, err := optionalCompletionUint(obj, "task_run_number"); err != nil {
+		return Completion{}, err
+	} else if present {
+		c.TaskRunNumber = value
+	}
 	if err := ValidateCompletion(c, task); err != nil {
 		return Completion{}, err
 	}
@@ -231,8 +268,20 @@ func ParseCompletion(data []byte, task Task) (Completion, error) {
 }
 
 func ValidateCompletion(c Completion, task Task) error {
-	if c.SchemaVersion != 1 || ValidateCanonicalRunID(c.RunID) != nil {
+	if c.SchemaVersion != 1 {
 		return fmt.Errorf("invalid completion identity")
+	}
+	if ValidateCanonicalRunID(c.RunID) != nil {
+		revisionID, runNumber, err := ParseTaskRevisionRunID(c.RunID)
+		if err != nil {
+			return fmt.Errorf("invalid completion identity")
+		}
+		taskID, revision, err := ParseTaskRevisionID(revisionID)
+		if err != nil || taskID != task.ID || c.TaskRevision != revision || c.TaskRunNumber != runNumber || c.TaskRevisionSHA256 == "" || !completionHashRE.MatchString(c.TaskRevisionSHA256) {
+			return fmt.Errorf("invalid completion revision identity")
+		}
+	} else if c.TaskRevision != 0 || c.TaskRevisionSHA256 != "" || c.TaskRunNumber != 0 {
+		return fmt.Errorf("legacy completion cannot contain revision binding")
 	}
 	if !completionHashRE.MatchString(c.TaskSHA256) || strings.ToLower(c.TaskSHA256) != c.TaskSHA256 || c.TaskSHA256 != task.SHA256 {
 		return fmt.Errorf("completion task hash mismatch")
