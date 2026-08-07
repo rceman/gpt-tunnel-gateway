@@ -3,13 +3,32 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 func TestPlanReadPageIsBoundedAndCursorBound(t *testing.T) {
-	svc, _, _ := testService(t)
+	svc, revision, _ := testService(t)
 	ctx := context.Background()
+	for i := 0; i < planReadMaxLimit+2; i++ {
+		id := fmt.Sprintf("section-%02d", i)
+		created, err := svc.PlanSectionCreate(ctx, PlanSectionCreateInput{
+			ProjectID:        "example",
+			SectionID:        id,
+			Title:            "Title " + id,
+			ShortDescription: "Short " + id,
+			Description:      "Full detail that must not appear in plan_read",
+			UpdatedBy:        "test",
+			WriteOptions:     WriteOptions{ExpectedHubRevision: revision},
+		})
+		if err != nil {
+			t.Fatalf("create section %s: %v", id, err)
+		}
+		revision = created.Hub.After
+	}
 
 	page, err := svc.PlanReadPage(ctx, "example", 0, "")
 	if err != nil {
@@ -18,11 +37,21 @@ func TestPlanReadPageIsBoundedAndCursorBound(t *testing.T) {
 	if len(page.Sections) > planReadMaxLimit {
 		t.Fatalf("plan read returned %d sections, want at most %d", len(page.Sections), planReadMaxLimit)
 	}
+	if len(page.Sections) != planReadMaxLimit || page.NextCursor == "" {
+		t.Fatalf("first plan page = sections:%d cursor:%q, want %d sections and a cursor", len(page.Sections), page.NextCursor, planReadMaxLimit)
+	}
+	second, err := svc.PlanReadPage(ctx, "example", 0, page.NextCursor)
+	if err != nil {
+		t.Fatalf("second plan page: %v", err)
+	}
+	if len(second.Sections) != 2 || second.NextCursor != "" {
+		t.Fatalf("second plan page = sections:%d cursor:%q, want 2 sections and no cursor", len(second.Sections), second.NextCursor)
+	}
 	encoded, err := json.Marshal(page)
 	if err != nil {
 		t.Fatalf("marshal plan projection: %v", err)
 	}
-	if strings.Contains(string(encoded), "description") || strings.Contains(string(encoded), "body") {
+	if strings.Contains(string(encoded), "Full detail") || strings.Contains(string(encoded), "body") {
 		t.Fatalf("bounded plan projection leaked section detail: %s", encoded)
 	}
 	if _, err := svc.PlanReadPage(ctx, "example", planReadMaxLimit+1, ""); err == nil {
@@ -126,6 +155,17 @@ func TestProjectStatusProjectionDoesNotIncludePlanSections(t *testing.T) {
 	}
 	if strings.Contains(string(b), "sections") || strings.Contains(string(b), "full description") {
 		t.Fatalf("project status contains unbounded plan detail: %s", b)
+	}
+}
+
+func TestProjectStatusPayloadStaysBoundedForLargePlan(t *testing.T) {
+	status := ProjectStatus{Plan: model.PlanStatus{Sections: make([]string, 10000)}}
+	payload, err := json.Marshal(status)
+	if err != nil {
+		t.Fatalf("marshal large status: %v", err)
+	}
+	if strings.Contains(string(payload), "sections") || len(payload) > 4096 {
+		t.Fatalf("large plan changed bounded status payload: %d bytes", len(payload))
 	}
 }
 
