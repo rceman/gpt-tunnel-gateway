@@ -14,6 +14,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
 type fakeCompletionDirectory struct {
@@ -59,6 +60,49 @@ func validCompletion(task model.Task, run model.Run) model.Completion {
 		RemainingRisks:     []string{},
 		GateResults:        []model.CompletionGateResult{},
 	})
+}
+
+func TestRunFinalizePersistsAndReadsAgentFeedback(t *testing.T) {
+	s, task, run, _ := dispatchedRun(t, "receipt-agent-feedback")
+	feedback := model.AgentFeedback{
+		Summary:      "The run completed with one reusable improvement.",
+		Friction:     []string{"The slow gate has limited progress visibility."},
+		Improvements: []string{"Expose bounded progress updates."},
+		ToolCandidates: []model.AgentFeedbackToolCandidate{{
+			Problem:        "Repeatedly waiting without status.",
+			ProposedTool:   "gate_progress",
+			ExpectedReuse:  "recurring",
+			ExpectedSaving: "Reduce idle waiting.",
+			SafetyBoundary: "Read-only and bounded; never retries execution.",
+		}},
+	}
+	project := s.Config.Projects["example"]
+	if err := os.WriteFile(filepath.Join(project.Root, "agent-feedback.txt"), []byte("feedback\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, project.Root, "add", "agent-feedback.txt")
+	testutil.Git(t, project.Root, "commit", "-m", "agent feedback proof")
+	testutil.Git(t, project.Root, "push", "origin", run.Branch)
+	completion := validCompletion(task, run)
+	completion.AgentFeedback = &feedback
+	input := completionInput(t, t.TempDir(), completion)
+	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: input}); err != nil {
+		t.Fatal(err)
+	}
+	revision, err := s.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.RunFinalize(context.Background(), FinalizeInput{RunID: run.ID, WriteOptions: WriteOptions{ExpectedHubRevision: revision}}); err != nil {
+		t.Fatal(err)
+	}
+	read, err := s.RunReport(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.AgentFeedback == nil || read.AgentFeedback.ToolCandidates[0].ProposedTool != "gate_progress" {
+		t.Fatalf("agent feedback was not preserved through finalization/read: %#v", read.AgentFeedback)
+	}
 }
 
 func legacyTaskHashForTest(task model.Task) string {

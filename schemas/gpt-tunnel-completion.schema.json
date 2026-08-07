@@ -15,6 +15,33 @@
     "gate_results": {"type": "array", "maxItems": 128, "items": {"type": "object", "additionalProperties": false, "required": ["id", "exit_code"], "properties": {"id": {"type": "string", "pattern": "^G[1-9][0-9]*$"}, "exit_code": {"type": "integer"}}}},
     "acceptance_coverage": {"type": "array", "maxItems": 128, "items": {"type": "string", "pattern": "^AC[1-9][0-9]*$"}},
     "deviations": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 2048}},
-    "remaining_risks": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 2048}}
+    "remaining_risks": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 2048}},
+    "agent_feedback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "friction", "improvements", "tool_candidates", "none_observed"],
+      "properties": {
+        "summary": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "friction": {"type": "array", "maxItems": 3, "items": {"type": "string", "minLength": 1, "maxLength": 512}},
+        "improvements": {"type": "array", "maxItems": 3, "items": {"type": "string", "minLength": 1, "maxLength": 512}},
+        "tool_candidates": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["problem", "proposed_tool", "expected_reuse", "expected_saving", "safety_boundary"],
+            "properties": {
+              "problem": {"type": "string", "minLength": 1, "maxLength": 512},
+              "proposed_tool": {"type": "string", "minLength": 1, "maxLength": 512},
+              "expected_reuse": {"enum": ["one_off", "occasional", "recurring"]},
+              "expected_saving": {"type": "string", "minLength": 1, "maxLength": 512},
+              "safety_boundary": {"type": "string", "minLength": 1, "maxLength": 512}
+            }
+          }
+        },
+        "none_observed": {"type": "boolean"}
+      }
+    }
   }
 }

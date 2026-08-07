@@ -86,7 +86,7 @@ func strictJSONObject(data []byte) (map[string]any, error) {
 }
 
 func requiredCompletionFields(obj map[string]any) error {
-	allowed := map[string]bool{"schema_version": true, "run_id": true, "task_sha256": true, "task_revision": true, "task_revision_sha256": true, "task_run_number": true, "status": true, "summary": true, "gate_results": true, "acceptance_coverage": true, "deviations": true, "remaining_risks": true}
+	allowed := map[string]bool{"schema_version": true, "run_id": true, "task_sha256": true, "task_revision": true, "task_revision_sha256": true, "task_run_number": true, "status": true, "summary": true, "gate_results": true, "acceptance_coverage": true, "deviations": true, "remaining_risks": true, "agent_feedback": true}
 	for key := range obj {
 		if !allowed[key] {
 			return fmt.Errorf("unknown completion field %q", key)
@@ -237,6 +237,13 @@ func ParseCompletion(data []byte, task Task) (Completion, error) {
 		return Completion{}, err
 	}
 	c := Completion{SchemaVersion: 1, RunID: runID, TaskSHA256: taskHash, Status: status, Summary: summary, GateResults: gates, AcceptanceCoverage: acceptance, Deviations: deviations, RemainingRisks: risks}
+	if _, ok := obj["agent_feedback"]; ok {
+		var feedback AgentFeedback
+		if err := decodeCompletionField(obj, "agent_feedback", &feedback); err != nil {
+			return Completion{}, err
+		}
+		c.AgentFeedback = &feedback
+	}
 	if raw, ok := obj["task_revision_sha256"]; ok {
 		value, valid := raw.(string)
 		if !valid {
@@ -354,6 +361,11 @@ func ValidateCompletion(c Completion, task Task) error {
 			return fmt.Errorf("completion entry must be non-empty")
 		}
 	}
+	if c.AgentFeedback != nil {
+		if err := ValidateAgentFeedback(*c.AgentFeedback); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -369,6 +381,13 @@ func CanonicalCompletion(c Completion) Completion {
 	}
 	if c.RemainingRisks == nil {
 		c.RemainingRisks = []string{}
+	}
+	if c.AgentFeedback != nil {
+		feedback := *c.AgentFeedback
+		feedback.Friction = append([]string{}, feedback.Friction...)
+		feedback.Improvements = append([]string{}, feedback.Improvements...)
+		feedback.ToolCandidates = append([]AgentFeedbackToolCandidate{}, feedback.ToolCandidates...)
+		c.AgentFeedback = &feedback
 	}
 	return c
 }

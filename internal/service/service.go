@@ -2202,6 +2202,13 @@ func canonicalReport(report model.Report) model.Report {
 	report.RemainingRisks = append([]string{}, report.RemainingRisks...)
 	report.Repository.Commits = append([]string{}, report.Repository.Commits...)
 	report.Repository.ChangedFiles = append([]string{}, report.Repository.ChangedFiles...)
+	if report.AgentFeedback != nil {
+		feedback := *report.AgentFeedback
+		feedback.Friction = append([]string{}, feedback.Friction...)
+		feedback.Improvements = append([]string{}, feedback.Improvements...)
+		feedback.ToolCandidates = append([]model.AgentFeedbackToolCandidate{}, feedback.ToolCandidates...)
+		report.AgentFeedback = &feedback
+	}
 	if report.GateResults == nil {
 		report.GateResults = []model.CompletionGateResult{}
 	}
@@ -2770,7 +2777,7 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	for _, risk := range risks {
 		addUniqueRisk(&remainingRisks, risk)
 	}
-	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, TaskRevision: run.TaskRevision, TaskRevisionSHA256: run.TaskRevisionSHA256, TaskRunNumber: run.TaskRunNumber, ProjectID: run.ProjectID, Status: completion.Status, Summary: completion.Summary, GateResults: completion.GateResults, AcceptanceCoverage: completion.AcceptanceCoverage, Deviations: completion.Deviations, RemainingRisks: remainingRisks, Repository: proof, FinishedAt: now})
+	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, TaskRevision: run.TaskRevision, TaskRevisionSHA256: run.TaskRevisionSHA256, TaskRunNumber: run.TaskRunNumber, ProjectID: run.ProjectID, Status: completion.Status, Summary: completion.Summary, GateResults: completion.GateResults, AcceptanceCoverage: completion.AcceptanceCoverage, Deviations: completion.Deviations, RemainingRisks: remainingRisks, AgentFeedback: completion.AgentFeedback, Repository: proof, FinishedAt: now})
 	expected := in.ExpectedHubRevision
 	if expected == "" {
 		expected, err = s.hubRevision(ctx)

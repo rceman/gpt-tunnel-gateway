@@ -6,6 +6,18 @@
   "properties": {
     "schema_version": {"const": 1}, "task_id": {"type": "string"}, "run_id": {"type": "string"}, "task_revision": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}, "task_revision_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "task_run_number": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}, "project_id": {"type": "string"}, "status": {"enum": ["succeeded", "failed", "needs_gpt_revision"]}, "summary": {"type": "string"},
     "gate_results": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["id", "exit_code"], "properties": {"id": {"type": "string"}, "exit_code": {"type": "integer"}}}}, "acceptance_coverage": {"type": "array", "items": {"type": "string"}}, "deviations": {"type": "array", "items": {"type": "string"}}, "remaining_risks": {"type": "array", "items": {"type": "string"}},
+    "agent_feedback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "friction", "improvements", "tool_candidates", "none_observed"],
+      "properties": {
+        "summary": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "friction": {"type": "array", "maxItems": 3, "items": {"type": "string", "minLength": 1, "maxLength": 512}},
+        "improvements": {"type": "array", "maxItems": 3, "items": {"type": "string", "minLength": 1, "maxLength": 512}},
+        "tool_candidates": {"type": "array", "maxItems": 3, "items": {"type": "object", "additionalProperties": false, "required": ["problem", "proposed_tool", "expected_reuse", "expected_saving", "safety_boundary"], "properties": {"problem": {"type": "string", "minLength": 1, "maxLength": 512}, "proposed_tool": {"type": "string", "minLength": 1, "maxLength": 512}, "expected_reuse": {"enum": ["one_off", "occasional", "recurring"]}, "expected_saving": {"type": "string", "minLength": 1, "maxLength": 512}, "safety_boundary": {"type": "string", "minLength": 1, "maxLength": 512}}}},
+        "none_observed": {"type": "boolean"}
+      }
+    },
     "repository": {"type": "object", "additionalProperties": false, "required": ["branch", "head", "worktree_clean", "base_ancestor", "commits", "changed_files", "diff_scope"], "properties": {"branch": {"type": "string"}, "head": {"type": "string"}, "worktree_clean": {"type": "boolean"}, "base_ancestor": {"type": "boolean"}, "commits": {"type": "array", "items": {"type": "string"}}, "changed_files": {"type": "array", "items": {"type": "string"}}, "diff_scope": {"type": "string"}}},
     "hub_commit": {"type": "string"}, "finished_at": {"type": "string", "format": "date-time"}
   }

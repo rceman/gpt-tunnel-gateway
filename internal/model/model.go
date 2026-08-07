@@ -356,6 +356,7 @@ type Completion struct {
 	AcceptanceCoverage []string               `json:"acceptance_coverage"`
 	Deviations         []string               `json:"deviations"`
 	RemainingRisks     []string               `json:"remaining_risks"`
+	AgentFeedback      *AgentFeedback         `json:"agent_feedback,omitempty"`
 }
 
 type RepositoryProof struct {
@@ -382,6 +383,7 @@ type Report struct {
 	AcceptanceCoverage []string               `json:"acceptance_coverage"`
 	Deviations         []string               `json:"deviations"`
 	RemainingRisks     []string               `json:"remaining_risks"`
+	AgentFeedback      *AgentFeedback         `json:"agent_feedback,omitempty"`
 	Repository         RepositoryProof        `json:"repository"`
 	HubCommit          string                 `json:"hub_commit,omitempty"`
 	FinishedAt         time.Time              `json:"finished_at"`
@@ -703,6 +705,11 @@ func ValidateReport(v Report, task Task, run Run, limits ...int) error {
 	}
 	if v.Status != "succeeded" && v.Status != "failed" && v.Status != "needs_gpt_revision" {
 		return fmt.Errorf("invalid report status")
+	}
+	if v.AgentFeedback != nil {
+		if err := ValidateAgentFeedback(*v.AgentFeedback); err != nil {
+			return err
+		}
 	}
 	if err := utf8Bounded(v.Summary, 4096, "report summary"); err != nil {
 		return err
