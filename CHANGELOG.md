@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.4 — 2026-08-07
+
 - Add MCP-only project onboarding with durable coordinator, activation and recovery.
 - Add durable Planner-to-Delivery handoff and Delivery-to-Planner reports with separate owner summaries and technical evidence, plus trusted authority hardening.
 - Restrict hosted CI to release tags matching `v*`.
