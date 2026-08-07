@@ -20,14 +20,14 @@ func TestAutomaticGatesRunInImmutableTaskOrder(t *testing.T) {
 		return model.CompletionGateResult{Kind: "executable", Outcome: "passed", ExitCode: 0, Command: definition.description, Evidence: "test", StartedAt: &now, FinishedAt: &now}, nil
 	}
 	s := &Service{}
-	results, status, err := s.runAutomaticGates(context.Background(), model.Task{RequiredGates: []string{"go vet ./...", "git diff --check", "gofmt check"}}, t.TempDir())
+	results, status, err := s.runAutomaticGates(context.Background(), model.Task{RequiredGates: []string{"go vet ./...", "git diff --check", "gofmt check", "clean pushed branch"}}, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != "succeeded" || len(results) != 3 {
+	if status != "succeeded" || len(results) != 4 {
 		t.Fatalf("status=%q results=%#v", status, results)
 	}
-	if strings.Join(calls, "|") != "go vet ./...|git diff --check|gofmt -l ." {
+	if strings.Join(calls, "|") != "go vet ./...|git diff --check|gofmt -l .|git status --porcelain (published branch verified by canonical repository proof)" {
 		t.Fatalf("gate order=%v", calls)
 	}
 	for i, result := range results {

@@ -65,6 +65,16 @@ func lookupAutomaticGateDefinition(name string) (automaticGateDefinition, string
 			argv:        []string{"git", "diff", "--check"},
 			description: "git diff --check",
 		},
+		"clean pushed branch": {
+			argv:        []string{"git", "status", "--porcelain"},
+			description: "git status --porcelain (published branch verified by canonical repository proof)",
+			postCheck: func(stdout, stderr string) error {
+				if strings.TrimSpace(stdout) != "" {
+					return fmt.Errorf("worktree is not clean")
+				}
+				return nil
+			},
+		},
 		"python3 scripts/static-check.py": {
 			argv:        []string{"python3", "scripts/static-check.py"},
 			description: "python3 scripts/static-check.py",
