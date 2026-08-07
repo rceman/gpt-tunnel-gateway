@@ -254,6 +254,56 @@ func projectConfigOutputSchema() map[string]any {
 	}, "remote", "default_branch")
 }
 
+func onboardingRequestSchema() map[string]any {
+	positive := integer("JSON Schema positive integer", 1, 9007199254740991)
+	sha := str("40-character Git revision")
+	sha["pattern"] = "^[0-9a-f]{40}$"
+	projectID := str("Project identifier")
+	projectID["pattern"] = "^[a-z0-9][a-z0-9_-]{0,63}$"
+	branch := str("Default branch")
+	branch["pattern"] = "^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$"
+	remote := str("Configured remote")
+	remote["pattern"] = "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+	code := str("Three-letter uppercase project code")
+	code["pattern"] = "^[A-Z]{3}$"
+	session := str("Airelay session key")
+	session["pattern"] = "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+	section := obj(map[string]any{
+		"id": str("Section identifier"), "title": str("Section title"), "short_description": str("Short description"), "revision": positive,
+	}, "id", "title", "short_description", "revision")
+	initialPlan := obj(map[string]any{
+		"schema_version": positive, "project_id": projectID, "revision": positive, "title": str("Plan title"), "summary": str("Plan summary"),
+		"current_objective": str("Current objective"), "queue": array(str("Queue item")), "sections": array(section), "updated_by": str("Updater"), "updated_at": outputDateTime(),
+	}, "schema_version", "project_id", "revision", "title", "summary", "current_objective", "queue", "sections", "updated_by", "updated_at")
+	airelay := obj(map[string]any{"session_required": outputBoolean(), "session_key": session}, "session_required")
+	workflow := obj(map[string]any{"repository": str("Workflow repository"), "commit": sha}, "repository", "commit")
+	return obj(map[string]any{
+		"schema_version": positive, "project_id": projectID, "root": str("Source repository root"), "remote": remote, "repository_url": str("Repository URL"),
+		"default_branch": branch, "airelay": airelay, "project_code": code, "gateway_state_dir": str("Gateway state directory"),
+		"workflow": workflow, "initial_plan": initialPlan, "expected_hub_revision": sha,
+	}, "schema_version", "project_id", "root", "remote", "repository_url", "default_branch", "airelay", "project_code", "gateway_state_dir", "initial_plan", "expected_hub_revision")
+}
+
+func projectOnboardingInputSchema() map[string]any {
+	return obj(map[string]any{"operation_id": str("Canonical onboarding operation UUID"), "request": onboardingRequestSchema()}, "operation_id", "request")
+}
+
+func projectOnboardingResultSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"operation_id": outputString(), "project_id": outputString(), "state": outputEnum("prepared", "hub_committed", "recovery_required", "activated"),
+		"request_sha256": outputString(), "receipt_sha256": outputString(), "hub_transaction": outputBoolean(), "journal_repair_only": outputBoolean(),
+		"registry_before": outputString(), "registry_after": outputString(), "mirror_ready": outputBoolean(), "recovery_status": outputString(),
+	}, "operation_id", "project_id", "state", "request_sha256", "receipt_sha256", "hub_transaction", "journal_repair_only", "registry_before", "registry_after", "mirror_ready", "recovery_status")
+}
+
+func projectOnboardingStatusSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"operation_id": outputString(), "project_id": outputString(), "state": outputEnum("prepared", "hub_committed", "recovery_required", "activated"), "request_sha256": outputString(), "receipt_sha256": outputString(),
+		"started_at": outputDateTime(), "updated_at": outputDateTime(), "recovery_status": outputString(), "recovery_step": outputString(), "hub_before": outputString(), "hub_after": outputString(), "hub_committed": outputBoolean(),
+		"registry_before": outputString(), "registry_after": outputString(), "registry_ready": outputBoolean(), "mirror_ready": outputBoolean(), "project_ready": outputBoolean(), "session_ready": outputBoolean(),
+	}, "operation_id", "project_id", "state", "request_sha256", "receipt_sha256", "started_at", "updated_at", "recovery_status", "recovery_step", "hub_before", "hub_after", "hub_committed", "registry_before", "registry_after", "registry_ready", "mirror_ready", "project_ready", "session_ready")
+}
+
 func workflowPolicyOutputSchema() map[string]any {
 	ci := closedOutput(map[string]any{"task": outputEnum(model.WorkflowCIModeDisabled, model.WorkflowCIModeObserve, model.WorkflowCIModeRequire), "task_merge": outputEnum(model.WorkflowCIModeDisabled, model.WorkflowCIModeObserve, model.WorkflowCIModeRequire), "release": outputEnum(model.WorkflowCIModeDisabled, model.WorkflowCIModeObserve, model.WorkflowCIModeRequire)}, "task", "task_merge", "release")
 	agent := closedOutput(map[string]any{"wait_for_ci": outputBoolean()}, "wait_for_ci")
@@ -395,6 +445,9 @@ var toolOutputSchemas = map[string]map[string]any{
 	"project_workflow_policy_adopt":  closedOutput(map[string]any{"policy": workflowPolicyOutputSchema(), "operation": operationOutputSchema()}, "policy", "operation"),
 	"project_workflow_policy_update": closedOutput(map[string]any{"policy": workflowPolicyOutputSchema(), "operation": operationOutputSchema()}, "policy", "operation"),
 	"project_register":               operationOutputSchema(),
+	"project_onboard":                projectOnboardingResultSchema(),
+	"project_onboard_status":         projectOnboardingStatusSchema(),
+	"project_onboard_recover":        projectOnboardingResultSchema(),
 	"plan_read":                      planOutputSchema(),
 	"plan_cutover":                   operationOutputSchema(),
 	"plan_update":                    operationOutputSchema(),
@@ -470,7 +523,7 @@ func readOnlyAnnotations() ToolAnnotations {
 // registration, schemas, annotations, and contract tests describe the same
 // MCP surface. Its length is deliberately not a protocol assertion.
 var canonicalToolManifest = []string{
-	"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_identifiers_adopt", "project_status", "project_workflow_policy_read", "project_workflow_policy_adopt", "project_workflow_policy_update",
+	"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_identifiers_adopt", "project_status", "project_onboard", "project_onboard_status", "project_onboard_recover", "project_workflow_policy_read", "project_workflow_policy_adopt", "project_workflow_policy_update",
 	"project_register", "plan_read", "plan_cutover", "plan_update", "plan_section_read",
 	"plan_section_create", "plan_section_update", "plan_section_delete", "plan_render", "plan_history",
 	"adr_list", "adr_read", "adr_create", "task_create", "task_list", "task_read", "task_review_report_start", "task_review_report_section_update", "task_review_report_validate", "task_review_report_finalize", "task_report_read", "task_dispatch",
@@ -485,6 +538,9 @@ var canonicalToolManifest = []string{
 func canonicalToolNames() []string { return append([]string{}, canonicalToolManifest...) }
 func additiveExternalAnnotations() ToolAnnotations {
 	return ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: false, OpenWorldHint: true}
+}
+func idempotentMutationAnnotations() ToolAnnotations {
+	return ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
 }
 func destructiveExternalAnnotations() ToolAnnotations {
 	return ToolAnnotations{ReadOnlyHint: false, DestructiveHint: true, IdempotentHint: false, OpenWorldHint: true}
@@ -512,6 +568,9 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	for _, name := range []string{"project_register", "project_identifiers_adopt", "project_workflow_policy_adopt", "project_workflow_policy_update", "adr_create", "task_create", "plan_section_create"} {
 		result[name] = additiveExternalAnnotations()
 	}
+	result["project_onboard"] = idempotentMutationAnnotations()
+	result["project_onboard_recover"] = idempotentMutationAnnotations()
+	result["project_onboard_status"] = readOnlyAnnotations()
 	result["task_review_report_start"] = additiveExternalAnnotations()
 	result["task_review_report_section_update"] = additiveExternalAnnotations()
 	result["task_review_report_finalize"] = destructiveExternalAnnotations()

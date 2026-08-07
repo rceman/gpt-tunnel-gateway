@@ -405,6 +405,33 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.ProjectStatus(ctx, id)
 	})
+	add("project_onboard", "Create or resume one trusted durable project onboarding operation.", projectOnboardingInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		if err := service.RequireOnboardingAuthority(ctx); err != nil {
+			return nil, err
+		}
+		var in service.ProjectOnboardInput
+		if err := decode(raw, &in); err != nil {
+			return nil, err
+		}
+		return s.Service.ProjectOnboard(ctx, in)
+	})
+	add("project_onboard_status", "Read bounded redacted status for one onboarding operation.", projectOnboardingInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.ProjectOnboardInput
+		if err := decode(raw, &in); err != nil {
+			return nil, err
+		}
+		return s.Service.ProjectOnboardStatus(ctx, in)
+	})
+	add("project_onboard_recover", "Resume one existing trusted onboarding operation from durable evidence.", projectOnboardingInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		if err := service.RequireOnboardingAuthority(ctx); err != nil {
+			return nil, err
+		}
+		var in service.ProjectOnboardInput
+		if err := decode(raw, &in); err != nil {
+			return nil, err
+		}
+		return s.Service.ProjectOnboardRecover(ctx, in)
+	})
 	add("project_workflow_policy_read", "Read the durable revisioned project workflow policy.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "project_id")
 		if e != nil {

@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
-	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
@@ -90,7 +90,7 @@ func prepareCoordinatorJournal(t *testing.T, fixture coordinatorFixture) {
 }
 
 func trustedCoordinatorContext() context.Context {
-	return service.WithPlannerWorkflowPolicyAuthority(context.Background())
+	return authority.WithPlanner(context.Background())
 }
 
 func TestCoordinatorRequiresTrustedAuthorityBeforeJournalAccess(t *testing.T) {
