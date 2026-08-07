@@ -1229,6 +1229,22 @@ func HubCommittedReceiptDigest(receipt Receipt, request Request) (string, error)
 	return hex.EncodeToString(digest[:]), nil
 }
 
+func CanonicalRecoveryReceiptJSON(receipt Receipt, request Request) ([]byte, error) {
+	if err := ValidateRecoveryReceipt(receipt, request); err != nil {
+		return nil, err
+	}
+	return json.Marshal(receipt)
+}
+
+func RecoveryReceiptDigest(receipt Receipt, request Request) (string, error) {
+	data, err := CanonicalRecoveryReceiptJSON(receipt, request)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:]), nil
+}
+
 func CanonicalActivatedReceiptJSON(receipt Receipt, request Request) ([]byte, error) {
 	if err := ValidateActivatedReceipt(receipt, request); err != nil {
 		return nil, err
