@@ -210,10 +210,15 @@ func (s *Service) deriveTaskWorkflowPolicy(ctx context.Context, projectID, opera
 
 func workflowPolicyStatus(policy model.ProjectWorkflowPolicy, err error, plan model.Plan, tasks []TaskRecord) ProjectWorkflowPolicyStatus {
 	if err != nil {
-		if IsNotFound(err) {
-			return ProjectWorkflowPolicyStatus{State: "missing", Conflicts: []string{"workflow_policy_missing"}, CorrectiveAction: "adopt a durable project workflow policy before creating or superseding tasks"}
+		failClosedCI := model.WorkflowPolicyCI{
+			Task:      model.WorkflowCIModeDisabled,
+			TaskMerge: model.WorkflowCIModeDisabled,
+			Release:   model.WorkflowCIModeDisabled,
 		}
-		return ProjectWorkflowPolicyStatus{State: "invalid", Conflicts: []string{"workflow_policy_invalid"}, CorrectiveAction: "repair or re-adopt the durable project workflow policy"}
+		if IsNotFound(err) {
+			return ProjectWorkflowPolicyStatus{State: "missing", CI: failClosedCI, Conflicts: []string{"workflow_policy_missing"}, CorrectiveAction: "adopt a durable project workflow policy before creating or superseding tasks"}
+		}
+		return ProjectWorkflowPolicyStatus{State: "invalid", CI: failClosedCI, Conflicts: []string{"workflow_policy_invalid"}, CorrectiveAction: "repair or re-adopt the durable project workflow policy"}
 	}
 	status := ProjectWorkflowPolicyStatus{State: "adopted", Revision: policy.Revision, WorkflowStage: policy.WorkflowStage, IntegrationBranch: policy.IntegrationBranch, AgentWaitForCI: policy.Agent.WaitForCI, CI: policy.CI, Conflicts: []string{}, CorrectiveAction: "none"}
 	for _, item := range tasks {

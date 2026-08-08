@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,8 +10,72 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
+
+func assertWorkflowPolicyStatusCI(t *testing.T, status ProjectWorkflowPolicyStatus) {
+	t.Helper()
+	if status.CI.Task != model.WorkflowCIModeDisabled || status.CI.TaskMerge != model.WorkflowCIModeDisabled || status.CI.Release != model.WorkflowCIModeDisabled {
+		t.Fatalf("workflow policy status exposed invalid CI modes: %#v", status)
+	}
+	encoded, err := json.Marshal(status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(encoded, &wire); err != nil {
+		t.Fatal(err)
+	}
+	ci := wire["ci"].(map[string]any)
+	for _, field := range []string{"task", "task_merge", "release"} {
+		if ci[field] != string(model.WorkflowCIModeDisabled) {
+			t.Fatalf("serialized %s CI mode=%v: %s", field, ci[field], encoded)
+		}
+	}
+}
+
+func TestProjectStatusWorkflowPolicyStateMatrixUsesDeterministicCIProjection(t *testing.T) {
+	ctx := context.Background()
+	for _, state := range []string{"missing", "invalid"} {
+		t.Run(state, func(t *testing.T) {
+			s, revision, _ := testServiceWithoutIdentifiers(t)
+			path := s.workflowPolicyPath("example")
+			var txRevision string
+			if state == "missing" {
+				result, err := s.Hub.Transact(ctx, revision, "test: remove workflow policy", func(worktree string) ([]string, error) {
+					if err := os.Remove(filepath.Join(worktree, filepath.FromSlash(path))); err != nil {
+						return nil, err
+					}
+					return []string{path}, nil
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				txRevision = result.After
+			} else {
+				result, err := s.Hub.Transact(ctx, revision, "test: corrupt workflow policy", func(worktree string) ([]string, error) {
+					if err := hub.WriteText(worktree, path, `{"schema_version":1,"project_id":"example"}`); err != nil {
+						return nil, err
+					}
+					return []string{path}, nil
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				txRevision = result.After
+			}
+			status, err := s.ProjectStatus(ctx, "example")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if status.HubRevision != txRevision || status.WorkflowPolicy.State != state {
+				t.Fatalf("unexpected %s status: %#v", state, status)
+			}
+			assertWorkflowPolicyStatusCI(t, status.WorkflowPolicy)
+		})
+	}
+}
 
 func trustedWorkflowPolicyContext(ctx context.Context, role string) context.Context {
 	switch role {
