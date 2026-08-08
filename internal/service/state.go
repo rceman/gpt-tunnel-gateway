@@ -137,12 +137,24 @@ func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
 			}
 			result.Issues = append(result.Issues, stateIssue("CURRENT_PLAN_INVALID", id, "", "", s.planPath(id), planErr.Error()))
 			result.Plans = append(result.Plans, StatePlan{ProjectID: id, Valid: false})
-			s.checkProjectTaskRunGraph(ctx, id, model.Plan{}, &result)
 			continue
 		}
 		result.ValidCurrentPlans = append(result.ValidCurrentPlans, id)
 		result.Plans = append(result.Plans, StatePlan{ProjectID: id, Valid: true, ActiveTaskID: plan.ActiveTaskID, ActiveRunID: plan.ActiveRunID})
-		s.checkProjectTaskRunGraph(ctx, id, plan, &result)
+	}
+	graphSnapshot, snapshotErr := s.Hub.ReadSnapshot(ctx)
+	if snapshotErr != nil {
+		result.Issues = append(result.Issues, stateIssue("HUB_UNAVAILABLE", "", "", "", "", snapshotErr.Error()))
+		result.OperationalTaskRunGraph = false
+	} else {
+		result.HubRevision = graphSnapshot.Revision()
+		for _, plan := range result.Plans {
+			s.checkProjectTaskRunGraph(ctx, graphSnapshot, plan.ProjectID, model.Plan{ProjectID: plan.ProjectID, ActiveTaskID: plan.ActiveTaskID, ActiveRunID: plan.ActiveRunID}, &result)
+		}
+		if err := graphSnapshot.Close(); err != nil {
+			result.Issues = append(result.Issues, stateIssue("HUB_UNAVAILABLE", "", "", "", "", err.Error()))
+			result.OperationalTaskRunGraph = false
+		}
 	}
 	sort.Strings(result.ValidCurrentPlans)
 	result.Valid = len(result.Issues) == 0
@@ -150,23 +162,85 @@ func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
 	return result, nil
 }
 
-func (s *Service) checkProjectTaskRunGraph(ctx context.Context, projectID string, plan model.Plan, result *StateCheckResult) {
-	tasks, err := s.TaskList(ctx, projectID)
+type taskRunGraphSnapshot struct {
+	tasks []TaskRecord
+	runs  []model.Run
+}
+
+func (s *Service) readTaskRunGraph(ctx context.Context, snapshot *hub.ReadSnapshot, project string) (taskRunGraphSnapshot, error) {
+	taskPaths, err := snapshot.List(ctx, s.projectPrefix(project)+"/tasks", ".json")
+	if err != nil {
+		return taskRunGraphSnapshot{}, err
+	}
+	items := make([]TaskRecord, 0, len(taskPaths))
+	for _, path := range taskPaths {
+		if strings.HasSuffix(path, ".state.json") || strings.HasSuffix(path, ".run-counter.json") || strings.Contains(path, "/revisions/") {
+			continue
+		}
+		var task model.Task
+		if err := snapshot.ReadJSON(ctx, path, &task); err != nil {
+			return taskRunGraphSnapshot{}, err
+		}
+		state, err := s.readTaskStateFromSnapshot(ctx, snapshot, task)
+		if err != nil {
+			return taskRunGraphSnapshot{}, err
+		}
+		items = append(items, TaskRecord{Task: task, State: state})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Task.CreatedAt.After(items[j].Task.CreatedAt) })
+
+	runPaths, err := snapshot.List(ctx, s.projectPrefix(project)+"/runs", "/run.json")
+	if err != nil {
+		return taskRunGraphSnapshot{}, err
+	}
+	runs := make([]model.Run, 0, len(runPaths))
+	for _, path := range runPaths {
+		raw, err := snapshot.ReadFile(ctx, path)
+		if err != nil {
+			return taskRunGraphSnapshot{}, err
+		}
+		run, _, err := model.DecodeRunRecord(raw)
+		if err != nil {
+			return taskRunGraphSnapshot{}, err
+		}
+		runs = append(runs, run)
+	}
+	sort.Slice(runs, func(i, j int) bool {
+		if runs[i].CreatedAt.Equal(runs[j].CreatedAt) {
+			return runs[i].ID > runs[j].ID
+		}
+		return runs[i].CreatedAt.After(runs[j].CreatedAt)
+	})
+	return taskRunGraphSnapshot{tasks: items, runs: runs}, nil
+}
+
+func (s *Service) readTaskStateFromSnapshot(ctx context.Context, snapshot *hub.ReadSnapshot, task model.Task) (model.TaskState, error) {
+	var state model.TaskState
+	if err := snapshot.ReadJSON(ctx, s.taskStatePath(task.ProjectID, task.ID), &state); err != nil {
+		if IsNotFound(err) {
+			return model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "created", UpdatedAt: task.CreatedAt}, nil
+		}
+		return model.TaskState{}, err
+	}
+	if err := model.ValidateTaskState(state, task); err != nil {
+		return model.TaskState{}, err
+	}
+	return state, nil
+}
+
+func (s *Service) checkProjectTaskRunGraph(ctx context.Context, snapshot *hub.ReadSnapshot, projectID string, plan model.Plan, result *StateCheckResult) {
+	graph, err := s.readTaskRunGraph(ctx, snapshot, projectID)
 	if err != nil {
 		result.Issues = append(result.Issues, stateIssue("TASK_GRAPH_UNAVAILABLE", projectID, "", "", "", err.Error()))
 		result.OperationalTaskRunGraph = false
 		return
 	}
+	tasks := graph.tasks
 	taskByID := map[string]TaskRecord{}
 	for _, record := range tasks {
 		taskByID[record.Task.ID] = record
 	}
-	runs, err := s.RunList(ctx, projectID)
-	if err != nil {
-		result.Issues = append(result.Issues, stateIssue("RUN_GRAPH_UNAVAILABLE", projectID, "", "", "", err.Error()))
-		result.OperationalTaskRunGraph = false
-		return
-	}
+	runs := graph.runs
 	runByID := map[string]model.Run{}
 	runsByTask := map[string][]model.Run{}
 	for _, run := range runs {
@@ -233,17 +307,33 @@ func (s *Service) StateRepair(ctx context.Context, apply bool) (StateRepairResul
 		return StateRepairResult{}, err
 	}
 	result := StateRepairResult{DryRun: !apply, OldHubSHA: check.HubRevision, Check: check, Actions: []StateRepairAction{}}
+	graphSnapshot, snapshotErr := s.Hub.ReadSnapshot(ctx)
+	if snapshotErr != nil {
+		return result, snapshotErr
+	}
+	graphs := map[string]taskRunGraphSnapshot{}
+	graphFor := func(projectID string) (taskRunGraphSnapshot, error) {
+		if graph, ok := graphs[projectID]; ok {
+			return graph, nil
+		}
+		graph, err := s.readTaskRunGraph(ctx, graphSnapshot, projectID)
+		if err != nil {
+			return taskRunGraphSnapshot{}, err
+		}
+		graphs[projectID] = graph
+		return graph, nil
+	}
 	plans := map[string]StatePlan{}
 	for _, plan := range check.Plans {
 		plans[plan.ProjectID] = plan
 		if !plan.Valid || plan.ActiveRunID == "" {
 			continue
 		}
-		runs, listErr := s.RunList(ctx, plan.ProjectID)
+		graph, listErr := graphFor(plan.ProjectID)
 		if listErr != nil {
 			continue
 		}
-		for _, run := range runs {
+		for _, run := range graph.runs {
 			if run.ID != plan.ActiveRunID || operationalActiveRun(run) {
 				continue
 			}
@@ -265,19 +355,15 @@ func (s *Service) StateRepair(ctx context.Context, apply bool) (StateRepairResul
 		if !ok || !plan.Valid {
 			continue
 		}
-		tasks, taskErr := s.TaskList(ctx, projectID)
-		if taskErr != nil {
-			continue
-		}
-		runs, runErr := s.RunList(ctx, projectID)
-		if runErr != nil {
+		graph, graphErr := graphFor(projectID)
+		if graphErr != nil {
 			continue
 		}
 		runsByTask := map[string][]model.Run{}
-		for _, run := range runs {
+		for _, run := range graph.runs {
 			runsByTask[run.TaskID] = append(runsByTask[run.TaskID], run)
 		}
-		for _, record := range tasks {
+		for _, record := range graph.tasks {
 			if !historicalOnlyTaskRepairEligible(record, runsByTask[record.Task.ID], plan) {
 				continue
 			}
@@ -301,6 +387,9 @@ func (s *Service) StateRepair(ctx context.Context, apply bool) (StateRepairResul
 		}
 		return result.Actions[i].Path < result.Actions[j].Path
 	})
+	if err := graphSnapshot.Close(); err != nil {
+		return result, err
+	}
 	if !apply || len(result.Actions) == 0 {
 		result.Applied = false
 		return result, nil
