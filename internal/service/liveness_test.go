@@ -88,6 +88,96 @@ func TestProjectStatusDelayedComponentsCompleteConcurrently(t *testing.T) {
 	}
 }
 
+func TestProjectStatusUsesStatusOnlyTaskProjection(t *testing.T) {
+	s, hubRevision, _ := testService(t)
+	task, _, err := s.TaskCreate(context.Background(), TaskCreateInput{
+		ProjectID:          "example",
+		Slug:               "status-only-task",
+		Title:              "Status-only task",
+		Objective:          "Exercise the bounded project status task projection.",
+		AcceptanceCriteria: []string{"bounded"},
+		OperationClass:     "implementation",
+		CreatedBy:          "test",
+		WriteOptions:       WriteOptions{ExpectedHubRevision: hubRevision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.taskStatusList(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *TaskRecord
+	for i := range items {
+		if items[i].Task.ID == task.ID {
+			found = &items[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("status-only task projection omitted %s", task.ID)
+	}
+	if found.CurrentRevision != nil || len(found.RunSummaries) != 0 {
+		t.Fatalf("status-only projection performed enrichment: %#v", *found)
+	}
+	status, err := s.ProjectStatus(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, component := range status.Progress.ComponentErrors {
+		if component == "tasks_unavailable" {
+			t.Fatalf("healthy status-only task projection became unavailable: %#v", status.Progress)
+		}
+	}
+}
+
+func TestProjectStatusStatusOnlyTaskFailureRemainsUnavailable(t *testing.T) {
+	s, hubRevision, _ := testService(t)
+	task, created, err := s.TaskCreate(context.Background(), TaskCreateInput{
+		ProjectID:          "example",
+		Slug:               "status-only-failure",
+		Title:              "Status-only failure",
+		Objective:          "Exercise task component failure signaling.",
+		AcceptanceCriteria: []string{"failure"},
+		OperationClass:     "implementation",
+		CreatedBy:          "test",
+		WriteOptions:       WriteOptions{ExpectedHubRevision: hubRevision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Hub.Transact(context.Background(), created.Hub.After, "test: corrupt task state", func(worktree string) ([]string, error) {
+		path := s.taskStatePath(task.ProjectID, task.ID)
+		if err := hub.WriteJSON(worktree, path, map[string]any{
+			"schema_version": 1,
+			"task_id":        task.ID,
+			"task_sha256":    task.SHA256,
+			"status":         "not-a-task-state",
+			"updated_at":     time.Now().UTC(),
+		}); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := s.ProjectStatus(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, component := range status.Progress.ComponentErrors {
+		if component == "tasks_unavailable" {
+			found = true
+			break
+		}
+	}
+	if !found || status.Progress.BlockerClassification != "PROGRESS_COMPONENT_ERROR" {
+		t.Fatalf("task failure was not preserved as a component error: %#v", status.Progress)
+	}
+}
+
 func TestPublicRoutineProjectionsRedactInternalPaths(t *testing.T) {
 	s, _, _ := testService(t)
 	run := model.Run{SchemaVersion: 1, ID: "run", TaskID: "task", TaskSHA256: strings.Repeat("a", 64), ProjectID: "example", GatewayID: s.Config.GatewayID, SessionKey: "example_master", CompletionPath: filepath.Join(s.Config.StateDir, "runs", "run", "completion.json"), CreatedAt: time.Now().UTC()}

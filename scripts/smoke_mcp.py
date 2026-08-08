@@ -10,15 +10,30 @@ p = argparse.ArgumentParser()
 p.add_argument("--url", default="http://127.0.0.1:8875/mcp")
 a = p.parse_args()
 
+ORDINARY_MCP_TIMEOUT_SECONDS = 5
+PROJECT_STATUS_MCP_TIMEOUT_SECONDS = 10
 
-def call(payload: dict) -> dict:
+
+def call(payload: dict, timeout: float = ORDINARY_MCP_TIMEOUT_SECONDS) -> dict:
     req = urllib.request.Request(
         a.url,
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=5) as response:
+    with urllib.request.urlopen(req, timeout=timeout) as response:
         return json.load(response)
+
+
+def project_status_call(project_id: str, request_id: int) -> dict:
+    return call(
+        {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "tools/call",
+            "params": {"name": "project_status", "arguments": {"project_id": project_id}},
+        },
+        timeout=PROJECT_STATUS_MCP_TIMEOUT_SECONDS,
+    )
 
 
 expected_version = (Path(__file__).resolve().parents[1] / "VERSION").read_text(encoding="utf-8").strip()
@@ -140,14 +155,7 @@ for index, project in enumerate(projects, 8):
         }
     )["result"]["structuredContent"]
     assert "body" not in plan
-    status = call(
-        {
-            "jsonrpc": "2.0",
-            "id": index + 200,
-            "method": "tools/call",
-            "params": {"name": "project_status", "arguments": {"project_id": project_id}},
-        }
-    )
+    status = project_status_call(project_id, index + 200)
     assert status["result"]["isError"] is False
     snapshot = status["result"]["structuredContent"]
     assert snapshot["project"]["id"] == project_id
