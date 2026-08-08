@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add dispatch-time effective implementation-base compatibility for stale semantic Tasks and allow rejected-review Delivery correction eligibility for stable Task revisions.
+
 ## 0.6.7 — 2026-08-08
 
 - Bound `project_status` to status-only Task acquisition and gave its MCP smoke a dedicated timeout above the server component budget.
