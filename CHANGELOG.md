@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bound `project_status` to status-only Task acquisition and gave its MCP smoke a dedicated timeout above the server component budget.
+
 ## 0.6.6 — 2026-08-08
 
 - Fix `project_status.workflow_policy` serialization for missing and invalid policy states so the MCP output remains schema-valid.
