@@ -224,7 +224,11 @@ func (s *Service) TaskCorrectionCreate(ctx context.Context, in TaskCorrectionCre
 	}
 	switch state.Status {
 	case "completed", "merge_ready", "deferred":
-	case "created", "ready", "dispatched", "merged", "released", "activated":
+	case "ready":
+		if delivery.Outcome != model.ReviewOutcomeRejected {
+			return model.TaskRevision{}, OperationResult{}, fmt.Errorf("task state %q is not correction-eligible", state.Status)
+		}
+	case "created", "dispatched", "merged", "released", "activated":
 		return model.TaskRevision{}, OperationResult{}, fmt.Errorf("task state %q is not correction-eligible", state.Status)
 	default:
 		return model.TaskRevision{}, OperationResult{}, fmt.Errorf("task state %q is not correction-eligible", state.Status)
