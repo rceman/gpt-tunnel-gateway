@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.6 — 2026-08-08
+
 - Fix `project_status.workflow_policy` serialization for missing and invalid policy states so the MCP output remains schema-valid.
 
 ## 0.6.5 — 2026-08-07
