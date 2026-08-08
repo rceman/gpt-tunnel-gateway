@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -420,7 +421,89 @@ func TestCoordinatorRejectsProjectCodeCollisionInHub(t *testing.T) {
 	}
 }
 
-func TestScanWorktreeRecordsRejectsPathMismatchAndOrphans(t *testing.T) {
+func TestValidateWorktreeTargetAllowsLegacyProjectWithoutIdentifiers(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	legacy, _, _, _, err := buildDurableObjects(fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.ID = "gpt-github-gateway"
+	legacy.RepositoryURL = "git@example.invalid:owner/gpt-github-gateway.git"
+	legacyPath := "gpt-tunnel/v1/projects/gpt-github-gateway/project.json"
+	worktree := t.TempDir()
+	if err := hub.WriteJSON(worktree, legacyPath, legacy); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(worktree, filepath.FromSlash(legacyPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, plan, identifiers, _, err := buildDurableObjects(fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateWorktreeTarget(worktree, fixture.request, project, plan, identifiers); err != nil {
+		t.Fatalf("legacy project rejected: %v", err)
+	}
+	after, err := os.ReadFile(filepath.Join(worktree, filepath.FromSlash(legacyPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("legacy project was modified during collision validation")
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "gpt-tunnel", "v1", "projects", "gpt-github-gateway", "identifiers.json")); !os.IsNotExist(err) {
+		t.Fatalf("legacy identifiers were created or became visible: %v", err)
+	}
+}
+
+func TestValidateWorktreeTargetChecksLegacyProjectRepositoryCollision(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	legacy, _, _, _, err := buildDurableObjects(fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.ID = "gpt-github-gateway"
+	legacy.RepositoryURL = fixture.request.RepositoryURL
+	worktree := t.TempDir()
+	if err := hub.WriteJSON(worktree, "gpt-tunnel/v1/projects/gpt-github-gateway/project.json", legacy); err != nil {
+		t.Fatal(err)
+	}
+	project, plan, identifiers, _, err := buildDurableObjects(fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateWorktreeTarget(worktree, fixture.request, project, plan, identifiers); err == nil || !strings.Contains(err.Error(), "project or project code collision") {
+		t.Fatalf("legacy repository collision error = %v", err)
+	}
+}
+
+func TestValidateWorktreeTargetChecksProjectCodeWhenIdentifiersExist(t *testing.T) {
+	fixture := newCoordinatorFixture(t)
+	legacy, _, identifiers, _, err := buildDurableObjects(fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.ID = "gpt-github-gateway"
+	legacy.RepositoryURL = "git@example.invalid:owner/gpt-github-gateway.git"
+	identifiers.ProjectID = legacy.ID
+	worktree := t.TempDir()
+	if err := hub.WriteJSON(worktree, "gpt-tunnel/v1/projects/gpt-github-gateway/project.json", legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := hub.WriteJSON(worktree, "gpt-tunnel/v1/projects/gpt-github-gateway/identifiers.json", identifiers); err != nil {
+		t.Fatal(err)
+	}
+	project, plan, candidateIdentifiers, _, err := buildDurableObjects(fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateWorktreeTarget(worktree, fixture.request, project, plan, candidateIdentifiers); err == nil || !strings.Contains(err.Error(), "project or project code collision") {
+		t.Fatalf("project code collision error = %v", err)
+	}
+}
+
+func TestScanWorktreeRecordsRejectsOrphanIdentifiersAndPathMismatch(t *testing.T) {
 	fixture := newCoordinatorFixture(t)
 	project, _, identifiers, _, err := buildDurableObjects(fixture.request)
 	if err != nil {
@@ -431,9 +514,6 @@ func TestScanWorktreeRecordsRejectsPathMismatchAndOrphans(t *testing.T) {
 		write func(string) error
 		want  string
 	}{
-		{name: "orphan project", write: func(worktree string) error {
-			return hub.WriteJSON(worktree, "gpt-tunnel/v1/projects/example/project.json", project)
-		}, want: "missing identifiers"},
 		{name: "orphan identifiers", write: func(worktree string) error {
 			return hub.WriteJSON(worktree, "gpt-tunnel/v1/projects/example/identifiers.json", identifiers)
 		}, want: "missing project"},
@@ -464,8 +544,8 @@ func TestCoordinatorCorruptHubScanReturnsTypedRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := "gpt-tunnel/v1/projects/corrupt/project.json"
-	corruptTransaction, err := fixture.coordinator.Hub.Transact(context.Background(), fixture.base, "seed orphan corrupt project", func(worktree string) ([]string, error) {
+	path := "gpt-tunnel/v1/projects/foreign/project.json"
+	corruptTransaction, err := fixture.coordinator.Hub.Transact(context.Background(), fixture.base, "seed mismatched corrupt project", func(worktree string) ([]string, error) {
 		if err := hub.WriteJSON(worktree, path, project); err != nil {
 			return nil, err
 		}

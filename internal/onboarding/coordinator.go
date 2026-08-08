@@ -664,7 +664,7 @@ func validateWorktreeTarget(worktree string, request Request, project model.Proj
 		return err
 	}
 	for _, entry := range entries {
-		if entry.Project.ID == project.ID || entry.Project.RepositoryURL == project.RepositoryURL || entry.Identifiers.ProjectCode == identifiers.ProjectCode {
+		if entry.Project.ID == project.ID || entry.Project.RepositoryURL == project.RepositoryURL || (entry.Identifiers != nil && entry.Identifiers.ProjectCode == identifiers.ProjectCode) {
 			return fmt.Errorf("ONBOARDING_RECOVERY_REQUIRED: durable project or project code collision")
 		}
 	}
@@ -674,7 +674,7 @@ func validateWorktreeTarget(worktree string, request Request, project model.Proj
 
 type worktreeRecord struct {
 	Project     model.Project
-	Identifiers model.ProjectIdentifiers
+	Identifiers *model.ProjectIdentifiers
 }
 
 func scanWorktreeRecords(worktree string) ([]worktreeRecord, error) {
@@ -749,11 +749,6 @@ func scanWorktreeRecords(worktree string) ([]worktreeRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	for id := range projects {
-		if _, ok := identifiers[id]; !ok {
-			return nil, fmt.Errorf("durable project %q is missing identifiers", id)
-		}
-	}
 	for id := range identifiers {
 		if _, ok := projects[id]; !ok {
 			return nil, fmt.Errorf("durable identifiers %q are missing project", id)
@@ -766,7 +761,12 @@ func scanWorktreeRecords(worktree string) ([]worktreeRecord, error) {
 	sort.Strings(ids)
 	result := make([]worktreeRecord, 0, len(ids))
 	for _, id := range ids {
-		result = append(result, worktreeRecord{Project: projects[id], Identifiers: identifiers[id]})
+		var projectIdentifiers *model.ProjectIdentifiers
+		if value, ok := identifiers[id]; ok {
+			copy := value
+			projectIdentifiers = &copy
+		}
+		result = append(result, worktreeRecord{Project: projects[id], Identifiers: projectIdentifiers})
 	}
 	return result, nil
 }
