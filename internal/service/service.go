@@ -2729,16 +2729,17 @@ func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error
 	if run.Historical {
 		return model.Report{}, fmt.Errorf("workflow-v1 run report is history-only")
 	}
-	var report model.Report
 	path := s.reportPath(run.ProjectID, id)
-	if err := s.Hub.ReadJSON(ctx, path, &report); err != nil {
+	data, err := s.Hub.ReadFile(ctx, path)
+	if err != nil {
 		return model.Report{}, err
 	}
 	task, err := s.readTaskForRun(ctx, run)
 	if err != nil {
 		return model.Report{}, err
 	}
-	if err := model.ValidateReport(report, task, run, s.Config.MaxListItems); err != nil {
+	report, err := model.ParseReport(data, task, run, s.Config.MaxListItems)
+	if err != nil {
 		return model.Report{}, err
 	}
 	local, err := s.projectConfig(run.ProjectID)

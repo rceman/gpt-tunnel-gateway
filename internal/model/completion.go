@@ -189,6 +189,133 @@ func completionGates(v any) ([]CompletionGateResult, error) {
 	return out, nil
 }
 
+func reportObjectKeys(obj map[string]any) error {
+	allowed := map[string]bool{
+		"schema_version": true, "task_id": true, "run_id": true, "task_revision": true,
+		"task_revision_sha256": true, "task_run_number": true, "project_id": true,
+		"status": true, "summary": true, "gate_results": true, "acceptance_coverage": true,
+		"deviations": true, "remaining_risks": true, "agent_feedback": true,
+		"repository": true, "hub_commit": true, "finished_at": true,
+	}
+	for key := range obj {
+		if !allowed[key] {
+			return fmt.Errorf("unknown report field %q", key)
+		}
+	}
+	for _, key := range []string{"schema_version", "task_id", "run_id", "project_id", "status", "summary", "gate_results", "acceptance_coverage", "deviations", "remaining_risks", "repository", "finished_at"} {
+		if _, ok := obj[key]; !ok {
+			return fmt.Errorf("missing report field %q", key)
+		}
+	}
+	return nil
+}
+
+func reportGateObjects(v any) error {
+	items, ok := v.([]any)
+	if !ok {
+		return fmt.Errorf("report gate_results must be an array")
+	}
+	allowed := map[string]bool{
+		"id": true, "exit_code": true, "kind": true, "outcome": true, "command": true,
+		"evidence": true, "stdout": true, "stderr": true, "started_at": true,
+		"finished_at": true, "timed_out": true, "output_truncated": true,
+	}
+	for i, item := range items {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			return fmt.Errorf("report gate_results[%d] must be an object", i)
+		}
+		for key := range obj {
+			if !allowed[key] {
+				return fmt.Errorf("unknown report gate field %q", key)
+			}
+		}
+		for _, key := range []string{"id", "exit_code"} {
+			if _, ok := obj[key]; !ok {
+				return fmt.Errorf("missing report gate field %q", key)
+			}
+		}
+	}
+	return nil
+}
+
+func reportRepositoryObject(v any) error {
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return fmt.Errorf("report repository must be an object")
+	}
+	allowed := map[string]bool{"branch": true, "head": true, "worktree_clean": true, "base_ancestor": true, "commits": true, "changed_files": true, "diff_scope": true}
+	for key := range obj {
+		if !allowed[key] {
+			return fmt.Errorf("unknown report repository field %q", key)
+		}
+	}
+	for _, key := range []string{"branch", "head", "worktree_clean", "base_ancestor", "commits", "changed_files", "diff_scope"} {
+		if _, ok := obj[key]; !ok {
+			return fmt.Errorf("missing report repository field %q", key)
+		}
+	}
+	return nil
+}
+
+// ParseReport is the strict decoder for canonical server-owned reports. It
+// accepts the legacy id/exit_code gate shape and all current server evidence,
+// while rejecting unknown top-level, nested gate, and repository fields.
+func ParseReport(data []byte, task Task, run Run, limits ...int) (Report, error) {
+	var out Report
+	obj, err := strictJSONObject(data)
+	if err != nil {
+		return out, err
+	}
+	if err := reportObjectKeys(obj); err != nil {
+		return out, err
+	}
+	if err := reportGateObjects(obj["gate_results"]); err != nil {
+		return out, err
+	}
+	if err := reportRepositoryObject(obj["repository"]); err != nil {
+		return out, err
+	}
+	encoded, err := json.Marshal(obj)
+	if err != nil {
+		return out, fmt.Errorf("encode report")
+	}
+	dec := json.NewDecoder(bytes.NewReader(encoded))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&out); err != nil {
+		return out, err
+	}
+	if err := modelDecodeEOF(dec); err != nil {
+		return out, err
+	}
+	if raw, ok := obj["agent_feedback"]; ok {
+		feedbackJSON, err := json.Marshal(raw)
+		if err != nil {
+			return out, fmt.Errorf("encode report agent_feedback")
+		}
+		feedback, err := ParseAgentFeedback(feedbackJSON)
+		if err != nil {
+			return out, err
+		}
+		out.AgentFeedback = &feedback
+	}
+	if err := ValidateReport(out, task, run, limits...); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+func modelDecodeEOF(dec *json.Decoder) error {
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("trailing report JSON")
+		}
+		return err
+	}
+	return nil
+}
+
 func ParseCompletion(data []byte, task Task) (Completion, error) {
 	if !utf8.Valid(data) {
 		return Completion{}, fmt.Errorf("completion is not valid UTF-8")

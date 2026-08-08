@@ -126,14 +126,12 @@ func (s *Service) readTaskForRun(ctx context.Context, run model.Run) (model.Task
 }
 
 func (s *Service) readSnapshotReport(ctx context.Context, run model.Run, task model.Task, project config.ProjectConfig) (model.ReviewSnapshotReport, error) {
-	var report model.Report
-	if err := s.Hub.ReadJSON(ctx, s.reportPath(run.ProjectID, run.ID), &report); err != nil {
+	data, err := s.Hub.ReadFile(ctx, s.reportPath(run.ProjectID, run.ID))
+	if err != nil {
 		return model.ReviewSnapshotReport{}, err
 	}
-	if report.SchemaVersion != model.SchemaVersion || report.TaskID != task.ID || report.RunID != run.ID || report.ProjectID != run.ProjectID || report.Status == "" || report.FinishedAt.IsZero() {
-		return model.ReviewSnapshotReport{}, fmt.Errorf("report identity or completeness mismatch")
-	}
-	if err := model.ValidateReport(report, task, run, s.Config.MaxListItems); err != nil {
+	report, err := model.ParseReport(data, task, run, s.Config.MaxListItems)
+	if err != nil {
 		return model.ReviewSnapshotReport{}, err
 	}
 	if err := s.validateCanonicalReportProof(ctx, report, run, project); err != nil {

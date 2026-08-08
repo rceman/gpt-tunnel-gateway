@@ -12,22 +12,43 @@ import (
 )
 
 const (
-	automaticGateDefaultTimeout = 30 * time.Second
-	automaticGateDefaultOutput  = int64(1 << 20)
+	automaticGateDefaultOutput = int64(1 << 20)
+)
+
+type automaticGateTimeoutClass string
+
+const (
+	automaticGateTimeoutTight   automaticGateTimeoutClass = "tight"
+	automaticGateTimeoutPython  automaticGateTimeoutClass = "python"
+	automaticGateTimeoutFocused automaticGateTimeoutClass = "focused"
+	automaticGateTimeoutGoVet   automaticGateTimeoutClass = "go_vet"
+	automaticGateTimeoutGoTest  automaticGateTimeoutClass = "go_test"
+	automaticGateTimeoutGoRace  automaticGateTimeoutClass = "go_race"
+)
+
+const (
+	automaticGateTightTimeout   = 15 * time.Second
+	automaticGatePythonTimeout  = 2 * time.Minute
+	automaticGateFocusedTimeout = 2 * time.Minute
+	automaticGateGoVetTimeout   = 3 * time.Minute
+	automaticGateGoTestTimeout  = 5 * time.Minute
+	automaticGateGoRaceTimeout  = 10 * time.Minute
 )
 
 type automaticGateDefinition struct {
-	argv        []string
-	description string
-	postCheck   func(stdout, stderr string) error
+	argv         []string
+	description  string
+	timeoutClass automaticGateTimeoutClass
+	postCheck    func(stdout, stderr string) error
 }
 
 func lookupAutomaticGateDefinition(name string) (automaticGateDefinition, string) {
 	name = strings.TrimSpace(name)
 	definitions := map[string]automaticGateDefinition{
 		"gofmt check": {
-			argv:        []string{"gofmt", "-l", "."},
-			description: "gofmt -l .",
+			argv:         []string{"gofmt", "-l", "."},
+			description:  "gofmt -l .",
+			timeoutClass: automaticGateTimeoutTight,
 			postCheck: func(stdout, stderr string) error {
 				if strings.TrimSpace(stdout) != "" {
 					return fmt.Errorf("gofmt reported files requiring formatting")
@@ -36,8 +57,9 @@ func lookupAutomaticGateDefinition(name string) (automaticGateDefinition, string
 			},
 		},
 		"test -z \"$(gofmt -l .)\"": {
-			argv:        []string{"gofmt", "-l", "."},
-			description: "gofmt -l .",
+			argv:         []string{"gofmt", "-l", "."},
+			description:  "gofmt -l .",
+			timeoutClass: automaticGateTimeoutTight,
 			postCheck: func(stdout, stderr string) error {
 				if strings.TrimSpace(stdout) != "" {
 					return fmt.Errorf("gofmt reported files requiring formatting")
@@ -46,28 +68,34 @@ func lookupAutomaticGateDefinition(name string) (automaticGateDefinition, string
 			},
 		},
 		"go vet ./...": {
-			argv:        []string{"go", "vet", "./..."},
-			description: "go vet ./...",
+			argv:         []string{"go", "vet", "./..."},
+			description:  "go vet ./...",
+			timeoutClass: automaticGateTimeoutGoVet,
 		},
 		"go test ./...": {
-			argv:        []string{"go", "test", "./..."},
-			description: "go test ./...",
+			argv:         []string{"go", "test", "./..."},
+			description:  "go test ./...",
+			timeoutClass: automaticGateTimeoutGoTest,
 		},
 		"one bounded go test ./... attempt": {
-			argv:        []string{"go", "test", "./..."},
-			description: "go test ./...",
+			argv:         []string{"go", "test", "./..."},
+			description:  "go test ./...",
+			timeoutClass: automaticGateTimeoutGoTest,
 		},
 		"go test -race ./...": {
-			argv:        []string{"go", "test", "-race", "./..."},
-			description: "go test -race ./...",
+			argv:         []string{"go", "test", "-race", "./..."},
+			description:  "go test -race ./...",
+			timeoutClass: automaticGateTimeoutGoRace,
 		},
 		"git diff --check": {
-			argv:        []string{"git", "diff", "--check"},
-			description: "git diff --check",
+			argv:         []string{"git", "diff", "--check"},
+			description:  "git diff --check",
+			timeoutClass: automaticGateTimeoutTight,
 		},
 		"clean pushed branch": {
-			argv:        []string{"git", "status", "--porcelain"},
-			description: "git status --porcelain (published branch verified by canonical repository proof)",
+			argv:         []string{"git", "status", "--porcelain"},
+			description:  "git status --porcelain (published branch verified by canonical repository proof)",
+			timeoutClass: automaticGateTimeoutTight,
 			postCheck: func(stdout, stderr string) error {
 				if strings.TrimSpace(stdout) != "" {
 					return fmt.Errorf("worktree is not clean")
@@ -76,28 +104,34 @@ func lookupAutomaticGateDefinition(name string) (automaticGateDefinition, string
 			},
 		},
 		"python3 scripts/static-check.py": {
-			argv:        []string{"python3", "scripts/static-check.py"},
-			description: "python3 scripts/static-check.py",
+			argv:         []string{"python3", "scripts/static-check.py"},
+			description:  "python3 scripts/static-check.py",
+			timeoutClass: automaticGateTimeoutPython,
 		},
 		"static checks": {
-			argv:        []string{"python3", "scripts/static-check.py"},
-			description: "python3 scripts/static-check.py",
+			argv:         []string{"python3", "scripts/static-check.py"},
+			description:  "python3 scripts/static-check.py",
+			timeoutClass: automaticGateTimeoutPython,
 		},
 		"focused automatic gate runner/finalization tests": {
-			argv:        []string{"go", "test", "./internal/service", "-run", "Automatic|Finalize"},
-			description: "go test ./internal/service -run Automatic|Finalize",
+			argv:         []string{"go", "test", "./internal/service", "-run", "Automatic|Finalize"},
+			description:  "go test ./internal/service -run Automatic|Finalize",
+			timeoutClass: automaticGateTimeoutFocused,
 		},
 		"focused timeout/failure/override negative tests": {
-			argv:        []string{"go", "test", "./internal/service", "-run", "Automatic|Finalize"},
-			description: "go test ./internal/service -run Automatic|Finalize",
+			argv:         []string{"go", "test", "./internal/service", "-run", "Automatic|Finalize"},
+			description:  "go test ./internal/service -run Automatic|Finalize",
+			timeoutClass: automaticGateTimeoutFocused,
 		},
 		"historical completion/report compatibility tests": {
-			argv:        []string{"go", "test", "./internal/model", "./internal/service", "-run", "Completion|Report|Historical"},
-			description: "go test ./internal/model ./internal/service -run Completion|Report|Historical",
+			argv:         []string{"go", "test", "./internal/model", "./internal/service", "-run", "Completion|Report|Historical"},
+			description:  "go test ./internal/model ./internal/service -run Completion|Report|Historical",
+			timeoutClass: automaticGateTimeoutFocused,
 		},
 		"MCP/CLI schema parity for canonical finalize/read evidence": {
-			argv:        []string{"go", "test", "./internal/mcp", "./cmd/gpt-tunnel", "-run", "Finalize|Report|Completion"},
-			description: "go test ./internal/mcp ./cmd/gpt-tunnel -run Finalize|Report|Completion",
+			argv:         []string{"go", "test", "./internal/mcp", "./cmd/gpt-tunnel", "-run", "Finalize|Report|Completion"},
+			description:  "go test ./internal/mcp ./cmd/gpt-tunnel -run Finalize|Report|Completion",
+			timeoutClass: automaticGateTimeoutFocused,
 		},
 	}
 	if definition, ok := definitions[name]; ok {
@@ -146,7 +180,7 @@ func executeAutomaticGate(ctx context.Context, root string, definition automatic
 		return model.CompletionGateResult{}, fmt.Errorf("automatic gate has no command")
 	}
 	if timeout <= 0 {
-		timeout = automaticGateDefaultTimeout
+		timeout = automaticGateTightTimeout
 	}
 	if outputLimit <= 0 {
 		outputLimit = automaticGateDefaultOutput
@@ -203,11 +237,23 @@ func executeAutomaticGate(ctx context.Context, root string, definition automatic
 	return result, nil
 }
 
-func automaticGateTimeout(c int) time.Duration {
-	if c > 0 {
-		return time.Duration(c) * time.Second
+func automaticGateTimeoutFor(definition automaticGateDefinition) time.Duration {
+	switch definition.timeoutClass {
+	case automaticGateTimeoutPython:
+		return automaticGatePythonTimeout
+	case automaticGateTimeoutFocused:
+		return automaticGateFocusedTimeout
+	case automaticGateTimeoutGoVet:
+		return automaticGateGoVetTimeout
+	case automaticGateTimeoutGoTest:
+		return automaticGateGoTestTimeout
+	case automaticGateTimeoutGoRace:
+		return automaticGateGoRaceTimeout
+	case automaticGateTimeoutTight:
+		fallthrough
+	default:
+		return automaticGateTightTimeout
 	}
-	return automaticGateDefaultTimeout
 }
 
 func (s *Service) runAutomaticGates(ctx context.Context, task model.Task, projectRoot string) ([]model.CompletionGateResult, string, error) {
@@ -228,7 +274,7 @@ func (s *Service) runAutomaticGates(ctx context.Context, task model.Task, projec
 			}
 			continue
 		}
-		result, err := automaticGateExecutor(ctx, projectRoot, definition, automaticGateTimeout(s.Config.DispatchTimeoutSeconds), s.Config.MaxReadBytes)
+		result, err := automaticGateExecutor(ctx, projectRoot, definition, automaticGateTimeoutFor(definition), s.Config.MaxReadBytes)
 		if err != nil {
 			return nil, "", fmt.Errorf("execute %s: %w", id, err)
 		}

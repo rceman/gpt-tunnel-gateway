@@ -27,3 +27,31 @@ func TestAutomaticFinalizeSchemaRejectsAgentGateBookkeeping(t *testing.T) {
 		t.Fatal("run_finalize is not marked as a mutation")
 	}
 }
+
+func TestAutomaticReportSchemaAdvertisesCompleteServerGateEvidence(t *testing.T) {
+	schema := reportOutputSchema()
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("report output schema has no properties")
+	}
+	gates, ok := properties["gate_results"].(map[string]any)
+	if !ok {
+		t.Fatal("report output schema has no gate_results")
+	}
+	items, ok := gates["items"].(map[string]any)
+	if !ok {
+		t.Fatal("report output schema has no gate item schema")
+	}
+	gateProperties, ok := items["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("report gate schema has no properties")
+	}
+	for _, field := range []string{"kind", "outcome", "command", "evidence", "stdout", "stderr", "started_at", "finished_at", "timed_out", "output_truncated"} {
+		if _, ok := gateProperties[field]; !ok {
+			t.Fatalf("report gate schema omits server evidence field %q", field)
+		}
+	}
+	if items["additionalProperties"] != false {
+		t.Fatal("report gate schema must remain closed")
+	}
+}

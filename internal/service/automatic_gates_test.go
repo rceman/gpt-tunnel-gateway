@@ -37,6 +37,50 @@ func TestAutomaticGatesRunInImmutableTaskOrder(t *testing.T) {
 	}
 }
 
+func TestAutomaticGateTimeoutPolicyIsTypedFiniteAndDeterministic(t *testing.T) {
+	cases := []struct {
+		name  string
+		class automaticGateTimeoutClass
+		want  time.Duration
+	}{
+		{name: "git", class: automaticGateTimeoutTight, want: automaticGateTightTimeout},
+		{name: "python", class: automaticGateTimeoutPython, want: automaticGatePythonTimeout},
+		{name: "focused", class: automaticGateTimeoutFocused, want: automaticGateFocusedTimeout},
+		{name: "vet", class: automaticGateTimeoutGoVet, want: automaticGateGoVetTimeout},
+		{name: "test", class: automaticGateTimeoutGoTest, want: automaticGateGoTestTimeout},
+		{name: "race", class: automaticGateTimeoutGoRace, want: automaticGateGoRaceTimeout},
+	}
+	for _, tc := range cases {
+		definition := automaticGateDefinition{timeoutClass: tc.class}
+		if got := automaticGateTimeoutFor(definition); got != tc.want || got <= 0 {
+			t.Fatalf("%s timeout=%s want=%s", tc.name, got, tc.want)
+		}
+	}
+	if automaticGateTimeoutFor(automaticGateDefinition{}) != automaticGateTightTimeout {
+		t.Fatal("unknown timeout class did not fail closed to the tight bound")
+	}
+	if automaticGateGoTestTimeout <= automaticGateTightTimeout || automaticGateGoRaceTimeout <= automaticGateGoTestTimeout {
+		t.Fatal("heavy Go gates do not have strictly larger finite bounds")
+	}
+}
+
+func TestAutomaticGatesPassTypedTimeoutToExecutor(t *testing.T) {
+	previous := automaticGateExecutor
+	t.Cleanup(func() { automaticGateExecutor = previous })
+	seen := map[string]time.Duration{}
+	automaticGateExecutor = func(_ context.Context, _ string, definition automaticGateDefinition, timeout time.Duration, _ int64) (model.CompletionGateResult, error) {
+		seen[definition.description] = timeout
+		now := time.Now().UTC()
+		return model.CompletionGateResult{Kind: "executable", Outcome: "passed", ExitCode: 0, Command: definition.description, Evidence: "test", StartedAt: &now, FinishedAt: &now}, nil
+	}
+	if _, status, err := (&Service{}).runAutomaticGates(context.Background(), model.Task{RequiredGates: []string{"git diff --check", "go test ./...", "go test -race ./..."}}, t.TempDir()); err != nil || status != "succeeded" {
+		t.Fatalf("runAutomaticGates status=%q err=%v", status, err)
+	}
+	if seen["git diff --check"] != automaticGateTightTimeout || seen["go test ./..."] != automaticGateGoTestTimeout || seen["go test -race ./..."] != automaticGateGoRaceTimeout {
+		t.Fatalf("typed timeout policy was not passed to executor: %#v", seen)
+	}
+}
+
 func TestAutomaticGatesFailClosedForNonzeroAndUnsupported(t *testing.T) {
 	previous := automaticGateExecutor
 	t.Cleanup(func() { automaticGateExecutor = previous })

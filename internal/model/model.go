@@ -746,6 +746,15 @@ func ValidateReport(v Report, task Task, run Run, limits ...int) error {
 			if gate.Outcome != "passed" && gate.Outcome != "failed" && gate.Outcome != "timeout" && gate.Outcome != "manual" && gate.Outcome != "unsupported" {
 				return fmt.Errorf("invalid report gate outcome")
 			}
+			if gate.TimedOut && (gate.Kind != "executable" || gate.Outcome != "timeout") {
+				return fmt.Errorf("timed-out report gate evidence is inconsistent")
+			}
+			if gate.Outcome == "timeout" && !gate.TimedOut {
+				return fmt.Errorf("timeout report gate evidence is missing timed_out")
+			}
+			if gate.OutputTruncated && gate.Outcome == "passed" {
+				return fmt.Errorf("truncated report gate cannot pass")
+			}
 			if err := utf8Bounded(gate.Command, 1024, "gate command"); err != nil {
 				return err
 			}
