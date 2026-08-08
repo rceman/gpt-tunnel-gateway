@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.8 — 2026-08-08
+
 - Add dispatch-time effective implementation-base compatibility for stale semantic Tasks and allow rejected-review Delivery correction eligibility for stable Task revisions.
 
 ## 0.6.7 — 2026-08-08
