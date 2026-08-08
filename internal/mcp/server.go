@@ -764,13 +764,19 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return map[string]any{"revision": revision, "operation": operation}, nil
 	})
-	add("task_list", "List project tasks.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("task_list", "Read a bounded task index projection.", obj(map[string]any{"project_id": str("Project identifier"), "status": str("Optional task state filter"), "limit": integer("Maximum tasks", 1, 10), "cursor": str("Opaque task index cursor")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.TaskListInput
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		return s.Service.TaskListPage(ctx, in)
+	})
+	add("task_next", "Select the next eligible task deterministically.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "project_id")
 		if e != nil {
 			return nil, e
 		}
-		v, e := s.Service.TaskList(ctx, id)
-		return map[string]any{"tasks": v}, e
+		return s.Service.TaskNext(ctx, id)
 	})
 	add("task_read", "Read task record and active execution packet when a run exists.", obj(map[string]any{"task_id": str("Task identifier")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "task_id")
@@ -1074,17 +1080,12 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 		v, e := s.Service.Git.Refs(ctx, p)
 		return map[string]any{"refs": v}, e
 	})
-	add("git_log", "Read bounded commit history at a revision.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref"), "limit": integer("Maximum commits", 1, 1000)}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		_, p, e := projectConfig(raw)
-		if e != nil {
+	add("git_log", "Read a bounded commit index projection at a revision.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref"), "limit": integer("Maximum commits", 1, 10), "cursor": str("Opaque pinned history cursor")}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.GitLogInput
+		if e := decode(raw, &in); e != nil {
 			return nil, e
 		}
-		rev, e := getString(raw, "revision")
-		if e != nil {
-			return nil, e
-		}
-		v, e := s.Service.Git.Log(ctx, p, rev, intArg(raw, "limit", 50))
-		return map[string]any{"commits": v}, e
+		return s.Service.GitLogPage(ctx, in)
 	})
 	add("git_show", "Show bounded commit metadata, summary, and stat.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref")}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		_, p, e := projectConfig(raw)

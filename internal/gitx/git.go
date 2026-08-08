@@ -38,6 +38,11 @@ type Commit struct {
 	AuthorDate  string   `json:"author_date"`
 	Subject     string   `json:"subject"`
 }
+type LogRow struct {
+	SHA        string
+	CommitDate string
+	Subject    string
+}
 type WorktreeStatus struct {
 	Branch    string `json:"branch"`
 	Head      string `json:"head"`
@@ -281,6 +286,53 @@ func (r Runner) Log(ctx context.Context, p config.ProjectConfig, rev string, lim
 		}
 		parents := strings.Fields(string(parts[i+1]))
 		items = append(items, Commit{SHA: sha, Parents: parents, AuthorName: string(parts[i+2]), AuthorEmail: string(parts[i+3]), AuthorDate: string(parts[i+4]), Subject: string(parts[i+5])})
+	}
+	return items, nil
+}
+
+// ResolveRevision returns the immutable commit reached by a revision query.
+// Callers that paginate history must retain this value instead of resolving
+// the symbolic revision again on later pages.
+func (r Runner) ResolveRevision(ctx context.Context, p config.ProjectConfig, rev string) (string, error) {
+	if err := model.ValidateRevision(rev); err != nil {
+		return "", err
+	}
+	if err := r.EnsureMirror(ctx, p); err != nil {
+		return "", err
+	}
+	out, err := r.command(ctx, p.Mirror, true, "rev-parse", "--verify", rev+"^{commit}")
+	if err != nil {
+		return "", err
+	}
+	root := strings.TrimSpace(string(out))
+	if !isCommitSHA(root) {
+		return "", fmt.Errorf("resolved revision is not a commit")
+	}
+	return root, nil
+}
+
+// LogAt reads a bounded page from an already-resolved commit. The root must
+// be a full commit SHA; symbolic refs are intentionally not accepted here.
+func (r Runner) LogAt(ctx context.Context, p config.ProjectConfig, root string, skip, limit int) ([]LogRow, error) {
+	if !isCommitSHA(root) || skip < 0 || limit < 1 || limit > 11 {
+		return nil, fmt.Errorf("invalid pinned log page")
+	}
+	if err := r.EnsureMirror(ctx, p); err != nil {
+		return nil, err
+	}
+	format := "%H%x00%aI%x00%s%x00"
+	out, err := r.command(ctx, p.Mirror, true, "log", "--no-decorate", "--skip="+strconv.Itoa(skip), "--max-count="+strconv.Itoa(limit), "--format="+format, root)
+	if err != nil {
+		return nil, err
+	}
+	parts := bytes.Split(out, []byte{0})
+	items := []LogRow{}
+	for i := 0; i+2 < len(parts) && len(items) < limit; i += 3 {
+		sha := strings.TrimSpace(string(parts[i]))
+		if sha == "" {
+			continue
+		}
+		items = append(items, LogRow{SHA: sha, CommitDate: string(parts[i+1]), Subject: string(parts[i+2])})
 	}
 	return items, nil
 }

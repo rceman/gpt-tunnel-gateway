@@ -300,6 +300,73 @@ func (s Store) ReadJSON(ctx context.Context, path string, out any) error {
 	}
 	return nil
 }
+
+func validPinnedRevision(revision string) bool {
+	if len(revision) != 40 {
+		return false
+	}
+	for _, r := range revision {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func (s Store) validatePinnedRevision(ctx context.Context, root, revision string) error {
+	if !validPinnedRevision(revision) {
+		return fmt.Errorf("invalid pinned hub revision")
+	}
+	if _, err := command(ctx, root, "cat-file", "-e", revision+"^{commit}"); err != nil {
+		return fmt.Errorf("pinned hub revision unavailable: %w", err)
+	}
+	return nil
+}
+
+// ReadFileAtRevision reads from an immutable commit instead of the moving
+// authoritative branch ref. It is used by cursor-pinned read projections.
+func (s Store) ReadFileAtRevision(ctx context.Context, revision, path string) ([]byte, error) {
+	if err := validateHubPath(path); err != nil {
+		return nil, err
+	}
+	lock, err := s.readOnlyLock()
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Release()
+	root, err := s.readOnlyRoot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.validatePinnedRevision(ctx, root, revision); err != nil {
+		return nil, err
+	}
+	out, err := command(ctx, root, "show", revision+":"+filepath.ToSlash(path))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(out)) > s.Config.MaxReadBytes {
+		return nil, fmt.Errorf("hub file exceeds read limit")
+	}
+	return out, nil
+}
+
+func (s Store) ReadJSONAtRevision(ctx context.Context, revision, path string, out any) error {
+	data, err := s.ReadFileAtRevision(ctx, revision, path)
+	if err != nil {
+		return err
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(out); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("hub JSON has trailing content")
+	}
+	return nil
+}
 func (s Store) List(ctx context.Context, prefix, suffix string) ([]string, error) {
 	if err := validateHubPath(prefix); err != nil {
 		return nil, err
@@ -314,6 +381,42 @@ func (s Store) List(ctx context.Context, prefix, suffix string) ([]string, error
 		return nil, err
 	}
 	out, err := command(ctx, root, "ls-tree", "-r", "--name-only", s.remoteRef(), "--", prefix)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	result := []string{}
+	for _, line := range lines {
+		if line != "" && (suffix == "" || strings.HasSuffix(line, suffix)) {
+			result = append(result, line)
+			if len(result) > s.Config.MaxListItems {
+				return nil, fmt.Errorf("hub list exceeds limit")
+			}
+		}
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+// ListAt lists paths from an immutable commit. The moving remote branch is
+// intentionally not consulted after the cursor root has been established.
+func (s Store) ListAt(ctx context.Context, revision, prefix, suffix string) ([]string, error) {
+	if err := validateHubPath(prefix); err != nil {
+		return nil, err
+	}
+	lock, err := s.readOnlyLock()
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Release()
+	root, err := s.readOnlyRoot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.validatePinnedRevision(ctx, root, revision); err != nil {
+		return nil, err
+	}
+	out, err := command(ctx, root, "ls-tree", "-r", "--name-only", revision, "--", prefix)
 	if err != nil {
 		return nil, err
 	}
