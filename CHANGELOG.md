@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.9 — 2026-08-08
+
 - Prepare v0.6.9 with ready-state `rejected_needs_correction` Task eligibility for immutable correction revisions.
 
 ## 0.6.8 — 2026-08-08
