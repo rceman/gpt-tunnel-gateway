@@ -215,15 +215,14 @@ func reportGateObjects(v any) error {
 	if !ok {
 		return fmt.Errorf("report gate_results must be an array")
 	}
-	allowed := map[string]bool{
-		"id": true, "exit_code": true, "kind": true, "outcome": true, "command": true,
-		"evidence": true, "stdout": true, "stderr": true, "started_at": true,
-		"finished_at": true, "timed_out": true, "output_truncated": true,
-	}
+	allowed := map[string]bool{"id": true, "exit_code": true}
 	for i, item := range items {
 		obj, ok := item.(map[string]any)
 		if !ok {
 			return fmt.Errorf("report gate_results[%d] must be an object", i)
+		}
+		if len(obj) != 2 {
+			return fmt.Errorf("report gate_results[%d] must use compact v1 fields", i)
 		}
 		for key := range obj {
 			if !allowed[key] {
@@ -258,9 +257,8 @@ func reportRepositoryObject(v any) error {
 	return nil
 }
 
-// ParseReport is the strict decoder for canonical server-owned reports. It
-// accepts the legacy id/exit_code gate shape and all current server evidence,
-// while rejecting unknown top-level, nested gate, and repository fields.
+// ParseReport is the strict decoder for the persisted schema-v1 report. Gate
+// evidence beyond id/exit_code belongs in GateEvidenceArtifact.
 func ParseReport(data []byte, task Task, run Run, limits ...int) (Report, error) {
 	var out Report
 	obj, err := strictJSONObject(data)

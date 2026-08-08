@@ -256,6 +256,9 @@ func (s *Service) runPath(project, id string) string { return s.runPrefix(projec
 func (s *Service) reportPath(project, id string) string {
 	return s.runPrefix(project, id) + "/report.json"
 }
+func (s *Service) gateEvidencePath(project, id string) string {
+	return s.runPrefix(project, id) + "/gate-evidence.json"
+}
 
 func decodeStrict(data []byte, out any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
@@ -1511,8 +1514,8 @@ func (s *Service) TaskMarkMergeReady(ctx context.Context, in TaskMarkMergeReadyI
 		if !found || currentLatest.ID != latest.ID || currentLatest.Status != "succeeded" || currentLatest.TaskSHA256 != task.SHA256 || currentLatest.Branch != latest.Branch || currentLatest.BaseRevision != latest.BaseRevision {
 			return model.TaskState{}, fmt.Errorf("latest applicable run changed before merge_ready")
 		}
-		var currentAgent model.Report
-		if err := readWorktreeJSON(worktree, s.reportPath(task.ProjectID, currentLatest.ID), &currentAgent); err != nil {
+		currentAgent, err := s.readWorktreeReport(worktree, currentLatest, task)
+		if err != nil {
 			return model.TaskState{}, fmt.Errorf("Agent report changed before merge_ready: %w", err)
 		}
 		if err := model.ValidateReport(currentAgent, task, currentLatest, s.Config.MaxListItems); err != nil || currentAgent.Status != "succeeded" || !sameAgentAuthority(currentAgent, report) {
@@ -2222,6 +2225,66 @@ func canonicalReport(report model.Report) model.Report {
 	return report
 }
 
+func enrichReportWithGateEvidence(report *model.Report, evidence model.GateEvidenceArtifact) error {
+	if err := model.ValidateGateEvidenceParity(*report, evidence); err != nil {
+		return err
+	}
+	report.GateResults = append([]model.CompletionGateResult{}, evidence.GateResults...)
+	return nil
+}
+
+func (s *Service) readStoredReport(ctx context.Context, run model.Run, task model.Task) (model.Report, error) {
+	data, err := s.Hub.ReadFile(ctx, s.reportPath(run.ProjectID, run.ID))
+	if err != nil {
+		return model.Report{}, err
+	}
+	report, err := model.ParseReport(data, task, run, s.Config.MaxListItems)
+	if err != nil {
+		return model.Report{}, err
+	}
+	evidenceData, err := s.Hub.ReadFile(ctx, s.gateEvidencePath(run.ProjectID, run.ID))
+	if err != nil {
+		if IsNotFound(err) {
+			return canonicalReport(report), nil
+		}
+		return model.Report{}, err
+	}
+	evidence, err := model.ParseGateEvidence(evidenceData, task, run, s.Config.MaxListItems)
+	if err != nil {
+		return model.Report{}, err
+	}
+	if err := enrichReportWithGateEvidence(&report, evidence); err != nil {
+		return model.Report{}, err
+	}
+	return canonicalReport(report), nil
+}
+
+func (s *Service) readWorktreeReport(worktree string, run model.Run, task model.Task) (model.Report, error) {
+	data, err := os.ReadFile(filepath.Join(worktree, filepath.FromSlash(s.reportPath(run.ProjectID, run.ID))))
+	if err != nil {
+		return model.Report{}, err
+	}
+	report, err := model.ParseReport(data, task, run, s.Config.MaxListItems)
+	if err != nil {
+		return model.Report{}, err
+	}
+	evidenceData, err := os.ReadFile(filepath.Join(worktree, filepath.FromSlash(s.gateEvidencePath(run.ProjectID, run.ID))))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return canonicalReport(report), nil
+		}
+		return model.Report{}, err
+	}
+	evidence, err := model.ParseGateEvidence(evidenceData, task, run, s.Config.MaxListItems)
+	if err != nil {
+		return model.Report{}, err
+	}
+	if err := enrichReportWithGateEvidence(&report, evidence); err != nil {
+		return model.Report{}, err
+	}
+	return canonicalReport(report), nil
+}
+
 func addUniqueRisk(risks *[]string, risk string) {
 	for _, existing := range *risks {
 		if existing == risk {
@@ -2730,15 +2793,11 @@ func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error
 		return model.Report{}, fmt.Errorf("workflow-v1 run report is history-only")
 	}
 	path := s.reportPath(run.ProjectID, id)
-	data, err := s.Hub.ReadFile(ctx, path)
-	if err != nil {
-		return model.Report{}, err
-	}
 	task, err := s.readTaskForRun(ctx, run)
 	if err != nil {
 		return model.Report{}, err
 	}
-	report, err := model.ParseReport(data, task, run, s.Config.MaxListItems)
+	report, err := s.readStoredReport(ctx, run, task)
 	if err != nil {
 		return model.Report{}, err
 	}

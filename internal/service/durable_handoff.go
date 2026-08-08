@@ -823,8 +823,8 @@ func validateCompletedDeliveryProofInWorktree(worktree string, s *Service, hando
 	if err := model.ValidateRun(run); err != nil || run.ID != expectedRun.ID || run.TaskID != expectedRun.TaskID || run.ProjectID != expectedRun.ProjectID || run.TaskSHA256 != expectedRun.TaskSHA256 || run.Branch != expectedRun.Branch || run.BaseRevision != expectedRun.BaseRevision || run.Status != "succeeded" || operationalActiveRun(run) {
 		return fmt.Errorf("run changed before completed report")
 	}
-	var agent model.Report
-	if err := readWorktreeJSON(worktree, s.reportPath(handoff.ProjectID, handoff.RunID), &agent); err != nil {
+	agent, err := s.readWorktreeReport(worktree, expectedRun, task)
+	if err != nil {
 		return fmt.Errorf("Agent report changed before completed report: %w", err)
 	}
 	if err := model.ValidateReport(agent, task, run, s.Config.MaxListItems); err != nil || agent.Status != "succeeded" || !sameAgentAuthority(agent, expectedAgent) {

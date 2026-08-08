@@ -190,8 +190,13 @@ func (s *Service) RunFinalizeAutomatic(ctx context.Context, in AutomaticFinalize
 	plan.UpdatedAt = now
 	tx, err := s.Hub.Transact(ctx, expected, "gateway: automatic finalize run "+run.ID, func(w string) ([]string, error) {
 		state := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: taskStateStatusForResult(status), UpdatedAt: now}
-		paths := []string{s.runPath(run.ProjectID, run.ID), s.reportPath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID), s.planPath(task.ProjectID)}
-		values := []any{run, report, state, plan}
+		compactReport := model.CompactReport(report)
+		evidence := model.NewGateEvidenceArtifact(report)
+		if err := model.ValidateGateEvidenceArtifact(evidence, task, run, s.Config.MaxListItems); err != nil {
+			return nil, err
+		}
+		paths := []string{s.runPath(run.ProjectID, run.ID), s.reportPath(run.ProjectID, run.ID), s.gateEvidencePath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID), s.planPath(task.ProjectID)}
+		values := []any{run, compactReport, evidence, state, plan}
 		for i, path := range paths {
 			if err := hub.WriteJSON(w, path, values[i]); err != nil {
 				return nil, err

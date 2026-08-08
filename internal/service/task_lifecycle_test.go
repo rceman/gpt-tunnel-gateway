@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,6 +109,26 @@ func TestTaskMarkMergeReadyUsesLatestSuccessfulReportAndDeferReusesHead(t *testi
 	}
 	if _, err := s.RunReport(ctx, run.ID); err != nil {
 		t.Fatalf("completed report was not readable: %v", err)
+	}
+	compactData, err := s.Hub.ReadFile(ctx, s.reportPath(task.ProjectID, run.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compactObject map[string]any
+	if err := json.Unmarshal(compactData, &compactObject); err != nil {
+		t.Fatal(err)
+	}
+	compactGate := compactObject["gate_results"].([]any)[0].(map[string]any)
+	if len(compactGate) != 2 {
+		t.Fatalf("persisted v1 report was not compact: %#v", compactGate)
+	}
+	evidenceData, err := s.Hub.ReadFile(ctx, s.gateEvidencePath(task.ProjectID, run.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := model.ParseGateEvidence(evidenceData, task, run)
+	if err != nil || len(evidence.GateResults) != 1 || evidence.GateResults[0].Kind != "executable" {
+		t.Fatalf("rich gate evidence was not persisted: %#v %v", evidence, err)
 	}
 	invalidState := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "ready", UpdatedAt: time.Now().UTC()}
 	invalidRevision := installTaskLifecycleState(t, s, task, invalidState, finalized.Hub.After)

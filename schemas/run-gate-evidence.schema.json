@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project_id", "task_id", "run_id", "gate_results"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "project_id": {"type": "string"},
+    "task_id": {"type": "string"},
+    "run_id": {"type": "string"},
+    "gate_results": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "exit_code", "kind", "outcome"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^G[1-9][0-9]*$"},
+          "exit_code": {"type": "integer"},
+          "kind": {"enum": ["executable", "manual", "unsupported"]},
+          "outcome": {"enum": ["passed", "failed", "timeout", "manual", "unsupported"]},
+          "command": {"type": "string", "maxLength": 1024},
+          "evidence": {"type": "string", "maxLength": 4096},
+          "stdout": {"type": "string", "maxLength": 1048576},
+          "stderr": {"type": "string", "maxLength": 1048576},
+          "started_at": {"type": "string", "format": "date-time"},
+          "finished_at": {"type": "string", "format": "date-time"},
+          "timed_out": {"type": "boolean"},
+          "output_truncated": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}

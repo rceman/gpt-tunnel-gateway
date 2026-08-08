@@ -422,8 +422,8 @@ func (s *Service) TaskReviewReportFinalize(ctx context.Context, in TaskReviewRep
 		if err := model.ValidateRun(currentRun); err != nil || currentRun.Historical || currentRun.ID != context.run.ID || currentRun.TaskID != context.task.ID || currentRun.TaskSHA256 != context.task.SHA256 || currentRun.TaskRevision != context.run.TaskRevision || currentRun.TaskRevisionSHA256 != context.run.TaskRevisionSHA256 || currentRun.TaskRunNumber != context.run.TaskRunNumber || currentRun.ProjectID != context.task.ProjectID || currentRun.Branch != context.run.Branch || currentRun.BaseRevision != context.run.BaseRevision || operationalActiveRun(currentRun) {
 			return nil, fmt.Errorf("run changed or is still operational before delivery review publication")
 		}
-		var currentAgent model.Report
-		if err := readWorktreeJSON(worktree, s.reportPath(context.task.ProjectID, context.run.ID), &currentAgent); err != nil {
+		currentAgent, err := s.readWorktreeReport(worktree, context.run, context.task)
+		if err != nil {
 			return nil, err
 		}
 		if err := model.ValidateReport(currentAgent, currentTask, currentRun, s.Config.MaxListItems); err != nil {

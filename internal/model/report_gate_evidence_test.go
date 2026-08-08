@@ -29,7 +29,8 @@ func serverGateReportFixture() (Task, Run, Report) {
 
 func TestParseReportRoundTripsServerGateEvidenceStrictly(t *testing.T) {
 	task, run, report := serverGateReportFixture()
-	data, err := json.Marshal(report)
+	compact := CompactReport(report)
+	data, err := json.Marshal(compact)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,13 +38,20 @@ func TestParseReportRoundTripsServerGateEvidenceStrictly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(decoded, report) {
-		t.Fatalf("server gate evidence changed across strict round-trip:\nwant %#v\n got %#v", report, decoded)
+	if !reflect.DeepEqual(decoded, compact) {
+		t.Fatalf("compact v1 report changed across strict round-trip:\nwant %#v\n got %#v", compact, decoded)
 	}
 
-	unknown := strings.Replace(string(data), `"output_truncated":true`, `"output_truncated":true,"unexpected":true`, 1)
+	richData, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseReport(richData, task, run); err == nil {
+		t.Fatal("strict v1 report parser accepted rich gate fields on disk")
+	}
+	unknown := strings.Replace(string(richData), `"output_truncated":true`, `"output_truncated":true,"unexpected":true`, 1)
 	if _, err := ParseReport([]byte(unknown), task, run); err == nil {
-		t.Fatal("strict report parser accepted an unknown gate evidence field")
+		t.Fatal("strict v1 report parser accepted an unknown gate evidence field")
 	}
 }
 

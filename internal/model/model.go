@@ -735,40 +735,11 @@ func ValidateReport(v Report, task Task, run Run, limits ...int) error {
 			return fmt.Errorf("report gate results are not positional")
 		}
 		if gate.Kind != "" {
-			switch gate.Kind {
-			case "executable", "manual", "unsupported":
-			default:
-				return fmt.Errorf("invalid report gate kind")
-			}
 			if gate.Outcome == "" {
 				return fmt.Errorf("automatic report gate outcome is required")
 			}
-			if gate.Outcome != "passed" && gate.Outcome != "failed" && gate.Outcome != "timeout" && gate.Outcome != "manual" && gate.Outcome != "unsupported" {
-				return fmt.Errorf("invalid report gate outcome")
-			}
-			if gate.TimedOut && (gate.Kind != "executable" || gate.Outcome != "timeout") {
-				return fmt.Errorf("timed-out report gate evidence is inconsistent")
-			}
-			if gate.Outcome == "timeout" && !gate.TimedOut {
-				return fmt.Errorf("timeout report gate evidence is missing timed_out")
-			}
-			if gate.OutputTruncated && gate.Outcome == "passed" {
-				return fmt.Errorf("truncated report gate cannot pass")
-			}
-			if err := utf8Bounded(gate.Command, 1024, "gate command"); err != nil {
-				return err
-			}
-			if err := utf8Bounded(gate.Evidence, 4096, "gate evidence"); err != nil {
-				return err
-			}
-			if err := utf8Bounded(gate.Stdout, 1<<20, "gate stdout"); err != nil {
-				return err
-			}
-			if err := utf8Bounded(gate.Stderr, 1<<20, "gate stderr"); err != nil {
-				return err
-			}
-			if gate.Kind == "executable" && (gate.StartedAt == nil || gate.FinishedAt == nil || strings.TrimSpace(gate.Command) == "") {
-				return fmt.Errorf("executable report gate evidence is incomplete")
+			if err := validateRichGateResult(gate); err != nil {
+				return fmt.Errorf("report gate evidence: %w", err)
 			}
 		}
 	}

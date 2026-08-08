@@ -126,11 +126,7 @@ func (s *Service) readTaskForRun(ctx context.Context, run model.Run) (model.Task
 }
 
 func (s *Service) readSnapshotReport(ctx context.Context, run model.Run, task model.Task, project config.ProjectConfig) (model.ReviewSnapshotReport, error) {
-	data, err := s.Hub.ReadFile(ctx, s.reportPath(run.ProjectID, run.ID))
-	if err != nil {
-		return model.ReviewSnapshotReport{}, err
-	}
-	report, err := model.ParseReport(data, task, run, s.Config.MaxListItems)
+	report, err := s.readStoredReport(ctx, run, task)
 	if err != nil {
 		return model.ReviewSnapshotReport{}, err
 	}
