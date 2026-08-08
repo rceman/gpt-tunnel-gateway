@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
@@ -26,6 +28,16 @@ type SessionResult struct {
 }
 
 func (s *Service) SessionStart(ctx context.Context, input SessionStartInput) (SessionResult, error) {
+	project, err := s.ProjectRead(ctx, input.ProjectID)
+	if err != nil {
+		return SessionResult{}, fmt.Errorf("session project is not durably registered: %w", err)
+	}
+	if err := model.ValidateProject(project); err != nil {
+		return SessionResult{}, fmt.Errorf("session project is invalid: %w", err)
+	}
+	if project.ID != input.ProjectID || project.Status != "active" {
+		return SessionResult{}, fmt.Errorf("session project is not active")
+	}
 	if _, err := s.EffectiveProjectConfig(input.ProjectID); err != nil {
 		return SessionResult{}, err
 	}
