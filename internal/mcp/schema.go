@@ -586,6 +586,9 @@ func compareOutputSchema() map[string]any {
 }
 
 var toolOutputSchemas = map[string]map[string]any{
+	"call":   genericCallOutputSchema(),
+	"schema": genericSchemaOutputSchema(),
+	"batch":  genericBatchOutputSchema(),
 	"system_ping": closedOutput(map[string]any{
 		"service": outputString(), "version": outputString(), "gateway_id": outputString(), "time": outputDateTime(),
 	}, "service", "version", "gateway_id", "time"),
@@ -699,7 +702,7 @@ func readOnlyAnnotations() ToolAnnotations {
 // registration, schemas, annotations, and contract tests describe the same
 // MCP surface. Its length is deliberately not a protocol assertion.
 var canonicalToolManifest = []string{
-	"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_identifiers_adopt", "project_status", "project_onboard", "project_onboard_status", "project_onboard_recover", "project_workflow_policy_read", "project_workflow_policy_adopt", "project_workflow_policy_update",
+	"call", "schema", "batch", "system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_identifiers_adopt", "project_status", "project_onboard", "project_onboard_status", "project_onboard_recover", "project_workflow_policy_read", "project_workflow_policy_adopt", "project_workflow_policy_update",
 	"delivery_handoff_publish", "delivery_handoff_read", "delivery_handoff_status", "delivery_handoff_list", "delivery_handoff_acknowledge", "delivery_handoff_next", "delivery_handoff_cancel", "delivery_handoff_supersede", "planner_report_publish", "planner_report_read", "planner_report_status", "planner_report_list", "planner_report_acknowledge", "planner_report_next",
 	"project_register", "plan_read", "plan_cutover", "plan_update", "plan_section_read",
 	"plan_section_create", "plan_section_update", "plan_section_delete", "plan_render", "plan_history",
@@ -725,6 +728,9 @@ func destructiveExternalAnnotations() ToolAnnotations {
 
 var toolAnnotations = func() map[string]ToolAnnotations {
 	result := map[string]ToolAnnotations{}
+	result["schema"] = readOnlyAnnotations()
+	result["call"] = destructiveExternalAnnotations()
+	result["batch"] = destructiveExternalAnnotations()
 	for _, name := range []string{
 		"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_status", "project_workflow_policy_read",
 		"delivery_handoff_read", "delivery_handoff_status", "delivery_handoff_list", "planner_report_read", "planner_report_status", "planner_report_list",

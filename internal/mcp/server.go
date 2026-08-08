@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
@@ -21,6 +22,8 @@ import (
 type Server struct {
 	Service          *service.Service
 	AuthorityContext context.Context
+	genericActionMu  sync.RWMutex
+	genericActions   map[string]GenericAction
 }
 type request struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -1015,6 +1018,11 @@ func (s *Server) tools() map[string]Tool {
 	})
 	addOperatorJournalTools(add, s)
 	addGitTools(add, s)
+	legacyTools := make(map[string]Tool, len(t))
+	for name, tool := range t {
+		legacyTools[name] = tool
+	}
+	addGenericTransportTools(add, s, legacyTools)
 	if err := validateCanonicalToolManifest(t); err != nil {
 		panic(err)
 	}
