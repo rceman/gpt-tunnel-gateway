@@ -69,3 +69,14 @@ func RequireDelivery(ctx context.Context) error {
 func RequireOnboarding(ctx context.Context) error {
 	return RequirePlannerOrDelivery(ctx)
 }
+
+func RequireRole(ctx context.Context, wanted string) error {
+	switch wanted {
+	case "planner":
+		return RequirePlanner(ctx)
+	case "delivery":
+		return RequireDelivery(ctx)
+	default:
+		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
+	}
+}

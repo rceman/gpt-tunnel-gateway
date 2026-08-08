@@ -196,6 +196,8 @@ func requireToolAuthority(ctx context.Context, toolName string) error {
 		return authority.RequireDelivery(ctx)
 	case "project_onboard", "project_onboard_recover", "project_workflow_policy_adopt", "project_workflow_policy_update":
 		return authority.RequirePlannerOrDelivery(ctx)
+	case "session":
+		return authority.RequirePlannerOrDelivery(ctx)
 	default:
 		return nil
 	}
@@ -387,6 +389,9 @@ func (s *Server) tools() map[string]Tool {
 	}
 	add("system_ping", "Return gateway identity and time.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.9", "gateway_id": s.Service.Config.GatewayID, "time": time.Now().UTC()}, nil
+	})
+	add("session", "Create and manage explicit durable project-bound sessions.", sessionInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return s.sessionAction(ctx, raw)
 	})
 	add("gateway_capabilities", "Describe configured limits, projects, and transport.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		ids, err := s.Service.EffectiveProjectIDs()

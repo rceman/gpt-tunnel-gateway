@@ -570,7 +570,8 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 	samples := map[string]any{
 		"call":                 map[string]any{"action": "project/read", "result": map[string]any{"project": project}, "is_error": false},
 		"schema":               map[string]any{"revision": genericSchemaRevision, "path": "", "kind": "root", "domains": []string{"project"}, "actions": []map[string]any{}, "contract": map[string]any{}},
-		"batch":                map[string]any{"results": []map[string]any{{"action": "system/ping", "result": map[string]any{"service": "gpt-tunnel-gatewayd"}, "is_error": false}}},
+		"batch":                map[string]any{"results": []map[string]any{{"action": "project/read", "result": map[string]any{"project": project}, "is_error": false}}},
+		"session":              map[string]any{"action": "info", "session": map[string]any{"schema_version": 1, "session_id": "S-01234567", "project_id": "project", "role": "delivery", "session_type": "chatgpt", "status": "active", "created_at": now, "started_at": now, "updated_at": now}},
 		"system_ping":          map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.9", "gateway_id": "home_pc", "time": now},
 		"gateway_capabilities": map[string]any{"gateway_id": "home_pc", "listen_addr": "127.0.0.1:8765", "projects": []string{"project"}, "hub_protocol_root": "gpt-tunnel/v1", "hub_repository_url": "git@github.com:rceman/typer.git", "hub_branch": "gpt-tunnel/home_pc", "hub_managed_root": "/tmp/state/hub/repository", "airelay_control_only": true, "generic_shell_available": false},
 		"project_list":         map[string]any{"projects": []model.Project{project}}, "project_read": project,

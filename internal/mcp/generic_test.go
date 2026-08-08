@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -10,7 +11,24 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
+
+func genericSession(t *testing.T, s *service.Service, projectID string) string {
+	return genericSessionWithRole(t, s, projectID, durableSession.RoleDelivery)
+}
+
+func genericSessionWithRole(t *testing.T, s *service.Service, projectID, role string) string {
+	t.Helper()
+	if s.Config.StateDir == "" {
+		s.Config.StateDir = t.TempDir()
+	}
+	record, err := durableSession.NewStore(s.Config.StateDir).Create(durableSession.CreateInput{ProjectID: projectID, Role: role, SessionType: durableSession.SessionTypeChatGPT})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record.ID
+}
 
 func genericStructured(t *testing.T, response map[string]any) map[string]any {
 	t.Helper()
@@ -79,7 +97,8 @@ func TestGenericTransportSchemasAreCompactAndApplicationIndependent(t *testing.T
 }
 
 func TestGenericRegisteredActionDiscoveryCallAndBatchFailureContinuation(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
+	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc", StateDir: filepath.Join(t.TempDir(), "state")}), AuthorityContext: authority.WithDelivery(context.Background())}
+	sessionID := genericSession(t, server.Service, "example")
 	if err := server.RegisterGenericAction(GenericAction{
 		Path:        "test/echo",
 		Description: "Echo one value for transport testing.",
@@ -110,14 +129,14 @@ func TestGenericRegisteredActionDiscoveryCallAndBatchFailureContinuation(t *test
 
 	call := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"action": "test/echo", "input": map[string]any{"value": "ok"}}},
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/echo", "input": map[string]any{"value": "ok"}}},
 	})))
 	if call["action"] != "test/echo" || call["is_error"] != false {
 		t.Fatalf("unexpected generic call: %#v", call)
 	}
 	invalid := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"action": "test/echo", "input": map[string]any{"wrong": true}}},
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/echo", "input": map[string]any{"wrong": true}}},
 	})))
 	if invalid["is_error"] != true || !strings.Contains(invalid["result"].(map[string]any)["error"].(string), `schema with path="test/echo"`) {
 		t.Fatalf("generic validation error was not actionable: %#v", invalid)
@@ -125,7 +144,7 @@ func TestGenericRegisteredActionDiscoveryCallAndBatchFailureContinuation(t *test
 
 	batch := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]any{"name": "batch", "arguments": map[string]any{"calls": []any{
+		"params": map[string]any{"name": "batch", "arguments": map[string]any{"session_id": sessionID, "calls": []any{
 			map[string]any{"action": "test/echo", "input": map[string]any{"value": "first"}},
 			map[string]any{"action": "missing/action", "input": map[string]any{}},
 			map[string]any{"action": "test/echo", "input": map[string]any{"value": "last"}},
@@ -138,24 +157,20 @@ func TestGenericRegisteredActionDiscoveryCallAndBatchFailureContinuation(t *test
 }
 
 func TestGenericLegacyReadAndMutationAuthorityReuse(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
-	legacy := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "system_ping", "arguments": map[string]any{}},
-	})))
+	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc", StateDir: filepath.Join(t.TempDir(), "state")}), AuthorityContext: authority.WithDelivery(context.Background())}
+	sessionID := genericSession(t, server.Service, "example")
 	generic := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"action": "system/ping", "input": map[string]any{}}},
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "system/ping", "input": map[string]any{}}},
 	})))
-	legacyValue := legacy["gateway_id"]
-	genericValue := generic["result"].(map[string]any)["gateway_id"]
-	if legacyValue != genericValue || generic["is_error"] != false {
-		t.Fatalf("generic read path diverged from legacy handler: legacy=%#v generic=%#v", legacy, generic)
+	if generic["is_error"] != true || !strings.Contains(generic["result"].(map[string]any)["error"].(string), "unknown action") {
+		t.Fatalf("system/ping remained routable through generic registry: %#v", generic)
 	}
 
-	unauthorized := callMCP(t, server, mustJSON(t, map[string]any{
+	unauthorizedServer := &Server{Service: server.Service}
+	unauthorized := callMCP(t, unauthorizedServer, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"action": "project/workflow_policy_update", "input": map[string]any{"unknown": true}}},
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "project/workflow_policy_update", "input": map[string]any{"unknown": true}}},
 	}))
 	unauthorizedResult := genericStructured(t, unauthorized)
 	if unauthorizedResult["is_error"] != true || !strings.Contains(unauthorizedResult["result"].(map[string]any)["error"].(string), "AUTHORITY_UNAVAILABLE") {
@@ -174,6 +189,7 @@ func TestGenericWorkflowPolicyMutationMatchesLegacyHandler(t *testing.T) {
 	current.UpdatedAt = time.Now().UTC()
 	input := map[string]any{"policy": current, "expected_hub_revision": hubRevision}
 	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
+	sessionID := genericSessionWithRole(t, s, "example", durableSession.RolePlanner)
 	legacy := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "project_workflow_policy_update", "arguments": input},
@@ -192,7 +208,7 @@ func TestGenericWorkflowPolicyMutationMatchesLegacyHandler(t *testing.T) {
 	genericInput := map[string]any{"policy": current, "expected_hub_revision": nextRevision}
 	generic := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"action": "project/workflow_policy_update", "input": genericInput}},
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "project/workflow_policy_update", "input": genericInput}},
 	})))
 	if generic["is_error"] != false {
 		t.Fatalf("generic policy mutation failed: %#v", generic)
