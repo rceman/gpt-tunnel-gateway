@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.8 — 2026-08-08
+
 - Prepare v0.6.8 with effective-base compatibility, rejected-review correction eligibility, and the onboarding concurrent-stage race fix.
 
 ## 0.6.7 — 2026-08-08
