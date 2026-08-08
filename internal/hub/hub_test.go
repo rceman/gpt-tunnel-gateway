@@ -62,6 +62,73 @@ func TestReadDoesNotCreateCloneBranchOrLockArtifacts(t *testing.T) {
 	}
 }
 
+func TestReadSnapshotUsesOneRevisionAndEnforcesPerFileAndAggregateBounds(t *testing.T) {
+	bare, _, base := testutil.RepoWithBareRemote(t)
+	c := testConfig(t, bare, "gpt-tunnel/home_pc")
+	c.MaxReadBytes = 4
+	c.MaxListItems = 3
+	store := Store{Config: c}
+	tx, err := store.Transact(context.Background(), base, "test: snapshot bounds", func(worktree string) ([]string, error) {
+		paths := []string{ProtocolRoot + "/one.json", ProtocolRoot + "/two.json", ProtocolRoot + "/three.json"}
+		if err := os.MkdirAll(filepath.Join(worktree, ProtocolRoot), 0o700); err != nil {
+			return nil, err
+		}
+		if err := os.MkdirAll(filepath.Join(worktree, "other"), 0o700); err != nil {
+			return nil, err
+		}
+		for _, path := range paths {
+			if err := os.WriteFile(filepath.Join(worktree, filepath.FromSlash(path)), []byte("1234"), 0o600); err != nil {
+				return nil, err
+			}
+		}
+		if err := os.WriteFile(filepath.Join(worktree, "other", "extra.json"), []byte("1234"), 0o600); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(worktree, "other", "too-large.json"), []byte("12345"), 0o600); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(worktree, "other", "malformed.json"), []byte("{}x"), 0o600); err != nil {
+			return nil, err
+		}
+		return append(paths, "other/extra.json", "other/too-large.json", "other/malformed.json"), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.ReadSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer snapshot.Close()
+	if snapshot.Revision() != tx.After {
+		t.Fatalf("snapshot revision = %s, want %s", snapshot.Revision(), tx.After)
+	}
+	paths, err := snapshot.List(context.Background(), ProtocolRoot, ".json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 3 {
+		t.Fatalf("snapshot list length = %d, want 3", len(paths))
+	}
+	if _, err := snapshot.ReadFile(context.Background(), paths[0]); err != nil {
+		t.Fatal(err)
+	}
+	snapshot.readBytes = maxSnapshotAggregateReadBytes - 3
+	if _, err := snapshot.ReadFile(context.Background(), paths[1]); err == nil {
+		t.Fatal("aggregate snapshot bound was not enforced")
+	}
+	if _, err := snapshot.ReadFile(context.Background(), "other/too-large.json"); err == nil {
+		t.Fatal("per-file snapshot bound was not enforced")
+	}
+	var object map[string]any
+	if err := snapshot.ReadJSON(context.Background(), "other/malformed.json", &object); err == nil {
+		t.Fatal("malformed trailing JSON unexpectedly succeeded")
+	}
+	if _, err := snapshot.ReadFile(context.Background(), ProtocolRoot+"/missing.json"); err == nil {
+		t.Fatal("missing snapshot file unexpectedly succeeded")
+	}
+}
+
 func TestTransactionPushesThroughManagedClone(t *testing.T) {
 	bare, work, base := testutil.RepoWithBareRemote(t)
 	c := testConfig(t, bare, "gpt-tunnel/home_pc")
