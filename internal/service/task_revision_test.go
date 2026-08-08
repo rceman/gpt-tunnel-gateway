@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 func TestTaskRevisionListReadAndStatusExposeStableRevisionOne(t *testing.T) {
@@ -113,5 +115,75 @@ func TestTaskCorrectionCreateAppendsRevisionWithoutRewritingRootOrDelivery(t *te
 	}
 	if !strings.Contains(operation.Hub.Paths[0], "/revisions/") {
 		t.Fatalf("correction did not publish the revision child: %#v", operation.Hub.Paths)
+	}
+}
+
+func TestTaskCorrectionCreateAcceptsRejectedNeedsCorrectionReport(t *testing.T) {
+	s, task, run := makeReviewableRun(t)
+	ctx := context.Background()
+	draft, err := s.TaskReviewReportStart(ctx, task.ID, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sections := []struct {
+		id      string
+		payload string
+	}{
+		{"outcome", `"rejected_needs_correction"`},
+		{"findings", `[{"id":"F1","severity":"high","title":"Correction required","detail":"A bounded correction is required."}]`},
+		{"scope_coverage", `[]`},
+		{"unexpected_surfaces", `[]`},
+		{"historical_compatibility", `[]`},
+		{"prohibited_actions", `[]`},
+		{"next_action", `"create the bounded correction revision"`},
+	}
+	for _, section := range sections {
+		draft, err = s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{TaskID: task.ID, RunID: run.ID, SectionID: section.id, ExpectedDraftRevision: draft.DraftRevision, Payload: []byte(section.payload)})
+		if err != nil {
+			t.Fatalf("update %s: %v", section.id, err)
+		}
+	}
+	delivery, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{TaskID: task.ID, RunID: run.ID, ExpectedDraftRevision: draft.DraftRevision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, operation, err := s.TaskCorrectionCreate(ctx, TaskCorrectionCreateInput{
+		TaskID: task.ID, SourceRevisionID: task.ID + ".REV1", SourceRunID: run.ID, SourceReportID: delivery.ID,
+		Objective: "Correct the rejected review finding.", CreatedBy: "delivery",
+		WriteOptions: WriteOptions{ExpectedHubRevision: current},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revision.ID != task.ID+".REV2" || revision.ParentTaskRevision != 1 || revision.ParentTaskSHA256 != task.SHA256 || revision.SourceRunID != run.ID || revision.SourceReportID != delivery.ID || operation.Status != "revision_created" {
+		t.Fatalf("unexpected rejected correction result: %#v %#v", revision, operation)
+	}
+
+	current, err = s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.TaskCorrectionCreate(ctx, TaskCorrectionCreateInput{
+		TaskID: task.ID, SourceRevisionID: task.ID + ".REV1", SourceRunID: run.ID, SourceReportID: task.ID + "-wrong-report",
+		Objective: "Must reject wrong report binding.", CreatedBy: "delivery",
+		WriteOptions: WriteOptions{ExpectedHubRevision: current},
+	}); err == nil {
+		t.Fatal("wrong source report unexpectedly created a revision")
+	}
+}
+
+func TestCorrectionEligibleReportRejectsCleanAcceptedAndInvalidOutcomes(t *testing.T) {
+	cleanAccepted := model.RunReviewReport{Outcome: model.ReviewOutcomeAccepted}
+	if correctionEligibleReport(cleanAccepted) {
+		t.Fatal("clean accepted report unexpectedly became correction-eligible")
+	}
+	for _, outcome := range []string{model.ReviewOutcomeBlocked, model.ReviewOutcomeInconclusive, "unknown"} {
+		if correctionEligibleReport(model.RunReviewReport{Outcome: outcome}) {
+			t.Fatalf("outcome %q unexpectedly became correction-eligible", outcome)
+		}
 	}
 }

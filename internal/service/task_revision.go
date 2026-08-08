@@ -146,6 +146,9 @@ func (s *Service) TaskRevisionStatus(ctx context.Context, revisionID string) (mo
 }
 
 func correctionEligibleReport(report model.RunReviewReport) bool {
+	if report.Outcome == model.ReviewOutcomeRejected {
+		return true
+	}
 	if report.Outcome != model.ReviewOutcomeAccepted {
 		return false
 	}
