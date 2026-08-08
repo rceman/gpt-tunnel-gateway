@@ -2008,6 +2008,45 @@ func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run
 	}
 }
 
+// dispatchExecutionBase resolves the immutable execution authority for a new
+// run.  Existing implementation tasks may have been created before the
+// canonical integration branch advanced; their published task base remains
+// immutable, while the run is pinned to the refreshed branch head.  Other
+// operation classes retain their prepared lineage exactly.
+func (s *Service) dispatchExecutionBase(ctx context.Context, task model.Task, revision model.TaskRevision, local config.ProjectConfig) (string, error) {
+	if revision.OperationClass != "" && revision.OperationClass != "implementation" {
+		resolved, err := s.Git.Resolve(ctx, local.Root, revision.BaseRevision)
+		if err != nil || resolved != revision.BaseRevision {
+			return "", fmt.Errorf("task base unavailable or mismatched")
+		}
+		return revision.BaseRevision, nil
+	}
+	project, err := s.ProjectRead(ctx, task.ProjectID)
+	if err != nil {
+		return "", err
+	}
+	branch := project.DefaultBranch
+	if policy, policyErr := s.ProjectWorkflowPolicyRead(ctx, task.ProjectID); policyErr == nil && policy.IntegrationBranch != "" {
+		branch = policy.IntegrationBranch
+	} else if policyErr != nil && !IsNotFound(policyErr) {
+		return "", policyErr
+	}
+	if err := s.Git.Refresh(ctx, local); err != nil {
+		return "", fmt.Errorf("refresh canonical execution branch: %w", err)
+	}
+	head, exists, err := s.Git.MirrorBranchHead(ctx, local, branch)
+	if err != nil {
+		return "", fmt.Errorf("resolve canonical execution branch: %w", err)
+	}
+	if !exists || head == "" {
+		return "", fmt.Errorf("canonical execution branch %q is unavailable", branch)
+	}
+	if err := model.ValidateCommitSHA(head); err != nil {
+		return "", fmt.Errorf("canonical execution branch head: %w", err)
+	}
+	return head, nil
+}
+
 func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model.Run, OperationResult, error) {
 	if err := requireCanonicalTaskID(in.TaskID); err != nil {
 		return model.Run{}, OperationResult{}, err
@@ -2052,6 +2091,10 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 	if err := s.checkSessionAvailable(ctx, local.AirelaySessionKey); err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
+	executionBase, err := s.dispatchExecutionBase(ctx, task, revision, local)
+	if err != nil {
+		return model.Run{}, OperationResult{}, err
+	}
 	if in.ExpectedHubRevision == "" {
 		in.ExpectedHubRevision, err = s.hubRevision(ctx)
 		if err != nil {
@@ -2065,9 +2108,9 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 	if !wt.Clean {
 		return model.Run{}, OperationResult{}, fmt.Errorf("project worktree is dirty")
 	}
-	resolved, err := s.Git.Resolve(ctx, local.Root, revision.BaseRevision)
-	if err != nil || resolved != revision.BaseRevision {
-		return model.Run{}, OperationResult{}, fmt.Errorf("task base unavailable or mismatched")
+	resolved, err := s.Git.Resolve(ctx, local.Root, executionBase)
+	if err != nil || resolved != executionBase {
+		return model.Run{}, OperationResult{}, fmt.Errorf("execution base unavailable or mismatched")
 	}
 	var counter model.TaskRunCounter
 	if err := s.Hub.ReadJSON(ctx, s.taskRunCounterPath(task.ProjectID, task.ID), &counter); err != nil {
@@ -2102,7 +2145,7 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 		return model.Run{}, OperationResult{}, err
 	}
 	now := time.Now().UTC()
-	run := model.Run{SchemaVersion: model.SchemaVersion, ID: id, TaskID: task.ID, TaskSHA256: task.SHA256, ProjectID: task.ProjectID, GatewayID: s.Config.GatewayID, SessionKey: local.AirelaySessionKey, Branch: revision.Branch, BaseRevision: revision.BaseRevision, Status: "created", CompletionPath: completionPath, CreatedAt: now}
+	run := model.Run{SchemaVersion: model.SchemaVersion, ID: id, TaskID: task.ID, TaskSHA256: task.SHA256, ProjectID: task.ProjectID, GatewayID: s.Config.GatewayID, SessionKey: local.AirelaySessionKey, Branch: revision.Branch, BaseRevision: executionBase, Status: "created", CompletionPath: completionPath, CreatedAt: now}
 	if revisionAware {
 		run.TaskRevision, run.TaskRevisionSHA256, run.TaskRunNumber = revision.TaskRevision, revision.RevisionSHA256, counter.NextRunNumber
 	}
@@ -2180,7 +2223,7 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 	if err := s.writeLocalRun(run, task); err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
-	if err := s.Git.PrepareBranch(ctx, local, revision.Branch, revision.BaseRevision); err != nil {
+	if err := s.Git.PrepareBranch(ctx, local, revision.Branch, executionBase); err != nil {
 		_, _ = s.failRun(ctx, run, task, "failed", "repository preparation failed: "+err.Error(), tx.After)
 		return run, OperationResult{}, err
 	}
@@ -2305,7 +2348,7 @@ func (s *Service) durableRepositoryProof(ctx context.Context, run model.Run, pro
 			return model.RepositoryProof{}, nil, err
 		}
 		if !proof.BaseAncestor {
-			return model.RepositoryProof{}, nil, fmt.Errorf("final project HEAD is not descended from task base")
+			return model.RepositoryProof{}, nil, fmt.Errorf("final project HEAD is not descended from run execution base")
 		}
 	} else {
 		if published {
@@ -2314,10 +2357,10 @@ func (s *Service) durableRepositoryProof(ctx context.Context, run model.Run, pro
 				return model.RepositoryProof{}, nil, err
 			}
 			if !proof.BaseAncestor {
-				return model.RepositoryProof{}, nil, fmt.Errorf("published task branch is not descended from task base")
+				return model.RepositoryProof{}, nil, fmt.Errorf("published task branch is not descended from run execution base")
 			}
 		} else {
-			addUniqueRisk(&risks, "published task branch was absent; canonical proof uses the immutable task base")
+			addUniqueRisk(&risks, "published task branch was absent; canonical proof uses the run execution base")
 			proof, err = s.deriveMirrorRepositoryProof(ctx, run, project, run.BaseRevision)
 			if err != nil {
 				return model.RepositoryProof{}, nil, err
@@ -3043,7 +3086,7 @@ func readCurrentRun(worktree, path string, maxReadBytes int64) (model.Run, error
 	return run, nil
 }
 
-func (s *Service) validateCancelNoMutationWorktree(ctx context.Context, task model.Task) error {
+func (s *Service) validateCancelNoMutationWorktree(ctx context.Context, task model.Task, executionBase string) error {
 	local, err := s.projectConfig(task.ProjectID)
 	if err != nil {
 		return err
@@ -3058,8 +3101,8 @@ func (s *Service) validateCancelNoMutationWorktree(ctx context.Context, task mod
 	if !status.Clean {
 		return fmt.Errorf("repository worktree is dirty or conflicted")
 	}
-	if status.Head != task.BaseRevision {
-		return fmt.Errorf("repository HEAD does not match task base")
+	if status.Head != executionBase {
+		return fmt.Errorf("repository HEAD does not match run execution base")
 	}
 	if status.Upstream != "" && (status.Ahead != 0 || status.Behind != 0) {
 		return fmt.Errorf("task branch differs from its upstream")
@@ -3103,7 +3146,7 @@ func (s *Service) RunCancelAcknowledgeNoMutation(ctx context.Context, id, expect
 	if task.ID != run.TaskID || task.ProjectID != run.ProjectID || task.SHA256 != run.TaskSHA256 {
 		return OperationResult{}, fmt.Errorf("cancelled run task identity does not match")
 	}
-	if run.Branch != task.Branch || run.BaseRevision != task.BaseRevision {
+	if run.Branch != task.Branch {
 		return OperationResult{}, fmt.Errorf("cancelled run repository identity does not match task")
 	}
 	if hashErr := model.ValidateTaskHash(task); hashErr != nil {
@@ -3142,7 +3185,7 @@ func (s *Service) RunCancelAcknowledgeNoMutation(ctx context.Context, id, expect
 	if !errors.Is(err, os.ErrNotExist) {
 		return OperationResult{}, err
 	}
-	if err := s.validateCancelNoMutationWorktree(ctx, task); err != nil {
+	if err := s.validateCancelNoMutationWorktree(ctx, task, run.BaseRevision); err != nil {
 		return OperationResult{}, err
 	}
 	if expected == "" {
@@ -3176,7 +3219,7 @@ func (s *Service) RunCancelAcknowledgeNoMutation(ctx context.Context, id, expect
 		if err := model.ValidateRun(currentRun); err != nil {
 			return nil, err
 		}
-		if currentRun.ID != run.ID || currentRun.TaskID != task.ID || currentRun.TaskSHA256 != task.SHA256 || currentRun.ProjectID != task.ProjectID || currentRun.CompletionPath != run.CompletionPath || currentRun.Branch != task.Branch || currentRun.BaseRevision != task.BaseRevision {
+		if currentRun.ID != run.ID || currentRun.TaskID != task.ID || currentRun.TaskSHA256 != task.SHA256 || currentRun.ProjectID != task.ProjectID || currentRun.CompletionPath != run.CompletionPath || currentRun.Branch != task.Branch || currentRun.BaseRevision != run.BaseRevision {
 			return nil, fmt.Errorf("run changed before cancellation acknowledgement")
 		}
 		if err := requireCanonicalRun(currentRun); err != nil {

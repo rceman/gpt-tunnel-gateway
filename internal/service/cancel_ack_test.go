@@ -75,10 +75,11 @@ func TestRunCancelAcknowledgeNoMutationTerminalizesWithoutReport(t *testing.T) {
 func TestRunCancelAcknowledgeNoMutationRequiresRunRepositoryIdentity(t *testing.T) {
 	for _, test := range []struct {
 		name string
+		want string
 		edit func(*model.Run, model.Task)
 	}{
-		{name: "branch", edit: func(run *model.Run, task model.Task) { run.Branch = task.Branch + "-other" }},
-		{name: "base revision", edit: func(run *model.Run, task model.Task) { run.BaseRevision = strings.Repeat("c", 40) }},
+		{name: "branch", want: "repository identity", edit: func(run *model.Run, task model.Task) { run.Branch = task.Branch + "-other" }},
+		{name: "base revision", want: "run execution base", edit: func(run *model.Run, task model.Task) { run.BaseRevision = strings.Repeat("c", 40) }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			s, task, _, _ := dispatchedRun(t, "feature/cancel-run-identity-"+strings.ReplaceAll(test.name, " ", "-"))
@@ -110,7 +111,7 @@ func TestRunCancelAcknowledgeNoMutationRequiresRunRepositoryIdentity(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := s.RunCancelAcknowledgeNoMutation(ctx, current.ID, before); err == nil || !strings.Contains(err.Error(), "repository identity") {
+			if _, err := s.RunCancelAcknowledgeNoMutation(ctx, current.ID, before); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("repository identity mismatch was accepted: %v", err)
 			}
 			after, err := s.Hub.RemoteRevision(ctx)
