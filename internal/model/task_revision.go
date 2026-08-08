@@ -30,7 +30,7 @@ type TaskRevision struct {
 	Title                  string    `json:"title"`
 	Objective              string    `json:"objective"`
 	Branch                 string    `json:"branch"`
-	BaseRevision           string    `json:"base_revision"`
+	BaseRevision           string    `json:"base_revision,omitempty"`
 	AcceptanceCriteria     []string  `json:"acceptance_criteria"`
 	Constraints            []string  `json:"constraints"`
 	RequiredGates          []string  `json:"required_gates,omitempty"`

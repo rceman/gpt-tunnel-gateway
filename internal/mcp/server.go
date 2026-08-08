@@ -723,7 +723,7 @@ func (s *Server) tools() map[string]Tool {
 	operationClass := str("Closed workflow operation class")
 	operationClass["enum"] = model.WorkflowOperationClasses()
 	taskInputSchema := obj(map[string]any{"project_id": str("Project identifier"), "slug": str("Lowercase task slug"), "title": str("Task title"), "objective": str("Full objective"), "acceptance_criteria": array(str("Criterion")), "constraints": array(str("Constraint")), "required_gates": array(str("Gate")), "operation_class": operationClass, "created_by": str("Creator identity"), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "slug", "title", "objective", "operation_class", "created_by")
-	add("task_create", "Create immutable hashed task from a normalized slug and the refreshed project default branch; CI behavior is derived from durable project policy.", taskInputSchema, func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("task_create", "Create immutable hashed task from a normalized slug; the execution base is resolved and pinned at dispatch.", taskInputSchema, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.TaskCreateInput
 		if e := decode(raw, &in); e != nil {
 			return nil, e

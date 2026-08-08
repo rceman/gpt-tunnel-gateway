@@ -22,8 +22,8 @@ func TestTaskDispatchBindsImplementationRunToRefreshedCanonicalHead(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task.BaseRevision != oldHead {
-		t.Fatalf("task was not created at the original head: got=%s want=%s", task.BaseRevision, oldHead)
+	if task.BaseRevision != "" {
+		t.Fatalf("semantic task unexpectedly froze the original head: got=%s", task.BaseRevision)
 	}
 	originalTaskHash := task.SHA256
 
@@ -68,7 +68,7 @@ func TestTaskDispatchBindsImplementationRunToRefreshedCanonicalHead(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if readBack.Task.BaseRevision != oldHead || readBack.Task.SHA256 != originalTaskHash {
+	if readBack.Task.BaseRevision != "" || readBack.Task.SHA256 != originalTaskHash {
 		t.Fatalf("immutable task changed during dispatch: base=%s hash=%s", readBack.Task.BaseRevision, readBack.Task.SHA256)
 	}
 	if _, err := s.failRun(ctx, run, task, "failed", "bounded compatibility proof", mustHubRevision(t, s)); err != nil {
@@ -96,6 +96,43 @@ func TestDispatchExecutionBasePreservesPinnedOperationLineage(t *testing.T) {
 		if got != oldHead {
 			t.Fatalf("%s lineage changed: got=%s want=%s", operationClass, got, oldHead)
 		}
+		got, err = s.dispatchExecutionBase(ctx, task, model.TaskRevision{OperationClass: operationClass}, project)
+		if err != nil {
+			t.Fatalf("%s empty base: %v", operationClass, err)
+		}
+		if got != oldHead {
+			t.Fatalf("%s empty base did not resolve current head: got=%s want=%s", operationClass, got, oldHead)
+		}
+	}
+}
+
+func TestSemanticTaskCreateAndSupersedeDoNotRequireGitHead(t *testing.T) {
+	s, hubRevision, _ := testService(t)
+	ctx := context.Background()
+	project := s.Config.Projects["example"]
+	project.Root = filepath.Join(t.TempDir(), "unavailable")
+	s.Config.Projects["example"] = project
+
+	task, created, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID: "example", Slug: "no-git-at-create", Title: "No Git at create", Objective: "Create without a frozen base.",
+		OperationClass: "implementation", CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.BaseRevision != "" {
+		t.Fatalf("semantic task froze a base despite unavailable Git root: %q", task.BaseRevision)
+	}
+
+	superseded, result, err := s.TaskSupersede(ctx, task.ID, TaskCreateInput{
+		ProjectID: "example", Slug: "no-git-at-supersede", Title: "No Git at supersede", Objective: "Supersede without a frozen base.",
+		OperationClass: "implementation", CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if superseded.BaseRevision != "" || result.Status != "created" {
+		t.Fatalf("semantic supersede unexpectedly froze base: task=%#v result=%#v", superseded, result)
 	}
 }
 

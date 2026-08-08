@@ -13,7 +13,7 @@ import (
 )
 
 func TestCanonicalTaskRunAndADRAllocation(t *testing.T) {
-	s, revision, projectHead := testService(t)
+	s, revision, _ := testService(t)
 	ctx := context.Background()
 	identifiers, err := s.ProjectIdentifiersRead(ctx, "example")
 	if err != nil {
@@ -30,7 +30,7 @@ func TestCanonicalTaskRunAndADRAllocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task.ID != "EXM-TSK1" || task.Branch != "task/EXM-TSK1-canonical-cutover" || task.BaseRevision != projectHead {
+	if task.ID != "EXM-TSK1" || task.Branch != "task/EXM-TSK1-canonical-cutover" || task.BaseRevision != "" {
 		t.Fatalf("unexpected canonical task: %#v", task)
 	}
 	if created.Status != "created" {

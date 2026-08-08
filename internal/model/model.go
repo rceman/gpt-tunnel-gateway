@@ -280,7 +280,7 @@ type Task struct {
 	Title                  string    `json:"title"`
 	Objective              string    `json:"objective"`
 	Branch                 string    `json:"branch"`
-	BaseRevision           string    `json:"base_revision"`
+	BaseRevision           string    `json:"base_revision,omitempty"`
 	AcceptanceCriteria     []string  `json:"acceptance_criteria"`
 	Constraints            []string  `json:"constraints"`
 	RequiredGates          []string  `json:"required_gates,omitempty"`
@@ -577,7 +577,7 @@ func ValidateTask(v Task) error {
 	if err := ValidateBranch(v.Branch); err != nil {
 		return err
 	}
-	if !shaRE.MatchString(v.BaseRevision) {
+	if v.BaseRevision != "" && !shaRE.MatchString(v.BaseRevision) {
 		return fmt.Errorf("base_revision must be a lowercase 40-character SHA")
 	}
 	if len(v.AcceptanceCriteria) > 200 || len(v.Constraints) > 200 || len(v.RequiredGates) > 100 {
