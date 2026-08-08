@@ -41,7 +41,9 @@ Remote tools mirror typed CLI operations except `run_finalize`, which remains lo
 The v0.6.0 direct project-session tools are:
 
 - `agent_send(project_id, message)`: one bounded, serialized Airelay prompt;
-- `agent_tail(project_id, lines=4, skip=0)`: one bounded read window;
+- `agent_tail(project_id, lines=10)`: current Airelay viewport, accepting 1..30
+  or `-1` for the full 30-row viewport;
+- `agent_transcript(project_id, lines=50, skip=0)`: bounded retained history;
 - `agent_status(project_id)`: normalized bounded liveness state and capacity
   and rate-limit warnings.
 

@@ -65,7 +65,7 @@ func TestAgentSendSerializesPerConfiguredSession(t *testing.T) {
 	}
 }
 
-func TestAgentTailSupportsDefaultAndSkip(t *testing.T) {
+func TestAgentTailSupportsDefaultAndViewport(t *testing.T) {
 	s, _, _ := testService(t)
 	dir := t.TempDir()
 	argsPath := filepath.Join(dir, "args")
@@ -75,19 +75,40 @@ func TestAgentTailSupportsDefaultAndSkip(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Airelay.Command = script
-	result, err := s.AgentTail(context.Background(), "example", 4, 2)
+	result, err := s.AgentTail(context.Background(), "example", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ProjectID != "example" || result.Lines != 4 || result.Skip != 2 || result.Text != "one\ntwo\nthree\nfour\n" {
+	if result.ProjectID != "example" || result.Lines != 10 || result.Text != "one\ntwo\nthree\nfour\nfive\nsix\n" {
 		t.Fatalf("unexpected agent tail: %#v", result)
 	}
 	args, err := os.ReadFile(argsPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(args) != "tail\nexample_master\n--lines\n6\n" {
+	if string(args) != "tail\nexample_master\n--lines\n10\n" {
 		t.Fatalf("unexpected tail argv: %q", args)
+	}
+	result, err = s.AgentTail(context.Background(), "example", -1)
+	if err != nil || result.Lines != -1 {
+		t.Fatalf("unexpected full viewport: %#v err=%v", result, err)
+	}
+	args, err = os.ReadFile(argsPath)
+	if err != nil || string(args) != "tail\nexample_master\n--lines\n30\n" {
+		t.Fatalf("unexpected full viewport argv: %q err=%v", args, err)
+	}
+
+	transcriptScript := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + argsPath + "\"\nprintf 'history\\n'\n"
+	if err := os.WriteFile(script, []byte(transcriptScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	transcript, err := s.AgentTranscript(context.Background(), "example", 0, 2)
+	if err != nil || transcript.Lines != 50 || transcript.Skip != 2 || transcript.Text != "history\n" {
+		t.Fatalf("unexpected transcript: %#v err=%v", transcript, err)
+	}
+	args, err = os.ReadFile(argsPath)
+	if err != nil || string(args) != "transcript\nexample_master\n--lines\n50\n--skip\n2\n--order\ndesc\n" {
+		t.Fatalf("unexpected transcript argv: %q err=%v", args, err)
 	}
 }
 

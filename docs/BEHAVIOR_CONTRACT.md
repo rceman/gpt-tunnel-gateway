@@ -42,9 +42,9 @@
 38. Project registration atomically creates a valid idle workflow-v2 plan, so startup cannot observe a configured active project without its current plan.
 39. The MCP descriptor contract is driven by one canonical tool manifest. Tool counts are derived from registration/manifest parity; smoke tests require names and schema/handler parity rather than a stale numeric assertion.
 40. Direct project-session operations resolve only configured active project IDs and derive the Airelay session key from configuration; callers cannot supply arbitrary session keys.
-41. `agent_send`, `agent_tail`, and `agent_status` create no task, run, plan, report, completion, branch, commit, or Git mutation. Generic shell execution is not available.
+41. `agent_send`, `agent_tail`, `agent_transcript`, and `agent_status` create no task, run, plan, report, completion, branch, commit, or Git mutation. Generic shell execution is not available.
 42. Direct-session messages and output are bounded, sends are serialized per configured session, and no implicit retry or automatic continuation occurs.
-43. `agent_tail` defaults to four lines and supports a bounded skip window; `agent_status` reports the canonical bounded liveness enum plus bounded capacity and rate-limit warnings.
+43. `agent_tail` reads the current Airelay viewport, defaults to 10 lines, accepts 1..30 or `-1` for the full 30-row viewport, and has no skip/history behavior. `agent_transcript` reads bounded retained history and does not affect liveness; `agent_status` reports the canonical bounded liveness enum plus bounded capacity and rate-limit warnings.
 44. `agent_send` is emergency/control-plane communication only; it never authorizes new task scope, implementation, merge, release, or deployment. Such requests must use the durable task workflow.
 45. A v0.6.0 direct-session release must preserve the gateway-only upgrade invariant: a new gateway PID, unchanged tunnel PID, readiness, doctor, and MCP contract verification.
 46. `project_status` is the canonical bounded progress snapshot: it includes the compact plan, latest task/run, repository state, normalized agent state, controller reachability, bounded warnings, a four-line tail, activity age, blocker classification, and recommended action.

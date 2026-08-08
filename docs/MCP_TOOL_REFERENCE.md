@@ -17,10 +17,12 @@ Every descriptor has:
 Unknown envelope fields, unknown tool arguments, and the obsolete workflow-v1
 `body` plan field are rejected. `run_agent_tail` returns structured `{text}`
 output. The v0.6.0 direct project-session tools are `agent_send`, `agent_tail`,
-and `agent_status`; they do not create durable workflow or Git state. `agent_send`
-accepts only `project_id` and `message`, `agent_tail` defaults to four lines and
-supports a bounded `skip`, and `agent_status` returns normalized state plus
-capacity warnings. Session keys are never caller-supplied.
+`agent_transcript`, and `agent_status`; they do not create durable workflow or
+Git state. `agent_send` accepts only `project_id` and `message`, `agent_tail`
+defaults to 10 current viewport lines (1..30 or `-1` for the full 30-row
+viewport), and `agent_transcript` reads bounded retained history with a
+50-line maximum and bounded `skip`. `agent_status` returns normalized state
+plus capacity warnings. Session keys are never caller-supplied.
 
 `project_status` is the single-call progress snapshot. Healthy bounded status,
 tail, repository and hub components are collected concurrently; partial

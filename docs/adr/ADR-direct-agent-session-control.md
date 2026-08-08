@@ -8,10 +8,12 @@ Direct session communication is a separate control surface from the durable
 task/run workflow. The project-level operations are:
 
 - `agent_send(project_id, message)`;
-- `agent_tail(project_id, lines=4, skip=0)`;
+- `agent_tail(project_id, lines=10)` for the current viewport;
+- `agent_transcript(project_id, lines=50, skip=0)` for bounded retained history;
 - `agent_status(project_id)`.
 
-CLI equivalents are `gpt-tunnel agent send`, `agent tail`, and `agent status`.
+CLI equivalents are `gpt-tunnel agent send`, `agent tail`, `agent transcript`,
+and `agent status`.
 The project ID resolves only through configured project metadata; callers may
 not supply an arbitrary Airelay session key. Generic shell execution is not a
 capability of the gateway.

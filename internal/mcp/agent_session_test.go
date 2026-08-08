@@ -46,10 +46,14 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatalf("send failed: %#v", send)
 	}
 
-	tail := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"agent_tail","arguments":{"project_id":"example","lines":4,"skip":2}}}`))
+	tail := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"agent_tail","arguments":{"project_id":"example","lines":4}}}`))
 	tailResult := tail["result"].(map[string]any)
-	if tailResult["isError"] != false || tailResult["structuredContent"].(map[string]any)["text"] != "one\ntwo\nthree\nfour\n" {
+	if tailResult["isError"] != false || tailResult["structuredContent"].(map[string]any)["lines"] != float64(4) || tailResult["structuredContent"].(map[string]any)["text"] != "one\ntwo\nthree\nfour\nfive\nsix\n" {
 		t.Fatalf("tail failed: %#v", tail)
+	}
+	unknownTailArg := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"agent_tail","arguments":{"project_id":"example","skip":1}}}`))
+	if errObject, ok := unknownTailArg["error"].(map[string]any); !ok || !strings.Contains(errObject["data"].(string), `unknown argument "skip"`) {
+		t.Fatalf("project tail skip was not rejected as an unknown argument: %#v", unknownTailArg)
 	}
 
 	status := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"agent_status","arguments":{"project_id":"example"}}}`))

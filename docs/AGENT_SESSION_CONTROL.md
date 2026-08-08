@@ -6,13 +6,17 @@ metadata and never accepts a caller-supplied key.
 
 ```text
 gpt-tunnel agent send <project-id> --text '<short message>'
-gpt-tunnel agent tail <project-id> --lines 4 --skip 0
+gpt-tunnel agent tail <project-id> --lines 10
+gpt-tunnel agent transcript <project-id> --lines 50 --skip 0
 gpt-tunnel agent status <project-id>
 ```
 
-The equivalent MCP tools are `agent_send`, `agent_tail`, and `agent_status`.
-Messages, output, lines, and skip are bounded. `agent_tail` defaults to four
-lines; `skip` omits the newest lines from the one requested bounded window.
+The equivalent MCP tools are `agent_send`, `agent_tail`, `agent_transcript`, and
+`agent_status`. Messages and output are bounded. `agent_tail` reads the current
+Airelay viewport, defaults to 10 lines, accepts 1..30 or `-1` for the full
+30-row viewport, and has no skip/history behavior. `agent_transcript` reads
+bounded retained history, defaults to 50 lines, supports bounded `skip`, and
+never supplies liveness authority.
 Sends are serialized per session. Calls return exact delivery/exit information
 and do not retry. Status normalizes Airelay's busy/working state to `running`,
 and preserves bounded capacity warnings.

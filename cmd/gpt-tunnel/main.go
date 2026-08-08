@@ -605,7 +605,7 @@ func run(ctx context.Context, s *service.Service, args []string) {
 		output(v)
 	case "agent-tail":
 		require(args, 2)
-		lines := 4
+		lines := 10
 		if len(args) > 2 {
 			if len(args) != 4 || args[2] != "--lines" {
 				usage()
@@ -621,6 +621,32 @@ func run(ctx context.Context, s *service.Service, args []string) {
 			fatal(e)
 		}
 		fmt.Println(strings.TrimRight(v, "\r\n"))
+	case "agent-transcript":
+		require(args, 2)
+		lines, skip := 50, 0
+		for i := 2; i < len(args); {
+			if i+1 >= len(args) {
+				usage()
+			}
+			value, e := strconv.Atoi(args[i+1])
+			if e != nil {
+				fatal(fmt.Errorf("invalid transcript bound"))
+			}
+			switch args[i] {
+			case "--lines":
+				lines = value
+			case "--skip":
+				skip = value
+			default:
+				usage()
+			}
+			i += 2
+		}
+		v, e := s.RunAgentTranscript(ctx, args[1], lines, skip)
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
 	case "resume":
 		require(args, 2)
 		v, e := s.RunResume(ctx, args[1])
@@ -693,8 +719,8 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 		}
 		output(v)
 	case "tail":
-		lines, skip := 4, 0
-		seenLines, seenSkip := false, false
+		lines := 10
+		seenLines := false
 		for i := 2; i < len(args); {
 			if i+1 >= len(args) {
 				usage()
@@ -702,6 +728,33 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 			value, err := strconv.Atoi(args[i+1])
 			if err != nil {
 				fatal(fmt.Errorf("invalid agent tail bound"))
+			}
+			switch args[i] {
+			case "--lines":
+				if seenLines {
+					usage()
+				}
+				lines, seenLines = value, true
+			default:
+				usage()
+			}
+			i += 2
+		}
+		v, err := s.AgentTail(ctx, args[1], lines)
+		if err != nil {
+			fatal(err)
+		}
+		output(v)
+	case "transcript":
+		lines, skip := 50, 0
+		seenLines, seenSkip := false, false
+		for i := 2; i < len(args); {
+			if i+1 >= len(args) {
+				usage()
+			}
+			value, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				fatal(fmt.Errorf("invalid agent transcript bound"))
 			}
 			switch args[i] {
 			case "--lines":
@@ -719,7 +772,7 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 			}
 			i += 2
 		}
-		v, err := s.AgentTail(ctx, args[1], lines, skip)
+		v, err := s.AgentTranscript(ctx, args[1], lines, skip)
 		if err != nil {
 			fatal(err)
 		}

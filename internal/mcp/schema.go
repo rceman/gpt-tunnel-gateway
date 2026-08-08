@@ -367,8 +367,20 @@ func agentSendOutputSchema() map[string]any {
 
 func agentTailOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
+		"project_id": outputString(), "text": outputString(), "lines": outputInteger(),
+	}, "project_id", "text", "lines")
+}
+
+func agentTranscriptOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
 		"project_id": outputString(), "text": outputString(), "lines": outputInteger(), "skip": outputInteger(),
 	}, "project_id", "text", "lines", "skip")
+}
+
+func runAgentTranscriptOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"run_id": outputString(), "text": outputString(), "lines": outputInteger(), "skip": outputInteger(),
+	}, "run_id", "text", "lines", "skip")
 }
 
 func agentStatusOutputSchema() map[string]any {
@@ -664,9 +676,11 @@ var toolOutputSchemas = map[string]map[string]any{
 	"run_report":                         reportOutputSchema(),
 	"run_review_snapshot":                reviewSnapshotOutputSchema(),
 	"run_agent_tail":                     closedOutput(map[string]any{"text": outputString()}, "text"),
+	"run_agent_transcript":               runAgentTranscriptOutputSchema(),
 	"run_resume":                         runResumeOutputSchema(),
 	"agent_send":                         agentSendOutputSchema(),
 	"agent_tail":                         agentTailOutputSchema(),
+	"agent_transcript":                   agentTranscriptOutputSchema(),
 	"agent_status":                       agentStatusOutputSchema(),
 	"run_sweep":                          sweepOutputSchema(),
 	"run_cancel":                         operationOutputSchema(),
@@ -705,8 +719,8 @@ var canonicalToolManifest = []string{
 	"plan_section_create", "plan_section_update", "plan_section_delete", "plan_render", "plan_history",
 	"adr_list", "adr_read", "adr_create", "task_create", "task_revision_list", "task_revision_read", "task_revision_status", "task_correction_create", "task_list", "task_read", "task_review_report_start", "task_review_report_section_update", "task_review_report_validate", "task_review_report_finalize", "task_report_read", "task_dispatch",
 	"task_supersede", "task_cancel", "task_mark_merge_ready", "task_defer", "task_mark_merged", "run_list", "run_read", "run_status", "run_report",
-	"run_review_snapshot", "run_agent_tail", "run_resume", "run_sweep", "run_cancel", "run_cancel_acknowledge_no_mutation", "git_refresh", "git_refs",
-	"agent_send", "agent_tail", "agent_status",
+	"run_review_snapshot", "run_agent_tail", "run_agent_transcript", "run_resume", "run_sweep", "run_cancel", "run_cancel_acknowledge_no_mutation", "git_refresh", "git_refs",
+	"agent_send", "agent_tail", "agent_transcript", "agent_status",
 	"operator_record", "operator_history", "operator_checkpoint",
 	"git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare", "git_merge_base",
 	"git_worktree_status", "git_worktree_diff",
@@ -737,8 +751,10 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 		result[name] = readOnlyAnnotations()
 	}
 	result["run_agent_tail"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
+	result["run_agent_transcript"] = readOnlyAnnotations()
 	result["run_review_snapshot"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
 	result["agent_tail"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
+	result["agent_transcript"] = readOnlyAnnotations()
 	result["agent_status"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
 	result["agent_send"] = additiveExternalAnnotations()
 	result["operator_record"] = additiveExternalAnnotations()

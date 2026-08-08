@@ -104,13 +104,17 @@ Run, branch or commit exists.
 
 ```text
 gpt-tunnel agent send <project-id> --text '<message>'
-gpt-tunnel agent tail <project-id> [--lines N] [--skip N]
+gpt-tunnel agent tail <project-id> [--lines N]
+gpt-tunnel agent transcript <project-id> [--lines N] [--skip N]
 gpt-tunnel agent status <project-id>
 ```
 
 These v0.6.0 operations resolve the Airelay session only from registered
 project configuration. A caller cannot supply a session key. `agent_tail`
-defaults to four lines; `skip` omits the newest lines from the bounded window.
+defaults to 10 current viewport lines and accepts 1..30 or `-1` for the full
+30-row viewport. It has no skip/history behavior. `agent transcript` reads
+bounded retained history with a default and maximum of 50 lines and supports
+`skip`.
 Messages and output are bounded, sends are serialized per session, and there
 is no retry or automatic continuation. These commands create no durable task,
 run, plan, report, branch, commit, or other Git mutation. `agent_send` is

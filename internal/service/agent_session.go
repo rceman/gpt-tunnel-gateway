@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	agentDefaultTailLines = 4
-	agentMaxTailLines     = 200
+	agentDefaultTailLines       = 10
+	agentMaxTailLines           = 30
+	agentDefaultTranscriptLines = 50
+	agentMaxTranscriptLines     = 50
 )
 
 type AgentSendResult struct {
@@ -31,7 +33,20 @@ type AgentTailResult struct {
 	ProjectID string `json:"project_id"`
 	Text      string `json:"text"`
 	Lines     int    `json:"lines"`
+}
+
+type AgentTranscriptResult struct {
+	ProjectID string `json:"project_id"`
+	Text      string `json:"text"`
+	Lines     int    `json:"lines"`
 	Skip      int    `json:"skip"`
+}
+
+type RunAgentTranscriptResult struct {
+	RunID string `json:"run_id"`
+	Text  string `json:"text"`
+	Lines int    `json:"lines"`
+	Skip  int    `json:"skip"`
 }
 
 type AgentStatusResult struct {
@@ -89,22 +104,40 @@ func (s *Service) AgentSend(ctx context.Context, projectID, message string) (Age
 	return receipt, nil
 }
 
-func (s *Service) AgentTail(ctx context.Context, projectID string, lines, skip int) (AgentTailResult, error) {
+func (s *Service) AgentTail(ctx context.Context, projectID string, lines int) (AgentTailResult, error) {
 	if lines == 0 {
 		lines = agentDefaultTailLines
 	}
-	if lines < 1 || lines > agentMaxTailLines || skip < 0 || lines+skip > agentMaxTailLines {
+	if lines != -1 && (lines < 1 || lines > agentMaxTailLines) {
 		return AgentTailResult{}, fmt.Errorf("invalid agent tail bounds")
 	}
 	session, err := s.resolveAgentSession(ctx, projectID)
 	if err != nil {
 		return AgentTailResult{}, err
 	}
-	result, err := s.Airelay.TailWithSkip(ctx, session, lines, skip)
+	result, err := s.Airelay.Tail(ctx, session, lines)
 	if err != nil {
 		return AgentTailResult{}, err
 	}
-	return AgentTailResult{ProjectID: projectID, Text: result.Stdout, Lines: lines, Skip: skip}, nil
+	return AgentTailResult{ProjectID: projectID, Text: result.Stdout, Lines: lines}, nil
+}
+
+func (s *Service) AgentTranscript(ctx context.Context, projectID string, lines, skip int) (AgentTranscriptResult, error) {
+	if lines == 0 {
+		lines = agentDefaultTranscriptLines
+	}
+	if lines < 1 || lines > agentMaxTranscriptLines || skip < 0 {
+		return AgentTranscriptResult{}, fmt.Errorf("invalid agent transcript bounds")
+	}
+	session, err := s.resolveAgentSession(ctx, projectID)
+	if err != nil {
+		return AgentTranscriptResult{}, err
+	}
+	result, err := s.Airelay.Transcript(ctx, session, lines, skip)
+	if err != nil {
+		return AgentTranscriptResult{}, err
+	}
+	return AgentTranscriptResult{ProjectID: projectID, Text: result.Stdout, Lines: lines, Skip: skip}, nil
 }
 
 func (s *Service) AgentStatus(ctx context.Context, projectID string) (AgentStatusResult, error) {

@@ -4,15 +4,19 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
 )
 
 var sessionRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+
+const nativeViewportRows = 30
 
 type Result struct {
 	ExitCode   int       `json:"exit_code"`
@@ -56,6 +60,24 @@ func (b *tailBuffer) Write(p []byte) (int, error) {
 	return b.Buffer.Write(p)
 }
 
+func (b *tailBuffer) ReadFrom(r io.Reader) (int64, error) {
+	var buf [32 * 1024]byte
+	var total int64
+	for {
+		n, err := r.Read(buf[:])
+		if n > 0 {
+			_, _ = b.Write(buf[:n])
+			total += int64(n)
+		}
+		if err == io.EOF {
+			return total, nil
+		}
+		if err != nil {
+			return total, err
+		}
+	}
+}
+
 func (c Client) Prompt(ctx context.Context, session, message string) (Result, error) {
 	if !sessionRE.MatchString(session) {
 		return Result{}, fmt.Errorf("invalid Airelay session key")
@@ -93,13 +115,18 @@ func (c Client) Tail(ctx context.Context, session string, lines int) (Result, er
 	if !sessionRE.MatchString(session) {
 		return Result{}, fmt.Errorf("invalid Airelay session key")
 	}
-	if lines < 1 || lines > 200 {
+	if lines != -1 && (lines < 1 || lines > 30) {
 		return Result{}, fmt.Errorf("invalid Airelay tail line count")
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
 	result := Result{StartedAt: time.Now().UTC()}
-	cmd := exec.CommandContext(ctx, c.Command, "tail", session, "--lines", fmt.Sprintf("%d", lines))
+	args := []string{"tail", session}
+	if lines == -1 {
+		lines = nativeViewportRows
+	}
+	args = append(args, "--lines", fmt.Sprintf("%d", lines))
+	cmd := exec.CommandContext(ctx, c.Command, args...)
 	cmd.Env = cleanEnv()
 	var stdout, stderr tailBuffer
 	stdout.max, stderr.max = 8192, 8192
@@ -129,22 +156,42 @@ func (c Client) Tail(ctx context.Context, session string, lines int) (Result, er
 	return result, nil
 }
 
-// TailWithSkip returns an older bounded window by asking Airelay for the
-// requested window plus the newest lines to skip. It never performs a second
-// request or retries a failed call.
-func (c Client) TailWithSkip(ctx context.Context, session string, lines, skip int) (Result, error) {
-	if lines < 1 || lines > 200 || skip < 0 || lines+skip > 200 {
-		return Result{}, fmt.Errorf("invalid Airelay tail bounds")
+// Transcript reads a bounded window from Airelay's retained transcript. The
+// native skip operation keeps large histories out of the gateway process.
+func (c Client) Transcript(ctx context.Context, session string, lines, skip int) (Result, error) {
+	if !sessionRE.MatchString(session) {
+		return Result{}, fmt.Errorf("invalid Airelay session key")
 	}
-	result, err := c.Tail(ctx, session, lines+skip)
-	if err != nil || skip == 0 {
-		return result, err
+	if lines < 1 || lines > 50 || skip < 0 {
+		return Result{}, fmt.Errorf("invalid Airelay transcript bounds")
 	}
-	parts := strings.Split(strings.TrimRight(result.Stdout, "\r\n"), "\n")
-	if len(parts) <= skip {
-		return result, fmt.Errorf("Airelay tail skip exceeds available output")
+	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	defer cancel()
+	result := Result{StartedAt: time.Now().UTC()}
+	cmd := exec.CommandContext(ctx, c.Command, "transcript", session, "--lines", strconv.Itoa(lines), "--skip", strconv.Itoa(skip), "--order", "desc")
+	cmd.Env = cleanEnv()
+	var stdout, stderr tailBuffer
+	stdout.max, stderr.max = 8192, 8192
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	result.FinishedAt = time.Now().UTC()
+	result.Stdout = normalizeTail(stdout.String())
+	result.Stderr = bounded(stderr.String(), 8192)
+	if cmd.ProcessState != nil {
+		result.ExitCode = cmd.ProcessState.ExitCode()
+	} else {
+		result.ExitCode = -1
 	}
-	result.Stdout = strings.Join(parts[:len(parts)-skip], "\n") + "\n"
+	if ctx.Err() != nil {
+		return result, fmt.Errorf("Airelay transcript timeout: %w", ctx.Err())
+	}
+	if stdout.exceeded || stderr.exceeded {
+		return result, fmt.Errorf("Airelay transcript output exceeds limit")
+	}
+	if err != nil {
+		return result, fmt.Errorf("Airelay transcript failed")
+	}
 	return result, nil
 }
 

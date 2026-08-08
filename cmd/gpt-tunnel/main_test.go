@@ -377,7 +377,7 @@ func TestAgentTailCLIRouteDefaultAndExplicitLines(t *testing.T) {
 		t.Fatalf("default CLI output=%q", data)
 	}
 	args, _ := os.ReadFile(log)
-	if string(args) != "tail\nexample_master\n--lines\n4\n" {
+	if string(args) != "tail\nexample_master\n--lines\n10\n" {
 		t.Fatalf("default CLI argv=%q", args)
 	}
 	run(context.Background(), s, []string{"agent-tail", agentRun.ID, "--lines", "9"})
@@ -527,8 +527,8 @@ func TestDirectAgentSessionCLIParity(t *testing.T) {
 	if !strings.Contains(send, `"delivered": true`) || strings.Contains(send, "session_key") {
 		t.Fatalf("unexpected direct send output: %s", send)
 	}
-	tail := capture(func() { agent(context.Background(), s, []string{"tail", "example", "--lines", "4", "--skip", "1"}) })
-	if !strings.Contains(tail, `"lines": 4`) || !strings.Contains(tail, `"skip": 1`) {
+	tail := capture(func() { agent(context.Background(), s, []string{"tail", "example", "--lines", "4"}) })
+	if !strings.Contains(tail, `"lines": 4`) || strings.Contains(tail, `"skip"`) {
 		t.Fatalf("unexpected direct tail output: %s", tail)
 	}
 	status := capture(func() { agent(context.Background(), s, []string{"status", "example"}) })

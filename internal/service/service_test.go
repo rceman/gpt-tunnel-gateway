@@ -374,7 +374,7 @@ func TestRunAgentTailUsesStoredSessionAndDefaultAndExplicitLines(t *testing.T) {
 		t.Fatalf("default tail=%q err=%v", text, err)
 	}
 	args, _ := os.ReadFile(log)
-	if string(args) != "tail\nexample_master\n--lines\n4\n" {
+	if string(args) != "tail\nexample_master\n--lines\n10\n" {
 		t.Fatalf("default argv=%q", args)
 	}
 	_, err = s.RunAgentTail(context.Background(), run.ID, 9)
@@ -407,7 +407,7 @@ func TestRunAgentTailRejectsBoundsTerminalAndForeignBeforeAirelay(t *testing.T) 
 		id    string
 		want  string
 		lines int
-	}{{"EXM-TSK99-RUN1", "run is not active", 4}, {"EXM-TSK99-RUN2", "assigned to gateway", 4}, {"EXM-TSK99-RUN2", "", 201}} {
+	}{{"EXM-TSK99-RUN1", "run is not active", 4}, {"EXM-TSK99-RUN2", "assigned to gateway", 4}, {"EXM-TSK99-RUN2", "", 31}} {
 		if _, err := s.RunAgentTail(context.Background(), test.id, test.lines); err == nil || !strings.Contains(err.Error(), test.want) {
 			t.Fatalf("%s error=%v", test.id, err)
 		}

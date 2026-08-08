@@ -311,6 +311,14 @@ func str(desc string) map[string]any { return map[string]any{"type": "string", "
 func integer(desc string, min, max int) map[string]any {
 	return map[string]any{"type": "integer", "description": desc, "minimum": min, "maximum": max}
 }
+func viewportLines(desc string) map[string]any {
+	full := map[string]any{"type": "integer", "description": "Entire current Airelay viewport", "const": -1}
+	return map[string]any{"anyOf": []any{integer(desc, 1, 30), full}}
+}
+func transcriptLines(desc string) map[string]any { return integer(desc, 1, 50) }
+func transcriptSkip(desc string) map[string]any {
+	return map[string]any{"type": "integer", "description": desc, "minimum": 0}
+}
 func array(items any) map[string]any { return map[string]any{"type": "array", "items": items} }
 func decode(raw json.RawMessage, out any) error {
 	if len(raw) == 0 {
@@ -940,7 +948,7 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.RunReviewSnapshot(ctx, id)
 	})
-	add("run_agent_tail", "Read the bounded tail of the current run's Airelay session.", obj(map[string]any{"run_id": str("Run identifier"), "lines": integer("Number of lines", 1, 200)}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("run_agent_tail", "Read the current viewport of the run's Airelay session.", obj(map[string]any{"run_id": str("Run identifier"), "lines": viewportLines("Number of current viewport lines")}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "run_id")
 		if e != nil {
 			return nil, e
@@ -954,6 +962,21 @@ func (s *Server) tools() map[string]Tool {
 			return nil, err
 		}
 		return map[string]any{"text": text}, nil
+	})
+	add("run_agent_transcript", "Read bounded retained Airelay transcript for historical recovery only.", obj(map[string]any{"run_id": str("Run identifier"), "lines": transcriptLines("Number of retained transcript lines"), "skip": transcriptSkip("Retained transcript lines to skip")}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		id, e := getString(raw, "run_id")
+		if e != nil {
+			return nil, e
+		}
+		lines, _, e := optionalInteger(raw, "lines")
+		if e != nil {
+			return nil, e
+		}
+		skip, _, e := optionalInteger(raw, "skip")
+		if e != nil {
+			return nil, e
+		}
+		return s.Service.RunAgentTranscript(ctx, id, lines, skip)
 	})
 	add("run_resume", "Perform one canonical context-compaction recovery for an owned active run.", obj(map[string]any{"run_id": str("Run identifier")}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "run_id")
@@ -976,7 +999,18 @@ func (s *Server) tools() map[string]Tool {
 		}
 		return s.Service.AgentSend(ctx, projectID, text)
 	})
-	add("agent_tail", "Read a bounded window from the configured project Airelay session.", obj(map[string]any{"project_id": str("Registered project identifier"), "lines": integer("Number of lines", 1, 200), "skip": integer("Newest lines to skip", 0, 196)}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("agent_tail", "Read the current bounded Airelay viewport for liveness.", obj(map[string]any{"project_id": str("Registered project identifier"), "lines": viewportLines("Number of current viewport lines")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		projectID, err := getString(raw, "project_id")
+		if err != nil {
+			return nil, err
+		}
+		lines, _, err := optionalInteger(raw, "lines")
+		if err != nil {
+			return nil, err
+		}
+		return s.Service.AgentTail(ctx, projectID, lines)
+	})
+	add("agent_transcript", "Read bounded retained Airelay transcript for historical recovery only.", obj(map[string]any{"project_id": str("Registered project identifier"), "lines": transcriptLines("Number of retained transcript lines"), "skip": transcriptSkip("Retained transcript lines to skip")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		projectID, err := getString(raw, "project_id")
 		if err != nil {
 			return nil, err
@@ -989,7 +1023,7 @@ func (s *Server) tools() map[string]Tool {
 		if err != nil {
 			return nil, err
 		}
-		return s.Service.AgentTail(ctx, projectID, lines, skip)
+		return s.Service.AgentTranscript(ctx, projectID, lines, skip)
 	})
 	add("agent_status", "Read bounded status and capacity warnings from the configured project Airelay session.", obj(map[string]any{"project_id": str("Registered project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		projectID, err := getString(raw, "project_id")

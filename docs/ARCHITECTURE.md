@@ -102,7 +102,7 @@ Committed history is read from managed bare mirrors so refreshes do not race wit
 Airelay carries only a short action and task-reading command. The complete execution packet is generated locally by `gpt-tunnel task read <task-id>`. Agents commit changes, run the required gates, push the task branch, and then write one bounded completion document; the gateway refreshes its managed mirror, uses a valid published task branch as synthetic terminal proof (or the immutable base only when that branch is absent), and writes only `run.json` and `report.json` to the hub. The persistent session is owner-managed; the gateway never starts or resumes Codex.
 
 The v0.6.0 direct project-session surface is separate from that durable
-workflow. `agent_send`, `agent_tail`, and `agent_status` resolve a configured
+workflow. `agent_send`, `agent_tail`, `agent_transcript`, and `agent_status` resolve a configured
 project to its registered Airelay session, serialize sends with a local
 kernel-backed lock, bound all message/output windows, and return the exact
 bounded Airelay result. They do not create task/run/plan records or mutate Git,

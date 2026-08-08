@@ -169,7 +169,11 @@ func TestRunAgentTailToolCallUsesLiveServiceAndPlainTextTransport(t *testing.T) 
 	}
 	assertToolError([]byte(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"run_agent_tail","arguments":{"run_id":"`+run.ID+`","lines":9}}}`), "Airelay tail failed")
 	assertToolError([]byte(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"run_agent_tail","arguments":{"run_id":"missing"}}}`), "run not found")
-	assertToolError([]byte(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"run_agent_tail","arguments":{"run_id":"`+run.ID+`","lines":201}}}`), "invalid tail line count")
+	assertToolError([]byte(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"run_agent_tail","arguments":{"run_id":"`+run.ID+`","lines":31}}}`), "invalid tail line count")
+	unknownTailArg := callMCP(t, &Server{Service: s}, []byte(`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"run_agent_tail","arguments":{"run_id":"`+run.ID+`","skip":1}}}`))
+	if errObject, ok := unknownTailArg["error"].(map[string]any); !ok || !strings.Contains(errObject["data"].(string), `unknown argument "skip"`) {
+		t.Fatalf("tail skip was not rejected as an unknown argument: %#v", unknownTailArg)
+	}
 }
 
 func TestRunReviewSnapshotToolCallUsesOnlyRunIDAndReturnsToolErrorForUnknownRun(t *testing.T) {
@@ -621,13 +625,15 @@ func TestCanonicalSuccessfulOutputsMatchEveryDeclaredSchema(t *testing.T) {
 		"task_dispatch": map[string]any{"run": publicRun, "operation": operation}, "task_supersede": map[string]any{"task": task, "operation": operation}, "task_cancel": operation,
 		"task_mark_merge_ready": operation, "task_defer": operation, "task_mark_merged": operation,
 		"run_list": map[string]any{"runs": []service.PublicRun{publicRun}}, "run_read": publicRun, "run_status": publicRun, "run_report": report,
-		"run_review_snapshot": snapshot,
-		"run_agent_tail":      map[string]any{"text": "tail text"},
-		"run_resume":          service.RunResumeResult{RunID: "run", CompactionEventID: "event", State: "compacted_resuming", Sent: true, ExitCode: 0, ControllerReachable: true, MessageDigest: strings.Repeat("a", 64)},
-		"agent_send":          service.AgentSendResult{ProjectID: "project", Delivered: true, ExitCode: 0, Stdout: "delivered", Stderr: "", StartedAt: now, FinishedAt: now},
-		"agent_tail":          service.AgentTailResult{ProjectID: "project", Text: "tail text", Lines: 4, Skip: 0},
-		"agent_status":        service.AgentStatusResult{ProjectID: "project", State: "running", ControllerReachable: true, CapacityWarnings: []string{}, ExitCode: 0},
-		"operator_record":     map[string]any{"event": operatorEvent, "operation": operation}, "operator_history": operatorHistory, "operator_checkpoint": map[string]any{"event": operatorEvent, "operation": operation},
+		"run_review_snapshot":  snapshot,
+		"run_agent_tail":       map[string]any{"text": "tail text"},
+		"run_agent_transcript": service.RunAgentTranscriptResult{RunID: "run", Text: "transcript", Lines: 50, Skip: 0},
+		"run_resume":           service.RunResumeResult{RunID: "run", CompactionEventID: "event", State: "compacted_resuming", Sent: true, ExitCode: 0, ControllerReachable: true, MessageDigest: strings.Repeat("a", 64)},
+		"agent_send":           service.AgentSendResult{ProjectID: "project", Delivered: true, ExitCode: 0, Stdout: "delivered", Stderr: "", StartedAt: now, FinishedAt: now},
+		"agent_tail":           service.AgentTailResult{ProjectID: "project", Text: "tail text", Lines: 10},
+		"agent_transcript":     service.AgentTranscriptResult{ProjectID: "project", Text: "transcript", Lines: 50, Skip: 0},
+		"agent_status":         service.AgentStatusResult{ProjectID: "project", State: "running", ControllerReachable: true, CapacityWarnings: []string{}, ExitCode: 0},
+		"operator_record":      map[string]any{"event": operatorEvent, "operation": operation}, "operator_history": operatorHistory, "operator_checkpoint": map[string]any{"event": operatorEvent, "operation": operation},
 		"run_sweep": service.SweepResult{Checked: 1, Items: []service.SweepItem{{RunID: "run", Action: "reprompt", Status: "awaiting_result"}}}, "run_cancel": operation, "run_cancel_acknowledge_no_mutation": operation,
 		"git_refresh": map[string]any{"project_id": "project", "refreshed": true}, "git_refs": map[string]any{"refs": []gitx.Ref{ref}},
 		"git_log": map[string]any{"commits": []gitx.Commit{commit}}, "git_show": map[string]any{"text": "show"}, "git_tree": map[string]any{"paths": []string{"README.md"}},

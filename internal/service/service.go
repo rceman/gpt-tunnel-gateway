@@ -1863,16 +1863,40 @@ func (s *Service) RunAgentTail(ctx context.Context, id string, lines int) (strin
 		return "", fmt.Errorf("run is not active")
 	}
 	if lines == 0 {
-		lines = 4
+		lines = 10
 	}
-	if lines < 1 || lines > 200 {
-		return "", fmt.Errorf("invalid tail line count: must be between 1 and 200")
+	if lines != -1 && (lines < 1 || lines > 30) {
+		return "", fmt.Errorf("invalid tail line count: must be between 1 and 30 or -1")
 	}
 	result, err := s.Airelay.Tail(ctx, run.SessionKey, lines)
 	if err != nil {
 		return "", err
 	}
 	return result.Stdout, nil
+}
+
+func (s *Service) RunAgentTranscript(ctx context.Context, id string, lines, skip int) (RunAgentTranscriptResult, error) {
+	run, err := s.findRun(ctx, id)
+	if err != nil {
+		return RunAgentTranscriptResult{}, err
+	}
+	if err := requireCanonicalRun(run); err != nil {
+		return RunAgentTranscriptResult{}, err
+	}
+	if err := s.ensureRunOwned(run); err != nil {
+		return RunAgentTranscriptResult{}, err
+	}
+	if lines == 0 {
+		lines = 50
+	}
+	if lines < 1 || lines > 50 || skip < 0 {
+		return RunAgentTranscriptResult{}, fmt.Errorf("invalid transcript bounds")
+	}
+	result, err := s.Airelay.Transcript(ctx, run.SessionKey, lines, skip)
+	if err != nil {
+		return RunAgentTranscriptResult{}, err
+	}
+	return RunAgentTranscriptResult{RunID: id, Text: result.Stdout, Lines: lines, Skip: skip}, nil
 }
 func ensureOperationalRun(run model.Run) error {
 	if run.Historical {

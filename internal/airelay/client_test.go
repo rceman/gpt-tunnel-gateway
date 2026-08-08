@@ -80,25 +80,77 @@ func TestTailExplicitLinesAndFailuresAreBounded(t *testing.T) {
 	}
 }
 
-func TestTailWithSkipUsesOneBoundedRequest(t *testing.T) {
+func TestTailMinusOneUsesCanonicalViewportRows(t *testing.T) {
 	dir := t.TempDir()
 	log := filepath.Join(dir, "args")
 	script := filepath.Join(dir, "airelay")
-	body := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + log + "\"\nprintf 'one\\ntwo\\nthree\\nfour\\nfive\\nsix\\n'\n"
+	body := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + log + "\"\nprintf 'viewport\\n'\n"
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
-	result, err := c.TailWithSkip(context.Background(), "project_master", 4, 2)
-	if err != nil || result.Stdout != "one\ntwo\nthree\nfour\n" {
-		t.Fatalf("tail window=%q err=%v", result.Stdout, err)
+	if _, err := c.Tail(context.Background(), "project_master", -1); err != nil {
+		t.Fatal(err)
 	}
 	args, err := os.ReadFile(log)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(args) != "tail\nproject_master\n--lines\n6\n" {
+	if string(args) != "tail\nproject_master\n--lines\n30\n" {
+		t.Fatalf("viewport argv=%q", args)
+	}
+}
+
+func TestTranscriptUsesNativeBoundedPagination(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "args")
+	script := filepath.Join(dir, "airelay")
+	body := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + log + "\"\nprintf 'one\\ntwo\\nthree\\n'\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	result, err := c.Transcript(context.Background(), "project_master", 50, 7)
+	if err != nil || result.Stdout != "one\ntwo\nthree\n" {
+		t.Fatalf("transcript window=%q err=%v", result.Stdout, err)
+	}
+	args, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(args) != "transcript\nproject_master\n--lines\n50\n--skip\n7\n--order\ndesc\n" {
 		t.Fatalf("argv=%q", args)
+	}
+}
+
+func TestTranscriptRejectsLineOverflowButAllowsLargeSkip(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf 'history\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	if _, err := c.Transcript(context.Background(), "project_master", 51, 0); err == nil {
+		t.Fatal("transcript line overflow accepted")
+	}
+	if _, err := c.Transcript(context.Background(), "project_master", 50, -1); err == nil {
+		t.Fatal("negative transcript skip accepted")
+	}
+	if result, err := c.Transcript(context.Background(), "project_master", 50, 1000000); err != nil || result.Stdout != "history\n" {
+		t.Fatalf("large positive transcript skip rejected: result=%#v err=%v", result, err)
+	}
+}
+
+func TestTranscriptRetainedOutputIsBounded(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nyes x | head -c 20000\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	result, err := c.Transcript(context.Background(), "project_master", 50, 0)
+	if err == nil || !strings.Contains(err.Error(), "output exceeds limit") {
+		t.Fatalf("oversized transcript was not rejected: len=%d err=%v", len(result.Stdout), err)
 	}
 }
 

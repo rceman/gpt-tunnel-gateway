@@ -30,7 +30,8 @@ surface:
 
 ```text
 gpt-tunnel agent status <project-id>
-gpt-tunnel agent tail <project-id> --lines 4 --skip 0
+gpt-tunnel agent tail <project-id> --lines 10
+gpt-tunnel agent transcript <project-id> --lines 50 --skip 0
 gpt-tunnel agent send <project-id> --text '<short message>'
 ```
 
