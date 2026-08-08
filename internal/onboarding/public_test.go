@@ -97,6 +97,38 @@ func TestPublicOnboardFreshSuccessAndReplayUsePersistedResult(t *testing.T) {
 	}
 }
 
+func TestPublicOnboardReconcilesStalePreparedSnapshotAfterActivatedWinner(t *testing.T) {
+	fixture, orchestrator := newPublicTestFixture(t)
+	input := PublicInput{OperationID: fixture.operation, Request: fixture.request}
+	ctx := authority.WithPlanner(context.Background())
+	stale, err := orchestrator.prepare(ctx, fixture.request, fixture.operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	winner, err := orchestrator.Onboard(ctx, input)
+	if err != nil || winner.State != StateActivated {
+		t.Fatalf("winner onboarding = %#v, err=%v", winner, err)
+	}
+	beforeHub, err := fixture.coordinator.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loser, err := orchestrator.advance(ctx, fixture.request, fixture.operation, stale)
+	if err != nil {
+		t.Fatalf("stale snapshot reconciliation = %#v, err=%v", loser, err)
+	}
+	afterHub, err := fixture.coordinator.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loser.State != StateActivated || !loser.JournalRepairOnly || loser.ReceiptSHA256 == "" || loser.ReceiptSHA256 != winner.ReceiptSHA256 {
+		t.Fatalf("stale snapshot result = %#v, winner=%#v", loser, winner)
+	}
+	if beforeHub != afterHub {
+		t.Fatalf("stale snapshot reconciliation changed Hub: before=%s after=%s", beforeHub, afterHub)
+	}
+}
+
 func TestPublicOnboardConcurrentIdenticalCallsHaveOneDurableResult(t *testing.T) {
 	fixture, orchestrator := newPublicTestFixture(t)
 	input := PublicInput{OperationID: fixture.operation, Request: fixture.request}

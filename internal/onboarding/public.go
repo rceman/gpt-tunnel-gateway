@@ -136,10 +136,28 @@ func (o *PublicOrchestrator) Status(_ context.Context, in PublicInput) (StatusPr
 }
 
 func (o *PublicOrchestrator) advance(ctx context.Context, request Request, operationID string, receipt Receipt) (PublicResult, error) {
+	if receipt.State == StateActivated {
+		requestDigest, err := RequestDigest(request)
+		if err != nil {
+			return PublicResult{}, err
+		}
+		if receipt.OperationID != operationID || receipt.RequestSHA256 != requestDigest || receipt.ProjectID != request.ProjectID {
+			return PublicResult{}, &CoordinatorError{Code: ErrOnboardingOperationConflict.Error(), Cause: errors.New("onboarding journal identity does not match request")}
+		}
+		public, err := o.publicResultFromJournal(PublicResult{JournalRepairOnly: true}, request, operationID)
+		if err != nil {
+			return PublicResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+		}
+		return public, nil
+	}
 	if receipt.State == StatePrepared || receipt.State == StateHubCommitted {
 		result, err := o.Coordinator.Execute(ctx, request, operationID)
 		public, journalErr := o.publicResultFromJournal(publicCoordinatorResult(result), request, operationID)
 		if err != nil {
+			if journalErr == nil && public.State == StateActivated {
+				public.JournalRepairOnly = true
+				return public, nil
+			}
 			return public, err
 		}
 		if journalErr != nil {
