@@ -586,6 +586,7 @@ func TestDefaultSessionReadinessRequiresExplicitHealthyStateAndProtocol(t *testi
 		{state: "running", protocol: "2"},
 		{state: "waiting", protocol: "2"},
 		{state: "idle", protocol: "2"},
+		{state: "free", protocol: "1"},
 		{state: "error", protocol: "2", wantErr: true},
 		{state: "unknown", protocol: "2", wantErr: true},
 		{state: "idle", protocol: "", wantErr: true},

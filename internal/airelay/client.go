@@ -211,7 +211,7 @@ func normalizeSessionState(value string) string {
 		return "running"
 	case "waiting", "queued":
 		return "waiting"
-	case "idle", "ready":
+	case "free", "idle", "ready":
 		return "idle"
 	case "error", "failed", "unreachable", "stopped":
 		return "error"

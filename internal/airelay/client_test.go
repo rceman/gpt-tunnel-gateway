@@ -116,6 +116,20 @@ func TestStatusParsesStateAndCapacityWarnings(t *testing.T) {
 	}
 }
 
+func TestStatusParsesAirelay054FreeStateAsIdle(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	body := "#!/bin/sh\nprintf 'Controller: reachable (2ms)\\nAirelay version: 0.1.54\\nProtocol version: 1\\nState: free\\n'\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	status, err := c.Status(context.Background(), "project_master")
+	if err != nil || status.State != "idle" || !status.ControllerReachable || status.AirelayVersion != "0.1.54" || status.ProtocolVersion != "1" || status.ExitCode != 0 {
+		t.Fatalf("status=%#v err=%v", status, err)
+	}
+}
+
 func TestStatusPreservesNonZeroExitAsErrorState(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "airelay")
