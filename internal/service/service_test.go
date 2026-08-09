@@ -771,7 +771,7 @@ func TestSyntheticFailureUsesDurableBaseProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Repository.Head != task.BaseRevision || len(report.Repository.Commits) != 0 || len(report.Repository.ChangedFiles) != 0 {
+	if report.Repository.Head != run.BaseRevision || len(report.Repository.Commits) != 0 || len(report.Repository.ChangedFiles) != 0 {
 		t.Fatalf("synthetic report used non-durable proof: %#v", report.Repository)
 	}
 	foundRisk := false
@@ -795,7 +795,7 @@ func TestSyntheticFailureUsesDurableBaseProof(t *testing.T) {
 	project.Root = cold
 	project.Mirror = filepath.Join(t.TempDir(), "cold-mirror.git")
 	s.Config.Projects["example"] = project
-	if stored, err := s.RunReport(ctx, run.ID); err != nil || stored.Repository.Head != task.BaseRevision {
+	if stored, err := s.RunReport(ctx, run.ID); err != nil || stored.Repository.Head != run.BaseRevision {
 		t.Fatalf("cold base fallback report failed: head=%s err=%v", stored.Repository.Head, err)
 	}
 	if snapshot, err := s.RunReviewSnapshot(ctx, run.ID); err != nil || !snapshot.Report.Available {
@@ -846,7 +846,7 @@ func TestSyntheticExactBaseFallbackFromPreviousFeature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Repository.Branch != run.Branch || report.Repository.Head != task.BaseRevision || !report.Repository.BaseAncestor || len(report.Repository.Commits) != 0 || len(report.Repository.ChangedFiles) != 0 || report.Repository.DiffScope != task.BaseRevision+".."+task.BaseRevision {
+	if report.Repository.Branch != run.Branch || report.Repository.Head != run.BaseRevision || !report.Repository.BaseAncestor || len(report.Repository.Commits) != 0 || len(report.Repository.ChangedFiles) != 0 || report.Repository.DiffScope != run.BaseRevision+".."+run.BaseRevision {
 		t.Fatalf("exact-base proof mismatch: %#v", report.Repository)
 	}
 	if snapshot, err := s.RunReviewSnapshot(ctx, run.ID); err != nil || !snapshot.Report.Available {
@@ -859,8 +859,8 @@ func TestSyntheticExactBaseFallbackFromPreviousFeature(t *testing.T) {
 	if err != nil || !exists {
 		t.Fatalf("default branch unavailable: head=%s exists=%v err=%v", defaultHead, exists, err)
 	}
-	if task.BaseRevision != defaultHead {
-		t.Fatalf("canonical task base did not use authoritative default head: task=%s default=%s", task.BaseRevision, defaultHead)
+	if run.BaseRevision != defaultHead {
+		t.Fatalf("canonical run base did not use authoritative default head: run=%s default=%s", run.BaseRevision, defaultHead)
 	}
 
 	remote := strings.TrimSpace(testutil.Git(t, project.Root, "remote", "get-url", "origin"))
@@ -870,7 +870,7 @@ func TestSyntheticExactBaseFallbackFromPreviousFeature(t *testing.T) {
 	project.Root = cold
 	project.Mirror = filepath.Join(t.TempDir(), "cold-mirror.git")
 	s.Config.Projects["example"] = project
-	if stored, err := s.RunReport(ctx, run.ID); err != nil || stored.Repository.Head != task.BaseRevision {
+	if stored, err := s.RunReport(ctx, run.ID); err != nil || stored.Repository.Head != run.BaseRevision {
 		t.Fatalf("cold exact-base report failed: head=%s err=%v", stored.Repository.Head, err)
 	}
 	if snapshot, err := s.RunReviewSnapshot(ctx, run.ID); err != nil || !snapshot.Report.Available {

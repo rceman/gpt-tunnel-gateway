@@ -1046,15 +1046,7 @@ func (s *Service) taskCreateOnce(ctx context.Context, in TaskCreateInput) (model
 	if in.Slug == "" {
 		return model.Task{}, OperationResult{}, fmt.Errorf("slug is required")
 	}
-	project, err := s.ProjectRead(ctx, in.ProjectID)
-	if err != nil {
-		return model.Task{}, OperationResult{}, err
-	}
 	_, effectivePolicy, err := s.deriveTaskWorkflowPolicy(ctx, in.ProjectID, in.OperationClass, in.RequiredGates)
-	if err != nil {
-		return model.Task{}, OperationResult{}, err
-	}
-	local, err := s.projectConfig(in.ProjectID)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
 	}
@@ -1062,19 +1054,8 @@ func (s *Service) taskCreateOnce(ctx context.Context, in TaskCreateInput) (model
 	if err != nil {
 		return model.Task{}, OperationResult{}, fmt.Errorf("read project identifiers: %w", err)
 	}
-	var id, branch, base string
+	var id, branch string
 	if err := model.ValidateTaskSlug(in.Slug); err != nil {
-		return model.Task{}, OperationResult{}, err
-	}
-	if err := s.Git.Refresh(ctx, local); err != nil {
-		return model.Task{}, OperationResult{}, fmt.Errorf("refresh project default branch: %w", err)
-	}
-	var exists bool
-	base, exists, err = s.Git.MirrorBranchHead(ctx, local, project.DefaultBranch)
-	if err != nil || !exists {
-		if err == nil {
-			err = fmt.Errorf("default branch %q is unavailable", project.DefaultBranch)
-		}
 		return model.Task{}, OperationResult{}, err
 	}
 	id, err = model.FormatTaskID(identifiers.ProjectCode, identifiers.NextTaskNumber)
@@ -1089,7 +1070,7 @@ func (s *Service) taskCreateOnce(ctx context.Context, in TaskCreateInput) (model
 		}
 	}
 	branch = "task/" + id + "-" + in.Slug
-	task := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Title: in.Title, Objective: in.Objective, Branch: branch, BaseRevision: base, AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), WorkflowPolicyRevision: effectivePolicy.WorkflowPolicyRevision, OperationClass: effectivePolicy.OperationClass, EffectiveCIField: effectivePolicy.EffectiveCIField, EffectiveCIMode: effectivePolicy.EffectiveCIMode, WaitForCI: effectivePolicy.WaitForCI, CIBlocking: effectivePolicy.CIBlocking, AgentMayWait: effectivePolicy.AgentMayWait, Status: "created", Supersedes: in.Supersedes, CreatedBy: in.CreatedBy, CreatedAt: time.Now().UTC()}
+	task := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Title: in.Title, Objective: in.Objective, Branch: branch, AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), WorkflowPolicyRevision: effectivePolicy.WorkflowPolicyRevision, OperationClass: effectivePolicy.OperationClass, EffectiveCIField: effectivePolicy.EffectiveCIField, EffectiveCIMode: effectivePolicy.EffectiveCIMode, WaitForCI: effectivePolicy.WaitForCI, CIBlocking: effectivePolicy.CIBlocking, AgentMayWait: effectivePolicy.AgentMayWait, Status: "created", Supersedes: in.Supersedes, CreatedBy: in.CreatedBy, CreatedAt: time.Now().UTC()}
 	hash, err := model.HashTask(task)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
@@ -1338,27 +1319,8 @@ func (s *Service) taskSupersedeOnce(ctx context.Context, oldID string, in TaskCr
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
 	}
-	project, err := s.ProjectRead(ctx, old.ProjectID)
-	if err != nil {
-		return model.Task{}, OperationResult{}, err
-	}
 	_, effectivePolicy, err := s.deriveTaskWorkflowPolicy(ctx, old.ProjectID, in.OperationClass, in.RequiredGates)
 	if err != nil {
-		return model.Task{}, OperationResult{}, err
-	}
-	local, err := s.projectConfig(old.ProjectID)
-	if err != nil {
-		return model.Task{}, OperationResult{}, err
-	}
-	if err := s.Git.Refresh(ctx, local); err != nil {
-		return model.Task{}, OperationResult{}, err
-	}
-	var exists bool
-	base, exists, err := s.Git.MirrorBranchHead(ctx, local, project.DefaultBranch)
-	if err != nil || !exists {
-		if err == nil {
-			err = fmt.Errorf("default branch %q is unavailable", project.DefaultBranch)
-		}
 		return model.Task{}, OperationResult{}, err
 	}
 	id, err := model.FormatTaskID(identifiers.ProjectCode, identifiers.NextTaskNumber)
@@ -1374,7 +1336,7 @@ func (s *Service) taskSupersedeOnce(ctx context.Context, oldID string, in TaskCr
 	}
 	branch := "task/" + id + "-" + in.Slug
 	now := time.Now().UTC()
-	newTask := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Title: in.Title, Objective: in.Objective, Branch: branch, BaseRevision: base, AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), WorkflowPolicyRevision: effectivePolicy.WorkflowPolicyRevision, OperationClass: effectivePolicy.OperationClass, EffectiveCIField: effectivePolicy.EffectiveCIField, EffectiveCIMode: effectivePolicy.EffectiveCIMode, WaitForCI: effectivePolicy.WaitForCI, CIBlocking: effectivePolicy.CIBlocking, AgentMayWait: effectivePolicy.AgentMayWait, Status: "created", Supersedes: old.ID, CreatedBy: in.CreatedBy, CreatedAt: now}
+	newTask := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Title: in.Title, Objective: in.Objective, Branch: branch, AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), WorkflowPolicyRevision: effectivePolicy.WorkflowPolicyRevision, OperationClass: effectivePolicy.OperationClass, EffectiveCIField: effectivePolicy.EffectiveCIField, EffectiveCIMode: effectivePolicy.EffectiveCIMode, WaitForCI: effectivePolicy.WaitForCI, CIBlocking: effectivePolicy.CIBlocking, AgentMayWait: effectivePolicy.AgentMayWait, Status: "created", Supersedes: old.ID, CreatedBy: in.CreatedBy, CreatedAt: now}
 	hash, err := model.HashTask(newTask)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
@@ -2014,7 +1976,17 @@ func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run
 // immutable, while the run is pinned to the refreshed branch head.  Other
 // operation classes retain their prepared lineage exactly.
 func (s *Service) dispatchExecutionBase(ctx context.Context, task model.Task, revision model.TaskRevision, local config.ProjectConfig) (string, error) {
-	if revision.OperationClass != "" && revision.OperationClass != "implementation" {
+	if revision.SourceRunID != "" || revision.SourceReportID != "" {
+		if revision.SourceRunID == "" || revision.SourceReportID == "" || revision.BaseRevision == "" {
+			return "", fmt.Errorf("correction revision is missing source lineage or reviewed base")
+		}
+		resolved, err := s.Git.Resolve(ctx, local.Root, revision.BaseRevision)
+		if err != nil || resolved != revision.BaseRevision {
+			return "", fmt.Errorf("correction reviewed base unavailable or mismatched")
+		}
+		return revision.BaseRevision, nil
+	}
+	if revision.OperationClass != "" && revision.OperationClass != "implementation" && revision.BaseRevision != "" {
 		resolved, err := s.Git.Resolve(ctx, local.Root, revision.BaseRevision)
 		if err != nil || resolved != revision.BaseRevision {
 			return "", fmt.Errorf("task base unavailable or mismatched")
@@ -2488,7 +2460,7 @@ func (s *Service) TaskRead(ctx context.Context, id string) (TaskPacket, error) {
 }
 func renderPacket(task model.Task, run model.Run, project model.Project, plan model.Plan, policy model.ProjectWorkflowPolicy, root string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# GPT Tunnel Agent Execution Packet\n\nTask: %s\nRun: %s\nProject: %s\nRepository: %s\nBranch: %s\nBase: %s\n\n## Objective\n\n%s\n\n## Acceptance criteria\n", task.ID, run.ID, project.ID, root, task.Branch, task.BaseRevision, task.Objective)
+	fmt.Fprintf(&b, "# GPT Tunnel Agent Execution Packet\n\nTask: %s\nRun: %s\nProject: %s\nRepository: %s\nBranch: %s\nBase: %s\n\n## Objective\n\n%s\n\n## Acceptance criteria\n", task.ID, run.ID, project.ID, root, run.Branch, run.BaseRevision, task.Objective)
 	for _, v := range task.AcceptanceCriteria {
 		fmt.Fprintf(&b, "- %s\n", v)
 	}

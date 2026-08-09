@@ -30,7 +30,7 @@ type TaskRevision struct {
 	Title                  string    `json:"title"`
 	Objective              string    `json:"objective"`
 	Branch                 string    `json:"branch"`
-	BaseRevision           string    `json:"base_revision"`
+	BaseRevision           string    `json:"base_revision,omitempty"`
 	AcceptanceCriteria     []string  `json:"acceptance_criteria"`
 	Constraints            []string  `json:"constraints"`
 	RequiredGates          []string  `json:"required_gates,omitempty"`
@@ -57,7 +57,7 @@ type TaskRevisionStatus struct {
 	ParentTaskRevision int       `json:"parent_task_revision,omitempty"`
 	Status             string    `json:"status"`
 	Branch             string    `json:"branch"`
-	BaseRevision       string    `json:"base_revision"`
+	BaseRevision       string    `json:"base_revision,omitempty"`
 	SourceRunID        string    `json:"source_run_id,omitempty"`
 	SourceReportID     string    `json:"source_report_id,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`

@@ -95,7 +95,7 @@ func taskOutputSchema() map[string]any {
 		"acceptance_criteria": strings, "constraints": strings, "required_gates": strings,
 		"workflow_policy_revision": outputInteger(), "operation_class": outputString(), "effective_ci_field": outputString(), "effective_ci_mode": outputString(), "wait_for_ci": outputBoolean(), "ci_blocking": outputBoolean(), "agent_may_wait": outputBoolean(),
 		"status": outputString(), "supersedes": outputString(), "created_by": outputString(), "created_at": outputDateTime(),
-	}, "schema_version", "id", "sha256", "project_id", "title", "objective", "branch", "base_revision", "acceptance_criteria", "constraints", "status", "created_by", "created_at")
+	}, "schema_version", "id", "sha256", "project_id", "title", "objective", "branch", "acceptance_criteria", "constraints", "status", "created_by", "created_at")
 }
 
 func taskRevisionOutputSchema() map[string]any {
@@ -111,7 +111,7 @@ func taskRevisionOutputSchema() map[string]any {
 		"workflow_policy_revision": outputInteger(), "operation_class": outputString(), "effective_ci_field": outputString(), "effective_ci_mode": outputString(),
 		"wait_for_ci": outputBoolean(), "ci_blocking": outputBoolean(), "agent_may_wait": outputBoolean(), "status": outputString(),
 		"source_run_id": outputString(), "source_report_id": outputString(), "created_by": outputString(), "created_at": outputDateTime(),
-	}, "schema_version", "id", "task_id", "task_revision", "revision_sha256", "project_id", "title", "objective", "branch", "base_revision", "acceptance_criteria", "constraints", "status", "created_by", "created_at")
+	}, "schema_version", "id", "task_id", "task_revision", "revision_sha256", "project_id", "title", "objective", "branch", "acceptance_criteria", "constraints", "status", "created_by", "created_at")
 }
 
 func taskRevisionStatusOutputSchema() map[string]any {
@@ -123,7 +123,7 @@ func taskRevisionStatusOutputSchema() map[string]any {
 		"schema_version": outputInteger(), "id": outputString(), "task_id": outputString(), "task_revision": outputInteger(),
 		"revision_sha256": sha, "parent_task_revision": outputInteger(), "status": outputString(), "branch": outputString(), "base_revision": commit,
 		"source_run_id": outputString(), "source_report_id": outputString(), "created_at": outputDateTime(),
-	}, "schema_version", "id", "task_id", "task_revision", "revision_sha256", "status", "branch", "base_revision", "created_at")
+	}, "schema_version", "id", "task_id", "task_revision", "revision_sha256", "status", "branch", "created_at")
 }
 
 func taskCorrectionInputSchema() map[string]any {

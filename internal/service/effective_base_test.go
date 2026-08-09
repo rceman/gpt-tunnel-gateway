@@ -22,8 +22,8 @@ func TestTaskDispatchBindsImplementationRunToRefreshedCanonicalHead(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task.BaseRevision != oldHead {
-		t.Fatalf("task was not created at the original head: got=%s want=%s", task.BaseRevision, oldHead)
+	if task.BaseRevision != "" {
+		t.Fatalf("semantic task unexpectedly captured a base revision: got=%s", task.BaseRevision)
 	}
 	originalTaskHash := task.SHA256
 
@@ -68,7 +68,7 @@ func TestTaskDispatchBindsImplementationRunToRefreshedCanonicalHead(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if readBack.Task.BaseRevision != oldHead || readBack.Task.SHA256 != originalTaskHash {
+	if readBack.Task.BaseRevision != "" || readBack.Task.SHA256 != originalTaskHash {
 		t.Fatalf("immutable task changed during dispatch: base=%s hash=%s", readBack.Task.BaseRevision, readBack.Task.SHA256)
 	}
 	if _, err := s.failRun(ctx, run, task, "failed", "bounded compatibility proof", mustHubRevision(t, s)); err != nil {
