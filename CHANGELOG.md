@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Publish v0.6.10 with stable generic MCP sessions, legacy onboarding collision compatibility, and bounded Hub snapshot state validation.
+
 ## 0.6.9 — 2026-08-08
 
 - Prepare v0.6.9 with ready-state `rejected_needs_correction` Task eligibility for immutable correction revisions.
