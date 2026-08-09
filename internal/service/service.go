@@ -1046,6 +1046,9 @@ func (s *Service) taskCreateOnce(ctx context.Context, in TaskCreateInput) (model
 	if in.Slug == "" {
 		return model.Task{}, OperationResult{}, fmt.Errorf("slug is required")
 	}
+	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
+		return model.Task{}, OperationResult{}, err
+	}
 	_, effectivePolicy, err := s.deriveTaskWorkflowPolicy(ctx, in.ProjectID, in.OperationClass, in.RequiredGates)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
