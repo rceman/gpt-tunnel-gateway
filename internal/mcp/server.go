@@ -132,7 +132,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	switch req.Method {
 	case "initialize":
-		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "gpt-tunnel-gatewayd", "version": "0.6.10"}}})
+		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "gpt-tunnel-gatewayd", "version": "0.6.11"}}})
 	case "notifications/initialized":
 		w.WriteHeader(http.StatusAccepted)
 	case "ping":
@@ -388,7 +388,7 @@ func (s *Server) tools() map[string]Tool {
 		t[name] = Tool{Name: name, Description: description, InputSchema: schema, OutputSchema: output, Annotations: annotations, Execute: fn}
 	}
 	add("system_ping", "Return gateway identity and time.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		return map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.10", "gateway_id": s.Service.Config.GatewayID, "time": time.Now().UTC()}, nil
+		return map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.11", "gateway_id": s.Service.Config.GatewayID, "time": time.Now().UTC()}, nil
 	})
 	add("session", "Create and manage explicit durable project-bound sessions.", sessionInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.sessionAction(ctx, raw)
