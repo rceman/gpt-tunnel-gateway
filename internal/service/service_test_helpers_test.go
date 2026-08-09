@@ -1,0 +1,164 @@
+package service
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
+)
+
+func planString(value string) *string { return &value }
+
+func testSlug(branch string) string {
+	return strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(branch, "feature/"), "task/"))
+}
+
+func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
+	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
+	_, projectWork, projectHead := testutil.RepoWithBareRemote(t)
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: fake, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, Projects: map[string]config.ProjectConfig{"example": {Root: projectWork, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
+	s := New(c)
+	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: "b1a45b1e9475ab29dfd3e84d523b70897c7b8918", Status: "active"}
+	reg, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{
+		Project: project,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubHead,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	policy := model.ProjectWorkflowPolicy{SchemaVersion: model.SchemaVersion, ProjectID: project.ID, Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", Agent: model.WorkflowPolicyAgent{WaitForCI: false}, CI: model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve}, UpdatedBy: "test", UpdatedAt: now}
+	_, adopted, err := s.ProjectWorkflowPolicyAdopt(trustedWorkflowPolicyContext(context.Background(), "planner"), ProjectWorkflowPolicyInput{
+		Policy: policy,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: reg.Hub.After,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, adopted.Hub.After, projectHead
+}
+
+func testService(t *testing.T) (*Service, string, string) {
+	s, revision, projectHead := testServiceWithoutIdentifiers(t)
+	adopted, result, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
+		ProjectID:   "example",
+		ProjectCode: "EXM",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adopted.NextTaskNumber != 1 || result.Status != "adopted" {
+		t.Fatalf("unexpected adopted identifiers: %#v %#v", adopted, result)
+	}
+	return s, result.Hub.After, projectHead
+}
+
+func dispatchedRun(t *testing.T, branch string) (*Service, model.Task, model.Run, string) {
+	t.Helper()
+	s, hubRevision, projectHead := testService(t)
+	ctx := context.Background()
+	task, created, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID:          "example",
+		Title:              "Synthetic proof",
+		Objective:          "Exercise durable synthetic proof.",
+		Slug:               testSlug(branch),
+		AcceptanceCriteria: []string{"durable"},
+		OperationClass:     "implementation",
+		CreatedBy:          "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{
+		ProjectID:        "example",
+		Title:            planString("Synthetic proof"),
+		Summary:          planString("Synthetic proof"),
+		CurrentObjective: planString("Exercise durable synthetic proof."),
+		ActiveTaskID:     planString(task.ID),
+		UpdatedBy:        "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: created.Hub.After,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _, err := s.TaskDispatch(ctx, DispatchInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: plan.Hub.After,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, task, run, projectHead
+}
+
+func TestValidateConfiguredProjectRecordsRejectsMissingDurableRecord(t *testing.T) {
+	s, _, _ := testService(t)
+	s.Config.Projects["missing"] = s.Config.Projects["example"]
+	if err := s.ValidateConfiguredProjectRecords(context.Background()); err == nil {
+		t.Fatal("missing durable project record was accepted")
+	}
+}
+
+func TestTaskCreateRequiresDurableProjectRecordWithoutGitLookup(t *testing.T) {
+	s, revision, _ := testService(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	identifiers := model.ProjectIdentifiers{SchemaVersion: model.SchemaVersion, ProjectID: "orphan", ProjectCode: "ORP", NextTaskNumber: 1, NextADRNumber: 1}
+	policy := model.ProjectWorkflowPolicy{SchemaVersion: model.SchemaVersion, ProjectID: "orphan", Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", Agent: model.WorkflowPolicyAgent{WaitForCI: false}, CI: model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve}, UpdatedBy: "test", UpdatedAt: now}
+	seeded, err := s.Hub.Transact(ctx, revision, "test: seed orphan project metadata", func(worktree string) ([]string, error) {
+		paths := []string{s.projectIdentifiersPath("orphan"), s.workflowPolicyPath("orphan")}
+		if err := hub.WriteJSON(worktree, paths[0], identifiers); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(worktree, paths[1], policy); err != nil {
+			return nil, err
+		}
+		return paths, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID:          "orphan",
+		Slug:               "missing-project",
+		Title:              "Missing project",
+		Objective:          "Reject an orphan project record.",
+		AcceptanceCriteria: []string{"reject"},
+		OperationClass:     "implementation",
+		CreatedBy:          "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: seeded.After,
+		},
+	}); err == nil {
+		t.Fatal("task creation accepted metadata without a durable project record")
+	}
+	if got, err := s.Hub.RemoteRevision(ctx); err != nil || got != seeded.After {
+		t.Fatalf("rejected orphan task creation mutated Hub: got=%s want=%s err=%v", got, seeded.After, err)
+	}
+}

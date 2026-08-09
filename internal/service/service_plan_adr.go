@@ -1,0 +1,145 @@
+package service
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+)
+
+func (s *Service) PlanSectionDelete(ctx context.Context, in PlanSectionDeleteInput) (OperationResult, error) {
+	if in.ExpectedSectionRevision < 1 {
+		return OperationResult{}, fmt.Errorf("expected section revision is required")
+	}
+	if _, err := s.PlanSectionRead(ctx, in.ProjectID, in.SectionID); err != nil {
+		return OperationResult{}, err
+	}
+	expectedHubRevision, err := s.sectionWriteExpectedRevision(ctx, in.ExpectedHubRevision)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	now := time.Now().UTC()
+	tx, err := s.transactSectionWrite(ctx, expectedHubRevision, "gateway: delete plan section "+in.SectionID, func(w string) ([]string, error) {
+		var currentPlan model.Plan
+		if err := readWorktreeJSON(w, s.planPath(in.ProjectID), &currentPlan); err != nil {
+			return nil, err
+		}
+		index, section, err := sectionIndex(currentPlan, in.SectionID)
+		if err != nil {
+			return nil, err
+		}
+		var currentSection model.PlanSection
+		sectionPath := s.planSectionPath(in.ProjectID, in.SectionID)
+		if err := readWorktreeJSON(w, sectionPath, &currentSection); err != nil {
+			return nil, err
+		}
+		if currentSection.Revision != in.ExpectedSectionRevision || section.Revision != in.ExpectedSectionRevision {
+			return nil, fmt.Errorf("SECTION_REVISION_CONFLICT expected=%d actual=%d", in.ExpectedSectionRevision, currentSection.Revision)
+		}
+		if err := os.Remove(filepath.Join(w, filepath.FromSlash(sectionPath))); err != nil {
+			return nil, err
+		}
+		currentPlan.Sections = append(currentPlan.Sections[:index], currentPlan.Sections[index+1:]...)
+		currentPlan.Revision++
+		currentPlan.UpdatedBy, currentPlan.UpdatedAt = in.UpdatedBy, now
+		if err := model.ValidatePlan(currentPlan); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(w, s.planPath(in.ProjectID), currentPlan); err != nil {
+			return nil, err
+		}
+		return []string{sectionPath, s.planPath(in.ProjectID)}, nil
+	})
+	if err != nil {
+		return OperationResult{}, err
+	}
+	return OperationResult{
+		Hub:       tx,
+		ProjectID: in.ProjectID,
+		Status:    "deleted",
+	}, nil
+}
+
+func (s *Service) PlanRender(ctx context.Context, project string) (model.PlanRender, error) {
+	plan, err := s.PlanRead(ctx, project)
+	if err != nil {
+		return model.PlanRender{}, err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n%s\n\n", plan.Title, plan.Summary)
+	if plan.CurrentObjective != "" {
+		fmt.Fprintf(&b, "Current objective: %s\n\n", plan.CurrentObjective)
+	}
+	for _, index := range plan.Sections {
+		section, err := s.PlanSectionRead(ctx, project, index.ID)
+		if err != nil {
+			return model.PlanRender{}, err
+		}
+		fmt.Fprintf(&b, "## %s\n\n%s\n\n%s\n\n", section.Title, section.ShortDescription, section.Description)
+	}
+	text := b.String()
+	if s.Config.MaxReadBytes > 0 && int64(len(text)) > s.Config.MaxReadBytes {
+		return model.PlanRender{}, fmt.Errorf("plan render exceeds configured output limit")
+	}
+	return model.PlanRender{SchemaVersion: model.PlanSchemaVersion, ProjectID: plan.ProjectID, Revision: plan.Revision, Title: plan.Title, Summary: plan.Summary, CurrentObjective: plan.CurrentObjective, Text: text}, nil
+}
+
+func (s *Service) PlanHistory(ctx context.Context, project string, limit int) ([]map[string]string, error) {
+	return s.Hub.History(ctx, s.planPath(project), limit)
+}
+
+func (s *Service) ADRList(ctx context.Context, project string) ([]model.ADR, error) {
+	paths, err := s.Hub.List(ctx, s.projectPrefix(project)+"/adrs", ".json")
+	if err != nil {
+		return nil, err
+	}
+	items := []model.ADR{}
+	for _, path := range paths {
+		var v model.ADR
+		if err := s.Hub.ReadJSON(ctx, path, &v); err != nil {
+			return nil, err
+		}
+		items = append(items, v)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	return items, nil
+}
+
+func (s *Service) ADRRead(ctx context.Context, project, id string) (model.ADR, error) {
+	if err := model.ValidateADRIdentifier(id); err != nil {
+		return model.ADR{}, err
+	}
+	var v model.ADR
+	err := s.Hub.ReadJSON(ctx, s.adrPath(project, id), &v)
+	return v, err
+}
+
+func allocatorConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "project identifiers changed before") ||
+		strings.Contains(message, "already exists") ||
+		strings.Contains(message, "HUB_REVISION_CONFLICT")
+}
+
+// allocatorRetryLimit bounds optimistic allocator retries for every canonical
+// ID family, including operator journal events and corrections.
+
+const allocatorRetryLimit = 20
+
+func (s *Service) ADRCreate(ctx context.Context, in ADRCreateInput) (OperationResult, error) {
+	for attempt := 0; ; attempt++ {
+		result, err := s.adrCreateOnce(ctx, in)
+		if in.ExpectedHubRevision != "" || err == nil || !allocatorConflict(err) || attempt+1 >= allocatorRetryLimit {
+			return result, err
+		}
+	}
+}
