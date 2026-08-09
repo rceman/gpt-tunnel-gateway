@@ -4,7 +4,7 @@ set -Eeuo pipefail
 base="${1:-HEAD}"
 mapfile -t files < <(
 	{
-		git diff --name-only "$base" -- '*.go'
+		git diff --name-only --diff-filter=ACMR "$base" -- '*.go'
 		git ls-files --others --exclude-standard -- '*.go'
 	} | sort -u
 )
