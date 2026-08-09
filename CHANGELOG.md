@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Publish v0.6.11 with semantic task dispatch-base resolution, correction reviewed-head pinning, and durable project admission.
+
 ## 0.6.10 — 2026-08-09
 
 - Publish v0.6.10 with stable generic MCP sessions, legacy onboarding collision compatibility, and bounded Hub snapshot state validation.
