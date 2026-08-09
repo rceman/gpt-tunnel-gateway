@@ -98,6 +98,7 @@ performs only the canonical mutable-state repair transaction.
 
 ```bash
 test -z "$(gofmt -l .)"
+bash scripts/check-go-format.sh HEAD^
 go vet ./...
 go test -race ./...
 python3 scripts/static-check.py
