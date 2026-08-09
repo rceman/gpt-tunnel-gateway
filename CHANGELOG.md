@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.10 — 2026-08-09
+
 - Publish v0.6.10 with stable generic MCP sessions, legacy onboarding collision compatibility, and bounded Hub snapshot state validation.
 
 ## 0.6.9 — 2026-08-08
