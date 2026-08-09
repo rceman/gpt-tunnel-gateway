@@ -115,7 +115,7 @@ func TestProjectRegisterRemainsSeparateFromOnboarding(t *testing.T) {
 	if strings.Contains(string(registerSource), "ProjectOnboard") {
 		t.Fatal("ProjectRegister source references ProjectOnboard")
 	}
-	serverSource, err := os.ReadFile(filepath.Join(root, "internal", "mcp", "server.go"))
+	serverSource, err := os.ReadFile(filepath.Join(root, "internal", "mcp", "server_plan_tools.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
