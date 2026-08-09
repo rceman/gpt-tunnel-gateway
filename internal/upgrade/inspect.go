@@ -45,9 +45,23 @@ type InspectResult struct {
 }
 
 func Inspect(ctx context.Context, c config.Config, configPath string) (InspectResult, error) {
-	result := InspectResult{Status: "blocked", InstalledVersions: map[string]string{}, ConfiguredProjects: []string{}, DurableProjects: []string{}, ValidCurrentPlans: []string{}, Blockers: []PreflightBlocker{}}
+	result := InspectResult{
+		Status:             "blocked",
+		InstalledVersions:  map[string]string{},
+		ConfiguredProjects: []string{},
+		DurableProjects:    []string{},
+		ValidCurrentPlans:  []string{},
+		Blockers:           []PreflightBlocker{},
+	}
 	add := func(code, project, task, run, path, detail string) {
-		result.Blockers = append(result.Blockers, PreflightBlocker{Code: code, ProjectID: project, TaskID: task, RunID: run, Path: path, Detail: detail})
+		result.Blockers = append(result.Blockers, PreflightBlocker{
+			Code:      code,
+			ProjectID: project,
+			TaskID:    task,
+			RunID:     run,
+			Path:      path,
+			Detail:    detail,
+		})
 	}
 	root, sha, sourceErr := sourceRootFn()
 	if sourceErr != nil {
@@ -199,7 +213,12 @@ func inspectLegacyPlans(ctx context.Context, s *service.Service, projects map[st
 		var obj map[string]any
 		if json.Unmarshal(data, &obj) == nil {
 			if _, ok := obj["body"]; ok {
-				result = append(result, PreflightBlocker{Code: "LEGACY_PLAN_BODY", ProjectID: id, Path: path, Detail: "workflow-v1 plan contains obsolete body field"})
+				result = append(result, PreflightBlocker{
+					Code:      "LEGACY_PLAN_BODY",
+					ProjectID: id,
+					Path:      path,
+					Detail:    "workflow-v1 plan contains obsolete body field",
+				})
 			}
 		}
 	}

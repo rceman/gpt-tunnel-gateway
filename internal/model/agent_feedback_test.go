@@ -26,17 +26,47 @@ func validAgentFeedback() AgentFeedback {
 }
 
 func feedbackReportFixture() (Task, Run, Report) {
-	task := Task{SchemaVersion: SchemaVersion, ID: "GTW-TSK1", ProjectID: "project", BaseRevision: strings.Repeat("a", 40), Status: "created"}
+	task := Task{
+		SchemaVersion: SchemaVersion,
+		ID:            "GTW-TSK1",
+		ProjectID:     "project",
+		BaseRevision:  strings.Repeat("a", 40),
+		Status:        "created",
+	}
 	task.SHA256 = strings.Repeat("b", 64)
-	run := Run{SchemaVersion: SchemaVersion, ID: "GTW-TSK1-RUN1", TaskID: task.ID, TaskSHA256: task.SHA256, ProjectID: task.ProjectID, Branch: "task/GTW-TSK1", BaseRevision: task.BaseRevision, Status: "needs_gpt_revision", CompletionPath: "completion.json"}
+	run := Run{
+		SchemaVersion:  SchemaVersion,
+		ID:             "GTW-TSK1-RUN1",
+		TaskID:         task.ID,
+		TaskSHA256:     task.SHA256,
+		ProjectID:      task.ProjectID,
+		Branch:         "task/GTW-TSK1",
+		BaseRevision:   task.BaseRevision,
+		Status:         "needs_gpt_revision",
+		CompletionPath: "completion.json",
+	}
 	report := Report{
-		SchemaVersion: SchemaVersion, TaskID: task.ID, RunID: run.ID, ProjectID: task.ProjectID,
-		Status: "needs_gpt_revision", Summary: "bounded report", GateResults: []CompletionGateResult{},
-		AcceptanceCoverage: []string{}, Deviations: []string{}, RemainingRisks: []string{},
-		AgentFeedback: &AgentFeedback{}, Repository: RepositoryProof{
-			Branch: "task/GTW-TSK1", Head: strings.Repeat("c", 40), WorktreeClean: true, BaseAncestor: true,
-			Commits: []string{}, ChangedFiles: []string{}, DiffScope: strings.Repeat("a", 40) + ".." + strings.Repeat("c", 40),
-		}, FinishedAt: time.Now().UTC(),
+		SchemaVersion:      SchemaVersion,
+		TaskID:             task.ID,
+		RunID:              run.ID,
+		ProjectID:          task.ProjectID,
+		Status:             "needs_gpt_revision",
+		Summary:            "bounded report",
+		GateResults:        []CompletionGateResult{},
+		AcceptanceCoverage: []string{},
+		Deviations:         []string{},
+		RemainingRisks:     []string{},
+		AgentFeedback:      &AgentFeedback{},
+		Repository: RepositoryProof{
+			Branch:        "task/GTW-TSK1",
+			Head:          strings.Repeat("c", 40),
+			WorktreeClean: true,
+			BaseAncestor:  true,
+			Commits:       []string{},
+			ChangedFiles:  []string{},
+			DiffScope:     strings.Repeat("a", 40) + ".." + strings.Repeat("c", 40),
+		},
+		FinishedAt: time.Now().UTC(),
 	}
 	feedback := validAgentFeedback()
 	report.AgentFeedback = &feedback
@@ -78,13 +108,25 @@ func TestAgentFeedbackRoundTripAndHistoricalReportCompatibility(t *testing.T) {
 }
 
 func TestCompletionAgentFeedbackRoundTripAndOptionalCompatibility(t *testing.T) {
-	task := Task{SchemaVersion: SchemaVersion, ID: "GTW-TSK1", ProjectID: "project", Status: "created"}
+	task := Task{
+		SchemaVersion: SchemaVersion,
+		ID:            "GTW-TSK1",
+		ProjectID:     "project",
+		Status:        "created",
+	}
 	task.SHA256 = strings.Repeat("a", 64)
 	feedback := validAgentFeedback()
 	completion := CanonicalCompletion(Completion{
-		SchemaVersion: SchemaVersion, RunID: "GTW-TSK1-RUN1", TaskSHA256: task.SHA256,
-		Status: "needs_gpt_revision", Summary: "bounded completion", GateResults: []CompletionGateResult{},
-		AcceptanceCoverage: []string{}, Deviations: []string{}, RemainingRisks: []string{}, AgentFeedback: &feedback,
+		SchemaVersion:      SchemaVersion,
+		RunID:              "GTW-TSK1-RUN1",
+		TaskSHA256:         task.SHA256,
+		Status:             "needs_gpt_revision",
+		Summary:            "bounded completion",
+		GateResults:        []CompletionGateResult{},
+		AcceptanceCoverage: []string{},
+		Deviations:         []string{},
+		RemainingRisks:     []string{},
+		AgentFeedback:      &feedback,
 	})
 	data, err := CompletionJSON(completion)
 	if err != nil {

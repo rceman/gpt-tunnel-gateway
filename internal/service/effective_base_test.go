@@ -15,9 +15,16 @@ func TestTaskDispatchBindsImplementationRunToRefreshedCanonicalHead(t *testing.T
 	s, hubRevision, oldHead := testService(t)
 	ctx := context.Background()
 	task, created, err := s.TaskCreate(ctx, TaskCreateInput{
-		ProjectID: "example", Title: "Stale implementation", Objective: "Dispatch from refreshed main.",
-		Slug: "stale-implementation", AcceptanceCriteria: []string{"run from current main"},
-		OperationClass: "implementation", CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+		ProjectID:          "example",
+		Title:              "Stale implementation",
+		Objective:          "Dispatch from refreshed main.",
+		Slug:               "stale-implementation",
+		AcceptanceCriteria: []string{"run from current main"},
+		OperationClass:     "implementation",
+		CreatedBy:          "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -40,14 +47,25 @@ func TestTaskDispatchBindsImplementationRunToRefreshedCanonicalHead(t *testing.T
 	}
 
 	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{
-		ProjectID: task.ProjectID, Title: planString("Stale implementation"), Summary: planString("Stale implementation"),
-		CurrentObjective: planString("Dispatch from current main."), ActiveTaskID: planString(task.ID), UpdatedBy: "test",
-		WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After},
+		ProjectID:        task.ProjectID,
+		Title:            planString("Stale implementation"),
+		Summary:          planString("Stale implementation"),
+		CurrentObjective: planString("Dispatch from current main."),
+		ActiveTaskID:     planString(task.ID),
+		UpdatedBy:        "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: created.Hub.After,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, _, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	run, _, err := s.TaskDispatch(ctx, DispatchInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: plan.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

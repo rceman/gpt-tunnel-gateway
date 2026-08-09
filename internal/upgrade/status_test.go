@@ -36,7 +36,16 @@ func TestStatusReturnsLatestDurableTransactionWithoutUnsafeFields(t *testing.T) 
 	if result.TransactionID == "" {
 		t.Fatal("status omitted durable transaction identity/error")
 	}
-	tx.TargetStartup = &TargetStartupDiagnostics{Phase: "TARGET_STARTUP", CaptureStatus: "captured", TargetPID: 42, TargetProcessRunning: true, AliveButUnready: true, ElapsedMilliseconds: 30000, Error: "dial http://127.0.0.1:8765/readyz", LogDelta: "config=/home/secret/config.json CONTROL_PLANE_API_KEY=secret-value"}
+	tx.TargetStartup = &TargetStartupDiagnostics{
+		Phase:                "TARGET_STARTUP",
+		CaptureStatus:        "captured",
+		TargetPID:            42,
+		TargetProcessRunning: true,
+		AliveButUnready:      true,
+		ElapsedMilliseconds:  30000,
+		Error:                "dial http://127.0.0.1:8765/readyz",
+		LogDelta:             "config=/home/secret/config.json CONTROL_PLANE_API_KEY=secret-value",
+	}
 	if err := writeTransaction(c, tx); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +86,14 @@ func TestStatusRejectsFilenameBodyTransactionIdentityMismatch(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	tx := UpgradeTransaction{TransactionID: "upgrade-20260806T121311Z-actual", SourceVersion: "0.6.2", TargetVersion: "0.6.3", CurrentPhase: "complete", FinalStatus: "UPGRADE_ROLLED_BACK", BackupPath: "/unsafe/private/backup"}
+	tx := UpgradeTransaction{
+		TransactionID: "upgrade-20260806T121311Z-actual",
+		SourceVersion: "0.6.2",
+		TargetVersion: "0.6.3",
+		CurrentPhase:  "complete",
+		FinalStatus:   "UPGRADE_ROLLED_BACK",
+		BackupPath:    "/unsafe/private/backup",
+	}
 	data, err := json.Marshal(tx)
 	if err != nil {
 		t.Fatal(err)

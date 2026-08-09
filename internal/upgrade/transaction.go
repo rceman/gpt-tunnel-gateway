@@ -61,7 +61,20 @@ func transactionPath(c config.Config, id string) string {
 func newTransaction(c config.Config, sourceVersion, targetVersion, sourceSHA string) (*UpgradeTransaction, error) {
 	now := time.Now().UTC()
 	id := fmt.Sprintf("upgrade-%s-%d", now.Format("20060102T150405Z"), now.UnixNano())
-	tx := &UpgradeTransaction{TransactionID: id, SourceVersion: sourceVersion, TargetVersion: targetVersion, SourceReleaseSHA: sourceSHA, CurrentPhase: "inspect", StartedAt: now, FinalStatus: "pending", ArtifactChecksums: map[string]string{}, InstalledChecksumsBefore: map[string]string{}, InstalledChecksumsAfter: map[string]string{}, MigrationOperations: []string{}, MigrationPaths: []string{}}
+	tx := &UpgradeTransaction{
+		TransactionID:            id,
+		SourceVersion:            sourceVersion,
+		TargetVersion:            targetVersion,
+		SourceReleaseSHA:         sourceSHA,
+		CurrentPhase:             "inspect",
+		StartedAt:                now,
+		FinalStatus:              "pending",
+		ArtifactChecksums:        map[string]string{},
+		InstalledChecksumsBefore: map[string]string{},
+		InstalledChecksumsAfter:  map[string]string{},
+		MigrationOperations:      []string{},
+		MigrationPaths:           []string{},
+	}
 	if err := writeTransaction(c, tx); err != nil {
 		return nil, err
 	}

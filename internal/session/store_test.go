@@ -11,7 +11,13 @@ func TestStoreCreateReloadUpdateAndEnd(t *testing.T) {
 	state := t.TempDir()
 	store := NewStore(state)
 	ref, label := "conversation-1", "primary"
-	record, err := store.Create(CreateInput{ProjectID: "example", Role: RoleDelivery, SessionType: SessionTypeChatGPT, SessionRef: &ref, Label: &label})
+	record, err := store.Create(CreateInput{
+		ProjectID:   "example",
+		Role:        RoleDelivery,
+		SessionType: SessionTypeChatGPT,
+		SessionRef:  &ref,
+		Label:       &label,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,10 +59,18 @@ func TestStoreRetriesIDCollisionAtomically(t *testing.T) {
 		ids = ids[1:]
 		return id, nil
 	}
-	if _, err := store.Create(CreateInput{ProjectID: "example", Role: RolePlanner, SessionType: SessionTypeChatGPT}); err != nil {
+	if _, err := store.Create(CreateInput{
+		ProjectID:   "example",
+		Role:        RolePlanner,
+		SessionType: SessionTypeChatGPT,
+	}); err != nil {
 		t.Fatal(err)
 	}
-	created, err := store.Create(CreateInput{ProjectID: "example", Role: RolePlanner, SessionType: SessionTypeChatGPT})
+	created, err := store.Create(CreateInput{
+		ProjectID:   "example",
+		Role:        RolePlanner,
+		SessionType: SessionTypeChatGPT,
+	})
 	if err != nil || created.ID != "S-89ABCDEF" {
 		t.Fatalf("collision retry record=%#v err=%v", created, err)
 	}

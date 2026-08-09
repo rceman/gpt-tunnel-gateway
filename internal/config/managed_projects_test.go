@@ -364,7 +364,13 @@ func TestManagedProjectRegistryWriterUsesDigestRevisionAndAtomicState(t *testing
 	}
 	invalid := next
 	invalid.Revision = 2
-	invalid.Projects["managed"] = ManagedProjectEntry{Root: filepath.Join(stateDir, "missing"), RepositoryURL: "git@github.com:example/managed.git", Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "managed_master"}
+	invalid.Projects["managed"] = ManagedProjectEntry{
+		Root:              filepath.Join(stateDir, "missing"),
+		RepositoryURL:     "git@github.com:example/managed.git",
+		Remote:            "origin",
+		DefaultBranch:     "main",
+		AirelaySessionKey: "managed_master",
+	}
 	if _, err := WriteManagedProjectRegistry(stateDir, receipt.AfterDigest, invalid); err == nil {
 		t.Fatalf("invalid registry write unexpectedly succeeded")
 	}
@@ -537,7 +543,13 @@ func TestEffectiveProjectsFromValidatedStaticRejectsCrossSourceCollisions(t *tes
 func TestEffectiveProjectsFromValidatedStaticRejectsUnsafeStaticStructureWithoutLookup(t *testing.T) {
 	stateDir := t.TempDir()
 	base := func() ProjectConfig {
-		return ProjectConfig{Root: filepath.Join(stateDir, "missing-root"), Mirror: filepath.Join(stateDir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "static_master"}
+		return ProjectConfig{
+			Root:              filepath.Join(stateDir, "missing-root"),
+			Mirror:            filepath.Join(stateDir, "mirror.git"),
+			Remote:            "origin",
+			DefaultBranch:     "main",
+			AirelaySessionKey: "static_master",
+		}
 	}
 	tests := []struct {
 		name    string

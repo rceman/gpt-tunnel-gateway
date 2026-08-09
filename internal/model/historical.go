@@ -37,7 +37,29 @@ type HistoricalRunV1 struct {
 }
 
 func (v HistoricalRunV1) PublicRun() Run {
-	return Run{SchemaVersion: v.SchemaVersion, ID: v.ID, TaskID: v.TaskID, TaskSHA256: v.TaskSHA256, ProjectID: v.ProjectID, GatewayID: v.GatewayID, SessionKey: v.SessionKey, Branch: v.Branch, BaseRevision: v.BaseRevision, HubRevision: v.HubRevision, Status: v.Status, DispatchMessage: v.DispatchMessage, DispatchExitCode: v.DispatchExitCode, DispatchStdout: v.DispatchStdout, DispatchStderr: v.DispatchStderr, Historical: true, CreatedAt: v.CreatedAt, DispatchedAt: v.DispatchedAt, RepromptCount: v.RepromptCount, LastRepromptAt: v.LastRepromptAt, FinishedAt: v.FinishedAt}
+	return Run{
+		SchemaVersion:    v.SchemaVersion,
+		ID:               v.ID,
+		TaskID:           v.TaskID,
+		TaskSHA256:       v.TaskSHA256,
+		ProjectID:        v.ProjectID,
+		GatewayID:        v.GatewayID,
+		SessionKey:       v.SessionKey,
+		Branch:           v.Branch,
+		BaseRevision:     v.BaseRevision,
+		HubRevision:      v.HubRevision,
+		Status:           v.Status,
+		DispatchMessage:  v.DispatchMessage,
+		DispatchExitCode: v.DispatchExitCode,
+		DispatchStdout:   v.DispatchStdout,
+		DispatchStderr:   v.DispatchStderr,
+		Historical:       true,
+		CreatedAt:        v.CreatedAt,
+		DispatchedAt:     v.DispatchedAt,
+		RepromptCount:    v.RepromptCount,
+		LastRepromptAt:   v.LastRepromptAt,
+		FinishedAt:       v.FinishedAt,
+	}
 }
 
 func decodeTypedStrict(data []byte, out any) error {

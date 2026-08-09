@@ -367,10 +367,22 @@ func inspectCompaction(run model.Run, tail string, events []model.RunOperational
 			}
 			meaningful = true
 		}
-		return compactionObservation{Detected: !meaningful && !question, Completed: true, EventID: eventID, Marker: marker, MeaningfulAfter: meaningful, QuestionAfter: question, TailDigest: digestText(tail)}
+		return compactionObservation{
+			Detected:        !meaningful && !question,
+			Completed:       true,
+			EventID:         eventID,
+			Marker:          marker,
+			MeaningfulAfter: meaningful,
+			QuestionAfter:   question,
+			TailDigest:      digestText(tail),
+		}
 	}
 	if lastIndex >= 0 && started {
-		return compactionObservation{Started: true, Marker: marker, TailDigest: digestText(tail)}
+		return compactionObservation{
+			Started:    true,
+			Marker:     marker,
+			TailDigest: digestText(tail),
+		}
 	}
 	// A restart may lose the tail marker.  The durable event log remains the
 	// only source used to continue a previously observed compaction event.
@@ -384,7 +396,12 @@ func inspectCompaction(run model.Run, tail string, events []model.RunOperational
 		}
 	}
 	if completedEvent != nil && completedEvent.CompactionEventID != "" {
-		return compactionObservation{Detected: true, Completed: true, EventID: completedEvent.CompactionEventID, TailDigest: digestText(tail)}
+		return compactionObservation{
+			Detected:   true,
+			Completed:  true,
+			EventID:    completedEvent.CompactionEventID,
+			TailDigest: digestText(tail),
+		}
 	}
 	return compactionObservation{TailDigest: digestText(tail)}
 }
@@ -471,14 +488,28 @@ func progressSummary(task *model.Task, state *model.TaskState) *ProgressTask {
 	if task == nil || state == nil {
 		return nil
 	}
-	return &ProgressTask{ID: task.ID, Title: task.Title, Status: state.Status, CreatedAt: task.CreatedAt}
+	return &ProgressTask{
+		ID:        task.ID,
+		Title:     task.Title,
+		Status:    state.Status,
+		CreatedAt: task.CreatedAt,
+	}
 }
 
 func progressRunSummary(run *model.Run) *ProgressRun {
 	if run == nil {
 		return nil
 	}
-	return &ProgressRun{ID: run.ID, TaskID: run.TaskID, Status: run.Status, Branch: run.Branch, BaseRevision: run.BaseRevision, CreatedAt: run.CreatedAt, DispatchedAt: run.DispatchedAt, FinishedAt: run.FinishedAt}
+	return &ProgressRun{
+		ID:           run.ID,
+		TaskID:       run.TaskID,
+		Status:       run.Status,
+		Branch:       run.Branch,
+		BaseRevision: run.BaseRevision,
+		CreatedAt:    run.CreatedAt,
+		DispatchedAt: run.DispatchedAt,
+		FinishedAt:   run.FinishedAt,
+	}
 }
 
 func warningKind(warnings []string) string {
@@ -755,12 +786,21 @@ func progressSnapshot(e progressEvidence, activeCount int, now time.Time) Projec
 	}
 	warnings := boundedProgressWarnings(e.Status.CapacityWarnings)
 	return ProjectProgress{
-		LatestTask: progressSummary(e.LatestTask, e.LatestTaskState), LatestRun: progressRunSummary(e.LatestRun),
-		AgentState: state, ControllerReachable: e.Status.ControllerReachable, AirelayVersion: e.Status.AirelayVersion,
-		ProtocolVersion: e.Status.ProtocolVersion, CapacityWarnings: warnings, ExitCode: e.Status.ExitCode,
-		Error: progressError(e), LastMeaningfulActivity: last, LastMeaningfulActivityAgeSeconds: age,
-		Tail: e.Tail, BlockerClassification: blocker, RecommendedNextAction: action,
-		ComponentErrors: append([]string{}, e.ComponentErrors...),
+		LatestTask:                       progressSummary(e.LatestTask, e.LatestTaskState),
+		LatestRun:                        progressRunSummary(e.LatestRun),
+		AgentState:                       state,
+		ControllerReachable:              e.Status.ControllerReachable,
+		AirelayVersion:                   e.Status.AirelayVersion,
+		ProtocolVersion:                  e.Status.ProtocolVersion,
+		CapacityWarnings:                 warnings,
+		ExitCode:                         e.Status.ExitCode,
+		Error:                            progressError(e),
+		LastMeaningfulActivity:           last,
+		LastMeaningfulActivityAgeSeconds: age,
+		Tail:                             e.Tail,
+		BlockerClassification:            blocker,
+		RecommendedNextAction:            action,
+		ComponentErrors:                  append([]string{}, e.ComponentErrors...),
 	}
 }
 
@@ -919,10 +959,20 @@ func (s *Service) resumeRunLocked(ctx context.Context, run model.Run, task model
 	}
 	status, statusErr := s.Airelay.Status(ctx, local.AirelaySessionKey)
 	if statusErr != nil && !status.ControllerReachable {
-		return RunResumeResult{RunID: run.ID, ControllerReachable: false, State: model.AgentStateError, Error: "controller_unreachable"}, fmt.Errorf("agent controller is unreachable")
+		return RunResumeResult{
+			RunID:               run.ID,
+			ControllerReachable: false,
+			State:               model.AgentStateError,
+			Error:               "controller_unreachable",
+		}, fmt.Errorf("agent controller is unreachable")
 	}
 	if !status.ControllerReachable {
-		return RunResumeResult{RunID: run.ID, ControllerReachable: false, State: model.AgentStateError, Error: "controller_unreachable"}, fmt.Errorf("agent controller is unreachable")
+		return RunResumeResult{
+			RunID:               run.ID,
+			ControllerReachable: false,
+			State:               model.AgentStateError,
+			Error:               "controller_unreachable",
+		}, fmt.Errorf("agent controller is unreachable")
 	}
 	events, err := s.readOperationalEvents(run.ID)
 	if err != nil {
@@ -993,7 +1043,15 @@ func (s *Service) resumeRunLocked(ctx context.Context, run model.Run, task model
 	}
 	result, promptErr := s.Airelay.Prompt(ctx, local.AirelaySessionKey, message)
 	resultState := model.AgentStateCompactedResuming
-	resumeResult := RunResumeResult{RunID: run.ID, CompactionEventID: observation.EventID, State: resultState, Sent: promptErr == nil, ExitCode: result.ExitCode, ControllerReachable: status.ControllerReachable, MessageDigest: digestText(message)}
+	resumeResult := RunResumeResult{
+		RunID:               run.ID,
+		CompactionEventID:   observation.EventID,
+		State:               resultState,
+		Sent:                promptErr == nil,
+		ExitCode:            result.ExitCode,
+		ControllerReachable: status.ControllerReachable,
+		MessageDigest:       digestText(message),
+	}
 	if promptErr != nil {
 		failed, e := newOperationalEvent(run, model.EventResumeFailed, observation.EventID, "", message, result.ExitCode, model.AgentStateError)
 		if e != nil {

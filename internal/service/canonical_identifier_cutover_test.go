@@ -23,9 +23,16 @@ func TestCanonicalTaskRunAndADRAllocation(t *testing.T) {
 		t.Fatalf("unexpected initial identifiers: %#v", identifiers)
 	}
 	task, created, err := s.TaskCreate(ctx, TaskCreateInput{
-		ProjectID: "example", Slug: "canonical-cutover", Title: "Canonical task",
-		Objective: "Exercise canonical durable allocation.", AcceptanceCriteria: []string{"allocation"},
-		OperationClass: "implementation", CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID:          "example",
+		Slug:               "canonical-cutover",
+		Title:              "Canonical task",
+		Objective:          "Exercise canonical durable allocation.",
+		AcceptanceCriteria: []string{"allocation"},
+		OperationClass:     "implementation",
+		CreatedBy:          "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -44,11 +51,26 @@ func TestCanonicalTaskRunAndADRAllocation(t *testing.T) {
 		t.Fatalf("unexpected initial counter: %#v", counter)
 	}
 	title, summary, objective := "Canonical task", "Canonical task", "Canonical task execution"
-	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: task.ProjectID, Title: &title, Summary: &summary, CurrentObjective: &objective, ActiveTaskID: &task.ID, UpdatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{
+		ProjectID:        task.ProjectID,
+		Title:            &title,
+		Summary:          &summary,
+		CurrentObjective: &objective,
+		ActiveTaskID:     &task.ID,
+		UpdatedBy:        "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: created.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, dispatched, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	run, dispatched, err := s.TaskDispatch(ctx, DispatchInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: plan.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +83,12 @@ func TestCanonicalTaskRunAndADRAllocation(t *testing.T) {
 	if counter.NextRunNumber != 2 {
 		t.Fatalf("counter was not advanced: %#v", counter)
 	}
-	adrResult, err := s.ADRCreate(ctx, ADRCreateInput{ADR: model.ADR{ProjectID: task.ProjectID, Title: "Canonical ADR", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences"}, WriteOptions: WriteOptions{ExpectedHubRevision: dispatched.Hub.After}})
+	adrResult, err := s.ADRCreate(ctx, ADRCreateInput{
+		ADR: model.ADR{ProjectID: task.ProjectID, Title: "Canonical ADR", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences"},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: dispatched.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +99,16 @@ func TestCanonicalTaskRunAndADRAllocation(t *testing.T) {
 	if err != nil || len(adrs) != 1 || adrs[0].ID != "EXM-ADR1" {
 		t.Fatalf("unexpected ADR list: %#v %v", adrs, err)
 	}
-	if _, _, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: task.ProjectID, Title: "Missing slug", Objective: "This must fail", AcceptanceCriteria: []string{"reject"}, CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: adrResult.Hub.After}}); err == nil || !strings.Contains(err.Error(), "slug is required") {
+	if _, _, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID:          task.ProjectID,
+		Title:              "Missing slug",
+		Objective:          "This must fail",
+		AcceptanceCriteria: []string{"reject"},
+		CreatedBy:          "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: adrResult.Hub.After,
+		},
+	}); err == nil || !strings.Contains(err.Error(), "slug is required") {
 		t.Fatalf("missing slug was accepted: %v", err)
 	}
 }
@@ -130,9 +166,16 @@ func TestTaskSupersedeRejectsEveryAllocatedTargetCollision(t *testing.T) {
 			s, revision, _ := testService(t)
 			ctx := context.Background()
 			old, created, err := s.TaskCreate(ctx, TaskCreateInput{
-				ProjectID: "example", Slug: "supersede-source", Title: "Source task", Objective: "Source task for collision proof.",
-				AcceptanceCriteria: []string{"rollback"}, OperationClass: "implementation", CreatedBy: "test",
-				WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+				ProjectID:          "example",
+				Slug:               "supersede-source",
+				Title:              "Source task",
+				Objective:          "Source task for collision proof.",
+				AcceptanceCriteria: []string{"rollback"},
+				OperationClass:     "implementation",
+				CreatedBy:          "test",
+				WriteOptions: WriteOptions{
+					ExpectedHubRevision: revision,
+				},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -160,9 +203,16 @@ func TestTaskSupersedeRejectsEveryAllocatedTargetCollision(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, _, err = s.TaskSupersede(ctx, old.ID, TaskCreateInput{
-				ProjectID: "example", Slug: "replacement", Title: "Replacement", Objective: "Must not overwrite collision target.",
-				AcceptanceCriteria: []string{"rollback"}, OperationClass: "implementation", CreatedBy: "test",
-				WriteOptions: WriteOptions{ExpectedHubRevision: collision.After},
+				ProjectID:          "example",
+				Slug:               "replacement",
+				Title:              "Replacement",
+				Objective:          "Must not overwrite collision target.",
+				AcceptanceCriteria: []string{"rollback"},
+				OperationClass:     "implementation",
+				CreatedBy:          "test",
+				WriteOptions: WriteOptions{
+					ExpectedHubRevision: collision.After,
+				},
 			})
 			if err == nil || !strings.Contains(err.Error(), targetPath) {
 				t.Fatalf("collision was not rejected with target path: %v", err)
@@ -203,17 +253,31 @@ func TestTaskDispatchRejectsTaskRunCounterIdentityMismatch(t *testing.T) {
 			s, revision, _ := testService(t)
 			ctx := context.Background()
 			task, created, err := s.TaskCreate(ctx, TaskCreateInput{
-				ProjectID: "example", Slug: "dispatch-counter", Title: "Dispatch task", Objective: "Reject mismatched run counter.",
-				AcceptanceCriteria: []string{"rollback"}, OperationClass: "implementation", CreatedBy: "test",
-				WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+				ProjectID:          "example",
+				Slug:               "dispatch-counter",
+				Title:              "Dispatch task",
+				Objective:          "Reject mismatched run counter.",
+				AcceptanceCriteria: []string{"rollback"},
+				OperationClass:     "implementation",
+				CreatedBy:          "test",
+				WriteOptions: WriteOptions{
+					ExpectedHubRevision: revision,
+				},
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
 			title, summary, objective := "Dispatch", "Dispatch", "Dispatch"
 			plan, err := s.PlanUpdate(ctx, PlanUpdateInput{
-				ProjectID: task.ProjectID, Title: &title, Summary: &summary, CurrentObjective: &objective,
-				ActiveTaskID: &task.ID, UpdatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After},
+				ProjectID:        task.ProjectID,
+				Title:            &title,
+				Summary:          &summary,
+				CurrentObjective: &objective,
+				ActiveTaskID:     &task.ID,
+				UpdatedBy:        "test",
+				WriteOptions: WriteOptions{
+					ExpectedHubRevision: created.Hub.After,
+				},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -229,7 +293,12 @@ func TestTaskDispatchRejectsTaskRunCounterIdentityMismatch(t *testing.T) {
 			runID := "EXM-TSK1-RUN1"
 			paths := []string{counterPath, s.taskStatePath(task.ProjectID, task.ID), s.planPath(task.ProjectID), s.projectIdentifiersPath(task.ProjectID), s.runPath(task.ProjectID, runID)}
 			before := snapshotCanonicalHubPaths(t, s, paths)
-			_, _, err = s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: counterTx.After}})
+			_, _, err = s.TaskDispatch(ctx, DispatchInput{
+				TaskID: task.ID,
+				WriteOptions: WriteOptions{
+					ExpectedHubRevision: counterTx.After,
+				},
+			})
 			if err == nil || !strings.Contains(err.Error(), "task run counter identity mismatch") {
 				t.Fatalf("counter identity mismatch was not rejected: %v", err)
 			}

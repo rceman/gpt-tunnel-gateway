@@ -34,13 +34,23 @@ func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
 	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: fake, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, Projects: map[string]config.ProjectConfig{"example": {Root: projectWork, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
 	s := New(c)
 	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: "b1a45b1e9475ab29dfd3e84d523b70897c7b8918", Status: "active"}
-	reg, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{Project: project, WriteOptions: WriteOptions{ExpectedHubRevision: hubHead}})
+	reg, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{
+		Project: project,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubHead,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
 	policy := model.ProjectWorkflowPolicy{SchemaVersion: model.SchemaVersion, ProjectID: project.ID, Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", Agent: model.WorkflowPolicyAgent{WaitForCI: false}, CI: model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve}, UpdatedBy: "test", UpdatedAt: now}
-	_, adopted, err := s.ProjectWorkflowPolicyAdopt(trustedWorkflowPolicyContext(context.Background(), "planner"), ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: WriteOptions{ExpectedHubRevision: reg.Hub.After}})
+	_, adopted, err := s.ProjectWorkflowPolicyAdopt(trustedWorkflowPolicyContext(context.Background(), "planner"), ProjectWorkflowPolicyInput{
+		Policy: policy,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: reg.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +59,13 @@ func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
 
 func testService(t *testing.T) (*Service, string, string) {
 	s, revision, projectHead := testServiceWithoutIdentifiers(t)
-	adopted, result, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+	adopted, result, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
+		ProjectID:   "example",
+		ProjectCode: "EXM",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,15 +79,41 @@ func dispatchedRun(t *testing.T, branch string) (*Service, model.Task, model.Run
 	t.Helper()
 	s, hubRevision, projectHead := testService(t)
 	ctx := context.Background()
-	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Synthetic proof", Objective: "Exercise durable synthetic proof.", Slug: testSlug(branch), AcceptanceCriteria: []string{"durable"}, OperationClass: "implementation", CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
+	task, created, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID:          "example",
+		Title:              "Synthetic proof",
+		Objective:          "Exercise durable synthetic proof.",
+		Slug:               testSlug(branch),
+		AcceptanceCriteria: []string{"durable"},
+		OperationClass:     "implementation",
+		CreatedBy:          "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Title: planString("Synthetic proof"), Summary: planString("Synthetic proof"), CurrentObjective: planString("Exercise durable synthetic proof."), ActiveTaskID: planString(task.ID), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{
+		ProjectID:        "example",
+		Title:            planString("Synthetic proof"),
+		Summary:          planString("Synthetic proof"),
+		CurrentObjective: planString("Exercise durable synthetic proof."),
+		ActiveTaskID:     planString(task.ID),
+		UpdatedBy:        "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: created.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, _, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	run, _, err := s.TaskDispatch(ctx, DispatchInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: plan.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,9 +148,16 @@ func TestTaskCreateRequiresDurableProjectRecordWithoutGitLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, err := s.TaskCreate(ctx, TaskCreateInput{
-		ProjectID: "orphan", Slug: "missing-project", Title: "Missing project", Objective: "Reject an orphan project record.",
-		AcceptanceCriteria: []string{"reject"}, OperationClass: "implementation", CreatedBy: "test",
-		WriteOptions: WriteOptions{ExpectedHubRevision: seeded.After},
+		ProjectID:          "orphan",
+		Slug:               "missing-project",
+		Title:              "Missing project",
+		Objective:          "Reject an orphan project record.",
+		AcceptanceCriteria: []string{"reject"},
+		OperationClass:     "implementation",
+		CreatedBy:          "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: seeded.After,
+		},
 	}); err == nil {
 		t.Fatal("task creation accepted metadata without a durable project record")
 	}
@@ -128,7 +177,9 @@ func TestTaskListLoadsRunIndexOnceForStartupStateCheck(t *testing.T) {
 			AcceptanceCriteria: []string{"bounded"},
 			OperationClass:     "implementation",
 			CreatedBy:          "test",
-			WriteOptions:       WriteOptions{ExpectedHubRevision: hubRevision},
+			WriteOptions: WriteOptions{
+				ExpectedHubRevision: hubRevision,
+			},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -225,17 +276,43 @@ func TestHistoricalRunDoesNotBreakDispatchOrSessionSafety(t *testing.T) {
 	if err != nil || len(runs) != 1 || !runs[0].Historical || runs[0].CompletionPath != "" {
 		t.Fatalf("historical run list failed: %#v %v", runs, err)
 	}
-	task, created, err := s.TaskCreate(context.Background(), TaskCreateInput{ProjectID: "example", Title: "Dispatch after history", Objective: "Dispatch after history.", Slug: "history-safe", AcceptanceCriteria: []string{"works"}, OperationClass: "implementation", CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: reportTx.After}})
+	task, created, err := s.TaskCreate(context.Background(), TaskCreateInput{
+		ProjectID:          "example",
+		Title:              "Dispatch after history",
+		Objective:          "Dispatch after history.",
+		Slug:               "history-safe",
+		AcceptanceCriteria: []string{"works"},
+		OperationClass:     "implementation",
+		CreatedBy:          "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: reportTx.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = reportTx
 	title, summary, objective := "History safe", "Dispatch after history", "Dispatch the new task after historical runs."
-	plan, err := s.PlanUpdate(context.Background(), PlanUpdateInput{ProjectID: "example", Title: &title, Summary: &summary, CurrentObjective: &objective, ActiveTaskID: &task.ID, UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	plan, err := s.PlanUpdate(context.Background(), PlanUpdateInput{
+		ProjectID:        "example",
+		Title:            &title,
+		Summary:          &summary,
+		CurrentObjective: &objective,
+		ActiveTaskID:     &task.ID,
+		UpdatedBy:        "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: created.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.TaskDispatch(context.Background(), DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}}); err != nil {
+	if _, _, err := s.TaskDispatch(context.Background(), DispatchInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: plan.Hub.After,
+		},
+	}); err != nil {
 		t.Fatalf("dispatch blocked by terminal historical run: %v", err)
 	}
 	root := t.TempDir()
@@ -254,15 +331,43 @@ func TestHistoricalRunDoesNotBreakDispatchOrSessionSafety(t *testing.T) {
 func TestTaskPlanDispatchReadFinalize(t *testing.T) {
 	s, hubRev, _ := testService(t)
 	ctx := context.Background()
-	task, create, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Implement feature", Objective: "Implement exact behavior.", Slug: "example", AcceptanceCriteria: []string{"feature works"}, Constraints: []string{"no redesign"}, RequiredGates: []string{"go test ./..."}, OperationClass: "implementation", CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: hubRev}})
+	task, create, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID:          "example",
+		Title:              "Implement feature",
+		Objective:          "Implement exact behavior.",
+		Slug:               "example",
+		AcceptanceCriteria: []string{"feature works"},
+		Constraints:        []string{"no redesign"},
+		RequiredGates:      []string{"go test ./..."},
+		OperationClass:     "implementation",
+		CreatedBy:          "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRev,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Title: planString("Implementation"), Summary: planString("Implement feature"), CurrentObjective: planString("Execute the prepared task."), ActiveTaskID: planString(task.ID), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: create.Hub.After}})
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{
+		ProjectID:        "example",
+		Title:            planString("Implementation"),
+		Summary:          planString("Implement feature"),
+		CurrentObjective: planString("Execute the prepared task."),
+		ActiveTaskID:     planString(task.ID),
+		UpdatedBy:        "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: create.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, dispatch, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	run, dispatch, err := s.TaskDispatch(ctx, DispatchInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: plan.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +400,12 @@ func TestTaskPlanDispatchReadFinalize(t *testing.T) {
 	if err := fsutil.WriteJSONAtomic(run.CompletionPath, completion, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	report, final, err := s.RunFinalize(ctx, FinalizeInput{RunID: run.ID, WriteOptions: WriteOptions{ExpectedHubRevision: dispatch.Hub.After}})
+	report, final, err := s.RunFinalize(ctx, FinalizeInput{
+		RunID: run.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: dispatch.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,15 +427,43 @@ func TestTaskPlanDispatchReadFinalize(t *testing.T) {
 func TestRunReviewSnapshotActiveIsBounded(t *testing.T) {
 	s, hubRev, _ := testService(t)
 	ctx := context.Background()
-	task, create, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Review feature", Objective: "Review exact behavior.", Slug: "review", AcceptanceCriteria: []string{"feature works"}, Constraints: []string{"no redesign"}, RequiredGates: []string{"go test ./..."}, OperationClass: "implementation", CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: hubRev}})
+	task, create, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID:          "example",
+		Title:              "Review feature",
+		Objective:          "Review exact behavior.",
+		Slug:               "review",
+		AcceptanceCriteria: []string{"feature works"},
+		Constraints:        []string{"no redesign"},
+		RequiredGates:      []string{"go test ./..."},
+		OperationClass:     "implementation",
+		CreatedBy:          "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRev,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Title: planString("Review"), Summary: planString("Review feature"), CurrentObjective: planString("Execute the prepared task."), ActiveTaskID: planString(task.ID), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: create.Hub.After}})
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{
+		ProjectID:        "example",
+		Title:            planString("Review"),
+		Summary:          planString("Review feature"),
+		CurrentObjective: planString("Execute the prepared task."),
+		ActiveTaskID:     planString(task.ID),
+		UpdatedBy:        "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: create.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, _, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	run, _, err := s.TaskDispatch(ctx, DispatchInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: plan.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,15 +491,41 @@ func TestRunReviewSnapshotActiveIsBounded(t *testing.T) {
 func TestRunReviewSnapshotRejectsOversizedAggregate(t *testing.T) {
 	s, hubRev, _ := testService(t)
 	ctx := context.Background()
-	task, create, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Bounded review", Objective: "Review bounded output.", Slug: "bounded", AcceptanceCriteria: []string{"bounded"}, OperationClass: "implementation", CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: hubRev}})
+	task, create, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID:          "example",
+		Title:              "Bounded review",
+		Objective:          "Review bounded output.",
+		Slug:               "bounded",
+		AcceptanceCriteria: []string{"bounded"},
+		OperationClass:     "implementation",
+		CreatedBy:          "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRev,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Title: planString("Review"), Summary: planString("Bounded review"), CurrentObjective: planString("Review."), ActiveTaskID: planString(task.ID), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: create.Hub.After}})
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{
+		ProjectID:        "example",
+		Title:            planString("Review"),
+		Summary:          planString("Bounded review"),
+		CurrentObjective: planString("Review."),
+		ActiveTaskID:     planString(task.ID),
+		UpdatedBy:        "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: create.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, _, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	run, _, err := s.TaskDispatch(ctx, DispatchInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: plan.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,15 +539,41 @@ func createActiveTailRun(t *testing.T, s *Service, hubRevision, projectHead stri
 	t.Helper()
 	ctx := context.Background()
 	revision := hubRevision
-	task, create, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Tail", Objective: "Inspect tail.", Slug: "tail", AcceptanceCriteria: []string{"tail"}, OperationClass: "implementation", CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+	task, create, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID:          "example",
+		Title:              "Tail",
+		Objective:          "Inspect tail.",
+		Slug:               "tail",
+		AcceptanceCriteria: []string{"tail"},
+		OperationClass:     "implementation",
+		CreatedBy:          "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Title: planString("Tail"), Summary: planString("Tail"), CurrentObjective: planString("Tail."), ActiveTaskID: planString(task.ID), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: create.Hub.After}})
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{
+		ProjectID:        "example",
+		Title:            planString("Tail"),
+		Summary:          planString("Tail"),
+		CurrentObjective: planString("Tail."),
+		ActiveTaskID:     planString(task.ID),
+		UpdatedBy:        "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: create.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, _, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	run, _, err := s.TaskDispatch(ctx, DispatchInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: plan.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,15 +736,41 @@ func TestGatewayCompletionPathRejectsOverridesAndSymlinks(t *testing.T) {
 func TestReportReadsRecomputeGitProof(t *testing.T) {
 	s, hubRevision, _ := testService(t)
 	ctx := context.Background()
-	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Proof task", Objective: "Verify report proof.", Slug: "proof", AcceptanceCriteria: []string{"proof"}, OperationClass: "implementation", CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
+	task, created, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID:          "example",
+		Title:              "Proof task",
+		Objective:          "Verify report proof.",
+		Slug:               "proof",
+		AcceptanceCriteria: []string{"proof"},
+		OperationClass:     "implementation",
+		CreatedBy:          "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Title: planString("Proof"), Summary: planString("Proof"), CurrentObjective: planString("Verify proof."), ActiveTaskID: planString(task.ID), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{
+		ProjectID:        "example",
+		Title:            planString("Proof"),
+		Summary:          planString("Proof"),
+		CurrentObjective: planString("Verify proof."),
+		ActiveTaskID:     planString(task.ID),
+		UpdatedBy:        "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: created.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, dispatch, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	run, dispatch, err := s.TaskDispatch(ctx, DispatchInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: plan.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -569,7 +785,12 @@ func TestReportReadsRecomputeGitProof(t *testing.T) {
 	if err := fsutil.WriteJSONAtomic(run.CompletionPath, completion, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	final, _, err := s.RunFinalize(ctx, FinalizeInput{RunID: run.ID, WriteOptions: WriteOptions{ExpectedHubRevision: dispatch.Hub.After}})
+	final, _, err := s.RunFinalize(ctx, FinalizeInput{
+		RunID: run.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: dispatch.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -703,15 +924,41 @@ func TestMirrorReportBranchReachability(t *testing.T) {
 func TestRunFinalizeRequiresPublishedBranchAtomically(t *testing.T) {
 	s, hubRevision, _ := testService(t)
 	ctx := context.Background()
-	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Push first", Objective: "Require durable finalization.", Slug: "push-first", AcceptanceCriteria: []string{"durable"}, OperationClass: "implementation", CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
+	task, created, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID:          "example",
+		Title:              "Push first",
+		Objective:          "Require durable finalization.",
+		Slug:               "push-first",
+		AcceptanceCriteria: []string{"durable"},
+		OperationClass:     "implementation",
+		CreatedBy:          "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Title: planString("Push first"), Summary: planString("Push first"), CurrentObjective: planString("Push before finalize."), ActiveTaskID: planString(task.ID), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{
+		ProjectID:        "example",
+		Title:            planString("Push first"),
+		Summary:          planString("Push first"),
+		CurrentObjective: planString("Push before finalize."),
+		ActiveTaskID:     planString(task.ID),
+		UpdatedBy:        "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: created.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, dispatch, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	run, dispatch, err := s.TaskDispatch(ctx, DispatchInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: plan.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -729,7 +976,12 @@ func TestRunFinalizeRequiresPublishedBranchAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.RunFinalize(ctx, FinalizeInput{RunID: run.ID, WriteOptions: WriteOptions{ExpectedHubRevision: dispatch.Hub.After}}); err == nil || !strings.Contains(err.Error(), "pushed") {
+	if _, _, err := s.RunFinalize(ctx, FinalizeInput{
+		RunID: run.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: dispatch.Hub.After,
+		},
+	}); err == nil || !strings.Contains(err.Error(), "pushed") {
 		t.Fatalf("pre-push finalization was accepted: %v", err)
 	}
 	active, err := s.RunRead(ctx, run.ID)
@@ -765,7 +1017,12 @@ func TestRunFinalizeRequiresPublishedBranchAtomically(t *testing.T) {
 	testutil.Git(t, mover, "add", "moved.txt")
 	testutil.Git(t, mover, "commit", "-m", "move published branch")
 	testutil.Git(t, mover, "push", "origin", task.Branch)
-	if _, _, err := s.RunFinalize(ctx, FinalizeInput{RunID: run.ID, WriteOptions: WriteOptions{ExpectedHubRevision: dispatch.Hub.After}}); err == nil || !strings.Contains(err.Error(), "pushed") {
+	if _, _, err := s.RunFinalize(ctx, FinalizeInput{
+		RunID: run.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: dispatch.Hub.After,
+		},
+	}); err == nil || !strings.Contains(err.Error(), "pushed") {
 		t.Fatalf("finalization accepted a branch pointing elsewhere: %v", err)
 	}
 }
@@ -773,15 +1030,41 @@ func TestRunFinalizeRequiresPublishedBranchAtomically(t *testing.T) {
 func TestSyntheticFailureUsesDurableBaseProof(t *testing.T) {
 	s, hubRevision, _ := testService(t)
 	ctx := context.Background()
-	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Durable failure", Objective: "Keep synthetic proof durable.", Slug: "durable-failure", AcceptanceCriteria: []string{"durable"}, OperationClass: "implementation", CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
+	task, created, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID:          "example",
+		Title:              "Durable failure",
+		Objective:          "Keep synthetic proof durable.",
+		Slug:               "durable-failure",
+		AcceptanceCriteria: []string{"durable"},
+		OperationClass:     "implementation",
+		CreatedBy:          "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Title: planString("Durable failure"), Summary: planString("Durable failure"), CurrentObjective: planString("Use durable proof."), ActiveTaskID: planString(task.ID), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{
+		ProjectID:        "example",
+		Title:            planString("Durable failure"),
+		Summary:          planString("Durable failure"),
+		CurrentObjective: planString("Use durable proof."),
+		ActiveTaskID:     planString(task.ID),
+		UpdatedBy:        "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: created.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, _, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	run, _, err := s.TaskDispatch(ctx, DispatchInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: plan.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -858,15 +1141,41 @@ func TestSyntheticExactBaseFallbackFromPreviousFeature(t *testing.T) {
 		t.Fatal("previous feature fixture did not create distinct commits")
 	}
 
-	task, created, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Title: "Exact base fallback", Objective: "Accept exact immutable base proof.", Slug: "exact-base-fallback", AcceptanceCriteria: []string{"base proof"}, OperationClass: "implementation", CreatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
+	task, created, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID:          "example",
+		Title:              "Exact base fallback",
+		Objective:          "Accept exact immutable base proof.",
+		Slug:               "exact-base-fallback",
+		AcceptanceCriteria: []string{"base proof"},
+		OperationClass:     "implementation",
+		CreatedBy:          "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: "example", Title: planString("Exact base fallback"), Summary: planString("Exact base fallback"), CurrentObjective: planString("Accept exact immutable base proof."), ActiveTaskID: planString(task.ID), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{
+		ProjectID:        "example",
+		Title:            planString("Exact base fallback"),
+		Summary:          planString("Exact base fallback"),
+		CurrentObjective: planString("Accept exact immutable base proof."),
+		ActiveTaskID:     planString(task.ID),
+		UpdatedBy:        "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: created.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, _, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}})
+	run, _, err := s.TaskDispatch(ctx, DispatchInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: plan.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

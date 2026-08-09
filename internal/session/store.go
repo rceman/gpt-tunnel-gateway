@@ -69,7 +69,10 @@ type Store struct {
 }
 
 func NewStore(stateDir string) Store {
-	return Store{StateDir: stateDir, MaxReadBytes: maxRecordBytes}
+	return Store{
+		StateDir:     stateDir,
+		MaxReadBytes: maxRecordBytes,
+	}
 }
 
 func (s Store) Create(input CreateInput) (Record, error) {
@@ -99,7 +102,19 @@ func (s Store) Create(input CreateInput) (Record, error) {
 			return Record{}, fmt.Errorf("inspect session %s: %w", id, err)
 		}
 		now := time.Now().UTC()
-		record := Record{SchemaVersion: SchemaVersion, ID: id, ProjectID: input.ProjectID, Role: input.Role, SessionType: input.SessionType, SessionRef: cloneString(input.SessionRef), Label: cloneString(input.Label), Status: StatusActive, CreatedAt: now, StartedAt: now, UpdatedAt: now}
+		record := Record{
+			SchemaVersion: SchemaVersion,
+			ID:            id,
+			ProjectID:     input.ProjectID,
+			Role:          input.Role,
+			SessionType:   input.SessionType,
+			SessionRef:    cloneString(input.SessionRef),
+			Label:         cloneString(input.Label),
+			Status:        StatusActive,
+			CreatedAt:     now,
+			StartedAt:     now,
+			UpdatedAt:     now,
+		}
 		if err := record.Validate(); err != nil {
 			return Record{}, err
 		}

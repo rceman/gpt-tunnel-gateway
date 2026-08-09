@@ -70,7 +70,13 @@ func (t Tool) MarshalJSON() ([]byte, error) {
 		OutputSchema map[string]any  `json:"outputSchema,omitempty"`
 		Annotations  ToolAnnotations `json:"annotations"`
 	}
-	return json.Marshal(publicTool{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema, OutputSchema: t.OutputSchema, Annotations: t.Annotations})
+	return json.Marshal(publicTool{
+		Name:         t.Name,
+		Description:  t.Description,
+		InputSchema:  t.InputSchema,
+		OutputSchema: t.OutputSchema,
+		Annotations:  t.Annotations,
+	})
 }
 
 func (s *Server) Router() http.Handler {
@@ -127,16 +133,32 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
-		s.write(w, response{JSONRPC: "2.0", ID: nil, Error: &rpcError{Code: -32700, Message: "parse error", Data: err.Error()}})
+		s.write(w, response{
+			JSONRPC: "2.0",
+			ID:      nil,
+			Error: &rpcError{
+				Code:    -32700,
+				Message: "parse error",
+				Data:    err.Error(),
+			},
+		})
 		return
 	}
 	switch req.Method {
 	case "initialize":
-		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "gpt-tunnel-gatewayd", "version": "0.6.11"}}})
+		s.write(w, response{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result:  map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "gpt-tunnel-gatewayd", "version": "0.6.11"}},
+		})
 	case "notifications/initialized":
 		w.WriteHeader(http.StatusAccepted)
 	case "ping":
-		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{}})
+		s.write(w, response{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result:  map[string]any{},
+		})
 	case "tools/list":
 		tools := s.tools()
 		names := make([]string, 0, len(tools))
@@ -150,39 +172,93 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			tool.Execute = nil
 			list = append(list, tool)
 		}
-		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"tools": list}})
+		s.write(w, response{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result:  map[string]any{"tools": list},
+		})
 	case "tools/call":
 		var call toolCall
 		if err := decode(req.Params, &call); err != nil {
-			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params", Data: err.Error()}})
+			s.write(w, response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Error: &rpcError{
+					Code:    -32602,
+					Message: "invalid params",
+					Data:    err.Error(),
+				},
+			})
 			return
 		}
 		if err := validateToolCallMeta(call.Meta); err != nil {
-			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params", Data: err.Error()}})
+			s.write(w, response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Error: &rpcError{
+					Code:    -32602,
+					Message: "invalid params",
+					Data:    err.Error(),
+				},
+			})
 			return
 		}
 		tool, ok := s.tools()[call.Name]
 		if !ok {
-			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "unknown tool"}})
+			s.write(w, response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Error: &rpcError{
+					Code:    -32601,
+					Message: "unknown tool",
+				},
+			})
 			return
 		}
 		trustedContext := authority.Attach(r.Context(), s.AuthorityContext)
 		if err := requireToolAuthority(trustedContext, call.Name); err != nil {
-			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: toolResult(tool, map[string]any{"error": err.Error()}, true)})
+			s.write(w, response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result:  toolResult(tool, map[string]any{"error": err.Error()}, true),
+			})
 			return
 		}
 		if err := validateToolArguments(tool.InputSchema, call.Arguments); err != nil {
-			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params", Data: err.Error()}})
+			s.write(w, response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Error: &rpcError{
+					Code:    -32602,
+					Message: "invalid params",
+					Data:    err.Error(),
+				},
+			})
 			return
 		}
 		value, err := tool.Execute(trustedContext, call.Arguments)
 		if err != nil {
-			s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: toolResult(tool, map[string]any{"error": err.Error()}, true)})
+			s.write(w, response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result:  toolResult(tool, map[string]any{"error": err.Error()}, true),
+			})
 			return
 		}
-		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Result: toolResult(tool, value, false)})
+		s.write(w, response{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result:  toolResult(tool, value, false),
+		})
 	default:
-		s.write(w, response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "method not found"}})
+		s.write(w, response{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error: &rpcError{
+				Code:    -32601,
+				Message: "method not found",
+			},
+		})
 	}
 }
 
@@ -385,7 +461,14 @@ func (s *Server) tools() map[string]Tool {
 		if !outputOK || !annotationsOK {
 			panic("missing MCP contract for tool " + name)
 		}
-		t[name] = Tool{Name: name, Description: description, InputSchema: schema, OutputSchema: output, Annotations: annotations, Execute: fn}
+		t[name] = Tool{
+			Name:         name,
+			Description:  description,
+			InputSchema:  schema,
+			OutputSchema: output,
+			Annotations:  annotations,
+			Execute:      fn,
+		}
 	}
 	add("system_ping", "Return gateway identity and time.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.11", "gateway_id": s.Service.Config.GatewayID, "time": time.Now().UTC()}, nil

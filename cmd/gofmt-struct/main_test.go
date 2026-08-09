@@ -23,3 +23,29 @@ func TestRunCheckAndWriteModes(t *testing.T) {
 		t.Fatalf("check mode after write: %v", err)
 	}
 }
+
+func TestRunUsesSiblingFilesToLeaveNamedMapUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	typesPath := filepath.Join(dir, "types.go")
+	usePath := filepath.Join(dir, "use.go")
+	if err := os.WriteFile(typesPath, []byte("package fixture\n\ntype Alias map[string]int\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("package fixture\n\nvar _ = Alias{\"a\": 1, \"b\": 2}\n")
+	if err := os.WriteFile(usePath, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"--check", usePath}, &strings.Builder{}, &strings.Builder{}); err != nil {
+		t.Fatalf("cross-file named map failed check: %v", err)
+	}
+	if err := run([]string{"--write", usePath}, &strings.Builder{}, &strings.Builder{}); err != nil {
+		t.Fatalf("cross-file named map failed write: %v", err)
+	}
+	got, err := os.ReadFile(usePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(original) {
+		t.Fatalf("cross-file named map changed:\n%s", got)
+	}
+}

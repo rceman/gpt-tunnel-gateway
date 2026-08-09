@@ -98,7 +98,9 @@ func TestProjectStatusUsesStatusOnlyTaskProjection(t *testing.T) {
 		AcceptanceCriteria: []string{"bounded"},
 		OperationClass:     "implementation",
 		CreatedBy:          "test",
-		WriteOptions:       WriteOptions{ExpectedHubRevision: hubRevision},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -141,7 +143,9 @@ func TestProjectStatusStatusOnlyTaskFailureRemainsUnavailable(t *testing.T) {
 		AcceptanceCriteria: []string{"failure"},
 		OperationClass:     "implementation",
 		CreatedBy:          "test",
-		WriteOptions:       WriteOptions{ExpectedHubRevision: hubRevision},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -479,20 +483,80 @@ func TestClassifyProgressStateMatrix(t *testing.T) {
 		active int
 		want   string
 	}{
-		{name: "idle", e: progressEvidence{Status: airelay.SessionStatus{State: "idle", ControllerReachable: true}}, want: model.AgentStateIdle},
-		{name: "no active running", e: progressEvidence{Status: airelay.SessionStatus{State: "running", ControllerReachable: true}}, want: model.AgentStateRunning},
-		{name: "waiting for input", e: progressEvidence{ActiveRun: &run, Status: airelay.SessionStatus{State: "waiting", ControllerReachable: true}, Tail: "Which option?"}, active: 1, want: model.AgentStateWaitingForInput},
-		{name: "completion pending", e: progressEvidence{ActiveRun: &run, Status: airelay.SessionStatus{State: "waiting", ControllerReachable: true}}, active: 1, want: model.AgentStateCompletionPending},
-		{name: "compacted idle takes precedence over waiting", e: progressEvidence{ActiveRun: &run, Status: airelay.SessionStatus{State: "waiting", ControllerReachable: true}, Tail: "Context compacted\nAcknowledged\nModel: test\nContext window: 90% remaining\nWorkspace: /tmp/project\nStatus: waiting", Compaction: compactionObservation{Detected: true}}, active: 1, want: model.AgentStateCompactedIdle},
-		{name: "capacity", e: progressEvidence{ActiveRun: &run, Status: airelay.SessionStatus{State: "running", ControllerReachable: true, CapacityWarnings: []string{"model capacity blocked"}}}, active: 1, want: model.AgentStateCapacityBlocked},
-		{name: "rate limited", e: progressEvidence{ActiveRun: &run, Status: airelay.SessionStatus{State: "running", ControllerReachable: true, CapacityWarnings: []string{"rate limited"}}}, active: 1, want: model.AgentStateRateLimited},
-		{name: "compacting marker", e: progressEvidence{ActiveRun: &run, Status: airelay.SessionStatus{State: "idle", ControllerReachable: true}, Compaction: compactionObservation{Started: true}}, active: 1, want: model.AgentStateCompacting},
-		{name: "compacted idle", e: progressEvidence{ActiveRun: &run, Status: airelay.SessionStatus{State: "idle", ControllerReachable: true}, Compaction: compactionObservation{Detected: true}}, active: 1, want: model.AgentStateCompactedIdle},
-		{name: "compacted resuming", e: progressEvidence{ActiveRun: &run, Status: airelay.SessionStatus{State: "idle", ControllerReachable: true}, Compaction: compactionObservation{Detected: true}, Events: []model.RunOperationalEvent{{EventType: model.EventResumeSent, OccurredAt: now}}}, active: 1, want: model.AgentStateCompactedResuming},
-		{name: "stalled after compaction", e: progressEvidence{ActiveRun: &run, Status: airelay.SessionStatus{State: "idle", ControllerReachable: true}, Compaction: compactionObservation{Detected: true}, Events: []model.RunOperationalEvent{{EventType: model.EventResumeSent, OccurredAt: now.Add(-resumeObservationWindow - time.Second)}}}, active: 1, want: model.AgentStateStalled},
-		{name: "finalization pending", e: progressEvidence{ActiveRun: &run, Completion: true, Status: airelay.SessionStatus{State: "idle", ControllerReachable: true}}, active: 1, want: model.AgentStateFinalizationPending},
-		{name: "error", e: progressEvidence{ActiveRun: &run, Status: airelay.SessionStatus{State: "error", ControllerReachable: false}}, active: 1, want: model.AgentStateError},
-		{name: "unknown", e: progressEvidence{ActiveRun: &run, Status: airelay.SessionStatus{State: "", ControllerReachable: true}}, active: 1, want: model.AgentStateUnknown},
+		{name: "idle", e: progressEvidence{
+			Status: airelay.SessionStatus{State: "idle", ControllerReachable: true},
+		}, want: model.AgentStateIdle},
+		{name: "no active running", e: progressEvidence{
+			Status: airelay.SessionStatus{State: "running", ControllerReachable: true},
+		}, want: model.AgentStateRunning},
+		{name: "waiting for input", e: progressEvidence{
+			ActiveRun: &run,
+			Status:    airelay.SessionStatus{State: "waiting", ControllerReachable: true},
+			Tail:      "Which option?",
+		}, active: 1, want: model.AgentStateWaitingForInput},
+		{name: "completion pending", e: progressEvidence{
+			ActiveRun: &run,
+			Status:    airelay.SessionStatus{State: "waiting", ControllerReachable: true},
+		}, active: 1, want: model.AgentStateCompletionPending},
+		{name: "compacted idle takes precedence over waiting", e: progressEvidence{
+			ActiveRun: &run,
+			Status:    airelay.SessionStatus{State: "waiting", ControllerReachable: true},
+			Tail:      "Context compacted\nAcknowledged\nModel: test\nContext window: 90% remaining\nWorkspace: /tmp/project\nStatus: waiting",
+			Compaction: compactionObservation{
+				Detected: true,
+			},
+		}, active: 1, want: model.AgentStateCompactedIdle},
+		{name: "capacity", e: progressEvidence{
+			ActiveRun: &run,
+			Status:    airelay.SessionStatus{State: "running", ControllerReachable: true, CapacityWarnings: []string{"model capacity blocked"}},
+		}, active: 1, want: model.AgentStateCapacityBlocked},
+		{name: "rate limited", e: progressEvidence{
+			ActiveRun: &run,
+			Status:    airelay.SessionStatus{State: "running", ControllerReachable: true, CapacityWarnings: []string{"rate limited"}},
+		}, active: 1, want: model.AgentStateRateLimited},
+		{name: "compacting marker", e: progressEvidence{
+			ActiveRun: &run,
+			Status:    airelay.SessionStatus{State: "idle", ControllerReachable: true},
+			Compaction: compactionObservation{
+				Started: true,
+			},
+		}, active: 1, want: model.AgentStateCompacting},
+		{name: "compacted idle", e: progressEvidence{
+			ActiveRun: &run,
+			Status:    airelay.SessionStatus{State: "idle", ControllerReachable: true},
+			Compaction: compactionObservation{
+				Detected: true,
+			},
+		}, active: 1, want: model.AgentStateCompactedIdle},
+		{name: "compacted resuming", e: progressEvidence{
+			ActiveRun: &run,
+			Status:    airelay.SessionStatus{State: "idle", ControllerReachable: true},
+			Compaction: compactionObservation{
+				Detected: true,
+			},
+			Events: []model.RunOperationalEvent{{EventType: model.EventResumeSent, OccurredAt: now}},
+		}, active: 1, want: model.AgentStateCompactedResuming},
+		{name: "stalled after compaction", e: progressEvidence{
+			ActiveRun: &run,
+			Status:    airelay.SessionStatus{State: "idle", ControllerReachable: true},
+			Compaction: compactionObservation{
+				Detected: true,
+			},
+			Events: []model.RunOperationalEvent{{EventType: model.EventResumeSent, OccurredAt: now.Add(-resumeObservationWindow - time.Second)}},
+		}, active: 1, want: model.AgentStateStalled},
+		{name: "finalization pending", e: progressEvidence{
+			ActiveRun:  &run,
+			Completion: true,
+			Status:     airelay.SessionStatus{State: "idle", ControllerReachable: true},
+		}, active: 1, want: model.AgentStateFinalizationPending},
+		{name: "error", e: progressEvidence{
+			ActiveRun: &run,
+			Status:    airelay.SessionStatus{State: "error", ControllerReachable: false},
+		}, active: 1, want: model.AgentStateError},
+		{name: "unknown", e: progressEvidence{
+			ActiveRun: &run,
+			Status:    airelay.SessionStatus{State: "", ControllerReachable: true},
+		}, active: 1, want: model.AgentStateUnknown},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

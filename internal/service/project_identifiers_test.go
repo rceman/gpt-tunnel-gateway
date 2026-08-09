@@ -22,8 +22,11 @@ func TestProjectIdentifiersReadRequiresExistingStrictRecord(t *testing.T) {
 func TestProjectIdentifiersAdoptAndRead(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
 	record, operation, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
-		ProjectID: "example", ProjectCode: "EXM",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID:   "example",
+		ProjectCode: "EXM",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +44,13 @@ func TestProjectIdentifiersAdoptAndRead(t *testing.T) {
 	if read != record {
 		t.Fatalf("read record differs from adopted record: %#v %#v", read, record)
 	}
-	if _, _, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "NEW", WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After}}); err == nil || !strings.Contains(err.Error(), "already exist") {
+	if _, _, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
+		ProjectID:   "example",
+		ProjectCode: "NEW",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.Hub.After,
+		},
+	}); err == nil || !strings.Contains(err.Error(), "already exist") {
 		t.Fatalf("existing identifiers record was replaced: %v", err)
 	}
 	unchanged, err := s.ProjectIdentifiersRead(context.Background(), "example")
@@ -53,14 +62,26 @@ func TestProjectIdentifiersAdoptAndRead(t *testing.T) {
 func TestProjectIdentifiersAdoptRejectsDuplicateCodes(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
 	secondRevision := registerIdentifierProject(t, s, "second", revision)
-	first, firstOperation, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "DUP", WriteOptions: WriteOptions{ExpectedHubRevision: secondRevision}})
+	first, firstOperation, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
+		ProjectID:   "example",
+		ProjectCode: "DUP",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: secondRevision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.ProjectCode != "DUP" {
 		t.Fatalf("unexpected first code: %#v", first)
 	}
-	if _, _, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{ProjectID: "second", ProjectCode: "DUP", WriteOptions: WriteOptions{ExpectedHubRevision: firstOperation.Hub.After}}); err == nil || !strings.Contains(err.Error(), "already adopted") {
+	if _, _, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
+		ProjectID:   "second",
+		ProjectCode: "DUP",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: firstOperation.Hub.After,
+		},
+	}); err == nil || !strings.Contains(err.Error(), "already adopted") {
 		t.Fatalf("duplicate project code was accepted: %v", err)
 	}
 }
@@ -78,7 +99,10 @@ func TestProjectIdentifiersAdoptConcurrentDuplicateCodesHasOneWinner(t *testing.
 		go func() {
 			defer wg.Done()
 			<-start
-			_, _, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{ProjectID: projectID, ProjectCode: "CON"})
+			_, _, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
+				ProjectID:   projectID,
+				ProjectCode: "CON",
+			})
 			errors <- err
 		}()
 	}
@@ -104,7 +128,12 @@ func registerIdentifierProject(t *testing.T, s *Service, id, expected string) st
 	_, root, _ := testutil.RepoWithBareRemote(t)
 	s.Config.Projects[id] = config.ProjectConfig{Root: root, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: id + "_master"}
 	project := model.Project{SchemaVersion: model.SchemaVersion, ID: id, RepositoryURL: "git@example.invalid:" + id + ".git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: strings.Repeat("b", 40), Status: "active"}
-	result, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{Project: project, WriteOptions: WriteOptions{ExpectedHubRevision: expected}})
+	result, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{
+		Project: project,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: expected,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

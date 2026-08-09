@@ -8,11 +8,26 @@ import (
 
 func baseConfig(dir string) Config {
 	return Config{
-		SchemaVersion: 1, GatewayID: "home", ListenAddr: "127.0.0.1:8875",
-		StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1, MaxDiffBytes: 1, MaxListItems: 1,
-		DispatchTimeoutSeconds: 1, RunTimeoutSeconds: 60, AirelayCommand: "airelay",
-		Hub:        HubConfig{RepositoryURL: filepath.Join(dir, "hub.git"), Branch: "gpt-tunnel/home_pc", AuthorName: "x", AuthorEmail: "x@y"},
-		Controller: ControllerConfig{TunnelHealthListenAddr: "127.0.0.1:8766"}, Projects: map[string]ProjectConfig{},
+		SchemaVersion:          1,
+		GatewayID:              "home",
+		ListenAddr:             "127.0.0.1:8875",
+		StateDir:               filepath.Join(dir, "state"),
+		MaxReadBytes:           1,
+		MaxDiffBytes:           1,
+		MaxListItems:           1,
+		DispatchTimeoutSeconds: 1,
+		RunTimeoutSeconds:      60,
+		AirelayCommand:         "airelay",
+		Hub: HubConfig{
+			RepositoryURL: filepath.Join(dir, "hub.git"),
+			Branch:        "gpt-tunnel/home_pc",
+			AuthorName:    "x",
+			AuthorEmail:   "x@y",
+		},
+		Controller: ControllerConfig{
+			TunnelHealthListenAddr: "127.0.0.1:8766",
+		},
+		Projects: map[string]ProjectConfig{},
 	}
 }
 

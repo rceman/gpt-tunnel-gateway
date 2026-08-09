@@ -33,12 +33,25 @@ type PublicRun struct {
 
 func PublicRunView(run model.Run) PublicRun {
 	return PublicRun{
-		SchemaVersion: run.SchemaVersion, ID: run.ID, TaskID: run.TaskID, TaskSHA256: run.TaskSHA256,
-		ProjectID: run.ProjectID, GatewayID: run.GatewayID, Branch: run.Branch, BaseRevision: run.BaseRevision,
-		HubRevision: run.HubRevision, Status: run.Status, DispatchMessage: run.DispatchMessage,
-		DispatchExitCode: run.DispatchExitCode, DispatchStdout: run.DispatchStdout, DispatchStderr: run.DispatchStderr,
-		CreatedAt: run.CreatedAt, DispatchedAt: run.DispatchedAt,
-		RepromptCount: run.RepromptCount, LastRepromptAt: run.LastRepromptAt, FinishedAt: run.FinishedAt,
+		SchemaVersion:    run.SchemaVersion,
+		ID:               run.ID,
+		TaskID:           run.TaskID,
+		TaskSHA256:       run.TaskSHA256,
+		ProjectID:        run.ProjectID,
+		GatewayID:        run.GatewayID,
+		Branch:           run.Branch,
+		BaseRevision:     run.BaseRevision,
+		HubRevision:      run.HubRevision,
+		Status:           run.Status,
+		DispatchMessage:  run.DispatchMessage,
+		DispatchExitCode: run.DispatchExitCode,
+		DispatchStdout:   run.DispatchStdout,
+		DispatchStderr:   run.DispatchStderr,
+		CreatedAt:        run.CreatedAt,
+		DispatchedAt:     run.DispatchedAt,
+		RepromptCount:    run.RepromptCount,
+		LastRepromptAt:   run.LastRepromptAt,
+		FinishedAt:       run.FinishedAt,
 	}
 }
 
@@ -59,5 +72,17 @@ type PublicTaskPacket struct {
 }
 
 func PublicTaskPacketView(packet TaskPacket) PublicTaskPacket {
-	return PublicTaskPacket{Task: packet.Task, Run: PublicTaskPacketRun{PublicRun: PublicRunView(packet.Run)}, RunSummaries: append([]model.RunReviewSummary{}, packet.RunSummaries...), Project: packet.Project, Plan: packet.Plan, WorkflowPolicy: packet.WorkflowPolicy, RepositoryRoot: packet.RepositoryRoot, FinalizeCommand: packet.FinalizeCommand, Text: packet.Text}
+	return PublicTaskPacket{
+		Task: packet.Task,
+		Run: PublicTaskPacketRun{
+			PublicRun: PublicRunView(packet.Run),
+		},
+		RunSummaries:    append([]model.RunReviewSummary{}, packet.RunSummaries...),
+		Project:         packet.Project,
+		Plan:            packet.Plan,
+		WorkflowPolicy:  packet.WorkflowPolicy,
+		RepositoryRoot:  packet.RepositoryRoot,
+		FinalizeCommand: packet.FinalizeCommand,
+		Text:            packet.Text,
+	}
 }

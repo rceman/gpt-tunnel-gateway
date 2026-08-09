@@ -12,10 +12,19 @@ import (
 func testOperatorEvent(kind OperatorJournalKind, id string) OperatorJournalEvent {
 	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
 	return OperatorJournalEvent{
-		SchemaVersion: SchemaVersion, ID: id, ProjectID: "example", SessionID: nil,
-		Kind: kind, Summary: "bounded operator context",
-		Content:    OperatorJournalContent{Facts: []string{"verified fact"}},
-		References: OperatorJournalReferences{}, Actor: "owner", OccurredAt: now, RecordedAt: now,
+		SchemaVersion: SchemaVersion,
+		ID:            id,
+		ProjectID:     "example",
+		SessionID:     nil,
+		Kind:          kind,
+		Summary:       "bounded operator context",
+		Content: OperatorJournalContent{
+			Facts: []string{"verified fact"},
+		},
+		References: OperatorJournalReferences{},
+		Actor:      "owner",
+		OccurredAt: now,
+		RecordedAt: now,
 	}
 }
 

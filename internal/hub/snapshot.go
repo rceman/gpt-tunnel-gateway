@@ -43,7 +43,12 @@ func (s Store) ReadSnapshot(ctx context.Context) (*ReadSnapshot, error) {
 		_ = release()
 		return nil, err
 	}
-	return &ReadSnapshot{store: s, root: root, revision: revision, release: release}, nil
+	return &ReadSnapshot{
+		store:    s,
+		root:     root,
+		revision: revision,
+		release:  release,
+	}, nil
 }
 
 func (r *ReadSnapshot) Close() error {

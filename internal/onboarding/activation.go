@@ -56,13 +56,22 @@ func NewActivationCoordinator(store hub.Store) *ActivationCoordinator {
 
 func (c *ActivationCoordinator) Activate(ctx context.Context, request Request, operationID string) (ActivationResult, error) {
 	if err := authority.RequireOnboarding(ctx); err != nil {
-		return ActivationResult{}, &CoordinatorError{Code: ErrOnboardingAuthorityUnavailable.Error(), Cause: err}
+		return ActivationResult{}, &CoordinatorError{
+			Code:  ErrOnboardingAuthorityUnavailable.Error(),
+			Cause: err,
+		}
 	}
 	if c == nil || c.StateDir == "" || c.StateDir != request.GatewayStateDir {
-		return ActivationResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: errors.New("activation state directory is unavailable or does not match request")}
+		return ActivationResult{}, &CoordinatorError{
+			Code:  ErrOnboardingRecoveryRequired.Error(),
+			Cause: errors.New("activation state directory is unavailable or does not match request"),
+		}
 	}
 	if err := ValidateRequest(request); err != nil {
-		return ActivationResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+		return ActivationResult{}, &CoordinatorError{
+			Code:  ErrOnboardingRecoveryRequired.Error(),
+			Cause: err,
+		}
 	}
 	if err := validatePreparedJournalOperationID(operationID); err != nil {
 		return ActivationResult{}, err
@@ -78,40 +87,70 @@ func (c *ActivationCoordinator) Activate(ctx context.Context, request Request, o
 	defer operationLock.Release()
 	receipt, err := LoadOnboardingJournal(c.StateDir, operationID)
 	if err != nil {
-		return ActivationResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+		return ActivationResult{}, &CoordinatorError{
+			Code:  ErrOnboardingRecoveryRequired.Error(),
+			Cause: err,
+		}
 	}
 	if receipt.OperationID != operationID || receipt.RequestSHA256 != requestDigest || receipt.ProjectID != request.ProjectID {
-		return ActivationResult{}, &CoordinatorError{Code: ErrOnboardingOperationConflict.Error(), Cause: errors.New("activation journal identity does not match request")}
+		return ActivationResult{}, &CoordinatorError{
+			Code:  ErrOnboardingOperationConflict.Error(),
+			Cause: errors.New("activation journal identity does not match request"),
+		}
 	}
 	managedLock, err := acquireManagedProjectsLock(ctx, c.StateDir)
 	if err != nil {
-		return ActivationResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+		return ActivationResult{}, &CoordinatorError{
+			Code:  ErrOnboardingRecoveryRequired.Error(),
+			Cause: err,
+		}
 	}
 	defer managedLock.Release()
 
-	base := Coordinator{Hub: c.Hub, StateDir: c.StateDir}
+	base := Coordinator{
+		Hub:      c.Hub,
+		StateDir: c.StateDir,
+	}
 	project, plan, identifiers, objectDigests, err := buildDurableObjects(request)
 	if err != nil {
-		return ActivationResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+		return ActivationResult{}, &CoordinatorError{
+			Code:  ErrOnboardingRecoveryRequired.Error(),
+			Cause: err,
+		}
 	}
 	switch receipt.State {
 	case StateHubCommitted:
 		if err := ValidateHubCommittedReceipt(receipt, request); err != nil {
-			return ActivationResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+			return ActivationResult{}, &CoordinatorError{
+				Code:  ErrOnboardingRecoveryRequired.Error(),
+				Cause: err,
+			}
 		}
 	case StateRecoveryRequired:
 		if err := ValidateRecoveryReceipt(receipt, request); err != nil {
-			return ActivationResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+			return ActivationResult{}, &CoordinatorError{
+				Code:  ErrOnboardingRecoveryRequired.Error(),
+				Cause: err,
+			}
 		}
 	case StateActivated:
 		if err := ValidateActivatedReceipt(receipt, request); err != nil {
-			return ActivationResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+			return ActivationResult{}, &CoordinatorError{
+				Code:  ErrOnboardingRecoveryRequired.Error(),
+				Cause: err,
+			}
 		}
 	default:
-		return ActivationResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: fmt.Errorf("activation requires hub_committed or activated journal, got %q", receipt.State)}
+		return ActivationResult{}, &CoordinatorError{
+			Code:  ErrOnboardingRecoveryRequired.Error(),
+			Cause: fmt.Errorf("activation requires hub_committed or activated journal, got %q", receipt.State),
+		}
 	}
 	if err := base.validateCommittedHubState(ctx, request, receipt, project, plan, identifiers, objectDigests); err != nil {
-		return ActivationResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+		return ActivationResult{}, &CoordinatorError{
+			Code:  ErrOnboardingRecoveryRequired.Error(),
+			Cause: err,
+		}
 	}
 	var registryReceipt config.ManagedProjectRegistryWriteReceipt
 	persistRecovery := func(step RecoveryStep, reason string, mirrorProof *MirrorProof) (ActivationResult, error) {
@@ -127,7 +166,13 @@ func (c *ActivationCoordinator) Activate(ctx context.Context, request Request, o
 			lastStep = *receipt.Recovery.LastDurableStep
 		}
 		action := RecoveryActionResumeActivation
-		candidate.Recovery = Recovery{Status: RecoveryRequired, LastCompletedState: &lastState, LastDurableStep: &lastStep, Reason: &reason, SafeCorrectiveAction: &action}
+		candidate.Recovery = Recovery{
+			Status:               RecoveryRequired,
+			LastCompletedState:   &lastState,
+			LastDurableStep:      &lastStep,
+			Reason:               &reason,
+			SafeCorrectiveAction: &action,
+		}
 		now := time.Now().UTC()
 		if c.Hooks.Now != nil {
 			now = c.Hooks.Now().UTC()
@@ -138,27 +183,65 @@ func (c *ActivationCoordinator) Activate(ctx context.Context, request Request, o
 			writer = writeRecoveryJournalLocked
 		}
 		journal, writeErr := writer(c.StateDir, request, candidate)
-		result := ActivationResult{OperationID: operationID, ProjectID: request.ProjectID, State: StateRecoveryRequired, ReceiptSHA256: journal.ReceiptSHA256, RegistryBefore: registryReceipt.BeforeDigest, RegistryAfter: registryReceipt.AfterDigest}
+		result := ActivationResult{
+			OperationID:    operationID,
+			ProjectID:      request.ProjectID,
+			State:          StateRecoveryRequired,
+			ReceiptSHA256:  journal.ReceiptSHA256,
+			RegistryBefore: registryReceipt.BeforeDigest,
+			RegistryAfter:  registryReceipt.AfterDigest,
+		}
 		if candidate.MirrorProof != nil {
 			result.Mirror = *candidate.MirrorProof
 		}
 		if writeErr != nil {
-			return result, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: fmt.Errorf("%s; recovery_required journal persistence failed: %w", reason, writeErr)}
+			return result, &CoordinatorError{
+				Code:  ErrOnboardingRecoveryRequired.Error(),
+				Cause: fmt.Errorf("%s; recovery_required journal persistence failed: %w", reason, writeErr),
+			}
 		}
-		return result, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: errors.New(reason)}
+		return result, &CoordinatorError{
+			Code:  ErrOnboardingRecoveryRequired.Error(),
+			Cause: errors.New(reason),
+		}
 	}
 	if _, err := base.verifyRegistryAuthority(request, receipt, true); err != nil {
 		if receipt.State == StateActivated {
-			return ActivationResult{OperationID: operationID, ProjectID: request.ProjectID, State: StateActivated, Mirror: mirrorProofFromReceipt(receipt)}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+			return ActivationResult{
+					OperationID: operationID,
+					ProjectID:   request.ProjectID,
+					State:       StateActivated,
+					Mirror:      mirrorProofFromReceipt(receipt),
+				}, &CoordinatorError{
+					Code:  ErrOnboardingRecoveryRequired.Error(),
+					Cause: err,
+				}
 		}
 		return persistRecovery(RecoveryStepHubCommitted, "managed registry authority verification failed", nil)
 	}
 	if receipt.State == StateActivated {
 		digest, err := ActivatedReceiptDigest(receipt, request)
 		if err != nil {
-			return ActivationResult{OperationID: operationID, ProjectID: request.ProjectID, State: StateActivated, Mirror: mirrorProofFromReceipt(receipt)}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+			return ActivationResult{
+					OperationID: operationID,
+					ProjectID:   request.ProjectID,
+					State:       StateActivated,
+					Mirror:      mirrorProofFromReceipt(receipt),
+				}, &CoordinatorError{
+					Code:  ErrOnboardingRecoveryRequired.Error(),
+					Cause: err,
+				}
 		}
-		return ActivationResult{OperationID: operationID, ProjectID: request.ProjectID, State: StateActivated, ReceiptSHA256: digest, RegistryBefore: receipt.RegistryDigests.ManagedBeforeSHA256, RegistryAfter: receipt.RegistryDigests.ManagedAfterSHA256, Mirror: mirrorProofFromReceipt(receipt), JournalRepairOnly: true}, nil
+		return ActivationResult{
+			OperationID:       operationID,
+			ProjectID:         request.ProjectID,
+			State:             StateActivated,
+			ReceiptSHA256:     digest,
+			RegistryBefore:    receipt.RegistryDigests.ManagedBeforeSHA256,
+			RegistryAfter:     receipt.RegistryDigests.ManagedAfterSHA256,
+			Mirror:            mirrorProofFromReceipt(receipt),
+			JournalRepairOnly: true,
+		}, nil
 	}
 	current, err := config.LoadManagedProjects(c.StateDir)
 	if err != nil {
@@ -209,7 +292,11 @@ func (c *ActivationCoordinator) Activate(ctx context.Context, request Request, o
 	if err != nil {
 		return persistRecovery(registryStep, "managed mirror activation failed", nil)
 	}
-	mirrorProof := &MirrorProof{Path: mirrorResult.Path, RepositoryURL: mirrorResult.RepositoryURL, Head: mirrorResult.Head}
+	mirrorProof := &MirrorProof{
+		Path:          mirrorResult.Path,
+		RepositoryURL: mirrorResult.RepositoryURL,
+		Head:          mirrorResult.Head,
+	}
 	if filepath.Clean(mirrorResult.Path) != expectedMirrorPath || mirrorResult.RepositoryURL != request.RepositoryURL || validateMirrorProof(mirrorProof) != nil {
 		return persistRecovery(registryStep, "managed mirror proof is invalid or non-canonical", nil)
 	}
@@ -240,9 +327,28 @@ func (c *ActivationCoordinator) Activate(ctx context.Context, request Request, o
 	if receipt.State == StateActivated {
 		digest, err := ActivatedReceiptDigest(receipt, request)
 		if err != nil {
-			return ActivationResult{OperationID: operationID, ProjectID: request.ProjectID, State: StateRecoveryRequired, RegistryBefore: registryReceipt.BeforeDigest, RegistryAfter: registryReceipt.AfterDigest, Mirror: *receipt.MirrorProof}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+			return ActivationResult{
+					OperationID:    operationID,
+					ProjectID:      request.ProjectID,
+					State:          StateRecoveryRequired,
+					RegistryBefore: registryReceipt.BeforeDigest,
+					RegistryAfter:  registryReceipt.AfterDigest,
+					Mirror:         *receipt.MirrorProof,
+				}, &CoordinatorError{
+					Code:  ErrOnboardingRecoveryRequired.Error(),
+					Cause: err,
+				}
 		}
-		return ActivationResult{OperationID: operationID, ProjectID: request.ProjectID, State: StateActivated, ReceiptSHA256: digest, RegistryBefore: registryReceipt.BeforeDigest, RegistryAfter: registryReceipt.AfterDigest, Mirror: *receipt.MirrorProof, JournalRepairOnly: true}, nil
+		return ActivationResult{
+			OperationID:       operationID,
+			ProjectID:         request.ProjectID,
+			State:             StateActivated,
+			ReceiptSHA256:     digest,
+			RegistryBefore:    registryReceipt.BeforeDigest,
+			RegistryAfter:     registryReceipt.AfterDigest,
+			Mirror:            *receipt.MirrorProof,
+			JournalRepairOnly: true,
+		}, nil
 	}
 	activatedAt := now.Format(time.RFC3339Nano)
 	activated := receipt
@@ -262,7 +368,16 @@ func (c *ActivationCoordinator) Activate(ctx context.Context, request Request, o
 	if err != nil {
 		return persistRecovery(RecoveryStepSessionReady, "activated journal persistence failed", activated.MirrorProof)
 	}
-	return ActivationResult{OperationID: operationID, ProjectID: request.ProjectID, State: StateActivated, ReceiptSHA256: journal.ReceiptSHA256, RegistryBefore: registryReceipt.BeforeDigest, RegistryAfter: registryReceipt.AfterDigest, Mirror: *activated.MirrorProof, JournalRepairOnly: receipt.State == StateActivated}, nil
+	return ActivationResult{
+		OperationID:       operationID,
+		ProjectID:         request.ProjectID,
+		State:             StateActivated,
+		ReceiptSHA256:     journal.ReceiptSHA256,
+		RegistryBefore:    registryReceipt.BeforeDigest,
+		RegistryAfter:     registryReceipt.AfterDigest,
+		Mirror:            *activated.MirrorProof,
+		JournalRepairOnly: receipt.State == StateActivated,
+	}, nil
 }
 
 func managedEntryForRequest(request Request) config.ManagedProjectEntry {
@@ -335,7 +450,10 @@ func (c *ActivationCoordinator) defaultProjectReadiness(ctx context.Context, req
 
 func (c *ActivationCoordinator) defaultSessionReadiness(ctx context.Context, request Request) (SessionProof, error) {
 	if !request.Airelay.SessionRequired {
-		return SessionProof{Required: false, Status: "not_required"}, nil
+		return SessionProof{
+			Required: false,
+			Status:   "not_required",
+		}, nil
 	}
 	key := sessionKey(request)
 	status, err := c.Airelay.Status(ctx, key)
@@ -356,5 +474,10 @@ func (c *ActivationCoordinator) defaultSessionReadiness(ctx context.Context, req
 		return SessionProof{}, errors.New("Airelay status has no valid positive protocol version")
 	}
 	protocol = PositiveInteger(parsed)
-	return SessionProof{Required: true, SessionKey: &key, Status: "active", ControllerProtocolVersion: &protocol}, nil
+	return SessionProof{
+		Required:                  true,
+		SessionKey:                &key,
+		Status:                    "active",
+		ControllerProtocolVersion: &protocol,
+	}, nil
 }

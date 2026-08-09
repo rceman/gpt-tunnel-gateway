@@ -67,14 +67,19 @@ type PublicOrchestrator struct {
 
 func NewPublicOrchestrator(store hub.Store) *PublicOrchestrator {
 	return &PublicOrchestrator{
-		Hub: store, StateDir: store.Config.StateDir,
-		Coordinator: NewCoordinator(store), Activation: NewActivationCoordinator(store),
+		Hub:         store,
+		StateDir:    store.Config.StateDir,
+		Coordinator: NewCoordinator(store),
+		Activation:  NewActivationCoordinator(store),
 	}
 }
 
 func (o *PublicOrchestrator) Onboard(ctx context.Context, in PublicInput) (PublicResult, error) {
 	if err := authority.RequireOnboarding(ctx); err != nil {
-		return PublicResult{}, &CoordinatorError{Code: ErrOnboardingAuthorityUnavailable.Error(), Cause: err}
+		return PublicResult{}, &CoordinatorError{
+			Code:  ErrOnboardingAuthorityUnavailable.Error(),
+			Cause: err,
+		}
 	}
 	if err := ValidateRequest(in.Request); err != nil {
 		return PublicResult{}, fmt.Errorf("invalid onboarding request: %w", err)
@@ -96,14 +101,20 @@ func (o *PublicOrchestrator) Onboard(ctx context.Context, in PublicInput) (Publi
 		}
 	}
 	if err != nil {
-		return PublicResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+		return PublicResult{}, &CoordinatorError{
+			Code:  ErrOnboardingRecoveryRequired.Error(),
+			Cause: err,
+		}
 	}
 	return o.advance(ctx, in.Request, in.OperationID, receipt)
 }
 
 func (o *PublicOrchestrator) Recover(ctx context.Context, in PublicInput) (PublicResult, error) {
 	if err := authority.RequireOnboarding(ctx); err != nil {
-		return PublicResult{}, &CoordinatorError{Code: ErrOnboardingAuthorityUnavailable.Error(), Cause: err}
+		return PublicResult{}, &CoordinatorError{
+			Code:  ErrOnboardingAuthorityUnavailable.Error(),
+			Cause: err,
+		}
 	}
 	if err := ValidateRequest(in.Request); err != nil {
 		return PublicResult{}, fmt.Errorf("invalid onboarding request: %w", err)
@@ -113,7 +124,10 @@ func (o *PublicOrchestrator) Recover(ctx context.Context, in PublicInput) (Publi
 	}
 	receipt, err := LoadOnboardingJournal(o.StateDir, in.OperationID)
 	if err != nil {
-		return PublicResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+		return PublicResult{}, &CoordinatorError{
+			Code:  ErrOnboardingRecoveryRequired.Error(),
+			Cause: err,
+		}
 	}
 	return o.advance(ctx, in.Request, in.OperationID, receipt)
 }
@@ -127,10 +141,16 @@ func (o *PublicOrchestrator) Status(_ context.Context, in PublicInput) (StatusPr
 	}
 	receipt, err := LoadOnboardingJournal(o.StateDir, in.OperationID)
 	if err != nil {
-		return StatusProjection{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+		return StatusProjection{}, &CoordinatorError{
+			Code:  ErrOnboardingRecoveryRequired.Error(),
+			Cause: err,
+		}
 	}
 	if err := validateReceiptForState(receipt, in.Request); err != nil {
-		return StatusProjection{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+		return StatusProjection{}, &CoordinatorError{
+			Code:  ErrOnboardingRecoveryRequired.Error(),
+			Cause: err,
+		}
 	}
 	return publicStatusProjection(receipt, in.Request)
 }
@@ -142,11 +162,17 @@ func (o *PublicOrchestrator) advance(ctx context.Context, request Request, opera
 			return PublicResult{}, err
 		}
 		if receipt.OperationID != operationID || receipt.RequestSHA256 != requestDigest || receipt.ProjectID != request.ProjectID {
-			return PublicResult{}, &CoordinatorError{Code: ErrOnboardingOperationConflict.Error(), Cause: errors.New("onboarding journal identity does not match request")}
+			return PublicResult{}, &CoordinatorError{
+				Code:  ErrOnboardingOperationConflict.Error(),
+				Cause: errors.New("onboarding journal identity does not match request"),
+			}
 		}
 		public, err := o.publicResultFromJournal(PublicResult{JournalRepairOnly: true}, request, operationID)
 		if err != nil {
-			return PublicResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+			return PublicResult{}, &CoordinatorError{
+				Code:  ErrOnboardingRecoveryRequired.Error(),
+				Cause: err,
+			}
 		}
 		return public, nil
 	}
@@ -161,11 +187,17 @@ func (o *PublicOrchestrator) advance(ctx context.Context, request Request, opera
 			return public, err
 		}
 		if journalErr != nil {
-			return PublicResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: journalErr}
+			return PublicResult{}, &CoordinatorError{
+				Code:  ErrOnboardingRecoveryRequired.Error(),
+				Cause: journalErr,
+			}
 		}
 		receipt, err = LoadOnboardingJournal(o.StateDir, operationID)
 		if err != nil {
-			return PublicResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: err}
+			return PublicResult{}, &CoordinatorError{
+				Code:  ErrOnboardingRecoveryRequired.Error(),
+				Cause: err,
+			}
 		}
 	}
 	if receipt.State == StateRecoveryRequired || receipt.State == StateActivated || receipt.State == StateHubCommitted {
@@ -175,11 +207,17 @@ func (o *PublicOrchestrator) advance(ctx context.Context, request Request, opera
 			return public, err
 		}
 		if journalErr != nil {
-			return PublicResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: journalErr}
+			return PublicResult{}, &CoordinatorError{
+				Code:  ErrOnboardingRecoveryRequired.Error(),
+				Cause: journalErr,
+			}
 		}
 		return public, nil
 	}
-	return PublicResult{}, &CoordinatorError{Code: ErrOnboardingRecoveryRequired.Error(), Cause: fmt.Errorf("unsupported onboarding state %q", receipt.State)}
+	return PublicResult{}, &CoordinatorError{
+		Code:  ErrOnboardingRecoveryRequired.Error(),
+		Cause: fmt.Errorf("unsupported onboarding state %q", receipt.State),
+	}
 }
 
 func (o *PublicOrchestrator) prepare(ctx context.Context, request Request, operationID string) (Receipt, error) {
@@ -236,12 +274,44 @@ func (o *PublicOrchestrator) prepare(ctx context.Context, request Request, opera
 	statusDigest := sha256.Sum256([]byte(status.Porcelain))
 	statusHash := hex.EncodeToString(statusDigest[:])
 	candidate := Receipt{
-		SchemaVersion: 1, OperationID: operationID, RequestSHA256: requestDigest, State: StatePrepared, ProjectID: request.ProjectID,
-		RepositoryProof: RepositoryProof{Root: request.Root, Remote: request.Remote, RepositoryURL: request.RepositoryURL, DefaultBranch: request.DefaultBranch, Branch: status.Branch, Head: status.Head, GatewayStateDir: request.GatewayStateDir},
-		WorktreeProof:   WorktreeProof{Clean: status.Clean, StatusSHA256: statusHash}, SessionProof: session,
-		RegistryDigests: RegistryDigests{ManagedBeforeSHA256: managedBefore, ManagedAfterSHA256: managedAfter, ProjectSHA256: digests.project, PlanSHA256: digests.plan, IdentifiersSHA256: digests.identifiers},
-		Hub:             HubProof{Before: request.ExpectedHubRevision, Paths: canonicalOnboardingPaths(request.ProjectID)},
-		Timestamps:      Timestamps{StartedAt: started, PreparedAt: stringPtr(prepared), UpdatedAt: prepared}, Recovery: Recovery{Status: RecoveryNotRequired},
+		SchemaVersion: 1,
+		OperationID:   operationID,
+		RequestSHA256: requestDigest,
+		State:         StatePrepared,
+		ProjectID:     request.ProjectID,
+		RepositoryProof: RepositoryProof{
+			Root:            request.Root,
+			Remote:          request.Remote,
+			RepositoryURL:   request.RepositoryURL,
+			DefaultBranch:   request.DefaultBranch,
+			Branch:          status.Branch,
+			Head:            status.Head,
+			GatewayStateDir: request.GatewayStateDir,
+		},
+		WorktreeProof: WorktreeProof{
+			Clean:        status.Clean,
+			StatusSHA256: statusHash,
+		},
+		SessionProof: session,
+		RegistryDigests: RegistryDigests{
+			ManagedBeforeSHA256: managedBefore,
+			ManagedAfterSHA256:  managedAfter,
+			ProjectSHA256:       digests.project,
+			PlanSHA256:          digests.plan,
+			IdentifiersSHA256:   digests.identifiers,
+		},
+		Hub: HubProof{
+			Before: request.ExpectedHubRevision,
+			Paths:  canonicalOnboardingPaths(request.ProjectID),
+		},
+		Timestamps: Timestamps{
+			StartedAt:  started,
+			PreparedAt: stringPtr(prepared),
+			UpdatedAt:  prepared,
+		},
+		Recovery: Recovery{
+			Status: RecoveryNotRequired,
+		},
 	}
 	if _, err := WritePreparedJournal(o.StateDir, request, candidate); err != nil {
 		return Receipt{}, err
@@ -283,7 +353,26 @@ func publicStatusProjection(receipt Receipt, request Request) (StatusProjection,
 		step = string(*receipt.Recovery.LastDurableStep)
 	}
 	hubReady, registryReady, mirrorReady, projectReady, sessionReady := readinessForReceipt(receipt)
-	return StatusProjection{OperationID: receipt.OperationID, ProjectID: receipt.ProjectID, State: receipt.State, RequestSHA256: receipt.RequestSHA256, ReceiptSHA256: digest, StartedAt: receipt.Timestamps.StartedAt, UpdatedAt: receipt.Timestamps.UpdatedAt, RecoveryStatus: string(receipt.Recovery.Status), RecoveryStep: step, HubBefore: receipt.Hub.Before, HubAfter: after, HubCommitted: hubReady, RegistryBefore: receipt.RegistryDigests.ManagedBeforeSHA256, RegistryAfter: receipt.RegistryDigests.ManagedAfterSHA256, RegistryReady: registryReady, MirrorReady: mirrorReady, ProjectReady: projectReady, SessionReady: sessionReady}, nil
+	return StatusProjection{
+		OperationID:    receipt.OperationID,
+		ProjectID:      receipt.ProjectID,
+		State:          receipt.State,
+		RequestSHA256:  receipt.RequestSHA256,
+		ReceiptSHA256:  digest,
+		StartedAt:      receipt.Timestamps.StartedAt,
+		UpdatedAt:      receipt.Timestamps.UpdatedAt,
+		RecoveryStatus: string(receipt.Recovery.Status),
+		RecoveryStep:   step,
+		HubBefore:      receipt.Hub.Before,
+		HubAfter:       after,
+		HubCommitted:   hubReady,
+		RegistryBefore: receipt.RegistryDigests.ManagedBeforeSHA256,
+		RegistryAfter:  receipt.RegistryDigests.ManagedAfterSHA256,
+		RegistryReady:  registryReady,
+		MirrorReady:    mirrorReady,
+		ProjectReady:   projectReady,
+		SessionReady:   sessionReady,
+	}, nil
 }
 
 func readinessForReceipt(receipt Receipt) (bool, bool, bool, bool, bool) {
@@ -328,11 +417,30 @@ func receiptDigestForState(receipt Receipt, request Request) (string, error) {
 }
 
 func publicCoordinatorResult(result Result) PublicResult {
-	return PublicResult{OperationID: result.OperationID, ProjectID: result.ProjectID, State: result.State, RequestSHA256: result.RequestSHA256, ReceiptSHA256: result.ReceiptSHA256, HubTransaction: result.HubTransaction, JournalRepairOnly: result.JournalRepairOnly, RecoveryStatus: string(RecoveryNotRequired)}
+	return PublicResult{
+		OperationID:       result.OperationID,
+		ProjectID:         result.ProjectID,
+		State:             result.State,
+		RequestSHA256:     result.RequestSHA256,
+		ReceiptSHA256:     result.ReceiptSHA256,
+		HubTransaction:    result.HubTransaction,
+		JournalRepairOnly: result.JournalRepairOnly,
+		RecoveryStatus:    string(RecoveryNotRequired),
+	}
 }
 
 func publicActivationResult(result ActivationResult) PublicResult {
-	return PublicResult{OperationID: result.OperationID, ProjectID: result.ProjectID, State: result.State, ReceiptSHA256: result.ReceiptSHA256, RegistryBefore: result.RegistryBefore, RegistryAfter: result.RegistryAfter, MirrorReady: result.Mirror.Head != "", RecoveryStatus: string(RecoveryNotRequired), JournalRepairOnly: result.JournalRepairOnly}
+	return PublicResult{
+		OperationID:       result.OperationID,
+		ProjectID:         result.ProjectID,
+		State:             result.State,
+		ReceiptSHA256:     result.ReceiptSHA256,
+		RegistryBefore:    result.RegistryBefore,
+		RegistryAfter:     result.RegistryAfter,
+		MirrorReady:       result.Mirror.Head != "",
+		RecoveryStatus:    string(RecoveryNotRequired),
+		JournalRepairOnly: result.JournalRepairOnly,
+	}
 }
 
 func (o *PublicOrchestrator) publicResultFromJournal(result PublicResult, request Request, operationID string) (PublicResult, error) {

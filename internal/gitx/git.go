@@ -198,7 +198,12 @@ func (r Runner) ReconcileManagedMirror(ctx context.Context, p config.ProjectConf
 			return MirrorVerification{}, fmt.Errorf("install managed mirror atomically: %w", err)
 		}
 	}
-	return MirrorVerification{Path: filepath.Clean(p.Mirror), RepositoryURL: actualURL, Head: head, Created: created}, nil
+	return MirrorVerification{
+		Path:          filepath.Clean(p.Mirror),
+		RepositoryURL: actualURL,
+		Head:          head,
+		Created:       created,
+	}, nil
 }
 
 // RemoteURL and RemoteDefaultBranch are bounded metadata reads used by
@@ -253,7 +258,13 @@ func (r Runner) Refs(ctx context.Context, p config.ProjectConfig) ([]Ref, error)
 		if name == "" {
 			continue
 		}
-		refs = append(refs, Ref{Name: name, ObjectType: string(parts[i+1]), ObjectName: string(parts[i+2]), Subject: string(parts[i+3]), CommitterDate: strings.TrimSpace(string(parts[i+4]))})
+		refs = append(refs, Ref{
+			Name:          name,
+			ObjectType:    string(parts[i+1]),
+			ObjectName:    string(parts[i+2]),
+			Subject:       string(parts[i+3]),
+			CommitterDate: strings.TrimSpace(string(parts[i+4])),
+		})
 	}
 	return refs, nil
 }
@@ -280,7 +291,14 @@ func (r Runner) Log(ctx context.Context, p config.ProjectConfig, rev string, lim
 			continue
 		}
 		parents := strings.Fields(string(parts[i+1]))
-		items = append(items, Commit{SHA: sha, Parents: parents, AuthorName: string(parts[i+2]), AuthorEmail: string(parts[i+3]), AuthorDate: string(parts[i+4]), Subject: string(parts[i+5])})
+		items = append(items, Commit{
+			SHA:         sha,
+			Parents:     parents,
+			AuthorName:  string(parts[i+2]),
+			AuthorEmail: string(parts[i+3]),
+			AuthorDate:  string(parts[i+4]),
+			Subject:     string(parts[i+5]),
+		})
 	}
 	return items, nil
 }
@@ -320,7 +338,14 @@ func (r Runner) LocalLog(ctx context.Context, root, from, to string, limit int) 
 		if sha == "" {
 			continue
 		}
-		items = append(items, Commit{SHA: sha, Parents: strings.Fields(string(parts[i+1])), AuthorName: string(parts[i+2]), AuthorEmail: string(parts[i+3]), AuthorDate: string(parts[i+4]), Subject: string(parts[i+5])})
+		items = append(items, Commit{
+			SHA:         sha,
+			Parents:     strings.Fields(string(parts[i+1])),
+			AuthorName:  string(parts[i+2]),
+			AuthorEmail: string(parts[i+3]),
+			AuthorDate:  string(parts[i+4]),
+			Subject:     string(parts[i+5]),
+		})
 	}
 	return items, nil
 }
@@ -463,7 +488,11 @@ func (r Runner) Compare(ctx context.Context, p config.ProjectConfig, left, right
 	}
 	l, _ := strconv.Atoi(fields[0])
 	rr, _ := strconv.Atoi(fields[1])
-	return Compare{MergeBase: base, LeftOnly: l, RightOnly: rr}, nil
+	return Compare{
+		MergeBase: base,
+		LeftOnly:  l,
+		RightOnly: rr,
+	}, nil
 }
 
 // ResolveMirrorRef resolves exactly one commit-ish in a managed mirror.
@@ -587,7 +616,14 @@ func (r Runner) MirrorLog(ctx context.Context, p config.ProjectConfig, from, to 
 		if sha == "" {
 			continue
 		}
-		items = append(items, Commit{SHA: sha, Parents: strings.Fields(string(parts[i+1])), AuthorName: string(parts[i+2]), AuthorEmail: string(parts[i+3]), AuthorDate: string(parts[i+4]), Subject: string(parts[i+5])})
+		items = append(items, Commit{
+			SHA:         sha,
+			Parents:     strings.Fields(string(parts[i+1])),
+			AuthorName:  string(parts[i+2]),
+			AuthorEmail: string(parts[i+3]),
+			AuthorDate:  string(parts[i+4]),
+			Subject:     string(parts[i+5]),
+		})
 	}
 	if len(items) != count {
 		return nil, fmt.Errorf("commit range output is incomplete")
@@ -708,7 +744,11 @@ func (r Runner) MirrorCompare(ctx context.Context, p config.ProjectConfig, left,
 	if err != nil {
 		return Compare{}, err
 	}
-	return Compare{MergeBase: strings.TrimSpace(string(baseOut)), LeftOnly: l, RightOnly: rr}, nil
+	return Compare{
+		MergeBase: strings.TrimSpace(string(baseOut)),
+		LeftOnly:  l,
+		RightOnly: rr,
+	}, nil
 }
 
 func (r Runner) MirrorDiffStat(ctx context.Context, p config.ProjectConfig, from, to string) (string, error) {
@@ -736,7 +776,10 @@ func (r Runner) WorktreeStatus(ctx context.Context, p config.ProjectConfig) (Wor
 	if err != nil {
 		return WorktreeStatus{}, err
 	}
-	s := WorktreeStatus{Porcelain: text, Clean: true}
+	s := WorktreeStatus{
+		Porcelain: text,
+		Clean:     true,
+	}
 	for _, line := range strings.Split(text, "\n") {
 		switch {
 		case strings.HasPrefix(line, "# branch.head "):

@@ -43,7 +43,10 @@ func firstFatalLine(log string) string {
 }
 
 func (c Controller) DiagnoseStartup(ctx context.Context) StartupDiagnosis {
-	result := StartupDiagnosis{Phase: "CONFIG_LOAD", ConfigValidated: true}
+	result := StartupDiagnosis{
+		Phase:           "CONFIG_LOAD",
+		ConfigValidated: true,
+	}
 	status, err := c.Status(ctx)
 	result.Status = status
 	result.ListenerReady = status.GatewayReady

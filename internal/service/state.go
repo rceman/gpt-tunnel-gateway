@@ -69,11 +69,25 @@ type StateRepairResult struct {
 const historyOnlyTaskRepairReason = "close mutable dispatched state after linked run became immutable workflow-v1 history during protocol cutover"
 
 func stateIssue(code, project, task, run, path, detail string) StateIssue {
-	return StateIssue{Code: code, ProjectID: project, TaskID: task, RunID: run, Path: path, Detail: detail}
+	return StateIssue{
+		Code:      code,
+		ProjectID: project,
+		TaskID:    task,
+		RunID:     run,
+		Path:      path,
+		Detail:    detail,
+	}
 }
 
 func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
-	result := StateCheckResult{ConfiguredProjectIDs: []string{}, DurableProjectIDs: []string{}, ValidCurrentPlans: []string{}, Plans: []StatePlan{}, Issues: []StateIssue{}, OperationalTaskRunGraph: true}
+	result := StateCheckResult{
+		ConfiguredProjectIDs:    []string{},
+		DurableProjectIDs:       []string{},
+		ValidCurrentPlans:       []string{},
+		Plans:                   []StatePlan{},
+		Issues:                  []StateIssue{},
+		OperationalTaskRunGraph: true,
+	}
 	configuredIDs, resolution, err := s.effectiveProjectIDs()
 	if err != nil {
 		result.Issues = append(result.Issues, stateIssue("CONFIGURED_PROJECTS_INVALID", "", "", "", "", err.Error()))
@@ -136,11 +150,19 @@ func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
 				}
 			}
 			result.Issues = append(result.Issues, stateIssue("CURRENT_PLAN_INVALID", id, "", "", s.planPath(id), planErr.Error()))
-			result.Plans = append(result.Plans, StatePlan{ProjectID: id, Valid: false})
+			result.Plans = append(result.Plans, StatePlan{
+				ProjectID: id,
+				Valid:     false,
+			})
 			continue
 		}
 		result.ValidCurrentPlans = append(result.ValidCurrentPlans, id)
-		result.Plans = append(result.Plans, StatePlan{ProjectID: id, Valid: true, ActiveTaskID: plan.ActiveTaskID, ActiveRunID: plan.ActiveRunID})
+		result.Plans = append(result.Plans, StatePlan{
+			ProjectID:    id,
+			Valid:        true,
+			ActiveTaskID: plan.ActiveTaskID,
+			ActiveRunID:  plan.ActiveRunID,
+		})
 	}
 	graphSnapshot, snapshotErr := s.Hub.ReadSnapshot(ctx)
 	if snapshotErr != nil {
@@ -185,7 +207,10 @@ func (s *Service) readTaskRunGraph(ctx context.Context, snapshot *hub.ReadSnapsh
 		if err != nil {
 			return taskRunGraphSnapshot{}, err
 		}
-		items = append(items, TaskRecord{Task: task, State: state})
+		items = append(items, TaskRecord{
+			Task:  task,
+			State: state,
+		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Task.CreatedAt.After(items[j].Task.CreatedAt) })
 
@@ -211,7 +236,10 @@ func (s *Service) readTaskRunGraph(ctx context.Context, snapshot *hub.ReadSnapsh
 		}
 		return runs[i].CreatedAt.After(runs[j].CreatedAt)
 	})
-	return taskRunGraphSnapshot{tasks: items, runs: runs}, nil
+	return taskRunGraphSnapshot{
+		tasks: items,
+		runs:  runs,
+	}, nil
 }
 
 func (s *Service) readTaskStateFromSnapshot(ctx context.Context, snapshot *hub.ReadSnapshot, task model.Task) (model.TaskState, error) {
@@ -306,7 +334,12 @@ func (s *Service) StateRepair(ctx context.Context, apply bool) (StateRepairResul
 	if err != nil {
 		return StateRepairResult{}, err
 	}
-	result := StateRepairResult{DryRun: !apply, OldHubSHA: check.HubRevision, Check: check, Actions: []StateRepairAction{}}
+	result := StateRepairResult{
+		DryRun:    !apply,
+		OldHubSHA: check.HubRevision,
+		Check:     check,
+		Actions:   []StateRepairAction{},
+	}
 	graphSnapshot, snapshotErr := s.Hub.ReadSnapshot(ctx)
 	if snapshotErr != nil {
 		return result, snapshotErr

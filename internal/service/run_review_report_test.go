@@ -119,12 +119,22 @@ func finalizeAcceptedDeliveryReview(t *testing.T, s *Service, task model.Task, r
 		{"next_action", `"reviewed_merge_ready"`},
 	}
 	for _, section := range sections {
-		draft, err = s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{TaskID: task.ID, RunID: run.ID, SectionID: section.id, ExpectedDraftRevision: draft.DraftRevision, Payload: []byte(section.payload)})
+		draft, err = s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{
+			TaskID:                task.ID,
+			RunID:                 run.ID,
+			SectionID:             section.id,
+			ExpectedDraftRevision: draft.DraftRevision,
+			Payload:               []byte(section.payload),
+		})
 		if err != nil {
 			t.Fatalf("update %s: %v", section.id, err)
 		}
 	}
-	report, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{TaskID: task.ID, RunID: run.ID, ExpectedDraftRevision: draft.DraftRevision})
+	report, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{
+		TaskID:                task.ID,
+		RunID:                 run.ID,
+		ExpectedDraftRevision: draft.DraftRevision,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,10 +151,22 @@ func TestRunReviewReportDraftFinalizeAndTaskFirstRead(t *testing.T) {
 	if draft.ID != model.NewRunReviewReportID(run.ID) || draft.DraftRevision != 1 {
 		t.Fatalf("unexpected draft identity/revision: %#v", draft)
 	}
-	if _, err := s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{TaskID: task.ID, RunID: run.ID, SectionID: "gates", ExpectedDraftRevision: 1, Payload: []byte(`[]`)}); err == nil {
+	if _, err := s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{
+		TaskID:                task.ID,
+		RunID:                 run.ID,
+		SectionID:             "gates",
+		ExpectedDraftRevision: 1,
+		Payload:               []byte(`[]`),
+	}); err == nil {
 		t.Fatal("machine section override accepted")
 	}
-	if _, err := s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{TaskID: task.ID, RunID: run.ID, SectionID: "outcome", ExpectedDraftRevision: 99, Payload: []byte(`"accepted_reviewed_merge_ready"`)}); err == nil {
+	if _, err := s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{
+		TaskID:                task.ID,
+		RunID:                 run.ID,
+		SectionID:             "outcome",
+		ExpectedDraftRevision: 99,
+		Payload:               []byte(`"accepted_reviewed_merge_ready"`),
+	}); err == nil {
 		t.Fatal("stale draft revision accepted")
 	}
 	sections := []struct {
@@ -161,7 +183,13 @@ func TestRunReviewReportDraftFinalizeAndTaskFirstRead(t *testing.T) {
 	}
 	revision := 1
 	for _, section := range sections {
-		draft, err = s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{TaskID: task.ID, RunID: run.ID, SectionID: section.id, ExpectedDraftRevision: revision, Payload: []byte(section.payload)})
+		draft, err = s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{
+			TaskID:                task.ID,
+			RunID:                 run.ID,
+			SectionID:             section.id,
+			ExpectedDraftRevision: revision,
+			Payload:               []byte(section.payload),
+		})
 		if err != nil {
 			t.Fatalf("update %s: %v", section.id, err)
 		}
@@ -175,7 +203,14 @@ func TestRunReviewReportDraftFinalizeAndTaskFirstRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, operation, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{TaskID: task.ID, RunID: run.ID, ExpectedDraftRevision: revision, WriteOptions: WriteOptions{ExpectedHubRevision: oldHub}})
+	report, operation, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{
+		TaskID:                task.ID,
+		RunID:                 run.ID,
+		ExpectedDraftRevision: revision,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: oldHub,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +220,11 @@ func TestRunReviewReportDraftFinalizeAndTaskFirstRead(t *testing.T) {
 	if _, err := s.TaskReviewReportStart(ctx, task.ID, run.ID); err == nil {
 		t.Fatal("second report start accepted after immutable publication")
 	}
-	if _, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{TaskID: task.ID, RunID: run.ID, ExpectedDraftRevision: revision}); err == nil {
+	if _, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{
+		TaskID:                task.ID,
+		RunID:                 run.ID,
+		ExpectedDraftRevision: revision,
+	}); err == nil {
 		t.Fatal("second report finalize unexpectedly succeeded")
 	}
 	read, err := s.TaskReportRead(ctx, task.ID, "")
@@ -242,7 +281,12 @@ func TestTaskReportReadAndMergeReadyNeverSubstituteOlderAcceptedRun(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.TaskMarkMergeReady(ctx, TaskMarkMergeReadyInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: revision}}); err == nil || !strings.Contains(err.Error(), newer.ID) {
+	if _, err := s.TaskMarkMergeReady(ctx, TaskMarkMergeReadyInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	}); err == nil || !strings.Contains(err.Error(), newer.ID) {
 		t.Fatalf("merge-ready admitted older accepted report: %v", err)
 	}
 	if got, err := s.Hub.RemoteRevision(ctx); err != nil || got != revision {
@@ -281,7 +325,11 @@ func TestRunReviewReportFinalizationDetectsChangedMachineAuthority(t *testing.T)
 			}); err != nil {
 				t.Fatal(err)
 			}
-			if _, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{TaskID: task.ID, RunID: run.ID, ExpectedDraftRevision: draft.DraftRevision}); err == nil {
+			if _, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{
+				TaskID:                task.ID,
+				RunID:                 run.ID,
+				ExpectedDraftRevision: draft.DraftRevision,
+			}); err == nil {
 				t.Fatal("changed Agent machine authority was published")
 			}
 			if _, err := s.Hub.ReadFile(ctx, s.reviewReportPath(task.ProjectID, run.ID)); err == nil {

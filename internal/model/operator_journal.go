@@ -145,7 +145,15 @@ func (v *OperatorJournalContent) UnmarshalJSON(data []byte) error {
 			return err
 		}
 	}
-	*v = OperatorJournalContent{Decisions: values[0], Commitments: values[1], Facts: values[2], Assumptions: values[3], Blockers: values[4], Unresolved: values[5], NextActions: values[6]}
+	*v = OperatorJournalContent{
+		Decisions:   values[0],
+		Commitments: values[1],
+		Facts:       values[2],
+		Assumptions: values[3],
+		Blockers:    values[4],
+		Unresolved:  values[5],
+		NextActions: values[6],
+	}
 	return nil
 }
 
@@ -170,7 +178,14 @@ func (v *OperatorJournalReferences) UnmarshalJSON(data []byte) error {
 			return err
 		}
 	}
-	*v = OperatorJournalReferences{PlanSections: values[0], ADRs: values[1], Tasks: values[2], Runs: values[3], Commits: values[4], Identities: values[5]}
+	*v = OperatorJournalReferences{
+		PlanSections: values[0],
+		ADRs:         values[1],
+		Tasks:        values[2],
+		Runs:         values[3],
+		Commits:      values[4],
+		Identities:   values[5],
+	}
 	return nil
 }
 
@@ -199,7 +214,11 @@ func (v *OperatorJournalCounter) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("next_event_number: %w", err)
 	}
-	*v = OperatorJournalCounter{SchemaVersion: int(schemaVersion), ProjectID: projectID, NextEventNumber: next}
+	*v = OperatorJournalCounter{
+		SchemaVersion:   int(schemaVersion),
+		ProjectID:       projectID,
+		NextEventNumber: next,
+	}
 	return nil
 }
 
@@ -258,7 +277,20 @@ func (v *OperatorJournalEvent) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	*v = OperatorJournalEvent{SchemaVersion: int(schemaVersion), ID: id, ProjectID: projectID, SessionID: sessionID, Kind: OperatorJournalKind(kindText), Summary: summary, Content: content, References: references, SupersedesEventID: supersedes, Actor: actor, OccurredAt: occurred, RecordedAt: recorded}
+	*v = OperatorJournalEvent{
+		SchemaVersion:     int(schemaVersion),
+		ID:                id,
+		ProjectID:         projectID,
+		SessionID:         sessionID,
+		Kind:              OperatorJournalKind(kindText),
+		Summary:           summary,
+		Content:           content,
+		References:        references,
+		SupersedesEventID: supersedes,
+		Actor:             actor,
+		OccurredAt:        occurred,
+		RecordedAt:        recorded,
+	}
 	return nil
 }
 

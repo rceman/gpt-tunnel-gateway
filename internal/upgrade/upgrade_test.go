@@ -149,7 +149,11 @@ func TestRunnerPersistsTargetDiagnosticsBeforeRollback(t *testing.T) {
 		*version = target
 		return smoke(ctx, c, target, previous)
 	}
-	result, err := (Runner{Config: c, ConfigPath: configPath, Target: "0.2.3"}).Run(context.Background())
+	result, err := (Runner{
+		Config:     c,
+		ConfigPath: configPath,
+		Target:     "0.2.3",
+	}).Run(context.Background())
 	if err == nil || result.Status != "UPGRADE_ROLLED_BACK" {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
@@ -194,7 +198,11 @@ func TestRunnerRollsBackWhenTargetDiagnosticPersistenceFails(t *testing.T) {
 		*version = target
 		return smoke(ctx, c, target, previous)
 	}
-	result, err := (Runner{Config: c, ConfigPath: configPath, Target: "0.2.3"}).Run(context.Background())
+	result, err := (Runner{
+		Config:     c,
+		ConfigPath: configPath,
+		Target:     "0.2.3",
+	}).Run(context.Background())
 	if err == nil || result.Status != "UPGRADE_ROLLED_BACK" || fake.stopCalls != 1 {
 		t.Fatalf("write failure did not preserve rollback: result=%#v err=%v controller=%#v", result, err, fake)
 	}
@@ -334,7 +342,11 @@ func TestRunnerRunSuccessProofClosure(t *testing.T) {
 		*version = target
 		return smoke(ctx, c, target, previous)
 	}
-	r := Runner{Config: c, ConfigPath: configPath, Target: "0.2.3"}
+	r := Runner{
+		Config:     c,
+		ConfigPath: configPath,
+		Target:     "0.2.3",
+	}
 	result, err := r.Run(context.Background())
 	if err != nil || result.Status != "UPGRADE_COMPLETE" || result.GatewayPID != 11 || result.TunnelPID != 20 {
 		t.Fatalf("success result=%#v err=%v", result, err)
@@ -396,7 +408,11 @@ func TestRunnerRunSuccessfulRollbackProofClosure(t *testing.T) {
 		*version = target
 		return smoke(ctx, c, target, previous)
 	}
-	r := Runner{Config: c, ConfigPath: configPath, Target: "0.2.3"}
+	r := Runner{
+		Config:     c,
+		ConfigPath: configPath,
+		Target:     "0.2.3",
+	}
 	result, err := r.Run(context.Background())
 	if err == nil || result.Status != "UPGRADE_ROLLED_BACK" || result.GatewayPID != 12 || result.TunnelPID != 20 {
 		t.Fatalf("rollback result=%#v err=%v", result, err)
@@ -440,7 +456,11 @@ func TestRunnerRunRollbackCleanupFailureRetainsBackup(t *testing.T) {
 	originalRemove := removeUpgradeBackup
 	removeUpgradeBackup = func(string) error { return os.ErrPermission }
 	defer func() { removeUpgradeBackup = originalRemove }()
-	r := Runner{Config: c, ConfigPath: configPath, Target: "0.2.3"}
+	r := Runner{
+		Config:     c,
+		ConfigPath: configPath,
+		Target:     "0.2.3",
+	}
 	result, err := r.Run(context.Background())
 	if err == nil || result.Status != "UPGRADE_ROLLBACK_FAILED" {
 		t.Fatalf("cleanup failure result=%#v err=%v", result, err)

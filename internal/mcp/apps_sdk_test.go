@@ -265,7 +265,12 @@ func TestToolAnnotationsMatchActualSideEffects(t *testing.T) {
 			t.Fatalf("%s exposes caller-controlled authorization_context", name)
 		}
 	}
-	assert("run_review_snapshot", ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true})
+	assert("run_review_snapshot", ToolAnnotations{
+		ReadOnlyHint:    true,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   true,
+	})
 	assert("adr_create", additiveExternalAnnotations())
 	assert("task_create", additiveExternalAnnotations())
 	assert("plan_cutover", destructiveExternalAnnotations())
@@ -277,7 +282,12 @@ func TestToolAnnotationsMatchActualSideEffects(t *testing.T) {
 	assert("task_dispatch", destructiveExternalAnnotations())
 	assert("run_cancel", destructiveExternalAnnotations())
 	assert("run_cancel_acknowledge_no_mutation", destructiveExternalAnnotations())
-	assert("git_refresh", ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true})
+	assert("git_refresh", ToolAnnotations{
+		ReadOnlyHint:    false,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   true,
+	})
 	supersedeTask := tools["task_supersede"].InputSchema["properties"].(map[string]any)["task"].(map[string]any)
 	if supersedeTask["additionalProperties"] != false {
 		t.Fatal("task_supersede task input is not closed")

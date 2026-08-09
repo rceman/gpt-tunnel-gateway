@@ -187,7 +187,14 @@ func handoffJournalInput(handoff model.DeliveryHandoff, reportID string, extraId
 	if reportID != "" {
 		identities = append(identities, reportID)
 	}
-	return OperatorRecordInput{ProjectID: handoff.ProjectID, Kind: model.OperatorOperation, Summary: summary, Content: model.OperatorJournalContent{Facts: []string{summary}}, References: model.OperatorJournalReferences{PlanSections: append([]string(nil), handoff.PlanSectionRefs...), Tasks: []string{handoff.TaskID}, Runs: []string{handoff.RunID}, Identities: identities}, Actor: actor}
+	return OperatorRecordInput{
+		ProjectID:  handoff.ProjectID,
+		Kind:       model.OperatorOperation,
+		Summary:    summary,
+		Content:    model.OperatorJournalContent{Facts: []string{summary}},
+		References: model.OperatorJournalReferences{PlanSections: append([]string(nil), handoff.PlanSectionRefs...), Tasks: []string{handoff.TaskID}, Runs: []string{handoff.RunID}, Identities: identities},
+		Actor:      actor,
+	}
 }
 
 func (s *Service) validateHandoffReferences(ctx context.Context, projectID, taskID, runID, taskSHA string) (model.Task, model.Run, error) {
@@ -401,7 +408,11 @@ func (s *Service) DeliveryHandoffCreate(ctx context.Context, in DeliveryHandoffC
 	if err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
 	}
-	return handoff, OperationResult{Hub: tx, ProjectID: handoff.ProjectID, Status: handoff.Status}, nil
+	return handoff, OperationResult{
+		Hub:       tx,
+		ProjectID: handoff.ProjectID,
+		Status:    handoff.Status,
+	}, nil
 }
 
 func (s *Service) deliveryHandoffReadInProject(ctx context.Context, projectID, id string) (model.DeliveryHandoff, error) {
@@ -563,7 +574,11 @@ func (s *Service) DeliveryHandoffAcknowledge(ctx context.Context, in DeliveryHan
 	if err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
 	}
-	return next, OperationResult{Hub: tx, ProjectID: next.ProjectID, Status: next.Status}, nil
+	return next, OperationResult{
+		Hub:       tx,
+		ProjectID: next.ProjectID,
+		Status:    next.Status,
+	}, nil
 }
 
 // DeliveryHandoffNext claims the exact acknowledged handoff for Delivery and
@@ -612,7 +627,11 @@ func (s *Service) DeliveryHandoffNext(ctx context.Context, in DeliveryHandoffNex
 	if err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
 	}
-	return next, OperationResult{Hub: tx, ProjectID: next.ProjectID, Status: next.Status}, nil
+	return next, OperationResult{
+		Hub:       tx,
+		ProjectID: next.ProjectID,
+		Status:    next.Status,
+	}, nil
 }
 
 func (s *Service) DeliveryHandoffCancel(ctx context.Context, in DeliveryHandoffCancelInput) (model.DeliveryHandoff, OperationResult, error) {
@@ -660,7 +679,11 @@ func (s *Service) DeliveryHandoffCancel(ctx context.Context, in DeliveryHandoffC
 	if err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
 	}
-	return next, OperationResult{Hub: tx, ProjectID: next.ProjectID, Status: next.Status}, nil
+	return next, OperationResult{
+		Hub:       tx,
+		ProjectID: next.ProjectID,
+		Status:    next.Status,
+	}, nil
 }
 
 func (s *Service) DeliveryHandoffSupersede(ctx context.Context, in DeliveryHandoffSupersedeInput) (model.DeliveryHandoff, OperationResult, error) {
@@ -738,7 +761,11 @@ func (s *Service) DeliveryHandoffSupersede(ctx context.Context, in DeliveryHando
 	if err != nil {
 		return model.DeliveryHandoff{}, OperationResult{}, err
 	}
-	return next, OperationResult{Hub: tx, ProjectID: next.ProjectID, Status: next.Status}, nil
+	return next, OperationResult{
+		Hub:       tx,
+		ProjectID: next.ProjectID,
+		Status:    next.Status,
+	}, nil
 }
 
 func evidenceString(evidence map[string]json.RawMessage, key string) (string, error) {
@@ -1001,7 +1028,11 @@ func (s *Service) PlannerReportPublish(ctx context.Context, in PlannerReportPubl
 	if err != nil {
 		return model.PlannerReport{}, OperationResult{}, err
 	}
-	return report, OperationResult{Hub: tx, ProjectID: report.ProjectID, Status: nextHandoff.Status}, nil
+	return report, OperationResult{
+		Hub:       tx,
+		ProjectID: report.ProjectID,
+		Status:    nextHandoff.Status,
+	}, nil
 }
 
 func (s *Service) PlannerReportRead(ctx context.Context, id string) (model.PlannerReport, error) {
@@ -1133,7 +1164,11 @@ func (s *Service) PlannerReportAcknowledge(ctx context.Context, in PlannerReport
 	if err != nil {
 		return model.PlannerReportState{}, OperationResult{}, err
 	}
-	return next, OperationResult{Hub: tx, ProjectID: report.ProjectID, Status: next.Status}, nil
+	return next, OperationResult{
+		Hub:       tx,
+		ProjectID: report.ProjectID,
+		Status:    next.Status,
+	}, nil
 }
 
 func (s *Service) PlannerReportNext(ctx context.Context, in PlannerReportNextInput) (model.PlannerReportState, OperationResult, error) {
@@ -1236,7 +1271,11 @@ func (s *Service) PlannerReportNext(ctx context.Context, in PlannerReportNextInp
 	if err != nil {
 		return model.PlannerReportState{}, OperationResult{}, err
 	}
-	return next, OperationResult{Hub: tx, ProjectID: report.ProjectID, Status: next.Status}, nil
+	return next, OperationResult{
+		Hub:       tx,
+		ProjectID: report.ProjectID,
+		Status:    next.Status,
+	}, nil
 }
 
 func plannerReportStatusProjection(item model.PlannerReport, state model.PlannerReportState) model.PlannerReportStatus {

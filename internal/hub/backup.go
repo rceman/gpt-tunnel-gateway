@@ -45,5 +45,9 @@ func (s Store) Backup(ctx context.Context, prefix string) (BackupResult, error) 
 	if err := os.Chmod(path, 0o600); err != nil {
 		return BackupResult{}, err
 	}
-	return BackupResult{Path: path, SHA256: hex.EncodeToString(sum[:]), Ref: s.remoteRef()}, nil
+	return BackupResult{
+		Path:   path,
+		SHA256: hex.EncodeToString(sum[:]),
+		Ref:    s.remoteRef(),
+	}, nil
 }

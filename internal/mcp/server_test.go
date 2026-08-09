@@ -93,7 +93,10 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 	if len(afterState) != len(beforeState) {
 		t.Fatalf("unauthorized MCP call changed local state: before=%v after=%v", beforeState, afterState)
 	}
-	with := callMCP(t, &Server{Service: svc, AuthorityContext: authority.WithDelivery(context.Background())}, body)
+	with := callMCP(t, &Server{
+		Service:          svc,
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}, body)
 	withResult := with["result"].(map[string]any)
 	withText := withResult["content"].([]any)[0].(map[string]any)["text"].(string)
 	if strings.Contains(withText, "AUTHORITY_UNAVAILABLE") {

@@ -10,13 +10,35 @@ import (
 )
 
 func TestTaskHashAndCompletionValidation(t *testing.T) {
-	task := Task{SchemaVersion: 1, ID: "t", ProjectID: "p", Title: "Title", Objective: "Objective", Branch: "feature/x", BaseRevision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", AcceptanceCriteria: []string{"done"}, Status: "created", CreatedBy: "gpt", CreatedAt: time.Now().UTC()}
+	task := Task{
+		SchemaVersion:      1,
+		ID:                 "t",
+		ProjectID:          "p",
+		Title:              "Title",
+		Objective:          "Objective",
+		Branch:             "feature/x",
+		BaseRevision:       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		AcceptanceCriteria: []string{"done"},
+		Status:             "created",
+		CreatedBy:          "gpt",
+		CreatedAt:          time.Now().UTC(),
+	}
 	h, err := HashTask(task)
 	if err != nil {
 		t.Fatal(err)
 	}
 	task.SHA256 = h
-	res := Completion{SchemaVersion: 1, RunID: "GTW-TSK1-RUN1", TaskSHA256: h, Status: "succeeded", Summary: "ok", GateResults: []CompletionGateResult{}, AcceptanceCoverage: []string{"AC1"}, Deviations: []string{}, RemainingRisks: []string{}}
+	res := Completion{
+		SchemaVersion:      1,
+		RunID:              "GTW-TSK1-RUN1",
+		TaskSHA256:         h,
+		Status:             "succeeded",
+		Summary:            "ok",
+		GateResults:        []CompletionGateResult{},
+		AcceptanceCoverage: []string{"AC1"},
+		Deviations:         []string{},
+		RemainingRisks:     []string{},
+	}
 	if err := ValidateCompletion(res, task); err != nil {
 		t.Fatal(err)
 	}
@@ -125,11 +147,21 @@ func TestValidateTaskHashRejectsMixedLegacyWorkflowProjection(t *testing.T) {
 
 func TestWorkflowPolicyActivationIsExplicitlyNonHostedCI(t *testing.T) {
 	policy := ProjectWorkflowPolicy{
-		SchemaVersion: SchemaVersion, ProjectID: "gpt-tunnel-gateway", Revision: 1,
-		WorkflowStage: WorkflowStageTransitionalMain, IntegrationBranch: "main",
-		Agent:     WorkflowPolicyAgent{WaitForCI: true},
-		CI:        WorkflowPolicyCI{Task: WorkflowCIModeDisabled, TaskMerge: WorkflowCIModeRequire, Release: WorkflowCIModeRequire},
-		UpdatedBy: "test", UpdatedAt: time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC),
+		SchemaVersion:     SchemaVersion,
+		ProjectID:         "gpt-tunnel-gateway",
+		Revision:          1,
+		WorkflowStage:     WorkflowStageTransitionalMain,
+		IntegrationBranch: "main",
+		Agent: WorkflowPolicyAgent{
+			WaitForCI: true,
+		},
+		CI: WorkflowPolicyCI{
+			Task:      WorkflowCIModeDisabled,
+			TaskMerge: WorkflowCIModeRequire,
+			Release:   WorkflowCIModeRequire,
+		},
+		UpdatedBy: "test",
+		UpdatedAt: time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC),
 	}
 	effective, err := WorkflowPolicyForOperation(policy, "activation")
 	if err != nil {
@@ -146,7 +178,20 @@ func TestRelativePathRejectsEscape(t *testing.T) {
 }
 
 func TestCompletionRejectsDuplicateUnknownAndTrailingJSON(t *testing.T) {
-	task := Task{SchemaVersion: 1, ID: "t", ProjectID: "p", Title: "Title", Objective: "Objective", Branch: "feature/x", BaseRevision: strings.Repeat("a", 40), AcceptanceCriteria: []string{"done"}, RequiredGates: []string{"gate"}, Status: "created", CreatedBy: "gpt", CreatedAt: time.Now().UTC()}
+	task := Task{
+		SchemaVersion:      1,
+		ID:                 "t",
+		ProjectID:          "p",
+		Title:              "Title",
+		Objective:          "Objective",
+		Branch:             "feature/x",
+		BaseRevision:       strings.Repeat("a", 40),
+		AcceptanceCriteria: []string{"done"},
+		RequiredGates:      []string{"gate"},
+		Status:             "created",
+		CreatedBy:          "gpt",
+		CreatedAt:          time.Now().UTC(),
+	}
 	h, err := HashTask(task)
 	if err != nil {
 		t.Fatal(err)
@@ -165,20 +210,56 @@ func TestCompletionRejectsDuplicateUnknownAndTrailingJSON(t *testing.T) {
 }
 
 func TestCompletionNeedsRevisionAllowsOrderedAcceptanceSubset(t *testing.T) {
-	task := Task{SchemaVersion: 1, ID: "t", ProjectID: "p", Title: "Title", Objective: "Objective", Branch: "feature/x", BaseRevision: strings.Repeat("a", 40), AcceptanceCriteria: []string{"one", "two"}, RequiredGates: []string{"gate-1", "gate-2"}, Status: "created", CreatedBy: "gpt", CreatedAt: time.Now().UTC()}
+	task := Task{
+		SchemaVersion:      1,
+		ID:                 "t",
+		ProjectID:          "p",
+		Title:              "Title",
+		Objective:          "Objective",
+		Branch:             "feature/x",
+		BaseRevision:       strings.Repeat("a", 40),
+		AcceptanceCriteria: []string{"one", "two"},
+		RequiredGates:      []string{"gate-1", "gate-2"},
+		Status:             "created",
+		CreatedBy:          "gpt",
+		CreatedAt:          time.Now().UTC(),
+	}
 	h, err := HashTask(task)
 	if err != nil {
 		t.Fatal(err)
 	}
 	task.SHA256 = h
-	c := Completion{SchemaVersion: 1, RunID: "GTW-TSK1-RUN1", TaskSHA256: h, Status: "needs_gpt_revision", Summary: "revision needed", GateResults: []CompletionGateResult{{ID: "G1", ExitCode: 1}}, AcceptanceCoverage: []string{"AC2"}, Deviations: []string{}, RemainingRisks: []string{}}
+	c := Completion{
+		SchemaVersion:      1,
+		RunID:              "GTW-TSK1-RUN1",
+		TaskSHA256:         h,
+		Status:             "needs_gpt_revision",
+		Summary:            "revision needed",
+		GateResults:        []CompletionGateResult{{ID: "G1", ExitCode: 1}},
+		AcceptanceCoverage: []string{"AC2"},
+		Deviations:         []string{},
+		RemainingRisks:     []string{},
+	}
 	if err := ValidateCompletion(c, task); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestCompletionRejectsWhitespaceAndInvalidUTF8(t *testing.T) {
-	task := Task{SchemaVersion: 1, ID: "t", ProjectID: "p", Title: "Title", Objective: "Objective", Branch: "feature/x", BaseRevision: strings.Repeat("a", 40), AcceptanceCriteria: []string{"done"}, RequiredGates: []string{"gate"}, Status: "created", CreatedBy: "gpt", CreatedAt: time.Now().UTC()}
+	task := Task{
+		SchemaVersion:      1,
+		ID:                 "t",
+		ProjectID:          "p",
+		Title:              "Title",
+		Objective:          "Objective",
+		Branch:             "feature/x",
+		BaseRevision:       strings.Repeat("a", 40),
+		AcceptanceCriteria: []string{"done"},
+		RequiredGates:      []string{"gate"},
+		Status:             "created",
+		CreatedBy:          "gpt",
+		CreatedAt:          time.Now().UTC(),
+	}
 	h, err := HashTask(task)
 	if err != nil {
 		t.Fatal(err)

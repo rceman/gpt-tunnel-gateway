@@ -25,7 +25,8 @@ func newSnapshotMatrixFixture() snapshotMatrixFixture {
 	run := model.Run{ID: "run", TaskID: task.ID, TaskSHA256: task.SHA256, ProjectID: task.ProjectID, Branch: task.Branch, BaseRevision: task.BaseRevision, Status: "succeeded", CreatedAt: now}
 	clean := true
 	return snapshotMatrixFixture{
-		run: run, task: task,
+		run:      run,
+		task:     task,
 		state:    model.TaskState{TaskID: task.ID, TaskSHA256: task.SHA256, Status: "completed", UpdatedAt: now},
 		report:   model.ReviewSnapshotReport{Available: true, Status: "succeeded", ChangedFiles: []string{"file.go"}, GateResults: []model.CompletionGateResult{{ID: "G1", ExitCode: 0}}, HubCommit: strings.Repeat("d", 40)},
 		evidence: model.ReviewSnapshotEvidence{Available: true, Head: head, Branch: task.Branch, WorktreeClean: &clean},

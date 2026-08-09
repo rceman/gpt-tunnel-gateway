@@ -31,7 +31,12 @@ type Service struct {
 }
 
 func New(c config.Config) *Service {
-	return &Service{Config: c, Hub: hub.Store{Config: c}, Git: gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems}, Airelay: airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: 256}}
+	return &Service{
+		Config:  c,
+		Hub:     hub.Store{Config: c},
+		Git:     gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems},
+		Airelay: airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: 256},
+	}
 }
 
 type WriteOptions struct {
@@ -446,7 +451,11 @@ func (s *Service) ProjectIdentifiersAdopt(ctx context.Context, in ProjectIdentif
 	if err != nil {
 		return model.ProjectIdentifiers{}, OperationResult{}, err
 	}
-	return identifiers, OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: "adopted"}, nil
+	return identifiers, OperationResult{
+		Hub:       tx,
+		ProjectID: in.ProjectID,
+		Status:    "adopted",
+	}, nil
 }
 func (s *Service) ProjectRegister(ctx context.Context, in ProjectRegisterInput) (OperationResult, error) {
 	p := in.Project
@@ -500,7 +509,11 @@ func (s *Service) ProjectRegister(ctx context.Context, in ProjectRegisterInput) 
 	if err != nil {
 		return OperationResult{}, err
 	}
-	return OperationResult{Hub: tx, ProjectID: p.ID, Status: "registered"}, nil
+	return OperationResult{
+		Hub:       tx,
+		ProjectID: p.ID,
+		Status:    "registered",
+	}, nil
 }
 func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, error) {
 	local, err := s.projectConfig(id)
@@ -588,7 +601,15 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 		}
 	}
 	sort.Strings(progress.ComponentErrors)
-	return ProjectStatus{Project: p, Local: local, Worktree: wt, Plan: plan.StatusView(), HubRevision: hubRevision, Progress: progress, WorkflowPolicy: workflowPolicyStatus(workflowPolicy, workflowPolicyErr, plan, tasks)}, nil
+	return ProjectStatus{
+		Project:        p,
+		Local:          local,
+		Worktree:       wt,
+		Plan:           plan.StatusView(),
+		HubRevision:    hubRevision,
+		Progress:       progress,
+		WorkflowPolicy: workflowPolicyStatus(workflowPolicy, workflowPolicyErr, plan, tasks),
+	}, nil
 }
 
 func (s *Service) PlanRead(ctx context.Context, project string) (model.Plan, error) {
@@ -670,7 +691,11 @@ func (s *Service) PlanUpdate(ctx context.Context, in PlanUpdateInput) (Operation
 	if err != nil {
 		return OperationResult{}, err
 	}
-	return OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: "updated"}, nil
+	return OperationResult{
+		Hub:       tx,
+		ProjectID: in.ProjectID,
+		Status:    "updated",
+	}, nil
 }
 
 func sectionIndex(plan model.Plan, id string) (int, model.PlanSectionIndex, error) {
@@ -778,7 +803,11 @@ func (s *Service) PlanSectionCreate(ctx context.Context, in PlanSectionCreateInp
 	if err != nil {
 		return OperationResult{}, err
 	}
-	return OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: "created"}, nil
+	return OperationResult{
+		Hub:       tx,
+		ProjectID: in.ProjectID,
+		Status:    "created",
+	}, nil
 }
 
 func (s *Service) PlanSectionUpdate(ctx context.Context, in PlanSectionUpdateInput) (OperationResult, error) {
@@ -841,7 +870,11 @@ func (s *Service) PlanSectionUpdate(ctx context.Context, in PlanSectionUpdateInp
 	if err != nil {
 		return OperationResult{}, err
 	}
-	return OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: "updated"}, nil
+	return OperationResult{
+		Hub:       tx,
+		ProjectID: in.ProjectID,
+		Status:    "updated",
+	}, nil
 }
 
 func (s *Service) PlanSectionDelete(ctx context.Context, in PlanSectionDeleteInput) (OperationResult, error) {
@@ -890,7 +923,11 @@ func (s *Service) PlanSectionDelete(ctx context.Context, in PlanSectionDeleteInp
 	if err != nil {
 		return OperationResult{}, err
 	}
-	return OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: "deleted"}, nil
+	return OperationResult{
+		Hub:       tx,
+		ProjectID: in.ProjectID,
+		Status:    "deleted",
+	}, nil
 }
 
 func (s *Service) PlanRender(ctx context.Context, project string) (model.PlanRender, error) {
@@ -1030,7 +1067,11 @@ func (s *Service) adrCreateOnce(ctx context.Context, in ADRCreateInput) (Operati
 	if err != nil {
 		return OperationResult{}, err
 	}
-	return OperationResult{Hub: tx, ProjectID: v.ProjectID, Status: "created"}, nil
+	return OperationResult{
+		Hub:       tx,
+		ProjectID: v.ProjectID,
+		Status:    "created",
+	}, nil
 }
 
 func (s *Service) TaskCreate(ctx context.Context, in TaskCreateInput) (model.Task, OperationResult, error) {
@@ -1136,7 +1177,12 @@ func (s *Service) taskCreateOnce(ctx context.Context, in TaskCreateInput) (model
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
 	}
-	return task, OperationResult{Hub: tx, ProjectID: task.ProjectID, TaskID: task.ID, Status: "created"}, nil
+	return task, OperationResult{
+		Hub:       tx,
+		ProjectID: task.ProjectID,
+		TaskID:    task.ID,
+		Status:    "created",
+	}, nil
 }
 func (s *Service) taskState(ctx context.Context, task model.Task) (model.TaskState, error) {
 	var state model.TaskState
@@ -1199,7 +1245,12 @@ func (s *Service) TaskList(ctx context.Context, project string) ([]TaskRecord, e
 		if err != nil {
 			return nil, err
 		}
-		items = append(items, TaskRecord{Task: task, State: state, CurrentRevision: currentRevision, RunSummaries: summaries})
+		items = append(items, TaskRecord{
+			Task:            task,
+			State:           state,
+			CurrentRevision: currentRevision,
+			RunSummaries:    summaries,
+		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Task.CreatedAt.After(items[j].Task.CreatedAt) })
 	return items, nil
@@ -1233,7 +1284,10 @@ func (s *Service) taskStatusList(ctx context.Context, project string) ([]TaskRec
 		if err != nil {
 			return nil, err
 		}
-		items = append(items, TaskRecord{Task: task, State: state})
+		items = append(items, TaskRecord{
+			Task:  task,
+			State: state,
+		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Task.CreatedAt.After(items[j].Task.CreatedAt) })
 	return items, nil
@@ -1287,7 +1341,13 @@ func (s *Service) TaskReadRecord(ctx context.Context, id string) (TaskRecord, er
 	} else if !IsNotFound(policyErr) {
 		return TaskRecord{}, policyErr
 	}
-	return TaskRecord{Task: task, State: state, CurrentRevision: currentRevision, RunSummaries: summaries, WorkflowPolicy: policy}, nil
+	return TaskRecord{
+		Task:            task,
+		State:           state,
+		CurrentRevision: currentRevision,
+		RunSummaries:    summaries,
+		WorkflowPolicy:  policy,
+	}, nil
 }
 func (s *Service) TaskSupersede(ctx context.Context, oldID string, in TaskCreateInput) (model.Task, OperationResult, error) {
 	for attempt := 0; ; attempt++ {
@@ -1406,7 +1466,12 @@ func (s *Service) taskSupersedeOnce(ctx context.Context, oldID string, in TaskCr
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
 	}
-	return newTask, OperationResult{Hub: tx, ProjectID: newTask.ProjectID, TaskID: newTask.ID, Status: "created"}, nil
+	return newTask, OperationResult{
+		Hub:       tx,
+		ProjectID: newTask.ProjectID,
+		TaskID:    newTask.ID,
+		Status:    "created",
+	}, nil
 }
 
 func (s *Service) TaskCancel(ctx context.Context, id, expected string) (OperationResult, error) {
@@ -1440,7 +1505,12 @@ func (s *Service) TaskCancel(ctx context.Context, id, expected string) (Operatio
 	if err != nil {
 		return OperationResult{}, err
 	}
-	return OperationResult{Hub: tx, ProjectID: task.ProjectID, TaskID: id, Status: "cancelled"}, nil
+	return OperationResult{
+		Hub:       tx,
+		ProjectID: task.ProjectID,
+		TaskID:    id,
+		Status:    "cancelled",
+	}, nil
 }
 
 func (s *Service) TaskMarkMergeReady(ctx context.Context, in TaskMarkMergeReadyInput) (OperationResult, error) {
@@ -1532,7 +1602,12 @@ func (s *Service) TaskMarkMergeReady(ctx context.Context, in TaskMarkMergeReadyI
 	if err != nil {
 		return OperationResult{}, err
 	}
-	return OperationResult{Hub: tx, ProjectID: task.ProjectID, TaskID: task.ID, Status: "merge_ready"}, nil
+	return OperationResult{
+		Hub:       tx,
+		ProjectID: task.ProjectID,
+		TaskID:    task.ID,
+		Status:    "merge_ready",
+	}, nil
 }
 
 func (s *Service) TaskDefer(ctx context.Context, in TaskDeferInput) (OperationResult, error) {
@@ -1592,7 +1667,12 @@ func (s *Service) TaskDefer(ctx context.Context, in TaskDeferInput) (OperationRe
 	if err != nil {
 		return OperationResult{}, err
 	}
-	return OperationResult{Hub: tx, ProjectID: task.ProjectID, TaskID: task.ID, Status: "deferred"}, nil
+	return OperationResult{
+		Hub:       tx,
+		ProjectID: task.ProjectID,
+		TaskID:    task.ID,
+		Status:    "deferred",
+	}, nil
 }
 
 func (s *Service) TaskMarkMerged(ctx context.Context, in TaskMarkMergedInput) (OperationResult, error) {
@@ -1664,7 +1744,12 @@ func (s *Service) TaskMarkMerged(ctx context.Context, in TaskMarkMergedInput) (O
 	if err != nil {
 		return OperationResult{}, err
 	}
-	return OperationResult{Hub: tx, ProjectID: task.ProjectID, TaskID: task.ID, Status: "merged"}, nil
+	return OperationResult{
+		Hub:       tx,
+		ProjectID: task.ProjectID,
+		TaskID:    task.ID,
+		Status:    "merged",
+	}, nil
 }
 
 func (s *Service) latestSuccessfulReport(ctx context.Context, task model.Task) (model.Report, error) {
@@ -2218,7 +2303,13 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 			return run, OperationResult{}, fmt.Errorf("dispatch failed (%v), recording failed (%v)", err, e)
 		}
 		run.Status = "failed"
-		return run, OperationResult{Hub: tx2, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: run.Status}, err
+		return run, OperationResult{
+			Hub:       tx2,
+			ProjectID: run.ProjectID,
+			TaskID:    run.TaskID,
+			RunID:     run.ID,
+			Status:    run.Status,
+		}, err
 	}
 	run.Status = "awaiting_result"
 	tx2, err := s.updateRun(ctx, run, tx.After, "gateway: dispatch run "+run.ID)
@@ -2226,7 +2317,13 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 		return run, OperationResult{}, err
 	}
 	_ = s.writeLocalRun(run, task)
-	return run, OperationResult{Hub: tx2, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: run.Status}, nil
+	return run, OperationResult{
+		Hub:       tx2,
+		ProjectID: run.ProjectID,
+		TaskID:    run.TaskID,
+		RunID:     run.ID,
+		Status:    run.Status,
+	}, nil
 }
 func (s *Service) updateRun(ctx context.Context, run model.Run, expected, subject string) (hub.TransactionResult, error) {
 	if err := requireCanonicalRun(run); err != nil {
@@ -2459,7 +2556,19 @@ func (s *Service) TaskRead(ctx context.Context, id string) (TaskPacket, error) {
 	if err != nil {
 		return TaskPacket{}, err
 	}
-	return TaskPacket{Task: task, CurrentRevision: currentRevision, Run: run, RunSummaries: summaries, Project: project, Plan: plan, WorkflowPolicy: policy, RepositoryRoot: local.Root, CompletionPath: run.CompletionPath, FinalizeCommand: "gpt-tunnel run finalize " + run.ID, Text: text}, nil
+	return TaskPacket{
+		Task:            task,
+		CurrentRevision: currentRevision,
+		Run:             run,
+		RunSummaries:    summaries,
+		Project:         project,
+		Plan:            plan,
+		WorkflowPolicy:  policy,
+		RepositoryRoot:  local.Root,
+		CompletionPath:  run.CompletionPath,
+		FinalizeCommand: "gpt-tunnel run finalize " + run.ID,
+		Text:            text,
+	}, nil
 }
 func renderPacket(task model.Task, run model.Run, project model.Project, plan model.Plan, policy model.ProjectWorkflowPolicy, root string) string {
 	var b strings.Builder
@@ -2753,7 +2862,13 @@ func (s *Service) RunWriteCompletion(ctx context.Context, in CompletionWriteInpu
 	if alreadyPresent {
 		status = "ALREADY_PRESENT"
 	}
-	return CompletionWriteResult{Status: status, Path: destination, ProjectID: run.ProjectID, TaskID: task.ID, RunID: run.ID}, nil
+	return CompletionWriteResult{
+		Status:    status,
+		Path:      destination,
+		ProjectID: run.ProjectID,
+		TaskID:    task.ID,
+		RunID:     run.ID,
+	}, nil
 }
 
 func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Report, OperationResult, error) {
@@ -2862,7 +2977,13 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 		return model.Report{}, OperationResult{}, err
 	}
 	report.HubCommit = tx.After
-	return report, OperationResult{Hub: tx, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: "TASK_FINALIZED"}, nil
+	return report, OperationResult{
+		Hub:       tx,
+		ProjectID: run.ProjectID,
+		TaskID:    run.TaskID,
+		RunID:     run.ID,
+		Status:    "TASK_FINALIZED",
+	}, nil
 }
 func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error) {
 	run, err := s.findRun(ctx, id)
@@ -3019,9 +3140,21 @@ func (s *Service) RunCancel(ctx context.Context, id, expected string) (Operation
 	run.DispatchStderr = dispatch.Stderr
 	recorded, recordErr := s.updateRun(ctx, run, published.After, "gateway: record cancellation delivery "+run.ID)
 	if recordErr != nil {
-		return OperationResult{Hub: published, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: run.Status}, fmt.Errorf("cancellation published but delivery evidence was not recorded: %w", recordErr)
+		return OperationResult{
+			Hub:       published,
+			ProjectID: run.ProjectID,
+			TaskID:    run.TaskID,
+			RunID:     run.ID,
+			Status:    run.Status,
+		}, fmt.Errorf("cancellation published but delivery evidence was not recorded: %w", recordErr)
 	}
-	result := OperationResult{Hub: recorded, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: run.Status}
+	result := OperationResult{
+		Hub:       recorded,
+		ProjectID: run.ProjectID,
+		TaskID:    run.TaskID,
+		RunID:     run.ID,
+		Status:    run.Status,
+	}
 	if dispatchErr != nil {
 		return result, dispatchErr
 	}
@@ -3261,7 +3394,13 @@ func (s *Service) RunCancelAcknowledgeNoMutation(ctx context.Context, id, expect
 	if err != nil {
 		return OperationResult{}, err
 	}
-	return OperationResult{Hub: tx, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: "cancelled_no_mutation"}, nil
+	return OperationResult{
+		Hub:       tx,
+		ProjectID: run.ProjectID,
+		TaskID:    run.TaskID,
+		RunID:     run.ID,
+		Status:    "cancelled_no_mutation",
+	}, nil
 }
 
 type SweepItem struct {
@@ -3301,11 +3440,20 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 			}
 			if run.Status != "cancel_requested" {
 				if e := s.observeResumeProgress(ctx, run, now); e != nil {
-					out.Items = append(out.Items, SweepItem{RunID: run.ID, Action: "error", Status: run.Status, Error: "liveness observation failed"})
+					out.Items = append(out.Items, SweepItem{
+						RunID:  run.ID,
+						Action: "error",
+						Status: run.Status,
+						Error:  "liveness observation failed",
+					})
 					continue
 				}
 				if _, resumeErr := s.runResume(ctx, run.ID, true); resumeErr == nil {
-					out.Items = append(out.Items, SweepItem{RunID: run.ID, Action: "resume", Status: run.Status})
+					out.Items = append(out.Items, SweepItem{
+						RunID:  run.ID,
+						Action: "resume",
+						Status: run.Status,
+					})
 					continue
 				}
 			}
@@ -3314,7 +3462,12 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 			}
 			task, e := s.findTask(ctx, run.TaskID)
 			if e != nil {
-				out.Items = append(out.Items, SweepItem{RunID: run.ID, Action: "error", Status: run.Status, Error: e.Error()})
+				out.Items = append(out.Items, SweepItem{
+					RunID:  run.ID,
+					Action: "error",
+					Status: run.Status,
+					Error:  e.Error(),
+				})
 				continue
 			}
 			if run.Status == "cancel_requested" {
@@ -3324,7 +3477,11 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 				}
 				tx, e := s.failRun(ctx, run, task, "failed", "cooperative cancellation timed out", expected)
 				_ = tx
-				item := SweepItem{RunID: run.ID, Action: "finalize_cancelled", Status: "failed"}
+				item := SweepItem{
+					RunID:  run.ID,
+					Action: "finalize_cancelled",
+					Status: "failed",
+				}
 				if e != nil {
 					item.Error = e.Error()
 				}
@@ -3333,7 +3490,11 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 			}
 			if run.RepromptCount < 1 {
 				_, resumeErr := s.runResume(ctx, run.ID, true)
-				item := SweepItem{RunID: run.ID, Action: "resume", Status: run.Status}
+				item := SweepItem{
+					RunID:  run.ID,
+					Action: "resume",
+					Status: run.Status,
+				}
 				if resumeErr != nil {
 					// A stale run without confirmed compaction is not silently
 					// reprompted.  It remains visible for an explicit operator/GPT
@@ -3350,7 +3511,11 @@ func (s *Service) RunSweep(ctx context.Context) (SweepResult, error) {
 			}
 			tx, e := s.failRun(ctx, run, task, "failed", "agent completion was not finalized before timeout", expected)
 			_ = tx
-			item := SweepItem{RunID: run.ID, Action: "finalize_timeout", Status: "failed"}
+			item := SweepItem{
+				RunID:  run.ID,
+				Action: "finalize_timeout",
+				Status: "failed",
+			}
 			if e != nil {
 				item.Error = e.Error()
 			}

@@ -447,7 +447,13 @@ func (s *Service) TaskReviewReportFinalize(ctx context.Context, in TaskReviewRep
 	}
 	report.HubCommit = tx.After
 	_ = os.Remove(s.reviewReportDraftPath(in.RunID))
-	return report, OperationResult{Hub: tx, ProjectID: context.task.ProjectID, TaskID: context.task.ID, RunID: context.run.ID, Status: "review_report_finalized"}, nil
+	return report, OperationResult{
+		Hub:       tx,
+		ProjectID: context.task.ProjectID,
+		TaskID:    context.task.ID,
+		RunID:     context.run.ID,
+		Status:    "review_report_finalized",
+	}, nil
 }
 
 func (s *Service) readFinalReviewReport(ctx context.Context, task model.Task, run model.Run) (model.RunReviewReport, error) {

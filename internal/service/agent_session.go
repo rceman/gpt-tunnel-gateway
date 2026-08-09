@@ -104,7 +104,12 @@ func (s *Service) AgentTail(ctx context.Context, projectID string, lines, skip i
 	if err != nil {
 		return AgentTailResult{}, err
 	}
-	return AgentTailResult{ProjectID: projectID, Text: result.Stdout, Lines: lines, Skip: skip}, nil
+	return AgentTailResult{
+		ProjectID: projectID,
+		Text:      result.Stdout,
+		Lines:     lines,
+		Skip:      skip,
+	}, nil
 }
 
 func (s *Service) AgentStatus(ctx context.Context, projectID string) (AgentStatusResult, error) {

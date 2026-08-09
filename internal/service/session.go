@@ -45,7 +45,10 @@ func (s *Service) SessionStart(ctx context.Context, input SessionStartInput) (Se
 	if err != nil {
 		return SessionResult{}, err
 	}
-	return SessionResult{Action: "start", Session: record}, nil
+	return SessionResult{
+		Action:  "start",
+		Session: record,
+	}, nil
 }
 
 func (s *Service) SessionInfo(ctx context.Context, sessionID string) (SessionResult, error) {
@@ -53,7 +56,10 @@ func (s *Service) SessionInfo(ctx context.Context, sessionID string) (SessionRes
 	if err != nil {
 		return SessionResult{}, err
 	}
-	return SessionResult{Action: "info", Session: record}, nil
+	return SessionResult{
+		Action:  "info",
+		Session: record,
+	}, nil
 }
 
 func (s *Service) SessionUpdate(ctx context.Context, input SessionUpdateInput) (SessionResult, error) {
@@ -61,7 +67,10 @@ func (s *Service) SessionUpdate(ctx context.Context, input SessionUpdateInput) (
 	if err != nil {
 		return SessionResult{}, err
 	}
-	return SessionResult{Action: "update", Session: record}, nil
+	return SessionResult{
+		Action:  "update",
+		Session: record,
+	}, nil
 }
 
 func (s *Service) SessionEnd(ctx context.Context, sessionID string) (SessionResult, error) {
@@ -69,5 +78,8 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string) (SessionResu
 	if err != nil {
 		return SessionResult{}, err
 	}
-	return SessionResult{Action: "end", Session: record}, nil
+	return SessionResult{
+		Action:  "end",
+		Session: record,
+	}, nil
 }

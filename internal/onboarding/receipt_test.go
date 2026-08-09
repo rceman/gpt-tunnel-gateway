@@ -76,7 +76,9 @@ func preparedReceiptForTest(t *testing.T, request Request) Receipt {
 			PreparedAt: receiptTestString("2026-08-05T09:01:00Z"),
 			UpdatedAt:  "2026-08-05T09:01:00Z",
 		},
-		Recovery: Recovery{Status: "not_required"},
+		Recovery: Recovery{
+			Status: "not_required",
+		},
 	}
 	if request.Airelay.SessionRequired {
 		receipt.SessionProof = SessionProof{

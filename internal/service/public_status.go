@@ -14,7 +14,10 @@ func (p ProjectStatus) MarshalJSON() ([]byte, error) {
 		Remote        string `json:"remote"`
 		DefaultBranch string `json:"default_branch"`
 	}
-	local := localView{Remote: p.Local.Remote, DefaultBranch: p.Local.DefaultBranch}
+	local := localView{
+		Remote:        p.Local.Remote,
+		DefaultBranch: p.Local.DefaultBranch,
+	}
 	progress := p.Progress
 	if p.Local.Mirror != "" {
 		progress.Tail = strings.ReplaceAll(progress.Tail, p.Local.Mirror, "[gateway-internal-path]")
@@ -27,7 +30,15 @@ func (p ProjectStatus) MarshalJSON() ([]byte, error) {
 		HubRevision    string          `json:"hub_revision"`
 		Progress       ProjectProgress `json:"progress"`
 		WorkflowPolicy interface{}     `json:"workflow_policy"`
-	}{Project: p.Project, Local: local, Worktree: p.Worktree, Plan: p.Plan, HubRevision: p.HubRevision, Progress: progress, WorkflowPolicy: p.WorkflowPolicy})
+	}{
+		Project:        p.Project,
+		Local:          local,
+		Worktree:       p.Worktree,
+		Plan:           p.Plan,
+		HubRevision:    p.HubRevision,
+		Progress:       progress,
+		WorkflowPolicy: p.WorkflowPolicy,
+	})
 }
 
 // PublicProjectConfig is used by future output contracts that need to expose
@@ -38,5 +49,8 @@ type PublicProjectConfig struct {
 }
 
 func publicProjectConfig(v config.ProjectConfig) PublicProjectConfig {
-	return PublicProjectConfig{Remote: v.Remote, DefaultBranch: v.DefaultBranch}
+	return PublicProjectConfig{
+		Remote:        v.Remote,
+		DefaultBranch: v.DefaultBranch,
+	}
 }

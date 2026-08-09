@@ -55,7 +55,13 @@ func newCoordinatorFixture(t *testing.T) coordinatorFixture {
 	if err := coordinator.Hub.Ensure(context.Background()); err != nil {
 		t.Fatalf("ensure hub: %v", err)
 	}
-	return coordinatorFixture{coordinator: coordinator, request: request, operation: operation, bare: bare, base: base}
+	return coordinatorFixture{
+		coordinator: coordinator,
+		request:     request,
+		operation:   operation,
+		bare:        bare,
+		base:        base,
+	}
 }
 
 func prepareCoordinatorJournal(t *testing.T, fixture coordinatorFixture) {

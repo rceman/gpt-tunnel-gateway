@@ -32,14 +32,34 @@ func TestPlanSchemaV2ValidationRejectsLegacyAndDuplicateSections(t *testing.T) {
 	if err := ValidatePlan(duplicate); err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("duplicate section accepted: %v", err)
 	}
-	section := PlanSection{SchemaVersion: PlanSchemaVersion, ProjectID: "project", ID: "section-one", Revision: 1, Title: "Section one", ShortDescription: "two\nlines", Description: "description", UpdatedBy: "gpt", UpdatedAt: time.Now().UTC()}
+	section := PlanSection{
+		SchemaVersion:    PlanSchemaVersion,
+		ProjectID:        "project",
+		ID:               "section-one",
+		Revision:         1,
+		Title:            "Section one",
+		ShortDescription: "two\nlines",
+		Description:      "description",
+		UpdatedBy:        "gpt",
+		UpdatedAt:        time.Now().UTC(),
+	}
 	if err := ValidatePlanSection(section); err == nil {
 		t.Fatal("multiline section short description accepted")
 	}
 }
 
 func TestPlanSectionValidationBoundsDescription(t *testing.T) {
-	section := PlanSection{SchemaVersion: PlanSchemaVersion, ProjectID: "project", ID: "section", Revision: 1, Title: "Section", ShortDescription: "Short", Description: strings.Repeat("x", 200001), UpdatedBy: "gpt", UpdatedAt: time.Now().UTC()}
+	section := PlanSection{
+		SchemaVersion:    PlanSchemaVersion,
+		ProjectID:        "project",
+		ID:               "section",
+		Revision:         1,
+		Title:            "Section",
+		ShortDescription: "Short",
+		Description:      strings.Repeat("x", 200001),
+		UpdatedBy:        "gpt",
+		UpdatedAt:        time.Now().UTC(),
+	}
 	if err := ValidatePlanSection(section); err == nil {
 		t.Fatal("oversized section description accepted")
 	}

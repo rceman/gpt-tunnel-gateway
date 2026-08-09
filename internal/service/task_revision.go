@@ -350,5 +350,10 @@ func (s *Service) TaskCorrectionCreate(ctx context.Context, in TaskCorrectionCre
 	if err != nil {
 		return model.TaskRevision{}, OperationResult{}, err
 	}
-	return candidate, OperationResult{Hub: tx, ProjectID: task.ProjectID, TaskID: task.ID, Status: "revision_created"}, nil
+	return candidate, OperationResult{
+		Hub:       tx,
+		ProjectID: task.ProjectID,
+		TaskID:    task.ID,
+		Status:    "revision_created",
+	}, nil
 }

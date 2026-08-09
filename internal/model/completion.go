@@ -184,7 +184,10 @@ func completionGates(v any) ([]CompletionGateResult, error) {
 		if int64(int(code64)) != code64 {
 			return nil, fmt.Errorf("gate exit_code is out of range")
 		}
-		out = append(out, CompletionGateResult{ID: id, ExitCode: int(code64)})
+		out = append(out, CompletionGateResult{
+			ID:       id,
+			ExitCode: int(code64),
+		})
 	}
 	return out, nil
 }
@@ -236,7 +239,17 @@ func ParseCompletion(data []byte, task Task) (Completion, error) {
 	if err != nil {
 		return Completion{}, err
 	}
-	c := Completion{SchemaVersion: 1, RunID: runID, TaskSHA256: taskHash, Status: status, Summary: summary, GateResults: gates, AcceptanceCoverage: acceptance, Deviations: deviations, RemainingRisks: risks}
+	c := Completion{
+		SchemaVersion:      1,
+		RunID:              runID,
+		TaskSHA256:         taskHash,
+		Status:             status,
+		Summary:            summary,
+		GateResults:        gates,
+		AcceptanceCoverage: acceptance,
+		Deviations:         deviations,
+		RemainingRisks:     risks,
+	}
 	if _, ok := obj["agent_feedback"]; ok {
 		var feedback AgentFeedback
 		if err := decodeCompletionField(obj, "agent_feedback", &feedback); err != nil {

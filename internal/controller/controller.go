@@ -157,7 +157,10 @@ func procUID(pid int) (uint32, error) {
 }
 func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
 func (c Controller) process(name, expected string) ProcessStatus {
-	p := ProcessStatus{Name: name, ExpectedExecutable: expected}
+	p := ProcessStatus{
+		Name:               name,
+		ExpectedExecutable: expected,
+	}
 	if expected == "" {
 		p.IdentityReason = "configured executable is unavailable"
 		return p
@@ -207,7 +210,10 @@ func (c Controller) tunnelReadyURL() string {
 func (c Controller) Status(ctx context.Context) (Status, error) {
 	gatewayExpected, _ := filepath.EvalSymlinks(c.Config.Controller.GatewayBinary)
 	tunnelExpected, _ := filepath.EvalSymlinks(c.Config.Controller.TunnelClientBinary)
-	s := Status{Gateway: c.process("gateway", gatewayExpected), Tunnel: c.process("tunnel", tunnelExpected)}
+	s := Status{
+		Gateway: c.process("gateway", gatewayExpected),
+		Tunnel:  c.process("tunnel", tunnelExpected),
+	}
 	s.GatewayReady = checkURL(ctx, c.gatewayReadyURL())
 	s.TunnelReady = checkURL(ctx, c.tunnelReadyURL())
 	s.InstalledVersion = installedVersion(c.Config.Controller.GatewayBinary)
@@ -429,7 +435,12 @@ func (c Controller) startProcess(name, binary string, args, env []string) error 
 		_ = cmd.Process.Kill()
 		return startErr
 	}
-	record := pidRecord{PID: cmd.Process.Pid, StartTimeTicks: startTime, UID: uint32(os.Getuid()), InstanceToken: fmt.Sprintf("%d-%d", cmd.Process.Pid, startTime)}
+	record := pidRecord{
+		PID:            cmd.Process.Pid,
+		StartTimeTicks: startTime,
+		UID:            uint32(os.Getuid()),
+		InstanceToken:  fmt.Sprintf("%d-%d", cmd.Process.Pid, startTime),
+	}
 	if err := fsutil.WriteJSONAtomic(c.pidPath(name), record, 0o600); err != nil {
 		_ = cmd.Process.Kill()
 		return err
@@ -590,7 +601,10 @@ func (c Controller) RestartGatewayAfterUpgrade() error {
 
 func (c Controller) RestartGatewayAfterUpgradeDiagnostics() (GatewayStartupDiagnostics, error) {
 	started := time.Now()
-	diagnostics := GatewayStartupDiagnostics{Phase: "TARGET_STARTUP", CaptureStatus: "not_attempted"}
+	diagnostics := GatewayStartupDiagnostics{
+		Phase:         "TARGET_STARTUP",
+		CaptureStatus: "not_attempted",
+	}
 	lock, err := lockfile.Acquire(c.Config.Controller.PIDDir, "controller")
 	if err != nil {
 		diagnostics.Elapsed = time.Since(started)

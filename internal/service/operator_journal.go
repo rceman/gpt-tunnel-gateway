@@ -435,7 +435,11 @@ func (s *Service) operatorRecord(ctx context.Context, in OperatorRecordInput, al
 	if err != nil {
 		return model.OperatorJournalEvent{}, OperationResult{}, err
 	}
-	return event, OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: "recorded"}, nil
+	return event, OperationResult{
+		Hub:       tx,
+		ProjectID: in.ProjectID,
+		Status:    "recorded",
+	}, nil
 }
 
 func (s *Service) OperatorRecord(ctx context.Context, in OperatorRecordInput) (model.OperatorJournalEvent, OperationResult, error) {
@@ -443,7 +447,17 @@ func (s *Service) OperatorRecord(ctx context.Context, in OperatorRecordInput) (m
 }
 
 func (s *Service) OperatorCheckpoint(ctx context.Context, in OperatorCheckpointInput) (model.OperatorJournalEvent, OperationResult, error) {
-	event, operation, err := s.operatorRecord(ctx, OperatorRecordInput{ProjectID: in.ProjectID, SessionID: in.SessionID, Kind: model.OperatorCheckpoint, Summary: in.Summary, Content: in.Content, References: in.References, OccurredAt: in.OccurredAt, Actor: in.Actor, WriteOptions: in.WriteOptions}, true)
+	event, operation, err := s.operatorRecord(ctx, OperatorRecordInput{
+		ProjectID:    in.ProjectID,
+		SessionID:    in.SessionID,
+		Kind:         model.OperatorCheckpoint,
+		Summary:      in.Summary,
+		Content:      in.Content,
+		References:   in.References,
+		OccurredAt:   in.OccurredAt,
+		Actor:        in.Actor,
+		WriteOptions: in.WriteOptions,
+	}, true)
 	if err != nil {
 		return model.OperatorJournalEvent{}, OperationResult{}, err
 	}
@@ -557,5 +571,11 @@ func (s *Service) OperatorHistory(ctx context.Context, in OperatorHistoryInput) 
 	if err != nil {
 		return OperatorHistoryResult{}, err
 	}
-	return OperatorHistoryResult{ProjectID: in.ProjectID, Events: items, HubRevision: revision, HasMore: hasMore, NextAfterEventID: next}, nil
+	return OperatorHistoryResult{
+		ProjectID:        in.ProjectID,
+		Events:           items,
+		HubRevision:      revision,
+		HasMore:          hasMore,
+		NextAfterEventID: next,
+	}, nil
 }

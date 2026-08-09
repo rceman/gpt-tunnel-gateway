@@ -130,7 +130,11 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 	if err != nil {
 		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
 	}
-	return policy, OperationResult{Hub: tx, ProjectID: policy.ProjectID, Status: status}, nil
+	return policy, OperationResult{
+		Hub:       tx,
+		ProjectID: policy.ProjectID,
+		Status:    status,
+	}, nil
 }
 
 func (s *Service) rejectActiveWorkflowPolicyRun(ctx context.Context, projectID string) error {
@@ -216,11 +220,30 @@ func workflowPolicyStatus(policy model.ProjectWorkflowPolicy, err error, plan mo
 			Release:   model.WorkflowCIModeDisabled,
 		}
 		if IsNotFound(err) {
-			return ProjectWorkflowPolicyStatus{State: "missing", CI: failClosedCI, Conflicts: []string{"workflow_policy_missing"}, CorrectiveAction: "adopt a durable project workflow policy before creating or superseding tasks"}
+			return ProjectWorkflowPolicyStatus{
+				State:            "missing",
+				CI:               failClosedCI,
+				Conflicts:        []string{"workflow_policy_missing"},
+				CorrectiveAction: "adopt a durable project workflow policy before creating or superseding tasks",
+			}
 		}
-		return ProjectWorkflowPolicyStatus{State: "invalid", CI: failClosedCI, Conflicts: []string{"workflow_policy_invalid"}, CorrectiveAction: "repair or re-adopt the durable project workflow policy"}
+		return ProjectWorkflowPolicyStatus{
+			State:            "invalid",
+			CI:               failClosedCI,
+			Conflicts:        []string{"workflow_policy_invalid"},
+			CorrectiveAction: "repair or re-adopt the durable project workflow policy",
+		}
 	}
-	status := ProjectWorkflowPolicyStatus{State: "adopted", Revision: policy.Revision, WorkflowStage: policy.WorkflowStage, IntegrationBranch: policy.IntegrationBranch, AgentWaitForCI: policy.Agent.WaitForCI, CI: policy.CI, Conflicts: []string{}, CorrectiveAction: "none"}
+	status := ProjectWorkflowPolicyStatus{
+		State:             "adopted",
+		Revision:          policy.Revision,
+		WorkflowStage:     policy.WorkflowStage,
+		IntegrationBranch: policy.IntegrationBranch,
+		AgentWaitForCI:    policy.Agent.WaitForCI,
+		CI:                policy.CI,
+		Conflicts:         []string{},
+		CorrectiveAction:  "none",
+	}
 	for _, item := range tasks {
 		if item.Task.ID != plan.ActiveTaskID || item.Task.OperationClass == "" {
 			continue

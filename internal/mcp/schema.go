@@ -724,7 +724,12 @@ var toolOutputSchemas = map[string]map[string]any{
 }
 
 func readOnlyAnnotations() ToolAnnotations {
-	return ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: false}
+	return ToolAnnotations{
+		ReadOnlyHint:    true,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   false,
+	}
 }
 
 // canonicalToolManifest is the single stable inventory used to verify that
@@ -746,13 +751,28 @@ var canonicalToolManifest = []string{
 
 func canonicalToolNames() []string { return append([]string{}, canonicalToolManifest...) }
 func additiveExternalAnnotations() ToolAnnotations {
-	return ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: false, OpenWorldHint: true}
+	return ToolAnnotations{
+		ReadOnlyHint:    false,
+		DestructiveHint: false,
+		IdempotentHint:  false,
+		OpenWorldHint:   true,
+	}
 }
 func idempotentMutationAnnotations() ToolAnnotations {
-	return ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
+	return ToolAnnotations{
+		ReadOnlyHint:    false,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   true,
+	}
 }
 func destructiveExternalAnnotations() ToolAnnotations {
-	return ToolAnnotations{ReadOnlyHint: false, DestructiveHint: true, IdempotentHint: false, OpenWorldHint: true}
+	return ToolAnnotations{
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
+		IdempotentHint:  false,
+		OpenWorldHint:   true,
+	}
 }
 
 var toolAnnotations = func() map[string]ToolAnnotations {
@@ -772,10 +792,30 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	} {
 		result[name] = readOnlyAnnotations()
 	}
-	result["run_agent_tail"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
-	result["run_review_snapshot"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
-	result["agent_tail"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
-	result["agent_status"] = ToolAnnotations{ReadOnlyHint: true, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
+	result["run_agent_tail"] = ToolAnnotations{
+		ReadOnlyHint:    true,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   true,
+	}
+	result["run_review_snapshot"] = ToolAnnotations{
+		ReadOnlyHint:    true,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   true,
+	}
+	result["agent_tail"] = ToolAnnotations{
+		ReadOnlyHint:    true,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   true,
+	}
+	result["agent_status"] = ToolAnnotations{
+		ReadOnlyHint:    true,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   true,
+	}
 	result["agent_send"] = additiveExternalAnnotations()
 	result["operator_record"] = additiveExternalAnnotations()
 	result["operator_checkpoint"] = additiveExternalAnnotations()
@@ -796,7 +836,12 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	for _, name := range []string{"plan_cutover", "plan_update", "plan_section_update", "plan_section_delete", "task_dispatch", "task_supersede", "task_cancel", "task_mark_merge_ready", "task_defer", "task_mark_merged", "run_resume", "run_sweep", "run_cancel", "run_cancel_acknowledge_no_mutation"} {
 		result[name] = destructiveExternalAnnotations()
 	}
-	result["git_refresh"] = ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}
+	result["git_refresh"] = ToolAnnotations{
+		ReadOnlyHint:    false,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   true,
+	}
 	return result
 }()
 

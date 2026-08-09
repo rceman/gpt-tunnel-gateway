@@ -232,7 +232,12 @@ func writeActivatedJournalLocked(stateDir string, request Request, receipt Recei
 			if !bytes.Equal(existingCanonical, canonical) || existingDigest != digest {
 				return HubCommittedJournalWriteReceipt{}, errors.New("ONBOARDING_OPERATION_CONFLICT")
 			}
-			return HubCommittedJournalWriteReceipt{OperationID: receipt.OperationID, JournalPath: path, ReceiptSHA256: existingDigest, Created: false}, nil
+			return HubCommittedJournalWriteReceipt{
+				OperationID:   receipt.OperationID,
+				JournalPath:   path,
+				ReceiptSHA256: existingDigest,
+				Created:       false,
+			}, nil
 		case StateHubCommitted, StateRecoveryRequired:
 			if err := validateActivationTransition(existing, receipt, request); err != nil {
 				return HubCommittedJournalWriteReceipt{}, err
@@ -263,7 +268,12 @@ func writeActivatedJournalLocked(stateDir string, request Request, receipt Recei
 	if loaded.State != StateActivated || !bytes.Equal(verifiedCanonical, canonical) || verifiedDigest != digest {
 		return HubCommittedJournalWriteReceipt{}, errors.New("activated journal verification mismatch")
 	}
-	return HubCommittedJournalWriteReceipt{OperationID: receipt.OperationID, JournalPath: path, ReceiptSHA256: digest, Created: true}, nil
+	return HubCommittedJournalWriteReceipt{
+		OperationID:   receipt.OperationID,
+		JournalPath:   path,
+		ReceiptSHA256: digest,
+		Created:       true,
+	}, nil
 }
 
 func writeRecoveryJournalLocked(stateDir string, request Request, receipt Receipt) (result HubCommittedJournalWriteReceipt, err error) {
@@ -297,7 +307,12 @@ func writeRecoveryJournalLocked(stateDir string, request Request, receipt Receip
 	}
 	if existing.State == StateRecoveryRequired && bytes.Equal(existingCanonical, canonical) {
 		existingDigest := sha256.Sum256(existingCanonical)
-		return HubCommittedJournalWriteReceipt{OperationID: receipt.OperationID, JournalPath: path, ReceiptSHA256: hex.EncodeToString(existingDigest[:]), Created: false}, nil
+		return HubCommittedJournalWriteReceipt{
+			OperationID:   receipt.OperationID,
+			JournalPath:   path,
+			ReceiptSHA256: hex.EncodeToString(existingDigest[:]),
+			Created:       false,
+		}, nil
 	}
 	if err := writeOnboardingJournalAtomic(path, fileBytes, 0o600); err != nil {
 		return HubCommittedJournalWriteReceipt{}, err
@@ -313,7 +328,12 @@ func writeRecoveryJournalLocked(stateDir string, request Request, receipt Receip
 	if loaded.State != StateRecoveryRequired || !bytes.Equal(verifiedCanonical, canonical) {
 		return HubCommittedJournalWriteReceipt{}, errors.New("recovery journal verification mismatch")
 	}
-	return HubCommittedJournalWriteReceipt{OperationID: receipt.OperationID, JournalPath: path, ReceiptSHA256: digest, Created: true}, nil
+	return HubCommittedJournalWriteReceipt{
+		OperationID:   receipt.OperationID,
+		JournalPath:   path,
+		ReceiptSHA256: digest,
+		Created:       true,
+	}, nil
 }
 
 func writeHubCommittedJournalLocked(stateDir string, request Request, receipt Receipt) (result HubCommittedJournalWriteReceipt, err error) {
@@ -348,7 +368,12 @@ func writeHubCommittedJournalLocked(stateDir string, request Request, receipt Re
 			if !bytes.Equal(existingCanonical, canonical) || existingDigest != digest {
 				return HubCommittedJournalWriteReceipt{}, errors.New("ONBOARDING_OPERATION_CONFLICT")
 			}
-			return HubCommittedJournalWriteReceipt{OperationID: receipt.OperationID, JournalPath: path, ReceiptSHA256: existingDigest, Created: false}, nil
+			return HubCommittedJournalWriteReceipt{
+				OperationID:   receipt.OperationID,
+				JournalPath:   path,
+				ReceiptSHA256: existingDigest,
+				Created:       false,
+			}, nil
 		case StatePrepared:
 			if err := ValidatePreparedReceipt(existing, request); err != nil {
 				return HubCommittedJournalWriteReceipt{}, err
@@ -377,7 +402,12 @@ func writeHubCommittedJournalLocked(stateDir string, request Request, receipt Re
 	if loaded.State != StateHubCommitted || !bytes.Equal(verifiedCanonical, canonical) || verifiedDigest != digest {
 		return HubCommittedJournalWriteReceipt{}, errors.New("hub-committed journal verification mismatch")
 	}
-	return HubCommittedJournalWriteReceipt{OperationID: receipt.OperationID, JournalPath: path, ReceiptSHA256: digest, Created: true}, nil
+	return HubCommittedJournalWriteReceipt{
+		OperationID:   receipt.OperationID,
+		JournalPath:   path,
+		ReceiptSHA256: digest,
+		Created:       true,
+	}, nil
 }
 
 const (

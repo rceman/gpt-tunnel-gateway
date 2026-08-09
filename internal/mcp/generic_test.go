@@ -97,7 +97,10 @@ func TestGenericTransportSchemasAreCompactAndApplicationIndependent(t *testing.T
 }
 
 func TestGenericRegisteredActionDiscoveryCallAndBatchFailureContinuation(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc", StateDir: filepath.Join(t.TempDir(), "state")}), AuthorityContext: authority.WithDelivery(context.Background())}
+	server := &Server{
+		Service:          service.New(config.Config{GatewayID: "home_pc", StateDir: filepath.Join(t.TempDir(), "state")}),
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	sessionID := genericSession(t, server.Service, "example")
 	if err := server.RegisterGenericAction(GenericAction{
 		Path:        "test/echo",
@@ -157,7 +160,10 @@ func TestGenericRegisteredActionDiscoveryCallAndBatchFailureContinuation(t *test
 }
 
 func TestGenericLegacyReadAndMutationAuthorityReuse(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc", StateDir: filepath.Join(t.TempDir(), "state")}), AuthorityContext: authority.WithDelivery(context.Background())}
+	server := &Server{
+		Service:          service.New(config.Config{GatewayID: "home_pc", StateDir: filepath.Join(t.TempDir(), "state")}),
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	sessionID := genericSession(t, server.Service, "example")
 	generic := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
@@ -188,7 +194,10 @@ func TestGenericWorkflowPolicyMutationMatchesLegacyHandler(t *testing.T) {
 	current.UpdatedBy = "generic-equivalence-test"
 	current.UpdatedAt = time.Now().UTC()
 	input := map[string]any{"policy": current, "expected_hub_revision": hubRevision}
-	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
+	server := &Server{
+		Service:          s,
+		AuthorityContext: authority.WithPlanner(context.Background()),
+	}
 	sessionID := genericSessionWithRole(t, s, "example", durableSession.RolePlanner)
 	legacy := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",

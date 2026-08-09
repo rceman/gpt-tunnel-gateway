@@ -58,7 +58,10 @@ func Status(c config.Config) (StatusResult, error) {
 		if os.IsNotExist(err) {
 			return StatusResult{Status: "no_history"}, nil
 		}
-		return StatusResult{Status: "corrupt", ErrorClass: "history_unavailable"}, fmt.Errorf("upgrade transaction history is unavailable")
+		return StatusResult{
+			Status:     "corrupt",
+			ErrorClass: "history_unavailable",
+		}, fmt.Errorf("upgrade transaction history is unavailable")
 	}
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
@@ -67,10 +70,16 @@ func Status(c config.Config) (StatusResult, error) {
 		}
 		info, statErr := os.Lstat(filepath.Join(root, entry.Name()))
 		if statErr != nil {
-			return StatusResult{Status: "corrupt", ErrorClass: "history_unreadable"}, fmt.Errorf("latest upgrade transaction is unreadable")
+			return StatusResult{
+				Status:     "corrupt",
+				ErrorClass: "history_unreadable",
+			}, fmt.Errorf("latest upgrade transaction is unreadable")
 		}
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return StatusResult{Status: "corrupt", ErrorClass: "history_invalid"}, fmt.Errorf("latest upgrade transaction is not a regular file")
+			return StatusResult{
+				Status:     "corrupt",
+				ErrorClass: "history_invalid",
+			}, fmt.Errorf("latest upgrade transaction is not a regular file")
 		}
 		names = append(names, entry.Name())
 	}
@@ -81,15 +90,24 @@ func Status(c config.Config) (StatusResult, error) {
 	name := names[len(names)-1]
 	data, err := readStatusTransaction(filepath.Join(root, name))
 	if err != nil {
-		return StatusResult{Status: "corrupt", ErrorClass: "history_unreadable"}, fmt.Errorf("latest upgrade transaction is unreadable")
+		return StatusResult{
+			Status:     "corrupt",
+			ErrorClass: "history_unreadable",
+		}, fmt.Errorf("latest upgrade transaction is unreadable")
 	}
 	var tx UpgradeTransaction
 	dec := json.Unmarshal(data, &tx)
 	if dec != nil || tx.TransactionID == "" {
-		return StatusResult{Status: "corrupt", ErrorClass: "history_invalid"}, fmt.Errorf("latest upgrade transaction is invalid")
+		return StatusResult{
+			Status:     "corrupt",
+			ErrorClass: "history_invalid",
+		}, fmt.Errorf("latest upgrade transaction is invalid")
 	}
 	if tx.TransactionID != strings.TrimSuffix(name, ".json") {
-		return StatusResult{Status: "corrupt", ErrorClass: "history_invalid"}, fmt.Errorf("latest upgrade transaction identity is invalid")
+		return StatusResult{
+			Status:     "corrupt",
+			ErrorClass: "history_invalid",
+		}, fmt.Errorf("latest upgrade transaction identity is invalid")
 	}
 	errorClass := ""
 	if tx.PrimaryError != "" {

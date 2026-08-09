@@ -455,7 +455,13 @@ func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mu
 	if len(fields) < 1 || fields[0] != after {
 		return TransactionResult{}, fmt.Errorf("remote verification failed: got %q want %q", strings.TrimSpace(string(remoteOut)), after)
 	}
-	return TransactionResult{Before: before, After: after, Remote: RemoteName, Branch: s.Config.Hub.Branch, Paths: append([]string{}, paths...)}, nil
+	return TransactionResult{
+		Before: before,
+		After:  after,
+		Remote: RemoteName,
+		Branch: s.Config.Hub.Branch,
+		Paths:  append([]string{}, paths...),
+	}, nil
 }
 func WriteJSON(worktree, path string, value any) error {
 	target, err := safeWritePath(worktree, path)

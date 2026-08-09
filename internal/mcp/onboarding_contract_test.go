@@ -81,10 +81,20 @@ func TestProjectOnboardingSchemasUseCanonicalUUIDAndClosedNestedRequest(t *testi
 			t.Fatalf("%s accepted unknown/missing nested request fields", name)
 		}
 	}
-	if annotations := server.tools()["project_onboard"].Annotations; annotations != (ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}) {
+	if annotations := server.tools()["project_onboard"].Annotations; annotations != (ToolAnnotations{
+		ReadOnlyHint:    false,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   true,
+	}) {
 		t.Fatalf("project_onboard annotations = %#v", annotations)
 	}
-	if annotations := server.tools()["project_onboard_recover"].Annotations; annotations != (ToolAnnotations{ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: true, OpenWorldHint: true}) {
+	if annotations := server.tools()["project_onboard_recover"].Annotations; annotations != (ToolAnnotations{
+		ReadOnlyHint:    false,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   true,
+	}) {
 		t.Fatalf("project_onboard_recover annotations = %#v", annotations)
 	}
 	if annotations := server.tools()["project_onboard_status"].Annotations; annotations != readOnlyAnnotations() {

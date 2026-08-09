@@ -28,7 +28,15 @@ func loadCurrentPlanFixture(t *testing.T) legacyPlanV1 {
 
 func TestPlanCutoverPreservesLegacySemanticsAndIsOneTime(t *testing.T) {
 	s, hubRevision, _ := testService(t)
-	legacy := legacyPlanV1{SchemaVersion: model.SchemaVersion, ProjectID: "example", Revision: 3, Summary: "Legacy summary", Body: "# Legacy\n\n## Objective\n\nBuild the foundation.\n\n## Queue\n\n- first-task\n- second-task\n\n## Design\n\nKeep the contract exact.", UpdatedBy: "gpt", UpdatedAt: time.Now().UTC()}
+	legacy := legacyPlanV1{
+		SchemaVersion: model.SchemaVersion,
+		ProjectID:     "example",
+		Revision:      3,
+		Summary:       "Legacy summary",
+		Body:          "# Legacy\n\n## Objective\n\nBuild the foundation.\n\n## Queue\n\n- first-task\n- second-task\n\n## Design\n\nKeep the contract exact.",
+		UpdatedBy:     "gpt",
+		UpdatedAt:     time.Now().UTC(),
+	}
 	if _, err := s.Hub.Transact(context.Background(), hubRevision, "test: install legacy plan", func(w string) ([]string, error) {
 		path := s.planPath("example")
 		if err := hub.WriteJSON(w, path, legacy); err != nil {
@@ -49,7 +57,10 @@ func TestPlanCutoverPreservesLegacySemanticsAndIsOneTime(t *testing.T) {
 	if err != nil || beforeRead != afterRead {
 		t.Fatalf("normal read mutated hub: before=%s after=%s err=%v", beforeRead, afterRead, err)
 	}
-	cutover, err := s.PlanCutover(context.Background(), PlanCutoverInput{ProjectID: "example", UpdatedBy: "owner"})
+	cutover, err := s.PlanCutover(context.Background(), PlanCutoverInput{
+		ProjectID: "example",
+		UpdatedBy: "owner",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +90,10 @@ func TestPlanCutoverPreservesLegacySemanticsAndIsOneTime(t *testing.T) {
 	if _, ok := manifest["body"]; ok {
 		t.Fatalf("legacy body remains in manifest: %s", raw)
 	}
-	if _, err := s.PlanCutover(context.Background(), PlanCutoverInput{ProjectID: "example", UpdatedBy: "owner"}); err == nil {
+	if _, err := s.PlanCutover(context.Background(), PlanCutoverInput{
+		ProjectID: "example",
+		UpdatedBy: "owner",
+	}); err == nil {
 		t.Fatal("second cutover was accepted")
 	}
 }
@@ -96,7 +110,10 @@ func TestPlanCutoverUsesCurrentDurableQueueShape(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := s.PlanCutover(context.Background(), PlanCutoverInput{ProjectID: "example", UpdatedBy: "owner"})
+	result, err := s.PlanCutover(context.Background(), PlanCutoverInput{
+		ProjectID: "example",
+		UpdatedBy: "owner",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,12 +149,33 @@ func TestPlanCutoverUsesCurrentDurableQueueShape(t *testing.T) {
 func TestPlanSectionsSupportPartialUpdatesIndependentConflictsAndRender(t *testing.T) {
 	s, hubRevision, _ := testService(t)
 	title, summary, objective, queue, activeTask := "Plan", "Summary", "Objective", []string{"first", "second"}, "EXM-TSK1"
-	operation, err := s.PlanUpdate(context.Background(), PlanUpdateInput{ProjectID: "example", Title: &title, Summary: &summary, CurrentObjective: &objective, Queue: &queue, ActiveTaskID: &activeTask, UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
+	operation, err := s.PlanUpdate(context.Background(), PlanUpdateInput{
+		ProjectID:        "example",
+		Title:            &title,
+		Summary:          &summary,
+		CurrentObjective: &objective,
+		Queue:            &queue,
+		ActiveTaskID:     &activeTask,
+		UpdatedBy:        "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	create := func(id, heading string) model.PlanSection {
-		result, err := s.PlanSectionCreate(context.Background(), PlanSectionCreateInput{ProjectID: "example", SectionID: id, Title: heading, ShortDescription: "Short " + id, Description: "Description " + id, UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After}})
+		result, err := s.PlanSectionCreate(context.Background(), PlanSectionCreateInput{
+			ProjectID:        "example",
+			SectionID:        id,
+			Title:            heading,
+			ShortDescription: "Short " + id,
+			Description:      "Description " + id,
+			UpdatedBy:        "gpt",
+			WriteOptions: WriteOptions{
+				ExpectedHubRevision: operation.Hub.After,
+			},
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -153,16 +191,41 @@ func TestPlanSectionsSupportPartialUpdatesIndependentConflictsAndRender(t *testi
 	staleHubRevision := operation.Hub.After
 	newDescription := "Updated first description"
 	newShort := "Updated second short description"
-	if _, err := s.PlanSectionUpdate(context.Background(), PlanSectionUpdateInput{ProjectID: "example", SectionID: second.ID, ShortDescription: &newShort, UpdatedBy: "gpt", ExpectedSectionRevision: second.Revision}); err != nil {
+	if _, err := s.PlanSectionUpdate(context.Background(), PlanSectionUpdateInput{
+		ProjectID:               "example",
+		SectionID:               second.ID,
+		ShortDescription:        &newShort,
+		UpdatedBy:               "gpt",
+		ExpectedSectionRevision: second.Revision,
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PlanSectionUpdate(context.Background(), PlanSectionUpdateInput{ProjectID: "example", SectionID: first.ID, Description: &newDescription, UpdatedBy: "gpt", ExpectedSectionRevision: first.Revision, WriteOptions: WriteOptions{ExpectedHubRevision: staleHubRevision}}); err != nil {
+	if _, err := s.PlanSectionUpdate(context.Background(), PlanSectionUpdateInput{
+		ProjectID:               "example",
+		SectionID:               first.ID,
+		Description:             &newDescription,
+		UpdatedBy:               "gpt",
+		ExpectedSectionRevision: first.Revision,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: staleHubRevision,
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PlanSectionUpdate(context.Background(), PlanSectionUpdateInput{ProjectID: "example", SectionID: first.ID, Description: &newDescription, UpdatedBy: "gpt", ExpectedSectionRevision: first.Revision}); err == nil || !strings.Contains(err.Error(), "SECTION_REVISION_CONFLICT") {
+	if _, err := s.PlanSectionUpdate(context.Background(), PlanSectionUpdateInput{
+		ProjectID:               "example",
+		SectionID:               first.ID,
+		Description:             &newDescription,
+		UpdatedBy:               "gpt",
+		ExpectedSectionRevision: first.Revision,
+	}); err == nil || !strings.Contains(err.Error(), "SECTION_REVISION_CONFLICT") {
 		t.Fatalf("stale section revision was not rejected: %v", err)
 	}
-	updatedPlan, err := s.PlanUpdate(context.Background(), PlanUpdateInput{ProjectID: "example", Summary: planString("Updated summary"), UpdatedBy: "gpt"})
+	updatedPlan, err := s.PlanUpdate(context.Background(), PlanUpdateInput{
+		ProjectID: "example",
+		Summary:   planString("Updated summary"),
+		UpdatedBy: "gpt",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +244,12 @@ func TestPlanSectionsSupportPartialUpdatesIndependentConflictsAndRender(t *testi
 	if strings.Index(rendered.Text, "## First") > strings.Index(rendered.Text, "## Second") || !strings.Contains(rendered.Text, "Updated first description") || !strings.Contains(rendered.Text, "Updated second short description") {
 		t.Fatalf("render ordering/content incorrect: %q", rendered.Text)
 	}
-	if _, err := s.PlanSectionDelete(context.Background(), PlanSectionDeleteInput{ProjectID: "example", SectionID: first.ID, UpdatedBy: "delete-owner", ExpectedSectionRevision: first.Revision + 1}); err != nil {
+	if _, err := s.PlanSectionDelete(context.Background(), PlanSectionDeleteInput{
+		ProjectID:               "example",
+		SectionID:               first.ID,
+		UpdatedBy:               "delete-owner",
+		ExpectedSectionRevision: first.Revision + 1,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	deletedPlan, err := s.PlanRead(context.Background(), "example")
@@ -200,11 +268,29 @@ func TestPlanSectionsSupportPartialUpdatesIndependentConflictsAndRender(t *testi
 func TestProjectStatusReturnsCompactPlanOnly(t *testing.T) {
 	s, hubRevision, _ := testService(t)
 	title, summary := "Plan", "Summary"
-	operation, err := s.PlanUpdate(context.Background(), PlanUpdateInput{ProjectID: "example", Title: &title, Summary: &summary, UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
+	operation, err := s.PlanUpdate(context.Background(), PlanUpdateInput{
+		ProjectID: "example",
+		Title:     &title,
+		Summary:   &summary,
+		UpdatedBy: "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	section, err := s.PlanSectionCreate(context.Background(), PlanSectionCreateInput{ProjectID: "example", SectionID: "compact", Title: "Compact", ShortDescription: "Status line", Description: strings.Repeat("full description ", 100), UpdatedBy: "gpt", WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After}})
+	section, err := s.PlanSectionCreate(context.Background(), PlanSectionCreateInput{
+		ProjectID:        "example",
+		SectionID:        "compact",
+		Title:            "Compact",
+		ShortDescription: "Status line",
+		Description:      strings.Repeat("full description ", 100),
+		UpdatedBy:        "gpt",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

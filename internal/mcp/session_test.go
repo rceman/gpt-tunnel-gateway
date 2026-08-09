@@ -26,7 +26,10 @@ func newSessionTestServer(t *testing.T) *Server {
 	if _, err := s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"}, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead}}); err != nil {
 		t.Fatal(err)
 	}
-	return &Server{Service: s, AuthorityContext: authority.WithDelivery(context.Background())}
+	return &Server{
+		Service:          s,
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 }
 
 func sessionCall(t *testing.T, server *Server, args map[string]any) map[string]any {

@@ -27,7 +27,13 @@ func operatorReferences() model.OperatorJournalReferences {
 func operatorService(t *testing.T) (*Service, string) {
 	t.Helper()
 	s, revision, _ := testServiceWithoutIdentifiers(t)
-	identifiers, operation, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+	identifiers, operation, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
+		ProjectID:   "example",
+		ProjectCode: "EXM",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	})
 	if err != nil || identifiers.ProjectCode != "EXM" {
 		t.Fatalf("adopt identifiers: %#v %v", identifiers, err)
 	}
@@ -37,27 +43,67 @@ func operatorService(t *testing.T) (*Service, string) {
 func TestOperatorRecordHistoryCheckpointAndNumericPagination(t *testing.T) {
 	s, revision := operatorService(t)
 	ctx := context.Background()
-	first, firstOp, err := s.OperatorRecord(ctx, OperatorRecordInput{ProjectID: "example", Kind: model.OperatorUserTalk, Summary: "first", Content: operatorContent("one"), References: operatorReferences(), Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+	first, firstOp, err := s.OperatorRecord(ctx, OperatorRecordInput{
+		ProjectID:  "example",
+		Kind:       model.OperatorUserTalk,
+		Summary:    "first",
+		Content:    operatorContent("one"),
+		References: operatorReferences(),
+		Actor:      "owner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	})
 	if err != nil || first.ID != "EXM-OPR1" || firstOp.Status != "recorded" {
 		t.Fatalf("first record: %#v %#v %v", first, firstOp, err)
 	}
-	second, secondOp, err := s.OperatorRecord(ctx, OperatorRecordInput{ProjectID: "example", Kind: model.OperatorTaskPlan, Summary: "second", Content: operatorContent("two"), References: operatorReferences(), Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: firstOp.Hub.After}})
+	second, secondOp, err := s.OperatorRecord(ctx, OperatorRecordInput{
+		ProjectID:  "example",
+		Kind:       model.OperatorTaskPlan,
+		Summary:    "second",
+		Content:    operatorContent("two"),
+		References: operatorReferences(),
+		Actor:      "owner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: firstOp.Hub.After,
+		},
+	})
 	if err != nil || second.ID != "EXM-OPR2" {
 		t.Fatalf("second record: %#v %v", second, err)
 	}
-	third, thirdOp, err := s.OperatorCheckpoint(ctx, OperatorCheckpointInput{ProjectID: "example", Summary: "checkpoint", Content: operatorContent("three"), References: operatorReferences(), Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: secondOp.Hub.After}})
+	third, thirdOp, err := s.OperatorCheckpoint(ctx, OperatorCheckpointInput{
+		ProjectID:  "example",
+		Summary:    "checkpoint",
+		Content:    operatorContent("three"),
+		References: operatorReferences(),
+		Actor:      "owner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: secondOp.Hub.After,
+		},
+	})
 	if err != nil || third.ID != "EXM-OPR3" || third.Kind != model.OperatorCheckpoint || thirdOp.Status != "checkpointed" {
 		t.Fatalf("checkpoint: %#v %#v %v", third, thirdOp, err)
 	}
-	page, err := s.OperatorHistory(ctx, OperatorHistoryInput{ProjectID: "example", Limit: 2})
+	page, err := s.OperatorHistory(ctx, OperatorHistoryInput{
+		ProjectID: "example",
+		Limit:     2,
+	})
 	if err != nil || len(page.Events) != 2 || page.Events[0].ID != "EXM-OPR1" || page.Events[1].ID != "EXM-OPR2" || !page.HasMore || page.NextAfterEventID != "EXM-OPR2" {
 		t.Fatalf("unexpected first history page: %#v %v", page, err)
 	}
-	after, err := s.OperatorHistory(ctx, OperatorHistoryInput{ProjectID: "example", AfterEventID: page.NextAfterEventID, Kind: model.OperatorCheckpoint, Limit: 10})
+	after, err := s.OperatorHistory(ctx, OperatorHistoryInput{
+		ProjectID:    "example",
+		AfterEventID: page.NextAfterEventID,
+		Kind:         model.OperatorCheckpoint,
+		Limit:        10,
+	})
 	if err != nil || len(after.Events) != 1 || after.Events[0].ID != "EXM-OPR3" {
 		t.Fatalf("unexpected filtered history page: %#v %v", after, err)
 	}
-	if _, err := s.OperatorHistory(ctx, OperatorHistoryInput{ProjectID: "example", AfterEventID: "OTHER-OPR1"}); err == nil {
+	if _, err := s.OperatorHistory(ctx, OperatorHistoryInput{
+		ProjectID:    "example",
+		AfterEventID: "OTHER-OPR1",
+	}); err == nil {
 		t.Fatal("cross-project history cursor accepted")
 	}
 	paths, err := s.Hub.List(ctx, s.operatorEventsPrefix("example"), ".json")
@@ -70,14 +116,44 @@ func TestOperatorRecordReservedKindsMissingIdentifiersAndNoOpFailClosed(t *testi
 	s, revision, _ := testServiceWithoutIdentifiers(t)
 	ctx := context.Background()
 	for _, kind := range []model.OperatorJournalKind{model.OperatorOperation, model.OperatorCheckpoint} {
-		if _, _, err := s.OperatorRecord(ctx, OperatorRecordInput{ProjectID: "example", Kind: kind, Summary: "reserved", Content: operatorContent("no"), References: operatorReferences(), Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: revision}}); err == nil {
+		if _, _, err := s.OperatorRecord(ctx, OperatorRecordInput{
+			ProjectID:  "example",
+			Kind:       kind,
+			Summary:    "reserved",
+			Content:    operatorContent("no"),
+			References: operatorReferences(),
+			Actor:      "owner",
+			WriteOptions: WriteOptions{
+				ExpectedHubRevision: revision,
+			},
+		}); err == nil {
 			t.Fatalf("reserved kind %q accepted", kind)
 		}
 	}
-	if _, _, err := s.OperatorRecord(ctx, OperatorRecordInput{ProjectID: "example", Kind: model.OperatorUserTalk, Summary: "empty", Content: model.OperatorJournalContent{}, References: operatorReferences(), Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: revision}}); err == nil {
+	if _, _, err := s.OperatorRecord(ctx, OperatorRecordInput{
+		ProjectID:  "example",
+		Kind:       model.OperatorUserTalk,
+		Summary:    "empty",
+		Content:    model.OperatorJournalContent{},
+		References: operatorReferences(),
+		Actor:      "owner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	}); err == nil {
 		t.Fatal("no-op record accepted")
 	}
-	if _, _, err := s.OperatorRecord(ctx, OperatorRecordInput{ProjectID: "example", Kind: model.OperatorUserTalk, Summary: "missing identifiers", Content: operatorContent("fact"), References: operatorReferences(), Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: revision}}); err == nil {
+	if _, _, err := s.OperatorRecord(ctx, OperatorRecordInput{
+		ProjectID:  "example",
+		Kind:       model.OperatorUserTalk,
+		Summary:    "missing identifiers",
+		Content:    operatorContent("fact"),
+		References: operatorReferences(),
+		Actor:      "owner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	}); err == nil {
 		t.Fatal("missing identifiers unexpectedly accepted")
 	}
 }
@@ -85,22 +161,64 @@ func TestOperatorRecordReservedKindsMissingIdentifiersAndNoOpFailClosed(t *testi
 func TestOperatorCorrectionAndStaleRevisionFailClosed(t *testing.T) {
 	s, revision := operatorService(t)
 	ctx := context.Background()
-	first, op, err := s.OperatorRecord(ctx, OperatorRecordInput{ProjectID: "example", Kind: model.OperatorTaskReview, Summary: "review", Content: operatorContent("reviewed"), References: operatorReferences(), Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+	first, op, err := s.OperatorRecord(ctx, OperatorRecordInput{
+		ProjectID:  "example",
+		Kind:       model.OperatorTaskReview,
+		Summary:    "review",
+		Content:    operatorContent("reviewed"),
+		References: operatorReferences(),
+		Actor:      "owner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	correction, correctionOp, err := s.OperatorRecord(ctx, OperatorRecordInput{ProjectID: "example", Kind: model.OperatorCorrection, Summary: "corrected review", Content: operatorContent("corrected"), References: operatorReferences(), SupersedesEventID: first.ID, Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: op.Hub.After}})
+	correction, correctionOp, err := s.OperatorRecord(ctx, OperatorRecordInput{
+		ProjectID:         "example",
+		Kind:              model.OperatorCorrection,
+		Summary:           "corrected review",
+		Content:           operatorContent("corrected"),
+		References:        operatorReferences(),
+		SupersedesEventID: first.ID,
+		Actor:             "owner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: op.Hub.After,
+		},
+	})
 	if err != nil || correction.ID != "EXM-OPR2" || correction.SupersedesEventID != first.ID {
 		t.Fatalf("correction failed: %#v %v", correction, err)
 	}
-	if _, _, err := s.OperatorRecord(ctx, OperatorRecordInput{ProjectID: "example", Kind: model.OperatorCorrection, Summary: "duplicate correction", Content: operatorContent("duplicate"), References: operatorReferences(), SupersedesEventID: first.ID, Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: correctionOp.Hub.After}}); err == nil {
+	if _, _, err := s.OperatorRecord(ctx, OperatorRecordInput{
+		ProjectID:         "example",
+		Kind:              model.OperatorCorrection,
+		Summary:           "duplicate correction",
+		Content:           operatorContent("duplicate"),
+		References:        operatorReferences(),
+		SupersedesEventID: first.ID,
+		Actor:             "owner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: correctionOp.Hub.After,
+		},
+	}); err == nil {
 		t.Fatal("already superseded target accepted")
 	}
 	before, err := s.Hub.RemoteRevision(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.OperatorRecord(ctx, OperatorRecordInput{ProjectID: "example", Kind: model.OperatorUserTalk, Summary: "stale", Content: operatorContent("stale"), References: operatorReferences(), Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: strings.Repeat("0", 40)}}); err == nil {
+	if _, _, err := s.OperatorRecord(ctx, OperatorRecordInput{
+		ProjectID:  "example",
+		Kind:       model.OperatorUserTalk,
+		Summary:    "stale",
+		Content:    operatorContent("stale"),
+		References: operatorReferences(),
+		Actor:      "owner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: strings.Repeat("0", 40),
+		},
+	}); err == nil {
 		t.Fatal("stale explicit revision accepted")
 	}
 	after, err := s.Hub.RemoteRevision(ctx)
@@ -120,7 +238,14 @@ func TestOperatorConcurrentUnpinnedRecordsAllocateUniqueOrderedIDs(t *testing.T)
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			event, _, err := s.OperatorRecord(ctx, OperatorRecordInput{ProjectID: "example", Kind: model.OperatorReasoningSummary, Summary: "concurrent", Content: operatorContent("record"), References: operatorReferences(), Actor: "owner"})
+			event, _, err := s.OperatorRecord(ctx, OperatorRecordInput{
+				ProjectID:  "example",
+				Kind:       model.OperatorReasoningSummary,
+				Summary:    "concurrent",
+				Content:    operatorContent("record"),
+				References: operatorReferences(),
+				Actor:      "owner",
+			})
 			if err != nil {
 				errs <- err
 				return
@@ -148,7 +273,10 @@ func TestOperatorConcurrentUnpinnedRecordsAllocateUniqueOrderedIDs(t *testing.T)
 			t.Fatalf("allocated IDs=%v, want=%v", allocated, want)
 		}
 	}
-	history, err := s.OperatorHistory(ctx, OperatorHistoryInput{ProjectID: "example", Limit: count})
+	history, err := s.OperatorHistory(ctx, OperatorHistoryInput{
+		ProjectID: "example",
+		Limit:     count,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +292,17 @@ func TestOperatorConcurrentUnpinnedCorrectionsAllocateUniqueOrderedIDs(t *testin
 	ctx := context.Background()
 	targets := make([]string, 4)
 	for i := range targets {
-		event, operation, err := s.OperatorRecord(ctx, OperatorRecordInput{ProjectID: "example", Kind: model.OperatorTaskReview, Summary: "review", Content: operatorContent("review"), References: operatorReferences(), Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+		event, operation, err := s.OperatorRecord(ctx, OperatorRecordInput{
+			ProjectID:  "example",
+			Kind:       model.OperatorTaskReview,
+			Summary:    "review",
+			Content:    operatorContent("review"),
+			References: operatorReferences(),
+			Actor:      "owner",
+			WriteOptions: WriteOptions{
+				ExpectedHubRevision: revision,
+			},
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -177,7 +315,15 @@ func TestOperatorConcurrentUnpinnedCorrectionsAllocateUniqueOrderedIDs(t *testin
 		wg.Add(1)
 		go func(target string) {
 			defer wg.Done()
-			event, _, err := s.OperatorRecord(ctx, OperatorRecordInput{ProjectID: "example", Kind: model.OperatorCorrection, Summary: "correction", Content: operatorContent("correction"), References: operatorReferences(), SupersedesEventID: target, Actor: "owner"})
+			event, _, err := s.OperatorRecord(ctx, OperatorRecordInput{
+				ProjectID:         "example",
+				Kind:              model.OperatorCorrection,
+				Summary:           "correction",
+				Content:           operatorContent("correction"),
+				References:        operatorReferences(),
+				SupersedesEventID: target,
+				Actor:             "owner",
+			})
 			if err != nil {
 				errs <- err
 				return
@@ -247,7 +393,17 @@ func TestOperatorRecordDoesNotOverwriteExistingEventOrAdvanceCounter(t *testing.
 		t.Fatal(err)
 	}
 	beforeRevision := revision
-	if _, _, err := s.OperatorRecord(context.Background(), OperatorRecordInput{ProjectID: "example", Kind: model.OperatorUserTalk, Summary: "overwrite", Content: operatorContent("attempt"), References: operatorReferences(), Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: revision}}); err == nil {
+	if _, _, err := s.OperatorRecord(context.Background(), OperatorRecordInput{
+		ProjectID:  "example",
+		Kind:       model.OperatorUserTalk,
+		Summary:    "overwrite",
+		Content:    operatorContent("attempt"),
+		References: operatorReferences(),
+		Actor:      "owner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	}); err == nil {
 		t.Fatal("existing event target was overwritten")
 	}
 	afterRevision, err := s.Hub.RemoteRevision(context.Background())
@@ -271,7 +427,17 @@ func TestOperatorRecordDoesNotOverwriteExistingEventOrAdvanceCounter(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	valid, _, err := s.OperatorRecord(context.Background(), OperatorRecordInput{ProjectID: "example", Kind: model.OperatorUserTalk, Summary: "next", Content: operatorContent("valid"), References: operatorReferences(), Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: cleanup.After}})
+	valid, _, err := s.OperatorRecord(context.Background(), OperatorRecordInput{
+		ProjectID:  "example",
+		Kind:       model.OperatorUserTalk,
+		Summary:    "next",
+		Content:    operatorContent("valid"),
+		References: operatorReferences(),
+		Actor:      "owner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: cleanup.After,
+		},
+	})
 	if err != nil || valid.ID != "EXM-OPR1" {
 		t.Fatalf("next allocation changed after rejected overwrite: event=%#v err=%v", valid, err)
 	}
@@ -297,7 +463,17 @@ func TestOperatorMaxCounterAllocatesOnceAndCannotReuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, operation, err := s.OperatorRecord(context.Background(), OperatorRecordInput{ProjectID: "example", Kind: model.OperatorUserTalk, Summary: "max", Content: operatorContent("max"), References: operatorReferences(), Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: tx.After}})
+	first, operation, err := s.OperatorRecord(context.Background(), OperatorRecordInput{
+		ProjectID:  "example",
+		Kind:       model.OperatorUserTalk,
+		Summary:    "max",
+		Content:    operatorContent("max"),
+		References: operatorReferences(),
+		Actor:      "owner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: tx.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +482,17 @@ func TestOperatorMaxCounterAllocatesOnceAndCannotReuse(t *testing.T) {
 		t.Fatalf("first max allocation=%s want=%s err=%v", first.ID, wantID, err)
 	}
 	beforeRetryRevision := operation.Hub.After
-	if _, _, err := s.OperatorRecord(context.Background(), OperatorRecordInput{ProjectID: "example", Kind: model.OperatorUserTalk, Summary: "reuse", Content: operatorContent("reuse"), References: operatorReferences(), Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: beforeRetryRevision}}); err == nil {
+	if _, _, err := s.OperatorRecord(context.Background(), OperatorRecordInput{
+		ProjectID:  "example",
+		Kind:       model.OperatorUserTalk,
+		Summary:    "reuse",
+		Content:    operatorContent("reuse"),
+		References: operatorReferences(),
+		Actor:      "owner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: beforeRetryRevision,
+		},
+	}); err == nil {
 		t.Fatal("max operator counter was reused")
 	}
 	afterRetryRevision, err := s.Hub.RemoteRevision(context.Background())
@@ -328,7 +514,10 @@ func TestOperatorMaxCounterAllocatesOnceAndCannotReuse(t *testing.T) {
 func TestOperatorHistoryRejectsFilenameBodyMismatch(t *testing.T) {
 	s, revision := operatorService(t)
 	installOperatorEventFixture(t, s, revision, s.operatorEventPath("example", "EXM-OPR1"), operatorTestEvent("EXM-OPR2", "example"), 3)
-	if _, err := s.OperatorHistory(context.Background(), OperatorHistoryInput{ProjectID: "example", Limit: 10}); err == nil {
+	if _, err := s.OperatorHistory(context.Background(), OperatorHistoryInput{
+		ProjectID: "example",
+		Limit:     10,
+	}); err == nil {
 		t.Fatal("history accepted filename/body event identity mismatch")
 	}
 }
@@ -336,7 +525,18 @@ func TestOperatorHistoryRejectsFilenameBodyMismatch(t *testing.T) {
 func TestOperatorCorrectionRejectsFilenameBodyMismatch(t *testing.T) {
 	s, revision := operatorService(t)
 	installOperatorEventFixture(t, s, revision, s.operatorEventPath("example", "EXM-OPR1"), operatorTestEvent("EXM-OPR2", "example"), 2)
-	if _, _, err := s.OperatorRecord(context.Background(), OperatorRecordInput{ProjectID: "example", Kind: model.OperatorCorrection, Summary: "correct", Content: operatorContent("correction"), References: operatorReferences(), SupersedesEventID: "EXM-OPR1", Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: revision}}); err == nil {
+	if _, _, err := s.OperatorRecord(context.Background(), OperatorRecordInput{
+		ProjectID:         "example",
+		Kind:              model.OperatorCorrection,
+		Summary:           "correct",
+		Content:           operatorContent("correction"),
+		References:        operatorReferences(),
+		SupersedesEventID: "EXM-OPR1",
+		Actor:             "owner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	}); err == nil {
 		t.Fatal("correction accepted filename/body target mismatch")
 	}
 }
@@ -345,7 +545,17 @@ func TestOperatorReferencesBindCompactADRToProjectCode(t *testing.T) {
 	s, revision := operatorService(t)
 	ctx := context.Background()
 	for _, adr := range []string{"EXM-ADR1"} {
-		event, operation, err := s.OperatorRecord(ctx, OperatorRecordInput{ProjectID: "example", Kind: model.OperatorUserTalk, Summary: "adr", Content: operatorContent("reference"), References: model.OperatorJournalReferences{ADRs: []string{adr}}, Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+		event, operation, err := s.OperatorRecord(ctx, OperatorRecordInput{
+			ProjectID:  "example",
+			Kind:       model.OperatorUserTalk,
+			Summary:    "adr",
+			Content:    operatorContent("reference"),
+			References: model.OperatorJournalReferences{ADRs: []string{adr}},
+			Actor:      "owner",
+			WriteOptions: WriteOptions{
+				ExpectedHubRevision: revision,
+			},
+		})
 		if err != nil {
 			t.Fatalf("ADR %q rejected: %v", adr, err)
 		}
@@ -355,7 +565,17 @@ func TestOperatorReferencesBindCompactADRToProjectCode(t *testing.T) {
 		}
 	}
 	for _, adr := range []string{"ADR-legacy", "EXM-A1", "XYZ-ADR1", "EXM-ADR0", "EXM-ADR9007199254740992"} {
-		if _, _, err := s.OperatorRecord(ctx, OperatorRecordInput{ProjectID: "example", Kind: model.OperatorUserTalk, Summary: "adr", Content: operatorContent("reference"), References: model.OperatorJournalReferences{ADRs: []string{adr}}, Actor: "owner", WriteOptions: WriteOptions{ExpectedHubRevision: revision}}); err == nil {
+		if _, _, err := s.OperatorRecord(ctx, OperatorRecordInput{
+			ProjectID:  "example",
+			Kind:       model.OperatorUserTalk,
+			Summary:    "adr",
+			Content:    operatorContent("reference"),
+			References: model.OperatorJournalReferences{ADRs: []string{adr}},
+			Actor:      "owner",
+			WriteOptions: WriteOptions{
+				ExpectedHubRevision: revision,
+			},
+		}); err == nil {
 			t.Fatalf("invalid ADR %q accepted", adr)
 		}
 	}

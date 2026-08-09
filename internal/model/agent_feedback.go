@@ -177,9 +177,21 @@ func ParseAgentFeedback(data []byte) (AgentFeedback, error) {
 		if err != nil {
 			return AgentFeedback{}, err
 		}
-		candidates = append(candidates, AgentFeedbackToolCandidate{Problem: problem, ProposedTool: proposedTool, ExpectedReuse: expectedReuse, ExpectedSaving: expectedSaving, SafetyBoundary: safetyBoundary})
+		candidates = append(candidates, AgentFeedbackToolCandidate{
+			Problem:        problem,
+			ProposedTool:   proposedTool,
+			ExpectedReuse:  expectedReuse,
+			ExpectedSaving: expectedSaving,
+			SafetyBoundary: safetyBoundary,
+		})
 	}
-	value := AgentFeedback{Summary: summary, Friction: friction, Improvements: improvements, ToolCandidates: candidates, NoneObserved: noneObserved}
+	value := AgentFeedback{
+		Summary:        summary,
+		Friction:       friction,
+		Improvements:   improvements,
+		ToolCandidates: candidates,
+		NoneObserved:   noneObserved,
+	}
 	if err := ValidateAgentFeedback(value); err != nil {
 		return AgentFeedback{}, err
 	}

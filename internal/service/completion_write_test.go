@@ -86,14 +86,22 @@ func TestRunFinalizePersistsAndReadsAgentFeedback(t *testing.T) {
 	completion := validCompletion(task, run)
 	completion.AgentFeedback = &feedback
 	input := completionInput(t, t.TempDir(), completion)
-	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: input}); err != nil {
+	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+		RunID:          run.ID,
+		CompletionFile: input,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	revision, err := s.Hub.RemoteRevision(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.RunFinalize(context.Background(), FinalizeInput{RunID: run.ID, WriteOptions: WriteOptions{ExpectedHubRevision: revision}}); err != nil {
+	if _, _, err := s.RunFinalize(context.Background(), FinalizeInput{
+		RunID: run.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	read, err := s.RunReport(context.Background(), run.ID)
@@ -167,7 +175,10 @@ func TestRunWriteCompletionAcceptsHistoricalTaskHashProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	input := completionInput(t, t.TempDir(), validCompletion(task, run))
-	result, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: input})
+	result, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+		RunID:          run.ID,
+		CompletionFile: input,
+	})
 	if err != nil {
 		t.Fatalf("canonical completion writer rejected legacy task hash: %v", err)
 	}
@@ -190,7 +201,10 @@ func TestRunWriteCompletionUsesAuthoritativeTaskRunAndCompletionPath(t *testing.
 		t.Fatal(err)
 	}
 
-	result, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: input})
+	result, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+		RunID:          run.ID,
+		CompletionFile: input,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +218,10 @@ func TestRunWriteCompletionUsesAuthoritativeTaskRunAndCompletionPath(t *testing.
 		t.Fatalf("caller-selected local authority was used: %v", err)
 	}
 
-	again, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: input})
+	again, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+		RunID:          run.ID,
+		CompletionFile: input,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +236,10 @@ func TestRunWriteCompletionRejectsForgedIdentityAndDestinationEscape(t *testing.
 	bad := validCompletion(task, run)
 	bad.TaskSHA256 = strings.Repeat("a", 64)
 	badInput := completionInput(t, dir, bad)
-	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: badInput}); err == nil {
+	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+		RunID:          run.ID,
+		CompletionFile: badInput,
+	}); err == nil {
 		t.Fatal("forged completion task hash was accepted")
 	}
 	if _, err := os.Stat(run.CompletionPath); !os.IsNotExist(err) {
@@ -235,7 +255,10 @@ func TestRunWriteCompletionRejectsForgedIdentityAndDestinationEscape(t *testing.
 	}
 	defer os.Remove(run.CompletionPath)
 	goodInput := completionInput(t, dir, validCompletion(task, run))
-	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: goodInput}); err == nil || !strings.Contains(err.Error(), "completion") {
+	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+		RunID:          run.ID,
+		CompletionFile: goodInput,
+	}); err == nil || !strings.Contains(err.Error(), "completion") {
 		t.Fatalf("completion symlink was not rejected: %v", err)
 	}
 	content, err := os.ReadFile(outside)
@@ -251,7 +274,10 @@ func TestRunWriteCompletionRejectsConflictingContentAndInvalidJSON(t *testing.T)
 	s, task, run, _ := dispatchedRun(t, "receipt-conflict")
 	dir := t.TempDir()
 	goodInput := completionInput(t, dir, validCompletion(task, run))
-	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: goodInput}); err != nil {
+	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+		RunID:          run.ID,
+		CompletionFile: goodInput,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	original, err := os.ReadFile(run.CompletionPath)
@@ -261,7 +287,10 @@ func TestRunWriteCompletionRejectsConflictingContentAndInvalidJSON(t *testing.T)
 	changed := validCompletion(task, run)
 	changed.Summary = "different canonical receipt"
 	changedInput := completionInput(t, dir, changed)
-	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: changedInput}); err == nil || !strings.Contains(err.Error(), "different content") {
+	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+		RunID:          run.ID,
+		CompletionFile: changedInput,
+	}); err == nil || !strings.Contains(err.Error(), "different content") {
 		t.Fatalf("conflicting receipt was not rejected: %v", err)
 	}
 	current, err := os.ReadFile(run.CompletionPath)
@@ -276,7 +305,10 @@ func TestRunWriteCompletionRejectsConflictingContentAndInvalidJSON(t *testing.T)
 	if err := os.WriteFile(invalidInput, []byte(`{"schema_version":1,"run_id":"`+run.ID+`","run_id":"duplicate"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: invalidInput}); err == nil {
+	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+		RunID:          run.ID,
+		CompletionFile: invalidInput,
+	}); err == nil {
 		t.Fatal("duplicate completion fields were accepted")
 	}
 
@@ -319,7 +351,10 @@ func TestRunWriteCompletionRejectsCompletionPathOutsideState(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: input}); err == nil || !strings.Contains(err.Error(), "canonical Run-specific path") {
+		if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+			RunID:          run.ID,
+			CompletionFile: input,
+		}); err == nil || !strings.Contains(err.Error(), "canonical Run-specific path") {
 			t.Fatalf("noncanonical completion path was not rejected: %v", err)
 		}
 	}
@@ -345,7 +380,10 @@ func TestRunWriteCompletionRejectsOwnershipAndTaskHashMismatch(t *testing.T) {
 			t.Fatal(err)
 		}
 		input := completionInput(t, dir, validCompletion(task, run))
-		if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: input}); err == nil || !strings.Contains(err.Error(), "assigned") {
+		if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+			RunID:          run.ID,
+			CompletionFile: input,
+		}); err == nil || !strings.Contains(err.Error(), "assigned") {
 			t.Fatalf("run ownership mismatch was not rejected: %v", err)
 		}
 	})
@@ -369,7 +407,10 @@ func TestRunWriteCompletionRejectsOwnershipAndTaskHashMismatch(t *testing.T) {
 			t.Fatal(err)
 		}
 		input := completionInput(t, dir, validCompletion(task, run))
-		if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: input}); err == nil || !strings.Contains(err.Error(), "identity") {
+		if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+			RunID:          run.ID,
+			CompletionFile: input,
+		}); err == nil || !strings.Contains(err.Error(), "identity") {
 			t.Fatalf("run task hash mismatch was not rejected: %v", err)
 		}
 	})
@@ -383,7 +424,10 @@ func TestRunWriteCompletionRejectsInputSymlinkNonFiniteAndOversize(t *testing.T)
 	if err := os.Symlink(goodInput, inputLink); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: inputLink}); err == nil || !strings.Contains(err.Error(), "non-symlink") {
+	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+		RunID:          run.ID,
+		CompletionFile: inputLink,
+	}); err == nil || !strings.Contains(err.Error(), "non-symlink") {
 		t.Fatalf("completion input symlink was not rejected: %v", err)
 	}
 
@@ -392,7 +436,10 @@ func TestRunWriteCompletionRejectsInputSymlinkNonFiniteAndOversize(t *testing.T)
 	if err := os.WriteFile(nonFinite, []byte(nonFiniteJSON), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: nonFinite}); err == nil {
+	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+		RunID:          run.ID,
+		CompletionFile: nonFinite,
+	}); err == nil {
 		t.Fatal("non-finite completion value was accepted")
 	}
 
@@ -401,7 +448,10 @@ func TestRunWriteCompletionRejectsInputSymlinkNonFiniteAndOversize(t *testing.T)
 	if err := os.WriteFile(oversize, []byte(strings.Repeat("x", 129)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: oversize}); err == nil || !strings.Contains(err.Error(), "exceeds") {
+	if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+		RunID:          run.ID,
+		CompletionFile: oversize,
+	}); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("oversized completion was not rejected: %v", err)
 	}
 }
@@ -425,7 +475,10 @@ func TestRunWriteCompletionFailsClosedOnDirectoryDurabilityErrors(t *testing.T) 
 			s, task, run, _ := dispatchedRun(t, "receipt-durability-"+test.name)
 			dir := t.TempDir()
 			input := completionInput(t, dir, validCompletion(task, run))
-			fake := &fakeCompletionDirectory{syncErr: test.syncErr, closeErr: test.closeErr}
+			fake := &fakeCompletionDirectory{
+				syncErr:  test.syncErr,
+				closeErr: test.closeErr,
+			}
 			previous := completionOpenDirectory
 			completionOpenDirectory = func(string) (completionDirectory, error) {
 				if test.openErr != nil {
@@ -434,7 +487,10 @@ func TestRunWriteCompletionFailsClosedOnDirectoryDurabilityErrors(t *testing.T) 
 				return fake, nil
 			}
 			t.Cleanup(func() { completionOpenDirectory = previous })
-			if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{RunID: run.ID, CompletionFile: input}); err == nil || !strings.Contains(err.Error(), test.want) {
+			if _, err := s.RunWriteCompletion(context.Background(), CompletionWriteInput{
+				RunID:          run.ID,
+				CompletionFile: input,
+			}); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("directory durability failure was not returned: %v", err)
 			}
 			installed, err := os.ReadFile(run.CompletionPath)

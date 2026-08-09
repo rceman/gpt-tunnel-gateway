@@ -17,7 +17,11 @@ func TestPromptUsesFixedArgumentVector(t *testing.T) {
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	c := Client{
+		Command:         script,
+		Timeout:         time.Second,
+		MaxMessageBytes: 256,
+	}
 	if _, err := c.Prompt(context.Background(), "project_master", "Read task and execute it."); err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +46,11 @@ func TestTailUsesExactArgumentsAndNormalizesFixture(t *testing.T) {
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	c := Client{
+		Command:         script,
+		Timeout:         time.Second,
+		MaxMessageBytes: 256,
+	}
 	result, err := c.Tail(context.Background(), "project_master", 4)
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +79,11 @@ func TestTailExplicitLinesAndFailuresAreBounded(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf 'tail output\\n'; exit 7\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	c := Client{
+		Command:         script,
+		Timeout:         time.Second,
+		MaxMessageBytes: 256,
+	}
 	if _, err := c.Tail(context.Background(), "project_master", 7); err == nil || !strings.Contains(err.Error(), "tail failed") {
 		t.Fatalf("non-zero tail not rejected: %v", err)
 	}
@@ -88,7 +100,11 @@ func TestTailWithSkipUsesOneBoundedRequest(t *testing.T) {
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	c := Client{
+		Command:         script,
+		Timeout:         time.Second,
+		MaxMessageBytes: 256,
+	}
 	result, err := c.TailWithSkip(context.Background(), "project_master", 4, 2)
 	if err != nil || result.Stdout != "one\ntwo\nthree\nfour\n" {
 		t.Fatalf("tail window=%q err=%v", result.Stdout, err)
@@ -109,7 +125,11 @@ func TestStatusParsesStateAndCapacityWarnings(t *testing.T) {
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	c := Client{
+		Command:         script,
+		Timeout:         time.Second,
+		MaxMessageBytes: 256,
+	}
 	status, err := c.Status(context.Background(), "project_master")
 	if err != nil || status.State != "running" || !status.ControllerReachable || status.AirelayVersion != "0.1.54" || status.ProtocolVersion != "1" || len(status.CapacityWarnings) != 2 || status.ExitCode != 0 {
 		t.Fatalf("status=%#v err=%v", status, err)
@@ -123,7 +143,11 @@ func TestStatusParsesAirelay054FreeStateAsIdle(t *testing.T) {
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	c := Client{
+		Command:         script,
+		Timeout:         time.Second,
+		MaxMessageBytes: 256,
+	}
 	status, err := c.Status(context.Background(), "project_master")
 	if err != nil || status.State != "idle" || !status.ControllerReachable || status.AirelayVersion != "0.1.54" || status.ProtocolVersion != "1" || status.ExitCode != 0 {
 		t.Fatalf("status=%#v err=%v", status, err)
@@ -136,7 +160,11 @@ func TestStatusPreservesNonZeroExitAsErrorState(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf 'State: idle\\n'; exit 7\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	c := Client{
+		Command:         script,
+		Timeout:         time.Second,
+		MaxMessageBytes: 256,
+	}
 	status, err := c.Status(context.Background(), "project_master")
 	if err != nil || status.State != "error" || status.ExitCode != 7 || status.Error == "" {
 		t.Fatalf("status=%#v err=%v", status, err)
@@ -149,7 +177,11 @@ func TestTailTimeoutDoesNotExposeSession(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 2\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	c := Client{Command: script, Timeout: 10 * time.Millisecond, MaxMessageBytes: 256}
+	c := Client{
+		Command:         script,
+		Timeout:         10 * time.Millisecond,
+		MaxMessageBytes: 256,
+	}
 	_, err := c.Tail(context.Background(), "secret_session", 4)
 	if err == nil || !strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "secret_session") {
 		t.Fatalf("bad timeout error: %v", err)
@@ -162,7 +194,11 @@ func TestTailRejectsEmptyAndOversizedOutput(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nif [ \"$2\" = empty ]; then exit 0; fi\nyes x | head -c 20000\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	c := Client{
+		Command:         script,
+		Timeout:         time.Second,
+		MaxMessageBytes: 256,
+	}
 	if _, err := c.Tail(context.Background(), "empty", 4); err == nil || !strings.Contains(err.Error(), "no output") {
 		t.Fatalf("empty output not rejected: %v", err)
 	}

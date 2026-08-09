@@ -102,7 +102,12 @@ func (c *TaskRunCounter) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("next_run_number: %w", err)
 	}
-	*c = TaskRunCounter{SchemaVersion: int(schemaVersion), ProjectID: projectID, TaskID: taskID, NextRunNumber: next}
+	*c = TaskRunCounter{
+		SchemaVersion: int(schemaVersion),
+		ProjectID:     projectID,
+		TaskID:        taskID,
+		NextRunNumber: next,
+	}
 	return nil
 }
 
@@ -146,7 +151,13 @@ func (p *ProjectIdentifiers) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("next_adr_number: %w", err)
 	}
-	*p = ProjectIdentifiers{SchemaVersion: int(schemaVersion), ProjectID: projectID, ProjectCode: projectCode, NextTaskNumber: nextTaskNumber, NextADRNumber: nextADRNumber}
+	*p = ProjectIdentifiers{
+		SchemaVersion:  int(schemaVersion),
+		ProjectID:      projectID,
+		ProjectCode:    projectCode,
+		NextTaskNumber: nextTaskNumber,
+		NextADRNumber:  nextADRNumber,
+	}
 	return nil
 }
 
@@ -256,7 +267,20 @@ func (p Plan) StatusView() PlanStatus {
 	for _, section := range p.Sections {
 		sections = append(sections, fmt.Sprintf("* %s - %s", section.Title, section.ShortDescription))
 	}
-	return PlanStatus{SchemaVersion: p.SchemaVersion, ProjectID: p.ProjectID, Revision: p.Revision, Title: p.Title, Summary: p.Summary, CurrentObjective: p.CurrentObjective, Queue: append([]string{}, p.Queue...), Sections: sections, ActiveTaskID: p.ActiveTaskID, ActiveRunID: p.ActiveRunID, UpdatedBy: p.UpdatedBy, UpdatedAt: p.UpdatedAt}
+	return PlanStatus{
+		SchemaVersion:    p.SchemaVersion,
+		ProjectID:        p.ProjectID,
+		Revision:         p.Revision,
+		Title:            p.Title,
+		Summary:          p.Summary,
+		CurrentObjective: p.CurrentObjective,
+		Queue:            append([]string{}, p.Queue...),
+		Sections:         sections,
+		ActiveTaskID:     p.ActiveTaskID,
+		ActiveRunID:      p.ActiveRunID,
+		UpdatedBy:        p.UpdatedBy,
+		UpdatedAt:        p.UpdatedAt,
+	}
 }
 
 type ADR struct {
@@ -539,7 +563,12 @@ func ValidatePlanSection(v PlanSection) error {
 	if v.SchemaVersion != PlanSchemaVersion || !idRE.MatchString(v.ProjectID) {
 		return fmt.Errorf("invalid plan section identity")
 	}
-	if err := ValidatePlanSectionIndex(PlanSectionIndex{ID: v.ID, Title: v.Title, ShortDescription: v.ShortDescription, Revision: v.Revision}); err != nil {
+	if err := ValidatePlanSectionIndex(PlanSectionIndex{
+		ID:               v.ID,
+		Title:            v.Title,
+		ShortDescription: v.ShortDescription,
+		Revision:         v.Revision,
+	}); err != nil {
 		return err
 	}
 	if len(v.Description) > 200000 || strings.ContainsRune(v.Description, 0) || v.UpdatedBy == "" || strings.ContainsAny(v.UpdatedBy, "\r\n\x00") || v.UpdatedAt.IsZero() {
@@ -584,7 +613,15 @@ func ValidateTask(v Task) error {
 		return fmt.Errorf("too many task entries")
 	}
 	if v.OperationClass != "" {
-		effective := EffectiveWorkflowPolicy{WorkflowPolicyRevision: v.WorkflowPolicyRevision, OperationClass: v.OperationClass, EffectiveCIField: v.EffectiveCIField, EffectiveCIMode: v.EffectiveCIMode, WaitForCI: v.WaitForCI, CIBlocking: v.CIBlocking, AgentMayWait: v.AgentMayWait}
+		effective := EffectiveWorkflowPolicy{
+			WorkflowPolicyRevision: v.WorkflowPolicyRevision,
+			OperationClass:         v.OperationClass,
+			EffectiveCIField:       v.EffectiveCIField,
+			EffectiveCIMode:        v.EffectiveCIMode,
+			WaitForCI:              v.WaitForCI,
+			CIBlocking:             v.CIBlocking,
+			AgentMayWait:           v.AgentMayWait,
+		}
 		if err := ValidateEffectiveWorkflowPolicy(effective); err != nil {
 			return err
 		}

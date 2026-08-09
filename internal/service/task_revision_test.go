@@ -15,9 +15,16 @@ import (
 func TestTaskRevisionListReadAndStatusExposeStableRevisionOne(t *testing.T) {
 	s, hubRevision, _ := testService(t)
 	task, result, err := s.TaskCreate(context.Background(), TaskCreateInput{
-		ProjectID: "example", Title: "Revision listing", Objective: "Read stable task revisions.",
-		Slug: "revision-listing", AcceptanceCriteria: []string{"read"}, OperationClass: "implementation",
-		CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+		ProjectID:          "example",
+		Title:              "Revision listing",
+		Objective:          "Read stable task revisions.",
+		Slug:               "revision-listing",
+		AcceptanceCriteria: []string{"read"},
+		OperationClass:     "implementation",
+		CreatedBy:          "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -68,12 +75,22 @@ func TestTaskCorrectionCreateAppendsRevisionWithoutRewritingRootOrDelivery(t *te
 		{"next_action", `"publish one bounded correction"`},
 	}
 	for _, section := range sections {
-		draft, err = s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{TaskID: task.ID, RunID: run.ID, SectionID: section.id, ExpectedDraftRevision: draft.DraftRevision, Payload: []byte(section.payload)})
+		draft, err = s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{
+			TaskID:                task.ID,
+			RunID:                 run.ID,
+			SectionID:             section.id,
+			ExpectedDraftRevision: draft.DraftRevision,
+			Payload:               []byte(section.payload),
+		})
 		if err != nil {
 			t.Fatalf("update %s: %v", section.id, err)
 		}
 	}
-	delivery, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{TaskID: task.ID, RunID: run.ID, ExpectedDraftRevision: draft.DraftRevision})
+	delivery, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{
+		TaskID:                task.ID,
+		RunID:                 run.ID,
+		ExpectedDraftRevision: draft.DraftRevision,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +110,17 @@ func TestTaskCorrectionCreateAppendsRevisionWithoutRewritingRootOrDelivery(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	revision, operation, err := s.TaskCorrectionCreate(ctx, TaskCorrectionCreateInput{TaskID: task.ID, SourceRevisionID: task.ID + ".REV1", SourceRunID: run.ID, SourceReportID: delivery.ID, Objective: "Corrected bounded objective.", CreatedBy: "delivery", WriteOptions: WriteOptions{ExpectedHubRevision: current}})
+	revision, operation, err := s.TaskCorrectionCreate(ctx, TaskCorrectionCreateInput{
+		TaskID:           task.ID,
+		SourceRevisionID: task.ID + ".REV1",
+		SourceRunID:      run.ID,
+		SourceReportID:   delivery.ID,
+		Objective:        "Corrected bounded objective.",
+		CreatedBy:        "delivery",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: current,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,20 +171,36 @@ func TestTaskCorrectionDispatchPinsReviewedHeadAfterCanonicalAdvance(t *testing.
 		{"prohibited_actions", `[]`},
 		{"next_action", `"dispatch the bounded correction"`},
 	} {
-		draft, err = s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{TaskID: task.ID, RunID: run.ID, SectionID: section.id, ExpectedDraftRevision: draft.DraftRevision, Payload: []byte(section.payload)})
+		draft, err = s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{
+			TaskID:                task.ID,
+			RunID:                 run.ID,
+			SectionID:             section.id,
+			ExpectedDraftRevision: draft.DraftRevision,
+			Payload:               []byte(section.payload),
+		})
 		if err != nil {
 			t.Fatalf("update %s: %v", section.id, err)
 		}
 	}
-	delivery, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{TaskID: task.ID, RunID: run.ID, ExpectedDraftRevision: draft.DraftRevision})
+	delivery, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{
+		TaskID:                task.ID,
+		RunID:                 run.ID,
+		ExpectedDraftRevision: draft.DraftRevision,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	current := installTaskLifecycleState(t, s, task, model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "ready", UpdatedAt: time.Now().UTC()}, delivery.HubCommit)
 	revision, correctionOp, err := s.TaskCorrectionCreate(ctx, TaskCorrectionCreateInput{
-		TaskID: task.ID, SourceRevisionID: task.ID + ".REV1", SourceRunID: run.ID, SourceReportID: delivery.ID,
-		Objective: "Dispatch the reviewed correction from its reviewed source head.", CreatedBy: "delivery",
-		WriteOptions: WriteOptions{ExpectedHubRevision: current},
+		TaskID:           task.ID,
+		SourceRevisionID: task.ID + ".REV1",
+		SourceRunID:      run.ID,
+		SourceReportID:   delivery.ID,
+		Objective:        "Dispatch the reviewed correction from its reviewed source head.",
+		CreatedBy:        "delivery",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: current,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -186,14 +229,25 @@ func TestTaskCorrectionDispatchPinsReviewedHeadAfterCanonicalAdvance(t *testing.
 		t.Fatal(err)
 	}
 	activated, err := s.PlanUpdate(ctx, PlanUpdateInput{
-		ProjectID: task.ProjectID, Title: planString(plan.Title), Summary: planString(plan.Summary), CurrentObjective: planString(plan.CurrentObjective),
-		ActiveTaskID: planString(task.ID), UpdatedBy: "test",
-		WriteOptions: WriteOptions{ExpectedHubRevision: correctionOp.Hub.After},
+		ProjectID:        task.ProjectID,
+		Title:            planString(plan.Title),
+		Summary:          planString(plan.Summary),
+		CurrentObjective: planString(plan.CurrentObjective),
+		ActiveTaskID:     planString(task.ID),
+		UpdatedBy:        "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: correctionOp.Hub.After,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatched, _, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: activated.Hub.After}})
+	dispatched, _, err := s.TaskDispatch(ctx, DispatchInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: activated.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,20 +286,36 @@ func TestTaskCorrectionCreateAcceptsRejectedNeedsCorrectionReport(t *testing.T) 
 		{"next_action", `"create the bounded correction revision"`},
 	}
 	for _, section := range sections {
-		draft, err = s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{TaskID: task.ID, RunID: run.ID, SectionID: section.id, ExpectedDraftRevision: draft.DraftRevision, Payload: []byte(section.payload)})
+		draft, err = s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{
+			TaskID:                task.ID,
+			RunID:                 run.ID,
+			SectionID:             section.id,
+			ExpectedDraftRevision: draft.DraftRevision,
+			Payload:               []byte(section.payload),
+		})
 		if err != nil {
 			t.Fatalf("update %s: %v", section.id, err)
 		}
 	}
-	delivery, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{TaskID: task.ID, RunID: run.ID, ExpectedDraftRevision: draft.DraftRevision})
+	delivery, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{
+		TaskID:                task.ID,
+		RunID:                 run.ID,
+		ExpectedDraftRevision: draft.DraftRevision,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	current := installTaskLifecycleState(t, s, task, model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "ready", UpdatedAt: time.Now().UTC()}, delivery.HubCommit)
 	revision, operation, err := s.TaskCorrectionCreate(ctx, TaskCorrectionCreateInput{
-		TaskID: task.ID, SourceRevisionID: task.ID + ".REV1", SourceRunID: run.ID, SourceReportID: delivery.ID,
-		Objective: "Correct the rejected review finding.", CreatedBy: "delivery",
-		WriteOptions: WriteOptions{ExpectedHubRevision: current},
+		TaskID:           task.ID,
+		SourceRevisionID: task.ID + ".REV1",
+		SourceRunID:      run.ID,
+		SourceReportID:   delivery.ID,
+		Objective:        "Correct the rejected review finding.",
+		CreatedBy:        "delivery",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: current,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -259,9 +329,15 @@ func TestTaskCorrectionCreateAcceptsRejectedNeedsCorrectionReport(t *testing.T) 
 		t.Fatal(err)
 	}
 	if _, _, err := s.TaskCorrectionCreate(ctx, TaskCorrectionCreateInput{
-		TaskID: task.ID, SourceRevisionID: task.ID + ".REV1", SourceRunID: run.ID, SourceReportID: task.ID + "-wrong-report",
-		Objective: "Must reject wrong report binding.", CreatedBy: "delivery",
-		WriteOptions: WriteOptions{ExpectedHubRevision: current},
+		TaskID:           task.ID,
+		SourceRevisionID: task.ID + ".REV1",
+		SourceRunID:      run.ID,
+		SourceReportID:   task.ID + "-wrong-report",
+		Objective:        "Must reject wrong report binding.",
+		CreatedBy:        "delivery",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: current,
+		},
 	}); err == nil {
 		t.Fatal("wrong source report unexpectedly created a revision")
 	}
@@ -273,9 +349,15 @@ func TestTaskCorrectionCreateReadyRejectsCleanAcceptedReport(t *testing.T) {
 	delivery := finalizeAcceptedDeliveryReview(t, s, task, run)
 	current := installTaskLifecycleState(t, s, task, model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "ready", UpdatedAt: time.Now().UTC()}, delivery.HubCommit)
 	if _, _, err := s.TaskCorrectionCreate(ctx, TaskCorrectionCreateInput{
-		TaskID: task.ID, SourceRevisionID: task.ID + ".REV1", SourceRunID: run.ID, SourceReportID: delivery.ID,
-		Objective: "Must reject a clean accepted report from ready state.", CreatedBy: "delivery",
-		WriteOptions: WriteOptions{ExpectedHubRevision: current},
+		TaskID:           task.ID,
+		SourceRevisionID: task.ID + ".REV1",
+		SourceRunID:      run.ID,
+		SourceReportID:   delivery.ID,
+		Objective:        "Must reject a clean accepted report from ready state.",
+		CreatedBy:        "delivery",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: current,
+		},
 	}); err == nil {
 		t.Fatal("clean accepted report unexpectedly created a correction from ready state")
 	}
@@ -303,12 +385,22 @@ func TestTaskCorrectionCreateReadyRejectsWrongSourceBindings(t *testing.T) {
 		{"prohibited_actions", `[]`},
 		{"next_action", `"create the bounded correction revision"`},
 	} {
-		draft, err = s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{TaskID: task.ID, RunID: run.ID, SectionID: section.id, ExpectedDraftRevision: draft.DraftRevision, Payload: []byte(section.payload)})
+		draft, err = s.TaskReviewReportSectionUpdate(ctx, TaskReviewReportSectionUpdateInput{
+			TaskID:                task.ID,
+			RunID:                 run.ID,
+			SectionID:             section.id,
+			ExpectedDraftRevision: draft.DraftRevision,
+			Payload:               []byte(section.payload),
+		})
 		if err != nil {
 			t.Fatalf("update %s: %v", section.id, err)
 		}
 	}
-	delivery, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{TaskID: task.ID, RunID: run.ID, ExpectedDraftRevision: draft.DraftRevision})
+	delivery, _, err := s.TaskReviewReportFinalize(ctx, TaskReviewReportFinalizeInput{
+		TaskID:                task.ID,
+		RunID:                 run.ID,
+		ExpectedDraftRevision: draft.DraftRevision,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -27,7 +27,10 @@ func TestPublicStatusProjectionRedactsLocalCapabilities(t *testing.T) {
 		t.Fatalf("write persisted receipt: %v", err)
 	}
 	orchestrator := NewPublicOrchestrator(hub.Store{Config: config.Config{StateDir: request.GatewayStateDir}})
-	projection, err := orchestrator.Status(context.Background(), PublicInput{OperationID: receipt.OperationID, Request: request})
+	projection, err := orchestrator.Status(context.Background(), PublicInput{
+		OperationID: receipt.OperationID,
+		Request:     request,
+	})
 	if err != nil {
 		t.Fatalf("status from persisted receipt: %v", err)
 	}
@@ -47,7 +50,8 @@ func TestPublicRecoverRejectsMissingOperationWithoutMutation(t *testing.T) {
 	store := hub.Store{Config: config.Config{StateDir: request.GatewayStateDir}}
 	orchestrator := NewPublicOrchestrator(store)
 	_, err := orchestrator.Recover(authority.WithPlanner(context.Background()), PublicInput{
-		OperationID: "11111111-1111-1111-1111-111111111111", Request: request,
+		OperationID: "11111111-1111-1111-1111-111111111111",
+		Request:     request,
 	})
 	if err == nil || !strings.Contains(err.Error(), ErrOnboardingRecoveryRequired.Error()) {
 		t.Fatalf("missing operation error = %v, want recovery-required", err)
@@ -75,7 +79,10 @@ func newPublicTestFixture(t *testing.T) (coordinatorFixture, *PublicOrchestrator
 
 func TestPublicOnboardFreshSuccessAndReplayUsePersistedResult(t *testing.T) {
 	fixture, orchestrator := newPublicTestFixture(t)
-	input := PublicInput{OperationID: fixture.operation, Request: fixture.request}
+	input := PublicInput{
+		OperationID: fixture.operation,
+		Request:     fixture.request,
+	}
 	ctx := authority.WithPlanner(context.Background())
 	first, err := orchestrator.Onboard(ctx, input)
 	if err != nil {
@@ -99,7 +106,10 @@ func TestPublicOnboardFreshSuccessAndReplayUsePersistedResult(t *testing.T) {
 
 func TestPublicOnboardReconcilesStalePreparedSnapshotAfterActivatedWinner(t *testing.T) {
 	fixture, orchestrator := newPublicTestFixture(t)
-	input := PublicInput{OperationID: fixture.operation, Request: fixture.request}
+	input := PublicInput{
+		OperationID: fixture.operation,
+		Request:     fixture.request,
+	}
 	ctx := authority.WithPlanner(context.Background())
 	stale, err := orchestrator.prepare(ctx, fixture.request, fixture.operation)
 	if err != nil {
@@ -131,7 +141,10 @@ func TestPublicOnboardReconcilesStalePreparedSnapshotAfterActivatedWinner(t *tes
 
 func TestPublicOnboardConcurrentIdenticalCallsHaveOneDurableResult(t *testing.T) {
 	fixture, orchestrator := newPublicTestFixture(t)
-	input := PublicInput{OperationID: fixture.operation, Request: fixture.request}
+	input := PublicInput{
+		OperationID: fixture.operation,
+		Request:     fixture.request,
+	}
 	ctx := authority.WithPlanner(context.Background())
 	results := make([]PublicResult, 2)
 	errorsOut := make([]error, 2)
@@ -156,7 +169,10 @@ func TestPublicOnboardConcurrentIdenticalCallsHaveOneDurableResult(t *testing.T)
 
 func TestPublicOnboardConflictingRequestPreservesWinner(t *testing.T) {
 	fixture, orchestrator := newPublicTestFixture(t)
-	input := PublicInput{OperationID: fixture.operation, Request: fixture.request}
+	input := PublicInput{
+		OperationID: fixture.operation,
+		Request:     fixture.request,
+	}
 	ctx := authority.WithPlanner(context.Background())
 	winner, err := orchestrator.Onboard(ctx, input)
 	if err != nil || winner.State != StateActivated {
@@ -176,7 +192,10 @@ func TestPublicOnboardConflictingRequestPreservesWinner(t *testing.T) {
 	}
 	conflicting := fixture.request
 	conflicting.InitialPlan.Summary += " conflicting request"
-	_, err = orchestrator.Onboard(ctx, PublicInput{OperationID: fixture.operation, Request: conflicting})
+	_, err = orchestrator.Onboard(ctx, PublicInput{
+		OperationID: fixture.operation,
+		Request:     conflicting,
+	})
 	if err == nil || !strings.Contains(err.Error(), OnboardingOperationConflict) {
 		t.Fatalf("conflicting onboarding error = %v", err)
 	}
@@ -200,7 +219,10 @@ func TestPublicOnboardRecoveryAfterMirrorFailure(t *testing.T) {
 		return gitx.MirrorVerification{}, errors.New("injected mirror failure")
 	}
 	orchestrator.Activation.Hooks = hooks
-	input := PublicInput{OperationID: fixture.operation, Request: fixture.request}
+	input := PublicInput{
+		OperationID: fixture.operation,
+		Request:     fixture.request,
+	}
 	ctx := authority.WithPlanner(context.Background())
 	if _, err := orchestrator.Onboard(ctx, input); err == nil || !strings.Contains(err.Error(), OnboardingRecoveryRequired) {
 		t.Fatalf("mirror failure did not require recovery: %v", err)

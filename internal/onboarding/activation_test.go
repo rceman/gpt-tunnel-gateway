@@ -32,7 +32,12 @@ func newActivationFixture(t *testing.T) activationFixture {
 		t.Fatalf("create hub-committed fixture: %v", err)
 	}
 	coordinator := NewActivationCoordinator(baseFixture.coordinator.Hub)
-	return activationFixture{coordinator: coordinator, request: baseFixture.request, operation: baseFixture.operation, base: baseFixture.base}
+	return activationFixture{
+		coordinator: coordinator,
+		request:     baseFixture.request,
+		operation:   baseFixture.operation,
+		base:        baseFixture.base,
+	}
 }
 
 func testActivationHooks(t *testing.T) ActivationHooks {
@@ -52,11 +57,19 @@ func testActivationHooks(t *testing.T) ActivationHooks {
 		},
 		SessionReady: func(_ context.Context, request Request) (SessionProof, error) {
 			if !request.Airelay.SessionRequired || request.Airelay.SessionKey == nil {
-				return SessionProof{Required: false, Status: "not_required"}, nil
+				return SessionProof{
+					Required: false,
+					Status:   "not_required",
+				}, nil
 			}
 			key := *request.Airelay.SessionKey
 			protocol := PositiveInteger(1)
-			return SessionProof{Required: true, SessionKey: &key, Status: "active", ControllerProtocolVersion: &protocol}, nil
+			return SessionProof{
+				Required:                  true,
+				SessionKey:                &key,
+				Status:                    "active",
+				ControllerProtocolVersion: &protocol,
+			}, nil
 		},
 	}
 }
@@ -425,7 +438,12 @@ func TestActivationRecoveryPreservesUnrelatedRegistryRecordByteForByte(t *testin
 	if _, err := baseFixture.coordinator.Execute(trustedCoordinatorContext(), baseFixture.request, baseFixture.operation); err != nil {
 		t.Fatal(err)
 	}
-	fixture := activationFixture{coordinator: NewActivationCoordinator(baseFixture.coordinator.Hub), request: baseFixture.request, operation: baseFixture.operation, base: baseFixture.base}
+	fixture := activationFixture{
+		coordinator: NewActivationCoordinator(baseFixture.coordinator.Hub),
+		request:     baseFixture.request,
+		operation:   baseFixture.operation,
+		base:        baseFixture.base,
+	}
 	registryPath := config.ManagedProjectRegistryPath(fixture.coordinator.StateDir)
 	entryBytes := func() []byte {
 		t.Helper()
@@ -495,7 +513,11 @@ func TestActivatedJournalRequiresPriorHubCommittedJournalAndPreservesEvidence(t 
 	}
 	activated := prior
 	activated.State = StateActivated
-	activated.MirrorProof = &MirrorProof{Path: config.ManagedProjectMirrorPath(fixture.coordinator.StateDir, fixture.request.ProjectID), RepositoryURL: fixture.request.RepositoryURL, Head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	activated.MirrorProof = &MirrorProof{
+		Path:          config.ManagedProjectMirrorPath(fixture.coordinator.StateDir, fixture.request.ProjectID),
+		RepositoryURL: fixture.request.RepositoryURL,
+		Head:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
 	activatedAt := time.Now().UTC().Add(time.Minute).Format(time.RFC3339Nano)
 	activated.Timestamps.ActivatedAt = &activatedAt
 	activated.Timestamps.UpdatedAt = activatedAt
@@ -516,8 +538,18 @@ func TestRecoveryEvidenceCannotMoveBackward(t *testing.T) {
 	reason := "mirror later failed"
 	action := RecoveryActionResumeActivation
 	prior.State = StateRecoveryRequired
-	prior.MirrorProof = &MirrorProof{Path: config.ManagedProjectMirrorPath(fixture.coordinator.StateDir, fixture.request.ProjectID), RepositoryURL: fixture.request.RepositoryURL, Head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
-	prior.Recovery = Recovery{Status: RecoveryRequired, LastCompletedState: &lastState, LastDurableStep: &step, Reason: &reason, SafeCorrectiveAction: &action}
+	prior.MirrorProof = &MirrorProof{
+		Path:          config.ManagedProjectMirrorPath(fixture.coordinator.StateDir, fixture.request.ProjectID),
+		RepositoryURL: fixture.request.RepositoryURL,
+		Head:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+	prior.Recovery = Recovery{
+		Status:               RecoveryRequired,
+		LastCompletedState:   &lastState,
+		LastDurableStep:      &step,
+		Reason:               &reason,
+		SafeCorrectiveAction: &action,
+	}
 	updated := time.Now().UTC().Add(time.Minute).Format(time.RFC3339Nano)
 	prior.Timestamps.UpdatedAt = updated
 	if _, err := writeRecoveryJournalLocked(fixture.coordinator.StateDir, fixture.request, prior); err != nil {

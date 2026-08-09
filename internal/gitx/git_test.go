@@ -22,7 +22,11 @@ func TestMirrorReadsAllRefsWithoutSwitchingWorktree(t *testing.T) {
 	testutil.Git(t, work, "push", "-u", "origin", "feature/x")
 	testutil.Git(t, work, "switch", "main")
 	p := config.ProjectConfig{Root: work, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "x_master"}
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+	}
 	ctx := context.Background()
 	if err := r.Refresh(ctx, p); err != nil {
 		t.Fatal(err)
@@ -59,7 +63,11 @@ func TestMirrorReadsAllRefsWithoutSwitchingWorktree(t *testing.T) {
 func TestResolveMirrorRefStatusDistinguishesMissingBranch(t *testing.T) {
 	_, work, _ := testutil.RepoWithBareRemote(t)
 	p := config.ProjectConfig{Root: work, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "x_master"}
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+	}
 	if err := r.Refresh(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +80,11 @@ func TestResolveMirrorRefStatusDistinguishesMissingBranch(t *testing.T) {
 func TestMirrorBranchHeadRejectsUnresolvableListedBranch(t *testing.T) {
 	_, work, _ := testutil.RepoWithBareRemote(t)
 	p := config.ProjectConfig{Root: work, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "x_master"}
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+	}
 	ctx := context.Background()
 	if err := r.Refresh(ctx, p); err != nil {
 		t.Fatal(err)
@@ -101,7 +113,11 @@ func TestReconcileManagedMirrorRejectsSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := config.ProjectConfig{Root: work, Mirror: mirror, Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "x_master"}
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+	}
 	if _, err := r.ReconcileManagedMirror(context.Background(), p, filepath.Join(filepath.Dir(work), "remote.git"), "main"); err == nil {
 		t.Fatal("symlink managed mirror unexpectedly accepted")
 	}
@@ -110,7 +126,11 @@ func TestReconcileManagedMirrorRejectsSymlink(t *testing.T) {
 func TestReconcileManagedMirrorRejectsRepositoryURLConflict(t *testing.T) {
 	bare, work, _ := testutil.RepoWithBareRemote(t)
 	p := config.ProjectConfig{Root: work, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "x_master"}
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+	}
 	ctx := context.Background()
 	if err := r.EnsureMirror(ctx, p); err != nil {
 		t.Fatal(err)
@@ -124,7 +144,11 @@ func TestReconcileManagedMirrorRejectsRepositoryURLConflict(t *testing.T) {
 func TestReconcileManagedMirrorRefreshesAndReturnsCanonicalHead(t *testing.T) {
 	bare, work, base := testutil.RepoWithBareRemote(t)
 	p := config.ProjectConfig{Root: work, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "x_master"}
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+	}
 	verification, err := r.ReconcileManagedMirror(context.Background(), p, bare, "main")
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +161,11 @@ func TestReconcileManagedMirrorRefreshesAndReturnsCanonicalHead(t *testing.T) {
 func TestReconcileManagedMirrorRejectsMissingDefaultBranchWithoutChangingSource(t *testing.T) {
 	bare, work, beforeHead := testutil.RepoWithBareRemote(t)
 	p := config.ProjectConfig{Root: work, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "missing", AirelaySessionKey: "x_master"}
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+	}
 	beforeStatus := testutil.Git(t, work, "status", "--porcelain")
 	if _, err := r.ReconcileManagedMirror(context.Background(), p, bare, p.DefaultBranch); err == nil {
 		t.Fatal("missing default branch unexpectedly reconciled")
@@ -155,7 +183,11 @@ func TestReconcileManagedMirrorFailedInitialCloneLeavesCanonicalAbsentForRetry(t
 	p := config.ProjectConfig{Root: work, Mirror: mirror, Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "x_master"}
 	badURL := filepath.Join(t.TempDir(), "missing-remote.git")
 	testutil.Git(t, work, "remote", "set-url", "origin", badURL)
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+	}
 	if _, err := r.ReconcileManagedMirror(context.Background(), p, badURL, "main"); err == nil {
 		t.Fatal("failed initial clone unexpectedly succeeded")
 	}
@@ -188,7 +220,11 @@ func TestReconcileManagedMirrorRejectsSymlinkParentWithoutExternalMutation(t *te
 	}
 	mirror := filepath.Join(parent, "project.git")
 	p := config.ProjectConfig{Root: work, Mirror: mirror, Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "x_master"}
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+	}
 	if _, err := r.ReconcileManagedMirror(context.Background(), p, bare, "main"); err == nil {
 		t.Fatal("symlink mirror parent unexpectedly accepted")
 	}

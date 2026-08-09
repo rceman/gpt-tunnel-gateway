@@ -57,7 +57,12 @@ func snapshotResolverPath(t *testing.T, path string) resolverPathSnapshot {
 	if err != nil {
 		t.Fatalf("stat resolver path %q: %v", path, err)
 	}
-	snapshot := resolverPathSnapshot{Exists: true, Mode: info.Mode(), Size: info.Size(), ModTime: info.ModTime().UnixNano()}
+	snapshot := resolverPathSnapshot{
+		Exists:  true,
+		Mode:    info.Mode(),
+		Size:    info.Size(),
+		ModTime: info.ModTime().UnixNano(),
+	}
 	if info.IsDir() {
 		entries, err := os.ReadDir(path)
 		if err != nil {
@@ -214,7 +219,12 @@ func TestValidateConfiguredProjectRecordsRequiresManagedProjectAndPlan(t *testin
 		t.Fatal(err)
 	}
 	project := model.Project{SchemaVersion: 1, ID: "managed", RepositoryURL: "git@example.invalid:managed.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: "b1a45b1e9475ab29dfd3e84d523b70897c7b8918", Status: "active"}
-	if _, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{Project: project, WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}}); err != nil {
+	if _, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{
+		Project: project,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	}); err != nil {
 		t.Fatalf("register managed durable project: %v", err)
 	}
 	if err := s.ValidateConfiguredProjectRecords(context.Background()); err != nil {

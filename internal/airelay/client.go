@@ -184,7 +184,10 @@ func (c Client) Status(ctx context.Context, session string) (SessionStatus, erro
 }
 
 func parseSessionStatus(output string) SessionStatus {
-	status := SessionStatus{State: "error", CapacityWarnings: []string{}}
+	status := SessionStatus{
+		State:            "error",
+		CapacityWarnings: []string{},
+	}
 	for _, raw := range strings.Split(normalizeTail(output), "\n") {
 		line := strings.TrimSpace(raw)
 		lower := strings.ToLower(line)

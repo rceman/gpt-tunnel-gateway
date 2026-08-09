@@ -89,8 +89,14 @@ func mcpResultText(response map[string]any) string {
 }
 
 func TestDurableHandoffMCPUsesOnlyServerAuthorityContext(t *testing.T) {
-	plannerServer := &Server{Service: service.New(config.Config{}), AuthorityContext: authority.WithPlanner(context.Background())}
-	deliveryServer := &Server{Service: service.New(config.Config{}), AuthorityContext: authority.WithDelivery(context.Background())}
+	plannerServer := &Server{
+		Service:          service.New(config.Config{}),
+		AuthorityContext: authority.WithPlanner(context.Background()),
+	}
+	deliveryServer := &Server{
+		Service:          service.New(config.Config{}),
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	plannerTools := []string{"delivery_handoff_publish", "delivery_handoff_cancel", "delivery_handoff_supersede", "planner_report_acknowledge", "planner_report_next"}
 	for _, name := range plannerTools {
 		args := durableHandoffAuthorityArguments(name)
@@ -122,7 +128,10 @@ func TestDurableHandoffMCPUsesOnlyServerAuthorityContext(t *testing.T) {
 }
 
 func TestDurableHandoffMCPRejectsMalformedUnauthorizedMutationBeforeDecode(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{}), AuthorityContext: authority.WithDelivery(context.Background())}
+	server := &Server{
+		Service:          service.New(config.Config{}),
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	for _, name := range []string{"delivery_handoff_publish", "delivery_handoff_cancel", "planner_report_acknowledge"} {
 		body := mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": name, "method": "tools/call",

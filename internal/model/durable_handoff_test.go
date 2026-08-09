@@ -172,7 +172,20 @@ func TestPlannerReportTypeMatchesOwnerSummaryStatus(t *testing.T) {
 		if reportType == PlannerReportDecisionRequired {
 			evidence = json.RawMessage(`{"decision_question":"choose next action","options":["wait","review"],"tradeoffs":"waiting preserves state","recommendation":"review","deferral_consequence":"work remains paused","preserved_state":"no mutation","unauthorized_choice_implemented":false}`)
 		}
-		report := PlannerReport{SchemaVersion: DurableHandoffSchemaVersion, ID: "report-" + reportType, ProjectID: "example", HandoffID: "handoff-1", TaskID: "EXM-TSK1", RunID: "EXM-TSK1-RUN1", TaskSHA256: strings.Repeat("a", 64), ReportType: reportType, OwnerSummary: testOwnerSummary(), TechnicalEvidence: evidence, PublishedBy: "delivery", PublishedAt: time.Now().UTC()}
+		report := PlannerReport{
+			SchemaVersion:     DurableHandoffSchemaVersion,
+			ID:                "report-" + reportType,
+			ProjectID:         "example",
+			HandoffID:         "handoff-1",
+			TaskID:            "EXM-TSK1",
+			RunID:             "EXM-TSK1-RUN1",
+			TaskSHA256:        strings.Repeat("a", 64),
+			ReportType:        reportType,
+			OwnerSummary:      testOwnerSummary(),
+			TechnicalEvidence: evidence,
+			PublishedBy:       "delivery",
+			PublishedAt:       time.Now().UTC(),
+		}
 		report.OwnerSummary.Status = reportType
 		if err := ValidatePlannerReport(report); err != nil {
 			t.Fatalf("valid %s report rejected: %v", reportType, err)
@@ -195,7 +208,20 @@ func TestPlannerReportTypedBlockedAndDecisionEvidence(t *testing.T) {
 		{name: "blocked", typeName: PlannerReportBlocked, evidence: blockedEvidence},
 		{name: "decision", typeName: PlannerReportDecisionRequired, evidence: decisionEvidence},
 	} {
-		report := PlannerReport{SchemaVersion: DurableHandoffSchemaVersion, ID: "report-" + tc.name, ProjectID: "example", HandoffID: "handoff-1", TaskID: "EXM-TSK1", RunID: "EXM-TSK1-RUN1", TaskSHA256: strings.Repeat("a", 64), ReportType: tc.typeName, OwnerSummary: testOwnerSummary(), TechnicalEvidence: tc.evidence, PublishedBy: "delivery", PublishedAt: time.Now().UTC()}
+		report := PlannerReport{
+			SchemaVersion:     DurableHandoffSchemaVersion,
+			ID:                "report-" + tc.name,
+			ProjectID:         "example",
+			HandoffID:         "handoff-1",
+			TaskID:            "EXM-TSK1",
+			RunID:             "EXM-TSK1-RUN1",
+			TaskSHA256:        strings.Repeat("a", 64),
+			ReportType:        tc.typeName,
+			OwnerSummary:      testOwnerSummary(),
+			TechnicalEvidence: tc.evidence,
+			PublishedBy:       "delivery",
+			PublishedAt:       time.Now().UTC(),
+		}
 		report.OwnerSummary.Status = tc.typeName
 		if err := ValidatePlannerReport(report); err != nil {
 			t.Fatalf("valid %s evidence rejected: %v", tc.name, err)

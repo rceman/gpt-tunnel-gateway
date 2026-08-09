@@ -66,7 +66,10 @@ func ManagedProjectMirrorPath(stateDir, projectID string) string {
 }
 
 func EmptyManagedProjectRegistry() ManagedProjectRegistry {
-	return ManagedProjectRegistry{SchemaVersion: ManagedProjectRegistrySchemaVersion, Projects: map[string]ManagedProjectEntry{}}
+	return ManagedProjectRegistry{
+		SchemaVersion: ManagedProjectRegistrySchemaVersion,
+		Projects:      map[string]ManagedProjectEntry{},
+	}
 }
 
 func (r ManagedProjectRegistry) Validate() error {
@@ -214,7 +217,13 @@ func WriteManagedProjectRegistryLocked(stateDir, expectedDigest string, next Man
 	if verifiedDigest != afterDigest || verified.Revision != next.Revision {
 		return ManagedProjectRegistryWriteReceipt{}, fmt.Errorf("managed project registry verification failed")
 	}
-	return ManagedProjectRegistryWriteReceipt{Path: path, BeforeDigest: beforeDigest, AfterDigest: afterDigest, BeforeRevision: current.Revision, AfterRevision: next.Revision}, nil
+	return ManagedProjectRegistryWriteReceipt{
+		Path:           path,
+		BeforeDigest:   beforeDigest,
+		AfterDigest:    afterDigest,
+		BeforeRevision: current.Revision,
+		AfterRevision:  next.Revision,
+	}, nil
 }
 
 func UpdateManagedProjectRegistry(stateDir, expectedDigest string, next ManagedProjectRegistry) (ManagedProjectRegistryWriteReceipt, error) {
@@ -253,7 +262,13 @@ func EffectiveProjects(static map[string]ProjectConfig, managed ManagedProjectRe
 		if err := recordProjectCollision(id, entry.Root, mirror, entry.AirelaySessionKey, ids, roots, mirrors, sessions); err != nil {
 			return nil, err
 		}
-		result[id] = ProjectConfig{Root: entry.Root, Mirror: mirror, Remote: entry.Remote, DefaultBranch: entry.DefaultBranch, AirelaySessionKey: entry.AirelaySessionKey}
+		result[id] = ProjectConfig{
+			Root:              entry.Root,
+			Mirror:            mirror,
+			Remote:            entry.Remote,
+			DefaultBranch:     entry.DefaultBranch,
+			AirelaySessionKey: entry.AirelaySessionKey,
+		}
 	}
 	return result, nil
 }
@@ -699,7 +714,11 @@ func (r *ManagedProjectRegistry) UnmarshalJSON(data []byte) error {
 		}
 		projects[id] = entry
 	}
-	*r = ManagedProjectRegistry{SchemaVersion: schemaVersion, Revision: revision, Projects: projects}
+	*r = ManagedProjectRegistry{
+		SchemaVersion: schemaVersion,
+		Revision:      revision,
+		Projects:      projects,
+	}
 	return nil
 }
 

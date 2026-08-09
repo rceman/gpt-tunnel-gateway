@@ -7,7 +7,18 @@ import (
 )
 
 func lifecycleTask() Task {
-	return Task{SchemaVersion: SchemaVersion, ID: "task", SHA256: strings.Repeat("a", 64), Title: "Lifecycle task", Objective: "Exercise lifecycle state validation.", Branch: "feature/lifecycle", BaseRevision: strings.Repeat("b", 40), Status: "created", CreatedBy: "test", CreatedAt: time.Now().UTC()}
+	return Task{
+		SchemaVersion: SchemaVersion,
+		ID:            "task",
+		SHA256:        strings.Repeat("a", 64),
+		Title:         "Lifecycle task",
+		Objective:     "Exercise lifecycle state validation.",
+		Branch:        "feature/lifecycle",
+		BaseRevision:  strings.Repeat("b", 40),
+		Status:        "created",
+		CreatedBy:     "test",
+		CreatedAt:     time.Now().UTC(),
+	}
 }
 
 func TestTaskLifecycleStatesValidateTheirConditionalFields(t *testing.T) {
@@ -43,7 +54,15 @@ func TestTaskLifecycleStateRejectsInvalidConditionalFields(t *testing.T) {
 			t.Errorf("expected invalid %s state", state.Status)
 		}
 	}
-	tooLong := TaskState{SchemaVersion: SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "deferred", ReviewedHead: validHead, DeferredReason: strings.Repeat("x", MaxDeferredReasonBytes+1), UpdatedAt: now}
+	tooLong := TaskState{
+		SchemaVersion:  SchemaVersion,
+		TaskID:         task.ID,
+		TaskSHA256:     task.SHA256,
+		Status:         "deferred",
+		ReviewedHead:   validHead,
+		DeferredReason: strings.Repeat("x", MaxDeferredReasonBytes+1),
+		UpdatedAt:      now,
+	}
 	if err := ValidateTaskState(tooLong, task); err == nil {
 		t.Fatal("accepted oversized deferred reason")
 	}

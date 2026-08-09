@@ -29,11 +29,18 @@ func TestTaskRevisionIdentityAndRunIdentityBoundaries(t *testing.T) {
 
 func TestTaskRevisionHashAndParentValidation(t *testing.T) {
 	task := Task{
-		SchemaVersion: SchemaVersion, ID: "EXM-TSK8", ProjectID: "example", Title: "Revision task",
-		Objective: "Preserve immutable task revisions.", Branch: "task/EXM-TSK8-revision",
-		BaseRevision: strings.Repeat("a", 40), AcceptanceCriteria: []string{"read"},
-		Constraints: []string{"bounded"}, Status: "created", CreatedBy: "test",
-		CreatedAt: time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC),
+		SchemaVersion:      SchemaVersion,
+		ID:                 "EXM-TSK8",
+		ProjectID:          "example",
+		Title:              "Revision task",
+		Objective:          "Preserve immutable task revisions.",
+		Branch:             "task/EXM-TSK8-revision",
+		BaseRevision:       strings.Repeat("a", 40),
+		AcceptanceCriteria: []string{"read"},
+		Constraints:        []string{"bounded"},
+		Status:             "created",
+		CreatedBy:          "test",
+		CreatedAt:          time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC),
 	}
 	task.SHA256, _ = HashTask(task)
 	revision := TaskRevisionFromTask(task)
@@ -74,11 +81,37 @@ func TestTaskRevisionHashAndParentValidation(t *testing.T) {
 }
 
 func TestRevisionAwareCompletionBindsRunRevisionAndDigest(t *testing.T) {
-	task := Task{SchemaVersion: SchemaVersion, ID: "EXM-TSK9", ProjectID: "example", Title: "Revision completion", Objective: "Validate revision-aware completion.", Branch: "task/EXM-TSK9-completion", BaseRevision: strings.Repeat("a", 40), AcceptanceCriteria: []string{"read"}, Constraints: []string{}, Status: "created", CreatedBy: "test", CreatedAt: time.Now().UTC()}
+	task := Task{
+		SchemaVersion:      SchemaVersion,
+		ID:                 "EXM-TSK9",
+		ProjectID:          "example",
+		Title:              "Revision completion",
+		Objective:          "Validate revision-aware completion.",
+		Branch:             "task/EXM-TSK9-completion",
+		BaseRevision:       strings.Repeat("a", 40),
+		AcceptanceCriteria: []string{"read"},
+		Constraints:        []string{},
+		Status:             "created",
+		CreatedBy:          "test",
+		CreatedAt:          time.Now().UTC(),
+	}
 	task.SHA256, _ = HashTask(task)
 	revisionID := task.ID + ".REV2"
 	runID := revisionID + "-RUN1"
-	completion := Completion{SchemaVersion: SchemaVersion, RunID: runID, TaskSHA256: task.SHA256, TaskRevision: 2, TaskRevisionSHA256: strings.Repeat("b", 64), TaskRunNumber: 1, Status: "needs_gpt_revision", Summary: "requires a bounded correction", GateResults: []CompletionGateResult{}, AcceptanceCoverage: []string{}, Deviations: []string{}, RemainingRisks: []string{}}
+	completion := Completion{
+		SchemaVersion:      SchemaVersion,
+		RunID:              runID,
+		TaskSHA256:         task.SHA256,
+		TaskRevision:       2,
+		TaskRevisionSHA256: strings.Repeat("b", 64),
+		TaskRunNumber:      1,
+		Status:             "needs_gpt_revision",
+		Summary:            "requires a bounded correction",
+		GateResults:        []CompletionGateResult{},
+		AcceptanceCoverage: []string{},
+		Deviations:         []string{},
+		RemainingRisks:     []string{},
+	}
 	if err := ValidateCompletion(completion, task); err != nil {
 		t.Fatal(err)
 	}

@@ -103,7 +103,12 @@ func TestWorkflowPolicyRevisionAndTaskProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, unauthorized := range []context.Context{ctx, trustedWorkflowPolicyContext(ctx, "agent")} {
-		_, _, authErr := s.ProjectWorkflowPolicyUpdate(unauthorized, ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: WriteOptions{ExpectedHubRevision: beforeAuthorizationCheck}})
+		_, _, authErr := s.ProjectWorkflowPolicyUpdate(unauthorized, ProjectWorkflowPolicyInput{
+			Policy: policy,
+			WriteOptions: WriteOptions{
+				ExpectedHubRevision: beforeAuthorizationCheck,
+			},
+		})
 		if authErr == nil || authErr.Error() != "AUTHORITY_UNAVAILABLE" {
 			t.Fatalf("unauthorized policy write was accepted: %v", authErr)
 		}
@@ -113,9 +118,17 @@ func TestWorkflowPolicyRevisionAndTaskProjection(t *testing.T) {
 		t.Fatalf("unauthorized policy write changed Hub revision: before=%s after=%s err=%v", beforeAuthorizationCheck, afterAuthorizationCheck, err)
 	}
 	task, created, err := s.TaskCreate(ctx, TaskCreateInput{
-		ProjectID: "example", Slug: "policy-projection", Title: "Policy projection", Objective: "Verify durable policy projection.",
-		AcceptanceCriteria: []string{"projection"}, RequiredGates: []string{"go test ./..."}, OperationClass: "correction", CreatedBy: "test",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID:          "example",
+		Slug:               "policy-projection",
+		Title:              "Policy projection",
+		Objective:          "Verify durable policy projection.",
+		AcceptanceCriteria: []string{"projection"},
+		RequiredGates:      []string{"go test ./..."},
+		OperationClass:     "correction",
+		CreatedBy:          "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -128,9 +141,17 @@ func TestWorkflowPolicyRevisionAndTaskProjection(t *testing.T) {
 		t.Fatalf("task record did not expose policy: record=%#v err=%v", record, err)
 	}
 	if _, _, err := s.TaskCreate(ctx, TaskCreateInput{
-		ProjectID: "example", Slug: "hosted-gate", Title: "Hosted gate", Objective: "Reject an unauthorized hosted wait.",
-		AcceptanceCriteria: []string{"rejected"}, RequiredGates: []string{"check-github-ci.py --wait"}, OperationClass: "implementation", CreatedBy: "test",
-		WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After},
+		ProjectID:          "example",
+		Slug:               "hosted-gate",
+		Title:              "Hosted gate",
+		Objective:          "Reject an unauthorized hosted wait.",
+		AcceptanceCriteria: []string{"rejected"},
+		RequiredGates:      []string{"check-github-ci.py --wait"},
+		OperationClass:     "implementation",
+		CreatedBy:          "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: created.Hub.After,
+		},
 	}); err == nil || !strings.Contains(err.Error(), "hosted-CI") {
 		t.Fatalf("hosted CI wait gate was not rejected: %v", err)
 	}
@@ -144,7 +165,12 @@ func TestWorkflowPolicyRevisionAndTaskProjection(t *testing.T) {
 	policy.IntegrationBranch = "develop"
 	policy.UpdatedBy = "owner"
 	policy.UpdatedAt = time.Now().UTC()
-	_, updated, err := s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, "planner"), ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	_, updated, err := s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, "planner"), ProjectWorkflowPolicyInput{
+		Policy: policy,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: created.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,9 +197,16 @@ func TestTaskCreateRequiresDurableWorkflowPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, err = s.TaskCreate(ctx, TaskCreateInput{
-		ProjectID: "example", Slug: "missing-policy", Title: "Missing policy", Objective: "Reject missing workflow policy.",
-		AcceptanceCriteria: []string{"rejected"}, OperationClass: "implementation", CreatedBy: "test",
-		WriteOptions: WriteOptions{ExpectedHubRevision: removed.After},
+		ProjectID:          "example",
+		Slug:               "missing-policy",
+		Title:              "Missing policy",
+		Objective:          "Reject missing workflow policy.",
+		AcceptanceCriteria: []string{"rejected"},
+		OperationClass:     "implementation",
+		CreatedBy:          "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: removed.After,
+		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "project workflow policy is required") {
 		t.Fatalf("missing policy was not enforced: %v", err)
@@ -184,15 +217,32 @@ func TestProjectStatusUsesPersistedActiveTaskPolicyAcrossRevisionDrift(t *testin
 	s, revision, _ := testService(t)
 	ctx := context.Background()
 	task, created, err := s.TaskCreate(ctx, TaskCreateInput{
-		ProjectID: "example", Slug: "policy-drift", Title: "Policy drift", Objective: "Preserve the task policy snapshot.",
-		AcceptanceCriteria: []string{"status"}, OperationClass: "implementation", CreatedBy: "test",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID:          "example",
+		Slug:               "policy-drift",
+		Title:              "Policy drift",
+		Objective:          "Preserve the task policy snapshot.",
+		AcceptanceCriteria: []string{"status"},
+		OperationClass:     "implementation",
+		CreatedBy:          "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	title, summary, objective := "Policy drift", "Policy drift", "Policy drift"
-	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{ProjectID: task.ProjectID, Title: &title, Summary: &summary, CurrentObjective: &objective, ActiveTaskID: &task.ID, UpdatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	plan, err := s.PlanUpdate(ctx, PlanUpdateInput{
+		ProjectID:        task.ProjectID,
+		Title:            &title,
+		Summary:          &summary,
+		CurrentObjective: &objective,
+		ActiveTaskID:     &task.ID,
+		UpdatedBy:        "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: created.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +255,12 @@ func TestProjectStatusUsesPersistedActiveTaskPolicyAcrossRevisionDrift(t *testin
 	current.CI.Task = model.WorkflowCIModeRequire
 	current.UpdatedBy = "planner"
 	current.UpdatedAt = time.Now().UTC()
-	if _, _, err := s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, "planner"), ProjectWorkflowPolicyInput{Policy: current, WriteOptions: WriteOptions{ExpectedHubRevision: plan.Hub.After}}); err != nil {
+	if _, _, err := s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, "planner"), ProjectWorkflowPolicyInput{
+		Policy: current,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: plan.Hub.After,
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	status, err := s.ProjectStatus(ctx, task.ProjectID)
@@ -234,7 +289,12 @@ func TestWorkflowPolicyMutationRejectsActiveRunWithoutHubMutation(t *testing.T) 
 	policy.Revision++
 	policy.UpdatedBy = "planner"
 	policy.UpdatedAt = time.Now().UTC()
-	_, _, err = s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, "planner"), ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: WriteOptions{ExpectedHubRevision: before}})
+	_, _, err = s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(ctx, "planner"), ProjectWorkflowPolicyInput{
+		Policy: policy,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: before,
+		},
+	})
 	if err == nil || !strings.Contains(err.Error(), "active run "+run.ID) {
 		t.Fatalf("active run did not block policy mutation: %v", err)
 	}
@@ -254,9 +314,16 @@ func TestWorkflowPolicyMutationRejectsActiveRunWithoutHubMutation(t *testing.T) 
 func TestActivationTaskUsesExplicitNonHostedCIPolicy(t *testing.T) {
 	s, revision, _ := testService(t)
 	task, _, err := s.TaskCreate(context.Background(), TaskCreateInput{
-		ProjectID: "example", Slug: "activation", Title: "Activation task", Objective: "Verify explicit activation policy.",
-		AcceptanceCriteria: []string{"activation"}, OperationClass: "activation", CreatedBy: "test",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID:          "example",
+		Slug:               "activation",
+		Title:              "Activation task",
+		Objective:          "Verify explicit activation policy.",
+		AcceptanceCriteria: []string{"activation"},
+		OperationClass:     "activation",
+		CreatedBy:          "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

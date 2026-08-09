@@ -17,7 +17,11 @@ func TestChangedFilesUsesCommittedDiff(t *testing.T) {
 	testutil.Git(t, work, "add", "new.txt")
 	testutil.Git(t, work, "commit", "-m", "new")
 	head := testutil.Git(t, work, "rev-parse", "HEAD")
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+	}
 	files, err := r.ChangedFiles(context.Background(), work, base, stringTrim(head))
 	if err != nil {
 		t.Fatal(err)

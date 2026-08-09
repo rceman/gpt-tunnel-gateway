@@ -86,7 +86,10 @@ func splitLegacyPlanBody(body string) ([]legacyPlanBlock, error) {
 	for _, line := range lines {
 		match := markdownHeadingRE.FindStringSubmatch(line)
 		if match != nil {
-			blocks = append(blocks, legacyPlanBlock{Level: len(match[1]), Title: strings.TrimSpace(match[2])})
+			blocks = append(blocks, legacyPlanBlock{
+				Level: len(match[1]),
+				Title: strings.TrimSpace(match[2]),
+			})
 			current = len(blocks) - 1
 			continue
 		}
@@ -301,5 +304,9 @@ func (s *Service) PlanCutover(ctx context.Context, in PlanCutoverInput) (Operati
 	if err != nil {
 		return OperationResult{}, err
 	}
-	return OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: "cut over"}, nil
+	return OperationResult{
+		Hub:       tx,
+		ProjectID: in.ProjectID,
+		Status:    "cut over",
+	}, nil
 }
