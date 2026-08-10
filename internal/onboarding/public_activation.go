@@ -13,21 +13,15 @@ import (
 
 func (o *PublicOrchestrator) advance(ctx context.Context, request Request, operationID string, receipt Receipt) (PublicResult, error) {
 	if receipt.State == StateActivated {
-		requestDigest, err := RequestDigest(request)
+		activation, err := o.Activation.Activate(ctx, request, operationID)
+		public, journalErr := o.publicResultFromJournal(publicActivationResult(activation), request, operationID)
 		if err != nil {
-			return PublicResult{}, err
+			return public, err
 		}
-		if receipt.OperationID != operationID || receipt.RequestSHA256 != requestDigest || receipt.ProjectID != request.ProjectID {
-			return PublicResult{}, &CoordinatorError{
-				Code:  ErrOnboardingOperationConflict.Error(),
-				Cause: errors.New("onboarding journal identity does not match request"),
-			}
-		}
-		public, err := o.publicResultFromJournal(PublicResult{JournalRepairOnly: true}, request, operationID)
-		if err != nil {
+		if journalErr != nil {
 			return PublicResult{}, &CoordinatorError{
 				Code:  ErrOnboardingRecoveryRequired.Error(),
-				Cause: err,
+				Cause: journalErr,
 			}
 		}
 		return public, nil

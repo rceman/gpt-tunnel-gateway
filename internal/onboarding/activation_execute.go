@@ -104,6 +104,27 @@ func (c *ActivationCoordinator) Activate(ctx context.Context, request Request, o
 			Cause: fmt.Errorf("activation requires hub_committed or activated journal, got %q", receipt.State),
 		}
 	}
+	sections, err := buildPlanSections(request)
+	if err != nil {
+		return ActivationResult{}, &CoordinatorError{
+			Code:  ErrOnboardingRecoveryRequired.Error(),
+			Cause: err,
+		}
+	}
+	if receipt.State == StateHubCommitted || receipt.State == StateActivated {
+		if err := base.validateCommittedPrimaryHubState(ctx, request, receipt, project, plan, identifiers, objectDigests); err != nil {
+			return ActivationResult{}, &CoordinatorError{
+				Code:  ErrOnboardingRecoveryRequired.Error(),
+				Cause: err,
+			}
+		}
+		if err := base.repairMissingPlanSections(ctx, request, project, plan, identifiers, sections); err != nil {
+			return ActivationResult{}, &CoordinatorError{
+				Code:  ErrOnboardingRecoveryRequired.Error(),
+				Cause: err,
+			}
+		}
+	}
 	if err := base.validateCommittedHubState(ctx, request, receipt, project, plan, identifiers, objectDigests); err != nil {
 		return ActivationResult{}, &CoordinatorError{
 			Code:  ErrOnboardingRecoveryRequired.Error(),

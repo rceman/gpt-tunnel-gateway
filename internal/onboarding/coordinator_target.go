@@ -28,6 +28,9 @@ func buildDurableObjects(request Request) (model.Project, model.Plan, model.Proj
 	for _, section := range request.InitialPlan.Sections {
 		plan.Sections = append(plan.Sections, model.PlanSectionIndex{ID: section.ID, Title: section.Title, ShortDescription: section.ShortDescription, Revision: int(section.Revision)})
 	}
+	if _, err := buildPlanSections(request); err != nil {
+		return model.Project{}, model.Plan{}, model.ProjectIdentifiers{}, objectDigests{}, err
+	}
 	identifiers := model.ProjectIdentifiers{SchemaVersion: model.SchemaVersion, ProjectID: request.ProjectID, ProjectCode: request.ProjectCode, NextTaskNumber: 1, NextADRNumber: 1}
 	if err := model.ValidateProject(project); err != nil {
 		return model.Project{}, model.Plan{}, model.ProjectIdentifiers{}, objectDigests{}, err
@@ -75,7 +78,11 @@ func canonicalOnboardingPaths(projectID string) []string {
 }
 
 func (c *Coordinator) inspectTarget(ctx context.Context, request Request, project model.Project, plan model.Plan, identifiers model.ProjectIdentifiers) (string, targetState, string, error) {
-	paths := canonicalOnboardingPaths(request.ProjectID)
+	sections, err := buildPlanSections(request)
+	if err != nil {
+		return "", targetStateConflict, "", err
+	}
+	objects := onboardingObjects(request, project, plan, identifiers, sections)
 	collision, err := c.remoteCollision(ctx, request)
 	if err != nil {
 		return "", targetStateConflict, "", onboardingRecoveryError(err)
@@ -85,8 +92,8 @@ func (c *Coordinator) inspectTarget(ctx context.Context, request Request, projec
 	}
 	present := 0
 	exact := 0
-	for index, path := range paths {
-		data, err := c.Hub.ReadFile(ctx, path)
+	for _, object := range objects {
+		data, err := c.Hub.ReadFile(ctx, object.Path)
 		if err != nil {
 			if isHubNotFound(err) {
 				continue
@@ -94,35 +101,10 @@ func (c *Coordinator) inspectTarget(ctx context.Context, request Request, projec
 			return "", targetStateConflict, "", onboardingRecoveryError(err)
 		}
 		present++
-		var value any
-		switch index {
-		case 0:
-			value = project
-		case 1:
-			value = plan
-		case 2:
-			value = identifiers
+		if err := validateOnboardingObjectBytes(data, object.Value); err != nil {
+			return "", targetStateConflict, "", onboardingRecoveryError(fmt.Errorf("target durable object %s: %w", object.Path, err))
 		}
-		decoded, err := decodeHubObject(data, index)
-		if err != nil {
-			return "", targetStateConflict, "", onboardingRecoveryError(err)
-		}
-		canonical, err := json.MarshalIndent(decoded, "", "  ")
-		if err != nil {
-			return "", targetStateConflict, "", onboardingRecoveryError(err)
-		}
-		canonical = append(canonical, '\n')
-		if !bytes.Equal(data, canonical) {
-			return "", targetStateConflict, "", errors.New("target durable object is not canonical")
-		}
-		want, err := digestObject(value)
-		if err != nil {
-			return "", targetStateConflict, "", onboardingRecoveryError(err)
-		}
-		have, err := digestObject(decoded)
-		if err == nil && want == have {
-			exact++
-		}
+		exact++
 	}
 	if present == 0 {
 		revision, err := c.Hub.RemoteRevision(ctx)
@@ -131,12 +113,12 @@ func (c *Coordinator) inspectTarget(ctx context.Context, request Request, projec
 		}
 		return revision, targetStateEmpty, "", nil
 	}
-	if present == len(paths) && exact == len(paths) {
+	if present == len(objects) && exact == len(objects) {
 		revision, err := c.Hub.RemoteRevision(ctx)
 		if err != nil {
 			return "", targetStateConflict, "", onboardingRecoveryError(err)
 		}
-		after, err := c.commonPathLastChange(ctx, request.ProjectID)
+		after, err := c.commonPathLastChange(ctx, request)
 		if err != nil {
 			return "", targetStateConflict, "", onboardingRecoveryError(err)
 		}
@@ -150,11 +132,19 @@ func isHubNotFound(err error) bool {
 	return strings.Contains(message, "does not exist") || strings.Contains(message, "pathspec") || strings.Contains(message, "not found") || strings.Contains(message, "fatal: path")
 }
 
-func (c *Coordinator) commonPathLastChange(ctx context.Context, projectID string) (string, error) {
-	paths := canonicalOnboardingPaths(projectID)
+func (c *Coordinator) commonPathLastChange(ctx context.Context, request Request) (string, error) {
+	sections, err := buildPlanSections(request)
+	if err != nil {
+		return "", err
+	}
+	project, plan, identifiers, _, err := buildDurableObjects(request)
+	if err != nil {
+		return "", err
+	}
+	objects := onboardingObjects(request, project, plan, identifiers, sections)
 	var common string
-	for _, path := range paths {
-		lastChange, err := c.Hub.LastChange(ctx, path)
+	for _, object := range objects {
+		lastChange, err := c.Hub.LastChange(ctx, object.Path)
 		if err != nil {
 			return "", err
 		}
@@ -172,35 +162,62 @@ func (c *Coordinator) commonPathLastChange(ctx context.Context, projectID string
 	return common, nil
 }
 
-func (c *Coordinator) validateCommittedHubState(ctx context.Context, request Request, receipt Receipt, project model.Project, plan model.Plan, identifiers model.ProjectIdentifiers, digests objectDigests) error {
-	objects := []any{project, plan, identifiers}
-	for index, path := range canonicalOnboardingPaths(request.ProjectID) {
-		data, err := c.Hub.ReadFile(ctx, path)
+func (c *Coordinator) validateCommittedPrimaryHubState(ctx context.Context, request Request, receipt Receipt, project model.Project, plan model.Plan, identifiers model.ProjectIdentifiers, digests objectDigests) error {
+	objects := onboardingObjects(request, project, plan, identifiers, nil)
+	for index, object := range objects {
+		data, err := c.Hub.ReadFile(ctx, object.Path)
 		if err != nil {
-			return fmt.Errorf("read committed onboarding object %s: %w", path, err)
+			return fmt.Errorf("read committed onboarding object %s: %w", object.Path, err)
 		}
-		decoded, err := decodeHubObject(data, index)
-		if err != nil {
-			return fmt.Errorf("decode committed onboarding object %s: %w", path, err)
+		if err := validateOnboardingObjectBytes(data, object.Value); err != nil {
+			return fmt.Errorf("committed onboarding object %s: %w", object.Path, err)
 		}
-		canonical, err := json.MarshalIndent(decoded, "", "  ")
-		if err != nil {
-			return err
-		}
-		canonical = append(canonical, '\n')
-		if !bytes.Equal(data, canonical) {
-			return fmt.Errorf("committed onboarding object %s is not canonical", path)
+		actual := cloneOnboardingValue(object.Value)
+		if err := decodeOnboardingObject(data, actual); err != nil {
+			return fmt.Errorf("decode committed onboarding object %s: %w", object.Path, err)
 		}
 		want := []string{digests.project, digests.plan, digests.identifiers}[index]
-		have, err := digestObject(decoded)
+		have, err := digestObject(actual)
 		if err != nil || have != want {
-			return fmt.Errorf("committed onboarding object %s digest does not match receipt", path)
-		}
-		if !objectsMatch(decoded, objects[index]) {
-			return fmt.Errorf("committed onboarding object %s does not match request", path)
+			return fmt.Errorf("committed onboarding object %s digest does not match receipt", object.Path)
 		}
 	}
-	lastChange, err := c.commonPathLastChange(ctx, request.ProjectID)
+	if receipt.Hub.After == nil {
+		return errors.New("committed onboarding receipt requires hub.after")
+	}
+	return nil
+}
+
+func (c *Coordinator) validateCommittedHubState(ctx context.Context, request Request, receipt Receipt, project model.Project, plan model.Plan, identifiers model.ProjectIdentifiers, digests objectDigests) error {
+	sections, err := buildPlanSections(request)
+	if err != nil {
+		return err
+	}
+	objects := onboardingObjects(request, project, plan, identifiers, sections)
+	for index, object := range objects {
+		data, err := c.Hub.ReadFile(ctx, object.Path)
+		if err != nil {
+			return fmt.Errorf("read committed onboarding object %s: %w", object.Path, err)
+		}
+		if err := validateOnboardingObjectBytes(data, object.Value); err != nil {
+			return fmt.Errorf("committed onboarding object %s: %w", object.Path, err)
+		}
+		if index < 3 {
+			want := []string{digests.project, digests.plan, digests.identifiers}[index]
+			actual := cloneOnboardingValue(object.Value)
+			if err := decodeOnboardingObject(data, actual); err != nil {
+				return fmt.Errorf("decode committed onboarding object %s: %w", object.Path, err)
+			}
+			have, err := digestObject(actual)
+			if err != nil || have != want {
+				return fmt.Errorf("committed onboarding object %s digest does not match receipt", object.Path)
+			}
+		}
+	}
+	if receipt.State == StateActivated || receipt.State == StateHubCommitted {
+		return nil
+	}
+	lastChange, err := c.commonPathLastChange(ctx, request)
 	if err != nil {
 		return err
 	}

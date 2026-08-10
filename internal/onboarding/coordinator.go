@@ -148,7 +148,7 @@ func (c *Coordinator) Execute(ctx context.Context, request Request, operationID 
 		if err != nil {
 			return Result{}, err
 		}
-		if err := c.validateCommittedHubState(ctx, request, receipt, project, plan, identifiers, objectDigests); err != nil {
+		if err := c.ensureCommittedPlanSections(ctx, request, receipt, project, plan, identifiers, objectDigests); err != nil {
 			return Result{}, &CoordinatorError{
 				Code:  ErrOnboardingRecoveryRequired.Error(),
 				Cause: err,
@@ -246,17 +246,11 @@ func (c *Coordinator) Execute(ctx context.Context, request Request, operationID 
 				Cause: err,
 			}
 		}
-		paths := canonicalOnboardingPaths(request.ProjectID)
-		if err := hub.WriteJSON(worktree, paths[0], project); err != nil {
+		sections, err := buildPlanSections(request)
+		if err != nil {
 			return nil, err
 		}
-		if err := hub.WriteJSON(worktree, paths[1], plan); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(worktree, paths[2], identifiers); err != nil {
-			return nil, err
-		}
-		return paths, nil
+		return writeOnboardingObjects(worktree, onboardingObjects(request, project, plan, identifiers, sections))
 	})
 	if err != nil {
 		var coordinatorErr *CoordinatorError
@@ -268,7 +262,7 @@ func (c *Coordinator) Execute(ctx context.Context, request Request, operationID 
 			Cause: err,
 		}
 	}
-	lastChange, err := c.commonPathLastChange(ctx, request.ProjectID)
+	lastChange, err := c.commonPathLastChange(ctx, request)
 	if err != nil || lastChange != transaction.After {
 		if err == nil {
 			err = fmt.Errorf("committed onboarding paths last-change %s does not match Hub transaction %s", lastChange, transaction.After)

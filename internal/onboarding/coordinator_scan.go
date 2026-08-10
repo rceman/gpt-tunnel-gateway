@@ -56,7 +56,15 @@ func decodeHubObject(data []byte, index int) (any, error) {
 }
 
 func validateWorktreeTarget(worktree string, request Request, project model.Project, plan model.Plan, identifiers model.ProjectIdentifiers) error {
-	paths := canonicalOnboardingPaths(request.ProjectID)
+	sections, err := buildPlanSections(request)
+	if err != nil {
+		return err
+	}
+	objects := onboardingObjects(request, project, plan, identifiers, sections)
+	paths := make([]string, 0, len(objects))
+	for _, object := range objects {
+		paths = append(paths, object.Path)
+	}
 	for _, path := range paths {
 		if _, err := os.Lstat(filepath.Join(worktree, filepath.FromSlash(path))); err == nil {
 			return fmt.Errorf("ONBOARDING_RECOVERY_REQUIRED: target path already exists: %s", path)
