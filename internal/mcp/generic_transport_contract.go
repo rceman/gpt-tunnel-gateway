@@ -101,7 +101,7 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		}
 		path := legacyActionPath(toolName)
 		toolName, tool := toolName, tool
-		entries[path] = genericActionEntry{
+		entry := genericActionEntry{
 			GenericAction: GenericAction{
 				Path:         path,
 				Description:  tool.Description,
@@ -115,6 +115,16 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 			},
 			LegacyTool: toolName,
 		}
+		// The project-level tail keeps skip for typed compatibility, while the
+		// canonical registry exposes only the cursor contract. Both paths call
+		// the same service AgentTailPage implementation.
+		if toolName == "agent_tail" {
+			entry.InputSchema = agentTailInputSchema(false)
+			entry.Execute = func(ctx context.Context, raw json.RawMessage) (any, error) {
+				return s.agentTailAction(ctx, raw, false)
+			}
+		}
+		entries[path] = entry
 	}
 	s.genericActionMu.RLock()
 	defer s.genericActionMu.RUnlock()

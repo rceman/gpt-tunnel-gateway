@@ -100,22 +100,8 @@ func (s *Server) addRunTools(add toolAdder) {
 		}
 		return s.Service.AgentSend(ctx, projectID, text)
 	})
-	cursor = str("Opaque continuation cursor from a prior tail response")
-	cursor["maxLength"] = 4096
-	add("agent_tail", "Read a bounded incremental window from the configured project Airelay session.", obj(map[string]any{"project_id": str("Registered project identifier"), "lines": integer("Number of lines", 1, 200), "skip": integer("Newest lines to skip", 0, 196), "cursor": cursor}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		projectID, err := getString(raw, "project_id")
-		if err != nil {
-			return nil, err
-		}
-		lines, _, err := optionalInteger(raw, "lines")
-		if err != nil {
-			return nil, err
-		}
-		skip, _, err := optionalInteger(raw, "skip")
-		if err != nil {
-			return nil, err
-		}
-		return s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{Lines: lines, Skip: skip, Cursor: optionalString(raw, "cursor")})
+	add("agent_tail", "Read a bounded incremental window from the configured project Airelay session.", agentTailInputSchema(true), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return s.agentTailAction(ctx, raw, true)
 	})
 	add("agent_status", "Read bounded status and capacity warnings from the configured project Airelay session.", obj(map[string]any{"project_id": str("Registered project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		projectID, err := getString(raw, "project_id")
@@ -138,5 +124,42 @@ func (s *Server) addRunTools(add toolAdder) {
 			return nil, e
 		}
 		return s.Service.RunCancelAcknowledgeNoMutation(ctx, id, optionalString(raw, "expected_hub_revision"))
+	})
+}
+
+func agentTailInputSchema(legacySkip bool) map[string]any {
+	cursor := str("Opaque continuation cursor from a prior tail response")
+	cursor["maxLength"] = 4096
+	properties := map[string]any{
+		"project_id": str("Registered project identifier"),
+		"lines":      integer("Number of lines", 1, 200),
+		"cursor":     cursor,
+	}
+	if legacySkip {
+		properties["skip"] = integer("Newest lines to skip", 0, 196)
+	}
+	return obj(properties, "project_id")
+}
+
+func (s *Server) agentTailAction(ctx context.Context, raw json.RawMessage, legacySkip bool) (any, error) {
+	projectID, err := getString(raw, "project_id")
+	if err != nil {
+		return nil, err
+	}
+	lines, _, err := optionalInteger(raw, "lines")
+	if err != nil {
+		return nil, err
+	}
+	skip := 0
+	if legacySkip {
+		skip, _, err = optionalInteger(raw, "skip")
+		if err != nil {
+			return nil, err
+		}
+	}
+	return s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{
+		Lines:  lines,
+		Skip:   skip,
+		Cursor: optionalString(raw, "cursor"),
 	})
 }

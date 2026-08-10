@@ -85,8 +85,11 @@ func validateGenericActionInput(schema map[string]any, raw json.RawMessage) erro
 		return fmt.Errorf("input has trailing JSON content")
 	}
 	properties, _ := schema["properties"].(map[string]any)
-	closed, _ := schema["additionalProperties"].(bool)
-	if closed {
+	allowsAdditional := true
+	if value, ok := schema["additionalProperties"].(bool); ok {
+		allowsAdditional = value
+	}
+	if !allowsAdditional {
 		for key := range args {
 			if _, ok := properties[key]; !ok {
 				return fmt.Errorf("unknown argument %q", key)
