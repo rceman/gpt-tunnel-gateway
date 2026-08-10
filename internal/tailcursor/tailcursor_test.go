@@ -42,6 +42,24 @@ func TestCursorSurvivesSlidingNewestWindow(t *testing.T) {
 	}
 }
 
+func TestCursorRejectsAmbiguousSlidingAnchor(t *testing.T) {
+	baseline := numberedLines(1, 200)
+	for i := 100; i < 108; i++ {
+		baseline[i] = "repeat"
+	}
+	for i := 192; i < 200; i++ {
+		baseline[i] = "repeat"
+	}
+	page, err := Initial("project:demo", "demo_master", baseline, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sliding := append(append([]string(nil), baseline[1:]...), "repeat")
+	if _, err := Continue("project:demo", "demo_master", page.NextCursor, sliding, 1); err == nil || !strings.Contains(err.Error(), "stale tail cursor") {
+		t.Fatalf("ambiguous anchor was accepted: %v", err)
+	}
+}
+
 func TestCursorRejectsInvalidScopeSessionAndTruncation(t *testing.T) {
 	page, err := Initial("project:demo", "demo_master", []string{"one", "two"}, 1, 0)
 	if err != nil {

@@ -125,10 +125,17 @@ func deltaFor(value state, snapshot []string) ([]string, error) {
 	if value.AnchorSize < 1 || value.AnchorSize > len(snapshot) {
 		return nil, fmt.Errorf("stale tail cursor")
 	}
+	matchStart := -1
 	for start := 0; start+value.AnchorSize <= len(snapshot); start++ {
 		if snapshotDigest(snapshot[start:start+value.AnchorSize]) == value.AnchorDigest {
-			return snapshot[start+value.AnchorSize:], nil
+			if matchStart != -1 {
+				return nil, fmt.Errorf("stale tail cursor")
+			}
+			matchStart = start
 		}
+	}
+	if matchStart != -1 {
+		return snapshot[matchStart+value.AnchorSize:], nil
 	}
 	return nil, fmt.Errorf("stale tail cursor")
 }
