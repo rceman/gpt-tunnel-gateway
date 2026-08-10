@@ -158,7 +158,10 @@ func (r Runner) WorktreeContentID(ctx context.Context, p config.ProjectConfig) (
 		}
 		paths[filepath.FromSlash(raw)] = struct{}{}
 	}
-	root := prospectiveTreeNode{entries: map[string]prospectiveTreeEntry{}, dirs: map[string]*prospectiveTreeNode{}}
+	root := prospectiveTreeNode{
+		entries: map[string]prospectiveTreeEntry{},
+		dirs:    map[string]*prospectiveTreeNode{},
+	}
 	for path := range paths {
 		full := filepath.Join(p.Root, path)
 		info, err := os.Lstat(full)
@@ -206,7 +209,10 @@ func (r Runner) WorktreeContentID(ctx context.Context, p config.ProjectConfig) (
 			}
 			child := node.dirs[part]
 			if child == nil {
-				child = &prospectiveTreeNode{entries: map[string]prospectiveTreeEntry{}, dirs: map[string]*prospectiveTreeNode{}}
+				child = &prospectiveTreeNode{
+					entries: map[string]prospectiveTreeEntry{},
+					dirs:    map[string]*prospectiveTreeNode{},
+				}
 				node.dirs[part] = child
 			}
 			node = child
@@ -215,7 +221,10 @@ func (r Runner) WorktreeContentID(ctx context.Context, p config.ProjectConfig) (
 		if _, exists := node.dirs[name]; exists {
 			return "", fmt.Errorf("worktree path conflicts with directory: %s", path)
 		}
-		node.entries[name] = prospectiveTreeEntry{mode: mode, object: blob}
+		node.entries[name] = prospectiveTreeEntry{
+			mode:   mode,
+			object: blob,
+		}
 	}
 	return hex.EncodeToString(root.objectID()), nil
 }
@@ -239,10 +248,20 @@ func (n *prospectiveTreeNode) objectID() [sha1.Size]byte {
 	}
 	entries := make([]namedEntry, 0, len(n.entries)+len(n.dirs))
 	for name, entry := range n.entries {
-		entries = append(entries, namedEntry{name: name, mode: entry.mode, id: entry.object, key: name})
+		entries = append(entries, namedEntry{
+			name: name,
+			mode: entry.mode,
+			id:   entry.object,
+			key:  name,
+		})
 	}
 	for name, child := range n.dirs {
-		entries = append(entries, namedEntry{name: name, mode: "40000", id: child.objectID(), key: name + "/"})
+		entries = append(entries, namedEntry{
+			name: name,
+			mode: "40000",
+			id:   child.objectID(),
+			key:  name + "/",
+		})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].key < entries[j].key })
 	body := make([]byte, 0)
