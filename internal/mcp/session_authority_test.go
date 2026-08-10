@@ -131,3 +131,27 @@ func TestGenericSessionRejectsInvalidAndEndedAuthority(t *testing.T) {
 		t.Fatalf("ended session was accepted: result=%#v calls=%d", ended, calls)
 	}
 }
+
+func TestGenericAuthorityDeclaredActionRejectsWrongProject(t *testing.T) {
+	server := newSessionTestServer(t)
+	calls := 0
+	if err := server.RegisterGenericAction(GenericAction{
+		Path:          "test/delivery-project",
+		Description:   "project-bound delivery authority test action",
+		InputSchema:   obj(map[string]any{"project_id": str("project")}, "project_id"),
+		OutputSchema:  closedOutput(map[string]any{"ok": outputBoolean()}, "ok"),
+		AuthorityRole: durableSession.RoleDelivery,
+		Execute: func(context.Context, json.RawMessage) (any, error) {
+			calls++
+			return map[string]any{"ok": true}, nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT}))
+	sessionID := started["session"].(map[string]any)["session_id"].(string)
+	result := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/delivery-project", "input": map[string]any{"project_id": "other"}}}})))
+	if result["is_error"] != true || calls != 0 || !strings.Contains(result["result"].(map[string]any)["error"].(string), "does not match session project") {
+		t.Fatalf("wrong project was accepted for authority-declared action: result=%#v calls=%d", result, calls)
+	}
+}
