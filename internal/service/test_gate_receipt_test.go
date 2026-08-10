@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -193,7 +194,7 @@ func TestTestGateReceiptProspectiveTreeConvergesAddModifyDelete(t *testing.T) {
 	}
 	testutil.Git(t, root, "add", "-A")
 	testutil.Git(t, root, "commit", "-m", "commit prospective tree test")
-	committed := testutil.Git(t, root, "rev-parse", "HEAD^{tree}")
+	committed := strings.TrimSpace(testutil.Git(t, root, "rev-parse", "HEAD^{tree}"))
 	if prospective != committed {
 		t.Fatalf("prospective tree did not converge: dirty=%s committed=%s", prospective, committed)
 	}

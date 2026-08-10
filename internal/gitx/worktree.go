@@ -226,7 +226,8 @@ func (r Runner) WorktreeContentID(ctx context.Context, p config.ProjectConfig) (
 			object: blob,
 		}
 	}
-	return hex.EncodeToString(root.objectID()), nil
+	rootID := root.objectID()
+	return hex.EncodeToString(rootID[:]), nil
 }
 
 type prospectiveTreeNode struct {
