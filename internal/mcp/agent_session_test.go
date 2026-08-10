@@ -89,6 +89,27 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	}
 }
 
+func TestTailToolSchemasExposeOpaqueContinuation(t *testing.T) {
+	tools := (&Server{}).tools()
+	for _, name := range []string{"agent_tail", "run_agent_tail"} {
+		tool, ok := tools[name]
+		if !ok {
+			t.Fatalf("missing %s", name)
+		}
+		properties := tool.InputSchema["properties"].(map[string]any)
+		cursor := properties["cursor"].(map[string]any)
+		if cursor["type"] != "string" || cursor["maxLength"] != 4096 {
+			t.Fatalf("%s cursor schema=%#v", name, cursor)
+		}
+		outputProperties := tool.OutputSchema["properties"].(map[string]any)
+		for _, field := range []string{"next_cursor", "has_more"} {
+			if _, ok := outputProperties[field]; !ok {
+				t.Fatalf("%s output omits %s: %#v", name, field, tool.OutputSchema)
+			}
+		}
+	}
+}
+
 func TestTaskReadMCPRetainsExecutionOnlyPaths(t *testing.T) {
 	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
 	_, projectRoot, _ := testutil.RepoWithBareRemote(t)

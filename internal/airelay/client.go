@@ -90,6 +90,16 @@ func (c Client) Prompt(ctx context.Context, session, message string) (Result, er
 }
 
 func (c Client) Tail(ctx context.Context, session string, lines int) (Result, error) {
+	return c.tail(ctx, session, lines, false)
+}
+
+// TailSnapshot reads the bounded session output window and permits an empty
+// window so callers can return a successful empty incremental delta.
+func (c Client) TailSnapshot(ctx context.Context, session string, lines int) (Result, error) {
+	return c.tail(ctx, session, lines, true)
+}
+
+func (c Client) tail(ctx context.Context, session string, lines int, allowEmpty bool) (Result, error) {
 	if !sessionRE.MatchString(session) {
 		return Result{}, fmt.Errorf("invalid Airelay session key")
 	}
@@ -120,7 +130,7 @@ func (c Client) Tail(ctx context.Context, session string, lines int) (Result, er
 	if stdout.exceeded || stderr.exceeded {
 		return result, fmt.Errorf("Airelay tail output exceeds limit")
 	}
-	if strings.TrimSpace(result.Stdout) == "" {
+	if !allowEmpty && strings.TrimSpace(result.Stdout) == "" {
 		return result, fmt.Errorf("Airelay tail returned no output")
 	}
 	if err != nil {

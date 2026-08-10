@@ -62,7 +62,9 @@ func (s *Server) addRunTools(add toolAdder) {
 		}
 		return s.Service.RunReviewSnapshot(ctx, id)
 	})
-	add("run_agent_tail", "Read the bounded tail of the current run's Airelay session.", obj(map[string]any{"run_id": str("Run identifier"), "lines": integer("Number of lines", 1, 200)}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	cursor := str("Opaque continuation cursor from a prior tail response")
+	cursor["maxLength"] = 4096
+	add("run_agent_tail", "Read a bounded incremental tail of the current run's Airelay session.", obj(map[string]any{"run_id": str("Run identifier"), "lines": integer("Number of lines", 1, 200), "cursor": cursor}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "run_id")
 		if e != nil {
 			return nil, e
@@ -71,11 +73,11 @@ func (s *Server) addRunTools(add toolAdder) {
 		if e != nil {
 			return nil, e
 		}
-		text, err := s.Service.RunAgentTail(ctx, id, lines)
+		result, err := s.Service.RunAgentTailPage(ctx, id, service.AgentTailInput{Lines: lines, Cursor: optionalString(raw, "cursor")})
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"text": text}, nil
+		return result, nil
 	})
 	add("run_resume", "Perform one canonical context-compaction recovery for an owned active run.", obj(map[string]any{"run_id": str("Run identifier")}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "run_id")
@@ -98,7 +100,9 @@ func (s *Server) addRunTools(add toolAdder) {
 		}
 		return s.Service.AgentSend(ctx, projectID, text)
 	})
-	add("agent_tail", "Read a bounded window from the configured project Airelay session.", obj(map[string]any{"project_id": str("Registered project identifier"), "lines": integer("Number of lines", 1, 200), "skip": integer("Newest lines to skip", 0, 196)}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	cursor = str("Opaque continuation cursor from a prior tail response")
+	cursor["maxLength"] = 4096
+	add("agent_tail", "Read a bounded incremental window from the configured project Airelay session.", obj(map[string]any{"project_id": str("Registered project identifier"), "lines": integer("Number of lines", 1, 200), "skip": integer("Newest lines to skip", 0, 196), "cursor": cursor}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		projectID, err := getString(raw, "project_id")
 		if err != nil {
 			return nil, err
@@ -111,7 +115,7 @@ func (s *Server) addRunTools(add toolAdder) {
 		if err != nil {
 			return nil, err
 		}
-		return s.Service.AgentTail(ctx, projectID, lines, skip)
+		return s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{Lines: lines, Skip: skip, Cursor: optionalString(raw, "cursor")})
 	})
 	add("agent_status", "Read bounded status and capacity warnings from the configured project Airelay session.", obj(map[string]any{"project_id": str("Registered project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		projectID, err := getString(raw, "project_id")

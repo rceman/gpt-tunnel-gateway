@@ -86,8 +86,80 @@ func TestAgentTailSupportsDefaultAndSkip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(args) != "tail\nexample_master\n--lines\n6\n" {
+	if string(args) != "tail\nexample_master\n--lines\n200\n" {
 		t.Fatalf("unexpected tail argv: %q", args)
+	}
+}
+
+func TestAgentTailCursorPagesAppendOnlyOutput(t *testing.T) {
+	s, _, _ := testService(t)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	write := func(output string) {
+		t.Helper()
+		body := "#!/bin/sh\nprintf '" + strings.ReplaceAll(output, "\n", "\\n") + "\\n'\n"
+		if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		s.Airelay.Command = script
+	}
+	write("one\ntwo\n")
+	first, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{Lines: 2})
+	if err != nil || first.Text != "one\ntwo\n" || first.NextCursor == "" || first.HasMore {
+		t.Fatalf("initial tail=%#v err=%v", first, err)
+	}
+	write("one\ntwo\nthree\nfour\n")
+	second, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{
+		Lines:  1,
+		Cursor: first.NextCursor,
+	})
+	if err != nil || second.Text != "three\n" || !second.HasMore {
+		t.Fatalf("first delta=%#v err=%v", second, err)
+	}
+	third, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{
+		Lines:  1,
+		Cursor: second.NextCursor,
+	})
+	if err != nil || third.Text != "four\n" || third.HasMore {
+		t.Fatalf("second delta=%#v err=%v", third, err)
+	}
+	empty, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{
+		Lines:  1,
+		Cursor: third.NextCursor,
+	})
+	if err != nil || empty.Text != "" || empty.NextCursor == "" || empty.HasMore {
+		t.Fatalf("empty delta=%#v err=%v", empty, err)
+	}
+}
+
+func TestAgentTailCursorRejectsStaleAndInvalidState(t *testing.T) {
+	s, _, _ := testService(t)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	write := func(output string) {
+		t.Helper()
+		if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '"+strings.ReplaceAll(output, "\n", "\\n")+"\\n'\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		s.Airelay.Command = script
+	}
+	write("one\ntwo\n")
+	first, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{Lines: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("replacement\n")
+	if _, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{
+		Lines:  1,
+		Cursor: first.NextCursor,
+	}); err == nil || !strings.Contains(err.Error(), "stale tail cursor") {
+		t.Fatalf("replacement cursor was accepted: %v", err)
+	}
+	if _, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{
+		Lines:  1,
+		Cursor: "not-a-cursor",
+	}); err == nil || !strings.Contains(err.Error(), "invalid tail cursor") {
+		t.Fatalf("invalid cursor was accepted: %v", err)
 	}
 }
 

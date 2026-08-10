@@ -11,8 +11,18 @@ gpt-tunnel agent status <project-id>
 ```
 
 The equivalent MCP tools are `agent_send`, `agent_tail`, and `agent_status`.
-Messages, output, lines, and skip are bounded. `agent_tail` defaults to four
-lines; `skip` omits the newest lines from the one requested bounded window.
+Messages, output, lines, and continuation state are bounded. `agent_tail`
+defaults to four lines; `skip` is the legacy initial-window parameter.
+For polling, omit `cursor` on the initial read to receive the newest bounded
+window. Every successful response returns an opaque `next_cursor`, including
+an empty delta. Pass that cursor on the next call to receive only newly
+observed output; `has_more` indicates that more bounded pages remain. Do not
+decode or calculate cursor positions, and do not combine `cursor` with
+`skip`. A cursor is bound to the registered project session and retained
+output snapshot. A changed session key, replacement, truncation, rotation,
+malformed cursor, or unmatchable snapshot returns a stale/invalid cursor
+error; callers should start a new initial read. `run_agent_tail` uses the
+same continuation contract.
 Sends are serialized per session. Calls return exact delivery/exit information
 and do not retry. Status normalizes Airelay's busy/working state to `running`,
 and preserves bounded capacity warnings.

@@ -119,7 +119,7 @@ func TestRunAgentTailUsesStoredSessionAndDefaultAndExplicitLines(t *testing.T) {
 		t.Fatalf("default tail=%q err=%v", text, err)
 	}
 	args, _ := os.ReadFile(log)
-	if string(args) != "tail\nexample_master\n--lines\n4\n" {
+	if string(args) != "tail\nexample_master\n--lines\n200\n" {
 		t.Fatalf("default argv=%q", args)
 	}
 	_, err = s.RunAgentTail(context.Background(), run.ID, 9)
@@ -127,8 +127,35 @@ func TestRunAgentTailUsesStoredSessionAndDefaultAndExplicitLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	args, _ = os.ReadFile(log)
-	if !strings.HasSuffix(string(args), "--lines\n9\n") {
+	if !strings.HasSuffix(string(args), "--lines\n200\n") {
 		t.Fatalf("explicit argv=%q", args)
+	}
+}
+
+func TestRunAgentTailCursorUsesRunScope(t *testing.T) {
+	s, hubRevision, projectHead := testService(t)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	write := func(output string) {
+		t.Helper()
+		if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '"+strings.ReplaceAll(output, "\n", "\\n")+"\\n'\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		s.Airelay.Command = script
+	}
+	run := createActiveTailRun(t, s, hubRevision, projectHead)
+	write("one\ntwo\n")
+	first, err := s.RunAgentTailPage(context.Background(), run.ID, AgentTailInput{Lines: 1})
+	if err != nil || first.Text != "two\n" || first.NextCursor == "" {
+		t.Fatalf("initial run tail=%#v err=%v", first, err)
+	}
+	write("one\ntwo\nthree\n")
+	next, err := s.RunAgentTailPage(context.Background(), run.ID, AgentTailInput{
+		Lines:  1,
+		Cursor: first.NextCursor,
+	})
+	if err != nil || next.Text != "three\n" || next.HasMore {
+		t.Fatalf("run delta=%#v err=%v", next, err)
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
+	"github.com/rceman/gpt-tunnel-gateway/internal/tailcursor"
 )
 
 func (s *Service) transitionTaskStateWithWorktree(ctx context.Context, task model.Task, expected, subject string, mutate func(string, model.TaskState) (model.TaskState, error)) (hub.TransactionResult, error) {
@@ -194,30 +195,55 @@ func (s *Service) RunRead(ctx context.Context, id string) (model.Run, error) {
 }
 
 func (s *Service) RunAgentTail(ctx context.Context, id string, lines int) (string, error) {
+	result, err := s.RunAgentTailPage(ctx, id, AgentTailInput{Lines: lines})
+	if err != nil {
+		return "", err
+	}
+	return result.Text, nil
+}
+
+func (s *Service) RunAgentTailPage(ctx context.Context, id string, input AgentTailInput) (RunAgentTailResult, error) {
 	run, err := s.findRun(ctx, id)
 	if err != nil {
-		return "", err
+		return RunAgentTailResult{}, err
 	}
 	if err := requireCanonicalRun(run); err != nil {
-		return "", err
+		return RunAgentTailResult{}, err
 	}
 	if err := s.ensureRunOwned(run); err != nil {
-		return "", err
+		return RunAgentTailResult{}, err
 	}
 	if !operationalActiveRun(run) {
-		return "", fmt.Errorf("run is not active")
+		return RunAgentTailResult{}, fmt.Errorf("run is not active")
 	}
+	lines := input.Lines
 	if lines == 0 {
-		lines = 4
+		lines = agentDefaultTailLines
 	}
-	if lines < 1 || lines > 200 {
-		return "", fmt.Errorf("invalid tail line count: must be between 1 and 200")
+	if lines < 1 || lines > agentMaxTailLines || (input.Cursor != "" && input.Skip != 0) {
+		return RunAgentTailResult{}, fmt.Errorf("invalid tail line count: must be between 1 and 200")
 	}
-	result, err := s.Airelay.Tail(ctx, run.SessionKey, lines)
+	result, err := s.Airelay.TailSnapshot(ctx, run.SessionKey, tailcursor.MaxSnapshotLines)
 	if err != nil {
-		return "", err
+		return RunAgentTailResult{}, err
 	}
-	return result.Stdout, nil
+	snapshot := agentSnapshotLines(result.Stdout)
+	var page tailcursor.Page
+	if input.Cursor == "" {
+		page, err = tailcursor.Initial("run:"+id, run.SessionKey, snapshot, lines, input.Skip)
+	} else {
+		page, err = tailcursor.Continue("run:"+id, run.SessionKey, input.Cursor, snapshot, lines)
+	}
+	if err != nil {
+		return RunAgentTailResult{}, err
+	}
+	return RunAgentTailResult{
+		RunID:      id,
+		Text:       page.Text,
+		Lines:      lines,
+		NextCursor: page.NextCursor,
+		HasMore:    page.HasMore,
+	}, nil
 }
 
 func ensureOperationalRun(run model.Run) error {

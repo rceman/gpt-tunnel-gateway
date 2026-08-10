@@ -64,12 +64,12 @@ func TestAgentTailCLIRouteDefaultAndExplicitLines(t *testing.T) {
 		t.Fatalf("default CLI output=%q", data)
 	}
 	args, _ := os.ReadFile(log)
-	if string(args) != "tail\nexample_master\n--lines\n4\n" {
+	if string(args) != "tail\nexample_master\n--lines\n200\n" {
 		t.Fatalf("default CLI argv=%q", args)
 	}
 	run(context.Background(), s, []string{"agent-tail", agentRun.ID, "--lines", "9"})
 	args, _ = os.ReadFile(log)
-	if !strings.HasSuffix(string(args), "--lines\n9\n") {
+	if !strings.HasSuffix(string(args), "--lines\n200\n") {
 		t.Fatalf("explicit CLI argv=%q", args)
 	}
 }
@@ -145,7 +145,7 @@ func TestAgentTailCLICommandPathErrorsAreBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(string(args), "tail\nexample_master\n--lines\n9\n") {
+	if !strings.HasSuffix(string(args), "tail\nexample_master\n--lines\n200\n") {
 		t.Fatalf("explicit CLI argv=%q", args)
 	}
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf 'tail failure output\\n'\nprintf 'example_master CONTROL_PLANE_API_KEY=secret-marker\\n' >&2\nexit 23\n"), 0o700); err != nil {

@@ -41,12 +41,22 @@ Remote tools mirror typed CLI operations except `run_finalize`, which remains lo
 The v0.6.0 direct project-session tools are:
 
 - `agent_send(project_id, message)`: one bounded, serialized Airelay prompt;
-- `agent_tail(project_id, lines=4, skip=0)`: one bounded read window;
+- `agent_tail(project_id, lines=4, skip=0, cursor?)`: one bounded initial
+  window or incremental delta;
 - `agent_status(project_id)`: normalized bounded liveness state and capacity
   and rate-limit warnings.
 
 They resolve only configured registered projects and never accept a caller
 session key. They do not create or mutate durable task/run/plan state or Git.
+Tail responses always include an opaque `next_cursor` and `has_more`. An
+initial call without a cursor returns the newest bounded window. A later call
+with that cursor returns only output observed after the cursor's snapshot,
+including a successful empty delta when nothing new is available. `skip` is
+legacy initial-window behavior and cannot be combined with a cursor. Cursors
+are bound to the project/session scope and retained snapshot; malformed,
+cross-scope, replaced-session, truncated, or otherwise unmatchable cursors
+are rejected as stale/invalid and require a new initial read. `run_agent_tail`
+uses the same cursor semantics for the current run session.
 `agent_send` is emergency/control-plane communication only; it never grants
 new task scope or merge, release, or deployment authorization. Messages such as
 “implement the next feature”, “merge and release this branch”, “deploy this”,

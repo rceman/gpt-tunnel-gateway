@@ -7,7 +7,7 @@ func runtimeToolOutputSchemas() map[string]map[string]any {
 		"run_status":                         runOutputSchema(),
 		"run_report":                         reportOutputSchema(),
 		"run_review_snapshot":                reviewSnapshotOutputSchema(),
-		"run_agent_tail":                     closedOutput(map[string]any{"text": outputString()}, "text"),
+		"run_agent_tail":                     closedOutput(map[string]any{"run_id": outputString(), "text": outputString(), "lines": outputInteger(), "next_cursor": outputString(), "has_more": outputBoolean()}, "run_id", "text", "lines", "next_cursor", "has_more"),
 		"run_resume":                         runResumeOutputSchema(),
 		"agent_send":                         agentSendOutputSchema(),
 		"agent_tail":                         agentTailOutputSchema(),

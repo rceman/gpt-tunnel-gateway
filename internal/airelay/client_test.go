@@ -118,6 +118,23 @@ func TestTailWithSkipUsesOneBoundedRequest(t *testing.T) {
 	}
 }
 
+func TestTailSnapshotAllowsEmptyOutput(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := Client{
+		Command:         script,
+		Timeout:         time.Second,
+		MaxMessageBytes: 256,
+	}
+	result, err := c.TailSnapshot(context.Background(), "project_master", 200)
+	if err != nil || result.Stdout != "" {
+		t.Fatalf("empty snapshot=%q err=%v", result.Stdout, err)
+	}
+}
+
 func TestStatusParsesStateAndCapacityWarnings(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "airelay")
