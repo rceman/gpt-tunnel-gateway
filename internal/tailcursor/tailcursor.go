@@ -13,6 +13,7 @@ const (
 	Version          = 1
 	MaxSnapshotLines = 200
 	MaxCursorBytes   = 4096
+	AnchorLines      = 8
 )
 
 type state struct {
@@ -21,6 +22,8 @@ type state struct {
 	SessionDigest  string `json:"k"`
 	SnapshotDigest string `json:"d"`
 	SnapshotLines  int    `json:"n"`
+	AnchorDigest   string `json:"a"`
+	AnchorSize     int    `json:"al"`
 	Offset         int    `json:"o"`
 }
 
@@ -60,18 +63,13 @@ func Continue(scope, session, raw string, snapshot []string, lines int) (Page, e
 	if err != nil {
 		return Page{}, err
 	}
-	if current.SnapshotLines > len(snapshot) || current.Offset > len(snapshot) {
+	if current.SnapshotLines > len(snapshot) || current.Offset > MaxSnapshotLines {
 		return Page{}, fmt.Errorf("stale tail cursor")
 	}
-	if current.SnapshotLines > 0 {
-		prefix := snapshot[:current.SnapshotLines]
-		if snapshotDigest(prefix) != current.SnapshotDigest {
-			return Page{}, fmt.Errorf("stale tail cursor")
-		}
-	} else if current.SnapshotDigest != snapshotDigest(nil) {
-		return Page{}, fmt.Errorf("stale tail cursor")
+	delta, err := deltaFor(current, snapshot)
+	if err != nil {
+		return Page{}, err
 	}
-	delta := snapshot[current.SnapshotLines:]
 	if current.Offset > len(delta) {
 		return Page{}, fmt.Errorf("stale tail cursor")
 	}
@@ -104,14 +102,35 @@ func validateBounds(snapshot []string, lines, skip int) error {
 }
 
 func stateFor(scope, session string, snapshot []string, offset int) state {
+	anchor := snapshot
+	if len(anchor) > AnchorLines {
+		anchor = anchor[len(anchor)-AnchorLines:]
+	}
 	return state{
 		Version:        Version,
 		Scope:          scope,
 		SessionDigest:  digestString(session),
 		SnapshotDigest: snapshotDigest(snapshot),
 		SnapshotLines:  len(snapshot),
+		AnchorDigest:   snapshotDigest(anchor),
+		AnchorSize:     len(anchor),
 		Offset:         offset,
 	}
+}
+
+func deltaFor(value state, snapshot []string) ([]string, error) {
+	if value.SnapshotLines <= len(snapshot) && snapshotDigest(snapshot[:value.SnapshotLines]) == value.SnapshotDigest {
+		return snapshot[value.SnapshotLines:], nil
+	}
+	if value.AnchorSize < 1 || value.AnchorSize > len(snapshot) {
+		return nil, fmt.Errorf("stale tail cursor")
+	}
+	for start := 0; start+value.AnchorSize <= len(snapshot); start++ {
+		if snapshotDigest(snapshot[start:start+value.AnchorSize]) == value.AnchorDigest {
+			return snapshot[start+value.AnchorSize:], nil
+		}
+	}
+	return nil, fmt.Errorf("stale tail cursor")
 }
 
 func encode(value state) (string, error) {
@@ -135,7 +154,7 @@ func decode(raw, scope, session string) (state, error) {
 		return state{}, fmt.Errorf("invalid tail cursor")
 	}
 	var value state
-	if json.Unmarshal(data, &value) != nil || value.Version != Version || value.Scope != scope || value.SessionDigest != digestString(session) || value.SnapshotLines < 0 || value.SnapshotLines > MaxSnapshotLines || value.Offset < 0 || value.Offset > MaxSnapshotLines || value.SnapshotDigest != snapshotDigest(nil) && len(value.SnapshotDigest) != sha256.Size*2 {
+	if json.Unmarshal(data, &value) != nil || value.Version != Version || value.Scope != scope || value.SessionDigest != digestString(session) || value.SnapshotLines < 0 || value.SnapshotLines > MaxSnapshotLines || value.AnchorSize < 0 || value.AnchorSize > AnchorLines || value.Offset < 0 || value.Offset > MaxSnapshotLines || value.SnapshotDigest != snapshotDigest(nil) && len(value.SnapshotDigest) != sha256.Size*2 || value.AnchorDigest != snapshotDigest(nil) && len(value.AnchorDigest) != sha256.Size*2 {
 		return state{}, fmt.Errorf("invalid tail cursor")
 	}
 	if _, err := hex.DecodeString(value.SnapshotDigest); err != nil {

@@ -1,6 +1,7 @@
 package tailcursor
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -21,6 +22,23 @@ func TestCursorPagesMultipleNewLinesAndEmptyDelta(t *testing.T) {
 	empty, err := Continue("project:demo", "demo_master", third.NextCursor, []string{"one", "two", "three", "four"}, 1)
 	if err != nil || empty.Text != "" || empty.NextCursor == "" || empty.HasMore {
 		t.Fatalf("empty page=%#v err=%v", empty, err)
+	}
+}
+
+func TestCursorSurvivesSlidingNewestWindow(t *testing.T) {
+	baseline := numberedLines(1, 200)
+	page, err := Initial("project:demo", "demo_master", baseline, 2, 0)
+	if err != nil || page.Text != "line-199\nline-200\n" {
+		t.Fatalf("initial page=%#v err=%v", page, err)
+	}
+	sliding := numberedLines(2, 201)
+	next, err := Continue("project:demo", "demo_master", page.NextCursor, sliding, 1)
+	if err != nil || next.Text != "line-201\n" || next.HasMore {
+		t.Fatalf("sliding delta=%#v err=%v", next, err)
+	}
+	empty, err := Continue("project:demo", "demo_master", next.NextCursor, sliding, 1)
+	if err != nil || empty.Text != "" || empty.NextCursor == "" {
+		t.Fatalf("sliding empty delta=%#v err=%v", empty, err)
 	}
 }
 
@@ -58,4 +76,12 @@ func TestCursorNeverEmbedsSessionOrSnapshotText(t *testing.T) {
 	if strings.Contains(page.NextCursor, "secret_session") || strings.Contains(page.NextCursor, "secret output") {
 		t.Fatalf("cursor leaked caller/session data: %q", page.NextCursor)
 	}
+}
+
+func numberedLines(start, end int) []string {
+	lines := make([]string, 0, end-start+1)
+	for i := start; i <= end; i++ {
+		lines = append(lines, "line-"+strconv.Itoa(i))
+	}
+	return lines
 }
