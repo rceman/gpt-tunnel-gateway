@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
@@ -28,6 +29,9 @@ type SessionResult struct {
 }
 
 func (s *Service) SessionStart(ctx context.Context, input SessionStartInput) (SessionResult, error) {
+	if err := authority.RequireRole(ctx, input.Role); err != nil {
+		return SessionResult{}, err
+	}
 	project, err := s.ProjectRead(ctx, input.ProjectID)
 	if err != nil {
 		return SessionResult{}, fmt.Errorf("session project is not durably registered: %w", err)

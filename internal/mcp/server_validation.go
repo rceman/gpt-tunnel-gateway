@@ -6,25 +6,10 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 )
 
 func requireToolAuthority(ctx context.Context, toolName string) error {
-	switch toolName {
-	case "task_correction_create":
-		return authority.RequireDelivery(ctx)
-	case "delivery_handoff_publish", "delivery_handoff_cancel", "delivery_handoff_supersede", "planner_report_acknowledge", "planner_report_next":
-		return authority.RequirePlanner(ctx)
-	case "delivery_handoff_acknowledge", "delivery_handoff_next", "planner_report_publish":
-		return authority.RequireDelivery(ctx)
-	case "project_onboard", "project_onboard_recover", "project_workflow_policy_adopt", "project_workflow_policy_update":
-		return authority.RequirePlannerOrDelivery(ctx)
-	case "session":
-		return authority.RequirePlannerOrDelivery(ctx)
-	default:
-		return nil
-	}
+	return requireActionAuthority(ctx, actionAuthorityContractFor(toolName))
 }
 
 func validateToolArguments(schema map[string]any, raw json.RawMessage) error {

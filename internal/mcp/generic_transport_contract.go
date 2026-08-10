@@ -15,13 +15,15 @@ const genericBatchMaxItems = 100
 // through schema and invokes them through the same handler path as legacy
 // tools.
 type GenericAction struct {
-	Path         string
-	Description  string
-	InputSchema  map[string]any
-	OutputSchema map[string]any
-	Annotations  ToolAnnotations
-	Authority    func(context.Context) error
-	Execute      func(context.Context, json.RawMessage) (any, error)
+	Path                   string
+	Description            string
+	InputSchema            map[string]any
+	OutputSchema           map[string]any
+	Annotations            ToolAnnotations
+	Authority              func(context.Context) error
+	AuthorityRole          string
+	RequiresWorkflowPolicy bool
+	Execute                func(context.Context, json.RawMessage) (any, error)
 }
 
 type genericActionEntry struct {
@@ -46,6 +48,9 @@ func (s *Server) RegisterGenericAction(action GenericAction) error {
 	}
 	if action.Description == "" || action.InputSchema == nil || action.OutputSchema == nil || action.Execute == nil {
 		return fmt.Errorf("generic action %q is incomplete", action.Path)
+	}
+	if err := validateActionAuthorityRole(action.AuthorityRole); err != nil {
+		return fmt.Errorf("generic action %q: %w", action.Path, err)
 	}
 	for toolName := range toolOutputSchemas {
 		if legacyActionPath(toolName) == action.Path {
@@ -101,13 +106,16 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		}
 		path := legacyActionPath(toolName)
 		toolName, tool := toolName, tool
+		contract := actionAuthorityContractFor(toolName)
 		entry := genericActionEntry{
 			GenericAction: GenericAction{
-				Path:         path,
-				Description:  tool.Description,
-				InputSchema:  tool.InputSchema,
-				OutputSchema: tool.OutputSchema,
-				Annotations:  tool.Annotations,
+				Path:                   path,
+				Description:            tool.Description,
+				InputSchema:            tool.InputSchema,
+				OutputSchema:           tool.OutputSchema,
+				Annotations:            tool.Annotations,
+				AuthorityRole:          contract.Role,
+				RequiresWorkflowPolicy: contract.RequiresWorkflowPolicy,
 				Authority: func(ctx context.Context) error {
 					return requireToolAuthority(ctx, toolName)
 				},

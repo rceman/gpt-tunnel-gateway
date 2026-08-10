@@ -42,7 +42,11 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		if err := requireSessionRole(ctx, record.Role); err != nil {
 			return genericActionError(action, err.Error()), nil
 		}
-		var err error
+		resolved, err := s.resolveSessionAuthority(ctx, record, actionAuthorityContract{Role: entry.AuthorityRole, RequiresWorkflowPolicy: entry.RequiresWorkflowPolicy})
+		if err != nil {
+			return genericActionError(action, err.Error()), nil
+		}
+		ctx = resolved
 		raw, err = inheritSessionProject(entry.InputSchema, record.ProjectID, raw)
 		if err != nil {
 			return genericActionError(action, err.Error()), nil

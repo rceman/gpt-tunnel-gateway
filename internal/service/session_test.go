@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
@@ -25,7 +26,7 @@ func TestServiceSessionLifecycleUsesRegisteredProject(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	started, err := s.SessionStart(context.Background(), SessionStartInput{
+	started, err := s.SessionStart(authority.WithDelivery(context.Background()), SessionStartInput{
 		ProjectID:   "example",
 		Role:        "delivery",
 		SessionType: "chatgpt",
@@ -40,7 +41,7 @@ func TestServiceSessionLifecycleUsesRegisteredProject(t *testing.T) {
 	if err != nil || info.Session.ID != started.Session.ID {
 		t.Fatalf("info result=%#v err=%v", info, err)
 	}
-	if _, err := s.SessionStart(context.Background(), SessionStartInput{
+	if _, err := s.SessionStart(authority.WithDelivery(context.Background()), SessionStartInput{
 		ProjectID:   "missing",
 		Role:        "delivery",
 		SessionType: "chatgpt",
