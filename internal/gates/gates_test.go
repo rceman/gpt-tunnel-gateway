@@ -45,21 +45,20 @@ func TestStaticCheckAllowsRepodexInitForce(t *testing.T) {
 	}
 }
 
-func TestRefactorOutputIsTheExactTokenAdmissionContract(t *testing.T) {
-	if err := parseRefactorOutput("threshold=3000 files=0\n"); err != nil {
-		t.Fatal(err)
+func TestNativeTokenAdmissionReportsOffenders(t *testing.T) {
+	report := TokenReport{
+		Max:       TokenFile{Path: "large.go", Tokens: MaxTokens + 1},
+		Offending: []TokenFile{{Path: "large.go", Tokens: MaxTokens + 1}},
 	}
-	if err := parseRefactorOutput("threshold=3000 files=1\noversized.go 20000\n"); err == nil || !strings.Contains(err.Error(), "oversized.go 20000") {
-		t.Fatalf("offender output was not reported: %v", err)
+	e := Executor{
+		Tokens: func(context.Context, string) (TokenReport, error) { return report, nil },
+		Command: func(context.Context, string, string, ...string) (int, string, error) {
+			t.Fatal("command ran after native token admission failure")
+			return 0, "", nil
+		},
 	}
-	for _, output := range []string{
-		"not refactor output\n",
-		"threshold=2999 files=0\n",
-		"threshold=3000 files=not-a-number\n",
-	} {
-		if err := parseRefactorOutput(output); err == nil {
-			t.Fatalf("malformed oracle output accepted: %q", output)
-		}
+	if _, err := e.Execute(context.Background(), "/repo", []string{"check"}); err == nil || !strings.Contains(err.Error(), "large.go") {
+		t.Fatalf("native overflow was not reported: %v", err)
 	}
 }
 
