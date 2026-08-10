@@ -82,14 +82,12 @@ backlog client-side.
 All other growing public collections use the shared bounded-page contract:
 `limit` defaults to 20 and has a hard maximum of 100 (also capped by the
 configured `max_list_items`), and `cursor` is an opaque deterministic
-continuation token. `project_list`, `run_list`, `adr_list`, `git_refs`, and
-`git_tree` return `next_cursor` and `has_more`; their ordering is stable for
-the requested snapshot. Cursors for `git_log` and `git_tree` are bound to the
-exact managed mirror, revision, and tree path scope; a missing or cross-scope
-cursor is rejected. The
-task-scoped revision list and the durable handoff/report lists remain bounded
-by their existing service limits; their full reads are scoped to one task or
-project and do not expose an unbounded payload by default.
+continuation token. `project_list`, `run_list`, `adr_list`,
+`task_revision_list`, `plan_history`, `git_refs`, `git_log`, `git_tree`,
+`delivery_handoff_list`, and `planner_report_list` return `next_cursor` and
+`has_more`; their ordering is stable for the requested snapshot. Cursors for
+`git_log` and `git_tree` are bound to the exact managed mirror, revision, and
+tree path scope; a missing or cross-scope cursor is rejected.
 
 The audit of public read-many actions is:
 
