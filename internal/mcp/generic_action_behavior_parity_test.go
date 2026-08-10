@@ -97,7 +97,10 @@ func TestTypedAndGenericTaskListSearchStatusLimitCursorParity(t *testing.T) {
 		}
 		revision = operation.Hub.After
 	}
-	server := &Server{Service: s, AuthorityContext: authority.WithDelivery(ctx)}
+	server := &Server{
+		Service:          s,
+		AuthorityContext: authority.WithDelivery(ctx),
+	}
 	sessionID := genericSession(t, s, "example")
 
 	callTypedAndGeneric(t, server, sessionID, "task_list", "task/list", map[string]any{
@@ -134,7 +137,10 @@ func TestTypedAndGenericTaskListSearchStatusLimitCursorParity(t *testing.T) {
 
 func TestTypedAndGenericBoundedProjectListParity(t *testing.T) {
 	s, _ := newWorkflowPolicyStatusService(t)
-	server := &Server{Service: s, AuthorityContext: authority.WithDelivery(context.Background())}
+	server := &Server{
+		Service:          s,
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	sessionID := genericSession(t, s, "example")
 	callTypedAndGeneric(t, server, sessionID, "project_list", "project/list", map[string]any{"limit": 1})
 }
@@ -147,7 +153,10 @@ func TestTypedAndGenericAgentTailCursorParity(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Airelay.Command = script
-	server := &Server{Service: s, AuthorityContext: authority.WithDelivery(ctx)}
+	server := &Server{
+		Service:          s,
+		AuthorityContext: authority.WithDelivery(ctx),
+	}
 	sessionID := genericSession(t, s, "example")
 	pageOne, _ := callTypedAndGeneric(t, server, sessionID, "agent_tail", "agent/tail", map[string]any{
 		"project_id": "example", "lines": 2,

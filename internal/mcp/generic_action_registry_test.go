@@ -35,7 +35,10 @@ func TestFrozenRegistryUsesCanonicalCursorTailAndTypedCompatibilityKeepsSkip(t *
 }
 
 func TestFrozenRegistrySchemaCallAndBatchShareCanonicalContracts(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"}), AuthorityContext: authority.WithDelivery(context.Background())}
+	server := &Server{
+		Service:          service.New(config.Config{GatewayID: "home_pc"}),
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	tools := server.tools()
 	entries := server.genericActionRegistry(tools)
 	for _, path := range []string{"project/list", "task/list", "run/list", "adr/list", "task/revision_list", "plan/history", "delivery/handoff_list", "planner/report_list", "operator/history", "git/refs", "git/log", "git/tree", "agent/tail"} {
