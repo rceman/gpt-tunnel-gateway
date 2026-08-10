@@ -135,10 +135,10 @@ func (r Runner) TreeID(ctx context.Context, p config.ProjectConfig) (string, err
 	return tree, nil
 }
 
-// WorktreeContentID identifies the bytes currently visible in the worktree,
-// independently of whether those bytes have been committed. It includes the
-// tracked HEAD/index path set so staged additions and deletions compare equal
-// to the resulting commit, plus non-ignored untracked paths.
+// WorktreeContentID returns the prospective Git tree object for the bytes
+// currently visible in the worktree. It is calculated without changing the
+// index, so a dirty worktree and the commit made from those same bytes have
+// the same identity.
 func (r Runner) WorktreeContentID(ctx context.Context, p config.ProjectConfig) (string, error) {
 	tracked, err := r.command(ctx, p.Root, false, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
 	if err != nil {
@@ -158,63 +158,111 @@ func (r Runner) WorktreeContentID(ctx context.Context, p config.ProjectConfig) (
 		}
 		paths[filepath.FromSlash(raw)] = struct{}{}
 	}
-	ordered := make([]string, 0, len(paths))
+	root := prospectiveTreeNode{entries: map[string]prospectiveTreeEntry{}, dirs: map[string]*prospectiveTreeNode{}}
 	for path := range paths {
-		ordered = append(ordered, path)
-	}
-	sort.Strings(ordered)
-	h := sha1.New()
-	for _, path := range ordered {
-		if _, err := io.WriteString(h, filepath.ToSlash(path)); err != nil {
-			return "", err
-		}
-		if _, err := h.Write([]byte{0}); err != nil {
-			return "", err
-		}
 		full := filepath.Join(p.Root, path)
 		info, err := os.Lstat(full)
 		if err != nil {
 			if os.IsNotExist(err) {
-				if _, err := h.Write([]byte("missing\x00")); err != nil {
-					return "", err
-				}
 				continue
 			}
 			return "", err
 		}
-		if _, err := io.WriteString(h, fmt.Sprintf("%o\x00", info.Mode())); err != nil {
-			return "", err
-		}
+		mode := "100644"
+		var content []byte
 		switch {
 		case info.Mode()&os.ModeSymlink != 0:
 			target, err := os.Readlink(full)
 			if err != nil {
 				return "", err
 			}
-			if _, err := io.WriteString(h, target); err != nil {
-				return "", err
-			}
+			mode = "120000"
+			content = []byte(target)
 		case info.Mode().IsRegular():
 			file, err := os.Open(full)
 			if err != nil {
 				return "", err
 			}
-			_, copyErr := io.Copy(h, file)
+			content, err = io.ReadAll(file)
 			closeErr := file.Close()
-			if copyErr != nil {
-				return "", copyErr
+			if err != nil {
+				return "", err
 			}
 			if closeErr != nil {
 				return "", closeErr
 			}
+			if info.Mode().Perm()&0o111 != 0 {
+				mode = "100755"
+			}
 		default:
 			return "", fmt.Errorf("unsupported worktree entry %s", path)
 		}
-		if _, err := h.Write([]byte{0}); err != nil {
-			return "", err
+		blob := gitObjectID("blob", content)
+		parts := strings.Split(filepath.ToSlash(path), "/")
+		node := &root
+		for _, part := range parts[:len(parts)-1] {
+			if _, exists := node.entries[part]; exists {
+				return "", fmt.Errorf("worktree path conflicts with file: %s", path)
+			}
+			child := node.dirs[part]
+			if child == nil {
+				child = &prospectiveTreeNode{entries: map[string]prospectiveTreeEntry{}, dirs: map[string]*prospectiveTreeNode{}}
+				node.dirs[part] = child
+			}
+			node = child
 		}
+		name := parts[len(parts)-1]
+		if _, exists := node.dirs[name]; exists {
+			return "", fmt.Errorf("worktree path conflicts with directory: %s", path)
+		}
+		node.entries[name] = prospectiveTreeEntry{mode: mode, object: blob}
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return hex.EncodeToString(root.objectID()), nil
+}
+
+type prospectiveTreeNode struct {
+	entries map[string]prospectiveTreeEntry
+	dirs    map[string]*prospectiveTreeNode
+}
+
+type prospectiveTreeEntry struct {
+	mode   string
+	object [sha1.Size]byte
+}
+
+func (n *prospectiveTreeNode) objectID() [sha1.Size]byte {
+	type namedEntry struct {
+		name string
+		mode string
+		id   [sha1.Size]byte
+		key  string
+	}
+	entries := make([]namedEntry, 0, len(n.entries)+len(n.dirs))
+	for name, entry := range n.entries {
+		entries = append(entries, namedEntry{name: name, mode: entry.mode, id: entry.object, key: name})
+	}
+	for name, child := range n.dirs {
+		entries = append(entries, namedEntry{name: name, mode: "40000", id: child.objectID(), key: name + "/"})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].key < entries[j].key })
+	body := make([]byte, 0)
+	for _, entry := range entries {
+		body = append(body, entry.mode...)
+		body = append(body, ' ')
+		body = append(body, entry.name...)
+		body = append(body, 0)
+		body = append(body, entry.id[:]...)
+	}
+	return gitObjectID("tree", body)
+}
+
+func gitObjectID(kind string, content []byte) [sha1.Size]byte {
+	h := sha1.New()
+	_, _ = fmt.Fprintf(h, "%s %d\x00", kind, len(content))
+	_, _ = h.Write(content)
+	var result [sha1.Size]byte
+	copy(result[:], h.Sum(nil))
+	return result
 }
 
 func bytesSplitNUL(data []byte) []string {

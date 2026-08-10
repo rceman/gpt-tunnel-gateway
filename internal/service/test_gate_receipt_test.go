@@ -156,3 +156,52 @@ func TestTestGateReceiptReusesDirtyContentAfterCommit(t *testing.T) {
 		t.Fatalf("committed tested bytes did not reuse receipt: calls=%d results=%#v", calls, results)
 	}
 }
+
+func TestTestGateReceiptProspectiveTreeConvergesAddModifyDelete(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	root := s.Config.Projects["example"].Root
+	if err := os.WriteFile(filepath.Join(root, "modify.txt"), []byte("before\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "delete.txt"), []byte("remove\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, root, "add", "modify.txt", "delete.txt")
+	testutil.Git(t, root, "commit", "-m", "seed prospective tree test")
+	if err := os.WriteFile(filepath.Join(root, "modify.txt"), []byte("after\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "add.txt"), []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "delete.txt")); err != nil {
+		t.Fatal(err)
+	}
+	s.gateExecutor = func(_ context.Context, _ string, names []string) ([]model.CompletionGateResult, error) {
+		results := make([]model.CompletionGateResult, len(names))
+		for i, name := range names {
+			results[i] = model.CompletionGateResult{ID: name, ExitCode: 0}
+		}
+		return results, nil
+	}
+	if err := s.ExecuteCanonicalTestGate(context.Background(), root); err != nil {
+		t.Fatal(err)
+	}
+	prospective, _, err := s.currentTestIdentity(context.Background(), "example", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, root, "add", "-A")
+	testutil.Git(t, root, "commit", "-m", "commit prospective tree test")
+	committed := testutil.Git(t, root, "rev-parse", "HEAD^{tree}")
+	if prospective != committed {
+		t.Fatalf("prospective tree did not converge: dirty=%s committed=%s", prospective, committed)
+	}
+	results, err := s.executeProjectGatesWithTestReuse(context.Background(), "example", root, []string{"format", "check", "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[2].Execution != "reused" {
+		t.Fatalf("add/modify/delete content did not reuse receipt: %#v", results)
+	}
+}
