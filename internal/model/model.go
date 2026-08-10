@@ -199,8 +199,12 @@ type Run struct {
 }
 
 type CompletionGateResult struct {
-	ID       string `json:"id"`
-	ExitCode int    `json:"exit_code"`
+	ID             string `json:"id"`
+	ExitCode       int    `json:"exit_code"`
+	Execution      string `json:"execution,omitempty"`
+	TreeID         string `json:"tree_id,omitempty"`
+	ContractDigest string `json:"contract_digest,omitempty"`
+	ReceiptDigest  string `json:"receipt_digest,omitempty"`
 }
 
 type Completion struct {

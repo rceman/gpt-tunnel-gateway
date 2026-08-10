@@ -118,6 +118,12 @@ func ValidateServerGateEvidence(results []CompletionGateResult) error {
 		if seen[result.ID] {
 			return fmt.Errorf("duplicate server gate evidence %q", result.ID)
 		}
+		if result.Execution != "" && result.Execution != "executed" && result.Execution != "reused" {
+			return fmt.Errorf("invalid server gate execution %q", result.Execution)
+		}
+		if result.Execution == "reused" && (result.TreeID == "" || result.ContractDigest == "" || result.ReceiptDigest == "") {
+			return fmt.Errorf("reused server gate evidence is missing receipt identity")
+		}
 		seen[result.ID] = true
 	}
 	return nil

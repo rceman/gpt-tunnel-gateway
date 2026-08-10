@@ -3,6 +3,9 @@ package gates
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -13,8 +16,27 @@ import (
 
 const MaxTokens = tokenizer.MaxTokens
 
+const TestGateRunnerContractVersion = "gpt-tunnel-test-gate/v1"
+
 type TokenFile = tokenizer.FileCount
 type TokenReport = tokenizer.Report
+
+func TestGateContractDigest(gates []string) (string, error) {
+	resolved, err := Resolve(gates)
+	if err != nil {
+		return "", err
+	}
+	payload := struct {
+		Version string   `json:"version"`
+		Gates   []string `json:"gates"`
+	}{Version: TestGateRunnerContractVersion, Gates: resolved}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:]), nil
+}
 
 type Command func(context.Context, string, string, ...string) (int, string, error)
 type TokenCounter func(context.Context, string) (TokenReport, error)

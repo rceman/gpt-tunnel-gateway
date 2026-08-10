@@ -113,3 +113,18 @@ func (r Runner) CurrentHead(ctx context.Context, p config.ProjectConfig) (string
 	s, err := r.WorktreeStatus(ctx, p)
 	return s.Head, s.Branch, s.Clean, err
 }
+
+// TreeID returns the exact Git content tree for the current HEAD. Commit
+// identity is intentionally not part of this value so equivalent trees can
+// be recognized across commits.
+func (r Runner) TreeID(ctx context.Context, p config.ProjectConfig) (string, error) {
+	out, err := r.command(ctx, p.Root, false, "rev-parse", "--verify", "HEAD^{tree}")
+	if err != nil {
+		return "", err
+	}
+	tree := strings.TrimSpace(string(out))
+	if err := model.ValidateRevision(tree); err != nil {
+		return "", fmt.Errorf("invalid Git tree identity: %w", err)
+	}
+	return tree, nil
+}

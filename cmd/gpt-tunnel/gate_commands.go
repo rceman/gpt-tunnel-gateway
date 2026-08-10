@@ -9,7 +9,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-func gate(ctx context.Context, _ *service.Service, name string, args []string) {
+func gate(ctx context.Context, s *service.Service, name string, args []string) {
 	if len(args) != 0 {
 		usage()
 	}
@@ -21,6 +21,13 @@ func gate(ctx context.Context, _ *service.Service, name string, args []string) {
 			fatal(err)
 		}
 		fmt.Println("OK format")
+		return
+	}
+	if name == "test" {
+		if err := s.ExecuteCanonicalTestGate(ctx, mustWorkingDirectory()); err != nil {
+			fatal(err)
+		}
+		fmt.Println("OK test")
 		return
 	}
 	results, err := gates.NewExecutor().Execute(ctx, mustWorkingDirectory(), []string{name})

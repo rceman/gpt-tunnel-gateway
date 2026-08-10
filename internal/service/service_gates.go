@@ -27,6 +27,10 @@ func (s *Service) ExecuteProjectGates(ctx context.Context, projectID, operationC
 	if err != nil {
 		return nil, err
 	}
+	return s.executeGateNames(ctx, root, names)
+}
+
+func (s *Service) executeGateNames(ctx context.Context, root string, names []string) ([]model.CompletionGateResult, error) {
 	if s.gateExecutor == nil {
 		return nil, fmt.Errorf("project gate executor is not configured")
 	}
