@@ -162,6 +162,26 @@ func (c *Coordinator) commonPathLastChange(ctx context.Context, request Request)
 	return common, nil
 }
 
+func (c *Coordinator) commonPrimaryPathLastChange(ctx context.Context, projectID string) (string, error) {
+	paths := canonicalOnboardingPaths(projectID)
+	var common string
+	for _, path := range paths {
+		lastChange, err := c.Hub.LastChange(ctx, path)
+		if err != nil {
+			return "", err
+		}
+		if common == "" {
+			common = lastChange
+		} else if common != lastChange {
+			return "", fmt.Errorf("primary onboarding paths have different last-change commits: %s versus %s", common, lastChange)
+		}
+	}
+	if common == "" {
+		return "", errors.New("primary onboarding paths have no common last-change commit")
+	}
+	return common, nil
+}
+
 func (c *Coordinator) validateCommittedPrimaryHubState(ctx context.Context, request Request, receipt Receipt, project model.Project, plan model.Plan, identifiers model.ProjectIdentifiers, digests objectDigests) error {
 	objects := onboardingObjects(request, project, plan, identifiers, nil)
 	for index, object := range objects {
@@ -184,6 +204,13 @@ func (c *Coordinator) validateCommittedPrimaryHubState(ctx context.Context, requ
 	}
 	if receipt.Hub.After == nil {
 		return errors.New("committed onboarding receipt requires hub.after")
+	}
+	lastChange, err := c.commonPrimaryPathLastChange(ctx, request.ProjectID)
+	if err != nil {
+		return err
+	}
+	if lastChange != *receipt.Hub.After {
+		return fmt.Errorf("primary onboarding last-change commit %s does not match recorded hub.after %s", lastChange, *receipt.Hub.After)
 	}
 	return nil
 }
