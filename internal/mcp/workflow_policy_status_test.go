@@ -145,6 +145,10 @@ func TestProjectStatusMCPOutputMatchesWorkflowPolicyStateMatrix(t *testing.T) {
 			if policy["state"] != state {
 				t.Fatalf("workflow policy state=%v want=%s", policy["state"], state)
 			}
+			gates, ok := policy["gates"].([]any)
+			if !ok || len(gates) != 3 || gates[0] != model.WorkflowGateFormat || gates[1] != model.WorkflowGateCheck || gates[2] != model.WorkflowGateTest {
+				t.Fatalf("%s policy emitted non-effective gates: %#v", state, policy["gates"])
+			}
 			ci := policy["ci"].(map[string]any)
 			if state == "adopted" {
 				if policy["revision"] != float64(1) || policy["workflow_stage"] != model.WorkflowStageTransitionalMain || policy["integration_branch"] != "main" || ci["task"] != string(model.WorkflowCIModeDisabled) || ci["task_merge"] != string(model.WorkflowCIModeObserve) || ci["release"] != string(model.WorkflowCIModeRequire) {

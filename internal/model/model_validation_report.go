@@ -33,6 +33,11 @@ func ValidateReport(v Report, task Task, run Run, limits ...int) error {
 	if len(v.GateResults) > 128 || len(v.AcceptanceCoverage) > 128 || len(v.Deviations) > 64 || len(v.RemainingRisks) > 64 {
 		return fmt.Errorf("report bounds exceeded")
 	}
+	if len(v.ServerGateResults) > 0 {
+		if err := ValidateServerGateEvidence(v.ServerGateResults); err != nil {
+			return err
+		}
+	}
 	for i, gate := range v.GateResults {
 		if gate.ID != fmt.Sprintf("G%d", i+1) {
 			return fmt.Errorf("report gate results are not positional")

@@ -27,7 +27,7 @@ func (f canonicalOutputFixture) canonicalCoreOutputSamples() map[string]any {
 		"project_list":         map[string]any{"projects": []model.Project{project}}, "project_read": project,
 		"project_identifiers_read":  model.ProjectIdentifiers{SchemaVersion: 1, ProjectID: "project", ProjectCode: "GTW", NextTaskNumber: 1, NextADRNumber: 1},
 		"project_identifiers_adopt": map[string]any{"identifiers": model.ProjectIdentifiers{SchemaVersion: 1, ProjectID: "project", ProjectCode: "GTW", NextTaskNumber: 1, NextADRNumber: 1}, "operation": f.operation},
-		"project_status":            service.ProjectStatus{Project: project, Local: local, Worktree: worktree, Plan: plan.StatusView(), HubRevision: transaction.After, WorkflowPolicy: service.ProjectWorkflowPolicyStatus{State: "adopted", Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", AgentWaitForCI: false, CI: policy.CI, Conflicts: []string{}, CorrectiveAction: "none"}},
+		"project_status":            service.ProjectStatus{Project: project, Local: local, Worktree: worktree, Plan: plan.StatusView(), HubRevision: transaction.After, WorkflowPolicy: service.ProjectWorkflowPolicyStatus{State: "adopted", Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", AgentWaitForCI: false, CI: policy.CI, Gates: []string{model.WorkflowGateFormat, model.WorkflowGateCheck, model.WorkflowGateTest}, Conflicts: []string{}, CorrectiveAction: "none"}},
 		"project_onboard": map[string]any{
 			"operation_id": "11111111-1111-4111-8111-111111111111", "project_id": "project", "state": "activated",
 			"request_sha256": strings.Repeat("a", 64), "receipt_sha256": strings.Repeat("b", 64), "hub_transaction": true,

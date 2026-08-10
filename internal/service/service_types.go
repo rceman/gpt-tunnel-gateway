@@ -1,29 +1,36 @@
 package service
 
 import (
+	"context"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/gates"
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 type Service struct {
-	Config  config.Config
-	Hub     hub.Store
-	Git     gitx.Runner
-	Airelay airelay.Client
-	clock   func() time.Time
+	Config       config.Config
+	Hub          hub.Store
+	Git          gitx.Runner
+	Airelay      airelay.Client
+	clock        func() time.Time
+	gateExecutor func(context.Context, string, []string) ([]model.CompletionGateResult, error)
 }
 
 func New(c config.Config) *Service {
+	executor := gates.NewExecutor()
 	return &Service{
 		Config:  c,
 		Hub:     hub.Store{Config: c},
 		Git:     gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems},
 		Airelay: airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: 256},
+		gateExecutor: func(ctx context.Context, root string, names []string) ([]model.CompletionGateResult, error) {
+			return executor.Execute(ctx, root, names)
+		},
 	}
 }
 
@@ -173,6 +180,7 @@ type ProjectWorkflowPolicyStatus struct {
 	IntegrationBranch    string                 `json:"integration_branch"`
 	AgentWaitForCI       bool                   `json:"agent_wait_for_ci"`
 	CI                   model.WorkflowPolicyCI `json:"ci"`
+	Gates                []string               `json:"gates"`
 	ActiveOperationClass string                 `json:"active_operation_class"`
 	ActiveCIMode         string                 `json:"active_ci_mode"`
 	CIBlocking           bool                   `json:"ci_blocking"`

@@ -63,6 +63,17 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
+	gateResults, err := s.ExecuteProjectGates(ctx, run.ProjectID, task.OperationClass, local.Root)
+	if err != nil {
+		return model.Report{}, OperationResult{}, err
+	}
+	expectedGates, err := s.ResolveProjectGates(ctx, run.ProjectID, task.OperationClass)
+	if err != nil {
+		return model.Report{}, OperationResult{}, err
+	}
+	if err := validateProjectGateEvidence(gateResults, expectedGates); err != nil {
+		return model.Report{}, OperationResult{}, err
+	}
 	head, branch, clean, err := s.Git.CurrentHead(ctx, local)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
@@ -84,7 +95,7 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	for _, risk := range risks {
 		addUniqueRisk(&remainingRisks, risk)
 	}
-	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, TaskRevision: run.TaskRevision, TaskRevisionSHA256: run.TaskRevisionSHA256, TaskRunNumber: run.TaskRunNumber, ProjectID: run.ProjectID, Status: completion.Status, Summary: completion.Summary, GateResults: completion.GateResults, AcceptanceCoverage: completion.AcceptanceCoverage, Deviations: completion.Deviations, RemainingRisks: remainingRisks, AgentFeedback: completion.AgentFeedback, Repository: proof, FinishedAt: now})
+	report := canonicalReport(model.Report{SchemaVersion: model.SchemaVersion, TaskID: task.ID, RunID: run.ID, TaskRevision: run.TaskRevision, TaskRevisionSHA256: run.TaskRevisionSHA256, TaskRunNumber: run.TaskRunNumber, ProjectID: run.ProjectID, Status: completion.Status, Summary: completion.Summary, GateResults: completion.GateResults, ServerGateResults: gateResults, AcceptanceCoverage: completion.AcceptanceCoverage, Deviations: completion.Deviations, RemainingRisks: remainingRisks, AgentFeedback: completion.AgentFeedback, Repository: proof, FinishedAt: now})
 	expected := in.ExpectedHubRevision
 	if expected == "" {
 		expected, err = s.hubRevision(ctx)
@@ -154,6 +165,15 @@ func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error
 	}
 	if err := s.validateCanonicalReportProof(ctx, report, run, local); err != nil {
 		return model.Report{}, err
+	}
+	if len(report.ServerGateResults) > 0 {
+		expectedGates, err := s.ResolveProjectGates(ctx, run.ProjectID, task.OperationClass)
+		if err != nil {
+			return model.Report{}, err
+		}
+		if err := validateProjectGateEvidence(report.ServerGateResults, expectedGates); err != nil {
+			return model.Report{}, err
+		}
 	}
 	if run.Status != report.Status {
 		return model.Report{}, fmt.Errorf("report status does not match run")

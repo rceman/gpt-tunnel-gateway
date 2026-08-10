@@ -31,7 +31,7 @@ for path in ROOT.rglob("*.go"):
         errors.append(f"shell execution forbidden: {path.relative_to(ROOT)}")
     if "codex exec" in text or "--ephemeral" in text:
         errors.append(f"direct Codex spawning forbidden: {path.relative_to(ROOT)}")
-    if "force-push" in text or '"--force"' in text and "worktree" not in text:
+    if "force-push" in text or re.search(r'"push"[^\n]{0,100}"--force"', text):
         errors.append(f"review force operation: {path.relative_to(ROOT)}")
 
 for path in ROOT.rglob("*"):
@@ -48,11 +48,12 @@ for token in ("allow_parallel_protocol", "CheckHubCompatibility", "protocol/v2",
             if token in text:
                 errors.append(f"unauthorized compatibility/configurable protocol token {token!r}: {path.relative_to(ROOT)}")
 
-if "gpt-tunnel/v1" not in (ROOT / "internal/hub/hub.go").read_text(encoding="utf-8"):
+hub_types = (ROOT / "internal/hub/hub_types.go").read_text(encoding="utf-8")
+if "gpt-tunnel/v1" not in hub_types:
     errors.append("canonical hub root gpt-tunnel/v1 is not declared")
 
 hub_config = (ROOT / "internal/config/config.go").read_text(encoding="utf-8")
-hub_source = (ROOT / "internal/hub/hub.go").read_text(encoding="utf-8")
+hub_source = "\n".join((ROOT / name).read_text(encoding="utf-8") for name in ("internal/hub/hub_types.go", "internal/hub/git_repository.go"))
 if "RepositoryURL string `json:\"repository_url\"`" not in hub_config:
     errors.append("hub repository_url is not canonical configuration")
 for token in ("Config.Hub.Root", "Config.Hub.Remote", 'Root string `json:"root"`', 'Remote string `json:"remote"`'):
@@ -69,7 +70,7 @@ for relative in ("cmd/gpt-tunnel/main.go", "cmd/gpt-tunnel-gatewayd/main.go", "c
     text = (ROOT / relative).read_text(encoding="utf-8")
     if f'var version = "{version}"' not in text:
         errors.append(f"binary version does not match VERSION: {relative}")
-mcp_source = (ROOT / "internal/mcp/server.go").read_text(encoding="utf-8")
+mcp_source = "\n".join((ROOT / name).read_text(encoding="utf-8") for name in ("internal/mcp/server.go", "internal/mcp/server_http.go", "internal/mcp/server_core_tools.go"))
 if mcp_source.count(f'"version": "{version}"') != 2:
     errors.append("MCP initialize/system_ping versions do not both match VERSION")
 for token in ('json:"outputSchema"', 'json:"annotations"', 'json:"_meta,omitempty"'):

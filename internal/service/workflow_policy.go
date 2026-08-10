@@ -213,6 +213,7 @@ func (s *Service) deriveTaskWorkflowPolicy(ctx context.Context, projectID, opera
 }
 
 func workflowPolicyStatus(policy model.ProjectWorkflowPolicy, err error, plan model.Plan, tasks []TaskRecord) ProjectWorkflowPolicyStatus {
+	effectiveGates := model.EffectiveProjectWorkflowGates(nil)
 	if err != nil {
 		failClosedCI := model.WorkflowPolicyCI{
 			Task:      model.WorkflowCIModeDisabled,
@@ -223,6 +224,7 @@ func workflowPolicyStatus(policy model.ProjectWorkflowPolicy, err error, plan mo
 			return ProjectWorkflowPolicyStatus{
 				State:            "missing",
 				CI:               failClosedCI,
+				Gates:            effectiveGates,
 				Conflicts:        []string{"workflow_policy_missing"},
 				CorrectiveAction: "adopt a durable project workflow policy before creating or superseding tasks",
 			}
@@ -230,6 +232,7 @@ func workflowPolicyStatus(policy model.ProjectWorkflowPolicy, err error, plan mo
 		return ProjectWorkflowPolicyStatus{
 			State:            "invalid",
 			CI:               failClosedCI,
+			Gates:            effectiveGates,
 			Conflicts:        []string{"workflow_policy_invalid"},
 			CorrectiveAction: "repair or re-adopt the durable project workflow policy",
 		}
@@ -241,6 +244,7 @@ func workflowPolicyStatus(policy model.ProjectWorkflowPolicy, err error, plan mo
 		IntegrationBranch: policy.IntegrationBranch,
 		AgentWaitForCI:    policy.Agent.WaitForCI,
 		CI:                policy.CI,
+		Gates:             model.EffectiveProjectWorkflowGates(policy.Gates),
 		Conflicts:         []string{},
 		CorrectiveAction:  "none",
 	}

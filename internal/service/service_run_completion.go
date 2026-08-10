@@ -34,6 +34,7 @@ func taskStateStatusForResult(status string) string {
 
 func canonicalReport(report model.Report) model.Report {
 	report.GateResults = append([]model.CompletionGateResult{}, report.GateResults...)
+	report.ServerGateResults = append([]model.CompletionGateResult{}, report.ServerGateResults...)
 	report.AcceptanceCoverage = append([]string{}, report.AcceptanceCoverage...)
 	report.Deviations = append([]string{}, report.Deviations...)
 	report.RemainingRisks = append([]string{}, report.RemainingRisks...)

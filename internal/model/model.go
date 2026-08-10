@@ -240,6 +240,7 @@ type Report struct {
 	Status             string                 `json:"status"`
 	Summary            string                 `json:"summary"`
 	GateResults        []CompletionGateResult `json:"gate_results"`
+	ServerGateResults  []CompletionGateResult `json:"server_gate_results,omitempty"`
 	AcceptanceCoverage []string               `json:"acceptance_coverage"`
 	Deviations         []string               `json:"deviations"`
 	RemainingRisks     []string               `json:"remaining_risks"`

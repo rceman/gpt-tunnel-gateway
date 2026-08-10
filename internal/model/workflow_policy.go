@@ -15,6 +15,12 @@ const (
 	WorkflowCIModeRequire  = "require"
 )
 
+const (
+	WorkflowGateFormat = "format"
+	WorkflowGateCheck  = "check"
+	WorkflowGateTest   = "test"
+)
+
 var workflowOperationClasses = map[string]string{
 	"implementation": "task",
 	"correction":     "task",
@@ -44,18 +50,77 @@ type ProjectWorkflowPolicy struct {
 	IntegrationBranch string              `json:"integration_branch"`
 	Agent             WorkflowPolicyAgent `json:"agent"`
 	CI                WorkflowPolicyCI    `json:"ci"`
+	Gates             []string            `json:"gates,omitempty"`
 	UpdatedBy         string              `json:"updated_by"`
 	UpdatedAt         time.Time           `json:"updated_at"`
 }
 
 type EffectiveWorkflowPolicy struct {
-	WorkflowPolicyRevision int    `json:"workflow_policy_revision"`
-	OperationClass         string `json:"operation_class"`
-	EffectiveCIField       string `json:"effective_ci_field"`
-	EffectiveCIMode        string `json:"effective_ci_mode"`
-	WaitForCI              bool   `json:"wait_for_ci"`
-	CIBlocking             bool   `json:"ci_blocking"`
-	AgentMayWait           bool   `json:"agent_may_wait"`
+	WorkflowPolicyRevision int      `json:"workflow_policy_revision"`
+	OperationClass         string   `json:"operation_class"`
+	EffectiveCIField       string   `json:"effective_ci_field"`
+	EffectiveCIMode        string   `json:"effective_ci_mode"`
+	WaitForCI              bool     `json:"wait_for_ci"`
+	CIBlocking             bool     `json:"ci_blocking"`
+	AgentMayWait           bool     `json:"agent_may_wait"`
+	Gates                  []string `json:"gates"`
+}
+
+func StandardWorkflowGates() []string {
+	return []string{WorkflowGateFormat, WorkflowGateCheck, WorkflowGateTest}
+}
+
+func ValidateWorkflowGates(gates []string) error {
+	seen := map[string]bool{}
+	for _, gate := range gates {
+		switch gate {
+		case WorkflowGateFormat, WorkflowGateCheck, WorkflowGateTest:
+		default:
+			return fmt.Errorf("invalid workflow gate %q", gate)
+		}
+		if seen[gate] {
+			return fmt.Errorf("duplicate workflow gate %q", gate)
+		}
+		seen[gate] = true
+	}
+	return nil
+}
+
+func EffectiveWorkflowGates(gates []string) []string {
+	if len(gates) == 0 {
+		return StandardWorkflowGates()
+	}
+	return append([]string{}, gates...)
+}
+
+func EffectiveProjectWorkflowGates(gates []string) []string {
+	selected := EffectiveWorkflowGates(gates)
+	seen := map[string]bool{}
+	for _, gate := range selected {
+		seen[gate] = true
+	}
+	seen[WorkflowGateCheck] = true
+	resolved := make([]string, 0, len(seen))
+	for _, gate := range StandardWorkflowGates() {
+		if seen[gate] {
+			resolved = append(resolved, gate)
+		}
+	}
+	return resolved
+}
+
+func ValidateServerGateEvidence(results []CompletionGateResult) error {
+	seen := map[string]bool{}
+	for _, result := range results {
+		if result.ID != WorkflowGateFormat && result.ID != WorkflowGateCheck && result.ID != WorkflowGateTest {
+			return fmt.Errorf("invalid server gate evidence %q", result.ID)
+		}
+		if seen[result.ID] {
+			return fmt.Errorf("duplicate server gate evidence %q", result.ID)
+		}
+		seen[result.ID] = true
+	}
+	return nil
 }
 
 func ValidateProjectWorkflowPolicy(v ProjectWorkflowPolicy) error {
@@ -82,6 +147,9 @@ func ValidateProjectWorkflowPolicy(v ProjectWorkflowPolicy) error {
 	if strings.TrimSpace(v.UpdatedBy) == "" || strings.ContainsAny(v.UpdatedBy, "\r\n\x00") || v.UpdatedAt.IsZero() {
 		return fmt.Errorf("invalid workflow policy update metadata")
 	}
+	if err := ValidateWorkflowGates(v.Gates); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -102,6 +170,7 @@ func WorkflowPolicyForOperation(policy ProjectWorkflowPolicy, operationClass str
 			WaitForCI:              false,
 			CIBlocking:             false,
 			AgentMayWait:           false,
+			Gates:                  EffectiveProjectWorkflowGates(policy.Gates),
 		}, nil
 	}
 	mode := policy.CI.Task
@@ -121,6 +190,7 @@ func WorkflowPolicyForOperation(policy ProjectWorkflowPolicy, operationClass str
 		WaitForCI:              wait,
 		CIBlocking:             blocking,
 		AgentMayWait:           wait,
+		Gates:                  EffectiveProjectWorkflowGates(policy.Gates),
 	}, nil
 }
 

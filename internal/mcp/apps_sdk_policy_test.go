@@ -49,6 +49,7 @@ func validWorkflowPolicyArgument() map[string]any {
 		"integration_branch": "main",
 		"agent":              map[string]any{"wait_for_ci": false},
 		"ci":                 map[string]any{"task": "disabled", "task_merge": "observe", "release": "observe"},
+		"gates":              []string{"format", "check", "test"},
 		"updated_by":         "test",
 		"updated_at":         "2026-08-07T00:00:00Z",
 	}
@@ -80,6 +81,10 @@ func TestWorkflowPolicyMutationSchemasAreClosedAndNestedStrict(t *testing.T) {
 			if !containsString(stringList(ci["required"]), field) {
 				t.Fatalf("%s policy ci schema omitted required field %q", name, field)
 			}
+		}
+		gates, ok := policyProperties["gates"].(map[string]any)
+		if !ok || gates["type"] != "array" {
+			t.Fatalf("%s policy schema omitted project-owned gates: %#v", name, policyProperties["gates"])
 		}
 	}
 }
