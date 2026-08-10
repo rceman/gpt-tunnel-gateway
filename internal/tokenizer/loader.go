@@ -19,7 +19,12 @@ var o200kBasePayload embed.FS
 
 type embeddedBPELoader struct{}
 
-func (embeddedBPELoader) LoadTiktokenBpe(_ string) (map[string]int, error) {
+const o200kBaseURL = "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken"
+
+func (embeddedBPELoader) LoadTiktokenBpe(requested string) (map[string]int, error) {
+	if requested != o200kBaseURL {
+		return nil, fmt.Errorf("embedded loader does not provide %q", requested)
+	}
 	data, err := o200kBasePayload.ReadFile("o200k_base.tiktoken.gz")
 	if err != nil {
 		return nil, fmt.Errorf("read embedded %s payload: %w", EncodingName, err)

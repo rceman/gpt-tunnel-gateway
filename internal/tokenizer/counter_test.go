@@ -46,6 +46,12 @@ func TestCounterIsOffline(t *testing.T) {
 	}
 }
 
+func TestEmbeddedLoaderRejectsOtherEncodings(t *testing.T) {
+	if _, err := (embeddedBPELoader{}).LoadTiktokenBpe("https://example.invalid/other.tiktoken"); err == nil {
+		t.Fatal("embedded o200k loader accepted a different encoding resource")
+	}
+}
+
 func TestReferenceParityFixtures(t *testing.T) {
 	counter := NewCounter()
 	fixtures := []struct {
