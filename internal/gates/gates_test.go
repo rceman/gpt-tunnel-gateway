@@ -62,6 +62,40 @@ func TestNativeTokenAdmissionReportsOffenders(t *testing.T) {
 	}
 }
 
+func TestCheckGateWorksWithoutExternalTokenTools(t *testing.T) {
+	root := t.TempDir()
+	if err := runGateGit(root, "init", "--quiet"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "small.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := runGateGit(root, "add", "small.go"); err != nil {
+		t.Fatal(err)
+	}
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", filepath.Dir(gitPath))
+	e := Executor{
+		Tokens: CountTokens,
+		Command: func(context.Context, string, string, ...string) (int, string, error) {
+			return 0, "", nil
+		},
+	}
+	results, err := e.Execute(context.Background(), root, []string{"check"})
+	if err != nil || len(results) != 1 || results[0].ExitCode != 0 {
+		t.Fatalf("check results=%#v err=%v", results, err)
+	}
+}
+
+func runGateGit(root string, args ...string) error {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = root
+	return cmd.Run()
+}
+
 func TestExecutorAlwaysRunsMandatoryTokenAdmission(t *testing.T) {
 	tokenCalls := 0
 	commandCalls := 0

@@ -20,6 +20,8 @@ const (
 	MaxTokens    = 3000
 )
 
+var installLoaderOnce sync.Once
+
 // Counter owns one lazily initialized tokenizer for its lifetime.
 type Counter struct {
 	once sync.Once
@@ -31,6 +33,7 @@ func NewCounter() *Counter { return &Counter{} }
 
 func (c *Counter) encoding() (*tiktoken.Tiktoken, error) {
 	c.once.Do(func() {
+		installLoaderOnce.Do(func() { tiktoken.SetBpeLoader(embeddedBPELoader{}) })
 		c.enc, c.err = tiktoken.GetEncoding(EncodingName)
 	})
 	if c.err != nil {

@@ -2,6 +2,8 @@ package tokenizer
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +26,23 @@ func TestCounterExactAndDeterministic(t *testing.T) {
 	}
 	if got, err := counter.CountText([]byte("hello world")); err != nil || got != 2 {
 		t.Fatalf("ASCII count=%d err=%v, want 2", got, err)
+	}
+}
+
+func TestCounterIsOffline(t *testing.T) {
+	previous := http.DefaultTransport
+	calls := 0
+	http.DefaultTransport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		return nil, fmt.Errorf("network disabled")
+	})
+	defer func() { http.DefaultTransport = previous }()
+
+	if _, err := NewCounter().CountText([]byte("offline")); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("tokenizer made %d network calls", calls)
 	}
 }
 
@@ -204,4 +223,10 @@ func runGit(root string, args ...string) error {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = root
 	return cmd.Run()
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }
