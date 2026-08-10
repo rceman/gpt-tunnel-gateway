@@ -199,6 +199,7 @@ func TestGenericWorkflowPolicyMutationMatchesLegacyHandler(t *testing.T) {
 		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	sessionID := genericSessionWithRole(t, s, "example", durableSession.RolePlanner)
+	input["session_id"] = sessionID
 	legacy := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "project_workflow_policy_update", "arguments": input},

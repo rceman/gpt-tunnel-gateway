@@ -158,6 +158,15 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		executionContext, executionArguments, err := s.resolveTypedSessionAuthority(trustedContext, call.Name, tool.InputSchema, call.Arguments)
+		if err != nil {
+			s.write(w, response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result:  toolResult(tool, map[string]any{"error": err.Error()}, true),
+			})
+			return
+		}
 		if err := validateToolArguments(tool.InputSchema, call.Arguments); err != nil {
 			s.write(w, response{
 				JSONRPC: "2.0",
@@ -170,7 +179,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		value, err := tool.Execute(trustedContext, call.Arguments)
+		value, err := tool.Execute(executionContext, executionArguments)
 		if err != nil {
 			s.write(w, response{
 				JSONRPC: "2.0",

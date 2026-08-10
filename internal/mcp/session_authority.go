@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
@@ -41,6 +42,78 @@ func validateActionAuthorityRole(role string) error {
 	default:
 		return fmt.Errorf("unsupported action authority role %q", role)
 	}
+}
+
+func typedSessionAuthorityContract(toolName string) (actionAuthorityContract, bool) {
+	contract := actionAuthorityContractFor(toolName)
+	if toolName == "session" || contract.Role == "" {
+		return actionAuthorityContract{}, false
+	}
+	return contract, true
+}
+
+func typedSessionInputSchema(schema map[string]any) map[string]any {
+	copySchema := make(map[string]any, len(schema)+1)
+	for key, value := range schema {
+		copySchema[key] = value
+	}
+	properties := make(map[string]any)
+	if source, ok := schema["properties"].(map[string]any); ok {
+		for key, value := range source {
+			properties[key] = value
+		}
+	}
+	properties["session_id"] = str("Durable project-bound Planner or Delivery session authority.")
+	copySchema["properties"] = properties
+	required := append([]string{}, stringList(schema["required"])...)
+	for _, key := range required {
+		if key == "session_id" {
+			copySchema["required"] = required
+			return copySchema
+		}
+	}
+	copySchema["required"] = append(required, "session_id")
+	return copySchema
+}
+
+func (s *Server) resolveTypedSessionAuthority(ctx context.Context, toolName string, schema map[string]any, raw json.RawMessage) (context.Context, json.RawMessage, error) {
+	contract, required := typedSessionAuthorityContract(toolName)
+	if !required {
+		return ctx, raw, nil
+	}
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &args); err != nil || args == nil {
+		return nil, nil, fmt.Errorf("session_id is required for authority-sensitive typed action")
+	}
+	value, ok := args["session_id"]
+	if !ok {
+		return nil, nil, fmt.Errorf("session_id is required for authority-sensitive typed action")
+	}
+	var sessionID string
+	if err := json.Unmarshal(value, &sessionID); err != nil || sessionID == "" {
+		return nil, nil, fmt.Errorf("session_id must be a non-empty durable session identifier")
+	}
+	record, err := s.activeSession(sessionID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("typed action session authority is invalid: %w", err)
+	}
+	resolved, err := s.resolveSessionAuthority(ctx, record, contract)
+	if err != nil {
+		return nil, nil, err
+	}
+	bound, err := inheritSessionProject(schema, record.ProjectID, raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := json.Unmarshal(bound, &args); err != nil || args == nil {
+		return nil, nil, fmt.Errorf("typed action arguments must be an object")
+	}
+	delete(args, "session_id")
+	executable, err := json.Marshal(args)
+	if err != nil {
+		return nil, nil, fmt.Errorf("typed action arguments could not be normalized: %w", err)
+	}
+	return resolved, executable, nil
 }
 
 func requireActionAuthority(ctx context.Context, contract actionAuthorityContract) error {

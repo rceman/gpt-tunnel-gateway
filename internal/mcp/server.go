@@ -98,6 +98,12 @@ func (s *Server) tools() map[string]Tool {
 		legacyTools[name] = tool
 	}
 	addGenericTransportTools(add, s, legacyTools)
+	for name, tool := range t {
+		if _, required := typedSessionAuthorityContract(name); required {
+			tool.InputSchema = typedSessionInputSchema(tool.InputSchema)
+			t[name] = tool
+		}
+	}
 	if err := validateCanonicalToolManifest(t); err != nil {
 		panic(err)
 	}
