@@ -183,34 +183,65 @@ func (c *Coordinator) commonPrimaryPathLastChange(ctx context.Context, projectID
 }
 
 func (c *Coordinator) validateCommittedPrimaryHubState(ctx context.Context, request Request, receipt Receipt, project model.Project, plan model.Plan, identifiers model.ProjectIdentifiers, digests objectDigests) error {
-	objects := onboardingObjects(request, project, plan, identifiers, nil)
-	for index, object := range objects {
-		data, err := c.Hub.ReadFile(ctx, object.Path)
-		if err != nil {
-			return fmt.Errorf("read committed onboarding object %s: %w", object.Path, err)
-		}
-		if err := validateOnboardingObjectBytes(data, object.Value); err != nil {
-			return fmt.Errorf("committed onboarding object %s: %w", object.Path, err)
-		}
-		actual := cloneOnboardingValue(object.Value)
-		if err := decodeOnboardingObject(data, actual); err != nil {
-			return fmt.Errorf("decode committed onboarding object %s: %w", object.Path, err)
-		}
-		want := []string{digests.project, digests.plan, digests.identifiers}[index]
-		have, err := digestObject(actual)
-		if err != nil || have != want {
-			return fmt.Errorf("committed onboarding object %s digest does not match receipt", object.Path)
-		}
+	paths := canonicalOnboardingPaths(request.ProjectID)
+	projectData, err := c.Hub.ReadFile(ctx, paths[0])
+	if err != nil {
+		return fmt.Errorf("read committed onboarding object %s: %w", paths[0], err)
+	}
+	if err := validateOnboardingObjectBytes(projectData, project); err != nil {
+		return fmt.Errorf("committed onboarding object %s: %w", paths[0], err)
+	}
+	actualProject := &model.Project{}
+	if err := decodeOnboardingObject(projectData, actualProject); err != nil {
+		return fmt.Errorf("decode committed onboarding object %s: %w", paths[0], err)
+	}
+	projectDigest, err := digestObject(actualProject)
+	if err != nil || projectDigest != digests.project {
+		return fmt.Errorf("committed onboarding object %s digest does not match receipt", paths[0])
+	}
+
+	planData, err := c.Hub.ReadFile(ctx, paths[1])
+	if err != nil {
+		return fmt.Errorf("read committed onboarding object %s: %w", paths[1], err)
+	}
+	currentPlan := model.Plan{}
+	if err := validateCurrentPlanBytes(planData, &currentPlan); err != nil {
+		return fmt.Errorf("committed onboarding object %s: %w", paths[1], err)
+	}
+	sections, err := buildPlanSections(request)
+	if err != nil {
+		return err
+	}
+	if err := validateOnboardingPlanDescriptors(currentPlan, plan, sections); err != nil {
+		return err
+	}
+
+	identifiersData, err := c.Hub.ReadFile(ctx, paths[2])
+	if err != nil {
+		return fmt.Errorf("read committed onboarding object %s: %w", paths[2], err)
+	}
+	if err := validateOnboardingObjectBytes(identifiersData, identifiers); err != nil {
+		return fmt.Errorf("committed onboarding object %s: %w", paths[2], err)
+	}
+	actualIdentifiers := &model.ProjectIdentifiers{}
+	if err := decodeOnboardingObject(identifiersData, actualIdentifiers); err != nil {
+		return fmt.Errorf("decode committed onboarding object %s: %w", paths[2], err)
+	}
+	identifiersDigest, err := digestObject(actualIdentifiers)
+	if err != nil || identifiersDigest != digests.identifiers {
+		return fmt.Errorf("committed onboarding object %s digest does not match receipt", paths[2])
 	}
 	if receipt.Hub.After == nil {
 		return errors.New("committed onboarding receipt requires hub.after")
 	}
-	lastChange, err := c.commonPrimaryPathLastChange(ctx, request.ProjectID)
-	if err != nil {
-		return err
-	}
-	if lastChange != *receipt.Hub.After {
-		return fmt.Errorf("primary onboarding last-change commit %s does not match recorded hub.after %s", lastChange, *receipt.Hub.After)
+	for _, path := range []string{paths[0], paths[2]} {
+		lastChange, err := c.Hub.LastChange(ctx, path)
+		if err != nil {
+			return err
+		}
+		if lastChange != *receipt.Hub.After {
+			return fmt.Errorf("immutable onboarding object %s last-change commit %s does not match recorded hub.after %s", path, lastChange, *receipt.Hub.After)
+		}
 	}
 	return nil
 }
@@ -226,10 +257,20 @@ func (c *Coordinator) validateCommittedHubState(ctx context.Context, request Req
 		if err != nil {
 			return fmt.Errorf("read committed onboarding object %s: %w", object.Path, err)
 		}
+		if index == 1 {
+			currentPlan := model.Plan{}
+			if err := validateCurrentPlanBytes(data, &currentPlan); err != nil {
+				return fmt.Errorf("committed onboarding object %s: %w", object.Path, err)
+			}
+			if err := validateOnboardingPlanDescriptors(currentPlan, plan, sections); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := validateOnboardingObjectBytes(data, object.Value); err != nil {
 			return fmt.Errorf("committed onboarding object %s: %w", object.Path, err)
 		}
-		if index < 3 {
+		if index == 0 || index == 2 {
 			want := []string{digests.project, digests.plan, digests.identifiers}[index]
 			actual := cloneOnboardingValue(object.Value)
 			if err := decodeOnboardingObject(data, actual); err != nil {

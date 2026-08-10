@@ -113,6 +113,18 @@ func (c *Coordinator) repairMissingPlanSections(ctx context.Context, request Req
 		return err
 	}
 	objects := onboardingObjects(request, project, plan, identifiers, sections)
+	var currentPlan model.Plan
+	planPath := canonicalOnboardingPaths(request.ProjectID)[1]
+	planData, err := c.Hub.ReadFile(ctx, planPath)
+	if err != nil {
+		return err
+	}
+	if err := validateCurrentPlanBytes(planData, &currentPlan); err != nil {
+		return fmt.Errorf("current onboarding plan is invalid: %w", err)
+	}
+	if err := validateOnboardingPlanDescriptors(currentPlan, plan, sections); err != nil {
+		return err
+	}
 	missing := false
 	for _, object := range objects[3:] {
 		data, readErr := c.Hub.ReadFile(ctx, object.Path)
@@ -132,13 +144,16 @@ func (c *Coordinator) repairMissingPlanSections(ctx context.Context, request Req
 	}
 	_, err = c.Hub.Transact(ctx, expected, "gateway: materialize onboarding plan sections "+request.ProjectID, func(worktree string) ([]string, error) {
 		var currentPlan model.Plan
-		if err := readOnboardingWorktreeJSON(worktree, canonicalOnboardingPaths(request.ProjectID)[1], &currentPlan); err != nil {
+		if err := readOnboardingWorktreeJSON(worktree, planPath, &currentPlan); err != nil {
 			return nil, err
 		}
-		if !objectsMatch(currentPlan, plan) {
-			return nil, errors.New("onboarding plan changed before section materialization")
+		if err := model.ValidatePlan(currentPlan); err != nil {
+			return nil, err
 		}
-		for _, object := range objects[:3] {
+		if err := validateOnboardingPlanDescriptors(currentPlan, plan, sections); err != nil {
+			return nil, err
+		}
+		for _, object := range []onboardingObject{objects[0], objects[2]} {
 			if err := validateOnboardingWorktreeObject(worktree, object); err != nil {
 				return nil, err
 			}
@@ -162,6 +177,50 @@ func (c *Coordinator) repairMissingPlanSections(ctx context.Context, request Req
 		return paths, nil
 	})
 	return err
+}
+
+func validateCurrentPlanBytes(data []byte, plan *model.Plan) error {
+	if err := decodeOnboardingObject(data, plan); err != nil {
+		return err
+	}
+	if err := model.ValidatePlan(*plan); err != nil {
+		return err
+	}
+	canonical, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return err
+	}
+	canonical = append(canonical, '\n')
+	if !bytes.Equal(data, canonical) {
+		return errors.New("object is not canonical")
+	}
+	return nil
+}
+
+func validateOnboardingPlanDescriptors(current, original model.Plan, sections []model.PlanSection) error {
+	if current.ProjectID != original.ProjectID {
+		return errors.New("current onboarding plan project does not match onboarding evidence")
+	}
+	if current.Revision < original.Revision {
+		return fmt.Errorf("current onboarding plan revision %d regressed below onboarding revision %d", current.Revision, original.Revision)
+	}
+	for _, expected := range sections {
+		found := false
+		for _, actual := range current.Sections {
+			if actual.ID != expected.ID {
+				continue
+			}
+			found = true
+			if actual.Title != expected.Title || actual.ShortDescription != expected.ShortDescription || actual.Revision != expected.Revision {
+				return fmt.Errorf("current onboarding plan section %q conflicts with immutable onboarding evidence", expected.ID)
+			}
+			break
+		}
+		if !found {
+			return fmt.Errorf("current onboarding plan no longer references section %q", expected.ID)
+		}
+	}
+	return nil
 }
 
 func readOnboardingWorktreeJSON(worktree, path string, destination any) error {
