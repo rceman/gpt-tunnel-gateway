@@ -42,7 +42,10 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		if err := requireSessionRole(ctx, record.Role); err != nil {
 			return genericActionError(action, err.Error()), nil
 		}
-		resolved, err := s.resolveSessionAuthority(ctx, record, actionAuthorityContract{Role: entry.AuthorityRole, RequiresWorkflowPolicy: entry.RequiresWorkflowPolicy})
+		resolved, err := s.resolveSessionAuthority(ctx, record, actionAuthorityContract{
+			Role:                   entry.AuthorityRole,
+			RequiresWorkflowPolicy: entry.RequiresWorkflowPolicy,
+		})
 		if err != nil {
 			return genericActionError(action, err.Error()), nil
 		}

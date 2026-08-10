@@ -82,7 +82,12 @@ func TestGenericRegistryAndTypedAuthorityUseSameContract(t *testing.T) {
 	server := &Server{}
 	legacy := map[string]Tool{}
 	for _, name := range []string{"task_correction_create", "delivery_handoff_publish", "planner_report_publish", "project_workflow_policy_update"} {
-		legacy[name] = Tool{Description: name, InputSchema: obj(map[string]any{}, ""), OutputSchema: closedOutput(map[string]any{"ok": outputBoolean()}, "ok"), Execute: func(context.Context, json.RawMessage) (any, error) { return map[string]any{"ok": true}, nil }}
+		legacy[name] = Tool{
+			Description:  name,
+			InputSchema:  obj(map[string]any{}, ""),
+			OutputSchema: closedOutput(map[string]any{"ok": outputBoolean()}, "ok"),
+			Execute:      func(context.Context, json.RawMessage) (any, error) { return map[string]any{"ok": true}, nil },
+		}
 	}
 	entries := server.genericActionRegistry(legacy)
 	for _, name := range []string{"task_correction_create", "delivery_handoff_publish", "planner_report_publish", "project_workflow_policy_update"} {

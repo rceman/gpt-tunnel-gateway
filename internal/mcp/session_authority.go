@@ -115,5 +115,8 @@ func (s *Server) resolveSessionAuthority(ctx context.Context, record durableSess
 	default:
 		return nil, fmt.Errorf("session role %q is invalid", record.Role)
 	}
-	return withResolvedSessionAuthority(roleContext, resolvedSessionAuthority{Session: record, Policy: policy}), nil
+	return withResolvedSessionAuthority(roleContext, resolvedSessionAuthority{
+		Session: record,
+		Policy:  policy,
+	}), nil
 }
