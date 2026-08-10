@@ -113,6 +113,22 @@ func TestTypedAuthoritySensitiveActionRequiresDurableSession(t *testing.T) {
 	}
 }
 
+func TestTypedAuthoritySensitiveActionRejectsMissingWorkflowPolicy(t *testing.T) {
+	server := newSessionTestServer(t)
+	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT}))
+	sessionID := started["session"].(map[string]any)["session_id"].(string)
+	response := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "planner_report_publish", "arguments": map[string]any{"session_id": sessionID, "handoff_id": "missing", "report": map[string]any{}}}}))
+	result, ok := response["result"].(map[string]any)
+	if !ok || result["isError"] != true {
+		t.Fatalf("typed action without workflow policy was accepted: %#v", response)
+	}
+	content := result["content"].([]any)
+	textContent := content[0].(map[string]any)["text"].(string)
+	if !strings.Contains(textContent, "workflow policy") {
+		t.Fatalf("typed missing-policy error was not explicit: %s", textContent)
+	}
+}
+
 func TestGenericSessionRejectsInvalidAndEndedAuthority(t *testing.T) {
 	server := newSessionTestServer(t)
 	var calls int
