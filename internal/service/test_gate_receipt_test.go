@@ -123,3 +123,36 @@ func TestTestGateReceiptReusesAcrossIdenticalCommittedTree(t *testing.T) {
 		t.Fatalf("identical committed tree did not reuse receipt: %#v", results)
 	}
 }
+
+func TestTestGateReceiptReusesDirtyContentAfterCommit(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	root := s.Config.Projects["example"].Root
+	if err := os.WriteFile(filepath.Join(root, "dirty-pass.txt"), []byte("tested bytes\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	s.gateExecutor = func(_ context.Context, _ string, names []string) ([]model.CompletionGateResult, error) {
+		calls++
+		results := make([]model.CompletionGateResult, len(names))
+		for i, name := range names {
+			results[i] = model.CompletionGateResult{ID: name, ExitCode: 0}
+		}
+		return results, nil
+	}
+	if err := s.ExecuteCanonicalTestGate(context.Background(), root); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("initial test calls=%d", calls)
+	}
+	testutil.Git(t, root, "add", "dirty-pass.txt")
+	testutil.Git(t, root, "commit", "-m", "commit tested dirty content")
+	calls = 0
+	results, err := s.executeProjectGatesWithTestReuse(context.Background(), "example", root, []string{"format", "check", "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || results[2].Execution != "reused" {
+		t.Fatalf("committed tested bytes did not reuse receipt: calls=%d results=%#v", calls, results)
+	}
+}

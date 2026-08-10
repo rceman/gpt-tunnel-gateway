@@ -124,10 +124,7 @@ func (s *Service) currentTestIdentity(ctx context.Context, projectID, root strin
 	if err != nil {
 		return "", "", err
 	}
-	if !status.Clean {
-		return "", "", fmt.Errorf("test source worktree is dirty")
-	}
-	tree, err := s.Git.TreeID(ctx, project)
+	tree, err := s.Git.WorktreeContentID(ctx, project)
 	if err != nil {
 		return "", "", err
 	}
