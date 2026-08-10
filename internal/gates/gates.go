@@ -29,7 +29,10 @@ func TestGateContractDigest(gates []string) (string, error) {
 	payload := struct {
 		Version string   `json:"version"`
 		Gates   []string `json:"gates"`
-	}{Version: TestGateRunnerContractVersion, Gates: resolved}
+	}{
+		Version: TestGateRunnerContractVersion,
+		Gates:   resolved,
+	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return "", err

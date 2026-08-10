@@ -143,7 +143,15 @@ func (s *Service) writeTestPassReceiptLocked(ctx context.Context, projectID, roo
 	if err != nil {
 		return testPassReceipt{}, "", err
 	}
-	receipt := testPassReceipt{SchemaVersion: testPassReceiptSchemaVersion, ProjectID: projectID, TreeID: tree, Head: head, GateNames: append([]string{}, gateNames...), ContractDigest: contract, RecordedAt: time.Now().UTC()}
+	receipt := testPassReceipt{
+		SchemaVersion:  testPassReceiptSchemaVersion,
+		ProjectID:      projectID,
+		TreeID:         tree,
+		Head:           head,
+		GateNames:      append([]string{}, gateNames...),
+		ContractDigest: contract,
+		RecordedAt:     time.Now().UTC(),
+	}
 	path, err := s.testPassReceiptPath(projectID)
 	if err != nil {
 		return testPassReceipt{}, "", err
