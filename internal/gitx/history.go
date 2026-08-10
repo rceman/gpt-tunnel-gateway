@@ -120,7 +120,7 @@ func (r Runner) LogPage(ctx context.Context, p config.ProjectConfig, rev string,
 	if err != nil {
 		return nil, pagination.PageInfo{}, err
 	}
-	return pagination.Page("git_log:"+rev, items, limit, cursor, func(item Commit) string { return item.SHA })
+	return pagination.Page("git_log:"+p.Mirror+"|"+rev, items, limit, cursor, func(item Commit) string { return item.SHA })
 }
 
 // LocalLog reads the ordered commits from a configured worktree. It is used

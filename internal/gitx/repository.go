@@ -82,7 +82,7 @@ func (r Runner) TreePage(ctx context.Context, p config.ProjectConfig, rev, path 
 	if len(lines) > r.MaxListItems {
 		return nil, pagination.PageInfo{}, fmt.Errorf("tree exceeds configured item limit")
 	}
-	return pagination.Page("git_tree:"+path, lines, limit, cursor, func(item string) string { return item })
+	return pagination.Page("git_tree:"+p.Mirror+"|"+rev+"|"+path, lines, limit, cursor, func(item string) string { return item })
 }
 func (r Runner) ReadFile(ctx context.Context, p config.ProjectConfig, rev, path string) (string, error) {
 	if err := model.ValidateRevision(rev); err != nil {

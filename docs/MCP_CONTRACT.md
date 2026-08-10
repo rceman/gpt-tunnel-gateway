@@ -84,7 +84,9 @@ All other growing public collections use the shared bounded-page contract:
 configured `max_list_items`), and `cursor` is an opaque deterministic
 continuation token. `project_list`, `run_list`, `adr_list`, `git_refs`, and
 `git_tree` return `next_cursor` and `has_more`; their ordering is stable for
-the requested snapshot. A missing or cross-endpoint cursor is rejected. The
+the requested snapshot. Cursors for `git_log` and `git_tree` are bound to the
+exact managed mirror, revision, and tree path scope; a missing or cross-scope
+cursor is rejected. The
 task-scoped revision list and the durable handoff/report lists remain bounded
 by their existing service limits; their full reads are scoped to one task or
 project and do not expose an unbounded payload by default.
