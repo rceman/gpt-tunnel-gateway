@@ -15,6 +15,7 @@ type Service struct {
 	Hub     hub.Store
 	Git     gitx.Runner
 	Airelay airelay.Client
+	clock   func() time.Time
 }
 
 func New(c config.Config) *Service {

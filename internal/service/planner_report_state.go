@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
@@ -44,8 +43,9 @@ func (s *Service) PlannerReportPublish(ctx context.Context, in PlannerReportPubl
 		return model.PlannerReport{}, OperationResult{}, fmt.Errorf("published_by is required")
 	}
 	if report.PublishedAt.IsZero() {
-		report.PublishedAt = time.Now().UTC()
+		report.PublishedAt = s.durableNow()
 	}
+	report.PublishedAt = monotonicTimestamp(report.PublishedAt, handoff.CreatedAt, handoff.UpdatedAt)
 	if err := model.ValidatePlannerReport(report); err != nil {
 		return model.PlannerReport{}, OperationResult{}, err
 	}

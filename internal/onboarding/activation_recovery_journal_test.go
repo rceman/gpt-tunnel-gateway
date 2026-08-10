@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
@@ -37,6 +38,36 @@ func TestActivationRecoveryResumesFromPersistedReceiptAfterCoordinatorRestart(t 
 	final, err := LoadOnboardingJournal(fixture.coordinator.StateDir, fixture.operation)
 	if err != nil || final.State != StateActivated {
 		t.Fatalf("final journal = %#v, err=%v", final, err)
+	}
+}
+
+func TestActivationRecoveryClampsBackwardClockToCommittedReceipt(t *testing.T) {
+	fixture := newActivationFixture(t)
+	hooks := testActivationHooks(t)
+	hooks.Now = func() time.Time { return time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC) }
+	hooks.Mirror = func(context.Context, config.ProjectConfig, string, string) (gitx.MirrorVerification, error) {
+		return gitx.MirrorVerification{}, errors.New("injected mirror outage")
+	}
+	fixture.coordinator.Hooks = hooks
+	_, err := fixture.coordinator.Activate(trustedCoordinatorContext(), fixture.request, fixture.operation)
+	requireCoordinatorErrorCode(t, err, OnboardingRecoveryRequired)
+	recovered, err := LoadOnboardingJournal(fixture.coordinator.StateDir, fixture.operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.State != StateRecoveryRequired {
+		t.Fatalf("recovery journal state = %q, want recovery_required", recovered.State)
+	}
+	committed, err := parseReceiptTime(*recovered.Timestamps.HubCommittedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := parseReceiptTime(recovered.Timestamps.UpdatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Before(committed) {
+		t.Fatalf("recovery updated_at=%s precedes hub_committed_at=%s", updated, committed)
 	}
 }
 

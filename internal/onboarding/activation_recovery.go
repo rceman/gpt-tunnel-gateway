@@ -32,6 +32,17 @@ func (c *ActivationCoordinator) persistActivationRecovery(receipt Receipt, reque
 	if c.Hooks.Now != nil {
 		now = c.Hooks.Now().UTC()
 	}
+	now, timeErr := monotonicReceiptTimestamp(receipt, now)
+	if timeErr != nil {
+		return ActivationResult{
+				OperationID: operationID,
+				ProjectID:   request.ProjectID,
+				State:       StateRecoveryRequired,
+			}, &CoordinatorError{
+				Code:  ErrOnboardingRecoveryRequired.Error(),
+				Cause: timeErr,
+			}
+	}
 	candidate.Timestamps.UpdatedAt = now.Format(time.RFC3339Nano)
 	writer := c.Hooks.RecoveryWrite
 	if writer == nil {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
@@ -54,7 +53,7 @@ func (s *Service) PlannerReportNext(ctx context.Context, in PlannerReportNextInp
 			return model.PlannerReportState{}, OperationResult{}, fmt.Errorf("completed planner report requires a completed handoff")
 		}
 	}
-	now := time.Now().UTC()
+	now := monotonicTimestamp(s.durableNow(), handoff.CreatedAt, handoff.UpdatedAt, report.PublishedAt, state.UpdatedAt)
 	next := state
 	next.Status = model.PlannerReportResolved
 	next.ResolvedBy = in.ResolvedBy

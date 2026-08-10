@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
@@ -79,7 +78,7 @@ func (s *Service) DeliveryHandoffAcknowledge(ctx context.Context, in DeliveryHan
 		return model.DeliveryHandoff{}, OperationResult{}, fmt.Errorf("acknowledged_by is required")
 	}
 	path := s.deliveryHandoffPath(current.ProjectID, current.ID)
-	now := time.Now().UTC()
+	now := s.handoffNow(current)
 	next := current
 	next.Status = model.DeliveryHandoffAcknowledged
 	next.AcknowledgedBy = in.AcknowledgedBy
@@ -132,7 +131,7 @@ func (s *Service) DeliveryHandoffNext(ctx context.Context, in DeliveryHandoffNex
 		return model.DeliveryHandoff{}, OperationResult{}, fmt.Errorf("handoff cannot advance from %q", current.Status)
 	}
 	path := s.deliveryHandoffPath(current.ProjectID, current.ID)
-	now := time.Now().UTC()
+	now := s.handoffNow(current)
 	next := current
 	next.Status = model.DeliveryHandoffInProgress
 	next.StartedBy = in.NextBy

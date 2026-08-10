@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
@@ -26,7 +25,7 @@ func (s *Service) DeliveryHandoffCancel(ctx context.Context, in DeliveryHandoffC
 		return model.DeliveryHandoff{}, OperationResult{}, fmt.Errorf("handoff cannot be cancelled from %q", current.Status)
 	}
 	path := s.deliveryHandoffPath(current.ProjectID, current.ID)
-	now := time.Now().UTC()
+	now := s.handoffNow(current)
 	next := current
 	next.Status = model.DeliveryHandoffCancelled
 	next.CancelledBy = in.CancelledBy

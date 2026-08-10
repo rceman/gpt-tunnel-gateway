@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
@@ -109,7 +108,7 @@ func (s *Service) PlannerReportAcknowledge(ctx context.Context, in PlannerReport
 	if state.Status != model.PlannerReportPublished {
 		return model.PlannerReportState{}, OperationResult{}, fmt.Errorf("planner report cannot be acknowledged from %q", state.Status)
 	}
-	now := time.Now().UTC()
+	now := monotonicTimestamp(s.durableNow(), report.PublishedAt, state.UpdatedAt)
 	next := state
 	next.Status = model.PlannerReportAcknowledged
 	next.AcknowledgedBy = in.AcknowledgedBy

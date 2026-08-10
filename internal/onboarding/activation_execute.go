@@ -230,6 +230,13 @@ func (c *ActivationCoordinator) Activate(ctx context.Context, request Request, o
 	if c.Hooks.Now != nil {
 		now = c.Hooks.Now().UTC()
 	}
+	now, err = monotonicReceiptTimestamp(receipt, now)
+	if err != nil {
+		return ActivationResult{}, &CoordinatorError{
+			Code:  ErrOnboardingRecoveryRequired.Error(),
+			Cause: err,
+		}
+	}
 	if receipt.State == StateActivated {
 		digest, err := ActivatedReceiptDigest(receipt, request)
 		if err != nil {
