@@ -42,6 +42,8 @@ type reviewContext struct {
 }
 
 func sameAgentAuthority(left, right model.Report) bool {
+	left = canonicalReport(left)
+	right = canonicalReport(right)
 	left.HubCommit = ""
 	right.HubCommit = ""
 	return reflect.DeepEqual(left, right)

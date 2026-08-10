@@ -8,6 +8,14 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
+func TestSameAgentAuthorityCanonicalizesOptionalServerGateResults(t *testing.T) {
+	left := model.Report{}
+	right := model.Report{ServerGateResults: []model.CompletionGateResult{}}
+	if !sameAgentAuthority(left, right) {
+		t.Fatal("semantically equivalent legacy and canonical reports were treated as different")
+	}
+}
+
 func TestRunReviewReportFinalizationDetectsChangedMachineAuthority(t *testing.T) {
 	for _, name := range []string{"gates", "changed_files", "repository_state"} {
 		t.Run(name, func(t *testing.T) {
