@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
 
 type DeliveryHandoffCreateInput struct {
@@ -97,11 +98,25 @@ const DefaultDurableHandoffListLimit = 20
 type DeliveryHandoffListInput struct {
 	ProjectID string `json:"project_id"`
 	Limit     int    `json:"limit,omitempty"`
+	Cursor    string `json:"cursor,omitempty"`
 }
 
 type PlannerReportListInput struct {
 	ProjectID string `json:"project_id"`
 	Limit     int    `json:"limit,omitempty"`
+	Cursor    string `json:"cursor,omitempty"`
+}
+
+type DeliveryHandoffListPageResult struct {
+	Handoffs   []model.DeliveryHandoffStatus `json:"handoffs"`
+	NextCursor string                        `json:"next_cursor"`
+	HasMore    bool                          `json:"has_more"`
+}
+
+type PlannerReportListPageResult struct {
+	Reports    []model.PlannerReportStatus `json:"reports"`
+	NextCursor string                      `json:"next_cursor"`
+	HasMore    bool                        `json:"has_more"`
 }
 
 func boundedDurableListLimit(limit, max int) (int, error) {
@@ -118,6 +133,10 @@ func boundedDurableListLimit(limit, max int) (int, error) {
 		return 0, fmt.Errorf("list limit must be between 1 and %d", max)
 	}
 	return limit, nil
+}
+
+func publicDurableListLimit(limit, max int) (int, error) {
+	return pagination.Limit(limit, max)
 }
 
 func (s *Service) deliveryHandoffPrefix(project string) string {

@@ -79,6 +79,28 @@ The default and hard maximum are both ten results per public page and are
 enforced by the Gateway; callers must not retrieve or scan an unbounded
 backlog client-side.
 
+All other growing public collections use the shared bounded-page contract:
+`limit` defaults to 20 and has a hard maximum of 100 (also capped by the
+configured `max_list_items`), and `cursor` is an opaque deterministic
+continuation token. `project_list`, `run_list`, `adr_list`, `git_refs`, and
+`git_tree` return `next_cursor` and `has_more`; their ordering is stable for
+the requested snapshot. A missing or cross-endpoint cursor is rejected. The
+task-scoped revision list and the durable handoff/report lists remain bounded
+by their existing service limits; their full reads are scoped to one task or
+project and do not expose an unbounded payload by default.
+
+The audit of public read-many actions is:
+
+| Action family | Bound | Continuation |
+| --- | --- | --- |
+| `task_list` | default/max 10 | opaque cursor |
+| `project_list`, `run_list`, `adr_list`, `git_refs`, `git_tree` | default 20/max 100 | opaque cursor |
+| `git_log`, `plan_history`, `task_revision_list`, `delivery_handoff_list`, `planner_report_list` | default 20/max 100 | opaque cursor |
+| `operator_history` | existing bounded service limit | existing `after` continuation |
+
+Singleton reads such as `project_read`, `task_read`, `run_read`, `adr_read`,
+`plan_read`, and `git_read_file` do not accept collection limits.
+
 The normal run surface contains `run_read`, `run_report`, and
 `run_review_snapshot`; there is no `run_evidence` operation. Routine run list,
 read, and status projections omit gateway-internal completion paths. The

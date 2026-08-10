@@ -20,13 +20,18 @@ func (s *Server) addTaskTools(add toolAdder) {
 		task, res, e := s.Service.TaskCreate(ctx, in)
 		return map[string]any{"task": task, "operation": res}, e
 	})
-	add("task_revision_list", "List the immutable revisions of one stable Task.", obj(map[string]any{"task_id": str("Stable task identifier")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		id, err := getString(raw, "task_id")
-		if err != nil {
+	revisionListLimit := integer("Maximum revisions", 1, service.MaxPublicCollectionLimit)
+	revisionListLimit["default"] = service.DefaultPublicCollectionLimit
+	add("task_revision_list", "List bounded immutable revisions of one stable Task with deterministic continuation.", obj(map[string]any{"task_id": str("Stable task identifier"), "limit": revisionListLimit, "cursor": str("Opaque continuation cursor")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var args struct {
+			TaskID string `json:"task_id"`
+			Limit  int    `json:"limit,omitempty"`
+			Cursor string `json:"cursor,omitempty"`
+		}
+		if err := decode(raw, &args); err != nil {
 			return nil, err
 		}
-		items, err := s.Service.TaskRevisionList(ctx, id)
-		return map[string]any{"revisions": items}, err
+		return s.Service.TaskRevisionListPage(ctx, args.TaskID, service.CollectionPageInput{Limit: args.Limit, Cursor: args.Cursor})
 	})
 	add("task_revision_read", "Read one complete immutable Task revision.", obj(map[string]any{"revision_id": str("Exact TASK.REV<N> identifier")}, "revision_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, err := getString(raw, "revision_id")

@@ -10,7 +10,17 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
+
+const (
+	DefaultPublicCollectionLimit = pagination.DefaultLimit
+	MaxPublicCollectionLimit     = pagination.MaxLimit
+)
+
+func PublicCollectionLimit(requested, configured int) (int, error) {
+	return pagination.Limit(requested, configured)
+}
 
 type Service struct {
 	Config       config.Config
@@ -41,6 +51,41 @@ type WriteOptions struct {
 type ProjectRegisterInput struct {
 	Project model.Project `json:"project"`
 	WriteOptions
+}
+
+type CollectionPageInput struct {
+	Limit  int    `json:"limit,omitempty"`
+	Cursor string `json:"cursor,omitempty"`
+}
+
+type ProjectListPageResult struct {
+	Projects   []model.Project `json:"projects"`
+	NextCursor string          `json:"next_cursor"`
+	HasMore    bool            `json:"has_more"`
+}
+
+type RunListPageResult struct {
+	Runs       []model.Run `json:"runs"`
+	NextCursor string      `json:"next_cursor"`
+	HasMore    bool        `json:"has_more"`
+}
+
+type ADRListPageResult struct {
+	ADRs       []model.ADR `json:"adrs"`
+	NextCursor string      `json:"next_cursor"`
+	HasMore    bool        `json:"has_more"`
+}
+
+type TaskRevisionListPageResult struct {
+	Revisions  []model.TaskRevision `json:"revisions"`
+	NextCursor string               `json:"next_cursor"`
+	HasMore    bool                 `json:"has_more"`
+}
+
+type PlanHistoryPageResult struct {
+	History    []map[string]string `json:"history"`
+	NextCursor string              `json:"next_cursor"`
+	HasMore    bool                `json:"has_more"`
 }
 
 type ProjectIdentifiersAdoptInput struct {

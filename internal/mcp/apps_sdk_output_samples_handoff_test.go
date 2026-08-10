@@ -5,7 +5,7 @@ func (f canonicalOutputFixture) canonicalHandoffOutputSamples() map[string]any {
 		"delivery_handoff_publish":     map[string]any{"handoff": f.handoff, "operation": f.operation},
 		"delivery_handoff_read":        f.handoff,
 		"delivery_handoff_status":      f.handoffStatus,
-		"delivery_handoff_list":        map[string]any{"handoffs": []any{f.handoffStatus}},
+		"delivery_handoff_list":        map[string]any{"handoffs": []any{f.handoffStatus}, "next_cursor": "", "has_more": false},
 		"delivery_handoff_acknowledge": map[string]any{"handoff": f.handoff, "operation": f.operation},
 		"delivery_handoff_next":        map[string]any{"handoff": f.handoff, "operation": f.operation},
 		"delivery_handoff_cancel":      map[string]any{"handoff": f.handoff, "operation": f.operation},
@@ -13,7 +13,7 @@ func (f canonicalOutputFixture) canonicalHandoffOutputSamples() map[string]any {
 		"planner_report_publish":       map[string]any{"report": f.plannerReport, "operation": f.operation},
 		"planner_report_read":          f.plannerReport,
 		"planner_report_status":        f.plannerReportStatus,
-		"planner_report_list":          map[string]any{"reports": []any{f.plannerReportStatus}},
+		"planner_report_list":          map[string]any{"reports": []any{f.plannerReportStatus}, "next_cursor": "", "has_more": false},
 		"planner_report_acknowledge":   map[string]any{"state": f.plannerReportState, "operation": f.operation},
 		"planner_report_next":          map[string]any{"state": f.plannerReportState, "operation": f.operation},
 	}

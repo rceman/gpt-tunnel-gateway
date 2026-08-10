@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
 
 func deliveryHandoffStatusProjection(item model.DeliveryHandoff, summary model.OwnerSummary) model.DeliveryHandoffStatus {
@@ -61,6 +63,31 @@ func (s *Service) DeliveryHandoffList(ctx context.Context, in DeliveryHandoffLis
 		items = items[:limit]
 	}
 	return items, nil
+}
+
+func (s *Service) DeliveryHandoffListPage(ctx context.Context, in DeliveryHandoffListInput) (DeliveryHandoffListPageResult, error) {
+	limit, err := publicDurableListLimit(in.Limit, s.Config.MaxListItems)
+	if err != nil {
+		return DeliveryHandoffListPageResult{}, err
+	}
+	items, err := s.DeliveryHandoffList(ctx, DeliveryHandoffListInput{
+		ProjectID: in.ProjectID,
+		Limit:     s.Config.MaxListItems,
+	})
+	if err != nil {
+		return DeliveryHandoffListPageResult{}, err
+	}
+	page, info, err := pagination.Page("delivery_handoff_list:"+in.ProjectID, items, limit, in.Cursor, func(item model.DeliveryHandoffStatus) string {
+		return item.UpdatedAt.UTC().Format(time.RFC3339Nano) + "|" + item.ID
+	})
+	if err != nil {
+		return DeliveryHandoffListPageResult{}, err
+	}
+	return DeliveryHandoffListPageResult{
+		Handoffs:   page,
+		NextCursor: info.NextCursor,
+		HasMore:    info.HasMore,
+	}, nil
 }
 
 func (s *Service) DeliveryHandoffAcknowledge(ctx context.Context, in DeliveryHandoffAcknowledgeInput) (model.DeliveryHandoff, OperationResult, error) {

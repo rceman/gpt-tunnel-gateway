@@ -9,6 +9,8 @@ import (
 )
 
 func (s *Server) addHandoffTools(add toolAdder) {
+	listLimit := integer("Maximum collection items", 1, service.MaxPublicCollectionLimit)
+	listLimit["default"] = service.DefaultPublicCollectionLimit
 	add("delivery_handoff_publish", "Planner-authorized publication of one durable Delivery handoff; replacements require delivery_handoff_supersede.", deliveryHandoffCreateSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		if err := authority.RequirePlanner(ctx); err != nil {
 			return nil, err
@@ -34,13 +36,13 @@ func (s *Server) addHandoffTools(add toolAdder) {
 		}
 		return s.Service.DeliveryHandoffStatus(ctx, id)
 	})
-	add("delivery_handoff_list", "List bounded durable Delivery handoff status projections.", obj(map[string]any{"project_id": str("Project identifier"), "limit": integer("Maximum handoffs", 1, 1000)}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("delivery_handoff_list", "List bounded durable Delivery handoff status projections with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "limit": listLimit, "cursor": str("Opaque continuation cursor")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.DeliveryHandoffListInput
 		if err := decode(raw, &in); err != nil {
 			return nil, err
 		}
-		handoffs, err := s.Service.DeliveryHandoffList(ctx, in)
-		return map[string]any{"handoffs": handoffs}, err
+		handoffs, err := s.Service.DeliveryHandoffListPage(ctx, in)
+		return handoffs, err
 	})
 	add("delivery_handoff_acknowledge", "Delivery-authorized acknowledgement of a pending durable handoff.", obj(map[string]any{"handoff_id": str("Handoff identifier"), "acknowledged_by": str("Delivery identity"), "expected_hub_revision": str("Optimistic Hub revision")}, "handoff_id", "acknowledged_by"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		if err := authority.RequireDelivery(ctx); err != nil {
@@ -111,13 +113,13 @@ func (s *Server) addHandoffTools(add toolAdder) {
 		}
 		return s.Service.PlannerReportStatus(ctx, id)
 	})
-	add("planner_report_list", "List bounded Planner report status projections.", obj(map[string]any{"project_id": str("Project identifier"), "limit": integer("Maximum reports", 1, 1000)}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("planner_report_list", "List bounded Planner report status projections with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "limit": listLimit, "cursor": str("Opaque continuation cursor")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.PlannerReportListInput
 		if err := decode(raw, &in); err != nil {
 			return nil, err
 		}
-		reports, err := s.Service.PlannerReportList(ctx, in)
-		return map[string]any{"reports": reports}, err
+		reports, err := s.Service.PlannerReportListPage(ctx, in)
+		return reports, err
 	})
 	add("planner_report_acknowledge", "Planner-authorized acknowledgement of a published Planner report.", obj(map[string]any{"report_id": str("Report identifier"), "acknowledged_by": str("Planner identity"), "expected_hub_revision": str("Optimistic Hub revision")}, "report_id", "acknowledged_by"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		if err := authority.RequirePlanner(ctx); err != nil {

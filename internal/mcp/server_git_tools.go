@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
 func addGitTools(add func(string, string, map[string]any, func(context.Context, json.RawMessage) (any, error)), s *Server) {
+	collectionLimit := integer("Maximum collection items", 1, service.MaxPublicCollectionLimit)
+	collectionLimit["default"] = service.DefaultPublicCollectionLimit
 	projectConfig := func(raw json.RawMessage) (string, config.ProjectConfig, error) {
 		id, e := getString(raw, "project_id")
 		if e != nil {
@@ -27,25 +30,48 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 		e = s.Service.Git.Refresh(ctx, p)
 		return map[string]any{"project_id": id, "refreshed": e == nil}, e
 	})
-	add("git_refs", "List local, remote, and tag refs from managed mirror.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		_, p, e := projectConfig(raw)
+	add("git_refs", "List bounded local, remote, and tag refs with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "limit": collectionLimit, "cursor": str("Opaque continuation cursor")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var args struct {
+			ProjectID string `json:"project_id"`
+			Limit     int    `json:"limit,omitempty"`
+			Cursor    string `json:"cursor,omitempty"`
+		}
+		if e := decode(raw, &args); e != nil {
+			return nil, e
+		}
+		p, e := s.Service.EffectiveProjectConfig(args.ProjectID)
 		if e != nil {
 			return nil, e
 		}
-		v, e := s.Service.Git.Refs(ctx, p)
-		return map[string]any{"refs": v}, e
+		limit, e := service.PublicCollectionLimit(args.Limit, s.Service.Config.MaxListItems)
+		if e != nil {
+			return nil, e
+		}
+		v, page, e := s.Service.Git.RefsPage(ctx, p, limit, args.Cursor)
+		return map[string]any{"refs": v, "next_cursor": page.NextCursor, "has_more": page.HasMore}, e
 	})
-	add("git_log", "Read bounded commit history at a revision.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref"), "limit": integer("Maximum commits", 1, 1000)}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		_, p, e := projectConfig(raw)
+	logLimit := integer("Maximum commits", 1, service.MaxPublicCollectionLimit)
+	logLimit["default"] = service.DefaultPublicCollectionLimit
+	add("git_log", "Read bounded commit history at a revision with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref"), "limit": logLimit, "cursor": str("Opaque continuation cursor")}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var args struct {
+			ProjectID string `json:"project_id"`
+			Revision  string `json:"revision"`
+			Limit     int    `json:"limit,omitempty"`
+			Cursor    string `json:"cursor,omitempty"`
+		}
+		if e := decode(raw, &args); e != nil {
+			return nil, e
+		}
+		p, e := s.Service.EffectiveProjectConfig(args.ProjectID)
 		if e != nil {
 			return nil, e
 		}
-		rev, e := getString(raw, "revision")
+		limit, e := service.PublicCollectionLimit(args.Limit, s.Service.Config.MaxListItems)
 		if e != nil {
 			return nil, e
 		}
-		v, e := s.Service.Git.Log(ctx, p, rev, intArg(raw, "limit", 50))
-		return map[string]any{"commits": v}, e
+		v, page, e := s.Service.Git.LogPage(ctx, p, args.Revision, limit, args.Cursor)
+		return map[string]any{"commits": v, "next_cursor": page.NextCursor, "has_more": page.HasMore}, e
 	})
 	add("git_show", "Show bounded commit metadata, summary, and stat.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref")}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		_, p, e := projectConfig(raw)
@@ -59,17 +85,27 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 		v, e := s.Service.Git.Show(ctx, p, rev)
 		return map[string]any{"text": v}, e
 	})
-	add("git_tree", "List files at any revision.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref"), "path": str("Optional relative path")}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		_, p, e := projectConfig(raw)
+	add("git_tree", "List bounded files at a revision with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref"), "path": str("Optional relative path"), "limit": collectionLimit, "cursor": str("Opaque continuation cursor")}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var args struct {
+			ProjectID string `json:"project_id"`
+			Revision  string `json:"revision"`
+			Path      string `json:"path,omitempty"`
+			Limit     int    `json:"limit,omitempty"`
+			Cursor    string `json:"cursor,omitempty"`
+		}
+		if e := decode(raw, &args); e != nil {
+			return nil, e
+		}
+		p, e := s.Service.EffectiveProjectConfig(args.ProjectID)
 		if e != nil {
 			return nil, e
 		}
-		rev, e := getString(raw, "revision")
+		limit, e := service.PublicCollectionLimit(args.Limit, s.Service.Config.MaxListItems)
 		if e != nil {
 			return nil, e
 		}
-		v, e := s.Service.Git.Tree(ctx, p, rev, optionalString(raw, "path"))
-		return map[string]any{"paths": v}, e
+		v, page, e := s.Service.Git.TreePage(ctx, p, args.Revision, args.Path, limit, args.Cursor)
+		return map[string]any{"paths": v, "next_cursor": page.NextCursor, "has_more": page.HasMore}, e
 	})
 	add("git_read_file", "Read a UTF-8 file at any revision.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref"), "path": str("Relative file path")}, "project_id", "revision", "path"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		_, p, e := projectConfig(raw)

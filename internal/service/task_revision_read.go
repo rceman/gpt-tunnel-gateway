@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
 
 type TaskCorrectionCreateInput struct {
@@ -118,6 +119,35 @@ func (s *Service) TaskRevisionList(ctx context.Context, taskID string) ([]model.
 		return nil, err
 	}
 	return s.taskRevisionListForTask(ctx, task)
+}
+
+func (s *Service) TaskRevisionListPage(ctx context.Context, taskID string, in CollectionPageInput) (TaskRevisionListPageResult, error) {
+	limit, err := pagination.Limit(in.Limit, s.Config.MaxListItems)
+	if err != nil {
+		return TaskRevisionListPageResult{}, err
+	}
+	if base, _, err := model.ParseTaskRevisionID(taskID); err == nil {
+		taskID = base
+	}
+	task, err := s.findTask(ctx, taskID)
+	if err != nil {
+		return TaskRevisionListPageResult{}, err
+	}
+	items, err := s.taskRevisionListForTask(ctx, task)
+	if err != nil {
+		return TaskRevisionListPageResult{}, err
+	}
+	page, info, err := pagination.Page("task_revision_list:"+taskID, items, limit, in.Cursor, func(item model.TaskRevision) string {
+		return fmt.Sprintf("%09d", item.TaskRevision)
+	})
+	if err != nil {
+		return TaskRevisionListPageResult{}, err
+	}
+	return TaskRevisionListPageResult{
+		Revisions:  page,
+		NextCursor: info.NextCursor,
+		HasMore:    info.HasMore,
+	}, nil
 }
 
 func (s *Service) TaskRevisionRead(ctx context.Context, revisionID string) (model.TaskRevision, error) {

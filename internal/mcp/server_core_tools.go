@@ -23,9 +23,14 @@ func (s *Server) addCoreTools(add toolAdder) {
 		}
 		return map[string]any{"gateway_id": s.Service.Config.GatewayID, "listen_addr": s.Service.Config.ListenAddr, "projects": ids, "hub_protocol_root": hub.ProtocolRoot, "hub_repository_url": s.Service.Config.Hub.RepositoryURL, "hub_branch": s.Service.Config.Hub.Branch, "hub_managed_root": hub.ManagedRoot(s.Service.Config), "airelay_control_only": true, "generic_shell_available": false}, nil
 	})
-	add("project_list", "List durable hub projects.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		v, e := s.Service.ProjectList(ctx)
-		return map[string]any{"projects": v}, e
+	limit := integer("Maximum projects", 1, service.MaxPublicCollectionLimit)
+	limit["default"] = service.DefaultPublicCollectionLimit
+	add("project_list", "List bounded durable hub projects with deterministic continuation.", obj(map[string]any{"limit": limit, "cursor": str("Opaque continuation cursor")}), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.CollectionPageInput
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		return s.Service.ProjectListPage(ctx, in)
 	})
 	add("project_read", "Read one durable project.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "project_id")

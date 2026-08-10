@@ -11,6 +11,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
 
 func (s *Service) PlanSectionDelete(ctx context.Context, in PlanSectionDeleteInput) (OperationResult, error) {
@@ -94,6 +95,26 @@ func (s *Service) PlanHistory(ctx context.Context, project string, limit int) ([
 	return s.Hub.History(ctx, s.planPath(project), limit)
 }
 
+func (s *Service) PlanHistoryPage(ctx context.Context, project string, in CollectionPageInput) (PlanHistoryPageResult, error) {
+	limit, err := pagination.Limit(in.Limit, s.Config.MaxListItems)
+	if err != nil {
+		return PlanHistoryPageResult{}, err
+	}
+	items, err := s.Hub.History(ctx, s.planPath(project), s.Config.MaxListItems)
+	if err != nil {
+		return PlanHistoryPageResult{}, err
+	}
+	page, info, err := pagination.Page("plan_history:"+project, items, limit, in.Cursor, func(item map[string]string) string { return item["sha"] })
+	if err != nil {
+		return PlanHistoryPageResult{}, err
+	}
+	return PlanHistoryPageResult{
+		History:    page,
+		NextCursor: info.NextCursor,
+		HasMore:    info.HasMore,
+	}, nil
+}
+
 func (s *Service) ADRList(ctx context.Context, project string) ([]model.ADR, error) {
 	paths, err := s.Hub.List(ctx, s.projectPrefix(project)+"/adrs", ".json")
 	if err != nil {
@@ -109,6 +130,26 @@ func (s *Service) ADRList(ctx context.Context, project string) ([]model.ADR, err
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	return items, nil
+}
+
+func (s *Service) ADRListPage(ctx context.Context, project string, in CollectionPageInput) (ADRListPageResult, error) {
+	limit, err := pagination.Limit(in.Limit, s.Config.MaxListItems)
+	if err != nil {
+		return ADRListPageResult{}, err
+	}
+	items, err := s.ADRList(ctx, project)
+	if err != nil {
+		return ADRListPageResult{}, err
+	}
+	page, info, err := pagination.Page("adr_list:"+project, items, limit, in.Cursor, func(item model.ADR) string { return item.ID })
+	if err != nil {
+		return ADRListPageResult{}, err
+	}
+	return ADRListPageResult{
+		ADRs:       page,
+		NextCursor: info.NextCursor,
+		HasMore:    info.HasMore,
+	}, nil
 }
 
 func (s *Service) ADRRead(ctx context.Context, project, id string) (model.ADR, error) {

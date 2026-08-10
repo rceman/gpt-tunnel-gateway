@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
 
 func (s *Service) PlannerReportNext(ctx context.Context, in PlannerReportNextInput) (model.PlannerReportState, OperationResult, error) {
@@ -159,4 +161,29 @@ func (s *Service) PlannerReportList(ctx context.Context, in PlannerReportListInp
 		items = items[:limit]
 	}
 	return items, nil
+}
+
+func (s *Service) PlannerReportListPage(ctx context.Context, in PlannerReportListInput) (PlannerReportListPageResult, error) {
+	limit, err := publicDurableListLimit(in.Limit, s.Config.MaxListItems)
+	if err != nil {
+		return PlannerReportListPageResult{}, err
+	}
+	items, err := s.PlannerReportList(ctx, PlannerReportListInput{
+		ProjectID: in.ProjectID,
+		Limit:     s.Config.MaxListItems,
+	})
+	if err != nil {
+		return PlannerReportListPageResult{}, err
+	}
+	page, info, err := pagination.Page("planner_report_list:"+in.ProjectID, items, limit, in.Cursor, func(item model.PlannerReportStatus) string {
+		return item.PublishedAt.UTC().Format(time.RFC3339Nano) + "|" + item.ID
+	})
+	if err != nil {
+		return PlannerReportListPageResult{}, err
+	}
+	return PlannerReportListPageResult{
+		Reports:    page,
+		NextCursor: info.NextCursor,
+		HasMore:    info.HasMore,
+	}, nil
 }

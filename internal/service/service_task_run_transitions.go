@@ -12,6 +12,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
 
 func (s *Service) transitionTaskStateWithWorktree(ctx context.Context, task model.Task, expected, subject string, mutate func(string, model.TaskState) (model.TaskState, error)) (hub.TransactionResult, error) {
@@ -84,6 +85,28 @@ func (s *Service) RunList(ctx context.Context, project string) ([]model.Run, err
 		return items[i].CreatedAt.After(items[j].CreatedAt)
 	})
 	return items, nil
+}
+
+func (s *Service) RunListPage(ctx context.Context, project string, in CollectionPageInput) (RunListPageResult, error) {
+	limit, err := pagination.Limit(in.Limit, s.Config.MaxListItems)
+	if err != nil {
+		return RunListPageResult{}, err
+	}
+	items, err := s.RunList(ctx, project)
+	if err != nil {
+		return RunListPageResult{}, err
+	}
+	page, info, err := pagination.Page("run_list:"+project, items, limit, in.Cursor, func(item model.Run) string {
+		return item.CreatedAt.UTC().Format(time.RFC3339Nano) + "|" + item.ID
+	})
+	if err != nil {
+		return RunListPageResult{}, err
+	}
+	return RunListPageResult{
+		Runs:       page,
+		NextCursor: info.NextCursor,
+		HasMore:    info.HasMore,
+	}, nil
 }
 
 func latestApplicableRunForRevision(runs []model.Run, taskID string, revision int, revisionSHA string) (model.Run, bool) {

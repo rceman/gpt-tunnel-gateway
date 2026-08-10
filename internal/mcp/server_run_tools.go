@@ -8,17 +8,23 @@ import (
 )
 
 func (s *Server) addRunTools(add toolAdder) {
-	add("run_list", "List project runs.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		id, e := getString(raw, "project_id")
-		if e != nil {
+	limit := integer("Maximum runs", 1, service.MaxPublicCollectionLimit)
+	limit["default"] = service.DefaultPublicCollectionLimit
+	add("run_list", "List bounded project runs with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "limit": limit, "cursor": str("Opaque continuation cursor")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var args struct {
+			ProjectID string `json:"project_id"`
+			Limit     int    `json:"limit,omitempty"`
+			Cursor    string `json:"cursor,omitempty"`
+		}
+		if e := decode(raw, &args); e != nil {
 			return nil, e
 		}
-		v, e := s.Service.RunList(ctx, id)
-		public := make([]service.PublicRun, 0, len(v))
-		for _, run := range v {
+		v, e := s.Service.RunListPage(ctx, args.ProjectID, service.CollectionPageInput{Limit: args.Limit, Cursor: args.Cursor})
+		public := make([]service.PublicRun, 0, len(v.Runs))
+		for _, run := range v.Runs {
 			public = append(public, service.PublicRunView(run))
 		}
-		return map[string]any{"runs": public}, e
+		return map[string]any{"runs": public, "next_cursor": v.NextCursor, "has_more": v.HasMore}, e
 	})
 	add("run_read", "Read one run.", obj(map[string]any{"run_id": str("Run identifier")}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "run_id")

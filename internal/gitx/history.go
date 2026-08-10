@@ -9,6 +9,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
 
 func (r Runner) Refs(ctx context.Context, p config.ProjectConfig) ([]Ref, error) {
@@ -39,6 +40,42 @@ func (r Runner) Refs(ctx context.Context, p config.ProjectConfig) ([]Ref, error)
 		})
 	}
 	return refs, nil
+}
+
+func (r Runner) RefsPage(ctx context.Context, p config.ProjectConfig, limit int, cursor string) ([]Ref, pagination.PageInfo, error) {
+	if limit < 1 || limit > r.MaxListItems {
+		return nil, pagination.PageInfo{}, fmt.Errorf("invalid refs limit")
+	}
+	if err := r.EnsureMirror(ctx, p); err != nil {
+		return nil, pagination.PageInfo{}, err
+	}
+	format := "%(refname)%00%(objecttype)%00%(objectname)%00%(subject)%00%(committerdate:iso-strict)%00"
+	out, err := r.command(ctx, p.Mirror, true, "for-each-ref", "--format="+format, "refs/heads", "refs/remotes", "refs/tags")
+	if err != nil {
+		return nil, pagination.PageInfo{}, err
+	}
+	if int64(len(out)) > r.MaxReadBytes {
+		return nil, pagination.PageInfo{}, fmt.Errorf("refs output too large")
+	}
+	parts := bytes.Split(out, []byte{0})
+	refs := []Ref{}
+	for i := 0; i+4 < len(parts); i += 5 {
+		name := strings.TrimSpace(string(parts[i]))
+		if name == "" {
+			continue
+		}
+		refs = append(refs, Ref{
+			Name:          name,
+			ObjectType:    string(parts[i+1]),
+			ObjectName:    string(parts[i+2]),
+			Subject:       string(parts[i+3]),
+			CommitterDate: strings.TrimSpace(string(parts[i+4])),
+		})
+	}
+	if len(refs) > r.MaxListItems {
+		return nil, pagination.PageInfo{}, fmt.Errorf("refs exceed configured item limit")
+	}
+	return pagination.Page("git_refs:"+p.Mirror, refs, limit, cursor, func(item Ref) string { return item.Name })
 }
 func (r Runner) Log(ctx context.Context, p config.ProjectConfig, rev string, limit int) ([]Commit, error) {
 	if err := model.ValidateRevision(rev); err != nil {
@@ -73,6 +110,17 @@ func (r Runner) Log(ctx context.Context, p config.ProjectConfig, rev string, lim
 		})
 	}
 	return items, nil
+}
+
+func (r Runner) LogPage(ctx context.Context, p config.ProjectConfig, rev string, limit int, cursor string) ([]Commit, pagination.PageInfo, error) {
+	if limit < 1 || limit > r.MaxListItems {
+		return nil, pagination.PageInfo{}, fmt.Errorf("invalid log limit")
+	}
+	items, err := r.Log(ctx, p, rev, r.MaxListItems)
+	if err != nil {
+		return nil, pagination.PageInfo{}, err
+	}
+	return pagination.Page("git_log:"+rev, items, limit, cursor, func(item Commit) string { return item.SHA })
 }
 
 // LocalLog reads the ordered commits from a configured worktree. It is used

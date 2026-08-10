@@ -15,6 +15,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
 
 func (s *Service) projectPrefix(id string) string {
@@ -138,6 +139,11 @@ func (s *Service) projectConfig(id string) (config.ProjectConfig, error) {
 func (s *Service) hubRevision(ctx context.Context) (string, error) { return s.Hub.RemoteRevision(ctx) }
 
 func (s *Service) ProjectList(ctx context.Context) ([]model.Project, error) {
+	result, err := s.projectListAll(ctx)
+	return result, err
+}
+
+func (s *Service) projectListAll(ctx context.Context) ([]model.Project, error) {
 	paths, err := s.Hub.List(ctx, hub.ProtocolRoot+"/projects", "/project.json")
 	if err != nil {
 		return nil, err
@@ -152,6 +158,26 @@ func (s *Service) ProjectList(ctx context.Context) ([]model.Project, error) {
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	return items, nil
+}
+
+func (s *Service) ProjectListPage(ctx context.Context, in CollectionPageInput) (ProjectListPageResult, error) {
+	limit, err := pagination.Limit(in.Limit, s.Config.MaxListItems)
+	if err != nil {
+		return ProjectListPageResult{}, err
+	}
+	items, err := s.projectListAll(ctx)
+	if err != nil {
+		return ProjectListPageResult{}, err
+	}
+	page, info, err := pagination.Page("project_list", items, limit, in.Cursor, func(item model.Project) string { return item.ID })
+	if err != nil {
+		return ProjectListPageResult{}, err
+	}
+	return ProjectListPageResult{
+		Projects:   page,
+		NextCursor: info.NextCursor,
+		HasMore:    info.HasMore,
+	}, nil
 }
 
 // ValidateConfiguredProjectRecords prevents a fresh deployment from reporting

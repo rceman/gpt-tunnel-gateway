@@ -75,21 +75,32 @@ func (s *Server) addPlanTools(add toolAdder) {
 		}
 		return s.Service.PlanRender(ctx, id)
 	})
-	add("plan_history", "List plan Git history.", obj(map[string]any{"project_id": str("Project identifier"), "limit": integer("Maximum commits", 1, 1000)}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		id, e := getString(raw, "project_id")
-		if e != nil {
+	historyLimit := integer("Maximum commits", 1, service.MaxPublicCollectionLimit)
+	historyLimit["default"] = service.DefaultPublicCollectionLimit
+	add("plan_history", "List bounded plan Git history with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "limit": historyLimit, "cursor": str("Opaque continuation cursor")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var args struct {
+			ProjectID string `json:"project_id"`
+			Limit     int    `json:"limit,omitempty"`
+			Cursor    string `json:"cursor,omitempty"`
+		}
+		if e := decode(raw, &args); e != nil {
 			return nil, e
 		}
-		v, e := s.Service.PlanHistory(ctx, id, intArg(raw, "limit", 50))
-		return map[string]any{"history": v}, e
+		return s.Service.PlanHistoryPage(ctx, args.ProjectID, service.CollectionPageInput{Limit: args.Limit, Cursor: args.Cursor})
 	})
-	add("adr_list", "List accepted ADRs.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		id, e := getString(raw, "project_id")
-		if e != nil {
+	adrLimit := integer("Maximum ADRs", 1, service.MaxPublicCollectionLimit)
+	adrLimit["default"] = service.DefaultPublicCollectionLimit
+	add("adr_list", "List bounded accepted ADRs with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "limit": adrLimit, "cursor": str("Opaque continuation cursor")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var args struct {
+			ProjectID string `json:"project_id"`
+			Limit     int    `json:"limit,omitempty"`
+			Cursor    string `json:"cursor,omitempty"`
+		}
+		if e := decode(raw, &args); e != nil {
 			return nil, e
 		}
-		v, e := s.Service.ADRList(ctx, id)
-		return map[string]any{"adrs": v}, e
+		v, e := s.Service.ADRListPage(ctx, args.ProjectID, service.CollectionPageInput{Limit: args.Limit, Cursor: args.Cursor})
+		return v, e
 	})
 	add("adr_read", "Read an ADR.", obj(map[string]any{"project_id": str("Project identifier"), "adr_id": str("ADR identifier")}, "project_id", "adr_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		p, e := getString(raw, "project_id")
