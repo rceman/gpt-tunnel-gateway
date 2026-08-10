@@ -8,6 +8,9 @@ import (
 )
 
 func TestTaskListSchemaExposesBoundedSearchStatusAndCursor(t *testing.T) {
+	if service.DefaultTaskListLimit != 10 || service.MaxTaskListLimit != 10 {
+		t.Fatalf("public task_list page bounds default=%d max=%d", service.DefaultTaskListLimit, service.MaxTaskListLimit)
+	}
 	tool := (&Server{Service: service.New(config.Config{MaxListItems: 1000})}).tools()["task_list"]
 	if tool.Name == "" {
 		t.Fatal("task_list tool missing")

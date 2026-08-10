@@ -130,6 +130,9 @@ func TestTaskListQuerySearchStatusLimitAndCursor(t *testing.T) {
 	}); err == nil {
 		t.Fatal("hard maximum was not enforced")
 	}
+	if limit, err := s.taskListLimit(0); err != nil || limit != 10 {
+		t.Fatalf("default public page limit=%d err=%v", limit, err)
+	}
 	if _, err := s.TaskListQuery(ctx, TaskListInput{
 		ProjectID: "example",
 		Cursor:    "not-a-cursor",

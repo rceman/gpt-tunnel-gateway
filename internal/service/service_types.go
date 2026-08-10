@@ -197,8 +197,8 @@ type TaskRecord struct {
 }
 
 const (
-	DefaultTaskListLimit = 50
-	MaxTaskListLimit     = 1000
+	DefaultTaskListLimit = 10
+	MaxTaskListLimit     = 10
 )
 
 type TaskListInput struct {
