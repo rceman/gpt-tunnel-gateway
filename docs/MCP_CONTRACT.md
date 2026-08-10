@@ -69,6 +69,15 @@ active Agent packet requires the canonical `gpt-tunnel run write-completion
 <RUN-ID> --completion-file <INPUT>` operation; the Gateway derives the
 completion destination internally.
 
+`task_list` is the bounded task backlog surface. It accepts an optional
+case-insensitive `query` over task identity and human-readable metadata
+(including ID, derived slug, branch, title, objective, status, creator, and
+criteria), an exact workflow `status` filter, a server-enforced `limit`, and
+an opaque `cursor`. Results are newest-first by `created_at` with task-ID
+tie-breaking, and return `has_more` plus `next_cursor` for continuation.
+The default and hard maximum are enforced by the Gateway; callers must not
+retrieve or scan an unbounded backlog client-side.
+
 The normal run surface contains `run_read`, `run_report`, and
 `run_review_snapshot`; there is no `run_evidence` operation. Routine run list,
 read, and status projections omit gateway-internal completion paths. The

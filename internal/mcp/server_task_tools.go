@@ -53,13 +53,21 @@ func (s *Server) addTaskTools(add toolAdder) {
 		}
 		return map[string]any{"revision": revision, "operation": operation}, nil
 	})
-	add("task_list", "List project tasks.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		id, e := getString(raw, "project_id")
-		if e != nil {
+	status := outputEnum("created", "ready", "dispatched", "cancelled", "superseded", "completed", "merge_ready", "deferred", "merged")
+	query := str("Case-insensitive search over task ID, slug, title, objective, branch, status, and task metadata")
+	query["maxLength"] = 256
+	cursor := str("Opaque continuation cursor from the prior task_list result")
+	limit := integer("Maximum tasks to return; defaults to the safe server limit", 1, service.MaxTaskListLimit)
+	limit["default"] = service.DefaultTaskListLimit
+	add("task_list", "List bounded project tasks with optional text search, workflow status filtering, and deterministic continuation.", obj(map[string]any{
+		"project_id": str("Project identifier"), "query": query, "status": status,
+		"limit": limit, "cursor": cursor,
+	}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in service.TaskListInput
+		if e := decode(raw, &in); e != nil {
 			return nil, e
 		}
-		v, e := s.Service.TaskList(ctx, id)
-		return map[string]any{"tasks": v}, e
+		return s.Service.TaskListQuery(ctx, in)
 	})
 	add("task_read", "Read task record and active execution packet when a run exists.", obj(map[string]any{"task_id": str("Task identifier")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "task_id")

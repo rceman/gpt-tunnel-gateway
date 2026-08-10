@@ -196,6 +196,25 @@ type TaskRecord struct {
 	WorkflowPolicy  *model.ProjectWorkflowPolicy `json:"workflow_policy,omitempty"`
 }
 
+const (
+	DefaultTaskListLimit = 50
+	MaxTaskListLimit     = 1000
+)
+
+type TaskListInput struct {
+	ProjectID string `json:"project_id"`
+	Query     string `json:"query,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	Cursor    string `json:"cursor,omitempty"`
+}
+
+type TaskListResult struct {
+	Tasks      []TaskRecord `json:"tasks"`
+	NextCursor string       `json:"next_cursor"`
+	HasMore    bool         `json:"has_more"`
+}
+
 type TaskPacket struct {
 	Task            model.Task                  `json:"task"`
 	CurrentRevision *model.TaskRevision         `json:"current_revision,omitempty"`

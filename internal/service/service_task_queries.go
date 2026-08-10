@@ -9,51 +9,6 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-func (s *Service) TaskList(ctx context.Context, project string) ([]TaskRecord, error) {
-	paths, err := s.Hub.List(ctx, s.projectPrefix(project)+"/tasks", ".json")
-	if err != nil {
-		return nil, err
-	}
-	runs, err := s.RunList(ctx, project)
-	if err != nil {
-		return nil, err
-	}
-	items := []TaskRecord{}
-	for _, path := range paths {
-		if strings.HasSuffix(path, ".state.json") || strings.HasSuffix(path, ".run-counter.json") || strings.Contains(path, "/revisions/") {
-			continue
-		}
-		var task model.Task
-		if err := s.Hub.ReadJSON(ctx, path, &task); err != nil {
-			return nil, err
-		}
-		state, err := s.taskState(ctx, task)
-		if err != nil {
-			return nil, err
-		}
-		var currentRevision *model.TaskRevision
-		if model.ValidateCanonicalTaskID(task.ID) == nil {
-			if revision, revisionErr := s.currentTaskRevision(ctx, task); revisionErr != nil {
-				return nil, revisionErr
-			} else {
-				currentRevision = &revision
-			}
-		}
-		summaries, err := s.taskReviewSummaries(ctx, task, runs)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, TaskRecord{
-			Task:            task,
-			State:           state,
-			CurrentRevision: currentRevision,
-			RunSummaries:    summaries,
-		})
-	}
-	sort.Slice(items, func(i, j int) bool { return items[i].Task.CreatedAt.After(items[j].Task.CreatedAt) })
-	return items, nil
-}
-
 // taskStatusList reads only the task and mutable state fields needed by the
 // project status and workflow-policy projections.  Full TaskList enrichment
 // also loads revisions, run history and review summaries; that work belongs
