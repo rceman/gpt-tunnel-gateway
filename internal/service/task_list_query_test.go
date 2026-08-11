@@ -14,6 +14,12 @@ import (
 func TestTaskListQuerySearchStatusLimitAndCursor(t *testing.T) {
 	s, revision, _ := testService(t)
 	ctx := context.Background()
+	clock := time.Date(2026, 8, 11, 15, 0, 0, 0, time.UTC)
+	s.clock = func() time.Time {
+		current := clock
+		clock = clock.Add(time.Second)
+		return current
+	}
 	type createdTask struct {
 		task     model.Task
 		revision string

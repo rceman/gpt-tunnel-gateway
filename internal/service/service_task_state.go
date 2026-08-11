@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -42,7 +41,7 @@ func (s *Service) taskCreateOnce(ctx context.Context, in TaskCreateInput) (model
 		}
 	}
 	branch = "task/" + id + "-" + in.Slug
-	task := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Title: in.Title, Objective: in.Objective, Branch: branch, AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), WorkflowPolicyRevision: effectivePolicy.WorkflowPolicyRevision, OperationClass: effectivePolicy.OperationClass, EffectiveCIField: effectivePolicy.EffectiveCIField, EffectiveCIMode: effectivePolicy.EffectiveCIMode, WaitForCI: effectivePolicy.WaitForCI, CIBlocking: effectivePolicy.CIBlocking, AgentMayWait: effectivePolicy.AgentMayWait, Status: "created", Supersedes: in.Supersedes, CreatedBy: in.CreatedBy, CreatedAt: time.Now().UTC()}
+	task := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Title: in.Title, Objective: in.Objective, Branch: branch, AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), WorkflowPolicyRevision: effectivePolicy.WorkflowPolicyRevision, OperationClass: effectivePolicy.OperationClass, EffectiveCIField: effectivePolicy.EffectiveCIField, EffectiveCIMode: effectivePolicy.EffectiveCIMode, WaitForCI: effectivePolicy.WaitForCI, CIBlocking: effectivePolicy.CIBlocking, AgentMayWait: effectivePolicy.AgentMayWait, Status: "created", Supersedes: in.Supersedes, CreatedBy: in.CreatedBy, CreatedAt: s.durableNow()}
 	hash, err := model.HashTask(task)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
@@ -51,7 +50,7 @@ func (s *Service) taskCreateOnce(ctx context.Context, in TaskCreateInput) (model
 	if err := model.ValidateTask(task); err != nil {
 		return model.Task{}, OperationResult{}, err
 	}
-	state := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "created", UpdatedAt: time.Now().UTC()}
+	state := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "created", UpdatedAt: s.durableNow()}
 	updatedIdentifiers := identifiers
 	if updatedIdentifiers.NextTaskNumber < model.MaxSafeInteger {
 		updatedIdentifiers.NextTaskNumber++
