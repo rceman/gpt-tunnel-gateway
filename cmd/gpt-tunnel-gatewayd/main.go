@@ -46,6 +46,7 @@ func main() {
 	}
 	cancel()
 	trustedMCPContext := authority.WithDelivery(context.Background())
+	go svc.RunWatcherSupervisors(context.Background())
 	srv := &http.Server{
 		Addr:              c.ListenAddr,
 		Handler:           (&mcp.Server{Service: svc, AuthorityContext: trustedMCPContext}).Router(),

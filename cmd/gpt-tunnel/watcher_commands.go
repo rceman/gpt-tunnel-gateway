@@ -11,6 +11,24 @@ import (
 func watcher(ctx context.Context, s *service.Service, args []string) {
 	require(args, 2)
 	switch args[0] {
+	case "start":
+		if len(args) != 2 {
+			usage()
+		}
+		v, err := s.WatcherStart(ctx, args[1])
+		if err != nil {
+			fatal(err)
+		}
+		output(v)
+	case "stop":
+		if len(args) != 2 {
+			usage()
+		}
+		v, err := s.WatcherStop(ctx, args[1])
+		if err != nil {
+			fatal(err)
+		}
+		output(v)
 	case "watch":
 		lines := 0
 		if len(args) > 2 {
