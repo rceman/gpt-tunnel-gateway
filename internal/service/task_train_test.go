@@ -79,7 +79,7 @@ func TestTaskTrainPollWaitsForDeliveryAfterTaskCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	completed := model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: first.ID, TaskSHA256: first.SHA256, Status: "completed", UpdatedAt: time.Now().UTC()}
-	updated, err := s.Hub.Transact(context.Background(), operation.Hub.After, "test: complete train task", func(worktree string) ([]string, error) {
+	_, err = s.Hub.Transact(context.Background(), operation.Hub.After, "test: complete train task", func(worktree string) ([]string, error) {
 		path := s.taskStatePath("example", first.ID)
 		if err := hub.WriteJSON(worktree, path, completed); err != nil {
 			return nil, err
@@ -102,8 +102,5 @@ func TestTaskTrainPollWaitsForDeliveryAfterTaskCompletion(t *testing.T) {
 	}
 	if got.Status != model.TaskTrainWaitingDelivery || got.CurrentIndex != train.CurrentIndex {
 		t.Fatalf("unexpected persisted delivery wait: %#v", got)
-	}
-	if remote, err := s.Hub.RemoteRevision(context.Background()); err != nil || remote != updated.After {
-		t.Fatalf("unexpected hub revision: got=%s want=%s err=%v", remote, updated.After, err)
 	}
 }

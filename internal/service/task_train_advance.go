@@ -31,7 +31,10 @@ func (s *Service) updateTaskTrain(ctx context.Context, next model.TaskTrain, exp
 		if err := readWorktreeJSON(worktree, s.taskTrainPath(next.ProjectID), &current); err != nil {
 			return nil, err
 		}
-		if current.CurrentIndex != next.CurrentIndex || current.CurrentTaskID != next.CurrentTaskID || current.CurrentRunID != next.CurrentRunID && next.CurrentRunID != "" && current.CurrentRunID != "" || current.Status != next.Status && next.Status != model.TaskTrainActive {
+		statusChanged := current.Status != next.Status
+		allowedStatusChange := current.Status == model.TaskTrainActive && (next.Status == model.TaskTrainWaitingDelivery || next.Status == model.TaskTrainBlocked || next.Status == model.TaskTrainCompleted)
+		allowedStatusChange = allowedStatusChange || current.Status == model.TaskTrainWaitingDelivery && next.Status == model.TaskTrainActive
+		if current.CurrentIndex != next.CurrentIndex || current.CurrentTaskID != next.CurrentTaskID || current.CurrentRunID != next.CurrentRunID && next.CurrentRunID != "" && current.CurrentRunID != "" || statusChanged && !allowedStatusChange {
 			return nil, fmt.Errorf("task train changed concurrently")
 		}
 		if err := hub.WriteJSON(worktree, s.taskTrainPath(next.ProjectID), next); err != nil {
