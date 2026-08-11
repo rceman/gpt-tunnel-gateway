@@ -59,6 +59,10 @@ func TestTaskPlanDispatchReadFinalize(t *testing.T) {
 	if run.Status != "awaiting_result" {
 		t.Fatalf("status=%s", run.Status)
 	}
+	wantDispatchMessage := "Read task and execute it. Run: gpt-tunnel task read " + task.ID + ". Do not stop at reading or summarizing: implement the task, run its required gates, write completion, and finalize until TASK_FINALIZED; if execution is blocked, report the explicit blocker."
+	if run.DispatchMessage != wantDispatchMessage {
+		t.Fatalf("dispatch message = %q, want %q", run.DispatchMessage, wantDispatchMessage)
+	}
 	packet, err := s.TaskRead(ctx, task.ID)
 	if err != nil {
 		t.Fatal(err)

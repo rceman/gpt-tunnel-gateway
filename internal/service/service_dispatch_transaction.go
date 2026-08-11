@@ -191,7 +191,7 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 		_, _ = s.failRun(ctx, run, task, "failed", "repository preparation failed: "+err.Error(), tx.After)
 		return run, OperationResult{}, err
 	}
-	message := "Read task and execute it. Run: gpt-tunnel task read " + task.ID
+	message := "Read task and execute it. Run: gpt-tunnel task read " + task.ID + ". Do not stop at reading or summarizing: implement the task, run its required gates, write completion, and finalize until TASK_FINALIZED; if execution is blocked, report the explicit blocker."
 	run.Status = "dispatching"
 	run.DispatchMessage = message
 	dispatch, err := s.Airelay.Prompt(ctx, run.SessionKey, message)
