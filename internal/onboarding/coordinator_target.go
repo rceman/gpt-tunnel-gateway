@@ -227,14 +227,10 @@ func (c *Coordinator) validateCommittedPrimaryHubState(ctx context.Context, requ
 	if err := decodeOnboardingObject(identifiersData, actualIdentifiers); err != nil {
 		return fmt.Errorf("decode committed onboarding object %s: %w", paths[2], err)
 	}
-	identifiersDigest, err := digestObject(actualIdentifiers)
-	if err != nil || identifiersDigest != digests.identifiers {
-		return fmt.Errorf("committed onboarding object %s digest does not match receipt", paths[2])
-	}
 	if receipt.Hub.After == nil {
 		return errors.New("committed onboarding receipt requires hub.after")
 	}
-	for _, path := range []string{paths[0], paths[2]} {
+	for _, path := range []string{paths[0]} {
 		lastChange, err := c.Hub.LastChange(ctx, path)
 		if err != nil {
 			return err
@@ -270,8 +266,8 @@ func (c *Coordinator) validateCommittedHubState(ctx context.Context, request Req
 		if err := validateOnboardingObjectBytes(data, object.Value); err != nil {
 			return fmt.Errorf("committed onboarding object %s: %w", object.Path, err)
 		}
-		if index == 0 || index == 2 {
-			want := []string{digests.project, digests.plan, digests.identifiers}[index]
+		if index == 0 {
+			want := digests.project
 			actual := cloneOnboardingValue(object.Value)
 			if err := decodeOnboardingObject(data, actual); err != nil {
 				return fmt.Errorf("decode committed onboarding object %s: %w", object.Path, err)
@@ -296,9 +292,21 @@ func (c *Coordinator) validateCommittedHubState(ctx context.Context, request Req
 }
 
 func objectsMatch(left, right any) bool {
+	if actual, ok := left.(*model.ProjectIdentifiers); ok {
+		expected, ok := right.(model.ProjectIdentifiers)
+		return ok && projectIdentifiersMatch(*actual, expected)
+	}
 	leftJSON, leftErr := json.Marshal(left)
 	rightJSON, rightErr := json.Marshal(right)
 	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
+}
+
+func projectIdentifiersMatch(actual, expected model.ProjectIdentifiers) bool {
+	return actual.SchemaVersion == expected.SchemaVersion &&
+		actual.ProjectID == expected.ProjectID &&
+		actual.ProjectCode == expected.ProjectCode &&
+		actual.NextTaskNumber >= expected.NextTaskNumber &&
+		actual.NextADRNumber >= expected.NextADRNumber
 }
 
 func receiptHubTransaction(receipt Receipt, store hub.Store) hub.TransactionResult {
