@@ -154,3 +154,29 @@ func TestExecutorIncludesFullOutputForAnyFailedCommand(t *testing.T) {
 		t.Fatalf("failed gate omitted bounded command output: %v", err)
 	}
 }
+
+func TestFixedCommandTailCapsOversizedMultilineOutput(t *testing.T) {
+	code, output, err := fixedCommand(context.Background(), t.TempDir(), "sh", "-c", "i=0; while [ $i -lt 20000 ]; do printf 'line-%05d\\n' \"$i\"; i=$((i+1)); done; printf 'FINAL-CAUSAL-LINE\\n'; exit 1")
+	if err == nil || code != 1 {
+		t.Fatalf("oversized command result=%d err=%v", code, err)
+	}
+	if len(output) > maxGateOutputBytes {
+		t.Fatalf("captured output exceeded cap: %d > %d", len(output), maxGateOutputBytes)
+	}
+	if !strings.HasPrefix(output, gateOutputTruncationMarker) {
+		t.Fatalf("missing truncation marker: %q", output[:min(len(output), 80)])
+	}
+	if !strings.Contains(output, "FINAL-CAUSAL-LINE") {
+		t.Fatal("tail output lost final causal line")
+	}
+	if strings.Contains(output, "line-00000") {
+		t.Fatal("tail output retained the discarded beginning")
+	}
+}
+
+func min(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}

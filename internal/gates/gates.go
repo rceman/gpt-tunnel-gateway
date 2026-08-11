@@ -1,7 +1,6 @@
 package gates
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,6 +14,10 @@ import (
 )
 
 const MaxTokens = tokenizer.MaxTokens
+
+const maxGateOutputBytes = 64 << 10
+
+const gateOutputTruncationMarker = "[gate output truncated; showing final output bytes]\n"
 
 const TestGateRunnerContractVersion = "gpt-tunnel-test-gate/v1"
 
@@ -146,9 +149,9 @@ func formatOffenders(files []TokenFile) string {
 func fixedCommand(ctx context.Context, dir string, name string, args ...string) (int, string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	var output tailOutputBuffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
 	err := cmd.Run()
 	code := 0
 	if err != nil {
@@ -158,7 +161,44 @@ func fixedCommand(ctx context.Context, dir string, name string, args ...string) 
 			code = 1
 		}
 	}
-	return code, stdout.String() + stderr.String(), err
+	return code, output.String(), err
+}
+
+type tailOutputBuffer struct {
+	data      []byte
+	truncated bool
+}
+
+func (b *tailOutputBuffer) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if len(p) >= maxGateOutputBytes {
+		hadData := len(b.data) > 0
+		b.data = append(b.data[:0], p[len(p)-maxGateOutputBytes:]...)
+		b.truncated = len(p) > maxGateOutputBytes || hadData || b.truncated
+		return len(p), nil
+	}
+	if len(b.data)+len(p) > maxGateOutputBytes {
+		drop := len(b.data) + len(p) - maxGateOutputBytes
+		b.data = append(b.data[drop:], p...)
+		b.truncated = true
+		return len(p), nil
+	}
+	b.data = append(b.data, p...)
+	return len(p), nil
+}
+
+func (b *tailOutputBuffer) String() string {
+	if !b.truncated {
+		return string(b.data)
+	}
+	maxTail := maxGateOutputBytes - len(gateOutputTruncationMarker)
+	tail := b.data
+	if len(tail) > maxTail {
+		tail = tail[len(tail)-maxTail:]
+	}
+	return gateOutputTruncationMarker + string(tail)
 }
 
 func compact(value string) string {
