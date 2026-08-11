@@ -90,6 +90,7 @@ func (s *Server) tools() map[string]Tool {
 	s.addHandoffTools(add)
 	s.addPlanTools(add)
 	s.addTaskTools(add)
+	s.addTaskTrainTools(add)
 	s.addRunTools(add)
 	addOperatorJournalTools(add, s)
 	addGitTools(add, s)
