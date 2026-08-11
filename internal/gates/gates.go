@@ -76,13 +76,17 @@ func (e Executor) Execute(ctx context.Context, root string, requested []string) 
 		code, output, runErr := e.runGate(ctx, root, gate)
 		results = append(results, model.CompletionGateResult{ID: gate, ExitCode: code})
 		if runErr != nil || code != 0 {
-			if runErr != nil {
-				if detail := compact(output); detail != "" {
-					return results, fmt.Errorf("gate %s failed: %w: %s", gate, runErr, detail)
+			detail := strings.TrimSpace(output)
+			if detail != "" {
+				if runErr != nil {
+					return results, fmt.Errorf("gate %s failed: %w:\n%s", gate, runErr, detail)
 				}
+				return results, fmt.Errorf("gate %s failed with exit code %d:\n%s", gate, code, detail)
+			}
+			if runErr != nil {
 				return results, fmt.Errorf("gate %s failed: %w", gate, runErr)
 			}
-			return results, fmt.Errorf("gate %s failed with exit code %d: %s", gate, code, compact(output))
+			return results, fmt.Errorf("gate %s failed with exit code %d", gate, code)
 		}
 	}
 	return results, nil

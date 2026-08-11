@@ -140,17 +140,17 @@ func TestExecutorAlwaysRunsMandatoryTokenAdmission(t *testing.T) {
 	}
 }
 
-func TestExecutorIncludesBoundedOutputForAnyFailedCommand(t *testing.T) {
+func TestExecutorIncludesFullOutputForAnyFailedCommand(t *testing.T) {
 	e := Executor{
 		Tokens: func(context.Context, string) (TokenReport, error) {
 			return TokenReport{Max: TokenFile{Path: "small.txt", Tokens: 1}}, nil
 		},
 		Command: func(context.Context, string, string, ...string) (int, string, error) {
-			return 1, "FAIL custom-language: assertion failed", errors.New("exit status 1")
+			return 1, "FAIL custom-language: assertion failed\nsecond diagnostic line", errors.New("exit status 1")
 		},
 	}
 	_, err := e.Execute(context.Background(), "/repo", []string{"test"})
-	if err == nil || !strings.Contains(err.Error(), "gate test failed") || !strings.Contains(err.Error(), "FAIL custom-language: assertion failed") {
+	if err == nil || !strings.Contains(err.Error(), "gate test failed") || !strings.Contains(err.Error(), "FAIL custom-language: assertion failed") || !strings.Contains(err.Error(), "second diagnostic line") {
 		t.Fatalf("failed gate omitted bounded command output: %v", err)
 	}
 }
