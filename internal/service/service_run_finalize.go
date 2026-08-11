@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
@@ -27,7 +29,16 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 		return model.Report{}, OperationResult{}, err
 	}
 	if !operationalActiveRun(run) {
-		return model.Report{}, OperationResult{}, fmt.Errorf("run is not active: %s", run.Status)
+		switch run.Status {
+		case "succeeded", "completed", "failed", "needs_gpt_revision":
+			report, reportErr := s.RunReport(ctx, run.ID)
+			if reportErr != nil {
+				return model.Report{}, OperationResult{}, reportErr
+			}
+			return report, OperationResult{ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: "TASK_FINALIZED"}, nil
+		default:
+			return model.Report{}, OperationResult{}, fmt.Errorf("run is not active: %s", run.Status)
+		}
 	}
 	task, err := s.findTask(ctx, run.TaskID)
 	if err != nil {
@@ -37,26 +48,35 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
-	completionPath, err := gatewayCompletionPath(run, in.CompletionFile)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
+	serverOwned := in.CompletionFile == "" && strings.TrimSpace(in.Summary) != ""
+	if in.CompletionFile == "" && !serverOwned {
+		if _, statErr := os.Lstat(canonicalCompletionPath); statErr != nil {
+			return model.Report{}, OperationResult{}, fmt.Errorf("summary is required for canonical finalization")
+		}
 	}
-	if completionPath != canonicalCompletionPath {
-		return model.Report{}, OperationResult{}, fmt.Errorf("completion file must equal the canonical Run-specific path")
-	}
-	data, err := fsutil.ReadFileBounded(completionPath, s.Config.MaxReadBytes)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	if s.Config.MaxReadBytes > 0 && int64(len(data)) > s.Config.MaxReadBytes {
-		return model.Report{}, OperationResult{}, fmt.Errorf("completion exceeds configured output limit")
-	}
-	completion, err := model.ParseCompletion(data, task)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	if completion.RunID != run.ID || completion.TaskSHA256 != run.TaskSHA256 || completion.TaskRevision != run.TaskRevision || completion.TaskRevisionSHA256 != run.TaskRevisionSHA256 || completion.TaskRunNumber != run.TaskRunNumber {
-		return model.Report{}, OperationResult{}, fmt.Errorf("completion identity does not match active run")
+	var completion model.Completion
+	if !serverOwned {
+		completionPath, pathErr := gatewayCompletionPath(run, in.CompletionFile)
+		if pathErr != nil {
+			return model.Report{}, OperationResult{}, pathErr
+		}
+		if completionPath != canonicalCompletionPath {
+			return model.Report{}, OperationResult{}, fmt.Errorf("completion file must equal the canonical Run-specific path")
+		}
+		data, readErr := fsutil.ReadFileBounded(completionPath, s.Config.MaxReadBytes)
+		if readErr != nil {
+			return model.Report{}, OperationResult{}, readErr
+		}
+		if s.Config.MaxReadBytes > 0 && int64(len(data)) > s.Config.MaxReadBytes {
+			return model.Report{}, OperationResult{}, fmt.Errorf("completion exceeds configured output limit")
+		}
+		completion, err = model.ParseCompletion(data, task)
+		if err != nil {
+			return model.Report{}, OperationResult{}, err
+		}
+		if completion.RunID != run.ID || completion.TaskSHA256 != run.TaskSHA256 || completion.TaskRevision != run.TaskRevision || completion.TaskRevisionSHA256 != run.TaskRevisionSHA256 || completion.TaskRunNumber != run.TaskRunNumber {
+			return model.Report{}, OperationResult{}, fmt.Errorf("completion identity does not match active run")
+		}
 	}
 	if err := model.ValidateTaskHash(task); err != nil || run.TaskSHA256 != task.SHA256 {
 		return model.Report{}, OperationResult{}, fmt.Errorf("durable task hash mismatch")
@@ -88,12 +108,25 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if branch != run.Branch {
 		return model.Report{}, OperationResult{}, fmt.Errorf("repository branch does not match task branch")
 	}
-	if completion.Status == "succeeded" && !clean {
-		return model.Report{}, OperationResult{}, fmt.Errorf("successful run must leave clean worktree")
-	}
 	proof, risks, err := s.durableRepositoryProof(ctx, run, local, head, branch, clean, true)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
+	}
+	if serverOwned {
+		completion, err = serverOwnedCompletion(run, task, in.Summary, in.AgentFeedback, gateResults, risks)
+		if err != nil {
+			return model.Report{}, OperationResult{}, err
+		}
+		canonical, err := model.CompletionJSON(completion)
+		if err != nil {
+			return model.Report{}, OperationResult{}, err
+		}
+		if _, err := writeCompletionExclusive(canonicalCompletionPath, append(canonical, '\n'), task, s.Config.MaxReadBytes); err != nil {
+			return model.Report{}, OperationResult{}, err
+		}
+	}
+	if completion.Status == "succeeded" && !clean {
+		return model.Report{}, OperationResult{}, fmt.Errorf("successful run must leave clean worktree")
 	}
 	now := time.Now().UTC()
 	run.Status = completion.Status

@@ -149,7 +149,7 @@ func TestTaskReadMCPRetainsExecutionOnlyPaths(t *testing.T) {
 	if result["isError"] != false || packet["repository_root"] != projectRoot || packet["completion_path"] != nil {
 		t.Fatalf("task packet exposed a completion destination: %#v", response)
 	}
-	if !strings.Contains(packet["text"].(string), "gpt-tunnel run write-completion "+run.ID+" --completion-file <INPUT>") || strings.Contains(packet["text"].(string), run.CompletionPath) {
+	if !strings.Contains(packet["text"].(string), "gpt-tunnel run finalize "+run.ID+" --summary <text>") || strings.Contains(packet["text"].(string), run.CompletionPath) || strings.Contains(packet["text"].(string), "write-completion") || strings.Contains(packet["text"].(string), "--completion-file") {
 		t.Fatalf("task packet did not require the canonical writer: %#v", response)
 	}
 	packetRun := packet["run"].(map[string]any)

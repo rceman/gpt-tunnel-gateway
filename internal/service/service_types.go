@@ -212,8 +212,10 @@ type TaskMarkMergedInput struct {
 }
 
 type FinalizeInput struct {
-	RunID          string `json:"run_id"`
-	CompletionFile string `json:"completion_file,omitempty"`
+	RunID          string               `json:"run_id"`
+	Summary        string               `json:"summary,omitempty"`
+	AgentFeedback  *model.AgentFeedback `json:"agent_feedback,omitempty"`
+	CompletionFile string               `json:"completion_file,omitempty"`
 	WriteOptions
 }
 
