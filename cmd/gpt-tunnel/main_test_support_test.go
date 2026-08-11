@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
@@ -16,12 +15,34 @@ func adoptTestWorkflowPolicyCLI(t *testing.T, s *service.Service, projectID, rev
 	t.Helper()
 	now := time.Now().UTC()
 	policy := model.ProjectWorkflowPolicy{SchemaVersion: model.SchemaVersion, ProjectID: projectID, Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", Agent: model.WorkflowPolicyAgent{WaitForCI: false}, CI: model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve}, UpdatedBy: "test", UpdatedAt: now}
-	path := hub.ProtocolRoot + "/projects/" + projectID + "/workflow-policy/current.json"
-	result, err := s.Hub.Transact(context.Background(), revision, "test: install workflow policy", func(worktree string) ([]string, error) {
-		return []string{path}, hub.WriteJSON(worktree, path, policy)
+	_, result, err := s.ProjectWorkflowPolicyAdopt(service.WithPlannerWorkflowPolicyAuthority(context.Background()), service.ProjectWorkflowPolicyInput{
+		Policy:       policy,
+		WriteOptions: service.WriteOptions{ExpectedHubRevision: revision},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return result.After
+	return result.Hub.After
+}
+
+func registerTestCodingAgentCLI(t *testing.T, s *service.Service, revision string) string {
+	t.Helper()
+	registered, result, err := s.AgentRegister(service.WithPlannerWorkflowPolicyAuthority(context.Background()), service.AgentRegisterInput{
+		Agent: model.Agent{
+			SchemaVersion:        model.AgentSchemaVersion,
+			ProjectID:            "example",
+			AgentID:              "coding-example",
+			Role:                 model.AgentRoleCoding,
+			Enabled:              true,
+			RecommendedReasoning: model.ReasoningHigh,
+		},
+		WriteOptions: service.WriteOptions{ExpectedHubRevision: revision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if registered.AgentID != "coding-example" || result.Status != "registered" {
+		t.Fatalf("unexpected test coding agent registration: %#v %#v", registered, result)
+	}
+	return result.Hub.After
 }

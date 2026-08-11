@@ -3,10 +3,13 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
@@ -67,6 +70,20 @@ func TestGenericBatchChecksEveryActionAgainstDurableSession(t *testing.T) {
 
 func TestGenericAuthorityRequiresDurableWorkflowPolicy(t *testing.T) {
 	server := newSessionTestServer(t)
+	revision, err := server.Service.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = server.Service.Hub.Transact(context.Background(), revision, "test: remove canonical workflow configuration", func(worktree string) ([]string, error) {
+		path := hub.ProtocolRoot + "/projects/example/configuration/current.json"
+		if err := os.Remove(filepath.Join(worktree, filepath.FromSlash(path))); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var calls int
 	registerAuthorityTestAction(t, server, "test/policy", durableSession.RoleDelivery, true, &calls)
 	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT}))
@@ -115,6 +132,20 @@ func TestTypedAuthoritySensitiveActionRequiresDurableSession(t *testing.T) {
 
 func TestTypedAuthoritySensitiveActionRejectsMissingWorkflowPolicy(t *testing.T) {
 	server := newSessionTestServer(t)
+	revision, err := server.Service.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = server.Service.Hub.Transact(context.Background(), revision, "test: remove canonical workflow configuration", func(worktree string) ([]string, error) {
+		path := hub.ProtocolRoot + "/projects/example/configuration/current.json"
+		if err := os.Remove(filepath.Join(worktree, filepath.FromSlash(path))); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT}))
 	sessionID := started["session"].(map[string]any)["session_id"].(string)
 	response := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "planner_report_publish", "arguments": map[string]any{"session_id": sessionID, "handoff_id": "missing", "report": map[string]any{}}}}))

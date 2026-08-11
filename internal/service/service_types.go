@@ -24,28 +24,42 @@ func PublicCollectionLimit(requested, configured int) (int, error) {
 
 type Service struct {
 	Config                config.Config
+	ConfigPath            string
 	Hub                   hub.Store
 	Git                   gitx.Runner
 	Airelay               airelay.Client
 	clock                 func() time.Time
 	gateExecutor          func(context.Context, string, []string) ([]model.CompletionGateResult, error)
 	gateExecutorWithScope func(context.Context, string, []string, gates.TestScope) ([]model.CompletionGateResult, error)
+	taskActivator         func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
 }
 
 func New(c config.Config) *Service {
 	executor := gates.NewExecutor()
 	return &Service{
-		Config:  c,
-		Hub:     hub.Store{Config: c},
-		Git:     gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems},
-		Airelay: airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: 256},
+		Config:     c,
+		ConfigPath: config.DefaultPath(),
+		Hub:        hub.Store{Config: c},
+		Git:        gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems},
+		Airelay:    airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: 256},
 		gateExecutor: func(ctx context.Context, root string, names []string) ([]model.CompletionGateResult, error) {
 			return executor.Execute(ctx, root, names)
 		},
 		gateExecutorWithScope: func(ctx context.Context, root string, names []string, scope gates.TestScope) ([]model.CompletionGateResult, error) {
 			return executor.ExecuteWithScope(ctx, root, names, scope)
 		},
+		taskActivator: func(ctx context.Context, project config.ProjectConfig, source string) (TaskActivationResult, error) {
+			return activateTaskSource(ctx, c, config.DefaultPath(), project, source)
+		},
 	}
+}
+
+type TaskActivationResult struct {
+	SourceHead string `json:"source_head"`
+	Activation string `json:"activation"`
+	Smoke      string `json:"smoke"`
+	TunnelPID  int    `json:"tunnel_pid,omitempty"`
+	GatewayPID int    `json:"gateway_pid,omitempty"`
 }
 
 type WriteOptions struct {
@@ -271,6 +285,42 @@ type ResolvedAgent struct {
 type TaskMarkMergeReadyInput struct {
 	TaskID string `json:"task_id"`
 	WriteOptions
+}
+
+// TaskReviewInput is the semantic, one-shot Delivery review payload. All
+// repository, run, gate, and source fields are derived by the service from
+// the exact terminal run; callers cannot supply machine-owned proof.
+type TaskReviewInput struct {
+	TaskID                  string                      `json:"task_id"`
+	RunID                   string                      `json:"run_id"`
+	Outcome                 string                      `json:"outcome"`
+	Findings                []model.ReviewFinding       `json:"findings"`
+	ScopeCoverage           []model.ReviewScopeCoverage `json:"scope_coverage"`
+	UnexpectedSurfaces      []string                    `json:"unexpected_surfaces,omitempty"`
+	HistoricalCompatibility []string                    `json:"historical_compatibility,omitempty"`
+	ProhibitedActions       []string                    `json:"prohibited_actions,omitempty"`
+}
+
+type TaskIntegrationInput struct {
+	TaskID string `json:"task_id"`
+}
+
+// TaskIntegrationReceipt is the compact server-owned result of one
+// integration attempt. Runtime activation is represented explicitly so a
+// post-merge activation failure cannot be mistaken for a successful merge.
+type TaskIntegrationReceipt struct {
+	TaskID              string `json:"task_id"`
+	ReviewedHead        string `json:"reviewed_head"`
+	IntegrationHead     string `json:"integration_head"`
+	RuntimeSourceHead   string `json:"runtime_source_head"`
+	PreActivation       string `json:"pre_activation"`
+	PreSmoke            string `json:"pre_smoke"`
+	PostActivation      string `json:"post_activation"`
+	PostSmoke           string `json:"post_smoke"`
+	Merged              bool   `json:"merged"`
+	NextAction          string `json:"next_action"`
+	ActivationBlocker   string `json:"activation_blocker,omitempty"`
+	IntegrationConflict string `json:"integration_conflict,omitempty"`
 }
 
 type TaskDeferInput struct {

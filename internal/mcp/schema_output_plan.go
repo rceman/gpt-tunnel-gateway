@@ -50,8 +50,9 @@ func runReviewSummaryOutputSchema() map[string]any {
 }
 
 func taskPacketOutputSchema() map[string]any {
+	currentRevision := map[string]any{"anyOf": []any{taskRevisionOutputSchema(), map[string]any{"type": "null"}}}
 	return closedOutput(map[string]any{
-		"task": taskOutputSchema(), "current_revision": taskRevisionOutputSchema(), "run": taskPacketRunOutputSchema(), "project": projectOutputSchema(), "plan": planOutputSchema(), "workflow_policy": workflowPolicyOutputSchema(),
+		"task": taskOutputSchema(), "current_revision": currentRevision, "run": taskPacketRunOutputSchema(), "project": projectOutputSchema(), "plan": planOutputSchema(), "workflow_policy": workflowPolicyOutputSchema(),
 		"run_summaries":    outputArray(runReviewSummaryOutputSchema()),
 		"repository_root":  outputString(),
 		"finalize_command": outputString(), "text": outputString(),

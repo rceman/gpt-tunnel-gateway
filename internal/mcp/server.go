@@ -10,16 +10,18 @@ import (
 )
 
 type Server struct {
-	Service          *service.Service
-	AuthorityContext context.Context
-	genericActionMu  sync.RWMutex
-	genericActions   map[string]GenericAction
-	watcherActions   sync.Once
-	watcherActionErr error
-	agentActions     sync.Once
-	agentActionErr   error
-	projectActions   sync.Once
-	projectActionErr error
+	Service               *service.Service
+	AuthorityContext      context.Context
+	genericActionMu       sync.RWMutex
+	genericActions        map[string]GenericAction
+	watcherActions        sync.Once
+	watcherActionErr      error
+	agentActions          sync.Once
+	agentActionErr        error
+	projectActions        sync.Once
+	projectActionErr      error
+	taskCloseoutActions   sync.Once
+	taskCloseoutActionErr error
 }
 type request struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -79,6 +81,7 @@ func (s *Server) tools() map[string]Tool {
 	s.ensureWatcherActions()
 	s.ensureAgentActions()
 	s.ensureProjectActions()
+	s.ensureTaskCloseoutActions()
 	t := map[string]Tool{}
 	add := toolAdder(func(name, description string, schema map[string]any, fn func(context.Context, json.RawMessage) (any, error)) {
 		output, outputOK := toolOutputSchemas[name]

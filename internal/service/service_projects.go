@@ -64,6 +64,13 @@ func (s *Service) taskStatePath(project, id string) string {
 	return s.projectPrefix(project) + "/tasks/" + id + ".state.json"
 }
 
+func (s *Service) taskIntegrationReceiptPath(project, id string) string {
+	if model.ValidateObjectIdentifier(id) != nil {
+		return "../invalid-task-id"
+	}
+	return s.projectPrefix(project) + "/tasks/" + id + ".integration-receipt.json"
+}
+
 func (s *Service) taskRunCounterPath(project, id string) string {
 	if model.ValidateProjectIdentifier(project) != nil || model.ValidateCanonicalTaskID(id) != nil {
 		return "../invalid-task-run-counter"

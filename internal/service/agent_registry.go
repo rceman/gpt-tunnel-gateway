@@ -108,7 +108,11 @@ func (s *Service) AgentRegister(ctx context.Context, in AgentRegisterInput) (mod
 	if err != nil {
 		return model.Agent{}, OperationResult{}, err
 	}
-	return agent, OperationResult{Hub: tx, ProjectID: agent.ProjectID, Status: "registered"}, nil
+	return agent, OperationResult{
+		Hub:       tx,
+		ProjectID: agent.ProjectID,
+		Status:    "registered",
+	}, nil
 }
 
 func (s *Service) AgentUpdate(ctx context.Context, in AgentUpdateInput) (model.Agent, OperationResult, error) {
@@ -148,7 +152,11 @@ func (s *Service) AgentUpdate(ctx context.Context, in AgentUpdateInput) (model.A
 		if in.Capabilities != nil {
 			updated.Capabilities = model.NormalizeAgentCapabilities(*in.Capabilities)
 		}
-		updated.UpdatedAt = time.Now().UTC()
+		updatedAt := time.Now().UTC()
+		if updatedAt.Before(updated.CreatedAt) {
+			updatedAt = updated.CreatedAt
+		}
+		updated.UpdatedAt = updatedAt
 		if err := model.ValidateAgent(updated); err != nil {
 			return nil, err
 		}
@@ -160,14 +168,21 @@ func (s *Service) AgentUpdate(ctx context.Context, in AgentUpdateInput) (model.A
 	if err != nil {
 		return model.Agent{}, OperationResult{}, err
 	}
-	return updated, OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: "updated"}, nil
+	return updated, OperationResult{
+		Hub:       tx,
+		ProjectID: in.ProjectID,
+		Status:    "updated",
+	}, nil
 }
 
 func (s *Service) AgentDisable(ctx context.Context, in AgentDisableInput) (model.Agent, OperationResult, error) {
 	disabled := false
 	return s.AgentUpdate(ctx, AgentUpdateInput{
-		ProjectID: in.ProjectID, AgentID: in.AgentID, Enabled: &disabled,
-		UpdatedBy: in.UpdatedBy, WriteOptions: in.WriteOptions,
+		ProjectID:    in.ProjectID,
+		AgentID:      in.AgentID,
+		Enabled:      &disabled,
+		UpdatedBy:    in.UpdatedBy,
+		WriteOptions: in.WriteOptions,
 	})
 }
 

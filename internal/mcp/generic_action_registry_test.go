@@ -41,7 +41,7 @@ func TestFrozenRegistrySchemaCallAndBatchShareCanonicalContracts(t *testing.T) {
 	}
 	tools := server.tools()
 	entries := server.genericActionRegistry(tools)
-	for _, path := range []string{"project/list", "task/list", "run/list", "adr/list", "task/revision_list", "plan/history", "delivery/handoff_list", "planner/report_list", "operator/history", "git/refs", "git/log", "git/tree", "agent/tail"} {
+	for _, path := range []string{"project/list", "task/list", "run/list", "adr/list", "task/revision_list", "plan/history", "delivery/handoff_list", "planner/report_list", "operator/history", "git/refs", "git/log", "git/tree", "agent/tail", "task/review", "task/integrate"} {
 		entry, ok := entries[path]
 		if !ok {
 			t.Fatalf("canonical registry missing %s", path)
@@ -58,6 +58,33 @@ func TestFrozenRegistrySchemaCallAndBatchShareCanonicalContracts(t *testing.T) {
 	encoded, err := json.Marshal(entries["agent/tail"].InputSchema)
 	if err != nil || len(encoded) == 0 {
 		t.Fatalf("canonical agent/tail schema is not serializable: %v", err)
+	}
+}
+
+func TestTaskCloseoutActionsExposeSemanticInputsOnly(t *testing.T) {
+	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
+	entries := server.genericActionRegistry(server.tools())
+	review := entries["task/review"].InputSchema
+	properties := review["properties"].(map[string]any)
+	for _, forbidden := range []string{"branch", "reviewed_head", "base_revision", "gates", "changed_files", "task_sha256"} {
+		if _, ok := properties[forbidden]; ok {
+			t.Fatalf("task/review exposes machine-owned field %q", forbidden)
+		}
+	}
+	for _, required := range []string{"task_id", "run_id", "outcome", "findings", "scope_coverage"} {
+		found := false
+		for _, value := range stringList(review["required"]) {
+			if value == required {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("task/review does not require %s", required)
+		}
+	}
+	integrate := entries["task/integrate"].InputSchema["properties"].(map[string]any)
+	if len(integrate) != 1 {
+		t.Fatalf("task/integrate is not task-id keyed: %#v", integrate)
 	}
 }
 

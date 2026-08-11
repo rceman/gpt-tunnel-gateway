@@ -14,6 +14,9 @@ type PublicRun struct {
 	ID                  string     `json:"id"`
 	TaskID              string     `json:"task_id"`
 	TaskSHA256          string     `json:"task_sha256"`
+	TaskRevision        int        `json:"task_revision"`
+	TaskRevisionSHA256  string     `json:"task_revision_sha256"`
+	TaskRunNumber       uint64     `json:"task_run_number"`
 	ProjectID           string     `json:"project_id"`
 	GatewayID           string     `json:"gateway_id"`
 	Branch              string     `json:"branch"`
@@ -44,6 +47,9 @@ func PublicRunView(run model.Run) PublicRun {
 		ID:                  run.ID,
 		TaskID:              run.TaskID,
 		TaskSHA256:          run.TaskSHA256,
+		TaskRevision:        run.TaskRevision,
+		TaskRevisionSHA256:  run.TaskRevisionSHA256,
+		TaskRunNumber:       run.TaskRunNumber,
 		ProjectID:           run.ProjectID,
 		GatewayID:           run.GatewayID,
 		Branch:              run.Branch,
@@ -75,6 +81,7 @@ type PublicTaskPacketRun struct {
 
 type PublicTaskPacket struct {
 	Task            model.Task                  `json:"task"`
+	CurrentRevision *model.TaskRevision         `json:"current_revision"`
 	Run             PublicTaskPacketRun         `json:"run"`
 	RunSummaries    []model.RunReviewSummary    `json:"run_summaries"`
 	Project         model.Project               `json:"project"`
@@ -87,7 +94,8 @@ type PublicTaskPacket struct {
 
 func PublicTaskPacketView(packet TaskPacket) PublicTaskPacket {
 	return PublicTaskPacket{
-		Task: packet.Task,
+		Task:            packet.Task,
+		CurrentRevision: packet.CurrentRevision,
 		Run: PublicTaskPacketRun{
 			PublicRun: PublicRunView(packet.Run),
 		},

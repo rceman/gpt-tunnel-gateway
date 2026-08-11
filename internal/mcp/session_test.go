@@ -32,6 +32,28 @@ func newSessionTestServer(t *testing.T) *Server {
 	}
 }
 
+func registerMCPTestCodingAgent(t *testing.T, s *service.Service, revision string) string {
+	t.Helper()
+	registered, result, err := s.AgentRegister(service.WithPlannerWorkflowPolicyAuthority(context.Background()), service.AgentRegisterInput{
+		Agent: model.Agent{
+			SchemaVersion:        model.AgentSchemaVersion,
+			ProjectID:            "example",
+			AgentID:              "coding-example",
+			Role:                 model.AgentRoleCoding,
+			Enabled:              true,
+			RecommendedReasoning: model.ReasoningHigh,
+		},
+		WriteOptions: service.WriteOptions{ExpectedHubRevision: revision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if registered.AgentID != "coding-example" || result.Status != "registered" {
+		t.Fatalf("unexpected test coding agent registration: %#v %#v", registered, result)
+	}
+	return result.Hub.After
+}
+
 func sessionCall(t *testing.T, server *Server, args map[string]any) map[string]any {
 	t.Helper()
 	return callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "session", "arguments": args}}))

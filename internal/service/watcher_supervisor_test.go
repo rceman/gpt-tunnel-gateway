@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -140,8 +141,13 @@ func TestWatcherSupervisorSchedulerReconcilesLeaseAndCadence(t *testing.T) {
 	projectConfig.Watcher.CadenceSeconds = 1
 	s.Config.Projects["example"] = projectConfig
 	base := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
+	var nowMu sync.Mutex
 	now := base
-	s.clock = func() time.Time { return now }
+	s.clock = func() time.Time {
+		nowMu.Lock()
+		defer nowMu.Unlock()
+		return now
+	}
 	if _, err := s.WatcherStart(context.Background(), "example"); err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +177,9 @@ func TestWatcherSupervisorSchedulerReconcilesLeaseAndCadence(t *testing.T) {
 	if !state.LastTickAt.Equal(firstTick) {
 		t.Fatalf("scheduler ignored cadence bound: %#v", state)
 	}
+	nowMu.Lock()
 	now = base.Add(time.Second)
+	nowMu.Unlock()
 	ticks <- now
 	state = waitForWatcherSupervisorState(t, s, func(value model.WatcherSupervisorState) bool {
 		return value.LastTickAt.Equal(now)

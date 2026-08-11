@@ -115,10 +115,10 @@ func TestTaskReadMCPRetainsExecutionOnlyPaths(t *testing.T) {
 	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
 	script := filepath.Join(dir, "airelay")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\ncase \"$1\" in\nprompt) printf 'sent\\n' ;;\nesac\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ncase \"$1\" in\nprompt) printf 'sent\\n' ;;\nsession-status) printf 'Controller: reachable\\nState: idle\\n' ;;\nesac\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: script, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
+	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: script, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, ProjectAgentBindings: map[string]map[string]config.AgentBinding{"example": {"coding-example": {SessionKey: "example_master"}}}, Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
 	s := service.New(c)
 	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"}
 	registered, err := s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: project, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead}})
@@ -130,7 +130,8 @@ func TestTaskReadMCPRetainsExecutionOnlyPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Packet", Objective: "Retain execution paths", Slug: "packet", AcceptanceCriteria: []string{"packet"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: adopted.Hub.After}})
+	agentRevision := registerMCPTestCodingAgent(t, s, adopted.Hub.After)
+	task, created, err := s.TaskCreate(context.Background(), service.TaskCreateInput{ProjectID: "example", Title: "Packet", Objective: "Retain execution paths", Slug: "packet", AcceptanceCriteria: []string{"packet"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: service.WriteOptions{ExpectedHubRevision: agentRevision}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,9 +144,25 @@ func TestTaskReadMCPRetainsExecutionOnlyPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	servicePacket, err := s.TaskRead(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateOutputValue(toolOutputSchemas["task_read"], normalizeObject(service.PublicTaskPacketView(servicePacket))); err != nil {
+		if packetErr := validateOutputValue(taskPacketOutputSchema(), normalizeObject(service.PublicTaskPacketView(servicePacket))); packetErr != nil {
+			t.Fatalf("service task packet violates task_read schema: %v (packet: %v); packet=%#v", err, packetErr, service.PublicTaskPacketView(servicePacket))
+		}
+		t.Fatalf("service task packet violates task_read schema: %v; packet=%#v", err, service.PublicTaskPacketView(servicePacket))
+	}
 	response := callMCP(t, &Server{Service: s}, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"task_read","arguments":{"task_id":"`+task.ID+`"}}}`))
-	result := response["result"].(map[string]any)
-	packet := result["structuredContent"].(map[string]any)
+	result, ok := response["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("task_read response missing result: %#v", response)
+	}
+	packet, ok := result["structuredContent"].(map[string]any)
+	if !ok {
+		t.Fatalf("task_read response missing structured packet: %#v", response)
+	}
 	if result["isError"] != false || packet["repository_root"] != projectRoot || packet["completion_path"] != nil {
 		t.Fatalf("task packet exposed a completion destination: %#v", response)
 	}
