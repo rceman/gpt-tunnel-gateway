@@ -102,6 +102,9 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if branch != run.Branch {
 		return model.Report{}, OperationResult{}, fmt.Errorf("repository branch does not match task branch")
 	}
+	if !clean {
+		return model.Report{}, OperationResult{}, fmt.Errorf("repository worktree must be clean before finalization")
+	}
 	changedFiles, err := s.Git.ChangedFiles(ctx, local.Root, run.BaseRevision, head)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err

@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/gates"
@@ -98,5 +100,36 @@ func TestRunFinalizeScopedGateFailureDoesNotPublishState(t *testing.T) {
 	}
 	if _, err := s.RunReport(ctx, run.ID); err == nil {
 		t.Fatal("scoped gate failure created a report")
+	}
+}
+
+func TestRunFinalizeRejectsDirtyWorktreeBeforeScopedGates(t *testing.T) {
+	s, _, run, _ := dispatchedRun(t, "dirty-finalize")
+	root := s.Config.Projects["example"].Root
+	if err := os.WriteFile(filepath.Join(root, "dirty-finalize.txt"), []byte("uncommitted\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	s.gateExecutorWithScope = func(context.Context, string, []string, gates.TestScope) ([]model.CompletionGateResult, error) {
+		calls++
+		return fakeReceiptResults([]string{"format", "check", "test"}), nil
+	}
+	ctx := context.Background()
+	before, err := s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.RunFinalize(ctx, FinalizeInput{
+		RunID:   run.ID,
+		Summary: "dirty finalization",
+	}); err == nil || !strings.Contains(err.Error(), "worktree must be clean") {
+		t.Fatalf("dirty finalization was not rejected before scoped gates: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("scoped gates ran for a dirty worktree: %d", calls)
+	}
+	after, err := s.Hub.RemoteRevision(ctx)
+	if err != nil || after != before {
+		t.Fatalf("dirty finalization mutated Hub: before=%s after=%s err=%v", before, after, err)
 	}
 }
