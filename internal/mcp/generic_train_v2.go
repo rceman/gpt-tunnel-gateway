@@ -59,6 +59,14 @@ func trainV2StartSchema() map[string]any {
 	}, "project_id", "train_id", "started_by")
 }
 
+func trainV2IntegrateSchema() map[string]any {
+	return obj(map[string]any{
+		"project_id":            str("Registered project identifier."),
+		"train_id":              str("Server-allocated Train identifier."),
+		"expected_hub_revision": str("Optimistic Hub revision."),
+	}, "project_id", "train_id")
+}
+
 func (s *Server) registerTrainV2Actions() error {
 	if err := s.RegisterGenericAction(GenericAction{
 		Path: "train/create", Description: "Create a non-running ordered train_v2 admission record.", InputSchema: trainV2CreateSchema(), OutputSchema: trainV2OutputSchema(),
@@ -123,7 +131,7 @@ func (s *Server) registerTrainV2Actions() error {
 	}); err != nil {
 		return err
 	}
-	return s.RegisterGenericAction(GenericAction{
+	if err := s.RegisterGenericAction(GenericAction{
 		Path: "train/start", Description: "Start one server-owned Train v2 execution lane.", InputSchema: trainV2StartSchema(), OutputSchema: trainV2OutputSchema(),
 		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -132,6 +140,23 @@ func (s *Server) registerTrainV2Actions() error {
 				return nil, err
 			}
 			return s.Service.TrainV2Start(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	return s.RegisterGenericAction(GenericAction{
+		Path: "train/integrate", Description: "Integrate one fully proved Train v2 lane through strict fast-forward and activation receipts.", InputSchema: trainV2IntegrateSchema(), OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.TrainV2IntegrateInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			receipt, operation, err := s.Service.TrainV2Integrate(ctx, in)
+			if err != nil {
+				return map[string]any{"receipt": receipt, "operation": operation}, err
+			}
+			return map[string]any{"receipt": receipt, "operation": operation}, nil
 		},
 	})
 }

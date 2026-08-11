@@ -146,7 +146,7 @@ func TestTrainV2GenericSchemaAndCalls(t *testing.T) {
 	first := createReadyMCPTrainTask(t, server, "First generic Train Task")
 	second := createReadyMCPTrainTask(t, server, "Second generic Train Task")
 	sessionID := genericSession(t, server.Service, "example")
-	for _, path := range []string{"train/create", "train/add", "train/read", "train/list", "train/start"} {
+	for _, path := range []string{"train/create", "train/add", "train/read", "train/list", "train/start", "train/integrate"} {
 		contract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": 10, "method": "tools/call",
 			"params": map[string]any{"name": "schema", "arguments": map[string]any{"path": path}},
@@ -154,7 +154,7 @@ func TestTrainV2GenericSchemaAndCalls(t *testing.T) {
 		if contract["kind"] != "action" || contract["path"] != path {
 			t.Fatalf("missing Train v2 action contract %s: %#v", path, contract)
 		}
-		if path == "train/start" {
+		if path == "train/start" || path == "train/integrate" {
 			properties := contract["contract"].(map[string]any)["input_schema"].(map[string]any)["properties"].(map[string]any)
 			for _, forbidden := range []string{"worktree_path", "session_key", "base_revision", "lane_branch"} {
 				if _, ok := properties[forbidden]; ok {

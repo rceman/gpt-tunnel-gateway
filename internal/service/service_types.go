@@ -343,6 +343,14 @@ type TrainV2StartInput struct {
 	WriteOptions
 }
 
+// TrainV2IntegrateInput contains only the Train identity and optimistic Hub
+// guard. Branches, SHAs, activation inputs and Git options are server-owned.
+type TrainV2IntegrateInput struct {
+	ProjectID string `json:"project_id"`
+	TrainID   string `json:"train_id"`
+	WriteOptions
+}
+
 type DispatchInput struct {
 	TaskID               string `json:"task_id"`
 	TrainID              string `json:"train_id,omitempty"`

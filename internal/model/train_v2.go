@@ -15,6 +15,7 @@ const (
 	TrainV2Paused              = "paused"
 	TrainV2Blocked             = "blocked"
 	TrainV2ReadyForIntegration = "ready_for_integration"
+	TrainV2Completed           = "completed"
 	TrainV2ItemQueued          = "queued"
 	TrainV2ItemRunning         = "running"
 	TrainV2ItemFinalized       = "finalized"
@@ -60,15 +61,22 @@ type TrainV2ItemReview struct {
 // TrainV2 is a non-running, ordered execution admission record. A later
 // train/start transition owns Git and Agent execution identity.
 type TrainV2 struct {
-	SchemaVersion int           `json:"schema_version"`
-	ID            string        `json:"id"`
-	ProjectID     string        `json:"project_id"`
-	Revision      int           `json:"revision"`
-	Items         []TrainV2Item `json:"items"`
-	Status        string        `json:"status"`
-	CreatedBy     string        `json:"created_by"`
-	CreatedAt     time.Time     `json:"created_at"`
-	UpdatedAt     time.Time     `json:"updated_at"`
+	SchemaVersion int               `json:"schema_version"`
+	ID            string            `json:"id"`
+	ProjectID     string            `json:"project_id"`
+	Revision      int               `json:"revision"`
+	Items         []TrainV2Item     `json:"items"`
+	Status        string            `json:"status"`
+	CreatedBy     string            `json:"created_by"`
+	CreatedAt     time.Time         `json:"created_at"`
+	UpdatedAt     time.Time         `json:"updated_at"`
+	FullProof     *TrainV2FullProof `json:"full_proof,omitempty"`
+}
+
+type TrainV2FullProof struct {
+	CandidateHead string                 `json:"candidate_head"`
+	GateResults   []CompletionGateResult `json:"gate_results"`
+	RecordedAt    time.Time              `json:"recorded_at"`
 }
 
 // TrainV2StartRecord is the portable, safe execution checkpoint. Host-local
@@ -107,12 +115,17 @@ func ValidateTrainV2(v TrainV2) error {
 		return fmt.Errorf("invalid train v2 identity")
 	}
 	switch v.Status {
-	case TrainV2Planned, TrainV2Running, TrainV2Paused, TrainV2Blocked, TrainV2ReadyForIntegration:
+	case TrainV2Planned, TrainV2Running, TrainV2Paused, TrainV2Blocked, TrainV2ReadyForIntegration, TrainV2Completed:
 	default:
 		return fmt.Errorf("invalid train v2 status")
 	}
 	if len(v.Items) < 1 || len(v.Items) > MaxTrainV2Items {
 		return fmt.Errorf("invalid train v2 item count")
+	}
+	if v.FullProof != nil {
+		if err := validateTrainV2FullProof(*v.FullProof); err != nil {
+			return err
+		}
 	}
 	seen := map[string]bool{}
 	for position, item := range v.Items {
@@ -128,6 +141,13 @@ func ValidateTrainV2(v TrainV2) error {
 		seen[item.TaskID] = true
 	}
 	return nil
+}
+
+func validateTrainV2FullProof(proof TrainV2FullProof) error {
+	if !shaRE.MatchString(proof.CandidateHead) || proof.RecordedAt.IsZero() || len(proof.GateResults) == 0 {
+		return fmt.Errorf("invalid train v2 full proof")
+	}
+	return ValidateServerGateEvidence(proof.GateResults)
 }
 
 func validateTrainV2ItemExecution(item TrainV2Item) error {

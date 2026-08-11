@@ -83,7 +83,7 @@ func PlanAutoAdvance(train model.TrainV2, binding TrainBinding, runStatus string
 	if runStatus != "succeeded" {
 		return AdvancePlan{}, false, nil
 	}
-	if train.Status == model.TrainV2Paused || train.Status == model.TrainV2Blocked || train.Status == model.TrainV2ReadyForIntegration {
+	if train.Status == model.TrainV2Paused || train.Status == model.TrainV2Blocked {
 		return AdvancePlan{}, false, fmt.Errorf("train is not advanceable: %s", train.Status)
 	}
 	current, ok := CurrentItem(train, binding.TaskID)
@@ -92,6 +92,9 @@ func PlanAutoAdvance(train model.TrainV2, binding TrainBinding, runStatus string
 	}
 	if current.Position+1 >= len(train.Items) {
 		return AdvancePlan{}, false, nil
+	}
+	if train.Status == model.TrainV2ReadyForIntegration {
+		return AdvancePlan{}, false, fmt.Errorf("Train is ready for integration and has an unresolved successor")
 	}
 	next := train.Items[current.Position+1]
 	if next.Status != model.TrainV2ItemQueued {
