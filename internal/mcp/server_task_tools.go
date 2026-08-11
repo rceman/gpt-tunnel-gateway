@@ -74,6 +74,13 @@ func (s *Server) addTaskTools(add toolAdder) {
 		}
 		return s.Service.TaskListQuery(ctx, in)
 	})
+	add("task_train_status", "Read the bounded server-owned ordered Task Train status without discovering backlog work.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		id, err := getString(raw, "project_id")
+		if err != nil {
+			return nil, err
+		}
+		return s.Service.TaskTrainStatus(ctx, id)
+	})
 	add("task_read", "Read task record and active execution packet when a run exists.", obj(map[string]any{"task_id": str("Task identifier")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "task_id")
 		if e != nil {

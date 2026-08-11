@@ -58,6 +58,26 @@ events. Do not send a bare `continue`; do not retry a resume after
 `STALLED_AFTER_COMPACTION` without explicit review. A low-context warning is
 not compaction evidence.
 
+## Explicit Task Trains
+
+An authorized train is an explicit, ordered list of Task IDs persisted by the
+gateway. It never discovers or appends backlog work. Create one from a bounded
+input file, then use its status and poll operations:
+
+```text
+gpt-tunnel task train-create --file <train-input.json>
+gpt-tunnel task train-status <project-id>
+gpt-tunnel task train-poll <project-id>
+```
+
+The watcher polls every 20 seconds. For an active run, each poll obtains one
+bounded current viewport through `gpt-tunnel run agent-tail <run-id> --lines 10`.
+It does not reread the same viewport, send duplicate prompts, merge branches,
+or mark Delivery review complete. A finalized task waits for Delivery; only a
+durably merged task permits the next explicitly listed task to be dispatched.
+Failed, blocked, rejected, cancelled, or deferred tasks stop the train. After
+the final listed task is merged, the train becomes completed and idle.
+
 ## Release lifecycle
 
 Gateway v0.6.1 tooling adoption is Stage A `implementation_unreleased`:
