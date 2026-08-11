@@ -38,6 +38,7 @@ type ProjectConfiguration struct {
 	SchemaVersion        int                          `json:"schema_version"`
 	ProjectID            string                       `json:"project_id"`
 	Revision             int                          `json:"revision"`
+	ExecutionModel       string                       `json:"execution_model,omitempty"`
 	AgentRouting         ProjectAgentRouting          `json:"agent_routing"`
 	Watcher              ProjectConfigurationWatcher  `json:"watcher"`
 	Workflow             ProjectConfigurationWorkflow `json:"workflow"`
@@ -48,9 +49,10 @@ type ProjectConfiguration struct {
 
 func DefaultProjectConfiguration(projectID string, now time.Time) ProjectConfiguration {
 	return ProjectConfiguration{
-		SchemaVersion: ProjectConfigurationSchemaVersion,
-		ProjectID:     projectID,
-		Revision:      1,
+		SchemaVersion:  ProjectConfigurationSchemaVersion,
+		ProjectID:      projectID,
+		Revision:       1,
+		ExecutionModel: "legacy",
 		AgentRouting: ProjectAgentRouting{
 			SingletonRecommendedReasoning: ReasoningHigh,
 			GroupRecommendedReasoning:     ReasoningMax,
@@ -80,6 +82,9 @@ func DefaultProjectConfiguration(projectID string, now time.Time) ProjectConfigu
 func ValidateProjectConfiguration(v ProjectConfiguration) error {
 	if v.SchemaVersion != ProjectConfigurationSchemaVersion || ValidateProjectIdentifier(v.ProjectID) != nil || v.Revision < 1 || v.UpdatedAt.IsZero() {
 		return fmt.Errorf("invalid project configuration identity")
+	}
+	if v.ExecutionModel != "" && v.ExecutionModel != "legacy" && v.ExecutionModel != "train_v2" {
+		return fmt.Errorf("invalid project execution_model")
 	}
 	if v.UpdatedBy == "" || containsUnsafeText(v.UpdatedBy) {
 		return fmt.Errorf("invalid project configuration update metadata")

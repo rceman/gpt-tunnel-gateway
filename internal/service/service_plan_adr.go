@@ -153,8 +153,8 @@ func (s *Service) ADRListPage(ctx context.Context, project string, in Collection
 }
 
 func (s *Service) ADRRead(ctx context.Context, project, id string) (model.ADR, error) {
-	if err := model.ValidateADRIdentifier(id); err != nil {
-		return model.ADR{}, err
+	if model.ValidateADRIdentifier(id) != nil && model.ValidateCanonicalADRIdentifier(id) != nil {
+		return model.ADR{}, fmt.Errorf("invalid ADR identifier")
 	}
 	var v model.ADR
 	err := s.Hub.ReadJSON(ctx, s.adrPath(project, id), &v)

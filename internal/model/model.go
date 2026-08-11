@@ -157,6 +157,49 @@ type Task struct {
 	CreatedAt              time.Time `json:"created_at"`
 }
 
+const (
+	TaskAuthoringSchemaVersion = 1
+	TaskAuthoringPlanned       = "planned"
+	TaskAuthoringReady         = "ready"
+	TaskADRNoRequired          = "no_adr_required"
+	TaskADRImplementsExisting  = "implements_existing"
+	TaskADRRequiresNew         = "requires_new_adr"
+	TaskADRSupersedesExisting  = "supersedes_existing_adr"
+)
+
+// TaskAuthoring is the train_v2 planning specification. It intentionally has
+// no executable Git, worktree, lane, Agent, or session identity; those belong
+// to Train/TrainItem execution records introduced by later migration slices.
+type TaskAuthoring struct {
+	SchemaVersion         int               `json:"schema_version"`
+	ID                    string            `json:"id"`
+	ProjectID             string            `json:"project_id"`
+	Revision              int               `json:"revision"`
+	RevisionSHA256        string            `json:"revision_sha256"`
+	Title                 string            `json:"title"`
+	Objective             string            `json:"objective"`
+	AcceptanceCriteria    []string          `json:"acceptance_criteria"`
+	Constraints           []string          `json:"constraints"`
+	Priority              string            `json:"priority,omitempty"`
+	Dependencies          []string          `json:"dependencies,omitempty"`
+	PreparationReferences []string          `json:"preparation_references,omitempty"`
+	Metadata              map[string]string `json:"metadata,omitempty"`
+	ADRRelation           string            `json:"adr_relation"`
+	ADRReferences         []string          `json:"adr_references,omitempty"`
+	Status                string            `json:"status"`
+	ReadySeal             *TaskReadySeal    `json:"ready_seal,omitempty"`
+	CreatedBy             string            `json:"created_by"`
+	CreatedAt             time.Time         `json:"created_at"`
+	UpdatedAt             time.Time         `json:"updated_at"`
+}
+
+type TaskReadySeal struct {
+	Revision       int       `json:"revision"`
+	RevisionSHA256 string    `json:"revision_sha256"`
+	ReadyBy        string    `json:"ready_by"`
+	ReadyAt        time.Time `json:"ready_at"`
+}
+
 type TaskState struct {
 	SchemaVersion     int       `json:"schema_version"`
 	TaskID            string    `json:"task_id"`

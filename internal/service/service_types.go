@@ -180,6 +180,7 @@ type ProjectConfigurationPatch struct {
 	Watcher              *model.ProjectConfigurationWatcher  `json:"watcher,omitempty"`
 	Workflow             *model.ProjectConfigurationWorkflow `json:"workflow,omitempty"`
 	ActivationProfileRef *string                             `json:"activation_profile_ref,omitempty"`
+	ExecutionModel       *string                             `json:"execution_model,omitempty"`
 }
 
 type ProjectConfigurationUpdateInput struct {
@@ -248,6 +249,60 @@ type TaskCreateInput struct {
 	CreatedBy          string   `json:"created_by"`
 	Supersedes         string   `json:"supersedes,omitempty"`
 	WriteOptions
+}
+
+type TaskAuthoringCreateInput struct {
+	ProjectID             string            `json:"project_id"`
+	Title                 string            `json:"title"`
+	Objective             string            `json:"objective"`
+	AcceptanceCriteria    []string          `json:"acceptance_criteria"`
+	Constraints           []string          `json:"constraints"`
+	Priority              string            `json:"priority,omitempty"`
+	Dependencies          []string          `json:"dependencies,omitempty"`
+	PreparationReferences []string          `json:"preparation_references,omitempty"`
+	Metadata              map[string]string `json:"metadata,omitempty"`
+	ADRRelation           string            `json:"adr_relation"`
+	ADRReferences         []string          `json:"adr_references,omitempty"`
+	CreatedBy             string            `json:"created_by"`
+	WriteOptions
+}
+
+type TaskAuthoringUpdateInput struct {
+	ProjectID              string             `json:"project_id"`
+	TaskID                 string             `json:"task_id"`
+	ExpectedRevision       int                `json:"expected_revision"`
+	ExpectedRevisionSHA256 string             `json:"expected_revision_sha256,omitempty"`
+	Title                  *string            `json:"title,omitempty"`
+	Objective              *string            `json:"objective,omitempty"`
+	AcceptanceCriteria     *[]string          `json:"acceptance_criteria,omitempty"`
+	Constraints            *[]string          `json:"constraints,omitempty"`
+	Priority               *string            `json:"priority,omitempty"`
+	Dependencies           *[]string          `json:"dependencies,omitempty"`
+	PreparationReferences  *[]string          `json:"preparation_references,omitempty"`
+	Metadata               *map[string]string `json:"metadata,omitempty"`
+	ADRRelation            *string            `json:"adr_relation,omitempty"`
+	ADRReferences          *[]string          `json:"adr_references,omitempty"`
+	UpdatedBy              string             `json:"updated_by"`
+	WriteOptions
+}
+
+type TaskAuthoringReadyInput struct {
+	ProjectID              string `json:"project_id"`
+	TaskID                 string `json:"task_id"`
+	ExpectedRevision       int    `json:"expected_revision"`
+	ExpectedRevisionSHA256 string `json:"expected_revision_sha256,omitempty"`
+	ReadyBy                string `json:"ready_by"`
+	WriteOptions
+}
+
+type TaskAuthoringListInput struct {
+	ProjectID string `json:"project_id"`
+	Status    string `json:"status,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+type TaskAuthoringListResult struct {
+	Tasks []model.TaskAuthoring `json:"tasks"`
 }
 
 type DispatchInput struct {

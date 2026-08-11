@@ -57,6 +57,13 @@ func (s *Service) taskPath(project, id string) string {
 	return s.projectPrefix(project) + "/tasks/" + id + ".json"
 }
 
+func (s *Service) taskAuthoringPath(project, id string) string {
+	if model.ValidateProjectIdentifier(project) != nil || model.ValidateCanonicalTaskID(id) != nil {
+		return "../invalid-task-authoring"
+	}
+	return s.projectPrefix(project) + "/tasks-v2/" + id + ".json"
+}
+
 func (s *Service) taskStatePath(project, id string) string {
 	if model.ValidateObjectIdentifier(id) != nil {
 		return "../invalid-task-id"
