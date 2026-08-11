@@ -16,6 +16,8 @@ type Server struct {
 	genericActions   map[string]GenericAction
 	watcherActions   sync.Once
 	watcherActionErr error
+	agentActions     sync.Once
+	agentActionErr   error
 }
 type request struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -73,6 +75,7 @@ func (t Tool) MarshalJSON() ([]byte, error) {
 
 func (s *Server) tools() map[string]Tool {
 	s.ensureWatcherActions()
+	s.ensureAgentActions()
 	t := map[string]Tool{}
 	add := toolAdder(func(name, description string, schema map[string]any, fn func(context.Context, json.RawMessage) (any, error)) {
 		output, outputOK := toolOutputSchemas[name]

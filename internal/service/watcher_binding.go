@@ -21,7 +21,7 @@ func (s *Service) resolveWatcherBinding(projectID string) (WatcherAgentBinding, 
 	if settings.AgentID == "" {
 		return WatcherAgentBinding{}, fmt.Errorf("watcher agent is not configured for project %q", projectID)
 	}
-	binding, ok := s.Config.AgentBindings[settings.AgentID]
+	binding, ok := s.Config.ResolveAgentBinding(projectID, settings.AgentID)
 	if !ok {
 		return WatcherAgentBinding{}, fmt.Errorf("watcher agent %q has no host-local binding", settings.AgentID)
 	}

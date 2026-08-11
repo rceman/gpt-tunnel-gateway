@@ -23,6 +23,7 @@ type GenericAction struct {
 	Authority              func(context.Context) error
 	AuthorityRole          string
 	RequiresWorkflowPolicy bool
+	AllowLegacyOverride    bool
 	Execute                func(context.Context, json.RawMessage) (any, error)
 }
 
@@ -53,7 +54,7 @@ func (s *Server) RegisterGenericAction(action GenericAction) error {
 		return fmt.Errorf("generic action %q: %w", action.Path, err)
 	}
 	for toolName := range toolOutputSchemas {
-		if legacyActionPath(toolName) == action.Path {
+		if legacyActionPath(toolName) == action.Path && !action.AllowLegacyOverride {
 			return fmt.Errorf("generic action %q conflicts with legacy tool %q", action.Path, toolName)
 		}
 	}

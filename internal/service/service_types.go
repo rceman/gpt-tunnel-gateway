@@ -133,6 +133,29 @@ type ProjectWorkflowPolicyInput struct {
 	WriteOptions
 }
 
+type AgentRegisterInput struct {
+	Agent model.Agent `json:"agent"`
+	WriteOptions
+}
+
+type AgentUpdateInput struct {
+	ProjectID            string    `json:"project_id"`
+	AgentID              string    `json:"agent_id"`
+	Enabled              *bool     `json:"enabled,omitempty"`
+	Role                 *string   `json:"role,omitempty"`
+	RecommendedReasoning *string   `json:"recommended_reasoning,omitempty"`
+	Capabilities         *[]string `json:"capabilities,omitempty"`
+	UpdatedBy            string    `json:"updated_by"`
+	WriteOptions
+}
+
+type AgentDisableInput struct {
+	ProjectID string `json:"project_id"`
+	AgentID   string `json:"agent_id"`
+	UpdatedBy string `json:"updated_by"`
+	WriteOptions
+}
+
 type PlanUpdateInput struct {
 	ProjectID        string    `json:"project_id"`
 	Title            *string   `json:"title,omitempty"`

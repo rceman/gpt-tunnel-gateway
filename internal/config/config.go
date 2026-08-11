@@ -12,20 +12,21 @@ import (
 )
 
 type Config struct {
-	SchemaVersion          int                      `json:"schema_version"`
-	GatewayID              string                   `json:"gateway_id"`
-	ListenAddr             string                   `json:"listen_addr"`
-	StateDir               string                   `json:"state_dir"`
-	MaxReadBytes           int64                    `json:"max_read_bytes"`
-	MaxDiffBytes           int64                    `json:"max_diff_bytes"`
-	MaxListItems           int                      `json:"max_list_items"`
-	DispatchTimeoutSeconds int                      `json:"dispatch_timeout_seconds"`
-	RunTimeoutSeconds      int                      `json:"run_timeout_seconds"`
-	AirelayCommand         string                   `json:"airelay_command"`
-	Hub                    HubConfig                `json:"hub"`
-	Controller             ControllerConfig         `json:"controller"`
-	AgentBindings          map[string]AgentBinding  `json:"agent_bindings,omitempty"`
-	Projects               map[string]ProjectConfig `json:"projects"`
+	SchemaVersion          int                                `json:"schema_version"`
+	GatewayID              string                             `json:"gateway_id"`
+	ListenAddr             string                             `json:"listen_addr"`
+	StateDir               string                             `json:"state_dir"`
+	MaxReadBytes           int64                              `json:"max_read_bytes"`
+	MaxDiffBytes           int64                              `json:"max_diff_bytes"`
+	MaxListItems           int                                `json:"max_list_items"`
+	DispatchTimeoutSeconds int                                `json:"dispatch_timeout_seconds"`
+	RunTimeoutSeconds      int                                `json:"run_timeout_seconds"`
+	AirelayCommand         string                             `json:"airelay_command"`
+	Hub                    HubConfig                          `json:"hub"`
+	Controller             ControllerConfig                   `json:"controller"`
+	AgentBindings          map[string]AgentBinding            `json:"agent_bindings,omitempty"`
+	ProjectAgentBindings   map[string]map[string]AgentBinding `json:"project_agent_bindings,omitempty"`
+	Projects               map[string]ProjectConfig           `json:"projects"`
 }
 
 type HubConfig struct {
@@ -50,6 +51,30 @@ type ProjectConfig struct {
 type AgentBinding struct {
 	SessionKey string `json:"session_key"`
 	Profile    string `json:"profile,omitempty"`
+}
+
+// ProjectAgentBindingKey is the canonical key for the legacy flat map when a
+// host config is being migrated to project-scoped bindings.
+func ProjectAgentBindingKey(projectID, agentID string) string {
+	return projectID + "/" + agentID
+}
+
+// ResolveAgentBinding prefers the explicit project-scoped map and then the
+// canonical composite key. The final flat-key fallback is retained only for
+// existing host configs that have not adopted project-scoped bindings yet.
+func (c Config) ResolveAgentBinding(projectID, agentID string) (AgentBinding, bool) {
+	if byProject, ok := c.ProjectAgentBindings[projectID]; ok {
+		binding, found := byProject[agentID]
+		return binding, found
+	}
+	if binding, ok := c.AgentBindings[ProjectAgentBindingKey(projectID, agentID)]; ok {
+		return binding, true
+	}
+	if binding, ok := c.AgentBindings[projectID+"::"+agentID]; ok {
+		return binding, true
+	}
+	binding, ok := c.AgentBindings[agentID]
+	return binding, ok
 }
 
 func (b AgentBinding) Validate() error {
@@ -228,11 +253,24 @@ func (c Config) Validate() error {
 		return err
 	}
 	for agentID, binding := range c.AgentBindings {
-		if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`).MatchString(agentID) {
+		if !validAgentBindingMapKey(agentID) {
 			return fmt.Errorf("invalid agent binding id %q", agentID)
 		}
 		if err := binding.Validate(); err != nil {
 			return fmt.Errorf("invalid agent binding %q: %w", agentID, err)
+		}
+	}
+	for projectID, bindings := range c.ProjectAgentBindings {
+		if !regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`).MatchString(projectID) {
+			return fmt.Errorf("invalid project agent binding project id %q", projectID)
+		}
+		for agentID, binding := range bindings {
+			if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`).MatchString(agentID) {
+				return fmt.Errorf("invalid project agent binding id %q", agentID)
+			}
+			if err := binding.Validate(); err != nil {
+				return fmt.Errorf("invalid project agent binding %q/%q: %w", projectID, agentID, err)
+			}
 		}
 	}
 	for id, p := range c.Projects {
@@ -261,6 +299,19 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validAgentBindingMapKey(value string) bool {
+	if regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`).MatchString(value) {
+		return true
+	}
+	for _, separator := range []string{"/", "::"} {
+		parts := strings.Split(value, separator)
+		if len(parts) == 2 && regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`).MatchString(parts[0]) && regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`).MatchString(parts[1]) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateRepositoryURL(value string) error {
