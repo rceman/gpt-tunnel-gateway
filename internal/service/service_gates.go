@@ -31,6 +31,23 @@ func (s *Service) ExecuteProjectGates(ctx context.Context, projectID, operationC
 	return s.executeGateNames(ctx, root, names)
 }
 
+// resolveFinalizationTestScope is the server-owned policy boundary for
+// ordinary Task finalization. Broad operation classes never use a package
+// subset; implementation and correction tasks may use the conservative
+// changed-file resolver, which returns full-suite scope on uncertainty.
+func resolveFinalizationTestScope(ctx context.Context, operationClass, root string, changedFiles []string) gates.TestScope {
+	switch operationClass {
+	case "", "implementation", "correction":
+	default:
+		return gates.FullTestScope()
+	}
+	scope, err := gates.ResolveTestScope(ctx, root, changedFiles)
+	if err != nil {
+		return gates.FullTestScope()
+	}
+	return scope
+}
+
 func (s *Service) executeGateNames(ctx context.Context, root string, names []string) ([]model.CompletionGateResult, error) {
 	if s.gateExecutor == nil {
 		return nil, fmt.Errorf("project gate executor is not configured")
@@ -52,8 +69,11 @@ func (s *Service) executeGateNamesWithScope(ctx context.Context, root string, na
 	if err != nil {
 		return nil, err
 	}
-	if normalized.Mode == gates.TestScopeFull || s.gateExecutorWithScope == nil {
+	if normalized.Mode == gates.TestScopeFull {
 		return s.executeGateNames(ctx, root, names)
+	}
+	if s.gateExecutorWithScope == nil {
+		return nil, fmt.Errorf("scoped gate executor is not configured")
 	}
 	results, err := s.gateExecutorWithScope(ctx, root, names, normalized)
 	if err != nil {

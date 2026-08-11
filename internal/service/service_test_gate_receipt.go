@@ -230,13 +230,15 @@ func (s *Service) executeProjectGatesWithTestReuse(ctx context.Context, projectI
 			return results, err
 		}
 		results = annotateExecutedGateResults(results)
-		if receipt, receiptDigest, err := s.writeTestPassReceiptLocked(ctx, projectID, root, gateNames, normalizedScope); err == nil {
-			for i := range results {
-				if results[i].ID == model.WorkflowGateTest {
-					results[i].TreeID = receipt.TreeID
-					results[i].ContractDigest = receipt.ContractDigest
-					results[i].ReceiptDigest = receiptDigest
-				}
+		receipt, receiptDigest, err := s.writeTestPassReceiptLocked(ctx, projectID, root, gateNames, normalizedScope)
+		if err != nil {
+			return nil, fmt.Errorf("store test pass receipt: %w", err)
+		}
+		for i := range results {
+			if results[i].ID == model.WorkflowGateTest {
+				results[i].TreeID = receipt.TreeID
+				results[i].ContractDigest = receipt.ContractDigest
+				results[i].ReceiptDigest = receiptDigest
 			}
 		}
 		return results, nil

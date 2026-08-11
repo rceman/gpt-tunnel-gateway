@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
-	"github.com/rceman/gpt-tunnel-gateway/internal/gates"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -91,22 +90,11 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
-	expectedGates, err := s.ResolveProjectGates(ctx, run.ProjectID, task.OperationClass)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
 	projectLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "project-"+run.ProjectID)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
 	defer projectLock.Release()
-	gateResults, err := s.executeProjectGatesWithTestReuse(ctx, run.ProjectID, local.Root, expectedGates, gates.FullTestScope())
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
-	if err := validateProjectGateEvidence(gateResults, expectedGates); err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
 	head, branch, clean, err := s.Git.CurrentHead(ctx, local)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
@@ -114,7 +102,30 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if branch != run.Branch {
 		return model.Report{}, OperationResult{}, fmt.Errorf("repository branch does not match task branch")
 	}
-	proof, risks, err := s.durableRepositoryProof(ctx, run, local, head, branch, clean, true)
+	changedFiles, err := s.Git.ChangedFiles(ctx, local.Root, run.BaseRevision, head)
+	if err != nil {
+		return model.Report{}, OperationResult{}, err
+	}
+	expectedGates, err := s.ResolveProjectGates(ctx, run.ProjectID, task.OperationClass)
+	if err != nil {
+		return model.Report{}, OperationResult{}, err
+	}
+	testScope := resolveFinalizationTestScope(ctx, task.OperationClass, local.Root, changedFiles)
+	gateResults, err := s.executeProjectGatesWithTestReuse(ctx, run.ProjectID, local.Root, expectedGates, testScope)
+	if err != nil {
+		return model.Report{}, OperationResult{}, err
+	}
+	if err := validateProjectGateEvidence(gateResults, expectedGates); err != nil {
+		return model.Report{}, OperationResult{}, err
+	}
+	finalHead, finalBranch, finalClean, err := s.Git.CurrentHead(ctx, local)
+	if err != nil {
+		return model.Report{}, OperationResult{}, err
+	}
+	if finalHead != head || finalBranch != branch || finalClean != clean {
+		return model.Report{}, OperationResult{}, fmt.Errorf("repository changed during gate execution")
+	}
+	proof, risks, err := s.durableRepositoryProof(ctx, run, local, finalHead, finalBranch, finalClean, true)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
@@ -131,7 +142,7 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 			return model.Report{}, OperationResult{}, err
 		}
 	}
-	if completion.Status == "succeeded" && !clean {
+	if completion.Status == "succeeded" && !finalClean {
 		return model.Report{}, OperationResult{}, fmt.Errorf("successful run must leave clean worktree")
 	}
 	now := time.Now().UTC()

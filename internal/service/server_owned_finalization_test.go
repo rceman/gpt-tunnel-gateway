@@ -149,7 +149,11 @@ func TestRunFinalizeServerOwnedAtomicWriteFailureCanRetry(t *testing.T) {
 
 func publishServerOwnedChange(t *testing.T, root, branch, filename, message string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(root, filename), []byte("server-owned\n"), 0o600); err != nil {
+	path := filepath.Join(root, filename)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("server-owned\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	testutil.Git(t, root, "add", filename)
