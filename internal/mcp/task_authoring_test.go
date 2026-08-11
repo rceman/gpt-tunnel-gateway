@@ -121,3 +121,71 @@ func TestTrainV2TaskAuthoringGenericSchemaAndCalls(t *testing.T) {
 		t.Fatalf("unexpected generic task read: %#v", read)
 	}
 }
+
+func createReadyMCPTrainTask(t *testing.T, server *Server, title string) model.TaskAuthoring {
+	t.Helper()
+	ctx := context.Background()
+	revision, err := server.Service.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, operation, err := server.Service.TaskAuthoringCreate(ctx, service.TaskAuthoringCreateInput{ProjectID: "example", Title: title, Objective: "Create a ready Task for generic Train admission.", ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner", WriteOptions: service.WriteOptions{ExpectedHubRevision: revision}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready, _, err := server.Service.TaskAuthoringReady(ctx, service.TaskAuthoringReadyInput{ProjectID: "example", TaskID: task.ID, ExpectedRevision: task.Revision, ExpectedRevisionSHA256: task.RevisionSHA256, ReadyBy: "planner", WriteOptions: service.WriteOptions{ExpectedHubRevision: operation.Hub.After}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ready
+}
+
+func TestTrainV2GenericSchemaAndCalls(t *testing.T) {
+	server := newSessionTestServer(t)
+	configureTrainV2MCPTest(t, server)
+	first := createReadyMCPTrainTask(t, server, "First generic Train Task")
+	second := createReadyMCPTrainTask(t, server, "Second generic Train Task")
+	sessionID := genericSession(t, server.Service, "example")
+	for _, path := range []string{"train/create", "train/add", "train/read", "train/list"} {
+		contract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+			"jsonrpc": "2.0", "id": 10, "method": "tools/call",
+			"params": map[string]any{"name": "schema", "arguments": map[string]any{"path": path}},
+		})))
+		if contract["kind"] != "action" || contract["path"] != path {
+			t.Fatalf("missing Train v2 action contract %s: %#v", path, contract)
+		}
+	}
+	created := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 11, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session_id": sessionID, "action": "train/create", "input": map[string]any{"project_id": "example", "task_ids": []any{first.ID}, "created_by": "planner"},
+		}},
+	})))
+	train := created["train"].(map[string]any)
+	if train["id"] != "EXM-TRN1" || train["status"] != model.TrainV2Planned {
+		t.Fatalf("unexpected generic Train create: %#v", train)
+	}
+	added := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 12, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session_id": sessionID, "action": "train/add", "input": map[string]any{"project_id": "example", "train_id": "EXM-TRN1", "task_ids": []any{second.ID}, "expected_revision": 1, "added_by": "planner"},
+		}},
+	})))
+	if len(added["train"].(map[string]any)["items"].([]any)) != 2 {
+		t.Fatalf("generic Train add did not append item: %#v", added)
+	}
+	read := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 13, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "train/read", "input": map[string]any{"project_id": "example", "train_id": "EXM-TRN1"}}},
+	})))
+	if read["id"] != "EXM-TRN1" {
+		t.Fatalf("generic Train read shape changed: %#v", read)
+	}
+	listed := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 14, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "train/list", "input": map[string]any{"project_id": "example"}}},
+	})))
+	if len(listed["trains"].([]any)) != 1 {
+		t.Fatalf("generic Train list shape changed: %#v", listed)
+	}
+}

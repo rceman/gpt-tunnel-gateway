@@ -15,16 +15,17 @@ const MaxDeferredReasonBytes = 1024
 const MaxSafeInteger uint64 = 9007199254740991
 
 var (
-	idRE              = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
-	adrIDRE           = regexp.MustCompile(`^ADR-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
-	projectCodeRE     = regexp.MustCompile(`^[A-Z]{3}$`)
-	canonicalTaskIDRE = regexp.MustCompile(`^([A-Z]{3})-TSK(` + OperatorJournalNumberPattern + `)$`)
-	canonicalRunIDRE  = regexp.MustCompile(`^([A-Z]{3}-TSK(` + OperatorJournalNumberPattern + `))-RUN(` + OperatorJournalNumberPattern + `)$`)
-	canonicalADRIDRE  = regexp.MustCompile(`^([A-Z]{3})-ADR(` + OperatorJournalNumberPattern + `)$`)
-	legacyTaskIDRE    = regexp.MustCompile(`^([A-Z]{3})-T([1-9][0-9]*)$`)
-	legacyRunIDRE     = regexp.MustCompile(`^([A-Z]{3}-T[1-9][0-9]*)-R([1-9][0-9]*)$`)
-	legacyADRIDRE     = regexp.MustCompile(`^([A-Z]{3})-A(` + OperatorJournalNumberPattern + `)$`)
-	shaRE             = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	idRE                 = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+	adrIDRE              = regexp.MustCompile(`^ADR-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	projectCodeRE        = regexp.MustCompile(`^[A-Z]{3}$`)
+	canonicalTaskIDRE    = regexp.MustCompile(`^([A-Z]{3})-TSK(` + OperatorJournalNumberPattern + `)$`)
+	canonicalTrainV2IDRE = regexp.MustCompile(`^([A-Z]{3})-TRN(` + OperatorJournalNumberPattern + `)$`)
+	canonicalRunIDRE     = regexp.MustCompile(`^([A-Z]{3}-TSK(` + OperatorJournalNumberPattern + `))-RUN(` + OperatorJournalNumberPattern + `)$`)
+	canonicalADRIDRE     = regexp.MustCompile(`^([A-Z]{3})-ADR(` + OperatorJournalNumberPattern + `)$`)
+	legacyTaskIDRE       = regexp.MustCompile(`^([A-Z]{3})-T([1-9][0-9]*)$`)
+	legacyRunIDRE        = regexp.MustCompile(`^([A-Z]{3}-T[1-9][0-9]*)-R([1-9][0-9]*)$`)
+	legacyADRIDRE        = regexp.MustCompile(`^([A-Z]{3})-A(` + OperatorJournalNumberPattern + `)$`)
+	shaRE                = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
 type Project struct {

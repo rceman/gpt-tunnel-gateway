@@ -67,6 +67,28 @@ func ParseTaskID(value string) (string, uint64, error) {
 	return matches[1], number, nil
 }
 
+func FormatTrainV2ID(projectCode string, number uint64) (string, error) {
+	if err := ValidateProjectCode(projectCode); err != nil {
+		return "", err
+	}
+	if err := ValidateCompactIDNumber(number); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s-TRN%d", projectCode, number), nil
+}
+
+func ParseTrainV2ID(value string) (string, uint64, error) {
+	matches := canonicalTrainV2IDRE.FindStringSubmatch(value)
+	if len(matches) != 3 {
+		return "", 0, fmt.Errorf("invalid canonical train v2 ID")
+	}
+	number, err := parseCompactIDNumber(matches[2])
+	if err != nil {
+		return "", 0, err
+	}
+	return matches[1], number, nil
+}
+
 // ParseHistoricalTaskID is for exact read-only decoding of pre-cutover task
 // records. Operational creation and mutation must use ParseTaskID.
 func ParseHistoricalTaskID(value string) (string, uint64, error) {

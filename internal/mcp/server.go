@@ -22,6 +22,8 @@ type Server struct {
 	projectActionErr       error
 	taskAuthoringActions   sync.Once
 	taskAuthoringActionErr error
+	trainV2Actions         sync.Once
+	trainV2ActionErr       error
 	taskCloseoutActions    sync.Once
 	taskCloseoutActionErr  error
 }
@@ -84,6 +86,7 @@ func (s *Server) tools() map[string]Tool {
 	s.ensureAgentActions()
 	s.ensureProjectActions()
 	s.ensureTaskAuthoringActions()
+	s.ensureTrainV2Actions()
 	s.ensureTaskCloseoutActions()
 	t := map[string]Tool{}
 	add := toolAdder(func(name, description string, schema map[string]any, fn func(context.Context, json.RawMessage) (any, error)) {

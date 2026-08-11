@@ -305,6 +305,32 @@ type TaskAuthoringListResult struct {
 	Tasks []model.TaskAuthoring `json:"tasks"`
 }
 
+type TrainV2CreateInput struct {
+	ProjectID string   `json:"project_id"`
+	TaskIDs   []string `json:"task_ids"`
+	CreatedBy string   `json:"created_by"`
+	WriteOptions
+}
+
+type TrainV2AddInput struct {
+	ProjectID              string   `json:"project_id"`
+	TrainID                string   `json:"train_id"`
+	TaskIDs                []string `json:"task_ids"`
+	ExpectedRevision       int      `json:"expected_revision"`
+	ExpectedRevisionSHA256 string   `json:"expected_revision_sha256,omitempty"`
+	AddedBy                string   `json:"added_by"`
+	WriteOptions
+}
+
+type TrainV2ListInput struct {
+	ProjectID string `json:"project_id"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+type TrainV2ListResult struct {
+	Trains []model.TrainV2 `json:"trains"`
+}
+
 type DispatchInput struct {
 	TaskID               string `json:"task_id"`
 	TrainID              string `json:"train_id,omitempty"`

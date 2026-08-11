@@ -1,0 +1,113 @@
+package mcp
+
+import (
+	"context"
+	"encoding/json"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+)
+
+func (s *Server) ensureTrainV2Actions() {
+	s.trainV2Actions.Do(func() {
+		s.trainV2ActionErr = s.registerTrainV2Actions()
+	})
+	if s.trainV2ActionErr != nil {
+		panic(s.trainV2ActionErr)
+	}
+}
+
+func trainV2OutputSchema() map[string]any {
+	return map[string]any{"type": "object", "additionalProperties": true}
+}
+
+func trainV2CreateSchema() map[string]any {
+	return obj(map[string]any{
+		"project_id":            str("Registered project identifier."),
+		"task_ids":              array(str("Ready Task identifier.")),
+		"created_by":            str("Author identity."),
+		"expected_hub_revision": str("Optimistic Hub revision."),
+	}, "project_id", "task_ids", "created_by")
+}
+
+func trainV2AddSchema() map[string]any {
+	return obj(map[string]any{
+		"project_id":            str("Registered project identifier."),
+		"train_id":              str("Server-allocated Train identifier."),
+		"task_ids":              array(str("Ready Task identifier.")),
+		"expected_revision":     integer("Exact Train revision.", 1, 1000000),
+		"added_by":              str("Author identity."),
+		"expected_hub_revision": str("Optimistic Hub revision."),
+	}, "project_id", "train_id", "task_ids", "expected_revision", "added_by")
+}
+
+func trainV2ReadSchema() map[string]any {
+	return obj(map[string]any{"project_id": str("Registered project identifier."), "train_id": str("Server-allocated Train identifier.")}, "project_id", "train_id")
+}
+
+func trainV2ListSchema() map[string]any {
+	return obj(map[string]any{"project_id": str("Registered project identifier."), "limit": integer("Maximum Trains.", 1, 32)}, "project_id")
+}
+
+func (s *Server) registerTrainV2Actions() error {
+	if err := s.RegisterGenericAction(GenericAction{
+		Path: "train/create", Description: "Create a non-running ordered train_v2 admission record.", InputSchema: trainV2CreateSchema(), OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: false}, AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.TrainV2CreateInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			train, operation, err := s.Service.TrainV2Create(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"train": train, "operation": operation}, nil
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path: "train/add", Description: "Append ready Tasks to the unstarted tail of a train_v2.", InputSchema: trainV2AddSchema(), OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: false}, AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.TrainV2AddInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			train, operation, err := s.Service.TrainV2Add(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"train": train, "operation": operation}, nil
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path: "train/read", Description: "Read one train_v2 admission record.", InputSchema: trainV2ReadSchema(), OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				ProjectID string `json:"project_id"`
+				TrainID   string `json:"train_id"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2Read(ctx, in.ProjectID, in.TrainID)
+		},
+	}); err != nil {
+		return err
+	}
+	return s.RegisterGenericAction(GenericAction{
+		Path: "train/list", Description: "List bounded train_v2 admission records.", InputSchema: trainV2ListSchema(), OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.TrainV2ListInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2List(ctx, in)
+		},
+	})
+}
