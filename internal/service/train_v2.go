@@ -11,6 +11,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func (s *Service) trainV2Root(projectID string) string {
@@ -96,7 +97,7 @@ func (s *Service) TrainV2Create(ctx context.Context, in TrainV2CreateInput) (mod
 	if in.CreatedBy == "" || strings.ContainsAny(in.CreatedBy, "\x00\r\n") {
 		return model.TrainV2{}, OperationResult{}, fmt.Errorf("created_by is required")
 	}
-	if err := validateTrainV2TaskIDs(in.TaskIDs); err != nil {
+	if err := trainv2.ValidateTaskIDs(in.TaskIDs); err != nil {
 		return model.TrainV2{}, OperationResult{}, err
 	}
 	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
@@ -152,7 +153,7 @@ func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.Tra
 	if in.AddedBy == "" || strings.ContainsAny(in.AddedBy, "\x00\r\n") || in.ExpectedRevision < 1 {
 		return model.TrainV2{}, OperationResult{}, fmt.Errorf("expected_revision and added_by are required")
 	}
-	if err := validateTrainV2TaskIDs(in.TaskIDs); err != nil {
+	if err := trainv2.ValidateTaskIDs(in.TaskIDs); err != nil {
 		return model.TrainV2{}, OperationResult{}, err
 	}
 	current, err := s.TrainV2Read(ctx, in.ProjectID, in.TrainID)
@@ -208,22 +209,8 @@ func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.Tra
 	return updated, OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: updated.Status}, nil
 }
 
-func validateTrainV2TaskIDs(taskIDs []string) error {
-	if len(taskIDs) < 1 || len(taskIDs) > model.MaxTrainV2Items {
-		return fmt.Errorf("invalid train v2 task count")
-	}
-	seen := map[string]bool{}
-	for _, taskID := range taskIDs {
-		if model.ValidateCanonicalTaskID(taskID) != nil || seen[taskID] {
-			return fmt.Errorf("invalid or duplicate train v2 task %q", taskID)
-		}
-		seen[taskID] = true
-	}
-	return nil
-}
-
 func (s *Service) trainV2AdmissionItems(worktree, projectID string, taskIDs []string, now time.Time) ([]model.TrainV2Item, error) {
-	if err := validateTrainV2TaskIDs(taskIDs); err != nil {
+	if err := trainv2.ValidateTaskIDs(taskIDs); err != nil {
 		return nil, err
 	}
 	root := filepath.Join(worktree, filepath.FromSlash(s.trainV2Root(projectID)))
@@ -250,8 +237,8 @@ func (s *Service) trainV2AdmissionItems(worktree, projectID string, taskIDs []st
 			}
 		}
 	}
-	items := make([]model.TrainV2Item, 0, len(taskIDs))
-	for index, taskID := range taskIDs {
+	tasks := make([]model.TaskAuthoring, 0, len(taskIDs))
+	for _, taskID := range taskIDs {
 		var task model.TaskAuthoring
 		if err := readWorktreeJSON(worktree, s.taskAuthoringPath(projectID, taskID), &task); err != nil {
 			return nil, fmt.Errorf("read ready task %q: %w", taskID, err)
@@ -259,9 +246,9 @@ func (s *Service) trainV2AdmissionItems(worktree, projectID string, taskIDs []st
 		if task.ProjectID != projectID || model.ValidateTaskAuthoring(task) != nil || task.Status != model.TaskAuthoringReady || task.ReadySeal == nil || task.ReadySeal.Revision != task.Revision || task.ReadySeal.RevisionSHA256 != task.RevisionSHA256 {
 			return nil, fmt.Errorf("task %q is not an exact ready train_v2 Task", taskID)
 		}
-		items = append(items, model.TrainV2Item{Position: index, TaskID: task.ID, TaskRevision: task.Revision, TaskRevisionSHA256: task.RevisionSHA256, Status: model.TrainV2ItemQueued, AddedAt: now})
+		tasks = append(tasks, task)
 	}
-	return items, nil
+	return trainv2.ReadyItems(tasks, now, 0)
 }
 
 func nextTrainV2ID(worktree, root, projectCode string) (string, error) {

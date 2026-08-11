@@ -8,10 +8,12 @@ import (
 )
 
 const (
-	TrainV2SchemaVersion = 1
-	MaxTrainV2Items      = 32
-	TrainV2Planned       = "planned"
-	TrainV2ItemQueued    = "queued"
+	TrainV2SchemaVersion      = 1
+	MaxTrainV2Items           = 32
+	TrainV2Planned            = "planned"
+	TrainV2ItemQueued         = "queued"
+	TrainV2StartSchemaVersion = 1
+	TrainV2StartActive        = "active"
 )
 
 var trainV2SHA256RE = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -40,6 +42,36 @@ type TrainV2 struct {
 	CreatedBy     string        `json:"created_by"`
 	CreatedAt     time.Time     `json:"created_at"`
 	UpdatedAt     time.Time     `json:"updated_at"`
+}
+
+// TrainV2StartRecord is the portable, safe execution checkpoint. Host-local
+// WorktreePath and SessionKey deliberately do not appear here.
+type TrainV2StartRecord struct {
+	SchemaVersion             int       `json:"schema_version"`
+	ProjectID                 string    `json:"project_id"`
+	TrainID                   string    `json:"train_id"`
+	Status                    string    `json:"status"`
+	IntegrationBranch         string    `json:"integration_branch"`
+	BaseRevision              string    `json:"base_revision"`
+	LaneBranch                string    `json:"lane_branch"`
+	RunID                     string    `json:"run_id"`
+	CurrentTaskID             string    `json:"current_task_id"`
+	CurrentTaskRevision       int       `json:"current_task_revision"`
+	CurrentTaskRevisionSHA256 string    `json:"current_task_revision_sha256"`
+	StartedAt                 time.Time `json:"started_at"`
+}
+
+func ValidateTrainV2StartRecord(v TrainV2StartRecord) error {
+	if v.SchemaVersion != TrainV2StartSchemaVersion || ValidateProjectIdentifier(v.ProjectID) != nil || v.Status != TrainV2StartActive || ValidateBranch(v.IntegrationBranch) != nil || !shaRE.MatchString(v.BaseRevision) || ValidateBranch(v.LaneBranch) != nil || ValidateCanonicalRunID(v.RunID) != nil || ValidateCanonicalTaskID(v.CurrentTaskID) != nil || v.CurrentTaskRevision < 1 || !trainV2SHA256RE.MatchString(v.CurrentTaskRevisionSHA256) || v.StartedAt.IsZero() {
+		return fmt.Errorf("invalid train v2 start record")
+	}
+	if _, _, err := ParseTrainV2ID(v.TrainID); err != nil {
+		return fmt.Errorf("invalid train v2 start train ID")
+	}
+	if taskID, _, err := ParseRunID(v.RunID); err != nil || taskID != v.CurrentTaskID {
+		return fmt.Errorf("train v2 start run does not bind current task")
+	}
+	return nil
 }
 
 func ValidateTrainV2(v TrainV2) error {

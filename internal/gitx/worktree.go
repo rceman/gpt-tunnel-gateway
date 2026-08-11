@@ -94,6 +94,67 @@ func (r Runner) PrepareBranch(ctx context.Context, p config.ProjectConfig, branc
 	_, err = r.command(ctx, p.Root, false, "switch", "-c", branch, base)
 	return err
 }
+
+func ownedTrainWorktreePath(stateDir, projectID, trainID string) (string, error) {
+	if err := model.ValidateProjectIdentifier(projectID); err != nil {
+		return "", err
+	}
+	if _, _, err := model.ParseTrainV2ID(trainID); err != nil {
+		return "", err
+	}
+	if stateDir == "" || strings.ContainsAny(stateDir, "\x00\r\n") {
+		return "", fmt.Errorf("invalid train runtime state directory")
+	}
+	return filepath.Join(stateDir, "train-worktrees", projectID, trainID), nil
+}
+
+// CreateTrainWorktree creates the server-owned isolated checkout for a
+// TrainV2 lane. The caller supplies identity, never an arbitrary filesystem
+// path; the path is derived from the Gateway-owned state directory.
+func (r Runner) CreateTrainWorktree(ctx context.Context, p config.ProjectConfig, stateDir, projectID, trainID, branch, base string) error {
+	if err := model.ValidateBranch(branch); err != nil {
+		return err
+	}
+	if err := model.ValidateCommitSHA(base); err != nil {
+		return err
+	}
+	path, err := ownedTrainWorktreePath(stateDir, projectID, trainID)
+	if err != nil {
+		return err
+	}
+	root, err := filepath.Abs(p.Root)
+	if err != nil {
+		return err
+	}
+	target, err := filepath.Abs(path)
+	if err != nil || target == root {
+		return fmt.Errorf("train worktree path must be separate from project root")
+	}
+	if _, err := os.Lstat(target); err == nil {
+		return fmt.Errorf("train worktree path already exists")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		return err
+	}
+	_, err = r.command(ctx, p.Root, false, "worktree", "add", "-b", branch, target, base)
+	return err
+}
+
+// RemoveTrainWorktree removes only the server-derived TrainV2 worktree path.
+func (r Runner) RemoveTrainWorktree(ctx context.Context, p config.ProjectConfig, stateDir, projectID, trainID string) error {
+	path, err := ownedTrainWorktreePath(stateDir, projectID, trainID)
+	if err != nil {
+		return err
+	}
+	target, err := filepath.Abs(path)
+	if err != nil || target == filepath.Clean(p.Root) {
+		return fmt.Errorf("invalid train worktree path")
+	}
+	_, err = r.command(ctx, p.Root, false, "worktree", "remove", target)
+	return err
+}
 func (r Runner) IsAncestor(ctx context.Context, root, ancestor, descendant string) (bool, error) {
 	if err := model.ValidateRevision(ancestor); err != nil {
 		return false, err

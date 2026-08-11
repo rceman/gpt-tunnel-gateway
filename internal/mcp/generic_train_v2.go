@@ -48,6 +48,17 @@ func trainV2ListSchema() map[string]any {
 	return obj(map[string]any{"project_id": str("Registered project identifier."), "limit": integer("Maximum Trains.", 1, 32)}, "project_id")
 }
 
+func trainV2StartSchema() map[string]any {
+	return obj(map[string]any{
+		"project_id":            str("Registered project identifier."),
+		"train_id":              str("Server-allocated Train identifier."),
+		"started_by":            str("Author identity."),
+		"agent_id":              str("Optional coding Agent identity."),
+		"recommended_reasoning": str("Optional reasoning preference."),
+		"expected_hub_revision": str("Optimistic Hub revision."),
+	}, "project_id", "train_id", "started_by")
+}
+
 func (s *Server) registerTrainV2Actions() error {
 	if err := s.RegisterGenericAction(GenericAction{
 		Path: "train/create", Description: "Create a non-running ordered train_v2 admission record.", InputSchema: trainV2CreateSchema(), OutputSchema: trainV2OutputSchema(),
@@ -99,7 +110,7 @@ func (s *Server) registerTrainV2Actions() error {
 	}); err != nil {
 		return err
 	}
-	return s.RegisterGenericAction(GenericAction{
+	if err := s.RegisterGenericAction(GenericAction{
 		Path: "train/list", Description: "List bounded train_v2 admission records.", InputSchema: trainV2ListSchema(), OutputSchema: trainV2OutputSchema(),
 		Annotations: ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -108,6 +119,19 @@ func (s *Server) registerTrainV2Actions() error {
 				return nil, err
 			}
 			return s.Service.TrainV2List(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	return s.RegisterGenericAction(GenericAction{
+		Path: "train/start", Description: "Start one server-owned Train v2 execution lane.", InputSchema: trainV2StartSchema(), OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.TrainV2StartInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2Start(ctx, in)
 		},
 	})
 }

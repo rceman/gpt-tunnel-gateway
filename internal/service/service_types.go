@@ -331,6 +331,18 @@ type TrainV2ListResult struct {
 	Trains []model.TrainV2 `json:"trains"`
 }
 
+// TrainV2StartInput contains only portable start intent. Host-local worktree
+// and session bindings are resolved by the service and kept in Gateway-local
+// runtime state; callers cannot provide either value.
+type TrainV2StartInput struct {
+	ProjectID            string `json:"project_id"`
+	TrainID              string `json:"train_id"`
+	StartedBy            string `json:"started_by"`
+	AgentID              string `json:"agent_id,omitempty"`
+	RecommendedReasoning string `json:"recommended_reasoning,omitempty"`
+	WriteOptions
+}
+
 type DispatchInput struct {
 	TaskID               string `json:"task_id"`
 	TrainID              string `json:"train_id,omitempty"`
