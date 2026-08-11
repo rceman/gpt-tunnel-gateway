@@ -55,7 +55,7 @@ func validateReviewObjectKeys(obj map[string]any, final bool) error {
 		"schema_version": true, "id": true, "task_id": true, "run_id": true, "project_id": true,
 		"task_sha256": true, "task_revision": true, "task_revision_sha256": true, "task_run_number": true,
 		"branch": true, "base_revision": true, "reviewed_head": true,
-		"repository_state": true, "gates": true, "changed_files": true, "outcome": true,
+		"repository_state": true, "gates": true, "server_gate_results": true, "changed_files": true, "outcome": true,
 		"findings": true, "scope_coverage": true, "unexpected_surfaces": true,
 		"historical_compatibility": true, "prohibited_actions": true, "next_action": true,
 		"completed_sections": true, "draft_revision": true, "updated_at": true,
