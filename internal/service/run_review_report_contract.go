@@ -30,15 +30,16 @@ type TaskReviewReportFinalizeInput struct {
 }
 
 type reviewContext struct {
-	task       model.Task
-	run        model.Run
-	agent      model.Report
-	branch     string
-	head       string
-	clean      bool
-	repository model.ReviewRepositoryState
-	gates      []model.CompletionGateResult
-	changed    []string
+	task        model.Task
+	run         model.Run
+	agent       model.Report
+	branch      string
+	head        string
+	clean       bool
+	repository  model.ReviewRepositoryState
+	gates       []model.CompletionGateResult
+	serverGates []model.CompletionGateResult
+	changed     []string
 }
 
 func sameAgentAuthority(left, right model.Report) bool {
@@ -113,15 +114,16 @@ func (s *Service) loadReviewContext(ctx context.Context, taskID, runID string) (
 		return out, fmt.Errorf("Agent changed files are not canonical")
 	}
 	out = reviewContext{
-		task:       task,
-		run:        run,
-		agent:      agent,
-		branch:     branch,
-		head:       head,
-		clean:      clean,
-		repository: model.ReviewRepositoryState{Branch: branch, BaseRevision: run.BaseRevision, ReviewedHead: head, WorktreeClean: clean, BaseAncestor: agent.Repository.BaseAncestor},
-		gates:      append([]model.CompletionGateResult{}, agent.GateResults...),
-		changed:    changed,
+		task:        task,
+		run:         run,
+		agent:       agent,
+		branch:      branch,
+		head:        head,
+		clean:       clean,
+		repository:  model.ReviewRepositoryState{Branch: branch, BaseRevision: run.BaseRevision, ReviewedHead: head, WorktreeClean: clean, BaseAncestor: agent.Repository.BaseAncestor},
+		gates:       append([]model.CompletionGateResult{}, agent.GateResults...),
+		serverGates: append([]model.CompletionGateResult{}, agent.ServerGateResults...),
+		changed:     changed,
 	}
 	return out, nil
 }
@@ -141,6 +143,7 @@ func (s *Service) reviewMachineDraft(ctx reviewContext, draft *model.RunReviewRe
 	draft.ReviewedHead = ctx.head
 	draft.RepositoryState = ctx.repository
 	draft.Gates = append([]model.CompletionGateResult{}, ctx.gates...)
+	draft.ServerGateResults = append([]model.CompletionGateResult{}, ctx.serverGates...)
 	draft.ChangedFiles = append([]string{}, ctx.changed...)
 }
 

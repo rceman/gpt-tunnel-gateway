@@ -49,6 +49,7 @@ func (s *Service) TaskReviewReportFinalize(ctx context.Context, in TaskReviewRep
 		Outcome:                 draft.Outcome,
 		RepositoryState:         context.repository,
 		Gates:                   append([]model.CompletionGateResult{}, context.gates...),
+		ServerGateResults:       append([]model.CompletionGateResult{}, context.serverGates...),
 		Findings:                append([]model.ReviewFinding{}, draft.Findings...),
 		ScopeCoverage:           append([]model.ReviewScopeCoverage{}, draft.ScopeCoverage...),
 		ChangedFiles:            append([]string{}, context.changed...),

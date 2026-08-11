@@ -88,6 +88,7 @@ type RunReviewReportDraft struct {
 	ReviewedHead            string                 `json:"reviewed_head"`
 	RepositoryState         ReviewRepositoryState  `json:"repository_state"`
 	Gates                   []CompletionGateResult `json:"gates"`
+	ServerGateResults       []CompletionGateResult `json:"server_gate_results,omitempty"`
 	ChangedFiles            []string               `json:"changed_files"`
 	Outcome                 string                 `json:"outcome,omitempty"`
 	Findings                []ReviewFinding        `json:"findings,omitempty"`
@@ -119,6 +120,7 @@ type RunReviewReport struct {
 	Outcome                 string                 `json:"outcome"`
 	RepositoryState         ReviewRepositoryState  `json:"repository_state"`
 	Gates                   []CompletionGateResult `json:"gates"`
+	ServerGateResults       []CompletionGateResult `json:"server_gate_results,omitempty"`
 	Findings                []ReviewFinding        `json:"findings"`
 	ScopeCoverage           []ReviewScopeCoverage  `json:"scope_coverage"`
 	ChangedFiles            []string               `json:"changed_files"`

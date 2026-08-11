@@ -101,11 +101,17 @@ func snapshotChecks(run model.Run, task model.Task, state model.TaskState, taskE
 	if !terminal {
 		add("required_gates", "critical", "not_applicable", "run is active")
 	} else if report.Available {
-		missing := len(report.GateResults) != len(task.RequiredGates)
+		gateResults := report.GateResults
+		serverGates := len(report.ServerGateResults) > 0
+		missing := len(gateResults) != len(task.RequiredGates)
+		if serverGates {
+			gateResults = report.ServerGateResults
+			missing = false
+		}
 
 		if !missing {
-			for i, gate := range report.GateResults {
-				if gate.ID != fmt.Sprintf("G%d", i+1) || gate.ExitCode != 0 {
+			for i, gate := range gateResults {
+				if (!serverGates && gate.ID != fmt.Sprintf("G%d", i+1)) || gate.ExitCode != 0 {
 					missing = true
 					break
 				}

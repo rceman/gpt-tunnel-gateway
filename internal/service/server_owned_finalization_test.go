@@ -45,6 +45,23 @@ func TestRunFinalizeBuildsServerOwnedCompletionWithoutAgentFile(t *testing.T) {
 	if completion.RunID != run.ID || completion.TaskSHA256 != task.SHA256 || completion.Summary != "Implemented and verified the task." {
 		t.Fatalf("server-owned completion lost durable identity or summary: %#v", completion)
 	}
+	reportRead, err := s.RunReport(context.Background(), run.ID)
+	if err != nil || len(reportRead.ServerGateResults) != 3 {
+		t.Fatalf("server-owned gate evidence was not readable from report: gates=%#v err=%v", reportRead.ServerGateResults, err)
+	}
+	snapshot, err := s.RunReviewSnapshot(context.Background(), run.ID)
+	if err != nil || !snapshot.Report.Available || len(snapshot.Report.ServerGateResults) != 3 {
+		t.Fatalf("server-owned gate evidence was not readable from snapshot: report=%#v err=%v", snapshot.Report, err)
+	}
+	for _, check := range snapshot.Checks {
+		if check.ID == "required_gates" && check.Status != "pass" {
+			t.Fatalf("snapshot did not validate server-owned gates: %#v", check)
+		}
+	}
+	draft, err := s.TaskReviewReportStart(context.Background(), task.ID, run.ID)
+	if err != nil || len(draft.ServerGateResults) != 3 {
+		t.Fatalf("Delivery reader did not preserve server-owned gates: gates=%#v err=%v", draft.ServerGateResults, err)
+	}
 
 	hubBefore, err := s.Hub.RemoteRevision(context.Background())
 	if err != nil {

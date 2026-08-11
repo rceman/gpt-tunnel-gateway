@@ -52,6 +52,7 @@ type ReviewSnapshotReport struct {
 	Commits            []string               `json:"commits,omitempty"`
 	ChangedFiles       []string               `json:"changed_files,omitempty"`
 	GateResults        []CompletionGateResult `json:"gate_results,omitempty"`
+	ServerGateResults  []CompletionGateResult `json:"server_gate_results,omitempty"`
 	AcceptanceCoverage []string               `json:"acceptance_coverage,omitempty"`
 	Deviations         []string               `json:"deviations,omitempty"`
 	RemainingRisks     []string               `json:"remaining_risks,omitempty"`

@@ -33,6 +33,9 @@ func ValidateRunReviewReportDraft(v RunReviewReportDraft) error {
 	if err := validateReviewMachine(v.Branch, v.BaseRevision, v.ReviewedHead, v.RepositoryState, v.Gates, v.ChangedFiles); err != nil {
 		return err
 	}
+	if err := ValidateServerGateEvidence(v.ServerGateResults); err != nil {
+		return err
+	}
 	if v.Outcome != "" {
 		if err := ValidateReviewOutcome(v.Outcome); err != nil {
 			return err
@@ -58,6 +61,9 @@ func ValidateRunReviewReport(v RunReviewReport) error {
 		return err
 	}
 	if err := validateReviewMachine(v.Branch, v.BaseRevision, v.ReviewedHead, v.RepositoryState, v.Gates, v.ChangedFiles); err != nil {
+		return err
+	}
+	if err := ValidateServerGateEvidence(v.ServerGateResults); err != nil {
 		return err
 	}
 	if err := validateReviewManual(v.Findings, v.ScopeCoverage, v.UnexpectedSurfaces, v.HistoricalCompatibility, v.ProhibitedActions, v.NextAction, true); err != nil {
