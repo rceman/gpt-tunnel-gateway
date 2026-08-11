@@ -152,7 +152,10 @@ func TestExecutorUsesScopedAndLegacyFullTestCommands(t *testing.T) {
 			return 0, "", nil
 		},
 	}
-	if _, err := e.ExecuteWithScope(context.Background(), "/repo", []string{"test"}, TestScope{Mode: TestScopePackages, Packages: []string{"./z", "./a"}}); err != nil {
+	if _, err := e.ExecuteWithScope(context.Background(), "/repo", []string{"test"}, TestScope{
+		Mode:     TestScopePackages,
+		Packages: []string{"./z", "./a"},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.Execute(context.Background(), "/repo", []string{"test"}); err != nil {
@@ -172,7 +175,10 @@ func TestTestGateCommandContractPreservesFullCompatibility(t *testing.T) {
 	if err != nil || full != legacy {
 		t.Fatalf("full contract changed: legacy=%s full=%s err=%v", legacy, full, err)
 	}
-	scoped, err := TestGateCommandContractDigest([]string{"format", "check", "test"}, TestScope{Mode: TestScopePackages, Packages: []string{"./internal/gates"}})
+	scoped, err := TestGateCommandContractDigest([]string{"format", "check", "test"}, TestScope{
+		Mode:     TestScopePackages,
+		Packages: []string{"./internal/gates"},
+	})
 	if err != nil || scoped == legacy {
 		t.Fatalf("scoped contract did not differ: scoped=%s legacy=%s err=%v", scoped, legacy, err)
 	}
