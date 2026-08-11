@@ -28,8 +28,16 @@ func installStaleActivePointer(t *testing.T, runStatus, taskStatus string, misma
 	run.Status = runStatus
 	if mismatch {
 		other, _, err := s.TaskCreate(ctx, TaskCreateInput{
-			ProjectID: "example", Title: "Mismatched pointer target", Objective: "Provide a distinct task identity for the stale pointer test.", Slug: "mismatched-pointer-target", AcceptanceCriteria: []string{"identity remains strict"}, OperationClass: "implementation", CreatedBy: "test",
-			WriteOptions: WriteOptions{ExpectedHubRevision: mustHubRevision(t, s)},
+			ProjectID:          "example",
+			Title:              "Mismatched pointer target",
+			Objective:          "Provide a distinct task identity for the stale pointer test.",
+			Slug:               "mismatched-pointer-target",
+			AcceptanceCriteria: []string{"identity remains strict"},
+			OperationClass:     "implementation",
+			CreatedBy:          "test",
+			WriteOptions: WriteOptions{
+				ExpectedHubRevision: mustHubRevision(t, s),
+			},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -119,11 +127,29 @@ func TestStateRepairPreservesValidActivePairAndRejectsMismatchedPair(t *testing.
 
 func TestStateCheckPreservesAuthorizedPendingTaskTrainPointer(t *testing.T) {
 	s, hubRevision, _ := testService(t)
-	task, created, err := s.TaskCreate(context.Background(), TaskCreateInput{ProjectID: "example", Title: "Pending train task", Objective: "Remain pending until the train dispatches it.", Slug: "pending-train-task", AcceptanceCriteria: []string{"pending pointer is authorized"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
+	task, created, err := s.TaskCreate(context.Background(), TaskCreateInput{
+		ProjectID:          "example",
+		Title:              "Pending train task",
+		Objective:          "Remain pending until the train dispatches it.",
+		Slug:               "pending-train-task",
+		AcceptanceCriteria: []string{"pending pointer is authorized"},
+		OperationClass:     "implementation",
+		CreatedBy:          "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.TaskTrainCreate(context.Background(), TaskTrainCreateInput{ProjectID: "example", TaskIDs: []string{task.ID}, CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}}); err != nil {
+	if _, _, err := s.TaskTrainCreate(context.Background(), TaskTrainCreateInput{
+		ProjectID: "example",
+		TaskIDs:   []string{task.ID},
+		CreatedBy: "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: created.Hub.After,
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	check, err := s.StateCheck(context.Background())
