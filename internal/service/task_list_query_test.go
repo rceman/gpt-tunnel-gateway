@@ -8,6 +8,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
 
 func TestTaskListQuerySearchStatusLimitAndCursor(t *testing.T) {
@@ -109,6 +110,9 @@ func TestTaskListQuerySearchStatusLimitAndCursor(t *testing.T) {
 	}
 	if len(pageOne.Tasks) != 2 || !pageOne.HasMore || pageOne.NextCursor == "" {
 		t.Fatalf("page one=%#v", pageOne)
+	}
+	if len(pageOne.NextCursor) > pagination.CompactCursorLength || strings.ContainsAny(pageOne.NextCursor, "Il1O0+/=") {
+		t.Fatalf("task cursor is not compact and agent-safe: %q", pageOne.NextCursor)
 	}
 	pageTwo, err := s.TaskListQuery(ctx, TaskListInput{
 		ProjectID: "example",

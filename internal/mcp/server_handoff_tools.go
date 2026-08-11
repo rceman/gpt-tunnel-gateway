@@ -36,7 +36,7 @@ func (s *Server) addHandoffTools(add toolAdder) {
 		}
 		return s.Service.DeliveryHandoffStatus(ctx, id)
 	})
-	add("delivery_handoff_list", "List bounded durable Delivery handoff status projections with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "limit": listLimit, "cursor": str("Opaque continuation cursor")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("delivery_handoff_list", "List bounded durable Delivery handoff status projections with deterministic continuation. New next_cursor values are compact server-owned tokens of at most 8 safe characters; legacy cursors remain input-compatible.", obj(map[string]any{"project_id": str("Project identifier"), "limit": listLimit, "cursor": str("Server-owned continuation cursor; new values are <=8 safe characters and legacy values are accepted")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.DeliveryHandoffListInput
 		if err := decode(raw, &in); err != nil {
 			return nil, err
@@ -113,7 +113,7 @@ func (s *Server) addHandoffTools(add toolAdder) {
 		}
 		return s.Service.PlannerReportStatus(ctx, id)
 	})
-	add("planner_report_list", "List bounded Planner report status projections with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "limit": listLimit, "cursor": str("Opaque continuation cursor")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("planner_report_list", "List bounded Planner report status projections with deterministic continuation. New next_cursor values are compact server-owned tokens of at most 8 safe characters; legacy cursors remain input-compatible.", obj(map[string]any{"project_id": str("Project identifier"), "limit": listLimit, "cursor": str("Server-owned continuation cursor; new values are <=8 safe characters and legacy values are accepted")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.PlannerReportListInput
 		if err := decode(raw, &in); err != nil {
 			return nil, err

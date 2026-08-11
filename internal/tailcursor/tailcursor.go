@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 const (
@@ -14,7 +15,11 @@ const (
 	MaxSnapshotLines = 200
 	MaxCursorBytes   = 4096
 	AnchorLines      = 8
+	CompactCursorLen = 8
+	maxStoredCursors = 256
 )
+
+const compactAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
 
 type state struct {
 	Version        int    `json:"v"`
@@ -32,6 +37,12 @@ type Page struct {
 	NextCursor string
 	HasMore    bool
 }
+
+var cursorStore = struct {
+	sync.Mutex
+	values map[string]state
+	order  []string
+}{values: map[string]state{}}
 
 func Initial(scope, session string, snapshot []string, lines, skip int) (Page, error) {
 	if err := validateBounds(snapshot, lines, skip); err != nil {
@@ -145,29 +156,99 @@ func encode(value state) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("encode tail cursor: %w", err)
 	}
-	encoded := base64.RawURLEncoding.EncodeToString(data)
-	if len(encoded) > MaxCursorBytes {
-		return "", fmt.Errorf("tail cursor exceeds limit")
+	for salt := byte(0); ; salt++ {
+		encoded := compactToken(data, salt)
+		cursorStore.Lock()
+		previous, exists := cursorStore.values[encoded]
+		if !exists || previous == value {
+			if !exists {
+				cursorStore.values[encoded] = value
+				cursorStore.order = append(cursorStore.order, encoded)
+				if len(cursorStore.order) > maxStoredCursors {
+					delete(cursorStore.values, cursorStore.order[0])
+					cursorStore.order = cursorStore.order[1:]
+				}
+			}
+			cursorStore.Unlock()
+			return encoded, nil
+		}
+		cursorStore.Unlock()
+		if salt == 255 {
+			return "", fmt.Errorf("encode tail cursor collision")
+		}
 	}
-	return encoded, nil
 }
 
 func decode(raw, scope, session string) (state, error) {
 	if raw == "" || len(raw) > MaxCursorBytes {
 		return state{}, fmt.Errorf("invalid tail cursor")
 	}
+	if len(raw) == CompactCursorLen && isCompact(raw) {
+		cursorStore.Lock()
+		value, ok := cursorStore.values[raw]
+		cursorStore.Unlock()
+		if !ok {
+			return state{}, fmt.Errorf("invalid tail cursor")
+		}
+		if err := validateState(value, scope, session); err != nil {
+			return state{}, err
+		}
+		return value, nil
+	}
 	data, err := base64.RawURLEncoding.DecodeString(raw)
 	if err != nil {
 		return state{}, fmt.Errorf("invalid tail cursor")
 	}
 	var value state
-	if json.Unmarshal(data, &value) != nil || value.Version != Version || value.Scope != scope || value.SessionDigest != digestString(session) || value.SnapshotLines < 0 || value.SnapshotLines > MaxSnapshotLines || value.AnchorSize < 0 || value.AnchorSize > AnchorLines || value.Offset < 0 || value.Offset > MaxSnapshotLines || value.SnapshotDigest != snapshotDigest(nil) && len(value.SnapshotDigest) != sha256.Size*2 || value.AnchorDigest != snapshotDigest(nil) && len(value.AnchorDigest) != sha256.Size*2 {
+	if json.Unmarshal(data, &value) != nil {
 		return state{}, fmt.Errorf("invalid tail cursor")
 	}
-	if _, err := hex.DecodeString(value.SnapshotDigest); err != nil {
-		return state{}, fmt.Errorf("invalid tail cursor")
+	if err := validateState(value, scope, session); err != nil {
+		return state{}, err
 	}
 	return value, nil
+}
+
+func validateState(value state, scope, session string) error {
+	if value.Version != Version || value.Scope != scope || value.SessionDigest != digestString(session) || value.SnapshotLines < 0 || value.SnapshotLines > MaxSnapshotLines || value.AnchorSize < 0 || value.AnchorSize > AnchorLines || value.Offset < 0 || value.Offset > MaxSnapshotLines || value.SnapshotDigest != snapshotDigest(nil) && len(value.SnapshotDigest) != sha256.Size*2 || value.AnchorDigest != snapshotDigest(nil) && len(value.AnchorDigest) != sha256.Size*2 {
+		return fmt.Errorf("invalid tail cursor")
+	}
+	if _, err := hex.DecodeString(value.SnapshotDigest); err != nil {
+		return fmt.Errorf("invalid tail cursor")
+	}
+	if _, err := hex.DecodeString(value.AnchorDigest); err != nil {
+		return fmt.Errorf("invalid tail cursor")
+	}
+	return nil
+}
+
+func isCompact(raw string) bool {
+	if len(raw) != CompactCursorLen {
+		return false
+	}
+	for i := range raw {
+		if !strings.ContainsRune(compactAlphabet, rune(raw[i])) {
+			return false
+		}
+	}
+	return true
+}
+
+func compactToken(data []byte, salt byte) string {
+	hash := sha256.New()
+	_, _ = hash.Write([]byte{salt})
+	_, _ = hash.Write(data)
+	digest := hash.Sum(nil)
+	value := uint64(0)
+	for _, b := range digest[:8] {
+		value = value<<8 | uint64(b)
+	}
+	encoded := make([]byte, CompactCursorLen)
+	for i := len(encoded) - 1; i >= 0; i-- {
+		encoded[i] = compactAlphabet[value%uint64(len(compactAlphabet))]
+		value /= uint64(len(compactAlphabet))
+	}
+	return string(encoded)
 }
 
 func digestString(value string) string {

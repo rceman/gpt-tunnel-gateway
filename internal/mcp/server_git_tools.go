@@ -30,7 +30,7 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 		e = s.Service.Git.Refresh(ctx, p)
 		return map[string]any{"project_id": id, "refreshed": e == nil}, e
 	})
-	add("git_refs", "List bounded local, remote, and tag refs with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "limit": collectionLimit, "cursor": str("Opaque continuation cursor")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("git_refs", "List bounded local, remote, and tag refs with deterministic continuation. New next_cursor values are compact server-owned tokens of at most 8 safe characters; legacy cursors remain input-compatible.", obj(map[string]any{"project_id": str("Project identifier"), "limit": collectionLimit, "cursor": str("Server-owned continuation cursor; new values are <=8 safe characters and legacy values are accepted")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var args struct {
 			ProjectID string `json:"project_id"`
 			Limit     int    `json:"limit,omitempty"`
@@ -52,7 +52,7 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 	})
 	logLimit := integer("Maximum commits", 1, service.MaxPublicCollectionLimit)
 	logLimit["default"] = service.DefaultPublicCollectionLimit
-	add("git_log", "Read bounded commit history at a revision with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref"), "limit": logLimit, "cursor": str("Opaque continuation cursor")}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("git_log", "Read bounded commit history at a revision with deterministic continuation. New next_cursor values are compact server-owned tokens of at most 8 safe characters; legacy cursors remain input-compatible.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref"), "limit": logLimit, "cursor": str("Server-owned continuation cursor; new values are <=8 safe characters and legacy values are accepted")}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var args struct {
 			ProjectID string `json:"project_id"`
 			Revision  string `json:"revision"`
@@ -85,7 +85,7 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 		v, e := s.Service.Git.Show(ctx, p, rev)
 		return map[string]any{"text": v}, e
 	})
-	add("git_tree", "List bounded files at a revision with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref"), "path": str("Optional relative path"), "limit": collectionLimit, "cursor": str("Opaque continuation cursor")}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("git_tree", "List bounded files at a revision with deterministic continuation. New next_cursor values are compact server-owned tokens of at most 8 safe characters; legacy cursors remain input-compatible.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref"), "path": str("Optional relative path"), "limit": collectionLimit, "cursor": str("Server-owned continuation cursor; new values are <=8 safe characters and legacy values are accepted")}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var args struct {
 			ProjectID string `json:"project_id"`
 			Revision  string `json:"revision"`

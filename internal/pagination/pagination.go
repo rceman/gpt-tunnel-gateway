@@ -1,10 +1,15 @@
 package pagination
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 )
+
+const CompactCursorLength = 8
+
+const compactAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
 
 const (
 	DefaultLimit = 20
@@ -39,30 +44,95 @@ func Limit(requested, configured int) (int, error) {
 }
 
 func Encode(kind, key string) string {
-	data, _ := json.Marshal(cursor{
-		Kind: kind,
-		Key:  key,
-	})
-	return base64.RawURLEncoding.EncodeToString(data)
+	return compactEncode(kind, key)
+}
+
+func compactEncode(kind, key string) string {
+	digest := sha256.Sum256([]byte(kind + "\x00" + key))
+	value := uint64(0)
+	for _, b := range digest[:8] {
+		value = value<<8 | uint64(b)
+	}
+	encoded := make([]byte, CompactCursorLength)
+	for i := len(encoded) - 1; i >= 0; i-- {
+		encoded[i] = compactAlphabet[value%uint64(len(compactAlphabet))]
+		value /= uint64(len(compactAlphabet))
+	}
+	return string(encoded)
+}
+
+func Resolve(value, kind string, keys []string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	if len(value) == CompactCursorLength && isCompact(value) {
+		match := ""
+		for _, key := range keys {
+			if compactEncode(kind, key) != value {
+				continue
+			}
+			if match != "" {
+				return "", fmt.Errorf("invalid continuation cursor")
+			}
+			match = key
+		}
+		if match == "" {
+			return "", fmt.Errorf("continuation cursor is no longer valid")
+		}
+		return match, nil
+	}
+	return Decode(value, kind)
+}
+
+func isCompact(value string) bool {
+	if len(value) != CompactCursorLength {
+		return false
+	}
+	for _, char := range value {
+		if !containsByte(compactAlphabet, byte(char)) {
+			return false
+		}
+	}
+	return true
+}
+
+func containsByte(value string, wanted byte) bool {
+	for i := 0; i < len(value); i++ {
+		if value[i] == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func decodeLegacy(value, kind string) (string, error) {
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return "", fmt.Errorf("invalid continuation cursor")
+	}
+	var c cursor
+	if err := json.Unmarshal(decoded, &c); err != nil || c.Kind != kind || c.Key == "" {
+		return "", fmt.Errorf("invalid continuation cursor")
+	}
+	return c.Key, nil
 }
 
 func Decode(value, kind string) (string, error) {
 	if value == "" {
 		return "", nil
 	}
-	data, err := base64.RawURLEncoding.DecodeString(value)
-	if err != nil {
-		return "", fmt.Errorf("invalid continuation cursor")
+	if isCompact(value) {
+		return "", fmt.Errorf("compact cursor requires a scoped page")
 	}
-	var c cursor
-	if err := json.Unmarshal(data, &c); err != nil || c.Kind != kind || c.Key == "" {
-		return "", fmt.Errorf("invalid continuation cursor")
-	}
-	return c.Key, nil
+	return decodeLegacy(value, kind)
 }
 
 func Page[T any](kind string, items []T, limit int, rawCursor string, key func(T) string) ([]T, PageInfo, error) {
-	after, err := Decode(rawCursor, kind)
+	keys := make([]string, 0, len(items))
+	for _, item := range items {
+		keys = append(keys, key(item))
+	}
+	after, err := Resolve(rawCursor, kind, keys)
 	if err != nil {
 		return nil, PageInfo{}, err
 	}

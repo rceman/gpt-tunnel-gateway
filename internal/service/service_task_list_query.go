@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
 
 type taskListCandidate struct {
@@ -54,15 +55,6 @@ func (s *Service) taskListQuery(ctx context.Context, in TaskListInput, unbounded
 			return TaskListResult{}, err
 		}
 	}
-	var cursor *taskListCursor
-	if !unbounded && in.Cursor != "" {
-		decoded, err := decodeTaskListCursor(in.Cursor)
-		if err != nil {
-			return TaskListResult{}, err
-		}
-		cursor = &decoded
-	}
-
 	paths, err := s.Hub.List(ctx, s.projectPrefix(in.ProjectID)+"/tasks", ".json")
 	if err != nil {
 		return TaskListResult{}, err
@@ -97,10 +89,18 @@ func (s *Service) taskListQuery(ctx context.Context, in TaskListInput, unbounded
 		}
 		return candidates[i].task.CreatedAt.After(candidates[j].task.CreatedAt)
 	})
-	if cursor != nil {
+	if !unbounded && in.Cursor != "" {
+		keys := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			keys = append(keys, taskCursorKey(candidate.task))
+		}
+		after, err := resolveTaskListCursor(in.Cursor, taskListCursorKind(in), keys)
+		if err != nil {
+			return TaskListResult{}, err
+		}
 		filtered := candidates[:0]
 		for _, candidate := range candidates {
-			if taskAfterCursor(candidate.task, *cursor) {
+			if taskCursorKey(candidate.task) < after {
 				filtered = append(filtered, candidate)
 			}
 		}
@@ -147,10 +147,7 @@ func (s *Service) taskListQuery(ctx context.Context, in TaskListInput, unbounded
 		HasMore: hasMore,
 	}
 	if hasMore {
-		result.NextCursor = encodeTaskListCursor(taskListCursor{
-			CreatedAt: items[len(items)-1].Task.CreatedAt,
-			TaskID:    items[len(items)-1].Task.ID,
-		})
+		result.NextCursor = pagination.Encode(taskListCursorKind(in), taskCursorKey(items[len(items)-1].Task))
 	}
 	return result, nil
 }
@@ -192,6 +189,25 @@ func taskMatchesQuery(task model.Task, state model.TaskState, query string) bool
 
 func taskAfterCursor(task model.Task, cursor taskListCursor) bool {
 	return task.CreatedAt.Before(cursor.CreatedAt) || (task.CreatedAt.Equal(cursor.CreatedAt) && task.ID < cursor.TaskID)
+}
+
+func taskCursorKey(task model.Task) string {
+	return task.CreatedAt.UTC().Format(time.RFC3339Nano) + "|" + task.ID
+}
+
+func taskListCursorKind(in TaskListInput) string {
+	return "task_list:" + in.ProjectID + "|" + strings.TrimSpace(in.Status) + "|" + strings.TrimSpace(in.Query)
+}
+
+func resolveTaskListCursor(value, kind string, keys []string) (string, error) {
+	if len(value) <= pagination.CompactCursorLength {
+		return pagination.Resolve(value, kind, keys)
+	}
+	legacy, err := decodeTaskListCursor(value)
+	if err != nil {
+		return "", err
+	}
+	return taskCursorKey(model.Task{ID: legacy.TaskID, CreatedAt: legacy.CreatedAt}), nil
 }
 
 func encodeTaskListCursor(cursor taskListCursor) string {

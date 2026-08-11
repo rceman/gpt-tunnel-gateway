@@ -25,7 +25,7 @@ func (s *Server) addCoreTools(add toolAdder) {
 	})
 	limit := integer("Maximum projects", 1, service.MaxPublicCollectionLimit)
 	limit["default"] = service.DefaultPublicCollectionLimit
-	add("project_list", "List bounded durable hub projects with deterministic continuation.", obj(map[string]any{"limit": limit, "cursor": str("Opaque continuation cursor")}), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("project_list", "List bounded durable hub projects with deterministic continuation. New next_cursor values are compact server-owned tokens of at most 8 safe characters; legacy cursors remain input-compatible.", obj(map[string]any{"limit": limit, "cursor": str("Server-owned continuation cursor; new values are <=8 safe characters and legacy values are accepted")}), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.CollectionPageInput
 		if e := decode(raw, &in); e != nil {
 			return nil, e

@@ -10,7 +10,7 @@ import (
 func (s *Server) addRunTools(add toolAdder) {
 	limit := integer("Maximum runs", 1, service.MaxPublicCollectionLimit)
 	limit["default"] = service.DefaultPublicCollectionLimit
-	add("run_list", "List bounded project runs with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "limit": limit, "cursor": str("Opaque continuation cursor")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("run_list", "List bounded project runs with deterministic continuation. New next_cursor values are compact server-owned tokens of at most 8 safe characters; legacy cursors remain input-compatible.", obj(map[string]any{"project_id": str("Project identifier"), "limit": limit, "cursor": str("Server-owned continuation cursor; new values are <=8 safe characters and legacy values are accepted")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var args struct {
 			ProjectID string `json:"project_id"`
 			Limit     int    `json:"limit,omitempty"`
@@ -62,7 +62,7 @@ func (s *Server) addRunTools(add toolAdder) {
 		}
 		return s.Service.RunReviewSnapshot(ctx, id)
 	})
-	cursor := str("Opaque continuation cursor from a prior tail response")
+	cursor := str("Server-owned tail cursor; new values are <=8 safe characters and legacy values are accepted")
 	cursor["maxLength"] = 4096
 	add("run_agent_tail", "Read a bounded incremental tail of the current run's Airelay session.", obj(map[string]any{"run_id": str("Run identifier"), "lines": integer("Number of lines", 1, 200), "cursor": cursor}, "run_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "run_id")
@@ -128,7 +128,7 @@ func (s *Server) addRunTools(add toolAdder) {
 }
 
 func agentTailInputSchema(legacySkip bool) map[string]any {
-	cursor := str("Opaque continuation cursor from a prior tail response")
+	cursor := str("Server-owned tail cursor; new values are <=8 safe characters and legacy values are accepted")
 	cursor["maxLength"] = 4096
 	properties := map[string]any{
 		"project_id": str("Registered project identifier"),
