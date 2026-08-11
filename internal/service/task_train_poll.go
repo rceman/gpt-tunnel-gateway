@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
@@ -119,5 +121,61 @@ func (s *Service) taskTrainTail(ctx context.Context, status TaskTrainStatus, cur
 		return status, nil
 	}
 	status.Tail, status.NextCursor, status.HasMore = tail.Text, tail.NextCursor, tail.HasMore
+	return s.superviseTaskTrainRun(ctx, status, run)
+}
+
+const taskTrainStallReprompt = "Execution stall detected. Re-read the durable task packet and run state, then continue the existing scope toward verification and finalization."
+
+func (s *Service) superviseTaskTrainRun(ctx context.Context, status TaskTrainStatus, run model.Run) (TaskTrainStatus, error) {
+	events, err := s.readOperationalEvents(run.ID)
+	if err != nil {
+		return status, err
+	}
+	observation := inspectCompaction(run, status.Tail, events)
+	if observation.Detected && latestEvent(events, model.EventResumeSent, observation.EventID) == nil && !hasExplicitQuestion(status.Tail) {
+		if _, resumeErr := s.RunResume(ctx, run.ID); resumeErr != nil {
+			status.WaitReason = "compaction_resume_failed"
+			return status, nil
+		}
+		status.AgentState = model.AgentStateCompactedResuming
+		status.WaitReason = "compaction_resume_sent"
+		return status, nil
+	}
+	if !taskTrainExplicitStall(status.AgentState, status.Tail, observation, events) || hasExplicitQuestion(status.Tail) {
+		return status, nil
+	}
+	if run.RepromptCount > 0 {
+		status.WaitReason = "execution_stall_reprompt_already_sent"
+		return status, nil
+	}
+	if len(taskTrainStallReprompt) > s.Airelay.MaxMessageBytes {
+		return status, fmt.Errorf("task train stall reprompt exceeds bound")
+	}
+	now := time.Now().UTC()
+	run.RepromptCount = 1
+	run.LastRepromptAt = &now
+	expected, err := s.hubRevision(ctx)
+	if err != nil {
+		return status, err
+	}
+	if _, err := s.updateRun(ctx, run, expected, "watcher: reserve task train stall reprompt "+run.ID); err != nil {
+		return status, err
+	}
+	receipt, sendErr := s.AgentSend(ctx, run.ProjectID, taskTrainStallReprompt)
+	if sendErr != nil || !receipt.Delivered {
+		status.WaitReason = "execution_stall_reprompt_failed"
+		return status, nil
+	}
+	status.WaitReason = "execution_stall_reprompt_sent"
 	return status, nil
+}
+
+func taskTrainExplicitStall(state, tail string, observation compactionObservation, events []model.RunOperationalEvent) bool {
+	if state == model.AgentStateStalled || strings.Contains(strings.ToLower(tail), "execution stalled") || strings.Contains(strings.ToLower(tail), "execution stall") {
+		return true
+	}
+	if !observation.Detected {
+		return false
+	}
+	return latestEvent(events, model.EventStalledAfterCompaction, observation.EventID) != nil
 }

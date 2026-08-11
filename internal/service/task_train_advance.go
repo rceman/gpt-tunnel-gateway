@@ -34,7 +34,8 @@ func (s *Service) updateTaskTrain(ctx context.Context, next model.TaskTrain, exp
 		statusChanged := current.Status != next.Status
 		allowedStatusChange := current.Status == model.TaskTrainActive && (next.Status == model.TaskTrainWaitingDelivery || next.Status == model.TaskTrainBlocked || next.Status == model.TaskTrainCompleted)
 		allowedStatusChange = allowedStatusChange || current.Status == model.TaskTrainWaitingDelivery && next.Status == model.TaskTrainActive
-		if current.CurrentIndex != next.CurrentIndex || current.CurrentTaskID != next.CurrentTaskID || current.CurrentRunID != next.CurrentRunID && next.CurrentRunID != "" && current.CurrentRunID != "" || statusChanged && !allowedStatusChange {
+		completionAdvance := next.Status == model.TaskTrainCompleted && current.Status == model.TaskTrainActive && next.CurrentIndex == current.CurrentIndex+1 && next.CurrentIndex == len(next.TaskIDs) && current.CurrentTaskID == next.CurrentTaskID
+		if (current.CurrentIndex != next.CurrentIndex || current.CurrentTaskID != next.CurrentTaskID) && !completionAdvance || current.CurrentRunID != next.CurrentRunID && next.CurrentRunID != "" && current.CurrentRunID != "" || statusChanged && !allowedStatusChange {
 			return nil, fmt.Errorf("task train changed concurrently")
 		}
 		if err := hub.WriteJSON(worktree, s.taskTrainPath(next.ProjectID), next); err != nil {
