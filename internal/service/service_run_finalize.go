@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
+	"github.com/rceman/gpt-tunnel-gateway/internal/gates"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -99,7 +100,7 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 		return model.Report{}, OperationResult{}, err
 	}
 	defer projectLock.Release()
-	gateResults, err := s.executeProjectGatesWithTestReuse(ctx, run.ProjectID, local.Root, expectedGates)
+	gateResults, err := s.executeProjectGatesWithTestReuse(ctx, run.ProjectID, local.Root, expectedGates, gates.FullTestScope())
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}

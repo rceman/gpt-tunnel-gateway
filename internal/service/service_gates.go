@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/gates"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -35,6 +36,26 @@ func (s *Service) executeGateNames(ctx context.Context, root string, names []str
 		return nil, fmt.Errorf("project gate executor is not configured")
 	}
 	results, err := s.gateExecutor(ctx, root, names)
+	if err != nil {
+		return results, err
+	}
+	for i := range results {
+		if i >= len(names) || results[i].ID != names[i] {
+			return nil, fmt.Errorf("gate executor returned unexpected evidence")
+		}
+	}
+	return results, nil
+}
+
+func (s *Service) executeGateNamesWithScope(ctx context.Context, root string, names []string, scope gates.TestScope) ([]model.CompletionGateResult, error) {
+	normalized, err := scope.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	if normalized.Mode == gates.TestScopeFull || s.gateExecutorWithScope == nil {
+		return s.executeGateNames(ctx, root, names)
+	}
+	results, err := s.gateExecutorWithScope(ctx, root, names, normalized)
 	if err != nil {
 		return results, err
 	}

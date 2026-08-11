@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
@@ -16,7 +17,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-const testPassReceiptSchemaVersion = 1
+const testPassReceiptSchemaVersion = 2
 
 type testPassReceipt struct {
 	SchemaVersion  int       `json:"schema_version"`
@@ -24,6 +25,9 @@ type testPassReceipt struct {
 	TreeID         string    `json:"tree_id"`
 	Head           string    `json:"head"`
 	GateNames      []string  `json:"gate_names"`
+	ScopeMode      string    `json:"scope_mode"`
+	ScopePackages  []string  `json:"scope_packages,omitempty"`
+	RunnerContract string    `json:"runner_contract_version"`
 	ContractDigest string    `json:"contract_digest"`
 	RecordedAt     time.Time `json:"recorded_at"`
 }
@@ -50,6 +54,17 @@ func (s *Service) projectIDForRoot(root string) (string, error) {
 	return projectID, nil
 }
 
+func normalizeReceiptScope(mode string, packages []string) (gates.TestScope, error) {
+	scope, err := (gates.TestScope{Mode: mode, Packages: packages}).Normalize()
+	if err != nil {
+		return gates.TestScope{}, err
+	}
+	if scope.Mode == gates.TestScopeFull && len(packages) > 0 {
+		return gates.TestScope{}, fmt.Errorf("full test receipt cannot contain package targets")
+	}
+	return scope, nil
+}
+
 func validateTestPassReceipt(receipt testPassReceipt) error {
 	if receipt.SchemaVersion != testPassReceiptSchemaVersion || model.ValidateProjectIdentifier(receipt.ProjectID) != nil || model.ValidateRevision(receipt.TreeID) != nil || model.ValidateRevision(receipt.Head) != nil || receipt.RecordedAt.IsZero() {
 		return fmt.Errorf("invalid test pass receipt identity")
@@ -64,15 +79,23 @@ func validateTestPassReceipt(receipt testPassReceipt) error {
 		}
 		seen[name] = true
 	}
-	if !seen[model.WorkflowGateTest] || len(receipt.ContractDigest) != sha256.Size*2 {
+	if !seen[model.WorkflowGateTest] || receipt.RunnerContract != gates.TestGateRunnerContractVersion || len(receipt.ContractDigest) != sha256.Size*2 {
 		return fmt.Errorf("invalid test pass receipt contract")
 	}
 	if _, err := hex.DecodeString(receipt.ContractDigest); err != nil {
 		return fmt.Errorf("invalid test pass receipt contract")
 	}
-	digest, err := gates.TestGateContractDigest(receipt.GateNames)
+	scope, err := normalizeReceiptScope(receipt.ScopeMode, receipt.ScopePackages)
+	if err != nil {
+		return fmt.Errorf("invalid test pass receipt scope: %w", err)
+	}
+	digest, err := gates.TestGateCommandContractDigest(receipt.GateNames, scope)
 	if err != nil || digest != receipt.ContractDigest {
 		return fmt.Errorf("test pass receipt contract mismatch")
+	}
+	normalizedGates, err := gates.Resolve(receipt.GateNames)
+	if err != nil || !reflect.DeepEqual(normalizedGates, receipt.GateNames) {
+		return fmt.Errorf("invalid test pass receipt gate names")
 	}
 	return nil
 }
@@ -131,12 +154,20 @@ func (s *Service) currentTestIdentity(ctx context.Context, projectID, root strin
 	return tree, status.Head, nil
 }
 
-func (s *Service) writeTestPassReceiptLocked(ctx context.Context, projectID, root string, gateNames []string) (testPassReceipt, string, error) {
+func (s *Service) writeTestPassReceiptLocked(ctx context.Context, projectID, root string, gateNames []string, scope gates.TestScope) (testPassReceipt, string, error) {
 	tree, head, err := s.currentTestIdentity(ctx, projectID, root)
 	if err != nil {
 		return testPassReceipt{}, "", err
 	}
-	contract, err := gates.TestGateContractDigest(gateNames)
+	normalizedScope, err := scope.Normalize()
+	if err != nil {
+		return testPassReceipt{}, "", err
+	}
+	normalizedGates, err := gates.Resolve(gateNames)
+	if err != nil {
+		return testPassReceipt{}, "", err
+	}
+	contract, err := gates.TestGateCommandContractDigest(normalizedGates, normalizedScope)
 	if err != nil {
 		return testPassReceipt{}, "", err
 	}
@@ -145,9 +176,12 @@ func (s *Service) writeTestPassReceiptLocked(ctx context.Context, projectID, roo
 		ProjectID:      projectID,
 		TreeID:         tree,
 		Head:           head,
-		GateNames:      append([]string{}, gateNames...),
+		GateNames:      append([]string{}, normalizedGates...),
+		ScopeMode:      normalizedScope.Mode,
+		ScopePackages:  append([]string{}, normalizedScope.Packages...),
+		RunnerContract: gates.TestGateRunnerContractVersion,
 		ContractDigest: contract,
-		RecordedAt:     time.Now().UTC(),
+		RecordedAt:     s.durableNow(),
 	}
 	path, err := s.testPassReceiptPath(projectID)
 	if err != nil {
@@ -171,17 +205,18 @@ func (s *Service) invalidateTestPassReceipt(projectID string) error {
 	return nil
 }
 
-func (s *Service) executeProjectGatesWithTestReuse(ctx context.Context, projectID, root string, gateNames []string) ([]model.CompletionGateResult, error) {
+func (s *Service) executeProjectGatesWithTestReuse(ctx context.Context, projectID, root string, gateNames []string, scope gates.TestScope) ([]model.CompletionGateResult, error) {
 	if !containsGate(gateNames, model.WorkflowGateTest) {
 		results, err := s.executeGateNames(ctx, root, gateNames)
 		return annotateExecutedGateResults(results), err
 	}
+	normalizedScope, scopeErr := scope.Normalize()
 	tree, _, identityErr := s.currentTestIdentity(ctx, projectID, root)
-	contract, contractErr := gates.TestGateContractDigest(gateNames)
+	contract, contractErr := gates.TestGateCommandContractDigest(gateNames, normalizedScope)
 	var reused model.CompletionGateResult
 	reusable := false
-	if identityErr == nil && contractErr == nil {
-		if receipt, receiptDigest, err := s.loadTestPassReceipt(projectID); err == nil && receipt.ProjectID == projectID && receipt.TreeID == tree && receipt.ContractDigest == contract {
+	if identityErr == nil && scopeErr == nil && contractErr == nil {
+		if receipt, receiptDigest, err := s.loadTestPassReceipt(projectID); err == nil && receipt.ProjectID == projectID && receipt.TreeID == tree && receipt.ScopeMode == normalizedScope.Mode && reflect.DeepEqual(receipt.ScopePackages, normalizedScope.Packages) && receipt.ContractDigest == contract {
 			reused = model.CompletionGateResult{ID: model.WorkflowGateTest, ExitCode: 0, Execution: "reused", TreeID: receipt.TreeID, ContractDigest: receipt.ContractDigest, ReceiptDigest: receiptDigest}
 			reusable = true
 		}
@@ -190,12 +225,12 @@ func (s *Service) executeProjectGatesWithTestReuse(ctx context.Context, projectI
 		if err := s.invalidateTestPassReceipt(projectID); err != nil {
 			return nil, err
 		}
-		results, err := s.executeGateNames(ctx, root, gateNames)
+		results, err := s.executeGateNamesWithScope(ctx, root, gateNames, normalizedScope)
 		if err != nil {
 			return results, err
 		}
 		results = annotateExecutedGateResults(results)
-		if receipt, receiptDigest, err := s.writeTestPassReceiptLocked(ctx, projectID, root, gateNames); err == nil {
+		if receipt, receiptDigest, err := s.writeTestPassReceiptLocked(ctx, projectID, root, gateNames, normalizedScope); err == nil {
 			for i := range results {
 				if results[i].ID == model.WorkflowGateTest {
 					results[i].TreeID = receipt.TreeID
@@ -277,6 +312,6 @@ func (s *Service) ExecuteCanonicalTestGate(ctx context.Context, root string) err
 	if _, err := s.executeGateNames(ctx, root, []string{model.WorkflowGateTest}); err != nil {
 		return err
 	}
-	_, _, _ = s.writeTestPassReceiptLocked(ctx, projectID, root, gateNames)
+	_, _, _ = s.writeTestPassReceiptLocked(ctx, projectID, root, gateNames, gates.FullTestScope())
 	return nil
 }

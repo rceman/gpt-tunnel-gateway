@@ -19,7 +19,7 @@ const maxGateOutputBytes = 64 << 10
 
 const gateOutputTruncationMarker = "[gate output truncated; showing final output bytes]\n"
 
-const TestGateRunnerContractVersion = "gpt-tunnel-test-gate/v1"
+const TestGateRunnerContractVersion = "gpt-tunnel-test-gate/v2"
 
 type TokenFile = tokenizer.FileCount
 type TokenReport = tokenizer.Report
