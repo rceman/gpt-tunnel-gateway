@@ -195,9 +195,7 @@ func TestWatcherEndToEndLifecycleUsesOneGuideAndNoCron(t *testing.T) {
 func createSecondWatcherRun(t *testing.T, s *Service) (model.Task, model.Run) {
 	t.Helper()
 	ctx := context.Background()
-	projectConfig := s.Config.Projects["example"]
-	projectConfig.AirelaySessionKey = "example_second_master"
-	s.Config.Projects["example"] = projectConfig
+	s.Config.AgentBindings[config.ProjectAgentBindingKey("example", "coder-example")] = config.AgentBinding{SessionKey: "example_second_master"}
 	revision, err := s.Hub.RemoteRevision(ctx)
 	if err != nil {
 		t.Fatal(err)

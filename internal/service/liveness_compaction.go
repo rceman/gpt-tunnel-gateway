@@ -136,15 +136,20 @@ func (s *Service) latestProgress(ctx context.Context, projectID string) (progres
 				evidence.Completion = true
 			}
 		}
-		status, statusErr := s.Airelay.Status(ctx, local.AirelaySessionKey)
+		session := evidence.ActiveRun.SessionKey
+		status, statusErr := s.Airelay.Status(ctx, session)
 		evidence.Status, evidence.StatusError = status, statusErr
-		tail, tailErr := s.Airelay.Tail(ctx, local.AirelaySessionKey, progressTailLines)
+		tail, tailErr := s.Airelay.Tail(ctx, session, progressTailLines)
 		evidence.Tail, evidence.TailError = tail.Stdout, tailErr
 		evidence.Compaction = inspectCompaction(*evidence.ActiveRun, evidence.Tail, evidence.Events)
 	} else {
-		status, statusErr := s.Airelay.Status(ctx, local.AirelaySessionKey)
+		session := local.AirelaySessionKey
+		if resolved, resolveErr := s.resolveAgentSession(ctx, projectID); resolveErr == nil {
+			session = resolved
+		}
+		status, statusErr := s.Airelay.Status(ctx, session)
 		evidence.Status, evidence.StatusError = status, statusErr
-		tail, tailErr := s.Airelay.Tail(ctx, local.AirelaySessionKey, progressTailLines)
+		tail, tailErr := s.Airelay.Tail(ctx, session, progressTailLines)
 		evidence.Tail, evidence.TailError = tail.Stdout, tailErr
 	}
 	return evidence, nil

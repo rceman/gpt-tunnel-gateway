@@ -76,7 +76,27 @@ func testService(t *testing.T) (*Service, string, string) {
 	if adopted.NextTaskNumber != 1 || result.Status != "adopted" {
 		t.Fatalf("unexpected adopted identifiers: %#v %#v", adopted, result)
 	}
-	return s, result.Hub.After, projectHead
+	if err := os.WriteFile(s.Config.AirelayCommand, []byte("#!/bin/sh\ncase \"$1\" in\nsession-status) printf 'Controller: reachable\\nState: idle\\n' ;;\ntail) printf 'idle\\n' ;;\nprompt) exit 0 ;;\n*) exit 0 ;;\nesac\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s.Config.AgentBindings[config.ProjectAgentBindingKey("example", "coder-example")] = config.AgentBinding{SessionKey: "example_master"}
+	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
+	now := time.Now().UTC()
+	coder, registered, err := s.AgentRegister(ctx, AgentRegisterInput{
+		Agent:        model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coder-example", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now},
+		WriteOptions: WriteOptions{ExpectedHubRevision: result.Hub.After},
+	})
+	if err != nil || coder.AgentID != "coder-example" {
+		t.Fatalf("register test coding agent: %#v err=%v", coder, err)
+	}
+	watcher, registered, err := s.AgentRegister(ctx, AgentRegisterInput{
+		Agent:        model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "watcher-example", Role: model.AgentRoleWatcher, Enabled: true, RecommendedReasoning: model.ReasoningBestAvailable, CreatedAt: now, UpdatedAt: now},
+		WriteOptions: WriteOptions{ExpectedHubRevision: registered.Hub.After},
+	})
+	if err != nil || watcher.AgentID != "watcher-example" {
+		t.Fatalf("register test watcher agent: %#v err=%v", watcher, err)
+	}
+	return s, registered.Hub.After, projectHead
 }
 
 func dispatchedRun(t *testing.T, branch string) (*Service, model.Task, model.Run, string) {

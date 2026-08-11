@@ -1,7 +1,10 @@
 package service
 
 import (
+	"context"
 	"fmt"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 // WatcherAgentBinding is the resolved host-local binding for the portable
@@ -21,16 +24,13 @@ func (s *Service) resolveWatcherBinding(projectID string) (WatcherAgentBinding, 
 	if settings.AgentID == "" {
 		return WatcherAgentBinding{}, fmt.Errorf("watcher agent is not configured for project %q", projectID)
 	}
-	binding, ok := s.Config.ResolveAgentBinding(projectID, settings.AgentID)
-	if !ok {
-		return WatcherAgentBinding{}, fmt.Errorf("watcher agent %q has no host-local binding", settings.AgentID)
-	}
-	if err := binding.Validate(); err != nil {
-		return WatcherAgentBinding{}, fmt.Errorf("watcher agent %q binding is invalid: %w", settings.AgentID, err)
+	resolved, err := s.ResolveAgent(context.Background(), AgentResolveInput{ProjectID: projectID, Role: model.AgentRoleWatcher, AgentID: settings.AgentID, RequireUsable: false})
+	if err != nil {
+		return WatcherAgentBinding{}, err
 	}
 	return WatcherAgentBinding{
-		AgentID:    settings.AgentID,
-		SessionKey: binding.SessionKey,
-		Profile:    binding.Profile,
+		AgentID:    resolved.AgentID,
+		SessionKey: resolved.SessionKey,
+		Profile:    resolved.Profile,
 	}, nil
 }

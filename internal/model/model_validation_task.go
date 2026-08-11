@@ -129,6 +129,18 @@ func ValidateRun(v Run) error {
 			return fmt.Errorf("invalid lane_branch: %w", err)
 		}
 	}
+	if v.AgentID != "" && ValidateObjectIdentifier(v.AgentID) != nil {
+		return fmt.Errorf("invalid run agent_id")
+	}
+	if v.RequestedReasoning != "" && !validReasoningTier(v.RequestedReasoning) {
+		return fmt.Errorf("invalid run requested reasoning")
+	}
+	if v.ResolvedReasoning != "" && !validReasoningTier(v.ResolvedReasoning) {
+		return fmt.Errorf("invalid run resolved reasoning")
+	}
+	if v.AgentFallback && strings.TrimSpace(v.AgentFallbackReason) == "" {
+		return fmt.Errorf("agent fallback requires a reason")
+	}
 	if !sha256RE(v.TaskSHA256) {
 		return fmt.Errorf("invalid task hash")
 	}

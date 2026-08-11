@@ -52,6 +52,7 @@ func runOutputSchema() map[string]any {
 		"schema_version": outputInteger(), "id": outputString(), "task_id": outputString(), "task_sha256": outputString(),
 		"task_revision": outputInteger(), "task_revision_sha256": outputString(), "task_run_number": outputInteger(),
 		"project_id": outputString(), "gateway_id": outputString(), "branch": outputString(), "train_id": outputString(), "lane_branch": outputString(),
+		"agent_id": outputString(), "requested_reasoning": outputString(), "resolved_reasoning": outputString(), "agent_fallback": outputBoolean(), "agent_fallback_reason": outputString(),
 		"base_revision": outputString(), "hub_revision": outputString(), "status": outputString(),
 		"dispatch_message": outputString(), "dispatch_exit_code": outputInteger(), "dispatch_stdout": outputString(), "dispatch_stderr": outputString(),
 		"created_at": outputDateTime(), "dispatched_at": outputDateTime(),

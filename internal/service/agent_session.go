@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/tailcursor"
 )
 
@@ -74,6 +75,13 @@ func (s *Service) resolveAgentSession(ctx context.Context, projectID string) (st
 	}
 	if project.ID != projectID || project.Status != "active" {
 		return "", fmt.Errorf("project %q is not active", projectID)
+	}
+	if agents, listErr := s.AgentList(ctx, projectID); listErr == nil && len(agents) > 0 {
+		resolved, resolveErr := s.ResolveAgent(ctx, AgentResolveInput{ProjectID: projectID, Role: model.AgentRoleCoding, RequireUsable: false})
+		if resolveErr != nil {
+			return "", resolveErr
+		}
+		return resolved.SessionKey, nil
 	}
 	return local.AirelaySessionKey, nil
 }

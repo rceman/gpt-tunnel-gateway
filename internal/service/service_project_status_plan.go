@@ -21,6 +21,10 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	}
 	componentCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
+	agentSession := local.AirelaySessionKey
+	if resolved, resolveErr := s.resolveAgentSession(componentCtx, id); resolveErr == nil {
+		agentSession = resolved
+	}
 	var (
 		p                    = model.Project{SchemaVersion: model.SchemaVersion, ID: id, DefaultBranch: local.DefaultBranch, Status: "unknown"}
 		projectErr           error
@@ -75,11 +79,11 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	}()
 	go func() {
 		defer wg.Done()
-		agentStatus, agentStatusErr = s.Airelay.Status(componentCtx, local.AirelaySessionKey)
+		agentStatus, agentStatusErr = s.Airelay.Status(componentCtx, agentSession)
 	}()
 	go func() {
 		defer wg.Done()
-		agentTail, agentTailErr = s.Airelay.Tail(componentCtx, local.AirelaySessionKey, progressTailLines)
+		agentTail, agentTailErr = s.Airelay.Tail(componentCtx, agentSession, progressTailLines)
 	}()
 	go func() {
 		defer wg.Done()

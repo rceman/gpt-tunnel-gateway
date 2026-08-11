@@ -44,7 +44,7 @@ func (s *Service) resumeRunLocked(ctx context.Context, run model.Run, task model
 	if wt.Branch != task.Branch || worktreeHasConflict(wt.Porcelain) {
 		return RunResumeResult{}, fmt.Errorf("resume requires the declared task branch and a non-conflicted worktree")
 	}
-	status, statusErr := s.Airelay.Status(ctx, local.AirelaySessionKey)
+	status, statusErr := s.Airelay.Status(ctx, run.SessionKey)
 	if statusErr != nil && !status.ControllerReachable {
 		return RunResumeResult{
 			RunID:               run.ID,
@@ -65,7 +65,7 @@ func (s *Service) resumeRunLocked(ctx context.Context, run model.Run, task model
 	if err != nil {
 		return RunResumeResult{}, err
 	}
-	tail, tailErr := s.Airelay.Tail(ctx, local.AirelaySessionKey, progressTailLines)
+	tail, tailErr := s.Airelay.Tail(ctx, run.SessionKey, progressTailLines)
 	if tailErr != nil && strings.TrimSpace(tail.Stdout) == "" {
 		if !hasDurableCompactionEvidence(run, events) {
 			return RunResumeResult{}, fmt.Errorf("unable to observe bounded agent tail")
@@ -128,7 +128,7 @@ func (s *Service) resumeRunLocked(ctx context.Context, run model.Run, task model
 	if err := s.appendOperationalEvent(reservation); err != nil {
 		return RunResumeResult{}, err
 	}
-	result, promptErr := s.Airelay.Prompt(ctx, local.AirelaySessionKey, message)
+	result, promptErr := s.Airelay.Prompt(ctx, run.SessionKey, message)
 	resultState := model.AgentStateCompactedResuming
 	resumeResult := RunResumeResult{
 		RunID:               run.ID,

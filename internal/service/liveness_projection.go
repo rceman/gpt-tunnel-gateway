@@ -31,10 +31,10 @@ func (s *Service) runResume(ctx context.Context, id string, automatic bool) (Run
 	if err != nil {
 		return RunResumeResult{}, err
 	}
-	if local.AirelaySessionKey != run.SessionKey {
-		return RunResumeResult{}, fmt.Errorf("run session does not match configured project session")
+	if run.SessionKey == "" {
+		return RunResumeResult{}, fmt.Errorf("run has no resolved agent session")
 	}
-	lock, err := s.acquireSessionSendLock(local.AirelaySessionKey)
+	lock, err := s.acquireSessionSendLock(run.SessionKey)
 	if err != nil {
 		return RunResumeResult{}, fmt.Errorf("agent session resume is already in progress")
 	}

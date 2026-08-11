@@ -61,13 +61,26 @@ func (s *Service) TaskTrainPoll(ctx context.Context, in TaskTrainPollInput) (Tas
 	}
 	switch state.Status {
 	case "created", "ready":
+		groupIndex, group, hasGroup := taskTrainExecutionGroup(train, task.ID)
 		run, operation, dispatchErr := s.TaskDispatch(ctx, DispatchInput{
-			TaskID:     task.ID,
-			TrainID:    train.TrainID,
-			LaneBranch: train.LaneBranch,
+			TaskID:               task.ID,
+			TrainID:              train.TrainID,
+			LaneBranch:           train.LaneBranch,
+			AgentID:              group.AgentID,
+			RecommendedReasoning: group.RecommendedReasoning,
+			ResolvedReasoning:    group.ResolvedReasoning,
+			AgentFallback:        group.Fallback,
+			AgentFallbackReason:  group.FallbackReason,
 		})
 		if dispatchErr != nil {
 			return status, dispatchErr
+		}
+		if hasGroup && groupIndex >= 0 && train.ExecutionGroups[groupIndex].AgentID == "" {
+			train.ExecutionGroups = append([]model.ExecutionGroup{}, train.ExecutionGroups...)
+			train.ExecutionGroups[groupIndex].AgentID = run.AgentID
+			train.ExecutionGroups[groupIndex].ResolvedReasoning = run.ResolvedReasoning
+			train.ExecutionGroups[groupIndex].Fallback = run.AgentFallback
+			train.ExecutionGroups[groupIndex].FallbackReason = run.AgentFallbackReason
 		}
 		train.CurrentRunID = run.ID
 		if err := s.bindTaskTrainRun(ctx, train, run.ID, operation.Hub.After); err != nil {

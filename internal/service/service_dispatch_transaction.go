@@ -45,7 +45,27 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
-	sessionLock, err := s.acquireSessionSendLock(local.AirelaySessionKey)
+	resolved, err := s.ResolveAgent(ctx, AgentResolveInput{
+		ProjectID:            task.ProjectID,
+		Role:                 model.AgentRoleCoding,
+		AgentID:              in.AgentID,
+		RecommendedReasoning: in.RecommendedReasoning,
+		RequireUsable:        true,
+	})
+	if err != nil {
+		return model.Run{}, OperationResult{}, err
+	}
+	resolvedReasoning := resolved.ResolvedReasoning
+	fallback := resolved.Fallback
+	fallbackReason := resolved.FallbackReason
+	if in.ResolvedReasoning != "" {
+		resolvedReasoning = in.ResolvedReasoning
+	}
+	if in.AgentFallback {
+		fallback = true
+		fallbackReason = in.AgentFallbackReason
+	}
+	sessionLock, err := s.acquireSessionSendLock(resolved.SessionKey)
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
@@ -55,7 +75,7 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 		return model.Run{}, OperationResult{}, err
 	}
 	defer projectLock.Release()
-	if err := s.checkSessionAvailableForRun(ctx, local.AirelaySessionKey, in.TrainID, in.LaneBranch); err != nil {
+	if err := s.checkSessionAvailableForRun(ctx, resolved.SessionKey, in.TrainID, in.LaneBranch); err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
 	executionBase, err := s.dispatchExecutionBase(ctx, task, revision, local)
@@ -75,8 +95,8 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 	if !wt.Clean {
 		return model.Run{}, OperationResult{}, fmt.Errorf("project worktree is dirty")
 	}
-	resolved, err := s.Git.Resolve(ctx, local.Root, executionBase)
-	if err != nil || resolved != executionBase {
+	resolvedBase, err := s.Git.Resolve(ctx, local.Root, executionBase)
+	if err != nil || resolvedBase != executionBase {
 		return model.Run{}, OperationResult{}, fmt.Errorf("execution base unavailable or mismatched")
 	}
 	var counter model.TaskRunCounter
@@ -112,7 +132,7 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 		return model.Run{}, OperationResult{}, err
 	}
 	now := time.Now().UTC()
-	run := model.Run{SchemaVersion: model.SchemaVersion, ID: id, TaskID: task.ID, TaskSHA256: task.SHA256, ProjectID: task.ProjectID, GatewayID: s.Config.GatewayID, SessionKey: local.AirelaySessionKey, Branch: revision.Branch, TrainID: in.TrainID, LaneBranch: in.LaneBranch, BaseRevision: executionBase, Status: "created", CompletionPath: completionPath, CreatedAt: now}
+	run := model.Run{SchemaVersion: model.SchemaVersion, ID: id, TaskID: task.ID, TaskSHA256: task.SHA256, ProjectID: task.ProjectID, GatewayID: s.Config.GatewayID, SessionKey: resolved.SessionKey, AgentID: resolved.AgentID, RequestedReasoning: resolved.RequestedReasoning, ResolvedReasoning: resolvedReasoning, AgentFallback: fallback, AgentFallbackReason: fallbackReason, Branch: revision.Branch, TrainID: in.TrainID, LaneBranch: in.LaneBranch, BaseRevision: executionBase, Status: "created", CompletionPath: completionPath, CreatedAt: now}
 	if revisionAware {
 		run.TaskRevision, run.TaskRevisionSHA256, run.TaskRunNumber = revision.TaskRevision, revision.RevisionSHA256, counter.NextRunNumber
 	}

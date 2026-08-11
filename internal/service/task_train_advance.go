@@ -131,16 +131,29 @@ func (s *Service) advanceTaskTrain(ctx context.Context, train model.TaskTrain, s
 	if err != nil {
 		return status, err
 	}
+	groupIndex, group, _ := taskTrainExecutionGroup(next, task.ID)
 	run, _, err := s.TaskDispatch(ctx, DispatchInput{
-		TaskID:     task.ID,
-		TrainID:    model.CanonicalTaskTrainID(next),
-		LaneBranch: next.LaneBranch,
+		TaskID:               task.ID,
+		TrainID:              model.CanonicalTaskTrainID(next),
+		LaneBranch:           next.LaneBranch,
+		AgentID:              group.AgentID,
+		RecommendedReasoning: group.RecommendedReasoning,
+		ResolvedReasoning:    group.ResolvedReasoning,
+		AgentFallback:        group.Fallback,
+		AgentFallbackReason:  group.FallbackReason,
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: tx.After,
 		},
 	})
 	if err != nil {
 		return status, err
+	}
+	if groupIndex >= 0 && next.ExecutionGroups[groupIndex].AgentID == "" {
+		next.ExecutionGroups = append([]model.ExecutionGroup{}, next.ExecutionGroups...)
+		next.ExecutionGroups[groupIndex].AgentID = run.AgentID
+		next.ExecutionGroups[groupIndex].ResolvedReasoning = run.ResolvedReasoning
+		next.ExecutionGroups[groupIndex].Fallback = run.AgentFallback
+		next.ExecutionGroups[groupIndex].FallbackReason = run.AgentFallbackReason
 	}
 	next.CurrentRunID = run.ID
 	if err := s.bindTaskTrainRun(ctx, next, run.ID, ""); err != nil {

@@ -48,11 +48,7 @@ func (s *Service) observeResumeProgress(ctx context.Context, run model.Run, now 
 	if resume == nil {
 		return nil
 	}
-	local, err := s.projectConfig(run.ProjectID)
-	if err != nil {
-		return err
-	}
-	tail, err := s.Airelay.Tail(ctx, local.AirelaySessionKey, progressTailLines)
+	tail, err := s.Airelay.Tail(ctx, run.SessionKey, progressTailLines)
 	if err != nil && strings.TrimSpace(tail.Stdout) == "" {
 		return nil
 	}

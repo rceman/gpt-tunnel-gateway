@@ -29,6 +29,10 @@ type ExecutionGroup struct {
 	GroupID              string   `json:"group_id"`
 	TaskIDs              []string `json:"task_ids"`
 	RecommendedReasoning string   `json:"recommended_reasoning,omitempty"`
+	AgentID              string   `json:"agent_id,omitempty"`
+	ResolvedReasoning    string   `json:"resolved_reasoning,omitempty"`
+	Fallback             bool     `json:"fallback,omitempty"`
+	FallbackReason       string   `json:"fallback_reason,omitempty"`
 }
 
 type TaskTrainExecutionGroup = ExecutionGroup
@@ -148,6 +152,15 @@ func validateExecutionGroups(taskIDs []string, groups []ExecutionGroup) error {
 		}
 		if group.RecommendedReasoning != "" && !validReasoningTier(group.RecommendedReasoning) {
 			return fmt.Errorf("invalid execution group reasoning")
+		}
+		if group.AgentID != "" && ValidateObjectIdentifier(group.AgentID) != nil {
+			return fmt.Errorf("invalid execution group agent")
+		}
+		if group.ResolvedReasoning != "" && !validReasoningTier(group.ResolvedReasoning) {
+			return fmt.Errorf("invalid execution group resolved reasoning")
+		}
+		if group.Fallback && strings.TrimSpace(group.FallbackReason) == "" {
+			return fmt.Errorf("execution group fallback requires a reason")
 		}
 		for _, taskID := range group.TaskIDs {
 			if position >= len(taskIDs) || taskID != taskIDs[position] || seen[taskID] {

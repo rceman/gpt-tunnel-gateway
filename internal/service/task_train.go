@@ -369,3 +369,14 @@ func (s *Service) taskTrainStatus(ctx context.Context, train model.TaskTrain) (T
 	}
 	return result, nil
 }
+
+func taskTrainExecutionGroup(train model.TaskTrain, taskID string) (int, model.ExecutionGroup, bool) {
+	for index, group := range train.ExecutionGroups {
+		for _, id := range group.TaskIDs {
+			if id == taskID {
+				return index, group, true
+			}
+		}
+	}
+	return -1, model.ExecutionGroup{}, false
+}
