@@ -2,13 +2,9 @@ package gitx
 
 import (
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -135,161 +131,30 @@ func (r Runner) TreeID(ctx context.Context, p config.ProjectConfig) (string, err
 	return tree, nil
 }
 
-// WorktreeContentID returns the prospective Git tree object for the bytes
-// currently visible in the worktree. It is calculated without changing the
-// index, so a dirty worktree and the commit made from those same bytes have
-// the same identity.
+// WorktreeContentID returns the exact prospective Git tree object for the
+// current worktree by staging into a private temporary index. The repository's
+// real index is never changed.
 func (r Runner) WorktreeContentID(ctx context.Context, p config.ProjectConfig) (string, error) {
-	tracked, err := r.command(ctx, p.Root, false, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+	tempDir, err := os.MkdirTemp("", "gpt-tunnel-test-index-")
 	if err != nil {
 		return "", err
 	}
-	headPaths, err := r.command(ctx, p.Root, false, "ls-tree", "-r", "--name-only", "HEAD")
+	defer os.RemoveAll(tempDir)
+	indexPath := filepath.Join(tempDir, "index")
+	env := []string{"GIT_INDEX_FILE=" + indexPath}
+	if _, err := r.commandWithEnv(ctx, p.Root, false, env, "read-tree", "HEAD"); err != nil {
+		return "", err
+	}
+	if _, err := r.commandWithEnv(ctx, p.Root, false, env, "add", "-A", "--", "."); err != nil {
+		return "", err
+	}
+	out, err := r.commandWithEnv(ctx, p.Root, false, env, "write-tree")
 	if err != nil {
 		return "", err
 	}
-	paths := map[string]struct{}{}
-	for _, raw := range append(bytesSplitNUL(tracked), bytesSplitLines(headPaths)...) {
-		if raw == "" {
-			continue
-		}
-		if err := model.ValidateRelativePath(raw); err != nil {
-			return "", err
-		}
-		paths[filepath.FromSlash(raw)] = struct{}{}
+	tree := strings.TrimSpace(string(out))
+	if err := model.ValidateRevision(tree); err != nil {
+		return "", fmt.Errorf("invalid prospective Git tree identity: %w", err)
 	}
-	root := prospectiveTreeNode{
-		entries: map[string]prospectiveTreeEntry{},
-		dirs:    map[string]*prospectiveTreeNode{},
-	}
-	for path := range paths {
-		full := filepath.Join(p.Root, path)
-		info, err := os.Lstat(full)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return "", err
-		}
-		mode := "100644"
-		var content []byte
-		switch {
-		case info.Mode()&os.ModeSymlink != 0:
-			target, err := os.Readlink(full)
-			if err != nil {
-				return "", err
-			}
-			mode = "120000"
-			content = []byte(target)
-		case info.Mode().IsRegular():
-			file, err := os.Open(full)
-			if err != nil {
-				return "", err
-			}
-			content, err = io.ReadAll(file)
-			closeErr := file.Close()
-			if err != nil {
-				return "", err
-			}
-			if closeErr != nil {
-				return "", closeErr
-			}
-			if info.Mode().Perm()&0o111 != 0 {
-				mode = "100755"
-			}
-		default:
-			return "", fmt.Errorf("unsupported worktree entry %s", path)
-		}
-		blob := gitObjectID("blob", content)
-		parts := strings.Split(filepath.ToSlash(path), "/")
-		node := &root
-		for _, part := range parts[:len(parts)-1] {
-			if _, exists := node.entries[part]; exists {
-				return "", fmt.Errorf("worktree path conflicts with file: %s", path)
-			}
-			child := node.dirs[part]
-			if child == nil {
-				child = &prospectiveTreeNode{
-					entries: map[string]prospectiveTreeEntry{},
-					dirs:    map[string]*prospectiveTreeNode{},
-				}
-				node.dirs[part] = child
-			}
-			node = child
-		}
-		name := parts[len(parts)-1]
-		if _, exists := node.dirs[name]; exists {
-			return "", fmt.Errorf("worktree path conflicts with directory: %s", path)
-		}
-		node.entries[name] = prospectiveTreeEntry{
-			mode:   mode,
-			object: blob,
-		}
-	}
-	rootID := root.objectID()
-	return hex.EncodeToString(rootID[:]), nil
-}
-
-type prospectiveTreeNode struct {
-	entries map[string]prospectiveTreeEntry
-	dirs    map[string]*prospectiveTreeNode
-}
-
-type prospectiveTreeEntry struct {
-	mode   string
-	object [sha1.Size]byte
-}
-
-func (n *prospectiveTreeNode) objectID() [sha1.Size]byte {
-	type namedEntry struct {
-		name string
-		mode string
-		id   [sha1.Size]byte
-		key  string
-	}
-	entries := make([]namedEntry, 0, len(n.entries)+len(n.dirs))
-	for name, entry := range n.entries {
-		entries = append(entries, namedEntry{
-			name: name,
-			mode: entry.mode,
-			id:   entry.object,
-			key:  name,
-		})
-	}
-	for name, child := range n.dirs {
-		entries = append(entries, namedEntry{
-			name: name,
-			mode: "40000",
-			id:   child.objectID(),
-			key:  name + "/",
-		})
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].key < entries[j].key })
-	body := make([]byte, 0)
-	for _, entry := range entries {
-		body = append(body, entry.mode...)
-		body = append(body, ' ')
-		body = append(body, entry.name...)
-		body = append(body, 0)
-		body = append(body, entry.id[:]...)
-	}
-	return gitObjectID("tree", body)
-}
-
-func gitObjectID(kind string, content []byte) [sha1.Size]byte {
-	h := sha1.New()
-	_, _ = fmt.Fprintf(h, "%s %d\x00", kind, len(content))
-	_, _ = h.Write(content)
-	var result [sha1.Size]byte
-	copy(result[:], h.Sum(nil))
-	return result
-}
-
-func bytesSplitNUL(data []byte) []string {
-	parts := strings.Split(string(data), "\x00")
-	return parts
-}
-
-func bytesSplitLines(data []byte) []string {
-	return strings.Split(strings.TrimSpace(string(data)), "\n")
+	return tree, nil
 }

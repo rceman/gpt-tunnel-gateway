@@ -167,12 +167,22 @@ func TestTestGateReceiptProspectiveTreeConvergesAddModifyDelete(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "delete.txt"), []byte("remove\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	testutil.Git(t, root, "add", "modify.txt", "delete.txt")
+	if err := os.WriteFile(filepath.Join(root, ".gitattributes"), []byte("filtered.txt filter=test-clean\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "filtered.txt"), []byte("before\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, root, "config", "filter.test-clean.clean", "sed 's/dirty/clean/g'")
+	testutil.Git(t, root, "add", "modify.txt", "delete.txt", ".gitattributes", "filtered.txt")
 	testutil.Git(t, root, "commit", "-m", "seed prospective tree test")
 	if err := os.WriteFile(filepath.Join(root, "modify.txt"), []byte("after\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "add.txt"), []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "filtered.txt"), []byte("dirty\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(root, "delete.txt")); err != nil {
