@@ -63,7 +63,11 @@ func (s *Service) checkProjectTaskRunGraph(ctx context.Context, snapshot *hub.Re
 			}
 		}
 	}
-	if (plan.ActiveTaskID == "") != (plan.ActiveRunID == "") {
+	pendingTrainTask := false
+	if plan.ActiveTaskID != "" && plan.ActiveRunID == "" {
+		pendingTrainTask = s.isAuthorizedPendingTaskTrainPointer(ctx, snapshot, projectID, plan.ActiveTaskID)
+	}
+	if (plan.ActiveTaskID == "") != (plan.ActiveRunID == "") && !pendingTrainTask {
 		result.Issues = append(result.Issues, stateIssue("PLAN_POINTER_PAIR_INVALID", projectID, plan.ActiveTaskID, plan.ActiveRunID, s.planPath(projectID), "active task and run pointers must be both empty or both present"))
 		result.OperationalTaskRunGraph = false
 	}
@@ -93,4 +97,20 @@ func (s *Service) checkProjectTaskRunGraph(ctx context.Context, snapshot *hub.Re
 			result.OperationalTaskRunGraph = false
 		}
 	}
+}
+
+func (s *Service) isAuthorizedPendingTaskTrainPointer(ctx context.Context, snapshot *hub.ReadSnapshot, projectID, taskID string) bool {
+	var train model.TaskTrain
+	if err := snapshot.ReadJSON(ctx, s.taskTrainPath(projectID), &train); err != nil {
+		return false
+	}
+	if model.ValidateTaskTrain(train) != nil || train.ProjectID != projectID || train.Status != model.TaskTrainActive || train.CurrentTaskID != taskID || train.CurrentRunID != "" {
+		return false
+	}
+	var task model.Task
+	if err := snapshot.ReadJSON(ctx, s.taskPath(projectID, taskID), &task); err != nil || model.ValidateTask(task) != nil {
+		return false
+	}
+	state, err := s.readTaskStateFromSnapshot(ctx, snapshot, task)
+	return err == nil && (state.Status == "created" || state.Status == "ready")
 }

@@ -40,28 +40,15 @@ func (s *Service) StateRepair(ctx context.Context, apply bool) (StateRepairResul
 	plans := map[string]StatePlan{}
 	for _, plan := range check.Plans {
 		plans[plan.ProjectID] = plan
-		if !plan.Valid || plan.ActiveRunID == "" {
+		if !plan.Valid || (plan.ActiveTaskID == "" && plan.ActiveRunID == "") {
 			continue
 		}
 		graph, listErr := graphFor(plan.ProjectID)
 		if listErr != nil {
 			continue
 		}
-		for _, run := range graph.runs {
-			if run.ID != plan.ActiveRunID || operationalActiveRun(run) {
-				continue
-			}
-			result.Actions = append(result.Actions, StateRepairAction{
-				Kind:        "plan_pointer",
-				ProjectID:   plan.ProjectID,
-				Path:        s.planPath(plan.ProjectID),
-				ClearTaskID: true,
-				ClearRunID:  true,
-				OldTaskID:   plan.ActiveTaskID,
-				OldRunID:    plan.ActiveRunID,
-				Reason:      "clear obsolete active pointer to history-only or terminal run",
-			})
-			break
+		if action, eligible := s.stalePlanPointerAction(ctx, graphSnapshot, plan.ProjectID, plan, graph); eligible {
+			result.Actions = append(result.Actions, action)
 		}
 	}
 	for _, projectID := range check.ConfiguredProjectIDs {
@@ -135,6 +122,9 @@ func (s *Service) StateRepair(ctx context.Context, apply bool) (StateRepairResul
 			if plan.ActiveTaskID != action.OldTaskID || plan.ActiveRunID != action.OldRunID {
 				return nil, fmt.Errorf("plan pointer changed before repair: %s", action.Path)
 			}
+			if err := s.validateStalePlanPointerInWorktree(worktree, action); err != nil {
+				return nil, err
+			}
 			if action.ClearTaskID {
 				plan.ActiveTaskID = ""
 			}
@@ -204,6 +194,38 @@ func (s *Service) StateRepair(ctx context.Context, apply bool) (StateRepairResul
 		return result, fmt.Errorf("state repair validation failed: %d issue(s)", len(after.Issues))
 	}
 	return result, nil
+}
+
+func (s *Service) stalePlanPointerAction(ctx context.Context, snapshot *hub.ReadSnapshot, projectID string, plan StatePlan, graph taskRunGraphSnapshot) (StateRepairAction, bool) {
+	if plan.ActiveTaskID == "" && plan.ActiveRunID == "" {
+		return StateRepairAction{}, false
+	}
+	if plan.ActiveTaskID != "" && plan.ActiveRunID == "" && s.isAuthorizedPendingTaskTrainPointer(ctx, snapshot, projectID, plan.ActiveTaskID) {
+		return StateRepairAction{}, false
+	}
+	taskByID := make(map[string]TaskRecord, len(graph.tasks))
+	for _, record := range graph.tasks {
+		taskByID[record.Task.ID] = record
+	}
+	runByID := make(map[string]model.Run, len(graph.runs))
+	for _, run := range graph.runs {
+		runByID[run.ID] = run
+	}
+	task, taskOK := taskByID[plan.ActiveTaskID]
+	run, runOK := runByID[plan.ActiveRunID]
+	if taskOK && runOK && run.TaskID == plan.ActiveTaskID && operationalActiveRun(run) && task.State.Status != "completed" && task.State.Status != "cancelled" && task.State.Status != "superseded" {
+		return StateRepairAction{}, false
+	}
+	return StateRepairAction{
+		Kind:        "plan_pointer",
+		ProjectID:   projectID,
+		Path:        s.planPath(projectID),
+		ClearTaskID: true,
+		ClearRunID:  true,
+		OldTaskID:   plan.ActiveTaskID,
+		OldRunID:    plan.ActiveRunID,
+		Reason:      stalePlanPointerRepairReason,
+	}, true
 }
 
 func historicalOnlyTaskRepairEligible(record TaskRecord, runs []model.Run, plan StatePlan) bool {

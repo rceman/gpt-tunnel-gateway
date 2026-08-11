@@ -9,6 +9,57 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
+func (s *Service) validateStalePlanPointerInWorktree(worktree string, action StateRepairAction) error {
+	if action.Kind != "plan_pointer" {
+		return fmt.Errorf("invalid plan pointer repair action")
+	}
+	runHistorical := false
+	if action.OldRunID != "" {
+		raw, err := os.ReadFile(filepath.Join(worktree, filepath.FromSlash(s.runPath(action.ProjectID, action.OldRunID))))
+		if err != nil {
+			return err
+		}
+		run, historical, err := model.DecodeRunRecord(raw)
+		if err != nil {
+			return err
+		}
+		if operationalActiveRun(run) {
+			return fmt.Errorf("plan pointer repair refused: run %s became operational", action.OldRunID)
+		}
+		runHistorical = historical && run.Historical
+	}
+	if action.OldTaskID != "" {
+		var task model.Task
+		if err := readWorktreeJSON(worktree, s.taskPath(action.ProjectID, action.OldTaskID), &task); err != nil {
+			if os.IsNotExist(err) && runHistorical {
+				return nil
+			}
+			return err
+		}
+		if err := model.ValidateTask(task); err != nil {
+			return err
+		}
+		var state model.TaskState
+		if err := readWorktreeJSON(worktree, s.taskStatePath(action.ProjectID, action.OldTaskID), &state); err != nil {
+			return err
+		}
+		if err := model.ValidateTaskState(state, task); err != nil {
+			return err
+		}
+	}
+	if action.OldRunID == "" {
+		var train model.TaskTrain
+		if err := readWorktreeJSON(worktree, s.taskTrainPath(action.ProjectID), &train); err == nil {
+			if model.ValidateTaskTrain(train) == nil && train.Status == model.TaskTrainActive && train.CurrentTaskID == action.OldTaskID && train.CurrentRunID == "" {
+				return fmt.Errorf("plan pointer repair refused: task train now owns pending task %s", action.OldTaskID)
+			}
+		} else if !IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Service) validateHistoricalOnlyTaskRepair(worktree string, action StateRepairAction, projects []string) error {
 	linkedHistorical := 0
 	linkedRunIDs := map[string]bool{}
