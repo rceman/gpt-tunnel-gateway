@@ -29,6 +29,15 @@ func watcher(ctx context.Context, s *service.Service, args []string) {
 			fatal(err)
 		}
 		output(v)
+	case "nudge":
+		if len(args) != 4 || args[2] != "--text" {
+			usage()
+		}
+		v, err := s.WatcherNudge(ctx, service.WatcherNudgeInput{ProjectID: args[1], Text: args[3]})
+		if err != nil {
+			fatal(err)
+		}
+		output(v)
 	case "watch":
 		lines := 0
 		if len(args) > 2 {

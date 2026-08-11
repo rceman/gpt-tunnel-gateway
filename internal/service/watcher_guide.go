@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -13,6 +14,30 @@ type WatcherGuideUpdateInput struct {
 	ProjectID           string             `json:"project_id"`
 	Guide               model.WatcherGuide `json:"guide"`
 	ExpectedHubRevision string             `json:"expected_hub_revision,omitempty"`
+}
+
+// CanonicalWatcherGuideContent is the single behavioral guide payload. The
+// effective copy lives in Hub at the canonical watcher guide path; this
+// factory only provides revision-one content for explicit owner-authorized
+// seeding or repair and never creates a second guide source.
+const CanonicalWatcherGuideContent = "Perform one bounded watcher tick at a time.\n" +
+	"When the active Task or Run identity changes, read the new Task once and reset observation state.\n" +
+	"An empty unseen delta is non-terminal; a terminal Run is authoritative and must never be nudged.\n" +
+	"Do not interrupt healthy investigation, tests, or useful progress.\n" +
+	"Capacity or busy status alone is not failure.\n" +
+	"Send at most one concise nudge for one unchanged evidence window or cooldown interval, and only to the explicitly idle watcher Agent.\n" +
+	"Do not create or mutate Tasks, ADRs, dispatches, merges, releases, worktrees, or target Run state from watcher supervision.\n" +
+	"Escalate architecture or scope ambiguity to Planner."
+
+func CanonicalWatcherGuide(projectID, updatedBy string, updatedAt time.Time) model.WatcherGuide {
+	return model.WatcherGuide{
+		SchemaVersion: model.WatcherGuideSchemaVersion,
+		ProjectID:     projectID,
+		Revision:      1,
+		Content:       CanonicalWatcherGuideContent,
+		UpdatedBy:     updatedBy,
+		UpdatedAt:     updatedAt,
+	}
 }
 
 func (s *Service) watcherGuidePath(projectID string) string {

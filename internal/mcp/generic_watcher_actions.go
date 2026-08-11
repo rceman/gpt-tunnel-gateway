@@ -64,6 +64,26 @@ func (s *Server) registerWatcherActions() error {
 		return err
 	}
 	if err := register(GenericAction{
+		Path:         "watcher/nudge",
+		Description:  "Deliver one bounded nudge to the exact active Run session.",
+		InputSchema:  obj(map[string]any{"project_id": str("Registered project identifier."), "text": str("Short bounded nudge.")}, "project_id", "text"),
+		OutputSchema: watcherObjectOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  false,
+		},
+		AuthorityRole: durableSession.RoleDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.WatcherNudgeInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.WatcherNudge(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := register(GenericAction{
 		Path:         "watcher/status",
 		Description:  "Read one bounded Gateway watcher status projection.",
 		InputSchema:  obj(map[string]any{"project_id": str("Registered project identifier.")}, "project_id"),
