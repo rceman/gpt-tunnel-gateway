@@ -32,7 +32,10 @@ func FullTestScope() TestScope {
 func (s TestScope) Normalize() (TestScope, error) {
 	switch s.Mode {
 	case TestScopeFull:
-		return TestScope{Mode: TestScopeFull, FallbackReason: s.FallbackReason}, nil
+		return TestScope{
+			Mode:           TestScopeFull,
+			FallbackReason: s.FallbackReason,
+		}, nil
 	case TestScopePackages:
 		packages := append([]string{}, s.Packages...)
 		seen := map[string]bool{}
@@ -49,7 +52,11 @@ func (s TestScope) Normalize() (TestScope, error) {
 			packages = append(packages, packageTarget)
 		}
 		sort.Strings(packages)
-		return TestScope{Mode: TestScopePackages, Packages: packages, FallbackReason: s.FallbackReason}, nil
+		return TestScope{
+			Mode:           TestScopePackages,
+			Packages:       packages,
+			FallbackReason: s.FallbackReason,
+		}, nil
 	default:
 		return TestScope{}, fmt.Errorf("invalid test scope mode %q", s.Mode)
 	}
@@ -87,11 +94,17 @@ func (s TestScope) CommandIdentity() (string, error) {
 func ResolveTestScope(ctx context.Context, root string, changedFiles []string) (TestScope, error) {
 	scope, err := resolveTestScope(ctx, root, changedFiles, discoverGoPackage)
 	if err != nil {
-		return TestScope{Mode: TestScopeFull, FallbackReason: err.Error()}, err
+		return TestScope{
+			Mode:           TestScopeFull,
+			FallbackReason: err.Error(),
+		}, err
 	}
 	normalized, err := scope.Normalize()
 	if err != nil {
-		return TestScope{Mode: TestScopeFull, FallbackReason: err.Error()}, err
+		return TestScope{
+			Mode:           TestScopeFull,
+			FallbackReason: err.Error(),
+		}, err
 	}
 	return normalized, nil
 }
@@ -103,7 +116,10 @@ func resolveTestScope(ctx context.Context, root string, changedFiles []string, d
 		return FullTestScope(), fmt.Errorf("test scope root is empty")
 	}
 	if len(changedFiles) == 0 {
-		return TestScope{Mode: TestScopeFull, FallbackReason: "changed file set is empty"}, fmt.Errorf("changed file set is empty")
+		return TestScope{
+			Mode:           TestScopeFull,
+			FallbackReason: "changed file set is empty",
+		}, fmt.Errorf("changed file set is empty")
 	}
 	packages := map[string]bool{}
 	for _, path := range changedFiles {
@@ -133,14 +149,20 @@ func resolveTestScope(ctx context.Context, root string, changedFiles []string, d
 		return FullTestScope(), fmt.Errorf("changed file %q has unknown test impact", path)
 	}
 	if len(packages) == 0 {
-		return TestScope{Mode: TestScopePackages, Packages: []string{}}, nil
+		return TestScope{
+			Mode:     TestScopePackages,
+			Packages: []string{},
+		}, nil
 	}
 	result := make([]string, 0, len(packages))
 	for target := range packages {
 		result = append(result, target)
 	}
 	sort.Strings(result)
-	return TestScope{Mode: TestScopePackages, Packages: result}, nil
+	return TestScope{
+		Mode:     TestScopePackages,
+		Packages: result,
+	}, nil
 }
 
 func discoverGoPackage(ctx context.Context, root, target string) error {

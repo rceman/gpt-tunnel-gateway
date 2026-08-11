@@ -68,7 +68,10 @@ func TestTestScopeCommandArgsAndIdentityAreCanonical(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(full, []string{"go", "test", "./...", "-count=1"}) {
 		t.Fatalf("full args=%v err=%v", full, err)
 	}
-	scope := TestScope{Mode: TestScopePackages, Packages: []string{"./z", "./a", "./z"}}
+	scope := TestScope{
+		Mode:     TestScopePackages,
+		Packages: []string{"./z", "./a", "./z"},
+	}
 	args, err := scope.CommandArgs()
 	if err != nil || !reflect.DeepEqual(args, []string{"go", "test", "./a", "./z", "-count=1"}) {
 		t.Fatalf("scoped args=%v err=%v", args, err)
@@ -81,7 +84,10 @@ func TestTestScopeCommandArgsAndIdentityAreCanonical(t *testing.T) {
 	if err != nil || empty != nil {
 		t.Fatalf("empty safe scope args=%v err=%v", empty, err)
 	}
-	if _, err := (TestScope{Mode: TestScopePackages, Packages: []string{"./internal/gates;rm"}}).CommandArgs(); err == nil {
+	if _, err := (TestScope{
+		Mode:     TestScopePackages,
+		Packages: []string{"./internal/gates;rm"},
+	}).CommandArgs(); err == nil {
 		t.Fatal("package target accepted shell punctuation")
 	}
 }
