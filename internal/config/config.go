@@ -24,6 +24,7 @@ type Config struct {
 	AirelayCommand         string                   `json:"airelay_command"`
 	Hub                    HubConfig                `json:"hub"`
 	Controller             ControllerConfig         `json:"controller"`
+	AgentBindings          map[string]AgentBinding  `json:"agent_bindings,omitempty"`
 	Projects               map[string]ProjectConfig `json:"projects"`
 }
 
@@ -34,12 +35,75 @@ type HubConfig struct {
 	AuthorEmail   string `json:"author_email"`
 }
 type ProjectConfig struct {
-	Root              string `json:"root"`
-	Mirror            string `json:"mirror"`
-	Remote            string `json:"remote"`
-	DefaultBranch     string `json:"default_branch"`
-	AirelaySessionKey string `json:"airelay_session_key"`
+	Root              string          `json:"root"`
+	Mirror            string          `json:"mirror"`
+	Remote            string          `json:"remote"`
+	DefaultBranch     string          `json:"default_branch"`
+	AirelaySessionKey string          `json:"airelay_session_key"`
+	Watcher           WatcherSettings `json:"watcher,omitempty"`
 }
+
+// AgentBinding is host-local resolution for a portable Agent identity. The
+// project and watcher declarations carry only agent_id; provider/session
+// details stay in this generic binding map so a future Agent Registry can
+// replace the map without changing project watcher contracts.
+type AgentBinding struct {
+	SessionKey string `json:"session_key"`
+	Profile    string `json:"profile,omitempty"`
+}
+
+func (b AgentBinding) Validate() error {
+	if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`).MatchString(b.SessionKey) {
+		return fmt.Errorf("invalid agent binding session_key")
+	}
+	if b.Profile != "" && !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`).MatchString(b.Profile) {
+		return fmt.Errorf("invalid agent binding profile")
+	}
+	return nil
+}
+
+// WatcherSettings contains technical supervision settings only. Behavioral
+// policy is stored in the single revisioned Hub watcher guide.
+type WatcherSettings struct {
+	AgentID        string `json:"agent_id,omitempty"`
+	Mode           string `json:"mode,omitempty"`
+	CadenceSeconds int    `json:"cadence_seconds,omitempty"`
+	TailLines      int    `json:"tail_lines,omitempty"`
+	SeenRetention  int    `json:"seen_retention,omitempty"`
+	NudgeEnabled   bool   `json:"nudge_enabled,omitempty"`
+	RestartEnabled bool   `json:"restart_enabled,omitempty"`
+}
+
+func (w WatcherSettings) Effective() WatcherSettings {
+	if w.Mode == "" {
+		w.Mode = "disabled"
+	}
+	if w.CadenceSeconds == 0 {
+		w.CadenceSeconds = 30
+	}
+	if w.TailLines == 0 {
+		w.TailLines = 100
+	}
+	if w.SeenRetention == 0 {
+		w.SeenRetention = 256
+	}
+	return w
+}
+
+func (w WatcherSettings) Validate() error {
+	if w.AgentID != "" && !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`).MatchString(w.AgentID) {
+		return fmt.Errorf("invalid watcher agent_id")
+	}
+	if w.Mode != "" && w.Mode != "disabled" && w.Mode != "observe" && w.Mode != "require" {
+		return fmt.Errorf("invalid watcher mode")
+	}
+	effective := w.Effective()
+	if effective.CadenceSeconds < 1 || effective.CadenceSeconds > 3600 || effective.TailLines < 1 || effective.TailLines > 200 || effective.SeenRetention < 1 || effective.SeenRetention > 256 {
+		return fmt.Errorf("invalid watcher technical bounds")
+	}
+	return nil
+}
+
 type ControllerConfig struct {
 	GatewayBinary          string `json:"gateway_binary"`
 	TunnelClientBinary     string `json:"tunnel_client_binary"`
@@ -163,12 +227,28 @@ func (c Config) Validate() error {
 	if err := validateLoopbackAddress("controller.tunnel_health_listen_addr", c.Controller.TunnelHealthListenAddr); err != nil {
 		return err
 	}
+	for agentID, binding := range c.AgentBindings {
+		if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`).MatchString(agentID) {
+			return fmt.Errorf("invalid agent binding id %q", agentID)
+		}
+		if err := binding.Validate(); err != nil {
+			return fmt.Errorf("invalid agent binding %q: %w", agentID, err)
+		}
+	}
 	for id, p := range c.Projects {
 		if !idre.MatchString(id) {
 			return fmt.Errorf("invalid project id %q", id)
 		}
 		if p.Root == "" || p.Mirror == "" || p.Remote == "" || p.DefaultBranch == "" || !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`).MatchString(p.AirelaySessionKey) {
 			return fmt.Errorf("invalid project config %q", id)
+		}
+		if err := p.Watcher.Validate(); err != nil {
+			return fmt.Errorf("invalid project watcher config %q: %w", id, err)
+		}
+		if p.Watcher.AgentID != "" {
+			if _, ok := c.AgentBindings[p.Watcher.AgentID]; !ok {
+				return fmt.Errorf("project %q references unbound watcher agent %q", id, p.Watcher.AgentID)
+			}
 		}
 		if _, err := canonicalDir(p.Root); err != nil {
 			return fmt.Errorf("invalid project root %q: %w", id, err)

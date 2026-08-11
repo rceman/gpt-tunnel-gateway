@@ -43,6 +43,7 @@ func EffectiveProjects(static map[string]ProjectConfig, managed ManagedProjectRe
 			Remote:            entry.Remote,
 			DefaultBranch:     entry.DefaultBranch,
 			AirelaySessionKey: entry.AirelaySessionKey,
+			Watcher:           entry.Watcher,
 		}
 	}
 	return result, nil

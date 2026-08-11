@@ -31,11 +31,12 @@ type ManagedProjectRegistry struct {
 }
 
 type ManagedProjectEntry struct {
-	Root              string `json:"root"`
-	RepositoryURL     string `json:"repository_url"`
-	Remote            string `json:"remote"`
-	DefaultBranch     string `json:"default_branch"`
-	AirelaySessionKey string `json:"airelay_session_key"`
+	Root              string          `json:"root"`
+	RepositoryURL     string          `json:"repository_url"`
+	Remote            string          `json:"remote"`
+	DefaultBranch     string          `json:"default_branch"`
+	AirelaySessionKey string          `json:"airelay_session_key"`
+	Watcher           WatcherSettings `json:"watcher,omitempty"`
 }
 
 type ManagedProjectRegistryWriteReceipt struct {
