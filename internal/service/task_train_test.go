@@ -19,7 +19,9 @@ func createTrainTask(t *testing.T, s *Service, revision, slug string) (model.Tas
 		AcceptanceCriteria: []string{"bounded"},
 		OperationClass:     "implementation",
 		CreatedBy:          "test",
-		WriteOptions:       WriteOptions{ExpectedHubRevision: revision},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -32,10 +34,12 @@ func TestTaskTrainCreateBindsOnlyExplicitFirstTaskAndStatusIsBounded(t *testing.
 	first, revision := createTrainTask(t, s, revision, "first")
 	second, revision := createTrainTask(t, s, revision, "second")
 	train, operation, err := s.TaskTrainCreate(context.Background(), TaskTrainCreateInput{
-		ProjectID:    "example",
-		TaskIDs:      []string{first.ID, second.ID},
-		CreatedBy:    "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID: "example",
+		TaskIDs:   []string{first.ID, second.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +54,11 @@ func TestTaskTrainCreateBindsOnlyExplicitFirstTaskAndStatusIsBounded(t *testing.
 	if status.CurrentTaskID != first.ID || status.NextTaskID != second.ID || status.TaskCount != 2 || status.CurrentTaskState != "created" {
 		t.Fatalf("unexpected bounded train status: %#v", status)
 	}
-	if _, _, err := s.TaskTrainCreate(context.Background(), TaskTrainCreateInput{ProjectID: "example", TaskIDs: []string{first.ID, first.ID}, CreatedBy: "planner"}); err == nil {
+	if _, _, err := s.TaskTrainCreate(context.Background(), TaskTrainCreateInput{
+		ProjectID: "example",
+		TaskIDs:   []string{first.ID, first.ID},
+		CreatedBy: "planner",
+	}); err == nil {
 		t.Fatal("duplicate train creation unexpectedly succeeded")
 	}
 }
@@ -60,8 +68,12 @@ func TestTaskTrainPollWaitsForDeliveryAfterTaskCompletion(t *testing.T) {
 	first, revision := createTrainTask(t, s, revision, "delivery-wait")
 	second, revision := createTrainTask(t, s, revision, "delivery-next")
 	train, operation, err := s.TaskTrainCreate(context.Background(), TaskTrainCreateInput{
-		ProjectID: "example", TaskIDs: []string{first.ID, second.ID}, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID: "example",
+		TaskIDs:   []string{first.ID, second.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

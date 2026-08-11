@@ -118,7 +118,11 @@ func (s *Service) TaskTrainCreate(ctx context.Context, in TaskTrainCreateInput) 
 	if err != nil {
 		return model.TaskTrain{}, OperationResult{}, err
 	}
-	return train, OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: model.TaskTrainActive}, nil
+	return train, OperationResult{
+		Hub:       tx,
+		ProjectID: in.ProjectID,
+		Status:    model.TaskTrainActive,
+	}, nil
 }
 
 func (s *Service) TaskTrainStatus(ctx context.Context, project string) (TaskTrainStatus, error) {
@@ -130,7 +134,16 @@ func (s *Service) TaskTrainStatus(ctx context.Context, project string) (TaskTrai
 }
 
 func (s *Service) taskTrainStatus(ctx context.Context, train model.TaskTrain) (TaskTrainStatus, error) {
-	result := TaskTrainStatus{ProjectID: train.ProjectID, TrainID: train.ID, Status: train.Status, CurrentIndex: train.CurrentIndex, TaskCount: len(train.TaskIDs), CurrentTaskID: train.CurrentTaskID, CurrentRunID: train.CurrentRunID, WaitReason: train.WaitReason}
+	result := TaskTrainStatus{
+		ProjectID:     train.ProjectID,
+		TrainID:       train.ID,
+		Status:        train.Status,
+		CurrentIndex:  train.CurrentIndex,
+		TaskCount:     len(train.TaskIDs),
+		CurrentTaskID: train.CurrentTaskID,
+		CurrentRunID:  train.CurrentRunID,
+		WaitReason:    train.WaitReason,
+	}
 	if train.CurrentIndex+1 < len(train.TaskIDs) {
 		result.NextTaskID = train.TaskIDs[train.CurrentIndex+1]
 	}
@@ -262,7 +275,10 @@ func (s *Service) taskTrainTail(ctx context.Context, status TaskTrainStatus, cur
 	if session, sessionErr := s.Airelay.Status(ctx, local.AirelaySessionKey); sessionErr == nil {
 		status.AgentState = session.State
 	}
-	tail, err := s.RunAgentTailPage(ctx, run.ID, AgentTailInput{Lines: 10, Cursor: cursor})
+	tail, err := s.RunAgentTailPage(ctx, run.ID, AgentTailInput{
+		Lines:  10,
+		Cursor: cursor,
+	})
 	if err != nil {
 		status.WaitReason = "active_run_tail_unavailable"
 		return status, nil
@@ -376,7 +392,12 @@ func (s *Service) advanceTaskTrain(ctx context.Context, train model.TaskTrain, s
 	if err != nil {
 		return status, err
 	}
-	run, _, err := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID, WriteOptions: WriteOptions{ExpectedHubRevision: tx.After}})
+	run, _, err := s.TaskDispatch(ctx, DispatchInput{
+		TaskID: task.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: tx.After,
+		},
+	})
 	if err != nil {
 		return status, err
 	}
@@ -384,7 +405,17 @@ func (s *Service) advanceTaskTrain(ctx context.Context, train model.TaskTrain, s
 	if err := s.bindTaskTrainRun(ctx, next, run.ID, ""); err != nil {
 		return status, err
 	}
-	return s.taskTrainTail(ctx, TaskTrainStatus{ProjectID: next.ProjectID, TrainID: next.ID, Status: next.Status, CurrentIndex: next.CurrentIndex, TaskCount: len(next.TaskIDs), CurrentTaskID: next.CurrentTaskID, CurrentRunID: run.ID, CurrentRunStatus: run.Status, NextTaskID: nextTaskID(next)}, "")
+	return s.taskTrainTail(ctx, TaskTrainStatus{
+		ProjectID:        next.ProjectID,
+		TrainID:          next.ID,
+		Status:           next.Status,
+		CurrentIndex:     next.CurrentIndex,
+		TaskCount:        len(next.TaskIDs),
+		CurrentTaskID:    next.CurrentTaskID,
+		CurrentRunID:     run.ID,
+		CurrentRunStatus: run.Status,
+		NextTaskID:       nextTaskID(next),
+	}, "")
 }
 
 func nextTaskID(train model.TaskTrain) string {
