@@ -89,7 +89,7 @@ func newWorkflowPolicyStatusService(t *testing.T) (*service.Service, string) {
 
 func mutateWorkflowPolicyStatusFixture(t *testing.T, s *service.Service, revision, state string) string {
 	t.Helper()
-	path := "gpt-tunnel/v1/projects/example/workflow-policy/current.json"
+	path := "gpt-tunnel/v1/projects/example/configuration/current.json"
 	result, err := s.Hub.Transact(context.Background(), revision, "test: workflow policy status fixture", func(worktree string) ([]string, error) {
 		if state == "missing" {
 			if err := os.Remove(filepath.Join(worktree, filepath.FromSlash(path))); err != nil {

@@ -40,7 +40,7 @@ func TestProjectStatusWorkflowPolicyStateMatrixUsesDeterministicCIProjection(t *
 	for _, state := range []string{"missing", "invalid"} {
 		t.Run(state, func(t *testing.T) {
 			s, revision, _ := testServiceWithoutIdentifiers(t)
-			path := s.workflowPolicyPath("example")
+			path := s.projectConfigurationPath("example")
 			var txRevision string
 			if state == "missing" {
 				result, err := s.Hub.Transact(ctx, revision, "test: remove workflow policy", func(worktree string) ([]string, error) {

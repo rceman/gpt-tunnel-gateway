@@ -8,13 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-func TestTaskCreateRequiresDurableWorkflowPolicy(t *testing.T) {
+func TestTaskCreateRequiresCanonicalProjectConfiguration(t *testing.T) {
 	s, revision, _ := testService(t)
 	ctx := context.Background()
-	policyPath := s.workflowPolicyPath("example")
+	policyPath := s.projectConfigurationPath("example")
 	removed, err := s.Hub.Transact(ctx, revision, "test: remove workflow policy", func(worktree string) ([]string, error) {
 		if err := os.Remove(filepath.Join(worktree, filepath.FromSlash(policyPath))); err != nil {
 			return nil, err
@@ -36,8 +37,8 @@ func TestTaskCreateRequiresDurableWorkflowPolicy(t *testing.T) {
 			ExpectedHubRevision: removed.After,
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "project workflow policy is required") {
-		t.Fatalf("missing policy was not enforced: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "project configuration is required") {
+		t.Fatalf("missing project configuration was not enforced: %v", err)
 	}
 }
 
@@ -136,6 +137,57 @@ func TestWorkflowPolicyMutationRejectsActiveRunWithoutHubMutation(t *testing.T) 
 	}
 	if unchanged.Revision != 1 {
 		t.Fatalf("active-run rejection changed policy: %#v", unchanged)
+	}
+}
+
+func TestWorkflowPolicyAdapterMigratesLegacyStateAndRejectsConflict(t *testing.T) {
+	s, revision, _ := testService(t)
+	ctx := context.Background()
+	policy, err := s.ProjectWorkflowPolicyRead(ctx, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	configurationPath := s.projectConfigurationPath("example")
+	legacyPath := s.workflowPolicyPath("example")
+	removed, err := s.Hub.Transact(ctx, revision, "test: create legacy migration fixture", func(worktree string) ([]string, error) {
+		if err := os.Remove(filepath.Join(worktree, filepath.FromSlash(configurationPath))); err != nil {
+			return nil, err
+		}
+		return []string{configurationPath, legacyPath}, hub.WriteJSON(worktree, legacyPath, policy)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, source, err := s.projectWorkflowPolicyReadDetailed(ctx, "example")
+	if err != nil || source != "legacy_compatibility" || legacy.Revision != policy.Revision {
+		t.Fatalf("legacy compatibility projection failed: policy=%#v source=%s err=%v", legacy, source, err)
+	}
+	migrated, operation, err := s.ProjectWorkflowPolicyAdopt(trustedWorkflowPolicyContext(ctx, "planner"), ProjectWorkflowPolicyInput{Policy: legacy, WriteOptions: WriteOptions{ExpectedHubRevision: removed.After}})
+	if err != nil || operation.Status != "adopted" {
+		t.Fatalf("legacy migration failed: policy=%#v operation=%#v err=%v", migrated, operation, err)
+	}
+	if _, err := s.ProjectConfigurationRead(ctx, "example"); err != nil {
+		t.Fatalf("migrated project configuration is unreadable: %v", err)
+	}
+
+	conflictRevision, err := s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflict := migrated
+	conflict.WorkflowStage = model.WorkflowStageDevelopActive
+	conflict.IntegrationBranch = "develop"
+	conflicted, err := s.Hub.Transact(ctx, conflictRevision, "test: create dual authority conflict", func(worktree string) ([]string, error) {
+		return []string{legacyPath}, hub.WriteJSON(worktree, legacyPath, conflict)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ProjectWorkflowPolicyRead(ctx, "example"); err == nil || !strings.Contains(err.Error(), "conflicting project configuration") {
+		t.Fatalf("dual authority conflict was not rejected: %v", err)
+	}
+	if _, _, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Slug: "conflict", Title: "Conflict", Objective: "Reject conflict", AcceptanceCriteria: []string{"reject"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: conflicted.After}}); err == nil {
+		t.Fatal("task creation ignored conflicting workflow authorities")
 	}
 }
 

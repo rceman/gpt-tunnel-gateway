@@ -52,20 +52,84 @@ func (s *Service) workflowPolicyPath(projectID string) string {
 }
 
 func (s *Service) ProjectWorkflowPolicyRead(ctx context.Context, projectID string) (model.ProjectWorkflowPolicy, error) {
-	if err := model.ValidateProjectIdentifier(projectID); err != nil {
-		return model.ProjectWorkflowPolicy{}, err
-	}
-	var policy model.ProjectWorkflowPolicy
-	if err := s.Hub.ReadJSON(ctx, s.workflowPolicyPath(projectID), &policy); err != nil {
-		return model.ProjectWorkflowPolicy{}, err
+	policy, _, err := s.projectWorkflowPolicyReadDetailed(ctx, projectID)
+	return policy, err
+}
+
+func workflowPolicyFromConfiguration(configuration model.ProjectConfiguration) (model.ProjectWorkflowPolicy, error) {
+	policy := model.ProjectWorkflowPolicy{
+		SchemaVersion:     model.SchemaVersion,
+		ProjectID:         configuration.ProjectID,
+		Revision:          configuration.Revision,
+		WorkflowStage:     configuration.Workflow.WorkflowStage,
+		IntegrationBranch: configuration.Workflow.IntegrationBranch,
+		Agent:             model.WorkflowPolicyAgent{WaitForCI: configuration.Workflow.WaitForCI},
+		CI:                configuration.Workflow.CI,
+		Gates:             append([]string{}, configuration.Workflow.Gates...),
+		UpdatedBy:         configuration.UpdatedBy,
+		UpdatedAt:         configuration.UpdatedAt,
 	}
 	if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
 		return model.ProjectWorkflowPolicy{}, err
 	}
-	if policy.ProjectID != projectID {
-		return model.ProjectWorkflowPolicy{}, fmt.Errorf("workflow policy project_id mismatch")
-	}
 	return policy, nil
+}
+
+func workflowPoliciesEquivalent(left, right model.ProjectWorkflowPolicy) bool {
+	if left.ProjectID != right.ProjectID || left.Revision != right.Revision || left.WorkflowStage != right.WorkflowStage || left.IntegrationBranch != right.IntegrationBranch || left.Agent.WaitForCI != right.Agent.WaitForCI || left.CI != right.CI {
+		return false
+	}
+	leftGates := model.EffectiveProjectWorkflowGates(left.Gates)
+	rightGates := model.EffectiveProjectWorkflowGates(right.Gates)
+	if len(leftGates) != len(rightGates) {
+		return false
+	}
+	for i := range leftGates {
+		if leftGates[i] != rightGates[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Service) projectWorkflowPolicyReadDetailed(ctx context.Context, projectID string) (model.ProjectWorkflowPolicy, string, error) {
+	if err := model.ValidateProjectIdentifier(projectID); err != nil {
+		return model.ProjectWorkflowPolicy{}, "", err
+	}
+	configuration, configurationErr := s.ProjectConfigurationRead(ctx, projectID)
+	legacyPath := s.workflowPolicyPath(projectID)
+	var policy model.ProjectWorkflowPolicy
+	legacyErr := s.Hub.ReadJSON(ctx, legacyPath, &policy)
+	if configurationErr == nil {
+		canonical, err := workflowPolicyFromConfiguration(configuration)
+		if err != nil {
+			return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("project configuration workflow is invalid: %w", err)
+		}
+		if legacyErr == nil {
+			if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
+				return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("legacy workflow policy is invalid: %w", err)
+			}
+			if !workflowPoliciesEquivalent(canonical, policy) {
+				return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("conflicting project configuration and legacy workflow policy")
+			}
+		} else if !IsNotFound(legacyErr) {
+			return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("legacy workflow policy is invalid: %w", legacyErr)
+		}
+		return canonical, "project_configuration", nil
+	}
+	if !IsNotFound(configurationErr) {
+		return model.ProjectWorkflowPolicy{}, "", configurationErr
+	}
+	if legacyErr != nil {
+		return model.ProjectWorkflowPolicy{}, "", configurationErr
+	}
+	if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
+		return model.ProjectWorkflowPolicy{}, "", err
+	}
+	if policy.ProjectID != projectID {
+		return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("workflow policy project_id mismatch")
+	}
+	return policy, "legacy_compatibility", nil
 }
 
 func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWorkflowPolicyInput) (model.ProjectWorkflowPolicy, OperationResult, error) {
@@ -87,8 +151,47 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 	if err := s.rejectActiveWorkflowPolicyRun(ctx, policy.ProjectID); err != nil {
 		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
 	}
-	path := s.workflowPolicyPath(policy.ProjectID)
+	configuration, configurationErr := s.ProjectConfigurationRead(ctx, policy.ProjectID)
+	if configurationErr != nil && !IsNotFound(configurationErr) {
+		return model.ProjectWorkflowPolicy{}, OperationResult{}, configurationErr
+	}
 	status := "adopted"
+	if configurationErr == nil {
+		current, err := workflowPolicyFromConfiguration(configuration)
+		if err != nil {
+			return model.ProjectWorkflowPolicy{}, OperationResult{}, err
+		}
+		if configuration.Revision != policy.Revision && configuration.Revision+1 != policy.Revision {
+			return model.ProjectWorkflowPolicy{}, OperationResult{}, fmt.Errorf("workflow policy revision must advance from %d to %d", configuration.Revision, policy.Revision)
+		}
+		if configuration.Revision == policy.Revision && workflowPoliciesEquivalent(current, policy) {
+			status = "adopted"
+		} else if configuration.Revision == policy.Revision && configuration.Revision == 1 {
+			status = "adopted"
+		} else {
+			status = "updated"
+		}
+	} else {
+		if policy.Revision != 1 && policy.Revision < 1 {
+			return model.ProjectWorkflowPolicy{}, OperationResult{}, fmt.Errorf("initial workflow policy revision must be 1")
+		}
+		configuration = model.DefaultProjectConfiguration(policy.ProjectID, policy.UpdatedAt)
+	}
+	configuration.SchemaVersion = model.ProjectConfigurationSchemaVersion
+	configuration.ProjectID = policy.ProjectID
+	configuration.Revision = policy.Revision
+	configuration.Workflow.WorkflowStage = policy.WorkflowStage
+	configuration.Workflow.IntegrationBranch = policy.IntegrationBranch
+	configuration.Workflow.CI = policy.CI
+	configuration.Workflow.Gates = append([]string{}, policy.Gates...)
+	configuration.Workflow.WaitForCI = policy.Agent.WaitForCI
+	configuration.UpdatedBy = policy.UpdatedBy
+	configuration.UpdatedAt = policy.UpdatedAt
+	if err := model.ValidateProjectConfiguration(configuration); err != nil {
+		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
+	}
+	configurationPath := s.projectConfigurationPath(policy.ProjectID)
+	legacyPath := s.workflowPolicyPath(policy.ProjectID)
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: adopt workflow policy "+policy.ProjectID, func(worktree string) ([]string, error) {
 		if err := s.rejectActiveWorkflowPolicyRunInWorktree(worktree, policy.ProjectID); err != nil {
 			return nil, err
@@ -104,28 +207,16 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 			}
 			return nil, fmt.Errorf("project %q is invalid: %w", policy.ProjectID, err)
 		}
-		absolute := filepath.Join(worktree, filepath.FromSlash(path))
-		if _, err := os.Lstat(absolute); err == nil {
-			var current model.ProjectWorkflowPolicy
-			if err := readWorktreeJSON(worktree, path, &current); err != nil {
-				return nil, fmt.Errorf("read current workflow policy: %w", err)
-			}
-			if err := model.ValidateProjectWorkflowPolicy(current); err != nil {
-				return nil, fmt.Errorf("current workflow policy is invalid: %w", err)
-			}
-			if policy.Revision != current.Revision+1 {
-				return nil, fmt.Errorf("workflow policy revision must advance from %d to %d", current.Revision, policy.Revision)
-			}
-			status = "updated"
+		if err := hub.WriteJSON(worktree, configurationPath, configuration); err != nil {
+			return nil, err
+		}
+		paths := []string{configurationPath}
+		if err := os.Remove(filepath.Join(worktree, filepath.FromSlash(legacyPath))); err == nil {
+			paths = append(paths, legacyPath)
 		} else if !os.IsNotExist(err) {
 			return nil, err
-		} else if policy.Revision != 1 {
-			return nil, fmt.Errorf("initial workflow policy revision must be 1")
 		}
-		if err := hub.WriteJSON(worktree, path, policy); err != nil {
-			return nil, err
-		}
-		return []string{path}, nil
+		return paths, nil
 	})
 	if err != nil {
 		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
@@ -198,9 +289,16 @@ func (s *Service) deriveTaskWorkflowPolicy(ctx context.Context, projectID, opera
 	if err := model.ValidateOperationClass(operationClass); err != nil {
 		return model.ProjectWorkflowPolicy{}, model.EffectiveWorkflowPolicy{}, err
 	}
-	policy, err := s.ProjectWorkflowPolicyRead(ctx, projectID)
+	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
 	if err != nil {
-		return model.ProjectWorkflowPolicy{}, model.EffectiveWorkflowPolicy{}, fmt.Errorf("project workflow policy is required: %w", err)
+		return model.ProjectWorkflowPolicy{}, model.EffectiveWorkflowPolicy{}, fmt.Errorf("project configuration is required: %w", err)
+	}
+	policy, _, err := s.projectWorkflowPolicyReadDetailed(ctx, projectID)
+	if err != nil {
+		return model.ProjectWorkflowPolicy{}, model.EffectiveWorkflowPolicy{}, err
+	}
+	if policy.Revision != configuration.Revision {
+		return model.ProjectWorkflowPolicy{}, model.EffectiveWorkflowPolicy{}, fmt.Errorf("project workflow policy adapter revision mismatch")
 	}
 	effective, err := model.WorkflowPolicyForOperation(policy, operationClass)
 	if err != nil {
