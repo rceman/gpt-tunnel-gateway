@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/gates"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
@@ -33,7 +34,7 @@ func TestCanonicalTestGateReceiptReusesIdenticalTree(t *testing.T) {
 		t.Fatalf("initial test calls=%d", calls)
 	}
 	calls = 0
-	results, err := s.executeProjectGatesWithTestReuse(context.Background(), "example", root, []string{"format", "check", "test"})
+	results, err := s.executeProjectGatesWithTestReuse(context.Background(), "example", root, []string{"format", "check", "test"}, gates.FullTestScope())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +64,7 @@ func TestTestGateReceiptInvalidatesForDirtyTreeAndContractChange(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "dirty.txt"), []byte("changed\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	results, err := s.executeProjectGatesWithTestReuse(context.Background(), "example", root, []string{"format", "check", "test"})
+	results, err := s.executeProjectGatesWithTestReuse(context.Background(), "example", root, []string{"format", "check", "test"}, gates.FullTestScope())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +75,7 @@ func TestTestGateReceiptInvalidatesForDirtyTreeAndContractChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls = 0
-	results, err = s.executeProjectGatesWithTestReuse(context.Background(), "example", root, []string{"check", "test"})
+	results, err = s.executeProjectGatesWithTestReuse(context.Background(), "example", root, []string{"check", "test"}, gates.FullTestScope())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +117,7 @@ func TestTestGateReceiptReusesAcrossIdenticalCommittedTree(t *testing.T) {
 	if before != after {
 		t.Fatalf("empty commit changed tree: before=%s after=%s", before, after)
 	}
-	results, err := s.executeProjectGatesWithTestReuse(context.Background(), "example", root, []string{"format", "check", "test"})
+	results, err := s.executeProjectGatesWithTestReuse(context.Background(), "example", root, []string{"format", "check", "test"}, gates.FullTestScope())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +150,7 @@ func TestTestGateReceiptReusesDirtyContentAfterCommit(t *testing.T) {
 	testutil.Git(t, root, "add", "dirty-pass.txt")
 	testutil.Git(t, root, "commit", "-m", "commit tested dirty content")
 	calls = 0
-	results, err := s.executeProjectGatesWithTestReuse(context.Background(), "example", root, []string{"format", "check", "test"})
+	results, err := s.executeProjectGatesWithTestReuse(context.Background(), "example", root, []string{"format", "check", "test"}, gates.FullTestScope())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +209,7 @@ func TestTestGateReceiptProspectiveTreeConvergesAddModifyDelete(t *testing.T) {
 	if prospective != committed {
 		t.Fatalf("prospective tree did not converge: dirty=%s committed=%s", prospective, committed)
 	}
-	results, err := s.executeProjectGatesWithTestReuse(context.Background(), "example", root, []string{"format", "check", "test"})
+	results, err := s.executeProjectGatesWithTestReuse(context.Background(), "example", root, []string{"format", "check", "test"}, gates.FullTestScope())
 	if err != nil {
 		t.Fatal(err)
 	}
