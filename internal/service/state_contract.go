@@ -54,6 +54,8 @@ type StateRepairResult struct {
 
 const historyOnlyTaskRepairReason = "close mutable dispatched state after linked run became immutable workflow-v1 history during protocol cutover"
 
+const stalePlanPointerRepairReason = "clear stale active plan pointers after task or run left the operational lifecycle"
+
 func stateIssue(code, project, task, run, path, detail string) StateIssue {
 	return StateIssue{
 		Code:      code,
