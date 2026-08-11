@@ -23,12 +23,13 @@ func PublicCollectionLimit(requested, configured int) (int, error) {
 }
 
 type Service struct {
-	Config       config.Config
-	Hub          hub.Store
-	Git          gitx.Runner
-	Airelay      airelay.Client
-	clock        func() time.Time
-	gateExecutor func(context.Context, string, []string) ([]model.CompletionGateResult, error)
+	Config                config.Config
+	Hub                   hub.Store
+	Git                   gitx.Runner
+	Airelay               airelay.Client
+	clock                 func() time.Time
+	gateExecutor          func(context.Context, string, []string) ([]model.CompletionGateResult, error)
+	gateExecutorWithScope func(context.Context, string, []string, gates.TestScope) ([]model.CompletionGateResult, error)
 }
 
 func New(c config.Config) *Service {
@@ -40,6 +41,9 @@ func New(c config.Config) *Service {
 		Airelay: airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: 256},
 		gateExecutor: func(ctx context.Context, root string, names []string) ([]model.CompletionGateResult, error) {
 			return executor.Execute(ctx, root, names)
+		},
+		gateExecutorWithScope: func(ctx context.Context, root string, names []string, scope gates.TestScope) ([]model.CompletionGateResult, error) {
+			return executor.ExecuteWithScope(ctx, root, names, scope)
 		},
 	}
 }
