@@ -120,6 +120,9 @@ func (s *Service) watcherSupervisorTickLocked(ctx context.Context, projectID str
 	state.ActiveTaskID = observation.TaskID
 	state.ActiveRunID = observation.RunID
 	state.TargetSession = observation.TargetSession
+	state.TrainID = observation.TrainID
+	state.TrainItemPosition = observation.TrainItemPosition
+	state.TrainAgentID = observation.TrainAgentID
 	if observation.Useful {
 		state.LastUsefulAt = observation.ObservedAt
 		if nudged, nudgeErr := s.promptWatcherIfIdle(ctx, projectID, observation, settings, binding, state.LastNudgeAt); nudgeErr != nil {

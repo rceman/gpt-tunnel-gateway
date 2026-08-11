@@ -65,7 +65,7 @@ type StartResult struct {
 
 const runtimeSchemaVersion = 1
 
-func expectedWorktreePath(stateDir, projectID, trainID string) string {
+func ExpectedWorktreePath(stateDir, projectID, trainID string) string {
 	return filepath.Join(stateDir, "train-worktrees", projectID, trainID)
 }
 
@@ -73,8 +73,8 @@ func runtimePath(stateDir, projectID, trainID string) string {
 	return filepath.Join(stateDir, "train-runtime", projectID, trainID+".json")
 }
 
-func validateRuntimeBinding(v RuntimeBinding, stateDir string) error {
-	if v.SchemaVersion != runtimeSchemaVersion || model.ValidateProjectIdentifier(v.ProjectID) != nil || v.WorktreePath != expectedWorktreePath(stateDir, v.ProjectID, v.TrainID) || model.ValidateObjectIdentifier(v.AgentID) != nil || v.SessionKey == "" || strings.ContainsAny(v.SessionKey, "\x00\r\n") || model.ValidateCanonicalRunID(v.RunID) != nil || v.StartedAt.IsZero() {
+func ValidateRuntimeBindingShape(v RuntimeBinding) error {
+	if v.SchemaVersion != runtimeSchemaVersion || model.ValidateProjectIdentifier(v.ProjectID) != nil || v.WorktreePath == "" || model.ValidateObjectIdentifier(v.AgentID) != nil || v.SessionKey == "" || strings.ContainsAny(v.SessionKey, "\x00\r\n") || model.ValidateCanonicalRunID(v.RunID) != nil || v.StartedAt.IsZero() {
 		return fmt.Errorf("invalid local train runtime binding")
 	}
 	if _, _, err := model.ParseTrainV2ID(v.TrainID); err != nil {
@@ -83,12 +83,22 @@ func validateRuntimeBinding(v RuntimeBinding, stateDir string) error {
 	return nil
 }
 
-func readRuntime(stateDir, projectID, trainID string) (RuntimeBinding, error) {
+func ValidateRuntimeBinding(v RuntimeBinding, stateDir string) error {
+	if err := ValidateRuntimeBindingShape(v); err != nil {
+		return err
+	}
+	if v.WorktreePath != ExpectedWorktreePath(stateDir, v.ProjectID, v.TrainID) {
+		return fmt.Errorf("invalid local train runtime worktree path")
+	}
+	return nil
+}
+
+func ReadRuntime(stateDir, projectID, trainID string) (RuntimeBinding, error) {
 	var binding RuntimeBinding
 	if err := fsutil.ReadJSONBounded(runtimePath(stateDir, projectID, trainID), 1<<20, &binding); err != nil {
 		return RuntimeBinding{}, err
 	}
-	if err := validateRuntimeBinding(binding, stateDir); err != nil {
+	if err := ValidateRuntimeBinding(binding, stateDir); err != nil {
 		return RuntimeBinding{}, err
 	}
 	return binding, nil
@@ -101,10 +111,10 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 	if _, _, err := model.ParseTrainV2ID(in.TrainID); err != nil {
 		return StartResult{}, err
 	}
-	if err := model.ValidateTrainV2(deps.Train); err != nil || deps.Train.ProjectID != in.ProjectID || deps.Train.ID != in.TrainID || deps.Train.Status != model.TrainV2Planned || len(deps.Train.Items) == 0 {
+	if err := model.ValidateTrainV2(deps.Train); err != nil || deps.Train.ProjectID != in.ProjectID || deps.Train.ID != in.TrainID || len(deps.Train.Items) == 0 {
 		return StartResult{}, fmt.Errorf("train v2 is not startable")
 	}
-	if binding, err := readRuntime(deps.StateDir, in.ProjectID, in.TrainID); err == nil {
+	if binding, err := ReadRuntime(deps.StateDir, in.ProjectID, in.TrainID); err == nil {
 		record, recordErr := readStartRecord(ctx, deps.Hub, in.ProjectID, in.TrainID)
 		if recordErr != nil {
 			return StartResult{}, fmt.Errorf("local train runtime has no durable start record: %w", recordErr)
@@ -116,6 +126,9 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 		return StartResult{Record: record, Run: run, Runtime: binding}, nil
 	} else if !os.IsNotExist(err) {
 		return StartResult{}, err
+	}
+	if deps.Train.Status != model.TrainV2Planned {
+		return StartResult{}, fmt.Errorf("train v2 is already started without recoverable local runtime")
 	}
 	if in.StartedBy == "" || strings.ContainsAny(in.StartedBy, "\x00\r\n") || in.SessionKey == "" || in.ResolvedAgentID == "" {
 		return StartResult{}, fmt.Errorf("train start identity is incomplete")
@@ -139,7 +152,7 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 		return StartResult{}, fmt.Errorf("integration branch %q does not resolve to an exact commit", integrationBranch)
 	}
 	laneBranch := "train/" + deps.Train.ID
-	worktreePath := expectedWorktreePath(deps.StateDir, in.ProjectID, in.TrainID)
+	worktreePath := ExpectedWorktreePath(deps.StateDir, in.ProjectID, in.TrainID)
 	if err := deps.Git.CreateTrainWorktree(ctx, deps.ProjectConfig, deps.StateDir, in.ProjectID, in.TrainID, laneBranch, base); err != nil {
 		return StartResult{}, err
 	}
@@ -199,14 +212,25 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 		if err := model.ValidateTrainV2StartRecord(record); err != nil {
 			return nil, err
 		}
+		latest.Status = model.TrainV2Running
+		latest.Items[0].Status = model.TrainV2ItemRunning
+		latest.Items[0].RunID = runID
+		latest.Items[0].AgentID = in.ResolvedAgentID
+		latest.Items[0].StartHead = base
+		if err := model.ValidateTrainV2(latest); err != nil {
+			return nil, err
+		}
 		if err := hub.WriteJSON(w, startRoot+"/"+in.TrainID+".json", record); err != nil {
 			return nil, err
 		}
 		if err := hub.WriteJSON(w, runPath(in.ProjectID, runID), run); err != nil {
 			return nil, err
 		}
+		if err := hub.WriteJSON(w, trainPath(in.ProjectID, in.TrainID), latest); err != nil {
+			return nil, err
+		}
 		runtime.RunID = runID
-		return []string{startRoot + "/" + in.TrainID + ".json", runPath(in.ProjectID, runID)}, nil
+		return []string{startRoot + "/" + in.TrainID + ".json", runPath(in.ProjectID, runID), trainPath(in.ProjectID, in.TrainID)}, nil
 	})
 	if err != nil {
 		return StartResult{}, err

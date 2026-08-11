@@ -77,6 +77,11 @@ func (s *Service) WatcherObserve(ctx context.Context, in WatcherObserveInput) (m
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return model.WatcherObservation{}, err
 	}
+	if enabled, err := s.TrainV2Enabled(ctx, in.ProjectID); err != nil {
+		return model.WatcherObservation{}, err
+	} else if enabled {
+		return s.watcherObserveTrainV2(ctx, in)
+	}
 	local, err := s.projectConfig(in.ProjectID)
 	if err != nil {
 		return model.WatcherObservation{}, err

@@ -14,6 +14,11 @@ func (s *Service) WatcherStatus(ctx context.Context, projectID string) (model.Wa
 		return model.WatcherStatus{}, err
 	}
 	settings := local.Watcher.Effective()
+	if enabled, enabledErr := s.TrainV2Enabled(ctx, projectID); enabledErr != nil {
+		return model.WatcherStatus{}, enabledErr
+	} else if enabled {
+		return s.watcherStatusTrainV2(ctx, projectID)
+	}
 	plan, err := s.PlanRead(ctx, projectID)
 	if err != nil {
 		return model.WatcherStatus{}, err

@@ -33,86 +33,98 @@ type WatcherGuide struct {
 // WatcherObservationState is local hot state. It is deliberately independent
 // of the Hub and is safe to discard and rebuild from the active Run.
 type WatcherObservationState struct {
-	SchemaVersion  int       `json:"schema_version"`
-	ProjectID      string    `json:"project_id"`
-	TaskID         string    `json:"task_id,omitempty"`
-	RunID          string    `json:"run_id,omitempty"`
-	SessionKey     string    `json:"session_key,omitempty"`
-	Cursor         string    `json:"cursor,omitempty"`
-	SnapshotDigest string    `json:"snapshot_digest,omitempty"`
-	SeenDigests    []string  `json:"seen_digests"`
-	LastTail       string    `json:"last_tail,omitempty"`
-	LastTickAt     time.Time `json:"last_tick_at"`
-	LastUsefulAt   time.Time `json:"last_useful_at,omitempty"`
-	LastError      string    `json:"last_error,omitempty"`
+	SchemaVersion     int       `json:"schema_version"`
+	ProjectID         string    `json:"project_id"`
+	TrainID           string    `json:"train_id,omitempty"`
+	TrainItemPosition int       `json:"train_item_position,omitempty"`
+	TrainAgentID      string    `json:"train_agent_id,omitempty"`
+	TaskID            string    `json:"task_id,omitempty"`
+	RunID             string    `json:"run_id,omitempty"`
+	SessionKey        string    `json:"session_key,omitempty"`
+	Cursor            string    `json:"cursor,omitempty"`
+	SnapshotDigest    string    `json:"snapshot_digest,omitempty"`
+	SeenDigests       []string  `json:"seen_digests"`
+	LastTail          string    `json:"last_tail,omitempty"`
+	LastTickAt        time.Time `json:"last_tick_at"`
+	LastUsefulAt      time.Time `json:"last_useful_at,omitempty"`
+	LastError         string    `json:"last_error,omitempty"`
 }
 
 // WatcherObservation is the bounded result of one authoritative watch tick.
 type WatcherObservation struct {
-	SchemaVersion   int       `json:"schema_version"`
-	ProjectID       string    `json:"project_id"`
-	TaskID          string    `json:"task_id,omitempty"`
-	RunID           string    `json:"run_id,omitempty"`
-	TargetSession   string    `json:"target_session,omitempty"`
-	RunStatus       string    `json:"run_status,omitempty"`
-	Terminal        bool      `json:"terminal"`
-	IdentityChanged bool      `json:"identity_changed"`
-	Useful          bool      `json:"useful"`
-	Lines           int       `json:"lines"`
-	Tail            string    `json:"tail,omitempty"`
-	SnapshotDigest  string    `json:"snapshot_digest,omitempty"`
-	NewDigests      []string  `json:"new_digests,omitempty"`
-	ObservedAt      time.Time `json:"observed_at"`
-	Error           string    `json:"error,omitempty"`
+	SchemaVersion     int       `json:"schema_version"`
+	ProjectID         string    `json:"project_id"`
+	TrainID           string    `json:"train_id,omitempty"`
+	TrainItemPosition int       `json:"train_item_position,omitempty"`
+	TrainAgentID      string    `json:"train_agent_id,omitempty"`
+	TaskID            string    `json:"task_id,omitempty"`
+	RunID             string    `json:"run_id,omitempty"`
+	TargetSession     string    `json:"target_session,omitempty"`
+	RunStatus         string    `json:"run_status,omitempty"`
+	Terminal          bool      `json:"terminal"`
+	IdentityChanged   bool      `json:"identity_changed"`
+	Useful            bool      `json:"useful"`
+	Lines             int       `json:"lines"`
+	Tail              string    `json:"tail,omitempty"`
+	SnapshotDigest    string    `json:"snapshot_digest,omitempty"`
+	NewDigests        []string  `json:"new_digests,omitempty"`
+	ObservedAt        time.Time `json:"observed_at"`
+	Error             string    `json:"error,omitempty"`
 }
 
 // WatcherStatus is intentionally a compact projection. Scheduler fields are
 // present so TSK161 can extend this contract without adding another status
 // authority.
 type WatcherStatus struct {
-	SchemaVersion    int       `json:"schema_version"`
-	ProjectID        string    `json:"project_id"`
-	Mode             string    `json:"mode"`
-	CadenceSeconds   int       `json:"cadence_seconds"`
-	TailLines        int       `json:"tail_lines"`
-	NudgeEnabled     bool      `json:"nudge_enabled"`
-	WatcherAgentID   string    `json:"watcher_agent_id,omitempty"`
-	WatcherSession   string    `json:"watcher_session,omitempty"`
-	GuideRevision    int       `json:"guide_revision"`
-	ActiveTaskID     string    `json:"active_task_id,omitempty"`
-	ActiveRunID      string    `json:"active_run_id,omitempty"`
-	TargetSession    string    `json:"target_session,omitempty"`
-	RunStatus        string    `json:"run_status,omitempty"`
-	LastTickAt       time.Time `json:"last_tick_at,omitempty"`
-	LastUsefulAt     time.Time `json:"last_useful_at,omitempty"`
-	LastError        string    `json:"last_error,omitempty"`
-	ObservationReset bool      `json:"observation_reset"`
-	Desired          string    `json:"desired"`
-	Runtime          string    `json:"runtime"`
-	InstanceID       string    `json:"instance_id,omitempty"`
-	LeaseID          string    `json:"lease_id,omitempty"`
-	LastNudgeAt      time.Time `json:"last_nudge_at,omitempty"`
-	RestartCount     int       `json:"restart_count"`
+	SchemaVersion     int       `json:"schema_version"`
+	ProjectID         string    `json:"project_id"`
+	TrainID           string    `json:"train_id,omitempty"`
+	TrainItemPosition int       `json:"train_item_position,omitempty"`
+	TrainAgentID      string    `json:"train_agent_id,omitempty"`
+	Mode              string    `json:"mode"`
+	CadenceSeconds    int       `json:"cadence_seconds"`
+	TailLines         int       `json:"tail_lines"`
+	NudgeEnabled      bool      `json:"nudge_enabled"`
+	WatcherAgentID    string    `json:"watcher_agent_id,omitempty"`
+	WatcherSession    string    `json:"watcher_session,omitempty"`
+	GuideRevision     int       `json:"guide_revision"`
+	ActiveTaskID      string    `json:"active_task_id,omitempty"`
+	ActiveRunID       string    `json:"active_run_id,omitempty"`
+	TargetSession     string    `json:"target_session,omitempty"`
+	RunStatus         string    `json:"run_status,omitempty"`
+	LastTickAt        time.Time `json:"last_tick_at,omitempty"`
+	LastUsefulAt      time.Time `json:"last_useful_at,omitempty"`
+	LastError         string    `json:"last_error,omitempty"`
+	ObservationReset  bool      `json:"observation_reset"`
+	Desired           string    `json:"desired"`
+	Runtime           string    `json:"runtime"`
+	InstanceID        string    `json:"instance_id,omitempty"`
+	LeaseID           string    `json:"lease_id,omitempty"`
+	LastNudgeAt       time.Time `json:"last_nudge_at,omitempty"`
+	RestartCount      int       `json:"restart_count"`
 }
 
 type WatcherSupervisorState struct {
-	SchemaVersion  int       `json:"schema_version"`
-	ProjectID      string    `json:"project_id"`
-	Desired        string    `json:"desired"`
-	Runtime        string    `json:"runtime"`
-	InstanceID     string    `json:"instance_id,omitempty"`
-	LeaseID        string    `json:"lease_id,omitempty"`
-	WatcherAgentID string    `json:"watcher_agent_id,omitempty"`
-	WatcherSession string    `json:"watcher_session,omitempty"`
-	ActiveTaskID   string    `json:"active_task_id,omitempty"`
-	ActiveRunID    string    `json:"active_run_id,omitempty"`
-	TargetSession  string    `json:"target_session,omitempty"`
-	LastTickAt     time.Time `json:"last_tick_at,omitempty"`
-	LastUsefulAt   time.Time `json:"last_useful_at,omitempty"`
-	LastNudgeAt    time.Time `json:"last_nudge_at,omitempty"`
-	LastError      string    `json:"last_error,omitempty"`
-	RestartCount   int       `json:"restart_count"`
-	StartedAt      time.Time `json:"started_at,omitempty"`
+	SchemaVersion     int       `json:"schema_version"`
+	ProjectID         string    `json:"project_id"`
+	TrainID           string    `json:"train_id,omitempty"`
+	TrainItemPosition int       `json:"train_item_position,omitempty"`
+	TrainAgentID      string    `json:"train_agent_id,omitempty"`
+	Desired           string    `json:"desired"`
+	Runtime           string    `json:"runtime"`
+	InstanceID        string    `json:"instance_id,omitempty"`
+	LeaseID           string    `json:"lease_id,omitempty"`
+	WatcherAgentID    string    `json:"watcher_agent_id,omitempty"`
+	WatcherSession    string    `json:"watcher_session,omitempty"`
+	ActiveTaskID      string    `json:"active_task_id,omitempty"`
+	ActiveRunID       string    `json:"active_run_id,omitempty"`
+	TargetSession     string    `json:"target_session,omitempty"`
+	LastTickAt        time.Time `json:"last_tick_at,omitempty"`
+	LastUsefulAt      time.Time `json:"last_useful_at,omitempty"`
+	LastNudgeAt       time.Time `json:"last_nudge_at,omitempty"`
+	LastError         string    `json:"last_error,omitempty"`
+	RestartCount      int       `json:"restart_count"`
+	StartedAt         time.Time `json:"started_at,omitempty"`
 }
 
 func ValidateWatcherGuide(v WatcherGuide) error {
@@ -143,6 +155,9 @@ func ValidateWatcherObservationState(v WatcherObservationState) error {
 	}
 	if err := ValidateProjectIdentifier(v.ProjectID); err != nil {
 		return fmt.Errorf("invalid watcher observation project_id: %w", err)
+	}
+	if err := validateWatcherTrainBinding(v.TrainID, v.TrainItemPosition, v.TrainAgentID); err != nil {
+		return fmt.Errorf("invalid watcher observation train binding: %w", err)
 	}
 	if v.TaskID != "" && ValidateObjectIdentifier(v.TaskID) != nil {
 		return fmt.Errorf("invalid watcher observation task_id")
@@ -177,6 +192,9 @@ func ValidateWatcherObservation(v WatcherObservation) error {
 	if err := ValidateProjectIdentifier(v.ProjectID); err != nil {
 		return err
 	}
+	if err := validateWatcherTrainBinding(v.TrainID, v.TrainItemPosition, v.TrainAgentID); err != nil {
+		return fmt.Errorf("invalid watcher observation train binding: %w", err)
+	}
 	if v.TaskID != "" && ValidateObjectIdentifier(v.TaskID) != nil {
 		return fmt.Errorf("invalid watcher observation task_id")
 	}
@@ -204,6 +222,9 @@ func ValidateWatcherStatus(v WatcherStatus) error {
 	}
 	if err := ValidateProjectIdentifier(v.ProjectID); err != nil {
 		return err
+	}
+	if err := validateWatcherTrainBinding(v.TrainID, v.TrainItemPosition, v.TrainAgentID); err != nil {
+		return fmt.Errorf("invalid watcher status train binding: %w", err)
 	}
 	if v.Mode != "disabled" && v.Mode != "observe" && v.Mode != "require" {
 		return fmt.Errorf("invalid watcher mode")
@@ -236,6 +257,9 @@ func ValidateWatcherSupervisorState(v WatcherSupervisorState) error {
 	if err := ValidateProjectIdentifier(v.ProjectID); err != nil {
 		return err
 	}
+	if err := validateWatcherTrainBinding(v.TrainID, v.TrainItemPosition, v.TrainAgentID); err != nil {
+		return fmt.Errorf("invalid watcher supervisor train binding: %w", err)
+	}
 	if v.Desired != "stopped" && v.Desired != "running" {
 		return fmt.Errorf("invalid watcher supervisor desired state")
 	}
@@ -250,6 +274,19 @@ func ValidateWatcherSupervisorState(v WatcherSupervisorState) error {
 	}
 	if v.RestartCount < 0 || len([]byte(v.LastError)) > 4096 {
 		return fmt.Errorf("invalid watcher supervisor state")
+	}
+	return nil
+}
+
+func validateWatcherTrainBinding(trainID string, position int, agentID string) error {
+	if trainID == "" {
+		if position != 0 || agentID != "" {
+			return fmt.Errorf("partial train binding")
+		}
+		return nil
+	}
+	if _, _, err := ParseTrainV2ID(trainID); err != nil || position < 0 || ValidateObjectIdentifier(agentID) != nil {
+		return fmt.Errorf("invalid train identity")
 	}
 	return nil
 }
