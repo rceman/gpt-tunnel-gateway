@@ -15,6 +15,16 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 	if err := requireCanonicalTaskID(in.TaskID); err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
+	if in.TrainID != "" {
+		if err := model.ValidateObjectIdentifier(in.TrainID); err != nil {
+			return model.Run{}, OperationResult{}, err
+		}
+	}
+	if in.LaneBranch != "" {
+		if err := model.ValidateBranch(in.LaneBranch); err != nil {
+			return model.Run{}, OperationResult{}, err
+		}
+	}
 	task, err := s.findTask(ctx, in.TaskID)
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
@@ -31,13 +41,6 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 	if state.Status != "created" && state.Status != "ready" {
 		return model.Run{}, OperationResult{}, fmt.Errorf("task is not dispatchable: %s", state.Status)
 	}
-	plan, err := s.PlanRead(ctx, task.ProjectID)
-	if err != nil {
-		return model.Run{}, OperationResult{}, err
-	}
-	if plan.ActiveTaskID != task.ID {
-		return model.Run{}, OperationResult{}, fmt.Errorf("global plan does not identify task as active")
-	}
 	local, err := s.projectConfig(task.ProjectID)
 	if err != nil {
 		return model.Run{}, OperationResult{}, err
@@ -52,7 +55,7 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 		return model.Run{}, OperationResult{}, err
 	}
 	defer projectLock.Release()
-	if err := s.checkSessionAvailable(ctx, local.AirelaySessionKey); err != nil {
+	if err := s.checkSessionAvailableForRun(ctx, local.AirelaySessionKey, in.TrainID, in.LaneBranch); err != nil {
 		return model.Run{}, OperationResult{}, err
 	}
 	executionBase, err := s.dispatchExecutionBase(ctx, task, revision, local)
@@ -109,7 +112,7 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 		return model.Run{}, OperationResult{}, err
 	}
 	now := time.Now().UTC()
-	run := model.Run{SchemaVersion: model.SchemaVersion, ID: id, TaskID: task.ID, TaskSHA256: task.SHA256, ProjectID: task.ProjectID, GatewayID: s.Config.GatewayID, SessionKey: local.AirelaySessionKey, Branch: revision.Branch, BaseRevision: executionBase, Status: "created", CompletionPath: completionPath, CreatedAt: now}
+	run := model.Run{SchemaVersion: model.SchemaVersion, ID: id, TaskID: task.ID, TaskSHA256: task.SHA256, ProjectID: task.ProjectID, GatewayID: s.Config.GatewayID, SessionKey: local.AirelaySessionKey, Branch: revision.Branch, TrainID: in.TrainID, LaneBranch: in.LaneBranch, BaseRevision: executionBase, Status: "created", CompletionPath: completionPath, CreatedAt: now}
 	if revisionAware {
 		run.TaskRevision, run.TaskRevisionSHA256, run.TaskRunNumber = revision.TaskRevision, revision.RevisionSHA256, counter.NextRunNumber
 	}
@@ -134,10 +137,11 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 		if currentState.Status != "created" && currentState.Status != "ready" {
 			return nil, fmt.Errorf("task state changed before dispatch: %s", currentState.Status)
 		}
-		if currentPlan.ActiveTaskID != task.ID || currentPlan.ActiveRunID != "" {
-			return nil, fmt.Errorf("plan changed before dispatch")
+		focusPlan := currentPlan.ActiveRunID == "" && (currentPlan.ActiveTaskID == "" || currentPlan.ActiveTaskID == task.ID)
+		paths := []string{s.runPath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID)}
+		if focusPlan {
+			paths = append(paths, s.planPath(task.ProjectID))
 		}
-		paths := []string{s.runPath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID), s.planPath(task.ProjectID)}
 		var currentCounter model.TaskRunCounter
 		if err := readWorktreeJSON(w, s.taskRunCounterPath(task.ProjectID, task.ID), &currentCounter); err != nil {
 			return nil, err
@@ -159,17 +163,24 @@ func (s *Service) taskDispatchOnce(ctx context.Context, in DispatchInput) (model
 		}
 		paths = append(paths, s.taskRunCounterPath(task.ProjectID, task.ID))
 		counter = currentCounter
-		if err := ensureSessionAvailableInWorktree(w, run.SessionKey, s.Config.MaxReadBytes); err != nil {
+		if err := ensureSessionAvailableInWorktreeForRun(w, run.SessionKey, run.TrainID, run.LaneBranch, s.Config.MaxReadBytes); err != nil {
 			return nil, err
 		}
-		currentPlan.Revision++
-		currentPlan.ActiveRunID = run.ID
-		currentPlan.UpdatedBy = s.Config.GatewayID
-		currentPlan.UpdatedAt = now
+		if focusPlan {
+			currentPlan.Revision++
+			currentPlan.ActiveTaskID = task.ID
+			currentPlan.ActiveRunID = run.ID
+			currentPlan.UpdatedBy = s.Config.GatewayID
+			currentPlan.UpdatedAt = now
+		}
 		currentState.Status = "dispatched"
 		currentState.UpdatedAt = now
-		vals := []any{run, currentState, currentPlan}
-		basePaths := []string{s.runPath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID), s.planPath(task.ProjectID)}
+		vals := []any{run, currentState}
+		basePaths := []string{s.runPath(run.ProjectID, run.ID), s.taskStatePath(task.ProjectID, task.ID)}
+		if focusPlan {
+			vals = append(vals, currentPlan)
+			basePaths = append(basePaths, s.planPath(task.ProjectID))
+		}
 		for i, path := range basePaths {
 			if err := hub.WriteJSON(w, path, vals[i]); err != nil {
 				return nil, err

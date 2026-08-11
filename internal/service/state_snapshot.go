@@ -100,17 +100,25 @@ func (s *Service) checkProjectTaskRunGraph(ctx context.Context, snapshot *hub.Re
 }
 
 func (s *Service) isAuthorizedPendingTaskTrainPointer(ctx context.Context, snapshot *hub.ReadSnapshot, projectID, taskID string) bool {
-	var train model.TaskTrain
-	if err := snapshot.ReadJSON(ctx, s.taskTrainPath(projectID), &train); err != nil {
+	paths, err := snapshot.List(ctx, s.projectPrefix(projectID)+"/train", ".json")
+	if err != nil {
 		return false
 	}
-	if model.ValidateTaskTrain(train) != nil || train.ProjectID != projectID || train.Status != model.TaskTrainActive || train.CurrentTaskID != taskID || train.CurrentRunID != "" {
-		return false
+	for _, path := range paths {
+		var train model.TaskTrain
+		if err := snapshot.ReadJSON(ctx, path, &train); err != nil {
+			continue
+		}
+		normalizeTaskTrain(&train)
+		if model.ValidateTaskTrain(train) != nil || train.ProjectID != projectID || train.Status != model.TaskTrainActive || train.CurrentTaskID != taskID || train.CurrentRunID != "" {
+			continue
+		}
+		var task model.Task
+		if err := snapshot.ReadJSON(ctx, s.taskPath(projectID, taskID), &task); err != nil || model.ValidateTask(task) != nil {
+			return false
+		}
+		state, err := s.readTaskStateFromSnapshot(ctx, snapshot, task)
+		return err == nil && (state.Status == "created" || state.Status == "ready")
 	}
-	var task model.Task
-	if err := snapshot.ReadJSON(ctx, s.taskPath(projectID, taskID), &task); err != nil || model.ValidateTask(task) != nil {
-		return false
-	}
-	state, err := s.readTaskStateFromSnapshot(ctx, snapshot, task)
-	return err == nil && (state.Status == "created" || state.Status == "ready")
+	return false
 }

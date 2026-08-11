@@ -48,13 +48,23 @@ func (s *Service) validateStalePlanPointerInWorktree(worktree string, action Sta
 		}
 	}
 	if action.OldRunID == "" {
-		var train model.TaskTrain
-		if err := readWorktreeJSON(worktree, s.taskTrainPath(action.ProjectID), &train); err == nil {
+		trainRoot := filepath.Join(worktree, filepath.FromSlash(s.projectPrefix(action.ProjectID)+"/train"))
+		entries, err := os.ReadDir(trainRoot)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+				continue
+			}
+			var train model.TaskTrain
+			path := filepath.ToSlash(filepath.Join(s.projectPrefix(action.ProjectID)+"/train", entry.Name()))
+			if err := readWorktreeJSON(worktree, path, &train); err != nil {
+				continue
+			}
 			if model.ValidateTaskTrain(train) == nil && train.Status == model.TaskTrainActive && train.CurrentTaskID == action.OldTaskID && train.CurrentRunID == "" {
 				return fmt.Errorf("plan pointer repair refused: task train now owns pending task %s", action.OldTaskID)
 			}
-		} else if !IsNotFound(err) {
-			return err
 		}
 	}
 	return nil

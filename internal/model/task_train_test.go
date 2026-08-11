@@ -57,3 +57,41 @@ func TestValidateTaskTrainCompletedIndexMustConsumeExplicitList(t *testing.T) {
 		t.Fatal("completed train with pending task was accepted")
 	}
 }
+
+func TestTaskTrainExecutionGroupsAreOrderedAndPartitioned(t *testing.T) {
+	v := validTaskTrainForTest()
+	v.TrainID = "train-ordered"
+	v.ID = ""
+	v.ExecutionGroups = []ExecutionGroup{
+		{GroupID: "group-1", TaskIDs: []string{"EXM-TSK1"}, RecommendedReasoning: TaskTrainReasoningSingleton},
+		{GroupID: "group-2", TaskIDs: []string{"EXM-TSK2"}, RecommendedReasoning: TaskTrainReasoningGroup},
+	}
+	if err := ValidateTaskTrain(v); err != nil {
+		t.Fatal(err)
+	}
+	v.ExecutionGroups[1].TaskIDs = []string{"EXM-TSK1"}
+	if err := ValidateTaskTrain(v); err == nil {
+		t.Fatal("overlapping execution groups were accepted")
+	}
+	v = validTaskTrainForTest()
+	v.TrainID = "train-ordered"
+	v.ID = ""
+	v.ExecutionGroups = []ExecutionGroup{
+		{GroupID: "group-1", TaskIDs: []string{"EXM-TSK2"}, RecommendedReasoning: TaskTrainReasoningSingleton},
+		{GroupID: "group-2", TaskIDs: []string{"EXM-TSK1"}, RecommendedReasoning: TaskTrainReasoningSingleton},
+	}
+	if err := ValidateTaskTrain(v); err == nil {
+		t.Fatal("out-of-order execution groups were accepted")
+	}
+}
+
+func TestTaskTrainDefaultExecutionGroupsUseSingletonAndGroupReasoning(t *testing.T) {
+	singleton := DefaultExecutionGroups([]string{"EXM-TSK1"}, "")
+	if len(singleton) != 1 || singleton[0].RecommendedReasoning != TaskTrainReasoningSingleton {
+		t.Fatalf("unexpected singleton defaults: %#v", singleton)
+	}
+	group := DefaultExecutionGroups([]string{"EXM-TSK1", "EXM-TSK2"}, "")
+	if len(group) != 1 || group[0].RecommendedReasoning != TaskTrainReasoningGroup {
+		t.Fatalf("unexpected group defaults: %#v", group)
+	}
+}

@@ -66,6 +66,60 @@ func TestTaskTrainCreateBindsOnlyExplicitFirstTaskAndStatusIsBounded(t *testing.
 	}
 }
 
+func TestTaskTrainNamedLanesDispatchIndependentlyAndExposeIdentity(t *testing.T) {
+	s, revision, baseRevision := testService(t)
+	first, revision := createTrainTask(t, s, revision, "lane-first")
+	second, revision := createTrainTask(t, s, revision, "lane-second")
+	firstTrain, operation, err := s.TaskTrainCreate(context.Background(), TaskTrainCreateInput{
+		ProjectID:    "example",
+		TrainID:      "train-first",
+		TaskIDs:      []string{first.ID},
+		BaseRevision: baseRevision,
+		LaneBranch:   "train/first",
+		CreatedBy:    "planner",
+		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstTrain.TrainID != "train-first" || firstTrain.LaneBranch != "train/first" || firstTrain.BaseRevision != baseRevision {
+		t.Fatalf("first lane identity was not persisted: %#v", firstTrain)
+	}
+	secondTrain, _, err := s.TaskTrainCreate(context.Background(), TaskTrainCreateInput{
+		ProjectID:    "example",
+		TrainID:      "train-second",
+		TaskIDs:      []string{second.ID},
+		BaseRevision: baseRevision,
+		LaneBranch:   "train/second",
+		CreatedBy:    "planner",
+		WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := s.TaskTrainPoll(context.Background(), TaskTrainPollInput{ProjectID: "example", TrainID: secondTrain.TrainID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.TrainID != secondTrain.TrainID || status.CurrentRunID == "" {
+		t.Fatalf("named lane did not dispatch: %#v", status)
+	}
+	run, err := s.RunRead(context.Background(), status.CurrentRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.TrainID != secondTrain.TrainID || run.LaneBranch != secondTrain.LaneBranch {
+		t.Fatalf("run lost lane identity: %#v", run)
+	}
+	if _, err := s.TaskTrainStatus(context.Background(), "example"); err == nil {
+		t.Fatal("ambiguous project-level task train status unexpectedly succeeded")
+	}
+	byID, err := s.TaskTrainStatusByID(context.Background(), "example", firstTrain.TrainID)
+	if err != nil || byID.TrainID != firstTrain.TrainID {
+		t.Fatalf("named task train status lookup failed: %#v err=%v", byID, err)
+	}
+}
+
 func TestTaskTrainPollWaitsForDeliveryAfterTaskCompletion(t *testing.T) {
 	s, revision, _ := testService(t)
 	first, revision := createTrainTask(t, s, revision, "delivery-wait")

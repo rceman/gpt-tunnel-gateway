@@ -182,6 +182,8 @@ type Run struct {
 	GatewayID          string     `json:"gateway_id"`
 	SessionKey         string     `json:"session_key"`
 	Branch             string     `json:"branch"`
+	TrainID            string     `json:"train_id,omitempty"`
+	LaneBranch         string     `json:"lane_branch,omitempty"`
 	BaseRevision       string     `json:"base_revision"`
 	HubRevision        string     `json:"hub_revision"`
 	Status             string     `json:"status"`

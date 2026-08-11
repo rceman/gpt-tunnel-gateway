@@ -22,6 +22,10 @@ func operationalActiveRun(run model.Run) bool {
 }
 
 func (s *Service) checkSessionAvailable(ctx context.Context, session string) error {
+	return s.checkSessionAvailableForRun(ctx, session, "", "")
+}
+
+func (s *Service) checkSessionAvailableForRun(ctx context.Context, session, trainID, laneBranch string) error {
 	projects, err := s.ProjectList(ctx)
 	if err != nil {
 		return err
@@ -32,12 +36,22 @@ func (s *Service) checkSessionAvailable(ctx context.Context, session string) err
 			return err
 		}
 		for _, r := range runs {
-			if r.SessionKey == session && operationalActiveRun(r) {
+			if r.SessionKey == session && operationalActiveRun(r) && sessionRunCollides(r, trainID, laneBranch) {
 				return fmt.Errorf("active operational run %s already owns the project session", r.ID)
 			}
 		}
 	}
 	return nil
+}
+
+func sessionRunCollides(run model.Run, trainID, laneBranch string) bool {
+	if trainID == "" && laneBranch == "" {
+		return true
+	}
+	if run.TrainID == "" && run.LaneBranch == "" {
+		return true
+	}
+	return (trainID != "" && run.TrainID == trainID) || (laneBranch != "" && run.LaneBranch == laneBranch)
 }
 
 func (s *Service) localRunDir(id string) string { return filepath.Join(s.Config.StateDir, "runs", id) }

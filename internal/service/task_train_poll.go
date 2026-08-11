@@ -10,7 +10,13 @@ import (
 )
 
 func (s *Service) TaskTrainPoll(ctx context.Context, in TaskTrainPollInput) (TaskTrainStatus, error) {
-	train, err := s.TaskTrainRead(ctx, in.ProjectID)
+	var train model.TaskTrain
+	var err error
+	if in.TrainID != "" {
+		train, err = s.TaskTrainReadByID(ctx, in.ProjectID, in.TrainID)
+	} else {
+		train, err = s.TaskTrainRead(ctx, in.ProjectID)
+	}
 	if err != nil {
 		return TaskTrainStatus{}, err
 	}
@@ -55,10 +61,11 @@ func (s *Service) TaskTrainPoll(ctx context.Context, in TaskTrainPollInput) (Tas
 	}
 	switch state.Status {
 	case "created", "ready":
-		if plan.ActiveTaskID != task.ID || plan.ActiveRunID != "" {
-			return status, nil
-		}
-		run, operation, dispatchErr := s.TaskDispatch(ctx, DispatchInput{TaskID: task.ID})
+		run, operation, dispatchErr := s.TaskDispatch(ctx, DispatchInput{
+			TaskID:     task.ID,
+			TrainID:    train.TrainID,
+			LaneBranch: train.LaneBranch,
+		})
 		if dispatchErr != nil {
 			return status, dispatchErr
 		}

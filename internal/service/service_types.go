@@ -63,14 +63,19 @@ type CollectionPageInput struct {
 }
 
 type TaskTrainCreateInput struct {
-	ProjectID string   `json:"project_id"`
-	TaskIDs   []string `json:"task_ids"`
-	CreatedBy string   `json:"created_by"`
+	ProjectID       string                 `json:"project_id"`
+	TrainID         string                 `json:"train_id,omitempty"`
+	TaskIDs         []string               `json:"task_ids"`
+	ExecutionGroups []model.ExecutionGroup `json:"execution_groups,omitempty"`
+	BaseRevision    string                 `json:"base_revision,omitempty"`
+	LaneBranch      string                 `json:"lane_branch,omitempty"`
+	CreatedBy       string                 `json:"created_by"`
 	WriteOptions
 }
 
 type TaskTrainPollInput struct {
 	ProjectID string `json:"project_id"`
+	TrainID   string `json:"train_id,omitempty"`
 	Cursor    string `json:"cursor,omitempty"`
 }
 
@@ -232,7 +237,9 @@ type TaskCreateInput struct {
 }
 
 type DispatchInput struct {
-	TaskID string `json:"task_id"`
+	TaskID     string `json:"task_id"`
+	TrainID    string `json:"train_id,omitempty"`
+	LaneBranch string `json:"lane_branch,omitempty"`
 	WriteOptions
 }
 

@@ -106,6 +106,10 @@ func readWorktreeJSON(worktree, path string, out any) error {
 }
 
 func ensureSessionAvailableInWorktree(worktree, session string, maxReadBytes int64) error {
+	return ensureSessionAvailableInWorktreeForRun(worktree, session, "", "", maxReadBytes)
+}
+
+func ensureSessionAvailableInWorktreeForRun(worktree, session, trainID, laneBranch string, maxReadBytes int64) error {
 	root := filepath.Join(worktree, filepath.FromSlash(hub.ProtocolRoot), "projects")
 	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -125,7 +129,7 @@ func ensureSessionAvailableInWorktree(worktree, session string, maxReadBytes int
 		if err != nil {
 			return fmt.Errorf("decode active run %s: %w", path, err)
 		}
-		if run.SessionKey == session && operationalActiveRun(run) {
+		if run.SessionKey == session && operationalActiveRun(run) && sessionRunCollides(run, trainID, laneBranch) {
 			return fmt.Errorf("active operational run %s already owns the project session", run.ID)
 		}
 		return nil

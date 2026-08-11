@@ -26,11 +26,14 @@ func (s *Service) updateTaskTrain(ctx context.Context, next model.TaskTrain, exp
 	if err := model.ValidateTaskTrain(next); err != nil {
 		return err
 	}
+	trainID := model.CanonicalTaskTrainID(next)
 	_, err := s.Hub.Transact(ctx, expected, "watcher: update task train", func(worktree string) ([]string, error) {
 		var current model.TaskTrain
-		if err := readWorktreeJSON(worktree, s.taskTrainPath(next.ProjectID), &current); err != nil {
+		path := s.taskTrainPathFor(next.ProjectID, trainID)
+		if err := readWorktreeJSON(worktree, path, &current); err != nil {
 			return nil, err
 		}
+		normalizeTaskTrain(&current)
 		statusChanged := current.Status != next.Status
 		allowedStatusChange := current.Status == model.TaskTrainActive && (next.Status == model.TaskTrainWaitingDelivery || next.Status == model.TaskTrainBlocked || next.Status == model.TaskTrainCompleted)
 		allowedStatusChange = allowedStatusChange || current.Status == model.TaskTrainWaitingDelivery && next.Status == model.TaskTrainActive
@@ -38,10 +41,10 @@ func (s *Service) updateTaskTrain(ctx context.Context, next model.TaskTrain, exp
 		if (current.CurrentIndex != next.CurrentIndex || current.CurrentTaskID != next.CurrentTaskID) && !completionAdvance || current.CurrentRunID != next.CurrentRunID && next.CurrentRunID != "" && current.CurrentRunID != "" || statusChanged && !allowedStatusChange {
 			return nil, fmt.Errorf("task train changed concurrently")
 		}
-		if err := hub.WriteJSON(worktree, s.taskTrainPath(next.ProjectID), next); err != nil {
+		if err := hub.WriteJSON(worktree, path, next); err != nil {
 			return nil, err
 		}
-		return []string{s.taskTrainPath(next.ProjectID)}, nil
+		return []string{path}, nil
 	})
 	return err
 }
@@ -58,7 +61,7 @@ func (s *Service) advanceTaskTrain(ctx context.Context, train model.TaskTrain, s
 		status.WaitReason = ""
 		return status, nil
 	}
-	active, err := s.activeOperationalRuns(ctx, train.ProjectID)
+	active, err := s.activeLaneRuns(ctx, train)
 	if err != nil {
 		return status, err
 	}
@@ -75,21 +78,23 @@ func (s *Service) advanceTaskTrain(ctx context.Context, train model.TaskTrain, s
 	if err != nil {
 		return status, err
 	}
-	if plan.ActiveRunID != "" || (plan.ActiveTaskID != "" && plan.ActiveTaskID != train.CurrentTaskID) {
-		return status, fmt.Errorf("plan is not ready for next task train step")
+	focusPlan := plan.ActiveTaskID == "" && plan.ActiveRunID == ""
+	if focusPlan {
+		plan.ActiveTaskID, plan.ActiveRunID = next.CurrentTaskID, ""
+		plan.Revision++
+		plan.UpdatedBy, plan.UpdatedAt = s.Config.GatewayID, time.Now().UTC()
 	}
-	plan.ActiveTaskID, plan.ActiveRunID = next.CurrentTaskID, ""
-	plan.Revision++
-	plan.UpdatedBy, plan.UpdatedAt = s.Config.GatewayID, time.Now().UTC()
 	expected, err := s.hubRevision(ctx)
 	if err != nil {
 		return status, err
 	}
 	tx, err := s.Hub.Transact(ctx, expected, "watcher: advance task train", func(worktree string) ([]string, error) {
 		var current model.TaskTrain
-		if err := readWorktreeJSON(worktree, s.taskTrainPath(train.ProjectID), &current); err != nil {
+		trainPath := s.taskTrainPathFor(train.ProjectID, model.CanonicalTaskTrainID(train))
+		if err := readWorktreeJSON(worktree, trainPath, &current); err != nil {
 			return nil, err
 		}
+		normalizeTaskTrain(&current)
 		if current.CurrentIndex != train.CurrentIndex || current.CurrentTaskID != train.CurrentTaskID || current.Status != train.Status {
 			return nil, fmt.Errorf("task train changed concurrently")
 		}
@@ -97,19 +102,27 @@ func (s *Service) advanceTaskTrain(ctx context.Context, train model.TaskTrain, s
 		if err := readWorktreeJSON(worktree, s.planPath(train.ProjectID), &currentPlan); err != nil {
 			return nil, err
 		}
-		if currentPlan.ActiveRunID != "" || (currentPlan.ActiveTaskID != "" && currentPlan.ActiveTaskID != train.CurrentTaskID) {
-			return nil, fmt.Errorf("plan changed before task train advance")
+		if focusPlan {
+			if currentPlan.ActiveRunID != "" || (currentPlan.ActiveTaskID != "" && currentPlan.ActiveTaskID != train.CurrentTaskID) {
+				return nil, fmt.Errorf("plan changed before task train focus update")
+			}
+			if err := model.ValidatePlan(plan); err != nil {
+				return nil, err
+			}
 		}
-		if err := model.ValidatePlan(plan); err != nil {
+		if err := hub.WriteJSON(worktree, trainPath, next); err != nil {
 			return nil, err
 		}
-		if err := hub.WriteJSON(worktree, s.taskTrainPath(train.ProjectID), next); err != nil {
-			return nil, err
+		if focusPlan {
+			if err := hub.WriteJSON(worktree, s.planPath(train.ProjectID), plan); err != nil {
+				return nil, err
+			}
 		}
-		if err := hub.WriteJSON(worktree, s.planPath(train.ProjectID), plan); err != nil {
-			return nil, err
+		paths := []string{trainPath}
+		if focusPlan {
+			paths = append(paths, s.planPath(train.ProjectID))
 		}
-		return []string{s.taskTrainPath(train.ProjectID), s.planPath(train.ProjectID)}, nil
+		return paths, nil
 	})
 	if err != nil {
 		return status, err
@@ -119,7 +132,9 @@ func (s *Service) advanceTaskTrain(ctx context.Context, train model.TaskTrain, s
 		return status, err
 	}
 	run, _, err := s.TaskDispatch(ctx, DispatchInput{
-		TaskID: task.ID,
+		TaskID:     task.ID,
+		TrainID:    model.CanonicalTaskTrainID(next),
+		LaneBranch: next.LaneBranch,
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: tx.After,
 		},
@@ -133,7 +148,7 @@ func (s *Service) advanceTaskTrain(ctx context.Context, train model.TaskTrain, s
 	}
 	return s.taskTrainTail(ctx, TaskTrainStatus{
 		ProjectID:        next.ProjectID,
-		TrainID:          next.ID,
+		TrainID:          model.CanonicalTaskTrainID(next),
 		Status:           next.Status,
 		CurrentIndex:     next.CurrentIndex,
 		TaskCount:        len(next.TaskIDs),
@@ -151,14 +166,17 @@ func nextTaskID(train model.TaskTrain) string {
 	return ""
 }
 
-func (s *Service) activeOperationalRuns(ctx context.Context, project string) (int, error) {
-	runs, err := s.RunList(ctx, project)
+func (s *Service) activeLaneRuns(ctx context.Context, train model.TaskTrain) (int, error) {
+	runs, err := s.RunList(ctx, train.ProjectID)
 	if err != nil {
 		return 0, err
 	}
 	count := 0
 	for _, run := range runs {
-		if operationalActiveRun(run) {
+		if !operationalActiveRun(run) {
+			continue
+		}
+		if run.TrainID == model.CanonicalTaskTrainID(train) || (run.LaneBranch != "" && run.LaneBranch == train.LaneBranch) || run.ID == train.CurrentRunID {
 			count++
 		}
 	}

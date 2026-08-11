@@ -121,6 +121,14 @@ func ValidateRun(v Run) error {
 	if v.CompletionPath == "" {
 		return fmt.Errorf("completion_path is required")
 	}
+	if v.TrainID != "" && ValidateObjectIdentifier(v.TrainID) != nil {
+		return fmt.Errorf("invalid train_id")
+	}
+	if v.LaneBranch != "" {
+		if err := ValidateBranch(v.LaneBranch); err != nil {
+			return fmt.Errorf("invalid lane_branch: %w", err)
+		}
+	}
 	if !sha256RE(v.TaskSHA256) {
 		return fmt.Errorf("invalid task hash")
 	}
