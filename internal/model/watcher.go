@@ -253,22 +253,3 @@ func ValidateWatcherSupervisorState(v WatcherSupervisorState) error {
 	}
 	return nil
 }
-
-func ValidateWatcherNudgeReceipt(v WatcherNudgeReceipt) error {
-	if v.SchemaVersion != WatcherObservationSchemaVersion {
-		return fmt.Errorf("unsupported watcher nudge schema_version")
-	}
-	if err := ValidateProjectIdentifier(v.ProjectID); err != nil {
-		return err
-	}
-	if ValidateObjectIdentifier(v.TaskID) != nil || ValidateObjectIdentifier(v.RunID) != nil {
-		return fmt.Errorf("invalid watcher nudge identity")
-	}
-	if v.StartedAt.IsZero() || v.FinishedAt.IsZero() {
-		return fmt.Errorf("watcher nudge timestamps are required")
-	}
-	if len([]byte(v.Error)) > 4096 {
-		return fmt.Errorf("watcher nudge error exceeds limit")
-	}
-	return nil
-}
