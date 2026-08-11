@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -137,6 +138,43 @@ func TestExecutorAlwaysRunsMandatoryTokenAdmission(t *testing.T) {
 		},
 	}).Execute(context.Background(), "/repo", []string{"check"}); err == nil {
 		t.Fatal("token overflow did not block gate")
+	}
+}
+
+func TestExecutorUsesScopedAndLegacyFullTestCommands(t *testing.T) {
+	var calls [][]string
+	e := Executor{
+		Tokens: func(context.Context, string) (TokenReport, error) {
+			return TokenReport{Max: TokenFile{Path: "small.go", Tokens: 1}}, nil
+		},
+		Command: func(_ context.Context, _ string, name string, args ...string) (int, string, error) {
+			calls = append(calls, append([]string{name}, args...))
+			return 0, "", nil
+		},
+	}
+	if _, err := e.ExecuteWithScope(context.Background(), "/repo", []string{"test"}, TestScope{Mode: TestScopePackages, Packages: []string{"./z", "./a"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Execute(context.Background(), "/repo", []string{"test"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || !reflect.DeepEqual(calls[0], []string{"go", "test", "./a", "./z", "-count=1"}) || !reflect.DeepEqual(calls[1], []string{"go", "test", "./...", "-count=1"}) {
+		t.Fatalf("test commands=%v", calls)
+	}
+}
+
+func TestTestGateCommandContractPreservesFullCompatibility(t *testing.T) {
+	legacy, err := TestGateContractDigest([]string{"format", "check", "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, err := TestGateCommandContractDigest([]string{"format", "check", "test"}, FullTestScope())
+	if err != nil || full != legacy {
+		t.Fatalf("full contract changed: legacy=%s full=%s err=%v", legacy, full, err)
+	}
+	scoped, err := TestGateCommandContractDigest([]string{"format", "check", "test"}, TestScope{Mode: TestScopePackages, Packages: []string{"./internal/gates"}})
+	if err != nil || scoped == legacy {
+		t.Fatalf("scoped contract did not differ: scoped=%s legacy=%s err=%v", scoped, legacy, err)
 	}
 }
 

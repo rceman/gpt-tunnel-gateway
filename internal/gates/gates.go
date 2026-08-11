@@ -44,6 +44,39 @@ func TestGateContractDigest(gates []string) (string, error) {
 	return hex.EncodeToString(digest[:]), nil
 }
 
+func TestGateCommandContractDigest(gates []string, scope TestScope) (string, error) {
+	resolved, err := Resolve(gates)
+	if err != nil {
+		return "", err
+	}
+	normalized, err := scope.Normalize()
+	if err != nil {
+		return "", err
+	}
+	if normalized.Mode == TestScopeFull {
+		return TestGateContractDigest(resolved)
+	}
+	identity, err := normalized.CommandIdentity()
+	if err != nil {
+		return "", err
+	}
+	payload := struct {
+		Version   string   `json:"version"`
+		Gates     []string `json:"gates"`
+		TestScope string   `json:"test_scope"`
+	}{
+		Version:   TestGateRunnerContractVersion,
+		Gates:     resolved,
+		TestScope: identity,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:]), nil
+}
+
 type Command func(context.Context, string, string, ...string) (int, string, error)
 type TokenCounter func(context.Context, string) (TokenReport, error)
 
@@ -67,7 +100,15 @@ func Resolve(gates []string) ([]string, error) {
 }
 
 func (e Executor) Execute(ctx context.Context, root string, requested []string) ([]model.CompletionGateResult, error) {
+	return e.ExecuteWithScope(ctx, root, requested, FullTestScope())
+}
+
+func (e Executor) ExecuteWithScope(ctx context.Context, root string, requested []string, scope TestScope) ([]model.CompletionGateResult, error) {
 	resolved, err := Resolve(requested)
+	if err != nil {
+		return nil, err
+	}
+	normalized, err := scope.Normalize()
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +117,7 @@ func (e Executor) Execute(ctx context.Context, root string, requested []string) 
 	}
 	results := make([]model.CompletionGateResult, 0, len(resolved))
 	for _, gate := range resolved {
-		code, output, runErr := e.runGate(ctx, root, gate)
+		code, output, runErr := e.runGate(ctx, root, gate, normalized)
 		results = append(results, model.CompletionGateResult{ID: gate, ExitCode: code})
 		if runErr != nil || code != 0 {
 			detail := strings.TrimSpace(output)
@@ -95,7 +136,7 @@ func (e Executor) Execute(ctx context.Context, root string, requested []string) 
 	return results, nil
 }
 
-func (e Executor) runGate(ctx context.Context, root, gate string) (int, string, error) {
+func (e Executor) runGate(ctx context.Context, root, gate string, scope TestScope) (int, string, error) {
 	switch gate {
 	case model.WorkflowGateFormat:
 		return e.Command(ctx, root, "go", "run", "./cmd/gofmt-struct", "--check", ".")
@@ -113,7 +154,14 @@ func (e Executor) runGate(ctx context.Context, root, gate string) (int, string, 
 		}
 		return e.Command(ctx, root, "python3", "scripts/static-check.py")
 	case model.WorkflowGateTest:
-		return e.Command(ctx, root, "go", "test", "./...", "-count=1")
+		args, err := scope.CommandArgs()
+		if err != nil {
+			return 1, "", err
+		}
+		if len(args) == 0 {
+			return 0, "no affected Go packages", nil
+		}
+		return e.Command(ctx, root, args[0], args[1:]...)
 	default:
 		return 1, "", fmt.Errorf("unsupported workflow gate %q", gate)
 	}
