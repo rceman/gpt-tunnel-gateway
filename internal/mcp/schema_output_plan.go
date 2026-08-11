@@ -9,6 +9,15 @@ func workflowPolicyStatusOutputSchema() map[string]any {
 	return closedOutput(map[string]any{"state": outputEnum("adopted", "missing", "invalid"), "revision": outputInteger(), "workflow_stage": outputString(), "integration_branch": outputString(), "agent_wait_for_ci": outputBoolean(), "ci": ci, "gates": outputArray(outputEnum(model.WorkflowGateFormat, model.WorkflowGateCheck, model.WorkflowGateTest)), "active_operation_class": outputString(), "active_ci_mode": outputString(), "ci_blocking": outputBoolean(), "conflicts": outputArray(outputString()), "corrective_action": outputString()}, "state", "revision", "workflow_stage", "integration_branch", "agent_wait_for_ci", "ci", "gates", "active_operation_class", "active_ci_mode", "ci_blocking", "conflicts", "corrective_action")
 }
 
+func projectConfigurationStatusOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"state":         outputEnum("valid", "missing", "invalid"),
+		"revision":      outputInteger(),
+		"configuration": map[string]any{"type": "object", "additionalProperties": true},
+		"conflicts":     outputArray(outputString()),
+	}, "state", "revision", "conflicts")
+}
+
 func projectProgressOutputSchema() map[string]any {
 	task := closedOutput(map[string]any{"id": outputString(), "title": outputString(), "status": outputString(), "created_at": outputDateTime()}, "id", "title", "status", "created_at")
 	run := closedOutput(map[string]any{"id": outputString(), "task_id": outputString(), "status": outputString(), "branch": outputString(), "base_revision": outputString(), "created_at": outputDateTime(), "dispatched_at": outputDateTime(), "finished_at": outputDateTime()}, "id", "task_id", "status", "branch", "base_revision", "created_at")

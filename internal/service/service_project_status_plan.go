@@ -22,27 +22,28 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	componentCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	var (
-		p                 = model.Project{SchemaVersion: model.SchemaVersion, ID: id, DefaultBranch: local.DefaultBranch, Status: "unknown"}
-		projectErr        error
-		wt                gitx.WorktreeStatus
-		wtErr             error
-		plan              model.Plan
-		planErr           error
-		workflowPolicy    model.ProjectWorkflowPolicy
-		workflowPolicyErr error
-		tasks             []TaskRecord
-		tasksErr          error
-		runs              []model.Run
-		runsErr           error
-		hubRevision       string
-		hubRevisionErr    error
-		agentStatus       airelay.SessionStatus
-		agentStatusErr    error
-		agentTail         airelay.Result
-		agentTailErr      error
+		p                    = model.Project{SchemaVersion: model.SchemaVersion, ID: id, DefaultBranch: local.DefaultBranch, Status: "unknown"}
+		projectErr           error
+		wt                   gitx.WorktreeStatus
+		wtErr                error
+		plan                 model.Plan
+		planErr              error
+		workflowPolicy       model.ProjectWorkflowPolicy
+		workflowPolicyErr    error
+		tasks                []TaskRecord
+		tasksErr             error
+		runs                 []model.Run
+		runsErr              error
+		hubRevision          string
+		hubRevisionErr       error
+		agentStatus          airelay.SessionStatus
+		agentStatusErr       error
+		agentTail            airelay.Result
+		agentTailErr         error
+		projectConfiguration ProjectConfigurationStatus
 	)
 	var wg sync.WaitGroup
-	wg.Add(9)
+	wg.Add(10)
 	go func() {
 		defer wg.Done()
 		candidate, err := s.ProjectRead(componentCtx, id)
@@ -84,6 +85,10 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 		defer wg.Done()
 		workflowPolicy, workflowPolicyErr = s.ProjectWorkflowPolicyRead(componentCtx, id)
 	}()
+	go func() {
+		defer wg.Done()
+		projectConfiguration = s.projectConfigurationStatus(componentCtx, id)
+	}()
 	wg.Wait()
 	progress := s.projectProgressFromInputs(plan, planErr, tasks, tasksErr, runs, runsErr, agentStatus, agentStatusErr, agentTail, agentTailErr)
 	appendComponentError(&progress.ComponentErrors, "project", projectErr)
@@ -101,13 +106,14 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	}
 	sort.Strings(progress.ComponentErrors)
 	return ProjectStatus{
-		Project:        p,
-		Local:          local,
-		Worktree:       wt,
-		Plan:           plan.StatusView(),
-		HubRevision:    hubRevision,
-		Progress:       progress,
-		WorkflowPolicy: workflowPolicyStatus(workflowPolicy, workflowPolicyErr, plan, tasks),
+		Project:              p,
+		Local:                local,
+		Worktree:             wt,
+		Plan:                 plan.StatusView(),
+		HubRevision:          hubRevision,
+		Progress:             progress,
+		WorkflowPolicy:       workflowPolicyStatus(workflowPolicy, workflowPolicyErr, plan, tasks),
+		ProjectConfiguration: projectConfiguration,
 	}, nil
 }
 

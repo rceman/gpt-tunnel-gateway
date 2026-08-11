@@ -18,7 +18,7 @@ func coreToolOutputSchemas() map[string]map[string]any {
 		"project_read":                   projectOutputSchema(),
 		"project_identifiers_read":       projectIdentifiersOutputSchema(),
 		"project_identifiers_adopt":      closedOutput(map[string]any{"identifiers": projectIdentifiersOutputSchema(), "operation": operationOutputSchema()}, "identifiers", "operation"),
-		"project_status":                 closedOutput(map[string]any{"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(), "hub_revision": outputString(), "progress": projectProgressOutputSchema(), "workflow_policy": workflowPolicyStatusOutputSchema()}, "project", "local", "worktree", "plan", "hub_revision", "progress", "workflow_policy"),
+		"project_status":                 closedOutput(map[string]any{"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(), "hub_revision": outputString(), "progress": projectProgressOutputSchema(), "workflow_policy": workflowPolicyStatusOutputSchema(), "project_configuration": projectConfigurationStatusOutputSchema()}, "project", "local", "worktree", "plan", "hub_revision", "progress", "workflow_policy", "project_configuration"),
 		"project_workflow_policy_read":   workflowPolicyOutputSchema(),
 		"project_workflow_policy_adopt":  closedOutput(map[string]any{"policy": workflowPolicyOutputSchema(), "operation": operationOutputSchema()}, "policy", "operation"),
 		"project_workflow_policy_update": closedOutput(map[string]any{"policy": workflowPolicyOutputSchema(), "operation": operationOutputSchema()}, "policy", "operation"),

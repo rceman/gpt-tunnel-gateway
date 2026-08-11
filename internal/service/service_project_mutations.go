@@ -123,6 +123,10 @@ func (s *Service) ProjectRegister(ctx context.Context, in ProjectRegisterInput) 
 	if err := model.ValidatePlan(plan); err != nil {
 		return OperationResult{}, err
 	}
+	configuration := model.DefaultProjectConfiguration(p.ID, now)
+	if err := model.ValidateProjectConfiguration(configuration); err != nil {
+		return OperationResult{}, err
+	}
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: register project "+p.ID, func(w string) ([]string, error) {
 		projectPath := s.projectPath(p.ID)
 		if _, err := os.Stat(filepath.Join(w, filepath.FromSlash(projectPath))); err == nil {
@@ -132,13 +136,20 @@ func (s *Service) ProjectRegister(ctx context.Context, in ProjectRegisterInput) 
 		if _, err := os.Stat(filepath.Join(w, filepath.FromSlash(planPath))); err == nil {
 			return nil, fmt.Errorf("project plan already exists")
 		}
+		configurationPath := s.projectConfigurationPath(p.ID)
+		if _, err := os.Stat(filepath.Join(w, filepath.FromSlash(configurationPath))); err == nil {
+			return nil, fmt.Errorf("project configuration already exists")
+		}
 		if err := hub.WriteJSON(w, projectPath, p); err != nil {
 			return nil, err
 		}
 		if err := hub.WriteJSON(w, planPath, plan); err != nil {
 			return nil, err
 		}
-		return []string{projectPath, planPath}, nil
+		if err := hub.WriteJSON(w, configurationPath, configuration); err != nil {
+			return nil, err
+		}
+		return []string{projectPath, planPath, configurationPath}, nil
 	})
 	if err != nil {
 		return OperationResult{}, err

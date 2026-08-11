@@ -23,21 +23,23 @@ func (p ProjectStatus) MarshalJSON() ([]byte, error) {
 		progress.Tail = strings.ReplaceAll(progress.Tail, p.Local.Mirror, "[gateway-internal-path]")
 	}
 	return json.Marshal(struct {
-		Project        interface{}     `json:"project"`
-		Local          localView       `json:"local"`
-		Worktree       interface{}     `json:"worktree"`
-		Plan           interface{}     `json:"plan"`
-		HubRevision    string          `json:"hub_revision"`
-		Progress       ProjectProgress `json:"progress"`
-		WorkflowPolicy interface{}     `json:"workflow_policy"`
+		Project              interface{}     `json:"project"`
+		Local                localView       `json:"local"`
+		Worktree             interface{}     `json:"worktree"`
+		Plan                 interface{}     `json:"plan"`
+		HubRevision          string          `json:"hub_revision"`
+		Progress             ProjectProgress `json:"progress"`
+		WorkflowPolicy       interface{}     `json:"workflow_policy"`
+		ProjectConfiguration interface{}     `json:"project_configuration"`
 	}{
-		Project:        p.Project,
-		Local:          local,
-		Worktree:       p.Worktree,
-		Plan:           p.Plan,
-		HubRevision:    p.HubRevision,
-		Progress:       progress,
-		WorkflowPolicy: p.WorkflowPolicy,
+		Project:              p.Project,
+		Local:                local,
+		Worktree:             p.Worktree,
+		Plan:                 p.Plan,
+		HubRevision:          p.HubRevision,
+		Progress:             progress,
+		WorkflowPolicy:       p.WorkflowPolicy,
+		ProjectConfiguration: p.ProjectConfiguration,
 	})
 }
 

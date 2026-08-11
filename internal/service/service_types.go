@@ -156,6 +156,21 @@ type AgentDisableInput struct {
 	WriteOptions
 }
 
+type ProjectConfigurationPatch struct {
+	AgentRouting         *model.ProjectAgentRouting          `json:"agent_routing,omitempty"`
+	Watcher              *model.ProjectConfigurationWatcher  `json:"watcher,omitempty"`
+	Workflow             *model.ProjectConfigurationWorkflow `json:"workflow,omitempty"`
+	ActivationProfileRef *string                             `json:"activation_profile_ref,omitempty"`
+}
+
+type ProjectConfigurationUpdateInput struct {
+	ProjectID        string                    `json:"project_id"`
+	ExpectedRevision int                       `json:"expected_revision"`
+	Patch            ProjectConfigurationPatch `json:"patch"`
+	UpdatedBy        string                    `json:"updated_by"`
+	WriteOptions
+}
+
 type PlanUpdateInput struct {
 	ProjectID        string    `json:"project_id"`
 	Title            *string   `json:"title,omitempty"`
@@ -268,13 +283,21 @@ type OperationResult struct {
 }
 
 type ProjectStatus struct {
-	Project        model.Project               `json:"project"`
-	Local          config.ProjectConfig        `json:"local"`
-	Worktree       gitx.WorktreeStatus         `json:"worktree"`
-	Plan           model.PlanStatus            `json:"plan"`
-	HubRevision    string                      `json:"hub_revision"`
-	Progress       ProjectProgress             `json:"progress"`
-	WorkflowPolicy ProjectWorkflowPolicyStatus `json:"workflow_policy"`
+	Project              model.Project               `json:"project"`
+	Local                config.ProjectConfig        `json:"local"`
+	Worktree             gitx.WorktreeStatus         `json:"worktree"`
+	Plan                 model.PlanStatus            `json:"plan"`
+	HubRevision          string                      `json:"hub_revision"`
+	Progress             ProjectProgress             `json:"progress"`
+	WorkflowPolicy       ProjectWorkflowPolicyStatus `json:"workflow_policy"`
+	ProjectConfiguration ProjectConfigurationStatus  `json:"project_configuration"`
+}
+
+type ProjectConfigurationStatus struct {
+	State         string                      `json:"state"`
+	Revision      int                         `json:"revision"`
+	Configuration *model.ProjectConfiguration `json:"configuration,omitempty"`
+	Conflicts     []string                    `json:"conflicts"`
 }
 
 type ProjectWorkflowPolicyStatus struct {
