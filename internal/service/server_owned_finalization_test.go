@@ -24,7 +24,10 @@ func TestRunFinalizeBuildsServerOwnedCompletionWithoutAgentFile(t *testing.T) {
 		t.Fatalf("completion existed before canonical finalization: err=%v", err)
 	}
 
-	report, result, err := s.RunFinalize(context.Background(), FinalizeInput{RunID: run.ID, Summary: "Implemented and verified the task."})
+	report, result, err := s.RunFinalize(context.Background(), FinalizeInput{
+		RunID:   run.ID,
+		Summary: "Implemented and verified the task.",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +50,10 @@ func TestRunFinalizeBuildsServerOwnedCompletionWithoutAgentFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	retry, retryResult, err := s.RunFinalize(context.Background(), FinalizeInput{RunID: run.ID, Summary: "Implemented and verified the task."})
+	retry, retryResult, err := s.RunFinalize(context.Background(), FinalizeInput{
+		RunID:   run.ID,
+		Summary: "Implemented and verified the task.",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +76,10 @@ func TestRunFinalizeServerOwnedGateFailureDoesNotPublishState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.RunFinalize(ctx, FinalizeInput{RunID: run.ID, Summary: "Attempted finalization."}); err == nil || !strings.Contains(err.Error(), "server check failed") {
+	if _, _, err := s.RunFinalize(ctx, FinalizeInput{
+		RunID:   run.ID,
+		Summary: "Attempted finalization.",
+	}); err == nil || !strings.Contains(err.Error(), "server check failed") {
 		t.Fatalf("server-owned gate failure was not returned: %v", err)
 	}
 	after, err := s.Hub.RemoteRevision(ctx)
@@ -99,7 +108,10 @@ func TestRunFinalizeServerOwnedAtomicWriteFailureCanRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.RunFinalize(ctx, FinalizeInput{RunID: run.ID, Summary: "Atomic retry proof."}); err == nil || !strings.Contains(err.Error(), "open completion directory") {
+	if _, _, err := s.RunFinalize(ctx, FinalizeInput{
+		RunID:   run.ID,
+		Summary: "Atomic retry proof.",
+	}); err == nil || !strings.Contains(err.Error(), "open completion directory") {
 		t.Fatalf("completion durability failure was not returned: %v", err)
 	}
 	after, err := s.Hub.RemoteRevision(ctx)
@@ -110,7 +122,10 @@ func TestRunFinalizeServerOwnedAtomicWriteFailureCanRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	completionOpenDirectory = previous
-	if _, result, err := s.RunFinalize(ctx, FinalizeInput{RunID: run.ID, Summary: "Atomic retry proof."}); err != nil || result.Status != "TASK_FINALIZED" {
+	if _, result, err := s.RunFinalize(ctx, FinalizeInput{
+		RunID:   run.ID,
+		Summary: "Atomic retry proof.",
+	}); err != nil || result.Status != "TASK_FINALIZED" {
 		t.Fatalf("same finalization did not retry successfully: result=%#v err=%v", result, err)
 	}
 }
