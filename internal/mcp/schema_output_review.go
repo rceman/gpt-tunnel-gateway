@@ -9,14 +9,14 @@ func runReviewReportOutputSchema() map[string]any {
 		"branch": outputString(), "base_revision": outputString(), "reviewed_head": outputString(),
 		"worktree_clean": outputBoolean(), "base_ancestor": outputBoolean(),
 	}, "branch", "base_revision", "reviewed_head", "worktree_clean", "base_ancestor")
-	gate := closedOutput(map[string]any{"id": outputString(), "exit_code": outputInteger()}, "id", "exit_code")
+	gate := completionGateResultAnyIDOutputSchema()
 	finding := closedOutput(map[string]any{"id": outputString(), "severity": outputString(), "title": outputString(), "detail": outputString()}, "id", "severity", "title", "detail")
 	coverage := closedOutput(map[string]any{"surface": outputString(), "status": outputEnum("covered", "inspected_no_change", "blocked"), "detail": outputString()}, "surface", "status", "detail")
 	return closedOutput(map[string]any{
 		"schema_version": outputInteger(), "id": outputString(), "task_id": outputString(), "run_id": outputString(), "task_revision": outputInteger(), "task_revision_sha256": outputString(), "task_run_number": outputInteger(), "project_id": outputString(),
 		"task_sha256": outputString(), "branch": outputString(), "base_revision": outputString(), "reviewed_head": outputString(),
 		"outcome":          outputEnum(model.ReviewOutcomeAccepted, model.ReviewOutcomeRejected, model.ReviewOutcomeBlocked, model.ReviewOutcomeInconclusive),
-		"repository_state": state, "gates": outputArray(gate), "findings": outputArray(finding), "scope_coverage": outputArray(coverage),
+		"repository_state": state, "gates": outputArray(gate), "server_gate_results": outputArray(gate), "findings": outputArray(finding), "scope_coverage": outputArray(coverage),
 		"changed_files": outputArray(outputString()), "unexpected_surfaces": outputArray(outputString()), "historical_compatibility": outputArray(outputString()),
 		"prohibited_actions": outputArray(outputString()), "next_action": outputString(), "finished_at": outputDateTime(), "hub_commit": outputString(),
 	}, "schema_version", "id", "task_id", "run_id", "project_id", "task_sha256", "branch", "base_revision", "reviewed_head", "outcome", "repository_state", "gates", "findings", "scope_coverage", "changed_files", "unexpected_surfaces", "historical_compatibility", "prohibited_actions", "next_action", "finished_at")
@@ -27,13 +27,13 @@ func runReviewDraftOutputSchema() map[string]any {
 		"branch": outputString(), "base_revision": outputString(), "reviewed_head": outputString(),
 		"worktree_clean": outputBoolean(), "base_ancestor": outputBoolean(),
 	}, "branch", "base_revision", "reviewed_head", "worktree_clean", "base_ancestor")
-	gate := closedOutput(map[string]any{"id": outputString(), "exit_code": outputInteger()}, "id", "exit_code")
+	gate := completionGateResultAnyIDOutputSchema()
 	finding := closedOutput(map[string]any{"id": outputString(), "severity": outputString(), "title": outputString(), "detail": outputString()}, "id", "severity", "title", "detail")
 	coverage := closedOutput(map[string]any{"surface": outputString(), "status": outputEnum("covered", "inspected_no_change", "blocked"), "detail": outputString()}, "surface", "status", "detail")
 	return closedOutput(map[string]any{
 		"schema_version": outputInteger(), "id": outputString(), "task_id": outputString(), "run_id": outputString(), "task_revision": outputInteger(), "task_revision_sha256": outputString(), "task_run_number": outputInteger(), "project_id": outputString(),
 		"task_sha256": outputString(), "branch": outputString(), "base_revision": outputString(), "reviewed_head": outputString(),
-		"repository_state": state, "gates": outputArray(gate), "changed_files": outputArray(outputString()),
+		"repository_state": state, "gates": outputArray(gate), "server_gate_results": outputArray(gate), "changed_files": outputArray(outputString()),
 		"outcome":  outputEnum(model.ReviewOutcomeAccepted, model.ReviewOutcomeRejected, model.ReviewOutcomeBlocked, model.ReviewOutcomeInconclusive),
 		"findings": outputArray(finding), "scope_coverage": outputArray(coverage), "unexpected_surfaces": outputArray(outputString()),
 		"historical_compatibility": outputArray(outputString()), "prohibited_actions": outputArray(outputString()), "next_action": outputString(),
