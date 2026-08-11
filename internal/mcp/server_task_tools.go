@@ -22,7 +22,7 @@ func (s *Server) addTaskTools(add toolAdder) {
 	})
 	revisionListLimit := integer("Maximum revisions", 1, service.MaxPublicCollectionLimit)
 	revisionListLimit["default"] = service.DefaultPublicCollectionLimit
-	add("task_revision_list", "List bounded immutable revisions of one stable Task with deterministic continuation. New next_cursor values are compact server-owned tokens of at most 8 safe characters; legacy cursors remain input-compatible.", obj(map[string]any{"task_id": str("Stable task identifier"), "limit": revisionListLimit, "cursor": str("Server-owned continuation cursor; new values are <=8 safe characters and legacy values are accepted")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("task_revision_list", "List bounded immutable Task revisions with compact continuation.", obj(map[string]any{"task_id": str("Stable task identifier"), "limit": revisionListLimit, "cursor": str("Compact server cursor (<=8 chars); legacy accepted")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var args struct {
 			TaskID string `json:"task_id"`
 			Limit  int    `json:"limit,omitempty"`
@@ -61,7 +61,7 @@ func (s *Server) addTaskTools(add toolAdder) {
 	status := outputEnum("created", "ready", "dispatched", "cancelled", "superseded", "completed", "merge_ready", "deferred", "merged")
 	query := str("Case-insensitive search over task ID, slug, title, objective, branch, status, and task metadata")
 	query["maxLength"] = 256
-	cursor := str("Server-owned continuation cursor; new values are <=8 safe characters and legacy values are accepted")
+	cursor := str("Compact server cursor (<=8 chars); legacy accepted")
 	limit := integer("Maximum tasks to return; defaults to the safe server limit", 1, service.MaxTaskListLimit)
 	limit["default"] = service.DefaultTaskListLimit
 	add("task_list", "List bounded project tasks with optional text search, workflow status filtering, and deterministic continuation.", obj(map[string]any{

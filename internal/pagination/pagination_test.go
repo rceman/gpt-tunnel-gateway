@@ -40,7 +40,10 @@ func TestPageAcceptsLegacyCursorAndRejectsStaleCompactCursor(t *testing.T) {
 }
 
 func jsonLegacyCursor(kind, key string) (string, error) {
-	data, err := json.Marshal(cursor{Kind: kind, Key: key})
+	data, err := json.Marshal(cursor{
+		Kind: kind,
+		Key:  key,
+	})
 	if err != nil {
 		return "", err
 	}
