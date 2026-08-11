@@ -48,7 +48,8 @@ The v0.6.0 direct project-session tools are:
 
 They resolve only configured registered projects and never accept a caller
 session key. They do not create or mutate durable task/run/plan state or Git.
-Tail responses always include an opaque `next_cursor` and `has_more`. An
+Tail responses always include a compact server-owned `next_cursor` (new values
+are at most 8 safe characters) and `has_more`. An
 initial call without a cursor returns the newest bounded window. A later call
 with that cursor returns only output observed after the cursor's snapshot,
 including a successful empty delta when nothing new is available. `skip` is
@@ -83,7 +84,8 @@ completion destination internally.
 case-insensitive `query` over task identity and human-readable metadata
 (including ID, derived slug, branch, title, objective, status, creator, and
 criteria), an exact workflow `status` filter, a server-enforced `limit`, and
-an opaque `cursor`. Results are newest-first by `created_at` with task-ID
+an opaque server-owned `cursor` (new values are at most 8 safe characters;
+legacy longer values remain accepted). Results are newest-first by `created_at` with task-ID
 tie-breaking, and return `has_more` plus `next_cursor` for continuation.
 The default and hard maximum are both ten results per public page and are
 enforced by the Gateway; callers must not retrieve or scan an unbounded
@@ -91,8 +93,9 @@ backlog client-side.
 
 All other growing public collections use the shared bounded-page contract:
 `limit` defaults to 20 and has a hard maximum of 100 (also capped by the
-configured `max_list_items`), and `cursor` is an opaque deterministic
-continuation token. `project_list`, `run_list`, `adr_list`,
+configured `max_list_items`), and `cursor` is a server-owned deterministic
+continuation token. New values are at most 8 safe characters; legacy longer
+values remain accepted. `project_list`, `run_list`, `adr_list`,
 `task_revision_list`, `plan_history`, `git_refs`, `git_log`, `git_tree`,
 `delivery_handoff_list`, and `planner_report_list` return `next_cursor` and
 `has_more`; their ordering is stable for the requested snapshot. Cursors for
@@ -103,9 +106,9 @@ The audit of public read-many actions is:
 
 | Action family | Bound | Continuation |
 | --- | --- | --- |
-| `task_list` | default/max 10 | opaque cursor |
-| `project_list`, `run_list`, `adr_list`, `git_refs`, `git_tree` | default 20/max 100 | opaque cursor |
-| `git_log`, `plan_history`, `task_revision_list`, `delivery_handoff_list`, `planner_report_list` | default 20/max 100 | opaque cursor |
+| `task_list` | default/max 10 | compact server-owned cursor (legacy input accepted) |
+| `project_list`, `run_list`, `adr_list`, `git_refs`, `git_tree` | default 20/max 100 | compact server-owned cursor (legacy input accepted) |
+| `git_log`, `plan_history`, `task_revision_list`, `delivery_handoff_list`, `planner_report_list` | default 20/max 100 | compact server-owned cursor (legacy input accepted) |
 | `operator_history` | existing bounded service limit | existing `after` continuation |
 
 Singleton reads such as `project_read`, `task_read`, `run_read`, `adr_read`,

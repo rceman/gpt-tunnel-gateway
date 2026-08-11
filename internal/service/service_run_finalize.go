@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
+	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -63,11 +65,16 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
-	gateResults, err := s.ExecuteProjectGates(ctx, run.ProjectID, task.OperationClass, local.Root)
+	expectedGates, err := s.ResolveProjectGates(ctx, run.ProjectID, task.OperationClass)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
-	expectedGates, err := s.ResolveProjectGates(ctx, run.ProjectID, task.OperationClass)
+	projectLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "project-"+run.ProjectID)
+	if err != nil {
+		return model.Report{}, OperationResult{}, err
+	}
+	defer projectLock.Release()
+	gateResults, err := s.executeProjectGatesWithTestReuse(ctx, run.ProjectID, local.Root, expectedGates)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}

@@ -12,6 +12,10 @@ import (
 )
 
 func (r Runner) command(ctx context.Context, dir string, gitDir bool, args ...string) ([]byte, error) {
+	return r.commandWithEnv(ctx, dir, gitDir, nil, args...)
+}
+
+func (r Runner) commandWithEnv(ctx context.Context, dir string, gitDir bool, extraEnv []string, args ...string) ([]byte, error) {
 	base := []string{"-c", "core.pager=cat", "-c", "pager.log=false", "-c", "pager.show=false", "-c", "diff.external=", "-c", "color.ui=false"}
 	base = append(base, args...)
 	cmd := exec.CommandContext(ctx, "git", base...)
@@ -21,6 +25,7 @@ func (r Runner) command(ctx context.Context, dir string, gitDir bool, args ...st
 		cmd.Dir = dir
 		cmd.Env = cleanEnv()
 	}
+	cmd.Env = append(cmd.Env, extraEnv...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

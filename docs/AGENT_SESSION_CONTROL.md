@@ -14,7 +14,8 @@ The equivalent MCP tools are `agent_send`, `agent_tail`, and `agent_status`.
 Messages, output, lines, and continuation state are bounded. `agent_tail`
 defaults to four lines; `skip` is the legacy initial-window parameter.
 For polling, omit `cursor` on the initial read to receive the newest bounded
-window. Every successful response returns an opaque `next_cursor`, including
+window. Every successful response returns a compact server-owned `next_cursor`
+(new values are at most 8 safe characters), including
 an empty delta. Pass that cursor on the next call to receive only newly
 observed output; `has_more` indicates that more bounded pages remain. Do not
 decode or calculate cursor positions, and do not combine `cursor` with

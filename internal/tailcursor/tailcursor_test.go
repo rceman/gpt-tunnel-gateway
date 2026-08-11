@@ -11,6 +11,9 @@ func TestCursorPagesMultipleNewLinesAndEmptyDelta(t *testing.T) {
 	if err != nil || first.Text != "two\n" || first.NextCursor == "" || first.HasMore {
 		t.Fatalf("initial page=%#v err=%v", first, err)
 	}
+	if len(first.NextCursor) != CompactCursorLen || !isCompact(first.NextCursor) {
+		t.Fatalf("tail cursor is not compact and agent-safe: %q", first.NextCursor)
+	}
 	second, err := Continue("project:demo", "demo_master", first.NextCursor, []string{"one", "two", "three", "four"}, 1)
 	if err != nil || second.Text != "three\n" || !second.HasMore {
 		t.Fatalf("first catch-up page=%#v err=%v", second, err)

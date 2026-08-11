@@ -77,7 +77,7 @@ func (s *Server) addPlanTools(add toolAdder) {
 	})
 	historyLimit := integer("Maximum commits", 1, service.MaxPublicCollectionLimit)
 	historyLimit["default"] = service.DefaultPublicCollectionLimit
-	add("plan_history", "List bounded plan Git history with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "limit": historyLimit, "cursor": str("Opaque continuation cursor")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("plan_history", "List bounded plan Git history with deterministic continuation. New next_cursor values are compact server-owned tokens of at most 8 safe characters; legacy cursors remain input-compatible.", obj(map[string]any{"project_id": str("Project identifier"), "limit": historyLimit, "cursor": str("Server-owned continuation cursor; new values are <=8 safe characters and legacy values are accepted")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var args struct {
 			ProjectID string `json:"project_id"`
 			Limit     int    `json:"limit,omitempty"`
@@ -90,7 +90,7 @@ func (s *Server) addPlanTools(add toolAdder) {
 	})
 	adrLimit := integer("Maximum ADRs", 1, service.MaxPublicCollectionLimit)
 	adrLimit["default"] = service.DefaultPublicCollectionLimit
-	add("adr_list", "List bounded accepted ADRs with deterministic continuation.", obj(map[string]any{"project_id": str("Project identifier"), "limit": adrLimit, "cursor": str("Opaque continuation cursor")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("adr_list", "List bounded accepted ADRs with deterministic continuation. New next_cursor values are compact server-owned tokens of at most 8 safe characters; legacy cursors remain input-compatible.", obj(map[string]any{"project_id": str("Project identifier"), "limit": adrLimit, "cursor": str("Server-owned continuation cursor; new values are <=8 safe characters and legacy values are accepted")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var args struct {
 			ProjectID string `json:"project_id"`
 			Limit     int    `json:"limit,omitempty"`

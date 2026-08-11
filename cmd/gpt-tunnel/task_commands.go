@@ -29,6 +29,38 @@ func task(ctx context.Context, s *service.Service, args []string) {
 			fatal(e)
 		}
 		output(map[string]any{"tasks": v})
+	case "train-create":
+		f, _ := fileFlag("--file", args[1:])
+		if f == "" {
+			usage()
+		}
+		var in service.TaskTrainCreateInput
+		readFile(f, &in)
+		train, operation, e := s.TaskTrainCreate(ctx, in)
+		if e != nil {
+			fatal(e)
+		}
+		output(map[string]any{"train": train, "operation": operation})
+	case "train-status":
+		require(args, 2)
+		v, e := s.TaskTrainStatus(ctx, args[1])
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
+	case "train-poll":
+		require(args, 2)
+		cursor := ""
+		if len(args) == 4 && args[2] == "--cursor" {
+			cursor = args[3]
+		} else if len(args) != 2 {
+			usage()
+		}
+		v, e := s.TaskTrainPoll(ctx, service.TaskTrainPollInput{ProjectID: args[1], Cursor: cursor})
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
 	case "read":
 		require(args, 2)
 		v, e := s.TaskRead(ctx, args[1])
