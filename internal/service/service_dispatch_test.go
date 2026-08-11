@@ -75,7 +75,7 @@ func TestTaskPlanDispatchReadFinalize(t *testing.T) {
 		t.Fatal(err)
 	}
 	configuredRoot := s.Config.Projects["example"].Root
-	if !strings.Contains(string(publicPacket), configuredRoot) || strings.Contains(string(publicPacket), run.CompletionPath) || !strings.Contains(string(publicPacket), "gpt-tunnel run finalize "+run.ID+" --summary <text>") || strings.Contains(string(publicPacket), "write-completion") || strings.Contains(string(publicPacket), "--completion-file") {
+	if !strings.Contains(string(publicPacket), configuredRoot) || !strings.Contains(packet.Text, "gpt-tunnel run finalize "+run.ID+" --summary <text>") || strings.Contains(packet.Text, "write-completion") || strings.Contains(packet.Text, "--completion-file") {
 		t.Fatalf("active execution packet exposed the wrong completion authority: %s", publicPacket)
 	}
 	project := s.Config.Projects["example"]

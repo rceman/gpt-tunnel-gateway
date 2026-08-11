@@ -2,6 +2,7 @@ package gates
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -136,5 +137,20 @@ func TestExecutorAlwaysRunsMandatoryTokenAdmission(t *testing.T) {
 		},
 	}).Execute(context.Background(), "/repo", []string{"check"}); err == nil {
 		t.Fatal("token overflow did not block gate")
+	}
+}
+
+func TestExecutorIncludesBoundedOutputForAnyFailedCommand(t *testing.T) {
+	e := Executor{
+		Tokens: func(context.Context, string) (TokenReport, error) {
+			return TokenReport{Max: TokenFile{Path: "small.txt", Tokens: 1}}, nil
+		},
+		Command: func(context.Context, string, string, ...string) (int, string, error) {
+			return 1, "FAIL custom-language: assertion failed", errors.New("exit status 1")
+		},
+	}
+	_, err := e.Execute(context.Background(), "/repo", []string{"test"})
+	if err == nil || !strings.Contains(err.Error(), "gate test failed") || !strings.Contains(err.Error(), "FAIL custom-language: assertion failed") {
+		t.Fatalf("failed gate omitted bounded command output: %v", err)
 	}
 }
