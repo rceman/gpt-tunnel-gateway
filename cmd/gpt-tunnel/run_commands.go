@@ -98,10 +98,10 @@ func run(ctx context.Context, s *service.Service, args []string) {
 	case "finalize":
 		require(args, 2)
 		fs := flag.NewFlagSet("run finalize", flag.ExitOnError)
-		cf := fs.String("completion-file", "", "completion JSON")
+		summary := fs.String("summary", "", "bounded Agent-owned completion summary")
 		ex := fs.String("expected-hub-revision", "", "optimistic revision")
 		_ = fs.Parse(args[2:])
-		report, result, e := s.RunFinalize(ctx, service.FinalizeInput{RunID: args[1], CompletionFile: *cf, WriteOptions: service.WriteOptions{ExpectedHubRevision: *ex}})
+		report, result, e := s.RunFinalize(ctx, service.FinalizeInput{RunID: args[1], Summary: *summary, WriteOptions: service.WriteOptions{ExpectedHubRevision: *ex}})
 		if e != nil {
 			fatal(e)
 		}
