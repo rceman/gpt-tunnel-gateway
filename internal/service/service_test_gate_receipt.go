@@ -140,8 +140,13 @@ func (s *Service) currentTestIdentity(ctx context.Context, projectID, root strin
 	if err != nil {
 		return "", "", err
 	}
-	if filepath.Clean(project.Root) != filepath.Clean(root) {
-		return "", "", fmt.Errorf("test root does not match configured project")
+	cleanRoot := filepath.Clean(root)
+	if filepath.Clean(project.Root) != cleanRoot {
+		ownedTrainParent := filepath.Join(s.Config.StateDir, "train-worktrees", projectID)
+		if filepath.Dir(cleanRoot) != ownedTrainParent {
+			return "", "", fmt.Errorf("test root does not match configured project")
+		}
+		project.Root = cleanRoot
 	}
 	status, err := s.Git.WorktreeStatus(ctx, project)
 	if err != nil {
