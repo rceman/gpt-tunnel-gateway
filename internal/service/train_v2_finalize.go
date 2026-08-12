@@ -105,13 +105,9 @@ func (s *Service) finalizeTrainV2Run(ctx context.Context, run model.Run, in Fina
 	if err := model.ValidateReport(report, authority.completion, run); err != nil {
 		return model.Report{}, OperationResult{}, fmt.Errorf("Train v2 report is invalid: %w", err)
 	}
-	updatedTrain, err := trainv2.RecordImplementationProof(authority.train, run.TaskID, run.ID, run.AgentID, finalHead, finalHead, run.ID+"-report", serverGates, now)
-	if err != nil {
-		return model.Report{}, OperationResult{}, err
-	}
 	var advance *watcher.AdvancePlan
+	var binding watcher.TrainBinding
 	if completion.Status == "succeeded" {
-		var binding watcher.TrainBinding
 		if local.Watcher.Effective().Mode == "disabled" {
 			item, ok := watcher.CurrentItem(authority.train, run.TaskID)
 			if !ok || item.Status != model.TrainV2ItemRunning || item.RunID != run.ID || item.AgentID != run.AgentID || item.StartHead != run.BaseRevision || authority.start.LaneBranch != run.Branch || authority.start.BaseRevision != run.BaseRevision || authority.runtime.AgentID != run.AgentID || authority.runtime.SessionKey != run.SessionKey {
@@ -135,6 +131,12 @@ func (s *Service) finalizeTrainV2Run(ctx context.Context, run model.Run, in Fina
 				return model.Report{}, OperationResult{}, bindErr
 			}
 		}
+	}
+	updatedTrain, err := trainv2.RecordImplementationProof(authority.train, run.TaskID, run.ID, run.AgentID, finalHead, finalHead, run.ID+"-report", serverGates, now)
+	if err != nil {
+		return model.Report{}, OperationResult{}, err
+	}
+	if completion.Status == "succeeded" {
 		planned, ok, planErr := watcher.PlanAutoAdvance(updatedTrain, binding, completion.Status)
 		if planErr != nil {
 			return model.Report{}, OperationResult{}, planErr
