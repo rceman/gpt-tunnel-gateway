@@ -32,6 +32,16 @@ func WithPlannerOrDelivery(ctx context.Context) context.Context {
 	return context.WithValue(ctx, contextKey{}, plannerOrDelivery)
 }
 
+// BootstrapSessionAuthority upgrades an already trusted planner/delivery
+// server context only for session.start. It does not grant the combined
+// marker to an untrusted request context.
+func BootstrapSessionAuthority(ctx context.Context) (context.Context, error) {
+	if err := RequirePlannerOrDelivery(ctx); err != nil {
+		return nil, err
+	}
+	return WithPlannerOrDelivery(ctx), nil
+}
+
 func WithOperator(ctx context.Context) context.Context {
 	return context.WithValue(ctx, contextKey{}, operator)
 }

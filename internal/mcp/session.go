@@ -36,14 +36,18 @@ func requireSessionRole(ctx context.Context, role string) error {
 // only as the creation capability; it is never used as persisted session
 // authority.
 func existingSessionRoleContext(ctx context.Context, role string) (context.Context, error) {
-	if err := authority.RequireRole(ctx, role); err != nil {
+	bootstrapContext := ctx
+	if elevated, err := authority.BootstrapSessionAuthority(ctx); err == nil {
+		bootstrapContext = elevated
+	}
+	if err := authority.RequireRole(bootstrapContext, role); err != nil {
 		return nil, err
 	}
 	switch role {
 	case durableSession.RolePlanner:
-		return authority.WithPlanner(ctx), nil
+		return authority.WithPlanner(bootstrapContext), nil
 	case durableSession.RoleDelivery:
-		return authority.WithDelivery(ctx), nil
+		return authority.WithDelivery(bootstrapContext), nil
 	default:
 		return nil, fmt.Errorf("unsupported persisted session role %q", role)
 	}
@@ -69,10 +73,11 @@ func (s *Server) sessionAction(ctx context.Context, raw json.RawMessage) (any, e
 		if input.SessionID != "" {
 			return nil, fmt.Errorf("session_id is not accepted by session.start")
 		}
-		if err := requireSessionRole(ctx, input.Role); err != nil {
+		bootstrapContext, err := authority.BootstrapSessionAuthority(ctx)
+		if err != nil {
 			return nil, err
 		}
-		result, err := s.Service.SessionStart(ctx, service.SessionStartInput{ProjectID: input.ProjectID, Role: input.Role, SessionType: input.SessionType, SessionRef: input.SessionRef, Label: input.Label})
+		result, err := s.Service.SessionStart(bootstrapContext, service.SessionStartInput{ProjectID: input.ProjectID, Role: input.Role, SessionType: input.SessionType, SessionRef: input.SessionRef, Label: input.Label})
 		if err != nil {
 			return nil, err
 		}

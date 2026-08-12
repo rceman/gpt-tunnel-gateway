@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
@@ -39,10 +40,14 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		return genericActionError(action, fmt.Sprintf("unknown action %q; inspect schema with path=\"\"", action)), nil
 	}
 	if record.ID != "" {
-		if err := requireSessionRole(ctx, record.Role); err != nil {
+		bootstrapContext := ctx
+		if elevated, err := authority.BootstrapSessionAuthority(ctx); err == nil {
+			bootstrapContext = elevated
+		}
+		if err := requireSessionRole(bootstrapContext, record.Role); err != nil {
 			return genericActionError(action, err.Error()), nil
 		}
-		resolved, err := s.resolveSessionAuthority(ctx, record, actionAuthorityContract{
+		resolved, err := s.resolveSessionAuthority(bootstrapContext, record, actionAuthorityContract{
 			Role:                   entry.AuthorityRole,
 			RequiresWorkflowPolicy: entry.RequiresWorkflowPolicy,
 		})

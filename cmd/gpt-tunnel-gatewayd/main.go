@@ -45,10 +45,10 @@ func main() {
 		fatal(fmt.Errorf("durable state validation failed: %s", summarizeStateIssues(state.Issues)))
 	}
 	cancel()
-	// The daemon may bootstrap either independent durable project session role.
-	// Role-specific operations still resolve authority from the durable record;
-	// this combined marker is not itself planner or delivery authority.
-	trustedMCPContext := authority.WithPlannerOrDelivery(context.Background())
+	// Keep the legacy typed-tool authority exact. session.start performs a
+	// checked, narrow bootstrap elevation for either durable role; all other
+	// handlers retain the daemon's established delivery root.
+	trustedMCPContext := authority.WithDelivery(context.Background())
 	go svc.RunWatcherSupervisors(context.Background())
 	srv := &http.Server{
 		Addr:              c.ListenAddr,

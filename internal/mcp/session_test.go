@@ -12,6 +12,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
@@ -87,7 +88,6 @@ func TestSessionLifecyclePersistsAndBindsProjectRole(t *testing.T) {
 
 func TestSessionBootstrapCreatesIndependentPlannerAndDeliveryTypedSessions(t *testing.T) {
 	server := newSessionTestServer(t)
-	server.AuthorityContext = authority.WithPlannerOrDelivery(context.Background())
 	planner := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt"}))
 	delivery := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "delivery", "session_type": "chatgpt"}))
 	plannerID := planner["session"].(map[string]any)["session_id"].(string)
@@ -100,6 +100,84 @@ func TestSessionBootstrapCreatesIndependentPlannerAndDeliveryTypedSessions(t *te
 	}
 	if err := authority.RequirePlannerOrDelivery(authority.WithPlannerOrDelivery(context.Background())); err != nil {
 		t.Fatalf("combined bootstrap authority rejected: %v", err)
+	}
+}
+
+func TestDefaultDeliveryRootResolvesPlannerAndDeliverySessionsAndLegacyDeliveryTool(t *testing.T) {
+	server := newSessionTestServer(t)
+	if err := server.RegisterGenericAction(GenericAction{
+		Path:          "test/planner-only",
+		Description:   "Planner-session-only regression action",
+		InputSchema:   obj(map[string]any{}),
+		OutputSchema:  closedOutput(map[string]any{"role": outputString()}, "role"),
+		AuthorityRole: durableSession.RolePlanner,
+		Authority:     authority.RequirePlanner,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			if err := authority.RequirePlanner(ctx); err != nil {
+				return nil, err
+			}
+			return map[string]any{"role": durableSession.RolePlanner}, nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.RegisterGenericAction(GenericAction{
+		Path:          "test/delivery-only",
+		Description:   "Delivery-session-only regression action",
+		InputSchema:   obj(map[string]any{}),
+		OutputSchema:  closedOutput(map[string]any{"role": outputString()}, "role"),
+		AuthorityRole: durableSession.RoleDelivery,
+		Authority:     authority.RequireDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			if err := authority.RequireDelivery(ctx); err != nil {
+				return nil, err
+			}
+			return map[string]any{"role": durableSession.RoleDelivery}, nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	planner := genericStructured(t, sessionCall(t, server, map[string]any{
+		"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt",
+	}))
+	plannerID := planner["session"].(map[string]any)["session_id"].(string)
+	if !strings.HasPrefix(plannerID, "SP-") {
+		t.Fatalf("planner bootstrap did not return SP session: %q", plannerID)
+	}
+	plannerCall := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session_id": plannerID, "action": "test/planner-only", "input": map[string]any{},
+		}},
+	})))
+	if plannerCall["is_error"] != false || plannerCall["result"].(map[string]any)["role"] != durableSession.RolePlanner {
+		t.Fatalf("planner session-authorized call failed: %#v", plannerCall)
+	}
+
+	delivery := genericStructured(t, sessionCall(t, server, map[string]any{
+		"action": "start", "project_id": "example", "role": "delivery", "session_type": "chatgpt",
+	}))
+	deliveryID := delivery["session"].(map[string]any)["session_id"].(string)
+	if !strings.HasPrefix(deliveryID, "SD-") {
+		t.Fatalf("delivery bootstrap did not return SD session: %q", deliveryID)
+	}
+	deliveryCall := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session_id": deliveryID, "action": "test/delivery-only", "input": map[string]any{},
+		}},
+	})))
+	if deliveryCall["is_error"] != false || deliveryCall["result"].(map[string]any)["role"] != durableSession.RoleDelivery {
+		t.Fatalf("delivery session-authorized call failed: %#v", deliveryCall)
+	}
+
+	legacy := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+		"params": map[string]any{"name": "delivery_handoff_list", "arguments": map[string]any{"project_id": "example"}},
+	})))
+	if legacy["handoffs"] == nil {
+		t.Fatalf("legacy direct Delivery typed tool did not succeed: %#v", legacy)
 	}
 }
 

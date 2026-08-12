@@ -117,6 +117,25 @@ func (s *Server) resolveTypedSessionAuthority(ctx context.Context, toolName stri
 	return resolved, executable, nil
 }
 
+// sessionIDFromRaw extracts only the durable-session locator. It does not
+// treat the identifier's prefix as authority; resolveSessionAuthority still
+// validates the persisted record and rebinds the exact stored role.
+func sessionIDFromRaw(raw json.RawMessage) (string, bool) {
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &args); err != nil || args == nil {
+		return "", false
+	}
+	value, ok := args["session_id"]
+	if !ok {
+		return "", false
+	}
+	var sessionID string
+	if err := json.Unmarshal(value, &sessionID); err != nil || sessionID == "" {
+		return "", false
+	}
+	return sessionID, true
+}
+
 func requireActionAuthority(ctx context.Context, contract actionAuthorityContract) error {
 	switch contract.Role {
 	case "":
@@ -150,7 +169,11 @@ func (s *Server) resolveSessionAuthority(ctx context.Context, record durableSess
 	if contract.Role == "" && !contract.RequiresWorkflowPolicy {
 		return ctx, nil
 	}
-	if err := requireSessionRole(ctx, record.Role); err != nil {
+	bootstrapContext := ctx
+	if elevated, err := authority.BootstrapSessionAuthority(ctx); err == nil {
+		bootstrapContext = elevated
+	}
+	if err := requireSessionRole(bootstrapContext, record.Role); err != nil {
 		return nil, fmt.Errorf("session authority is not trusted by this server: %w", err)
 	}
 	if contract.Role != "" && contract.Role != actionRolePlannerOrDelivery && record.Role != contract.Role {
@@ -159,7 +182,7 @@ func (s *Server) resolveSessionAuthority(ctx context.Context, record durableSess
 	if contract.Role == actionRolePlannerOrDelivery && record.Role != durableSession.RolePlanner && record.Role != durableSession.RoleDelivery {
 		return nil, fmt.Errorf("session role %q is not authorized for this action", record.Role)
 	}
-	project, err := s.Service.ProjectRead(ctx, record.ProjectID)
+	project, err := s.Service.ProjectRead(bootstrapContext, record.ProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("session project %q is not durably registered: %w", record.ProjectID, err)
 	}
@@ -174,13 +197,13 @@ func (s *Server) resolveSessionAuthority(ctx context.Context, record durableSess
 	}
 	var policy *model.ProjectWorkflowPolicy
 	if contract.RequiresWorkflowPolicy {
-		value, err := s.Service.ProjectWorkflowPolicyRead(ctx, record.ProjectID)
+		value, err := s.Service.ProjectWorkflowPolicyRead(bootstrapContext, record.ProjectID)
 		if err != nil {
 			return nil, fmt.Errorf("workflow policy for session project %q is unavailable: %w", record.ProjectID, err)
 		}
 		policy = &value
 	}
-	roleContext := ctx
+	roleContext := bootstrapContext
 	switch record.Role {
 	case durableSession.RolePlanner:
 		roleContext = authority.WithPlanner(roleContext)
