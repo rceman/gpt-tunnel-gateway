@@ -36,6 +36,76 @@ func TestReadGatewayLogDeltaIsBoundedAndSanitized(t *testing.T) {
 	}
 }
 
+func TestStartReconcilesAllGatewayAndTunnelStates(t *testing.T) {
+	oldStatus, oldGateway, oldTunnel := startStatusFn, startGatewayFn, startTunnelFn
+	oldGatewayReady, oldTunnelReady := startGatewayReadyFn, startTunnelReadyFn
+	defer func() {
+		startStatusFn, startGatewayFn, startTunnelFn = oldStatus, oldGateway, oldTunnel
+		startGatewayReadyFn, startTunnelReadyFn = oldGatewayReady, oldTunnelReady
+	}()
+	for _, tc := range []struct {
+		name            string
+		gatewayRunning  bool
+		tunnelRunning   bool
+		wantGatewayCall int
+		wantTunnelCall  int
+	}{
+		{name: "both stopped", wantGatewayCall: 1, wantTunnelCall: 1},
+		{name: "gateway running", gatewayRunning: true, wantTunnelCall: 1},
+		{name: "tunnel running", tunnelRunning: true, wantGatewayCall: 1},
+		{name: "both running", gatewayRunning: true, tunnelRunning: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			envPath := filepath.Join(dir, "tunnel.env")
+			if err := os.WriteFile(envPath, []byte("CONTROL_PLANE_API_KEY=test\nCONTROL_PLANE_TUNNEL_ID=tunnel_0123456789abcdef0123456789abcdef\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			initial := Status{
+				Gateway:      ProcessStatus{Running: tc.gatewayRunning, PID: 11, IdentityValid: tc.gatewayRunning},
+				Tunnel:       ProcessStatus{Running: tc.tunnelRunning, PID: 22, IdentityValid: tc.tunnelRunning},
+				GatewayReady: tc.gatewayRunning, TunnelReady: tc.tunnelRunning, VersionMatch: true,
+			}
+			final := Status{Gateway: ProcessStatus{Running: true, PID: 11, IdentityValid: true}, Tunnel: ProcessStatus{Running: true, PID: 22, IdentityValid: true}, GatewayReady: true, TunnelReady: true, VersionMatch: true}
+			statusCalls := 0
+			gatewayCalls, tunnelCalls := 0, 0
+			startStatusFn = func(context.Context, Controller) (Status, error) {
+				statusCalls++
+				if statusCalls == 1 {
+					return initial, nil
+				}
+				return final, nil
+			}
+			startGatewayFn = func(Controller) error { gatewayCalls++; return nil }
+			startTunnelFn = func(Controller, []string) error { tunnelCalls++; return nil }
+			startGatewayReadyFn = func(Controller) error { return nil }
+			startTunnelReadyFn = func(Controller) error { return nil }
+			c := Controller{ConfigPath: filepath.Join(dir, "config.json"), Config: config.Config{ListenAddr: "127.0.0.1:1", Controller: config.ControllerConfig{PIDDir: filepath.Join(dir, "pid"), TunnelEnvFile: envPath, TunnelHealthListenAddr: "127.0.0.1:2"}}}
+			if err := c.Start(); err != nil {
+				t.Fatal(err)
+			}
+			if gatewayCalls != tc.wantGatewayCall || tunnelCalls != tc.wantTunnelCall {
+				t.Fatalf("start calls gateway=%d tunnel=%d, want gateway=%d tunnel=%d", gatewayCalls, tunnelCalls, tc.wantGatewayCall, tc.wantTunnelCall)
+			}
+			if tc.tunnelRunning && tunnelCalls != 0 && initial.Tunnel.PID != final.Tunnel.PID {
+				t.Fatal("existing tunnel identity changed")
+			}
+		})
+	}
+}
+
+func TestStartRejectsRunningUnhealthyComponent(t *testing.T) {
+	oldStatus := startStatusFn
+	defer func() { startStatusFn = oldStatus }()
+	startStatusFn = func(context.Context, Controller) (Status, error) {
+		return Status{Gateway: ProcessStatus{Running: true, IdentityValid: true}, GatewayReady: false}, nil
+	}
+	c := Controller{Config: config.Config{Controller: config.ControllerConfig{PIDDir: t.TempDir()}}}
+	if err := c.Start(); err == nil || !strings.Contains(err.Error(), "gateway is running but not ready") {
+		t.Fatalf("unhealthy running gateway was not rejected: %v", err)
+	}
+}
+
 func TestRestartGatewayDiagnosticsExcludesPreviousShutdownOutput(t *testing.T) {
 	dir := t.TempDir()
 	logDir := filepath.Join(dir, "logs")

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -54,6 +55,15 @@ type pidRecord struct {
 }
 
 var (
+	startStatusFn  = func(ctx context.Context, c Controller) (Status, error) { return c.Status(ctx) }
+	startGatewayFn = func(c Controller) error {
+		return c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath})
+	}
+	startTunnelFn = func(c Controller, env []string) error {
+		return c.startProcess("tunnel", c.Config.Controller.TunnelClientBinary, []string{"run"}, env)
+	}
+	startGatewayReadyFn   = func(c Controller) error { return waitURL(c.gatewayReadyURL(), true, 30*time.Second) }
+	startTunnelReadyFn    = func(c Controller) error { return waitURL(c.tunnelReadyURL(), true, 30*time.Second) }
 	restartGatewayStopFn  = func(c Controller) error { return c.stopProcess("gateway", c.Config.Controller.GatewayBinary) }
 	restartGatewayStartFn = func(c Controller) error {
 		return c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath})

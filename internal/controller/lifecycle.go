@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -87,27 +88,77 @@ func (c Controller) Start() error {
 		return err
 	}
 	defer lock.Release()
-	if err := c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath}); err != nil {
-		return err
-	}
-	if err := waitURL(c.gatewayReadyURL(), true, 30*time.Second); err != nil {
-		_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
-		return err
-	}
-	env, err := readTunnelEnv(c.Config.Controller.TunnelEnvFile)
+	ctx := context.Background()
+	initial, err := startStatusFn(ctx, c)
 	if err != nil {
-		_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
 		return err
 	}
-	env = append(env, "MCP_SERVER_URL=http://"+c.Config.ListenAddr+"/mcp", "HEALTH_LISTEN_ADDR="+c.Config.Controller.TunnelHealthListenAddr)
-	if err := c.startProcess("tunnel", c.Config.Controller.TunnelClientBinary, []string{"run"}, env); err != nil {
-		_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
+	if initial.Gateway.Running && !initial.Gateway.IdentityValid {
+		return fmt.Errorf("gateway is running with invalid process identity: %s", initial.Gateway.IdentityReason)
+	}
+	if initial.Tunnel.Running && !initial.Tunnel.IdentityValid {
+		return fmt.Errorf("tunnel is running with invalid process identity: %s", initial.Tunnel.IdentityReason)
+	}
+	if initial.Gateway.Running && !initial.GatewayReady {
+		return fmt.Errorf("gateway is running but not ready")
+	}
+	if initial.Tunnel.Running && !initial.TunnelReady {
+		return fmt.Errorf("tunnel is running but not ready")
+	}
+	startedGateway := false
+	startedTunnel := false
+	if !initial.Gateway.Running {
+		if err := startGatewayFn(c); err != nil {
+			return err
+		}
+		startedGateway = true
+		if err := startGatewayReadyFn(c); err != nil {
+			_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
+			return err
+		}
+	}
+	if !initial.Tunnel.Running {
+		env, err := readTunnelEnv(c.Config.Controller.TunnelEnvFile)
+		if err != nil {
+			if startedGateway {
+				_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
+			}
+			return err
+		}
+		env = append(env, "MCP_SERVER_URL=http://"+c.Config.ListenAddr+"/mcp", "HEALTH_LISTEN_ADDR="+c.Config.Controller.TunnelHealthListenAddr)
+		if err := startTunnelFn(c, env); err != nil {
+			if startedGateway {
+				_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
+			}
+			return err
+		}
+		startedTunnel = true
+		if err := startTunnelReadyFn(c); err != nil {
+			_ = c.stopProcess("tunnel", c.Config.Controller.TunnelClientBinary)
+			if startedGateway {
+				_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
+			}
+			return err
+		}
+	}
+	final, err := startStatusFn(ctx, c)
+	if err != nil {
+		if startedTunnel {
+			_ = c.stopProcess("tunnel", c.Config.Controller.TunnelClientBinary)
+		}
+		if startedGateway {
+			_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
+		}
 		return err
 	}
-	if err := waitURL(c.tunnelReadyURL(), true, 30*time.Second); err != nil {
-		_ = c.stopProcess("tunnel", c.Config.Controller.TunnelClientBinary)
-		_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
-		return err
+	if !final.Gateway.Running || !final.Gateway.IdentityValid || !final.GatewayReady || !final.Tunnel.Running || !final.Tunnel.IdentityValid || !final.TunnelReady || !final.VersionMatch {
+		if startedTunnel {
+			_ = c.stopProcess("tunnel", c.Config.Controller.TunnelClientBinary)
+		}
+		if startedGateway {
+			_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
+		}
+		return fmt.Errorf("runtime did not converge to ready Gateway and Tunnel")
 	}
 	return nil
 }
