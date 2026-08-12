@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -244,9 +245,58 @@ func stateCommand(ctx context.Context, c config.Config) {
 			fatal(err)
 		}
 		output(result)
+	case "reconcile-orphan-run":
+		stateReconcileOrphanRun(ctx, s)
 	default:
 		usage()
 	}
+}
+
+func stateReconcileOrphanRun(ctx context.Context, s *service.Service) {
+	input := service.OrphanRunReconcileInput{
+		ProjectID: "gpt-tunnel-gateway",
+		RunID:     "GTW-TSK185-RUN1",
+		Actor:     "gpt-tunnelctl",
+		Reason:    "explicit recovery of the GTW-TSK185-RUN1 orphan run before gateway recovery",
+	}
+	modeSet := false
+	for i := 3; i < len(os.Args); i++ {
+		if os.Args[i] == "--dry-run" || os.Args[i] == "--apply" {
+			if modeSet {
+				usage()
+			}
+			modeSet = true
+			input.Apply = os.Args[i] == "--apply"
+			continue
+		}
+		if i+1 >= len(os.Args) {
+			usage()
+		}
+		value := os.Args[i+1]
+		switch os.Args[i] {
+		case "--expected-hub-revision":
+			input.ExpectedHubRevision = value
+		case "--expected-original-sha256":
+			input.ExpectedOriginalSHA256 = value
+		case "--actor":
+			input.Actor = value
+		case "--session":
+			input.Session = value
+		case "--reason":
+			input.Reason = value
+		default:
+			usage()
+		}
+		i++
+	}
+	if !modeSet || strings.TrimSpace(input.Reason) == "" {
+		usage()
+	}
+	result, err := s.ReconcileOrphanRun(ctx, input)
+	if err != nil {
+		fatal(err)
+	}
+	output(result)
 }
 
 func upgradeResultShouldPrint(status string) bool {
@@ -289,7 +339,7 @@ func copyExecutable(src, dst string) error {
 	return os.Rename(name, dst)
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade [inspect|status]|start|stop|restart|restart-gateway|status|doctor|diagnose-startup|state {check|repair --dry-run|repair --apply}|logs [gateway|tunnel|all] [lines]|version}")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade [inspect|status]|start|stop|restart|restart-gateway|status|doctor|diagnose-startup|state {check|repair --dry-run|repair --apply|reconcile-orphan-run --dry-run|reconcile-orphan-run --apply}|logs [gateway|tunnel|all] [lines]|version}")
 	os.Exit(2)
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnelctl:", err); os.Exit(1) }
