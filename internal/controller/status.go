@@ -37,7 +37,7 @@ func (c Controller) Status(ctx context.Context) (Status, error) {
 	}
 	s.Degraded = recovery.Status == "degraded"
 	s.DegradedReason = recovery.Reason
-	return s, nil
+	return projectRuntimeStatus(s, recovery), nil
 }
 func installedVersion(path string) string {
 	out, err := exec.Command(path, "--version").Output()

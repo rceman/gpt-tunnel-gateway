@@ -22,15 +22,21 @@ type ProcessStatus struct {
 	StartTimeTicks     uint64 `json:"start_time_ticks,omitempty"`
 }
 type Status struct {
-	Gateway          ProcessStatus `json:"gateway"`
-	Tunnel           ProcessStatus `json:"tunnel"`
-	GatewayReady     bool          `json:"gateway_ready"`
-	TunnelReady      bool          `json:"tunnel_ready"`
-	InstalledVersion string        `json:"installed_version,omitempty"`
-	RunningVersion   string        `json:"running_version,omitempty"`
-	VersionMatch     bool          `json:"version_match"`
-	Degraded         bool          `json:"degraded"`
-	DegradedReason   string        `json:"degraded_reason,omitempty"`
+	Gateway          ProcessStatus     `json:"gateway"`
+	Tunnel           ProcessStatus     `json:"tunnel"`
+	GatewayReady     bool              `json:"gateway_ready"`
+	TunnelReady      bool              `json:"tunnel_ready"`
+	InstalledVersion string            `json:"installed_version,omitempty"`
+	RunningVersion   string            `json:"running_version,omitempty"`
+	VersionMatch     bool              `json:"version_match"`
+	Degraded         bool              `json:"degraded"`
+	DegradedReason   string            `json:"degraded_reason,omitempty"`
+	State            string            `json:"state"`
+	Reason           string            `json:"reason,omitempty"`
+	ComponentReasons map[string]string `json:"component_reasons,omitempty"`
+	MCPAvailable     bool              `json:"mcp_available"`
+	RecoveryStatus   string            `json:"recovery_status,omitempty"`
+	RecoveryAttempts int               `json:"recovery_attempts,omitempty"`
 }
 
 type GatewayStartupDiagnostics struct {
