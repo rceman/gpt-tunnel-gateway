@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -165,5 +166,31 @@ func TestProjectStatusMCPOutputMatchesWorkflowPolicyStateMatrix(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestProjectStatusMCPOutputKeepsRetiredPlanSchemaValid(t *testing.T) {
+	server := newSessionTestServer(t)
+	server.AuthorityContext = authority.WithDelivery(context.Background())
+	configureTrainV2MCPTest(t, server)
+
+	status := readAndValidateProjectStatus(t, server.Service)
+	plan, ok := status["plan"].(map[string]any)
+	if !ok {
+		t.Fatalf("project_status plan projection has wrong type: %#v", status["plan"])
+	}
+	if plan["project_id"] != "example" || plan["schema_version"] != float64(model.PlanSchemaVersion) {
+		t.Fatalf("retired Plan projection lost identity/schema: %#v", plan)
+	}
+	queue, ok := plan["queue"].([]any)
+	if !ok || queue == nil || len(queue) != 0 {
+		t.Fatalf("retired Plan queue was not an empty array: %#v", plan["queue"])
+	}
+	sections, ok := plan["sections"].([]any)
+	if !ok || sections == nil || len(sections) != 0 {
+		t.Fatalf("retired Plan sections were not an empty array: %#v", plan["sections"])
+	}
+	if train, ok := status["train_v2"].(map[string]any); ok && train["execution_model"] != "train_v2" {
+		t.Fatalf("retired Plan projection changed Train authority: %#v", train)
 	}
 }

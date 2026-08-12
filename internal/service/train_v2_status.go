@@ -67,5 +67,16 @@ func (s *Service) projectStatusTrainV2(ctx context.Context, id string, local con
 	if policyErr != nil {
 		return ProjectStatus{}, policyErr
 	}
-	return ProjectStatus{Project: project, Local: local, Worktree: worktree, Plan: model.PlanStatus{}, HubRevision: hubRevision, Progress: progress, WorkflowPolicy: workflowPolicyStatus(policy, policyErr, model.Plan{}, nil), ProjectConfiguration: configurationStatus, TrainV2: &projection}, nil
+	return ProjectStatus{Project: project, Local: local, Worktree: worktree, Plan: retiredPlanStatus(id), HubRevision: hubRevision, Progress: progress, WorkflowPolicy: workflowPolicyStatus(policy, policyErr, model.Plan{}, nil), ProjectConfiguration: configurationStatus, TrainV2: &projection}, nil
+}
+
+// retiredPlanStatus keeps the legacy Plan field schema-valid after Train v2
+// cutover without presenting Plan as current operational authority.
+func retiredPlanStatus(projectID string) model.PlanStatus {
+	return model.PlanStatus{
+		SchemaVersion: model.PlanSchemaVersion,
+		ProjectID:     projectID,
+		Queue:         []string{},
+		Sections:      []string{},
+	}
 }
