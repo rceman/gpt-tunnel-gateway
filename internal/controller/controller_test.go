@@ -62,11 +62,35 @@ func TestStartReconcilesAllGatewayAndTunnelStates(t *testing.T) {
 				t.Fatal(err)
 			}
 			initial := Status{
-				Gateway:      ProcessStatus{Running: tc.gatewayRunning, PID: 11, IdentityValid: tc.gatewayRunning},
-				Tunnel:       ProcessStatus{Running: tc.tunnelRunning, PID: 22, IdentityValid: tc.tunnelRunning},
-				GatewayReady: tc.gatewayRunning, TunnelReady: tc.tunnelRunning, VersionMatch: true,
+				Gateway: ProcessStatus{
+					Running:       tc.gatewayRunning,
+					PID:           11,
+					IdentityValid: tc.gatewayRunning,
+				},
+				Tunnel: ProcessStatus{
+					Running:       tc.tunnelRunning,
+					PID:           22,
+					IdentityValid: tc.tunnelRunning,
+				},
+				GatewayReady: tc.gatewayRunning,
+				TunnelReady:  tc.tunnelRunning,
+				VersionMatch: true,
 			}
-			final := Status{Gateway: ProcessStatus{Running: true, PID: 11, IdentityValid: true}, Tunnel: ProcessStatus{Running: true, PID: 22, IdentityValid: true}, GatewayReady: true, TunnelReady: true, VersionMatch: true}
+			final := Status{
+				Gateway: ProcessStatus{
+					Running:       true,
+					PID:           11,
+					IdentityValid: true,
+				},
+				Tunnel: ProcessStatus{
+					Running:       true,
+					PID:           22,
+					IdentityValid: true,
+				},
+				GatewayReady: true,
+				TunnelReady:  true,
+				VersionMatch: true,
+			}
 			statusCalls := 0
 			gatewayCalls, tunnelCalls := 0, 0
 			startStatusFn = func(context.Context, Controller) (Status, error) {
@@ -80,7 +104,10 @@ func TestStartReconcilesAllGatewayAndTunnelStates(t *testing.T) {
 			startTunnelFn = func(Controller, []string) error { tunnelCalls++; return nil }
 			startGatewayReadyFn = func(Controller) error { return nil }
 			startTunnelReadyFn = func(Controller) error { return nil }
-			c := Controller{ConfigPath: filepath.Join(dir, "config.json"), Config: config.Config{ListenAddr: "127.0.0.1:1", Controller: config.ControllerConfig{PIDDir: filepath.Join(dir, "pid"), TunnelEnvFile: envPath, TunnelHealthListenAddr: "127.0.0.1:2"}}}
+			c := Controller{
+				ConfigPath: filepath.Join(dir, "config.json"),
+				Config:     config.Config{ListenAddr: "127.0.0.1:1", Controller: config.ControllerConfig{PIDDir: filepath.Join(dir, "pid"), TunnelEnvFile: envPath, TunnelHealthListenAddr: "127.0.0.1:2"}},
+			}
 			if err := c.Start(); err != nil {
 				t.Fatal(err)
 			}
@@ -98,7 +125,13 @@ func TestStartRejectsRunningUnhealthyComponent(t *testing.T) {
 	oldStatus := startStatusFn
 	defer func() { startStatusFn = oldStatus }()
 	startStatusFn = func(context.Context, Controller) (Status, error) {
-		return Status{Gateway: ProcessStatus{Running: true, IdentityValid: true}, GatewayReady: false}, nil
+		return Status{
+			Gateway: ProcessStatus{
+				Running:       true,
+				IdentityValid: true,
+			},
+			GatewayReady: false,
+		}, nil
 	}
 	c := Controller{Config: config.Config{Controller: config.ControllerConfig{PIDDir: t.TempDir()}}}
 	if err := c.Start(); err == nil || !strings.Contains(err.Error(), "gateway is running but not ready") {
