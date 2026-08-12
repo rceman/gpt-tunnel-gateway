@@ -46,6 +46,43 @@ func genericStructured(t *testing.T, response map[string]any) map[string]any {
 	return structured
 }
 
+func TestGenericSessionStartIsDiscoverableAndCreatesPlannerSession(t *testing.T) {
+	server := newSessionTestServer(t)
+
+	root := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "schema", "arguments": map[string]any{"path": ""}},
+	})))
+	if !containsString(stringList(root["domains"]), "session") {
+		t.Fatalf("generic schema root does not expose session domain: %#v", root)
+	}
+
+	contract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+		"params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "session.start"}},
+	})))
+	if contract["kind"] != "action" || contract["path"] != "session.start" {
+		t.Fatalf("session.start schema was not exposed: %#v", contract)
+	}
+
+	dispatch := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"action": "session.start", "input": map[string]any{
+				"project_id": "example", "role": durableSession.RolePlanner, "session_type": durableSession.SessionTypeChatGPT,
+			},
+		}},
+	})))
+	if dispatch["is_error"] != false {
+		t.Fatalf("session.start generic call failed: %#v", dispatch)
+	}
+	result := dispatch["result"].(map[string]any)
+	session := result["session"].(map[string]any)
+	if session["role"] != durableSession.RolePlanner || !strings.HasPrefix(session["session_id"].(string), "SP-") {
+		t.Fatalf("generic planner bootstrap did not create SP session: %#v", session)
+	}
+}
+
 func TestGenericTransportSchemasAreCompactAndApplicationIndependent(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
 	tools := server.tools()

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 )
 
 func (s *Server) genericSchema(legacy map[string]Tool, raw json.RawMessage) (any, error) {
@@ -22,7 +21,9 @@ func (s *Server) genericSchema(legacy map[string]Tool, raw json.RawMessage) (any
 	if input.Path == "" {
 		domains := map[string]bool{}
 		for path := range entries {
-			domains[strings.SplitN(path, "/", 2)[0]] = true
+			if domain, _, ok := genericActionParts(path); ok {
+				domains[domain] = true
+			}
 		}
 		result["domains"] = sortedKeys(domains)
 		return result, nil
@@ -34,8 +35,7 @@ func (s *Server) genericSchema(legacy map[string]Tool, raw json.RawMessage) (any
 	}
 	actions := make([]map[string]any, 0)
 	for path, entry := range entries {
-		parts := strings.SplitN(path, "/", 2)
-		if len(parts) == 2 && parts[0] == input.Path {
+		if domain, _, ok := genericActionParts(path); ok && domain == input.Path {
 			actions = append(actions, genericActionSummary(path, entry))
 		}
 	}
@@ -53,9 +53,9 @@ func genericActionContract(entry genericActionEntry) map[string]any {
 }
 
 func genericActionSummary(path string, entry genericActionEntry) map[string]any {
-	parts := strings.SplitN(path, "/", 2)
+	domain, name, _ := genericActionParts(path)
 	return map[string]any{
-		"path": path, "domain": parts[0], "name": parts[1], "description": entry.Description,
+		"path": path, "domain": domain, "name": name, "description": entry.Description,
 		"input_schema": entry.InputSchema, "output_schema": entry.OutputSchema, "annotations": entry.Annotations,
 	}
 }

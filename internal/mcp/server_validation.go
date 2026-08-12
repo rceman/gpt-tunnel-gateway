@@ -26,6 +26,24 @@ func validateToolArguments(schema map[string]any, raw json.RawMessage) error {
 	if err := dec.Decode(&extra); err != io.EOF {
 		return fmt.Errorf("trailing JSON content")
 	}
+	if _, hasOneOf := schema["oneOf"]; hasOneOf {
+		var value any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return fmt.Errorf("arguments must be an object: %w", err)
+		}
+		options, _ := schema["oneOf"].([]any)
+		matches := 0
+		for _, candidate := range options {
+			candidateSchema, ok := candidate.(map[string]any)
+			if ok && validateSchemaValue(candidateSchema, value, "arguments") == nil {
+				matches++
+			}
+		}
+		if matches != 1 {
+			return fmt.Errorf("arguments: expected exactly one matching input shape, got %d", matches)
+		}
+		return nil
+	}
 	properties, _ := schema["properties"].(map[string]any)
 	for key := range args {
 		if _, ok := properties[key]; !ok {
@@ -46,6 +64,14 @@ func validateToolArguments(schema map[string]any, raw json.RawMessage) error {
 					return fmt.Errorf("missing required argument %q", key)
 				}
 			}
+		}
+	}
+	if _, exists := args["session_id"]; !exists {
+		bootstrapAction, _ := schema["x-allow-missing-session-action"].(string)
+		var action string
+		_ = json.Unmarshal(args["action"], &action)
+		if action != bootstrapAction {
+			return fmt.Errorf("missing required argument %q", "session_id")
 		}
 	}
 	return nil

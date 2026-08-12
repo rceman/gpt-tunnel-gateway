@@ -72,13 +72,32 @@ func compareOutputSchema() map[string]any {
 func sessionInputSchema() map[string]any {
 	sessionID := str("Durable session identifier for info, update, or end.")
 	sessionID["pattern"] = `^(?:S|SP|SD|SA|SW)-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$`
-	return obj(map[string]any{
-		"action":       str("Session action: start, info, update, or end."),
-		"session_id":   sessionID,
-		"project_id":   str("Registered project identifier for start."),
-		"role":         str("Server-authorized session role."),
-		"session_type": str("Session type."),
-		"session_ref":  str("Optional caller reference."),
-		"label":        str("Optional bounded session label."),
-	}, "action")
+	return map[string]any{
+		"type": "object",
+		"oneOf": []any{
+			obj(map[string]any{
+				"action":       map[string]any{"type": "string", "const": "start"},
+				"project_id":   str("Registered project identifier for start."),
+				"role":         str("Server-authorized session role."),
+				"session_type": str("Session type."),
+				"session_ref":  str("Optional caller reference."),
+				"label":        str("Optional bounded session label."),
+			}, "action", "project_id", "role", "session_type"),
+			obj(map[string]any{
+				"action":     map[string]any{"type": "string", "const": "info"},
+				"session_id": sessionID,
+			}, "action", "session_id"),
+			obj(map[string]any{
+				"action":      map[string]any{"type": "string", "const": "update"},
+				"session_id":  sessionID,
+				"session_ref": str("Optional caller reference."),
+				"label":       str("Optional bounded session label."),
+			}, "action", "session_id"),
+			obj(map[string]any{
+				"action":     map[string]any{"type": "string", "const": "end"},
+				"session_id": sessionID,
+			}, "action", "session_id"),
+		},
+		"additionalProperties": false,
+	}
 }

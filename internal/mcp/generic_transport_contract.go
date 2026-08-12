@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 const genericSchemaRevision = "generic-mcp-v1"
@@ -154,15 +156,60 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		}
 		entries[path] = entry
 	}
+	// Session creation is the one generic action that intentionally has no
+	// existing durable session. It performs the same narrow bootstrap check as
+	// the typed session tool and never grants authority from the requested ID.
+	entries["session.start"] = genericActionEntry{GenericAction: GenericAction{
+		Path:         "session.start",
+		Description:  "Create one explicit durable project-bound session.",
+		InputSchema:  sessionStartInputSchema(),
+		OutputSchema: sessionOutputSchema(),
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &input); err != nil || input == nil {
+				return nil, fmt.Errorf("session.start input must be an object")
+			}
+			input["action"] = json.RawMessage(`"start"`)
+			encoded, err := json.Marshal(input)
+			if err != nil {
+				return nil, err
+			}
+			return s.sessionAction(ctx, encoded)
+		},
+	}}
 	return entries
 }
 
 func genericCallInputSchema() map[string]any {
-	return obj(map[string]any{
+	schema := obj(map[string]any{
 		"session_id": str("Explicit durable project-bound session identifier."),
 		"action":     str("Server-owned action path; inspect schema for available actions."),
 		"input":      map[string]any{"type": "object", "additionalProperties": true, "description": "Generic action input validated by the server-owned action contract."},
-	}, "session_id", "action", "input")
+	}, "action", "input")
+	// The generic transport remains session-bound except for this one
+	// bootstrap action, which creates the durable session it will later use.
+	schema["x-allow-missing-session-action"] = "session.start"
+	return schema
+}
+
+func sessionStartInputSchema() map[string]any {
+	return obj(map[string]any{
+		"project_id":   str("Registered project identifier."),
+		"role":         str("Server-authorized session role."),
+		"session_type": str("Session type; currently chatgpt."),
+		"session_ref":  str("Optional caller reference."),
+		"label":        str("Optional bounded session label."),
+	}, "project_id", "role", "session_type")
+}
+
+func genericActionParts(path string) (string, string, bool) {
+	if parts := strings.SplitN(path, "/", 2); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+		return parts[0], parts[1], true
+	}
+	if parts := strings.SplitN(path, ".", 2); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+		return parts[0], parts[1], true
+	}
+	return "", "", false
 }
 
 func genericBatchInputSchema() map[string]any {
@@ -212,13 +259,17 @@ func (s *Server) genericCall(ctx context.Context, legacy map[string]Tool, raw js
 	if err := decode(raw, &input); err != nil {
 		return nil, err
 	}
+	entries := s.genericActionRegistry(legacy)
 	if input.SessionID == "" {
-		return nil, fmt.Errorf("session_id is required")
+		if input.Action != "session.start" {
+			return nil, fmt.Errorf("session_id is required")
+		}
+		return s.genericDispatch(ctx, entries, durableSession.Record{}, input.Action, input.Input)
 	}
 	record, err := s.activeSession(input.SessionID)
 	if err != nil {
 		return nil, err
 	}
 	ctx = withSession(ctx, record)
-	return s.genericDispatch(ctx, s.genericActionRegistry(legacy), record, input.Action, input.Input)
+	return s.genericDispatch(ctx, entries, record, input.Action, input.Input)
 }
