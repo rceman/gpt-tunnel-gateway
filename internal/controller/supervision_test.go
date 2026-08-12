@@ -20,9 +20,29 @@ func TestSuperviseRecoversAbsentGatewayWithoutRestartingTunnel(t *testing.T) {
 	recoveryStatusFn = func(context.Context, Controller) (Status, error) {
 		statuses++
 		if statuses <= 2 {
-			return Status{Tunnel: ProcessStatus{Running: true, PID: 41, IdentityValid: true}, TunnelReady: true}, nil
+			return Status{
+				Tunnel: ProcessStatus{
+					Running:       true,
+					PID:           41,
+					IdentityValid: true,
+				},
+				TunnelReady: true,
+			}, nil
 		}
-		return Status{Gateway: ProcessStatus{Running: true, IdentityValid: true}, Tunnel: ProcessStatus{Running: true, PID: 41, IdentityValid: true}, GatewayReady: true, TunnelReady: true, VersionMatch: true}, nil
+		return Status{
+			Gateway: ProcessStatus{
+				Running:       true,
+				IdentityValid: true,
+			},
+			Tunnel: ProcessStatus{
+				Running:       true,
+				PID:           41,
+				IdentityValid: true,
+			},
+			GatewayReady: true,
+			TunnelReady:  true,
+			VersionMatch: true,
+		}, nil
 	}
 	recoveryStartFn = func(Controller) error { calls++; return nil }
 	recoveryReadyFn = func(Controller) error { return nil }
@@ -48,7 +68,14 @@ func TestRecoverGatewayIsBoundedAndPersistsDegraded(t *testing.T) {
 	c := Controller{Config: config.Config{Controller: config.ControllerConfig{PIDDir: t.TempDir()}}}
 	starts, stops := 0, 0
 	recoveryStatusFn = func(context.Context, Controller) (Status, error) {
-		return Status{Tunnel: ProcessStatus{Running: true, PID: 41, IdentityValid: true}, TunnelReady: true}, nil
+		return Status{
+			Tunnel: ProcessStatus{
+				Running:       true,
+				PID:           41,
+				IdentityValid: true,
+			},
+			TunnelReady: true,
+		}, nil
 	}
 	recoveryStartFn = func(Controller) error { starts++; return nil }
 	recoveryReadyFn = func(Controller) error { return os.ErrDeadlineExceeded }
@@ -73,7 +100,19 @@ func TestSuperviseHealthyRuntimeIsNoOp(t *testing.T) {
 	c := Controller{Config: config.Config{Controller: config.ControllerConfig{PIDDir: t.TempDir()}}}
 	starts := 0
 	recoveryStatusFn = func(context.Context, Controller) (Status, error) {
-		return Status{Gateway: ProcessStatus{Running: true, IdentityValid: true}, Tunnel: ProcessStatus{Running: true, IdentityValid: true}, GatewayReady: true, TunnelReady: true, VersionMatch: true}, nil
+		return Status{
+			Gateway: ProcessStatus{
+				Running:       true,
+				IdentityValid: true,
+			},
+			Tunnel: ProcessStatus{
+				Running:       true,
+				IdentityValid: true,
+			},
+			GatewayReady: true,
+			TunnelReady:  true,
+			VersionMatch: true,
+		}, nil
 	}
 	recoveryStartFn = func(Controller) error { starts++; return nil }
 	if err := c.Supervise(context.Background()); err != nil || starts != 0 {
@@ -83,7 +122,11 @@ func TestSuperviseHealthyRuntimeIsNoOp(t *testing.T) {
 
 func TestStatusProjectsDurableGatewayDegradedState(t *testing.T) {
 	c := Controller{Config: config.Config{Controller: config.ControllerConfig{PIDDir: t.TempDir(), GatewayBinary: "/bin/true", TunnelClientBinary: "/bin/true", TunnelHealthListenAddr: "127.0.0.1:1"}, ListenAddr: "127.0.0.1:2"}}
-	if err := c.writeGatewayRecoveryState(gatewayRecoveryState{Status: "degraded", Reason: "Gateway absent", UpdatedAt: time.Now().UTC()}); err != nil {
+	if err := c.writeGatewayRecoveryState(gatewayRecoveryState{
+		Status:    "degraded",
+		Reason:    "Gateway absent",
+		UpdatedAt: time.Now().UTC(),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	status, err := c.Status(context.Background())

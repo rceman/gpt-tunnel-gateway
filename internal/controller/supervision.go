@@ -49,7 +49,10 @@ func (c Controller) Supervise(ctx context.Context) error {
 		return err
 	}
 	if status.Gateway.Running && status.GatewayReady && status.Tunnel.Running && status.TunnelReady && status.VersionMatch {
-		return c.writeGatewayRecoveryState(gatewayRecoveryState{Status: "healthy", UpdatedAt: time.Now().UTC()})
+		return c.writeGatewayRecoveryState(gatewayRecoveryState{
+			Status:    "healthy",
+			UpdatedAt: time.Now().UTC(),
+		})
 	}
 	if !status.Tunnel.Running || !status.Tunnel.IdentityValid || !status.TunnelReady {
 		return c.markGatewayDegraded(0, "healthy Tunnel is required for Gateway-only recovery")
@@ -72,7 +75,10 @@ func (c Controller) RecoverGateway(ctx context.Context) error {
 		return err
 	}
 	if initial.Gateway.Running && initial.GatewayReady && initial.Tunnel.Running && initial.TunnelReady && initial.VersionMatch {
-		return c.writeGatewayRecoveryState(gatewayRecoveryState{Status: "healthy", UpdatedAt: time.Now().UTC()})
+		return c.writeGatewayRecoveryState(gatewayRecoveryState{
+			Status:    "healthy",
+			UpdatedAt: time.Now().UTC(),
+		})
 	}
 	if !initial.Tunnel.Running || !initial.Tunnel.IdentityValid || !initial.TunnelReady {
 		return c.markGatewayDegraded(0, "healthy Tunnel is required for Gateway-only recovery")
@@ -107,7 +113,11 @@ func (c Controller) RecoverGateway(ctx context.Context) error {
 			continue
 		}
 		if final.Gateway.Running && final.Gateway.IdentityValid && final.GatewayReady && final.VersionMatch {
-			return c.writeGatewayRecoveryState(gatewayRecoveryState{Status: "recovered", Attempts: attempt, UpdatedAt: time.Now().UTC()})
+			return c.writeGatewayRecoveryState(gatewayRecoveryState{
+				Status:    "recovered",
+				Attempts:  attempt,
+				UpdatedAt: time.Now().UTC(),
+			})
 		}
 		lastErr = fmt.Errorf("Gateway did not converge to ready")
 		_ = recoveryStopFn(c)
@@ -119,7 +129,12 @@ func (c Controller) RecoverGateway(ctx context.Context) error {
 }
 
 func (c Controller) markGatewayDegraded(attempts int, reason string) error {
-	state := gatewayRecoveryState{Status: "degraded", Attempts: attempts, Reason: reason, UpdatedAt: time.Now().UTC()}
+	state := gatewayRecoveryState{
+		Status:    "degraded",
+		Attempts:  attempts,
+		Reason:    reason,
+		UpdatedAt: time.Now().UTC(),
+	}
 	if err := c.writeGatewayRecoveryState(state); err != nil {
 		return fmt.Errorf("Gateway degraded (%s); persist state: %w", reason, err)
 	}
