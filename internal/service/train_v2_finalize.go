@@ -111,9 +111,29 @@ func (s *Service) finalizeTrainV2Run(ctx context.Context, run model.Run, in Fina
 	}
 	var advance *watcher.AdvancePlan
 	if completion.Status == "succeeded" {
-		binding, bindErr := watcher.BindTrainRun(authority.train, authority.start, authority.runtime, run)
-		if bindErr != nil {
-			return model.Report{}, OperationResult{}, bindErr
+		var binding watcher.TrainBinding
+		if local.Watcher.Effective().Mode == "disabled" {
+			item, ok := watcher.CurrentItem(authority.train, run.TaskID)
+			if !ok || item.Status != model.TrainV2ItemRunning || item.RunID != run.ID || item.AgentID != run.AgentID || item.StartHead != run.BaseRevision || authority.start.LaneBranch != run.Branch || authority.start.BaseRevision != run.BaseRevision || authority.runtime.AgentID != run.AgentID || authority.runtime.SessionKey != run.SessionKey {
+				return model.Report{}, OperationResult{}, fmt.Errorf("Train v2 item is not bound to the exact Run")
+			}
+			binding = watcher.TrainBinding{
+				ProjectID:    run.ProjectID,
+				TrainID:      run.TrainID,
+				ItemPosition: item.Position,
+				TaskID:       item.TaskID,
+				RunID:        run.ID,
+				AgentID:      run.AgentID,
+				SessionKey:   authority.runtime.SessionKey,
+				WorktreePath: authority.runtime.WorktreePath,
+				LaneBranch:   run.Branch,
+			}
+		} else {
+			var bindErr error
+			binding, bindErr = watcher.BindTrainRun(authority.train, authority.start, authority.runtime, run)
+			if bindErr != nil {
+				return model.Report{}, OperationResult{}, bindErr
+			}
 		}
 		planned, ok, planErr := watcher.PlanAutoAdvance(updatedTrain, binding, completion.Status)
 		if planErr != nil {
