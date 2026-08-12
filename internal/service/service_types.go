@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/activation"
 	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/gates"
@@ -32,6 +33,7 @@ type Service struct {
 	gateExecutor          func(context.Context, string, []string) ([]model.CompletionGateResult, error)
 	gateExecutorWithScope func(context.Context, string, []string, gates.TestScope) ([]model.CompletionGateResult, error)
 	taskActivator         func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
+	runtimeSourceProver   func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
 }
 
 func New(c config.Config) *Service {
@@ -50,6 +52,13 @@ func New(c config.Config) *Service {
 		},
 		taskActivator: func(ctx context.Context, project config.ProjectConfig, source string) (TaskActivationResult, error) {
 			return activateTaskSource(ctx, c, config.DefaultPath(), project, source)
+		},
+		runtimeSourceProver: func(ctx context.Context, project config.ProjectConfig, source string) (TaskActivationResult, error) {
+			result, err := activation.ProveSource(ctx, c, config.DefaultPath(), project, source)
+			if err != nil {
+				return TaskActivationResult{}, err
+			}
+			return TaskActivationResult{SourceHead: result.SourceHead, Activation: result.Activation, Smoke: result.Smoke, TunnelPID: result.TunnelPID, GatewayPID: result.GatewayPID}, nil
 		},
 	}
 }

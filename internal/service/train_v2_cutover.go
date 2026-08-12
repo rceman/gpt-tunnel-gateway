@@ -73,10 +73,10 @@ func (s *Service) TrainV2Cutover(ctx context.Context, in TrainV2CutoverInput) (m
 	if err != nil || !exists || mirrorHead != sourceHead {
 		return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("integration checkout is not synchronized with the managed mirror")
 	}
-	if s.taskActivator == nil {
+	if s.runtimeSourceProver == nil {
 		return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("exact runtime source proof is not configured")
 	}
-	sourceProof, err := s.taskActivator(ctx, local, sourceHead)
+	sourceProof, err := s.runtimeSourceProver(ctx, local, sourceHead)
 	if err != nil || sourceProof.SourceHead != sourceHead {
 		if err != nil {
 			return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("exact runtime source proof failed: %w", err)

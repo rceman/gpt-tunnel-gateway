@@ -3,6 +3,7 @@ package activation
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +27,81 @@ type Result struct {
 	Smoke      string `json:"smoke"`
 	TunnelPID  int    `json:"tunnel_pid,omitempty"`
 	GatewayPID int    `json:"gateway_pid,omitempty"`
+}
+
+// ProveSource verifies that the requested source is already the live runtime
+// without changing installed artifacts or restarting a process. It is used by
+// in-process control-plane mutations, where calling Source would terminate
+// the serving gateway before the mutation can commit.
+func ProveSource(ctx context.Context, c config.Config, configPath string, project config.ProjectConfig, sourceHead string) (Result, error) {
+	if project.Root == "" || sourceHead == "" {
+		return Result{}, fmt.Errorf("activation source is incomplete")
+	}
+	if got, err := gitOutput(ctx, project.Root, "rev-parse", "--verify", "HEAD^{commit}"); err != nil || got != sourceHead {
+		return Result{}, fmt.Errorf("project source head is not the reviewed head")
+	}
+	if dirty, err := gitOutput(ctx, project.Root, "status", "--porcelain", "--untracked-files=all"); err != nil || dirty != "" {
+		return Result{}, fmt.Errorf("project source worktree is dirty")
+	}
+	versionBytes, err := os.ReadFile(filepath.Join(project.Root, "VERSION"))
+	if err != nil {
+		return Result{}, err
+	}
+	targetVersion := strings.TrimSpace(string(versionBytes))
+	if targetVersion == "" {
+		return Result{}, fmt.Errorf("project VERSION is empty")
+	}
+	release, err := os.MkdirTemp("", "gpt-tunnel-source-proof-")
+	if err != nil {
+		return Result{}, err
+	}
+	defer os.RemoveAll(release)
+	build := exec.CommandContext(ctx, filepath.Join(project.Root, "scripts", "build-release.sh"), release)
+	build.Dir = project.Root
+	if output, err := build.CombinedOutput(); err != nil {
+		return Result{}, fmt.Errorf("source proof build failed: %s", BoundedOutput(output))
+	}
+	builtGateway := filepath.Join(release, "gpt-tunnel-gatewayd")
+	installedGateway := c.Controller.GatewayBinary
+	builtSHA, err := sha256File(builtGateway)
+	if err != nil {
+		return Result{}, fmt.Errorf("source proof artifact checksum failed: %w", err)
+	}
+	installedSHA, err := sha256File(installedGateway)
+	if err != nil {
+		return Result{}, fmt.Errorf("installed gateway checksum failed: %w", err)
+	}
+	if builtSHA != installedSHA {
+		return Result{}, fmt.Errorf("installed gateway does not match exact source proof: built_sha256=%s installed_sha256=%s", builtSHA, installedSHA)
+	}
+	ctl := controller.Controller{Config: c, ConfigPath: configPath}
+	status, err := ctl.Status(ctx)
+	if err != nil {
+		return Result{}, err
+	}
+	if !status.Gateway.Running || !status.Tunnel.Running || !status.GatewayReady || !status.TunnelReady || !status.VersionMatch || status.InstalledVersion != targetVersion || status.RunningVersion != targetVersion {
+		return Result{}, fmt.Errorf("runtime is not healthy and version-matched for the reviewed source")
+	}
+	if err := ctl.Doctor(ctx); err != nil {
+		return Result{}, err
+	}
+	if err := liveMCPSmoke(ctx, c, targetVersion); err != nil {
+		return Result{}, err
+	}
+	return Result{SourceHead: sourceHead, Activation: "already_active", Smoke: "passed", TunnelPID: status.Tunnel.PID, GatewayPID: status.Gateway.PID}, nil
+}
+
+func sha256File(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
 
 // Source builds and activates one exact source revision into an external
