@@ -31,6 +31,24 @@ func requireSessionRole(ctx context.Context, role string) error {
 	return authority.RequireRole(ctx, role)
 }
 
+// existingSessionRoleContext converts trusted bootstrap authority into the
+// exact durable role recorded in the session. The combined marker is accepted
+// only as the creation capability; it is never used as persisted session
+// authority.
+func existingSessionRoleContext(ctx context.Context, role string) (context.Context, error) {
+	if err := authority.RequireRole(ctx, role); err != nil {
+		return nil, err
+	}
+	switch role {
+	case durableSession.RolePlanner:
+		return authority.WithPlanner(ctx), nil
+	case durableSession.RoleDelivery:
+		return authority.WithDelivery(ctx), nil
+	default:
+		return nil, fmt.Errorf("unsupported persisted session role %q", role)
+	}
+}
+
 type sessionActionInput struct {
 	Action      string  `json:"action"`
 	SessionID   string  `json:"session_id"`
@@ -67,7 +85,7 @@ func (s *Server) sessionAction(ctx context.Context, raw json.RawMessage) (any, e
 		if err != nil {
 			return nil, err
 		}
-		if err := requireSessionRole(ctx, result.Session.Role); err != nil {
+		if _, err := existingSessionRoleContext(ctx, result.Session.Role); err != nil {
 			return nil, err
 		}
 		return result, nil
@@ -79,10 +97,11 @@ func (s *Server) sessionAction(ctx context.Context, raw json.RawMessage) (any, e
 		if err != nil {
 			return nil, err
 		}
-		if err := requireSessionRole(ctx, info.Session.Role); err != nil {
+		roleContext, err := existingSessionRoleContext(ctx, info.Session.Role)
+		if err != nil {
 			return nil, err
 		}
-		return s.Service.SessionUpdate(ctx, service.SessionUpdateInput{SessionID: input.SessionID, SessionRef: input.SessionRef, Label: input.Label})
+		return s.Service.SessionUpdate(roleContext, service.SessionUpdateInput{SessionID: input.SessionID, SessionRef: input.SessionRef, Label: input.Label})
 	case "end":
 		if input.SessionID == "" {
 			return nil, fmt.Errorf("session_id is required")
@@ -91,10 +110,11 @@ func (s *Server) sessionAction(ctx context.Context, raw json.RawMessage) (any, e
 		if err != nil {
 			return nil, err
 		}
-		if err := requireSessionRole(ctx, info.Session.Role); err != nil {
+		roleContext, err := existingSessionRoleContext(ctx, info.Session.Role)
+		if err != nil {
 			return nil, err
 		}
-		return s.Service.SessionEnd(ctx, input.SessionID)
+		return s.Service.SessionEnd(roleContext, input.SessionID)
 	default:
 		return nil, fmt.Errorf("unknown session action %q", input.Action)
 	}

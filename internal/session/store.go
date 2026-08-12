@@ -16,17 +16,24 @@ import (
 )
 
 const (
-	SchemaVersion      = 1
-	RolePlanner        = "planner"
-	RoleDelivery       = "delivery"
-	SessionTypeChatGPT = "chatgpt"
-	StatusActive       = "active"
-	StatusEnded        = "ended"
-	maxRecordBytes     = 64 << 10
-	maxCreateAttempts  = 16
+	SchemaVersion           = 1
+	RolePlanner             = "planner"
+	RoleDelivery            = "delivery"
+	RoleAgent               = "agent"
+	RoleWatcher             = "watcher"
+	SessionIDPrefixLegacy   = "S"
+	SessionIDPrefixPlanner  = "SP"
+	SessionIDPrefixDelivery = "SD"
+	SessionIDPrefixAgent    = "SA"
+	SessionIDPrefixWatcher  = "SW"
+	SessionTypeChatGPT      = "chatgpt"
+	StatusActive            = "active"
+	StatusEnded             = "ended"
+	maxRecordBytes          = 64 << 10
+	maxCreateAttempts       = 16
 )
 
-var sessionIDRE = regexp.MustCompile(`^S-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$`)
+var sessionIDRE = regexp.MustCompile(`^(?:S|SP|SD|SA|SW)-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$`)
 
 var (
 	ErrNotFound       = errors.New("session not found")
@@ -65,7 +72,11 @@ type UpdateInput struct {
 type Store struct {
 	StateDir     string
 	MaxReadBytes int64
-	IDGenerator  func() (string, error)
+	// IDGenerator is retained for deterministic legacy-fixture tests and
+	// migration reads. New default IDs are role-typed; callers that need a
+	// custom generator for new records should use TypedIDGenerator.
+	IDGenerator      func() (string, error)
+	TypedIDGenerator func(string) (string, error)
 }
 
 func NewStore(stateDir string) Store {
@@ -88,7 +99,7 @@ func (s Store) Create(input CreateInput) (Record, error) {
 	}
 	defer lock.Release()
 	for attempt := 0; attempt < maxCreateAttempts; attempt++ {
-		id, err := s.nextID()
+		id, err := s.nextID(input.Role)
 		if err != nil {
 			return Record{}, err
 		}
@@ -247,7 +258,7 @@ func (s Store) List() ([]Record, error) {
 }
 
 func (r Record) Validate() error {
-	if r.SchemaVersion != SchemaVersion || !sessionIDRE.MatchString(r.ID) || strings.TrimSpace(r.ProjectID) == "" || !validRole(r.Role) || !validSessionType(r.SessionType) {
+	if r.SchemaVersion != SchemaVersion || !sessionIDRE.MatchString(r.ID) || !sessionIDMatchesRole(r.ID, r.Role) || strings.TrimSpace(r.ProjectID) == "" || !validRole(r.Role) || !validSessionType(r.SessionType) {
 		return fmt.Errorf("%w: invalid session record", ErrInvalidSession)
 	}
 	if r.Status != StatusActive && r.Status != StatusEnded {
@@ -268,7 +279,28 @@ func (r Record) Validate() error {
 	return validateOptionalText(r.Label, "label")
 }
 
-func validRole(role string) bool { return role == RolePlanner || role == RoleDelivery }
+func validRole(role string) bool {
+	return role == RolePlanner || role == RoleDelivery || role == RoleAgent || role == RoleWatcher
+}
+
+func sessionIDMatchesRole(id, role string) bool {
+	// S-* is the pre-typed identifier format. It remains readable for
+	// migration, but carries no authority and therefore has no role mapping.
+	if strings.HasPrefix(id, SessionIDPrefixLegacy+"-") {
+		return true
+	}
+	prefix, _, ok := strings.Cut(id, "-")
+	if !ok {
+		return false
+	}
+	want := map[string]string{
+		RolePlanner:  SessionIDPrefixPlanner,
+		RoleDelivery: SessionIDPrefixDelivery,
+		RoleAgent:    SessionIDPrefixAgent,
+		RoleWatcher:  SessionIDPrefixWatcher,
+	}[role]
+	return want != "" && prefix == want
+}
 
 func validSessionType(value string) bool { return value == SessionTypeChatGPT }
 
@@ -323,9 +355,12 @@ func (s Store) acquireMutationLock() (*lockfile.Lock, error) {
 func (s Store) sessionsDir() string   { return filepath.Join(s.StateDir, "sessions") }
 func (s Store) path(id string) string { return filepath.Join(s.sessionsDir(), id+".json") }
 
-func (s Store) nextID() (string, error) {
+func (s Store) nextID(role string) (string, error) {
 	if s.IDGenerator != nil {
 		return s.IDGenerator()
+	}
+	if s.TypedIDGenerator != nil {
+		return s.TypedIDGenerator(role)
 	}
 	var raw [5]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -341,5 +376,14 @@ func (s Store) nextID() (string, error) {
 		encoded[i] = alphabet[value&31]
 		value >>= 5
 	}
-	return "S-" + string(encoded[:]), nil
+	prefix := map[string]string{
+		RolePlanner:  SessionIDPrefixPlanner,
+		RoleDelivery: SessionIDPrefixDelivery,
+		RoleAgent:    SessionIDPrefixAgent,
+		RoleWatcher:  SessionIDPrefixWatcher,
+	}[role]
+	if prefix == "" {
+		return "", fmt.Errorf("%w: unsupported session role", ErrInvalidSession)
+	}
+	return prefix + "-" + string(encoded[:]), nil
 }

@@ -71,7 +71,7 @@ func compareOutputSchema() map[string]any {
 
 func sessionInputSchema() map[string]any {
 	sessionID := str("Durable session identifier for info, update, or end.")
-	sessionID["pattern"] = `^S-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$`
+	sessionID["pattern"] = `^(?:S|SP|SD|SA|SW)-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$`
 	return obj(map[string]any{
 		"action":       str("Session action: start, info, update, or end."),
 		"session_id":   sessionID,

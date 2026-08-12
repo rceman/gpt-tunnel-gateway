@@ -204,7 +204,16 @@ func (s *Service) AgentRegistryStatus(ctx context.Context, projectID, agentID st
 		status.State, status.Reason = "disabled", "agent is disabled"
 		return status, nil
 	}
-	binding, ok := s.Config.ResolveAgentBinding(projectID, agentID)
+	agents := []model.Agent{agent}
+	if _, explicit := s.Config.ResolveAgentBinding(projectID, agentID); !explicit && agent.Role == model.AgentRoleCoding {
+		listed, listErr := s.AgentList(ctx, projectID)
+		if listErr != nil {
+			status.State, status.Reason = "unavailable", "agent registry could not resolve host-local binding"
+			return status, nil
+		}
+		agents = listed
+	}
+	binding, ok := s.resolveLocalAgentBinding(projectID, agent, agents)
 	if !ok {
 		status.State, status.Reason = "unbound", "no host-local binding"
 		return status, nil

@@ -8,9 +8,10 @@ import (
 type role string
 
 const (
-	planner  role = "planner"
-	delivery role = "delivery"
-	operator role = "operator"
+	planner           role = "planner"
+	delivery          role = "delivery"
+	plannerOrDelivery role = "planner_or_delivery"
+	operator          role = "operator"
 )
 
 type contextKey struct{}
@@ -21,6 +22,14 @@ func WithPlanner(ctx context.Context) context.Context {
 
 func WithDelivery(ctx context.Context) context.Context {
 	return context.WithValue(ctx, contextKey{}, delivery)
+}
+
+// WithPlannerOrDelivery is the daemon's narrowly scoped bootstrap authority.
+// It can authorize creation of either durable project session role, but it is
+// intentionally not accepted by role-specific RequirePlanner/RequireDelivery
+// checks.
+func WithPlannerOrDelivery(ctx context.Context) context.Context {
+	return context.WithValue(ctx, contextKey{}, plannerOrDelivery)
 }
 
 func WithOperator(ctx context.Context) context.Context {
@@ -46,7 +55,7 @@ func Attach(request, trusted context.Context) context.Context {
 
 func RequirePlannerOrDelivery(ctx context.Context) error {
 	v, ok := ctx.Value(contextKey{}).(role)
-	if !ok || (v != planner && v != delivery) {
+	if !ok || (v != planner && v != delivery && v != plannerOrDelivery) {
 		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
 	}
 	return nil
@@ -71,6 +80,9 @@ func RequireOnboarding(ctx context.Context) error {
 }
 
 func RequireRole(ctx context.Context, wanted string) error {
+	if v, ok := ctx.Value(contextKey{}).(role); ok && v == plannerOrDelivery && (wanted == "planner" || wanted == "delivery") {
+		return nil
+	}
 	switch wanted {
 	case "planner":
 		return RequirePlanner(ctx)

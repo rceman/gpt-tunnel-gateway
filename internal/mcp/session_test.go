@@ -64,7 +64,7 @@ func TestSessionLifecyclePersistsAndBindsProjectRole(t *testing.T) {
 	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "delivery", "session_type": "chatgpt", "label": "main"}))
 	record := started["session"].(map[string]any)
 	id := record["session_id"].(string)
-	if !strings.HasPrefix(id, "S-") || len(id) != 10 || record["project_id"] != "example" || record["role"] != "delivery" || record["status"] != "active" {
+	if !strings.HasPrefix(id, "SD-") || len(id) != 11 || record["project_id"] != "example" || record["role"] != "delivery" || record["status"] != "active" {
 		t.Fatalf("bad session projection: %#v", record)
 	}
 	info := genericStructured(t, sessionCall(t, server, map[string]any{"action": "info", "session_id": id}))
@@ -82,6 +82,24 @@ func TestSessionLifecyclePersistsAndBindsProjectRole(t *testing.T) {
 	path := filepath.Join(server.Service.Config.StateDir, "sessions", id+".json")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSessionBootstrapCreatesIndependentPlannerAndDeliveryTypedSessions(t *testing.T) {
+	server := newSessionTestServer(t)
+	server.AuthorityContext = authority.WithPlannerOrDelivery(context.Background())
+	planner := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt"}))
+	delivery := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "delivery", "session_type": "chatgpt"}))
+	plannerID := planner["session"].(map[string]any)["session_id"].(string)
+	deliveryID := delivery["session"].(map[string]any)["session_id"].(string)
+	if !strings.HasPrefix(plannerID, "SP-") || !strings.HasPrefix(deliveryID, "SD-") || plannerID == deliveryID {
+		t.Fatalf("bootstrap did not create independent typed sessions: planner=%q delivery=%q", plannerID, deliveryID)
+	}
+	if err := authority.RequirePlanner(context.Background()); err == nil {
+		t.Fatal("untrusted context acquired planner authority")
+	}
+	if err := authority.RequirePlannerOrDelivery(authority.WithPlannerOrDelivery(context.Background())); err != nil {
+		t.Fatalf("combined bootstrap authority rejected: %v", err)
 	}
 }
 

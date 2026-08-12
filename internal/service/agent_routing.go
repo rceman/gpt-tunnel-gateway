@@ -53,7 +53,7 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 		if agent.Role != in.Role || !agent.Enabled || (in.AgentID != "" && agent.AgentID != in.AgentID) {
 			continue
 		}
-		binding, ok := s.Config.ResolveAgentBinding(in.ProjectID, agent.AgentID)
+		binding, ok := s.resolveLocalAgentBinding(in.ProjectID, agent, agents)
 		if !ok || binding.Validate() != nil {
 			continue
 		}
@@ -63,7 +63,12 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 				continue
 			}
 		}
-		candidates = append(candidates, candidate{agent: agent, session: binding.SessionKey, profile: binding.Profile, score: routingScore(agent.RecommendedReasoning)})
+		candidates = append(candidates, candidate{
+			agent:   agent,
+			session: binding.SessionKey,
+			profile: binding.Profile,
+			score:   routingScore(agent.RecommendedReasoning),
+		})
 	}
 	if len(candidates) == 0 {
 		if in.AgentID != "" {

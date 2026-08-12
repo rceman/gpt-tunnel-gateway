@@ -64,6 +64,7 @@ func typedSessionInputSchema(schema map[string]any) map[string]any {
 		}
 	}
 	properties["session_id"] = str("Durable project-bound Planner or Delivery session authority.")
+	properties["session_id"].(map[string]any)["pattern"] = `^(?:S|SP|SD|SA|SW)-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$`
 	copySchema["properties"] = properties
 	required := append([]string{}, stringList(schema["required"])...)
 	for _, key := range required {

@@ -76,6 +76,19 @@ func (c Config) ResolveAgentBinding(projectID, agentID string) (AgentBinding, bo
 	return binding, ok
 }
 
+// ResolveAutoAgentBinding returns the single project-local session configured
+// for a host when the project has not yet materialized an explicit
+// project/agent binding. Callers must apply their own ambiguity and role
+// checks; this method only exposes the host-local fallback and never creates
+// or persists an Agent record.
+func (c Config) ResolveAutoAgentBinding(projectID string) (AgentBinding, bool) {
+	project, ok := c.Projects[projectID]
+	if !ok || strings.TrimSpace(project.AirelaySessionKey) == "" {
+		return AgentBinding{}, false
+	}
+	return AgentBinding{SessionKey: project.AirelaySessionKey}, true
+}
+
 func (b AgentBinding) Validate() error {
 	if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`).MatchString(b.SessionKey) {
 		return fmt.Errorf("invalid agent binding session_key")

@@ -1,10 +1,12 @@
 package session
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestStoreCreateReloadUpdateAndEnd(t *testing.T) {
@@ -73,6 +75,75 @@ func TestStoreRetriesIDCollisionAtomically(t *testing.T) {
 	})
 	if err != nil || created.ID != "S-89ABCDEF" {
 		t.Fatalf("collision retry record=%#v err=%v", created, err)
+	}
+}
+
+func TestStoreCreatesRoleTypedIDsAndReadsLegacyIDs(t *testing.T) {
+	state := t.TempDir()
+	store := NewStore(state)
+	for role, prefix := range map[string]string{RolePlanner: "SP-", RoleDelivery: "SD-", RoleAgent: "SA-", RoleWatcher: "SW-"} {
+		record, err := store.Create(CreateInput{
+			ProjectID:   "example",
+			Role:        role,
+			SessionType: SessionTypeChatGPT,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", role, err)
+		}
+		if len(record.ID) != 11 || record.ID[:3] != prefix {
+			t.Fatalf("role %s received ID %q", role, record.ID)
+		}
+	}
+
+	now := time.Now().UTC()
+	legacy := Record{
+		SchemaVersion: SchemaVersion,
+		ID:            "S-ABC12345",
+		ProjectID:     "example",
+		Role:          RolePlanner,
+		SessionType:   SessionTypeChatGPT,
+		Status:        StatusActive,
+		CreatedAt:     now,
+		StartedAt:     now,
+		UpdatedAt:     now,
+	}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "sessions", legacy.ID+".json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.Get(legacy.ID); err != nil || got.ID != legacy.ID {
+		t.Fatalf("legacy session was not readable: %#v %v", got, err)
+	}
+}
+
+func TestStoreRejectsTypedRolePrefixMismatch(t *testing.T) {
+	now := time.Now().UTC()
+	for _, test := range []struct {
+		role string
+		id   string
+	}{
+		{RolePlanner, "SD-ABC12345"},
+		{RoleDelivery, "SP-ABC12345"},
+		{RoleAgent, "SW-ABC12345"},
+		{RoleWatcher, "SA-ABC12345"},
+	} {
+		record := Record{
+			SchemaVersion: SchemaVersion,
+			ID:            test.id,
+			ProjectID:     "example",
+			Role:          test.role,
+			SessionType:   SessionTypeChatGPT,
+			Status:        StatusActive,
+			CreatedAt:     now,
+			StartedAt:     now,
+			UpdatedAt:     now,
+		}
+		if err := record.Validate(); err == nil {
+			t.Fatalf("typed ID %q accepted for mismatched role %q", test.id, test.role)
+		}
 	}
 }
 
