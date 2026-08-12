@@ -47,5 +47,9 @@ func recoverMissingRuntime(ctx context.Context, deps StartDependencies) (StartRe
 			return StartResult{}, err
 		}
 	}
-	return StartResult{Record: record, Run: run, Runtime: binding}, nil
+	return StartResult{
+		Record:  record,
+		Run:     run,
+		Runtime: binding,
+	}, nil
 }

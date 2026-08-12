@@ -24,7 +24,12 @@ func (s *Service) resolveWatcherBinding(projectID string) (WatcherAgentBinding, 
 	if settings.AgentID == "" {
 		return WatcherAgentBinding{}, fmt.Errorf("watcher agent is not configured for project %q", projectID)
 	}
-	resolved, err := s.ResolveAgent(context.Background(), AgentResolveInput{ProjectID: projectID, Role: model.AgentRoleWatcher, AgentID: settings.AgentID, RequireUsable: false})
+	resolved, err := s.ResolveAgent(context.Background(), AgentResolveInput{
+		ProjectID:     projectID,
+		Role:          model.AgentRoleWatcher,
+		AgentID:       settings.AgentID,
+		RequireUsable: false,
+	})
 	if err != nil {
 		return WatcherAgentBinding{}, err
 	}

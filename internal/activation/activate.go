@@ -88,7 +88,13 @@ func ProveSource(ctx context.Context, c config.Config, configPath string, projec
 	if err := liveMCPSmoke(ctx, c, targetVersion); err != nil {
 		return Result{}, err
 	}
-	return Result{SourceHead: sourceHead, Activation: "already_active", Smoke: "passed", TunnelPID: status.Tunnel.PID, GatewayPID: status.Gateway.PID}, nil
+	return Result{
+		SourceHead: sourceHead,
+		Activation: "already_active",
+		Smoke:      "passed",
+		TunnelPID:  status.Tunnel.PID,
+		GatewayPID: status.Gateway.PID,
+	}, nil
 }
 
 func sha256File(path string) (string, error) {
@@ -187,7 +193,13 @@ func Source(ctx context.Context, c config.Config, configPath string, project con
 		restore()
 		return Result{}, err
 	}
-	return Result{SourceHead: sourceHead, Activation: "passed", Smoke: "passed", TunnelPID: after.Tunnel.PID, GatewayPID: after.Gateway.PID}, nil
+	return Result{
+		SourceHead: sourceHead,
+		Activation: "passed",
+		Smoke:      "passed",
+		TunnelPID:  after.Tunnel.PID,
+		GatewayPID: after.Gateway.PID,
+	}, nil
 }
 
 func gitOutput(ctx context.Context, root string, args ...string) (string, error) {

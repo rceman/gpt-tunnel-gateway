@@ -49,7 +49,17 @@ func BindTrainRun(train model.TrainV2, start model.TrainV2StartRecord, runtime t
 	if !ok || item.Status != model.TrainV2ItemRunning || item.RunID != run.ID || item.AgentID != run.AgentID || item.StartHead != start.BaseRevision {
 		return TrainBinding{}, fmt.Errorf("train watcher current item is not running under the exact Run")
 	}
-	return TrainBinding{ProjectID: train.ProjectID, TrainID: train.ID, ItemPosition: item.Position, TaskID: item.TaskID, RunID: run.ID, AgentID: runtime.AgentID, SessionKey: runtime.SessionKey, WorktreePath: runtime.WorktreePath, LaneBranch: start.LaneBranch}, nil
+	return TrainBinding{
+		ProjectID:    train.ProjectID,
+		TrainID:      train.ID,
+		ItemPosition: item.Position,
+		TaskID:       item.TaskID,
+		RunID:        run.ID,
+		AgentID:      runtime.AgentID,
+		SessionKey:   runtime.SessionKey,
+		WorktreePath: runtime.WorktreePath,
+		LaneBranch:   start.LaneBranch,
+	}, nil
 }
 
 func CurrentItem(train model.TrainV2, taskID string) (model.TrainV2Item, bool) {
@@ -103,7 +113,14 @@ func PlanAutoAdvance(train model.TrainV2, binding TrainBinding, runStatus string
 	if next.Status != model.TrainV2ItemQueued {
 		return AdvancePlan{}, false, fmt.Errorf("next train item is not queued")
 	}
-	return AdvancePlan{Current: current, Next: next, AgentID: binding.AgentID, SessionKey: binding.SessionKey, WorktreePath: binding.WorktreePath, LaneBranch: binding.LaneBranch}, true, nil
+	return AdvancePlan{
+		Current:      current,
+		Next:         next,
+		AgentID:      binding.AgentID,
+		SessionKey:   binding.SessionKey,
+		WorktreePath: binding.WorktreePath,
+		LaneBranch:   binding.LaneBranch,
+	}, true, nil
 }
 
 func StartNextItem(train model.TrainV2, plan AdvancePlan, runID, startHead string, now time.Time) (model.TrainV2, error) {

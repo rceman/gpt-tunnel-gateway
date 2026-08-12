@@ -62,7 +62,11 @@ func (s *Service) completeTrainV2Integration(ctx context.Context, in TrainV2Inte
 	if err := s.releaseTrainRuntime(ctx, project, in.ProjectID, in.TrainID, laneBranch, laneHead); err != nil {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, err
 	}
-	return receipt, OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: receipt.Status}, nil
+	return receipt, OperationResult{
+		Hub:       tx,
+		ProjectID: in.ProjectID,
+		Status:    receipt.Status,
+	}, nil
 }
 
 func (s *Service) persistTrainV2(ctx context.Context, projectID, trainID string, revision int, updated model.TrainV2) error {
@@ -120,16 +124,25 @@ func (s *Service) persistTrainV2Reconciliation(ctx context.Context, projectID, t
 func (s *Service) finishTrainReconciliationRestart(ctx context.Context, projectID, trainID string, receipt trainv2.IntegrationReceipt) (trainv2.IntegrationReceipt, OperationResult, error) {
 	project, err := s.projectConfig(projectID)
 	if err != nil {
-		return receipt, OperationResult{ProjectID: projectID, Status: receipt.Status}, err
+		return receipt, OperationResult{
+			ProjectID: projectID,
+			Status:    receipt.Status,
+		}, err
 	}
 	startPath := hub.ProtocolRoot + "/projects/" + projectID + "/train-v2-starts/" + trainID + ".json"
 	var start model.TrainV2StartRecord
 	if err := s.Hub.ReadJSON(ctx, startPath, &start); err != nil {
-		return receipt, OperationResult{ProjectID: projectID, Status: receipt.Status}, fmt.Errorf("read reconciled Train start: %w", err)
+		return receipt, OperationResult{
+			ProjectID: projectID,
+			Status:    receipt.Status,
+		}, fmt.Errorf("read reconciled Train start: %w", err)
 	}
 	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, projectID, trainID)
 	if err != nil {
-		return receipt, OperationResult{ProjectID: projectID, Status: receipt.Status}, fmt.Errorf("reconciled Train runtime is unavailable: %w", err)
+		return receipt, OperationResult{
+			ProjectID: projectID,
+			Status:    receipt.Status,
+		}, fmt.Errorf("reconciled Train runtime is unavailable: %w", err)
 	}
 	lane := project
 	lane.Root = runtime.WorktreePath
@@ -139,15 +152,27 @@ func (s *Service) finishTrainReconciliationRestart(ctx context.Context, projectI
 	}
 	currentHead, currentBranch, clean, err := s.Git.CurrentHead(ctx, lane)
 	if err != nil || !clean || currentBranch != start.LaneBranch {
-		return receipt, OperationResult{ProjectID: projectID, Status: receipt.Status}, fmt.Errorf("reconciled Train lane is not active and clean")
+		return receipt, OperationResult{
+			ProjectID: projectID,
+			Status:    receipt.Status,
+		}, fmt.Errorf("reconciled Train lane is not active and clean")
 	}
 	if currentHead != target {
 		if err := s.Git.ResetTrainWorktree(ctx, lane, target); err != nil {
-			return receipt, OperationResult{ProjectID: projectID, Status: receipt.Status}, fmt.Errorf("finish local reconciliation reset: %w", err)
+			return receipt, OperationResult{
+				ProjectID: projectID,
+				Status:    receipt.Status,
+			}, fmt.Errorf("finish local reconciliation reset: %w", err)
 		}
 	}
 	if _, err := trainv2.RetireRuntimeForRestart(s.Config.StateDir, projectID, trainID, start.RunID); err != nil {
-		return receipt, OperationResult{ProjectID: projectID, Status: receipt.Status}, fmt.Errorf("finish local execution retirement: %w", err)
+		return receipt, OperationResult{
+			ProjectID: projectID,
+			Status:    receipt.Status,
+		}, fmt.Errorf("finish local execution retirement: %w", err)
 	}
-	return receipt, OperationResult{ProjectID: projectID, Status: receipt.Status}, fmt.Errorf("Train reconciliation requires restart from the refreshed target; it is not integrated")
+	return receipt, OperationResult{
+		ProjectID: projectID,
+		Status:    receipt.Status,
+	}, fmt.Errorf("Train reconciliation requires restart from the refreshed target; it is not integrated")
 }

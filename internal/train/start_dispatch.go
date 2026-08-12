@@ -80,7 +80,17 @@ func dispatchRun(ctx context.Context, deps StartDependencies, run model.Run, ses
 		if finishedAt.IsZero() {
 			finishedAt = now
 		}
-		receipt = dispatchReceipt{RunID: run.ID, SessionKey: sessionKey, PacketPath: packet.Path, WorktreePath: packet.WorktreePath, Message: message, ExitCode: dispatch.ExitCode, Stdout: dispatch.Stdout, Stderr: dispatch.Stderr, FinishedAt: finishedAt}
+		receipt = dispatchReceipt{
+			RunID:        run.ID,
+			SessionKey:   sessionKey,
+			PacketPath:   packet.Path,
+			WorktreePath: packet.WorktreePath,
+			Message:      message,
+			ExitCode:     dispatch.ExitCode,
+			Stdout:       dispatch.Stdout,
+			Stderr:       dispatch.Stderr,
+			FinishedAt:   finishedAt,
+		}
 		if err := fsutil.WriteJSONAtomic(receiptPath, receipt, 0o600); err != nil {
 			return model.Run{}, fmt.Errorf("persist durable Train dispatch receipt: %w", err)
 		}

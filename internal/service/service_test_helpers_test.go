@@ -83,15 +83,19 @@ func testService(t *testing.T) (*Service, string, string) {
 	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
 	now := time.Now().UTC()
 	coder, registered, err := s.AgentRegister(ctx, AgentRegisterInput{
-		Agent:        model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coder-example", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now},
-		WriteOptions: WriteOptions{ExpectedHubRevision: result.Hub.After},
+		Agent: model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coder-example", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: result.Hub.After,
+		},
 	})
 	if err != nil || coder.AgentID != "coder-example" {
 		t.Fatalf("register test coding agent: %#v err=%v", coder, err)
 	}
 	watcher, registered, err := s.AgentRegister(ctx, AgentRegisterInput{
-		Agent:        model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "watcher-example", Role: model.AgentRoleWatcher, Enabled: true, RecommendedReasoning: model.ReasoningBestAvailable, CreatedAt: now, UpdatedAt: now},
-		WriteOptions: WriteOptions{ExpectedHubRevision: registered.Hub.After},
+		Agent: model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "watcher-example", Role: model.AgentRoleWatcher, Enabled: true, RecommendedReasoning: model.ReasoningBestAvailable, CreatedAt: now, UpdatedAt: now},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: registered.Hub.After,
+		},
 	})
 	if err != nil || watcher.AgentID != "watcher-example" {
 		t.Fatalf("register test watcher agent: %#v err=%v", watcher, err)

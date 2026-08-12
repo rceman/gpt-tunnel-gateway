@@ -19,7 +19,11 @@ func TestTrainV2CutoverUsesProofOnlyCallbackInsteadOfActivator(t *testing.T) {
 	}
 	s.runtimeSourceProver = func(_ context.Context, _ config.ProjectConfig, source string) (TaskActivationResult, error) {
 		proofCalled = true
-		return TaskActivationResult{SourceHead: source, Activation: "already_active", Smoke: "passed"}, nil
+		return TaskActivationResult{
+			SourceHead: source,
+			Activation: "already_active",
+			Smoke:      "passed",
+		}, nil
 	}
 
 	_, _, err := s.TrainV2Cutover(trustedWorkflowPolicyContext(context.Background(), "delivery"), TrainV2CutoverInput{
@@ -27,7 +31,9 @@ func TestTrainV2CutoverUsesProofOnlyCallbackInsteadOfActivator(t *testing.T) {
 		MaterializationAcknowledged: true,
 		PlanRetirementAcknowledged:  true,
 		UpdatedBy:                   "delivery",
-		WriteOptions:                WriteOptions{ExpectedHubRevision: hubRevision},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "exact target runtime is not active") {
 		t.Fatalf("cutover did not reach the non-mutating runtime proof boundary: err=%v", err)

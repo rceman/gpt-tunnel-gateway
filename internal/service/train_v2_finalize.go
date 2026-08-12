@@ -210,7 +210,13 @@ func (s *Service) finalizeTrainV2Run(ctx context.Context, run model.Run, in Fina
 		}
 	}
 	report.HubCommit = tx.After
-	return report, OperationResult{Hub: tx, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: "TASK_FINALIZED"}, nil
+	return report, OperationResult{
+		Hub:       tx,
+		ProjectID: run.ProjectID,
+		TaskID:    run.TaskID,
+		RunID:     run.ID,
+		Status:    "TASK_FINALIZED",
+	}, nil
 }
 
 func (s *Service) trainV2RunReport(ctx context.Context, run model.Run, id string) (model.Report, error) {

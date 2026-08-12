@@ -55,42 +55,66 @@ func TestTrainV2StartMaterializesBoundedPacketAndDispatchesExactPaths(t *testing
 	}
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	adrOperation, err := s.ADRCreate(context.Background(), ADRCreateInput{
-		ADR:          model.ADR{ProjectID: "example", Title: "Train packet context", Status: "accepted", Context: "packet context", Decision: "use the bounded Train packet", Consequences: "the Agent receives one durable packet"},
-		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+		ADR: model.ADR{ProjectID: "example", Title: "Train packet context", Status: "accepted", Context: "packet context", Decision: "use the bounded Train packet", Consequences: "the Agent receives one durable packet"},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	task, created, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
-		ProjectID: "example", Title: "Materialized Train packet", Objective: "Produce one complete bounded Task packet for the Agent.",
-		AcceptanceCriteria: []string{"objective and acceptance are preserved", "packet remains bounded"},
-		Constraints:        []string{"use only the packet and owned worktree", "do not use legacy dispatch"},
-		Priority:           "high", Metadata: map[string]string{"packet-contract": "full"},
-		Dependencies: []string{"EXM-TSK1"}, PreparationReferences: []string{"docs/train-packet.md"},
-		ADRRelation: model.TaskADRImplementsExisting, ADRReferences: []string{"EXM-ADR1"}, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: adrOperation.Hub.After},
+		ProjectID:             "example",
+		Title:                 "Materialized Train packet",
+		Objective:             "Produce one complete bounded Task packet for the Agent.",
+		AcceptanceCriteria:    []string{"objective and acceptance are preserved", "packet remains bounded"},
+		Constraints:           []string{"use only the packet and owned worktree", "do not use legacy dispatch"},
+		Priority:              "high",
+		Metadata:              map[string]string{"packet-contract": "full"},
+		Dependencies:          []string{"EXM-TSK1"},
+		PreparationReferences: []string{"docs/train-packet.md"},
+		ADRRelation:           model.TaskADRImplementsExisting,
+		ADRReferences:         []string{"EXM-ADR1"},
+		CreatedBy:             "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: adrOperation.Hub.After,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ready, readyOperation, err := s.TaskAuthoringReady(context.Background(), TaskAuthoringReadyInput{
-		ProjectID: "example", TaskID: task.ID, ExpectedRevision: task.Revision, ExpectedRevisionSHA256: task.RevisionSHA256,
-		ReadyBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After},
+		ProjectID:              "example",
+		TaskID:                 task.ID,
+		ExpectedRevision:       task.Revision,
+		ExpectedRevisionSHA256: task.RevisionSHA256,
+		ReadyBy:                "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: created.Hub.After,
+		},
 	})
 	if err != nil || ready.Status != model.TaskAuthoringReady {
 		t.Fatalf("ready task failed: %#v %v", ready, err)
 	}
 	hubRevision = readyOperation.Hub.After
 	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
-		ProjectID: "example", TaskIDs: []string{task.ID}, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+		ProjectID: "example",
+		TaskIDs:   []string{task.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
-		ProjectID: "example", TrainID: train.ID, StartedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After},
+		ProjectID: "example",
+		TrainID:   train.ID,
+		StartedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.Hub.After,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -142,15 +166,23 @@ func TestTrainV2AutoAdvanceMaterializesNextTaskPacketAndDispatchesPacketOnly(t *
 	first, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "First auto-advance packet")
 	second, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "Second auto-advance packet")
 	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
-		ProjectID: "example", TaskIDs: []string{first.ID, second.ID}, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+		ProjectID: "example",
+		TaskIDs:   []string{first.ID, second.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
-		ProjectID: "example", TrainID: train.ID, StartedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After},
+		ProjectID: "example",
+		TrainID:   train.ID,
+		StartedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.Hub.After,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -233,15 +265,23 @@ func TestTrainV2StartRecoversLegacyDispatchedRunWithOnePacketReprompt(t *testing
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	task, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "Recover packetized Train Run")
 	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
-		ProjectID: "example", TaskIDs: []string{task.ID}, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+		ProjectID: "example",
+		TaskIDs:   []string{task.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
-		ProjectID: "example", TrainID: train.ID, StartedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After},
+		ProjectID: "example",
+		TrainID:   train.ID,
+		StartedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.Hub.After,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -273,8 +313,12 @@ func TestTrainV2StartRecoversLegacyDispatchedRunWithOnePacketReprompt(t *testing
 		t.Fatal(err)
 	}
 	if _, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
-		ProjectID: "example", TrainID: train.ID, StartedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: legacy.After},
+		ProjectID: "example",
+		TrainID:   train.ID,
+		StartedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: legacy.After,
+		},
 	}); err != nil {
 		t.Fatalf("legacy dispatched Run was not packetized: %v", err)
 	}
@@ -301,7 +345,9 @@ func TestTrainV2StartRecoversLegacyDispatchedRunWithOnePacketReprompt(t *testing
 		t.Fatal(err)
 	}
 	if _, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
-		ProjectID: "example", TrainID: train.ID, StartedBy: "planner",
+		ProjectID: "example",
+		TrainID:   train.ID,
+		StartedBy: "planner",
 	}); err != nil {
 		t.Fatalf("repeat packetized Train start failed: %v", err)
 	}

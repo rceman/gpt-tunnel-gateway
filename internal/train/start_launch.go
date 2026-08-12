@@ -54,7 +54,11 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 					return StartResult{}, runErr
 				}
 			}
-			return StartResult{Record: record, Run: run, Runtime: binding}, nil
+			return StartResult{
+				Record:  record,
+				Run:     run,
+				Runtime: binding,
+			}, nil
 		}
 	} else if !os.IsNotExist(err) {
 		return StartResult{}, err
@@ -125,7 +129,16 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 	var runID string
 	var record model.TrainV2StartRecord
 	var run model.Run
-	runtime := RuntimeBinding{SchemaVersion: runtimeSchemaVersion, ProjectID: in.ProjectID, TrainID: in.TrainID, WorktreePath: worktreePath, AgentID: in.ResolvedAgentID, SessionKey: in.SessionKey, RestartRequired: false, StartedAt: now}
+	runtime := RuntimeBinding{
+		SchemaVersion:   runtimeSchemaVersion,
+		ProjectID:       in.ProjectID,
+		TrainID:         in.TrainID,
+		WorktreePath:    worktreePath,
+		AgentID:         in.ResolvedAgentID,
+		SessionKey:      in.SessionKey,
+		RestartRequired: false,
+		StartedAt:       now,
+	}
 	if err := model.ValidateObjectIdentifier(runtime.AgentID); err != nil {
 		return StartResult{}, err
 	}
@@ -208,5 +221,9 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 		return StartResult{}, err
 	}
 	runtime.RunID = runID
-	return StartResult{Record: record, Run: dispatchedRun, Runtime: runtime}, nil
+	return StartResult{
+		Record:  record,
+		Run:     dispatchedRun,
+		Runtime: runtime,
+	}, nil
 }

@@ -77,7 +77,9 @@ func TestTaskTrainNamedLanesDispatchIndependentlyAndExposeIdentity(t *testing.T)
 		BaseRevision: baseRevision,
 		LaneBranch:   "train/first",
 		CreatedBy:    "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -92,12 +94,17 @@ func TestTaskTrainNamedLanesDispatchIndependentlyAndExposeIdentity(t *testing.T)
 		BaseRevision: baseRevision,
 		LaneBranch:   "train/second",
 		CreatedBy:    "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.Hub.After,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, err := s.TaskTrainPoll(context.Background(), TaskTrainPollInput{ProjectID: "example", TrainID: secondTrain.TrainID})
+	status, err := s.TaskTrainPoll(context.Background(), TaskTrainPollInput{
+		ProjectID: "example",
+		TrainID:   secondTrain.TrainID,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

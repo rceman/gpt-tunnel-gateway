@@ -162,7 +162,12 @@ func TestWorkflowPolicyAdapterMigratesLegacyStateAndRejectsConflict(t *testing.T
 	if err != nil || source != "legacy_compatibility" || legacy.Revision != policy.Revision {
 		t.Fatalf("legacy compatibility projection failed: policy=%#v source=%s err=%v", legacy, source, err)
 	}
-	migrated, operation, err := s.ProjectWorkflowPolicyAdopt(trustedWorkflowPolicyContext(ctx, "planner"), ProjectWorkflowPolicyInput{Policy: legacy, WriteOptions: WriteOptions{ExpectedHubRevision: removed.After}})
+	migrated, operation, err := s.ProjectWorkflowPolicyAdopt(trustedWorkflowPolicyContext(ctx, "planner"), ProjectWorkflowPolicyInput{
+		Policy: legacy,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: removed.After,
+		},
+	})
 	if err != nil || operation.Status != "adopted" {
 		t.Fatalf("legacy migration failed: policy=%#v operation=%#v err=%v", migrated, operation, err)
 	}
@@ -186,7 +191,18 @@ func TestWorkflowPolicyAdapterMigratesLegacyStateAndRejectsConflict(t *testing.T
 	if _, err := s.ProjectWorkflowPolicyRead(ctx, "example"); err == nil || !strings.Contains(err.Error(), "conflicting project configuration") {
 		t.Fatalf("dual authority conflict was not rejected: %v", err)
 	}
-	if _, _, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "example", Slug: "conflict", Title: "Conflict", Objective: "Reject conflict", AcceptanceCriteria: []string{"reject"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: conflicted.After}}); err == nil {
+	if _, _, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID:          "example",
+		Slug:               "conflict",
+		Title:              "Conflict",
+		Objective:          "Reject conflict",
+		AcceptanceCriteria: []string{"reject"},
+		OperationClass:     "implementation",
+		CreatedBy:          "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: conflicted.After,
+		},
+	}); err == nil {
 		t.Fatal("task creation ignored conflicting workflow authorities")
 	}
 }

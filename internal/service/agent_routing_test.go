@@ -27,8 +27,10 @@ func TestAgentResolverSelectsUsableRoleAndRecordsReasoningFallback(t *testing.T)
 	s.Config.AgentBindings[config.ProjectAgentBindingKey("example", "coder-max")] = maxBinding
 	now := time.Now().UTC()
 	_, operation, err := s.AgentRegister(trustedWorkflowPolicyContext(context.Background(), "planner"), AgentRegisterInput{
-		Agent:        model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coder-max", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningMax, CreatedAt: now, UpdatedAt: now},
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		Agent: model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coder-max", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningMax, CreatedAt: now, UpdatedAt: now},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -45,8 +47,13 @@ func TestAgentResolverSelectsUsableRoleAndRecordsReasoningFallback(t *testing.T)
 	_ = operation
 	max := false
 	_, operation, err = s.AgentUpdate(trustedWorkflowPolicyContext(context.Background(), "planner"), AgentUpdateInput{
-		ProjectID: "example", AgentID: "coder-max", Enabled: &max, UpdatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After},
+		ProjectID: "example",
+		AgentID:   "coder-max",
+		Enabled:   &max,
+		UpdatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.Hub.After,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

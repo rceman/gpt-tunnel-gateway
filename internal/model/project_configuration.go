@@ -68,7 +68,9 @@ func DefaultProjectConfiguration(projectID string, now time.Time) ProjectConfigu
 			WorkflowStage:     WorkflowStageTransitionalMain,
 			IntegrationBranch: "main",
 			CI: WorkflowPolicyCI{
-				Task: WorkflowCIModeDisabled, TaskMerge: WorkflowCIModeDisabled, Release: WorkflowCIModeDisabled,
+				Task:      WorkflowCIModeDisabled,
+				TaskMerge: WorkflowCIModeDisabled,
+				Release:   WorkflowCIModeDisabled,
 			},
 			Gates:     StandardWorkflowGates(),
 			WaitForCI: false,
@@ -108,10 +110,18 @@ func ValidateProjectConfiguration(v ProjectConfiguration) error {
 		return fmt.Errorf("invalid project configuration watcher bounds")
 	}
 	policy := ProjectWorkflowPolicy{
-		SchemaVersion: SchemaVersion, ProjectID: v.ProjectID, Revision: v.Revision,
-		WorkflowStage: v.Workflow.WorkflowStage, IntegrationBranch: v.Workflow.IntegrationBranch,
-		Agent: WorkflowPolicyAgent{WaitForCI: v.Workflow.WaitForCI}, CI: v.Workflow.CI,
-		Gates: v.Workflow.Gates, UpdatedBy: v.UpdatedBy, UpdatedAt: v.UpdatedAt,
+		SchemaVersion:     SchemaVersion,
+		ProjectID:         v.ProjectID,
+		Revision:          v.Revision,
+		WorkflowStage:     v.Workflow.WorkflowStage,
+		IntegrationBranch: v.Workflow.IntegrationBranch,
+		Agent: WorkflowPolicyAgent{
+			WaitForCI: v.Workflow.WaitForCI,
+		},
+		CI:        v.Workflow.CI,
+		Gates:     v.Workflow.Gates,
+		UpdatedBy: v.UpdatedBy,
+		UpdatedAt: v.UpdatedAt,
 	}
 	if err := ValidateProjectWorkflowPolicy(policy); err != nil {
 		return fmt.Errorf("workflow configuration: %w", err)

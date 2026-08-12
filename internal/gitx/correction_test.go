@@ -50,7 +50,11 @@ func TestReplayTrainCommitsRebasesOwnedLaneAndReturnsMapping(t *testing.T) {
 	target := stringTrim(testutil.Git(t, work, "rev-parse", "HEAD"))
 	testutil.Git(t, work, "switch", "train/GTW-TRN1")
 
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+	}
 	head, mapping, err := r.ReplayTrainCommits(context.Background(), config.ProjectConfig{Root: work}, target, []string{laneCommit})
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +94,11 @@ func TestReplayTrainCommitsConflictRestoresOriginalLane(t *testing.T) {
 	target := stringTrim(testutil.Git(t, work, "rev-parse", "HEAD"))
 	testutil.Git(t, work, "switch", "train/GTW-TRN1")
 
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+	}
 	if _, _, err := r.ReplayTrainCommits(context.Background(), config.ProjectConfig{Root: work}, target, []string{laneHead}); err == nil {
 		t.Fatal("conflicting replay unexpectedly succeeded")
 	}
@@ -123,7 +131,11 @@ func TestResetTrainWorktreeDiscardsReplayBeforeRestart(t *testing.T) {
 	target := stringTrim(testutil.Git(t, work, "rev-parse", "HEAD"))
 	testutil.Git(t, work, "switch", "train/GTW-TRN1")
 
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+	}
 	if _, _, err := r.ReplayTrainCommits(context.Background(), config.ProjectConfig{Root: work}, target, []string{laneCommit}); err != nil {
 		t.Fatal(err)
 	}

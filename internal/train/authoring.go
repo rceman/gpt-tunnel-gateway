@@ -167,7 +167,18 @@ func UpdateTask(current model.TaskAuthoring, patch AuthoringPatch, updatedBy str
 	if !changed {
 		return current, false, nil
 	}
-	draft := AuthoringDraft{Title: updated.Title, Objective: updated.Objective, AcceptanceCriteria: updated.AcceptanceCriteria, Constraints: updated.Constraints, Priority: updated.Priority, Dependencies: updated.Dependencies, PreparationReferences: updated.PreparationReferences, Metadata: updated.Metadata, ADRRelation: updated.ADRRelation, ADRReferences: updated.ADRReferences}
+	draft := AuthoringDraft{
+		Title:                 updated.Title,
+		Objective:             updated.Objective,
+		AcceptanceCriteria:    updated.AcceptanceCriteria,
+		Constraints:           updated.Constraints,
+		Priority:              updated.Priority,
+		Dependencies:          updated.Dependencies,
+		PreparationReferences: updated.PreparationReferences,
+		Metadata:              updated.Metadata,
+		ADRRelation:           updated.ADRRelation,
+		ADRReferences:         updated.ADRReferences,
+	}
 	if err := ValidateDraft(draft); err != nil {
 		return model.TaskAuthoring{}, false, err
 	}

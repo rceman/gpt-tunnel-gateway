@@ -136,5 +136,10 @@ func (s *Service) taskAuthoringCreateOnce(ctx context.Context, in TaskAuthoringC
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	return task, OperationResult{Hub: tx, ProjectID: task.ProjectID, TaskID: task.ID, Status: task.Status}, nil
+	return task, OperationResult{
+		Hub:       tx,
+		ProjectID: task.ProjectID,
+		TaskID:    task.ID,
+		Status:    task.Status,
+	}, nil
 }

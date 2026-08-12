@@ -66,7 +66,10 @@ func (s *Service) projectConfigurationStatus(ctx context.Context, projectID stri
 	if IsNotFound(err) {
 		state = "missing"
 	}
-	return ProjectConfigurationStatus{State: state, Conflicts: []string{err.Error()}}
+	return ProjectConfigurationStatus{
+		State:     state,
+		Conflicts: []string{err.Error()},
+	}
 }
 
 func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConfigurationUpdateInput) (model.ProjectConfiguration, OperationResult, error) {
@@ -139,7 +142,11 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 	if err != nil {
 		return model.ProjectConfiguration{}, OperationResult{}, err
 	}
-	return updated, OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: "updated"}, nil
+	return updated, OperationResult{
+		Hub:       tx,
+		ProjectID: in.ProjectID,
+		Status:    "updated",
+	}, nil
 }
 
 func applyProjectConfigurationPatch(configuration *model.ProjectConfiguration, patch ProjectConfigurationPatch) {

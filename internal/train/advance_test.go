@@ -17,7 +17,14 @@ func TestBuildNextRunPreservesTrainOwnerAndResetsDispatchState(t *testing.T) {
 		Status: "succeeded", CompletionPath: "/state/runs/GTW-TSK1-RUN1/completion.json", CreatedAt: now.Add(-time.Minute), FinishedAt: &now,
 	}
 	next := model.TrainV2Item{TaskID: "GTW-TSK2", TaskRevision: 2, TaskRevisionSHA256: strings.Repeat("c", 64), Status: model.TrainV2ItemQueued}
-	got, err := BuildNextRun(NextRunInput{Current: current, Next: next, RunID: "GTW-TSK2-RUN1", BaseRevision: strings.Repeat("d", 40), StateDir: "/state", CreatedAt: now})
+	got, err := BuildNextRun(NextRunInput{
+		Current:      current,
+		Next:         next,
+		RunID:        "GTW-TSK2-RUN1",
+		BaseRevision: strings.Repeat("d", 40),
+		StateDir:     "/state",
+		CreatedAt:    now,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +38,14 @@ func TestBuildNextRunPreservesTrainOwnerAndResetsDispatchState(t *testing.T) {
 
 func TestBuildNextRunRejectsNonQueuedOrMismatchedItem(t *testing.T) {
 	current := model.Run{SchemaVersion: model.SchemaVersion, ID: "GTW-TSK1-RUN1", TaskID: "GTW-TSK1", TaskSHA256: strings.Repeat("a", 64), ProjectID: "gateway", GatewayID: "gateway", SessionKey: "session", AgentID: "agent-1", Branch: "train/GTW-TRN1", TrainID: "GTW-TRN1", LaneBranch: "train/GTW-TRN1", BaseRevision: strings.Repeat("b", 40), Status: "succeeded", CompletionPath: "/state/completion.json", CreatedAt: time.Now().UTC()}
-	_, err := BuildNextRun(NextRunInput{Current: current, Next: model.TrainV2Item{TaskID: "GTW-TSK2", TaskRevisionSHA256: strings.Repeat("c", 64), Status: model.TrainV2ItemFinalized}, RunID: "GTW-TSK2-RUN1", BaseRevision: strings.Repeat("d", 40), StateDir: "/state", CreatedAt: time.Now().UTC()})
+	_, err := BuildNextRun(NextRunInput{
+		Current:      current,
+		Next:         model.TrainV2Item{TaskID: "GTW-TSK2", TaskRevisionSHA256: strings.Repeat("c", 64), Status: model.TrainV2ItemFinalized},
+		RunID:        "GTW-TSK2-RUN1",
+		BaseRevision: strings.Repeat("d", 40),
+		StateDir:     "/state",
+		CreatedAt:    time.Now().UTC(),
+	})
 	if err == nil {
 		t.Fatal("non-queued item was accepted")
 	}

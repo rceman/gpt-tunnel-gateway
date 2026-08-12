@@ -96,5 +96,11 @@ func (s *Service) trainV2TaskReview(ctx context.Context, in TaskReviewInput, run
 	if in.Outcome != model.ReviewOutcomeAccepted {
 		status = "train_item_blocked"
 	}
-	return report, OperationResult{Hub: tx, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: status}, nil
+	return report, OperationResult{
+		Hub:       tx,
+		ProjectID: run.ProjectID,
+		TaskID:    run.TaskID,
+		RunID:     run.ID,
+		Status:    status,
+	}, nil
 }

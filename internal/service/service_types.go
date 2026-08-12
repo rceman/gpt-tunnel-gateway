@@ -58,7 +58,13 @@ func New(c config.Config) *Service {
 			if err != nil {
 				return TaskActivationResult{}, err
 			}
-			return TaskActivationResult{SourceHead: result.SourceHead, Activation: result.Activation, Smoke: result.Smoke, TunnelPID: result.TunnelPID, GatewayPID: result.GatewayPID}, nil
+			return TaskActivationResult{
+				SourceHead: result.SourceHead,
+				Activation: result.Activation,
+				Smoke:      result.Smoke,
+				TunnelPID:  result.TunnelPID,
+				GatewayPID: result.GatewayPID,
+			}, nil
 		},
 	}
 }

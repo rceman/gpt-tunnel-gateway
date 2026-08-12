@@ -72,9 +72,15 @@ func (s *Service) loadTrainV2Authority(ctx context.Context, run model.Run, requi
 		return trainV2CompletionAuthority{}, err
 	}
 	return trainV2CompletionAuthority{
-		run: run, task: task, train: train, item: item, runtime: runtime, start: start,
+		run:         run,
+		task:        task,
+		train:       train,
+		item:        item,
+		runtime:     runtime,
+		start:       start,
 		completion:  trainV2CompletionTask(task, run, gates),
-		destination: destination, gates: gates,
+		destination: destination,
+		gates:       gates,
 	}, nil
 }
 
@@ -154,5 +160,11 @@ func (s *Service) trainV2WriteCompletion(ctx context.Context, in CompletionWrite
 	if alreadyPresent {
 		status = "ALREADY_PRESENT"
 	}
-	return CompletionWriteResult{Status: status, Path: authority.destination, ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID}, nil
+	return CompletionWriteResult{
+		Status:    status,
+		Path:      authority.destination,
+		ProjectID: run.ProjectID,
+		TaskID:    run.TaskID,
+		RunID:     run.ID,
+	}, nil
 }

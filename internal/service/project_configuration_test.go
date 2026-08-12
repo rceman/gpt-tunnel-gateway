@@ -22,9 +22,13 @@ func TestProjectConfigurationRegisterReadUpdateAndStatus(t *testing.T) {
 	updated, operation, err := s.ProjectConfigurationUpdate(trustedWorkflowPolicyContext(ctx, "planner"), ProjectConfigurationUpdateInput{
 		ProjectID:        "example",
 		ExpectedRevision: configuration.Revision,
-		Patch:            ProjectConfigurationPatch{AgentRouting: &routing},
-		UpdatedBy:        "planner",
-		WriteOptions:     WriteOptions{ExpectedHubRevision: revision},
+		Patch: ProjectConfigurationPatch{
+			AgentRouting: &routing,
+		},
+		UpdatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -57,9 +61,13 @@ func TestProjectConfigurationExecutionSensitivePatchRejectsActiveRun(t *testing.
 	if _, _, err := s.ProjectConfigurationUpdate(trustedWorkflowPolicyContext(ctx, "planner"), ProjectConfigurationUpdateInput{
 		ProjectID:        "example",
 		ExpectedRevision: configuration.Revision,
-		Patch:            ProjectConfigurationPatch{Workflow: &workflow},
-		UpdatedBy:        "planner",
-		WriteOptions:     WriteOptions{ExpectedHubRevision: revision},
+		Patch: ProjectConfigurationPatch{
+			Workflow: &workflow,
+		},
+		UpdatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	}); err == nil {
 		t.Fatal("execution-sensitive configuration update succeeded with an active run")
 	}

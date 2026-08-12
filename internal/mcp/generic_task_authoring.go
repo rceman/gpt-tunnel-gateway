@@ -90,9 +90,16 @@ func taskAuthoringOutputSchema() map[string]any {
 
 func (s *Server) registerTaskAuthoringActions() error {
 	if err := s.RegisterGenericAction(GenericAction{
-		Path: "task/create", Description: "Create a branchless train_v2 planned Task specification.",
-		InputSchema: taskAuthoringCreateSchema(), OutputSchema: taskAuthoringOutputSchema(),
-		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: false}, AuthorityRole: actionRolePlannerOrDelivery, AllowLegacyOverride: true,
+		Path:         "task/create",
+		Description:  "Create a branchless train_v2 planned Task specification.",
+		InputSchema:  taskAuthoringCreateSchema(),
+		OutputSchema: taskAuthoringOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  false,
+		},
+		AuthorityRole:       actionRolePlannerOrDelivery,
+		AllowLegacyOverride: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TaskAuthoringCreateInput
 			if err := decode(raw, &in); err != nil {
@@ -108,9 +115,15 @@ func (s *Server) registerTaskAuthoringActions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path: "task/update", Description: "Optimistically update a train_v2 Task specification.",
-		InputSchema: taskAuthoringUpdateSchema(), OutputSchema: taskAuthoringOutputSchema(),
-		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: false}, AuthorityRole: actionRolePlannerOrDelivery,
+		Path:         "task/update",
+		Description:  "Optimistically update a train_v2 Task specification.",
+		InputSchema:  taskAuthoringUpdateSchema(),
+		OutputSchema: taskAuthoringOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  false,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TaskAuthoringUpdateInput
 			if err := decode(raw, &in); err != nil {
@@ -126,9 +139,15 @@ func (s *Server) registerTaskAuthoringActions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path: "task/ready", Description: "Persist the exact train_v2 Task readiness seal.",
-		InputSchema: taskAuthoringReadySchema(), OutputSchema: taskAuthoringOutputSchema(),
-		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
+		Path:         "task/ready",
+		Description:  "Persist the exact train_v2 Task readiness seal.",
+		InputSchema:  taskAuthoringReadySchema(),
+		OutputSchema: taskAuthoringOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TaskAuthoringReadyInput
 			if err := decode(raw, &in); err != nil {
@@ -144,12 +163,19 @@ func (s *Server) registerTaskAuthoringActions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path: "task/list", Description: "List bounded train_v2 Task specifications or historical Tasks.",
+		Path:        "task/list",
+		Description: "List bounded train_v2 Task specifications or historical Tasks.",
 		InputSchema: obj(map[string]any{
 			"project_id": str("Registered project identifier."), "query": str("Legacy Task search text."),
 			"status": str("Optional Task status."), "limit": integer("Maximum Tasks.", 1, service.MaxTaskListLimit), "cursor": str("Legacy continuation cursor."),
 		}, "project_id"),
-		OutputSchema: taskAuthoringOutputSchema(), Annotations: ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery, AllowLegacyOverride: true,
+		OutputSchema: taskAuthoringOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole:       actionRolePlannerOrDelivery,
+		AllowLegacyOverride: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input struct {
 				ProjectID string `json:"project_id"`
@@ -174,9 +200,16 @@ func (s *Server) registerTaskAuthoringActions() error {
 		return err
 	}
 	return s.RegisterGenericAction(GenericAction{
-		Path: "task/read", Description: "Read a train_v2 Task specification or historical Task record.",
-		InputSchema: obj(map[string]any{"task_id": str("Stable Task identifier.")}, "task_id"), OutputSchema: taskAuthoringOutputSchema(),
-		Annotations: ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery, AllowLegacyOverride: true,
+		Path:         "task/read",
+		Description:  "Read a train_v2 Task specification or historical Task record.",
+		InputSchema:  obj(map[string]any{"task_id": str("Stable Task identifier.")}, "task_id"),
+		OutputSchema: taskAuthoringOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole:       actionRolePlannerOrDelivery,
+		AllowLegacyOverride: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input struct {
 				TaskID string `json:"task_id"`

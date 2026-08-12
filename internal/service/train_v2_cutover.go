@@ -42,7 +42,10 @@ func (s *Service) TrainV2Cutover(ctx context.Context, in TrainV2CutoverInput) (m
 		if err := model.ValidateTrainV2CutoverReceipt(receipt); err != nil {
 			return model.TrainV2CutoverReceipt{}, OperationResult{}, err
 		}
-		return receipt, OperationResult{ProjectID: in.ProjectID, Status: "already_activated"}, nil
+		return receipt, OperationResult{
+			ProjectID: in.ProjectID,
+			Status:    "already_activated",
+		}, nil
 	}
 	if configuration.ExecutionModel != "legacy" && configuration.ExecutionModel != "" {
 		return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("unsupported project execution authority")
@@ -172,7 +175,11 @@ func (s *Service) TrainV2Cutover(ctx context.Context, in TrainV2CutoverInput) (m
 	if err != nil {
 		return model.TrainV2CutoverReceipt{}, OperationResult{}, err
 	}
-	return receipt, OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: "activated"}, nil
+	return receipt, OperationResult{
+		Hub:       tx,
+		ProjectID: in.ProjectID,
+		Status:    "activated",
+	}, nil
 }
 
 func (s *Service) readTrainV2Records(ctx context.Context, projectID string) ([]model.TrainV2, error) {

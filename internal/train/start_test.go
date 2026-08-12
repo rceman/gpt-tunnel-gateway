@@ -81,7 +81,15 @@ func TestStartRejectsDifferentAgentSessionForExistingTrainRuntime(t *testing.T) 
 	if err := fsutil.WriteFileAtomic(RuntimePath(stateDir, train.ProjectID, train.ID), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err = Start(t.Context(), StartInput{ProjectID: train.ProjectID, TrainID: train.ID, ResolvedAgentID: "agent-2", SessionKey: "other_master"}, StartDependencies{Train: train, StateDir: stateDir})
+	_, err = Start(t.Context(), StartInput{
+		ProjectID:       train.ProjectID,
+		TrainID:         train.ID,
+		ResolvedAgentID: "agent-2",
+		SessionKey:      "other_master",
+	}, StartDependencies{
+		Train:    train,
+		StateDir: stateDir,
+	})
 	if err == nil || !strings.Contains(err.Error(), "different Agent/session binding") {
 		t.Fatalf("different Train owner was accepted: %v", err)
 	}

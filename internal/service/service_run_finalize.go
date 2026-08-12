@@ -36,7 +36,12 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 				if reportErr != nil {
 					return model.Report{}, OperationResult{}, reportErr
 				}
-				return report, OperationResult{ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: "TASK_FINALIZED"}, nil
+				return report, OperationResult{
+					ProjectID: run.ProjectID,
+					TaskID:    run.TaskID,
+					RunID:     run.ID,
+					Status:    "TASK_FINALIZED",
+				}, nil
 			}
 			report, reportErr := s.RunReport(ctx, run.ID)
 			if reportErr != nil {
