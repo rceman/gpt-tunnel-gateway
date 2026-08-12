@@ -25,11 +25,25 @@ func TestTrainV2WatcherDisabledStartObserveAndFinalize(t *testing.T) {
 	s.Config.AirelayCommand = script
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	task, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "Watcher-disabled Train execution")
-	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{ProjectID: "example", TaskIDs: []string{task.ID}, CreatedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
+	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
+		ProjectID: "example",
+		TaskIDs:   []string{task.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{ProjectID: "example", TrainID: train.ID, StartedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After}})
+	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
+		ProjectID: "example",
+		TrainID:   train.ID,
+		StartedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +54,10 @@ func TestTrainV2WatcherDisabledStartObserveAndFinalize(t *testing.T) {
 	s.gateExecutorWithScope = func(_ context.Context, _ string, names []string, _ gates.TestScope) ([]model.CompletionGateResult, error) {
 		return fakeReceiptResults(names), nil
 	}
-	if _, result, err := s.RunFinalize(context.Background(), FinalizeInput{RunID: started.Run.ID, Summary: "Completed without watcher supervision."}); err != nil || result.Status != "TASK_FINALIZED" {
+	if _, result, err := s.RunFinalize(context.Background(), FinalizeInput{
+		RunID:   started.Run.ID,
+		Summary: "Completed without watcher supervision.",
+	}); err != nil || result.Status != "TASK_FINALIZED" {
 		t.Fatalf("watcher-disabled Train finalization failed: result=%#v err=%v", result, err)
 	}
 }
