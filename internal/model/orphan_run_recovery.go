@@ -13,6 +13,11 @@ const OrphanRunRecoverySchemaVersion = 1
 
 const OrphanRunQuarantined = "ORPHAN_RUN_QUARANTINED"
 
+const (
+	OrphanReceiptPending   = "pending"
+	OrphanReceiptCompleted = "completed"
+)
+
 // OrphanRunRecovery preserves an operational run that cannot be associated
 // with a durable task. The original JSON is immutable evidence; it is not
 // decoded into, or rewritten as, a different Run record.
@@ -31,12 +36,13 @@ type OrphanRunRecovery struct {
 	CreatedAt          time.Time `json:"created_at"`
 }
 
-// OrphanRunRecoveryReceipt records the completed atomic reconciliation and
-// is written after the immutable evidence transaction has returned its new
-// Hub revision.
+// OrphanRunRecoveryReceipt is written atomically with the immutable evidence
+// record. It may remain pending if final receipt completion is interrupted;
+// that state is durable and resumable, never absent.
 type OrphanRunRecoveryReceipt struct {
 	SchemaVersion     int       `json:"schema_version"`
 	State             string    `json:"state"`
+	ReceiptStatus     string    `json:"receipt_status"`
 	ProjectID         string    `json:"project_id"`
 	RunID             string    `json:"run_id"`
 	SourcePath        string    `json:"source_path"`
@@ -83,7 +89,7 @@ func ValidateOrphanRunRecovery(v OrphanRunRecovery) error {
 }
 
 func ValidateOrphanRunRecoveryReceipt(v OrphanRunRecoveryReceipt) error {
-	if v.SchemaVersion != OrphanRunRecoverySchemaVersion || v.State != OrphanRunQuarantined {
+	if v.SchemaVersion != OrphanRunRecoverySchemaVersion || v.State != OrphanRunQuarantined || (v.ReceiptStatus != OrphanReceiptPending && v.ReceiptStatus != OrphanReceiptCompleted) {
 		return fmt.Errorf("invalid orphan recovery receipt identity")
 	}
 	if err := ValidateProjectIdentifier(v.ProjectID); err != nil {
@@ -101,8 +107,14 @@ func ValidateOrphanRunRecoveryReceipt(v OrphanRunRecoveryReceipt) error {
 	if _, err := hex.DecodeString(v.OriginalSHA256); err != nil {
 		return fmt.Errorf("invalid orphan recovery receipt digest: %w", err)
 	}
-	if strings.TrimSpace(v.Actor) == "" || strings.TrimSpace(v.Reason) == "" || strings.TrimSpace(v.HubRevisionBefore) == "" || strings.TrimSpace(v.HubRevisionAfter) == "" || v.CreatedAt.IsZero() {
+	if strings.TrimSpace(v.Actor) == "" || strings.TrimSpace(v.Reason) == "" || strings.TrimSpace(v.HubRevisionBefore) == "" || v.CreatedAt.IsZero() {
 		return fmt.Errorf("incomplete orphan recovery receipt audit fields")
+	}
+	if v.ReceiptStatus == OrphanReceiptCompleted && strings.TrimSpace(v.HubRevisionAfter) == "" {
+		return fmt.Errorf("completed orphan recovery receipt requires hub_revision_after")
+	}
+	if v.ReceiptStatus == OrphanReceiptPending && v.HubRevisionAfter != "" {
+		return fmt.Errorf("pending orphan recovery receipt must not have hub_revision_after")
 	}
 	return nil
 }

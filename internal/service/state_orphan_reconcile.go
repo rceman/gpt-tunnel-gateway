@@ -129,13 +129,22 @@ func (s *Service) ReconcileOrphanRun(ctx context.Context, in OrphanRunReconcileI
 		if receipt.ProjectID != in.ProjectID || receipt.RunID != in.RunID || receipt.OriginalSHA256 != recovery.OriginalSHA256 {
 			return result, fmt.Errorf("orphan recovery receipt identity mismatch")
 		}
+		if receipt.ReceiptStatus == model.OrphanReceiptPending {
+			completed, receiptTx, err := s.completeOrphanRecoveryReceipt(ctx, check.HubRevision, receiptPath, receipt)
+			if err != nil {
+				return result, fmt.Errorf("orphan recovery receipt remains pending: %w", err)
+			}
+			receipt = completed
+			result.ReceiptHubRevision = receiptTx.After
+		} else {
+			result.ReceiptHubRevision = check.HubRevision
+		}
 		result.AlreadyReconciled = true
 		result.Applied = true
 		result.TaskID = ""
 		result.OriginalSHA256 = recovery.OriginalSHA256
 		result.HubRevisionBefore = receipt.HubRevisionBefore
 		result.HubRevisionAfter = receipt.HubRevisionAfter
-		result.ReceiptHubRevision = check.HubRevision
 		if !check.Valid {
 			return result, fmt.Errorf("reconciled orphan state remains invalid: %d issue(s)", len(check.Issues))
 		}
@@ -200,6 +209,23 @@ func (s *Service) ReconcileOrphanRun(ctx context.Context, in OrphanRunReconcileI
 	if err := model.ValidateOrphanRunRecovery(recovery); err != nil {
 		return result, err
 	}
+	receipt := model.OrphanRunRecoveryReceipt{
+		SchemaVersion:     model.OrphanRunRecoverySchemaVersion,
+		State:             model.OrphanRunQuarantined,
+		ReceiptStatus:     model.OrphanReceiptPending,
+		ProjectID:         in.ProjectID,
+		RunID:             in.RunID,
+		SourcePath:        sourcePath,
+		OriginalSHA256:    result.OriginalSHA256,
+		Actor:             in.Actor,
+		Session:           in.Session,
+		Reason:            in.Reason,
+		HubRevisionBefore: check.HubRevision,
+		CreatedAt:         time.Now().UTC(),
+	}
+	if err := model.ValidateOrphanRunRecoveryReceipt(receipt); err != nil {
+		return result, err
+	}
 
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: quarantine orphan run "+in.RunID, func(worktree string) ([]string, error) {
 		currentRaw, err := fsutil.ReadFileBounded(filepath.Join(worktree, filepath.FromSlash(sourcePath)), s.Config.MaxReadBytes)
@@ -220,37 +246,18 @@ func (s *Service) ReconcileOrphanRun(ctx context.Context, in OrphanRunReconcileI
 		if err := hub.WriteJSON(worktree, recoveryPath, recovery); err != nil {
 			return nil, err
 		}
-		return []string{sourcePath, recoveryPath}, nil
+		if err := hub.WriteJSON(worktree, receiptPath, receipt); err != nil {
+			return nil, err
+		}
+		return []string{sourcePath, recoveryPath, receiptPath}, nil
 	})
 	if err != nil {
 		return result, err
 	}
 
-	receipt := model.OrphanRunRecoveryReceipt{
-		SchemaVersion:     model.OrphanRunRecoverySchemaVersion,
-		State:             model.OrphanRunQuarantined,
-		ProjectID:         in.ProjectID,
-		RunID:             in.RunID,
-		SourcePath:        sourcePath,
-		OriginalSHA256:    result.OriginalSHA256,
-		Actor:             in.Actor,
-		Session:           in.Session,
-		Reason:            in.Reason,
-		HubRevisionBefore: check.HubRevision,
-		HubRevisionAfter:  tx.After,
-		CreatedAt:         time.Now().UTC(),
-	}
-	if err := model.ValidateOrphanRunRecoveryReceipt(receipt); err != nil {
-		return result, err
-	}
-	receiptTx, err := s.Hub.Transact(ctx, tx.After, "gateway: record orphan run recovery receipt "+in.RunID, func(worktree string) ([]string, error) {
-		if err := hub.WriteJSON(worktree, receiptPath, receipt); err != nil {
-			return nil, err
-		}
-		return []string{receiptPath}, nil
-	})
+	_, receiptTx, err := s.completeOrphanRecoveryReceipt(ctx, tx.After, receiptPath, receipt)
 	if err != nil {
-		return result, fmt.Errorf("orphan run quarantined but receipt failed: %w", err)
+		return result, fmt.Errorf("orphan run quarantined with pending receipt: %w", err)
 	}
 	after, err := s.StateCheck(ctx)
 	if err != nil {
@@ -267,6 +274,28 @@ func (s *Service) ReconcileOrphanRun(ctx context.Context, in OrphanRunReconcileI
 	result.ChangedPaths = []string{sourcePath, recoveryPath, receiptPath}
 	result.Check = after
 	return result, nil
+}
+
+func (s *Service) completeOrphanRecoveryReceipt(ctx context.Context, expected, receiptPath string, pending model.OrphanRunRecoveryReceipt) (model.OrphanRunRecoveryReceipt, hub.TransactionResult, error) {
+	if pending.ReceiptStatus != model.OrphanReceiptPending {
+		return pending, hub.TransactionResult{}, fmt.Errorf("orphan recovery receipt is not pending")
+	}
+	completed := pending
+	completed.ReceiptStatus = model.OrphanReceiptCompleted
+	completed.HubRevisionAfter = expected
+	if err := model.ValidateOrphanRunRecoveryReceipt(completed); err != nil {
+		return pending, hub.TransactionResult{}, err
+	}
+	tx, err := s.Hub.Transact(ctx, expected, "gateway: complete orphan run recovery receipt "+pending.RunID, func(worktree string) ([]string, error) {
+		if err := hub.WriteJSON(worktree, receiptPath, completed); err != nil {
+			return nil, err
+		}
+		return []string{receiptPath}, nil
+	})
+	if err != nil {
+		return pending, hub.TransactionResult{}, err
+	}
+	return completed, tx, nil
 }
 
 func hasExactIssue(check StateCheckResult, code, projectID, runID, taskID string) bool {

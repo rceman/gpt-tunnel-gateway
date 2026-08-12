@@ -254,12 +254,10 @@ func stateCommand(ctx context.Context, c config.Config) {
 
 func stateReconcileOrphanRun(ctx context.Context, s *service.Service) {
 	input := service.OrphanRunReconcileInput{
-		ProjectID: "gpt-tunnel-gateway",
-		RunID:     "GTW-TSK185-RUN1",
-		Actor:     "gpt-tunnelctl",
-		Reason:    "explicit recovery of the GTW-TSK185-RUN1 orphan run before gateway recovery",
+		Actor:  "gpt-tunnelctl",
+		Reason: "explicit orphan-run reconciliation before gateway recovery",
 	}
-	modeSet := false
+	modeSet, projectSet, runSet := false, false, false
 	for i := 3; i < len(os.Args); i++ {
 		if os.Args[i] == "--dry-run" || os.Args[i] == "--apply" {
 			if modeSet {
@@ -274,6 +272,12 @@ func stateReconcileOrphanRun(ctx context.Context, s *service.Service) {
 		}
 		value := os.Args[i+1]
 		switch os.Args[i] {
+		case "--project":
+			input.ProjectID = value
+			projectSet = true
+		case "--run":
+			input.RunID = value
+			runSet = true
 		case "--expected-hub-revision":
 			input.ExpectedHubRevision = value
 		case "--expected-original-sha256":
@@ -289,7 +293,7 @@ func stateReconcileOrphanRun(ctx context.Context, s *service.Service) {
 		}
 		i++
 	}
-	if !modeSet || strings.TrimSpace(input.Reason) == "" {
+	if !modeSet || !projectSet || !runSet || strings.TrimSpace(input.Reason) == "" {
 		usage()
 	}
 	result, err := s.ReconcileOrphanRun(ctx, input)
@@ -339,7 +343,7 @@ func copyExecutable(src, dst string) error {
 	return os.Rename(name, dst)
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade [inspect|status]|start|stop|restart|restart-gateway|status|doctor|diagnose-startup|state {check|repair --dry-run|repair --apply|reconcile-orphan-run --dry-run|reconcile-orphan-run --apply}|logs [gateway|tunnel|all] [lines]|version}")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade [inspect|status]|start|stop|restart|restart-gateway|status|doctor|diagnose-startup|state {check|repair --dry-run|repair --apply|reconcile-orphan-run --project <project> --run <run> --dry-run|reconcile-orphan-run --project <project> --run <run> --apply}|logs [gateway|tunnel|all] [lines]|version}")
 	os.Exit(2)
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnelctl:", err); os.Exit(1) }

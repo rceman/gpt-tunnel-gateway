@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"encoding/base64"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -216,5 +218,79 @@ func TestReconcileOrphanRunRejectsChangedContent(t *testing.T) {
 	}
 	if _, err := s.Hub.ReadFile(context.Background(), s.orphanRecoveryPath(orphanTestProject, orphanTestRun)); err == nil {
 		t.Fatal("changed-content rejection created recovery record")
+	}
+}
+
+func TestReconcileOrphanRunCompletesDurablePendingReceipt(t *testing.T) {
+	s, revision, _ := testService(t)
+	revision, before := installOrphanRun(t, s, revision)
+	sourcePath := s.runPath(orphanTestProject, orphanTestRun)
+	recoveryPath := s.orphanRecoveryPath(orphanTestProject, orphanTestRun)
+	receiptPath := s.orphanRecoveryReceiptPath(orphanTestProject, orphanTestRun)
+	digest := digestBytes([]byte(before))
+	recovery := model.OrphanRunRecovery{
+		SchemaVersion:      model.OrphanRunRecoverySchemaVersion,
+		State:              model.OrphanRunQuarantined,
+		ProjectID:          orphanTestProject,
+		RunID:              orphanTestRun,
+		SourcePath:         sourcePath,
+		OriginalSHA256:     digest,
+		OriginalRunJSONB64: base64.StdEncoding.EncodeToString([]byte(before)),
+		Actor:              "test-agent",
+		Reason:             "test pending receipt recovery",
+		HubRevisionBefore:  revision,
+		CreatedAt:          time.Now().UTC(),
+	}
+	receipt := model.OrphanRunRecoveryReceipt{
+		SchemaVersion:     model.OrphanRunRecoverySchemaVersion,
+		State:             model.OrphanRunQuarantined,
+		ReceiptStatus:     model.OrphanReceiptPending,
+		ProjectID:         orphanTestProject,
+		RunID:             orphanTestRun,
+		SourcePath:        sourcePath,
+		OriginalSHA256:    digest,
+		Actor:             "test-agent",
+		Reason:            "test pending receipt recovery",
+		HubRevisionBefore: revision,
+		CreatedAt:         time.Now().UTC(),
+	}
+	if err := model.ValidateOrphanRunRecovery(recovery); err != nil {
+		t.Fatal(err)
+	}
+	if err := model.ValidateOrphanRunRecoveryReceipt(receipt); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.Hub.Transact(context.Background(), revision, "test: install pending orphan recovery", func(worktree string) ([]string, error) {
+		if err := os.Remove(filepath.Join(worktree, filepath.FromSlash(sourcePath))); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(worktree, recoveryPath, recovery); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(worktree, receiptPath, receipt); err != nil {
+			return nil, err
+		}
+		return []string{sourcePath, recoveryPath, receiptPath}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.ReconcileOrphanRun(context.Background(), orphanInput(true, tx.After))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.AlreadyReconciled || !result.Applied {
+		t.Fatalf("pending receipt was not recovered: %#v", result)
+	}
+	receiptRaw, err := s.Hub.ReadFile(context.Background(), receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var completed model.OrphanRunRecoveryReceipt
+	if err := decodeStrict(receiptRaw, &completed); err != nil {
+		t.Fatal(err)
+	}
+	if completed.ReceiptStatus != model.OrphanReceiptCompleted || completed.HubRevisionAfter == "" {
+		t.Fatalf("pending receipt was not completed: %#v", completed)
 	}
 }
