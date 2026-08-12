@@ -44,7 +44,7 @@ func (s *Service) TrainV2Cutover(ctx context.Context, in TrainV2CutoverInput) (m
 		}
 		return receipt, OperationResult{ProjectID: in.ProjectID, Status: "already_activated"}, nil
 	}
-	if configuration.ExecutionModel != "legacy" {
+	if configuration.ExecutionModel != "legacy" && configuration.ExecutionModel != "" {
 		return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("unsupported project execution authority")
 	}
 	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
@@ -73,6 +73,16 @@ func (s *Service) TrainV2Cutover(ctx context.Context, in TrainV2CutoverInput) (m
 	if err != nil || !exists || mirrorHead != sourceHead {
 		return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("integration checkout is not synchronized with the managed mirror")
 	}
+	if s.taskActivator == nil {
+		return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("exact runtime source proof is not configured")
+	}
+	sourceProof, err := s.taskActivator(ctx, local, sourceHead)
+	if err != nil || sourceProof.SourceHead != sourceHead {
+		if err != nil {
+			return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("exact runtime source proof failed: %w", err)
+		}
+		return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("exact runtime source proof did not match the integration head")
+	}
 	runtime, err := (controller.Controller{Config: s.Config, ConfigPath: s.ConfigPath}).Status(ctx)
 	if err != nil || !runtime.GatewayReady || !runtime.TunnelReady || !runtime.VersionMatch {
 		return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("exact target runtime is not active and version-matched")
@@ -86,6 +96,15 @@ func (s *Service) TrainV2Cutover(ctx context.Context, in TrainV2CutoverInput) (m
 	for _, run := range runs {
 		if run.TrainID == "" && operationalActiveRun(run) {
 			activeLegacy++
+		}
+	}
+	legacyTrains, legacyTrainErr := s.TaskTrainList(ctx, in.ProjectID)
+	if legacyTrainErr != nil && !IsNotFound(legacyTrainErr) {
+		return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("legacy task-train compatibility check failed: %w", legacyTrainErr)
+	}
+	for _, legacyTrain := range legacyTrains {
+		if legacyTrain.Status != model.TaskTrainCompleted {
+			return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("active legacy TaskTrain-v1 %q blocks Train v2 cutover", model.CanonicalTaskTrainID(legacyTrain))
 		}
 	}
 	trains, err := s.readTrainV2Records(ctx, in.ProjectID)
@@ -134,7 +153,7 @@ func (s *Service) TrainV2Cutover(ctx context.Context, in TrainV2CutoverInput) (m
 		if err := readWorktreeJSON(worktree, s.projectConfigurationPath(in.ProjectID), &latest); err != nil {
 			return nil, err
 		}
-		if latest.Revision != configuration.Revision || latest.ExecutionModel != "legacy" {
+		if latest.Revision != configuration.Revision || (latest.ExecutionModel != "legacy" && latest.ExecutionModel != "") {
 			return nil, fmt.Errorf("project execution authority changed before cutover")
 		}
 		candidate, err := trainv2.CutoverConfiguration(latest, in.UpdatedBy, now)

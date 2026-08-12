@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -14,16 +15,26 @@ func enableTrainV2ForTest(t *testing.T, s *Service, hubRevision string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	modelName := "train_v2"
-	updated, operation, err := s.ProjectConfigurationUpdate(trustedWorkflowPolicyContext(context.Background(), "planner"), ProjectConfigurationUpdateInput{
-		ProjectID: "example", ExpectedRevision: configuration.Revision,
-		Patch: ProjectConfigurationPatch{ExecutionModel: &modelName}, UpdatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+	expected := hubRevision
+	tx, err := s.Hub.Transact(context.Background(), expected, "test: seed train_v2 authority", func(worktree string) ([]string, error) {
+		var latest model.ProjectConfiguration
+		if err := readWorktreeJSON(worktree, s.projectConfigurationPath("example"), &latest); err != nil {
+			return nil, err
+		}
+		latest.ExecutionModel = "train_v2"
+		latest.Revision = configuration.Revision + 1
+		if err := model.ValidateProjectConfiguration(latest); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(worktree, s.projectConfigurationPath("example"), latest); err != nil {
+			return nil, err
+		}
+		return []string{s.projectConfigurationPath("example")}, nil
 	})
-	if err != nil || updated.ExecutionModel != "train_v2" || operation.Status != "updated" {
-		t.Fatalf("unexpected train_v2 configuration: %#v %#v %v", updated, operation, err)
+	if err != nil {
+		t.Fatalf("seed train_v2 configuration: %v", err)
 	}
-	return operation.Hub.After
+	return tx.After
 }
 
 // The service package checks Hub/path/authority wiring only. Semantic task

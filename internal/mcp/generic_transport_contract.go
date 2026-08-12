@@ -29,7 +29,11 @@ type GenericAction struct {
 
 type genericActionEntry struct {
 	GenericAction
-	LegacyTool string
+	LegacyTool                string
+	LegacyInputSchema         map[string]any
+	LegacyOutputSchema        map[string]any
+	LegacyExecute             func(context.Context, json.RawMessage) (any, error)
+	RouteLegacyByProjectModel bool
 }
 
 type genericCallInput struct {
@@ -138,7 +142,17 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 	s.genericActionMu.RLock()
 	defer s.genericActionMu.RUnlock()
 	for path, action := range s.genericActions {
-		entries[path] = genericActionEntry{GenericAction: action}
+		entry := genericActionEntry{GenericAction: action}
+		if path == "task/create" {
+			if legacy, ok := legacy["task_create"]; ok {
+				entry.LegacyTool = "task_create"
+				entry.LegacyInputSchema = legacy.InputSchema
+				entry.LegacyOutputSchema = legacy.OutputSchema
+				entry.LegacyExecute = legacy.Execute
+				entry.RouteLegacyByProjectModel = true
+			}
+		}
+		entries[path] = entry
 	}
 	return entries
 }

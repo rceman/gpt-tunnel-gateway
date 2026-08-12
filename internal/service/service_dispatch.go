@@ -48,10 +48,12 @@ func sessionRunCollides(run model.Run, trainID, laneBranch string) bool {
 	if trainID == "" && laneBranch == "" {
 		return true
 	}
-	if run.TrainID == "" && run.LaneBranch == "" {
-		return true
+	if trainID != "" && run.TrainID == trainID {
+		return false
 	}
-	return (trainID != "" && run.TrainID == trainID) || (laneBranch != "" && run.LaneBranch == laneBranch)
+	// A session has one Train owner. A different Train or any legacy run is a
+	// collision even when its lane branch differs.
+	return true
 }
 
 func (s *Service) localRunDir(id string) string { return filepath.Join(s.Config.StateDir, "runs", id) }

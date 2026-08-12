@@ -180,7 +180,6 @@ type ProjectConfigurationPatch struct {
 	Watcher              *model.ProjectConfigurationWatcher  `json:"watcher,omitempty"`
 	Workflow             *model.ProjectConfigurationWorkflow `json:"workflow,omitempty"`
 	ActivationProfileRef *string                             `json:"activation_profile_ref,omitempty"`
-	ExecutionModel       *string                             `json:"execution_model,omitempty"`
 }
 
 type ProjectConfigurationUpdateInput struct {
@@ -362,13 +361,15 @@ type TrainV2CutoverInput struct {
 }
 
 type TrainV2ProjectStatus struct {
-	ExecutionModel string         `json:"execution_model"`
-	TaskCounts     map[string]int `json:"task_counts"`
-	TrainCounts    map[string]int `json:"train_counts"`
-	CurrentTrain   string         `json:"current_train,omitempty"`
-	CurrentTask    string         `json:"current_task,omitempty"`
-	CurrentRun     string         `json:"current_run,omitempty"`
-	NextAction     string         `json:"next_action"`
+	ExecutionModel  string         `json:"execution_model"`
+	TaskCounts      map[string]int `json:"task_counts"`
+	TrainCounts     map[string]int `json:"train_counts"`
+	CurrentTrain    string         `json:"current_train,omitempty"`
+	CurrentTask     string         `json:"current_task,omitempty"`
+	CurrentRun      string         `json:"current_run,omitempty"`
+	ActiveTrains    []string       `json:"active_trains,omitempty"`
+	AmbiguousActive bool           `json:"ambiguous_active,omitempty"`
+	NextAction      string         `json:"next_action"`
 }
 
 type TrainV2TaskPacket struct {

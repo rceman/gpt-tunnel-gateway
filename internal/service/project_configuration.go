@@ -82,7 +82,7 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 	if in.UpdatedBy == "" || strings.ContainsAny(in.UpdatedBy, "\x00\r\n") {
 		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("updated_by is required")
 	}
-	if in.Patch.AgentRouting == nil && in.Patch.Watcher == nil && in.Patch.Workflow == nil && in.Patch.ActivationProfileRef == nil && in.Patch.ExecutionModel == nil {
+	if in.Patch.AgentRouting == nil && in.Patch.Watcher == nil && in.Patch.Workflow == nil && in.Patch.ActivationProfileRef == nil {
 		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("project configuration patch is empty")
 	}
 	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
@@ -95,7 +95,7 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 	if current.Revision != in.ExpectedRevision {
 		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("project configuration revision conflict: expected %d, current %d", in.ExpectedRevision, current.Revision)
 	}
-	if (in.Patch.Workflow != nil || in.Patch.ActivationProfileRef != nil || in.Patch.ExecutionModel != nil) && s.projectHasActiveRun(ctx, in.ProjectID) {
+	if (in.Patch.Workflow != nil || in.Patch.ActivationProfileRef != nil) && s.projectHasActiveRun(ctx, in.ProjectID) {
 		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("execution-sensitive project configuration cannot change while an active run exists")
 	}
 
@@ -119,7 +119,7 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 		if latest.Revision != in.ExpectedRevision {
 			return nil, fmt.Errorf("project configuration revision conflict: expected %d, current %d", in.ExpectedRevision, latest.Revision)
 		}
-		if (in.Patch.Workflow != nil || in.Patch.ActivationProfileRef != nil || in.Patch.ExecutionModel != nil) && activeRunInWorktree(worktree, in.ProjectID) {
+		if (in.Patch.Workflow != nil || in.Patch.ActivationProfileRef != nil) && activeRunInWorktree(worktree, in.ProjectID) {
 			return nil, fmt.Errorf("execution-sensitive project configuration cannot change while an active run exists")
 		}
 		candidate := latest
@@ -154,9 +154,6 @@ func applyProjectConfigurationPatch(configuration *model.ProjectConfiguration, p
 	}
 	if patch.ActivationProfileRef != nil {
 		configuration.ActivationProfileRef = *patch.ActivationProfileRef
-	}
-	if patch.ExecutionModel != nil {
-		configuration.ExecutionModel = *patch.ExecutionModel
 	}
 }
 

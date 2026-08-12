@@ -7,6 +7,72 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
+// RebindImplementationProofs invalidates all execution evidence after a
+// server-owned replay. Rewritten commits cannot retain implementation proofs,
+// accepted reviews, or gate evidence; the admitted tasks return to the
+// unstarted queue and must be executed and reviewed again.
+func RebindImplementationProofs(current model.TrainV2, mapping map[string]string, now time.Time) (model.TrainV2, error) {
+	if err := model.ValidateTrainV2(current); err != nil {
+		return model.TrainV2{}, err
+	}
+	if now.IsZero() || len(mapping) == 0 {
+		return model.TrainV2{}, fmt.Errorf("invalid Train reconciliation mapping")
+	}
+	updated := current
+	for i := range updated.Items {
+		if updated.Items[i].Proof != nil {
+			old := updated.Items[i].Proof.ImplementationSHA
+			if mapped, ok := mapping[old]; !ok || model.ValidateCommitSHA(mapped) != nil {
+				return model.TrainV2{}, fmt.Errorf("missing reconciliation mapping for item %s", updated.Items[i].TaskID)
+			}
+		}
+		updated.Items[i].Status = model.TrainV2ItemQueued
+		updated.Items[i].RunID = ""
+		updated.Items[i].AgentID = ""
+		updated.Items[i].StartHead = ""
+		updated.Items[i].Proof = nil
+		updated.Items[i].Review = nil
+	}
+	updated.FullProof = nil
+	updated.Status = model.TrainV2Planned
+	updated.Revision++
+	updated.UpdatedAt = now
+	if err := model.ValidateTrainV2(updated); err != nil {
+		return model.TrainV2{}, err
+	}
+	return updated, nil
+}
+
+// ResetImplementationProofsForRestart invalidates all execution evidence
+// after a server-owned reconciliation is discarded.  The lane is restarted
+// from the refreshed target, so the admitted Tasks must execute again there;
+// they must never be run on top of the discarded replay.
+func ResetImplementationProofsForRestart(current model.TrainV2, now time.Time) (model.TrainV2, error) {
+	if err := model.ValidateTrainV2(current); err != nil {
+		return model.TrainV2{}, err
+	}
+	if now.IsZero() {
+		return model.TrainV2{}, fmt.Errorf("invalid Train reconciliation restart time")
+	}
+	updated := current
+	for i := range updated.Items {
+		updated.Items[i].Status = model.TrainV2ItemQueued
+		updated.Items[i].RunID = ""
+		updated.Items[i].AgentID = ""
+		updated.Items[i].StartHead = ""
+		updated.Items[i].Proof = nil
+		updated.Items[i].Review = nil
+	}
+	updated.FullProof = nil
+	updated.Status = model.TrainV2Planned
+	updated.Revision++
+	updated.UpdatedAt = now
+	if err := model.ValidateTrainV2(updated); err != nil {
+		return model.TrainV2{}, err
+	}
+	return updated, nil
+}
+
 type IntegrationPlan struct {
 	Status         string `json:"status"`
 	TrainID        string `json:"train_id"`

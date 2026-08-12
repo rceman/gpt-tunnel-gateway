@@ -32,7 +32,7 @@ type CutoverEvidence struct {
 }
 
 func ValidateCutover(e CutoverEvidence) error {
-	if e.CurrentExecutionModel != "legacy" {
+	if e.CurrentExecutionModel != "legacy" && e.CurrentExecutionModel != "" {
 		return fmt.Errorf("train v2 cutover requires legacy execution authority")
 	}
 	if !e.MaterializationAcknowledged || !e.PlanRetirementAcknowledged {
@@ -78,7 +78,7 @@ func CutoverConfiguration(current model.ProjectConfiguration, updatedBy string, 
 	if err := model.ValidateProjectConfiguration(current); err != nil {
 		return model.ProjectConfiguration{}, err
 	}
-	if current.ExecutionModel != "legacy" {
+	if current.ExecutionModel != "legacy" && current.ExecutionModel != "" {
 		return model.ProjectConfiguration{}, fmt.Errorf("project is already cut over or has unsupported execution authority")
 	}
 	if updatedBy == "" || strings.ContainsAny(updatedBy, "\x00\r\n") {

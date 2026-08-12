@@ -29,3 +29,26 @@ func TestProjectStatusUsesTasksAndTrainsWithoutPlanState(t *testing.T) {
 		t.Fatalf("running Train was not projected: %#v", projection)
 	}
 }
+
+func TestProjectStatusExposesAmbiguousActiveTrains(t *testing.T) {
+	now := time.Date(2026, 8, 12, 13, 0, 0, 0, time.UTC)
+	task1 := readyAdmissionTask(t, "GTW-TSK185", now)
+	task2 := readyAdmissionTask(t, "GTW-TSK186", now)
+	train1, err := New("gateway", "GTW-TRN1", "planner", []model.TaskAuthoring{task1}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	train2, err := New("gateway", "GTW-TRN2", "planner", []model.TaskAuthoring{task2}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	train1.Status = model.TrainV2Running
+	train2.Status = model.TrainV2ReadyForIntegration
+	projection := ProjectStatus([]model.TaskAuthoring{task1, task2}, []model.TrainV2{train2, train1})
+	if !projection.AmbiguousActive || len(projection.ActiveTrains) != 2 || projection.CurrentTrain != "" || projection.NextAction == "" {
+		t.Fatalf("active Train ambiguity was hidden: %#v", projection)
+	}
+	if projection.ActiveTrains[0] != "GTW-TRN1" || projection.ActiveTrains[1] != "GTW-TRN2" {
+		t.Fatalf("active Train list is not deterministic: %#v", projection.ActiveTrains)
+	}
+}

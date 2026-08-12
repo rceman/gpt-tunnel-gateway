@@ -21,7 +21,7 @@ func (s *Service) TrainV2TaskRead(ctx context.Context, projectID, taskID string)
 		return TrainV2TaskPacket{}, err
 	}
 	trains, err := s.TrainV2List(ctx, TrainV2ListInput{ProjectID: projectID, Limit: model.MaxTrainV2Items})
-	if err != nil {
+	if err != nil && !IsNotFound(err) {
 		return TrainV2TaskPacket{}, err
 	}
 	var found model.TrainV2
@@ -39,7 +39,22 @@ func (s *Service) TrainV2TaskRead(ctx context.Context, projectID, taskID string)
 		}
 	}
 	if !foundItem {
-		return TrainV2TaskPacket{}, fmt.Errorf("Task %q is not admitted to a Train v2", taskID)
+		project, err := s.ProjectRead(ctx, projectID)
+		if err != nil {
+			return TrainV2TaskPacket{}, err
+		}
+		configuration, err := s.ProjectConfigurationRead(ctx, projectID)
+		if err != nil {
+			return TrainV2TaskPacket{}, err
+		}
+		policy, err := s.ProjectWorkflowPolicyRead(ctx, projectID)
+		if err != nil {
+			return TrainV2TaskPacket{}, err
+		}
+		if _, err := s.projectConfig(projectID); err != nil {
+			return TrainV2TaskPacket{}, err
+		}
+		return TrainV2TaskPacket{Task: task, ProjectConfiguration: configuration, WorkflowPolicy: policy, RepositoryRoot: "", Recovery: "This Task is planned and ready for Train admission; no execution runtime exists yet.", Text: renderTrainV2Packet(task, model.TrainV2{}, model.TrainV2Item{}, nil, project, configuration, policy, "")}, nil
 	}
 	var run *model.Run
 	if item.RunID != "" {

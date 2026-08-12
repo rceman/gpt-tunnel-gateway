@@ -47,20 +47,31 @@ type StartDependencies struct {
 }
 
 type RuntimeBinding struct {
-	SchemaVersion int       `json:"schema_version"`
-	ProjectID     string    `json:"project_id"`
-	TrainID       string    `json:"train_id"`
-	WorktreePath  string    `json:"worktree_path"`
-	AgentID       string    `json:"agent_id"`
-	SessionKey    string    `json:"session_key"`
-	RunID         string    `json:"run_id"`
-	StartedAt     time.Time `json:"started_at"`
+	SchemaVersion   int       `json:"schema_version"`
+	ProjectID       string    `json:"project_id"`
+	TrainID         string    `json:"train_id"`
+	WorktreePath    string    `json:"worktree_path"`
+	AgentID         string    `json:"agent_id"`
+	SessionKey      string    `json:"session_key"`
+	RunID           string    `json:"run_id"`
+	RestartRequired bool      `json:"restart_required,omitempty"`
+	StartedAt       time.Time `json:"started_at"`
 }
 
 type StartResult struct {
 	Record  model.TrainV2StartRecord `json:"record"`
 	Run     model.Run                `json:"run"`
 	Runtime RuntimeBinding           `json:"runtime"`
+}
+
+type dispatchReceipt struct {
+	RunID      string    `json:"run_id"`
+	SessionKey string    `json:"session_key"`
+	Message    string    `json:"message"`
+	ExitCode   int       `json:"exit_code"`
+	Stdout     string    `json:"stdout,omitempty"`
+	Stderr     string    `json:"stderr,omitempty"`
+	FinishedAt time.Time `json:"finished_at"`
 }
 
 const runtimeSchemaVersion = 1
@@ -71,6 +82,10 @@ func ExpectedWorktreePath(stateDir, projectID, trainID string) string {
 
 func runtimePath(stateDir, projectID, trainID string) string {
 	return filepath.Join(stateDir, "train-runtime", projectID, trainID+".json")
+}
+
+func dispatchReceiptPath(stateDir, projectID, trainID string) string {
+	return runtimePath(stateDir, projectID, trainID) + ".dispatch.json"
 }
 
 // RuntimePath exposes the Gateway-local binding location to service adapters.
@@ -109,6 +124,32 @@ func ReadRuntime(stateDir, projectID, trainID string) (RuntimeBinding, error) {
 	return binding, nil
 }
 
+// RetireRuntimeForRestart preserves the server-owned lane binding while
+// retiring the current execution generation.  The next Start must create a
+// new Run from the retained refreshed-target checkout; it must not resume the
+// old Run or its dispatch receipt.
+func RetireRuntimeForRestart(stateDir, projectID, trainID, expectedRunID string) (RuntimeBinding, error) {
+	binding, err := ReadRuntime(stateDir, projectID, trainID)
+	if err != nil {
+		return RuntimeBinding{}, err
+	}
+	if expectedRunID != "" && binding.RunID != expectedRunID {
+		return RuntimeBinding{}, fmt.Errorf("Train runtime generation does not match the reconciled Run")
+	}
+	binding.RestartRequired = true
+	data, err := json.Marshal(binding)
+	if err != nil {
+		return RuntimeBinding{}, err
+	}
+	if err := fsutil.WriteFileAtomic(runtimePath(stateDir, projectID, trainID), data, 0o600); err != nil {
+		return RuntimeBinding{}, err
+	}
+	if err := os.Remove(dispatchReceiptPath(stateDir, projectID, trainID)); err != nil && !os.IsNotExist(err) {
+		return RuntimeBinding{}, fmt.Errorf("retire stale Train dispatch receipt: %w", err)
+	}
+	return binding, nil
+}
+
 func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartResult, error) {
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return StartResult{}, err
@@ -119,20 +160,50 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 	if err := model.ValidateTrainV2(deps.Train); err != nil || deps.Train.ProjectID != in.ProjectID || deps.Train.ID != in.TrainID || len(deps.Train.Items) == 0 {
 		return StartResult{}, fmt.Errorf("train v2 is not startable")
 	}
+	reuseWorktree := false
 	if binding, err := ReadRuntime(deps.StateDir, in.ProjectID, in.TrainID); err == nil {
-		record, recordErr := readStartRecord(ctx, deps.Hub, in.ProjectID, in.TrainID)
-		if recordErr != nil {
-			return StartResult{}, fmt.Errorf("local train runtime has no durable start record: %w", recordErr)
+		if binding.RestartRequired || deps.Train.Status == model.TrainV2Planned {
+			if deps.Train.Status != model.TrainV2Planned {
+				return StartResult{}, fmt.Errorf("Train restart marker requires a planned Train")
+			}
+			reuseWorktree = true
+		} else {
+			if deps.Train.Status != model.TrainV2Running && deps.Train.Status != model.TrainV2Paused {
+				return StartResult{}, fmt.Errorf("existing Train runtime belongs to a non-operational execution generation")
+			}
+			if binding.AgentID != in.ResolvedAgentID || binding.SessionKey != in.SessionKey {
+				return StartResult{}, fmt.Errorf("Train already has a different Agent/session binding")
+			}
+			record, recordErr := readStartRecord(ctx, deps.Hub, in.ProjectID, in.TrainID)
+			if recordErr != nil {
+				return StartResult{}, fmt.Errorf("local train runtime has no durable start record: %w", recordErr)
+			}
+			run, runErr := readRun(ctx, deps.Hub, in.ProjectID, binding.RunID)
+			if runErr != nil {
+				return StartResult{}, runErr
+			}
+			if run.Status == "created" || run.Status == "dispatching" {
+				if err := resumeDispatch(ctx, deps, run, binding.SessionKey); err != nil {
+					return StartResult{}, err
+				}
+				run, runErr = readRun(ctx, deps.Hub, in.ProjectID, binding.RunID)
+				if runErr != nil {
+					return StartResult{}, runErr
+				}
+			}
+			return StartResult{Record: record, Run: run, Runtime: binding}, nil
 		}
-		run, runErr := readRun(ctx, deps.Hub, in.ProjectID, binding.RunID)
-		if runErr != nil {
-			return StartResult{}, runErr
-		}
-		return StartResult{Record: record, Run: run, Runtime: binding}, nil
 	} else if !os.IsNotExist(err) {
 		return StartResult{}, err
 	}
 	if deps.Train.Status != model.TrainV2Planned {
+		// The Hub start/run transaction may have committed before the local
+		// binding write completed. Reconstruct the binding from those durable
+		// records instead of leaving a running Train permanently unrecoverable.
+		recovered, recoverErr := recoverMissingRuntime(ctx, deps)
+		if recoverErr == nil {
+			return recovered, nil
+		}
 		return StartResult{}, fmt.Errorf("train v2 is already started without recoverable local runtime")
 	}
 	if in.StartedBy == "" || strings.ContainsAny(in.StartedBy, "\x00\r\n") || in.SessionKey == "" || in.ResolvedAgentID == "" {
@@ -158,13 +229,29 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 	}
 	laneBranch := "train/" + deps.Train.ID
 	worktreePath := ExpectedWorktreePath(deps.StateDir, in.ProjectID, in.TrainID)
-	if err := deps.Git.CreateTrainWorktree(ctx, deps.ProjectConfig, deps.StateDir, in.ProjectID, in.TrainID, laneBranch, base); err != nil {
-		return StartResult{}, err
+	createdWorktree := false
+	if reuseWorktree {
+		lane := deps.ProjectConfig
+		lane.Root = worktreePath
+		head, branch, clean, headErr := deps.Git.CurrentHead(ctx, lane)
+		if headErr != nil || !clean || branch != laneBranch || head != base {
+			return StartResult{}, fmt.Errorf("retired Train lane is not clean at the refreshed target")
+		}
+	} else {
+		if err := deps.Git.CreateTrainWorktree(ctx, deps.ProjectConfig, deps.StateDir, in.ProjectID, in.TrainID, laneBranch, base); err != nil {
+			return StartResult{}, err
+		}
+		createdWorktree = true
 	}
-	createdWorktree := true
+	if reuseWorktree {
+		if err := os.Remove(dispatchReceiptPath(deps.StateDir, in.ProjectID, in.TrainID)); err != nil && !os.IsNotExist(err) {
+			return StartResult{}, fmt.Errorf("remove stale Train dispatch receipt: %w", err)
+		}
+	}
 	defer func() {
 		if createdWorktree {
 			_ = deps.Git.RemoveTrainWorktree(context.Background(), deps.ProjectConfig, deps.StateDir, in.ProjectID, in.TrainID)
+			_ = deps.Git.DeleteTrainBranch(context.Background(), deps.ProjectConfig, laneBranch, base)
 		}
 	}()
 	now := time.Now().UTC()
@@ -175,19 +262,10 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 	var runID string
 	var record model.TrainV2StartRecord
 	var run model.Run
-	runtime := RuntimeBinding{SchemaVersion: runtimeSchemaVersion, ProjectID: in.ProjectID, TrainID: in.TrainID, WorktreePath: worktreePath, AgentID: in.ResolvedAgentID, SessionKey: in.SessionKey, StartedAt: now}
+	runtime := RuntimeBinding{SchemaVersion: runtimeSchemaVersion, ProjectID: in.ProjectID, TrainID: in.TrainID, WorktreePath: worktreePath, AgentID: in.ResolvedAgentID, SessionKey: in.SessionKey, RestartRequired: false, StartedAt: now}
 	if err := model.ValidateObjectIdentifier(runtime.AgentID); err != nil {
 		return StartResult{}, err
 	}
-	if err := fsutil.WriteJSONAtomic(runtimePath(deps.StateDir, in.ProjectID, in.TrainID), runtime, 0o600); err != nil {
-		return StartResult{}, err
-	}
-	removeRuntime := true
-	defer func() {
-		if removeRuntime {
-			_ = os.Remove(runtimePath(deps.StateDir, in.ProjectID, in.TrainID))
-		}
-	}()
 	expected := in.ExpectedHubRevision
 	if expected == "" {
 		expected, err = deps.Hub.RemoteRevision(ctx)
@@ -196,6 +274,7 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 		}
 	}
 	startRoot := projectRoot(in.ProjectID) + "/train-v2-starts"
+	integrationReceiptPath := projectRoot(in.ProjectID) + "/trains-v2/" + in.TrainID + ".integration.json"
 	tx, err := deps.Hub.Transact(ctx, expected, "gateway: start train v2 "+in.TrainID, func(w string) ([]string, error) {
 		var latest model.TrainV2
 		if err := readWorktreeJSON(w, trainPath(in.ProjectID, in.TrainID), &latest); err != nil {
@@ -235,45 +314,144 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 			return nil, err
 		}
 		runtime.RunID = runID
-		return []string{startRoot + "/" + in.TrainID + ".json", runPath(in.ProjectID, runID), trainPath(in.ProjectID, in.TrainID)}, nil
+		paths := []string{startRoot + "/" + in.TrainID + ".json", runPath(in.ProjectID, runID), trainPath(in.ProjectID, in.TrainID)}
+		if reuseWorktree {
+			if _, statErr := os.Lstat(filepath.Join(w, filepath.FromSlash(integrationReceiptPath))); statErr == nil {
+				if err := os.Remove(filepath.Join(w, filepath.FromSlash(integrationReceiptPath))); err != nil {
+					return nil, fmt.Errorf("retire prior Train reconciliation receipt: %w", err)
+				}
+				paths = append(paths, integrationReceiptPath)
+			} else if !os.IsNotExist(statErr) {
+				return nil, statErr
+			}
+		}
+		return paths, nil
 	})
 	if err != nil {
 		return StartResult{}, err
 	}
+	// Keep the server-owned lane and durable start/run in place if the local
+	// binding write fails. A later Start call can reconstruct the binding from
+	// the committed records; deleting the lane here would leave an active
+	// Train pointing at no usable runtime.
+	createdWorktree = false
 	if err := fsutil.WriteJSONAtomic(runtimePath(deps.StateDir, in.ProjectID, in.TrainID), runtime, 0o600); err != nil {
 		return StartResult{}, err
 	}
-	message := "Read train item " + item.TaskID + " and execute it in train " + in.TrainID + ". Use the server-owned train worktree and report completion through the Train item lifecycle."
-	dispatch, dispatchErr := deps.Airelay.Prompt(ctx, in.SessionKey, message)
-	if dispatchErr != nil {
-		return StartResult{}, fmt.Errorf("train agent dispatch failed: %w", dispatchErr)
-	}
-	code := dispatch.ExitCode
-	run.Status, run.DispatchMessage, run.DispatchExitCode, run.DispatchStdout, run.DispatchStderr = "dispatched", message, &code, dispatch.Stdout, dispatch.Stderr
-	dispatchedAt := dispatch.FinishedAt
-	if dispatchedAt.IsZero() {
-		dispatchedAt = now
-	}
-	run.DispatchedAt = &dispatchedAt
-	if _, err := deps.Hub.Transact(ctx, tx.After, "gateway: dispatch train v2 first item "+in.TrainID, func(w string) ([]string, error) {
-		var current model.Run
-		if err := readWorktreeJSON(w, runPath(in.ProjectID, runID), &current); err != nil {
-			return nil, err
-		}
-		current.Status, current.DispatchMessage, current.DispatchExitCode, current.DispatchStdout, current.DispatchStderr, current.DispatchedAt = run.Status, run.DispatchMessage, run.DispatchExitCode, run.DispatchStdout, run.DispatchStderr, run.DispatchedAt
-		if err := model.ValidateRun(current); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(w, runPath(in.ProjectID, runID), current); err != nil {
-			return nil, err
-		}
-		return []string{runPath(in.ProjectID, runID)}, nil
-	}); err != nil {
+	// From this point the durable start/run and local binding are recoverable;
+	// a prompt or dispatch failure must leave them intact for retry.
+	dispatchedRun, err := dispatchRun(ctx, deps, run, in.SessionKey, tx.After, now)
+	if err != nil {
 		return StartResult{}, err
 	}
-	removeRuntime, createdWorktree = false, false
 	runtime.RunID = runID
-	return StartResult{Record: record, Run: run, Runtime: runtime}, nil
+	return StartResult{Record: record, Run: dispatchedRun, Runtime: runtime}, nil
+}
+
+func recoverMissingRuntime(ctx context.Context, deps StartDependencies) (StartResult, error) {
+	record, err := readStartRecord(ctx, deps.Hub, deps.Project.ID, deps.Train.ID)
+	if err != nil || record.Status != model.TrainV2StartActive || record.RunID == "" {
+		return StartResult{}, fmt.Errorf("durable Train start record is unavailable")
+	}
+	run, err := readRun(ctx, deps.Hub, deps.Project.ID, record.RunID)
+	if err != nil || run.TrainID != deps.Train.ID || run.ProjectID != deps.Project.ID || run.Status == "" {
+		return StartResult{}, fmt.Errorf("durable Train Run is unavailable")
+	}
+	path := ExpectedWorktreePath(deps.StateDir, deps.Project.ID, deps.Train.ID)
+	if info, statErr := os.Stat(path); statErr != nil || !info.IsDir() {
+		return StartResult{}, fmt.Errorf("server-owned Train worktree is unavailable")
+	}
+	binding := RuntimeBinding{
+		SchemaVersion: runtimeSchemaVersion,
+		ProjectID:     deps.Project.ID,
+		TrainID:       deps.Train.ID,
+		WorktreePath:  path,
+		AgentID:       run.AgentID,
+		SessionKey:    run.SessionKey,
+		RunID:         run.ID,
+		StartedAt:     record.StartedAt,
+	}
+	if err := ValidateRuntimeBinding(binding, deps.StateDir); err != nil {
+		return StartResult{}, err
+	}
+	if err := fsutil.WriteJSONAtomic(runtimePath(deps.StateDir, deps.Project.ID, deps.Train.ID), binding, 0o600); err != nil {
+		return StartResult{}, err
+	}
+	if run.Status == "created" || run.Status == "dispatching" {
+		if err := resumeDispatch(ctx, deps, run, binding.SessionKey); err != nil {
+			return StartResult{}, err
+		}
+		run, err = readRun(ctx, deps.Hub, deps.Project.ID, run.ID)
+		if err != nil {
+			return StartResult{}, err
+		}
+	}
+	return StartResult{Record: record, Run: run, Runtime: binding}, nil
+}
+
+func resumeDispatch(ctx context.Context, deps StartDependencies, run model.Run, sessionKey string) error {
+	_, err := dispatchRun(ctx, deps, run, sessionKey, "", time.Now().UTC())
+	return err
+}
+
+func dispatchRun(ctx context.Context, deps StartDependencies, run model.Run, sessionKey, expected string, now time.Time) (model.Run, error) {
+	receiptPath := dispatchReceiptPath(deps.StateDir, run.ProjectID, run.TrainID)
+	var receipt dispatchReceipt
+	if err := fsutil.ReadJSONBounded(receiptPath, 1<<20, &receipt); err != nil {
+		if !os.IsNotExist(err) {
+			return model.Run{}, fmt.Errorf("read durable Train dispatch receipt: %w", err)
+		}
+		message := "Resume train item " + run.TaskID + " in train " + run.TrainID + ". Use the existing server-owned Train worktree and report completion through the Train item lifecycle."
+		dispatch, promptErr := deps.Airelay.Prompt(ctx, sessionKey, message)
+		if promptErr != nil {
+			return model.Run{}, fmt.Errorf("train agent dispatch retry failed: %w", promptErr)
+		}
+		finishedAt := dispatch.FinishedAt
+		if finishedAt.IsZero() {
+			finishedAt = now
+		}
+		receipt = dispatchReceipt{RunID: run.ID, SessionKey: sessionKey, Message: message, ExitCode: dispatch.ExitCode, Stdout: dispatch.Stdout, Stderr: dispatch.Stderr, FinishedAt: finishedAt}
+		if err := fsutil.WriteJSONAtomic(receiptPath, receipt, 0o600); err != nil {
+			return model.Run{}, fmt.Errorf("persist durable Train dispatch receipt: %w", err)
+		}
+	}
+	if receipt.RunID != run.ID || receipt.SessionKey != sessionKey || receipt.Message == "" || receipt.FinishedAt.IsZero() {
+		return model.Run{}, fmt.Errorf("durable Train dispatch receipt does not match the Run")
+	}
+	code := receipt.ExitCode
+	run.Status = "dispatched"
+	run.DispatchMessage = receipt.Message
+	run.DispatchExitCode = &code
+	run.DispatchStdout = receipt.Stdout
+	run.DispatchStderr = receipt.Stderr
+	run.DispatchedAt = &receipt.FinishedAt
+	if expected == "" {
+		var err error
+		expected, err = deps.Hub.RemoteRevision(ctx)
+		if err != nil {
+			return model.Run{}, err
+		}
+	}
+	_, err := deps.Hub.Transact(ctx, expected, "gateway: recover train v2 dispatch "+run.TrainID, func(worktree string) ([]string, error) {
+		var current model.Run
+		if err := readWorktreeJSON(worktree, runPath(run.ProjectID, run.ID), &current); err != nil {
+			return nil, err
+		}
+		if current.Status != "created" && current.Status != "dispatching" {
+			return nil, fmt.Errorf("train Run changed before dispatch recovery")
+		}
+		if err := model.ValidateRun(run); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(worktree, runPath(run.ProjectID, run.ID), run); err != nil {
+			return nil, err
+		}
+		return []string{runPath(run.ProjectID, run.ID)}, nil
+	})
+	if err == nil {
+		_ = os.Remove(receiptPath)
+	}
+	return run, err
 }
 
 func projectRoot(projectID string) string { return hub.ProtocolRoot + "/projects/" + projectID }

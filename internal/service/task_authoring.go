@@ -154,6 +154,11 @@ func (s *Service) TaskAuthoringUpdate(ctx context.Context, in TaskAuthoringUpdat
 	if err := trainv2.CheckRevision(current, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
+	if admitted, err := s.taskAdmittedToNonterminalTrain(ctx, in.ProjectID, in.TaskID); err != nil {
+		return model.TaskAuthoring{}, OperationResult{}, err
+	} else if admitted {
+		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("ready Task %q is admitted to a nonterminal Train and cannot be edited", in.TaskID)
+	}
 	updated, changed, err := trainv2.UpdateTask(current, trainv2.AuthoringPatch{Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}, in.UpdatedBy, s.durableNow())
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
@@ -168,6 +173,13 @@ func (s *Service) TaskAuthoringUpdate(ctx context.Context, in TaskAuthoringUpdat
 		}
 		if err := trainv2.CheckRevision(latest, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
 			return nil, err
+		}
+		admitted, err := taskAdmittedToNonterminalTrainInWorktree(w, s.trainV2Root(in.ProjectID), in.TaskID)
+		if err != nil {
+			return nil, err
+		}
+		if admitted {
+			return nil, fmt.Errorf("ready Task %q is admitted to a nonterminal Train and cannot be edited", in.TaskID)
 		}
 		if err := hub.WriteJSON(w, s.taskAuthoringPath(in.ProjectID, in.TaskID), updated); err != nil {
 			return nil, err
@@ -263,6 +275,35 @@ func (s *Service) TaskAuthoringList(ctx context.Context, in TaskAuthoringListInp
 		tasks = tasks[:limit]
 	}
 	return TaskAuthoringListResult{Tasks: tasks}, nil
+}
+
+func (s *Service) taskAuthoringAll(ctx context.Context, projectID string) ([]model.TaskAuthoring, error) {
+	if err := model.ValidateProjectIdentifier(projectID); err != nil {
+		return nil, err
+	}
+	paths, err := s.Hub.List(ctx, s.projectPrefix(projectID)+"/tasks-v2", ".json")
+	if err != nil {
+		if IsNotFound(err) {
+			return []model.TaskAuthoring{}, nil
+		}
+		return nil, err
+	}
+	tasks := make([]model.TaskAuthoring, 0, len(paths))
+	for _, path := range paths {
+		var task model.TaskAuthoring
+		if err := s.Hub.ReadJSON(ctx, path, &task); err != nil {
+			return nil, err
+		}
+		if task.ProjectID != projectID {
+			continue
+		}
+		if err := model.ValidateTaskAuthoring(task); err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
+	}
+	sort.Slice(tasks, func(i, j int) bool { return tasks[i].UpdatedAt.After(tasks[j].UpdatedAt) })
+	return tasks, nil
 }
 
 func (s *Service) validateAuthoringADRReferences(ctx context.Context, task model.TaskAuthoring) error {

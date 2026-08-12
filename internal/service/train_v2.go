@@ -159,7 +159,7 @@ func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.Tra
 	if err != nil {
 		return model.TrainV2{}, OperationResult{}, err
 	}
-	if current.Revision != in.ExpectedRevision || current.Status != model.TrainV2Planned {
+	if current.Revision != in.ExpectedRevision || (current.Status != model.TrainV2Planned && current.Status != model.TrainV2Running) {
 		return model.TrainV2{}, OperationResult{}, fmt.Errorf("train v2 revision or status conflict")
 	}
 	expected := in.ExpectedHubRevision
@@ -176,7 +176,7 @@ func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.Tra
 		if err := readWorktreeJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), &latest); err != nil {
 			return nil, err
 		}
-		if latest.Revision != in.ExpectedRevision || latest.Status != model.TrainV2Planned {
+		if latest.Revision != in.ExpectedRevision || (latest.Status != model.TrainV2Planned && latest.Status != model.TrainV2Running) {
 			return nil, fmt.Errorf("train v2 revision or status conflict")
 		}
 		if len(latest.Items)+len(in.TaskIDs) > model.MaxTrainV2Items {
@@ -240,6 +240,42 @@ func (s *Service) trainV2AdmissionTasks(worktree, projectID string, taskIDs []st
 		tasks = append(tasks, task)
 	}
 	return tasks, nil
+}
+
+func (s *Service) taskAdmittedToNonterminalTrain(ctx context.Context, projectID, taskID string) (bool, error) {
+	trains, err := s.readTrainV2Records(ctx, projectID)
+	if err != nil {
+		if IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return trainv2.TaskAdmittedToNonterminal(trains, taskID), nil
+}
+
+func taskAdmittedToNonterminalTrainInWorktree(worktree, root, taskID string) (bool, error) {
+	entries, err := os.ReadDir(filepath.Join(worktree, filepath.FromSlash(root)))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	trains := make([]model.TrainV2, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		var train model.TrainV2
+		if err := readWorktreeJSON(worktree, filepath.ToSlash(filepath.Join(root, entry.Name())), &train); err != nil {
+			return false, err
+		}
+		if err := model.ValidateTrainV2(train); err != nil {
+			return false, err
+		}
+		trains = append(trains, train)
+	}
+	return trainv2.TaskAdmittedToNonterminal(trains, taskID), nil
 }
 
 func nextTrainV2ID(worktree, root, projectCode string) (string, error) {

@@ -29,7 +29,6 @@ func projectConfigurationUpdateSchema() map[string]any {
 		"project_id":        str("Registered project identifier."),
 		"expected_revision": integer("Exact current project configuration revision.", 1, 1000000),
 		"patch": obj(map[string]any{
-			"execution_model": str("Project execution model: legacy or train_v2."),
 			"agent_routing": obj(map[string]any{
 				"singleton_recommended_reasoning": str("Default reasoning tier for singleton tasks."),
 				"group_recommended_reasoning":     str("Default reasoning tier for task groups."),

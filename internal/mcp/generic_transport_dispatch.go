@@ -55,6 +55,38 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 			return genericActionError(action, err.Error()), nil
 		}
 	}
+	if entry.RouteLegacyByProjectModel && entry.LegacyExecute != nil {
+		projectID := ""
+		if record.ID != "" {
+			projectID = record.ProjectID
+		} else {
+			var args map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &args); err == nil {
+				_ = json.Unmarshal(args["project_id"], &projectID)
+			}
+		}
+		enabled, err := s.Service.TrainV2Enabled(ctx, projectID)
+		if err != nil {
+			return genericActionError(action, err.Error()), nil
+		}
+		if !enabled {
+			if err := requireToolAuthority(ctx, entry.LegacyTool); err != nil {
+				return genericActionError(action, err.Error()), nil
+			}
+			if err := validateGenericActionInput(entry.LegacyInputSchema, raw); err != nil {
+				return genericActionError(action, err.Error()+"; inspect schema with path=\""+action+"\""), nil
+			}
+			value, err := entry.LegacyExecute(ctx, raw)
+			if err != nil {
+				return genericActionError(action, err.Error()), nil
+			}
+			result := normalizeObject(value)
+			if err := validateOutputValue(entry.LegacyOutputSchema, result); err != nil {
+				return genericActionError(action, "action output contract violation: "+err.Error()), nil
+			}
+			return map[string]any{"action": action, "result": result, "is_error": false}, nil
+		}
+	}
 	if entry.Authority != nil {
 		if err := entry.Authority(ctx); err != nil {
 			return genericActionError(action, err.Error()), nil
@@ -82,31 +114,26 @@ func validateGenericActionInput(schema map[string]any, raw json.RawMessage) erro
 	if len(raw) == 0 || string(raw) == "null" {
 		return fmt.Errorf("input must be an object")
 	}
-	var args map[string]json.RawMessage
+	var value any
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
-	if err := decoder.Decode(&args); err != nil || args == nil {
+	if err := decoder.Decode(&value); err != nil {
 		return fmt.Errorf("input must be an object")
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return fmt.Errorf("input has trailing JSON content")
 	}
-	properties, _ := schema["properties"].(map[string]any)
-	allowsAdditional := true
-	if value, ok := schema["additionalProperties"].(bool); ok {
-		allowsAdditional = value
-	}
-	if !allowsAdditional {
-		for key := range args {
-			if _, ok := properties[key]; !ok {
-				return fmt.Errorf("unknown argument %q", key)
-			}
+	// Preserve the established generic-action diagnostics for ordinary
+	// contracts. Mode-dispatched contracts such as task/create use oneOf and
+	// must go through the recursive schema validator so each branch is checked
+	// truthfully.
+	if _, hasOneOf := schema["oneOf"]; !hasOneOf && schema["additionalProperties"] == false {
+		if err := validateToolArguments(schema, raw); err != nil {
+			return err
 		}
 	}
-	for _, required := range stringList(schema["required"]) {
-		if _, ok := args[required]; !ok {
-			return fmt.Errorf("missing required argument %q", required)
-		}
+	if err := validateSchemaValue(schema, value, "input"); err != nil {
+		return err
 	}
 	return nil
 }

@@ -79,6 +79,9 @@ func ValidateUnadmitted(existing []model.TrainV2, taskIDs []string) error {
 		if err := model.ValidateTrainV2(train); err != nil {
 			return err
 		}
+		if train.Status == model.TrainV2Completed {
+			continue
+		}
 		for _, item := range train.Items {
 			for _, candidate := range taskIDs {
 				if item.TaskID == candidate {
@@ -88,6 +91,22 @@ func ValidateUnadmitted(existing []model.TrainV2, taskIDs []string) error {
 		}
 	}
 	return nil
+}
+
+// TaskAdmittedToNonterminal reports ownership that still constrains authoring.
+// Completed Train history is intentionally not a permanent edit lock.
+func TaskAdmittedToNonterminal(existing []model.TrainV2, taskID string) bool {
+	for _, train := range existing {
+		if train.Status == model.TrainV2Completed {
+			continue
+		}
+		for _, item := range train.Items {
+			if item.TaskID == taskID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func taskIDs(tasks []model.TaskAuthoring) []string {

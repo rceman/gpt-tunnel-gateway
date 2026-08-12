@@ -36,6 +36,9 @@ func BindTrainRun(train model.TrainV2, start model.TrainV2StartRecord, runtime t
 	if err := trainv2.ValidateRuntimeBindingShape(runtime); err != nil {
 		return TrainBinding{}, err
 	}
+	if runtime.RestartRequired {
+		return TrainBinding{}, fmt.Errorf("train watcher cannot bind a retired execution generation")
+	}
 	if err := model.ValidateRun(run); err != nil {
 		return TrainBinding{}, err
 	}

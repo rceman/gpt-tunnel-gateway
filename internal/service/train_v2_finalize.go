@@ -46,7 +46,7 @@ func (s *Service) finalizeTrainV2Run(ctx context.Context, run model.Run, in Fina
 		return model.Report{}, OperationResult{}, err
 	}
 	local.Root = authority.runtime.WorktreePath
-	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "project-"+run.ProjectID)
+	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "train-"+run.TrainID)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
@@ -74,7 +74,7 @@ func (s *Service) finalizeTrainV2Run(ctx context.Context, run model.Run, in Fina
 	if err != nil || finalHead != head || finalBranch != branch || !finalClean {
 		return model.Report{}, OperationResult{}, fmt.Errorf("Train lane changed during gate execution")
 	}
-	proof, risks, err := s.durableRepositoryProof(ctx, run, local, finalHead, finalBranch, finalClean, true)
+	proof, risks, err := s.localTrainRepositoryProof(ctx, run, local.Root, finalBranch, finalHead, finalClean)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
@@ -105,7 +105,7 @@ func (s *Service) finalizeTrainV2Run(ctx context.Context, run model.Run, in Fina
 	if err := model.ValidateReport(report, authority.completion, run); err != nil {
 		return model.Report{}, OperationResult{}, fmt.Errorf("Train v2 report is invalid: %w", err)
 	}
-	updatedTrain, err := trainv2.RecordImplementationProof(authority.train, run.TaskID, run.ID, run.AgentID, authority.item.StartHead, finalHead, run.ID+"-report", serverGates, now)
+	updatedTrain, err := trainv2.RecordImplementationProof(authority.train, run.TaskID, run.ID, run.AgentID, finalHead, finalHead, run.ID+"-report", serverGates, now)
 	if err != nil {
 		return model.Report{}, OperationResult{}, err
 	}
@@ -225,15 +225,7 @@ func (s *Service) trainV2RunReport(ctx context.Context, run model.Run, id string
 	if err := model.ValidateReport(report, authority.completion, run, s.Config.MaxListItems); err != nil {
 		return model.Report{}, err
 	}
-	local, err := s.projectConfig(run.ProjectID)
-	if err != nil {
-		return model.Report{}, err
-	}
-	local.Root = authority.runtime.WorktreePath
-	if err := s.Git.Refresh(ctx, local); err != nil {
-		return model.Report{}, err
-	}
-	if err := s.validateTrainV2HistoricalReportProof(ctx, report, run, local); err != nil {
+	if err := validateTrainV2HistoricalReportProof(report, run); err != nil {
 		return model.Report{}, err
 	}
 	if len(report.ServerGateResults) > 0 {

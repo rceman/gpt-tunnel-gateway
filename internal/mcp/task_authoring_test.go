@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
@@ -24,8 +25,20 @@ func configureTrainV2MCPTest(t *testing.T, server *Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executionModel := "train_v2"
-	if _, _, err := server.Service.ProjectConfigurationUpdate(service.WithPlannerWorkflowPolicyAuthority(ctx), service.ProjectConfigurationUpdateInput{ProjectID: "example", ExpectedRevision: configuration.Revision, Patch: service.ProjectConfigurationPatch{ExecutionModel: &executionModel}, UpdatedBy: "planner", WriteOptions: service.WriteOptions{ExpectedHubRevision: operation.Hub.After}}); err != nil {
+	_, err = server.Service.Hub.Transact(ctx, operation.Hub.After, "test: seed train_v2 authority", func(worktree string) ([]string, error) {
+		path := "gpt-tunnel/v1/projects/example/configuration/current.json"
+		latest := configuration
+		latest.ExecutionModel = "train_v2"
+		latest.Revision = configuration.Revision + 1
+		if err := model.ValidateProjectConfiguration(latest); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(worktree, path, latest); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 }
@@ -50,6 +63,40 @@ func TestTrainV2TaskAuthoringMCPWiringAndSchemaParity(t *testing.T) {
 	created := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "task/create", "input": map[string]any{"project_id": "example", "title": "Generic planned task", "objective": "Exercise generic authoring wiring.", "adr_relation": model.TaskADRNoRequired, "created_by": "planner"}}}})))
 	if created["task"].(map[string]any)["status"] != model.TaskAuthoringPlanned {
 		t.Fatalf("generic task/create wiring failed: %#v", created)
+	}
+}
+
+func TestTaskCreateSchemaDescribesLegacyAndTrainV2Branches(t *testing.T) {
+	schema := taskAuthoringCreateSchema()
+	if schema["additionalProperties"] != false {
+		t.Fatalf("task/create root is not closed: %#v", schema)
+	}
+	branches, ok := schema["oneOf"].([]any)
+	if !ok || len(branches) != 2 {
+		t.Fatalf("task/create does not expose exactly two mode branches: %#v", schema["oneOf"])
+	}
+	legacy := mustJSON(t, map[string]any{
+		"project_id": "example", "slug": "legacy-task", "title": "Legacy task",
+		"objective": "Use the pre-cutover authoring contract.", "operation_class": "implementation", "created_by": "planner",
+	})
+	v2 := mustJSON(t, map[string]any{
+		"project_id": "example", "title": "Train task", "objective": "Use the Train v2 authoring contract.",
+		"adr_relation": model.TaskADRNoRequired, "created_by": "planner",
+	})
+	if err := validateGenericActionInput(schema, legacy); err != nil {
+		t.Fatalf("valid legacy task/create input rejected: %v", err)
+	}
+	if err := validateGenericActionInput(schema, v2); err != nil {
+		t.Fatalf("valid Train v2 task/create input rejected: %v", err)
+	}
+	for name, raw := range map[string][]byte{
+		"legacy missing slug":     mustJSON(t, map[string]any{"project_id": "example", "title": "x", "objective": "y", "operation_class": "implementation", "created_by": "planner"}),
+		"v2 missing adr relation": mustJSON(t, map[string]any{"project_id": "example", "title": "x", "objective": "y", "created_by": "planner"}),
+		"unknown field":           mustJSON(t, map[string]any{"project_id": "example", "title": "x", "objective": "y", "adr_relation": model.TaskADRNoRequired, "created_by": "planner", "unexpected": true}),
+	} {
+		if err := validateGenericActionInput(schema, raw); err == nil {
+			t.Fatalf("invalid %s input was accepted", name)
+		}
 	}
 }
 

@@ -53,3 +53,40 @@ func TestIntegrationTargetDivergenceRequiresReconciliationWithoutMutationPlan(t 
 		t.Fatal("planning divergence mutated Train state")
 	}
 }
+
+func TestRebindImplementationProofsInvalidatesReviewAndGateEvidence(t *testing.T) {
+	train := reviewedTrainForIntegration(t)
+	oldHead := train.Items[0].Proof.ImplementationSHA
+	newHead := strings.Repeat("e", 40)
+	updated, err := RebindImplementationProofs(train, map[string]string{oldHead: newHead}, time.Date(2026, 8, 12, 17, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != model.TrainV2Planned || updated.FullProof != nil || updated.Revision != train.Revision+1 {
+		t.Fatalf("reconciliation did not reset Train proof state: %#v", updated)
+	}
+	item := updated.Items[0]
+	if item.Status != model.TrainV2ItemQueued || item.RunID != "" || item.AgentID != "" || item.StartHead != "" || item.Proof != nil || item.Review != nil {
+		t.Fatalf("stale item evidence survived reconciliation: %#v", item)
+	}
+}
+
+func TestRebindImplementationProofsRejectsMissingCommitMapping(t *testing.T) {
+	if _, err := RebindImplementationProofs(reviewedTrainForIntegration(t), map[string]string{}, time.Now().UTC()); err == nil {
+		t.Fatal("reconciliation accepted missing implementation mapping")
+	}
+}
+
+func TestResetImplementationProofsForRestartInvalidatesEvidence(t *testing.T) {
+	updated, err := ResetImplementationProofsForRestart(reviewedTrainForIntegration(t), time.Date(2026, 8, 12, 17, 1, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != model.TrainV2Planned || updated.FullProof != nil {
+		t.Fatalf("restart reset retained Train proof: %#v", updated)
+	}
+	item := updated.Items[0]
+	if item.Status != model.TrainV2ItemQueued || item.RunID != "" || item.AgentID != "" || item.StartHead != "" || item.Proof != nil || item.Review != nil {
+		t.Fatalf("restart reset retained item evidence: %#v", item)
+	}
+}

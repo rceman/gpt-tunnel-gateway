@@ -38,13 +38,35 @@ func taskAuthoringProperties() map[string]any {
 }
 
 func taskAuthoringCreateSchema() map[string]any {
-	properties := taskAuthoringProperties()
-	delete(properties, "task_id")
-	delete(properties, "updated_by")
-	delete(properties, "ready_by")
-	delete(properties, "expected_revision")
-	delete(properties, "expected_revision_sha256")
-	return obj(properties, "project_id", "title", "objective", "adr_relation", "created_by")
+	all := taskAuthoringProperties()
+	all["slug"] = str("Legacy pre-cutover task slug.")
+	operationClass := str("Legacy pre-cutover operation class.")
+	operationClass["enum"] = model.WorkflowOperationClasses()
+	all["operation_class"] = operationClass
+	all["required_gates"] = array(str("Legacy pre-cutover required gate."))
+	for _, key := range []string{"task_id", "updated_by", "ready_by", "expected_revision", "expected_revision_sha256"} {
+		delete(all, key)
+	}
+
+	legacy := make(map[string]any, len(all))
+	for _, key := range []string{"project_id", "slug", "title", "objective", "acceptance_criteria", "constraints", "required_gates", "operation_class", "created_by", "expected_hub_revision"} {
+		legacy[key] = all[key]
+	}
+	v2 := make(map[string]any, len(all))
+	for key, value := range all {
+		if key != "slug" && key != "operation_class" && key != "required_gates" {
+			v2[key] = value
+		}
+	}
+	// task/create is intentionally a mode-dispatched boundary. Discovery must
+	// describe both valid inputs, while oneOf makes the selected mode's required
+	// fields explicit instead of advertising a misleading hybrid contract.
+	schema := obj(all, "project_id")
+	schema["oneOf"] = []any{
+		obj(legacy, "project_id", "slug", "title", "objective", "operation_class", "created_by"),
+		obj(v2, "project_id", "title", "objective", "adr_relation", "created_by"),
+	}
+	return schema
 }
 
 func taskAuthoringUpdateSchema() map[string]any {

@@ -51,6 +51,14 @@ func TestTrainWatcherBindsSoleCurrentItemAndSession(t *testing.T) {
 	}
 }
 
+func TestTrainWatcherRejectsRetiredExecutionGeneration(t *testing.T) {
+	train, start, runtime, run := trainWatcherFixture(t)
+	runtime.RestartRequired = true
+	if _, err := BindTrainRun(train, start, runtime, run); err == nil {
+		t.Fatal("watcher bound a retired Train execution generation")
+	}
+}
+
 func TestTrainWatcherAutoAdvancesImmediateQueuedItemWithSameOwner(t *testing.T) {
 	train, start, runtime, run := trainWatcherFixture(t)
 	binding, err := BindTrainRun(train, start, runtime, run)
