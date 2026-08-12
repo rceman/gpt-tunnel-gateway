@@ -27,7 +27,11 @@ func (s *Service) dispatchTrainV2Continuation(ctx context.Context, previous trai
 			_ = fsutil.WriteJSONAtomic(runtimePath, previous, 0o600)
 		}
 	}()
-	message := "Read train item " + run.TaskID + " and execute it in train " + run.TrainID + ". Use the existing server-owned Train worktree and report completion through the Train item lifecycle."
+	packet, err := s.materializeTrainV2Packet(ctx, run, runtime)
+	if err != nil {
+		return hub.TransactionResult{}, fmt.Errorf("materialize Train continuation packet: %w", err)
+	}
+	message := trainv2.PacketDispatchMessage(packet)
 	dispatch, err := s.Airelay.Prompt(ctx, run.SessionKey, message)
 	if err != nil {
 		return hub.TransactionResult{}, fmt.Errorf("train continuation dispatch failed: %w", err)

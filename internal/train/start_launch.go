@@ -45,7 +45,7 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 			if runErr != nil {
 				return StartResult{}, runErr
 			}
-			if run.Status == "created" || run.Status == "dispatching" {
+			if run.Status == "created" || run.Status == "dispatching" || run.Status == "dispatched" {
 				if err := resumeDispatch(ctx, deps, run, binding.SessionKey); err != nil {
 					return StartResult{}, err
 				}
