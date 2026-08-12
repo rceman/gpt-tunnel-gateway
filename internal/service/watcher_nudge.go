@@ -28,18 +28,34 @@ func (s *Service) WatcherNudge(ctx context.Context, in WatcherNudgeInput) (model
 	if strings.TrimSpace(in.Text) == "" || len([]byte(in.Text)) > s.Airelay.MaxMessageBytes || strings.ContainsRune(in.Text, 0) {
 		return model.WatcherNudgeReceipt{}, fmt.Errorf("invalid watcher nudge text")
 	}
-	plan, err := s.PlanRead(ctx, in.ProjectID)
-	if err != nil {
-		return model.WatcherNudgeReceipt{}, err
-	}
-	if plan.ActiveTaskID == "" || plan.ActiveRunID == "" {
-		return model.WatcherNudgeReceipt{}, fmt.Errorf("watcher nudge requires an active task and run")
-	}
 	var run model.Run
-	if err := s.Hub.ReadJSON(ctx, s.runPath(in.ProjectID, plan.ActiveRunID), &run); err != nil {
-		return model.WatcherNudgeReceipt{}, err
+	if enabled, enabledErr := s.TrainV2Enabled(ctx, in.ProjectID); enabledErr != nil {
+		return model.WatcherNudgeReceipt{}, enabledErr
+	} else if enabled {
+		var found bool
+		run, found, err = s.trainV2ActiveRun(ctx, in.ProjectID)
+		if err != nil {
+			return model.WatcherNudgeReceipt{}, err
+		}
+		if !found {
+			return model.WatcherNudgeReceipt{}, fmt.Errorf("watcher nudge requires an active Train v2 Run")
+		}
+	} else {
+		plan, planErr := s.PlanRead(ctx, in.ProjectID)
+		if planErr != nil {
+			return model.WatcherNudgeReceipt{}, planErr
+		}
+		if plan.ActiveTaskID == "" || plan.ActiveRunID == "" {
+			return model.WatcherNudgeReceipt{}, fmt.Errorf("watcher nudge requires an active task and run")
+		}
+		if readErr := s.Hub.ReadJSON(ctx, s.runPath(in.ProjectID, plan.ActiveRunID), &run); readErr != nil {
+			return model.WatcherNudgeReceipt{}, readErr
+		}
+		if run.TaskID != plan.ActiveTaskID || run.ID != plan.ActiveRunID {
+			return model.WatcherNudgeReceipt{}, fmt.Errorf("active watcher run identity is stale")
+		}
 	}
-	if run.ProjectID != in.ProjectID || run.TaskID != plan.ActiveTaskID || run.ID != plan.ActiveRunID || run.SessionKey == "" {
+	if run.ProjectID != in.ProjectID || run.SessionKey == "" {
 		return model.WatcherNudgeReceipt{}, fmt.Errorf("active watcher run identity is stale")
 	}
 	if !watcherActiveStatus(run.Status) {

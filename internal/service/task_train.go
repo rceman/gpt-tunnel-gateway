@@ -112,6 +112,9 @@ func (s *Service) TaskTrainList(ctx context.Context, project string) ([]model.Ta
 }
 
 func (s *Service) TaskTrainCreate(ctx context.Context, in TaskTrainCreateInput) (model.TaskTrain, OperationResult, error) {
+	if err := rejectLegacyExecutionAfterTrainV2(ctx, s, in.ProjectID); err != nil {
+		return model.TaskTrain{}, OperationResult{}, err
+	}
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return model.TaskTrain{}, OperationResult{}, err
 	}

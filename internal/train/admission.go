@@ -69,6 +69,27 @@ func Append(current model.TrainV2, tasks []model.TaskAuthoring, now time.Time) (
 	return current, nil
 }
 
+// ValidateUnadmitted keeps the storage adapter from admitting a Task twice
+// without making the Train package depend on Hub or Git.
+func ValidateUnadmitted(existing []model.TrainV2, taskIDs []string) error {
+	if err := ValidateTaskIDs(taskIDs); err != nil {
+		return err
+	}
+	for _, train := range existing {
+		if err := model.ValidateTrainV2(train); err != nil {
+			return err
+		}
+		for _, item := range train.Items {
+			for _, candidate := range taskIDs {
+				if item.TaskID == candidate {
+					return fmt.Errorf("task %q already belongs to train %q", candidate, train.ID)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func taskIDs(tasks []model.TaskAuthoring) []string {
 	ids := make([]string, 0, len(tasks))
 	for _, task := range tasks {

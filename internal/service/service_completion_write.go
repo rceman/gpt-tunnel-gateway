@@ -18,6 +18,9 @@ func (s *Service) RunWriteCompletion(ctx context.Context, in CompletionWriteInpu
 	if in.CompletionFile == "" {
 		return CompletionWriteResult{}, fmt.Errorf("completion file is required")
 	}
+	if run, runErr := s.findRun(ctx, in.RunID); runErr == nil && run.TrainID != "" {
+		return s.trainV2WriteCompletion(ctx, in, run)
+	}
 	inputInfo, err := os.Lstat(in.CompletionFile)
 	if err != nil {
 		return CompletionWriteResult{}, err

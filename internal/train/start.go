@@ -73,6 +73,11 @@ func runtimePath(stateDir, projectID, trainID string) string {
 	return filepath.Join(stateDir, "train-runtime", projectID, trainID+".json")
 }
 
+// RuntimePath exposes the Gateway-local binding location to service adapters.
+func RuntimePath(stateDir, projectID, trainID string) string {
+	return runtimePath(stateDir, projectID, trainID)
+}
+
 func ValidateRuntimeBindingShape(v RuntimeBinding) error {
 	if v.SchemaVersion != runtimeSchemaVersion || model.ValidateProjectIdentifier(v.ProjectID) != nil || v.WorktreePath == "" || model.ValidateObjectIdentifier(v.AgentID) != nil || v.SessionKey == "" || strings.ContainsAny(v.SessionKey, "\x00\r\n") || model.ValidateCanonicalRunID(v.RunID) != nil || v.StartedAt.IsZero() {
 		return fmt.Errorf("invalid local train runtime binding")
@@ -315,6 +320,12 @@ func nextRunID(worktree, root, taskID string) (string, error) {
 		}
 	}
 	return model.FormatRunID(taskID, next)
+}
+
+// NextRunID allocates the next canonical Run ID from the durable Hub tree.
+// Service adapters use it when a finalized Train item advances in place.
+func NextRunID(worktree, root, taskID string) (string, error) {
+	return nextRunID(worktree, root, taskID)
 }
 
 func readWorktreeJSON(worktree, path string, out any) error {

@@ -68,6 +68,13 @@ func (s *Service) writeLocalRun(run model.Run, task model.Task) error {
 }
 
 func (s *Service) TaskDispatch(ctx context.Context, in DispatchInput) (model.Run, OperationResult, error) {
+	if task, err := s.TaskAuthoringFind(ctx, in.TaskID); err == nil {
+		if enabled, enabledErr := s.TrainV2Enabled(ctx, task.ProjectID); enabledErr != nil {
+			return model.Run{}, OperationResult{}, enabledErr
+		} else if enabled {
+			return model.Run{}, OperationResult{}, rejectLegacyExecutionAfterTrainV2(ctx, s, task.ProjectID)
+		}
+	}
 	for attempt := 0; ; attempt++ {
 		run, result, err := s.taskDispatchOnce(ctx, in)
 		if in.ExpectedHubRevision != "" || err == nil || !allocatorConflict(err) || attempt+1 >= allocatorRetryLimit {

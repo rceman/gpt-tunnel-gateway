@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func (s *Server) ensureTrainV2Actions() {
@@ -65,6 +66,24 @@ func trainV2IntegrateSchema() map[string]any {
 		"train_id":              str("Server-allocated Train identifier."),
 		"expected_hub_revision": str("Optimistic Hub revision."),
 	}, "project_id", "train_id")
+}
+
+func trainV2CutoverSchema() map[string]any {
+	return obj(map[string]any{
+		"project_id":                   str("Registered project identifier."),
+		"materialization_acknowledged": map[string]any{"type": "boolean", "description": "Explicit acknowledgement that relevant roadmap work was materialized or archived."},
+		"plan_retirement_acknowledged": map[string]any{"type": "boolean", "description": "Explicit acknowledgement that Plan becomes historical/read-only."},
+		"updated_by":                   str("Authority identity."),
+		"expected_hub_revision":        str("Optimistic Hub revision."),
+	}, "project_id", "materialization_acknowledged", "plan_retirement_acknowledged", "updated_by")
+}
+
+func (s *Server) validateTrainV2ActionRegistry() error {
+	registered := make([]string, 0, len(s.genericActions))
+	for path := range s.genericActions {
+		registered = append(registered, path)
+	}
+	return trainv2.ValidateActionRegistry(trainv2.RequiredCutoverActions, registered)
 }
 
 func (s *Server) registerTrainV2Actions() error {
@@ -144,7 +163,7 @@ func (s *Server) registerTrainV2Actions() error {
 	}); err != nil {
 		return err
 	}
-	return s.RegisterGenericAction(GenericAction{
+	if err := s.RegisterGenericAction(GenericAction{
 		Path: "train/integrate", Description: "Integrate one fully proved Train v2 lane through strict fast-forward and activation receipts.", InputSchema: trainV2IntegrateSchema(), OutputSchema: trainV2OutputSchema(),
 		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -157,6 +176,23 @@ func (s *Server) registerTrainV2Actions() error {
 				return map[string]any{"receipt": receipt, "operation": operation}, err
 			}
 			return map[string]any{"receipt": receipt, "operation": operation}, nil
+		},
+	}); err != nil {
+		return err
+	}
+	return s.RegisterGenericAction(GenericAction{
+		Path: "train/cutover", Description: "Atomically activate train_v2 authority after bounded migration, runtime and Action Registry proofs.", InputSchema: trainV2CutoverSchema(), OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			if err := s.validateTrainV2ActionRegistry(); err != nil {
+				return nil, err
+			}
+			var in service.TrainV2CutoverInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			receipt, operation, err := s.Service.TrainV2Cutover(ctx, in)
+			return map[string]any{"receipt": receipt, "operation": operation}, err
 		},
 	})
 }

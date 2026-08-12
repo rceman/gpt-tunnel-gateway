@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -121,12 +120,12 @@ func (s *Service) TrainV2Create(ctx context.Context, in TrainV2CreateInput) (mod
 		if err != nil {
 			return nil, err
 		}
-		items, err := s.trainV2AdmissionItems(worktree, in.ProjectID, in.TaskIDs, now)
+		tasks, err := s.trainV2AdmissionTasks(worktree, in.ProjectID, in.TaskIDs)
 		if err != nil {
 			return nil, err
 		}
-		created = model.TrainV2{SchemaVersion: model.TrainV2SchemaVersion, ID: trainID, ProjectID: in.ProjectID, Revision: 1, Items: items, Status: model.TrainV2Planned, CreatedBy: in.CreatedBy, CreatedAt: now, UpdatedAt: now}
-		if err := model.ValidateTrainV2(created); err != nil {
+		created, err = trainv2.New(in.ProjectID, trainID, in.CreatedBy, tasks, now)
+		if err != nil {
 			return nil, err
 		}
 		path := s.trainV2Path(in.ProjectID, trainID)
@@ -183,18 +182,12 @@ func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.Tra
 		if len(latest.Items)+len(in.TaskIDs) > model.MaxTrainV2Items {
 			return nil, fmt.Errorf("train v2 item limit exceeded")
 		}
-		items, err := s.trainV2AdmissionItems(worktree, in.ProjectID, in.TaskIDs, now)
+		tasks, err := s.trainV2AdmissionTasks(worktree, in.ProjectID, in.TaskIDs)
 		if err != nil {
 			return nil, err
 		}
-		updated = latest
-		for i := range items {
-			items[i].Position = len(updated.Items) + i
-		}
-		updated.Items = append(updated.Items, items...)
-		updated.Revision++
-		updated.UpdatedAt = now
-		if err := model.ValidateTrainV2(updated); err != nil {
+		updated, err = trainv2.Append(latest, tasks, now)
+		if err != nil {
 			return nil, err
 		}
 		path := s.trainV2Path(in.ProjectID, in.TrainID)
@@ -209,7 +202,7 @@ func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.Tra
 	return updated, OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: updated.Status}, nil
 }
 
-func (s *Service) trainV2AdmissionItems(worktree, projectID string, taskIDs []string, now time.Time) ([]model.TrainV2Item, error) {
+func (s *Service) trainV2AdmissionTasks(worktree, projectID string, taskIDs []string) ([]model.TaskAuthoring, error) {
 	if err := trainv2.ValidateTaskIDs(taskIDs); err != nil {
 		return nil, err
 	}
@@ -218,24 +211,22 @@ func (s *Service) trainV2AdmissionItems(worktree, projectID string, taskIDs []st
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
+	existing := make([]model.TrainV2, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		var existing model.TrainV2
-		if err := readWorktreeJSON(worktree, filepath.ToSlash(filepath.Join(s.trainV2Root(projectID), entry.Name())), &existing); err != nil {
+		var existingTrain model.TrainV2
+		if err := readWorktreeJSON(worktree, filepath.ToSlash(filepath.Join(s.trainV2Root(projectID), entry.Name())), &existingTrain); err != nil {
 			return nil, err
 		}
-		if err := model.ValidateTrainV2(existing); err != nil {
+		if err := model.ValidateTrainV2(existingTrain); err != nil {
 			return nil, err
 		}
-		for _, old := range existing.Items {
-			for _, candidate := range taskIDs {
-				if old.TaskID == candidate {
-					return nil, fmt.Errorf("task %q already belongs to train %q", candidate, existing.ID)
-				}
-			}
-		}
+		existing = append(existing, existingTrain)
+	}
+	if err := trainv2.ValidateUnadmitted(existing, taskIDs); err != nil {
+		return nil, err
 	}
 	tasks := make([]model.TaskAuthoring, 0, len(taskIDs))
 	for _, taskID := range taskIDs {
@@ -248,7 +239,7 @@ func (s *Service) trainV2AdmissionItems(worktree, projectID string, taskIDs []st
 		}
 		tasks = append(tasks, task)
 	}
-	return trainv2.ReadyItems(tasks, now, 0)
+	return tasks, nil
 }
 
 func nextTrainV2ID(worktree, root, projectCode string) (string, error) {

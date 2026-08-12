@@ -31,6 +31,13 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 	if !operationalActiveRun(run) {
 		switch run.Status {
 		case "succeeded", "completed", "failed", "needs_gpt_revision":
+			if run.TrainID != "" {
+				report, reportErr := s.RunReport(ctx, run.ID)
+				if reportErr != nil {
+					return model.Report{}, OperationResult{}, reportErr
+				}
+				return report, OperationResult{ProjectID: run.ProjectID, TaskID: run.TaskID, RunID: run.ID, Status: "TASK_FINALIZED"}, nil
+			}
 			report, reportErr := s.RunReport(ctx, run.ID)
 			if reportErr != nil {
 				return model.Report{}, OperationResult{}, reportErr
@@ -44,6 +51,9 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 		default:
 			return model.Report{}, OperationResult{}, fmt.Errorf("run is not active: %s", run.Status)
 		}
+	}
+	if run.TrainID != "" {
+		return s.finalizeTrainV2Run(ctx, run, in)
 	}
 	task, err := s.findTask(ctx, run.TaskID)
 	if err != nil {
@@ -203,6 +213,9 @@ func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error
 	}
 	if run.Historical {
 		return model.Report{}, fmt.Errorf("workflow-v1 run report is history-only")
+	}
+	if run.TrainID != "" {
+		return s.trainV2RunReport(ctx, run, id)
 	}
 	var report model.Report
 	path := s.reportPath(run.ProjectID, id)

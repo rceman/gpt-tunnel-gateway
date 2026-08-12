@@ -163,6 +163,11 @@ func (s *Server) registerTaskAuthoringActions() error {
 				return nil, err
 			}
 			if task, err := s.Service.TaskAuthoringFind(ctx, input.TaskID); err == nil {
+				if enabled, enabledErr := s.Service.TrainV2Enabled(ctx, task.ProjectID); enabledErr != nil {
+					return nil, enabledErr
+				} else if enabled {
+					return s.Service.TrainV2TaskRead(ctx, task.ProjectID, task.ID)
+				}
 				return map[string]any{"task": task, "authoring": true}, nil
 			}
 			packet, err := s.Service.TaskRead(ctx, input.TaskID)

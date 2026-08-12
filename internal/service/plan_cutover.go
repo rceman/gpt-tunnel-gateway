@@ -243,6 +243,9 @@ func proveLegacyBodyPreserved(body string, sections []model.PlanSection) error {
 // plan is rejected so the operation is strictly one-time and never acts as a
 // reader fallback.
 func (s *Service) PlanCutover(ctx context.Context, in PlanCutoverInput) (OperationResult, error) {
+	if err := rejectPlanMutationAfterTrainV2(ctx, s, in.ProjectID); err != nil {
+		return OperationResult{}, err
+	}
 	if in.ProjectID == "" || in.UpdatedBy == "" {
 		return OperationResult{}, fmt.Errorf("project_id and updated_by are required")
 	}

@@ -15,6 +15,9 @@ import (
 )
 
 func (s *Service) PlanSectionDelete(ctx context.Context, in PlanSectionDeleteInput) (OperationResult, error) {
+	if err := rejectPlanMutationAfterTrainV2(ctx, s, in.ProjectID); err != nil {
+		return OperationResult{}, err
+	}
 	if in.ExpectedSectionRevision < 1 {
 		return OperationResult{}, fmt.Errorf("expected section revision is required")
 	}

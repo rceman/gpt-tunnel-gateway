@@ -39,6 +39,9 @@ func (s *Service) TaskReview(ctx context.Context, in TaskReviewInput) (model.Run
 	if err := model.ValidateReviewOutcome(in.Outcome); err != nil {
 		return model.RunReviewReport{}, OperationResult{}, err
 	}
+	if run, err := s.findRun(ctx, in.RunID); err == nil && run.TrainID != "" {
+		return s.trainV2TaskReview(ctx, in, run)
+	}
 	review, err := s.loadReviewContext(ctx, in.TaskID, in.RunID)
 	if err != nil {
 		return model.RunReviewReport{}, OperationResult{}, err

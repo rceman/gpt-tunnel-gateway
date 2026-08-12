@@ -92,6 +92,13 @@ func (s *Service) TaskIntegrate(ctx context.Context, in TaskIntegrationInput) (T
 	if err := requireCanonicalTaskID(in.TaskID); err != nil {
 		return TaskIntegrationReceipt{}, OperationResult{}, err
 	}
+	if task, err := s.TaskAuthoringFind(ctx, in.TaskID); err == nil {
+		if enabled, enabledErr := s.TrainV2Enabled(ctx, task.ProjectID); enabledErr != nil {
+			return TaskIntegrationReceipt{}, OperationResult{}, enabledErr
+		} else if enabled {
+			return TaskIntegrationReceipt{}, OperationResult{}, rejectLegacyExecutionAfterTrainV2(ctx, s, task.ProjectID)
+		}
+	}
 	task, err := s.findTask(ctx, in.TaskID)
 	if err != nil {
 		return TaskIntegrationReceipt{}, OperationResult{}, err

@@ -351,6 +351,38 @@ type TrainV2IntegrateInput struct {
 	WriteOptions
 }
 
+// TrainV2CutoverInput contains only the explicit migration decisions. Source,
+// runtime, active-run and action-registry proofs are derived server-side.
+type TrainV2CutoverInput struct {
+	ProjectID                   string `json:"project_id"`
+	MaterializationAcknowledged bool   `json:"materialization_acknowledged"`
+	PlanRetirementAcknowledged  bool   `json:"plan_retirement_acknowledged"`
+	UpdatedBy                   string `json:"updated_by"`
+	WriteOptions
+}
+
+type TrainV2ProjectStatus struct {
+	ExecutionModel string         `json:"execution_model"`
+	TaskCounts     map[string]int `json:"task_counts"`
+	TrainCounts    map[string]int `json:"train_counts"`
+	CurrentTrain   string         `json:"current_train,omitempty"`
+	CurrentTask    string         `json:"current_task,omitempty"`
+	CurrentRun     string         `json:"current_run,omitempty"`
+	NextAction     string         `json:"next_action"`
+}
+
+type TrainV2TaskPacket struct {
+	Task                 model.TaskAuthoring         `json:"task"`
+	Train                model.TrainV2               `json:"train"`
+	Item                 model.TrainV2Item           `json:"item"`
+	Run                  *model.Run                  `json:"run,omitempty"`
+	ProjectConfiguration model.ProjectConfiguration  `json:"project_configuration"`
+	WorkflowPolicy       model.ProjectWorkflowPolicy `json:"workflow_policy"`
+	RepositoryRoot       string                      `json:"repository_root"`
+	Recovery             string                      `json:"recovery"`
+	Text                 string                      `json:"text"`
+}
+
 type DispatchInput struct {
 	TaskID               string `json:"task_id"`
 	TrainID              string `json:"train_id,omitempty"`
@@ -474,6 +506,7 @@ type ProjectStatus struct {
 	Progress             ProjectProgress             `json:"progress"`
 	WorkflowPolicy       ProjectWorkflowPolicyStatus `json:"workflow_policy"`
 	ProjectConfiguration ProjectConfigurationStatus  `json:"project_configuration"`
+	TrainV2              *TrainV2ProjectStatus       `json:"train_v2,omitempty"`
 }
 
 type ProjectConfigurationStatus struct {

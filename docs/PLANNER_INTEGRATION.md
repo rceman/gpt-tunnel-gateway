@@ -33,6 +33,18 @@ runtime-upgrade policy test suite and the project integration validator. They
 are run against the tagged planner tree and this gateway checkout before the
 gateway release commit is merged or tagged.
 
+## Train v2 adoption boundary
+
+Train v2 is an explicit per-project cutover, not an implicit consequence of
+deploying the A-E implementation. The Gateway must smoke the exact active
+runtime before `train/cutover`; the cutover receipt records the project
+configuration revision, source/runtime heads, action-schema revision,
+historical compatibility, and the required Plan materialization decision.
+Until that receipt exists, legacy execution remains the writable authority.
+After it exists, Plan remains readable history only and new work uses the
+branchless Task/Train lifecycle. Historical Tasks, Runs, Reports and Plan
+records are not rewritten.
+
 ## Release tooling provenance
 
 Gateway Stage A adopts the canonical release tools from planner commit

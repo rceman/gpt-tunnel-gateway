@@ -19,6 +19,9 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	if err != nil {
 		return ProjectStatus{}, err
 	}
+	if enabled, enabledErr := s.trainV2Enabled(ctx, id); enabledErr == nil && enabled {
+		return s.projectStatusTrainV2(ctx, id, local)
+	}
 	componentCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	agentSession := local.AirelaySessionKey
@@ -133,6 +136,9 @@ func (s *Service) PlanRead(ctx context.Context, project string) (model.Plan, err
 }
 
 func (s *Service) PlanUpdate(ctx context.Context, in PlanUpdateInput) (OperationResult, error) {
+	if err := rejectPlanMutationAfterTrainV2(ctx, s, in.ProjectID); err != nil {
+		return OperationResult{}, err
+	}
 	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
 		return OperationResult{}, err
 	}

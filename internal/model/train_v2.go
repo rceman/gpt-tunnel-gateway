@@ -8,22 +8,58 @@ import (
 )
 
 const (
-	TrainV2SchemaVersion       = 1
-	MaxTrainV2Items            = 32
-	TrainV2Planned             = "planned"
-	TrainV2Running             = "running"
-	TrainV2Paused              = "paused"
-	TrainV2Blocked             = "blocked"
-	TrainV2ReadyForIntegration = "ready_for_integration"
-	TrainV2Completed           = "completed"
-	TrainV2ItemQueued          = "queued"
-	TrainV2ItemRunning         = "running"
-	TrainV2ItemFinalized       = "finalized"
-	TrainV2ItemReviewed        = "reviewed"
-	TrainV2ItemBlocked         = "blocked"
-	TrainV2StartSchemaVersion  = 1
-	TrainV2StartActive         = "active"
+	TrainV2SchemaVersion        = 1
+	MaxTrainV2Items             = 32
+	TrainV2CutoverSchemaVersion = 1
+	TrainV2Planned              = "planned"
+	TrainV2Running              = "running"
+	TrainV2Paused               = "paused"
+	TrainV2Blocked              = "blocked"
+	TrainV2ReadyForIntegration  = "ready_for_integration"
+	TrainV2Completed            = "completed"
+	TrainV2ItemQueued           = "queued"
+	TrainV2ItemRunning          = "running"
+	TrainV2ItemFinalized        = "finalized"
+	TrainV2ItemReviewed         = "reviewed"
+	TrainV2ItemBlocked          = "blocked"
+	TrainV2StartSchemaVersion   = 1
+	TrainV2StartActive          = "active"
 )
+
+// TrainV2CutoverReceipt is the durable proof that the project's execution
+// authority was switched once, after the legacy graph and runtime were
+// reconciled. It is deliberately separate from Plan history.
+type TrainV2CutoverReceipt struct {
+	SchemaVersion               int       `json:"schema_version"`
+	ProjectID                   string    `json:"project_id"`
+	ExecutionModel              string    `json:"execution_model"`
+	ConfigurationRevision       int       `json:"configuration_revision"`
+	SourceHead                  string    `json:"source_head"`
+	RuntimeHead                 string    `json:"runtime_head"`
+	ActionSchemaRevision        int       `json:"action_schema_revision"`
+	HistoricalCompatibility     string    `json:"historical_compatibility"`
+	MaterializationAcknowledged bool      `json:"materialization_acknowledged"`
+	PlanRetirementAcknowledged  bool      `json:"plan_retirement_acknowledged"`
+	NextAction                  string    `json:"next_action"`
+	UpdatedBy                   string    `json:"updated_by"`
+	UpdatedAt                   time.Time `json:"updated_at"`
+}
+
+func ValidateTrainV2CutoverReceipt(v TrainV2CutoverReceipt) error {
+	if v.SchemaVersion != TrainV2CutoverSchemaVersion || ValidateProjectIdentifier(v.ProjectID) != nil || v.ExecutionModel != "train_v2" || v.ConfigurationRevision < 1 {
+		return fmt.Errorf("invalid train v2 cutover identity")
+	}
+	if !shaRE.MatchString(v.SourceHead) || !shaRE.MatchString(v.RuntimeHead) {
+		return fmt.Errorf("invalid train v2 cutover heads")
+	}
+	if v.ActionSchemaRevision < 1 || v.HistoricalCompatibility != "preserved" || !v.MaterializationAcknowledged || !v.PlanRetirementAcknowledged {
+		return fmt.Errorf("invalid train v2 cutover evidence")
+	}
+	if strings.TrimSpace(v.NextAction) == "" || strings.ContainsAny(v.NextAction, "\x00\r\n") || v.UpdatedBy == "" || strings.ContainsAny(v.UpdatedBy, "\x00\r\n") || v.UpdatedAt.IsZero() {
+		return fmt.Errorf("invalid train v2 cutover metadata")
+	}
+	return nil
+}
 
 var trainV2SHA256RE = regexp.MustCompile(`^[0-9a-f]{64}$`)
 

@@ -5,13 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func requireTrainV2Authoring(ctx context.Context, s *Service, projectID string) error {
@@ -87,7 +86,8 @@ func (s *Service) taskAuthoringCreateOnce(ctx context.Context, in TaskAuthoringC
 	if in.ADRRelation == "" {
 		in.ADRRelation = model.TaskADRNoRequired
 	}
-	if err := validateAuthoringInput(in.Title, in.Objective, in.AcceptanceCriteria, in.Constraints, in.Priority, in.Dependencies, in.PreparationReferences, in.Metadata, in.ADRRelation, in.ADRReferences); err != nil {
+	draft := trainv2.AuthoringDraft{Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}
+	if err := trainv2.ValidateDraft(draft); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
@@ -102,18 +102,8 @@ func (s *Service) taskAuthoringCreateOnce(ctx context.Context, in TaskAuthoringC
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	now := s.durableNow()
-	task := model.TaskAuthoring{
-		SchemaVersion: model.TaskAuthoringSchemaVersion, ID: id, ProjectID: in.ProjectID, Revision: 1,
-		Title: in.Title, Objective: in.Objective, AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...),
-		Constraints: append([]string{}, in.Constraints...), Priority: in.Priority, Dependencies: append([]string{}, in.Dependencies...),
-		PreparationReferences: append([]string{}, in.PreparationReferences...), Metadata: cloneStringMap(in.Metadata), ADRRelation: in.ADRRelation,
-		ADRReferences: append([]string{}, in.ADRReferences...), Status: model.TaskAuthoringPlanned, CreatedBy: in.CreatedBy, CreatedAt: now, UpdatedAt: now,
-	}
-	task.RevisionSHA256, err = model.HashTaskAuthoring(task)
+	task, err := trainv2.NewTask(in.ProjectID, id, draft, in.CreatedBy, now)
 	if err != nil {
-		return model.TaskAuthoring{}, OperationResult{}, err
-	}
-	if err := model.ValidateTaskAuthoring(task); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	updatedIdentifiers := identifiers
@@ -161,65 +151,22 @@ func (s *Service) TaskAuthoringUpdate(ctx context.Context, in TaskAuthoringUpdat
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	if err := checkAuthoringRevision(current, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
+	if err := trainv2.CheckRevision(current, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	updated := current
-	changed := false
-	if in.Title != nil && *in.Title != updated.Title {
-		updated.Title, changed = *in.Title, true
-	}
-	if in.Objective != nil && *in.Objective != updated.Objective {
-		updated.Objective, changed = *in.Objective, true
-	}
-	if in.AcceptanceCriteria != nil && !reflect.DeepEqual(*in.AcceptanceCriteria, updated.AcceptanceCriteria) {
-		updated.AcceptanceCriteria, changed = append([]string{}, (*in.AcceptanceCriteria)...), true
-	}
-	if in.Constraints != nil && !reflect.DeepEqual(*in.Constraints, updated.Constraints) {
-		updated.Constraints, changed = append([]string{}, (*in.Constraints)...), true
-	}
-	if in.Priority != nil && *in.Priority != updated.Priority {
-		updated.Priority, changed = *in.Priority, true
-	}
-	if in.Dependencies != nil && !reflect.DeepEqual(*in.Dependencies, updated.Dependencies) {
-		updated.Dependencies, changed = append([]string{}, (*in.Dependencies)...), true
-	}
-	if in.PreparationReferences != nil && !reflect.DeepEqual(*in.PreparationReferences, updated.PreparationReferences) {
-		updated.PreparationReferences, changed = append([]string{}, (*in.PreparationReferences)...), true
-	}
-	if in.Metadata != nil && !reflect.DeepEqual(*in.Metadata, updated.Metadata) {
-		updated.Metadata, changed = cloneStringMap(*in.Metadata), true
-	}
-	if in.ADRRelation != nil && *in.ADRRelation != updated.ADRRelation {
-		updated.ADRRelation, changed = *in.ADRRelation, true
-	}
-	if in.ADRReferences != nil && !reflect.DeepEqual(*in.ADRReferences, updated.ADRReferences) {
-		updated.ADRReferences, changed = append([]string{}, (*in.ADRReferences)...), true
-	}
-	if !changed {
-		return current, OperationResult{ProjectID: current.ProjectID, TaskID: current.ID, Status: current.Status}, nil
-	}
-	if err := validateAuthoringInput(updated.Title, updated.Objective, updated.AcceptanceCriteria, updated.Constraints, updated.Priority, updated.Dependencies, updated.PreparationReferences, updated.Metadata, updated.ADRRelation, updated.ADRReferences); err != nil {
-		return model.TaskAuthoring{}, OperationResult{}, err
-	}
-	updated.Revision++
-	updated.RevisionSHA256 = ""
-	updated.Status = model.TaskAuthoringPlanned
-	updated.ReadySeal = nil
-	updated.UpdatedAt = s.durableNow()
-	updated.RevisionSHA256, err = model.HashTaskAuthoring(updated)
+	updated, changed, err := trainv2.UpdateTask(current, trainv2.AuthoringPatch{Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}, in.UpdatedBy, s.durableNow())
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	if err := model.ValidateTaskAuthoring(updated); err != nil {
-		return model.TaskAuthoring{}, OperationResult{}, err
+	if !changed {
+		return current, OperationResult{ProjectID: current.ProjectID, TaskID: current.ID, Status: current.Status}, nil
 	}
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: update train_v2 task "+current.ID, func(w string) ([]string, error) {
 		var latest model.TaskAuthoring
 		if err := readWorktreeJSON(w, s.taskAuthoringPath(in.ProjectID, in.TaskID), &latest); err != nil {
 			return nil, err
 		}
-		if err := checkAuthoringRevision(latest, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
+		if err := trainv2.CheckRevision(latest, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
 			return nil, err
 		}
 		if err := hub.WriteJSON(w, s.taskAuthoringPath(in.ProjectID, in.TaskID), updated); err != nil {
@@ -244,7 +191,7 @@ func (s *Service) TaskAuthoringReady(ctx context.Context, in TaskAuthoringReadyI
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	if err := checkAuthoringRevision(current, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
+	if err := trainv2.CheckRevision(current, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	if current.Status == model.TaskAuthoringReady {
@@ -253,11 +200,8 @@ func (s *Service) TaskAuthoringReady(ctx context.Context, in TaskAuthoringReadyI
 	if err := s.validateAuthoringADRReferences(ctx, current); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	ready := current
-	ready.Status = model.TaskAuthoringReady
-	ready.ReadySeal = &model.TaskReadySeal{Revision: ready.Revision, RevisionSHA256: ready.RevisionSHA256, ReadyBy: in.ReadyBy, ReadyAt: s.durableNow()}
-	ready.UpdatedAt = ready.ReadySeal.ReadyAt
-	if err := model.ValidateTaskAuthoring(ready); err != nil {
+	ready, err := trainv2.ReadyTask(current, in.ReadyBy, s.durableNow())
+	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: ready train_v2 task "+current.ID, func(w string) ([]string, error) {
@@ -265,7 +209,7 @@ func (s *Service) TaskAuthoringReady(ctx context.Context, in TaskAuthoringReadyI
 		if err := readWorktreeJSON(w, s.taskAuthoringPath(in.ProjectID, in.TaskID), &latest); err != nil {
 			return nil, err
 		}
-		if err := checkAuthoringRevision(latest, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
+		if err := trainv2.CheckRevision(latest, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
 			return nil, err
 		}
 		if latest.Status == model.TaskAuthoringReady {
@@ -338,39 +282,4 @@ func (s *Service) validateAuthoringADRReferences(ctx context.Context, task model
 		}
 	}
 	return nil
-}
-
-func validateAuthoringInput(title, objective string, criteria, constraints []string, priority string, dependencies, preparation []string, metadata map[string]string, relation string, references []string) error {
-	now := time.Unix(1, 0).UTC()
-	task := model.TaskAuthoring{SchemaVersion: model.TaskAuthoringSchemaVersion, ID: "AAA-TSK1", ProjectID: "example", Revision: 1, RevisionSHA256: strings.Repeat("a", 64), Title: title, Objective: objective, AcceptanceCriteria: criteria, Constraints: constraints, Priority: priority, Dependencies: dependencies, PreparationReferences: preparation, Metadata: metadata, ADRRelation: relation, ADRReferences: references, Status: model.TaskAuthoringPlanned, CreatedBy: "validator", CreatedAt: now, UpdatedAt: now}
-	// Validate content through the canonical model validator without making the
-	// caller's input depend on a generated task identity or current clock.
-	if err := model.ValidateTaskAuthoring(task); err != nil {
-		if strings.Contains(err.Error(), "task authoring revision hash mismatch") {
-			return nil
-		}
-		return err
-	}
-	return nil
-}
-
-func checkAuthoringRevision(task model.TaskAuthoring, revision int, hash string) error {
-	if task.Revision != revision {
-		return fmt.Errorf("task authoring revision conflict: expected %d, current %d", revision, task.Revision)
-	}
-	if hash != "" && task.RevisionSHA256 != hash {
-		return fmt.Errorf("task authoring revision hash conflict")
-	}
-	return nil
-}
-
-func cloneStringMap(in map[string]string) map[string]string {
-	if in == nil {
-		return nil
-	}
-	out := make(map[string]string, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
-	return out
 }

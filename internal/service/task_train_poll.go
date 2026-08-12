@@ -10,6 +10,9 @@ import (
 )
 
 func (s *Service) TaskTrainPoll(ctx context.Context, in TaskTrainPollInput) (TaskTrainStatus, error) {
+	if err := rejectLegacyExecutionAfterTrainV2(ctx, s, in.ProjectID); err != nil {
+		return TaskTrainStatus{}, err
+	}
 	var train model.TaskTrain
 	var err error
 	if in.TrainID != "" {
