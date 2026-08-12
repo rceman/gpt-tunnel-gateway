@@ -29,6 +29,8 @@ type Status struct {
 	InstalledVersion string        `json:"installed_version,omitempty"`
 	RunningVersion   string        `json:"running_version,omitempty"`
 	VersionMatch     bool          `json:"version_match"`
+	Degraded         bool          `json:"degraded"`
+	DegradedReason   string        `json:"degraded_reason,omitempty"`
 }
 
 type GatewayStartupDiagnostics struct {
@@ -64,6 +66,11 @@ var (
 	}
 	startGatewayReadyFn   = func(c Controller) error { return waitURL(c.gatewayReadyURL(), true, 30*time.Second) }
 	startTunnelReadyFn    = func(c Controller) error { return waitURL(c.tunnelReadyURL(), true, 30*time.Second) }
+	recoveryStatusFn      = func(ctx context.Context, c Controller) (Status, error) { return c.Status(ctx) }
+	recoveryStartFn       = func(c Controller) error { return startGatewayFn(c) }
+	recoveryReadyFn       = func(c Controller) error { return startGatewayReadyFn(c) }
+	recoveryStopFn        = func(c Controller) error { return c.stopProcess("gateway", c.Config.Controller.GatewayBinary) }
+	recoverySleepFn       = time.Sleep
 	restartGatewayStopFn  = func(c Controller) error { return c.stopProcess("gateway", c.Config.Controller.GatewayBinary) }
 	restartGatewayStartFn = func(c Controller) error {
 		return c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath})

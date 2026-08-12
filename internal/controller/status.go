@@ -31,6 +31,12 @@ func (c Controller) Status(ctx context.Context) (Status, error) {
 		s.RunningVersion = runningVersion(ctx, c.gatewayReadyURL(), c.Config.GatewayID)
 	}
 	s.VersionMatch = s.InstalledVersion != "" && s.RunningVersion != "" && s.InstalledVersion == s.RunningVersion
+	recovery, err := c.readGatewayRecoveryState()
+	if err != nil {
+		return Status{}, fmt.Errorf("read Gateway recovery state: %w", err)
+	}
+	s.Degraded = recovery.Status == "degraded"
+	s.DegradedReason = recovery.Reason
 	return s, nil
 }
 func installedVersion(path string) string {
