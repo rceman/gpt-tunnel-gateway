@@ -9,6 +9,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 const taskFinalizeSummary = "Gateway verified the Task worktree, created the checkpoint, and finalized the TrainItem Attempt."
@@ -140,16 +141,6 @@ func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInp
 		latest.Items[current.Item.Position] = item
 		latest.Revision++
 		latest.UpdatedAt = finished
-		hasQueued := false
-		for _, next := range latest.Items {
-			if next.Status == model.TrainV2ItemQueued {
-				hasQueued = true
-				break
-			}
-		}
-		if !hasQueued {
-			latest.Status = model.TrainV2ReadyForIntegration
-		}
 		if err := model.ValidateTrainV2(latest); err != nil {
 			return nil, err
 		}
@@ -216,9 +207,111 @@ func (s *Service) advanceFinalizedTask(ctx context.Context, projectID, taskID st
 					return TrainV2AttemptFinalizeResult{}, err
 				}
 				result.NextTaskID = advanced.Record.CurrentTaskID
+				return result, nil
 			}
+			closed, err := s.closeoutTrain(ctx, projectID, train)
+			if err != nil {
+				return TrainV2AttemptFinalizeResult{}, err
+			}
+			result.TrainStatus = closed.Status
 			break
 		}
 	}
 	return result, nil
+}
+
+func (s *Service) closeoutTrain(ctx context.Context, projectID string, train model.TrainV2) (model.TrainV2, error) {
+	project, err := s.projectConfig(projectID)
+	if err != nil {
+		return model.TrainV2{}, err
+	}
+	startPath := hub.ProtocolRoot + "/projects/" + projectID + "/train-v2-starts/" + train.ID + ".json"
+	var start model.TrainV2StartRecord
+	if err := s.Hub.ReadJSON(ctx, startPath, &start); err != nil {
+		return model.TrainV2{}, err
+	}
+	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, projectID, train.ID)
+	if err != nil {
+		return model.TrainV2{}, fmt.Errorf("read Train closeout runtime: %w", err)
+	}
+	project.Root = runtime.WorktreePath
+	head, branch, clean, err := s.Git.CurrentHead(ctx, project)
+	if err != nil {
+		return model.TrainV2{}, err
+	}
+	if !clean || branch != start.LaneBranch {
+		return model.TrainV2{}, fmt.Errorf("Train closeout requires a clean bound worktree")
+	}
+	if train.FullProof != nil {
+		if train.FullProof.CandidateHead != head {
+			return model.TrainV2{}, fmt.Errorf("Train closeout proof invalidated by exact-head drift")
+		}
+		return train, nil
+	}
+	for i, item := range train.Items {
+		if item.Status != model.TrainV2ItemFinalized || item.SuccessfulAttemptNumber == 0 || item.SuccessfulAttemptNumber > uint64(len(item.Attempts)) || item.Attempts[item.SuccessfulAttemptNumber-1].Status != model.TrainV2AttemptSucceeded {
+			return model.TrainV2{}, fmt.Errorf("Train closeout requires every item to have a successful Attempt")
+		}
+		if i == len(train.Items)-1 && (item.Proof == nil || item.Proof.ImplementationSHA != head) {
+			return model.TrainV2{}, fmt.Errorf("Train closeout requires the final item proof to compose the exact lane head")
+		}
+	}
+	treeBefore, err := s.Git.TreeID(ctx, project)
+	if err != nil {
+		return model.TrainV2{}, err
+	}
+	gates, err := s.ResolveProjectGates(ctx, projectID, "integration")
+	if err != nil {
+		return model.TrainV2{}, err
+	}
+	results, err := s.executeProjectGatesWithProjectCommands(ctx, projectID, project.Root, gates, "train")
+	if err != nil {
+		return model.TrainV2{}, fmt.Errorf("Train closeout gates failed; repair the Train lane and retry: %w", err)
+	}
+	for _, gate := range results {
+		if gate.ExitCode != 0 {
+			return model.TrainV2{}, fmt.Errorf("Train closeout gate %s failed; repair the Train lane and retry", gate.ID)
+		}
+	}
+	postHead, postBranch, postClean, err := s.Git.CurrentHead(ctx, project)
+	if err != nil {
+		return model.TrainV2{}, err
+	}
+	treeAfter, err := s.Git.TreeID(ctx, project)
+	if err != nil {
+		return model.TrainV2{}, err
+	}
+	if postHead != head || postBranch != branch || !postClean || treeAfter != treeBefore {
+		return model.TrainV2{}, fmt.Errorf("Train closeout head or tree drifted during gates")
+	}
+	now := time.Now().UTC()
+	expected, err := s.hubRevision(ctx)
+	if err != nil {
+		return model.TrainV2{}, err
+	}
+	updated := train
+	updated.FullProof = &model.TrainV2FullProof{CandidateHead: head, GateResults: append([]model.CompletionGateResult{}, results...), RecordedAt: now}
+	updated.Status = model.TrainV2ReadyForIntegration
+	updated.Revision++
+	updated.UpdatedAt = now
+	if err := model.ValidateTrainV2(updated); err != nil {
+		return model.TrainV2{}, err
+	}
+	if _, err := s.Hub.Transact(ctx, expected, "gateway: closeout Train v2", func(worktree string) ([]string, error) {
+		path := s.trainV2Path(projectID, train.ID)
+		var latest model.TrainV2
+		if err := readWorktreeJSON(worktree, path, &latest); err != nil {
+			return nil, err
+		}
+		if latest.Revision != train.Revision || latest.FullProof != nil || latest.Status != model.TrainV2Running {
+			return nil, fmt.Errorf("Train changed before closeout proof publication")
+		}
+		if err := hub.WriteJSON(worktree, path, updated); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	}); err != nil {
+		return model.TrainV2{}, err
+	}
+	return updated, nil
 }
