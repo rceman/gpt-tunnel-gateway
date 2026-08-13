@@ -104,7 +104,7 @@ func TestTaskWorkRejectsTaskOutsideCurrentTrain(t *testing.T) {
 	s, revision, _ := testService(t)
 	revision = enableTrainV2ForTest(t, s, revision)
 	first, revision := readyTrainTaskForTest(t, s, revision, "Current Task")
-	other, _ := readyTrainTaskForTest(t, s, revision, "Non-current Task")
+	other, revision := readyTrainTaskForTest(t, s, revision, "Non-current Task")
 	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
 		ProjectID: "example",
 		TaskIDs:   []string{first.ID},
