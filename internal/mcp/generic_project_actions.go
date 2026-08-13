@@ -71,7 +71,7 @@ func projectConfigurationUpdateSchema() map[string]any {
 }
 
 func (s *Server) registerProjectActions() error {
-	return s.RegisterGenericAction(GenericAction{
+	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "project/update",
 		Description:  "Update the durable revisioned portable project configuration.",
 		InputSchema:  projectConfigurationUpdateSchema(),
@@ -91,6 +91,30 @@ func (s *Server) registerProjectActions() error {
 				return nil, err
 			}
 			return map[string]any{"configuration": configuration, "operation": operation}, nil
+		},
+	}); err != nil {
+		return err
+	}
+	return s.RegisterGenericAction(GenericAction{
+		Path:        "project/remove",
+		Description: "Remove one managed project from the active Gateway registry after fail-closed authority checks; the external repository is never touched.",
+		InputSchema: obj(map[string]any{
+			"project_id":            str("Managed project identifier."),
+			"expected_hub_revision": str("Optional exact Hub revision guard."),
+		}, "project_id"),
+		OutputSchema: map[string]any{"type": "object", "additionalProperties": true},
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		Authority:     service.RequireWorkflowPolicyAuthority,
+		AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.ProjectRemoveInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.ProjectRemove(ctx, in)
 		},
 	})
 }

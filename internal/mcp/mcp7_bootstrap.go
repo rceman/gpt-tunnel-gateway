@@ -14,6 +14,7 @@ var mcp7ProjectActions = map[string]string{
 	"onboard":         "project/onboard",
 	"onboard_status":  "project/onboard_status",
 	"onboard_recover": "project/onboard_recover",
+	"remove":          "project/remove",
 }
 
 func mcp7ActionEnvelopeSchema(actions ...string) map[string]any {
@@ -78,7 +79,7 @@ func addMCP7BootstrapTools(add func(string, string, map[string]any, func(context
 		}
 		return tool.Execute(ctx, raw)
 	})
-	add("project", "Run the bounded sessionless project bootstrap actions.", mcp7ActionEnvelopeSchema("list", "read", "onboard", "onboard_status", "onboard_recover"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("project", "Run the bounded sessionless project bootstrap actions.", mcp7ActionEnvelopeSchema("list", "read", "onboard", "onboard_status", "onboard_recover", "remove"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var input struct {
 			Action string          `json:"action"`
 			Input  json.RawMessage `json:"input"`

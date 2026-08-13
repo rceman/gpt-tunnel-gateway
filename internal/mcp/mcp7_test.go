@@ -29,6 +29,9 @@ func TestMCP7ExposesExactlySevenTopLevelTools(t *testing.T) {
 	if legacy["error"] == nil {
 		t.Fatalf("legacy top-level tool remained callable: %#v", legacy)
 	}
+	if got := mcp7ProjectActions["remove"]; got != "project/remove" {
+		t.Fatalf("project/remove is not exposed through the existing project action: %q", got)
+	}
 }
 
 func TestMCP7SessionlessBootstrapAndSessionBoundTransport(t *testing.T) {
