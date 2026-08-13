@@ -16,7 +16,18 @@ func appendComponentError(errors *[]string, name string, err error) {
 }
 
 func projectProgressFromInputs(plan model.Plan, planErr error, tasks []TaskRecord, tasksErr error, status airelay.SessionStatus, statusErr error, tail airelay.Result, tailErr error) ProjectProgress {
-	progress := ProjectProgress{AgentState: status.State, ControllerReachable: status.ControllerReachable, AirelayVersion: status.AirelayVersion, ProtocolVersion: status.ProtocolVersion, CapacityWarnings: append([]string{}, status.CapacityWarnings...), ExitCode: status.ExitCode, Tail: tail.Stdout, BlockerClassification: "none", RecommendedNextAction: "inspect Train-v2 item attempt", ComponentErrors: []string{}}
+	progress := ProjectProgress{
+		AgentState:            status.State,
+		ControllerReachable:   status.ControllerReachable,
+		AirelayVersion:        status.AirelayVersion,
+		ProtocolVersion:       status.ProtocolVersion,
+		CapacityWarnings:      append([]string{}, status.CapacityWarnings...),
+		ExitCode:              status.ExitCode,
+		Tail:                  tail.Stdout,
+		BlockerClassification: "none",
+		RecommendedNextAction: "inspect Train-v2 item attempt",
+		ComponentErrors:       []string{},
+	}
 	if statusErr != nil {
 		appendComponentError(&progress.ComponentErrors, "agent_status", statusErr)
 	}

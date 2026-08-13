@@ -9,7 +9,15 @@ import (
 )
 
 func TestBuildNextAttemptCreatesItemLocalAttemptOne(t *testing.T) {
-	attempt, err := BuildNextAttempt(NextAttemptInput{GatewayID: "gateway", CurrentAttempt: model.TrainV2Attempt{Number: 1, Status: model.TrainV2AttemptSucceeded, AgentID: "agent-1", AirelaySessionKey: "session", GatewayID: "gateway", StartHead: strings.Repeat("a", 40), StartedAt: time.Now().UTC()}, Next: model.TrainV2Item{Position: 1, TaskID: "GTW-TSK2", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("b", 64), Status: model.TrainV2ItemQueued, AddedAt: time.Now().UTC()}, AgentID: "agent-1", SessionKey: "session", StartHead: strings.Repeat("c", 40), CreatedAt: time.Now().UTC()})
+	attempt, err := BuildNextAttempt(NextAttemptInput{
+		GatewayID:      "gateway",
+		CurrentAttempt: model.TrainV2Attempt{Number: 1, Status: model.TrainV2AttemptSucceeded, AgentID: "agent-1", AirelaySessionKey: "session", GatewayID: "gateway", StartHead: strings.Repeat("a", 40), StartedAt: time.Now().UTC()},
+		Next:           model.TrainV2Item{Position: 1, TaskID: "GTW-TSK2", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("b", 64), Status: model.TrainV2ItemQueued, AddedAt: time.Now().UTC()},
+		AgentID:        "agent-1",
+		SessionKey:     "session",
+		StartHead:      strings.Repeat("c", 40),
+		CreatedAt:      time.Now().UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +27,15 @@ func TestBuildNextAttemptCreatesItemLocalAttemptOne(t *testing.T) {
 }
 
 func TestBuildNextAttemptRejectsUnsuccessfulCurrent(t *testing.T) {
-	_, err := BuildNextAttempt(NextAttemptInput{GatewayID: "gateway", CurrentAttempt: model.TrainV2Attempt{Number: 1, Status: model.TrainV2AttemptFailed}, Next: model.TrainV2Item{Status: model.TrainV2ItemQueued}, AgentID: "agent-1", SessionKey: "session", StartHead: strings.Repeat("a", 40), CreatedAt: time.Now().UTC()})
+	_, err := BuildNextAttempt(NextAttemptInput{
+		GatewayID:      "gateway",
+		CurrentAttempt: model.TrainV2Attempt{Number: 1, Status: model.TrainV2AttemptFailed},
+		Next:           model.TrainV2Item{Status: model.TrainV2ItemQueued},
+		AgentID:        "agent-1",
+		SessionKey:     "session",
+		StartHead:      strings.Repeat("a", 40),
+		CreatedAt:      time.Now().UTC(),
+	})
 	if err == nil {
 		t.Fatal("failed Attempt was advanced")
 	}

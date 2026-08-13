@@ -13,11 +13,25 @@ func TestTrainV2StartBindsExactItemLocalAttempt(t *testing.T) {
 	s, hubRevision, _ := testService(t)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	task, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "Attempt start")
-	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{ProjectID: "example", TaskIDs: []string{task.ID}, CreatedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
+	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
+		ProjectID: "example",
+		TaskIDs:   []string{task.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{ProjectID: "example", TrainID: train.ID, StartedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After}})
+	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
+		ProjectID: "example",
+		TrainID:   train.ID,
+		StartedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,11 +47,26 @@ func TestTrainV2StartRejectsAttemptSessionMismatch(t *testing.T) {
 	s, hubRevision, _ := testService(t)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	task, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "Attempt session")
-	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{ProjectID: "example", TaskIDs: []string{task.ID}, CreatedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
+	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
+		ProjectID: "example",
+		TaskIDs:   []string{task.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.TrainV2Start(context.Background(), TrainV2StartInput{ProjectID: "example", TrainID: train.ID, StartedBy: "planner", AgentID: "unknown", WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After}}); err == nil {
+	if _, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
+		ProjectID: "example",
+		TrainID:   train.ID,
+		StartedBy: "planner",
+		AgentID:   "unknown",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.Hub.After,
+		},
+	}); err == nil {
 		t.Fatal("unknown Attempt owner was accepted")
 	}
 }

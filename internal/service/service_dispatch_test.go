@@ -24,7 +24,9 @@ func TestCheckSessionAvailableSkipsLegacyProjectBeforeTrainScan(t *testing.T) {
 			ID: legacyID, RepositoryURL: "git@example.invalid:legacy.git", DefaultBranch: "main",
 			WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: "b1a45b1e9475ab29dfd3e84d523b70897c7b8918",
 		},
-		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -47,15 +49,23 @@ func TestCheckSessionAvailableRejectsActiveTrainSessionCollision(t *testing.T) {
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	task, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "Session collision")
 	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
-		ProjectID: "example", TaskIDs: []string{task.ID}, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+		ProjectID: "example",
+		TaskIDs:   []string{task.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
-		ProjectID: "example", TrainID: train.ID, StartedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After},
+		ProjectID: "example",
+		TrainID:   train.ID,
+		StartedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.Hub.After,
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}

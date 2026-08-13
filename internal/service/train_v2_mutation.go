@@ -65,7 +65,11 @@ func (s *Service) TrainV2Create(ctx context.Context, in TrainV2CreateInput) (mod
 	if err != nil {
 		return model.TrainV2{}, OperationResult{}, err
 	}
-	return created, OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: created.Status}, nil
+	return created, OperationResult{
+		Hub:       tx,
+		ProjectID: in.ProjectID,
+		Status:    created.Status,
+	}, nil
 }
 
 func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.TrainV2, OperationResult, error) {
@@ -122,7 +126,11 @@ func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.Tra
 	if err != nil {
 		return model.TrainV2{}, OperationResult{}, err
 	}
-	return updated, OperationResult{Hub: tx, ProjectID: in.ProjectID, Status: updated.Status}, nil
+	return updated, OperationResult{
+		Hub:       tx,
+		ProjectID: in.ProjectID,
+		Status:    updated.Status,
+	}, nil
 }
 
 func (s *Service) trainV2AdmissionTasks(worktree, projectID string, taskIDs []string) ([]model.TaskAuthoring, error) {

@@ -10,5 +10,11 @@ func (s *Service) StateRepair(ctx context.Context, apply bool) (StateRepairResul
 	if err != nil {
 		return StateRepairResult{}, err
 	}
-	return StateRepairResult{DryRun: !apply, Applied: false, OldHubSHA: check.HubRevision, Actions: []StateRepairAction{}, Check: check}, nil
+	return StateRepairResult{
+		DryRun:    !apply,
+		Applied:   false,
+		OldHubSHA: check.HubRevision,
+		Actions:   []StateRepairAction{},
+		Check:     check,
+	}, nil
 }

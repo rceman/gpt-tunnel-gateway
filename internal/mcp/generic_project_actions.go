@@ -59,11 +59,14 @@ func projectConfigurationUpdateSchema() map[string]any {
 
 func (s *Server) registerProjectActions() error {
 	return s.RegisterGenericAction(GenericAction{
-		Path:          "project/update",
-		Description:   "Update the durable revisioned portable project configuration.",
-		InputSchema:   projectConfigurationUpdateSchema(),
-		OutputSchema:  map[string]any{"type": "object", "additionalProperties": true},
-		Annotations:   ToolAnnotations{DestructiveHint: true, IdempotentHint: false},
+		Path:         "project/update",
+		Description:  "Update the durable revisioned portable project configuration.",
+		InputSchema:  projectConfigurationUpdateSchema(),
+		OutputSchema: map[string]any{"type": "object", "additionalProperties": true},
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  false,
+		},
 		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.ProjectConfigurationUpdateInput

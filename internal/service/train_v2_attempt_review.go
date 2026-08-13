@@ -99,5 +99,8 @@ func (s *Service) TrainV2AttemptReview(ctx context.Context, in TrainV2AttemptRev
 	if err != nil {
 		return TrainV2AttemptReviewResult{}, err
 	}
-	return TrainV2AttemptReviewResult{Review: review, Hub: tx}, nil
+	return TrainV2AttemptReviewResult{
+		Review: review,
+		Hub:    tx,
+	}, nil
 }

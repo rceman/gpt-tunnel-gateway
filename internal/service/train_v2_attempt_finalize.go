@@ -181,7 +181,10 @@ func (s *Service) TrainV2AttemptFinalize(ctx context.Context, in TrainV2AttemptF
 		return TrainV2AttemptFinalizeResult{}, err
 	}
 	report.HubCommit = tx.After
-	return TrainV2AttemptFinalizeResult{Report: report, Hub: tx}, nil
+	return TrainV2AttemptFinalizeResult{
+		Report: report,
+		Hub:    tx,
+	}, nil
 }
 
 func (s *Service) readTrainV2AttemptCompletion(in TrainV2AttemptFinalizeInput, task model.TaskAuthoring, item model.TrainV2Item, attempt model.TrainV2Attempt) (model.TrainV2AttemptCompletion, error) {

@@ -184,7 +184,13 @@ func PlanIntegration(current model.TrainV2, targetHead string, targetIsAncestor 
 		return IntegrationPlan{}, err
 	}
 	laneHead := current.FullProof.CandidateHead
-	plan := IntegrationPlan{Status: "fast_forward_required", TrainID: current.ID, TargetHead: targetHead, LaneHead: laneHead, NextAction: "activate_pre_merge_and_fast_forward"}
+	plan := IntegrationPlan{
+		Status:     "fast_forward_required",
+		TrainID:    current.ID,
+		TargetHead: targetHead,
+		LaneHead:   laneHead,
+		NextAction: "activate_pre_merge_and_fast_forward",
+	}
 	if targetHead == laneHead {
 		plan.Status, plan.NextAction = "already_integrated", "activate_post_merge_and_record_receipt"
 		return plan, nil

@@ -43,11 +43,13 @@ func (s *Server) registerAgentActions() error {
 		return s.RegisterGenericAction(action)
 	}
 	if err := register(GenericAction{
-		Path:          "agent/register",
-		Description:   "Register one portable project-scoped Agent identity.",
-		InputSchema:   obj(map[string]any{"agent": agentInputSchema(), "expected_hub_revision": str("Optional exact Hub revision guard.")}, "agent"),
-		OutputSchema:  agentObjectOutputSchema(),
-		Annotations:   ToolAnnotations{DestructiveHint: true},
+		Path:         "agent/register",
+		Description:  "Register one portable project-scoped Agent identity.",
+		InputSchema:  obj(map[string]any{"agent": agentInputSchema(), "expected_hub_revision": str("Optional exact Hub revision guard.")}, "agent"),
+		OutputSchema: agentObjectOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+		},
 		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.AgentRegisterInput
@@ -72,8 +74,10 @@ func (s *Server) registerAgentActions() error {
 			"recommended_reasoning": str("Routing preference."), "capabilities": array(str("Capability identifier.")),
 			"updated_by": str("Trusted mutation author."), "expected_hub_revision": str("Optional exact Hub revision guard."),
 		}, "project_id", "agent_id", "updated_by"),
-		OutputSchema:  agentObjectOutputSchema(),
-		Annotations:   ToolAnnotations{DestructiveHint: true},
+		OutputSchema: agentObjectOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+		},
 		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.AgentUpdateInput
@@ -96,8 +100,10 @@ func (s *Server) registerAgentActions() error {
 			"project_id": str("Registered project identifier."), "agent_id": str("Stable agent identifier."),
 			"updated_by": str("Trusted mutation author."), "expected_hub_revision": str("Optional exact Hub revision guard."),
 		}, "project_id", "agent_id", "updated_by"),
-		OutputSchema:  agentObjectOutputSchema(),
-		Annotations:   ToolAnnotations{DestructiveHint: true},
+		OutputSchema: agentObjectOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+		},
 		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.AgentDisableInput
@@ -118,7 +124,10 @@ func (s *Server) registerAgentActions() error {
 		Description:  "Read one portable project-scoped Agent identity.",
 		InputSchema:  obj(map[string]any{"project_id": str("Registered project identifier."), "agent_id": str("Stable agent identifier.")}, "project_id", "agent_id"),
 		OutputSchema: agentObjectOutputSchema(),
-		Annotations:  ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				ProjectID string `json:"project_id"`
@@ -137,7 +146,10 @@ func (s *Server) registerAgentActions() error {
 		Description:  "List project Agents in deterministic agent_id order.",
 		InputSchema:  obj(map[string]any{"project_id": str("Registered project identifier.")}, "project_id"),
 		OutputSchema: agentObjectOutputSchema(),
-		Annotations:  ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				ProjectID string `json:"project_id"`
@@ -152,11 +164,14 @@ func (s *Server) registerAgentActions() error {
 		return err
 	}
 	return register(GenericAction{
-		Path:                "agent/status",
-		Description:         "Read bounded registered, bound, and usable Agent status.",
-		InputSchema:         obj(map[string]any{"project_id": str("Registered project identifier."), "agent_id": str("Stable agent identifier.")}, "project_id", "agent_id"),
-		OutputSchema:        agentObjectOutputSchema(),
-		Annotations:         ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "agent/status",
+		Description:  "Read bounded registered, bound, and usable Agent status.",
+		InputSchema:  obj(map[string]any{"project_id": str("Registered project identifier."), "agent_id": str("Stable agent identifier.")}, "project_id", "agent_id"),
+		OutputSchema: agentObjectOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:       durableSession.RoleDelivery,
 		AllowLegacyOverride: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {

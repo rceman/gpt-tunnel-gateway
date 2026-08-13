@@ -63,7 +63,10 @@ type activeTrainAttempt struct {
 }
 
 func (s *Service) trainV2ActiveAttempt(ctx context.Context, projectID string) (activeTrainAttempt, bool, error) {
-	trains, err := s.TrainV2List(ctx, TrainV2ListInput{ProjectID: projectID, Limit: model.MaxTrainV2Items})
+	trains, err := s.TrainV2List(ctx, TrainV2ListInput{
+		ProjectID: projectID,
+		Limit:     model.MaxTrainV2Items,
+	})
 	if err != nil {
 		return activeTrainAttempt{}, false, err
 	}
@@ -94,7 +97,13 @@ func (s *Service) trainV2ActiveAttempt(ctx context.Context, projectID string) (a
 		if _, err := watcher.BindTrainAttempt(train, start, runtime); err != nil {
 			return activeTrainAttempt{}, false, err
 		}
-		return activeTrainAttempt{Train: train, Start: start, Runtime: runtime, Item: item, Attempt: attempt}, true, nil
+		return activeTrainAttempt{
+			Train:   train,
+			Start:   start,
+			Runtime: runtime,
+			Item:    item,
+			Attempt: attempt,
+		}, true, nil
 	}
 	return activeTrainAttempt{}, false, nil
 }

@@ -66,7 +66,11 @@ func TestAuthoringLifecycleUsesPureStateTransitions(t *testing.T) {
 }
 
 func TestAuthoringValidationAndRevisionGuardsAreRepositoryIndependent(t *testing.T) {
-	if err := ValidateDraft(AuthoringDraft{Title: "x", Objective: "short", ADRRelation: model.TaskADRNoRequired}); err == nil {
+	if err := ValidateDraft(AuthoringDraft{
+		Title:       "x",
+		Objective:   "short",
+		ADRRelation: model.TaskADRNoRequired,
+	}); err == nil {
 		t.Fatal("invalid draft was accepted")
 	}
 	now := time.Unix(10, 0).UTC()

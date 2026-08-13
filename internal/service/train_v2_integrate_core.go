@@ -35,10 +35,16 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 			if cleanupErr := s.releaseTrainRuntime(ctx, project, in.ProjectID, in.TrainID, start.LaneBranch, receipt.LaneHead); cleanupErr != nil {
 				return trainv2.IntegrationReceipt{}, OperationResult{}, cleanupErr
 			}
-			return receipt, OperationResult{ProjectID: in.ProjectID, Status: receipt.Status}, nil
+			return receipt, OperationResult{
+				ProjectID: in.ProjectID,
+				Status:    receipt.Status,
+			}, nil
 		}
 		if receipt.Status == "reconciliation_blocked" {
-			return receipt, OperationResult{ProjectID: in.ProjectID, Status: receipt.Status}, fmt.Errorf("Train reconciliation is blocked; bounded Agent correction is required")
+			return receipt, OperationResult{
+				ProjectID: in.ProjectID,
+				Status:    receipt.Status,
+			}, fmt.Errorf("Train reconciliation is blocked; bounded Agent correction is required")
 		}
 		if receipt.Status == "reconciliation_complete" || receipt.Status == "reconciliation_requires_restart" {
 			return s.finishTrainReconciliationRestart(ctx, in.ProjectID, in.TrainID, receipt)
@@ -95,7 +101,10 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 			if recordErr := s.writeTrainV2IntegrationReceipt(ctx, receipt); recordErr != nil {
 				return receipt, OperationResult{}, recordErr
 			}
-			return receipt, OperationResult{ProjectID: in.ProjectID, Status: receipt.Status}, replayErr
+			return receipt, OperationResult{
+				ProjectID: in.ProjectID,
+				Status:    receipt.Status,
+			}, replayErr
 		}
 		updatedTrain, rebindErr := trainv2.ResetImplementationProofsForRestart(train, time.Now().UTC())
 		if rebindErr != nil {
@@ -110,12 +119,21 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 			return receipt, OperationResult{}, recordErr
 		}
 		if resetErr := s.Git.ResetTrainWorktree(ctx, lane, targetHead); resetErr != nil {
-			return receipt, OperationResult{ProjectID: in.ProjectID, Status: receipt.Status}, fmt.Errorf("Train reconciliation is recorded but local replay reset is pending: %w", resetErr)
+			return receipt, OperationResult{
+				ProjectID: in.ProjectID,
+				Status:    receipt.Status,
+			}, fmt.Errorf("Train reconciliation is recorded but local replay reset is pending: %w", resetErr)
 		}
 		if _, retireErr := trainv2.RetireRuntimeForRestart(s.Config.StateDir, in.ProjectID, in.TrainID, start.CurrentAttemptNumber); retireErr != nil {
-			return receipt, OperationResult{ProjectID: in.ProjectID, Status: receipt.Status}, fmt.Errorf("Train reconciliation is recorded but local execution retirement is pending: %w", retireErr)
+			return receipt, OperationResult{
+				ProjectID: in.ProjectID,
+				Status:    receipt.Status,
+			}, fmt.Errorf("Train reconciliation is recorded but local execution retirement is pending: %w", retireErr)
 		}
-		return receipt, OperationResult{ProjectID: in.ProjectID, Status: receipt.Status}, fmt.Errorf("Train reconciliation requires restart from the refreshed target; replay was discarded and item proofs require re-execution")
+		return receipt, OperationResult{
+			ProjectID: in.ProjectID,
+			Status:    receipt.Status,
+		}, fmt.Errorf("Train reconciliation requires restart from the refreshed target; replay was discarded and item proofs require re-execution")
 	}
 	if train.FullProof == nil || train.FullProof.CandidateHead != laneHead {
 		gateNames, gateErr := s.ResolveProjectGates(ctx, in.ProjectID, "integration")

@@ -36,7 +36,10 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	}
 	adoptedPolicyRevision := adoptTestWorkflowPolicy(t, s, "example", registered.Hub.After)
 	registeredAgentRevision := registerMCPTestCodingAgent(t, s, adoptedPolicyRevision)
-	srv := &Server{Service: s, AuthorityContext: authority.WithDelivery(context.Background())}
+	srv := &Server{
+		Service:          s,
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	before, err := s.Hub.RemoteRevision(context.Background())
 	if err != nil {
 		t.Fatal(err)

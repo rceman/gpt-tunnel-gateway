@@ -45,7 +45,16 @@ func TestStartNextItemCreatesAttemptOneWithoutRunIdentity(t *testing.T) {
 	train.Items[0].Proof = &model.TrainV2ImplementationProof{CheckpointHead: strings.Repeat("d", 40), ImplementationSHA: strings.Repeat("d", 40), ReportID: "report", GateResults: []model.CompletionGateResult{{ID: model.WorkflowGateCheck, ExitCode: 0}}, RecordedAt: finished}
 	train.Status = model.TrainV2Running
 	train.Items = append(train.Items, model.TrainV2Item{Position: 1, TaskID: "GTW-TSK180", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("c", 64), Status: model.TrainV2ItemQueued, AddedAt: time.Now().UTC()})
-	plan, ok, err := PlanAutoAdvance(train, TrainBinding{TrainID: train.ID, ItemPosition: 0, TaskID: "GTW-TSK179", AttemptNumber: 1, AgentID: runtime.AgentID, SessionKey: runtime.SessionKey, WorktreePath: runtime.WorktreePath, LaneBranch: "train/GTW-TRN7"}, model.TrainV2AttemptSucceeded)
+	plan, ok, err := PlanAutoAdvance(train, TrainBinding{
+		TrainID:       train.ID,
+		ItemPosition:  0,
+		TaskID:        "GTW-TSK179",
+		AttemptNumber: 1,
+		AgentID:       runtime.AgentID,
+		SessionKey:    runtime.SessionKey,
+		WorktreePath:  runtime.WorktreePath,
+		LaneBranch:    "train/GTW-TRN7",
+	}, model.TrainV2AttemptSucceeded)
 	if err != nil || !ok {
 		t.Fatalf("advance was not planned: %v %v", ok, err)
 	}

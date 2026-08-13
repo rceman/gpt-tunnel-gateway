@@ -63,7 +63,20 @@ func dispatchAttempt(ctx context.Context, deps StartDependencies, train model.Tr
 		if finishedAt.IsZero() {
 			finishedAt = time.Now().UTC()
 		}
-		receipt = dispatchReceipt{TrainID: train.ID, ItemPosition: item.Position, TaskID: item.TaskID, AttemptNumber: attempt.Number, SessionKey: attempt.AirelaySessionKey, PacketPath: packet.Path, WorktreePath: packet.WorktreePath, Message: message, ExitCode: dispatch.ExitCode, Stdout: dispatch.Stdout, Stderr: dispatch.Stderr, FinishedAt: finishedAt}
+		receipt = dispatchReceipt{
+			TrainID:       train.ID,
+			ItemPosition:  item.Position,
+			TaskID:        item.TaskID,
+			AttemptNumber: attempt.Number,
+			SessionKey:    attempt.AirelaySessionKey,
+			PacketPath:    packet.Path,
+			WorktreePath:  packet.WorktreePath,
+			Message:       message,
+			ExitCode:      dispatch.ExitCode,
+			Stdout:        dispatch.Stdout,
+			Stderr:        dispatch.Stderr,
+			FinishedAt:    finishedAt,
+		}
 		if err := fsutil.WriteJSONAtomic(receiptPath, receipt, 0o600); err != nil {
 			return fmt.Errorf("persist durable Train dispatch receipt: %w", err)
 		}

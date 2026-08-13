@@ -114,8 +114,15 @@ func (s *Server) validateTrainV2ActionRegistry() error {
 
 func (s *Server) registerTrainV2Actions() error {
 	if err := s.RegisterGenericAction(GenericAction{
-		Path: "train/create", Description: "Create a non-running ordered train_v2 admission record.", InputSchema: trainV2CreateSchema(), OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: false}, AuthorityRole: actionRolePlannerOrDelivery,
+		Path:         "train/create",
+		Description:  "Create a non-running ordered train_v2 admission record.",
+		InputSchema:  trainV2CreateSchema(),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  false,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2CreateInput
 			if err := decode(raw, &in); err != nil {
@@ -131,8 +138,15 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path: "train/add", Description: "Append ready Tasks to the unstarted tail of a train_v2.", InputSchema: trainV2AddSchema(), OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: false}, AuthorityRole: actionRolePlannerOrDelivery,
+		Path:         "train/add",
+		Description:  "Append ready Tasks to the unstarted tail of a train_v2.",
+		InputSchema:  trainV2AddSchema(),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  false,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2AddInput
 			if err := decode(raw, &in); err != nil {
@@ -148,8 +162,15 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path: "train/read", Description: "Read one train_v2 admission record.", InputSchema: trainV2ReadSchema(), OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
+		Path:         "train/read",
+		Description:  "Read one train_v2 admission record.",
+		InputSchema:  trainV2ReadSchema(),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				ProjectID string `json:"project_id"`
@@ -164,8 +185,15 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path: "train/list", Description: "List bounded train_v2 admission records.", InputSchema: trainV2ListSchema(), OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
+		Path:         "train/list",
+		Description:  "List bounded train_v2 admission records.",
+		InputSchema:  trainV2ListSchema(),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2ListInput
 			if err := decode(raw, &in); err != nil {
@@ -177,8 +205,15 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path: "train/start", Description: "Start one server-owned Train v2 execution lane.", InputSchema: trainV2StartSchema(), OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
+		Path:         "train/start",
+		Description:  "Start one server-owned Train v2 execution lane.",
+		InputSchema:  trainV2StartSchema(),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2StartInput
 			if err := decode(raw, &in); err != nil {
@@ -190,8 +225,15 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path: "train/attempt-finalize", Description: "Finalize one exact TrainItem Attempt without creating a global Run.", InputSchema: trainV2AttemptFinalizeSchema(), OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
+		Path:         "train/attempt-finalize",
+		Description:  "Finalize one exact TrainItem Attempt without creating a global Run.",
+		InputSchema:  trainV2AttemptFinalizeSchema(),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2AttemptFinalizeInput
 			if err := decode(raw, &in); err != nil {
@@ -204,8 +246,15 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path: "train/attempt-review", Description: "Publish review for one exact successful TrainItem Attempt.", InputSchema: trainV2AttemptReviewSchema(), OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
+		Path:         "train/attempt-review",
+		Description:  "Publish review for one exact successful TrainItem Attempt.",
+		InputSchema:  trainV2AttemptReviewSchema(),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2AttemptReviewInput
 			if err := decode(raw, &in); err != nil {
@@ -218,8 +267,15 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path: "train/integrate", Description: "Integrate one fully proved Train v2 lane through strict fast-forward and activation receipts.", InputSchema: trainV2IntegrateSchema(), OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
+		Path:         "train/integrate",
+		Description:  "Integrate one fully proved Train v2 lane through strict fast-forward and activation receipts.",
+		InputSchema:  trainV2IntegrateSchema(),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2IntegrateInput
 			if err := decode(raw, &in); err != nil {
@@ -235,8 +291,15 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	return s.RegisterGenericAction(GenericAction{
-		Path: "train/cutover", Description: "Atomically activate train_v2 authority after bounded migration, runtime and Action Registry proofs.", InputSchema: trainV2CutoverSchema(), OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
+		Path:         "train/cutover",
+		Description:  "Atomically activate train_v2 authority after bounded migration, runtime and Action Registry proofs.",
+		InputSchema:  trainV2CutoverSchema(),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			if err := s.validateTrainV2ActionRegistry(); err != nil {
 				return nil, err

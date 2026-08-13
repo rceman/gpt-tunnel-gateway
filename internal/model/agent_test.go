@@ -9,9 +9,15 @@ import (
 func validTestAgent() Agent {
 	now := time.Now().UTC()
 	return Agent{
-		SchemaVersion: AgentSchemaVersion, ProjectID: "example", AgentID: "coder",
-		Role: AgentRoleCoding, Enabled: true, RecommendedReasoning: ReasoningHigh,
-		Capabilities: []string{"git", "review"}, CreatedAt: now, UpdatedAt: now,
+		SchemaVersion:        AgentSchemaVersion,
+		ProjectID:            "example",
+		AgentID:              "coder",
+		Role:                 AgentRoleCoding,
+		Enabled:              true,
+		RecommendedReasoning: ReasoningHigh,
+		Capabilities:         []string{"git", "review"},
+		CreatedAt:            now,
+		UpdatedAt:            now,
 	}
 }
 
@@ -40,7 +46,18 @@ func TestAgentValidationIsClosedAndPortable(t *testing.T) {
 }
 
 func TestAgentAvailabilityValidation(t *testing.T) {
-	status := AgentAvailabilityStatus{SchemaVersion: AgentSchemaVersion, ProjectID: "example", AgentID: "coder", Role: AgentRoleCoding, Registered: true, Enabled: true, Bound: true, Usable: true, State: "usable", Reason: "ready"}
+	status := AgentAvailabilityStatus{
+		SchemaVersion: AgentSchemaVersion,
+		ProjectID:     "example",
+		AgentID:       "coder",
+		Role:          AgentRoleCoding,
+		Registered:    true,
+		Enabled:       true,
+		Bound:         true,
+		Usable:        true,
+		State:         "usable",
+		Reason:        "ready",
+	}
 	if err := ValidateAgentAvailabilityStatus(status); err != nil {
 		t.Fatal(err)
 	}

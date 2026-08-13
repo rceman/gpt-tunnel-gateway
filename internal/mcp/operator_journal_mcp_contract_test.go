@@ -59,7 +59,10 @@ func TestOperatorJournalMCPContractsAndHappyPath(t *testing.T) {
 	if _, _, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}}); err != nil {
 		t.Fatal(err)
 	}
-	server = &Server{Service: s, AuthorityContext: authority.WithDelivery(context.Background())}
+	server = &Server{
+		Service:          s,
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	sessionID := genericSession(t, s, "example")
 	request := func(id int, action string, input map[string]any) []byte {
 		return mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": action, "input": input}}})

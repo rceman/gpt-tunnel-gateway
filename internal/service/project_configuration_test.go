@@ -22,9 +22,13 @@ func TestProjectConfigurationRegisterReadUpdateAndStatus(t *testing.T) {
 	updated, operation, err := s.ProjectConfigurationUpdate(trustedWorkflowPolicyContext(ctx, "planner"), ProjectConfigurationUpdateInput{
 		ProjectID:        "example",
 		ExpectedRevision: configuration.Revision,
-		Patch:            ProjectConfigurationPatch{AgentRouting: &routing},
-		UpdatedBy:        "planner",
-		WriteOptions:     WriteOptions{ExpectedHubRevision: revision},
+		Patch: ProjectConfigurationPatch{
+			AgentRouting: &routing,
+		},
+		UpdatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

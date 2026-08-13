@@ -72,7 +72,10 @@ func TestProjectIdentifiersMCPContractsAndHappyPath(t *testing.T) {
 	if registered, err = s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: secondProject, WriteOptions: service.WriteOptions{ExpectedHubRevision: currentHub}}); err != nil {
 		t.Fatal(err)
 	}
-	server = &Server{Service: s, AuthorityContext: authority.WithDelivery(context.Background())}
+	server = &Server{
+		Service:          s,
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	exampleSession := genericSession(t, s, "example")
 	secondSession := genericSession(t, s, "second")
 	request := func(id int, session, action string, input map[string]any) []byte {

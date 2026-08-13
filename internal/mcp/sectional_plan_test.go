@@ -50,7 +50,10 @@ func TestPlanCutoverMCPCurrentFixtureStrictAndOneTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &Server{Service: s, AuthorityContext: authority.WithDelivery(context.Background())}
+	srv := &Server{
+		Service:          s,
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	sessionID := genericSession(t, s, "example")
 	before := installed.After
 	read := genericStructured(t, callMCP(t, srv, planCall(t, sessionID, "plan/read", map[string]any{"project_id": "example"})))
@@ -102,7 +105,10 @@ func TestSectionalPlanMCPToolsExposeCompactReadAndExplicitFullOperations(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &Server{Service: s, AuthorityContext: authority.WithDelivery(context.Background())}
+	srv := &Server{
+		Service:          s,
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	sessionID := genericSession(t, s, "example")
 	read := genericActionResult(t, callMCP(t, srv, planCall(t, sessionID, "plan/read", map[string]any{"project_id": "example"})))
 	if read["schema_version"] != float64(model.PlanSchemaVersion) || read["description"] != nil {

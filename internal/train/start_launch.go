@@ -59,7 +59,12 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 				return StartResult{}, err
 			}
 		}
-		return StartResult{Record: record, ItemPosition: record.CurrentItemPosition, Attempt: attempt, Runtime: binding}, nil
+		return StartResult{
+			Record:       record,
+			ItemPosition: record.CurrentItemPosition,
+			Attempt:      attempt,
+			Runtime:      binding,
+		}, nil
 	} else if !os.IsNotExist(err) {
 		return StartResult{}, err
 	}
@@ -101,7 +106,18 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 	}()
 	item := deps.Train.Items[0]
 	attempt := model.TrainV2Attempt{Number: 1, Status: model.TrainV2AttemptRunning, AgentID: in.ResolvedAgentID, AirelaySessionKey: in.SessionKey, GatewayID: deps.GatewayID, StartHead: base, StartedAt: now}
-	runtime := RuntimeBinding{SchemaVersion: runtimeSchemaVersion, ProjectID: in.ProjectID, TrainID: in.TrainID, WorktreePath: worktreePath, AgentID: in.ResolvedAgentID, SessionKey: in.SessionKey, ItemPosition: item.Position, TaskID: item.TaskID, AttemptNumber: attempt.Number, StartedAt: now}
+	runtime := RuntimeBinding{
+		SchemaVersion: runtimeSchemaVersion,
+		ProjectID:     in.ProjectID,
+		TrainID:       in.TrainID,
+		WorktreePath:  worktreePath,
+		AgentID:       in.ResolvedAgentID,
+		SessionKey:    in.SessionKey,
+		ItemPosition:  item.Position,
+		TaskID:        item.TaskID,
+		AttemptNumber: attempt.Number,
+		StartedAt:     now,
+	}
 	if err := ValidateRuntimeBinding(runtime, deps.StateDir); err != nil {
 		return StartResult{}, err
 	}
@@ -159,7 +175,12 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 	if err != nil {
 		return StartResult{}, err
 	}
-	return StartResult{Record: record, ItemPosition: 0, Attempt: attempt, Runtime: runtime}, nil
+	return StartResult{
+		Record:       record,
+		ItemPosition: 0,
+		Attempt:      attempt,
+		Runtime:      runtime,
+	}, nil
 }
 
 func readTrain(ctx context.Context, store hub.Store, projectID, trainID string) (model.TrainV2, error) {

@@ -28,7 +28,11 @@ func TestAdmissionBuildsOnlyExactReadySnapshots(t *testing.T) {
 
 func readyAdmissionTask(t *testing.T, id string, now time.Time) model.TaskAuthoring {
 	t.Helper()
-	draft := AuthoringDraft{Title: "Ready " + id, Objective: "A ready task for train admission.", ADRRelation: model.TaskADRNoRequired}
+	draft := AuthoringDraft{
+		Title:       "Ready " + id,
+		Objective:   "A ready task for train admission.",
+		ADRRelation: model.TaskADRNoRequired,
+	}
 	task, err := NewTask("gateway", id, draft, "planner", now)
 	if err != nil {
 		t.Fatal(err)

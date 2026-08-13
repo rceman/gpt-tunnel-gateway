@@ -41,13 +41,23 @@ func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
 		return out, nil
 	}
 	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: "b1a45b1e9475ab29dfd3e84d523b70897c7b8918", Status: "active"}
-	reg, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{Project: project, WriteOptions: WriteOptions{ExpectedHubRevision: hubHead}})
+	reg, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{
+		Project: project,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubHead,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
 	policy := model.ProjectWorkflowPolicy{SchemaVersion: model.SchemaVersion, ProjectID: project.ID, Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", Agent: model.WorkflowPolicyAgent{WaitForCI: false}, CI: model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve}, UpdatedBy: "test", UpdatedAt: now}
-	_, adopted, err := s.ProjectWorkflowPolicyAdopt(trustedWorkflowPolicyContext(context.Background(), "planner"), ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: WriteOptions{ExpectedHubRevision: reg.Hub.After}})
+	_, adopted, err := s.ProjectWorkflowPolicyAdopt(trustedWorkflowPolicyContext(context.Background(), "planner"), ProjectWorkflowPolicyInput{
+		Policy: policy,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: reg.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +66,13 @@ func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
 
 func testService(t *testing.T) (*Service, string, string) {
 	s, revision, projectHead := testServiceWithoutIdentifiers(t)
-	adopted, result, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+	adopted, result, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
+		ProjectID:   "example",
+		ProjectCode: "EXM",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,15 +86,19 @@ func testService(t *testing.T) (*Service, string, string) {
 	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
 	now := time.Now().UTC()
 	coder, registered, err := s.AgentRegister(ctx, AgentRegisterInput{
-		Agent:        model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coder-example", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now},
-		WriteOptions: WriteOptions{ExpectedHubRevision: result.Hub.After},
+		Agent: model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coder-example", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: result.Hub.After,
+		},
 	})
 	if err != nil || coder.AgentID != "coder-example" {
 		t.Fatalf("register test coding agent: %#v err=%v", coder, err)
 	}
 	watcher, registered, err := s.AgentRegister(ctx, AgentRegisterInput{
-		Agent:        model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "watcher-example", Role: model.AgentRoleWatcher, Enabled: true, RecommendedReasoning: model.ReasoningBestAvailable, CreatedAt: now, UpdatedAt: now},
-		WriteOptions: WriteOptions{ExpectedHubRevision: registered.Hub.After},
+		Agent: model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "watcher-example", Role: model.AgentRoleWatcher, Enabled: true, RecommendedReasoning: model.ReasoningBestAvailable, CreatedAt: now, UpdatedAt: now},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: registered.Hub.After,
+		},
 	})
 	if err != nil || watcher.AgentID != "watcher-example" {
 		t.Fatalf("register test watcher agent: %#v err=%v", watcher, err)
@@ -113,7 +133,18 @@ func TestTaskCreateRequiresDurableProjectRecordWithoutGitLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.TaskCreate(ctx, TaskCreateInput{ProjectID: "orphan", Slug: "missing-project", Title: "Missing project", Objective: "Reject an orphan project record.", AcceptanceCriteria: []string{"reject"}, OperationClass: "implementation", CreatedBy: "test", WriteOptions: WriteOptions{ExpectedHubRevision: seeded.After}}); err == nil {
+	if _, _, err := s.TaskCreate(ctx, TaskCreateInput{
+		ProjectID:          "orphan",
+		Slug:               "missing-project",
+		Title:              "Missing project",
+		Objective:          "Reject an orphan project record.",
+		AcceptanceCriteria: []string{"reject"},
+		OperationClass:     "implementation",
+		CreatedBy:          "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: seeded.After,
+		},
+	}); err == nil {
 		t.Fatal("task creation accepted metadata without a durable project record")
 	}
 	if got, err := s.Hub.RemoteRevision(ctx); err != nil || got != seeded.After {

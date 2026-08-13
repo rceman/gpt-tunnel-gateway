@@ -52,7 +52,14 @@ func (s *Service) RetireRunRecords(ctx context.Context, in RunRetirementInput) (
 	if err != nil {
 		return RunRetirementResult{}, err
 	}
-	result := RunRetirementResult{DryRun: !in.Apply, ProjectID: in.ProjectID, HubBefore: revision, ReceiptPath: runRetirementPath(in.ProjectID), ChangedPaths: []string{}, Records: []model.RunRetirementRecord{}}
+	result := RunRetirementResult{
+		DryRun:       !in.Apply,
+		ProjectID:    in.ProjectID,
+		HubBefore:    revision,
+		ReceiptPath:  runRetirementPath(in.ProjectID),
+		ChangedPaths: []string{},
+		Records:      []model.RunRetirementRecord{},
+	}
 	if in.ExpectedHubRevision != "" && in.ExpectedHubRevision != revision {
 		return result, fmt.Errorf("HUB_REVISION_CONFLICT: expected %s, got %s", in.ExpectedHubRevision, revision)
 	}

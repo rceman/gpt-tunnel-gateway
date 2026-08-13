@@ -11,11 +11,29 @@ import (
 
 func readyTrainTaskForTest(t *testing.T, s *Service, hubRevision, title string) (model.TaskAuthoring, string) {
 	t.Helper()
-	task, created, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{ProjectID: "example", Title: title, Objective: "Produce one exact ready Task for Train admission.", ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
+	task, created, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
+		ProjectID:   "example",
+		Title:       title,
+		Objective:   "Produce one exact ready Task for Train admission.",
+		ADRRelation: model.TaskADRNoRequired,
+		CreatedBy:   "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ready, operation, err := s.TaskAuthoringReady(context.Background(), TaskAuthoringReadyInput{ProjectID: "example", TaskID: task.ID, ExpectedRevision: task.Revision, ExpectedRevisionSHA256: task.RevisionSHA256, ReadyBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: created.Hub.After}})
+	ready, operation, err := s.TaskAuthoringReady(context.Background(), TaskAuthoringReadyInput{
+		ProjectID:              "example",
+		TaskID:                 task.ID,
+		ExpectedRevision:       task.Revision,
+		ExpectedRevisionSHA256: task.RevisionSHA256,
+		ReadyBy:                "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: created.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,14 +48,30 @@ func TestTrainV2ServicePersistsPureAdmissionResults(t *testing.T) {
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	first, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "First train item")
 	second, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "Second train item")
-	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{ProjectID: "example", TaskIDs: []string{first.ID}, CreatedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}})
+	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
+		ProjectID: "example",
+		TaskIDs:   []string{first.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if train.ID != "EXM-TRN1" || train.Status != model.TrainV2Planned || len(train.Items) != 1 || operation.Status != model.TrainV2Planned {
 		t.Fatalf("unexpected persisted Train: %#v %#v", train, operation)
 	}
-	added, addOperation, err := s.TrainV2Add(context.Background(), TrainV2AddInput{ProjectID: "example", TrainID: train.ID, TaskIDs: []string{second.ID}, ExpectedRevision: train.Revision, AddedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After}})
+	added, addOperation, err := s.TrainV2Add(context.Background(), TrainV2AddInput{
+		ProjectID:        "example",
+		TrainID:          train.ID,
+		TaskIDs:          []string{second.ID},
+		ExpectedRevision: train.Revision,
+		AddedBy:          "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.Hub.After,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +82,10 @@ func TestTrainV2ServicePersistsPureAdmissionResults(t *testing.T) {
 	if err != nil || read.Revision != added.Revision {
 		t.Fatalf("read wiring failed: %#v %v", read, err)
 	}
-	listed, err := s.TrainV2List(context.Background(), TrainV2ListInput{ProjectID: "example", Limit: 10})
+	listed, err := s.TrainV2List(context.Background(), TrainV2ListInput{
+		ProjectID: "example",
+		Limit:     10,
+	})
 	if err != nil || len(listed.Trains) != 1 {
 		t.Fatalf("list wiring failed: %#v %v", listed, err)
 	}
@@ -65,12 +102,26 @@ func TestTrainV2ServicePersistsPureAdmissionResults(t *testing.T) {
 
 func TestTrainV2ServiceKeepsAuthorityAndProjectGuards(t *testing.T) {
 	s, hubRevision, _ := testServiceWithoutIdentifiers(t)
-	if _, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{ProjectID: "example", TaskIDs: []string{"EXM-TSK1"}, CreatedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}}); err == nil {
+	if _, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
+		ProjectID: "example",
+		TaskIDs:   []string{"EXM-TSK1"},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	}); err == nil {
 		t.Fatal("legacy project accepted Train v2 creation")
 	}
 	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
-	if _, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{ProjectID: "example", TaskIDs: []string{"ZZZ-TSK1"}, CreatedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision}}); err == nil {
+	if _, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
+		ProjectID: "example",
+		TaskIDs:   []string{"ZZZ-TSK1"},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	}); err == nil {
 		t.Fatal("cross-project Task was accepted")
 	}
 }

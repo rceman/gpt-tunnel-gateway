@@ -51,7 +51,13 @@ func (s *Service) TrainV2MigrateAttempts(ctx context.Context, in TrainV2AttemptM
 	if err != nil {
 		return TrainV2AttemptMigrationResult{}, err
 	}
-	result := TrainV2AttemptMigrationResult{DryRun: !in.Apply, ProjectID: in.ProjectID, TrainID: in.TrainID, HubBefore: checkRevision, ChangedPaths: []string{}}
+	result := TrainV2AttemptMigrationResult{
+		DryRun:       !in.Apply,
+		ProjectID:    in.ProjectID,
+		TrainID:      in.TrainID,
+		HubBefore:    checkRevision,
+		ChangedPaths: []string{},
+	}
 	if in.ExpectedHubRevision != "" && in.ExpectedHubRevision != checkRevision {
 		return result, fmt.Errorf("HUB_REVISION_CONFLICT: expected %s, got %s", in.ExpectedHubRevision, checkRevision)
 	}
@@ -321,7 +327,10 @@ func (s *Service) findExactRecoveredTrainSource(ctx context.Context, train model
 			found = append(found, struct {
 				raw  []byte
 				path string
-			}{raw: original, path: recovery.SourcePath})
+			}{
+				raw:  original,
+				path: recovery.SourcePath,
+			})
 		}
 	}
 	if len(found) != 1 {

@@ -12,7 +12,12 @@ import (
 
 func TestGlobalRunCutoverRejectsLegacyDispatchWithoutHubMutation(t *testing.T) {
 	s, revision, _ := testService(t)
-	_, _, err := s.TaskDispatch(context.Background(), DispatchInput{TaskID: "EXM-TSK1", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+	_, _, err := s.TaskDispatch(context.Background(), DispatchInput{
+		TaskID: "EXM-TSK1",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	})
 	if !errors.Is(err, errRunAuthorityRetired) {
 		t.Fatalf("TaskDispatch error = %v, want retired authority", err)
 	}
@@ -59,11 +64,25 @@ func TestActiveTrainAttemptPreservesConfigurationMutationSafety(t *testing.T) {
 	s, revision, _ := testService(t)
 	revision = enableTrainV2ForTest(t, s, revision)
 	task, revision := readyTrainTaskForTest(t, s, revision, "active Attempt safety")
-	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{ProjectID: "example", TaskIDs: []string{task.ID}, CreatedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: revision}})
+	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
+		ProjectID: "example",
+		TaskIDs:   []string{task.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.TrainV2Start(context.Background(), TrainV2StartInput{ProjectID: "example", TrainID: train.ID, StartedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After}}); err != nil {
+	if _, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
+		ProjectID: "example",
+		TrainID:   train.ID,
+		StartedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.Hub.After,
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	policy, err := s.ProjectWorkflowPolicyRead(context.Background(), "example")
@@ -78,7 +97,12 @@ func TestActiveTrainAttemptPreservesConfigurationMutationSafety(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(context.Background(), "planner"), ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: WriteOptions{ExpectedHubRevision: before}}); err == nil || !strings.Contains(err.Error(), "active Train Attempt") {
+	if _, _, err := s.ProjectWorkflowPolicyUpdate(trustedWorkflowPolicyContext(context.Background(), "planner"), ProjectWorkflowPolicyInput{
+		Policy: policy,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: before,
+		},
+	}); err == nil || !strings.Contains(err.Error(), "active Train Attempt") {
 		t.Fatalf("active Attempt policy mutation was not rejected: %v", err)
 	}
 	after, err := s.hubRevision(context.Background())

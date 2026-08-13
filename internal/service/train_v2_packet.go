@@ -70,7 +70,10 @@ func (s *Service) TrainV2TaskRead(ctx context.Context, projectID, taskID string)
 	if err != nil {
 		return TrainV2TaskPacket{}, err
 	}
-	trains, err := s.TrainV2List(ctx, TrainV2ListInput{ProjectID: projectID, Limit: model.MaxTrainV2Items})
+	trains, err := s.TrainV2List(ctx, TrainV2ListInput{
+		ProjectID: projectID,
+		Limit:     model.MaxTrainV2Items,
+	})
 	if err != nil && !IsNotFound(err) {
 		return TrainV2TaskPacket{}, err
 	}
@@ -101,7 +104,13 @@ func (s *Service) TrainV2TaskRead(ctx context.Context, projectID, taskID string)
 		return TrainV2TaskPacket{}, err
 	}
 	if !foundItem {
-		return TrainV2TaskPacket{Task: task, ProjectConfiguration: configuration, WorkflowPolicy: policy, Recovery: "This Task is planned and ready for Train admission; no execution Attempt exists yet.", Text: renderTrainV2Packet(task, model.TrainV2{}, model.TrainV2Item{}, nil, project, configuration, policy, "")}, nil
+		return TrainV2TaskPacket{
+			Task:                 task,
+			ProjectConfiguration: configuration,
+			WorkflowPolicy:       policy,
+			Recovery:             "This Task is planned and ready for Train admission; no execution Attempt exists yet.",
+			Text:                 renderTrainV2Packet(task, model.TrainV2{}, model.TrainV2Item{}, nil, project, configuration, policy, ""),
+		}, nil
 	}
 	var attempt *model.TrainV2Attempt
 	repositoryRoot := ""
@@ -113,7 +122,17 @@ func (s *Service) TrainV2TaskRead(ctx context.Context, projectID, taskID string)
 		}
 	}
 	text := renderTrainV2Packet(task, found, item, attempt, project, configuration, policy, repositoryRoot)
-	return TrainV2TaskPacket{Task: task, Train: found, Item: item, Attempt: attempt, ProjectConfiguration: configuration, WorkflowPolicy: policy, RepositoryRoot: repositoryRoot, Recovery: "Re-read this Train-owned packet and durable Train state before retrying after compaction.", Text: text}, nil
+	return TrainV2TaskPacket{
+		Task:                 task,
+		Train:                found,
+		Item:                 item,
+		Attempt:              attempt,
+		ProjectConfiguration: configuration,
+		WorkflowPolicy:       policy,
+		RepositoryRoot:       repositoryRoot,
+		Recovery:             "Re-read this Train-owned packet and durable Train state before retrying after compaction.",
+		Text:                 text,
+	}, nil
 }
 
 func renderTrainV2Packet(task model.TaskAuthoring, train model.TrainV2, item model.TrainV2Item, attempt *model.TrainV2Attempt, project model.Project, configuration model.ProjectConfiguration, policy model.ProjectWorkflowPolicy, root string) string {

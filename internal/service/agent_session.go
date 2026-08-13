@@ -69,7 +69,11 @@ func (s *Service) resolveAgentSession(ctx context.Context, projectID string) (st
 		return "", fmt.Errorf("project %q is not active", projectID)
 	}
 	if agents, listErr := s.AgentList(ctx, projectID); listErr == nil && len(agents) > 0 {
-		resolved, resolveErr := s.ResolveAgent(ctx, AgentResolveInput{ProjectID: projectID, Role: model.AgentRoleCoding, RequireUsable: false})
+		resolved, resolveErr := s.ResolveAgent(ctx, AgentResolveInput{
+			ProjectID:     projectID,
+			Role:          model.AgentRoleCoding,
+			RequireUsable: false,
+		})
 		if resolveErr != nil {
 			return "", resolveErr
 		}

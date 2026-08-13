@@ -22,7 +22,11 @@ type ProjectProjection struct {
 // ProjectStatus derives the bounded Train v2 roadmap projection from portable
 // Task and Train records only. It does not inspect Plan state or host bindings.
 func ProjectStatus(tasks []model.TaskAuthoring, trains []model.TrainV2) ProjectProjection {
-	projection := ProjectProjection{TaskCounts: map[string]int{}, TrainCounts: map[string]int{}, NextAction: "no pending Train v2 action"}
+	projection := ProjectProjection{
+		TaskCounts:  map[string]int{},
+		TrainCounts: map[string]int{},
+		NextAction:  "no pending Train v2 action",
+	}
 	for _, task := range tasks {
 		projection.TaskCounts[task.Status]++
 	}

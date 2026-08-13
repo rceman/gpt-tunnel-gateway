@@ -13,7 +13,18 @@ import (
 
 func TestRuntimeBindingUsesTrainItemAttemptIdentity(t *testing.T) {
 	stateDir := t.TempDir()
-	binding := RuntimeBinding{SchemaVersion: runtimeSchemaVersion, ProjectID: "gateway", TrainID: "GTW-TRN7", WorktreePath: ExpectedWorktreePath(stateDir, "gateway", "GTW-TRN7"), AgentID: "agent-1", SessionKey: "gateway_master", ItemPosition: 0, TaskID: "GTW-TSK179", AttemptNumber: 1, StartedAt: time.Now().UTC()}
+	binding := RuntimeBinding{
+		SchemaVersion: runtimeSchemaVersion,
+		ProjectID:     "gateway",
+		TrainID:       "GTW-TRN7",
+		WorktreePath:  ExpectedWorktreePath(stateDir, "gateway", "GTW-TRN7"),
+		AgentID:       "agent-1",
+		SessionKey:    "gateway_master",
+		ItemPosition:  0,
+		TaskID:        "GTW-TSK179",
+		AttemptNumber: 1,
+		StartedAt:     time.Now().UTC(),
+	}
 	if err := ValidateRuntimeBinding(binding, stateDir); err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +39,18 @@ func TestRuntimeBindingUsesTrainItemAttemptIdentity(t *testing.T) {
 
 func TestRetireRuntimeForRestartRemovesDispatchReceipt(t *testing.T) {
 	stateDir := t.TempDir()
-	binding := RuntimeBinding{SchemaVersion: runtimeSchemaVersion, ProjectID: "gateway", TrainID: "GTW-TRN7", WorktreePath: ExpectedWorktreePath(stateDir, "gateway", "GTW-TRN7"), AgentID: "agent-1", SessionKey: "gateway_master", ItemPosition: 0, TaskID: "GTW-TSK179", AttemptNumber: 1, StartedAt: time.Now().UTC()}
+	binding := RuntimeBinding{
+		SchemaVersion: runtimeSchemaVersion,
+		ProjectID:     "gateway",
+		TrainID:       "GTW-TRN7",
+		WorktreePath:  ExpectedWorktreePath(stateDir, "gateway", "GTW-TRN7"),
+		AgentID:       "agent-1",
+		SessionKey:    "gateway_master",
+		ItemPosition:  0,
+		TaskID:        "GTW-TSK179",
+		AttemptNumber: 1,
+		StartedAt:     time.Now().UTC(),
+	}
 	data, _ := json.Marshal(binding)
 	if err := fsutil.WriteFileAtomic(RuntimePath(stateDir, binding.ProjectID, binding.TrainID), data, 0o600); err != nil {
 		t.Fatal(err)

@@ -35,7 +35,11 @@ func (s *Service) TaskAuthoringUpdate(ctx context.Context, in TaskAuthoringUpdat
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	if !changed {
-		return current, OperationResult{ProjectID: current.ProjectID, TaskID: current.ID, Status: current.Status}, nil
+		return current, OperationResult{
+			ProjectID: current.ProjectID,
+			TaskID:    current.ID,
+			Status:    current.Status,
+		}, nil
 	}
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: update train_v2 task "+current.ID, func(w string) ([]string, error) {
 		var latest model.TaskAuthoring
@@ -60,7 +64,12 @@ func (s *Service) TaskAuthoringUpdate(ctx context.Context, in TaskAuthoringUpdat
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	return updated, OperationResult{Hub: tx, ProjectID: updated.ProjectID, TaskID: updated.ID, Status: updated.Status}, nil
+	return updated, OperationResult{
+		Hub:       tx,
+		ProjectID: updated.ProjectID,
+		TaskID:    updated.ID,
+		Status:    updated.Status,
+	}, nil
 }
 
 func (s *Service) TaskAuthoringReady(ctx context.Context, in TaskAuthoringReadyInput) (model.TaskAuthoring, OperationResult, error) {
@@ -78,7 +87,11 @@ func (s *Service) TaskAuthoringReady(ctx context.Context, in TaskAuthoringReadyI
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	if current.Status == model.TaskAuthoringReady {
-		return current, OperationResult{ProjectID: current.ProjectID, TaskID: current.ID, Status: current.Status}, nil
+		return current, OperationResult{
+			ProjectID: current.ProjectID,
+			TaskID:    current.ID,
+			Status:    current.Status,
+		}, nil
 	}
 	if err := s.validateAuthoringADRReferences(ctx, current); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
@@ -106,7 +119,12 @@ func (s *Service) TaskAuthoringReady(ctx context.Context, in TaskAuthoringReadyI
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	return ready, OperationResult{Hub: tx, ProjectID: ready.ProjectID, TaskID: ready.ID, Status: ready.Status}, nil
+	return ready, OperationResult{
+		Hub:       tx,
+		ProjectID: ready.ProjectID,
+		TaskID:    ready.ID,
+		Status:    ready.Status,
+	}, nil
 }
 
 func (s *Service) TaskAuthoringList(ctx context.Context, in TaskAuthoringListInput) (TaskAuthoringListResult, error) {
