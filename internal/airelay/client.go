@@ -3,6 +3,7 @@ package airelay
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -20,6 +21,14 @@ type Result struct {
 	Stderr     string    `json:"stderr"`
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at"`
+}
+
+type InterruptResult struct {
+	Outcome   string `json:"outcome"`
+	Requested bool   `json:"requested"`
+	ElapsedMS int    `json:"elapsed_ms,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 type SessionStatus struct {
@@ -85,6 +94,52 @@ func (c Client) Prompt(ctx context.Context, session, message string) (Result, er
 	}
 	if err != nil {
 		return result, fmt.Errorf("Airelay prompt failed: %w", err)
+	}
+	return result, nil
+}
+
+// Interrupt delegates turn interruption to Airelay's controller. Gateway
+// never writes PTY bytes or knows the harness-specific interrupt sequence.
+func (c Client) Interrupt(ctx context.Context, session string) (InterruptResult, error) {
+	if !sessionRE.MatchString(session) {
+		return InterruptResult{}, fmt.Errorf("invalid Airelay session key")
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	defer cancel()
+	var stdout, stderr tailBuffer
+	stdout.max, stderr.max = 8192, 8192
+	cmd := exec.CommandContext(ctx, c.Command, "interrupt", session, "--json", "--no-warn")
+	cmd.Env = cleanEnv()
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if ctx.Err() != nil {
+		return InterruptResult{
+			Outcome:   "timed_out",
+			Requested: true,
+		}, fmt.Errorf("Airelay interrupt timeout: %w", ctx.Err())
+	}
+	if stdout.exceeded || stderr.exceeded {
+		return InterruptResult{
+			Outcome:   "failed",
+			Requested: false,
+		}, fmt.Errorf("Airelay interrupt output exceeds limit")
+	}
+	var result InterruptResult
+	if decodeErr := json.Unmarshal([]byte(normalizeTail(stdout.String())), &result); decodeErr != nil || result.Outcome == "" {
+		if err != nil {
+			return InterruptResult{
+				Outcome:   "failed",
+				Requested: false,
+			}, fmt.Errorf("Airelay interrupt failed: %w", err)
+		}
+		return InterruptResult{
+			Outcome:   "failed",
+			Requested: false,
+		}, fmt.Errorf("Airelay interrupt returned invalid result")
+	}
+	if result.Outcome == "no_active_turn" {
+		result.Outcome = "already_idle"
 	}
 	return result, nil
 }
