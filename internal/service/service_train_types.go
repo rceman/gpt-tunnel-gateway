@@ -90,3 +90,28 @@ type TrainV2TaskPacket struct {
 	Recovery             string                      `json:"recovery"`
 	Text                 string                      `json:"text"`
 }
+
+type TaskWorkInput struct {
+	ProjectID            string `json:"project_id"`
+	TaskID               string `json:"task_id"`
+	StartedBy            string `json:"started_by,omitempty"`
+	AgentID              string `json:"agent_id,omitempty"`
+	RecommendedReasoning string `json:"recommended_reasoning,omitempty"`
+	WriteOptions
+}
+
+type TaskWorkResult struct {
+	TaskID        string `json:"task_id"`
+	TrainID       string `json:"train_id"`
+	ItemPosition  int    `json:"item_position"`
+	AttemptNumber uint64 `json:"attempt_number"`
+	AttemptStatus string `json:"attempt_status"`
+	PacketPath    string `json:"packet_path"`
+	WorktreePath  string `json:"worktree_path"`
+	Text          string `json:"text"`
+}
+
+type TaskFinalizeInput struct {
+	ProjectID string `json:"project_id"`
+	TaskID    string `json:"task_id"`
+}

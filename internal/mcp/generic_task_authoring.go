@@ -200,7 +200,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 	}); err != nil {
 		return err
 	}
-	return s.RegisterGenericAction(GenericAction{
+	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "task/read",
 		Description:  "Read a train_v2 Task specification or historical Task record.",
 		InputSchema:  obj(map[string]any{"task_id": str("Stable Task identifier.")}, "task_id"),
@@ -228,5 +228,8 @@ func (s *Server) registerTaskAuthoringActions() error {
 			}
 			return nil, fmt.Errorf("Task is not admitted to Train-v2")
 		},
-	})
+	}); err != nil {
+		return err
+	}
+	return s.registerTaskExecutionActions()
 }

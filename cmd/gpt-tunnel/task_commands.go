@@ -35,6 +35,20 @@ func task(ctx context.Context, s *service.Service, args []string) {
 			fatal(e)
 		}
 		output(t)
+	case "work":
+		require(args, 2)
+		result, e := s.TaskWork(ctx, service.TaskWorkInput{TaskID: args[1]})
+		if e != nil {
+			fatal(e)
+		}
+		output(result)
+	case "finalize":
+		require(args, 2)
+		result, e := s.TaskFinalize(ctx, service.TaskFinalizeInput{TaskID: args[1]})
+		if e != nil {
+			fatal(e)
+		}
+		output(result)
 	case "supersede":
 		require(args, 2)
 		f, _ := fileFlag("--file", args[2:])
