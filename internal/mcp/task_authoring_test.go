@@ -54,15 +54,19 @@ func TestTrainV2TaskAuthoringMCPWiringAndSchemaParity(t *testing.T) {
 			t.Fatalf("missing task authoring action contract %s: %#v", path, contract)
 		}
 		properties := contract["contract"].(map[string]any)["input_schema"].(map[string]any)["properties"].(map[string]any)
-		for _, forbidden := range []string{"branch", "base_revision", "worktree", "agent_id", "session_id"} {
+		for _, forbidden := range []string{"branch", "base_revision", "worktree", "agent_id", "session_id", "project_id"} {
 			if _, ok := properties[forbidden]; ok {
 				t.Fatalf("task authoring schema %s exposes execution field %q", path, forbidden)
 			}
 		}
 	}
-	created := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "task/create", "input": map[string]any{"project_id": "example", "title": "Generic planned task", "objective": "Exercise generic authoring wiring.", "adr_relation": model.TaskADRNoRequired, "created_by": "planner"}}}})))
+	created := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "task/create", "input": map[string]any{"title": "Generic planned task", "objective": "Exercise generic authoring wiring.", "adr_relation": model.TaskADRNoRequired, "created_by": "planner"}}}})))
 	if created["task"].(map[string]any)["status"] != model.TaskAuthoringPlanned {
 		t.Fatalf("generic task/create wiring failed: %#v", created)
+	}
+	withProject := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "task/create", "input": map[string]any{"project_id": "example", "title": "Rejected project field", "objective": "The session owns project authority.", "adr_relation": model.TaskADRNoRequired, "created_by": "planner"}}}})))
+	if withProject["is_error"] != true {
+		t.Fatalf("session-bound task/create accepted caller project_id: %#v", withProject)
 	}
 }
 
@@ -137,7 +141,7 @@ func TestTrainV2MCPWiringAndSchemaParity(t *testing.T) {
 			}
 		}
 	}
-	created := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "train/create", "input": map[string]any{"project_id": "example", "task_ids": []any{first.ID}, "created_by": "planner"}}}})))
+	created := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "train/create", "input": map[string]any{"task_ids": []any{first.ID}, "created_by": "planner"}}}})))
 	if created["train"].(map[string]any)["status"] != model.TrainV2Planned {
 		t.Fatalf("generic train/create wiring failed: %#v", created)
 	}

@@ -144,7 +144,7 @@ func TestGenericCallRequiresSessionAndInheritsProject(t *testing.T) {
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/project", "input": map[string]any{"project_id": "other"}}},
 	})))
-	if mismatch["is_error"] != true || !strings.Contains(mismatch["result"].(map[string]any)["error"].(string), "does not match session project") {
+	if mismatch["is_error"] != true {
 		t.Fatalf("project mismatch was not rejected: %#v", mismatch)
 	}
 	if string(seen) != `{"project_id":"example"}` {

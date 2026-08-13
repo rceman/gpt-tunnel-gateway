@@ -24,6 +24,8 @@ type GenericAction struct {
 	AuthorityRole          string
 	RequiresWorkflowPolicy bool
 	AllowLegacyOverride    bool
+	SessionBound           bool
+	ExecutionInputSchema   map[string]any
 	Execute                func(context.Context, json.RawMessage) (any, error)
 }
 
@@ -124,7 +126,8 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 				Authority: func(ctx context.Context) error {
 					return requireToolAuthority(ctx, toolName)
 				},
-				Execute: tool.Execute,
+				Execute:              tool.Execute,
+				ExecutionInputSchema: tool.InputSchema,
 			},
 			LegacyTool: toolName,
 		}
@@ -143,6 +146,9 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 	defer s.genericActionMu.RUnlock()
 	for path, action := range s.genericActions {
 		entry := genericActionEntry{GenericAction: action}
+		if entry.ExecutionInputSchema == nil {
+			entry.ExecutionInputSchema = action.InputSchema
+		}
 		if path == "task/create" {
 			if legacy, ok := legacy["task_create"]; ok {
 				entry.LegacyTool = "task_create"
@@ -154,7 +160,104 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		}
 		entries[path] = entry
 	}
+	for path, entry := range entries {
+		if !strings.HasPrefix(path, "project/") && !strings.HasPrefix(path, "runtime/") && (sessionBoundActionPath(path) || schemaHasProperty(entry.InputSchema, "project_id")) {
+			entry.SessionBound = true
+			entry.InputSchema = withoutProjectID(entry.InputSchema)
+			if entry.LegacyInputSchema != nil {
+				entry.LegacyInputSchema = entry.ExecutionInputSchema
+			}
+			entries[path] = entry
+		}
+	}
 	return entries
+}
+
+func sessionBoundActionPath(path string) bool {
+	for _, prefix := range []string{"adr/", "agent/", "git/", "operator/", "plan/", "task/", "train/", "watcher/"} {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func schemaHasProperty(schema map[string]any, name string) bool {
+	if schema == nil {
+		return false
+	}
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		if _, exists := properties[name]; exists {
+			return true
+		}
+		for _, child := range properties {
+			if nested, ok := child.(map[string]any); ok && schemaHasProperty(nested, name) {
+				return true
+			}
+		}
+	}
+	if branches, ok := schema["oneOf"].([]any); ok {
+		for _, branch := range branches {
+			if nested, ok := branch.(map[string]any); ok && schemaHasProperty(nested, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func withoutProjectID(schema map[string]any) map[string]any {
+	if schema == nil {
+		return nil
+	}
+	result, _ := stripProjectID(schema).(map[string]any)
+	return result
+}
+
+func stripProjectID(value any) any {
+	switch current := value.(type) {
+	case map[string]any:
+		result := make(map[string]any, len(current))
+		for key, child := range current {
+			if key == "properties" {
+				properties, ok := child.(map[string]any)
+				if ok {
+					filtered := make(map[string]any, len(properties))
+					for property, schema := range properties {
+						if property == "project_id" {
+							continue
+						}
+						filtered[property] = stripProjectID(schema)
+					}
+					result[key] = filtered
+					continue
+				}
+			}
+			if key == "required" {
+				list := stringList(child)
+				filtered := make([]string, 0, len(list))
+				for _, item := range list {
+					if item != "project_id" {
+						filtered = append(filtered, item)
+					}
+				}
+				if len(list) > 0 {
+					result[key] = filtered
+					continue
+				}
+			}
+			result[key] = stripProjectID(child)
+		}
+		return result
+	case []any:
+		result := make([]any, len(current))
+		for i, child := range current {
+			result[i] = stripProjectID(child)
+		}
+		return result
+	default:
+		return value
+	}
 }
 
 func genericCallInputSchema() map[string]any {

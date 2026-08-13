@@ -56,7 +56,7 @@ func TestPlanCutoverMCPCurrentFixtureStrictAndOneTime(t *testing.T) {
 	}
 	sessionID := genericSession(t, s, "example")
 	before := installed.After
-	read := genericStructured(t, callMCP(t, srv, planCall(t, sessionID, "plan/read", map[string]any{"project_id": "example"})))
+	read := genericStructured(t, callMCP(t, srv, planCall(t, sessionID, "plan/read", map[string]any{})))
 	if read["is_error"] != true {
 		t.Fatalf("schema-v1 read unexpectedly succeeded: %#v", read)
 	}
@@ -64,15 +64,15 @@ func TestPlanCutoverMCPCurrentFixtureStrictAndOneTime(t *testing.T) {
 	if err != nil || after != before {
 		t.Fatalf("ordinary plan/read mutated hub: before=%s after=%s err=%v", before, after, err)
 	}
-	unknown := genericStructured(t, callMCP(t, srv, planCall(t, sessionID, "plan/cutover", map[string]any{"project_id": "example", "updated_by": "owner", "unknown": true})))
+	unknown := genericStructured(t, callMCP(t, srv, planCall(t, sessionID, "plan/cutover", map[string]any{"updated_by": "owner", "unknown": true})))
 	if unknown["is_error"] != true {
 		t.Fatalf("unknown cutover field was accepted: %#v", unknown)
 	}
-	success := genericActionResult(t, callMCP(t, srv, planCall(t, sessionID, "plan/cutover", map[string]any{"project_id": "example", "updated_by": "owner"})))
+	success := genericActionResult(t, callMCP(t, srv, planCall(t, sessionID, "plan/cutover", map[string]any{"updated_by": "owner"})))
 	if success["status"] != "cut over" {
 		t.Fatalf("unexpected cutover content: %#v", success)
 	}
-	repeat := genericStructured(t, callMCP(t, srv, planCall(t, sessionID, "plan/cutover", map[string]any{"project_id": "example", "updated_by": "owner"})))
+	repeat := genericStructured(t, callMCP(t, srv, planCall(t, sessionID, "plan/cutover", map[string]any{"updated_by": "owner"})))
 	if repeat["is_error"] != true {
 		t.Fatalf("second cutover was accepted: %#v", repeat)
 	}
@@ -110,23 +110,23 @@ func TestSectionalPlanMCPToolsExposeCompactReadAndExplicitFullOperations(t *test
 		AuthorityContext: authority.WithDelivery(context.Background()),
 	}
 	sessionID := genericSession(t, s, "example")
-	read := genericActionResult(t, callMCP(t, srv, planCall(t, sessionID, "plan/read", map[string]any{"project_id": "example"})))
+	read := genericActionResult(t, callMCP(t, srv, planCall(t, sessionID, "plan/read", map[string]any{})))
 	if read["schema_version"] != float64(model.PlanSchemaVersion) || read["description"] != nil {
 		t.Fatalf("unexpected compact manifest: %#v", read)
 	}
-	created := genericActionResult(t, callMCP(t, srv, planCall(t, sessionID, "plan/section_create", map[string]any{"project_id": "example", "section_id": "operations", "title": "Operations", "short_description": "Operational steps", "description": "Full operational description", "updated_by": "gpt", "expected_hub_revision": planOp.Hub.After})))
+	created := genericActionResult(t, callMCP(t, srv, planCall(t, sessionID, "plan/section_create", map[string]any{"section_id": "operations", "title": "Operations", "short_description": "Operational steps", "description": "Full operational description", "updated_by": "gpt", "expected_hub_revision": planOp.Hub.After})))
 	if created["status"] == nil {
 		t.Fatalf("section create failed: %#v", created)
 	}
-	section := genericActionResult(t, callMCP(t, srv, planCall(t, sessionID, "plan/section_read", map[string]any{"project_id": "example", "section_id": "operations"})))
+	section := genericActionResult(t, callMCP(t, srv, planCall(t, sessionID, "plan/section_read", map[string]any{"section_id": "operations"})))
 	if section["description"] != "Full operational description" {
 		t.Fatalf("section read did not return full description: %#v", section)
 	}
-	updated := genericActionResult(t, callMCP(t, srv, planCall(t, sessionID, "plan/section_update", map[string]any{"project_id": "example", "section_id": "operations", "description": "Updated description", "updated_by": "gpt", "expected_section_revision": 1})))
+	updated := genericActionResult(t, callMCP(t, srv, planCall(t, sessionID, "plan/section_update", map[string]any{"section_id": "operations", "description": "Updated description", "updated_by": "gpt", "expected_section_revision": 1})))
 	if updated["status"] == nil {
 		t.Fatalf("section update failed: %#v", updated)
 	}
-	rendered := genericActionResult(t, callMCP(t, srv, planCall(t, sessionID, "plan/render", map[string]any{"project_id": "example"})))
+	rendered := genericActionResult(t, callMCP(t, srv, planCall(t, sessionID, "plan/render", map[string]any{})))
 	if !strings.Contains(rendered["text"].(string), "Updated description") {
 		t.Fatalf("render omitted section description: %#v", rendered)
 	}

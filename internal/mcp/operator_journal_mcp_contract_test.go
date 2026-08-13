@@ -24,6 +24,12 @@ func operatorMCPArguments(projectID, kind, summary string) map[string]any {
 	}
 }
 
+func sessionOperatorMCPArguments(kind, summary string) map[string]any {
+	args := operatorMCPArguments("example", kind, summary)
+	delete(args, "project_id")
+	return args
+}
+
 func TestOperatorJournalMCPContractsAndHappyPath(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{})}
 	tools := server.tools()
@@ -67,21 +73,21 @@ func TestOperatorJournalMCPContractsAndHappyPath(t *testing.T) {
 	request := func(id int, action string, input map[string]any) []byte {
 		return mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": action, "input": input}}})
 	}
-	recorded := genericActionResult(t, callMCP(t, server, request(1, "operator/record", operatorMCPArguments("example", "user_talk", "first context"))))
+	recorded := genericActionResult(t, callMCP(t, server, request(1, "operator/record", sessionOperatorMCPArguments("user_talk", "first context"))))
 	if _, ok := recorded["event"].(map[string]any); !ok {
 		t.Fatal("operator record omitted event")
 	}
-	checkpointArgs := map[string]any{"project_id": "example", "session_id": nil, "summary": "checkpoint", "content": map[string]any{"decisions": []string{}, "commitments": []string{"keep scope"}, "facts": []string{}, "assumptions": []string{}, "blockers": []string{}, "unresolved": []string{}, "next_actions": []string{}}, "references": map[string]any{"plan_sections": []string{}, "adrs": []string{}, "tasks": []string{}, "runs": []string{}, "commits": []string{}, "identities": []string{}}, "actor": "owner"}
+	checkpointArgs := map[string]any{"session_id": nil, "summary": "checkpoint", "content": map[string]any{"decisions": []string{}, "commitments": []string{"keep scope"}, "facts": []string{}, "assumptions": []string{}, "blockers": []string{}, "unresolved": []string{}, "next_actions": []string{}}, "references": map[string]any{"plan_sections": []string{}, "adrs": []string{}, "tasks": []string{}, "runs": []string{}, "commits": []string{}, "identities": []string{}}, "actor": "owner"}
 	genericActionResult(t, callMCP(t, server, request(2, "operator/checkpoint", checkpointArgs)))
-	history := genericActionResult(t, callMCP(t, server, request(3, "operator/history", map[string]any{"project_id": "example", "limit": 1})))
+	history := genericActionResult(t, callMCP(t, server, request(3, "operator/history", map[string]any{"limit": 1})))
 	if history["has_more"] != true || len(history["events"].([]any)) != 1 {
 		t.Fatalf("unexpected operator history page: %#v", history)
 	}
-	unknown := genericStructured(t, callMCP(t, server, request(4, "operator/record", map[string]any{"project_id": "example", "kind": "user_talk", "summary": "unknown", "content": map[string]any{}, "references": map[string]any{}, "actor": "owner", "unknown": true})))
+	unknown := genericStructured(t, callMCP(t, server, request(4, "operator/record", map[string]any{"kind": "user_talk", "summary": "unknown", "content": map[string]any{}, "references": map[string]any{}, "actor": "owner", "unknown": true})))
 	if unknown["is_error"] != true {
 		t.Fatalf("unknown operator field was accepted: %#v", unknown)
 	}
-	reserved := genericStructured(t, callMCP(t, server, request(5, "operator/record", operatorMCPArguments("example", "operation", "reserved"))))
+	reserved := genericStructured(t, callMCP(t, server, request(5, "operator/record", sessionOperatorMCPArguments("operation", "reserved"))))
 	if reserved["is_error"] != true {
 		t.Fatalf("reserved operator kind was accepted: %#v", reserved)
 	}

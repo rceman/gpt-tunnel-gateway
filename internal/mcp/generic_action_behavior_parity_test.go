@@ -115,24 +115,24 @@ func TestTypedAndGenericTaskListSearchStatusLimitCursorParity(t *testing.T) {
 	sessionID := genericSession(t, s, "example")
 
 	callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{
-		"project_id": "example", "query": "BETA", "status": "created", "limit": 10,
+		"query": "BETA", "status": "created", "limit": 10,
 	})
 	pageOne, _ := callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{
-		"project_id": "example", "limit": 2,
+		"limit": 2,
 	})
 	cursor, ok := pageOne["next_cursor"].(string)
 	if !ok || cursor == "" || pageOne["has_more"] != true {
 		t.Fatalf("task/list did not return bounded continuation: %#v", pageOne)
 	}
 	callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{
-		"project_id": "example", "limit": 2, "cursor": cursor,
+		"limit": 2, "cursor": cursor,
 	})
 
 	batch := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
 		"params": map[string]any{"name": "batch", "arguments": map[string]any{
 			"session_id": sessionID,
-			"calls":      []any{map[string]any{"action": "task/list", "input": map[string]any{"project_id": "example", "limit": 2}}},
+			"calls":      []any{map[string]any{"action": "task/list", "input": map[string]any{"limit": 2}}},
 		}},
 	})))
 	results := batch["results"].([]any)
@@ -140,7 +140,7 @@ func TestTypedAndGenericTaskListSearchStatusLimitCursorParity(t *testing.T) {
 		t.Fatalf("task/list batch failed: %#v", batch)
 	}
 	direct, _ := callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{
-		"project_id": "example", "limit": 2,
+		"limit": 2,
 	})
 	batchResult := results[0].(map[string]any)["result"].(map[string]any)
 	assertJSONEqual(t, direct, batchResult)
@@ -178,13 +178,13 @@ func TestTypedAndGenericAgentTailCursorParity(t *testing.T) {
 	}
 	sessionID := genericSession(t, s, "example")
 	pageOne, _ := callTypedAndGeneric(t, server, sessionID, "call", "agent/tail", map[string]any{
-		"project_id": "example", "lines": 2,
+		"lines": 2,
 	})
 	cursor, ok := pageOne["next_cursor"].(string)
 	if !ok || cursor == "" {
 		t.Fatalf("agent/tail did not return a cursor: %#v", pageOne)
 	}
 	callTypedAndGeneric(t, server, sessionID, "call", "agent/tail", map[string]any{
-		"project_id": "example", "lines": 2, "cursor": cursor,
+		"lines": 2, "cursor": cursor,
 	})
 }

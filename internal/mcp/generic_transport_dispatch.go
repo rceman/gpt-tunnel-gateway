@@ -58,6 +58,11 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	if !ok {
 		return genericActionError(action, fmt.Sprintf("unknown action %q; inspect schema with path=\"\"", action)), nil
 	}
+	if entry.SessionBound {
+		if err := validateGenericActionInput(entry.InputSchema, raw); err != nil {
+			return genericActionError(action, err.Error()+"; inspect schema with path=\""+action+"\""), nil
+		}
+	}
 	if record.ID != "" {
 		bootstrapContext := ctx
 		if elevated, err := authority.BootstrapSessionAuthority(ctx); err == nil {
@@ -74,9 +79,11 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 			return genericActionError(action, err.Error()), nil
 		}
 		ctx = resolved
-		raw, err = inheritSessionProject(entry.InputSchema, record.ProjectID, raw)
-		if err != nil {
-			return genericActionError(action, err.Error()), nil
+		if entry.SessionBound {
+			raw, err = inheritSessionProject(entry.ExecutionInputSchema, record.ProjectID, raw)
+			if err != nil {
+				return genericActionError(action, err.Error()), nil
+			}
 		}
 	}
 	if entry.RouteLegacyByProjectModel && entry.LegacyExecute != nil {
@@ -118,7 +125,11 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	}
 	started = true
 	s.recordRuntimeAction(ctx, record, "action_start", "info", action, nil)
-	if err := validateGenericActionInput(entry.InputSchema, raw); err != nil {
+	executionSchema := entry.InputSchema
+	if entry.ExecutionInputSchema != nil {
+		executionSchema = entry.ExecutionInputSchema
+	}
+	if err := validateGenericActionInput(executionSchema, raw); err != nil {
 		return genericActionError(action, err.Error()+"; inspect schema with path=\""+action+"\""), nil
 	}
 	value, err := entry.Execute(ctx, raw)

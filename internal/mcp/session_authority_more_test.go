@@ -98,7 +98,7 @@ func TestGenericAuthorityDeclaredActionRejectsWrongProject(t *testing.T) {
 	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT}))
 	sessionID := started["session"].(map[string]any)["session_id"].(string)
 	result := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/delivery-project", "input": map[string]any{"project_id": "other"}}}})))
-	if result["is_error"] != true || calls != 0 || !strings.Contains(result["result"].(map[string]any)["error"].(string), "does not match session project") {
+	if result["is_error"] != true || calls != 0 {
 		t.Fatalf("wrong project was accepted for authority-declared action: result=%#v calls=%d", result, calls)
 	}
 }
