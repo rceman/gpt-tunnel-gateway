@@ -22,6 +22,9 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 	}
 	if receipt, err := s.readTrainV2IntegrationReceipt(ctx, in.ProjectID, in.TrainID); err == nil {
 		if receipt.Status == "completed" {
+			if operation, operationErr := s.readIntegrationOperation(ctx, in.ProjectID, in.TrainID); operationErr == nil && operation.Phase != trainv2.IntegrationPhaseCompleted {
+				_, _ = s.advanceIntegrationOperation(ctx, operation, trainv2.IntegrationPhaseCompleted, operation.PostResult)
+			}
 			project, projectErr := s.projectConfig(in.ProjectID)
 			if projectErr != nil {
 				return trainv2.IntegrationReceipt{}, OperationResult{}, projectErr
@@ -170,30 +173,81 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 	if plan.Reconciliation {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("Train integration target still requires reconciliation")
 	}
-	preHook, err := runIntegrationHook(ctx, configuration.Integration.Pre, lane.Root)
+	operation, err := s.integrationOperation(ctx, in, laneHead, targetBranch, targetHead, time.Now().UTC())
 	if err != nil {
-		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("pre-integration hook failed: %w", err)
+		return trainv2.IntegrationReceipt{}, OperationResult{}, err
 	}
-	if plan.Status != "already_integrated" {
-		if err := s.Git.PushFastForward(ctx, project, targetBranch, targetHead, laneHead); err != nil {
-			return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("Train fast-forward push failed: %w", err)
+	if operation.Phase == trainv2.IntegrationPhaseRecoveryRequired {
+		return trainv2.IntegrationReceipt{}, OperationResult{
+			ProjectID: in.ProjectID,
+			Status:    operation.Phase,
+		}, fmt.Errorf("Train integration operation recovery_required")
+	}
+	preHook := operation.PreResult
+	if operation.Phase == trainv2.IntegrationPhasePrePending {
+		preHook, err = runIntegrationHook(ctx, configuration.Integration.Pre, lane.Root)
+		if err != nil {
+			return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("pre-integration hook failed: %w", err)
 		}
-		if err := s.Git.Refresh(ctx, project); err != nil {
+		operation, err = s.advanceIntegrationOperation(ctx, operation, trainv2.IntegrationPhasePreComplete, preHook)
+		if err != nil {
 			return trainv2.IntegrationReceipt{}, OperationResult{}, err
 		}
-		if targetHead, exists, err = s.Git.MirrorBranchHead(ctx, project, targetBranch); err != nil || !exists || targetHead != laneHead {
-			return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("integration branch did not reach proved Train head")
+	}
+	if operation.Phase == trainv2.IntegrationPhasePreComplete {
+		operation, err = s.advanceIntegrationOperation(ctx, operation, trainv2.IntegrationPhaseIntegratePending, "")
+		if err != nil {
+			return trainv2.IntegrationReceipt{}, OperationResult{}, err
 		}
 	}
-	postHook, err := runIntegrationHook(ctx, configuration.Integration.Post, project.Root)
-	if err != nil {
-		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("post-integration hook failed: %w", err)
+	if operation.Phase == trainv2.IntegrationPhaseIntegratePending {
+		if targetHead != laneHead {
+			if targetHead != operation.TargetBefore {
+				return trainv2.IntegrationReceipt{}, OperationResult{
+					ProjectID: in.ProjectID,
+					Status:    trainv2.IntegrationPhaseRecoveryRequired,
+				}, fmt.Errorf("Train integration operation recovery_required: target advanced unexpectedly")
+			}
+			if err := s.Git.PushFastForward(ctx, project, targetBranch, targetHead, laneHead); err != nil {
+				return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("Train fast-forward push failed: %w", err)
+			}
+			if err := s.Git.Refresh(ctx, project); err != nil {
+				return trainv2.IntegrationReceipt{}, OperationResult{}, err
+			}
+			if targetHead, exists, err = s.Git.MirrorBranchHead(ctx, project, targetBranch); err != nil || !exists || targetHead != laneHead {
+				return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("integration branch did not reach proved Train head")
+			}
+		}
+		operation, err = s.advanceIntegrationOperation(ctx, operation, trainv2.IntegrationPhaseIntegrateComplete, "")
+		if err != nil {
+			return trainv2.IntegrationReceipt{}, OperationResult{}, err
+		}
+	}
+	if operation.Phase == trainv2.IntegrationPhaseIntegrateComplete {
+		operation, err = s.advanceIntegrationOperation(ctx, operation, trainv2.IntegrationPhasePostPending, "")
+		if err != nil {
+			return trainv2.IntegrationReceipt{}, OperationResult{}, err
+		}
+	}
+	postHook := operation.PostResult
+	if operation.Phase == trainv2.IntegrationPhasePostPending {
+		postHook, err = runIntegrationHook(ctx, configuration.Integration.Post, project.Root)
+		if err != nil {
+			return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("post-integration hook failed: %w", err)
+		}
 	}
 	now := time.Now().UTC()
 	receipt := trainv2.IntegrationReceipt{SchemaVersion: 1, ProjectID: in.ProjectID, TrainID: in.TrainID, BaseRevision: start.BaseRevision, LaneHead: laneHead, TargetBefore: targetBefore, IntegrationHead: laneHead, RuntimeHead: laneHead, ProofCandidate: train.FullProof.CandidateHead, PreActivation: preHook, PreSmoke: preHook, PostActivation: postHook, PostSmoke: postHook, Status: "completed", NextAction: "complete", UpdatedAt: now}
 	if err := trainv2.ValidateIntegrationReceipt(receipt); err != nil {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, err
 	}
-	return s.completeTrainV2Integration(ctx, in, train.Revision, laneHead, TaskActivationResult{SourceHead: laneHead}, receipt, project, start.LaneBranch)
+	completed, operationResult, err := s.completeTrainV2Integration(ctx, in, train.Revision, laneHead, TaskActivationResult{SourceHead: laneHead}, receipt, project, start.LaneBranch)
+	if err != nil {
+		return completed, operationResult, err
+	}
+	if _, err := s.advanceIntegrationOperation(ctx, operation, trainv2.IntegrationPhaseCompleted, postHook); err != nil {
+		return completed, operationResult, err
+	}
+	return completed, operationResult, nil
 
 }

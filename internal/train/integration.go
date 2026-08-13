@@ -7,6 +7,52 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
+type IntegrationOperation struct {
+	SchemaVersion int       `json:"schema_version"`
+	OperationID   string    `json:"operation_id"`
+	ProjectID     string    `json:"project_id"`
+	TrainID       string    `json:"train_id"`
+	RequestSHA256 string    `json:"request_sha256"`
+	SourceHead    string    `json:"source_head"`
+	TargetBranch  string    `json:"target_branch"`
+	TargetBefore  string    `json:"target_before"`
+	Phase         string    `json:"phase"`
+	PreResult     string    `json:"pre_result,omitempty"`
+	PostResult    string    `json:"post_result,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+const (
+	IntegrationPhasePrePending        = "pre_pending"
+	IntegrationPhasePreComplete       = "pre_complete"
+	IntegrationPhaseIntegratePending  = "integrate_pending"
+	IntegrationPhaseIntegrateComplete = "integrate_complete"
+	IntegrationPhasePostPending       = "post_pending"
+	IntegrationPhaseCompleted         = "completed"
+	IntegrationPhaseRecoveryRequired  = "recovery_required"
+)
+
+func ValidateIntegrationOperation(v IntegrationOperation) error {
+	if v.SchemaVersion != 1 || model.ValidateProjectIdentifier(v.ProjectID) != nil {
+		return fmt.Errorf("invalid integration operation identity")
+	}
+	if _, _, err := model.ParseTrainV2ID(v.TrainID); err != nil {
+		return err
+	}
+	if model.ValidateObjectIdentifier(v.OperationID) != nil || len(v.RequestSHA256) != 64 || v.UpdatedAt.IsZero() {
+		return fmt.Errorf("invalid integration operation fields")
+	}
+	if model.ValidateCommitSHA(v.SourceHead) != nil || model.ValidateCommitSHA(v.TargetBefore) != nil || model.ValidateBranch(v.TargetBranch) != nil {
+		return fmt.Errorf("invalid integration operation source/target")
+	}
+	switch v.Phase {
+	case IntegrationPhasePrePending, IntegrationPhasePreComplete, IntegrationPhaseIntegratePending, IntegrationPhaseIntegrateComplete, IntegrationPhasePostPending, IntegrationPhaseCompleted, IntegrationPhaseRecoveryRequired:
+		return nil
+	default:
+		return fmt.Errorf("invalid integration operation phase")
+	}
+}
+
 // RebindImplementationProofs invalidates all execution evidence after a
 // server-owned replay. Rewritten commits cannot retain implementation proofs,
 // accepted reviews, or gate evidence; the admitted tasks return to the
