@@ -33,8 +33,6 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 		projectErr           error
 		wt                   gitx.WorktreeStatus
 		wtErr                error
-		plan                 model.Plan
-		planErr              error
 		workflowPolicy       model.ProjectWorkflowPolicy
 		workflowPolicyErr    error
 		tasks                []TaskRecord
@@ -48,7 +46,7 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 		projectConfiguration ProjectConfigurationStatus
 	)
 	var wg sync.WaitGroup
-	wg.Add(9)
+	wg.Add(8)
 	go func() {
 		defer wg.Done()
 		candidate, err := s.ProjectRead(componentCtx, id)
@@ -61,10 +59,6 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	go func() {
 		defer wg.Done()
 		wt, wtErr = s.Git.WorktreeStatus(componentCtx, local)
-	}()
-	go func() {
-		defer wg.Done()
-		plan, planErr = s.PlanRead(componentCtx, id)
 	}()
 	go func() {
 		defer wg.Done()
@@ -91,7 +85,7 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 		projectConfiguration = s.projectConfigurationStatus(componentCtx, id)
 	}()
 	wg.Wait()
-	progress := projectProgressFromInputs(plan, planErr, tasks, tasksErr, agentStatus, agentStatusErr, agentTail, agentTailErr)
+	progress := projectProgressFromInputs(tasks, tasksErr, agentStatus, agentStatusErr, agentTail, agentTailErr)
 	appendComponentError(&progress.ComponentErrors, "project", projectErr)
 	appendComponentError(&progress.ComponentErrors, "worktree", wtErr)
 	appendComponentError(&progress.ComponentErrors, "hub_revision", hubRevisionErr)
@@ -107,10 +101,10 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 		Project:              p,
 		Local:                local,
 		Worktree:             wt,
-		Plan:                 plan.StatusView(),
+		Plan:                 retiredPlanStatus(id),
 		HubRevision:          hubRevision,
 		Progress:             progress,
-		WorkflowPolicy:       workflowPolicyStatus(workflowPolicy, workflowPolicyErr, plan, tasks),
+		WorkflowPolicy:       workflowPolicyStatus(workflowPolicy, workflowPolicyErr, tasks),
 		ProjectConfiguration: projectConfiguration,
 	}, nil
 }

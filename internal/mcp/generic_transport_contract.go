@@ -53,6 +53,9 @@ func (s *Server) RegisterGenericAction(action GenericAction) error {
 	if !validGenericActionPath(action.Path) {
 		return fmt.Errorf("invalid generic action path %q", action.Path)
 	}
+	if strings.HasPrefix(action.Path, "plan/") {
+		return fmt.Errorf("plan actions are retired from the canonical action registry")
+	}
 	if action.Description == "" || action.InputSchema == nil || action.OutputSchema == nil || action.Execute == nil {
 		return fmt.Errorf("generic action %q is incomplete", action.Path)
 	}
@@ -108,7 +111,7 @@ func legacyActionPath(toolName string) string {
 func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]genericActionEntry {
 	entries := make(map[string]genericActionEntry, len(legacy))
 	for toolName, tool := range legacy {
-		if toolName == "system_ping" || toolName == "session" || toolName == "status" || toolName == "rules" || toolName == "project" || toolName == "project_status" || toolName == "agent_send" {
+		if toolName == "system_ping" || toolName == "session" || toolName == "status" || toolName == "rules" || toolName == "project" || toolName == "project_status" || toolName == "agent_send" || isRetiredPlanAction(toolName) {
 			continue
 		}
 		path := legacyActionPath(toolName)
@@ -146,6 +149,9 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 	s.genericActionMu.RLock()
 	defer s.genericActionMu.RUnlock()
 	for path, action := range s.genericActions {
+		if strings.HasPrefix(path, "plan/") {
+			continue
+		}
 		entry := genericActionEntry{GenericAction: action}
 		if entry.ExecutionInputSchema == nil {
 			entry.ExecutionInputSchema = action.InputSchema
@@ -172,6 +178,10 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		}
 	}
 	return entries
+}
+
+func isRetiredPlanAction(toolName string) bool {
+	return strings.HasPrefix(toolName, "plan_")
 }
 
 func sessionBoundActionPath(path string) bool {

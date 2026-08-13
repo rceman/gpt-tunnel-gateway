@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"sort"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -68,31 +67,9 @@ func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
 		if project.Status != "active" {
 			result.Issues = append(result.Issues, stateIssue("CONFIGURED_PROJECT_NOT_ACTIVE", id, "", s.projectPath(id), "configured project is not active"))
 		}
-		plan, planErr := s.PlanRead(ctx, id)
-		if planErr != nil {
-			if raw, rawErr := s.Hub.ReadFile(ctx, s.planPath(id)); rawErr == nil {
-				var object map[string]any
-				if json.Unmarshal(raw, &object) == nil {
-					if _, hasBody := object["body"]; hasBody {
-						result.Issues = append(result.Issues, stateIssue("LEGACY_PLAN_BODY", id, "", s.planPath(id), "workflow-v1 plan contains obsolete body field"))
-					}
-				}
-			}
-			result.Issues = append(result.Issues, stateIssue("CURRENT_PLAN_INVALID", id, "", s.planPath(id), planErr.Error()))
-			result.Plans = append(result.Plans, StatePlan{
-				ProjectID: id,
-				Valid:     false,
-			})
-			continue
-		}
-		result.ValidCurrentPlans = append(result.ValidCurrentPlans, id)
-		result.Plans = append(result.Plans, StatePlan{
-			ProjectID:    id,
-			Valid:        true,
-			ActiveTaskID: plan.ActiveTaskID,
-		})
 	}
-	sort.Strings(result.ValidCurrentPlans)
+	// Plan files remain immutable history and are intentionally not part of
+	// current-state validation after the Train-v2 cutover.
 	result.Valid = len(result.Issues) == 0
 	return result, nil
 }

@@ -172,7 +172,7 @@ func (s *Service) deriveTaskWorkflowPolicy(ctx context.Context, projectID, opera
 	return policy, effective, nil
 }
 
-func workflowPolicyStatus(policy model.ProjectWorkflowPolicy, err error, plan model.Plan, tasks []TaskRecord) ProjectWorkflowPolicyStatus {
+func workflowPolicyStatus(policy model.ProjectWorkflowPolicy, err error, tasks []TaskRecord) ProjectWorkflowPolicyStatus {
 	effectiveGates := model.EffectiveProjectWorkflowGates(nil)
 	if err != nil {
 		failClosedCI := model.WorkflowPolicyCI{
@@ -209,7 +209,7 @@ func workflowPolicyStatus(policy model.ProjectWorkflowPolicy, err error, plan mo
 		CorrectiveAction:  "none",
 	}
 	for _, item := range tasks {
-		if item.Task.ID != plan.ActiveTaskID || item.Task.OperationClass == "" {
+		if item.Task.OperationClass == "" || (item.State.Status != "dispatched" && item.State.Status != "running" && item.State.Status != "ready") {
 			continue
 		}
 		// The task projection is immutable evidence of the policy used when the

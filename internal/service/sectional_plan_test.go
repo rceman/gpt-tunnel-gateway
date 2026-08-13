@@ -265,7 +265,7 @@ func TestPlanSectionsSupportPartialUpdatesIndependentConflictsAndRender(t *testi
 	}
 }
 
-func TestProjectStatusReturnsCompactPlanOnly(t *testing.T) {
+func TestProjectStatusRetiresCurrentPlanProjection(t *testing.T) {
 	s, hubRevision, _ := testService(t)
 	title, summary := "Plan", "Summary"
 	operation, err := s.PlanUpdate(context.Background(), PlanUpdateInput{
@@ -299,8 +299,8 @@ func TestProjectStatusReturnsCompactPlanOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(status.Plan.Sections) != 1 || status.Plan.Sections[0] != "* Compact - Status line" {
-		t.Fatalf("compact plan missing section index: %#v", status.Plan)
+	if status.Plan.Revision != 0 || len(status.Plan.Queue) != 0 || len(status.Plan.Sections) != 0 {
+		t.Fatalf("project status retained current Plan projection: %#v", status.Plan)
 	}
 	encoded, err := json.Marshal(status)
 	if err != nil {

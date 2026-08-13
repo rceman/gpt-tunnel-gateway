@@ -85,7 +85,7 @@ func (s *Service) projectStatusTrainV2(ctx context.Context, id string, local con
 		Plan:                 retiredPlanStatus(id),
 		HubRevision:          hubRevision,
 		Progress:             progress,
-		WorkflowPolicy:       workflowPolicyStatus(policy, policyErr, model.Plan{}, nil),
+		WorkflowPolicy:       workflowPolicyStatus(policy, policyErr, nil),
 		ProjectConfiguration: configurationStatus,
 		TrainV2:              &projection,
 	}, nil
