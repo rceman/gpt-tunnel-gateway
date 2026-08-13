@@ -161,7 +161,7 @@ func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInp
 		Report: report,
 		Hub:    tx,
 	}
-	return s.advanceFinalizedTask(ctx, in.ProjectID, in.TaskID, result)
+	return s.advanceFinalizedTaskLocked(ctx, in.ProjectID, in.TaskID, result)
 }
 
 func (s *Service) reuseFinalizedTask(ctx context.Context, projectID, taskID string) (TrainV2AttemptFinalizeResult, bool, error) {
@@ -192,6 +192,15 @@ func (s *Service) reuseFinalizedTask(ctx context.Context, projectID, taskID stri
 }
 
 func (s *Service) advanceFinalizedTask(ctx context.Context, projectID, taskID string, result TrainV2AttemptFinalizeResult) (TrainV2AttemptFinalizeResult, error) {
+	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "train-"+result.Report.TrainID)
+	if err != nil {
+		return TrainV2AttemptFinalizeResult{}, err
+	}
+	defer lock.Release()
+	return s.advanceFinalizedTaskLocked(ctx, projectID, taskID, result)
+}
+
+func (s *Service) advanceFinalizedTaskLocked(ctx context.Context, projectID, taskID string, result TrainV2AttemptFinalizeResult) (TrainV2AttemptFinalizeResult, error) {
 	train, err := s.TrainV2Read(ctx, projectID, result.Report.TrainID)
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
@@ -199,10 +208,10 @@ func (s *Service) advanceFinalizedTask(ctx context.Context, projectID, taskID st
 	for _, item := range train.Items {
 		if item.TaskID == taskID {
 			if item.Position+1 < len(train.Items) && train.Items[item.Position+1].Status == model.TrainV2ItemQueued {
-				advanced, err := s.TrainV2Advance(ctx, TrainV2AdvanceInput{
+				advanced, err := s.advanceTrainV2Locked(ctx, TrainV2AdvanceInput{
 					ProjectID: projectID,
 					TrainID:   train.ID,
-				})
+				}, true)
 				if err != nil {
 					return TrainV2AttemptFinalizeResult{}, err
 				}

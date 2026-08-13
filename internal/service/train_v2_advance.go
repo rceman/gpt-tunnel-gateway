@@ -26,11 +26,19 @@ func (s *Service) TrainV2Advance(ctx context.Context, in TrainV2AdvanceInput) (t
 	if _, _, err := model.ParseTrainV2ID(in.TrainID); err != nil {
 		return trainv2.StartResult{}, err
 	}
-	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "train-"+in.TrainID)
-	if err != nil {
-		return trainv2.StartResult{}, err
+	return s.advanceTrainV2Locked(ctx, in, false)
+}
+
+func (s *Service) advanceTrainV2Locked(ctx context.Context, in TrainV2AdvanceInput, lockHeld bool) (trainv2.StartResult, error) {
+	var lock *lockfile.Lock
+	var err error
+	if !lockHeld {
+		lock, err = lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "train-"+in.TrainID)
+		if err != nil {
+			return trainv2.StartResult{}, err
+		}
+		defer lock.Release()
 	}
-	defer lock.Release()
 
 	train, err := s.TrainV2Read(ctx, in.ProjectID, in.TrainID)
 	if err != nil {
