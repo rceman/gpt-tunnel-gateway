@@ -16,7 +16,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
-	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
+	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 )
 
 const OutputLimit = 1 << 20
@@ -88,7 +88,13 @@ func ProveSource(ctx context.Context, c config.Config, configPath string, projec
 	if err := liveMCPSmoke(ctx, c, targetVersion); err != nil {
 		return Result{}, err
 	}
-	return Result{SourceHead: sourceHead, Activation: "already_active", Smoke: "passed", TunnelPID: status.Tunnel.PID, GatewayPID: status.Gateway.PID}, nil
+	return Result{
+		SourceHead: sourceHead,
+		Activation: "already_active",
+		Smoke:      "passed",
+		TunnelPID:  status.Tunnel.PID,
+		GatewayPID: status.Gateway.PID,
+	}, nil
 }
 
 func sha256File(path string) (string, error) {
@@ -144,32 +150,31 @@ func Source(ctx context.Context, c config.Config, configPath string, project con
 	if err != nil {
 		return Result{}, fmt.Errorf("release build failed: %s", BoundedOutput(output))
 	}
-	gatewayArtifact := filepath.Join(release, "gpt-tunnel-gatewayd")
-	if info, err := os.Stat(gatewayArtifact); err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
-		return Result{}, fmt.Errorf("release gateway artifact is invalid")
-	}
-	if got, err := binaryVersion(gatewayArtifact); err != nil || got != targetVersion {
-		return Result{}, fmt.Errorf("release gateway version does not match VERSION")
-	}
-	installed := c.Controller.GatewayBinary
-	old, err := os.ReadFile(installed)
-	if err != nil {
+	if err := releaseartifacts.ValidateRelease(release, targetVersion); err != nil {
 		return Result{}, err
 	}
-	artifact, err := os.ReadFile(gatewayArtifact)
-	if err != nil {
-		return Result{}, err
+	paths := releaseartifacts.Paths(c.Controller.GatewayBinary)
+	old := make(map[string][]byte, len(releaseartifacts.BinaryNames))
+	for _, name := range releaseartifacts.BinaryNames {
+		old[name], err = os.ReadFile(paths[name])
+		if err != nil {
+			return Result{}, err
+		}
 	}
-	if err := fsutil.WriteFileAtomic(installed, artifact, 0o755); err != nil {
+	if err := releaseartifacts.ReplaceAll(release, paths, old); err != nil {
 		return Result{}, err
 	}
 	restore := func() {
-		_ = fsutil.WriteFileAtomic(installed, old, 0o755)
+		_ = releaseartifacts.RestoreAll(paths, old)
 		_ = ctl.RestartGatewayAfterUpgrade()
 	}
 	if err := ctl.RestartGatewayAfterUpgrade(); err != nil {
 		restore()
 		return Result{}, fmt.Errorf("gateway activation failed: %w", err)
+	}
+	if err := releaseartifacts.VerifyInstalled(release, paths); err != nil {
+		restore()
+		return Result{}, err
 	}
 	after, err := ctl.Status(ctx)
 	if err != nil || after.Tunnel.PID != before.Tunnel.PID || !after.GatewayReady || !after.TunnelReady || !after.VersionMatch {
@@ -187,7 +192,13 @@ func Source(ctx context.Context, c config.Config, configPath string, project con
 		restore()
 		return Result{}, err
 	}
-	return Result{SourceHead: sourceHead, Activation: "passed", Smoke: "passed", TunnelPID: after.Tunnel.PID, GatewayPID: after.Gateway.PID}, nil
+	return Result{
+		SourceHead: sourceHead,
+		Activation: "passed",
+		Smoke:      "passed",
+		TunnelPID:  after.Tunnel.PID,
+		GatewayPID: after.Gateway.PID,
+	}, nil
 }
 
 func gitOutput(ctx context.Context, root string, args ...string) (string, error) {

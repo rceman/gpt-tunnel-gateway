@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 )
 
 func TestBoundedOutputIsDeterministicAndLimited(t *testing.T) {
@@ -53,5 +54,17 @@ func TestLiveMCPSmokeUsesCanonicalStatusTool(t *testing.T) {
 	}
 	if toolName != "status" {
 		t.Fatalf("live MCP smoke called %q, want canonical status", toolName)
+	}
+}
+
+func TestControlReleasePathsExcludeTunnelProcess(t *testing.T) {
+	paths := releaseartifacts.Paths("/opt/gpt-tunnel-gatewayd")
+	if len(paths) != len(releaseartifacts.BinaryNames) {
+		t.Fatalf("control release path count = %d, want %d", len(paths), len(releaseartifacts.BinaryNames))
+	}
+	for _, name := range []string{"airelay", "gpt-tunnel-client"} {
+		if _, ok := paths[name]; ok {
+			t.Fatalf("control release unexpectedly includes tunnel process %q", name)
+		}
 	}
 }
