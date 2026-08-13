@@ -55,6 +55,13 @@ func (s *Service) TaskAuthoringFind(ctx context.Context, taskID string) (model.T
 		return model.TaskAuthoring{}, err
 	}
 	for _, project := range projects {
+		enabled, configErr := s.trainV2Enabled(ctx, project.ID)
+		if configErr != nil {
+			return model.TaskAuthoring{}, configErr
+		}
+		if !enabled {
+			continue
+		}
 		task, readErr := s.TaskAuthoringRead(ctx, project.ID, taskID)
 		if readErr == nil {
 			return task, nil

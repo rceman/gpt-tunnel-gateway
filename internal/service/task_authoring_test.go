@@ -3,10 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
 func enableTrainV2ForTest(t *testing.T, s *Service, hubRevision string) string {
@@ -110,6 +113,53 @@ func TestTaskAuthoringRequiresTrainV2AndOptimisticRevision(t *testing.T) {
 	}
 	if _, _, err := s.TaskAuthoringUpdate(context.Background(), TaskAuthoringUpdateInput{ProjectID: "example", TaskID: task.ID, ExpectedRevision: task.Revision + 1, ExpectedRevisionSHA256: task.RevisionSHA256, UpdatedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After}}); err == nil {
 		t.Fatal("stale revision was accepted")
+	}
+}
+
+func TestTaskAuthoringFindSkipsEarlierLegacyProject(t *testing.T) {
+	s, hubRevision, _ := testServiceWithoutIdentifiers(t)
+	legacyID := "aaa-legacy"
+	_, legacyRoot, _ := testutil.RepoWithBareRemote(t)
+	s.Config.Projects[legacyID] = config.ProjectConfig{
+		Root: legacyRoot, Mirror: filepath.Join(t.TempDir(), "legacy-mirror.git"), Remote: "origin",
+		DefaultBranch: "main", AirelaySessionKey: "legacy_master",
+	}
+	registered, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{
+		Project: model.Project{
+			ID: legacyID, RepositoryURL: "git@example.invalid:legacy.git", DefaultBranch: "main",
+			WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: "b1a45b1e9475ab29dfd3e84d523b70897c7b8918",
+		},
+		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hubRevision = registered.Hub.After
+	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)
+	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
+	task, operation, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
+		ProjectID: "example", Title: "Canonical task", Objective: "Find the canonical train_v2 task.",
+		ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Hub.Transact(context.Background(), operation.Hub.After, "test: seed legacy task authoring collision", func(worktree string) ([]string, error) {
+		path := s.taskAuthoringPath(legacyID, task.ID)
+		if err := hub.WriteJSON(worktree, path, map[string]any{"schema_version": 999, "project_id": legacyID, "id": task.ID}); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, err := s.TaskAuthoringFind(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.ProjectID != "example" || found.ID != task.ID {
+		t.Fatalf("found task = %#v, want canonical example task %s", found, task.ID)
 	}
 }
 
