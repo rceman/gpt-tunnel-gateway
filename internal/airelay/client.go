@@ -23,6 +23,18 @@ type Result struct {
 	FinishedAt time.Time `json:"finished_at"`
 }
 
+type TranscriptLine struct {
+	Timestamp int64  `json:"timestamp"`
+	Text      string `json:"text"`
+}
+
+type TranscriptResult struct {
+	Lines      []TranscriptLine
+	ExitCode   int
+	StartedAt  time.Time
+	FinishedAt time.Time
+}
+
 type InterruptResult struct {
 	Outcome   string `json:"outcome"`
 	Requested bool   `json:"requested"`
@@ -210,6 +222,57 @@ func (c Client) TailWithSkip(ctx context.Context, session string, lines, skip in
 		return result, fmt.Errorf("Airelay tail skip exceeds available output")
 	}
 	result.Stdout = strings.Join(parts[:len(parts)-skip], "\n") + "\n"
+	return result, nil
+}
+
+// Transcript reads a bounded, oldest-to-newest window from Airelay's
+// persisted transcript. It is intentionally separate from Tail, which reads
+// only the live viewport.
+func (c Client) Transcript(ctx context.Context, session string, lines int) (TranscriptResult, error) {
+	if !sessionRE.MatchString(session) {
+		return TranscriptResult{}, fmt.Errorf("invalid Airelay session key")
+	}
+	if lines < 1 || lines > 200 {
+		return TranscriptResult{}, fmt.Errorf("invalid Airelay transcript line count")
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	defer cancel()
+	result := TranscriptResult{StartedAt: time.Now().UTC()}
+	cmd := exec.CommandContext(ctx, c.Command, "transcript", session, "--lines", fmt.Sprintf("%d", lines), "--order", "asc", "--json")
+	cmd.Env = cleanEnv()
+	var stdout, stderr tailBuffer
+	stdout.max, stderr.max = 64*1024, 8192
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	result.FinishedAt = time.Now().UTC()
+	if cmd.ProcessState != nil {
+		result.ExitCode = cmd.ProcessState.ExitCode()
+	} else {
+		result.ExitCode = -1
+	}
+	if ctx.Err() != nil {
+		return result, fmt.Errorf("Airelay transcript timeout: %w", ctx.Err())
+	}
+	if stdout.exceeded || stderr.exceeded {
+		return result, fmt.Errorf("Airelay transcript output exceeds limit")
+	}
+	if err != nil {
+		return result, fmt.Errorf("Airelay transcript failed")
+	}
+	var payload struct {
+		Lines []TranscriptLine `json:"lines"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout.String())), &payload); err != nil {
+		return result, fmt.Errorf("Airelay transcript returned invalid JSON")
+	}
+	if len(payload.Lines) > lines {
+		return result, fmt.Errorf("Airelay transcript exceeded requested bound")
+	}
+	for i := range payload.Lines {
+		payload.Lines[i].Text = normalizeTail(payload.Lines[i].Text)
+	}
+	result.Lines = payload.Lines
 	return result, nil
 }
 

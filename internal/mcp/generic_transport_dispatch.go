@@ -10,6 +10,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
+	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
@@ -79,6 +80,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 			return genericActionError(action, err.Error()), nil
 		}
 		ctx = resolved
+		ctx = service.WithAgentSessionID(ctx, record.ID)
 		if entry.SessionBound {
 			raw, err = inheritSessionProject(entry.ExecutionInputSchema, record.ProjectID, raw)
 			if err != nil {

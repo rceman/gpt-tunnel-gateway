@@ -164,11 +164,11 @@ func TestTypedAndGenericBoundedProjectListParity(t *testing.T) {
 	assertJSONEqual(t, projectResponse["result"].(map[string]any), projectGeneric)
 }
 
-func TestTypedAndGenericAgentTailCursorParity(t *testing.T) {
+func TestGenericAgentTailTranscriptDedupe(t *testing.T) {
 	s, _ := newWorkflowPolicyStatusService(t)
 	ctx := context.Background()
 	script := filepath.Join(t.TempDir(), "airelay")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf 'one\\ntwo\\nthree\\n'\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' '{\"lines\":[{\"timestamp\":1,\"text\":\"one\"},{\"timestamp\":2,\"text\":\"two\"},{\"timestamp\":3,\"text\":\"three\"}]}'\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	s.Airelay.Command = script
@@ -177,14 +177,16 @@ func TestTypedAndGenericAgentTailCursorParity(t *testing.T) {
 		AuthorityContext: authority.WithDelivery(ctx),
 	}
 	sessionID := genericSession(t, s, "example")
-	pageOne, _ := callTypedAndGeneric(t, server, sessionID, "call", "agent/tail", map[string]any{
-		"lines": 2,
-	})
-	cursor, ok := pageOne["next_cursor"].(string)
-	if !ok || cursor == "" {
-		t.Fatalf("agent/tail did not return a cursor: %#v", pageOne)
+	first := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"lines": 2}}}})))
+	if first["count"] != float64(2) || first["has_new_info"] != true {
+		t.Fatalf("initial transcript read=%#v", first)
 	}
-	callTypedAndGeneric(t, server, sessionID, "call", "agent/tail", map[string]any{
-		"lines": 2, "cursor": cursor,
-	})
+	repeat := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"lines": 2}}}})))
+	if repeat["count"] != float64(0) || repeat["has_new_info"] != false {
+		t.Fatalf("unchanged transcript was not deduped=%#v", repeat)
+	}
+	peek := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"lines": 2, "dedupe": false}}}})))
+	if peek["count"] != float64(2) {
+		t.Fatalf("dedupe=false did not return recent transcript=%#v", peek)
+	}
 }

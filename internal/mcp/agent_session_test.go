@@ -20,7 +20,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
 	script := filepath.Join(dir, "airelay")
-	body := "#!/bin/sh\ncase \"$1\" in\nprompt) printf 'sent\\n' ;;&\ntail) printf 'one\\ntwo\\nthree\\nfour\\nfive\\nsix\\n' ;;&\nsession-status) printf 'Controller: reachable (5ms)\\nAirelay version: 0.1.54\\nProtocol version: 1\\nState: busy\\n⚠ Selected model is at capacity.\\n' ;;&\nesac\n"
+	body := "#!/bin/sh\ncase \"$1\" in\nprompt) printf 'sent\\n' ;;&\ntranscript) printf '{\"lines\":[{\"timestamp\":1,\"text\":\"one\"},{\"timestamp\":2,\"text\":\"two\"},{\"timestamp\":3,\"text\":\"three\"},{\"timestamp\":4,\"text\":\"four\"}]}\\n' ;;&\ntail) printf 'one\\ntwo\\nthree\\nfour\\nfive\\nsix\\n' ;;&\nsession-status) printf 'Controller: reachable (5ms)\\nAirelay version: 0.1.54\\nProtocol version: 1\\nState: busy\\n⚠ Selected model is at capacity.\\n' ;;&\nesac\n"
 	// The fixture shell is intentionally POSIX-compatible; replace the case
 	// fall-through markers for shells that do not support ;;&.
 	body = strings.ReplaceAll(body, ";;&", ";;")
@@ -90,23 +90,30 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	}
 }
 
-func TestTailToolSchemasExposeOpaqueContinuation(t *testing.T) {
-	tools := (&Server{}).tools()
-	for _, name := range []string{"agent_tail"} {
-		tool, ok := tools[name]
-		if !ok {
-			t.Fatalf("missing %s", name)
-		}
-		properties := tool.InputSchema["properties"].(map[string]any)
-		cursor := properties["cursor"].(map[string]any)
-		if cursor["type"] != "string" || cursor["maxLength"] != 4096 {
-			t.Fatalf("%s cursor schema=%#v", name, cursor)
-		}
-		outputProperties := tool.OutputSchema["properties"].(map[string]any)
-		for _, field := range []string{"next_cursor", "has_more"} {
-			if _, ok := outputProperties[field]; !ok {
-				t.Fatalf("%s output omits %s: %#v", name, field, tool.OutputSchema)
-			}
+func TestTailToolSchemaIsSessionBoundAndCursorFree(t *testing.T) {
+	server := &Server{}
+	entries := server.genericActionRegistry(server.tools())
+	entry, ok := entries["agent/tail"]
+	if !ok || !entry.SessionBound {
+		t.Fatalf("agent/tail is not session-bound: %#v", entry)
+	}
+	properties := entry.InputSchema["properties"].(map[string]any)
+	if _, ok := properties["project_id"]; ok {
+		t.Fatal("agent/tail exposes project_id")
+	}
+	if _, ok := properties["skip"]; ok {
+		t.Fatal("agent/tail exposes skip")
+	}
+	if _, ok := properties["cursor"]; ok {
+		t.Fatal("agent/tail exposes cursor")
+	}
+	if _, ok := properties["dedupe"]; !ok {
+		t.Fatal("agent/tail omits dedupe")
+	}
+	outputProperties := entry.OutputSchema["properties"].(map[string]any)
+	for _, field := range []string{"lines", "count", "has_new_info", "overflow", "history_truncated"} {
+		if _, ok := outputProperties[field]; !ok {
+			t.Fatalf("agent/tail output omits %s: %#v", field, entry.OutputSchema)
 		}
 	}
 }

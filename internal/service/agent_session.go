@@ -6,18 +6,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
-	"github.com/rceman/gpt-tunnel-gateway/internal/tailcursor"
 )
 
-const (
-	agentDefaultTailLines = 4
-	agentMaxTailLines     = 200
-)
+const ()
 
 type AgentSendResult struct {
 	ProjectID  string    `json:"project_id"`
@@ -28,21 +23,6 @@ type AgentSendResult struct {
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at"`
 	Error      string    `json:"error,omitempty"`
-}
-
-type AgentTailResult struct {
-	ProjectID  string `json:"project_id"`
-	Text       string `json:"text"`
-	Lines      int    `json:"lines"`
-	Skip       int    `json:"skip"`
-	NextCursor string `json:"next_cursor"`
-	HasMore    bool   `json:"has_more"`
-}
-
-type AgentTailInput struct {
-	Lines  int
-	Skip   int
-	Cursor string
 }
 
 type AgentStatusResult struct {
@@ -116,57 +96,6 @@ func (s *Service) AgentSend(ctx context.Context, projectID, message string) (Age
 // interrupt, PTY input, or process-control operation is reachable here.
 func (s *Service) AgentPrompt(ctx context.Context, projectID, message string) (AgentSendResult, error) {
 	return s.AgentSend(ctx, projectID, message)
-}
-
-func (s *Service) AgentTail(ctx context.Context, projectID string, lines, skip int) (AgentTailResult, error) {
-	return s.AgentTailPage(ctx, projectID, AgentTailInput{
-		Lines: lines,
-		Skip:  skip,
-	})
-}
-
-func (s *Service) AgentTailPage(ctx context.Context, projectID string, input AgentTailInput) (AgentTailResult, error) {
-	lines, skip := input.Lines, input.Skip
-	if lines == 0 {
-		lines = agentDefaultTailLines
-	}
-	if lines < 1 || lines > agentMaxTailLines || skip < 0 || lines+skip > agentMaxTailLines || (input.Cursor != "" && skip != 0) {
-		return AgentTailResult{}, fmt.Errorf("invalid agent tail bounds")
-	}
-	session, err := s.resolveAgentSession(ctx, projectID)
-	if err != nil {
-		return AgentTailResult{}, err
-	}
-	result, err := s.Airelay.TailSnapshot(ctx, session, tailcursor.MaxSnapshotLines)
-	if err != nil {
-		return AgentTailResult{}, err
-	}
-	snapshot := agentSnapshotLines(result.Stdout)
-	var page tailcursor.Page
-	if input.Cursor == "" {
-		page, err = tailcursor.Initial("project:"+projectID, session, snapshot, lines, skip)
-	} else {
-		page, err = tailcursor.Continue("project:"+projectID, session, input.Cursor, snapshot, lines)
-	}
-	if err != nil {
-		return AgentTailResult{}, err
-	}
-	return AgentTailResult{
-		ProjectID:  projectID,
-		Text:       page.Text,
-		Lines:      lines,
-		Skip:       skip,
-		NextCursor: page.NextCursor,
-		HasMore:    page.HasMore,
-	}, nil
-}
-
-func agentSnapshotLines(text string) []string {
-	text = strings.TrimRight(text, "\r\n")
-	if text == "" {
-		return []string{}
-	}
-	return strings.Split(text, "\n")
 }
 
 func (s *Service) AgentStatus(ctx context.Context, projectID string) (AgentStatusResult, error) {

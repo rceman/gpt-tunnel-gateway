@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
@@ -24,7 +25,7 @@ func (s *Server) addRunTools(add toolAdder) {
 		}
 		return s.Service.AgentSend(ctx, projectID, text)
 	})
-	add("agent_tail", "Read a bounded incremental window from the configured project Airelay session.", agentTailInputSchema(false), func(ctx context.Context, raw json.RawMessage) (any, error) { return s.agentTailAction(ctx, raw, false) })
+	add("agent_tail", "Read a bounded incremental transcript window from the configured project Airelay session.", agentTailInputSchema(false), func(ctx context.Context, raw json.RawMessage) (any, error) { return s.agentTailAction(ctx, raw) })
 	add("agent_status", "Read bounded status and capacity warnings from the configured project Airelay session.", obj(map[string]any{"project_id": str("Registered project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		projectID, err := getString(raw, "project_id")
 		if err != nil {
@@ -44,7 +45,25 @@ func agentTailInputSchema(legacySkip bool) map[string]any {
 	return obj(properties, "project_id")
 }
 
-func (s *Server) agentTailAction(ctx context.Context, raw json.RawMessage, legacySkip bool) (any, error) {
+func agentTailSessionInputSchema() map[string]any {
+	lines := integer("Maximum number of transcript lines to return.", 1, 200)
+	lines["default"] = 30
+	return obj(map[string]any{
+		"lines":  lines,
+		"dedupe": map[string]any{"type": "boolean", "default": true},
+	})
+}
+
+func agentTailExecutionInputSchema() map[string]any {
+	lines := integer("Maximum number of transcript lines to return.", 1, 200)
+	return obj(map[string]any{
+		"project_id": str("Server-injected registered project identifier."),
+		"lines":      lines,
+		"dedupe":     map[string]any{"type": "boolean"},
+	}, "project_id")
+}
+
+func (s *Server) agentTailAction(ctx context.Context, raw json.RawMessage) (any, error) {
 	projectID, err := getString(raw, "project_id")
 	if err != nil {
 		return nil, err
@@ -53,12 +72,15 @@ func (s *Server) agentTailAction(ctx context.Context, raw json.RawMessage, legac
 	if err != nil {
 		return nil, err
 	}
-	skip := 0
-	if legacySkip {
-		skip, _, err = optionalInteger(raw, "skip")
-		if err != nil {
-			return nil, err
+	dedupe := true
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, fmt.Errorf("input must be an object")
+	}
+	if value, ok := fields["dedupe"]; ok {
+		if err := json.Unmarshal(value, &dedupe); err != nil {
+			return nil, fmt.Errorf("dedupe must be boolean")
 		}
 	}
-	return s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{Lines: lines, Skip: skip, Cursor: optionalString(raw, "cursor")})
+	return s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{Lines: lines, Dedupe: dedupe, DedupeSet: true, SessionID: service.AgentSessionID(ctx)})
 }

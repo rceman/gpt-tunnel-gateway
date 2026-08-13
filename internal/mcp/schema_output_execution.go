@@ -80,8 +80,8 @@ func agentSendOutputSchema() map[string]any {
 
 func agentTailOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"project_id": outputString(), "text": outputString(), "lines": outputInteger(), "skip": outputInteger(), "next_cursor": outputString(), "has_more": outputBoolean(),
-	}, "project_id", "text", "lines", "skip", "next_cursor", "has_more")
+		"lines": outputArray(outputString()), "count": outputInteger(), "has_new_info": outputBoolean(), "overflow": outputBoolean(), "history_truncated": outputBoolean(),
+	}, "lines", "count", "has_new_info", "overflow", "history_truncated")
 }
 
 func agentStatusOutputSchema() map[string]any {

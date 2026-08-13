@@ -21,33 +21,38 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 		}
 		output(v)
 	case "tail":
-		lines, skip := 4, 0
-		seenLines, seenSkip := false, false
+		lines := 0
+		dedupe := true
+		seenLines, seenDedupe := false, false
 		for i := 2; i < len(args); {
 			if i+1 >= len(args) {
 				usage()
 			}
-			value, err := strconv.Atoi(args[i+1])
-			if err != nil {
-				fatal(fmt.Errorf("invalid agent tail bound"))
-			}
 			switch args[i] {
 			case "--lines":
+				value, err := strconv.Atoi(args[i+1])
+				if err != nil {
+					fatal(fmt.Errorf("invalid agent tail bound"))
+				}
 				if seenLines {
 					usage()
 				}
 				lines, seenLines = value, true
-			case "--skip":
-				if seenSkip {
+			case "--dedupe":
+				if seenDedupe {
 					usage()
 				}
-				skip, seenSkip = value, true
+				value := args[i+1]
+				if value != "true" && value != "false" {
+					fatal(fmt.Errorf("invalid agent tail dedupe"))
+				}
+				dedupe, seenDedupe = value == "true", true
 			default:
 				usage()
 			}
 			i += 2
 		}
-		v, err := s.AgentTail(ctx, args[1], lines, skip)
+		v, err := s.AgentTailPage(ctx, args[1], service.AgentTailInput{Lines: lines, Dedupe: dedupe, DedupeSet: true})
 		if err != nil {
 			fatal(err)
 		}
