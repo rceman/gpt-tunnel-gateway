@@ -15,8 +15,12 @@ func TestTaskWorkStartsAndResumesByTaskIdentity(t *testing.T) {
 	revision = enableTrainV2ForTest(t, s, revision)
 	task, revision := readyTrainTaskForTest(t, s, revision, "Task identity work")
 	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
-		ProjectID: "example", TaskIDs: []string{task.ID}, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID: "example",
+		TaskIDs:   []string{task.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -57,8 +61,12 @@ func TestTaskFinalizeDerivesCanonicalCompletionPath(t *testing.T) {
 	revision = enableTrainV2ForTest(t, s, revision)
 	task, revision := readyTrainTaskForTest(t, s, revision, "Task identity finalize")
 	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
-		ProjectID: "example", TaskIDs: []string{task.ID}, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID: "example",
+		TaskIDs:   []string{task.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -98,8 +106,12 @@ func TestTaskWorkRejectsTaskOutsideCurrentTrain(t *testing.T) {
 	first, revision := readyTrainTaskForTest(t, s, revision, "Current Task")
 	other, _ := readyTrainTaskForTest(t, s, revision, "Non-current Task")
 	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
-		ProjectID: "example", TaskIDs: []string{first.ID}, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID: "example",
+		TaskIDs:   []string{first.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

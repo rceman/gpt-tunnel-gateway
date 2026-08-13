@@ -36,7 +36,10 @@ func (s *Server) registerTaskExecutionActions() error {
 		Description:  "Start or resume the exact current TrainItem Attempt addressed by Task identity.",
 		InputSchema:  taskWorkSchema(),
 		OutputSchema: taskExecutionOutputSchema(),
-		Annotations:  ToolAnnotations{DestructiveHint: true, IdempotentHint: true},
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TaskWorkInput
 			if err := decode(raw, &in); err != nil {
@@ -52,7 +55,10 @@ func (s *Server) registerTaskExecutionActions() error {
 		Description:  "Finalize the exact current TrainItem Attempt addressed by Task identity.",
 		InputSchema:  taskFinalizeSchema(),
 		OutputSchema: taskExecutionOutputSchema(),
-		Annotations:  ToolAnnotations{DestructiveHint: true, IdempotentHint: true},
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TaskFinalizeInput
 			if err := decode(raw, &in); err != nil {

@@ -34,7 +34,10 @@ func (s *Service) taskAttempt(ctx context.Context, projectID, taskID string) (cu
 	if _, err := s.TaskAuthoringRead(ctx, projectID, taskID); err != nil {
 		return currentTaskAttempt{}, err
 	}
-	trains, err := s.TrainV2List(ctx, TrainV2ListInput{ProjectID: projectID, Limit: model.MaxTrainV2Items})
+	trains, err := s.TrainV2List(ctx, TrainV2ListInput{
+		ProjectID: projectID,
+		Limit:     model.MaxTrainV2Items,
+	})
 	if err != nil {
 		return currentTaskAttempt{}, err
 	}
@@ -70,7 +73,12 @@ func (s *Service) taskAttempt(ctx context.Context, projectID, taskID string) (cu
 		if err := trainv2.ValidateRuntimeBinding(runtime, s.Config.StateDir); err != nil {
 			return currentTaskAttempt{}, err
 		}
-		found = currentTaskAttempt{Train: train, Item: item, Attempt: attempt, Runtime: runtime}
+		found = currentTaskAttempt{
+			Train:   train,
+			Item:    item,
+			Attempt: attempt,
+			Runtime: runtime,
+		}
 		foundCount++
 	}
 	if foundCount == 0 {
@@ -166,7 +174,10 @@ func (s *Service) TaskFinalize(ctx context.Context, in TaskFinalizeInput) (Train
 }
 
 func (s *Service) resolvePlannedTaskTrain(ctx context.Context, projectID, taskID string) (string, error) {
-	trains, err := s.TrainV2List(ctx, TrainV2ListInput{ProjectID: projectID, Limit: model.MaxTrainV2Items})
+	trains, err := s.TrainV2List(ctx, TrainV2ListInput{
+		ProjectID: projectID,
+		Limit:     model.MaxTrainV2Items,
+	})
 	if err != nil {
 		return "", err
 	}
