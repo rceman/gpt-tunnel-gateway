@@ -48,36 +48,16 @@ func genericStructured(t *testing.T, response map[string]any) map[string]any {
 
 func TestGenericSessionStartIsDiscoverableAndCreatesPlannerSession(t *testing.T) {
 	server := newSessionTestServer(t)
-
-	root := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "schema", "arguments": map[string]any{"path": ""}},
-	})))
-	if !containsString(stringList(root["domains"]), "session") {
-		t.Fatalf("generic schema root does not expose session domain: %#v", root)
-	}
-
-	contract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "session.start"}},
-	})))
-	if contract["kind"] != "action" || contract["path"] != "session.start" {
-		t.Fatalf("session.start schema was not exposed: %#v", contract)
-	}
-
 	dispatch := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{
-			"action": "session.start", "input": map[string]any{
-				"project_id": "example", "role": durableSession.RolePlanner, "session_type": durableSession.SessionTypeChatGPT,
-			},
+		"params": map[string]any{"name": "session", "arguments": map[string]any{
+			"action": "start", "project_id": "example", "role": durableSession.RolePlanner, "session_type": durableSession.SessionTypeChatGPT,
 		}},
 	})))
-	if dispatch["is_error"] != false {
-		t.Fatalf("session.start generic call failed: %#v", dispatch)
+	if dispatch["action"] != "start" {
+		t.Fatalf("session.start public call failed: %#v", dispatch)
 	}
-	result := dispatch["result"].(map[string]any)
-	session := result["session"].(map[string]any)
+	session := dispatch["session"].(map[string]any)
 	if session["role"] != durableSession.RolePlanner || !strings.HasPrefix(session["session_id"].(string), "SP-") {
 		t.Fatalf("generic planner bootstrap did not create SP session: %#v", session)
 	}
@@ -236,10 +216,9 @@ func TestGenericWorkflowPolicyMutationMatchesLegacyHandler(t *testing.T) {
 		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	sessionID := genericSessionWithRole(t, s, "example", durableSession.RolePlanner)
-	input["session_id"] = sessionID
-	legacy := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+	legacy := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "project_workflow_policy_update", "arguments": input},
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "project/workflow_policy_update", "input": input}},
 	})))
 	legacyPolicy := legacy["policy"].(map[string]any)
 	if legacyPolicy["revision"] != float64(current.Revision) {

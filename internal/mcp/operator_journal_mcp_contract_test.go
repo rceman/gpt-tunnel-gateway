@@ -8,16 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
-
-func operatorMCPRequest(t *testing.T, id int, name string, arguments map[string]any) []byte {
-	t.Helper()
-	return mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": map[string]any{"name": name, "arguments": arguments}})
-}
 
 func operatorMCPArguments(projectID, kind, summary string) map[string]any {
 	return map[string]any{
@@ -41,7 +37,7 @@ func TestOperatorJournalMCPContractsAndHappyPath(t *testing.T) {
 		}
 	}
 	if tools["operator_record"].Annotations != additiveExternalAnnotations() || tools["operator_checkpoint"].Annotations != additiveExternalAnnotations() || tools["operator_history"].Annotations != readOnlyAnnotations() {
-		t.Fatalf("unexpected operator annotations: record=%+v history=%+v checkpoint=%+v", tools["operator_record"].Annotations, tools["operator_history"].Annotations, tools["operator_checkpoint"].Annotations)
+		t.Fatalf("unexpected operator annotations")
 	}
 	now := time.Now().UTC()
 	session := "session"
@@ -53,39 +49,37 @@ func TestOperatorJournalMCPContractsAndHappyPath(t *testing.T) {
 	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
 	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
-	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
+	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
 	s := service.New(c)
-	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"}
+	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"}
 	registered, err := s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: project, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	adopted, _, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
-	if err != nil {
+	if _, _, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}}); err != nil {
 		t.Fatal(err)
 	}
-	_ = adopted
-	server = &Server{Service: s}
-	record := callMCP(t, server, operatorMCPRequest(t, 1, "operator_record", operatorMCPArguments("example", "user_talk", "first context")))
-	if result, ok := record["result"].(map[string]any); !ok || result["isError"] != false {
-		t.Fatalf("operator record failed: %#v", record)
+	server = &Server{Service: s, AuthorityContext: authority.WithDelivery(context.Background())}
+	sessionID := genericSession(t, s, "example")
+	request := func(id int, action string, input map[string]any) []byte {
+		return mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": action, "input": input}}})
+	}
+	recorded := genericActionResult(t, callMCP(t, server, request(1, "operator/record", operatorMCPArguments("example", "user_talk", "first context"))))
+	if _, ok := recorded["event"].(map[string]any); !ok {
+		t.Fatal("operator record omitted event")
 	}
 	checkpointArgs := map[string]any{"project_id": "example", "session_id": nil, "summary": "checkpoint", "content": map[string]any{"decisions": []string{}, "commitments": []string{"keep scope"}, "facts": []string{}, "assumptions": []string{}, "blockers": []string{}, "unresolved": []string{}, "next_actions": []string{}}, "references": map[string]any{"plan_sections": []string{}, "adrs": []string{}, "tasks": []string{}, "runs": []string{}, "commits": []string{}, "identities": []string{}}, "actor": "owner"}
-	checkpoint := callMCP(t, server, operatorMCPRequest(t, 2, "operator_checkpoint", checkpointArgs))
-	if result, ok := checkpoint["result"].(map[string]any); !ok || result["isError"] != false {
-		t.Fatalf("operator checkpoint failed: %#v", checkpoint)
+	genericActionResult(t, callMCP(t, server, request(2, "operator/checkpoint", checkpointArgs)))
+	history := genericActionResult(t, callMCP(t, server, request(3, "operator/history", map[string]any{"project_id": "example", "limit": 1})))
+	if history["has_more"] != true || len(history["events"].([]any)) != 1 {
+		t.Fatalf("unexpected operator history page: %#v", history)
 	}
-	history := callMCP(t, server, operatorMCPRequest(t, 3, "operator_history", map[string]any{"project_id": "example", "limit": 1}))
-	structured := history["result"].(map[string]any)["structuredContent"].(map[string]any)
-	if structured["has_more"] != true || len(structured["events"].([]any)) != 1 {
-		t.Fatalf("unexpected operator history page: %#v", structured)
-	}
-	unknown := callMCP(t, server, operatorMCPRequest(t, 4, "operator_record", map[string]any{"project_id": "example", "kind": "user_talk", "summary": "unknown", "content": map[string]any{}, "references": map[string]any{}, "actor": "owner", "unknown": true}))
-	if errObject, ok := unknown["error"].(map[string]any); !ok || errObject["code"] != float64(-32602) {
+	unknown := genericStructured(t, callMCP(t, server, request(4, "operator/record", map[string]any{"project_id": "example", "kind": "user_talk", "summary": "unknown", "content": map[string]any{}, "references": map[string]any{}, "actor": "owner", "unknown": true})))
+	if unknown["is_error"] != true {
 		t.Fatalf("unknown operator field was accepted: %#v", unknown)
 	}
-	reserved := callMCP(t, server, operatorMCPRequest(t, 5, "operator_record", operatorMCPArguments("example", "operation", "reserved")))
-	if result, ok := reserved["result"].(map[string]any); !ok || result["isError"] != true {
+	reserved := genericStructured(t, callMCP(t, server, request(5, "operator/record", operatorMCPArguments("example", "operation", "reserved"))))
+	if reserved["is_error"] != true {
 		t.Fatalf("reserved operator kind was accepted: %#v", reserved)
 	}
 }

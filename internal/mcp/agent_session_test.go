@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
@@ -34,36 +35,38 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatal(err)
 	}
 	adoptedPolicyRevision := adoptTestWorkflowPolicy(t, s, "example", registered.Hub.After)
-	srv := &Server{Service: s}
+	registeredAgentRevision := registerMCPTestCodingAgent(t, s, adoptedPolicyRevision)
+	srv := &Server{Service: s, AuthorityContext: authority.WithDelivery(context.Background())}
 	before, err := s.Hub.RemoteRevision(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	send := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_send","arguments":{"project_id":"example","message":"hello"}}}`))
-	sendResult := send["result"].(map[string]any)
-	if sendResult["isError"] != false || sendResult["structuredContent"].(map[string]any)["delivered"] != true {
+	sessionID := genericSession(t, s, "example")
+	send := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/send", "input": map[string]any{"project_id": "example", "message": "hello"}}}}))
+	sendResult := genericStructured(t, send)
+	if sendResult["is_error"] != false || sendResult["result"].(map[string]any)["delivered"] != true {
 		t.Fatalf("send failed: %#v", send)
 	}
 
-	tail := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"agent_tail","arguments":{"project_id":"example","lines":4}}}`))
-	tailResult := tail["result"].(map[string]any)
-	if tailResult["isError"] != false {
+	tail := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"project_id": "example", "lines": 4}}}}))
+	tailResult := genericStructured(t, tail)
+	if tailResult["is_error"] != false {
 		t.Fatalf("tail failed: %#v", tail)
 	}
 
-	status := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"agent_status","arguments":{"project_id":"example"}}}`))
-	statusResult := status["result"].(map[string]any)
-	statusContent := statusResult["structuredContent"].(map[string]any)
-	if statusResult["isError"] != false || statusContent["state"] != "running" || len(statusContent["capacity_warnings"].([]any)) != 1 {
+	status := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/status", "input": map[string]any{"project_id": "example", "agent_id": "coding-example"}}}}))
+	statusResult := genericStructured(t, status)
+	statusContent := statusResult["result"].(map[string]any)
+	if statusResult["is_error"] != false || statusContent["agent_id"] != "coding-example" || statusContent["registered"] != true {
 		t.Fatalf("status failed: %#v", status)
 	}
 
-	projectStatus := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"project_status","arguments":{"project_id":"example"}}}`))
-	projectStatusResult := projectStatus["result"].(map[string]any)
-	projectStatusContent := projectStatusResult["structuredContent"].(map[string]any)
-	if projectStatusResult["isError"] != false || projectStatusContent["progress"] == nil {
-		t.Fatalf("project status aggregation failed: %#v", projectStatus)
+	projectStatus := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": map[string]any{"name": "status", "arguments": map[string]any{"session_id": sessionID}}}))
+	projectStatusResult := genericStructured(t, projectStatus)
+	projectStatusContent := projectStatusResult["project_status"].(map[string]any)
+	if projectStatusContent["progress"] == nil {
+		t.Fatalf("session-bound project status aggregation failed: %#v", projectStatus)
 	}
 	local := projectStatusContent["local"].(map[string]any)
 	if _, ok := local["root"]; ok || strings.Contains(string(mustJSON(t, projectStatusContent)), c.Projects["example"].Root) || strings.Contains(string(mustJSON(t, projectStatusContent)), "example_master") {
@@ -73,12 +76,13 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatalf("project status schema exposed repository root: %s", schema)
 	}
 
-	unknown := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"agent_send","arguments":{"project_id":"example","message":"hello","session_key":"arbitrary"}}}`))
-	if unknown["error"].(map[string]any)["code"] != float64(-32602) {
+	unknown := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/send", "input": map[string]any{"project_id": "example", "message": "hello", "session_key": "arbitrary"}}}}))
+	unknownResult := genericStructured(t, unknown)
+	if unknownResult["is_error"] != true {
 		t.Fatalf("caller-supplied session key was accepted: %#v", unknown)
 	}
 	after, err := s.Hub.RemoteRevision(context.Background())
-	if err != nil || before != after || adoptedPolicyRevision != before {
+	if err != nil || before != after || registeredAgentRevision != before {
 		t.Fatalf("direct agent tools mutated durable workflow: before=%s after=%s err=%v", before, after, err)
 	}
 }

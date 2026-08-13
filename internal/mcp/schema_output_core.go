@@ -6,11 +6,23 @@ func projectConfigOutputSchema() map[string]any {
 	}, "remote", "default_branch")
 }
 
+func projectStatusOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(), "hub_revision": outputString(), "progress": projectProgressOutputSchema(), "workflow_policy": workflowPolicyStatusOutputSchema(), "project_configuration": projectConfigurationStatusOutputSchema(),
+	}, "project", "local", "worktree", "plan", "hub_revision", "progress", "workflow_policy", "project_configuration")
+}
+
 func coreToolOutputSchemas() map[string]map[string]any {
 	return map[string]map[string]any{
-		"call":    genericCallOutputSchema(),
-		"schema":  genericSchemaOutputSchema(),
-		"batch":   genericBatchOutputSchema(),
+		"call":   genericCallOutputSchema(),
+		"schema": genericSchemaOutputSchema(),
+		"batch":  genericBatchOutputSchema(),
+		"status": closedOutput(map[string]any{
+			"service": outputString(), "version": outputString(), "gateway_id": outputString(), "time": outputDateTime(),
+			"project_status": projectStatusOutputSchema(),
+		}, "service", "version", "gateway_id", "time"),
+		"rules":   workflowPolicyOutputSchema(),
+		"project": genericCallOutputSchema(),
 		"session": sessionOutputSchema(),
 		"system_ping": closedOutput(map[string]any{
 			"service": outputString(), "version": outputString(), "gateway_id": outputString(), "time": outputDateTime(),
@@ -24,7 +36,7 @@ func coreToolOutputSchemas() map[string]map[string]any {
 		"project_read":                   projectOutputSchema(),
 		"project_identifiers_read":       projectIdentifiersOutputSchema(),
 		"project_identifiers_adopt":      closedOutput(map[string]any{"identifiers": projectIdentifiersOutputSchema(), "operation": operationOutputSchema()}, "identifiers", "operation"),
-		"project_status":                 closedOutput(map[string]any{"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(), "hub_revision": outputString(), "progress": projectProgressOutputSchema(), "workflow_policy": workflowPolicyStatusOutputSchema(), "project_configuration": projectConfigurationStatusOutputSchema()}, "project", "local", "worktree", "plan", "hub_revision", "progress", "workflow_policy", "project_configuration"),
+		"project_status":                 projectStatusOutputSchema(),
 		"project_workflow_policy_read":   workflowPolicyOutputSchema(),
 		"project_workflow_policy_adopt":  closedOutput(map[string]any{"policy": workflowPolicyOutputSchema(), "operation": operationOutputSchema()}, "policy", "operation"),
 		"project_workflow_policy_update": closedOutput(map[string]any{"policy": workflowPolicyOutputSchema(), "operation": operationOutputSchema()}, "policy", "operation"),

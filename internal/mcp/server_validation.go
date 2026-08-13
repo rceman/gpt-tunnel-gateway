@@ -67,6 +67,9 @@ func validateToolArguments(schema map[string]any, raw json.RawMessage) error {
 		}
 	}
 	if _, exists := args["session_id"]; !exists {
+		if sessionless, _ := schema["x-sessionless"].(bool); sessionless {
+			return nil
+		}
 		bootstrapAction, _ := schema["x-allow-missing-session-action"].(string)
 		var action string
 		_ = json.Unmarshal(args["action"], &action)

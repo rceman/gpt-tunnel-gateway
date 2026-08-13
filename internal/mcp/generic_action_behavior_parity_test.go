@@ -55,9 +55,13 @@ func assertJSONEqual(t *testing.T, want, got map[string]any) {
 
 func callTypedAndGeneric(t *testing.T, server *Server, sessionID, name, action string, input map[string]any) (map[string]any, map[string]any) {
 	t.Helper()
+	arguments := input
+	if name == "call" {
+		arguments = map[string]any{"session_id": sessionID, "action": action, "input": input}
+	}
 	typed := typedStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": name, "arguments": input},
+		"params": map[string]any{"name": name, "arguments": arguments},
 	})))
 	generic := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
@@ -67,6 +71,13 @@ func callTypedAndGeneric(t *testing.T, server *Server, sessionID, name, action s
 			"input":      input,
 		}},
 	})))
+	if name == "call" {
+		result, ok := typed["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("public call omitted result: %#v", typed)
+		}
+		typed = result
+	}
 	assertJSONEqual(t, typed, generic)
 	return typed, generic
 }
@@ -103,17 +114,17 @@ func TestTypedAndGenericTaskListSearchStatusLimitCursorParity(t *testing.T) {
 	}
 	sessionID := genericSession(t, s, "example")
 
-	callTypedAndGeneric(t, server, sessionID, "task_list", "task/list", map[string]any{
+	callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{
 		"project_id": "example", "query": "BETA", "status": "created", "limit": 10,
 	})
-	pageOne, _ := callTypedAndGeneric(t, server, sessionID, "task_list", "task/list", map[string]any{
+	pageOne, _ := callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{
 		"project_id": "example", "limit": 2,
 	})
 	cursor, ok := pageOne["next_cursor"].(string)
 	if !ok || cursor == "" || pageOne["has_more"] != true {
 		t.Fatalf("task/list did not return bounded continuation: %#v", pageOne)
 	}
-	callTypedAndGeneric(t, server, sessionID, "task_list", "task/list", map[string]any{
+	callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{
 		"project_id": "example", "limit": 2, "cursor": cursor,
 	})
 
@@ -128,7 +139,7 @@ func TestTypedAndGenericTaskListSearchStatusLimitCursorParity(t *testing.T) {
 	if len(results) != 1 || results[0].(map[string]any)["is_error"] != false {
 		t.Fatalf("task/list batch failed: %#v", batch)
 	}
-	direct, _ := callTypedAndGeneric(t, server, sessionID, "task_list", "task/list", map[string]any{
+	direct, _ := callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{
 		"project_id": "example", "limit": 2,
 	})
 	batchResult := results[0].(map[string]any)["result"].(map[string]any)
@@ -142,7 +153,15 @@ func TestTypedAndGenericBoundedProjectListParity(t *testing.T) {
 		AuthorityContext: authority.WithDelivery(context.Background()),
 	}
 	sessionID := genericSession(t, s, "example")
-	callTypedAndGeneric(t, server, sessionID, "project_list", "project/list", map[string]any{"limit": 1})
+	projectResponse := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "project", "arguments": map[string]any{"action": "list", "input": map[string]any{"limit": 1}}},
+	})))
+	projectGeneric := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "project/list", "input": map[string]any{"limit": 1}}},
+	})))
+	assertJSONEqual(t, projectResponse["result"].(map[string]any), projectGeneric)
 }
 
 func TestTypedAndGenericAgentTailCursorParity(t *testing.T) {
@@ -158,14 +177,14 @@ func TestTypedAndGenericAgentTailCursorParity(t *testing.T) {
 		AuthorityContext: authority.WithDelivery(ctx),
 	}
 	sessionID := genericSession(t, s, "example")
-	pageOne, _ := callTypedAndGeneric(t, server, sessionID, "agent_tail", "agent/tail", map[string]any{
+	pageOne, _ := callTypedAndGeneric(t, server, sessionID, "call", "agent/tail", map[string]any{
 		"project_id": "example", "lines": 2,
 	})
 	cursor, ok := pageOne["next_cursor"].(string)
 	if !ok || cursor == "" {
 		t.Fatalf("agent/tail did not return a cursor: %#v", pageOne)
 	}
-	callTypedAndGeneric(t, server, sessionID, "agent_tail", "agent/tail", map[string]any{
+	callTypedAndGeneric(t, server, sessionID, "call", "agent/tail", map[string]any{
 		"project_id": "example", "lines": 2, "cursor": cursor,
 	})
 }

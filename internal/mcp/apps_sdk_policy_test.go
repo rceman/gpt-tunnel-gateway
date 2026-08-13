@@ -21,22 +21,20 @@ func TestWorkflowPolicyMutationFailsClosedWithoutTrustedAuthorityMCP(t *testing.
 	if !ok || read.Annotations != readOnlyAnnotations() {
 		t.Fatalf("workflow policy read is not the permitted public surface: %#v", read)
 	}
-	response := callMCP(t, &Server{Service: service.New(config.Config{})}, mustJSON(t, map[string]any{
+	server := newSessionTestServer(t)
+	sessionID := genericSession(t, server.Service, "example")
+	server.AuthorityContext = nil
+	response := callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "project_workflow_policy_adopt", "arguments": map[string]any{"policy": map[string]any{}}},
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "project/workflow_policy_update", "input": map[string]any{"policy": map[string]any{}}}},
 	}))
-	result, ok := response["result"].(map[string]any)
-	if !ok && response["error"] == nil {
+	structured := genericStructured(t, response)
+	if structured["is_error"] != true {
 		t.Fatalf("missing trusted authority was accepted: %#v", response)
 	}
-	if ok && result["isError"] != true {
-		t.Fatalf("missing trusted authority was accepted: %#v", response)
-	}
-	if ok {
-		text := result["content"].([]any)[0].(map[string]any)["text"].(string)
-		if !strings.Contains(text, "AUTHORITY_UNAVAILABLE") {
-			t.Fatalf("unexpected unavailable-authority error: %q", text)
-		}
+	text := structured["result"].(map[string]any)["error"].(string)
+	if !strings.Contains(text, "AUTHORITY_UNAVAILABLE") {
+		t.Fatalf("unexpected unavailable-authority error: %q", text)
 	}
 }
 

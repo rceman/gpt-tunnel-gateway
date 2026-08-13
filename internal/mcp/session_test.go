@@ -235,9 +235,9 @@ func TestGenericCallRequiresSessionAndInheritsProject(t *testing.T) {
 
 func TestSystemPingRemainsStandaloneAndGenericBatchContinues(t *testing.T) {
 	server := newSessionTestServer(t)
-	legacy := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "system_ping", "arguments": map[string]any{}}})))
-	if legacy["service"] != "gpt-tunnel-gatewayd" {
-		t.Fatalf("standalone system_ping failed: %#v", legacy)
+	status := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "status", "arguments": map[string]any{}}})))
+	if status["service"] != "gpt-tunnel-gatewayd" {
+		t.Fatalf("standalone status failed: %#v", status)
 	}
 	root := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "system"}}}))
 	result, ok := root["result"].(map[string]any)

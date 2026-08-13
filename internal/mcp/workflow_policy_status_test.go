@@ -111,14 +111,13 @@ func mutateWorkflowPolicyStatusFixture(t *testing.T, s *service.Service, revisio
 
 func readAndValidateProjectStatus(t *testing.T, s *service.Service) map[string]any {
 	t.Helper()
-	response := callMCP(t, &Server{Service: s}, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"project_status","arguments":{"project_id":"example"}}}`))
-	result, ok := response["result"].(map[string]any)
-	if !ok || result["isError"] != false {
-		t.Fatalf("project_status failed: %#v", response)
-	}
-	structured, ok := result["structuredContent"].(map[string]any)
+	server := &Server{Service: s}
+	sessionID := genericSession(t, s, "example")
+	response := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "status", "arguments": map[string]any{"session_id": sessionID}}}))
+	status := genericStructured(t, response)
+	structured, ok := status["project_status"].(map[string]any)
 	if !ok {
-		t.Fatalf("project_status omitted structuredContent: %#v", response)
+		t.Fatalf("status omitted bound project_status: %#v", response)
 	}
 	wire, err := json.Marshal(structured)
 	if err != nil {

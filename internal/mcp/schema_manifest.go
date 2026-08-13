@@ -9,19 +9,10 @@ func readOnlyAnnotations() ToolAnnotations {
 	}
 }
 
-// canonicalToolManifest is the single stable inventory used to verify that
-// registration, schemas, annotations, and contract tests describe the same
-// MCP surface. Its length is deliberately not a protocol assertion.
+// canonicalToolManifest is the single stable public MCP7 inventory. Legacy
+// handlers remain internal action registrations for call/batch resolution.
 var canonicalToolManifest = []string{
-	"call", "schema", "batch", "session", "system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_identifiers_adopt", "project_status", "project_onboard", "project_onboard_status", "project_onboard_recover", "project_workflow_policy_read", "project_workflow_policy_adopt", "project_workflow_policy_update",
-	"project_register", "plan_read", "plan_cutover", "plan_update", "plan_section_read",
-	"plan_section_create", "plan_section_update", "plan_section_delete", "plan_render", "plan_history",
-	"adr_list", "adr_read", "adr_create", "task_create", "task_revision_list", "task_revision_read", "task_revision_status", "task_correction_create", "task_list", "task_read",
-	"task_supersede", "git_refresh", "git_refs",
-	"agent_send", "agent_tail", "agent_status",
-	"operator_record", "operator_history", "operator_checkpoint",
-	"git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare", "git_merge_base",
-	"git_worktree_status", "git_worktree_diff",
+	"call", "batch", "schema", "status", "rules", "session", "project",
 }
 
 func canonicalToolNames() []string { return append([]string{}, canonicalToolManifest...) }
@@ -55,6 +46,9 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	result["schema"] = readOnlyAnnotations()
 	result["call"] = destructiveExternalAnnotations()
 	result["batch"] = destructiveExternalAnnotations()
+	result["status"] = readOnlyAnnotations()
+	result["rules"] = readOnlyAnnotations()
+	result["project"] = destructiveExternalAnnotations()
 	result["session"] = destructiveExternalAnnotations()
 	for _, name := range []string{
 		"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_status", "project_workflow_policy_read",

@@ -94,7 +94,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			Result:  map[string]any{},
 		})
 	case "tools/list":
-		tools := s.tools()
+		tools := s.publicTools()
 		names := make([]string, 0, len(tools))
 		for name := range tools {
 			names = append(names, name)
@@ -137,7 +137,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		tool, ok := s.tools()[call.Name]
+		tool, ok := s.publicTools()[call.Name]
 		if !ok {
 			s.write(w, response{
 				JSONRPC: "2.0",

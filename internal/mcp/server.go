@@ -113,16 +113,28 @@ func (s *Server) tools() map[string]Tool {
 		legacyTools[name] = tool
 	}
 	addGenericTransportTools(add, s, legacyTools)
+	addMCP7BootstrapTools(add, s, legacyTools)
 	for name, tool := range t {
 		if _, required := typedSessionAuthorityContract(name); required {
 			tool.InputSchema = typedSessionInputSchema(tool.InputSchema)
 			t[name] = tool
 		}
 	}
-	if err := validateCanonicalToolManifest(t); err != nil {
+	return t
+}
+
+func (s *Server) publicTools() map[string]Tool {
+	all := s.tools()
+	public := make(map[string]Tool, len(canonicalToolManifest))
+	for _, name := range canonicalToolManifest {
+		if tool, ok := all[name]; ok {
+			public[name] = tool
+		}
+	}
+	if err := validateCanonicalToolManifest(public); err != nil {
 		panic(err)
 	}
-	return t
+	return public
 }
 
 func validateCanonicalToolManifest(tools map[string]Tool) error {

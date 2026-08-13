@@ -13,7 +13,7 @@ import (
 
 func TestToolCallRejectsUnknownTopLevelArgument(t *testing.T) {
 	srv := &Server{Service: service.New(config.Config{GatewayID: "test"})}
-	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"system_ping","arguments":{"unexpected":true}}}`)
+	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"status","arguments":{"unexpected":true}}}`)
 	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:1/mcp", bytes.NewReader(body))
 	req.Host = "127.0.0.1:1"
 	req.RemoteAddr = "127.0.0.1:1234"
@@ -30,7 +30,7 @@ func TestToolCallRejectsUnknownTopLevelArgument(t *testing.T) {
 
 func TestToolCallRejectsUnknownEnvelopeField(t *testing.T) {
 	srv := &Server{Service: service.New(config.Config{GatewayID: "test"})}
-	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"system_ping","arguments":{},"unexpected":true}}`)
+	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"status","arguments":{},"unexpected":true}}`)
 	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:1/mcp", bytes.NewReader(body))
 	req.Host = "127.0.0.1:1"
 	req.RemoteAddr = "127.0.0.1:1234"
