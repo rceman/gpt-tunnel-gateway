@@ -117,10 +117,6 @@ func (s *Service) taskListQuery(ctx context.Context, in TaskListInput, unbounded
 			HasMore: false,
 		}, nil
 	}
-	runs, err := s.RunList(ctx, in.ProjectID)
-	if err != nil {
-		return TaskListResult{}, err
-	}
 	items := make([]TaskRecord, 0, len(candidates))
 	for _, candidate := range candidates {
 		var currentRevision *model.TaskRevision
@@ -131,15 +127,10 @@ func (s *Service) taskListQuery(ctx context.Context, in TaskListInput, unbounded
 			}
 			currentRevision = &revision
 		}
-		summaries, err := s.taskReviewSummaries(ctx, candidate.task, runs)
-		if err != nil {
-			return TaskListResult{}, err
-		}
 		items = append(items, TaskRecord{
 			Task:            candidate.task,
 			State:           candidate.state,
 			CurrentRevision: currentRevision,
-			RunSummaries:    summaries,
 		})
 	}
 	result := TaskListResult{

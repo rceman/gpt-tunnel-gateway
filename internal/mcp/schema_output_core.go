@@ -1,5 +1,11 @@
 package mcp
 
+func projectConfigOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"remote": outputString(), "default_branch": outputString(),
+	}, "remote", "default_branch")
+}
+
 func coreToolOutputSchemas() map[string]map[string]any {
 	return map[string]map[string]any{
 		"call":    genericCallOutputSchema(),

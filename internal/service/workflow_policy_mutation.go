@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -29,7 +28,7 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
 	}
 	defer projectLock.Release()
-	if err := s.rejectActiveWorkflowPolicyRun(ctx, policy.ProjectID); err != nil {
+	if err := s.rejectActiveWorkflowExecution(ctx, policy.ProjectID); err != nil {
 		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
 	}
 	configuration, configurationErr := s.ProjectConfigurationRead(ctx, policy.ProjectID)
@@ -74,7 +73,7 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 	configurationPath := s.projectConfigurationPath(policy.ProjectID)
 	legacyPath := s.workflowPolicyPath(policy.ProjectID)
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: adopt workflow policy "+policy.ProjectID, func(worktree string) ([]string, error) {
-		if err := s.rejectActiveWorkflowPolicyRunInWorktree(worktree, policy.ProjectID); err != nil {
+		if err := s.rejectActiveWorkflowExecutionInWorktree(worktree, policy.ProjectID); err != nil {
 			return nil, err
 		}
 		projectPath := s.projectPath(policy.ProjectID)
@@ -109,44 +108,26 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 	}, nil
 }
 
-func (s *Service) rejectActiveWorkflowPolicyRun(ctx context.Context, projectID string) error {
-	runs, err := s.RunList(ctx, projectID)
+func (s *Service) rejectActiveWorkflowExecution(ctx context.Context, projectID string) error {
+	active, err := s.projectHasActiveTrainAttempt(ctx, projectID)
 	if err != nil {
-		return err
+		return fmt.Errorf("inspect active Train Attempt: %w", err)
 	}
-	for _, run := range runs {
-		if run.ProjectID == projectID && operationalActiveRun(run) {
-			return fmt.Errorf("workflow policy mutation blocked by active run %s", run.ID)
-		}
+	if active {
+		return fmt.Errorf("workflow policy cannot change while an active Train Attempt exists")
 	}
 	return nil
 }
 
-func (s *Service) rejectActiveWorkflowPolicyRunInWorktree(worktree, projectID string) error {
-	root := filepath.Join(worktree, filepath.FromSlash(s.projectPrefix(projectID)+"/runs"))
-	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			if os.IsNotExist(walkErr) {
-				return nil
-			}
-			return walkErr
-		}
-		if entry.IsDir() || entry.Name() != "run.json" {
-			return nil
-		}
-		data, err := fsutil.ReadFileBounded(path, s.Config.MaxReadBytes)
-		if err != nil {
-			return err
-		}
-		run, _, err := model.DecodeRunRecord(data)
-		if err != nil {
-			return fmt.Errorf("decode policy run: %w", err)
-		}
-		if run.ProjectID == projectID && operationalActiveRun(run) {
-			return fmt.Errorf("workflow policy mutation blocked by active run %s", run.ID)
-		}
-		return nil
-	})
+func (s *Service) rejectActiveWorkflowExecutionInWorktree(worktree, projectID string) error {
+	active, err := activeTrainAttemptInWorktree(worktree, projectID)
+	if err != nil {
+		return fmt.Errorf("inspect active Train Attempt: %w", err)
+	}
+	if active {
+		return fmt.Errorf("workflow policy cannot change while an active Train Attempt exists")
+	}
+	return nil
 }
 
 func (s *Service) ProjectWorkflowPolicyUpdate(ctx context.Context, in ProjectWorkflowPolicyInput) (model.ProjectWorkflowPolicy, OperationResult, error) {

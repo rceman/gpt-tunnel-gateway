@@ -51,11 +51,6 @@ func ValidatePlan(v Plan) error {
 			return fmt.Errorf("invalid active task: %w", err)
 		}
 	}
-	if v.ActiveRunID != "" {
-		if err := ValidateObjectIdentifier(v.ActiveRunID); err != nil {
-			return fmt.Errorf("invalid active run: %w", err)
-		}
-	}
 	if v.UpdatedBy == "" || strings.ContainsAny(v.UpdatedBy, "\r\n\x00") || v.UpdatedAt.IsZero() {
 		return fmt.Errorf("invalid plan update metadata")
 	}

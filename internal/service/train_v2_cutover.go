@@ -87,26 +87,8 @@ func (s *Service) TrainV2Cutover(ctx context.Context, in TrainV2CutoverInput) (m
 	if err != nil || !runtime.GatewayReady || !runtime.TunnelReady || !runtime.VersionMatch {
 		return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("exact target runtime is not active and version-matched")
 	}
-	runs, err := s.RunList(ctx, in.ProjectID)
-	if err != nil && !IsNotFound(err) {
-		return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("historical run compatibility check failed: %w", err)
-	}
-	runHistoryOK := err == nil || IsNotFound(err)
+	runHistoryOK := true
 	activeLegacy := 0
-	for _, run := range runs {
-		if run.TrainID == "" && operationalActiveRun(run) {
-			activeLegacy++
-		}
-	}
-	legacyTrains, legacyTrainErr := s.TaskTrainList(ctx, in.ProjectID)
-	if legacyTrainErr != nil && !IsNotFound(legacyTrainErr) {
-		return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("legacy task-train compatibility check failed: %w", legacyTrainErr)
-	}
-	for _, legacyTrain := range legacyTrains {
-		if legacyTrain.Status != model.TaskTrainCompleted {
-			return model.TrainV2CutoverReceipt{}, OperationResult{}, fmt.Errorf("active legacy TaskTrain-v1 %q blocks Train v2 cutover", model.CanonicalTaskTrainID(legacyTrain))
-		}
-	}
 	trains, err := s.readTrainV2Records(ctx, in.ProjectID)
 	if err != nil && !IsNotFound(err) {
 		return model.TrainV2CutoverReceipt{}, OperationResult{}, err

@@ -148,10 +148,10 @@ type TrainV2AttemptMigrationReceipt struct {
 	UpdatedAt     time.Time                     `json:"updated_at"`
 }
 
-// TrainV2RunRetirementRecord is immutable migration evidence for a pre-cutover
-// Run record. It is not a runtime Run representation and is never resolved by
+// RunRetirementRecord is immutable migration evidence for a pre-cutover Run
+// record. It is not a runtime Run representation and is never resolved by
 // task, train, or run ID alone.
-type TrainV2RunRetirementRecord struct {
+type RunRetirementRecord struct {
 	SchemaVersion      int    `json:"schema_version"`
 	ProjectID          string `json:"project_id"`
 	SourcePath         string `json:"source_path"`
@@ -162,16 +162,16 @@ type TrainV2RunRetirementRecord struct {
 	OriginalRunJSONB64 string `json:"original_run_json_base64"`
 }
 
-type TrainV2RunRetirementReceipt struct {
-	SchemaVersion int                          `json:"schema_version"`
-	ProjectID     string                       `json:"project_id"`
-	State         string                       `json:"state"`
-	HubBefore     string                       `json:"hub_before"`
-	HubAfter      string                       `json:"hub_after"`
-	Records       []TrainV2RunRetirementRecord `json:"records"`
-	Reason        string                       `json:"reason"`
-	CreatedAt     time.Time                    `json:"created_at"`
-	UpdatedAt     time.Time                    `json:"updated_at"`
+type RunRetirementReceipt struct {
+	SchemaVersion int                   `json:"schema_version"`
+	ProjectID     string                `json:"project_id"`
+	State         string                `json:"state"`
+	HubBefore     string                `json:"hub_before"`
+	HubAfter      string                `json:"hub_after"`
+	Records       []RunRetirementRecord `json:"records"`
+	Reason        string                `json:"reason"`
+	CreatedAt     time.Time             `json:"created_at"`
+	UpdatedAt     time.Time             `json:"updated_at"`
 }
 
 type TrainV2ImplementationProof struct {
@@ -363,7 +363,7 @@ func ValidateTrainV2AttemptReview(v TrainV2AttemptReview) error {
 	return nil
 }
 
-func ValidateTrainV2RunRetirementRecord(v TrainV2RunRetirementRecord) error {
+func ValidateRunRetirementRecord(v RunRetirementRecord) error {
 	if v.SchemaVersion != TrainV2AttemptSchemaVersion || ValidateProjectIdentifier(v.ProjectID) != nil || strings.TrimSpace(v.SourcePath) == "" || strings.HasPrefix(v.SourcePath, "/") || strings.Contains(v.SourcePath, "..") || !strings.HasSuffix(v.SourcePath, "/run.json") || !strings.Contains(v.SourcePath, "/runs/") {
 		return fmt.Errorf("invalid Train-v2 Run retirement source")
 	}
@@ -381,13 +381,13 @@ func ValidateTrainV2RunRetirementRecord(v TrainV2RunRetirementRecord) error {
 	return nil
 }
 
-func ValidateTrainV2RunRetirementReceipt(v TrainV2RunRetirementReceipt) error {
+func ValidateRunRetirementReceipt(v RunRetirementReceipt) error {
 	if v.SchemaVersion != TrainV2AttemptSchemaVersion || ValidateProjectIdentifier(v.ProjectID) != nil || v.State != "completed" || !shaRE.MatchString(v.HubBefore) || !shaRE.MatchString(v.HubAfter) || strings.TrimSpace(v.Reason) == "" || v.CreatedAt.IsZero() || v.UpdatedAt.IsZero() || len(v.Records) > 4096 {
 		return fmt.Errorf("invalid Train-v2 Run retirement receipt")
 	}
 	seen := make(map[string]struct{}, len(v.Records))
 	for _, record := range v.Records {
-		if err := ValidateTrainV2RunRetirementRecord(record); err != nil {
+		if err := ValidateRunRetirementRecord(record); err != nil {
 			return err
 		}
 		if _, ok := seen[record.SourcePath]; ok {

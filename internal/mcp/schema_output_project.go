@@ -28,7 +28,7 @@ func projectOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"schema_version": outputInteger(), "id": outputString(), "repository_url": outputString(),
 		"default_branch": outputString(), "workflow_repository": outputString(), "workflow_commit": outputString(),
-		"status": outputString(), "active_task_id": outputString(), "active_run_id": outputString(),
+		"status": outputString(), "active_task_id": outputString(),
 		"created_at": outputDateTime(), "updated_at": outputDateTime(),
 	}, "schema_version", "id", "repository_url", "default_branch", "workflow_repository", "workflow_commit", "status", "created_at", "updated_at")
 }
@@ -40,8 +40,8 @@ func planOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"schema_version": outputInteger(), "project_id": outputString(), "revision": outputInteger(),
 		"title": outputString(), "summary": outputString(), "current_objective": outputString(), "queue": outputArray(outputString()), "sections": outputArray(sectionIndex),
-		"active_task_id": outputString(), "active_run_id": outputString(),
-		"updated_by": outputString(), "updated_at": outputDateTime(),
+		"active_task_id": outputString(),
+		"updated_by":     outputString(), "updated_at": outputDateTime(),
 	}, "schema_version", "project_id", "revision", "title", "summary", "current_objective", "queue", "sections", "updated_by", "updated_at")
 }
 
@@ -49,7 +49,7 @@ func planStatusOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"schema_version": outputInteger(), "project_id": outputString(), "revision": outputInteger(),
 		"title": outputString(), "summary": outputString(), "current_objective": outputString(), "queue": outputArray(outputString()), "sections": outputArray(outputString()),
-		"active_task_id": outputString(), "active_run_id": outputString(), "updated_by": outputString(), "updated_at": outputDateTime(),
+		"active_task_id": outputString(), "updated_by": outputString(), "updated_at": outputDateTime(),
 	}, "schema_version", "project_id", "revision", "title", "summary", "current_objective", "queue", "sections", "updated_by", "updated_at")
 }
 

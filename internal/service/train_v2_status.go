@@ -20,7 +20,6 @@ func (s *Service) projectStatusTrainV2(ctx context.Context, id string, local con
 	configurationStatus := s.projectConfigurationStatus(componentCtx, id)
 	tasks, taskErr := s.taskAuthoringAll(componentCtx, id)
 	trains, trainErr := s.readTrainV2Records(componentCtx, id)
-	runs, runErr := s.RunList(componentCtx, id)
 	hubRevision, hubErr := s.hubRevision(componentCtx)
 	agentSession := local.AirelaySessionKey
 	if resolved, resolveErr := s.resolveAgentSession(componentCtx, id); resolveErr == nil {
@@ -45,16 +44,12 @@ func (s *Service) projectStatusTrainV2(ctx context.Context, id string, local con
 	appendComponentError(&progress.ComponentErrors, "workflow_policy", policyErr)
 	appendComponentError(&progress.ComponentErrors, "tasks", taskErr)
 	appendComponentError(&progress.ComponentErrors, "trains", trainErr)
-	appendComponentError(&progress.ComponentErrors, "runs", runErr)
 	appendComponentError(&progress.ComponentErrors, "hub_revision", hubErr)
 	if agentStatusErr != nil && !agentStatus.ControllerReachable {
 		appendComponentError(&progress.ComponentErrors, "agent_status", agentStatusErr)
 	}
 	appendComponentError(&progress.ComponentErrors, "agent_tail", agentTailErr)
 	internalPaths := []string{s.Config.StateDir, local.Root, local.Mirror, local.AirelaySessionKey}
-	for _, run := range runs {
-		internalPaths = append(internalPaths, run.CompletionPath)
-	}
 	for _, internal := range internalPaths {
 		if internal != "" {
 			progress.Tail = strings.ReplaceAll(progress.Tail, internal, "[gateway-internal-value]")

@@ -118,7 +118,6 @@ func (s *Service) watcherSupervisorTickLocked(ctx context.Context, projectID str
 	state.Runtime = "running"
 	state.LastError = observation.Error
 	state.ActiveTaskID = observation.TaskID
-	state.ActiveRunID = observation.RunID
 	state.TargetSession = observation.TargetSession
 	state.TrainID = observation.TrainID
 	state.TrainItemPosition = observation.TrainItemPosition

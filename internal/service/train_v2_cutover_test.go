@@ -16,7 +16,7 @@ func TestTrainV2RetiresPlanAndLegacySchedulerAndUsesPlanFreePacket(t *testing.T)
 	if _, err := s.PlanUpdate(context.Background(), PlanUpdateInput{ProjectID: "example", UpdatedBy: "planner"}); err == nil || !strings.Contains(err.Error(), "PLAN_AUTHORITY_RETIRED") {
 		t.Fatalf("Plan mutation was not retired: %v", err)
 	}
-	if _, _, err := s.TaskTrainCreate(context.Background(), TaskTrainCreateInput{ProjectID: "example", TaskIDs: []string{"EXM-TSK1"}, CreatedBy: "planner"}); err == nil || !strings.Contains(err.Error(), "TRAIN_V2_AUTHORITY") {
+	if _, _, err := s.TaskTrainCreate(context.Background(), TaskTrainCreateInput{ProjectID: "example", TaskIDs: []string{"EXM-TSK1"}, CreatedBy: "planner"}); err == nil || !strings.Contains(err.Error(), "Run authority was removed") {
 		t.Fatalf("legacy scheduler was not retired: %v", err)
 	}
 	task, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "Packet task")

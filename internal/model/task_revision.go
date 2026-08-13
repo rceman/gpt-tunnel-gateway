@@ -42,41 +42,44 @@ type TaskRevision struct {
 	CIBlocking             bool      `json:"ci_blocking"`
 	AgentMayWait           bool      `json:"agent_may_wait"`
 	Status                 string    `json:"status"`
-	SourceRunID            string    `json:"source_run_id,omitempty"`
-	SourceReportID         string    `json:"source_report_id,omitempty"`
+	SourceTrainID          string    `json:"source_train_id,omitempty"`
+	SourceItemPosition     int       `json:"source_item_position,omitempty"`
+	SourceAttemptNumber    int       `json:"source_attempt_number,omitempty"`
 	CreatedBy              string    `json:"created_by"`
 	CreatedAt              time.Time `json:"created_at"`
 }
 
 type TaskRevisionStatus struct {
-	SchemaVersion      int       `json:"schema_version"`
-	ID                 string    `json:"id"`
-	TaskID             string    `json:"task_id"`
-	TaskRevision       int       `json:"task_revision"`
-	RevisionSHA256     string    `json:"revision_sha256"`
-	ParentTaskRevision int       `json:"parent_task_revision,omitempty"`
-	Status             string    `json:"status"`
-	Branch             string    `json:"branch"`
-	BaseRevision       string    `json:"base_revision,omitempty"`
-	SourceRunID        string    `json:"source_run_id,omitempty"`
-	SourceReportID     string    `json:"source_report_id,omitempty"`
-	CreatedAt          time.Time `json:"created_at"`
+	SchemaVersion       int       `json:"schema_version"`
+	ID                  string    `json:"id"`
+	TaskID              string    `json:"task_id"`
+	TaskRevision        int       `json:"task_revision"`
+	RevisionSHA256      string    `json:"revision_sha256"`
+	ParentTaskRevision  int       `json:"parent_task_revision,omitempty"`
+	Status              string    `json:"status"`
+	Branch              string    `json:"branch"`
+	BaseRevision        string    `json:"base_revision,omitempty"`
+	SourceTrainID       string    `json:"source_train_id,omitempty"`
+	SourceItemPosition  int       `json:"source_item_position,omitempty"`
+	SourceAttemptNumber int       `json:"source_attempt_number,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
 }
 
 func (r TaskRevision) StatusView() TaskRevisionStatus {
 	return TaskRevisionStatus{
-		SchemaVersion:      r.SchemaVersion,
-		ID:                 r.ID,
-		TaskID:             r.TaskID,
-		TaskRevision:       r.TaskRevision,
-		RevisionSHA256:     r.RevisionSHA256,
-		ParentTaskRevision: r.ParentTaskRevision,
-		Status:             r.Status,
-		Branch:             r.Branch,
-		BaseRevision:       r.BaseRevision,
-		SourceRunID:        r.SourceRunID,
-		SourceReportID:     r.SourceReportID,
-		CreatedAt:          r.CreatedAt,
+		SchemaVersion:       r.SchemaVersion,
+		ID:                  r.ID,
+		TaskID:              r.TaskID,
+		TaskRevision:        r.TaskRevision,
+		RevisionSHA256:      r.RevisionSHA256,
+		ParentTaskRevision:  r.ParentTaskRevision,
+		Status:              r.Status,
+		Branch:              r.Branch,
+		BaseRevision:        r.BaseRevision,
+		SourceTrainID:       r.SourceTrainID,
+		SourceItemPosition:  r.SourceItemPosition,
+		SourceAttemptNumber: r.SourceAttemptNumber,
+		CreatedAt:           r.CreatedAt,
 	}
 }
 

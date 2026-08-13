@@ -40,7 +40,7 @@ func (s *Service) watcherStatusTrainV2(ctx context.Context, projectID string) (m
 	if active, found, runErr := s.trainV2ActiveAttempt(ctx, projectID); runErr != nil {
 		status.LastError = runErr.Error()
 	} else if found {
-		status.TargetSession, status.RunStatus = active.Attempt.AirelaySessionKey, active.Attempt.Status
+		status.TargetSession, status.AttemptStatus = active.Attempt.AirelaySessionKey, active.Attempt.Status
 	}
 	if guide, guideErr := s.WatcherGuideRead(ctx, projectID); guideErr == nil {
 		status.GuideRevision = guide.Revision
@@ -146,7 +146,7 @@ func (s *Service) watcherObserveTrainV2(ctx context.Context, in WatcherObserveIn
 	if identityChanged {
 		state.SeenDigests, state.SnapshotDigest, state.Cursor, state.LastTail = []string{}, "", "", ""
 	}
-	observation := model.WatcherObservation{SchemaVersion: model.WatcherObservationSchemaVersion, ProjectID: in.ProjectID, TrainID: binding.TrainID, TrainItemPosition: binding.ItemPosition, TrainAgentID: binding.AgentID, TaskID: binding.TaskID, RunID: "", TargetSession: binding.SessionKey, RunStatus: attempt.Status, IdentityChanged: identityChanged, Lines: lines, ObservedAt: now}
+	observation := model.WatcherObservation{SchemaVersion: model.WatcherObservationSchemaVersion, ProjectID: in.ProjectID, TrainID: binding.TrainID, TrainItemPosition: binding.ItemPosition, TrainAgentID: binding.AgentID, TaskID: binding.TaskID, TargetSession: binding.SessionKey, AttemptStatus: attempt.Status, IdentityChanged: identityChanged, Lines: lines, ObservedAt: now}
 	if attempt.Status != model.TrainV2AttemptRunning {
 		observation.Terminal = true
 		if err := watcher.SaveObservation(s.Config.StateDir, state); err != nil {

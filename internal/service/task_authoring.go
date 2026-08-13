@@ -63,7 +63,7 @@ func (s *Service) TaskAuthoringFind(ctx context.Context, taskID string) (model.T
 			return model.TaskAuthoring{}, readErr
 		}
 	}
-	return model.TaskAuthoring{}, fmt.Errorf("task authoring not found: %s", taskID)
+	return model.TaskAuthoring{}, notFoundf("task authoring %s", taskID)
 }
 
 func (s *Service) TaskAuthoringCreate(ctx context.Context, in TaskAuthoringCreateInput) (model.TaskAuthoring, OperationResult, error) {

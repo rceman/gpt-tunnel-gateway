@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -46,6 +47,13 @@ func (s Store) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	entries, err := command(ctx, root, "ls-tree", "-r", "--name-only", s.remoteRef(), "--", filepath.ToSlash(path))
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(string(entries)) == "" {
+		return nil, fmt.Errorf("hub path %s: %w", path, os.ErrNotExist)
+	}
 	out, err := command(ctx, root, "show", s.remoteRef()+":"+filepath.ToSlash(path))
 	if err != nil {
 		return nil, err
@@ -74,6 +82,13 @@ func (s Store) ReadFileAtCommit(ctx context.Context, commit, path string) ([]byt
 	root, err := s.readOnlyRoot(ctx)
 	if err != nil {
 		return nil, err
+	}
+	entries, err := command(ctx, root, "ls-tree", "-r", "--name-only", commit, "--", filepath.ToSlash(path))
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(string(entries)) == "" {
+		return nil, fmt.Errorf("hub path %s at %s: %w", path, commit, os.ErrNotExist)
 	}
 	out, err := command(ctx, root, "show", commit+":"+filepath.ToSlash(path))
 	if err != nil {
@@ -168,7 +183,7 @@ func (s Store) LastChange(ctx context.Context, path string) (string, error) {
 		return "", err
 	}
 	if len(history) != 1 || history[0]["sha"] == "" {
-		return "", fmt.Errorf("no history for %s", path)
+		return "", fmt.Errorf("no history for %s: %w", path, os.ErrNotExist)
 	}
 	return history[0]["sha"], nil
 }

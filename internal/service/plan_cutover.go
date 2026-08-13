@@ -23,15 +23,17 @@ type PlanCutoverInput struct {
 }
 
 type legacyPlanV1 struct {
-	SchemaVersion int       `json:"schema_version"`
-	ProjectID     string    `json:"project_id"`
-	Revision      int       `json:"revision"`
-	Summary       string    `json:"summary"`
-	Body          string    `json:"body"`
-	ActiveTaskID  string    `json:"active_task_id,omitempty"`
-	ActiveRunID   string    `json:"active_run_id,omitempty"`
-	UpdatedBy     string    `json:"updated_by"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	SchemaVersion int    `json:"schema_version"`
+	ProjectID     string `json:"project_id"`
+	Revision      int    `json:"revision"`
+	Summary       string `json:"summary"`
+	Body          string `json:"body"`
+	ActiveTaskID  string `json:"active_task_id,omitempty"`
+	// ActiveRunID is accepted only while decoding the obsolete v1 plan so the
+	// cutover can discard it without exposing it in the canonical plan.
+	ActiveRunID string    `json:"active_run_id,omitempty"`
+	UpdatedBy   string    `json:"updated_by"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type legacyPlanBlock struct {
@@ -198,7 +200,7 @@ func buildCutover(legacy legacyPlanV1, updatedBy string, now time.Time) (model.P
 		sections = append(sections, section)
 		indexes = append(indexes, model.PlanSectionIndex{ID: section.ID, Title: section.Title, ShortDescription: section.ShortDescription, Revision: section.Revision})
 	}
-	plan := model.Plan{SchemaVersion: model.PlanSchemaVersion, ProjectID: legacy.ProjectID, Revision: legacy.Revision, Title: title, Summary: legacy.Summary, CurrentObjective: objective, Queue: legacyQueue(blocks), Sections: indexes, ActiveTaskID: legacy.ActiveTaskID, ActiveRunID: legacy.ActiveRunID, UpdatedBy: updatedBy, UpdatedAt: now}
+	plan := model.Plan{SchemaVersion: model.PlanSchemaVersion, ProjectID: legacy.ProjectID, Revision: legacy.Revision, Title: title, Summary: legacy.Summary, CurrentObjective: objective, Queue: legacyQueue(blocks), Sections: indexes, ActiveTaskID: legacy.ActiveTaskID, UpdatedBy: updatedBy, UpdatedAt: now}
 	if err := model.ValidatePlan(plan); err != nil {
 		return model.Plan{}, nil, fmt.Errorf("cutover manifest invalid: %w", err)
 	}

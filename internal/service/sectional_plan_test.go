@@ -127,7 +127,7 @@ func TestPlanCutoverUsesCurrentDurableQueueShape(t *testing.T) {
 	if strings.Join(plan.Queue, ",") != "P0,P1,P2" {
 		t.Fatalf("queue=%#v want exact current queue identities", plan.Queue)
 	}
-	if plan.ActiveTaskID != legacy.ActiveTaskID || plan.ActiveRunID != legacy.ActiveRunID {
+	if plan.ActiveTaskID != legacy.ActiveTaskID {
 		t.Fatalf("active references were not preserved: %#v", plan)
 	}
 	if len(plan.Sections) != 4 || plan.Sections[1].Title != "Current objective" || plan.Sections[2].Title != "Queue — workflow and documentation before optional features" {

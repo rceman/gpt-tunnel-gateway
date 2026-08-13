@@ -3,9 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -95,9 +92,6 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 	if current.Revision != in.ExpectedRevision {
 		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("project configuration revision conflict: expected %d, current %d", in.ExpectedRevision, current.Revision)
 	}
-	if (in.Patch.Workflow != nil || in.Patch.ActivationProfileRef != nil) && s.projectHasActiveRun(ctx, in.ProjectID) {
-		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("execution-sensitive project configuration cannot change while an active run exists")
-	}
 
 	updated := current
 	applyProjectConfigurationPatch(&updated, in.Patch)
@@ -106,6 +100,13 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 	updated.UpdatedAt = time.Now().UTC()
 	if err := model.ValidateProjectConfiguration(updated); err != nil {
 		return model.ProjectConfiguration{}, OperationResult{}, err
+	}
+	active, err := s.projectHasActiveTrainAttempt(ctx, in.ProjectID)
+	if err != nil {
+		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("inspect active Train Attempt: %w", err)
+	}
+	if active && (in.Patch.Workflow != nil || in.Patch.ActivationProfileRef != nil) {
+		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("execution-sensitive project configuration cannot change while an active Train Attempt exists")
 	}
 	path := s.projectConfigurationPath(in.ProjectID)
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: update project configuration "+in.ProjectID, func(worktree string) ([]string, error) {
@@ -119,8 +120,12 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 		if latest.Revision != in.ExpectedRevision {
 			return nil, fmt.Errorf("project configuration revision conflict: expected %d, current %d", in.ExpectedRevision, latest.Revision)
 		}
-		if (in.Patch.Workflow != nil || in.Patch.ActivationProfileRef != nil) && activeRunInWorktree(worktree, in.ProjectID) {
-			return nil, fmt.Errorf("execution-sensitive project configuration cannot change while an active run exists")
+		active, err := activeTrainAttemptInWorktree(worktree, in.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("inspect active Train Attempt: %w", err)
+		}
+		if active && (in.Patch.Workflow != nil || in.Patch.ActivationProfileRef != nil) {
+			return nil, fmt.Errorf("execution-sensitive project configuration cannot change while an active Train Attempt exists")
 		}
 		candidate := latest
 		applyProjectConfigurationPatch(&candidate, in.Patch)
@@ -155,42 +160,4 @@ func applyProjectConfigurationPatch(configuration *model.ProjectConfiguration, p
 	if patch.ActivationProfileRef != nil {
 		configuration.ActivationProfileRef = *patch.ActivationProfileRef
 	}
-}
-
-func (s *Service) projectHasActiveRun(ctx context.Context, projectID string) bool {
-	runs, err := s.RunList(ctx, projectID)
-	if err != nil {
-		return false
-	}
-	for _, run := range runs {
-		if operationalActiveRun(run) {
-			return true
-		}
-	}
-	return false
-}
-
-func activeRunInWorktree(worktree, projectID string) bool {
-	root := filepath.Join(worktree, filepath.FromSlash(hub.ProtocolRoot), "projects", projectID, "runs")
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return false
-	}
-	ids := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			ids = append(ids, entry.Name())
-		}
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		var run model.Run
-		if err := readWorktreeJSON(worktree, filepath.ToSlash(filepath.Join(hub.ProtocolRoot, "projects", projectID, "runs", id, "run.json")), &run); err != nil {
-			continue
-		}
-		if operationalActiveRun(run) {
-			return true
-		}
-	}
-	return false
 }

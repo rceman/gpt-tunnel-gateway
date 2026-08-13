@@ -9,7 +9,6 @@ type PlanUpdateInput struct {
 	CurrentObjective *string   `json:"current_objective,omitempty"`
 	Queue            *[]string `json:"queue,omitempty"`
 	ActiveTaskID     *string   `json:"active_task_id,omitempty"`
-	ActiveRunID      *string   `json:"active_run_id,omitempty"`
 	UpdatedBy        string    `json:"updated_by"`
 	WriteOptions
 }

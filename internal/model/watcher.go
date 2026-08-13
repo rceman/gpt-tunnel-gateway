@@ -31,7 +31,7 @@ type WatcherGuide struct {
 }
 
 // WatcherObservationState is local hot state. It is deliberately independent
-// of the Hub and is safe to discard and rebuild from the active Run.
+// of the Hub and is safe to discard and rebuild from the active Train Attempt.
 type WatcherObservationState struct {
 	SchemaVersion     int       `json:"schema_version"`
 	ProjectID         string    `json:"project_id"`
@@ -39,7 +39,6 @@ type WatcherObservationState struct {
 	TrainItemPosition int       `json:"train_item_position,omitempty"`
 	TrainAgentID      string    `json:"train_agent_id,omitempty"`
 	TaskID            string    `json:"task_id,omitempty"`
-	RunID             string    `json:"run_id,omitempty"`
 	SessionKey        string    `json:"session_key,omitempty"`
 	Cursor            string    `json:"cursor,omitempty"`
 	SnapshotDigest    string    `json:"snapshot_digest,omitempty"`
@@ -58,9 +57,8 @@ type WatcherObservation struct {
 	TrainItemPosition int       `json:"train_item_position,omitempty"`
 	TrainAgentID      string    `json:"train_agent_id,omitempty"`
 	TaskID            string    `json:"task_id,omitempty"`
-	RunID             string    `json:"run_id,omitempty"`
 	TargetSession     string    `json:"target_session,omitempty"`
-	RunStatus         string    `json:"run_status,omitempty"`
+	AttemptStatus     string    `json:"attempt_status,omitempty"`
 	Terminal          bool      `json:"terminal"`
 	IdentityChanged   bool      `json:"identity_changed"`
 	Useful            bool      `json:"useful"`
@@ -89,9 +87,8 @@ type WatcherStatus struct {
 	WatcherSession    string    `json:"watcher_session,omitempty"`
 	GuideRevision     int       `json:"guide_revision"`
 	ActiveTaskID      string    `json:"active_task_id,omitempty"`
-	ActiveRunID       string    `json:"active_run_id,omitempty"`
 	TargetSession     string    `json:"target_session,omitempty"`
-	RunStatus         string    `json:"run_status,omitempty"`
+	AttemptStatus     string    `json:"attempt_status,omitempty"`
 	LastTickAt        time.Time `json:"last_tick_at,omitempty"`
 	LastUsefulAt      time.Time `json:"last_useful_at,omitempty"`
 	LastError         string    `json:"last_error,omitempty"`
@@ -117,7 +114,6 @@ type WatcherSupervisorState struct {
 	WatcherAgentID    string    `json:"watcher_agent_id,omitempty"`
 	WatcherSession    string    `json:"watcher_session,omitempty"`
 	ActiveTaskID      string    `json:"active_task_id,omitempty"`
-	ActiveRunID       string    `json:"active_run_id,omitempty"`
 	TargetSession     string    `json:"target_session,omitempty"`
 	LastTickAt        time.Time `json:"last_tick_at,omitempty"`
 	LastUsefulAt      time.Time `json:"last_useful_at,omitempty"`
@@ -162,9 +158,6 @@ func ValidateWatcherObservationState(v WatcherObservationState) error {
 	if v.TaskID != "" && ValidateObjectIdentifier(v.TaskID) != nil {
 		return fmt.Errorf("invalid watcher observation task_id")
 	}
-	if v.RunID != "" && ValidateObjectIdentifier(v.RunID) != nil {
-		return fmt.Errorf("invalid watcher observation run_id")
-	}
 	if strings.ContainsAny(v.SessionKey, "\x00\r\n") || len(v.SessionKey) > 256 || len(v.Cursor) > 4096 {
 		return fmt.Errorf("invalid watcher observation session_key")
 	}
@@ -197,9 +190,6 @@ func ValidateWatcherObservation(v WatcherObservation) error {
 	}
 	if v.TaskID != "" && ValidateObjectIdentifier(v.TaskID) != nil {
 		return fmt.Errorf("invalid watcher observation task_id")
-	}
-	if v.RunID != "" && ValidateObjectIdentifier(v.RunID) != nil {
-		return fmt.Errorf("invalid watcher observation run_id")
 	}
 	if v.Lines < 1 || v.Lines > WatcherMaxTailLines {
 		return fmt.Errorf("invalid watcher observation lines")

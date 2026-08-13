@@ -36,7 +36,6 @@ type Project struct {
 	WorkflowCommit     string    `json:"workflow_commit"`
 	Status             string    `json:"status"`
 	ActiveTaskID       string    `json:"active_task_id,omitempty"`
-	ActiveRunID        string    `json:"active_run_id,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 }
@@ -49,17 +48,6 @@ type ProjectIdentifiers struct {
 	NextADRNumber  uint64 `json:"next_adr_number"`
 }
 
-// TaskRunCounter is stored next to one canonical task and is the only
-// allocator for that task's run numbers.  It is deliberately separate from
-// project-wide identifiers so concurrent tasks cannot consume each other's
-// run sequence.
-type TaskRunCounter struct {
-	SchemaVersion int    `json:"schema_version"`
-	ProjectID     string `json:"project_id"`
-	TaskID        string `json:"task_id"`
-	NextRunNumber uint64 `json:"next_run_number"`
-}
-
 type Plan struct {
 	SchemaVersion    int                `json:"schema_version"`
 	ProjectID        string             `json:"project_id"`
@@ -70,7 +58,6 @@ type Plan struct {
 	Queue            []string           `json:"queue"`
 	Sections         []PlanSectionIndex `json:"sections"`
 	ActiveTaskID     string             `json:"active_task_id,omitempty"`
-	ActiveRunID      string             `json:"active_run_id,omitempty"`
 	UpdatedBy        string             `json:"updated_by"`
 	UpdatedAt        time.Time          `json:"updated_at"`
 }
@@ -114,7 +101,6 @@ type PlanStatus struct {
 	Queue            []string  `json:"queue"`
 	Sections         []string  `json:"sections"`
 	ActiveTaskID     string    `json:"active_task_id,omitempty"`
-	ActiveRunID      string    `json:"active_run_id,omitempty"`
 	UpdatedBy        string    `json:"updated_by"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }

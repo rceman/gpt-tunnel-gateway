@@ -246,15 +246,15 @@ func stateCommand(ctx context.Context, c config.Config) {
 		output(result)
 	case "migrate-train-v2-attempts":
 		stateMigrateTrainV2Attempts(ctx, s)
-	case "retire-train-v2-runs":
-		stateRetireTrainV2Runs(ctx, s)
+	case "retire-run-state":
+		stateRetireRunState(ctx, s)
 	default:
 		usage()
 	}
 }
 
-func stateRetireTrainV2Runs(ctx context.Context, s *service.Service) {
-	input := service.TrainV2RunRetirementInput{}
+func stateRetireRunState(ctx context.Context, s *service.Service) {
+	input := service.RunRetirementInput{}
 	modeSet, projectSet := false, false
 	for i := 3; i < len(os.Args); i++ {
 		if os.Args[i] == "--dry-run" || os.Args[i] == "--apply" {
@@ -282,7 +282,7 @@ func stateRetireTrainV2Runs(ctx context.Context, s *service.Service) {
 	if !modeSet || !projectSet || (input.Apply && input.ExpectedHubRevision == "") {
 		usage()
 	}
-	result, err := s.TrainV2RetireRuns(ctx, input)
+	result, err := s.RetireRunRecords(ctx, input)
 	if err != nil {
 		fatal(err)
 	}
@@ -370,7 +370,7 @@ func copyExecutable(src, dst string) error {
 	return os.Rename(name, dst)
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade [inspect|status]|start|stop|restart|restart-gateway|status|doctor|diagnose-startup|state {check|repair --dry-run|repair --apply|migrate-train-v2-attempts --project <project> --train <train> --dry-run|migrate-train-v2-attempts --project <project> --train <train> --apply|retire-train-v2-runs --project <project> --dry-run|retire-train-v2-runs --project <project> --apply}|logs [gateway|tunnel|all] [lines]|version}")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade [inspect|status]|start|stop|restart|restart-gateway|status|doctor|diagnose-startup|state {check|repair --dry-run|repair --apply|migrate-train-v2-attempts --project <project> --train <train> --dry-run|migrate-train-v2-attempts --project <project> --train <train> --apply|retire-run-state --project <project> --dry-run|retire-run-state --project <project> --apply}|logs [gateway|tunnel|all] [lines]|version}")
 	os.Exit(2)
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnelctl:", err); os.Exit(1) }

@@ -62,7 +62,7 @@ func (s *Service) findTask(ctx context.Context, id string) (model.Task, error) {
 			return model.Task{}, err
 		}
 	}
-	return model.Task{}, fmt.Errorf("task not found: %s", id)
+	return model.Task{}, notFoundf("task %s", id)
 }
 
 func (s *Service) TaskReadRecord(ctx context.Context, id string) (TaskRecord, error) {
@@ -82,14 +82,6 @@ func (s *Service) TaskReadRecord(ctx context.Context, id string) (TaskRecord, er
 		}
 		currentRevision = &revision
 	}
-	runs, err := s.RunList(ctx, task.ProjectID)
-	if err != nil {
-		return TaskRecord{}, err
-	}
-	summaries, err := s.taskReviewSummaries(ctx, task, runs)
-	if err != nil {
-		return TaskRecord{}, err
-	}
 	var policy *model.ProjectWorkflowPolicy
 	if current, policyErr := s.ProjectWorkflowPolicyRead(ctx, task.ProjectID); policyErr == nil {
 		policy = &current
@@ -100,7 +92,6 @@ func (s *Service) TaskReadRecord(ctx context.Context, id string) (TaskRecord, er
 		Task:            task,
 		State:           state,
 		CurrentRevision: currentRevision,
-		RunSummaries:    summaries,
 		WorkflowPolicy:  policy,
 	}, nil
 }

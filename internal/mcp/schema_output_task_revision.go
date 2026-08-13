@@ -12,7 +12,7 @@ func taskRevisionOutputSchema() map[string]any {
 		"acceptance_criteria": outputArray(outputString()), "constraints": outputArray(outputString()), "required_gates": outputArray(outputString()),
 		"workflow_policy_revision": outputInteger(), "operation_class": outputString(), "effective_ci_field": outputString(), "effective_ci_mode": outputString(),
 		"wait_for_ci": outputBoolean(), "ci_blocking": outputBoolean(), "agent_may_wait": outputBoolean(), "status": outputString(),
-		"source_run_id": outputString(), "source_report_id": outputString(), "created_by": outputString(), "created_at": outputDateTime(),
+		"source_train_id": outputString(), "source_item_position": outputInteger(), "source_attempt_number": outputInteger(), "created_by": outputString(), "created_at": outputDateTime(),
 	}, "schema_version", "id", "task_id", "task_revision", "revision_sha256", "project_id", "title", "objective", "branch", "acceptance_criteria", "constraints", "status", "created_by", "created_at")
 }
 
@@ -24,19 +24,19 @@ func taskRevisionStatusOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"schema_version": outputInteger(), "id": outputString(), "task_id": outputString(), "task_revision": outputInteger(),
 		"revision_sha256": sha, "parent_task_revision": outputInteger(), "status": outputString(), "branch": outputString(), "base_revision": commit,
-		"source_run_id": outputString(), "source_report_id": outputString(), "created_at": outputDateTime(),
+		"source_train_id": outputString(), "source_item_position": outputInteger(), "source_attempt_number": outputInteger(), "created_at": outputDateTime(),
 	}, "schema_version", "id", "task_id", "task_revision", "revision_sha256", "status", "branch", "created_at")
 }
 
 func taskCorrectionInputSchema() map[string]any {
 	return obj(map[string]any{
 		"task_id": str("Stable task identifier"), "source_revision_id": str("Exact terminal source revision"),
-		"source_run_id": str("Exact terminal source run"), "source_report_id": str("Exact accepted Delivery report"),
+		"source_train_id": str("Exact source Train"), "source_item_position": integer("Exact source item position", 1, 1000000), "source_attempt_number": integer("Exact source attempt", 1, 1000000),
 		"title": str("Optional bounded corrected title"), "objective": str("Optional bounded corrected objective"),
 		"acceptance_criteria": array(str("Acceptance criterion")), "constraints": array(str("Task constraint")),
 		"required_gates": array(str("Required gate")), "created_by": str("Delivery identity"),
 		"expected_hub_revision": str("Optimistic Hub revision"),
-	}, "task_id", "source_revision_id", "source_run_id", "source_report_id", "created_by")
+	}, "task_id", "source_revision_id", "source_train_id", "source_item_position", "source_attempt_number", "created_by")
 }
 
 func taskStateOutputSchema() map[string]any {

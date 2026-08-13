@@ -12,7 +12,7 @@ func transactionOutputSchema() map[string]any {
 
 func operationOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"hub": transactionOutputSchema(), "project_id": outputString(), "task_id": outputString(), "run_id": outputString(), "status": outputString(),
+		"hub": transactionOutputSchema(), "project_id": outputString(), "task_id": outputString(), "status": outputString(),
 	}, "hub", "status")
 }
 

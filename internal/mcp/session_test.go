@@ -172,13 +172,6 @@ func TestDefaultDeliveryRootResolvesPlannerAndDeliverySessionsAndLegacyDeliveryT
 		t.Fatalf("delivery session-authorized call failed: %#v", deliveryCall)
 	}
 
-	legacy := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
-		"params": map[string]any{"name": "delivery_handoff_list", "arguments": map[string]any{"project_id": "example"}},
-	})))
-	if legacy["handoffs"] == nil {
-		t.Fatalf("legacy direct Delivery typed tool did not succeed: %#v", legacy)
-	}
 }
 
 func TestSessionStartValidatesProjectRoleAndTypeBeforeCreation(t *testing.T) {

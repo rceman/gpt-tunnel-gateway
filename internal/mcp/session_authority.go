@@ -22,10 +22,6 @@ func actionAuthorityContractFor(toolName string) actionAuthorityContract {
 	switch toolName {
 	case "task_correction_create":
 		role = durableSession.RoleDelivery
-	case "delivery_handoff_publish", "delivery_handoff_cancel", "delivery_handoff_supersede", "planner_report_acknowledge", "planner_report_next":
-		role = durableSession.RolePlanner
-	case "delivery_handoff_acknowledge", "delivery_handoff_next", "planner_report_publish":
-		role = durableSession.RoleDelivery
 	case "project_onboard", "project_onboard_recover", "project_workflow_policy_adopt", "project_workflow_policy_update", "session":
 		role = actionRolePlannerOrDelivery
 	}

@@ -60,50 +60,6 @@ func TestGenericRegistryAndTypedAuthorityUseSameContract(t *testing.T) {
 	}
 }
 
-func TestTypedAuthoritySensitiveActionRequiresDurableSession(t *testing.T) {
-	server := newSessionTestServer(t)
-	tools := server.tools()
-	input := tools["planner_report_publish"].InputSchema
-	if _, ok := input["properties"].(map[string]any)["session_id"]; !ok {
-		t.Fatal("typed authority-sensitive schema does not expose session_id")
-	}
-	missing := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "planner_report_publish", "arguments": map[string]any{"handoff_id": "x", "report": map[string]any{}}}}))
-	result, ok := missing["result"].(map[string]any)
-	if !ok || result["isError"] != true {
-		t.Fatalf("typed action without session was accepted: %#v", missing)
-	}
-}
-
-func TestTypedAuthoritySensitiveActionRejectsMissingWorkflowPolicy(t *testing.T) {
-	server := newSessionTestServer(t)
-	revision, err := server.Service.Hub.RemoteRevision(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = server.Service.Hub.Transact(context.Background(), revision, "test: remove canonical workflow configuration", func(worktree string) ([]string, error) {
-		path := hub.ProtocolRoot + "/projects/example/configuration/current.json"
-		if err := os.Remove(filepath.Join(worktree, filepath.FromSlash(path))); err != nil {
-			return nil, err
-		}
-		return []string{path}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT}))
-	sessionID := started["session"].(map[string]any)["session_id"].(string)
-	response := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "planner_report_publish", "arguments": map[string]any{"session_id": sessionID, "handoff_id": "missing", "report": map[string]any{}}}}))
-	result, ok := response["result"].(map[string]any)
-	if !ok || result["isError"] != true {
-		t.Fatalf("typed action without workflow policy was accepted: %#v", response)
-	}
-	content := result["content"].([]any)
-	textContent := content[0].(map[string]any)["text"].(string)
-	if !strings.Contains(textContent, "workflow policy") {
-		t.Fatalf("typed missing-policy error was not explicit: %s", textContent)
-	}
-}
-
 func TestGenericSessionRejectsInvalidAndEndedAuthority(t *testing.T) {
 	server := newSessionTestServer(t)
 	var calls int

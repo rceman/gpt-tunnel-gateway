@@ -74,24 +74,12 @@ func (s *Server) addTaskTools(add toolAdder) {
 		}
 		return s.Service.TaskListQuery(ctx, in)
 	})
-	add("task_read", "Read task record and active execution packet when a run exists.", obj(map[string]any{"task_id": str("Task identifier")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("task_read", "Read the canonical Task authoring record.", obj(map[string]any{"task_id": str("Task identifier")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "task_id")
 		if e != nil {
 			return nil, e
 		}
-		packet, e := s.Service.TaskRead(ctx, id)
-		if e == nil {
-			return service.PublicTaskPacketView(packet), nil
-		}
-		task, e2 := s.Service.TaskReadRecord(ctx, id)
-		if e2 != nil {
-			return nil, e
-		}
-		response := map[string]any{"task": task.Task, "state": task.State, "run_summaries": task.RunSummaries, "active_run": false}
-		if task.WorkflowPolicy != nil {
-			response["workflow_policy"] = task.WorkflowPolicy
-		}
-		return response, nil
+		return s.Service.TaskAuthoringFind(ctx, id)
 	})
 	add("task_supersede", "Create a replacement immutable task.", obj(map[string]any{"old_task_id": str("Superseded task"), "task": taskInputSchema}, "old_task_id", "task"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var envelope struct {
@@ -103,38 +91,5 @@ func (s *Server) addTaskTools(add toolAdder) {
 		}
 		task, res, e := s.Service.TaskSupersede(ctx, envelope.OldTaskID, envelope.Task)
 		return map[string]any{"task": task, "operation": res}, e
-	})
-	add("task_cancel", "Cancel an undispatched task record.", obj(map[string]any{"task_id": str("Task identifier"), "expected_hub_revision": str("Optimistic hub revision")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		id, e := getString(raw, "task_id")
-		if e != nil {
-			return nil, e
-		}
-		return s.Service.TaskCancel(ctx, id, optionalString(raw, "expected_hub_revision"))
-	})
-	add("task_mark_merge_ready", "Record that a completed task's latest successful report is ready for GPT merge review; this mutates durable lifecycle state only.", obj(map[string]any{"task_id": str("Task identifier"), "expected_hub_revision": str("Optimistic hub revision")}, "task_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var in service.TaskMarkMergeReadyInput
-		if e := decode(raw, &in); e != nil {
-			return nil, e
-		}
-		return s.Service.TaskMarkMergeReady(ctx, in)
-	})
-	reason := str("Bounded reason for deferral")
-	reason["minLength"] = 1
-	reason["maxLength"] = 1024
-	add("task_defer", "Defer a completed or merge-ready task with a bounded durable reason; this does not mutate a repository.", obj(map[string]any{"task_id": str("Task identifier"), "reason": reason, "expected_hub_revision": str("Optimistic hub revision")}, "task_id", "reason"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var in service.TaskDeferInput
-		if e := decode(raw, &in); e != nil {
-			return nil, e
-		}
-		return s.Service.TaskDefer(ctx, in)
-	})
-	integrationHead := str("Exact remote develop commit SHA")
-	integrationHead["pattern"] = "^[0-9a-f]{40}$"
-	add("task_mark_merged", "Record a verified existing remote develop receipt for a merge-ready task; it performs no merge, push, checkout or branch deletion.", obj(map[string]any{"task_id": str("Task identifier"), "integration_head": integrationHead, "expected_hub_revision": str("Optimistic hub revision")}, "task_id", "integration_head"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var in service.TaskMarkMergedInput
-		if e := decode(raw, &in); e != nil {
-			return nil, e
-		}
-		return s.Service.TaskMarkMerged(ctx, in)
 	})
 }

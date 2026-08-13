@@ -9,7 +9,7 @@ import (
 
 func TestGrowingCollectionInputsExposeBoundedContinuationContract(t *testing.T) {
 	tools := (&Server{Service: service.New(config.Config{MaxListItems: 1000})}).tools()
-	for _, name := range []string{"project_list", "adr_list", "task_revision_list", "plan_history", "git_refs", "git_log", "git_tree", "delivery_handoff_list", "planner_report_list"} {
+	for _, name := range []string{"project_list", "adr_list", "task_revision_list", "plan_history", "git_refs", "git_log", "git_tree"} {
 		tool, ok := tools[name]
 		if !ok {
 			t.Fatalf("missing tool %s", name)

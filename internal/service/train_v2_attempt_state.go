@@ -14,25 +14,25 @@ import (
 func (s *Service) checkTrainV2AttemptGraph(ctx context.Context, snapshot *hub.ReadSnapshot, projectID string, result *StateCheckResult) {
 	paths, err := snapshot.List(ctx, s.trainV2Root(projectID), ".json")
 	if err != nil {
-		result.Issues = append(result.Issues, stateIssue("TRAIN_V2_ATTEMPT_GRAPH_UNAVAILABLE", projectID, "", "", s.trainV2Root(projectID), err.Error()))
+		result.Issues = append(result.Issues, stateIssue("TRAIN_V2_ATTEMPT_GRAPH_UNAVAILABLE", projectID, "", s.trainV2Root(projectID), err.Error()))
 		result.OperationalTaskRunGraph = false
 		return
 	}
 	for _, path := range paths {
 		var train model.TrainV2
 		if err := snapshot.ReadJSON(ctx, path, &train); err != nil {
-			result.Issues = append(result.Issues, stateIssue("TRAIN_V2_ATTEMPT_GRAPH_INVALID", projectID, "", "", path, err.Error()))
+			result.Issues = append(result.Issues, stateIssue("TRAIN_V2_ATTEMPT_GRAPH_INVALID", projectID, "", path, err.Error()))
 			result.OperationalTaskRunGraph = false
 			continue
 		}
 		if err := model.ValidateTrainV2(train); err != nil {
-			result.Issues = append(result.Issues, stateIssue("TRAIN_V2_ATTEMPT_GRAPH_INVALID", projectID, "", train.ID, path, err.Error()))
+			result.Issues = append(result.Issues, stateIssue("TRAIN_V2_ATTEMPT_GRAPH_INVALID", projectID, "", path, err.Error()))
 			result.OperationalTaskRunGraph = false
 			continue
 		}
 		for _, item := range train.Items {
 			if item.Status != model.TrainV2ItemQueued && len(item.Attempts) == 0 {
-				result.Issues = append(result.Issues, stateIssue("TRAIN_V2_ATTEMPT_MISSING", projectID, item.TaskID, "", path, fmt.Sprintf("Train item %s has no item-local attempt", item.TaskID)))
+				result.Issues = append(result.Issues, stateIssue("TRAIN_V2_ATTEMPT_MISSING", projectID, item.TaskID, path, fmt.Sprintf("Train item %s has no item-local attempt", item.TaskID)))
 				result.OperationalTaskRunGraph = false
 			}
 		}

@@ -23,12 +23,7 @@ func planToolOutputSchemas() map[string]map[string]any {
 		"task_revision_status":   taskRevisionStatusOutputSchema(),
 		"task_correction_create": closedOutput(map[string]any{"revision": taskRevisionOutputSchema(), "operation": operationOutputSchema()}, "revision", "operation"),
 		"task_list":              closedOutput(map[string]any{"tasks": outputArray(taskRecordOutputSchema()), "next_cursor": outputString(), "has_more": outputBoolean()}, "tasks", "next_cursor", "has_more"),
-		"task_train_status":      taskTrainStatusOutputSchema(),
 		"task_read":              taskReadOutputSchema(),
 		"task_supersede":         closedOutput(map[string]any{"task": taskOutputSchema(), "operation": operationOutputSchema()}, "task", "operation"),
-		"task_cancel":            operationOutputSchema(),
-		"task_mark_merge_ready":  operationOutputSchema(),
-		"task_defer":             operationOutputSchema(),
-		"task_mark_merged":       operationOutputSchema(),
 	}
 }

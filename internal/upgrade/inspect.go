@@ -18,7 +18,6 @@ type PreflightBlocker struct {
 	Code      string `json:"code"`
 	ProjectID string `json:"project_id,omitempty"`
 	TaskID    string `json:"task_id,omitempty"`
-	RunID     string `json:"run_id,omitempty"`
 	Path      string `json:"path,omitempty"`
 	Detail    string `json:"detail"`
 }
@@ -58,7 +57,6 @@ func Inspect(ctx context.Context, c config.Config, configPath string) (InspectRe
 			Code:      code,
 			ProjectID: project,
 			TaskID:    task,
-			RunID:     run,
 			Path:      path,
 			Detail:    detail,
 		})
@@ -153,7 +151,7 @@ func Inspect(ctx context.Context, c config.Config, configPath string) (InspectRe
 		result.DurableProjects = append(result.DurableProjects, state.DurableProjectIDs...)
 		result.ValidCurrentPlans = append(result.ValidCurrentPlans, state.ValidCurrentPlans...)
 		for _, issue := range state.Issues {
-			add(issue.Code, issue.ProjectID, issue.TaskID, issue.RunID, issue.Path, issue.Detail)
+			add(issue.Code, issue.ProjectID, issue.TaskID, "", issue.Path, issue.Detail)
 		}
 	}
 	if sourceErr == nil && result.TargetVersion != "" {

@@ -24,8 +24,6 @@ type Server struct {
 	taskAuthoringActionErr error
 	trainV2Actions         sync.Once
 	trainV2ActionErr       error
-	taskCloseoutActions    sync.Once
-	taskCloseoutActionErr  error
 }
 type request struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -87,7 +85,6 @@ func (s *Server) tools() map[string]Tool {
 	s.ensureProjectActions()
 	s.ensureTaskAuthoringActions()
 	s.ensureTrainV2Actions()
-	s.ensureTaskCloseoutActions()
 	t := map[string]Tool{}
 	add := toolAdder(func(name, description string, schema map[string]any, fn func(context.Context, json.RawMessage) (any, error)) {
 		output, outputOK := toolOutputSchemas[name]
@@ -105,7 +102,6 @@ func (s *Server) tools() map[string]Tool {
 		}
 	})
 	s.addCoreTools(add)
-	s.addHandoffTools(add)
 	s.addPlanTools(add)
 	s.addTaskTools(add)
 	s.addTaskTrainTools(add)

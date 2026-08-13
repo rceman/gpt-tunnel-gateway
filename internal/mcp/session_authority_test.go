@@ -34,13 +34,14 @@ func TestGenericCallUsesDurableSessionRoleBeforeInputDecode(t *testing.T) {
 	server.AuthorityContext = authority.WithPlanner(context.Background())
 	var calls int
 	registerAuthorityTestAction(t, server, "test/planner", durableSession.RolePlanner, false, &calls)
+	registerAuthorityTestAction(t, server, "test/delivery", durableSession.RoleDelivery, false, &calls)
 	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RolePlanner, "session_type": durableSession.SessionTypeChatGPT}))
 	sessionID := started["session"].(map[string]any)["session_id"].(string)
 	ok := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/planner", "input": map[string]any{"value": "ok"}}}})))
 	if ok["is_error"] != false || calls != 1 {
 		t.Fatalf("durable planner session was not accepted: result=%#v calls=%d", ok, calls)
 	}
-	wrong := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "planner/report_publish", "input": map[string]any{"unknown": true}}}})))
+	wrong := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/delivery", "input": map[string]any{"unknown": true}}}})))
 	message := wrong["result"].(map[string]any)["error"].(string)
 	if wrong["is_error"] != true || !strings.Contains(message, `required "delivery"`) || calls != 1 {
 		t.Fatalf("wrong role was not rejected before decode/handler: result=%#v calls=%d", wrong, calls)

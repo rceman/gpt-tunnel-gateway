@@ -76,24 +76,11 @@ func (s *Service) taskCreateOnce(ctx context.Context, in TaskCreateInput) (model
 		if current.ProjectCode != identifiers.ProjectCode || current.NextTaskNumber != identifiers.NextTaskNumber {
 			return nil, fmt.Errorf("project identifiers changed before task allocation")
 		}
-		counterPath := s.taskRunCounterPath(task.ProjectID, task.ID)
-		if _, err := os.Lstat(filepath.Join(w, filepath.FromSlash(counterPath))); err == nil {
-			return nil, fmt.Errorf("task run counter already exists")
-		} else if !os.IsNotExist(err) {
-			return nil, err
-		}
-		paths = append(paths, counterPath, s.projectIdentifiersPath(task.ProjectID))
+		paths = append(paths, s.projectIdentifiersPath(task.ProjectID))
 		if err := hub.WriteJSON(w, path, task); err != nil {
 			return nil, err
 		}
 		if err := hub.WriteJSON(w, statePath, state); err != nil {
-			return nil, err
-		}
-		counter := model.TaskRunCounter{SchemaVersion: model.SchemaVersion, ProjectID: task.ProjectID, TaskID: task.ID, NextRunNumber: 1}
-		if err := model.ValidateTaskRunCounter(counter); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(w, s.taskRunCounterPath(task.ProjectID, task.ID), counter); err != nil {
 			return nil, err
 		}
 		if err := hub.WriteJSON(w, s.projectIdentifiersPath(task.ProjectID), updatedIdentifiers); err != nil {

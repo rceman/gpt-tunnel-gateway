@@ -29,7 +29,7 @@ func (s *Server) addPlanTools(add toolAdder) {
 		}
 		return s.Service.PlanCutover(ctx, in)
 	})
-	add("plan_update", "Partially update the compact plan manifest.", obj(map[string]any{"project_id": str("Project identifier"), "title": str("Plan title"), "summary": str("Plan summary"), "current_objective": str("Current objective"), "queue": map[string]any{"type": "array", "items": str("Ordered section identifiers")}, "active_task_id": str("Active task"), "active_run_id": str("Active run"), "updated_by": str("Author identity"), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "updated_by"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("plan_update", "Partially update the compact plan manifest.", obj(map[string]any{"project_id": str("Project identifier"), "title": str("Plan title"), "summary": str("Plan summary"), "current_objective": str("Current objective"), "queue": map[string]any{"type": "array", "items": str("Ordered section identifiers")}, "active_task_id": str("Active task"), "updated_by": str("Author identity"), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "updated_by"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.PlanUpdateInput
 		if e := decode(raw, &in); e != nil {
 			return nil, e

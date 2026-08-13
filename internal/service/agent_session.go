@@ -45,14 +45,6 @@ type AgentTailInput struct {
 	Cursor string
 }
 
-type RunAgentTailResult struct {
-	RunID      string `json:"run_id"`
-	Text       string `json:"text"`
-	Lines      int    `json:"lines"`
-	NextCursor string `json:"next_cursor"`
-	HasMore    bool   `json:"has_more"`
-}
-
 type AgentStatusResult struct {
 	ProjectID           string   `json:"project_id"`
 	State               string   `json:"state"`

@@ -40,27 +40,3 @@ func TestProjectConfigurationRegisterReadUpdateAndStatus(t *testing.T) {
 		t.Fatalf("unexpected project configuration status: %#v", status.ProjectConfiguration)
 	}
 }
-
-func TestProjectConfigurationExecutionSensitivePatchRejectsActiveRun(t *testing.T) {
-	s, _, _, _ := dispatchedRun(t, "feature/project-configuration")
-	ctx := context.Background()
-	configuration, err := s.ProjectConfigurationRead(ctx, "example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	workflow := configuration.Workflow
-	workflow.WaitForCI = true
-	revision, err := s.Hub.RemoteRevision(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := s.ProjectConfigurationUpdate(trustedWorkflowPolicyContext(ctx, "planner"), ProjectConfigurationUpdateInput{
-		ProjectID:        "example",
-		ExpectedRevision: configuration.Revision,
-		Patch:            ProjectConfigurationPatch{Workflow: &workflow},
-		UpdatedBy:        "planner",
-		WriteOptions:     WriteOptions{ExpectedHubRevision: revision},
-	}); err == nil {
-		t.Fatal("execution-sensitive configuration update succeeded with an active run")
-	}
-}

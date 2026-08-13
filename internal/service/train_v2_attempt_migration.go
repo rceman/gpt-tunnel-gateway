@@ -239,9 +239,9 @@ func (s *Service) buildTrainV2AttemptMigration(ctx context.Context, projectID st
 		}
 		path := s.projectPrefix(train.ProjectID) + "/runs/" + legacyItem.RunID + "/run.json"
 		raw, err := s.Hub.ReadFile(ctx, path)
-		status := model.TrainV2AttemptSucceeded
+		status := ""
 		if err == nil {
-			candidate, historical, decodeErr := model.DecodeRunRecord(raw)
+			candidate, historical, decodeErr := decodeMigrationRun(raw)
 			if decodeErr != nil || historical || candidate.ProjectID != train.ProjectID || candidate.TaskID != item.TaskID || candidate.TrainID != train.ID {
 				raw, path, status, err = s.findExactRecoveredTrainSource(ctx, train, item)
 			}
@@ -256,12 +256,15 @@ func (s *Service) buildTrainV2AttemptMigration(ctx context.Context, projectID st
 		if err != nil {
 			return nil, err
 		}
-		run, historical, err := model.DecodeRunRecord(raw)
+		run, historical, err := decodeMigrationRun(raw)
 		if err != nil || historical || run.ID != legacyItem.RunID || run.TaskID != item.TaskID || run.ProjectID != train.ProjectID || run.TrainID != train.ID {
 			return nil, fmt.Errorf("legacy source %s does not exactly bind Train item: decode=%v historical=%v run_id=%s task_id=%s project_id=%s train_id=%s", legacyItem.RunID, err, historical, run.ID, run.TaskID, run.ProjectID, run.TrainID)
 		}
-		if err := model.ValidateRun(run); err != nil {
-			return nil, err
+		if status == "" {
+			status, err = migrationAttemptStatus(run.Status, run.FinishedAt)
+			if err != nil {
+				return nil, fmt.Errorf("legacy source %s cannot be migrated losslessly: %w", path, err)
+			}
 		}
 		digest := digestBytes(raw)
 		items = append(items, model.TrainV2AttemptMigrationItem{TaskID: item.TaskID, AttemptNumber: 1, AttemptStatus: status, LegacyRunRef: model.TrainV2LegacyRunRef{RunID: run.ID, RecordSHA256: digest, Path: path}, OriginalRunJSONBase64: base64.StdEncoding.EncodeToString(raw)})
@@ -280,7 +283,7 @@ func (s *Service) findExactTrainSourceHistory(ctx context.Context, train model.T
 		if readErr != nil {
 			continue
 		}
-		run, historical, decodeErr := model.DecodeRunRecord(data)
+		run, historical, decodeErr := decodeMigrationRun(data)
 		if decodeErr == nil && !historical && run.ProjectID == train.ProjectID && run.TaskID == item.TaskID && run.TrainID == train.ID {
 			return data, path, model.TrainV2AttemptSucceeded, nil
 		}
@@ -313,7 +316,7 @@ func (s *Service) findExactRecoveredTrainSource(ctx context.Context, train model
 		if decodeErr != nil {
 			continue
 		}
-		run, historical, decodeErr := model.DecodeRunRecord(original)
+		run, historical, decodeErr := decodeMigrationRun(original)
 		if decodeErr == nil && !historical && run.ProjectID == train.ProjectID && run.TaskID == item.TaskID && run.TrainID == train.ID {
 			found = append(found, struct {
 				raw  []byte
@@ -375,7 +378,7 @@ func (s *Service) applyTrainV2AttemptMigration(worktree string, train *model.Tra
 		if digestBytes(raw) != migration.LegacyRunRef.RecordSHA256 {
 			return fmt.Errorf("legacy Run %s changed before migration", migration.LegacyRunRef.RunID)
 		}
-		var run model.Run
+		var run migrationRunRecord
 		if err := decodeStrict(raw, &run); err != nil {
 			return err
 		}
@@ -384,12 +387,16 @@ func (s *Service) applyTrainV2AttemptMigration(worktree string, train *model.Tra
 			reportID = item.Proof.ReportID
 		}
 		attempt := model.TrainV2Attempt{Number: 1, Status: migration.AttemptStatus, AgentID: run.AgentID, AirelaySessionKey: run.SessionKey, GatewayID: run.GatewayID, StartHead: run.BaseRevision, StartedAt: run.CreatedAt, DispatchedAt: run.DispatchedAt, FinishedAt: run.FinishedAt, CompletionPath: run.CompletionPath, ReportID: reportID, LegacyRunRef: &migration.LegacyRunRef}
-		if attempt.FinishedAt == nil {
-			finished := run.CreatedAt
-			attempt.FinishedAt = &finished
+		if attempt.Status != model.TrainV2AttemptRunning && attempt.FinishedAt == nil {
+			return fmt.Errorf("legacy Run %s has no terminal timestamp", migration.LegacyRunRef.RunID)
 		}
 		item.Attempts = []model.TrainV2Attempt{attempt}
-		if train.Status == model.TrainV2RecoveryQuarantined {
+		if attempt.Status == model.TrainV2AttemptRunning {
+			item.Status = model.TrainV2ItemRunning
+			item.ActiveAttemptNumber = 1
+			item.SuccessfulAttemptNumber = 0
+			train.Status = model.TrainV2Running
+		} else if train.Status == model.TrainV2RecoveryQuarantined {
 			item.Status = model.TrainV2ItemBlocked
 			item.SuccessfulAttemptNumber = 0
 			item.ActiveAttemptNumber = 0

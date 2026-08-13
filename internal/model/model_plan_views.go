@@ -19,7 +19,6 @@ func (p Plan) StatusView() PlanStatus {
 		Queue:            append([]string{}, p.Queue...),
 		Sections:         sections,
 		ActiveTaskID:     p.ActiveTaskID,
-		ActiveRunID:      p.ActiveRunID,
 		UpdatedBy:        p.UpdatedBy,
 		UpdatedAt:        p.UpdatedAt,
 	}

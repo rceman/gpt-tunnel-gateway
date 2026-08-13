@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
@@ -192,15 +193,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 				}
 				return map[string]any{"task": task, "authoring": true}, nil
 			}
-			packet, err := s.Service.TaskRead(ctx, input.TaskID)
-			if err == nil {
-				return service.PublicTaskPacketView(packet), nil
-			}
-			record, recordErr := s.Service.TaskReadRecord(ctx, input.TaskID)
-			if recordErr != nil {
-				return nil, err
-			}
-			return map[string]any{"task": record.Task, "state": record.State, "run_summaries": record.RunSummaries, "active_run": false}, nil
+			return nil, fmt.Errorf("Task is not admitted to Train-v2")
 		},
 	})
 }

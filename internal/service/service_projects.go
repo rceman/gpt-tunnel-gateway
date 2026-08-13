@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
@@ -78,26 +77,6 @@ func (s *Service) taskIntegrationReceiptPath(project, id string) string {
 	return s.projectPrefix(project) + "/tasks/" + id + ".integration-receipt.json"
 }
 
-func (s *Service) taskRunCounterPath(project, id string) string {
-	if model.ValidateProjectIdentifier(project) != nil || model.ValidateCanonicalTaskID(id) != nil {
-		return "../invalid-task-run-counter"
-	}
-	return s.projectPrefix(project) + "/tasks/" + id + ".run-counter.json"
-}
-
-func (s *Service) runPrefix(project, id string) string {
-	if model.ValidateObjectIdentifier(id) != nil {
-		return "../invalid-run-id"
-	}
-	return s.projectPrefix(project) + "/runs/" + id
-}
-
-func (s *Service) runPath(project, id string) string { return s.runPrefix(project, id) + "/run.json" }
-
-func (s *Service) reportPath(project, id string) string {
-	return s.runPrefix(project, id) + "/report.json"
-}
-
 func decodeStrict(data []byte, out any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
@@ -117,37 +96,6 @@ func readWorktreeJSON(worktree, path string, out any) error {
 		return err
 	}
 	return decodeStrict(data, out)
-}
-
-func ensureSessionAvailableInWorktree(worktree, session string, maxReadBytes int64) error {
-	return ensureSessionAvailableInWorktreeForRun(worktree, session, "", "", maxReadBytes)
-}
-
-func ensureSessionAvailableInWorktreeForRun(worktree, session, trainID, laneBranch string, maxReadBytes int64) error {
-	root := filepath.Join(worktree, filepath.FromSlash(hub.ProtocolRoot), "projects")
-	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			if os.IsNotExist(walkErr) {
-				return nil
-			}
-			return walkErr
-		}
-		if entry.IsDir() || entry.Name() != "run.json" {
-			return nil
-		}
-		data, err := fsutil.ReadFileBounded(path, maxReadBytes)
-		if err != nil {
-			return err
-		}
-		run, _, err := model.DecodeRunRecord(data)
-		if err != nil {
-			return fmt.Errorf("decode active run %s: %w", path, err)
-		}
-		if run.SessionKey == session && operationalActiveRun(run) && sessionRunCollides(run, trainID, laneBranch) {
-			return fmt.Errorf("active operational run %s already owns the project session", run.ID)
-		}
-		return nil
-	})
 }
 
 func (s *Service) projectConfig(id string) (config.ProjectConfig, error) {

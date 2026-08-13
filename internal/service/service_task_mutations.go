@@ -78,7 +78,7 @@ func (s *Service) taskSupersedeOnce(ctx context.Context, oldID string, in TaskCr
 		updatedIdentifiers.NextTaskNumber++
 	}
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: supersede task "+old.ID, func(w string) ([]string, error) {
-		targetPaths := []string{s.taskPath(newTask.ProjectID, newTask.ID), s.taskStatePath(newTask.ProjectID, newTask.ID), s.taskRunCounterPath(newTask.ProjectID, newTask.ID)}
+		targetPaths := []string{s.taskPath(newTask.ProjectID, newTask.ID), s.taskStatePath(newTask.ProjectID, newTask.ID)}
 		for _, path := range targetPaths {
 			if _, err := os.Lstat(filepath.Join(w, filepath.FromSlash(path))); err == nil {
 				return nil, fmt.Errorf("task supersede target already exists: %s", path)
@@ -94,7 +94,7 @@ func (s *Service) taskSupersedeOnce(ctx context.Context, oldID string, in TaskCr
 		if current.ProjectCode != identifiers.ProjectCode || current.NextTaskNumber != identifiers.NextTaskNumber {
 			return nil, fmt.Errorf("project identifiers changed before task allocation")
 		}
-		paths = append(paths, s.taskRunCounterPath(newTask.ProjectID, newTask.ID), s.projectIdentifiersPath(old.ProjectID))
+		paths = append(paths, s.projectIdentifiersPath(old.ProjectID))
 		vals := []any{newTask, newState, oldState}
 		for i, p := range paths {
 			if i >= len(vals) {
@@ -103,13 +103,6 @@ func (s *Service) taskSupersedeOnce(ctx context.Context, oldID string, in TaskCr
 			if err := hub.WriteJSON(w, p, vals[i]); err != nil {
 				return nil, err
 			}
-		}
-		counter := model.TaskRunCounter{SchemaVersion: model.SchemaVersion, ProjectID: newTask.ProjectID, TaskID: newTask.ID, NextRunNumber: 1}
-		if err := model.ValidateTaskRunCounter(counter); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(w, s.taskRunCounterPath(newTask.ProjectID, newTask.ID), counter); err != nil {
-			return nil, err
 		}
 		if err := hub.WriteJSON(w, s.projectIdentifiersPath(old.ProjectID), updatedIdentifiers); err != nil {
 			return nil, err
@@ -128,40 +121,5 @@ func (s *Service) taskSupersedeOnce(ctx context.Context, oldID string, in TaskCr
 }
 
 func (s *Service) TaskCancel(ctx context.Context, id, expected string) (OperationResult, error) {
-	if err := requireCanonicalTaskID(id); err != nil {
-		return OperationResult{}, err
-	}
-	task, err := s.findTask(ctx, id)
-	if err != nil {
-		return OperationResult{}, err
-	}
-	runs, err := s.RunList(ctx, task.ProjectID)
-	if err != nil {
-		return OperationResult{}, err
-	}
-	for _, run := range runs {
-		if run.TaskID == task.ID && operationalActiveRun(run) {
-			return OperationResult{}, fmt.Errorf("task has active run %s; cancel the run instead", run.ID)
-		}
-	}
-	original := task
-	state, err := s.taskState(ctx, original)
-	if err != nil {
-		return OperationResult{}, err
-	}
-	if state.Status == "cancelled" || state.Status == "completed" || state.Status == "superseded" {
-		return OperationResult{}, fmt.Errorf("task is terminal: %s", state.Status)
-	}
-	state.Status = "cancelled"
-	state.UpdatedAt = time.Now().UTC()
-	tx, err := s.updateTaskState(ctx, original, state, expected, "gateway: cancel task "+id)
-	if err != nil {
-		return OperationResult{}, err
-	}
-	return OperationResult{
-		Hub:       tx,
-		ProjectID: task.ProjectID,
-		TaskID:    id,
-		Status:    "cancelled",
-	}, nil
+	return OperationResult{}, errRunAuthorityRetired
 }

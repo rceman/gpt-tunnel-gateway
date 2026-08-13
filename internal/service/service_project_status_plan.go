@@ -39,8 +39,6 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 		workflowPolicyErr    error
 		tasks                []TaskRecord
 		tasksErr             error
-		runs                 []model.Run
-		runsErr              error
 		hubRevision          string
 		hubRevisionErr       error
 		agentStatus          airelay.SessionStatus
@@ -50,7 +48,7 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 		projectConfiguration ProjectConfigurationStatus
 	)
 	var wg sync.WaitGroup
-	wg.Add(10)
+	wg.Add(9)
 	go func() {
 		defer wg.Done()
 		candidate, err := s.ProjectRead(componentCtx, id)
@@ -74,10 +72,6 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	}()
 	go func() {
 		defer wg.Done()
-		runs, runsErr = s.RunList(componentCtx, id)
-	}()
-	go func() {
-		defer wg.Done()
 		hubRevision, hubRevisionErr = s.hubRevision(componentCtx)
 	}()
 	go func() {
@@ -97,15 +91,12 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 		projectConfiguration = s.projectConfigurationStatus(componentCtx, id)
 	}()
 	wg.Wait()
-	progress := s.projectProgressFromInputs(plan, planErr, tasks, tasksErr, runs, runsErr, agentStatus, agentStatusErr, agentTail, agentTailErr)
+	progress := projectProgressFromInputs(plan, planErr, tasks, tasksErr, agentStatus, agentStatusErr, agentTail, agentTailErr)
 	appendComponentError(&progress.ComponentErrors, "project", projectErr)
 	appendComponentError(&progress.ComponentErrors, "worktree", wtErr)
 	appendComponentError(&progress.ComponentErrors, "hub_revision", hubRevisionErr)
 	appendComponentError(&progress.ComponentErrors, "workflow_policy", workflowPolicyErr)
 	internalPaths := []string{s.Config.StateDir, local.Root, local.Mirror, local.AirelaySessionKey}
-	for _, run := range runs {
-		internalPaths = append(internalPaths, run.CompletionPath)
-	}
 	for _, internal := range internalPaths {
 		if internal != "" {
 			progress.Tail = strings.ReplaceAll(progress.Tail, internal, "[gateway-internal-value]")
@@ -147,11 +138,6 @@ func (s *Service) PlanUpdate(ctx context.Context, in PlanUpdateInput) (Operation
 			return OperationResult{}, err
 		}
 	}
-	if in.ActiveRunID != nil && *in.ActiveRunID != "" {
-		if err := requireCanonicalRunID(*in.ActiveRunID); err != nil {
-			return OperationResult{}, err
-		}
-	}
 	old, err := s.PlanRead(ctx, in.ProjectID)
 	if err != nil && !IsNotFound(err) {
 		return OperationResult{}, err
@@ -181,9 +167,6 @@ func (s *Service) PlanUpdate(ctx context.Context, in PlanUpdateInput) (Operation
 	}
 	if in.ActiveTaskID != nil {
 		plan.ActiveTaskID = *in.ActiveTaskID
-	}
-	if in.ActiveRunID != nil {
-		plan.ActiveRunID = *in.ActiveRunID
 	}
 	plan.UpdatedBy = in.UpdatedBy
 	plan.UpdatedAt = time.Now().UTC()
@@ -219,7 +202,7 @@ func sectionIndex(plan model.Plan, id string) (int, model.PlanSectionIndex, erro
 			return i, section, nil
 		}
 	}
-	return -1, model.PlanSectionIndex{}, fmt.Errorf("plan section not found: %s", id)
+	return -1, model.PlanSectionIndex{}, notFoundf("plan section %s", id)
 }
 
 func (s *Service) PlanSectionRead(ctx context.Context, project, id string) (model.PlanSection, error) {

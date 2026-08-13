@@ -51,7 +51,6 @@ type TaskTrain struct {
 	LaneBranch      string           `json:"lane_branch,omitempty"`
 	CurrentIndex    int              `json:"current_index"`
 	CurrentTaskID   string           `json:"current_task_id,omitempty"`
-	CurrentRunID    string           `json:"current_run_id,omitempty"`
 	Status          string           `json:"status"`
 	WaitReason      string           `json:"wait_reason,omitempty"`
 	UpdatedAt       time.Time        `json:"updated_at"`
@@ -127,9 +126,6 @@ func ValidateTaskTrain(v TaskTrain) error {
 		}
 	default:
 		return fmt.Errorf("invalid task train status")
-	}
-	if v.CurrentRunID != "" && ValidateObjectIdentifier(v.CurrentRunID) != nil {
-		return fmt.Errorf("invalid task train current run")
 	}
 	if v.Status == TaskTrainBlocked && strings.TrimSpace(v.WaitReason) == "" {
 		return fmt.Errorf("blocked task train requires wait reason")

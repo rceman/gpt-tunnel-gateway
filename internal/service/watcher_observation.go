@@ -4,15 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
-	"github.com/rceman/gpt-tunnel-gateway/internal/tailcursor"
-	"github.com/rceman/gpt-tunnel-gateway/internal/watcher"
 )
 
 type WatcherObserveInput struct {
@@ -69,146 +66,18 @@ func normalizeWatcherLines(lines []string) []string {
 	return result
 }
 
-func watcherSnapshotDigest(lines []string) string {
-	return watcherDigest(strings.Join(lines, "\x00"))
-}
+func watcherSnapshotDigest(lines []string) string { return watcherDigest(strings.Join(lines, "\x00")) }
 
 func (s *Service) WatcherObserve(ctx context.Context, in WatcherObserveInput) (model.WatcherObservation, error) {
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return model.WatcherObservation{}, err
 	}
-	if enabled, err := s.TrainV2Enabled(ctx, in.ProjectID); err != nil {
-		return model.WatcherObservation{}, err
-	} else if enabled {
-		return s.watcherObserveTrainV2(ctx, in)
-	}
-	local, err := s.projectConfig(in.ProjectID)
+	enabled, err := s.TrainV2Enabled(ctx, in.ProjectID)
 	if err != nil {
 		return model.WatcherObservation{}, err
 	}
-	settings := watcherSettings(local)
-	lines := in.Lines
-	if lines == 0 {
-		lines = settings.TailLines
+	if !enabled {
+		return model.WatcherObservation{}, errRunAuthorityRetired
 	}
-	if lines < 1 || lines > model.WatcherMaxTailLines {
-		return model.WatcherObservation{}, fmt.Errorf("invalid watcher tail bounds")
-	}
-	now := s.watcherNow()
-	state, err := watcher.LoadObservation(s.Config.StateDir, in.ProjectID)
-	if err != nil {
-		return model.WatcherObservation{}, err
-	}
-
-	plan, err := s.PlanRead(ctx, in.ProjectID)
-	if err != nil {
-		return model.WatcherObservation{}, err
-	}
-	observation := model.WatcherObservation{
-		SchemaVersion: model.WatcherObservationSchemaVersion,
-		ProjectID:     in.ProjectID,
-		Lines:         lines,
-		ObservedAt:    now,
-	}
-	identityChanged := state.TaskID != plan.ActiveTaskID || state.RunID != plan.ActiveRunID
-	observation.IdentityChanged = identityChanged
-	state.ProjectID = in.ProjectID
-	state.TaskID = plan.ActiveTaskID
-	state.RunID = plan.ActiveRunID
-	state.LastTickAt = now
-	state.LastError = ""
-	if identityChanged {
-		state.SessionKey = ""
-		state.SnapshotDigest = ""
-		state.SeenDigests = []string{}
-		state.LastTail = ""
-	}
-
-	if plan.ActiveTaskID == "" {
-		state.TaskID, state.RunID, state.SessionKey = "", "", ""
-		if err := watcher.SaveObservation(s.Config.StateDir, state); err != nil {
-			return model.WatcherObservation{}, err
-		}
-		return observation, nil
-	}
-	var task model.Task
-	if err := s.Hub.ReadJSON(ctx, s.taskPath(in.ProjectID, plan.ActiveTaskID), &task); err != nil {
-		state.LastError = err.Error()
-		_ = watcher.SaveObservation(s.Config.StateDir, state)
-		return model.WatcherObservation{}, fmt.Errorf("read active watcher task: %w", err)
-	}
-	if task.ProjectID != in.ProjectID || task.ID != plan.ActiveTaskID {
-		return model.WatcherObservation{}, fmt.Errorf("active watcher task identity mismatch")
-	}
-	observation.TaskID = task.ID
-	if plan.ActiveRunID == "" {
-		if err := watcher.SaveObservation(s.Config.StateDir, state); err != nil {
-			return model.WatcherObservation{}, err
-		}
-		return observation, nil
-	}
-
-	var run model.Run
-	if err := s.Hub.ReadJSON(ctx, s.runPath(in.ProjectID, plan.ActiveRunID), &run); err != nil {
-		state.LastError = err.Error()
-		_ = watcher.SaveObservation(s.Config.StateDir, state)
-		return model.WatcherObservation{}, fmt.Errorf("read active watcher run: %w", err)
-	}
-	if run.ProjectID != in.ProjectID || run.TaskID != task.ID || run.ID != plan.ActiveRunID || run.SessionKey == "" {
-		return model.WatcherObservation{}, fmt.Errorf("active watcher run identity mismatch")
-	}
-	observation.RunID, observation.TargetSession, observation.RunStatus = run.ID, run.SessionKey, run.Status
-	state.SessionKey = run.SessionKey
-	if !watcherActiveStatus(run.Status) {
-		observation.Terminal = true
-		if err := watcher.SaveObservation(s.Config.StateDir, state); err != nil {
-			return model.WatcherObservation{}, err
-		}
-		return observation, nil
-	}
-
-	result, err := s.Airelay.TailSnapshot(ctx, run.SessionKey, tailcursor.MaxSnapshotLines)
-	if err != nil {
-		state.LastError = err.Error()
-		_ = watcher.SaveObservation(s.Config.StateDir, state)
-		return model.WatcherObservation{}, fmt.Errorf("read watcher agent tail: %w", err)
-	}
-	snapshot := normalizeWatcherLines(agentSnapshotLines(result.Stdout))
-	if len(snapshot) > lines {
-		snapshot = snapshot[len(snapshot)-lines:]
-	}
-	observation.SnapshotDigest = watcherSnapshotDigest(snapshot)
-	seen := make(map[string]bool, len(state.SeenDigests))
-	for _, digest := range state.SeenDigests {
-		seen[digest] = true
-	}
-	newLines := make([]string, 0, len(snapshot))
-	newDigests := make([]string, 0, len(snapshot))
-	for _, line := range snapshot {
-		digest := watcherDigest(line)
-		if seen[digest] {
-			continue
-		}
-		seen[digest] = true
-		newLines = append(newLines, line)
-		newDigests = append(newDigests, digest)
-	}
-	state.SeenDigests = append(state.SeenDigests, newDigests...)
-	retention := settings.SeenRetention
-	if len(state.SeenDigests) > retention {
-		state.SeenDigests = state.SeenDigests[len(state.SeenDigests)-retention:]
-	}
-	state.SnapshotDigest = observation.SnapshotDigest
-	state.Cursor = observation.SnapshotDigest
-	state.LastTail = strings.Join(newLines, "\n")
-	if len(newLines) > 0 {
-		state.LastUsefulAt = now
-	}
-	observation.Tail = state.LastTail
-	observation.NewDigests = newDigests
-	observation.Useful = len(newLines) > 0
-	if err := watcher.SaveObservation(s.Config.StateDir, state); err != nil {
-		return model.WatcherObservation{}, err
-	}
-	return observation, nil
+	return s.watcherObserveTrainV2(ctx, in)
 }

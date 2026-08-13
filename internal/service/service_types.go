@@ -103,33 +103,26 @@ type TaskTrainPollInput struct {
 }
 
 type TaskTrainStatus struct {
-	ProjectID        string `json:"project_id"`
-	TrainID          string `json:"train_id"`
-	Status           string `json:"status"`
-	CurrentIndex     int    `json:"current_index"`
-	TaskCount        int    `json:"task_count"`
-	CurrentTaskID    string `json:"current_task_id,omitempty"`
-	CurrentRunID     string `json:"current_run_id,omitempty"`
-	CurrentTaskState string `json:"current_task_state,omitempty"`
-	CurrentRunStatus string `json:"current_run_status,omitempty"`
-	AgentState       string `json:"agent_state,omitempty"`
-	WaitReason       string `json:"wait_reason,omitempty"`
-	NextTaskID       string `json:"next_task_id,omitempty"`
-	Tail             string `json:"tail,omitempty"`
-	NextCursor       string `json:"next_cursor,omitempty"`
-	HasMore          bool   `json:"has_more"`
+	ProjectID            string `json:"project_id"`
+	TrainID              string `json:"train_id"`
+	Status               string `json:"status"`
+	CurrentIndex         int    `json:"current_index"`
+	TaskCount            int    `json:"task_count"`
+	CurrentTaskID        string `json:"current_task_id,omitempty"`
+	CurrentTaskState     string `json:"current_task_state,omitempty"`
+	CurrentAttemptStatus string `json:"current_attempt_status,omitempty"`
+	AgentState           string `json:"agent_state,omitempty"`
+	WaitReason           string `json:"wait_reason,omitempty"`
+	NextTaskID           string `json:"next_task_id,omitempty"`
+	Tail                 string `json:"tail,omitempty"`
+	NextCursor           string `json:"next_cursor,omitempty"`
+	HasMore              bool   `json:"has_more"`
 }
 
 type ProjectListPageResult struct {
 	Projects   []model.Project `json:"projects"`
 	NextCursor string          `json:"next_cursor"`
 	HasMore    bool            `json:"has_more"`
-}
-
-type RunListPageResult struct {
-	Runs       []model.Run `json:"runs"`
-	NextCursor string      `json:"next_cursor"`
-	HasMore    bool        `json:"has_more"`
 }
 
 type ADRListPageResult struct {

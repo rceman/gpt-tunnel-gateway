@@ -10,16 +10,17 @@ import (
 )
 
 type TaskCorrectionCreateInput struct {
-	TaskID             string   `json:"task_id"`
-	SourceRevisionID   string   `json:"source_revision_id"`
-	SourceRunID        string   `json:"source_run_id"`
-	SourceReportID     string   `json:"source_report_id"`
-	Title              string   `json:"title,omitempty"`
-	Objective          string   `json:"objective,omitempty"`
-	AcceptanceCriteria []string `json:"acceptance_criteria,omitempty"`
-	Constraints        []string `json:"constraints,omitempty"`
-	RequiredGates      []string `json:"required_gates,omitempty"`
-	CreatedBy          string   `json:"created_by"`
+	TaskID              string   `json:"task_id"`
+	SourceRevisionID    string   `json:"source_revision_id"`
+	SourceTrainID       string   `json:"source_train_id"`
+	SourceItemPosition  int      `json:"source_item_position"`
+	SourceAttemptNumber int      `json:"source_attempt_number"`
+	Title               string   `json:"title,omitempty"`
+	Objective           string   `json:"objective,omitempty"`
+	AcceptanceCriteria  []string `json:"acceptance_criteria,omitempty"`
+	Constraints         []string `json:"constraints,omitempty"`
+	RequiredGates       []string `json:"required_gates,omitempty"`
+	CreatedBy           string   `json:"created_by"`
 	WriteOptions
 }
 
@@ -168,37 +169,4 @@ func (s *Service) TaskRevisionStatus(ctx context.Context, revisionID string) (mo
 		return model.TaskRevisionStatus{}, err
 	}
 	return revision.StatusView(), nil
-}
-
-func correctionEligibleReport(report model.RunReviewReport) bool {
-	if report.Outcome == model.ReviewOutcomeRejected {
-		return true
-	}
-	if report.Outcome != model.ReviewOutcomeAccepted {
-		return false
-	}
-	for _, finding := range report.Findings {
-		if finding.Severity != "info" {
-			return true
-		}
-	}
-	return len(report.Findings) > 0
-}
-
-func revisionSourceRunMatches(taskID string, source model.TaskRevision, run model.Run) bool {
-	if run.TaskRevision == source.TaskRevision && run.TaskRevisionSHA256 == source.RevisionSHA256 && run.TaskRunNumber > 0 {
-		return true
-	}
-	if source.TaskRevision != 1 || run.TaskRevision != 0 || run.TaskRevisionSHA256 != "" || run.TaskRunNumber != 0 {
-		return false
-	}
-	parsedTask, _, err := model.ParseRunID(run.ID)
-	return err == nil && parsedTask == taskID
-}
-
-func revisionSourceReportMatches(source model.TaskRevision, run model.Run, report model.RunReviewReport) bool {
-	if report.TaskRevision == source.TaskRevision && report.TaskRevisionSHA256 == source.RevisionSHA256 && report.TaskRunNumber == run.TaskRunNumber {
-		return true
-	}
-	return source.TaskRevision == 1 && report.TaskRevision == 0 && report.TaskRevisionSHA256 == "" && report.TaskRunNumber == 0
 }

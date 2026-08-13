@@ -19,10 +19,7 @@ func projectConfigurationStatusOutputSchema() map[string]any {
 }
 
 func projectProgressOutputSchema() map[string]any {
-	task := closedOutput(map[string]any{"id": outputString(), "title": outputString(), "status": outputString(), "created_at": outputDateTime()}, "id", "title", "status", "created_at")
-	run := closedOutput(map[string]any{"id": outputString(), "task_id": outputString(), "status": outputString(), "branch": outputString(), "base_revision": outputString(), "created_at": outputDateTime(), "dispatched_at": outputDateTime(), "finished_at": outputDateTime()}, "id", "task_id", "status", "branch", "base_revision", "created_at")
 	return closedOutput(map[string]any{
-		"latest_task": task, "latest_run": run,
 		"agent_state":          outputEnum("idle", "running", "waiting_for_input", "compacting", "compacted_resuming", "compacted_idle", "capacity_blocked", "rate_limited", "completion_pending", "finalization_pending", "stalled", "error", "unknown"),
 		"controller_reachable": outputBoolean(), "airelay_version": outputString(), "protocol_version": outputString(), "capacity_warnings": outputArray(outputString()), "exit_code": outputInteger(), "error": outputString(),
 		"last_meaningful_activity": outputDateTime(), "last_meaningful_activity_age_seconds": outputInteger(), "tail": outputString(), "blocker_classification": outputString(), "recommended_next_action": outputString(), "component_errors": outputArray(outputString()),
@@ -37,31 +34,21 @@ func worktreeStatusOutputSchema() map[string]any {
 }
 
 func taskRecordOutputSchema() map[string]any {
-	summary := runReviewSummaryOutputSchema()
-	return closedOutput(map[string]any{"task": taskOutputSchema(), "state": taskStateOutputSchema(), "current_revision": taskRevisionOutputSchema(), "run_summaries": outputArray(summary), "workflow_policy": workflowPolicyOutputSchema()}, "task", "state")
-}
-
-func runReviewSummaryOutputSchema() map[string]any {
-	return closedOutput(map[string]any{
-		"run_id": outputString(), "agent_status": outputString(), "delivery_status": outputString(),
-		"delivery_report_id": outputString(), "delivery_outcome": outputEnum(model.ReviewOutcomeAccepted, model.ReviewOutcomeRejected, model.ReviewOutcomeBlocked, model.ReviewOutcomeInconclusive),
-		"reviewed_head": outputString(), "blocker": outputString(), "next_action": outputString(), "history_only": outputBoolean(),
-	}, "run_id", "agent_status", "delivery_status", "history_only")
+	return closedOutput(map[string]any{"task": taskOutputSchema(), "state": taskStateOutputSchema(), "current_revision": taskRevisionOutputSchema(), "workflow_policy": workflowPolicyOutputSchema()}, "task", "state")
 }
 
 func taskPacketOutputSchema() map[string]any {
 	currentRevision := map[string]any{"anyOf": []any{taskRevisionOutputSchema(), map[string]any{"type": "null"}}}
 	return closedOutput(map[string]any{
-		"task": taskOutputSchema(), "current_revision": currentRevision, "run": taskPacketRunOutputSchema(), "project": projectOutputSchema(), "plan": planOutputSchema(), "workflow_policy": workflowPolicyOutputSchema(),
-		"run_summaries":    outputArray(runReviewSummaryOutputSchema()),
-		"repository_root":  outputString(),
-		"finalize_command": outputString(), "text": outputString(),
-	}, "task", "run", "project", "plan", "workflow_policy", "repository_root", "finalize_command", "text")
+		"task": taskOutputSchema(), "current_revision": currentRevision, "project": projectOutputSchema(), "plan": planOutputSchema(), "workflow_policy": workflowPolicyOutputSchema(),
+		"repository_root": outputString(),
+		"text":            outputString(),
+	}, "task", "project", "plan", "workflow_policy", "repository_root", "text")
 }
 
 func taskReadOutputSchema() map[string]any {
 	inactive := closedOutput(map[string]any{
-		"task": taskOutputSchema(), "state": taskStateOutputSchema(), "current_revision": taskRevisionOutputSchema(), "run_summaries": outputArray(runReviewSummaryOutputSchema()), "workflow_policy": workflowPolicyOutputSchema(), "active_run": outputBoolean(),
-	}, "task", "state", "active_run")
+		"task": taskOutputSchema(), "state": taskStateOutputSchema(), "current_revision": taskRevisionOutputSchema(), "workflow_policy": workflowPolicyOutputSchema(),
+	}, "task", "state")
 	return map[string]any{"type": "object", "oneOf": []any{taskPacketOutputSchema(), inactive}}
 }
