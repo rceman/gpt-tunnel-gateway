@@ -248,7 +248,7 @@ func liveMCPSmoke(ctx context.Context, c config.Config, expectedVersion string) 
 	if _, err := call(2, "tools/list", map[string]any{}); err != nil {
 		return err
 	}
-	if _, err := call(3, "tools/call", map[string]any{"name": "system_ping", "arguments": map[string]any{}}); err != nil {
+	if _, err := call(3, "tools/call", map[string]any{"name": "status", "arguments": map[string]any{}}); err != nil {
 		return err
 	}
 	return nil
