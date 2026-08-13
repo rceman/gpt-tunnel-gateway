@@ -50,20 +50,27 @@ func main() {
 	// handlers retain the daemon's established delivery root.
 	trustedMCPContext := authority.WithDelivery(context.Background())
 	go svc.RunWatcherSupervisors(context.Background())
-	srv := &http.Server{
-		Addr:              c.ListenAddr,
-		Handler:           (&mcp.Server{Service: svc, AuthorityContext: trustedMCPContext}).Router(),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    32 << 10,
-	}
+	srv := newGatewayHTTPServer(c.ListenAddr, (&mcp.Server{Service: svc, AuthorityContext: trustedMCPContext}).Router())
 	fmt.Fprintf(os.Stderr, "gpt-tunnel-gatewayd %s listening on %s\n", version, c.ListenAddr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		fatal(err)
 	}
 }
+
+func newGatewayHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		// Long-running actions keep their own bounded command/action contexts;
+		// the transport must not impose a shorter fixed response deadline.
+		WriteTimeout:   0,
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 32 << 10,
+	}
+}
+
 func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnel-gatewayd:", err); os.Exit(1) }
 
 func summarizeStateIssues(issues []service.StateIssue) string {
