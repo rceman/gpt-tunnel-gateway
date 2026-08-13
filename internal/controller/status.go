@@ -42,7 +42,7 @@ func installedVersion(path string) string {
 }
 func runningVersion(ctx context.Context, readyURL, gatewayID string) string {
 	endpoint := strings.TrimSuffix(readyURL, "/readyz") + "/mcp"
-	payload := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "system_ping", "arguments": map[string]any{}}}
+	payload := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "status", "arguments": map[string]any{}}}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return ""
