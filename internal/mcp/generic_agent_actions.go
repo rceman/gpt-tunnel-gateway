@@ -43,6 +43,32 @@ func (s *Server) registerAgentActions() error {
 		return s.RegisterGenericAction(action)
 	}
 	if err := register(GenericAction{
+		Path:        "agent/prompt",
+		Description: "Send one bounded non-interrupting prompt to the exact project-bound Agent session.",
+		InputSchema: obj(map[string]any{
+			"project_id": str("Registered project identifier."),
+			"message":    boundedAgentMessageSchema(),
+		}, "project_id", "message"),
+		OutputSchema: agentObjectOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  false,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				ProjectID string `json:"project_id"`
+				Message   string `json:"message"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.AgentPrompt(ctx, in.ProjectID, in.Message)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := register(GenericAction{
 		Path:         "agent/register",
 		Description:  "Register one portable project-scoped Agent identity.",
 		InputSchema:  obj(map[string]any{"agent": agentInputSchema(), "expected_hub_revision": str("Optional exact Hub revision guard.")}, "agent"),
@@ -185,4 +211,10 @@ func (s *Server) registerAgentActions() error {
 			return s.Service.AgentRegistryStatus(ctx, in.ProjectID, in.AgentID)
 		},
 	})
+}
+
+func boundedAgentMessageSchema() map[string]any {
+	message := str("Bounded non-interrupting Agent prompt.")
+	message["minLength"], message["maxLength"] = 1, 256
+	return message
 }

@@ -111,6 +111,13 @@ func (s *Service) AgentSend(ctx context.Context, projectID, message string) (Age
 	return receipt, nil
 }
 
+// AgentPrompt is the canonical non-interrupting steering operation. It uses
+// the normal Airelay prompt primitive for both idle and working sessions; no
+// interrupt, PTY input, or process-control operation is reachable here.
+func (s *Service) AgentPrompt(ctx context.Context, projectID, message string) (AgentSendResult, error) {
+	return s.AgentSend(ctx, projectID, message)
+}
+
 func (s *Service) AgentTail(ctx context.Context, projectID string, lines, skip int) (AgentTailResult, error) {
 	return s.AgentTailPage(ctx, projectID, AgentTailInput{
 		Lines: lines,

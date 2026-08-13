@@ -106,7 +106,7 @@ func legacyActionPath(toolName string) string {
 func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]genericActionEntry {
 	entries := make(map[string]genericActionEntry, len(legacy))
 	for toolName, tool := range legacy {
-		if toolName == "system_ping" || toolName == "session" || toolName == "status" || toolName == "rules" || toolName == "project" || toolName == "project_status" {
+		if toolName == "system_ping" || toolName == "session" || toolName == "status" || toolName == "rules" || toolName == "project" || toolName == "project_status" || toolName == "agent_send" {
 			continue
 		}
 		path := legacyActionPath(toolName)
