@@ -138,6 +138,26 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "train/advance",
+		Description:  "Start the next queued TrainItem Attempt without creating a global Run.",
+		InputSchema:  trainV2AdvanceSchema(),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.TrainV2AdvanceInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2Advance(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "train/attempt-finalize",
 		Description:  "Finalize one exact TrainItem Attempt without creating a global Run.",
 		InputSchema:  trainV2AttemptFinalizeSchema(),

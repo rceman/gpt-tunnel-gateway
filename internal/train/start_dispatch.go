@@ -126,3 +126,10 @@ func dispatchAttempt(ctx context.Context, deps StartDependencies, train model.Tr
 	}
 	return err
 }
+
+// DispatchAttempt resumes or delivers an already-persisted TrainItem Attempt.
+// The durable dispatch receipt makes retries idempotent after a prompt has
+// completed but before its Hub transaction has been observed by the caller.
+func DispatchAttempt(ctx context.Context, deps StartDependencies, train model.TrainV2, item model.TrainV2Item, attempt model.TrainV2Attempt, runtime RuntimeBinding, expected string) error {
+	return dispatchAttempt(ctx, deps, train, item, attempt, runtime, expected)
+}

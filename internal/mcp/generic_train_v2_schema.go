@@ -43,6 +43,14 @@ func trainV2StartSchema() map[string]any {
 	}, "project_id", "train_id", "started_by")
 }
 
+func trainV2AdvanceSchema() map[string]any {
+	return obj(map[string]any{
+		"project_id":            str("Registered project identifier."),
+		"train_id":              str("Server-allocated Train identifier."),
+		"expected_hub_revision": str("Optimistic Hub revision."),
+	}, "project_id", "train_id")
+}
+
 func trainV2IntegrateSchema() map[string]any {
 	return obj(map[string]any{
 		"project_id":            str("Registered project identifier."),

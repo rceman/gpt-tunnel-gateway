@@ -40,6 +40,15 @@ type TrainV2StartInput struct {
 	WriteOptions
 }
 
+// TrainV2AdvanceInput advances the exact running Train lane to its next
+// queued item. Agent/session and worktree identity are inherited from the
+// successful prior Attempt; callers cannot supply a new global Run identity.
+type TrainV2AdvanceInput struct {
+	ProjectID string `json:"project_id"`
+	TrainID   string `json:"train_id"`
+	WriteOptions
+}
+
 // TrainV2IntegrateInput contains only the Train identity and optimistic Hub
 // guard. Branches, SHAs, activation inputs and Git options are server-owned.
 type TrainV2IntegrateInput struct {
