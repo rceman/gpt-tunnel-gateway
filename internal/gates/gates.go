@@ -136,6 +136,60 @@ func (e Executor) ExecuteWithScope(ctx context.Context, root string, requested [
 	return results, nil
 }
 
+// ExecuteWithProjectCommands runs the exact gate groups selected by policy
+// using the repository-owned argv definitions. The Gateway only selects the
+// named group and test mode; it does not derive language-specific package
+// scopes or rewrite command arguments.
+func (e Executor) ExecuteWithProjectCommands(ctx context.Context, root string, requested []string, commands model.ProjectGateCommands, testMode string) ([]model.CompletionGateResult, error) {
+	resolved, err := Resolve(requested)
+	if err != nil {
+		return nil, err
+	}
+	if err := commands.Validate(); err != nil {
+		return nil, err
+	}
+	if testMode != "task" && testMode != "train" {
+		return nil, fmt.Errorf("invalid project test mode %q", testMode)
+	}
+	if e.Command == nil {
+		return nil, fmt.Errorf("gate executor is not configured")
+	}
+	results := make([]model.CompletionGateResult, 0, len(resolved))
+	for _, gate := range resolved {
+		command := commands.Format
+		switch gate {
+		case model.WorkflowGateCheck:
+			command = commands.Check
+		case model.WorkflowGateTest:
+			if testMode == "task" {
+				command = commands.Test.Task
+			} else {
+				command = commands.Test.Train
+			}
+		}
+		code, output, runErr := e.Command(ctx, root, command.Command[0], command.Command[1:]...)
+		results = append(results, model.CompletionGateResult{ID: gate, ExitCode: code})
+		if runErr != nil || code != 0 {
+			return results, gateFailure(gate, code, output, runErr)
+		}
+	}
+	return results, nil
+}
+
+func gateFailure(gate string, code int, output string, runErr error) error {
+	detail := strings.TrimSpace(output)
+	if runErr != nil {
+		if detail != "" {
+			return fmt.Errorf("gate %s failed: %w:\n%s", gate, runErr, detail)
+		}
+		return fmt.Errorf("gate %s failed: %w", gate, runErr)
+	}
+	if detail != "" {
+		return fmt.Errorf("gate %s failed with exit code %d:\n%s", gate, code, detail)
+	}
+	return fmt.Errorf("gate %s failed with exit code %d", gate, code)
+}
+
 func (e Executor) runGate(ctx context.Context, root, gate string, scope TestScope) (int, string, error) {
 	switch gate {
 	case model.WorkflowGateFormat:

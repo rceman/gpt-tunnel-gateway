@@ -40,6 +40,9 @@ func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
 		}
 		return out, nil
 	}
+	s.gateExecutorWithProjectCommands = func(ctx context.Context, root string, names []string, _ model.ProjectGateCommands, _ string) ([]model.CompletionGateResult, error) {
+		return s.gateExecutor(ctx, root, names)
+	}
 	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: "b1a45b1e9475ab29dfd3e84d523b70897c7b8918", Status: "active"}
 	reg, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{
 		Project: project,

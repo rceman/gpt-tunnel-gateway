@@ -28,7 +28,29 @@ func (s *Service) ExecuteProjectGates(ctx context.Context, projectID, operationC
 	if err != nil {
 		return nil, err
 	}
-	return s.executeGateNames(ctx, root, names)
+	mode := "train"
+	if operationClass == "" || operationClass == "implementation" || operationClass == "correction" {
+		mode = "task"
+	}
+	return s.executeProjectGatesWithProjectCommands(ctx, projectID, root, names, mode)
+}
+
+func (s *Service) executeProjectGatesWithProjectCommands(ctx context.Context, projectID, root string, names []string, testMode string) ([]model.CompletionGateResult, error) {
+	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if s.gateExecutorWithProjectCommands == nil {
+		return nil, fmt.Errorf("project gate executor is not configured")
+	}
+	results, err := s.gateExecutorWithProjectCommands(ctx, root, names, configuration.Workflow.GateCommands, testMode)
+	if err != nil {
+		return results, err
+	}
+	if err := validateProjectGateEvidence(results, names); err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
 // resolveFinalizationTestScope is the server-owned policy boundary for

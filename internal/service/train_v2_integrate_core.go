@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/gates"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
@@ -140,7 +139,7 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 		if gateErr != nil {
 			return trainv2.IntegrationReceipt{}, OperationResult{}, gateErr
 		}
-		fullGates, gateErr := s.executeProjectGatesWithTestReuse(ctx, in.ProjectID, lane.Root, gateNames, gates.FullTestScope())
+		fullGates, gateErr := s.executeProjectGatesWithProjectCommands(ctx, in.ProjectID, lane.Root, gateNames, "train")
 		if gateErr != nil {
 			return trainv2.IntegrationReceipt{}, OperationResult{}, gateErr
 		}

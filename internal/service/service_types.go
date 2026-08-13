@@ -24,16 +24,17 @@ func PublicCollectionLimit(requested, configured int) (int, error) {
 }
 
 type Service struct {
-	Config                config.Config
-	ConfigPath            string
-	Hub                   hub.Store
-	Git                   gitx.Runner
-	Airelay               airelay.Client
-	clock                 func() time.Time
-	gateExecutor          func(context.Context, string, []string) ([]model.CompletionGateResult, error)
-	gateExecutorWithScope func(context.Context, string, []string, gates.TestScope) ([]model.CompletionGateResult, error)
-	taskActivator         func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
-	runtimeSourceProver   func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
+	Config                          config.Config
+	ConfigPath                      string
+	Hub                             hub.Store
+	Git                             gitx.Runner
+	Airelay                         airelay.Client
+	clock                           func() time.Time
+	gateExecutor                    func(context.Context, string, []string) ([]model.CompletionGateResult, error)
+	gateExecutorWithScope           func(context.Context, string, []string, gates.TestScope) ([]model.CompletionGateResult, error)
+	gateExecutorWithProjectCommands func(context.Context, string, []string, model.ProjectGateCommands, string) ([]model.CompletionGateResult, error)
+	taskActivator                   func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
+	runtimeSourceProver             func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
 }
 
 func New(c config.Config) *Service {
@@ -49,6 +50,9 @@ func New(c config.Config) *Service {
 		},
 		gateExecutorWithScope: func(ctx context.Context, root string, names []string, scope gates.TestScope) ([]model.CompletionGateResult, error) {
 			return executor.ExecuteWithScope(ctx, root, names, scope)
+		},
+		gateExecutorWithProjectCommands: func(ctx context.Context, root string, names []string, commands model.ProjectGateCommands, testMode string) ([]model.CompletionGateResult, error) {
+			return executor.ExecuteWithProjectCommands(ctx, root, names, commands, testMode)
 		},
 		taskActivator: func(ctx context.Context, project config.ProjectConfig, source string) (TaskActivationResult, error) {
 			return activateTaskSource(ctx, c, config.DefaultPath(), project, source)
@@ -187,6 +191,7 @@ type ProjectConfigurationPatch struct {
 	AgentRouting         *model.ProjectAgentRouting          `json:"agent_routing,omitempty"`
 	Watcher              *model.ProjectConfigurationWatcher  `json:"watcher,omitempty"`
 	Workflow             *model.ProjectConfigurationWorkflow `json:"workflow,omitempty"`
+	GateCommands         *model.ProjectGateCommands          `json:"gate_commands,omitempty"`
 	ActivationProfileRef *string                             `json:"activation_profile_ref,omitempty"`
 }
 

@@ -34,6 +34,26 @@ func TestResolveDefaultsToTheThreeStandardGates(t *testing.T) {
 	}
 }
 
+func TestExecuteWithProjectCommandsUsesTaskAndTrainDefinitions(t *testing.T) {
+	var commands [][]string
+	executor := Executor{Command: func(_ context.Context, _ string, name string, args ...string) (int, string, error) {
+		commands = append(commands, append([]string{name}, args...))
+		return 0, "", nil
+	}}
+	configured := model.DefaultProjectGateCommands()
+	configured.Test.Task = model.ProjectGateCommand{Command: []string{"./scripts/test-task", "--affected"}}
+	configured.Test.Train = model.ProjectGateCommand{Command: []string{"./scripts/test-train", "--full"}}
+	if _, err := executor.ExecuteWithProjectCommands(context.Background(), "/repo", []string{"format", "check", "test"}, configured, "task"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executor.ExecuteWithProjectCommands(context.Background(), "/repo", []string{"test"}, configured, "train"); err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 4 || commands[2][0] != "./scripts/test-task" || commands[2][1] != "--affected" || commands[3][0] != "./scripts/test-train" || commands[3][1] != "--full" {
+		t.Fatalf("project-owned command selection=%v", commands)
+	}
+}
+
 func TestStaticCheckAllowsRepodexInitForce(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {

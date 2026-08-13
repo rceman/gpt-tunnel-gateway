@@ -25,6 +25,17 @@ func projectConfigurationObjectSchema() map[string]any {
 }
 
 func projectConfigurationUpdateSchema() map[string]any {
+	gateCommand := obj(map[string]any{
+		"command": array(str("Repository-owned argv; no shell expansion.")),
+	}, "command")
+	gateCommands := obj(map[string]any{
+		"format": gateCommand,
+		"check":  gateCommand,
+		"test": obj(map[string]any{
+			"task":  gateCommand,
+			"train": gateCommand,
+		}, "task", "train"),
+	}, "format", "check", "test")
 	return obj(map[string]any{
 		"project_id":        str("Registered project identifier."),
 		"expected_revision": integer("Exact current project configuration revision.", 1, 1000000),
@@ -48,9 +59,11 @@ func projectConfigurationUpdateSchema() map[string]any {
 				"integration_branch": str("Canonical integration branch."),
 				"ci":                 map[string]any{"type": "object", "additionalProperties": true},
 				"gates":              array(str("Declared workflow gate.")),
+				"gate_commands":      gateCommands,
 				"wait_for_ci":        map[string]any{"type": "boolean"},
-			}, "workflow_stage", "integration_branch", "ci", "gates", "wait_for_ci"),
+			}, "workflow_stage", "integration_branch", "ci", "gates", "gate_commands", "wait_for_ci"),
 			"activation_profile_ref": str("Portable activation profile reference."),
+			"gate_commands":          gateCommands,
 		}),
 		"updated_by":            str("Trusted mutation author."),
 		"expected_hub_revision": str("Optional exact Hub revision guard."),

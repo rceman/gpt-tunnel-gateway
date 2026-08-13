@@ -36,3 +36,24 @@ func TestExecuteProjectGatesUsesServerOwnedResults(t *testing.T) {
 		t.Fatalf("calls=%d results=%#v", calls, results)
 	}
 }
+
+func TestExecuteProjectGatesUsesProjectOwnedTaskAndTrainModes(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	var modes []string
+	s.gateExecutorWithProjectCommands = func(_ context.Context, _ string, names []string, commands model.ProjectGateCommands, mode string) ([]model.CompletionGateResult, error) {
+		modes = append(modes, mode)
+		if commands.Test.Task.Command[0] == "" || commands.Test.Train.Command[0] == "" {
+			t.Fatal("missing project-owned test command")
+		}
+		return fakeReceiptResults(names), nil
+	}
+	if _, err := s.ExecuteProjectGates(context.Background(), "example", "implementation", s.Config.Projects["example"].Root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ExecuteProjectGates(context.Background(), "example", "integration", s.Config.Projects["example"].Root); err != nil {
+		t.Fatal(err)
+	}
+	if len(modes) != 2 || modes[0] != "task" || modes[1] != "train" {
+		t.Fatalf("project gate modes=%v", modes)
+	}
+}

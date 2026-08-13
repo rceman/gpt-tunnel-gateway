@@ -2,6 +2,8 @@ package model
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -23,12 +25,33 @@ type ProjectConfigurationWatcher struct {
 	RestartEnabled bool   `json:"restart_enabled"`
 }
 
+// ProjectGateCommand is a repository-owned executable plus its fixed argv.
+// It is deliberately an argv vector rather than a shell command so project
+// configuration cannot introduce shell expansion or pipelines.
+type ProjectGateCommand struct {
+	Command []string `json:"command"`
+}
+
+type ProjectTestGateCommands struct {
+	Task  ProjectGateCommand `json:"task"`
+	Train ProjectGateCommand `json:"train"`
+}
+
+// ProjectGateCommands is the complete configurable gate surface. Gateway
+// invariants are intentionally not represented here.
+type ProjectGateCommands struct {
+	Format ProjectGateCommand      `json:"format"`
+	Check  ProjectGateCommand      `json:"check"`
+	Test   ProjectTestGateCommands `json:"test"`
+}
+
 type ProjectConfigurationWorkflow struct {
-	WorkflowStage     string           `json:"workflow_stage"`
-	IntegrationBranch string           `json:"integration_branch"`
-	CI                WorkflowPolicyCI `json:"ci"`
-	Gates             []string         `json:"gates"`
-	WaitForCI         bool             `json:"wait_for_ci"`
+	WorkflowStage     string              `json:"workflow_stage"`
+	IntegrationBranch string              `json:"integration_branch"`
+	CI                WorkflowPolicyCI    `json:"ci"`
+	Gates             []string            `json:"gates"`
+	GateCommands      ProjectGateCommands `json:"gate_commands"`
+	WaitForCI         bool                `json:"wait_for_ci"`
 }
 
 // ProjectConfiguration is the canonical portable project settings authority.
@@ -72,13 +95,68 @@ func DefaultProjectConfiguration(projectID string, now time.Time) ProjectConfigu
 				TaskMerge: WorkflowCIModeDisabled,
 				Release:   WorkflowCIModeDisabled,
 			},
-			Gates:     StandardWorkflowGates(),
-			WaitForCI: false,
+			Gates:        StandardWorkflowGates(),
+			GateCommands: DefaultProjectGateCommands(),
+			WaitForCI:    false,
 		},
 		ActivationProfileRef: "default",
 		UpdatedBy:            "gateway",
 		UpdatedAt:            now.UTC(),
 	}
+}
+
+func DefaultProjectGateCommands() ProjectGateCommands {
+	return ProjectGateCommands{
+		Format: ProjectGateCommand{
+			Command: []string{"go", "run", "./cmd/gofmt-struct", "--check", "."},
+		},
+		Check: ProjectGateCommand{
+			Command: []string{"python3", "scripts/static-check.py"},
+		},
+		Test: ProjectTestGateCommands{
+			Task: ProjectGateCommand{
+				Command: []string{"go", "test", "./...", "-count=1"},
+			},
+			Train: ProjectGateCommand{
+				Command: []string{"go", "test", "./...", "-count=1"},
+			},
+		},
+	}
+}
+
+func (v ProjectGateCommands) IsZero() bool {
+	return len(v.Format.Command) == 0 && len(v.Check.Command) == 0 && len(v.Test.Task.Command) == 0 && len(v.Test.Train.Command) == 0
+}
+
+func (v ProjectGateCommands) Validate() error {
+	if err := v.Format.Validate("format"); err != nil {
+		return err
+	}
+	if err := v.Check.Validate("check"); err != nil {
+		return err
+	}
+	if err := v.Test.Task.Validate("test.task"); err != nil {
+		return err
+	}
+	return v.Test.Train.Validate("test.train")
+}
+
+func (v ProjectGateCommand) Validate(name string) error {
+	if len(v.Command) == 0 || len(v.Command) > 32 || v.Command[0] == "" {
+		return fmt.Errorf("invalid project gate command %s", name)
+	}
+	for _, arg := range v.Command {
+		if arg == "" || containsUnsafeText(arg) || len(arg) > 512 || filepath.IsAbs(arg) || arg == ".." || strings.HasPrefix(arg, "../") || strings.Contains(arg, "/../") {
+			return fmt.Errorf("invalid project gate command %s", name)
+		}
+	}
+	if strings.ContainsAny(v.Command[0], "/\\") && !strings.HasPrefix(v.Command[0], "./") {
+		return fmt.Errorf("project gate command %s must use a repository-relative executable", name)
+	}
+	if (v.Command[0] == "sh" || v.Command[0] == "bash" || v.Command[0] == "zsh") && len(v.Command) > 1 && v.Command[1] == "-c" {
+		return fmt.Errorf("project gate command %s may not invoke a shell string", name)
+	}
+	return nil
 }
 
 func ValidateProjectConfiguration(v ProjectConfiguration) error {
@@ -108,6 +186,13 @@ func ValidateProjectConfiguration(v ProjectConfiguration) error {
 	}
 	if v.Watcher.CadenceSeconds < 1 || v.Watcher.CadenceSeconds > 3600 || v.Watcher.TailLines < 1 || v.Watcher.TailLines > WatcherMaxTailLines || v.Watcher.SeenRetention < 1 || v.Watcher.SeenRetention > WatcherMaxSeenDigests {
 		return fmt.Errorf("invalid project configuration watcher bounds")
+	}
+	gateCommands := v.Workflow.GateCommands
+	if gateCommands.IsZero() {
+		gateCommands = DefaultProjectGateCommands()
+	}
+	if err := gateCommands.Validate(); err != nil {
+		return fmt.Errorf("gate configuration: %w", err)
 	}
 	policy := ProjectWorkflowPolicy{
 		SchemaVersion:     SchemaVersion,
