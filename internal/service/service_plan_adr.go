@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/entity"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
@@ -119,14 +120,20 @@ func (s *Service) PlanHistoryPage(ctx context.Context, project string, in Collec
 }
 
 func (s *Service) ADRList(ctx context.Context, project string) ([]model.ADR, error) {
-	paths, err := s.Hub.List(ctx, s.projectPrefix(project)+"/adrs", ".json")
+	if err := validateEntityProject(project); err != nil {
+		return nil, err
+	}
+	records, err := s.entityRegistry(project).ListRecords(ctx, entity.Query{Family: entity.ADRFamily})
 	if err != nil {
 		return nil, err
 	}
-	items := []model.ADR{}
-	for _, path := range paths {
+	items := make([]model.ADR, 0, len(records))
+	for _, record := range records {
 		var v model.ADR
-		if err := s.Hub.ReadJSON(ctx, path, &v); err != nil {
+		if err := decodeStrict(record.Bytes, &v); err != nil {
+			return nil, err
+		}
+		if err := model.ValidateADR(v); err != nil {
 			return nil, err
 		}
 		items = append(items, v)
@@ -156,11 +163,17 @@ func (s *Service) ADRListPage(ctx context.Context, project string, in Collection
 }
 
 func (s *Service) ADRRead(ctx context.Context, project, id string) (model.ADR, error) {
+	if err := validateEntityProject(project); err != nil {
+		return model.ADR{}, err
+	}
 	if model.ValidateADRIdentifier(id) != nil && model.ValidateCanonicalADRIdentifier(id) != nil {
 		return model.ADR{}, fmt.Errorf("invalid ADR identifier")
 	}
 	var v model.ADR
-	err := s.Hub.ReadJSON(ctx, s.adrPath(project, id), &v)
+	_, err := s.entityRegistry(project).ReadInto(ctx, entity.ADRFamily, id, &v)
+	if err == nil {
+		err = model.ValidateADR(v)
+	}
 	return v, err
 }
 

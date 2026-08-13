@@ -1,6 +1,10 @@
 package entity
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+)
 
 type Family string
 
@@ -92,6 +96,20 @@ func Descriptors() []Descriptor {
 func (d Descriptor) ValidateID(id string) error {
 	if id == "" || id == "." || id == ".." || containsPathSeparator(id) {
 		return fmt.Errorf("invalid %s identifier", d.Name)
+	}
+	switch d.Family {
+	case RuleFamily:
+		if err := model.ValidateRuleID(id); err != nil {
+			return err
+		}
+	case MessageFamily:
+		if err := model.ValidateMessageID(id); err != nil {
+			return err
+		}
+	case JournalFamily:
+		if err := model.ValidateAnyOperatorEventID(id); err != nil {
+			return err
+		}
 	}
 	return nil
 }

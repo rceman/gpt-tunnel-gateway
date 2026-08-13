@@ -197,6 +197,9 @@ func ValidateAnyOperatorEventID(value string) error {
 	if _, _, err := ParseOperatorEventID(value); err == nil {
 		return nil
 	}
+	if _, _, err := ParseJournalID(value); err == nil {
+		return nil
+	}
 	_, _, err := ParseHistoricalOperatorEventID(value)
 	return err
 }
@@ -210,7 +213,7 @@ func ValidateOperatorEventIDForProject(value, projectCode string) error {
 	if err := ValidateProjectCode(projectCode); err != nil {
 		return err
 	}
-	code, _, err := ParseOperatorEventID(value)
+	code, _, err := ParseAnyJournalEventID(value)
 	if err != nil {
 		return err
 	}
@@ -218,4 +221,14 @@ func ValidateOperatorEventIDForProject(value, projectCode string) error {
 		return fmt.Errorf("operator event ID project code %q does not match expected project code %q", code, projectCode)
 	}
 	return nil
+}
+
+func ParseAnyJournalEventID(value string) (string, uint64, error) {
+	if code, number, err := ParseJournalID(value); err == nil {
+		return code, number, nil
+	}
+	if code, number, err := ParseOperatorEventID(value); err == nil {
+		return code, number, nil
+	}
+	return ParseHistoricalOperatorEventID(value)
 }

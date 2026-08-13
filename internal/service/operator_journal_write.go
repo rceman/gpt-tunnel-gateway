@@ -71,7 +71,7 @@ func (s *Service) operatorRecord(ctx context.Context, in OperatorRecordInput, al
 		if number > model.MaxSafeInteger {
 			return nil, fmt.Errorf("operator journal counter exhausted")
 		}
-		eventID, err := model.FormatOperatorEventID(identifiers.ProjectCode, number)
+		eventID, err := model.FormatJournalID(identifiers.ProjectCode, number)
 		if err != nil {
 			return nil, err
 		}

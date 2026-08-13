@@ -39,8 +39,8 @@ func installOperatorEventFixture(t *testing.T, s *Service, revision, eventPath s
 
 func TestOperatorRecordDoesNotOverwriteExistingEventOrAdvanceCounter(t *testing.T) {
 	s, revision := operatorService(t)
-	eventPath := s.operatorEventPath("example", "EXM-OPR1")
-	original := operatorTestEvent("EXM-OPR1", "example")
+	eventPath := s.operatorEventPath("example", "EXM-JRN1")
+	original := operatorTestEvent("EXM-JRN1", "example")
 	revision = installOperatorEventFixture(t, s, revision, eventPath, original, 1)
 	eventBytes, err := json.Marshal(original)
 	if err != nil {
@@ -96,7 +96,7 @@ func TestOperatorRecordDoesNotOverwriteExistingEventOrAdvanceCounter(t *testing.
 			ExpectedHubRevision: cleanup.After,
 		},
 	})
-	if err != nil || valid.ID != "EXM-OPR1" {
+	if err != nil || valid.ID != "EXM-JRN1" {
 		t.Fatalf("next allocation changed after rejected overwrite: event=%#v err=%v", valid, err)
 	}
 }
@@ -135,7 +135,7 @@ func TestOperatorMaxCounterAllocatesOnceAndCannotReuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantID, err := model.FormatOperatorEventID("EXM", model.MaxSafeInteger)
+	wantID, err := model.FormatJournalID("EXM", model.MaxSafeInteger)
 	if err != nil || first.ID != wantID {
 		t.Fatalf("first max allocation=%s want=%s err=%v", first.ID, wantID, err)
 	}

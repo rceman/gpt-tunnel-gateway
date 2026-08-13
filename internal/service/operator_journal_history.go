@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/entity"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -75,21 +76,21 @@ func (s *Service) OperatorHistory(ctx context.Context, in OperatorHistoryInput) 
 		}
 	}
 	eventsPrefix := s.operatorEventsPrefix(in.ProjectID)
-	paths, err := s.Hub.List(ctx, eventsPrefix, ".json")
+	records, err := s.entityRegistry(in.ProjectID).ListRecords(ctx, entity.Query{Family: entity.JournalFamily})
 	if err != nil {
 		return OperatorHistoryResult{}, err
 	}
-	items := make([]model.OperatorJournalEvent, 0, len(paths))
+	items := make([]model.OperatorJournalEvent, 0, len(records))
 	seenIDs := map[string]bool{}
 	seenNumbers := map[uint64]bool{}
-	for _, path := range paths {
+	for _, record := range records {
 		var event model.OperatorJournalEvent
-		if err := s.Hub.ReadJSON(ctx, path, &event); err != nil {
+		if err := decodeStrict(record.Bytes, &event); err != nil {
 			return OperatorHistoryResult{}, err
 		}
-		number, err := validateOperatorEventPathIdentity(path, eventsPrefix, event, in.ProjectID, identifiers.ProjectCode)
+		number, err := validateOperatorEventPathIdentity(record.Path, eventsPrefix, event, in.ProjectID, identifiers.ProjectCode)
 		if err != nil {
-			return OperatorHistoryResult{}, fmt.Errorf("invalid operator event %s: %w", path, err)
+			return OperatorHistoryResult{}, fmt.Errorf("invalid operator event %s: %w", record.Path, err)
 		}
 		if seenIDs[event.ID] || seenNumbers[number] {
 			return OperatorHistoryResult{}, fmt.Errorf("duplicate operator journal event identity %q", event.ID)

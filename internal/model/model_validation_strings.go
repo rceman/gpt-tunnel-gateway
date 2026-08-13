@@ -52,7 +52,7 @@ func ValidateTaskSlug(s string) error {
 }
 
 func ValidateDurableIdentifier(s string) error {
-	if ValidateCanonicalTaskID(s) == nil || ValidateCanonicalRunID(s) == nil || ValidateCanonicalADRIdentifier(s) == nil || ValidateOperatorEventID(s) == nil {
+	if ValidateCanonicalTaskID(s) == nil || ValidateCanonicalRunID(s) == nil || ValidateCanonicalADRIdentifier(s) == nil || ValidateOperatorEventID(s) == nil || ValidateJournalID(s) == nil {
 		return nil
 	}
 	return fmt.Errorf("invalid canonical durable identifier")

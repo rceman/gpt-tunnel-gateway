@@ -1,8 +1,11 @@
 package entity
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"path"
 	"sort"
 	"strings"
@@ -55,7 +58,7 @@ func (r Registry) Read(ctx context.Context, family Family, id string) (Record, e
 	if err != nil {
 		return Record{}, err
 	}
-	if !descriptor.ProjectScope || r.ProjectID == "" {
+	if !descriptor.ProjectScope || r.ProjectID == "" || r.Source == nil {
 		return Record{}, fmt.Errorf("project_id is required")
 	}
 	if err := descriptor.ValidateID(id); err != nil {
@@ -74,24 +77,40 @@ func (r Registry) Read(ctx context.Context, family Family, id string) (Record, e
 	}, nil
 }
 
-func (r Registry) List(ctx context.Context, query Query) (Page, error) {
+// ReadInto performs one exact entity read with strict JSON decoding. Domain
+// callers retain ownership of validation; this adapter only owns path and
+// decoding parity.
+func (r Registry) ReadInto(ctx context.Context, family Family, id string, out any) (Record, error) {
+	record, err := r.Read(ctx, family, id)
+	if err != nil {
+		return Record{}, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(record.Bytes))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(out); err != nil {
+		return Record{}, err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return Record{}, fmt.Errorf("entity JSON has trailing content")
+	}
+	return record, nil
+}
+
+func (r Registry) ListRecords(ctx context.Context, query Query) ([]Record, error) {
 	descriptor, err := DescriptorFor(query.Family)
 	if err != nil {
-		return Page{}, err
+		return nil, err
 	}
 	if r.Source == nil || r.ProjectID == "" {
-		return Page{}, fmt.Errorf("entity registry requires source and project_id")
-	}
-	limit, err := pagination.Limit(query.Limit, r.MaxItems)
-	if err != nil {
-		return Page{}, err
+		return nil, fmt.Errorf("entity registry requires source and project_id")
 	}
 	prefix := path.Join(protocolRoot, r.ProjectID, descriptor.Collection)
 	paths, err := r.Source.List(ctx, prefix, descriptor.Suffix)
 	if err != nil {
-		return Page{}, err
+		return nil, err
 	}
-	items := make([]Projection, 0, len(paths))
+	records := make([]Record, 0, len(paths))
 	for _, recordPath := range paths {
 		id := strings.TrimSuffix(path.Base(recordPath), descriptor.Suffix)
 		if err := descriptor.ValidateID(id); err != nil || !entityPathAllowed(descriptor, recordPath) {
@@ -102,13 +121,41 @@ func (r Registry) List(ctx context.Context, query Query) (Page, error) {
 		}
 		data, err := r.Source.ReadFile(ctx, recordPath)
 		if err != nil {
-			return Page{}, err
+			return nil, err
 		}
-		items = append(items, Projection{
+		records = append(records, Record{
 			Family: query.Family,
 			ID:     id,
 			Path:   recordPath,
-			Bytes:  len(data),
+			Bytes:  append([]byte(nil), data...),
+		})
+	}
+	sort.Slice(records, func(i, j int) bool { return records[i].ID < records[j].ID })
+	return records, nil
+}
+
+func (r Registry) List(ctx context.Context, query Query) (Page, error) {
+	if _, err := DescriptorFor(query.Family); err != nil {
+		return Page{}, err
+	}
+	if r.Source == nil || r.ProjectID == "" {
+		return Page{}, fmt.Errorf("entity registry requires source and project_id")
+	}
+	limit, err := pagination.Limit(query.Limit, r.MaxItems)
+	if err != nil {
+		return Page{}, err
+	}
+	records, err := r.ListRecords(ctx, query)
+	if err != nil {
+		return Page{}, err
+	}
+	items := make([]Projection, 0, len(records))
+	for _, record := range records {
+		items = append(items, Projection{
+			Family: record.Family,
+			ID:     record.ID,
+			Path:   record.Path,
+			Bytes:  len(record.Bytes),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })

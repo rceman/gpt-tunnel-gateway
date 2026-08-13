@@ -45,7 +45,7 @@ func TestOperatorRecordHistoryCheckpointAndNumericPagination(t *testing.T) {
 			ExpectedHubRevision: revision,
 		},
 	})
-	if err != nil || first.ID != "EXM-OPR1" || firstOp.Status != "recorded" {
+	if err != nil || first.ID != "EXM-JRN1" || firstOp.Status != "recorded" {
 		t.Fatalf("first record: %#v %#v %v", first, firstOp, err)
 	}
 	second, secondOp, err := s.OperatorRecord(ctx, OperatorRecordInput{
@@ -59,7 +59,7 @@ func TestOperatorRecordHistoryCheckpointAndNumericPagination(t *testing.T) {
 			ExpectedHubRevision: firstOp.Hub.After,
 		},
 	})
-	if err != nil || second.ID != "EXM-OPR2" {
+	if err != nil || second.ID != "EXM-JRN2" {
 		t.Fatalf("second record: %#v %v", second, err)
 	}
 	third, thirdOp, err := s.OperatorCheckpoint(ctx, OperatorCheckpointInput{
@@ -72,14 +72,14 @@ func TestOperatorRecordHistoryCheckpointAndNumericPagination(t *testing.T) {
 			ExpectedHubRevision: secondOp.Hub.After,
 		},
 	})
-	if err != nil || third.ID != "EXM-OPR3" || third.Kind != model.OperatorCheckpoint || thirdOp.Status != "checkpointed" {
+	if err != nil || third.ID != "EXM-JRN3" || third.Kind != model.OperatorCheckpoint || thirdOp.Status != "checkpointed" {
 		t.Fatalf("checkpoint: %#v %#v %v", third, thirdOp, err)
 	}
 	page, err := s.OperatorHistory(ctx, OperatorHistoryInput{
 		ProjectID: "example",
 		Limit:     2,
 	})
-	if err != nil || len(page.Events) != 2 || page.Events[0].ID != "EXM-OPR1" || page.Events[1].ID != "EXM-OPR2" || !page.HasMore || page.NextAfterEventID != "EXM-OPR2" {
+	if err != nil || len(page.Events) != 2 || page.Events[0].ID != "EXM-JRN1" || page.Events[1].ID != "EXM-JRN2" || !page.HasMore || page.NextAfterEventID != "EXM-JRN2" {
 		t.Fatalf("unexpected first history page: %#v %v", page, err)
 	}
 	after, err := s.OperatorHistory(ctx, OperatorHistoryInput{
@@ -88,7 +88,7 @@ func TestOperatorRecordHistoryCheckpointAndNumericPagination(t *testing.T) {
 		Kind:         model.OperatorCheckpoint,
 		Limit:        10,
 	})
-	if err != nil || len(after.Events) != 1 || after.Events[0].ID != "EXM-OPR3" {
+	if err != nil || len(after.Events) != 1 || after.Events[0].ID != "EXM-JRN3" {
 		t.Fatalf("unexpected filtered history page: %#v %v", after, err)
 	}
 	if _, err := s.OperatorHistory(ctx, OperatorHistoryInput{

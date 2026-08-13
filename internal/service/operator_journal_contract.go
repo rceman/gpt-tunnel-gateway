@@ -64,7 +64,7 @@ func (s *Service) operatorEventsPrefix(projectID string) string {
 }
 
 func (s *Service) operatorEventPath(projectID, eventID string) string {
-	if model.ValidateProjectIdentifier(projectID) != nil || model.ValidateOperatorEventID(eventID) != nil {
+	if model.ValidateProjectIdentifier(projectID) != nil || model.ValidateAnyOperatorEventID(eventID) != nil {
 		return "../invalid-operator-event"
 	}
 	return s.operatorEventsPrefix(projectID) + "/" + eventID + ".json"
@@ -90,11 +90,7 @@ func validateOperationalOperatorReferences(references model.OperatorJournalRefer
 }
 
 func parseAnyOperatorEventIDForProject(value, projectCode string) (string, uint64, error) {
-	code, number, err := model.ParseOperatorEventID(value)
-	if err == nil && code == projectCode {
-		return code, number, nil
-	}
-	code, number, err = model.ParseHistoricalOperatorEventID(value)
+	code, number, err := model.ParseAnyJournalEventID(value)
 	if err != nil || code != projectCode {
 		return "", 0, fmt.Errorf("operator event ID does not belong to project %q", projectCode)
 	}
@@ -117,10 +113,7 @@ func validateOperatorEventPathIdentity(eventPath, eventsPrefix string, event mod
 		return 0, fmt.Errorf("operator event project mismatch")
 	}
 	if err := model.ValidateOperatorEventIDForProject(event.ID, projectCode); err != nil {
-		code, _, historicalErr := model.ParseHistoricalOperatorEventID(event.ID)
-		if historicalErr != nil || code != projectCode {
-			return 0, err
-		}
+		return 0, err
 	}
 	prefix := strings.TrimSuffix(eventsPrefix, "/") + "/"
 	if !strings.HasPrefix(eventPath, prefix) {
@@ -134,12 +127,9 @@ func validateOperatorEventPathIdentity(eventPath, eventsPrefix string, event mod
 	if pathID != event.ID {
 		return 0, fmt.Errorf("operator event path/body ID mismatch: path %q body %q", pathID, event.ID)
 	}
-	_, number, err := model.ParseOperatorEventID(event.ID)
+	_, number, err := model.ParseAnyJournalEventID(event.ID)
 	if err != nil {
-		_, number, err = model.ParseHistoricalOperatorEventID(event.ID)
-		if err != nil {
-			return 0, err
-		}
+		return 0, err
 	}
 	return number, nil
 }

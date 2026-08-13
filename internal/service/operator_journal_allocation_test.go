@@ -41,7 +41,7 @@ func TestOperatorCorrectionAndStaleRevisionFailClosed(t *testing.T) {
 			ExpectedHubRevision: op.Hub.After,
 		},
 	})
-	if err != nil || correction.ID != "EXM-OPR2" || correction.SupersedesEventID != first.ID {
+	if err != nil || correction.ID != "EXM-JRN2" || correction.SupersedesEventID != first.ID {
 		t.Fatalf("correction failed: %#v %v", correction, err)
 	}
 	if _, _, err := s.OperatorRecord(ctx, OperatorRecordInput{
@@ -118,7 +118,7 @@ func TestOperatorConcurrentUnpinnedRecordsAllocateUniqueOrderedIDs(t *testing.T)
 		allocated = append(allocated, id)
 	}
 	sort.Strings(allocated)
-	want := []string{"EXM-OPR1", "EXM-OPR2", "EXM-OPR3", "EXM-OPR4"}
+	want := []string{"EXM-JRN1", "EXM-JRN2", "EXM-JRN3", "EXM-JRN4"}
 	if len(allocated) != len(want) {
 		t.Fatalf("allocated %d event IDs, want %d", len(allocated), len(want))
 	}
@@ -196,7 +196,7 @@ func TestOperatorConcurrentUnpinnedCorrectionsAllocateUniqueOrderedIDs(t *testin
 		allocated = append(allocated, id)
 	}
 	sort.Strings(allocated)
-	want := []string{"EXM-OPR5", "EXM-OPR6", "EXM-OPR7", "EXM-OPR8"}
+	want := []string{"EXM-JRN5", "EXM-JRN6", "EXM-JRN7", "EXM-JRN8"}
 	if !reflect.DeepEqual(allocated, want) {
 		t.Fatalf("allocated correction IDs=%v, want=%v", allocated, want)
 	}
