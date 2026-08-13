@@ -67,13 +67,13 @@ required_tools = {
     "agent_send",
     "agent_tail",
     "agent_status",
-    "run_resume",
 }
 assert required_tools.issubset({tool["name"] for tool in tools})
 tool_by_name = {tool["name"]: tool for tool in tools}
 assert "session_key" not in tool_by_name["agent_send"]["inputSchema"]["properties"]
 assert tool_by_name["agent_tail"]["inputSchema"]["properties"]["lines"]["minimum"] == 1
-assert tool_by_name["agent_tail"]["inputSchema"]["properties"]["skip"]["minimum"] == 0
+assert "skip" not in tool_by_name["agent_tail"]["inputSchema"]["properties"]
+assert "cursor" in tool_by_name["agent_tail"]["inputSchema"]["properties"]
 assert tool_by_name["agent_status"]["outputSchema"]["properties"]["state"]["enum"] == [
     "idle",
     "running",
