@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
+	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
@@ -31,7 +33,24 @@ func (s *Server) genericCallWithEntries(ctx context.Context, entries map[string]
 	return s.genericDispatch(ctx, entries, durableSession.Record{}, input.Action, input.Input)
 }
 
-func (s *Server) genericDispatch(ctx context.Context, entries map[string]genericActionEntry, record durableSession.Record, action string, raw json.RawMessage) (map[string]any, error) {
+func (s *Server) genericDispatch(ctx context.Context, entries map[string]genericActionEntry, record durableSession.Record, action string, raw json.RawMessage) (result map[string]any, returnErr error) {
+	if runtime_log.RequestID(ctx) == "" {
+		ctx = runtime_log.WithRequestID(ctx, runtime_log.NewRequestID())
+	}
+	if operationID := operationIDFromRaw(raw); operationID != "" {
+		ctx = runtime_log.WithOperationID(ctx, operationID)
+	}
+	started := false
+	defer func() {
+		if !started {
+			return
+		}
+		event, level := "action_finish", "info"
+		if returnErr != nil || (result != nil && result["is_error"] == true) {
+			event, level = "action_failure", "warn"
+		}
+		s.recordRuntimeAction(ctx, record, event, level, action, returnErr)
+	}()
 	if action == "" {
 		return nil, fmt.Errorf("action is required; inspect schema with path=\"\"")
 	}
@@ -97,6 +116,8 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 			return genericActionError(action, err.Error()), nil
 		}
 	}
+	started = true
+	s.recordRuntimeAction(ctx, record, "action_start", "info", action, nil)
 	if err := validateGenericActionInput(entry.InputSchema, raw); err != nil {
 		return genericActionError(action, err.Error()+"; inspect schema with path=\""+action+"\""), nil
 	}
@@ -104,11 +125,42 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	if err != nil {
 		return genericActionError(action, err.Error()), nil
 	}
-	result := normalizeObject(value)
+	result = normalizeObject(value)
 	if err := validateOutputValue(entry.OutputSchema, result); err != nil {
 		return genericActionError(action, "action output contract violation: "+err.Error()), nil
 	}
 	return map[string]any{"action": action, "result": result, "is_error": false}, nil
+}
+
+func (s *Server) recordRuntimeAction(ctx context.Context, sessionRecord durableSession.Record, event, level, action string, cause error) {
+	if s.Service == nil {
+		return
+	}
+	eventRecord := runtime_log.Event{
+		Timestamp:   time.Now().UTC(),
+		Level:       level,
+		Component:   "mcp",
+		Event:       event,
+		Action:      action,
+		RequestID:   runtime_log.RequestID(ctx),
+		OperationID: runtime_log.OperationID(ctx),
+		SessionID:   sessionRecord.ID,
+		ProjectID:   sessionRecord.ProjectID,
+	}
+	if cause != nil {
+		eventRecord.Error = fmt.Sprintf("%T", cause)
+	}
+	_ = runtime_log.New(s.Service.Config.StateDir).Append(eventRecord)
+}
+
+func operationIDFromRaw(raw json.RawMessage) string {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return ""
+	}
+	var operationID string
+	_ = json.Unmarshal(fields["operation_id"], &operationID)
+	return operationID
 }
 
 func genericActionError(action, message string) map[string]any {

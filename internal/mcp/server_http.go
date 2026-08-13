@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
+	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
 )
 
 func (s *Server) Router() http.Handler {
@@ -62,6 +63,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	r = r.WithContext(runtime_log.WithRequestID(r.Context(), runtime_log.NewRequestID()))
 	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var req request
 	dec := json.NewDecoder(r.Body)

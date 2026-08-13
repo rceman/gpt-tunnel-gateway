@@ -14,6 +14,7 @@ import (
 )
 
 func (c Controller) RestartGatewayAfterUpgradeDiagnostics() (GatewayStartupDiagnostics, error) {
+	c.processEvent("gateway", c.Config.Controller.GatewayBinary, "info", "restart_requested", 0, "gateway restart after upgrade requested", nil)
 	started := time.Now()
 	diagnostics := GatewayStartupDiagnostics{
 		Phase:         "TARGET_STARTUP",

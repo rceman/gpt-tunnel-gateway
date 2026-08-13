@@ -44,6 +44,7 @@ func copyExecutable(src, dst string) error {
 	return os.Rename(tmp, dst)
 }
 func (c Controller) RestartGateway() error {
+	c.processEvent("gateway", c.Config.Controller.GatewayBinary, "info", "restart_requested", 0, "gateway restart requested", nil)
 	lock, err := lockfile.Acquire(c.Config.Controller.PIDDir, "controller")
 	if err != nil {
 		return err
@@ -67,6 +68,7 @@ func (c Controller) RestartGateway() error {
 		startErr = waitURL(c.gatewayReadyURL(), true, 30*time.Second)
 	}
 	if startErr == nil {
+		c.processEvent("gateway", c.Config.Controller.GatewayBinary, "info", "process_ready", c.process("gateway", c.Config.Controller.GatewayBinary).PID, "gateway ready after restart", nil)
 		return nil
 	}
 	_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
@@ -82,6 +84,7 @@ func (c Controller) RestartGateway() error {
 	if err := waitURL(c.gatewayReadyURL(), true, 30*time.Second); err != nil {
 		return fmt.Errorf("gateway restart failed (%v); rollback readiness failed: %w", startErr, err)
 	}
+	c.processEvent("gateway", c.Config.Controller.GatewayBinary, "warn", "process_ready", c.process("gateway", c.Config.Controller.GatewayBinary).PID, "gateway ready after rollback", nil)
 	return fmt.Errorf("gateway restart failed and previous executable was restored: %w", startErr)
 }
 

@@ -13,7 +13,20 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
+	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
 )
+
+func TestLogsReadsStructuredRuntimeSource(t *testing.T) {
+	dir := t.TempDir()
+	if err := runtime_log.New(dir).Append(runtime_log.Event{Timestamp: time.Now().UTC(), Level: "info", Component: "gateway", Event: "process_ready", Message: "ready"}); err != nil {
+		t.Fatal(err)
+	}
+	c := Controller{Config: config.Config{StateDir: dir}}
+	output, err := c.Logs("gateway", 10)
+	if err != nil || !strings.Contains(output, `"event":"process_ready"`) {
+		t.Fatalf("structured runtime logs output=%q err=%v", output, err)
+	}
+}
 
 func TestReadGatewayLogDeltaIsBoundedAndSanitized(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gateway.log")
