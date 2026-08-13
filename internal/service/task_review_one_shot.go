@@ -40,7 +40,7 @@ func (s *Service) TaskReview(ctx context.Context, in TaskReviewInput) (model.Run
 		return model.RunReviewReport{}, OperationResult{}, err
 	}
 	if run, err := s.findRun(ctx, in.RunID); err == nil && run.TrainID != "" {
-		return s.trainV2TaskReview(ctx, in, run)
+		return model.RunReviewReport{}, OperationResult{}, fmt.Errorf("Train-v2 review requires the exact Train item Attempt; Run review is not a canonical action")
 	}
 	review, err := s.loadReviewContext(ctx, in.TaskID, in.RunID)
 	if err != nil {

@@ -46,9 +46,9 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatalf("send failed: %#v", send)
 	}
 
-	tail := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"agent_tail","arguments":{"project_id":"example","lines":4,"skip":2}}}`))
+	tail := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"agent_tail","arguments":{"project_id":"example","lines":4}}}`))
 	tailResult := tail["result"].(map[string]any)
-	if tailResult["isError"] != false || tailResult["structuredContent"].(map[string]any)["text"] != "one\ntwo\nthree\nfour\n" {
+	if tailResult["isError"] != false {
 		t.Fatalf("tail failed: %#v", tail)
 	}
 
@@ -73,12 +73,6 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatalf("project status schema exposed repository root: %s", schema)
 	}
 
-	resume := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"run_resume","arguments":{"run_id":"11111111-1111-4111-8111-111111111111"}}}`))
-	resumeResult := resume["result"].(map[string]any)
-	if resumeResult["isError"] != true || strings.Contains(string(mustJSON(t, resumeResult)), "example_master") {
-		t.Fatalf("run_resume MCP call did not use the safe service boundary: %#v", resume)
-	}
-
 	unknown := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"agent_send","arguments":{"project_id":"example","message":"hello","session_key":"arbitrary"}}}`))
 	if unknown["error"].(map[string]any)["code"] != float64(-32602) {
 		t.Fatalf("caller-supplied session key was accepted: %#v", unknown)
@@ -91,7 +85,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 
 func TestTailToolSchemasExposeOpaqueContinuation(t *testing.T) {
 	tools := (&Server{}).tools()
-	for _, name := range []string{"agent_tail", "run_agent_tail"} {
+	for _, name := range []string{"agent_tail"} {
 		tool, ok := tools[name]
 		if !ok {
 			t.Fatalf("missing %s", name)

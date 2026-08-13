@@ -64,7 +64,7 @@ type TrainV2ProjectStatus struct {
 	TrainCounts     map[string]int `json:"train_counts"`
 	CurrentTrain    string         `json:"current_train,omitempty"`
 	CurrentTask     string         `json:"current_task,omitempty"`
-	CurrentRun      string         `json:"current_run,omitempty"`
+	CurrentAttempt  string         `json:"current_attempt,omitempty"`
 	ActiveTrains    []string       `json:"active_trains,omitempty"`
 	AmbiguousActive bool           `json:"ambiguous_active,omitempty"`
 	NextAction      string         `json:"next_action"`
@@ -74,7 +74,7 @@ type TrainV2TaskPacket struct {
 	Task                 model.TaskAuthoring         `json:"task"`
 	Train                model.TrainV2               `json:"train"`
 	Item                 model.TrainV2Item           `json:"item"`
-	Run                  *model.Run                  `json:"run,omitempty"`
+	Attempt              *model.TrainV2Attempt       `json:"attempt,omitempty"`
 	ProjectConfiguration model.ProjectConfiguration  `json:"project_configuration"`
 	WorkflowPolicy       model.ProjectWorkflowPolicy `json:"workflow_policy"`
 	RepositoryRoot       string                      `json:"repository_root"`

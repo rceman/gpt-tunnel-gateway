@@ -112,7 +112,7 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 		if resetErr := s.Git.ResetTrainWorktree(ctx, lane, targetHead); resetErr != nil {
 			return receipt, OperationResult{ProjectID: in.ProjectID, Status: receipt.Status}, fmt.Errorf("Train reconciliation is recorded but local replay reset is pending: %w", resetErr)
 		}
-		if _, retireErr := trainv2.RetireRuntimeForRestart(s.Config.StateDir, in.ProjectID, in.TrainID, start.RunID); retireErr != nil {
+		if _, retireErr := trainv2.RetireRuntimeForRestart(s.Config.StateDir, in.ProjectID, in.TrainID, start.CurrentAttemptNumber); retireErr != nil {
 			return receipt, OperationResult{ProjectID: in.ProjectID, Status: receipt.Status}, fmt.Errorf("Train reconciliation is recorded but local execution retirement is pending: %w", retireErr)
 		}
 		return receipt, OperationResult{ProjectID: in.ProjectID, Status: receipt.Status}, fmt.Errorf("Train reconciliation requires restart from the refreshed target; replay was discarded and item proofs require re-execution")

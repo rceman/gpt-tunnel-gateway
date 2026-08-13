@@ -146,7 +146,7 @@ func (s *Service) finishTrainReconciliationRestart(ctx context.Context, projectI
 			return receipt, OperationResult{ProjectID: projectID, Status: receipt.Status}, fmt.Errorf("finish local reconciliation reset: %w", err)
 		}
 	}
-	if _, err := trainv2.RetireRuntimeForRestart(s.Config.StateDir, projectID, trainID, start.RunID); err != nil {
+	if _, err := trainv2.RetireRuntimeForRestart(s.Config.StateDir, projectID, trainID, start.CurrentAttemptNumber); err != nil {
 		return receipt, OperationResult{ProjectID: projectID, Status: receipt.Status}, fmt.Errorf("finish local execution retirement: %w", err)
 	}
 	return receipt, OperationResult{ProjectID: projectID, Status: receipt.Status}, fmt.Errorf("Train reconciliation requires restart from the refreshed target; it is not integrated")

@@ -11,13 +11,13 @@ import (
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
-func (s *Service) dispatchTrainV2Continuation(ctx context.Context, previous trainv2.RuntimeBinding, run model.Run, expected string, now time.Time) (hub.TransactionResult, error) {
+func (s *Service) dispatchTrainV2Continuation(ctx context.Context, previous trainv2.RuntimeBinding, train model.TrainV2, item model.TrainV2Item, attempt model.TrainV2Attempt, expected string, now time.Time) (hub.TransactionResult, error) {
 	runtime := previous
-	runtime.RunID, runtime.StartedAt = run.ID, now
+	runtime.ItemPosition, runtime.TaskID, runtime.AttemptNumber, runtime.StartedAt = item.Position, item.TaskID, attempt.Number, now
 	if err := trainv2.ValidateRuntimeBinding(runtime, s.Config.StateDir); err != nil {
 		return hub.TransactionResult{}, err
 	}
-	runtimePath := trainv2.RuntimePath(s.Config.StateDir, run.ProjectID, run.TrainID)
+	runtimePath := trainv2.RuntimePath(s.Config.StateDir, train.ProjectID, train.ID)
 	if err := fsutil.WriteJSONAtomic(runtimePath, runtime, 0o600); err != nil {
 		return hub.TransactionResult{}, err
 	}
@@ -27,38 +27,39 @@ func (s *Service) dispatchTrainV2Continuation(ctx context.Context, previous trai
 			_ = fsutil.WriteJSONAtomic(runtimePath, previous, 0o600)
 		}
 	}()
-	packet, err := s.materializeTrainV2Packet(ctx, run, runtime)
+	packet, err := s.materializeTrainV2Packet(ctx, train, item, attempt, runtime)
 	if err != nil {
 		return hub.TransactionResult{}, fmt.Errorf("materialize Train continuation packet: %w", err)
 	}
-	message := trainv2.PacketDispatchMessage(packet)
-	dispatch, err := s.Airelay.Prompt(ctx, run.SessionKey, message)
+	dispatch, err := s.Airelay.Prompt(ctx, attempt.AirelaySessionKey, trainv2.PacketDispatchMessage(packet))
 	if err != nil {
 		return hub.TransactionResult{}, fmt.Errorf("train continuation dispatch failed: %w", err)
 	}
-	code := dispatch.ExitCode
-	run.Status, run.DispatchMessage, run.DispatchExitCode = "dispatched", message, &code
-	run.DispatchStdout, run.DispatchStderr = dispatch.Stdout, dispatch.Stderr
 	dispatchedAt := dispatch.FinishedAt
 	if dispatchedAt.IsZero() {
 		dispatchedAt = now
 	}
-	run.DispatchedAt = &dispatchedAt
-	tx, err := s.Hub.Transact(ctx, expected, "gateway: dispatch next Train v2 item "+run.TaskID, func(worktree string) ([]string, error) {
-		var current model.Run
-		if err := readWorktreeJSON(worktree, s.runPath(run.ProjectID, run.ID), &current); err != nil {
+	tx, err := s.Hub.Transact(ctx, expected, "gateway: dispatch next Train v2 Attempt", func(worktree string) ([]string, error) {
+		var current model.TrainV2
+		if err := readWorktreeJSON(worktree, s.trainV2Path(train.ProjectID, train.ID), &current); err != nil {
 			return nil, err
 		}
-		if current.ID != run.ID || current.Status != "created" || current.TrainID != run.TrainID || current.TaskID != run.TaskID {
-			return nil, fmt.Errorf("next Train Run changed before dispatch")
+		if item.Position < 0 || item.Position >= len(current.Items) {
+			return nil, fmt.Errorf("next Train item disappeared")
 		}
-		if err := model.ValidateRun(run); err != nil {
+		currentItem := current.Items[item.Position]
+		if currentItem.TaskID != item.TaskID || attempt.Number != 1 || len(currentItem.Attempts) != 1 {
+			return nil, fmt.Errorf("next Train Attempt changed before dispatch")
+		}
+		currentItem.Attempts[0].DispatchedAt = &dispatchedAt
+		current.Items[item.Position] = currentItem
+		if err := model.ValidateTrainV2(current); err != nil {
 			return nil, err
 		}
-		if err := hub.WriteJSON(worktree, s.runPath(run.ProjectID, run.ID), run); err != nil {
+		if err := hub.WriteJSON(worktree, s.trainV2Path(train.ProjectID, train.ID), current); err != nil {
 			return nil, err
 		}
-		return []string{s.runPath(run.ProjectID, run.ID)}, nil
+		return []string{s.trainV2Path(train.ProjectID, train.ID)}, nil
 	})
 	if err != nil {
 		return hub.TransactionResult{}, err

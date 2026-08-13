@@ -19,11 +19,9 @@ func (f canonicalOutputFixture) canonicalPlanningOutputSamples() map[string]any 
 		"adr_list": map[string]any{"adrs": []model.ADR{adr}, "next_cursor": "", "has_more": false}, "adr_read": adr, "adr_create": f.operation,
 		"task_create": map[string]any{"task": task, "operation": f.operation}, "task_list": map[string]any{"tasks": []service.TaskRecord{{Task: task, State: state, RunSummaries: []model.RunReviewSummary{}}}, "next_cursor": "", "has_more": false}, "task_read": f.publicPacket,
 		"task_revision_list": map[string]any{"revisions": []any{f.revisionSample}, "next_cursor": "", "has_more": false}, "task_revision_read": f.revisionSample, "task_revision_status": f.revisionStatusSample,
-		"task_correction_create":   map[string]any{"revision": f.revisionSample, "operation": f.operation},
-		"task_train_status":        map[string]any{"project_id": "project", "train_id": "current", "status": "active", "current_index": 0, "task_count": 2, "current_task_id": task.ID, "current_run_id": "", "current_task_state": state.Status, "current_run_status": "", "agent_state": "", "wait_reason": "", "next_task_id": "TSK-SECOND", "tail": "", "next_cursor": "", "has_more": false},
-		"task_review_report_start": f.reviewDraft, "task_review_report_section_update": f.reviewDraft, "task_review_report_validate": f.reviewValidation,
-		"task_review_report_finalize": map[string]any{"report": f.reviewReport, "operation": f.operation}, "task_report_read": f.reviewReport,
-		"task_dispatch": map[string]any{"run": f.publicRun, "operation": f.operation}, "task_supersede": map[string]any{"task": f.task, "operation": f.operation}, "task_cancel": f.operation,
+		"task_correction_create": map[string]any{"revision": f.revisionSample, "operation": f.operation},
+		"task_train_status":      map[string]any{"project_id": "project", "train_id": "current", "status": "active", "current_index": 0, "task_count": 2, "current_task_id": task.ID, "current_run_id": "", "current_task_state": state.Status, "current_run_status": "", "agent_state": "", "wait_reason": "", "next_task_id": "TSK-SECOND", "tail": "", "next_cursor": "", "has_more": false},
+		"task_supersede":         map[string]any{"task": f.task, "operation": f.operation}, "task_cancel": f.operation,
 		"task_mark_merge_ready": f.operation, "task_defer": f.operation, "task_mark_merged": f.operation,
 	}
 }

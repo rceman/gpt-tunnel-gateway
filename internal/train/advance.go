@@ -2,55 +2,52 @@ package train
 
 import (
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-// NextRunInput contains only the durable identity needed to continue a Train
-// lane. Host-local session/worktree values are copied from the current Run by
-// the service adapter and are never accepted as caller-controlled paths.
-type NextRunInput struct {
-	Current      model.Run
-	Next         model.TrainV2Item
-	RunID        string
-	BaseRevision string
-	StateDir     string
-	CreatedAt    time.Time
+// NextAttemptInput contains only the canonical identity and immutable owner
+// snapshot needed to start the immediate queued TrainItem.
+type NextAttemptInput struct {
+	CurrentAttempt model.TrainV2Attempt
+	Next           model.TrainV2Item
+	AgentID        string
+	GatewayID      string
+	SessionKey     string
+	StartHead      string
+	CreatedAt      time.Time
 }
 
-// BuildNextRun creates the created-state Run for the immediate queued Train
-// item. Dispatch is a separate transport side effect owned by the service.
-func BuildNextRun(in NextRunInput) (model.Run, error) {
-	if err := model.ValidateRun(in.Current); err != nil || in.Current.TrainID == "" || in.Current.Historical {
-		return model.Run{}, fmt.Errorf("current Train Run is not advanceable")
+// RetryAttempt appends a new item-local Attempt after a terminal failure. It
+// never overwrites the prior Attempt and never allocates a global Run ID.
+func RetryAttempt(item model.TrainV2Item, agentID, gatewayID, sessionKey, startHead string, createdAt time.Time) (model.TrainV2Item, model.TrainV2Attempt, error) {
+	if len(item.Attempts) == 0 || item.Status != model.TrainV2ItemBlocked || createdAt.IsZero() || model.ValidateObjectIdentifier(agentID) != nil || model.ValidateObjectIdentifier(gatewayID) != nil || sessionKey == "" || model.ValidateCommitSHA(startHead) != nil {
+		return model.TrainV2Item{}, model.TrainV2Attempt{}, fmt.Errorf("Train item is not retryable")
 	}
-	if in.Next.Status != model.TrainV2ItemQueued || model.ValidateCanonicalTaskID(in.Next.TaskID) != nil || len(in.Next.TaskRevisionSHA256) != 64 {
-		return model.Run{}, fmt.Errorf("next Train item is not a valid queued task")
+	previous := item.Attempts[len(item.Attempts)-1]
+	if previous.Status != model.TrainV2AttemptFailed && previous.Status != model.TrainV2AttemptAborted && previous.Status != model.TrainV2AttemptRecovered {
+		return model.TrainV2Item{}, model.TrainV2Attempt{}, fmt.Errorf("last Train Attempt is not terminally retryable")
 	}
-	taskID, _, err := model.ParseRunID(in.RunID)
-	if err != nil || taskID != in.Next.TaskID {
-		return model.Run{}, fmt.Errorf("next Run ID does not bind the queued task")
+	attempt := model.TrainV2Attempt{Number: uint64(len(item.Attempts) + 1), Status: model.TrainV2AttemptRunning, AgentID: agentID, GatewayID: gatewayID, AirelaySessionKey: sessionKey, StartHead: startHead, StartedAt: createdAt}
+	if err := model.ValidateTrainV2Attempt(attempt); err != nil {
+		return model.TrainV2Item{}, model.TrainV2Attempt{}, err
 	}
-	if err := model.ValidateCommitSHA(in.BaseRevision); err != nil || in.StateDir == "" || in.CreatedAt.IsZero() {
-		return model.Run{}, fmt.Errorf("next Train Run identity is incomplete")
+	updated := item
+	updated.Status = model.TrainV2ItemRunning
+	updated.ActiveAttemptNumber = attempt.Number
+	updated.SuccessfulAttemptNumber = 0
+	updated.Attempts = append(append([]model.TrainV2Attempt{}, item.Attempts...), attempt)
+	return updated, attempt, nil
+}
+
+func BuildNextAttempt(in NextAttemptInput) (model.TrainV2Attempt, error) {
+	if in.CurrentAttempt.Number == 0 || in.CurrentAttempt.Status != model.TrainV2AttemptSucceeded || in.Next.Status != model.TrainV2ItemQueued || in.CreatedAt.IsZero() || model.ValidateObjectIdentifier(in.AgentID) != nil || model.ValidateObjectIdentifier(in.GatewayID) != nil || in.SessionKey == "" || model.ValidateCommitSHA(in.StartHead) != nil {
+		return model.TrainV2Attempt{}, fmt.Errorf("current Train Attempt or next item is not advanceable")
 	}
-	run := in.Current
-	run.ID = in.RunID
-	run.TaskID = in.Next.TaskID
-	run.TaskSHA256 = in.Next.TaskRevisionSHA256
-	run.TaskRevision, run.TaskRevisionSHA256, run.TaskRunNumber = 0, "", 0
-	run.BaseRevision = in.BaseRevision
-	run.Status = "created"
-	run.DispatchMessage, run.DispatchStdout, run.DispatchStderr = "", "", ""
-	run.DispatchExitCode = nil
-	run.CompletionPath = filepath.Join(in.StateDir, "runs", in.RunID, "completion.json")
-	run.CreatedAt = in.CreatedAt
-	run.DispatchedAt, run.LastRepromptAt, run.FinishedAt = nil, nil, nil
-	run.RepromptCount = 0
-	if err := model.ValidateRun(run); err != nil {
-		return model.Run{}, err
+	attempt := model.TrainV2Attempt{Number: 1, Status: model.TrainV2AttemptRunning, AgentID: in.AgentID, GatewayID: in.GatewayID, AirelaySessionKey: in.SessionKey, StartHead: in.StartHead, StartedAt: in.CreatedAt}
+	if err := model.ValidateTrainV2Attempt(attempt); err != nil {
+		return model.TrainV2Attempt{}, err
 	}
-	return run, nil
+	return attempt, nil
 }

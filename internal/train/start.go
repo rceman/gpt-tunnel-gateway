@@ -33,10 +33,11 @@ type AgentTaskPacket struct {
 	WorktreePath string
 }
 
-// PacketMaterializer writes and validates the exact Task packet for a Run.
+// PacketMaterializer writes and validates the exact Task packet for an
+// item-local Attempt.
 // The service adapter supplies the Task/Hub-owned content while Train owns
 // when it must exist before dispatch.
-type PacketMaterializer func(context.Context, model.Run, RuntimeBinding) (AgentTaskPacket, error)
+type PacketMaterializer func(context.Context, model.TrainV2, model.TrainV2Item, model.TrainV2Attempt, RuntimeBinding) (AgentTaskPacket, error)
 
 type StartDependencies struct {
 	Hub               hub.Store
@@ -53,7 +54,8 @@ type StartDependencies struct {
 }
 
 type StartResult struct {
-	Record  model.TrainV2StartRecord `json:"record"`
-	Run     model.Run                `json:"run"`
-	Runtime RuntimeBinding           `json:"runtime"`
+	Record       model.TrainV2StartRecord `json:"record"`
+	ItemPosition int                      `json:"item_position"`
+	Attempt      model.TrainV2Attempt     `json:"attempt"`
+	Runtime      RuntimeBinding           `json:"runtime"`
 }

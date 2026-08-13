@@ -102,7 +102,12 @@ func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
 	} else {
 		result.HubRevision = graphSnapshot.Revision()
 		for _, plan := range result.Plans {
-			s.checkProjectTaskRunGraph(ctx, graphSnapshot, plan.ProjectID, model.Plan{ProjectID: plan.ProjectID, ActiveTaskID: plan.ActiveTaskID, ActiveRunID: plan.ActiveRunID}, &result)
+			configuration, configErr := s.ProjectConfigurationRead(ctx, plan.ProjectID)
+			if configErr == nil && configuration.ExecutionModel == "train_v2" {
+				s.checkTrainV2AttemptGraph(ctx, graphSnapshot, plan.ProjectID, &result)
+			} else {
+				s.checkProjectTaskRunGraph(ctx, graphSnapshot, plan.ProjectID, model.Plan{ProjectID: plan.ProjectID, ActiveTaskID: plan.ActiveTaskID, ActiveRunID: plan.ActiveRunID}, &result)
+			}
 		}
 		if err := graphSnapshot.Close(); err != nil {
 			result.Issues = append(result.Issues, stateIssue("HUB_UNAVAILABLE", "", "", "", "", err.Error()))

@@ -41,8 +41,6 @@ func main() {
 		adr(ctx, s, args)
 	case "task":
 		task(ctx, s, args)
-	case "run":
-		run(ctx, s, args)
 	case "agent":
 		agent(ctx, s, args)
 	case "watcher":
@@ -56,7 +54,7 @@ func main() {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {format|check|test|project|plan|adr|task|run|agent|watcher|operator|git} [args]")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {format|check|test|project|plan|adr|task|agent|watcher|operator|git} [args]")
 	fmt.Fprintln(os.Stderr, "new operational IDs: CODE-TSK<N>, CODE-TSK<N>-RUN<M>, CODE-ADR<N>, CODE-OPR<N>")
 	fmt.Fprintln(os.Stderr, "task create --file requires slug; branch and base_revision are derived by the gateway")
 	fmt.Fprintln(os.Stderr, "pre-cutover IDs remain read-only history and are not accepted by operational mutations")
@@ -100,12 +98,6 @@ func expectedStrict(args []string) (string, error) {
 		return "", fmt.Errorf("unexpected run cancellation acknowledgement arguments")
 	}
 	return expectedRevision, nil
-}
-func completionFileStrict(args []string) (string, error) {
-	if len(args) != 2 || args[0] != "--completion-file" || args[1] == "" {
-		return "", fmt.Errorf("expected exactly one --completion-file input")
-	}
-	return args[1], nil
 }
 func require(args []string, n int) {
 	if len(args) < n {

@@ -33,7 +33,7 @@ func (s *Service) projectStatusTrainV2(ctx context.Context, id string, local con
 	if taskErr == nil && trainErr == nil {
 		pure := trainv2.ProjectStatus(tasks, trains)
 		projection.TaskCounts, projection.TrainCounts = pure.TaskCounts, pure.TrainCounts
-		projection.CurrentTrain, projection.CurrentTask, projection.CurrentRun, projection.NextAction = pure.CurrentTrain, pure.CurrentTask, pure.CurrentRun, pure.NextAction
+		projection.CurrentTrain, projection.CurrentTask, projection.CurrentAttempt, projection.NextAction = pure.CurrentTrain, pure.CurrentTask, pure.CurrentAttempt, pure.NextAction
 		projection.ActiveTrains, projection.AmbiguousActive = pure.ActiveTrains, pure.AmbiguousActive
 	}
 	progress := ProjectProgress{AgentState: agentStatus.State, ControllerReachable: agentStatus.ControllerReachable, AirelayVersion: agentStatus.AirelayVersion, ProtocolVersion: agentStatus.ProtocolVersion, CapacityWarnings: append([]string{}, agentStatus.CapacityWarnings...), ExitCode: agentStatus.ExitCode, Tail: agentTail.Stdout, BlockerClassification: "none", RecommendedNextAction: projection.NextAction, ComponentErrors: []string{}}

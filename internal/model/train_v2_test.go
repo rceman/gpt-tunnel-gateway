@@ -37,7 +37,8 @@ func TestTrainV2StartRecordKeepsHostBindingsLocal(t *testing.T) {
 		IntegrationBranch:         "main",
 		BaseRevision:              strings.Repeat("a", 40),
 		LaneBranch:                "train/GTW-TRN7",
-		RunID:                     "GTW-TSK179-RUN1",
+		CurrentItemPosition:       0,
+		CurrentAttemptNumber:      1,
 		CurrentTaskID:             "GTW-TSK179",
 		CurrentTaskRevision:       1,
 		CurrentTaskRevisionSHA256: strings.Repeat("b", 64),
@@ -55,7 +56,7 @@ func TestTrainV2StartRecordKeepsHostBindingsLocal(t *testing.T) {
 			t.Fatalf("portable start record contains host binding %q: %s", forbidden, encoded)
 		}
 	}
-	record.RunID = "GTW-TSK180-RUN1"
+	record.CurrentAttemptNumber = 0
 	if err := ValidateTrainV2StartRecord(record); err == nil {
 		t.Fatal("start record accepted a run for a different current task")
 	}

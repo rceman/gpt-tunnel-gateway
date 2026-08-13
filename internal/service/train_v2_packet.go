@@ -16,52 +16,35 @@ import (
 
 const maxTrainV2PacketBytes = 256 << 10
 
-// materializeTrainV2Packet derives the packet from the exact durable Task,
-// Train item, Run, project configuration and local runtime. The packet lives
-// beside the Gateway-owned completion destination, never in the Agent
-// worktree, so it cannot make the checkout dirty.
-func (s *Service) materializeTrainV2Packet(ctx context.Context, run model.Run, runtime trainv2.RuntimeBinding) (trainv2.AgentTaskPacket, error) {
-	if run.TrainID == "" || runtime.RunID != run.ID || runtime.ProjectID != run.ProjectID || runtime.TrainID != run.TrainID {
-		return trainv2.AgentTaskPacket{}, fmt.Errorf("Train packet identity does not match the Run/runtime")
+// materializeTrainV2Packet derives the packet from the exact Train item and
+// item-local Attempt. It never creates a /runs artifact.
+func (s *Service) materializeTrainV2Packet(ctx context.Context, train model.TrainV2, item model.TrainV2Item, attempt model.TrainV2Attempt, runtime trainv2.RuntimeBinding) (trainv2.AgentTaskPacket, error) {
+	if runtime.TrainID != train.ID || runtime.ItemPosition != item.Position || runtime.TaskID != item.TaskID || runtime.AttemptNumber != attempt.Number || runtime.ProjectID != train.ProjectID {
+		return trainv2.AgentTaskPacket{}, fmt.Errorf("Train packet identity does not match the Attempt/runtime")
 	}
 	if err := trainv2.ValidateRuntimeBinding(runtime, s.Config.StateDir); err != nil {
 		return trainv2.AgentTaskPacket{}, err
 	}
-	task, err := s.TaskAuthoringRead(ctx, run.ProjectID, run.TaskID)
+	task, err := s.TaskAuthoringRead(ctx, train.ProjectID, item.TaskID)
 	if err != nil {
 		return trainv2.AgentTaskPacket{}, err
 	}
-	train, err := s.TrainV2Read(ctx, run.ProjectID, run.TrainID)
+	if item.TaskRevisionSHA256 != task.RevisionSHA256 || attempt.AgentID == "" || attempt.AirelaySessionKey == "" {
+		return trainv2.AgentTaskPacket{}, fmt.Errorf("Train packet Task revision does not match the Attempt")
+	}
+	project, err := s.ProjectRead(ctx, train.ProjectID)
 	if err != nil {
 		return trainv2.AgentTaskPacket{}, err
 	}
-	var item model.TrainV2Item
-	found := false
-	for _, candidate := range train.Items {
-		if candidate.TaskID == run.TaskID && candidate.RunID == run.ID {
-			item, found = candidate, true
-			break
-		}
-	}
-	if !found || item.Status != model.TrainV2ItemRunning || item.AgentID != run.AgentID {
-		return trainv2.AgentTaskPacket{}, fmt.Errorf("Train packet is not bound to the active Run item")
-	}
-	if run.TaskSHA256 != task.RevisionSHA256 || item.TaskRevisionSHA256 != task.RevisionSHA256 {
-		return trainv2.AgentTaskPacket{}, fmt.Errorf("Train packet Task revision does not match the Run")
-	}
-	project, err := s.ProjectRead(ctx, run.ProjectID)
+	configuration, err := s.ProjectConfigurationRead(ctx, train.ProjectID)
 	if err != nil {
 		return trainv2.AgentTaskPacket{}, err
 	}
-	configuration, err := s.ProjectConfigurationRead(ctx, run.ProjectID)
+	policy, err := s.ProjectWorkflowPolicyRead(ctx, train.ProjectID)
 	if err != nil {
 		return trainv2.AgentTaskPacket{}, err
 	}
-	policy, err := s.ProjectWorkflowPolicyRead(ctx, run.ProjectID)
-	if err != nil {
-		return trainv2.AgentTaskPacket{}, err
-	}
-	packetPath := filepath.Join(s.Config.StateDir, "runs", run.ID, "task-packet.md")
+	packetPath := filepath.Join(s.Config.StateDir, "train-attempts", train.ProjectID, train.ID, fmt.Sprintf("item-%d", item.Position), fmt.Sprintf("attempt-%d", attempt.Number), "task-packet.md")
 	if info, statErr := os.Lstat(packetPath); statErr == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return trainv2.AgentTaskPacket{}, fmt.Errorf("Train packet path is not a regular file")
@@ -69,7 +52,7 @@ func (s *Service) materializeTrainV2Packet(ctx context.Context, run model.Run, r
 	} else if !os.IsNotExist(statErr) {
 		return trainv2.AgentTaskPacket{}, statErr
 	}
-	text := "Packet path: " + packetPath + "\n\n" + renderTrainV2Packet(task, train, item, &run, project, configuration, policy, runtime.WorktreePath)
+	text := "Packet path: " + packetPath + "\n\n" + renderTrainV2Packet(task, train, item, &attempt, project, configuration, policy, runtime.WorktreePath)
 	if len([]byte(text)) > maxTrainV2PacketBytes {
 		return trainv2.AgentTaskPacket{}, fmt.Errorf("Train packet exceeds %d bytes", maxTrainV2PacketBytes)
 	}
@@ -79,9 +62,6 @@ func (s *Service) materializeTrainV2Packet(ctx context.Context, run model.Run, r
 	return trainv2.AgentTaskPacket{Path: packetPath, WorktreePath: runtime.WorktreePath}, nil
 }
 
-// TrainV2TaskRead returns the Train-owned execution packet. It intentionally
-// has no Plan field: Plan remains readable history, never required execution
-// context after the project authority cutover.
 func (s *Service) TrainV2TaskRead(ctx context.Context, projectID, taskID string) (TrainV2TaskPacket, error) {
 	if err := requireTrainV2Authoring(ctx, s, projectID); err != nil {
 		return TrainV2TaskPacket{}, err
@@ -108,32 +88,6 @@ func (s *Service) TrainV2TaskRead(ctx context.Context, projectID, taskID string)
 			break
 		}
 	}
-	if !foundItem {
-		project, err := s.ProjectRead(ctx, projectID)
-		if err != nil {
-			return TrainV2TaskPacket{}, err
-		}
-		configuration, err := s.ProjectConfigurationRead(ctx, projectID)
-		if err != nil {
-			return TrainV2TaskPacket{}, err
-		}
-		policy, err := s.ProjectWorkflowPolicyRead(ctx, projectID)
-		if err != nil {
-			return TrainV2TaskPacket{}, err
-		}
-		if _, err := s.projectConfig(projectID); err != nil {
-			return TrainV2TaskPacket{}, err
-		}
-		return TrainV2TaskPacket{Task: task, ProjectConfiguration: configuration, WorkflowPolicy: policy, RepositoryRoot: "", Recovery: "This Task is planned and ready for Train admission; no execution runtime exists yet.", Text: renderTrainV2Packet(task, model.TrainV2{}, model.TrainV2Item{}, nil, project, configuration, policy, "")}, nil
-	}
-	var run *model.Run
-	if item.RunID != "" {
-		candidate, err := s.RunRead(ctx, item.RunID)
-		if err != nil {
-			return TrainV2TaskPacket{}, err
-		}
-		run = &candidate
-	}
 	project, err := s.ProjectRead(ctx, projectID)
 	if err != nil {
 		return TrainV2TaskPacket{}, err
@@ -146,30 +100,29 @@ func (s *Service) TrainV2TaskRead(ctx context.Context, projectID, taskID string)
 	if err != nil {
 		return TrainV2TaskPacket{}, err
 	}
-	if _, err := s.projectConfig(projectID); err != nil {
-		return TrainV2TaskPacket{}, err
+	if !foundItem {
+		return TrainV2TaskPacket{Task: task, ProjectConfiguration: configuration, WorkflowPolicy: policy, Recovery: "This Task is planned and ready for Train admission; no execution Attempt exists yet.", Text: renderTrainV2Packet(task, model.TrainV2{}, model.TrainV2Item{}, nil, project, configuration, policy, "")}, nil
 	}
+	var attempt *model.TrainV2Attempt
 	repositoryRoot := ""
-	if run != nil && operationalActiveRun(*run) {
-		runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, found.ID)
-		if runtimeErr != nil || runtime.RunID != run.ID {
-			return TrainV2TaskPacket{}, fmt.Errorf("Train v2 Run has no exact local runtime binding")
+	if item.ActiveAttemptNumber > 0 && item.ActiveAttemptNumber <= uint64(len(item.Attempts)) {
+		candidate := item.Attempts[item.ActiveAttemptNumber-1]
+		attempt = &candidate
+		if runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, found.ID); runtimeErr == nil {
+			repositoryRoot = runtime.WorktreePath
 		}
-		repositoryRoot = runtime.WorktreePath
 	}
-	text := renderTrainV2Packet(task, found, item, run, project, configuration, policy, repositoryRoot)
-	return TrainV2TaskPacket{Task: task, Train: found, Item: item, Run: run, ProjectConfiguration: configuration, WorkflowPolicy: policy, RepositoryRoot: repositoryRoot, Recovery: "Re-read this Train-owned packet and durable Train state before retrying after compaction.", Text: text}, nil
+	text := renderTrainV2Packet(task, found, item, attempt, project, configuration, policy, repositoryRoot)
+	return TrainV2TaskPacket{Task: task, Train: found, Item: item, Attempt: attempt, ProjectConfiguration: configuration, WorkflowPolicy: policy, RepositoryRoot: repositoryRoot, Recovery: "Re-read this Train-owned packet and durable Train state before retrying after compaction.", Text: text}, nil
 }
 
-func renderTrainV2Packet(task model.TaskAuthoring, train model.TrainV2, item model.TrainV2Item, run *model.Run, project model.Project, configuration model.ProjectConfiguration, policy model.ProjectWorkflowPolicy, root string) string {
+func renderTrainV2Packet(task model.TaskAuthoring, train model.TrainV2, item model.TrainV2Item, attempt *model.TrainV2Attempt, project model.Project, configuration model.ProjectConfiguration, policy model.ProjectWorkflowPolicy, root string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Train v2 Task Packet\n\nTask: %s\nTask title: %s\nTask revision: %d\nTask revision SHA256: %s\nTask status: %s\nTask priority: %s\nCreated by: %s\nTrain: %s\nProject: %s\nRepository/worktree: %s\nExecution model: %s\nIntegration branch: %s\n", task.ID, task.Title, task.Revision, task.RevisionSHA256, task.Status, task.Priority, task.CreatedBy, train.ID, project.ID, root, configuration.ExecutionModel, policy.IntegrationBranch)
 	if task.ReadySeal != nil {
 		fmt.Fprintf(&b, "Ready seal: revision=%d sha256=%s ready_by=%s ready_at=%s\n", task.ReadySeal.Revision, task.ReadySeal.RevisionSHA256, task.ReadySeal.ReadyBy, task.ReadySeal.ReadyAt.UTC().Format(time.RFC3339Nano))
 	}
-	b.WriteString("\n## Objective\n\n")
-	b.WriteString(task.Objective)
-	b.WriteString("\n\n## Acceptance criteria\n")
+	b.WriteString("\n## Objective\n\n" + task.Objective + "\n\n## Acceptance criteria\n")
 	for _, criterion := range task.AcceptanceCriteria {
 		fmt.Fprintf(&b, "- %s\n", criterion)
 	}
@@ -201,9 +154,9 @@ func renderTrainV2Packet(task model.TaskAuthoring, train model.TrainV2, item mod
 		}
 	}
 	fmt.Fprintf(&b, "\n## Train item\n\nPosition: %d\nStatus: %s\nTask revision: %d\n", item.Position, item.Status, item.TaskRevision)
-	if run != nil {
-		fmt.Fprintf(&b, "Run: %s\nLane: %s\nBase: %s\n", run.ID, run.LaneBranch, run.BaseRevision)
+	if attempt != nil {
+		fmt.Fprintf(&b, "Attempt: %d\nAttempt status: %s\nStart head: %s\n", attempt.Number, attempt.Status, attempt.StartHead)
 	}
-	b.WriteString("\n## Recovery\n\nThe Train and Run records are the execution authority. Plan history is not required for this operation.\n")
+	b.WriteString("\n## Recovery\n\nThe Train, item, and Attempt records are the execution authority. Plan history is not required for this operation.\n")
 	return b.String()
 }

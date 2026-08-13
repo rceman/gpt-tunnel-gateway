@@ -17,8 +17,8 @@ func TestFrozenRegistryUsesCanonicalCursorTailAndTypedCompatibilityKeepsSkip(t *
 	tools := server.tools()
 
 	typed := tools["agent_tail"].InputSchema["properties"].(map[string]any)
-	if _, ok := typed["skip"]; !ok {
-		t.Fatal("typed agent_tail lost legacy skip compatibility")
+	if _, ok := typed["skip"]; ok {
+		t.Fatal("typed agent_tail exposes obsolete Run/skip compatibility")
 	}
 	entries := server.genericActionRegistry(tools)
 	entry, ok := entries["agent/tail"]
@@ -41,7 +41,7 @@ func TestFrozenRegistrySchemaCallAndBatchShareCanonicalContracts(t *testing.T) {
 	}
 	tools := server.tools()
 	entries := server.genericActionRegistry(tools)
-	for _, path := range []string{"project/list", "task/list", "run/list", "adr/list", "task/revision_list", "plan/history", "delivery/handoff_list", "planner/report_list", "operator/history", "git/refs", "git/log", "git/tree", "agent/tail", "task/review", "task/integrate"} {
+	for _, path := range []string{"project/list", "task/list", "adr/list", "task/revision_list", "plan/history", "delivery/handoff_list", "planner/report_list", "operator/history", "git/refs", "git/log", "git/tree", "agent/tail", "task/review", "task/integrate"} {
 		entry, ok := entries[path]
 		if !ok {
 			t.Fatalf("canonical registry missing %s", path)

@@ -27,9 +27,9 @@ func RebindImplementationProofs(current model.TrainV2, mapping map[string]string
 			}
 		}
 		updated.Items[i].Status = model.TrainV2ItemQueued
-		updated.Items[i].RunID = ""
-		updated.Items[i].AgentID = ""
-		updated.Items[i].StartHead = ""
+		updated.Items[i].Attempts = nil
+		updated.Items[i].ActiveAttemptNumber = 0
+		updated.Items[i].SuccessfulAttemptNumber = 0
 		updated.Items[i].Proof = nil
 		updated.Items[i].Review = nil
 	}
@@ -57,9 +57,9 @@ func ResetImplementationProofsForRestart(current model.TrainV2, now time.Time) (
 	updated := current
 	for i := range updated.Items {
 		updated.Items[i].Status = model.TrainV2ItemQueued
-		updated.Items[i].RunID = ""
-		updated.Items[i].AgentID = ""
-		updated.Items[i].StartHead = ""
+		updated.Items[i].Attempts = nil
+		updated.Items[i].ActiveAttemptNumber = 0
+		updated.Items[i].SuccessfulAttemptNumber = 0
 		updated.Items[i].Proof = nil
 		updated.Items[i].Review = nil
 	}

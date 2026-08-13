@@ -53,7 +53,7 @@ func (s *Service) RunFinalize(ctx context.Context, in FinalizeInput) (model.Repo
 		}
 	}
 	if run.TrainID != "" {
-		return s.finalizeTrainV2Run(ctx, run, in)
+		return model.Report{}, OperationResult{}, fmt.Errorf("Train-v2 finalization requires the exact Train item Attempt; Run finalization is not a canonical action")
 	}
 	task, err := s.findTask(ctx, run.TaskID)
 	if err != nil {
@@ -215,7 +215,7 @@ func (s *Service) RunReport(ctx context.Context, id string) (model.Report, error
 		return model.Report{}, fmt.Errorf("workflow-v1 run report is history-only")
 	}
 	if run.TrainID != "" {
-		return s.trainV2RunReport(ctx, run, id)
+		return model.Report{}, fmt.Errorf("Train-v2 report reads require the exact Attempt report identity; Run report is not a canonical action")
 	}
 	var report model.Report
 	path := s.reportPath(run.ProjectID, id)

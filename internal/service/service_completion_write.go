@@ -19,7 +19,7 @@ func (s *Service) RunWriteCompletion(ctx context.Context, in CompletionWriteInpu
 		return CompletionWriteResult{}, fmt.Errorf("completion file is required")
 	}
 	if run, runErr := s.findRun(ctx, in.RunID); runErr == nil && run.TrainID != "" {
-		return s.trainV2WriteCompletion(ctx, in, run)
+		return CompletionWriteResult{}, fmt.Errorf("Train-v2 completion requires the exact Train item Attempt; Run completion is not a canonical action")
 	}
 	inputInfo, err := os.Lstat(in.CompletionFile)
 	if err != nil {

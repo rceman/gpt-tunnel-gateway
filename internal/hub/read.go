@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 func (s Store) readOnlyLock() (*lockfile.Lock, error) {
@@ -46,6 +47,35 @@ func (s Store) ReadFile(ctx context.Context, path string) ([]byte, error) {
 		return nil, err
 	}
 	out, err := command(ctx, root, "show", s.remoteRef()+":"+filepath.ToSlash(path))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(out)) > s.Config.MaxReadBytes {
+		return nil, fmt.Errorf("hub file exceeds read limit")
+	}
+	return out, nil
+}
+
+// ReadFileAtCommit reads immutable Hub history without changing the managed
+// worktree or remote ref. It is used only by source-owned migrations that must
+// distinguish reused identifiers across historical lineages.
+func (s Store) ReadFileAtCommit(ctx context.Context, commit, path string) ([]byte, error) {
+	if err := validateHubPath(path); err != nil {
+		return nil, err
+	}
+	if err := model.ValidateCommitSHA(commit); err != nil {
+		return nil, err
+	}
+	lock, err := s.readOnlyLock()
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Release()
+	root, err := s.readOnlyRoot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out, err := command(ctx, root, "show", commit+":"+filepath.ToSlash(path))
 	if err != nil {
 		return nil, err
 	}

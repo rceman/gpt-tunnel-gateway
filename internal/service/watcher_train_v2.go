@@ -27,7 +27,7 @@ func (s *Service) watcherStatusTrainV2(ctx context.Context, projectID string) (m
 	}
 	status := model.WatcherStatus{
 		SchemaVersion: model.WatcherStatusSchemaVersion, ProjectID: projectID, Mode: settings.Mode, CadenceSeconds: settings.CadenceSeconds, TailLines: settings.TailLines, NudgeEnabled: settings.NudgeEnabled,
-		TrainID: state.TrainID, TrainItemPosition: state.TrainItemPosition, TrainAgentID: state.TrainAgentID, ActiveTaskID: state.TaskID, ActiveRunID: state.RunID, TargetSession: state.SessionKey,
+		TrainID: state.TrainID, TrainItemPosition: state.TrainItemPosition, TrainAgentID: state.TrainAgentID, ActiveTaskID: state.TaskID, TargetSession: state.SessionKey,
 		LastTickAt: state.LastTickAt, LastUsefulAt: state.LastUsefulAt, LastError: state.LastError, Desired: supervisor.Desired, Runtime: supervisor.Runtime, InstanceID: supervisor.InstanceID, LeaseID: supervisor.LeaseID, LastNudgeAt: supervisor.LastNudgeAt, RestartCount: supervisor.RestartCount,
 	}
 	if settings.AgentID != "" {
@@ -37,10 +37,10 @@ func (s *Service) watcherStatusTrainV2(ctx context.Context, projectID string) (m
 			status.WatcherSession = binding.SessionKey
 		}
 	}
-	if run, found, runErr := s.trainV2ActiveRun(ctx, projectID); runErr != nil {
+	if active, found, runErr := s.trainV2ActiveAttempt(ctx, projectID); runErr != nil {
 		status.LastError = runErr.Error()
 	} else if found {
-		status.TargetSession, status.RunStatus = run.SessionKey, run.Status
+		status.TargetSession, status.RunStatus = active.Attempt.AirelaySessionKey, active.Attempt.Status
 	}
 	if guide, guideErr := s.WatcherGuideRead(ctx, projectID); guideErr == nil {
 		status.GuideRevision = guide.Revision
@@ -54,17 +54,49 @@ func (s *Service) watcherStatusTrainV2(ctx context.Context, projectID string) (m
 	return status, nil
 }
 
-func (s *Service) trainV2ActiveRun(ctx context.Context, projectID string) (model.Run, bool, error) {
-	runs, err := s.RunList(ctx, projectID)
+type activeTrainAttempt struct {
+	Train   model.TrainV2
+	Start   model.TrainV2StartRecord
+	Runtime trainv2.RuntimeBinding
+	Item    model.TrainV2Item
+	Attempt model.TrainV2Attempt
+}
+
+func (s *Service) trainV2ActiveAttempt(ctx context.Context, projectID string) (activeTrainAttempt, bool, error) {
+	trains, err := s.TrainV2List(ctx, TrainV2ListInput{ProjectID: projectID, Limit: model.MaxTrainV2Items})
 	if err != nil {
-		return model.Run{}, false, err
+		return activeTrainAttempt{}, false, err
 	}
-	for _, run := range runs {
-		if !run.Historical && run.TrainID != "" && watcherActiveStatus(run.Status) {
-			return run, true, nil
+	for _, train := range trains.Trains {
+		if train.Status != model.TrainV2Running && train.Status != model.TrainV2Paused && train.Status != model.TrainV2Blocked {
+			continue
 		}
+		var start model.TrainV2StartRecord
+		path := hub.ProtocolRoot + "/projects/" + projectID + "/train-v2-starts/" + train.ID + ".json"
+		if err := s.Hub.ReadJSON(ctx, path, &start); err != nil {
+			continue
+		}
+		runtime, err := trainv2.ReadRuntime(s.Config.StateDir, projectID, train.ID)
+		if err != nil {
+			continue
+		}
+		if start.CurrentItemPosition < 0 || start.CurrentItemPosition >= len(train.Items) || start.CurrentAttemptNumber == 0 {
+			continue
+		}
+		item := train.Items[start.CurrentItemPosition]
+		if item.TaskID != start.CurrentTaskID || start.CurrentAttemptNumber > uint64(len(item.Attempts)) {
+			continue
+		}
+		attempt := item.Attempts[start.CurrentAttemptNumber-1]
+		if attempt.Status != model.TrainV2AttemptRunning {
+			continue
+		}
+		if _, err := watcher.BindTrainAttempt(train, start, runtime); err != nil {
+			return activeTrainAttempt{}, false, err
+		}
+		return activeTrainAttempt{Train: train, Start: start, Runtime: runtime, Item: item, Attempt: attempt}, true, nil
 	}
-	return model.Run{}, false, nil
+	return activeTrainAttempt{}, false, nil
 }
 
 func (s *Service) watcherObserveTrainV2(ctx context.Context, in WatcherObserveInput) (model.WatcherObservation, error) {
@@ -85,14 +117,14 @@ func (s *Service) watcherObserveTrainV2(ctx context.Context, in WatcherObserveIn
 	if err != nil {
 		return model.WatcherObservation{}, err
 	}
-	run, found, err := s.trainV2ActiveRun(ctx, in.ProjectID)
+	active, found, err := s.trainV2ActiveAttempt(ctx, in.ProjectID)
 	if err != nil {
 		return model.WatcherObservation{}, err
 	}
 	if !found {
-		changed := state.TrainID != "" || state.TaskID != "" || state.RunID != ""
+		changed := state.TrainID != "" || state.TaskID != ""
 		state.TrainID, state.TrainItemPosition, state.TrainAgentID = "", 0, ""
-		state.TaskID, state.RunID, state.SessionKey = "", "", ""
+		state.TaskID, state.SessionKey = "", ""
 		state.LastTickAt, state.LastError = now, ""
 		state.LastTail, state.SeenDigests, state.SnapshotDigest, state.Cursor = "", []string{}, "", ""
 		if err := watcher.SaveObservation(s.Config.StateDir, state); err != nil {
@@ -100,34 +132,22 @@ func (s *Service) watcherObserveTrainV2(ctx context.Context, in WatcherObserveIn
 		}
 		return model.WatcherObservation{SchemaVersion: model.WatcherObservationSchemaVersion, ProjectID: in.ProjectID, Lines: lines, IdentityChanged: changed, ObservedAt: now}, nil
 	}
-	train, err := s.TrainV2Read(ctx, in.ProjectID, run.TrainID)
-	if err != nil {
-		return model.WatcherObservation{}, err
-	}
-	var start model.TrainV2StartRecord
-	startPath := hub.ProtocolRoot + "/projects/" + in.ProjectID + "/train-v2-starts/" + run.TrainID + ".json"
-	if err := s.Hub.ReadJSON(ctx, startPath, &start); err != nil {
-		return model.WatcherObservation{}, fmt.Errorf("read train watcher start: %w", err)
-	}
-	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, in.ProjectID, run.TrainID)
-	if err != nil {
-		return model.WatcherObservation{}, fmt.Errorf("read train watcher runtime: %w", err)
-	}
-	binding, err := watcher.BindTrainRun(train, start, runtime, run)
+	train, start, runtime, attempt := active.Train, active.Start, active.Runtime, active.Attempt
+	binding, err := watcher.BindTrainAttempt(train, start, runtime)
 	if err != nil {
 		state.LastError = err.Error()
 		_ = watcher.SaveObservation(s.Config.StateDir, state)
 		return model.WatcherObservation{}, err
 	}
-	identityChanged := state.TrainID != binding.TrainID || state.TaskID != binding.TaskID || state.RunID != binding.RunID
+	identityChanged := state.TrainID != binding.TrainID || state.TaskID != binding.TaskID || state.TrainItemPosition != binding.ItemPosition
 	state.TrainID, state.TrainItemPosition, state.TrainAgentID = binding.TrainID, binding.ItemPosition, binding.AgentID
-	state.TaskID, state.RunID, state.SessionKey = binding.TaskID, binding.RunID, binding.SessionKey
+	state.TaskID, state.SessionKey = binding.TaskID, binding.SessionKey
 	state.LastTickAt, state.LastError = now, ""
 	if identityChanged {
 		state.SeenDigests, state.SnapshotDigest, state.Cursor, state.LastTail = []string{}, "", "", ""
 	}
-	observation := model.WatcherObservation{SchemaVersion: model.WatcherObservationSchemaVersion, ProjectID: in.ProjectID, TrainID: binding.TrainID, TrainItemPosition: binding.ItemPosition, TrainAgentID: binding.AgentID, TaskID: binding.TaskID, RunID: binding.RunID, TargetSession: binding.SessionKey, RunStatus: run.Status, IdentityChanged: identityChanged, Lines: lines, ObservedAt: now}
-	if !watcherActiveStatus(run.Status) {
+	observation := model.WatcherObservation{SchemaVersion: model.WatcherObservationSchemaVersion, ProjectID: in.ProjectID, TrainID: binding.TrainID, TrainItemPosition: binding.ItemPosition, TrainAgentID: binding.AgentID, TaskID: binding.TaskID, RunID: "", TargetSession: binding.SessionKey, RunStatus: attempt.Status, IdentityChanged: identityChanged, Lines: lines, ObservedAt: now}
+	if attempt.Status != model.TrainV2AttemptRunning {
 		observation.Terminal = true
 		if err := watcher.SaveObservation(s.Config.StateDir, state); err != nil {
 			return model.WatcherObservation{}, err

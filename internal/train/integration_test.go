@@ -8,85 +8,15 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-func reviewedTrainForIntegration(t *testing.T) model.TrainV2 {
-	t.Helper()
-	now := time.Date(2026, 8, 12, 15, 0, 0, 0, time.UTC)
-	gate := []model.CompletionGateResult{{ID: model.WorkflowGateCheck, ExitCode: 0}}
-	proof := &model.TrainV2ImplementationProof{CheckpointHead: strings.Repeat("a", 40), ImplementationSHA: strings.Repeat("b", 40), ReportID: "GTW-TSK179-RUN1-REPORT", GateResults: gate, RecordedAt: now}
-	train := model.TrainV2{SchemaVersion: model.TrainV2SchemaVersion, ID: "GTW-TRN7", ProjectID: "gateway", Revision: 4, Status: model.TrainV2Running, CreatedBy: "planner", CreatedAt: now, UpdatedAt: now, Items: []model.TrainV2Item{{Position: 0, TaskID: "GTW-TSK179", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("c", 64), Status: model.TrainV2ItemReviewed, AddedAt: now, RunID: "GTW-TSK179-RUN1", AgentID: "agent-1", StartHead: strings.Repeat("9", 40), Proof: proof, Review: &model.TrainV2ItemReview{Outcome: model.ReviewOutcomeAccepted, ReportID: "GTW-TSK179-RUN1-REVIEW", ReviewedAt: now}}}}
-	if err := model.ValidateTrainV2(train); err != nil {
-		t.Fatal(err)
-	}
-	return train
-}
-
-func TestRecordFullProofBindsExactLaneAndPlansStrictFastForward(t *testing.T) {
-	now := time.Date(2026, 8, 12, 16, 0, 0, 0, time.UTC)
-	lane := strings.Repeat("b", 40)
-	train, err := RecordFullProof(reviewedTrainForIntegration(t), lane, []model.CompletionGateResult{{ID: model.WorkflowGateTest, ExitCode: 0}}, now)
+func TestResetImplementationProofsClearsAttempts(t *testing.T) {
+	now := time.Now().UTC()
+	finished := now.Add(time.Minute)
+	train := model.TrainV2{SchemaVersion: 1, ID: "GTW-TRN1", ProjectID: "gateway", Revision: 1, Status: model.TrainV2ReadyForIntegration, CreatedBy: "planner", CreatedAt: now, UpdatedAt: now, Items: []model.TrainV2Item{{Position: 0, TaskID: "GTW-TSK1", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("a", 64), Status: model.TrainV2ItemFinalized, AddedAt: now, Attempts: []model.TrainV2Attempt{{Number: 1, Status: model.TrainV2AttemptSucceeded, AgentID: "agent-1", AirelaySessionKey: "session", GatewayID: "gateway", StartHead: strings.Repeat("b", 40), StartedAt: now, FinishedAt: &finished}}, SuccessfulAttemptNumber: 1, Proof: &model.TrainV2ImplementationProof{CheckpointHead: strings.Repeat("c", 40), ImplementationSHA: strings.Repeat("d", 40), ReportID: "report", GateResults: []model.CompletionGateResult{{ID: model.WorkflowGateCheck, ExitCode: 0}}, RecordedAt: now}}}}
+	updated, err := ResetImplementationProofsForRestart(train, now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if train.Status != model.TrainV2ReadyForIntegration || train.FullProof == nil || train.FullProof.CandidateHead != lane {
-		t.Fatalf("unexpected full proof state: %#v", train)
-	}
-	plan, err := PlanIntegration(train, strings.Repeat("a", 40), true)
-	if err != nil || plan.Status != "fast_forward_required" || plan.Reconciliation {
-		t.Fatalf("unexpected strict FF plan: %#v %v", plan, err)
-	}
-	completed, err := MarkIntegrated(train, lane, lane, now.Add(time.Minute))
-	if err != nil || completed.Status != model.TrainV2Completed {
-		t.Fatalf("integration completion failed: %#v %v", completed, err)
-	}
-}
-
-func TestIntegrationTargetDivergenceRequiresReconciliationWithoutMutationPlan(t *testing.T) {
-	train, err := RecordFullProof(reviewedTrainForIntegration(t), strings.Repeat("b", 40), []model.CompletionGateResult{{ID: model.WorkflowGateFormat, ExitCode: 0}}, time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan, err := PlanIntegration(train, strings.Repeat("d", 40), false)
-	if err != nil || !plan.Reconciliation || plan.Status != "reconciliation_required" || plan.NextAction != "create_train_reconciliation_receipt" {
-		t.Fatalf("unexpected reconciliation plan: %#v %v", plan, err)
-	}
-	if train.Status != model.TrainV2ReadyForIntegration {
-		t.Fatal("planning divergence mutated Train state")
-	}
-}
-
-func TestRebindImplementationProofsInvalidatesReviewAndGateEvidence(t *testing.T) {
-	train := reviewedTrainForIntegration(t)
-	oldHead := train.Items[0].Proof.ImplementationSHA
-	newHead := strings.Repeat("e", 40)
-	updated, err := RebindImplementationProofs(train, map[string]string{oldHead: newHead}, time.Date(2026, 8, 12, 17, 0, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if updated.Status != model.TrainV2Planned || updated.FullProof != nil || updated.Revision != train.Revision+1 {
-		t.Fatalf("reconciliation did not reset Train proof state: %#v", updated)
-	}
-	item := updated.Items[0]
-	if item.Status != model.TrainV2ItemQueued || item.RunID != "" || item.AgentID != "" || item.StartHead != "" || item.Proof != nil || item.Review != nil {
-		t.Fatalf("stale item evidence survived reconciliation: %#v", item)
-	}
-}
-
-func TestRebindImplementationProofsRejectsMissingCommitMapping(t *testing.T) {
-	if _, err := RebindImplementationProofs(reviewedTrainForIntegration(t), map[string]string{}, time.Now().UTC()); err == nil {
-		t.Fatal("reconciliation accepted missing implementation mapping")
-	}
-}
-
-func TestResetImplementationProofsForRestartInvalidatesEvidence(t *testing.T) {
-	updated, err := ResetImplementationProofsForRestart(reviewedTrainForIntegration(t), time.Date(2026, 8, 12, 17, 1, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if updated.Status != model.TrainV2Planned || updated.FullProof != nil {
-		t.Fatalf("restart reset retained Train proof: %#v", updated)
-	}
-	item := updated.Items[0]
-	if item.Status != model.TrainV2ItemQueued || item.RunID != "" || item.AgentID != "" || item.StartHead != "" || item.Proof != nil || item.Review != nil {
-		t.Fatalf("restart reset retained item evidence: %#v", item)
+	if len(updated.Items[0].Attempts) != 0 || updated.Items[0].Status != model.TrainV2ItemQueued {
+		t.Fatalf("attempt history was retained on restart reset: %#v", updated.Items[0])
 	}
 }

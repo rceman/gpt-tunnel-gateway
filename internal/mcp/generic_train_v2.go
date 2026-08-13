@@ -68,6 +68,32 @@ func trainV2IntegrateSchema() map[string]any {
 	}, "project_id", "train_id")
 }
 
+func trainV2AttemptFinalizeSchema() map[string]any {
+	return obj(map[string]any{
+		"project_id":            str("Registered project identifier."),
+		"train_id":              str("Server-allocated Train identifier."),
+		"item_position":         integer("Zero-based TrainItem position.", 0, 1000000),
+		"attempt_number":        integer("TrainItem-local Attempt number.", 1, 1000000),
+		"completion_file":       str("Canonical local Attempt completion receipt path."),
+		"summary":               str("Optional server-owned summary."),
+		"expected_hub_revision": str("Optimistic Hub revision."),
+	}, "project_id", "train_id", "item_position", "attempt_number", "completion_file")
+}
+
+func trainV2AttemptReviewSchema() map[string]any {
+	return obj(map[string]any{
+		"project_id":            str("Registered project identifier."),
+		"train_id":              str("Server-allocated Train identifier."),
+		"item_position":         integer("Zero-based TrainItem position.", 0, 1000000),
+		"attempt_number":        integer("TrainItem-local Attempt number.", 1, 1000000),
+		"outcome":               str("Planner review outcome."),
+		"reviewed_head":         str("Reviewed immutable repository head."),
+		"findings":              array(map[string]any{"type": "object", "additionalProperties": true}),
+		"scope_coverage":        array(map[string]any{"type": "object", "additionalProperties": true}),
+		"expected_hub_revision": str("Optimistic Hub revision."),
+	}, "project_id", "train_id", "item_position", "attempt_number", "outcome", "reviewed_head")
+}
+
 func trainV2CutoverSchema() map[string]any {
 	return obj(map[string]any{
 		"project_id":                   str("Registered project identifier."),
@@ -159,6 +185,34 @@ func (s *Server) registerTrainV2Actions() error {
 				return nil, err
 			}
 			return s.Service.TrainV2Start(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path: "train/attempt-finalize", Description: "Finalize one exact TrainItem Attempt without creating a global Run.", InputSchema: trainV2AttemptFinalizeSchema(), OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.TrainV2AttemptFinalizeInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			result, err := s.Service.TrainV2AttemptFinalize(ctx, in)
+			return result, err
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path: "train/attempt-review", Description: "Publish review for one exact successful TrainItem Attempt.", InputSchema: trainV2AttemptReviewSchema(), OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{DestructiveHint: true, IdempotentHint: true}, AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.TrainV2AttemptReviewInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			result, err := s.Service.TrainV2AttemptReview(ctx, in)
+			return result, err
 		},
 	}); err != nil {
 		return err

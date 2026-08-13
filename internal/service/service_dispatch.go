@@ -44,6 +44,26 @@ func (s *Service) checkSessionAvailableForRun(ctx context.Context, session, trai
 	return nil
 }
 
+// checkSessionAvailableForTrainAttempt is the Train-v2 ownership check. It
+// reads only canonical TrainItem Attempts and Gateway-local runtime bindings;
+// legacy Run records are not part of Train-v2 session authority.
+func (s *Service) checkSessionAvailableForTrainAttempt(ctx context.Context, session, trainID string) error {
+	projects, err := s.ProjectList(ctx)
+	if err != nil {
+		return err
+	}
+	for _, project := range projects {
+		active, found, err := s.trainV2ActiveAttempt(ctx, project.ID)
+		if err != nil {
+			return err
+		}
+		if found && active.Train.ID != trainID && active.Attempt.AirelaySessionKey == session {
+			return fmt.Errorf("Train Attempt %s:%d already owns the project session", active.Train.ID, active.Attempt.Number)
+		}
+	}
+	return nil
+}
+
 func sessionRunCollides(run model.Run, trainID, laneBranch string) bool {
 	if trainID == "" && laneBranch == "" {
 		return true

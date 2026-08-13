@@ -53,8 +53,7 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 	if err != nil {
 		return trainv2.StartResult{}, err
 	}
-	laneBranch := "train/" + train.ID
-	if err := s.checkSessionAvailableForRun(ctx, resolved.SessionKey, train.ID, laneBranch); err != nil {
+	if err := s.checkSessionAvailableForTrainAttempt(ctx, resolved.SessionKey, train.ID); err != nil {
 		return trainv2.StartResult{}, err
 	}
 	return trainv2.Start(ctx, trainv2.StartInput{

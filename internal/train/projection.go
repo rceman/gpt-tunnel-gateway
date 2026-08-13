@@ -1,6 +1,7 @@
 package train
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -12,7 +13,7 @@ type ProjectProjection struct {
 	TrainCounts     map[string]int
 	CurrentTrain    string
 	CurrentTask     string
-	CurrentRun      string
+	CurrentAttempt  string
 	ActiveTrains    []string
 	AmbiguousActive bool
 	NextAction      string
@@ -40,7 +41,11 @@ func ProjectStatus(tasks []model.TaskAuthoring, trains []model.TrainV2) ProjectP
 		}
 		for _, item := range train.Items {
 			if projection.CurrentTrain == "" && (item.Status == model.TrainV2ItemRunning || item.Status == model.TrainV2ItemBlocked) {
-				projection.CurrentTrain, projection.CurrentTask, projection.CurrentRun = train.ID, item.TaskID, item.RunID
+				attempt := ""
+				if item.ActiveAttemptNumber > 0 {
+					attempt = fmt.Sprintf("%s:%d", train.ID, item.ActiveAttemptNumber)
+				}
+				projection.CurrentTrain, projection.CurrentTask, projection.CurrentAttempt = train.ID, item.TaskID, attempt
 				projection.NextAction = "observe Train " + train.ID + " item " + item.TaskID
 			}
 		}
@@ -51,7 +56,7 @@ func ProjectStatus(tasks []model.TaskAuthoring, trains []model.TrainV2) ProjectP
 	}
 	if len(projection.ActiveTrains) > 1 {
 		projection.AmbiguousActive = true
-		projection.CurrentTrain, projection.CurrentTask, projection.CurrentRun = "", "", ""
+		projection.CurrentTrain, projection.CurrentTask, projection.CurrentAttempt = "", "", ""
 		projection.NextAction = "select one of active Trains: " + strings.Join(projection.ActiveTrains, ", ")
 	}
 	if projection.CurrentTrain == "" && !hasPlannedTrain {

@@ -8,31 +8,32 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-func TestBuildNextRunPreservesTrainOwnerAndResetsDispatchState(t *testing.T) {
-	now := time.Date(2026, 8, 12, 15, 0, 0, 0, time.UTC)
-	current := model.Run{
-		SchemaVersion: model.SchemaVersion, ID: "GTW-TSK1-RUN1", TaskID: "GTW-TSK1", TaskSHA256: strings.Repeat("a", 64),
-		ProjectID: "gateway", GatewayID: "gateway", SessionKey: "agent-session", AgentID: "agent-1",
-		Branch: "train/GTW-TRN1", TrainID: "GTW-TRN1", LaneBranch: "train/GTW-TRN1", BaseRevision: strings.Repeat("b", 40),
-		Status: "succeeded", CompletionPath: "/state/runs/GTW-TSK1-RUN1/completion.json", CreatedAt: now.Add(-time.Minute), FinishedAt: &now,
-	}
-	next := model.TrainV2Item{TaskID: "GTW-TSK2", TaskRevision: 2, TaskRevisionSHA256: strings.Repeat("c", 64), Status: model.TrainV2ItemQueued}
-	got, err := BuildNextRun(NextRunInput{Current: current, Next: next, RunID: "GTW-TSK2-RUN1", BaseRevision: strings.Repeat("d", 40), StateDir: "/state", CreatedAt: now})
+func TestBuildNextAttemptCreatesItemLocalAttemptOne(t *testing.T) {
+	attempt, err := BuildNextAttempt(NextAttemptInput{GatewayID: "gateway", CurrentAttempt: model.TrainV2Attempt{Number: 1, Status: model.TrainV2AttemptSucceeded, AgentID: "agent-1", AirelaySessionKey: "session", GatewayID: "gateway", StartHead: strings.Repeat("a", 40), StartedAt: time.Now().UTC()}, Next: model.TrainV2Item{Position: 1, TaskID: "GTW-TSK2", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("b", 64), Status: model.TrainV2ItemQueued, AddedAt: time.Now().UTC()}, AgentID: "agent-1", SessionKey: "session", StartHead: strings.Repeat("c", 40), CreatedAt: time.Now().UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != "created" || got.TaskID != next.TaskID || got.TaskSHA256 != next.TaskRevisionSHA256 || got.TrainID != current.TrainID || got.SessionKey != current.SessionKey || got.BaseRevision != strings.Repeat("d", 40) {
-		t.Fatalf("unexpected next Run: %#v", got)
-	}
-	if got.FinishedAt != nil || got.DispatchedAt != nil || got.DispatchMessage != "" || got.CompletionPath != "/state/runs/GTW-TSK2-RUN1/completion.json" {
-		t.Fatalf("created next Run retained terminal/dispatch state: %#v", got)
+	if attempt.Number != 1 || attempt.Status != model.TrainV2AttemptRunning {
+		t.Fatalf("unexpected attempt: %#v", attempt)
 	}
 }
 
-func TestBuildNextRunRejectsNonQueuedOrMismatchedItem(t *testing.T) {
-	current := model.Run{SchemaVersion: model.SchemaVersion, ID: "GTW-TSK1-RUN1", TaskID: "GTW-TSK1", TaskSHA256: strings.Repeat("a", 64), ProjectID: "gateway", GatewayID: "gateway", SessionKey: "session", AgentID: "agent-1", Branch: "train/GTW-TRN1", TrainID: "GTW-TRN1", LaneBranch: "train/GTW-TRN1", BaseRevision: strings.Repeat("b", 40), Status: "succeeded", CompletionPath: "/state/completion.json", CreatedAt: time.Now().UTC()}
-	_, err := BuildNextRun(NextRunInput{Current: current, Next: model.TrainV2Item{TaskID: "GTW-TSK2", TaskRevisionSHA256: strings.Repeat("c", 64), Status: model.TrainV2ItemFinalized}, RunID: "GTW-TSK2-RUN1", BaseRevision: strings.Repeat("d", 40), StateDir: "/state", CreatedAt: time.Now().UTC()})
+func TestBuildNextAttemptRejectsUnsuccessfulCurrent(t *testing.T) {
+	_, err := BuildNextAttempt(NextAttemptInput{GatewayID: "gateway", CurrentAttempt: model.TrainV2Attempt{Number: 1, Status: model.TrainV2AttemptFailed}, Next: model.TrainV2Item{Status: model.TrainV2ItemQueued}, AgentID: "agent-1", SessionKey: "session", StartHead: strings.Repeat("a", 40), CreatedAt: time.Now().UTC()})
 	if err == nil {
-		t.Fatal("non-queued item was accepted")
+		t.Fatal("failed Attempt was advanced")
+	}
+}
+
+func TestRetryAttemptAppendsItemLocalAttemptWithoutRunIdentity(t *testing.T) {
+	now := time.Now().UTC()
+	finished := now.Add(-time.Minute)
+	item := model.TrainV2Item{Position: 0, TaskID: "GTW-TSK1", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("a", 64), Status: model.TrainV2ItemBlocked, AddedAt: finished, Attempts: []model.TrainV2Attempt{{Number: 1, Status: model.TrainV2AttemptFailed, AgentID: "agent-1", GatewayID: "gateway", AirelaySessionKey: "session", StartHead: strings.Repeat("b", 40), StartedAt: finished, FinishedAt: &finished}}}
+	updated, attempt, err := RetryAttempt(item, "agent-2", "gateway", "session-2", strings.Repeat("c", 40), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempt.Number != 2 || len(updated.Attempts) != 2 || updated.Attempts[0].Status != model.TrainV2AttemptFailed || updated.ActiveAttemptNumber != 2 || updated.Status != model.TrainV2ItemRunning {
+		t.Fatalf("retry did not append exact Attempt 2: %#v", updated)
 	}
 }

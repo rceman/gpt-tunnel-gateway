@@ -73,29 +73,6 @@ func task(ctx context.Context, s *service.Service, args []string) {
 			return
 		}
 		fmt.Print(v.Text)
-	case "review-report":
-		taskReviewReportCLI(ctx, s, args[1:])
-	case "report-read", "review-report-read":
-		if len(args) < 2 || len(args) > 3 {
-			usage()
-		}
-		runID := ""
-		if len(args) == 3 {
-			runID = args[2]
-		}
-		v, e := s.TaskReportRead(ctx, args[1], runID)
-		if e != nil {
-			fatal(e)
-		}
-		output(v)
-	case "dispatch":
-		require(args, 2)
-		ex, _ := expected(args[2:])
-		r, o, e := s.TaskDispatch(ctx, service.DispatchInput{TaskID: args[1], WriteOptions: service.WriteOptions{ExpectedHubRevision: ex}})
-		if e != nil {
-			fatal(e)
-		}
-		output(map[string]any{"run": service.PublicRunView(r), "operation": o})
 	case "supersede":
 		require(args, 2)
 		f, _ := fileFlag("--file", args[2:])

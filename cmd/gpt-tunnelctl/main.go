@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -245,19 +244,18 @@ func stateCommand(ctx context.Context, c config.Config) {
 			fatal(err)
 		}
 		output(result)
-	case "reconcile-orphan-run":
-		stateReconcileOrphanRun(ctx, s)
+	case "migrate-train-v2-attempts":
+		stateMigrateTrainV2Attempts(ctx, s)
+	case "retire-train-v2-runs":
+		stateRetireTrainV2Runs(ctx, s)
 	default:
 		usage()
 	}
 }
 
-func stateReconcileOrphanRun(ctx context.Context, s *service.Service) {
-	input := service.OrphanRunReconcileInput{
-		Actor:  "gpt-tunnelctl",
-		Reason: "explicit orphan-run reconciliation before gateway recovery",
-	}
-	modeSet, projectSet, runSet := false, false, false
+func stateRetireTrainV2Runs(ctx context.Context, s *service.Service) {
+	input := service.TrainV2RunRetirementInput{}
+	modeSet, projectSet := false, false
 	for i := 3; i < len(os.Args); i++ {
 		if os.Args[i] == "--dry-run" || os.Args[i] == "--apply" {
 			if modeSet {
@@ -273,30 +271,59 @@ func stateReconcileOrphanRun(ctx context.Context, s *service.Service) {
 		value := os.Args[i+1]
 		switch os.Args[i] {
 		case "--project":
-			input.ProjectID = value
-			projectSet = true
-		case "--run":
-			input.RunID = value
-			runSet = true
+			input.ProjectID, projectSet = value, true
 		case "--expected-hub-revision":
 			input.ExpectedHubRevision = value
-		case "--expected-original-sha256":
-			input.ExpectedOriginalSHA256 = value
-		case "--actor":
-			input.Actor = value
-		case "--session":
-			input.Session = value
-		case "--reason":
-			input.Reason = value
 		default:
 			usage()
 		}
 		i++
 	}
-	if !modeSet || !projectSet || !runSet || strings.TrimSpace(input.Reason) == "" {
+	if !modeSet || !projectSet || (input.Apply && input.ExpectedHubRevision == "") {
 		usage()
 	}
-	result, err := s.ReconcileOrphanRun(ctx, input)
+	result, err := s.TrainV2RetireRuns(ctx, input)
+	if err != nil {
+		fatal(err)
+	}
+	output(result)
+}
+
+func stateMigrateTrainV2Attempts(ctx context.Context, s *service.Service) {
+	input := service.TrainV2AttemptMigrationInput{}
+	modeSet, projectSet, trainSet := false, false, false
+	for i := 3; i < len(os.Args); i++ {
+		if os.Args[i] == "--dry-run" || os.Args[i] == "--apply" {
+			if modeSet {
+				usage()
+			}
+			modeSet = true
+			input.Apply = os.Args[i] == "--apply"
+			continue
+		}
+		if i+1 >= len(os.Args) {
+			usage()
+		}
+		value := os.Args[i+1]
+		switch os.Args[i] {
+		case "--project":
+			input.ProjectID, projectSet = value, true
+		case "--train":
+			input.TrainID, trainSet = value, true
+		case "--expected-hub-revision":
+			input.ExpectedHubRevision = value
+		default:
+			usage()
+		}
+		i++
+	}
+	if !modeSet || !projectSet || !trainSet {
+		usage()
+	}
+	if input.Apply && input.ExpectedHubRevision == "" {
+		fatal(fmt.Errorf("--expected-hub-revision is required with --apply"))
+	}
+	result, err := s.TrainV2MigrateAttempts(ctx, input)
 	if err != nil {
 		fatal(err)
 	}
@@ -343,7 +370,7 @@ func copyExecutable(src, dst string) error {
 	return os.Rename(name, dst)
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade [inspect|status]|start|stop|restart|restart-gateway|status|doctor|diagnose-startup|state {check|repair --dry-run|repair --apply|reconcile-orphan-run --project <project> --run <run> --dry-run|reconcile-orphan-run --project <project> --run <run> --apply}|logs [gateway|tunnel|all] [lines]|version}")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade [inspect|status]|start|stop|restart|restart-gateway|status|doctor|diagnose-startup|state {check|repair --dry-run|repair --apply|migrate-train-v2-attempts --project <project> --train <train> --dry-run|migrate-train-v2-attempts --project <project> --train <train> --apply|retire-train-v2-runs --project <project> --dry-run|retire-train-v2-runs --project <project> --apply}|logs [gateway|tunnel|all] [lines]|version}")
 	os.Exit(2)
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnelctl:", err); os.Exit(1) }

@@ -28,55 +28,23 @@ func (s *Service) WatcherNudge(ctx context.Context, in WatcherNudgeInput) (model
 	if strings.TrimSpace(in.Text) == "" || len([]byte(in.Text)) > s.Airelay.MaxMessageBytes || strings.ContainsRune(in.Text, 0) {
 		return model.WatcherNudgeReceipt{}, fmt.Errorf("invalid watcher nudge text")
 	}
-	var run model.Run
-	if enabled, enabledErr := s.TrainV2Enabled(ctx, in.ProjectID); enabledErr != nil {
-		return model.WatcherNudgeReceipt{}, enabledErr
-	} else if enabled {
-		var found bool
-		run, found, err = s.trainV2ActiveRun(ctx, in.ProjectID)
-		if err != nil {
-			return model.WatcherNudgeReceipt{}, err
-		}
-		if !found {
-			return model.WatcherNudgeReceipt{}, fmt.Errorf("watcher nudge requires an active Train v2 Run")
-		}
-	} else {
-		plan, planErr := s.PlanRead(ctx, in.ProjectID)
-		if planErr != nil {
-			return model.WatcherNudgeReceipt{}, planErr
-		}
-		if plan.ActiveTaskID == "" || plan.ActiveRunID == "" {
-			return model.WatcherNudgeReceipt{}, fmt.Errorf("watcher nudge requires an active task and run")
-		}
-		if readErr := s.Hub.ReadJSON(ctx, s.runPath(in.ProjectID, plan.ActiveRunID), &run); readErr != nil {
-			return model.WatcherNudgeReceipt{}, readErr
-		}
-		if run.TaskID != plan.ActiveTaskID || run.ID != plan.ActiveRunID {
-			return model.WatcherNudgeReceipt{}, fmt.Errorf("active watcher run identity is stale")
-		}
+	active, found, err := s.trainV2ActiveAttempt(ctx, in.ProjectID)
+	if err != nil {
+		return model.WatcherNudgeReceipt{}, err
 	}
-	if run.ProjectID != in.ProjectID || run.SessionKey == "" {
-		return model.WatcherNudgeReceipt{}, fmt.Errorf("active watcher run identity is stale")
+	if !found {
+		return model.WatcherNudgeReceipt{}, fmt.Errorf("watcher nudge requires an active Train v2 Attempt")
 	}
-	if !watcherActiveStatus(run.Status) {
-		return model.WatcherNudgeReceipt{}, fmt.Errorf("watcher nudge cannot target terminal run")
+	if _, err := watcher.BindTrainAttempt(active.Train, active.Start, active.Runtime); err != nil {
+		return model.WatcherNudgeReceipt{}, err
 	}
-	lock, err := s.acquireSessionSendLock(run.SessionKey)
+	lock, err := s.acquireSessionSendLock(active.Attempt.AirelaySessionKey)
 	if err != nil {
 		return model.WatcherNudgeReceipt{}, fmt.Errorf("watcher nudge is already in progress")
 	}
 	defer func() { _ = lock.Release() }()
-	result, sendErr := s.Airelay.Prompt(ctx, run.SessionKey, in.Text)
-	receipt := model.WatcherNudgeReceipt{
-		SchemaVersion: model.WatcherObservationSchemaVersion,
-		ProjectID:     in.ProjectID,
-		TaskID:        run.TaskID,
-		RunID:         run.ID,
-		Delivered:     sendErr == nil,
-		ExitCode:      result.ExitCode,
-		StartedAt:     result.StartedAt,
-		FinishedAt:    result.FinishedAt,
-	}
+	result, sendErr := s.Airelay.Prompt(ctx, active.Attempt.AirelaySessionKey, in.Text)
+	receipt := model.WatcherNudgeReceipt{SchemaVersion: model.WatcherObservationSchemaVersion, ProjectID: in.ProjectID, TrainID: active.Train.ID, TaskID: active.Item.TaskID, ItemPosition: active.Item.Position, AttemptNumber: active.Attempt.Number, Delivered: sendErr == nil, ExitCode: result.ExitCode, StartedAt: result.StartedAt, FinishedAt: result.FinishedAt}
 	if sendErr != nil {
 		receipt.Error = sendErr.Error()
 	}

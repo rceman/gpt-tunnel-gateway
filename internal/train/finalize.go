@@ -10,11 +10,11 @@ import (
 // RecordImplementationProof closes one running TrainItem without changing
 // its authoring Task. The immutable proof is anchored to the lane start and
 // candidate checkpoint supplied by the caller after independent Git checks.
-func RecordImplementationProof(current model.TrainV2, taskID, runID, agentID, checkpointHead, implementationSHA, reportID string, gates []model.CompletionGateResult, now time.Time) (model.TrainV2, error) {
+func RecordImplementationProof(current model.TrainV2, taskID string, attemptNumber uint64, checkpointHead, implementationSHA, reportID string, gates []model.CompletionGateResult, now time.Time) (model.TrainV2, error) {
 	if err := model.ValidateTrainV2(current); err != nil {
 		return model.TrainV2{}, err
 	}
-	if current.Status != model.TrainV2Running || now.IsZero() || model.ValidateCanonicalRunID(runID) != nil || model.ValidateObjectIdentifier(agentID) != nil || model.ValidateCommitSHA(checkpointHead) != nil || model.ValidateCommitSHA(implementationSHA) != nil || reportID == "" || len(gates) == 0 {
+	if current.Status != model.TrainV2Running || now.IsZero() || attemptNumber < 1 || model.ValidateCommitSHA(checkpointHead) != nil || model.ValidateCommitSHA(implementationSHA) != nil || reportID == "" || len(gates) == 0 {
 		return model.TrainV2{}, fmt.Errorf("invalid train implementation proof input")
 	}
 	position := -1
@@ -28,14 +28,22 @@ func RecordImplementationProof(current model.TrainV2, taskID, runID, agentID, ch
 		return model.TrainV2{}, fmt.Errorf("train item %q not found", taskID)
 	}
 	item := current.Items[position]
-	if item.Status != model.TrainV2ItemRunning || item.RunID != runID || item.AgentID != agentID || item.Proof != nil {
+	if item.Status != model.TrainV2ItemRunning || attemptNumber > uint64(len(item.Attempts)) || item.Proof != nil {
 		return model.TrainV2{}, fmt.Errorf("train item is not the exact running item")
+	}
+	attempt := &item.Attempts[attemptNumber-1]
+	if attempt.Status != model.TrainV2AttemptRunning {
+		return model.TrainV2{}, fmt.Errorf("Train item Attempt is not running")
 	}
 	if err := model.ValidateServerGateEvidence(gates); err != nil {
 		return model.TrainV2{}, err
 	}
 	updated := current
 	updated.Items[position].Status = model.TrainV2ItemFinalized
+	updated.Items[position].Attempts[attemptNumber-1].Status = model.TrainV2AttemptSucceeded
+	updated.Items[position].Attempts[attemptNumber-1].FinishedAt = &now
+	updated.Items[position].SuccessfulAttemptNumber = attemptNumber
+	updated.Items[position].ActiveAttemptNumber = 0
 	updated.Items[position].Proof = &model.TrainV2ImplementationProof{CheckpointHead: checkpointHead, ImplementationSHA: implementationSHA, ReportID: reportID, GateResults: append([]model.CompletionGateResult{}, gates...), RecordedAt: now}
 	updated.Revision++
 	updated.UpdatedAt = now

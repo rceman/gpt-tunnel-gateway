@@ -19,7 +19,9 @@ type RuntimeBinding struct {
 	WorktreePath    string    `json:"worktree_path"`
 	AgentID         string    `json:"agent_id"`
 	SessionKey      string    `json:"session_key"`
-	RunID           string    `json:"run_id"`
+	ItemPosition    int       `json:"item_position"`
+	TaskID          string    `json:"task_id"`
+	AttemptNumber   uint64    `json:"attempt_number"`
 	RestartRequired bool      `json:"restart_required,omitempty"`
 	StartedAt       time.Time `json:"started_at"`
 }
@@ -40,7 +42,7 @@ func RuntimePath(stateDir, projectID, trainID string) string {
 }
 
 func ValidateRuntimeBindingShape(v RuntimeBinding) error {
-	if v.SchemaVersion != runtimeSchemaVersion || model.ValidateProjectIdentifier(v.ProjectID) != nil || v.WorktreePath == "" || model.ValidateObjectIdentifier(v.AgentID) != nil || v.SessionKey == "" || strings.ContainsAny(v.SessionKey, "\x00\r\n") || model.ValidateCanonicalRunID(v.RunID) != nil || v.StartedAt.IsZero() {
+	if v.SchemaVersion != runtimeSchemaVersion || model.ValidateProjectIdentifier(v.ProjectID) != nil || v.WorktreePath == "" || model.ValidateObjectIdentifier(v.AgentID) != nil || v.SessionKey == "" || strings.ContainsAny(v.SessionKey, "\x00\r\n") || v.ItemPosition < 0 || model.ValidateCanonicalTaskID(v.TaskID) != nil || v.AttemptNumber < 1 || v.StartedAt.IsZero() {
 		return fmt.Errorf("invalid local train runtime binding")
 	}
 	if _, _, err := model.ParseTrainV2ID(v.TrainID); err != nil {
@@ -74,13 +76,13 @@ func ReadRuntime(stateDir, projectID, trainID string) (RuntimeBinding, error) {
 // retiring the current execution generation.  The next Start must create a
 // new Run from the retained refreshed-target checkout; it must not resume the
 // old Run or its dispatch receipt.
-func RetireRuntimeForRestart(stateDir, projectID, trainID, expectedRunID string) (RuntimeBinding, error) {
+func RetireRuntimeForRestart(stateDir, projectID, trainID string, expectedAttempt uint64) (RuntimeBinding, error) {
 	binding, err := ReadRuntime(stateDir, projectID, trainID)
 	if err != nil {
 		return RuntimeBinding{}, err
 	}
-	if expectedRunID != "" && binding.RunID != expectedRunID {
-		return RuntimeBinding{}, fmt.Errorf("Train runtime generation does not match the reconciled Run")
+	if expectedAttempt != 0 && binding.AttemptNumber != expectedAttempt {
+		return RuntimeBinding{}, fmt.Errorf("Train runtime generation does not match the reconciled Attempt")
 	}
 	binding.RestartRequired = true
 	data, err := json.Marshal(binding)

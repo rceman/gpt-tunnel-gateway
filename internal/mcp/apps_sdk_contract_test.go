@@ -9,19 +9,12 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-func TestRunReviewSnapshotToolCallUsesOnlyRunIDAndReturnsToolErrorForUnknownRun(t *testing.T) {
+func TestRemovedRunToolsAreNotRegistered(t *testing.T) {
 	srv := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
-	response := callMCP(t, srv, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"run_review_snapshot","arguments":{"run_id":"missing"}}}`))
-	result, ok := response["result"].(map[string]any)
-	if !ok || result["isError"] != true {
-		t.Fatalf("unexpected snapshot tool result: %#v", response)
-	}
-	if _, ok := result["structuredContent"]; ok {
-		t.Fatalf("tool error exposed structuredContent: %#v", result)
-	}
-	tool := srv.tools()["run_review_snapshot"]
-	if got := tool.InputSchema["required"].([]string); len(got) != 1 || got[0] != "run_id" {
-		t.Fatalf("unexpected input contract: %#v", tool.InputSchema)
+	for _, name := range []string{"run_list", "run_read", "run_status", "run_report", "run_review_snapshot", "run_agent_tail", "run_resume", "run_sweep", "run_cancel", "run_cancel_acknowledge_no_mutation"} {
+		if _, ok := srv.tools()[name]; ok {
+			t.Fatalf("obsolete run tool is still registered: %s", name)
+		}
 	}
 }
 
@@ -102,12 +95,6 @@ func TestToolAnnotationsMatchActualSideEffects(t *testing.T) {
 			t.Fatalf("%s exposes caller-controlled authorization_context", name)
 		}
 	}
-	assert("run_review_snapshot", ToolAnnotations{
-		ReadOnlyHint:    true,
-		DestructiveHint: false,
-		IdempotentHint:  true,
-		OpenWorldHint:   true,
-	})
 	assert("adr_create", additiveExternalAnnotations())
 	assert("task_create", additiveExternalAnnotations())
 	assert("plan_cutover", destructiveExternalAnnotations())
@@ -116,9 +103,6 @@ func TestToolAnnotationsMatchActualSideEffects(t *testing.T) {
 	assert("plan_section_update", destructiveExternalAnnotations())
 	assert("plan_section_delete", destructiveExternalAnnotations())
 	assert("plan_render", readOnlyAnnotations())
-	assert("task_dispatch", destructiveExternalAnnotations())
-	assert("run_cancel", destructiveExternalAnnotations())
-	assert("run_cancel_acknowledge_no_mutation", destructiveExternalAnnotations())
 	assert("git_refresh", ToolAnnotations{
 		ReadOnlyHint:    false,
 		DestructiveHint: false,
