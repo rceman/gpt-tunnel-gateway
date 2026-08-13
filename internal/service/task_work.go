@@ -150,27 +150,7 @@ func (s *Service) TaskWork(ctx context.Context, in TaskWorkInput) (TaskWorkResul
 }
 
 func (s *Service) TaskFinalize(ctx context.Context, in TaskFinalizeInput) (TrainV2AttemptFinalizeResult, error) {
-	if in.ProjectID == "" {
-		task, err := s.TaskAuthoringFind(ctx, in.TaskID)
-		if err != nil {
-			return TrainV2AttemptFinalizeResult{}, err
-		}
-		in.ProjectID = task.ProjectID
-	}
-	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
-		return TrainV2AttemptFinalizeResult{}, err
-	}
-	current, err := s.taskAttempt(ctx, in.ProjectID, in.TaskID)
-	if err != nil {
-		return TrainV2AttemptFinalizeResult{}, err
-	}
-	return s.TrainV2AttemptFinalize(ctx, TrainV2AttemptFinalizeInput{
-		ProjectID:      in.ProjectID,
-		TrainID:        current.Train.ID,
-		ItemPosition:   current.Item.Position,
-		AttemptNumber:  current.Attempt.Number,
-		CompletionFile: trainV2AttemptCompletionPath(s.Config.StateDir, in.ProjectID, current.Train.ID, current.Item.Position, current.Attempt.Number),
-	})
+	return s.finalizeTaskByIdentity(ctx, in)
 }
 
 func (s *Service) resolvePlannedTaskTrain(ctx context.Context, projectID, taskID string) (string, error) {

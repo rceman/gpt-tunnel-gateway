@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,7 +55,7 @@ func TestTaskWorkStartsAndResumesByTaskIdentity(t *testing.T) {
 	}
 }
 
-func TestTaskFinalizeDerivesCanonicalCompletionPath(t *testing.T) {
+func TestTaskFinalizeOwnsCheckpointByTaskIdentity(t *testing.T) {
 	s, revision, _ := testService(t)
 	revision = enableTrainV2ForTest(t, s, revision)
 	task, revision := readyTrainTaskForTest(t, s, revision, "Task identity finalize")
@@ -75,20 +74,7 @@ func TestTaskFinalizeDerivesCanonicalCompletionPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	completionPath := trainV2AttemptCompletionPath(s.Config.StateDir, "example", train.ID, 0, 1)
-	completion := model.TrainV2AttemptCompletion{
-		SchemaVersion: 1, TrainID: train.ID, TaskID: task.ID, ItemPosition: 0, AttemptNumber: 1,
-		TaskSHA256: task.RevisionSHA256, Status: "succeeded", Summary: "completed by canonical Task identity",
-		GateResults: []model.CompletionGateResult{}, AcceptanceCoverage: []string{}, Deviations: []string{}, RemainingRisks: []string{},
-	}
-	raw, err := json.Marshal(completion)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(completionPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(completionPath, raw, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(work.WorktreePath, "task-change.txt"), []byte("server-owned checkpoint\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	result, err := s.TaskFinalize(context.Background(), TaskFinalizeInput{TaskID: task.ID})

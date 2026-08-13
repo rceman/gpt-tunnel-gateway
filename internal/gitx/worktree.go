@@ -282,6 +282,29 @@ func (r Runner) CurrentHead(ctx context.Context, p config.ProjectConfig) (string
 	return s.Head, s.Branch, s.Clean, err
 }
 
+// CommitCandidate stages the server-verified candidate tree and creates its
+// checkpoint commit. The caller must perform all gate and drift checks first.
+func (r Runner) CommitCandidate(ctx context.Context, p config.ProjectConfig, message string) (string, error) {
+	if strings.TrimSpace(message) == "" || strings.ContainsAny(message, "\x00\r\n") {
+		return "", fmt.Errorf("invalid candidate commit message")
+	}
+	if _, err := r.command(ctx, p.Root, false, "add", "-A", "--", "."); err != nil {
+		return "", err
+	}
+	if _, err := r.command(ctx, p.Root, false, "-c", "user.name=GPT Tunnel Gateway", "-c", "user.email=gpt-tunnel-gateway@localhost", "commit", "-m", message); err != nil {
+		return "", err
+	}
+	out, err := r.command(ctx, p.Root, false, "rev-parse", "--verify", "HEAD^{commit}")
+	if err != nil {
+		return "", err
+	}
+	head := strings.TrimSpace(string(out))
+	if err := model.ValidateCommitSHA(head); err != nil {
+		return "", fmt.Errorf("invalid candidate commit: %w", err)
+	}
+	return head, nil
+}
+
 // TreeID returns the exact Git content tree for the current HEAD. Commit
 // identity is intentionally not part of this value so equivalent trees can
 // be recognized across commits.

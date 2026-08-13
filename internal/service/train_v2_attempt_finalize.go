@@ -27,8 +27,9 @@ type TrainV2AttemptFinalizeInput struct {
 }
 
 type TrainV2AttemptFinalizeResult struct {
-	Report model.TrainV2AttemptReport `json:"report"`
-	Hub    hub.TransactionResult      `json:"hub"`
+	Report     model.TrainV2AttemptReport `json:"report"`
+	Hub        hub.TransactionResult      `json:"hub"`
+	NextTaskID string                     `json:"next_task_id,omitempty"`
 }
 
 func trainV2AttemptReportPath(projectID, trainID string, position int, attempt uint64) string {
