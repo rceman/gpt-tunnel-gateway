@@ -2,9 +2,11 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
 )
 
 func (c Controller) Doctor(ctx context.Context) error {
@@ -24,32 +26,31 @@ func (c Controller) Doctor(ctx context.Context) error {
 	return nil
 }
 func (c Controller) Logs(name string, lines int) (string, error) {
-	if lines < 1 || lines > 10000 {
+	if lines < 1 || lines > runtime_log.MaxLimit {
 		return "", fmt.Errorf("invalid line count")
 	}
-	paths := []string{}
+	filter := runtime_log.Filter{Limit: lines}
 	switch name {
 	case "gateway":
-		paths = []string{c.logPath("gateway")}
+		filter.Component = "gateway"
 	case "tunnel":
-		paths = []string{c.logPath("tunnel")}
+		filter.Component = "tunnel"
 	case "all", "":
-		paths = []string{c.logPath("gateway"), c.logPath("tunnel")}
 	default:
 		return "", fmt.Errorf("unknown log name")
 	}
+	result, err := runtime_log.New(c.Config.StateDir).Read(filter)
+	if err != nil {
+		return "", err
+	}
 	var b strings.Builder
-	for _, p := range paths {
-		data, err := os.ReadFile(p)
-		if err != nil && !os.IsNotExist(err) {
+	for _, event := range result.Events {
+		encoded, err := json.Marshal(event)
+		if err != nil {
 			return "", err
 		}
-		parts := strings.Split(string(data), "\n")
-		start := 0
-		if len(parts) > lines {
-			start = len(parts) - lines
-		}
-		fmt.Fprintf(&b, "==> %s <==\n%s\n", p, strings.Join(parts[start:], "\n"))
+		b.Write(encoded)
+		b.WriteByte('\n')
 	}
 	return b.String(), nil
 }
