@@ -13,13 +13,32 @@ import (
 func TestAgentActionsAreGenericDiscoverableAndInvokable(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"agent/register", "agent/update", "agent/disable", "agent/read", "agent/list", "agent/status"} {
+	for _, path := range []string{"agent/prompt", "agent/interrupt", "agent/register", "agent/update", "agent/disable", "agent/read", "agent/list", "agent/status"} {
 		entry, ok := entries[path]
 		if !ok {
 			t.Fatalf("missing agent generic action %s", path)
 		}
 		if entry.InputSchema == nil || entry.OutputSchema == nil || entry.Execute == nil {
 			t.Fatalf("incomplete agent generic action %s", path)
+		}
+	}
+	for _, path := range []string{"agent/send", "agent/followup", "agent/force_prompt", "agent/redirect"} {
+		if _, ok := entries[path]; ok {
+			t.Fatalf("retired steering alias remains canonical: %s", path)
+		}
+	}
+	interrupt := entries["agent/interrupt"]
+	properties := interrupt.InputSchema["properties"].(map[string]any)
+	if _, ok := properties["operation_id"]; !ok {
+		t.Fatal("agent/interrupt omitted operation_id")
+	}
+	if _, ok := properties["message"]; !ok {
+		t.Fatal("agent/interrupt omitted optional replacement message")
+	}
+	outputProperties := interrupt.OutputSchema["properties"].(map[string]any)
+	for _, field := range []string{"interrupt_outcome", "prompt_outcome", "prompt_delivered"} {
+		if _, ok := outputProperties[field]; !ok {
+			t.Fatalf("agent/interrupt output omitted phase field %s", field)
 		}
 	}
 	if _, ok := server.tools()["agent_register"]; ok {
