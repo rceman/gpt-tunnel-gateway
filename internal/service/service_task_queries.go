@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/entity"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -15,17 +15,14 @@ import (
 // to the explicit task-list/read surfaces, not the bounded status path.
 
 func (s *Service) taskStatusList(ctx context.Context, project string) ([]TaskRecord, error) {
-	paths, err := s.Hub.List(ctx, s.projectPrefix(project)+"/tasks", ".json")
+	records, err := s.entityRegistry(project).ListRecords(ctx, entity.Query{Family: entity.TaskFamily})
 	if err != nil {
 		return nil, err
 	}
 	items := []TaskRecord{}
-	for _, path := range paths {
-		if strings.HasSuffix(path, ".state.json") || strings.HasSuffix(path, ".run-counter.json") || strings.Contains(path, "/revisions/") {
-			continue
-		}
+	for _, record := range records {
 		var task model.Task
-		if err := s.Hub.ReadJSON(ctx, path, &task); err != nil {
+		if err := decodeStrict(record.Bytes, &task); err != nil {
 			return nil, err
 		}
 		if err := model.ValidateTask(task); err != nil {
@@ -54,7 +51,7 @@ func (s *Service) findTask(ctx context.Context, id string) (model.Task, error) {
 	}
 	for _, p := range projects {
 		var t model.Task
-		err := s.Hub.ReadJSON(ctx, s.taskPath(p.ID, id), &t)
+		_, err := s.entityRegistry(p.ID).ReadInto(ctx, entity.TaskFamily, id, &t)
 		if err == nil {
 			return t, nil
 		}

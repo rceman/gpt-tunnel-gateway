@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/entity"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
@@ -55,17 +56,14 @@ func (s *Service) taskListQuery(ctx context.Context, in TaskListInput, unbounded
 			return TaskListResult{}, err
 		}
 	}
-	paths, err := s.Hub.List(ctx, s.projectPrefix(in.ProjectID)+"/tasks", ".json")
+	records, err := s.entityRegistry(in.ProjectID).ListRecords(ctx, entity.Query{Family: entity.TaskFamily})
 	if err != nil {
 		return TaskListResult{}, err
 	}
-	candidates := make([]taskListCandidate, 0, len(paths))
-	for _, path := range paths {
-		if strings.HasSuffix(path, ".state.json") || strings.HasSuffix(path, ".run-counter.json") || strings.Contains(path, "/revisions/") {
-			continue
-		}
+	candidates := make([]taskListCandidate, 0, len(records))
+	for _, record := range records {
 		var task model.Task
-		if err := s.Hub.ReadJSON(ctx, path, &task); err != nil {
+		if err := decodeStrict(record.Bytes, &task); err != nil {
 			return TaskListResult{}, err
 		}
 		state, err := s.taskState(ctx, task)

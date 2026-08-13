@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/entity"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -36,7 +37,7 @@ func (s *Service) TrainV2Read(ctx context.Context, projectID, trainID string) (m
 		return model.TrainV2{}, err
 	}
 	var train model.TrainV2
-	if err := s.Hub.ReadJSON(ctx, s.trainV2Path(projectID, trainID), &train); err != nil {
+	if _, err := s.entityRegistry(projectID).ReadInto(ctx, entity.TrainFamily, trainID, &train); err != nil {
 		return model.TrainV2{}, err
 	}
 	if train.ProjectID != projectID || train.ID != trainID {
@@ -62,18 +63,18 @@ func (s *Service) TrainV2List(ctx context.Context, in TrainV2ListInput) (TrainV2
 	if limit < 1 || limit > model.MaxTrainV2Items {
 		return TrainV2ListResult{}, fmt.Errorf("invalid train v2 list limit")
 	}
-	paths, err := s.Hub.List(ctx, s.trainV2Root(in.ProjectID), ".json")
+	records, err := s.entityRegistry(in.ProjectID).ListRecords(ctx, entity.Query{Family: entity.TrainFamily})
 	if err != nil {
 		return TrainV2ListResult{}, err
 	}
-	trains := make([]model.TrainV2, 0, len(paths))
-	for _, path := range paths {
+	trains := make([]model.TrainV2, 0, len(records))
+	for _, record := range records {
 		var train model.TrainV2
-		if err := s.Hub.ReadJSON(ctx, path, &train); err != nil {
+		if err := decodeStrict(record.Bytes, &train); err != nil {
 			return TrainV2ListResult{}, err
 		}
 		if train.ProjectID != in.ProjectID || model.ValidateTrainV2(train) != nil {
-			return TrainV2ListResult{}, fmt.Errorf("invalid train v2 record %q", path)
+			return TrainV2ListResult{}, fmt.Errorf("invalid train v2 record %q", record.Path)
 		}
 		trains = append(trains, train)
 	}
