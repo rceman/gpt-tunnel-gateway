@@ -24,6 +24,13 @@ func (s *Service) checkSessionAvailableForTrainAttempt(ctx context.Context, sess
 		return err
 	}
 	for _, project := range projects {
+		enabled, err := s.trainV2Enabled(ctx, project.ID)
+		if err != nil {
+			return err
+		}
+		if !enabled {
+			continue
+		}
 		active, found, err := s.trainV2ActiveAttempt(ctx, project.ID)
 		if err != nil {
 			return err
