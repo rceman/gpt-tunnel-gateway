@@ -45,6 +45,12 @@ type ProjectGateCommands struct {
 	Test   ProjectTestGateCommands `json:"test"`
 }
 
+type ProjectIntegrationConfiguration struct {
+	TargetBranch string             `json:"target_branch"`
+	Pre          ProjectGateCommand `json:"pre"`
+	Post         ProjectGateCommand `json:"post"`
+}
+
 type ProjectConfigurationWorkflow struct {
 	WorkflowStage     string              `json:"workflow_stage"`
 	IntegrationBranch string              `json:"integration_branch"`
@@ -58,16 +64,17 @@ type ProjectConfigurationWorkflow struct {
 // Host paths, provider/model/session bindings, process IDs and secrets remain
 // in config.Config and are intentionally absent from this model.
 type ProjectConfiguration struct {
-	SchemaVersion        int                          `json:"schema_version"`
-	ProjectID            string                       `json:"project_id"`
-	Revision             int                          `json:"revision"`
-	ExecutionModel       string                       `json:"execution_model,omitempty"`
-	AgentRouting         ProjectAgentRouting          `json:"agent_routing"`
-	Watcher              ProjectConfigurationWatcher  `json:"watcher"`
-	Workflow             ProjectConfigurationWorkflow `json:"workflow"`
-	ActivationProfileRef string                       `json:"activation_profile_ref,omitempty"`
-	UpdatedBy            string                       `json:"updated_by"`
-	UpdatedAt            time.Time                    `json:"updated_at"`
+	SchemaVersion        int                             `json:"schema_version"`
+	ProjectID            string                          `json:"project_id"`
+	Revision             int                             `json:"revision"`
+	ExecutionModel       string                          `json:"execution_model,omitempty"`
+	AgentRouting         ProjectAgentRouting             `json:"agent_routing"`
+	Watcher              ProjectConfigurationWatcher     `json:"watcher"`
+	Workflow             ProjectConfigurationWorkflow    `json:"workflow"`
+	Integration          ProjectIntegrationConfiguration `json:"integration"`
+	ActivationProfileRef string                          `json:"activation_profile_ref,omitempty"`
+	UpdatedBy            string                          `json:"updated_by"`
+	UpdatedAt            time.Time                       `json:"updated_at"`
 }
 
 func DefaultProjectConfiguration(projectID string, now time.Time) ProjectConfiguration {
@@ -98,6 +105,9 @@ func DefaultProjectConfiguration(projectID string, now time.Time) ProjectConfigu
 			Gates:        StandardWorkflowGates(),
 			GateCommands: DefaultProjectGateCommands(),
 			WaitForCI:    false,
+		},
+		Integration: ProjectIntegrationConfiguration{
+			TargetBranch: "main",
 		},
 		ActivationProfileRef: "default",
 		UpdatedBy:            "gateway",
@@ -159,6 +169,25 @@ func (v ProjectGateCommand) Validate(name string) error {
 	return nil
 }
 
+func (v ProjectIntegrationConfiguration) Validate() error {
+	if v.TargetBranch != "" {
+		if err := ValidateBranch(v.TargetBranch); err != nil {
+			return fmt.Errorf("integration target branch: %w", err)
+		}
+	}
+	if len(v.Pre.Command) > 0 {
+		if err := v.Pre.Validate("integration.pre"); err != nil {
+			return err
+		}
+	}
+	if len(v.Post.Command) > 0 {
+		if err := v.Post.Validate("integration.post"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func ValidateProjectConfiguration(v ProjectConfiguration) error {
 	if v.SchemaVersion != ProjectConfigurationSchemaVersion || ValidateProjectIdentifier(v.ProjectID) != nil || v.Revision < 1 || v.UpdatedAt.IsZero() {
 		return fmt.Errorf("invalid project configuration identity")
@@ -213,6 +242,9 @@ func ValidateProjectConfiguration(v ProjectConfiguration) error {
 	}
 	if v.ActivationProfileRef != "" && ValidateObjectIdentifier(v.ActivationProfileRef) != nil {
 		return fmt.Errorf("invalid activation_profile_ref")
+	}
+	if err := v.Integration.Validate(); err != nil {
+		return fmt.Errorf("integration configuration: %w", err)
 	}
 	return nil
 }

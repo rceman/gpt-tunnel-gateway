@@ -62,9 +62,17 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 	if err != nil {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, err
 	}
+	configuration, err := s.ProjectConfigurationRead(ctx, in.ProjectID)
+	if err != nil {
+		return trainv2.IntegrationReceipt{}, OperationResult{}, err
+	}
 	policy, err := s.ProjectWorkflowPolicyRead(ctx, in.ProjectID)
 	if err != nil {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, err
+	}
+	targetBranch := configuration.Integration.TargetBranch
+	if targetBranch == "" {
+		targetBranch = policy.IntegrationBranch
 	}
 	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, in.ProjectID, in.TrainID)
 	if err != nil {
@@ -76,7 +84,7 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 	if err != nil || !laneClean || laneBranch != start.LaneBranch {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("Train lane worktree is unavailable or changed")
 	}
-	targetHead, exists, err := s.Git.MirrorBranchHead(ctx, project, policy.IntegrationBranch)
+	targetHead, exists, err := s.Git.MirrorBranchHead(ctx, project, targetBranch)
 	if err != nil || !exists {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("integration branch is unavailable")
 	}
@@ -162,39 +170,30 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 	if plan.Reconciliation {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("Train integration target still requires reconciliation")
 	}
-	if s.taskActivator == nil {
-		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("Train activation is not configured")
-	}
-	pre, err := s.taskActivator(ctx, lane, laneHead)
+	preHook, err := runIntegrationHook(ctx, configuration.Integration.Pre, lane.Root)
 	if err != nil {
-		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("pre-integration activation failed: %w", err)
-	}
-	if pre.SourceHead != laneHead {
-		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("pre-integration activation did not prove the Train source head")
+		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("pre-integration hook failed: %w", err)
 	}
 	if plan.Status != "already_integrated" {
-		if err := s.Git.PushFastForward(ctx, project, policy.IntegrationBranch, targetHead, laneHead); err != nil {
+		if err := s.Git.PushFastForward(ctx, project, targetBranch, targetHead, laneHead); err != nil {
 			return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("Train fast-forward push failed: %w", err)
 		}
 		if err := s.Git.Refresh(ctx, project); err != nil {
 			return trainv2.IntegrationReceipt{}, OperationResult{}, err
 		}
-		if targetHead, exists, err = s.Git.MirrorBranchHead(ctx, project, policy.IntegrationBranch); err != nil || !exists || targetHead != laneHead {
+		if targetHead, exists, err = s.Git.MirrorBranchHead(ctx, project, targetBranch); err != nil || !exists || targetHead != laneHead {
 			return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("integration branch did not reach proved Train head")
 		}
 	}
-	post, err := s.taskActivator(ctx, project, laneHead)
+	postHook, err := runIntegrationHook(ctx, configuration.Integration.Post, project.Root)
 	if err != nil {
-		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("post-integration activation failed: %w", err)
-	}
-	if post.SourceHead != laneHead {
-		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("post-integration activation did not prove the merged source head")
+		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("post-integration hook failed: %w", err)
 	}
 	now := time.Now().UTC()
-	receipt := trainv2.IntegrationReceipt{SchemaVersion: 1, ProjectID: in.ProjectID, TrainID: in.TrainID, BaseRevision: start.BaseRevision, LaneHead: laneHead, TargetBefore: targetBefore, IntegrationHead: laneHead, RuntimeHead: post.SourceHead, ProofCandidate: train.FullProof.CandidateHead, PreActivation: pre.Activation, PreSmoke: pre.Smoke, PostActivation: post.Activation, PostSmoke: post.Smoke, Status: "completed", NextAction: "complete", UpdatedAt: now}
+	receipt := trainv2.IntegrationReceipt{SchemaVersion: 1, ProjectID: in.ProjectID, TrainID: in.TrainID, BaseRevision: start.BaseRevision, LaneHead: laneHead, TargetBefore: targetBefore, IntegrationHead: laneHead, RuntimeHead: laneHead, ProofCandidate: train.FullProof.CandidateHead, PreActivation: preHook, PreSmoke: preHook, PostActivation: postHook, PostSmoke: postHook, Status: "completed", NextAction: "complete", UpdatedAt: now}
 	if err := trainv2.ValidateIntegrationReceipt(receipt); err != nil {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, err
 	}
-	return s.completeTrainV2Integration(ctx, in, train.Revision, laneHead, post, receipt, project, start.LaneBranch)
+	return s.completeTrainV2Integration(ctx, in, train.Revision, laneHead, TaskActivationResult{SourceHead: laneHead}, receipt, project, start.LaneBranch)
 
 }

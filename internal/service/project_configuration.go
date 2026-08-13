@@ -28,6 +28,9 @@ func (s *Service) ProjectConfigurationRead(ctx context.Context, projectID string
 	if configuration.Workflow.GateCommands.IsZero() {
 		configuration.Workflow.GateCommands = model.DefaultProjectGateCommands()
 	}
+	if configuration.Integration.TargetBranch == "" {
+		configuration.Integration.TargetBranch = configuration.Workflow.IntegrationBranch
+	}
 	if err := model.ValidateProjectConfiguration(configuration); err != nil {
 		return model.ProjectConfiguration{}, err
 	}
@@ -85,7 +88,7 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 	if in.UpdatedBy == "" || strings.ContainsAny(in.UpdatedBy, "\x00\r\n") {
 		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("updated_by is required")
 	}
-	if in.Patch.AgentRouting == nil && in.Patch.Watcher == nil && in.Patch.Workflow == nil && in.Patch.GateCommands == nil && in.Patch.ActivationProfileRef == nil {
+	if in.Patch.AgentRouting == nil && in.Patch.Watcher == nil && in.Patch.Workflow == nil && in.Patch.GateCommands == nil && in.Patch.Integration == nil && in.Patch.ActivationProfileRef == nil {
 		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("project configuration patch is empty")
 	}
 	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
@@ -111,7 +114,7 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 	if err != nil {
 		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("inspect active Train Attempt: %w", err)
 	}
-	if active && (in.Patch.Workflow != nil || in.Patch.ActivationProfileRef != nil) {
+	if active && (in.Patch.Workflow != nil || in.Patch.Integration != nil || in.Patch.ActivationProfileRef != nil) {
 		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("execution-sensitive project configuration cannot change while an active Train Attempt exists")
 	}
 	path := s.projectConfigurationPath(in.ProjectID)
@@ -123,6 +126,9 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 		if latest.Workflow.GateCommands.IsZero() {
 			latest.Workflow.GateCommands = model.DefaultProjectGateCommands()
 		}
+		if latest.Integration.TargetBranch == "" {
+			latest.Integration.TargetBranch = latest.Workflow.IntegrationBranch
+		}
 		if err := model.ValidateProjectConfiguration(latest); err != nil {
 			return nil, fmt.Errorf("current project configuration is invalid: %w", err)
 		}
@@ -133,7 +139,7 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 		if err != nil {
 			return nil, fmt.Errorf("inspect active Train Attempt: %w", err)
 		}
-		if active && (in.Patch.Workflow != nil || in.Patch.ActivationProfileRef != nil) {
+		if active && (in.Patch.Workflow != nil || in.Patch.Integration != nil || in.Patch.ActivationProfileRef != nil) {
 			return nil, fmt.Errorf("execution-sensitive project configuration cannot change while an active Train Attempt exists")
 		}
 		candidate := latest
@@ -172,6 +178,9 @@ func applyProjectConfigurationPatch(configuration *model.ProjectConfiguration, p
 	}
 	if patch.GateCommands != nil {
 		configuration.Workflow.GateCommands = *patch.GateCommands
+	}
+	if patch.Integration != nil {
+		configuration.Integration = *patch.Integration
 	}
 	if patch.ActivationProfileRef != nil {
 		configuration.ActivationProfileRef = *patch.ActivationProfileRef

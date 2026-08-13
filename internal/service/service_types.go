@@ -188,11 +188,12 @@ type AgentDisableInput struct {
 }
 
 type ProjectConfigurationPatch struct {
-	AgentRouting         *model.ProjectAgentRouting          `json:"agent_routing,omitempty"`
-	Watcher              *model.ProjectConfigurationWatcher  `json:"watcher,omitempty"`
-	Workflow             *model.ProjectConfigurationWorkflow `json:"workflow,omitempty"`
-	GateCommands         *model.ProjectGateCommands          `json:"gate_commands,omitempty"`
-	ActivationProfileRef *string                             `json:"activation_profile_ref,omitempty"`
+	AgentRouting         *model.ProjectAgentRouting             `json:"agent_routing,omitempty"`
+	Watcher              *model.ProjectConfigurationWatcher     `json:"watcher,omitempty"`
+	Workflow             *model.ProjectConfigurationWorkflow    `json:"workflow,omitempty"`
+	GateCommands         *model.ProjectGateCommands             `json:"gate_commands,omitempty"`
+	Integration          *model.ProjectIntegrationConfiguration `json:"integration,omitempty"`
+	ActivationProfileRef *string                                `json:"activation_profile_ref,omitempty"`
 }
 
 type ProjectConfigurationUpdateInput struct {

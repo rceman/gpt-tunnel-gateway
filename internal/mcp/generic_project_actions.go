@@ -63,7 +63,12 @@ func projectConfigurationUpdateSchema() map[string]any {
 				"wait_for_ci":        map[string]any{"type": "boolean"},
 			}, "workflow_stage", "integration_branch", "ci", "gates", "gate_commands", "wait_for_ci"),
 			"activation_profile_ref": str("Portable activation profile reference."),
-			"gate_commands":          gateCommands,
+			"integration": obj(map[string]any{
+				"target_branch": str("Project-owned integration target branch."),
+				"pre":           gateCommand,
+				"post":          gateCommand,
+			}, "target_branch"),
+			"gate_commands": gateCommands,
 		}),
 		"updated_by":            str("Trusted mutation author."),
 		"expected_hub_revision": str("Optional exact Hub revision guard."),
