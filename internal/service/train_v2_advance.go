@@ -90,6 +90,18 @@ func (s *Service) advanceTrainV2Locked(ctx context.Context, in TrainV2AdvanceInp
 	if nextItem.Status != model.TrainV2ItemQueued || len(nextItem.Attempts) != 0 {
 		return trainv2.StartResult{}, fmt.Errorf("next TrainItem is not queued and unstarted")
 	}
+	currentTask, err := s.TaskAuthoringRead(ctx, in.ProjectID, nextItem.TaskID)
+	if err != nil {
+		return trainv2.StartResult{}, err
+	}
+	if err := trainv2.ValidateExecutionTask(currentTask); err != nil {
+		return trainv2.StartResult{}, err
+	}
+	if currentTask.ID != nextItem.TaskID || currentTask.ProjectID != in.ProjectID {
+		return trainv2.StartResult{}, fmt.Errorf("Train item Task identity does not match the current Task")
+	}
+	nextItem.TaskRevision = currentTask.Revision
+	nextItem.TaskRevisionSHA256 = currentTask.RevisionSHA256
 
 	lane := s.Config.Projects[in.ProjectID]
 	lane.Root = runtime.WorktreePath
@@ -166,6 +178,21 @@ func (s *Service) advanceTrainV2Locked(ctx context.Context, in TrainV2AdvanceInp
 		if latest.Revision != train.Revision || start.CurrentItemPosition >= len(latest.Items) || latest.Items[start.CurrentItemPosition].Status != model.TrainV2ItemFinalized || latest.Items[start.CurrentItemPosition].Attempts[start.CurrentAttemptNumber-1].Status != model.TrainV2AttemptSucceeded || nextPosition >= len(latest.Items) || latest.Items[nextPosition].Status != model.TrainV2ItemQueued || len(latest.Items[nextPosition].Attempts) != 0 {
 			return nil, fmt.Errorf("Train changed before next Attempt start")
 		}
+		var latestTask model.TaskAuthoring
+		if err := readWorktreeJSON(worktree, s.taskAuthoringPath(in.ProjectID, nextItem.TaskID), &latestTask); err != nil {
+			return nil, err
+		}
+		if err := trainv2.ValidateExecutionTask(latestTask); err != nil {
+			return nil, err
+		}
+		if latestTask.ID != nextItem.TaskID || latestTask.ProjectID != in.ProjectID {
+			return nil, fmt.Errorf("Train item Task identity does not match the current Task")
+		}
+		updatedItem.TaskRevision = latestTask.Revision
+		updatedItem.TaskRevisionSHA256 = latestTask.RevisionSHA256
+		updatedTrain.Items[nextPosition] = updatedItem
+		updatedStart.CurrentTaskRevision = latestTask.Revision
+		updatedStart.CurrentTaskRevisionSHA256 = latestTask.RevisionSHA256
 		if err := hub.WriteJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), updatedTrain); err != nil {
 			return nil, err
 		}

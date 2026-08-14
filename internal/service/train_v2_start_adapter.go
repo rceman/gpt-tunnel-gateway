@@ -85,6 +85,16 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 		SessionOrigin:     AgentSessionID(ctx),
 		StateDir:          s.Config.StateDir,
 		MaterializePacket: s.materializeTrainV2Packet,
-		Now:               s.durableNow,
+		ReadTask: func(readCtx context.Context, projectID, taskID string) (model.TaskAuthoring, error) {
+			return s.TaskAuthoringRead(readCtx, projectID, taskID)
+		},
+		ReadTaskInWorktree: func(worktree, projectID, taskID string) (model.TaskAuthoring, error) {
+			var task model.TaskAuthoring
+			if err := readWorktreeJSON(worktree, s.taskAuthoringPath(projectID, taskID), &task); err != nil {
+				return model.TaskAuthoring{}, err
+			}
+			return task, nil
+		},
+		Now: s.durableNow,
 	})
 }

@@ -136,3 +136,20 @@ func TestAppendReadyTrainWithoutExecutionAuthorityReturnsPlanned(t *testing.T) {
 		t.Fatalf("ready Train without execution authority was not planned: %#v", updated)
 	}
 }
+
+func TestTaskAdmittedToNonterminalLocksOnlyStartedItems(t *testing.T) {
+	now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
+	task := readyAdmissionTask(t, "GTW-TSK250", now)
+	train, err := New("gateway", "GTW-TRN10", "planner", []model.TaskAuthoring{task}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if TaskAdmittedToNonterminal([]model.TrainV2{train}, task.ID) {
+		t.Fatal("queued unstarted item was treated as an edit lock")
+	}
+	train.Items[0].Status = model.TrainV2ItemRunning
+	train.Items[0].Attempts = []model.TrainV2Attempt{{Number: 1, Status: model.TrainV2AttemptRunning}}
+	if !TaskAdmittedToNonterminal([]model.TrainV2{train}, task.ID) {
+		t.Fatal("running item did not lock Task editing")
+	}
+}

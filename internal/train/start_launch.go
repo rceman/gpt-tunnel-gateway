@@ -74,6 +74,23 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 	if in.StartedBy == "" || strings.ContainsAny(in.StartedBy, "\x00\r\n") || in.SessionKey == "" || in.ResolvedAgentID == "" {
 		return StartResult{}, fmt.Errorf("train start identity is incomplete")
 	}
+	item := deps.Train.Items[0]
+	var currentTask model.TaskAuthoring
+	if deps.ReadTask != nil {
+		var err error
+		currentTask, err = deps.ReadTask(ctx, in.ProjectID, item.TaskID)
+		if err != nil {
+			return StartResult{}, err
+		}
+		if err := ValidateExecutionTask(currentTask); err != nil {
+			return StartResult{}, err
+		}
+		if currentTask.ID != item.TaskID || currentTask.ProjectID != in.ProjectID {
+			return StartResult{}, fmt.Errorf("Train item Task identity does not match the current Task")
+		}
+		item.TaskRevision = currentTask.Revision
+		item.TaskRevisionSHA256 = currentTask.RevisionSHA256
+	}
 	status, err := deps.Git.WorktreeStatus(ctx, deps.ProjectConfig)
 	if err != nil {
 		return StartResult{}, err
@@ -107,7 +124,6 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 			_ = deps.Git.DeleteTrainBranch(context.Background(), deps.ProjectConfig, laneBranch, base)
 		}
 	}()
-	item := deps.Train.Items[0]
 	attempt := model.TrainV2Attempt{Number: 1, Status: model.TrainV2AttemptRunning, AgentID: in.ResolvedAgentID, AirelaySessionKey: in.SessionKey, GatewayID: deps.GatewayID, StartHead: base, StartedAt: now}
 	runtime := RuntimeBinding{
 		SchemaVersion: runtimeSchemaVersion,
@@ -136,13 +152,32 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 	if err := model.ValidateTrainV2StartRecord(record); err != nil {
 		return StartResult{}, err
 	}
+	updatedTrain := deps.Train
 	tx, err := deps.Hub.Transact(ctx, expected, "gateway: start Train v2 Attempt "+in.TrainID, func(worktree string) ([]string, error) {
 		var latest model.TrainV2
 		if err := readWorktreeJSON(worktree, trainPath(in.ProjectID, in.TrainID), &latest); err != nil {
 			return nil, err
 		}
-		if latest.Revision != deps.Train.Revision || latest.Status != model.TrainV2Planned || len(latest.Items) == 0 || latest.Items[0].TaskID != item.TaskID || latest.Items[0].TaskRevision != item.TaskRevision || latest.Items[0].TaskRevisionSHA256 != item.TaskRevisionSHA256 || len(latest.Items[0].Attempts) != 0 {
+		if latest.Revision != deps.Train.Revision || latest.Status != model.TrainV2Planned || len(latest.Items) == 0 || latest.Items[0].TaskID != item.TaskID || len(latest.Items[0].Attempts) != 0 {
 			return nil, fmt.Errorf("Train v2 changed before Attempt start")
+		}
+		if deps.ReadTaskInWorktree != nil {
+			latestTask, err := deps.ReadTaskInWorktree(worktree, in.ProjectID, item.TaskID)
+			if err != nil {
+				return nil, err
+			}
+			if err := ValidateExecutionTask(latestTask); err != nil {
+				return nil, err
+			}
+			if latestTask.ID != item.TaskID || latestTask.ProjectID != in.ProjectID {
+				return nil, fmt.Errorf("Train item Task identity does not match the current Task")
+			}
+			latest.Items[0].TaskRevision = latestTask.Revision
+			latest.Items[0].TaskRevisionSHA256 = latestTask.RevisionSHA256
+			record.CurrentTaskRevision = latestTask.Revision
+			record.CurrentTaskRevisionSHA256 = latestTask.RevisionSHA256
+			item.TaskRevision = latestTask.Revision
+			item.TaskRevisionSHA256 = latestTask.RevisionSHA256
 		}
 		latest.Status = model.TrainV2Running
 		latest.Items[0].Status = model.TrainV2ItemRunning
@@ -151,6 +186,7 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 		if err := model.ValidateTrainV2(latest); err != nil {
 			return nil, err
 		}
+		updatedTrain = latest
 		startPath := projectRoot(in.ProjectID) + "/train-v2-starts/" + in.TrainID + ".json"
 		if err := hub.WriteJSON(worktree, startPath, record); err != nil {
 			return nil, err
@@ -167,7 +203,8 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 	if err := fsutil.WriteJSONAtomic(runtimePath(deps.StateDir, in.ProjectID, in.TrainID), runtime, 0o600); err != nil {
 		return StartResult{}, err
 	}
-	if err := dispatchAttempt(ctx, deps, deps.Train, item, attempt, runtime, tx.After); err != nil {
+	item = updatedTrain.Items[0]
+	if err := dispatchAttempt(ctx, deps, updatedTrain, item, attempt, runtime, tx.After); err != nil {
 		return StartResult{}, err
 	}
 	updated, err := readTrain(ctx, deps.Hub, in.ProjectID, in.TrainID)

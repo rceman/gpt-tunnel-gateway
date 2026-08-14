@@ -111,7 +111,7 @@ func TaskAdmittedToNonterminal(existing []model.TrainV2, taskID string) bool {
 			continue
 		}
 		for _, item := range train.Items {
-			if item.TaskID == taskID {
+			if item.TaskID == taskID && (item.Status != model.TrainV2ItemQueued || len(item.Attempts) != 0) {
 				return true
 			}
 		}

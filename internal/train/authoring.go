@@ -219,6 +219,18 @@ func ReadyTask(current model.TaskAuthoring, readyBy string, readyAt time.Time) (
 	return current, nil
 }
 
+// ValidateExecutionTask is the exact readiness boundary used immediately
+// before a TrainItem becomes an executing Attempt.
+func ValidateExecutionTask(task model.TaskAuthoring) error {
+	if err := model.ValidateTaskAuthoring(task); err != nil {
+		return err
+	}
+	if task.Status != model.TaskAuthoringReady || task.ReadySeal == nil || task.ReadySeal.Revision != task.Revision || task.ReadySeal.RevisionSHA256 != task.RevisionSHA256 {
+		return fmt.Errorf("task %q is not ready for Train Attempt execution", task.ID)
+	}
+	return nil
+}
+
 func CheckRevision(task model.TaskAuthoring, revision int, hash string) error {
 	if task.Revision != revision {
 		return fmt.Errorf("task authoring revision conflict: expected %d, current %d", revision, task.Revision)
