@@ -60,6 +60,16 @@ func Append(current model.TrainV2, tasks []model.TaskAuthoring, now time.Time) (
 	if err != nil {
 		return model.TrainV2{}, err
 	}
+	if current.Status == model.TrainV2ReadyForIntegration {
+		current.Status = model.TrainV2Planned
+		for _, item := range current.Items {
+			if item.Status != model.TrainV2ItemQueued || len(item.Attempts) > 0 {
+				current.Status = model.TrainV2Running
+				break
+			}
+		}
+	}
+	current.FullProof = nil
 	current.Items = append(current.Items, items...)
 	current.Revision++
 	current.UpdatedAt = now

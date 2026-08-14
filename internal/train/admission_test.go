@@ -1,6 +1,8 @@
 package train
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -83,5 +85,54 @@ func TestAdmissionRejectsInvalidExistingTrainBeforeCheckingCandidates(t *testing
 	invalid := model.TrainV2{ID: "GTW-TRN1", ProjectID: "gateway", Status: model.TrainV2Planned}
 	if err := ValidateUnadmitted([]model.TrainV2{invalid}, []string{task.ID}); err == nil {
 		t.Fatal("invalid existing train was ignored")
+	}
+}
+
+func TestAppendReadyTrainClearsFullProofAndPreservesPriorItems(t *testing.T) {
+	now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
+	first := readyAdmissionTask(t, "GTW-TSK225", now)
+	second := readyAdmissionTask(t, "GTW-TSK226", now)
+	train, err := New("gateway", "GTW-TRN8", "planner", []model.TaskAuthoring{first}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := strings.Repeat("a", 40)
+	attemptFinished := now.Add(time.Minute)
+	train.Items[0].Status = model.TrainV2ItemReviewed
+	train.Items[0].Attempts = []model.TrainV2Attempt{{Number: 1, Status: model.TrainV2AttemptSucceeded, AgentID: "agent-1", GatewayID: "gateway", AirelaySessionKey: "session-1", StartHead: head, StartedAt: now, FinishedAt: &attemptFinished}}
+	train.Items[0].SuccessfulAttemptNumber = 1
+	train.Items[0].Proof = &model.TrainV2ImplementationProof{CheckpointHead: head, ImplementationSHA: head, ReportID: "report-1", GateResults: []model.CompletionGateResult{{ID: model.WorkflowGateTest, ExitCode: 0}}, RecordedAt: attemptFinished}
+	train.Items[0].Review = &model.TrainV2ItemReview{Outcome: model.ReviewOutcomeAccepted, ReportID: "review-1", ReviewedAt: attemptFinished}
+	train.FullProof = &model.TrainV2FullProof{CandidateHead: head, GateResults: []model.CompletionGateResult{{ID: model.WorkflowGateTest, ExitCode: 0}}, RecordedAt: attemptFinished}
+	train.Status = model.TrainV2ReadyForIntegration
+	before := train.Items[0]
+	updated, err := Append(train, []model.TaskAuthoring{second}, now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != model.TrainV2Running || updated.FullProof != nil {
+		t.Fatalf("ready Train did not return to running without stale FullProof: %#v", updated)
+	}
+	if !reflect.DeepEqual(updated.Items[0], before) || updated.Items[1].Status != model.TrainV2ItemQueued || updated.Items[1].Position != 1 {
+		t.Fatalf("append changed prior evidence or queued state: before=%#v after=%#v", before, updated.Items)
+	}
+}
+
+func TestAppendReadyTrainWithoutExecutionAuthorityReturnsPlanned(t *testing.T) {
+	now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
+	first := readyAdmissionTask(t, "GTW-TSK227", now)
+	second := readyAdmissionTask(t, "GTW-TSK228", now)
+	train, err := New("gateway", "GTW-TRN9", "planner", []model.TaskAuthoring{first}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	train.Status = model.TrainV2ReadyForIntegration
+	train.FullProof = &model.TrainV2FullProof{CandidateHead: strings.Repeat("b", 40), GateResults: []model.CompletionGateResult{{ID: model.WorkflowGateTest, ExitCode: 0}}, RecordedAt: now}
+	updated, err := Append(train, []model.TaskAuthoring{second}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != model.TrainV2Planned || updated.FullProof != nil {
+		t.Fatalf("ready Train without execution authority was not planned: %#v", updated)
 	}
 }

@@ -86,7 +86,7 @@ func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.Tra
 	if err != nil {
 		return model.TrainV2{}, OperationResult{}, err
 	}
-	if current.Revision != in.ExpectedRevision || (current.Status != model.TrainV2Planned && current.Status != model.TrainV2Running) {
+	if current.Revision != in.ExpectedRevision || (current.Status != model.TrainV2Planned && current.Status != model.TrainV2Running && current.Status != model.TrainV2ReadyForIntegration) {
 		return model.TrainV2{}, OperationResult{}, fmt.Errorf("train v2 revision or status conflict")
 	}
 	expected := in.ExpectedHubRevision
@@ -103,8 +103,23 @@ func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.Tra
 		if err := readWorktreeJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), &latest); err != nil {
 			return nil, err
 		}
-		if latest.Revision != in.ExpectedRevision || (latest.Status != model.TrainV2Planned && latest.Status != model.TrainV2Running) {
+		if latest.Revision != in.ExpectedRevision || (latest.Status != model.TrainV2Planned && latest.Status != model.TrainV2Running && latest.Status != model.TrainV2ReadyForIntegration) {
 			return nil, fmt.Errorf("train v2 revision or status conflict")
+		}
+		if latest.Status == model.TrainV2ReadyForIntegration {
+			var receipt trainv2.IntegrationReceipt
+			receiptPath := trainV2IntegrationPath(in.ProjectID, in.TrainID)
+			err := readWorktreeJSON(worktree, receiptPath, &receipt)
+			if err == nil {
+				if err := trainv2.ValidateIntegrationReceipt(receipt); err != nil {
+					return nil, fmt.Errorf("invalid Train integration receipt: %w", err)
+				}
+				if receipt.Status == "completed" {
+					return nil, fmt.Errorf("integrated Train cannot be extended")
+				}
+			} else if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("read Train integration receipt: %w", err)
+			}
 		}
 		if len(latest.Items)+len(in.TaskIDs) > model.MaxTrainV2Items {
 			return nil, fmt.Errorf("train v2 item limit exceeded")
