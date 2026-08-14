@@ -86,8 +86,11 @@ func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.Tra
 	if err != nil {
 		return model.TrainV2{}, OperationResult{}, err
 	}
-	if current.Revision != in.ExpectedRevision || (current.Status != model.TrainV2Planned && current.Status != model.TrainV2Running && current.Status != model.TrainV2ReadyForIntegration) {
-		return model.TrainV2{}, OperationResult{}, fmt.Errorf("train v2 revision or status conflict")
+	if current.Revision != in.ExpectedRevision {
+		return model.TrainV2{}, OperationResult{}, trainRevisionStatusConflict("precondition", "revision", in.ExpectedRevision, current.Revision, current.Status)
+	}
+	if !trainV2AddableStatus(current.Status) {
+		return model.TrainV2{}, OperationResult{}, trainRevisionStatusConflict("precondition", "status", in.ExpectedRevision, current.Revision, current.Status)
 	}
 	expected := in.ExpectedHubRevision
 	if expected == "" {
@@ -103,8 +106,11 @@ func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.Tra
 		if err := readWorktreeJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), &latest); err != nil {
 			return nil, err
 		}
-		if latest.Revision != in.ExpectedRevision || (latest.Status != model.TrainV2Planned && latest.Status != model.TrainV2Running && latest.Status != model.TrainV2ReadyForIntegration) {
-			return nil, fmt.Errorf("train v2 revision or status conflict")
+		if latest.Revision != in.ExpectedRevision {
+			return nil, trainRevisionStatusConflict("transaction", "revision", in.ExpectedRevision, latest.Revision, latest.Status)
+		}
+		if !trainV2AddableStatus(latest.Status) {
+			return nil, trainRevisionStatusConflict("transaction", "status", in.ExpectedRevision, latest.Revision, latest.Status)
 		}
 		if latest.Status == model.TrainV2ReadyForIntegration {
 			var receipt trainv2.IntegrationReceipt
@@ -115,7 +121,7 @@ func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.Tra
 					return nil, fmt.Errorf("invalid Train integration receipt: %w", err)
 				}
 				if receipt.Status == "completed" {
-					return nil, fmt.Errorf("integrated Train cannot be extended")
+					return nil, trainIntegrationReceiptConflict("receipt", latest.Revision, latest.Status, receipt.Status)
 				}
 			} else if !os.IsNotExist(err) {
 				return nil, fmt.Errorf("read Train integration receipt: %w", err)
@@ -146,6 +152,10 @@ func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.Tra
 		ProjectID: in.ProjectID,
 		Status:    updated.Status,
 	}, nil
+}
+
+func trainV2AddableStatus(status string) bool {
+	return status == model.TrainV2Planned || status == model.TrainV2Running || status == model.TrainV2ReadyForIntegration
 }
 
 func (s *Service) trainV2AdmissionTasks(worktree, projectID string, taskIDs []string) ([]model.TaskAuthoring, error) {

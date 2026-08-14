@@ -32,6 +32,8 @@ type Event struct {
 	Component      string    `json:"component"`
 	Event          string    `json:"event"`
 	Action         string    `json:"action,omitempty"`
+	ErrorCode      string    `json:"error_code,omitempty"`
+	Phase          string    `json:"phase,omitempty"`
 	RequestID      string    `json:"request_id,omitempty"`
 	OperationID    string    `json:"operation_id,omitempty"`
 	SessionID      string    `json:"session_id,omitempty"`
@@ -99,7 +101,8 @@ func (e Event) Validate() error {
 		return fmt.Errorf("runtime event identity is invalid")
 	}
 	for name, value := range map[string]string{
-		"action": e.Action, "request_id": e.RequestID, "operation_id": e.OperationID,
+		"action": e.Action, "error_code": e.ErrorCode, "phase": e.Phase,
+		"request_id": e.RequestID, "operation_id": e.OperationID,
 		"session_id": e.SessionID, "project_id": e.ProjectID, "source": e.Source,
 		"version": e.Version, "signal": e.Signal,
 	} {

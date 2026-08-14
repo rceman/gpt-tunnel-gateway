@@ -54,7 +54,7 @@ func (s *Server) ensureRuntimeLogActions() {
 func runtimeLogsOutputSchema() map[string]any {
 	event := closedOutput(map[string]any{
 		"timestamp": outputDateTime(), "level": outputString(), "component": outputString(), "event": outputString(),
-		"action": outputString(), "request_id": outputString(), "operation_id": outputString(), "session_id": outputString(),
+		"action": outputString(), "error_code": outputString(), "phase": outputString(), "request_id": outputString(), "operation_id": outputString(), "session_id": outputString(),
 		"project_id": outputString(), "pid": outputInteger(), "start_time_ticks": outputInteger(), "source": outputString(),
 		"version": outputString(), "signal": outputString(), "message": outputString(), "error": outputString(),
 	}, "timestamp", "level", "component", "event")

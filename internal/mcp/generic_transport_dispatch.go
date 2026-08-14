@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -50,7 +51,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		if returnErr != nil || (result != nil && result["is_error"] == true) {
 			event, level = "action_failure", "warn"
 		}
-		s.recordRuntimeAction(ctx, record, event, level, action, returnErr)
+		s.recordRuntimeAction(ctx, record, event, level, action, returnErr, result)
 	}()
 	if action == "" {
 		return genericActionError(action, "action is required; inspect schema with path=\"\""), nil
@@ -126,7 +127,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		}
 	}
 	started = true
-	s.recordRuntimeAction(ctx, record, "action_start", "info", action, nil)
+	s.recordRuntimeAction(ctx, record, "action_start", "info", action, nil, nil)
 	executionSchema := entry.InputSchema
 	if entry.ExecutionInputSchema != nil {
 		executionSchema = entry.ExecutionInputSchema
@@ -136,7 +137,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	}
 	value, err := entry.Execute(ctx, raw)
 	if err != nil {
-		return genericActionError(action, err.Error()), nil
+		return genericActionError(action, err), nil
 	}
 	result = normalizeObject(value)
 	if err := validateOutputValue(entry.OutputSchema, result); err != nil {
@@ -145,7 +146,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	return genericActionSuccess(result), nil
 }
 
-func (s *Server) recordRuntimeAction(ctx context.Context, sessionRecord durableSession.Record, event, level, action string, cause error) {
+func (s *Server) recordRuntimeAction(ctx context.Context, sessionRecord durableSession.Record, event, level, action string, cause error, result map[string]any) {
 	if s.Service == nil {
 		return
 	}
@@ -163,7 +164,25 @@ func (s *Server) recordRuntimeAction(ctx context.Context, sessionRecord durableS
 	if cause != nil {
 		eventRecord.Error = fmt.Sprintf("%T", cause)
 	}
+	if structured := structuredActionErrorFromResult(result); structured != nil {
+		eventRecord.ErrorCode = structured["code"]
+		eventRecord.Phase = structured["phase"]
+	}
 	_ = runtime_log.New(s.Service.Config.StateDir).Append(eventRecord)
+}
+
+func structuredActionErrorFromResult(result map[string]any) map[string]string {
+	if result == nil || result["is_error"] != true {
+		return nil
+	}
+	container, _ := result["result"].(map[string]any)
+	errorObject, _ := container["error"].(map[string]any)
+	code, _ := errorObject["code"].(string)
+	phase, _ := errorObject["phase"].(string)
+	if code == "" {
+		return nil
+	}
+	return map[string]string{"code": code, "phase": phase}
 }
 
 func operationIDFromRaw(raw json.RawMessage) string {
@@ -176,8 +195,16 @@ func operationIDFromRaw(raw json.RawMessage) string {
 	return operationID
 }
 
-func genericActionError(_ string, message string) map[string]any {
-	return map[string]any{"result": map[string]any{"error": message}, "is_error": true}
+func genericActionError(_ string, message any) map[string]any {
+	if err, ok := message.(error); ok {
+		var structured interface {
+			StructuredActionError() map[string]any
+		}
+		if errors.As(err, &structured) {
+			return map[string]any{"result": map[string]any{"error": structured.StructuredActionError()}, "is_error": true}
+		}
+	}
+	return map[string]any{"result": map[string]any{"error": fmt.Sprint(message)}, "is_error": true}
 }
 
 func genericActionSuccess(result map[string]any) map[string]any {
