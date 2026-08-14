@@ -82,6 +82,8 @@ func (s *Server) sessionAction(ctx context.Context, raw json.RawMessage) (any, e
 			return nil, err
 		}
 		return result, nil
+	case "list":
+		return s.Service.SessionList()
 	case "info":
 		if input.SessionID == "" {
 			return nil, fmt.Errorf("session_id is required")

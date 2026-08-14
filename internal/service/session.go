@@ -28,6 +28,18 @@ type SessionResult struct {
 	Session durableSession.Record `json:"session"`
 }
 
+type SessionListItem struct {
+	SessionID string  `json:"session_id"`
+	Role      string  `json:"role"`
+	ProjectID string  `json:"project_id"`
+	Ref       *string `json:"ref"`
+}
+
+type SessionListResult struct {
+	Action   string            `json:"action"`
+	Sessions []SessionListItem `json:"sessions"`
+}
+
 func (s *Service) SessionStart(ctx context.Context, input SessionStartInput) (SessionResult, error) {
 	if err := authority.RequireRole(ctx, input.Role); err != nil {
 		return SessionResult{}, err
@@ -64,6 +76,38 @@ func (s *Service) SessionInfo(ctx context.Context, sessionID string) (SessionRes
 		Action:  "info",
 		Session: record,
 	}, nil
+}
+
+func (s *Service) SessionList() (SessionListResult, error) {
+	records, err := durableSession.NewStore(s.Config.StateDir).List()
+	if err != nil {
+		return SessionListResult{}, err
+	}
+	items := make([]SessionListItem, 0, len(records))
+	for _, record := range records {
+		if record.Status != durableSession.StatusActive {
+			continue
+		}
+		ref := cloneSessionString(record.SessionRef)
+		items = append(items, SessionListItem{
+			SessionID: record.ID,
+			Role:      record.Role,
+			ProjectID: record.ProjectID,
+			Ref:       ref,
+		})
+	}
+	return SessionListResult{
+		Action:   "list",
+		Sessions: items,
+	}, nil
+}
+
+func cloneSessionString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copyValue := *value
+	return &copyValue
 }
 
 func (s *Service) SessionUpdate(ctx context.Context, input SessionUpdateInput) (SessionResult, error) {

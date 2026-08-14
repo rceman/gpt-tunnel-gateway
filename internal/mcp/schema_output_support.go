@@ -24,6 +24,7 @@ func sessionInputSchema() map[string]any {
 		"type": "object",
 		"oneOf": []any{
 			obj(map[string]any{"action": map[string]any{"type": "string", "const": "start"}, "project_id": str("Registered project identifier for start."), "role": str("Server-authorized session role."), "session_type": str("Session type."), "session_ref": str("Optional caller reference."), "label": str("Optional bounded session label.")}, "action", "project_id", "role", "session_type"),
+			obj(map[string]any{"action": map[string]any{"type": "string", "const": "list"}}, "action"),
 			obj(map[string]any{"action": map[string]any{"type": "string", "const": "info"}, "session_id": sessionID}, "action", "session_id"),
 			obj(map[string]any{"action": map[string]any{"type": "string", "const": "update"}, "session_id": sessionID, "session_ref": str("Optional caller reference."), "label": str("Optional bounded session label.")}, "action", "session_id"),
 			obj(map[string]any{"action": map[string]any{"type": "string", "const": "end"}, "session_id": sessionID}, "action", "session_id"),

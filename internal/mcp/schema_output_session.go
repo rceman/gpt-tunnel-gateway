@@ -11,5 +11,17 @@ func sessionRecordSchema() map[string]any {
 }
 
 func sessionOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"action": outputString(), "session": sessionRecordSchema()}, "action", "session")
+	listItem := closedOutput(map[string]any{
+		"session_id": sessionIDOutputSchema(), "role": outputString(), "project_id": outputString(),
+		"ref": map[string]any{"anyOf": []any{outputString(), map[string]any{"type": "null"}}},
+	}, "session_id", "role", "project_id", "ref")
+	list := closedOutput(map[string]any{"action": outputString(), "sessions": outputArray(listItem)}, "action", "sessions")
+	mutation := closedOutput(map[string]any{"action": outputString(), "session": sessionRecordSchema()}, "action", "session")
+	return map[string]any{"type": "object", "oneOf": []any{mutation, list}}
+}
+
+func sessionIDOutputSchema() map[string]any {
+	id := outputString()
+	id["pattern"] = `^(?:S|SP|SD|SA|SW)-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$`
+	return id
 }

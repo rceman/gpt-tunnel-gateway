@@ -92,3 +92,53 @@ func TestSessionBootstrapCreatesIndependentPlannerAndDeliveryTypedSessions(t *te
 		t.Fatalf("combined bootstrap authority rejected: %v", err)
 	}
 }
+
+func TestSessionListIsSessionlessAndPreservesUpdatedReference(t *testing.T) {
+	server := newSessionTestServer(t)
+	oldRef := "https://chatgpt.com/c/old"
+	planner := genericStructured(t, sessionCall(t, server, map[string]any{
+		"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt", "session_ref": oldRef,
+	}))
+	plannerRecord := planner["session"].(map[string]any)
+	plannerID := plannerRecord["session_id"].(string)
+	delivery := genericStructured(t, sessionCall(t, server, map[string]any{
+		"action": "start", "project_id": "example", "role": "delivery", "session_type": "chatgpt",
+	}))
+	deliveryID := delivery["session"].(map[string]any)["session_id"].(string)
+
+	listed := genericStructured(t, sessionCall(t, server, map[string]any{"action": "list"}))
+	sessions, ok := listed["sessions"].([]any)
+	if !ok || len(sessions) != 2 {
+		t.Fatalf("session.list did not discover both active sessions: %#v", listed)
+	}
+	first := sessions[0].(map[string]any)["session_id"].(string)
+	second := sessions[1].(map[string]any)["session_id"].(string)
+	if first > second {
+		t.Fatalf("session.list ordering is not deterministic: %#v", sessions)
+	}
+
+	newRef := "https://chatgpt.com/c/new"
+	updated := genericStructured(t, sessionCall(t, server, map[string]any{
+		"action": "update", "session_id": plannerID, "session_ref": newRef,
+	}))
+	if updated["session"].(map[string]any)["session_ref"] != newRef {
+		t.Fatalf("session.update did not return the new reference: %#v", updated)
+	}
+	info := genericStructured(t, sessionCall(t, server, map[string]any{"action": "info", "session_id": plannerID}))
+	if info["session"].(map[string]any)["session_ref"] != newRef {
+		t.Fatalf("session.info did not preserve the new reference: %#v", info)
+	}
+
+	if _, ok := genericStructured(t, sessionCall(t, server, map[string]any{"action": "end", "session_id": deliveryID}))["session"]; !ok {
+		t.Fatal("session.end did not return the ended session")
+	}
+	listed = genericStructured(t, sessionCall(t, server, map[string]any{"action": "list"}))
+	sessions = listed["sessions"].([]any)
+	if len(sessions) != 1 {
+		t.Fatalf("session.list included ended session: %#v", listed)
+	}
+	item := sessions[0].(map[string]any)
+	if item["session_id"] != plannerID || item["ref"] != newRef || item["role"] != "planner" || item["project_id"] != "example" {
+		t.Fatalf("session.list projection=%#v", item)
+	}
+}
