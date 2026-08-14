@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
+	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
 
 type Store struct {
@@ -72,12 +75,13 @@ func (s Store) Read(filter Filter) (ReadResult, error) {
 		return ReadResult{}, err
 	}
 	result := ReadResult{Events: []Event{}}
+	entries := make([]logEntry, 0)
 	paths := make([]string, 0, s.retention()+1)
 	paths = append(paths, s.path())
 	for index := 1; index <= s.retention(); index++ {
 		paths = append(paths, fmt.Sprintf("%s.%d", s.path(), index))
 	}
-	for _, path := range paths {
+	for fileRank, path := range paths {
 		file, openErr := os.Open(path)
 		if os.IsNotExist(openErr) {
 			continue
@@ -87,7 +91,9 @@ func (s Store) Read(filter Filter) (ReadResult, error) {
 		}
 		scanner := bufio.NewScanner(file)
 		scanner.Buffer(make([]byte, 1024), 64<<10)
+		lineNumber := 0
 		for scanner.Scan() {
+			lineNumber++
 			var event Event
 			if err := json.Unmarshal(scanner.Bytes(), &event); err != nil || event.Validate() != nil {
 				result.MalformedLines++
@@ -96,21 +102,83 @@ func (s Store) Read(filter Filter) (ReadResult, error) {
 			if !matches(event, filter) {
 				continue
 			}
-			result.Events = append(result.Events, event)
-			if len(result.Events) >= filter.Limit {
-				break
-			}
+			entries = append(entries, logEntry{
+				Event:      event,
+				FileRank:   fileRank,
+				LineNumber: lineNumber,
+				Key:        logEntryKey(event, fileRank, lineNumber),
+			})
 		}
 		scanErr := scanner.Err()
 		file.Close()
 		if scanErr != nil {
 			return ReadResult{}, scanErr
 		}
-		if len(result.Events) >= filter.Limit {
-			break
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].Event.Timestamp.Equal(entries[j].Event.Timestamp) {
+			if entries[i].FileRank != entries[j].FileRank {
+				return entries[i].FileRank < entries[j].FileRank
+			}
+			return entries[i].LineNumber > entries[j].LineNumber
+		}
+		return entries[i].Event.Timestamp.After(entries[j].Event.Timestamp)
+	})
+	page, nextCursor, hasMore, err := pageLogEntries(entries, filter.Limit, filter.Cursor)
+	if err != nil {
+		return ReadResult{}, err
+	}
+	result.Events = make([]Event, 0, len(page))
+	for _, entry := range page {
+		result.Events = append(result.Events, entry.Event)
+	}
+	result.NextCursor = nextCursor
+	result.HasMore = hasMore
+	return result, nil
+}
+
+type logEntry struct {
+	Event      Event
+	FileRank   int
+	LineNumber int
+	Key        string
+}
+
+func logEntryKey(event Event, fileRank, lineNumber int) string {
+	return event.Timestamp.UTC().Format(time.RFC3339Nano) + "\x00" + strconv.Itoa(fileRank) + "\x00" + strconv.Itoa(lineNumber)
+}
+
+func pageLogEntries(entries []logEntry, limit int, rawCursor string) ([]logEntry, string, bool, error) {
+	keys := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		keys = append(keys, entry.Key)
+	}
+	after, err := pagination.Resolve(rawCursor, "runtime-log", keys)
+	if err != nil {
+		return nil, "", false, err
+	}
+	start := 0
+	if after != "" {
+		start = -1
+		for index, entry := range entries {
+			if entry.Key == after {
+				start = index + 1
+				break
+			}
+		}
+		if start < 0 {
+			return nil, "", false, fmt.Errorf("continuation cursor is no longer valid")
 		}
 	}
-	return result, nil
+	end := start + limit
+	if end > len(entries) {
+		end = len(entries)
+	}
+	page := entries[start:end]
+	if end == len(entries) || len(page) == 0 {
+		return page, "", false, nil
+	}
+	return page, pagination.Encode("runtime-log", page[len(page)-1].Key), true, nil
 }
 
 func (s Store) rotateIfNeeded(incoming int64) error {
@@ -158,6 +226,10 @@ func matches(event Event, filter Filter) bool {
 	return (filter.Level == "" || event.Level == filter.Level) &&
 		(filter.Component == "" || event.Component == filter.Component) &&
 		(filter.Event == "" || event.Event == filter.Event) &&
+		(filter.Action == "" || event.Action == filter.Action) &&
+		(filter.RequestID == "" || event.RequestID == filter.RequestID) &&
+		(filter.SessionID == "" || event.SessionID == filter.SessionID) &&
+		(filter.ProjectID == "" || event.ProjectID == filter.ProjectID) &&
 		(filter.OperationID == "" || event.OperationID == filter.OperationID)
 }
 

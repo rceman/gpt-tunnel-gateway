@@ -17,7 +17,7 @@ func TestRuntimeLogsIsBoundedReadOnlyGenericAction(t *testing.T) {
 		t.Fatalf("runtime/logs authority/annotations = %#v/%q", entry.Annotations, entry.AuthorityRole)
 	}
 	properties := entry.InputSchema["properties"].(map[string]any)
-	if len(properties) != 5 || entry.InputSchema["additionalProperties"] != false {
+	if len(properties) != 10 || entry.InputSchema["additionalProperties"] != false {
 		t.Fatalf("runtime/logs input schema is not bounded/closed: %#v", entry.InputSchema)
 	}
 	if _, ok := properties["path"]; ok {

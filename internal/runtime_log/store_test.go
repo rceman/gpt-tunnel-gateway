@@ -67,6 +67,64 @@ func TestStoreRotatesAndToleratesMalformedLines(t *testing.T) {
 	if _, err := os.Stat(path + ".1"); err != nil {
 		t.Fatalf("rotation file missing: %v", err)
 	}
+	if len(result.Events) == 0 || result.Events[0].Event != "three" {
+		t.Fatalf("newest rotated event was not first: %#v", result.Events)
+	}
+}
+
+func TestStoreNewestWindowFiltersAndContinuation(t *testing.T) {
+	dir := t.TempDir()
+	store := New(dir)
+	base := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
+	events := []Event{
+		{Timestamp: base, Level: "info", Component: "gateway", Event: "process_ready", Action: "gateway/start", RequestID: "req-old", SessionID: "session-a", ProjectID: "example"},
+		{Timestamp: base.Add(time.Minute), Level: "warn", Component: "gateway", Event: "action_failure", Action: "train/add", RequestID: "req-one", SessionID: "session-a", ProjectID: "example"},
+		{Timestamp: base.Add(2 * time.Minute), Level: "warn", Component: "gateway", Event: "action_failure", Action: "train/add", RequestID: "req-two", SessionID: "session-a", ProjectID: "example"},
+		{Timestamp: base.Add(3 * time.Minute), Level: "warn", Component: "gateway", Event: "action_failure", Action: "train/add", RequestID: "req-three", SessionID: "session-a", ProjectID: "example"},
+		{Timestamp: base.Add(4 * time.Minute), Level: "warn", Component: "gateway", Event: "action_failure", Action: "other/action", RequestID: "req-four", SessionID: "session-b", ProjectID: "other"},
+	}
+	for _, event := range events {
+		if err := store.Append(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := store.Read(Filter{
+		Limit:     2,
+		Action:    "train/add",
+		RequestID: "req-three",
+		SessionID: "session-a",
+		ProjectID: "example",
+	})
+	if err != nil || len(first.Events) != 1 || first.Events[0].RequestID != "req-three" || first.HasMore {
+		t.Fatalf("combined newest filter=%#v err=%v", first, err)
+	}
+	window, err := store.Read(Filter{
+		Limit:     2,
+		Action:    "train/add",
+		SessionID: "session-a",
+		ProjectID: "example",
+	})
+	if err != nil || len(window.Events) != 2 || window.Events[0].RequestID != "req-three" || window.Events[1].RequestID != "req-two" || !window.HasMore || window.NextCursor == "" {
+		t.Fatalf("newest window=%#v err=%v", window, err)
+	}
+	continued, err := store.Read(Filter{
+		Limit:     2,
+		Action:    "train/add",
+		SessionID: "session-a",
+		ProjectID: "example",
+		Cursor:    window.NextCursor,
+	})
+	if err != nil || len(continued.Events) != 1 || continued.Events[0].RequestID != "req-one" || continued.HasMore {
+		t.Fatalf("continuation=%#v err=%v", continued, err)
+	}
+	missing, err := store.Read(Filter{
+		Limit:     5,
+		Action:    "train/add",
+		RequestID: "missing",
+	})
+	if err != nil || len(missing.Events) != 0 || missing.HasMore || missing.NextCursor != "" {
+		t.Fatalf("no-match result=%#v err=%v", missing, err)
+	}
 }
 
 func TestEventJSONIsBoundedAndStrict(t *testing.T) {

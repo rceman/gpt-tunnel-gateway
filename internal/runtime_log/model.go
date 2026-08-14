@@ -14,6 +14,7 @@ const (
 	DefaultRetention   = 3
 	DefaultLimit       = 100
 	MaxLimit           = 200
+	MaxCursorBytes     = 4096
 	MaxTextBytes       = 512
 	MaxIdentifierBytes = 128
 )
@@ -46,15 +47,22 @@ type Event struct {
 
 type Filter struct {
 	Limit       int
+	Cursor      string
 	Level       string
 	Component   string
 	Event       string
+	Action      string
+	RequestID   string
+	SessionID   string
+	ProjectID   string
 	OperationID string
 }
 
 type ReadResult struct {
 	Events         []Event `json:"events"`
 	MalformedLines int     `json:"malformed_lines"`
+	NextCursor     string  `json:"next_cursor"`
+	HasMore        bool    `json:"has_more"`
 }
 
 func NewRequestID() string {
@@ -153,7 +161,14 @@ func normalizeFilter(filter Filter) (Filter, error) {
 	if filter.Limit < 1 || filter.Limit > MaxLimit {
 		return Filter{}, fmt.Errorf("runtime log limit must be between 1 and %d", MaxLimit)
 	}
-	for name, value := range map[string]string{"level": filter.Level, "component": filter.Component, "event": filter.Event, "operation_id": filter.OperationID} {
+	if len(filter.Cursor) > MaxCursorBytes {
+		return Filter{}, fmt.Errorf("runtime log cursor exceeds %d bytes", MaxCursorBytes)
+	}
+	for name, value := range map[string]string{
+		"level": filter.Level, "component": filter.Component, "event": filter.Event,
+		"action": filter.Action, "request_id": filter.RequestID, "session_id": filter.SessionID,
+		"project_id": filter.ProjectID, "operation_id": filter.OperationID,
+	} {
 		if value != "" && !validToken(value) {
 			return Filter{}, fmt.Errorf("runtime log %s filter is invalid", name)
 		}
