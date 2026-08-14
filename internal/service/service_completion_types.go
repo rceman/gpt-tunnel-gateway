@@ -8,10 +8,11 @@ import (
 )
 
 type OperationResult struct {
-	Hub       hub.TransactionResult `json:"hub"`
-	ProjectID string                `json:"project_id,omitempty"`
-	TaskID    string                `json:"task_id,omitempty"`
-	Status    string                `json:"status"`
+	OperationID string                `json:"operation_id,omitempty"`
+	Hub         hub.TransactionResult `json:"hub"`
+	ProjectID   string                `json:"project_id,omitempty"`
+	TaskID      string                `json:"task_id,omitempty"`
+	Status      string                `json:"status"`
 }
 
 type ProjectStatus struct {

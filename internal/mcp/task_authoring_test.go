@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
@@ -48,7 +49,7 @@ func TestTrainV2TaskAuthoringMCPWiringAndSchemaParity(t *testing.T) {
 	server.AuthorityContext = authority.WithDelivery(context.Background())
 	configureTrainV2MCPTest(t, server)
 	sessionID := genericSession(t, server.Service, "example")
-	for _, path := range []string{"task/create", "task/update", "task/ready", "task/list", "task/read"} {
+	for _, path := range []string{"task/create", "task/create_status", "task/update", "task/ready", "task/list", "task/read"} {
 		contract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"path": path}}})))
 		if contract["kind"] != "action" || contract["path"] != path {
 			t.Fatalf("missing task authoring action contract %s: %#v", path, contract)
@@ -60,11 +61,30 @@ func TestTrainV2TaskAuthoringMCPWiringAndSchemaParity(t *testing.T) {
 			}
 		}
 	}
+	started := time.Now()
 	created := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "task/create", "input": map[string]any{"title": "Generic planned task", "objective": "Exercise generic authoring wiring.", "adr_relation": model.TaskADRNoRequired, "created_by": "planner"}}}})))
-	if created["task"].(map[string]any)["status"] != model.TaskAuthoringPlanned {
-		t.Fatalf("generic task/create wiring failed: %#v", created)
+	if elapsed := time.Since(started); elapsed >= time.Second {
+		t.Fatalf("public task/create receipt exceeded one second: %s", elapsed)
+	} else {
+		t.Logf("public task/create receipt: %s", elapsed)
 	}
-	withProject := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "task/create", "input": map[string]any{"project_id": "example", "title": "Rejected project field", "objective": "The session owns project authority.", "adr_relation": model.TaskADRNoRequired, "created_by": "planner"}}}})))
+	operationID, ok := created["operation_id"].(string)
+	if !ok || operationID == "" || created["status"] != "accepted" {
+		t.Fatalf("generic task/create did not return accepted receipt: %#v", created)
+	}
+	var completed map[string]any
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		completed = genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "task/create_status", "input": map[string]any{"operation_id": operationID}}}})))
+		if completed["status"] == "completed" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if completed["status"] != "completed" || completed["task"].(map[string]any)["status"] != model.TaskAuthoringPlanned {
+		t.Fatalf("generic task/create worker did not complete: %#v", completed)
+	}
+	withProject := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "task/create", "input": map[string]any{"project_id": "example", "title": "Rejected project field", "objective": "The session owns project authority.", "adr_relation": model.TaskADRNoRequired, "created_by": "planner"}}}})))
 	if withProject["is_error"] != true {
 		t.Fatalf("session-bound task/create accepted caller project_id: %#v", withProject)
 	}

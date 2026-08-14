@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/activation"
@@ -35,16 +36,20 @@ type Service struct {
 	gateExecutorWithProjectCommands func(context.Context, string, []string, model.ProjectGateCommands, string) ([]model.CompletionGateResult, error)
 	taskActivator                   func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
 	runtimeSourceProver             func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
+	taskCreateWorkerOnce            sync.Once
+	taskCreateMu                    sync.Mutex
+	taskCreateWake                  chan string
 }
 
 func New(c config.Config) *Service {
 	executor := gates.NewExecutor()
-	return &Service{
-		Config:     c,
-		ConfigPath: config.DefaultPath(),
-		Hub:        hub.Store{Config: c},
-		Git:        gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems},
-		Airelay:    airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: 256},
+	s := &Service{
+		Config:         c,
+		ConfigPath:     config.DefaultPath(),
+		Hub:            hub.Store{Config: c},
+		Git:            gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems},
+		Airelay:        airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: 256},
+		taskCreateWake: make(chan string, 32),
 		gateExecutor: func(ctx context.Context, root string, names []string) ([]model.CompletionGateResult, error) {
 			return executor.Execute(ctx, root, names)
 		},
@@ -71,6 +76,8 @@ func New(c config.Config) *Service {
 			}, nil
 		},
 	}
+	s.startTaskCreateWorker()
+	return s
 }
 
 type TaskActivationResult struct {
