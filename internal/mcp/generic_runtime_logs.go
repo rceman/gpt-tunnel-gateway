@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
+	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 func (s *Server) ensureRuntimeLogActions() {
@@ -45,6 +48,38 @@ func (s *Server) ensureRuntimeLogActions() {
 				return s.Service.RuntimeLogs(ctx, input)
 			},
 		})
+		if s.runtimeLogActionErr == nil {
+			s.runtimeLogActionErr = s.RegisterGenericAction(GenericAction{
+				Path:        "runtime/restart",
+				Description: "Recover the Gateway daemon from its stable configured working directory without restarting Tunnel.",
+				InputSchema: obj(map[string]any{
+					"operation_id": func() map[string]any {
+						value := str("Optional bounded retry identity for this Gateway recovery operation.")
+						value["maxLength"] = runtime_log.MaxIdentifierBytes
+						return value
+					}(),
+				}),
+				OutputSchema: closedOutput(map[string]any{
+					"operation_id": outputString(), "old_pid": outputInteger(), "new_pid": outputInteger(),
+					"tunnel_pid": outputInteger(), "gateway_ready": outputBoolean(), "outcome": outputString(),
+				}, "operation_id", "old_pid", "new_pid", "tunnel_pid", "gateway_ready", "outcome"),
+				Annotations: ToolAnnotations{
+					DestructiveHint: true,
+					IdempotentHint:  true,
+				},
+				Authority:     authority.RequireDelivery,
+				AuthorityRole: durableSession.RoleDelivery,
+				Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+					var input struct {
+						OperationID string `json:"operation_id"`
+					}
+					if err := decode(raw, &input); err != nil {
+						return nil, err
+					}
+					return controller.Controller{Config: s.Service.Config, ConfigPath: s.Service.ConfigPath}.RestartGatewayRecovery(input.OperationID)
+				},
+			})
+		}
 	})
 	if s.runtimeLogActionErr != nil {
 		panic(s.runtimeLogActionErr)

@@ -1,14 +1,9 @@
 package controller
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
-	"time"
-
-	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 )
 
 func copyExecutable(src, dst string) error {
@@ -44,48 +39,8 @@ func copyExecutable(src, dst string) error {
 	return os.Rename(tmp, dst)
 }
 func (c Controller) RestartGateway() error {
-	c.processEvent("gateway", c.Config.Controller.GatewayBinary, "info", "restart_requested", 0, "gateway restart requested", nil)
-	lock, err := lockfile.Acquire(c.Config.Controller.PIDDir, "controller")
-	if err != nil {
-		return err
-	}
-	defer lock.Release()
-	expected, _ := filepath.EvalSymlinks(c.Config.Controller.GatewayBinary)
-	running := c.process("gateway", expected)
-	backup := ""
-	if running.Running {
-		backup = filepath.Join(c.Config.Controller.PIDDir, fmt.Sprintf("gateway.rollback.%d", running.PID))
-		if err := copyExecutable(filepath.Join("/proc", strconv.Itoa(running.PID), "exe"), backup); err != nil {
-			return fmt.Errorf("snapshot running gateway: %w", err)
-		}
-		defer os.Remove(backup)
-	}
-	if err := c.stopProcess("gateway", c.Config.Controller.GatewayBinary); err != nil {
-		return err
-	}
-	startErr := c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath})
-	if startErr == nil {
-		startErr = waitURL(c.gatewayReadyURL(), true, 30*time.Second)
-	}
-	if startErr == nil {
-		c.processEvent("gateway", c.Config.Controller.GatewayBinary, "info", "process_ready", c.process("gateway", c.Config.Controller.GatewayBinary).PID, "gateway ready after restart", nil)
-		return nil
-	}
-	_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
-	if backup == "" {
-		return startErr
-	}
-	if err := copyExecutable(backup, c.Config.Controller.GatewayBinary); err != nil {
-		return fmt.Errorf("gateway restart failed (%v); rollback restore failed: %w", startErr, err)
-	}
-	if err := c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath}); err != nil {
-		return fmt.Errorf("gateway restart failed (%v); rollback start failed: %w", startErr, err)
-	}
-	if err := waitURL(c.gatewayReadyURL(), true, 30*time.Second); err != nil {
-		return fmt.Errorf("gateway restart failed (%v); rollback readiness failed: %w", startErr, err)
-	}
-	c.processEvent("gateway", c.Config.Controller.GatewayBinary, "warn", "process_ready", c.process("gateway", c.Config.Controller.GatewayBinary).PID, "gateway ready after rollback", nil)
-	return fmt.Errorf("gateway restart failed and previous executable was restored: %w", startErr)
+	_, err := c.RestartGatewayRecovery("")
+	return err
 }
 
 // RestartGatewayAfterUpgrade stops the exact gateway recorded by the controller

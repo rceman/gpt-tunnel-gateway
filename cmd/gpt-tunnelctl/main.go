@@ -58,7 +58,11 @@ func main() {
 	case "restart":
 		err = ctl.Restart()
 	case "restart-gateway":
-		err = ctl.RestartGateway()
+		var result controller.GatewayRecoveryResult
+		result, err = ctl.RestartGatewayRecovery("")
+		if err == nil {
+			output(result)
+		}
 	case "status":
 		var st controller.Status
 		st, err = ctl.Status(ctx)

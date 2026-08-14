@@ -37,6 +37,14 @@ func (c Controller) startProcess(name, binary string, args, env []string) error 
 	}
 	defer log.Close()
 	cmd := exec.Command(binary, args...)
+	if name == "gateway" {
+		workingDir, err := c.gatewayWorkingDir()
+		if err != nil {
+			c.processEvent(name, binary, "error", "process_start_failed", 0, "stable gateway working directory unavailable", err)
+			return err
+		}
+		cmd.Dir = workingDir
+	}
 	cmd.Env = processEnv(env)
 	cmd.Stdin = nil
 	cmd.Stdout = log
@@ -65,6 +73,17 @@ func (c Controller) startProcess(name, binary string, args, env []string) error 
 	}
 	c.processEvent(name, binary, "info", "process_started", cmd.Process.Pid, "process started", nil)
 	return nil
+}
+
+func (c Controller) gatewayWorkingDir() (string, error) {
+	if c.Config.StateDir == "" || !filepath.IsAbs(c.Config.StateDir) {
+		return "", fmt.Errorf("gateway state directory must be an absolute path")
+	}
+	path := filepath.Join(c.Config.StateDir, "gateway-runtime")
+	if err := fsutil.EnsureDir(path, 0o700); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 func (c Controller) stopProcess(name, expected string) error {
 	c.processEvent(name, expected, "info", "shutdown_requested", 0, "process shutdown requested", nil)
