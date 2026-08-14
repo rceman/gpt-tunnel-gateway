@@ -11,6 +11,24 @@ import (
 
 const testBinary = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo %s; fi\n"
 
+func TestBinarySourceRevisionRequiresExactEmbeddedSHA(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "binary")
+	writeExecutable(t, path, []byte("#!/bin/sh\nif [ \"$1\" = \"--source-sha\" ]; then printf '27ce3ba4d9a27bc469501337618db9d7b351da6f\\n'; fi\n"))
+
+	got, modified, err := BinarySourceRevision(path)
+	if err != nil || modified || got != "27ce3ba4d9a27bc469501337618db9d7b351da6f" {
+		t.Fatalf("source revision = %q, modified=%v, err=%v", got, modified, err)
+	}
+}
+
+func TestBinarySourceRevisionRejectsMissingMarker(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "binary")
+	writeExecutable(t, path, []byte("#!/bin/sh\nexit 0\n"))
+	if _, _, err := BinarySourceRevision(path); err == nil {
+		t.Fatal("missing source marker was accepted")
+	}
+}
+
 func TestReplaceAllReplacesEveryControlBinary(t *testing.T) {
 	release, install := t.TempDir(), t.TempDir()
 	paths := Paths(filepath.Join(install, "gpt-tunnel-gatewayd"))

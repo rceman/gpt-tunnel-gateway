@@ -12,6 +12,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/mcp"
+	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
@@ -20,7 +21,12 @@ var version = "0.6.11"
 func main() {
 	configPath := flag.String("config", config.DefaultPath(), "configuration file")
 	showVersion := flag.Bool("version", false, "print version")
+	showSourceSHA := flag.Bool("source-sha", false, "print the exact source revision embedded by the release builder")
 	flag.Parse()
+	if *showSourceSHA {
+		fmt.Println(releaseartifacts.BuildSourceRevision)
+		return
+	}
 	if *showVersion {
 		fmt.Println(version)
 		return

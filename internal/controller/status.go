@@ -43,12 +43,12 @@ func installedVersion(path string) string {
 	return strings.TrimSpace(string(out))
 }
 func runningVersion(ctx context.Context, readyURL, gatewayID string) string {
-	return runningVersionProbe(ctx, readyURL, gatewayID, "status")
+	return runningVersionProbe(ctx, readyURL, gatewayID)
 }
 
-func runningVersionProbe(ctx context.Context, readyURL, gatewayID, toolName string) string {
+func runningVersionProbe(ctx context.Context, readyURL, gatewayID string) string {
 	endpoint := strings.TrimSuffix(readyURL, "/readyz") + "/mcp"
-	payload := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": toolName, "arguments": map[string]any{}}}
+	payload := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return ""
@@ -68,20 +68,19 @@ func runningVersionProbe(ctx context.Context, readyURL, gatewayID, toolName stri
 	}
 	var envelope struct {
 		Result struct {
-			IsError           bool `json:"isError"`
-			StructuredContent struct {
+			ServerInfo struct {
 				Version   string `json:"version"`
 				GatewayID string `json:"gateway_id"`
-			} `json:"structuredContent"`
+			} `json:"serverInfo"`
 		} `json:"result"`
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&envelope); err != nil || envelope.Result.IsError {
+	if err := json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&envelope); err != nil {
 		return ""
 	}
-	if gatewayID != "" && envelope.Result.StructuredContent.GatewayID != gatewayID {
+	if gatewayID != "" && envelope.Result.ServerInfo.GatewayID != gatewayID {
 		return ""
 	}
-	return envelope.Result.StructuredContent.Version
+	return envelope.Result.ServerInfo.Version
 }
 func checkURL(ctx context.Context, url string) bool {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

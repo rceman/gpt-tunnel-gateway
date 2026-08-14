@@ -21,8 +21,7 @@ func TestBoundedOutputIsDeterministicAndLimited(t *testing.T) {
 	}
 }
 
-func TestLiveMCPSmokeUsesCanonicalStatusTool(t *testing.T) {
-	var toolName string
+func TestLiveMCPSmokeUsesCanonicalToolManifest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Method string         `json:"method"`
@@ -36,12 +35,12 @@ func TestLiveMCPSmokeUsesCanonicalStatusTool(t *testing.T) {
 		switch request.Method {
 		case "initialize":
 			response["result"] = map[string]any{"serverInfo": map[string]any{"version": "0.6.11"}}
-		case "tools/call":
-			toolName, _ = request.Params["name"].(string)
-			if toolName == "system_ping" {
-				response["error"] = map[string]any{"message": "legacy MCP alias is not supported"}
-				delete(response, "result")
+		case "tools/list":
+			tools := make([]any, 0, len(canonicalRuntimeTools))
+			for _, name := range canonicalRuntimeTools {
+				tools = append(tools, map[string]any{"name": name})
 			}
+			response["result"] = map[string]any{"tools": tools}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(response)
@@ -51,9 +50,6 @@ func TestLiveMCPSmokeUsesCanonicalStatusTool(t *testing.T) {
 	c := config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://")}
 	if err := liveMCPSmoke(context.Background(), c, "0.6.11"); err != nil {
 		t.Fatalf("live MCP smoke failed: %v", err)
-	}
-	if toolName != "status" {
-		t.Fatalf("live MCP smoke called %q, want canonical status", toolName)
 	}
 }
 

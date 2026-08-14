@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,6 +21,8 @@ import (
 )
 
 const OutputLimit = 1 << 20
+
+var canonicalRuntimeTools = []string{"batch", "call", "schema", "session_start", "session_update"}
 
 type Result struct {
 	SourceHead string `json:"source_head"`
@@ -256,11 +259,35 @@ func liveMCPSmoke(ctx context.Context, c config.Config, expectedVersion string) 
 	if !ok || serverInfo["version"] != expectedVersion {
 		return fmt.Errorf("MCP source/version proof failed")
 	}
-	if _, err := call(2, "tools/list", map[string]any{}); err != nil {
+	list, err := call(2, "tools/list", map[string]any{})
+	if err != nil {
 		return err
 	}
-	if _, err := call(3, "tools/call", map[string]any{"name": "status", "arguments": map[string]any{}}); err != nil {
-		return err
+	listResult, ok := list["result"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("MCP tools/list result missing")
+	}
+	rawTools, ok := listResult["tools"].([]any)
+	if !ok {
+		return fmt.Errorf("MCP tools/list tools missing")
+	}
+	got := make([]string, 0, len(rawTools))
+	for _, rawTool := range rawTools {
+		tool, ok := rawTool.(map[string]any)
+		if !ok {
+			return fmt.Errorf("MCP tools/list contains an invalid tool")
+		}
+		name, ok := tool["name"].(string)
+		if !ok || name == "" {
+			return fmt.Errorf("MCP tools/list contains a tool without a name")
+		}
+		got = append(got, name)
+	}
+	sort.Strings(got)
+	want := append([]string(nil), canonicalRuntimeTools...)
+	sort.Strings(want)
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		return fmt.Errorf("MCP public tool manifest mismatch")
 	}
 	return nil
 }

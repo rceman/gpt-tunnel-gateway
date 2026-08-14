@@ -85,7 +85,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.write(w, response{
 			JSONRPC: "2.0",
 			ID:      req.ID,
-			Result:  map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "gpt-tunnel-gatewayd", "version": "0.6.11"}},
+			Result:  map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": "gpt-tunnel-gatewayd", "version": "0.6.11", "gateway_id": s.Service.Config.GatewayID}},
 		})
 	case "notifications/initialized":
 		w.WriteHeader(http.StatusAccepted)

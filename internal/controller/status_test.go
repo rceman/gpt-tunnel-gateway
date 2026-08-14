@@ -8,18 +8,19 @@ import (
 	"testing"
 )
 
-func TestRunningVersionUsesCanonicalStatusTool(t *testing.T) {
-	var toolName string
+func TestRunningVersionUsesServerOwnedInitialize(t *testing.T) {
+	var method string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
+			Method string         `json:"method"`
 			Params map[string]any `json:"params"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Errorf("decode MCP request: %v", err)
 			return
 		}
-		toolName, _ = request.Params["name"].(string)
-		if toolName == "system_ping" {
+		method = request.Method
+		if method != "initialize" {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -28,7 +29,7 @@ func TestRunningVersionUsesCanonicalStatusTool(t *testing.T) {
 			"jsonrpc": "2.0",
 			"id":      1,
 			"result": map[string]any{
-				"structuredContent": map[string]any{"version": "0.6.11", "gateway_id": "gateway"},
+				"serverInfo": map[string]any{"version": "0.6.11", "gateway_id": "gateway"},
 			},
 		})
 	}))
@@ -38,7 +39,7 @@ func TestRunningVersionUsesCanonicalStatusTool(t *testing.T) {
 	if got != "0.6.11" {
 		t.Fatalf("runningVersion = %q, want 0.6.11", got)
 	}
-	if toolName != "status" {
-		t.Fatalf("runningVersion called %q, want canonical status", toolName)
+	if method != "initialize" {
+		t.Fatalf("runningVersion used %q, want server-owned initialize", method)
 	}
 }

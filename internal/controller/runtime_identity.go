@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"debug/buildinfo"
 	"path/filepath"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
@@ -11,7 +10,7 @@ import (
 var (
 	runtimeHashFile       = releaseartifacts.HashFile
 	runtimeBinaryVersion  = releaseartifacts.BinaryVersion
-	runtimeSourceRevision = binarySourceRevision
+	runtimeSourceRevision = releaseartifacts.BinarySourceRevision
 )
 
 func (c Controller) RuntimeIdentity(ctx context.Context) RuntimeIdentity {
@@ -29,7 +28,7 @@ func (c Controller) RuntimeIdentity(ctx context.Context) RuntimeIdentity {
 		InstalledArtifactVersions: map[string]string{},
 	}
 	if identity.GatewayReady {
-		identity.RunningVersion = runningVersionProbe(ctx, c.gatewayReadyURL(), c.Config.GatewayID, "system_ping")
+		identity.RunningVersion = runningVersion(ctx, c.gatewayReadyURL(), c.Config.GatewayID)
 	}
 	identity.VersionMatch = identity.InstalledVersion != "" && identity.RunningVersion != "" && identity.InstalledVersion == identity.RunningVersion
 	identity.collectArtifacts(gateway, c.Config.Controller.GatewayBinary)
@@ -79,24 +78,6 @@ func (i *RuntimeIdentity) collectArtifacts(gateway ProcessStatus, gatewayBinary 
 	if i.RunningExecutableSHA256 == "" && gateway.Running {
 		i.ProvenanceReason = "running executable hash unavailable"
 	}
-}
-
-func binarySourceRevision(path string) (string, bool, error) {
-	info, err := buildinfo.ReadFile(path)
-	if err != nil {
-		return "", false, err
-	}
-	var revision string
-	modified := false
-	for _, setting := range info.Settings {
-		switch setting.Key {
-		case "vcs.revision":
-			revision = setting.Value
-		case "vcs.modified":
-			modified = setting.Value == "true"
-		}
-	}
-	return revision, modified, nil
 }
 
 func allEqualMapValues(values map[string]string) bool {

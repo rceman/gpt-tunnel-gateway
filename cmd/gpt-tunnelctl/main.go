@@ -14,6 +14,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
+	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	"github.com/rceman/gpt-tunnel-gateway/internal/upgrade"
 )
@@ -26,6 +27,10 @@ func main() {
 	}
 	if os.Args[1] == "version" || os.Args[1] == "--version" {
 		fmt.Println(version)
+		return
+	}
+	if os.Args[1] == "--source-sha" {
+		fmt.Println(releaseartifacts.BuildSourceRevision)
 		return
 	}
 	if os.Args[1] == "install" {

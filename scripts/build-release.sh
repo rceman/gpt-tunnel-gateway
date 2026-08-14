@@ -19,8 +19,18 @@ mkdir -p "$parent"
 stage="$(mktemp -d "$parent/.${name}.stage.XXXXXX")"
 cleanup() { rm -rf -- "$stage"; }
 trap cleanup EXIT
+source_sha="$(git -C "$root" rev-parse --verify HEAD^{commit})"
+if [[ ! "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "source HEAD is not an exact Git commit" >&2
+  exit 1
+fi
+if [[ -n "$(git -C "$root" status --porcelain --untracked-files=all)" ]]; then
+  echo "release build requires a clean source worktree" >&2
+  exit 1
+fi
+ldflags="-s -w -X github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts.BuildSourceRevision=$source_sha"
 for cmd in gpt-tunnel gpt-tunnel-gatewayd gpt-tunnelctl; do
-  go build -trimpath -ldflags "-s -w" -o "$stage/$cmd" "$root/cmd/$cmd"
+  go build -trimpath -ldflags "$ldflags" -o "$stage/$cmd" "$root/cmd/$cmd"
 done
 (
   cd "$stage"

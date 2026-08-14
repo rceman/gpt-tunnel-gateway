@@ -15,6 +15,13 @@ import (
 
 var BinaryNames = []string{"gpt-tunnel-gatewayd", "gpt-tunnel", "gpt-tunnelctl"}
 
+// BuildSourceRevision is embedded into every control binary by the canonical
+// release builder. It is deliberately exposed through the binaries' bounded
+// --source-sha probe rather than inferred from an MCP tool name.
+var BuildSourceRevision = "unknown"
+
+var sourceRevisionRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
 func Paths(gateway string) map[string]string {
 	dir := filepath.Dir(gateway)
 	return map[string]string{
@@ -158,6 +165,18 @@ func HashFile(path string) (string, error) {
 func BinaryVersion(path string) (string, error) {
 	out, err := exec.Command(path, "--version").Output()
 	return strings.TrimSpace(string(out)), err
+}
+
+func BinarySourceRevision(path string) (string, bool, error) {
+	out, err := exec.Command(path, "--source-sha").Output()
+	if err != nil {
+		return "", false, err
+	}
+	revision := strings.TrimSpace(string(out))
+	if !sourceRevisionRE.MatchString(revision) {
+		return "", false, fmt.Errorf("invalid embedded source revision")
+	}
+	return revision, false, nil
 }
 
 func stage(src, dst string) (string, error) {

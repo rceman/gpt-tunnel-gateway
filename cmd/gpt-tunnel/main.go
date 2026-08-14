@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
@@ -20,6 +21,10 @@ func main() {
 	}
 	if os.Args[1] == "version" || os.Args[1] == "--version" {
 		fmt.Println(version)
+		return
+	}
+	if os.Args[1] == "--source-sha" {
+		fmt.Println(releaseartifacts.BuildSourceRevision)
 		return
 	}
 	c, err := config.Load("")
