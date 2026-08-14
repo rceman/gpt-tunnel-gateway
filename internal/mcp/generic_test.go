@@ -72,9 +72,25 @@ func TestQueryRunUsesSharedReadOnlyDSLAndSchemaDiscovery(t *testing.T) {
 	if _, ok := result["action"]; ok || result["is_error"] == true || queryResult["entity"] != "task" {
 		t.Fatalf("query/run failed: %#v", result)
 	}
+	runContract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "query/run"}}})))
+	if runContract["kind"] != "action" || runContract["path"] != "query/run" {
+		t.Fatalf("query/run action was not discoverable: %#v", runContract)
+	}
+	runDefinition := runContract["contract"].(map[string]any)
+	if runDefinition["path"] != "query/run" || runDefinition["annotations"].(map[string]any)["readOnlyHint"] != true {
+		t.Fatalf("query/run contract is not read-only: %#v", runDefinition)
+	}
 	contract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "query/task"}}})))
 	if contract["kind"] != "query_entity" || contract["contract"].(map[string]any)["entity"] != "task" {
 		t.Fatalf("query schema=%#v", contract)
+	}
+	invalidSchema := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "query/missing"}}}))
+	if !strings.Contains(string(mustJSON(t, invalidSchema)), "query schema path") || !strings.Contains(string(mustJSON(t, invalidSchema)), "query/missing") {
+		t.Fatalf("invalid query entity was accepted: %#v", invalidSchema)
+	}
+	ordinary := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "task/read"}}})))
+	if ordinary["kind"] != "action" || ordinary["path"] != "task/read" {
+		t.Fatalf("ordinary action schema lookup failed: %#v", ordinary)
 	}
 	invalid := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "query/run", "input": map[string]any{"dsl": "task.read()"}}}}))
 	if !strings.Contains(string(mustJSON(t, invalid)), "query must begin") {

@@ -14,6 +14,13 @@ func (s *Server) genericSchema(legacy map[string]Tool, raw json.RawMessage) (any
 	if err := decode(raw, &input); err != nil {
 		return nil, err
 	}
+	entries := s.genericActionRegistry(legacy)
+	if entry, ok := entries[input.Path]; ok {
+		return map[string]any{
+			"revision": genericSchemaRevision, "path": input.Path, "kind": "action",
+			"domains": []string{}, "actions": []map[string]any{}, "contract": genericActionContract(entry),
+		}, nil
+	}
 	if input.Path == "query" || strings.HasPrefix(input.Path, "query/") {
 		contract, err := querySchema(input.Path)
 		if err != nil {
@@ -25,7 +32,6 @@ func (s *Server) genericSchema(legacy map[string]Tool, raw json.RawMessage) (any
 		}
 		return map[string]any{"revision": genericSchemaRevision, "path": input.Path, "kind": kind, "domains": []string{}, "actions": []map[string]any{}, "contract": contract}, nil
 	}
-	entries := s.genericActionRegistry(legacy)
 	result := map[string]any{
 		"revision": genericSchemaRevision, "path": input.Path, "kind": "root",
 		"domains": []string{}, "actions": []map[string]any{}, "contract": map[string]any{},
@@ -38,11 +44,6 @@ func (s *Server) genericSchema(legacy map[string]Tool, raw json.RawMessage) (any
 			}
 		}
 		result["domains"] = sortedKeys(domains)
-		return result, nil
-	}
-	if entry, ok := entries[input.Path]; ok {
-		result["kind"] = "action"
-		result["contract"] = genericActionContract(entry)
 		return result, nil
 	}
 	actions := make([]map[string]any, 0)
