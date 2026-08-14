@@ -56,3 +56,31 @@ func TestAgentActionsAreGenericDiscoverableAndInvokable(t *testing.T) {
 		t.Fatal("agent/read unexpectedly succeeded for an unknown project")
 	}
 }
+
+func TestAgentPromptOutputSchemaKeepsSuccessCompact(t *testing.T) {
+	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
+	entry := server.genericActionRegistry(server.tools())["agent/prompt"]
+	if err := validateSchemaValue(entry.OutputSchema, map[string]any{
+		"project_id": "example",
+		"delivered":  true,
+	}, "result"); err != nil {
+		t.Fatalf("compact success rejected: %v", err)
+	}
+	for _, field := range []string{"started_at", "finished_at", "exit_code", "stdout", "stderr"} {
+		result := map[string]any{"project_id": "example", "delivered": true, field: "unexpected"}
+		if field == "exit_code" {
+			result[field] = float64(0)
+		}
+		if err := validateSchemaValue(entry.OutputSchema, result, "result"); err == nil {
+			t.Fatalf("success schema accepted retired field %s", field)
+		}
+	}
+	if err := validateSchemaValue(entry.OutputSchema, map[string]any{
+		"project_id": "example",
+		"delivered":  false,
+		"exit_code":  float64(7),
+		"stderr":     "delivery failed",
+	}, "result"); err != nil {
+		t.Fatalf("bounded failure rejected: %v", err)
+	}
+}

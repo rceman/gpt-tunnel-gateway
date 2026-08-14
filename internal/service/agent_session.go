@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
 )
 
 const ()
@@ -23,6 +25,17 @@ type AgentSendResult struct {
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at"`
 	Error      string    `json:"error,omitempty"`
+}
+
+// AgentPromptResult is the compact public result for the generic agent/prompt
+// action. The verbose AgentSendResult remains an internal receipt for typed
+// callers that need execution details.
+type AgentPromptResult struct {
+	ProjectID string `json:"project_id"`
+	Delivered bool   `json:"delivered"`
+	ExitCode  int    `json:"exit_code,omitempty"`
+	Stderr    string `json:"stderr,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 type AgentStatusResult struct {
@@ -94,8 +107,54 @@ func (s *Service) AgentSend(ctx context.Context, projectID, message string) (Age
 // AgentPrompt is the canonical non-interrupting steering operation. It uses
 // the normal Airelay prompt primitive for both idle and working sessions; no
 // interrupt, PTY input, or process-control operation is reachable here.
-func (s *Service) AgentPrompt(ctx context.Context, projectID, message string) (AgentSendResult, error) {
-	return s.AgentSend(ctx, projectID, message)
+func (s *Service) AgentPrompt(ctx context.Context, projectID, message string) (AgentPromptResult, error) {
+	receipt, sendErr := s.AgentSend(ctx, projectID, message)
+	if receipt.Delivered && receipt.Stderr != "" {
+		s.recordAgentPromptWarning(ctx, projectID, receipt.Stderr)
+	}
+	return compactAgentPromptResult(projectID, receipt, sendErr), nil
+}
+
+func compactAgentPromptResult(projectID string, receipt AgentSendResult, sendErr error) AgentPromptResult {
+	result := AgentPromptResult{
+		ProjectID: projectID,
+		Delivered: receipt.Delivered,
+	}
+	if receipt.ExitCode != 0 {
+		result.ExitCode = receipt.ExitCode
+	}
+	if !receipt.Delivered && receipt.Stderr != "" {
+		result.Stderr = boundedPromptDiagnostic(receipt.Stderr)
+	}
+	if sendErr != nil {
+		result.Error = boundedPromptDiagnostic(sendErr.Error())
+	} else if receipt.Error != "" {
+		result.Error = boundedPromptDiagnostic(receipt.Error)
+	}
+	return result
+}
+
+func boundedPromptDiagnostic(value string) string {
+	value = runtime_log.SanitizeText(value)
+	return strings.TrimSpace(value)
+}
+
+func (s *Service) recordAgentPromptWarning(ctx context.Context, projectID, warning string) {
+	if s.Config.StateDir == "" {
+		return
+	}
+	_ = runtime_log.New(s.Config.StateDir).Append(runtime_log.Event{
+		Timestamp:   time.Now().UTC(),
+		Level:       "warn",
+		Component:   "agent",
+		Event:       "agent_prompt_warning",
+		Action:      "agent/prompt",
+		RequestID:   runtime_log.RequestID(ctx),
+		OperationID: runtime_log.OperationID(ctx),
+		ProjectID:   projectID,
+		Message:     "Airelay prompt completed with warning",
+		Error:       runtime_log.SanitizeText(warning),
+	})
 }
 
 func (s *Service) AgentStatus(ctx context.Context, projectID string) (AgentStatusResult, error) {

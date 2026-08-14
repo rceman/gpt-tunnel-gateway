@@ -38,6 +38,24 @@ func agentObjectOutputSchema() map[string]any {
 	return map[string]any{"type": "object", "additionalProperties": true}
 }
 
+func agentPromptOutputSchema() map[string]any {
+	return map[string]any{
+		"oneOf": []any{
+			closedOutput(map[string]any{
+				"project_id": outputString(),
+				"delivered":  map[string]any{"type": "boolean", "const": true},
+			}, "project_id", "delivered"),
+			closedOutput(map[string]any{
+				"project_id": outputString(),
+				"delivered":  map[string]any{"type": "boolean", "const": false},
+				"exit_code":  outputInteger(),
+				"stderr":     outputString(),
+				"error":      outputString(),
+			}, "project_id", "delivered"),
+		},
+	}
+}
+
 func (s *Server) registerAgentActions() error {
 	register := func(action GenericAction) error {
 		return s.RegisterGenericAction(action)
@@ -49,7 +67,7 @@ func (s *Server) registerAgentActions() error {
 			"project_id": str("Registered project identifier."),
 			"message":    boundedAgentMessageSchema(),
 		}, "project_id", "message"),
-		OutputSchema: agentObjectOutputSchema(),
+		OutputSchema: agentPromptOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  false,

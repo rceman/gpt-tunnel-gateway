@@ -51,6 +51,12 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	if sendResult["is_error"] != false || sendResult["result"].(map[string]any)["delivered"] != true {
 		t.Fatalf("send failed: %#v", send)
 	}
+	sendPayload := sendResult["result"].(map[string]any)
+	for _, field := range []string{"started_at", "finished_at", "exit_code", "stdout", "stderr"} {
+		if _, ok := sendPayload[field]; ok {
+			t.Fatalf("agent/prompt success exposed %s: %#v", field, sendPayload)
+		}
+	}
 
 	tail := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"lines": 4}}}}))
 	tailResult := genericStructured(t, tail)
