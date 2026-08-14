@@ -51,6 +51,33 @@ func sessionCall(t *testing.T, server *Server, args map[string]any) map[string]a
 	return callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "session", "arguments": args}}))
 }
 
+func TestSessionInputSchemaAdvertisesCanonicalActionsAndIDs(t *testing.T) {
+	schema := sessionInputSchema()
+	variants, ok := schema["oneOf"].([]any)
+	if !ok || len(variants) != 5 {
+		t.Fatalf("session schema variants=%#v", schema["oneOf"])
+	}
+	wantActions := map[string]bool{"start": true, "list": true, "info": true, "update": true, "end": true}
+	for _, raw := range variants {
+		variant := raw.(map[string]any)
+		properties := variant["properties"].(map[string]any)
+		action := properties["action"].(map[string]any)["const"].(string)
+		if !wantActions[action] {
+			t.Fatalf("unexpected session action variant %q", action)
+		}
+		delete(wantActions, action)
+		if action == "info" || action == "update" || action == "end" {
+			idSchema := properties["session_id"].(map[string]any)
+			if idSchema["pattern"] != `^(?:S|SP|SD|SA|SW)-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$` {
+				t.Fatalf("%s session ID pattern=%v", action, idSchema["pattern"])
+			}
+		}
+	}
+	if len(wantActions) != 0 {
+		t.Fatalf("missing session actions: %#v", wantActions)
+	}
+}
+
 func TestSessionLifecyclePersistsAndBindsProjectRole(t *testing.T) {
 	server := newSessionTestServer(t)
 	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "delivery", "session_type": "chatgpt", "label": "main"}))
