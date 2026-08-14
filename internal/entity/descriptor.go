@@ -24,6 +24,12 @@ type Descriptor struct {
 	Suffix       string
 	ProjectScope bool
 	Order        string
+	Fields       []string
+	Default      []string
+	Searchable   []string
+	Filterable   []string
+	Sortable     []string
+	Operators    []string
 }
 
 var descriptorTable = map[Family]Descriptor{
@@ -34,6 +40,9 @@ var descriptorTable = map[Family]Descriptor{
 		Suffix:       ".json",
 		ProjectScope: true,
 		Order:        "id_asc",
+		Fields:       []string{"id", "project_id", "title", "status", "operation_class", "created_at", "updated_at"},
+		Default:      []string{"id", "title", "status"}, Searchable: []string{"id", "title", "status", "operation_class"},
+		Filterable: []string{"id", "status", "operation_class"}, Sortable: []string{"id", "created_at", "updated_at", "status"}, Operators: []string{"=", "in", "contains"},
 	},
 	ADRFamily: {
 		Family:       ADRFamily,
@@ -42,6 +51,9 @@ var descriptorTable = map[Family]Descriptor{
 		Suffix:       ".json",
 		ProjectScope: true,
 		Order:        "id_asc",
+		Fields:       []string{"id", "project_id", "title", "status", "created_at", "updated_at"},
+		Default:      []string{"id", "title", "status"}, Searchable: []string{"id", "title", "status"},
+		Filterable: []string{"id", "status"}, Sortable: []string{"id", "created_at", "updated_at", "status"}, Operators: []string{"=", "in", "contains"},
 	},
 	RuleFamily: {
 		Family:       RuleFamily,
@@ -50,6 +62,9 @@ var descriptorTable = map[Family]Descriptor{
 		Suffix:       ".json",
 		ProjectScope: true,
 		Order:        "id_asc",
+		Fields:       []string{"id", "project_id", "name", "description", "enabled", "created_at", "updated_at"},
+		Default:      []string{"id", "name", "enabled"}, Searchable: []string{"id", "name", "description"},
+		Filterable: []string{"id", "enabled"}, Sortable: []string{"id", "created_at", "updated_at", "name"}, Operators: []string{"=", "in", "contains"},
 	},
 	MessageFamily: {
 		Family:       MessageFamily,
@@ -58,6 +73,9 @@ var descriptorTable = map[Family]Descriptor{
 		Suffix:       ".json",
 		ProjectScope: true,
 		Order:        "id_asc",
+		Fields:       []string{"id", "project_id", "role", "content", "session_id", "created_at"},
+		Default:      []string{"id", "role", "created_at"}, Searchable: []string{"id", "role", "content"},
+		Filterable: []string{"id", "role", "session_id"}, Sortable: []string{"id", "created_at", "role"}, Operators: []string{"=", "in", "contains"},
 	},
 	TrainFamily: {
 		Family:       TrainFamily,
@@ -66,6 +84,9 @@ var descriptorTable = map[Family]Descriptor{
 		Suffix:       ".json",
 		ProjectScope: true,
 		Order:        "id_asc",
+		Fields:       []string{"id", "project_id", "status", "revision", "created_at", "updated_at"},
+		Default:      []string{"id", "status", "revision"}, Searchable: []string{"id", "status"},
+		Filterable: []string{"id", "status"}, Sortable: []string{"id", "created_at", "updated_at", "revision", "status"}, Operators: []string{"=", "in"},
 	},
 	JournalFamily: {
 		Family:       JournalFamily,
@@ -74,6 +95,9 @@ var descriptorTable = map[Family]Descriptor{
 		Suffix:       ".json",
 		ProjectScope: true,
 		Order:        "id_asc",
+		Fields:       []string{"id", "project_id", "kind", "summary", "actor", "session_id", "occurred_at", "recorded_at"},
+		Default:      []string{"id", "kind", "summary", "recorded_at"}, Searchable: []string{"id", "kind", "summary", "actor"},
+		Filterable: []string{"id", "kind", "actor", "session_id"}, Sortable: []string{"id", "occurred_at", "recorded_at", "kind"}, Operators: []string{"=", "in", "contains"},
 	},
 }
 

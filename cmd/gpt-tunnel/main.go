@@ -49,12 +49,14 @@ func main() {
 		operator(ctx, s, args)
 	case "git":
 		gitcmd(ctx, s, args)
+	case "query":
+		query(ctx, s, args)
 	default:
 		usage()
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {format|check|test|project|plan|adr|task|agent|watcher|operator|git} [args]")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {format|check|test|project|plan|adr|task|agent|watcher|operator|git|query} [args]")
 	fmt.Fprintln(os.Stderr, "new operational IDs: CODE-TSK<N>, CODE-TSK<N>-RUN<M>, CODE-ADR<N>, CODE-OPR<N>")
 	fmt.Fprintln(os.Stderr, "task create --file requires slug; branch and base_revision are derived by the gateway")
 	fmt.Fprintln(os.Stderr, "pre-cutover IDs remain read-only history and are not accepted by operational mutations")

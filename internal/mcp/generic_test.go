@@ -63,6 +63,25 @@ func TestGenericSessionStartIsDiscoverableAndCreatesPlannerSession(t *testing.T)
 	}
 }
 
+func TestQueryRunUsesSharedReadOnlyDSLAndSchemaDiscovery(t *testing.T) {
+	server := newSessionTestServer(t)
+	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT}))
+	sessionID := started["session"].(map[string]any)["session_id"].(string)
+	result := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "query/run", "input": map[string]any{"dsl": "task.list().select(id,status).limit(2)"}}}})))
+	queryResult := result["result"].(map[string]any)
+	if result["action"] != "query/run" || result["is_error"] == true || queryResult["entity"] != "task" {
+		t.Fatalf("query/run failed: %#v", result)
+	}
+	contract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "query/task"}}})))
+	if contract["kind"] != "query_entity" || contract["contract"].(map[string]any)["entity"] != "task" {
+		t.Fatalf("query schema=%#v", contract)
+	}
+	invalid := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "query/run", "input": map[string]any{"dsl": "task.read()"}}}}))
+	if !strings.Contains(string(mustJSON(t, invalid)), "query must begin") {
+		t.Fatalf("exact-read query was not rejected: %#v", invalid)
+	}
+}
+
 func TestGenericTransportSchemasAreCompactAndApplicationIndependent(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
 	tools := server.tools()

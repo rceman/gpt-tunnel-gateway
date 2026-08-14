@@ -167,6 +167,9 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		}
 		entries[path] = entry
 	}
+	if _, exists := entries["query/run"]; !exists {
+		entries["query/run"] = queryGenericAction(s)
+	}
 	for path, entry := range entries {
 		if !strings.HasPrefix(path, "project/") && !strings.HasPrefix(path, "runtime/") && (sessionBoundActionPath(path) || schemaHasProperty(entry.InputSchema, "project_id")) {
 			entry.SessionBound = true
