@@ -20,14 +20,41 @@ type ProcessStatus struct {
 	IdentityReason     string `json:"identity_reason,omitempty"`
 	StartTimeTicks     uint64 `json:"start_time_ticks,omitempty"`
 }
+
+// RuntimeIdentity is the server-owned, read-only proof used by CLI and MCP
+// status surfaces. It contains the running Gateway identity, the complete
+// installed control artifact set, and optional build provenance without
+// accepting caller-selected PIDs or paths.
+type RuntimeIdentity struct {
+	GatewayPID                   int               `json:"gateway_pid,omitempty"`
+	RunningExecutablePath        string            `json:"running_executable_path,omitempty"`
+	RunningExecutableSHA256      string            `json:"running_executable_sha256,omitempty"`
+	InstalledGatewaySHA256       string            `json:"installed_gateway_sha256,omitempty"`
+	InstalledCLISHA256           string            `json:"installed_cli_sha256,omitempty"`
+	InstalledCTLSHA256           string            `json:"installed_ctl_sha256,omitempty"`
+	InstalledArtifactVersions    map[string]string `json:"installed_artifact_versions,omitempty"`
+	ArtifactSetCoherent          bool              `json:"artifact_set_coherent"`
+	RunningGatewayMatchesInstall bool              `json:"running_gateway_matches_installed"`
+	InstalledVersion             string            `json:"installed_version,omitempty"`
+	RunningVersion               string            `json:"running_version,omitempty"`
+	VersionMatch                 bool              `json:"version_match"`
+	GatewayReady                 bool              `json:"gateway_ready"`
+	TunnelPID                    int               `json:"tunnel_pid,omitempty"`
+	TunnelReady                  bool              `json:"tunnel_ready"`
+	SourceSHA                    string            `json:"source_sha,omitempty"`
+	SourceProvenanceAvailable    bool              `json:"source_provenance_available"`
+	ExactSourceMatch             bool              `json:"exact_source_match"`
+	ProvenanceReason             string            `json:"provenance_reason,omitempty"`
+}
 type Status struct {
-	Gateway          ProcessStatus `json:"gateway"`
-	Tunnel           ProcessStatus `json:"tunnel"`
-	GatewayReady     bool          `json:"gateway_ready"`
-	TunnelReady      bool          `json:"tunnel_ready"`
-	InstalledVersion string        `json:"installed_version,omitempty"`
-	RunningVersion   string        `json:"running_version,omitempty"`
-	VersionMatch     bool          `json:"version_match"`
+	Gateway          ProcessStatus   `json:"gateway"`
+	Tunnel           ProcessStatus   `json:"tunnel"`
+	GatewayReady     bool            `json:"gateway_ready"`
+	TunnelReady      bool            `json:"tunnel_ready"`
+	InstalledVersion string          `json:"installed_version,omitempty"`
+	RunningVersion   string          `json:"running_version,omitempty"`
+	VersionMatch     bool            `json:"version_match"`
+	RuntimeIdentity  RuntimeIdentity `json:"runtime_identity"`
 }
 
 type GatewayStartupDiagnostics struct {

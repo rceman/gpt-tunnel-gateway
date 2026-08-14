@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
@@ -47,6 +48,13 @@ func addMCP7BootstrapTools(add func(string, string, map[string]any, func(context
 		base, ok := baseValue.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("system status handler returned an invalid object")
+		}
+		runtime := controller.Controller{Config: s.Service.Config, ConfigPath: s.Service.ConfigPath}.RuntimeIdentity(ctx)
+		base["runtime_identity"] = runtime
+		if runtime.RunningVersion != "" {
+			base["version"] = runtime.RunningVersion
+		} else if runtime.InstalledVersion != "" {
+			base["version"] = runtime.InstalledVersion
 		}
 		var input struct {
 			SessionID string `json:"session_id"`

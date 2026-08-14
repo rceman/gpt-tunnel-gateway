@@ -18,20 +18,22 @@ func (c Controller) tunnelReadyURL() string {
 	return "http://" + c.Config.Controller.TunnelHealthListenAddr + "/readyz"
 }
 func (c Controller) Status(ctx context.Context) (Status, error) {
-	gatewayExpected, _ := filepath.EvalSymlinks(c.Config.Controller.GatewayBinary)
-	tunnelExpected, _ := filepath.EvalSymlinks(c.Config.Controller.TunnelClientBinary)
-	s := Status{
-		Gateway: c.process("gateway", gatewayExpected),
-		Tunnel:  c.process("tunnel", tunnelExpected),
-	}
-	s.GatewayReady = checkURL(ctx, c.gatewayReadyURL())
-	s.TunnelReady = checkURL(ctx, c.tunnelReadyURL())
-	s.InstalledVersion = installedVersion(c.Config.Controller.GatewayBinary)
-	if s.GatewayReady {
-		s.RunningVersion = runningVersion(ctx, c.gatewayReadyURL(), c.Config.GatewayID)
-	}
-	s.VersionMatch = s.InstalledVersion != "" && s.RunningVersion != "" && s.InstalledVersion == s.RunningVersion
-	return s, nil
+	identity := c.RuntimeIdentity(ctx)
+	return Status{
+		Gateway:          c.process("gateway", mustEval(c.Config.Controller.GatewayBinary)),
+		Tunnel:           c.process("tunnel", mustEval(c.Config.Controller.TunnelClientBinary)),
+		GatewayReady:     identity.GatewayReady,
+		TunnelReady:      identity.TunnelReady,
+		InstalledVersion: identity.InstalledVersion,
+		RunningVersion:   identity.RunningVersion,
+		VersionMatch:     identity.VersionMatch,
+		RuntimeIdentity:  identity,
+	}, nil
+}
+
+func mustEval(path string) string {
+	resolved, _ := filepath.EvalSymlinks(path)
+	return resolved
 }
 func installedVersion(path string) string {
 	out, err := exec.Command(path, "--version").Output()
@@ -41,8 +43,12 @@ func installedVersion(path string) string {
 	return strings.TrimSpace(string(out))
 }
 func runningVersion(ctx context.Context, readyURL, gatewayID string) string {
+	return runningVersionProbe(ctx, readyURL, gatewayID, "status")
+}
+
+func runningVersionProbe(ctx context.Context, readyURL, gatewayID, toolName string) string {
 	endpoint := strings.TrimSuffix(readyURL, "/readyz") + "/mcp"
-	payload := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "status", "arguments": map[string]any{}}}
+	payload := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": toolName, "arguments": map[string]any{}}}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return ""

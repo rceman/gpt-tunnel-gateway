@@ -12,6 +12,19 @@ func projectStatusOutputSchema() map[string]any {
 	}, "project", "local", "worktree", "plan", "hub_revision", "progress", "workflow_policy", "project_configuration")
 }
 
+func runtimeIdentityOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"gateway_pid": outputInteger(), "running_executable_path": outputString(), "running_executable_sha256": outputString(),
+		"installed_gateway_sha256": outputString(), "installed_cli_sha256": outputString(), "installed_ctl_sha256": outputString(),
+		"installed_artifact_versions": map[string]any{"type": "object", "additionalProperties": outputString()},
+		"artifact_set_coherent":       outputBoolean(), "running_gateway_matches_installed": outputBoolean(),
+		"installed_version": outputString(), "running_version": outputString(), "version_match": outputBoolean(),
+		"gateway_ready": outputBoolean(), "tunnel_pid": outputInteger(), "tunnel_ready": outputBoolean(),
+		"source_sha": outputString(), "source_provenance_available": outputBoolean(), "exact_source_match": outputBoolean(),
+		"provenance_reason": outputString(),
+	}, "artifact_set_coherent", "running_gateway_matches_installed", "version_match", "gateway_ready", "tunnel_ready", "source_provenance_available", "exact_source_match")
+}
+
 func coreToolOutputSchemas() map[string]map[string]any {
 	return map[string]map[string]any{
 		"call":   genericCallOutputSchema(),
@@ -19,8 +32,8 @@ func coreToolOutputSchemas() map[string]map[string]any {
 		"batch":  genericBatchOutputSchema(),
 		"status": closedOutput(map[string]any{
 			"service": outputString(), "version": outputString(), "gateway_id": outputString(), "time": outputDateTime(),
-			"project_status": projectStatusOutputSchema(),
-		}, "service", "version", "gateway_id", "time"),
+			"project_status": projectStatusOutputSchema(), "runtime_identity": runtimeIdentityOutputSchema(),
+		}, "service", "version", "gateway_id", "time", "runtime_identity"),
 		"rules":   workflowPolicyOutputSchema(),
 		"project": genericCallOutputSchema(),
 		"session": sessionOutputSchema(),

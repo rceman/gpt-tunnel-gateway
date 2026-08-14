@@ -66,6 +66,9 @@ func TestMCP7SessionlessBootstrapAndSessionBoundTransport(t *testing.T) {
 	if ping["gateway_id"] != "test_gateway" {
 		t.Fatalf("sessionless ping failed: %#v", ping)
 	}
+	if runtime, ok := ping["runtime_identity"].(map[string]any); !ok || runtime["artifact_set_coherent"] == nil || runtime["running_gateway_matches_installed"] == nil {
+		t.Fatalf("sessionless status omitted server-owned runtime identity: %#v", ping)
+	}
 	if err := validateOutputValue(toolOutputSchemas["status"], ping); err != nil {
 		t.Fatalf("sessionless status violated its output schema: %v", err)
 	}
