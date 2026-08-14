@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
@@ -174,7 +175,7 @@ func (s *Service) reuseFinalizedTask(ctx context.Context, projectID, taskID stri
 	}
 	for _, train := range trains.Trains {
 		for _, item := range train.Items {
-			if item.TaskID != taskID || item.Status != model.TrainV2ItemFinalized || item.SuccessfulAttemptNumber == 0 || item.Proof == nil {
+			if item.TaskID != taskID || item.Status != model.TrainV2ItemFinalized || item.SuccessfulAttemptNumber == 0 {
 				continue
 			}
 			path := trainV2AttemptReportPath(projectID, train.ID, item.Position, item.SuccessfulAttemptNumber)
@@ -182,13 +183,135 @@ func (s *Service) reuseFinalizedTask(ctx context.Context, projectID, taskID stri
 			if err := s.Hub.ReadJSON(ctx, path, &report); err != nil {
 				return TrainV2AttemptFinalizeResult{}, false, err
 			}
-			if err := model.ValidateTrainV2AttemptReport(report); err != nil || report.TaskID != taskID || report.Repository.Head != item.Proof.CheckpointHead {
+			if item.Proof == nil {
+				recovered, err := s.recoverFinalizedTaskProof(ctx, projectID, train, item, report, path)
+				if err != nil {
+					return TrainV2AttemptFinalizeResult{}, false, err
+				}
+				return TrainV2AttemptFinalizeResult{Report: recovered}, true, nil
+			}
+			if err := validateStoredTrainItemProof(report, train, item, path, taskID); err != nil {
 				return TrainV2AttemptFinalizeResult{}, false, fmt.Errorf("stored Task checkpoint proof is invalid")
 			}
 			return TrainV2AttemptFinalizeResult{Report: report}, true, nil
 		}
 	}
 	return TrainV2AttemptFinalizeResult{}, false, nil
+}
+
+func validateProofRecoveryReport(report model.TrainV2AttemptReport, projectID string, train model.TrainV2, item model.TrainV2Item, path string) error {
+	if err := model.ValidateTrainV2AttemptReport(report); err != nil {
+		return err
+	}
+	if report.ProjectID != projectID || report.TrainID != train.ID || report.TaskID != item.TaskID || report.ItemPosition != item.Position || report.AttemptNumber != item.SuccessfulAttemptNumber || report.Status != "succeeded" {
+		return fmt.Errorf("Attempt report identity or status mismatch")
+	}
+	if item.SuccessfulAttemptNumber == 0 || item.SuccessfulAttemptNumber > uint64(len(item.Attempts)) || item.Attempts[item.SuccessfulAttemptNumber-1].Status != model.TrainV2AttemptSucceeded {
+		return fmt.Errorf("successful Attempt is not the exact finalized item Attempt")
+	}
+	if report.Repository.Branch == "" || model.ValidateBranch(report.Repository.Branch) != nil || !report.Repository.WorktreeClean || !report.Repository.BaseAncestor || report.Repository.DiffScope == "" || model.ValidateCommitSHA(report.Repository.Head) != nil {
+		return fmt.Errorf("Attempt report repository proof is invalid")
+	}
+	if len(report.ServerGateResults) == 0 {
+		return fmt.Errorf("Attempt report is missing server-owned gate evidence")
+	}
+	if err := model.ValidateServerGateEvidence(report.ServerGateResults); err != nil {
+		return err
+	}
+	for _, gate := range report.ServerGateResults {
+		if gate.ExitCode != 0 {
+			return fmt.Errorf("Attempt report contains failed server gate %s", gate.ID)
+		}
+	}
+	if path == "" {
+		return fmt.Errorf("Attempt report path is required")
+	}
+	return nil
+}
+
+func validateStoredTrainItemProof(report model.TrainV2AttemptReport, train model.TrainV2, item model.TrainV2Item, path, taskID string) error {
+	if err := validateProofRecoveryReport(report, train.ProjectID, train, item, path); err != nil || report.TaskID != taskID || item.Proof == nil {
+		return fmt.Errorf("invalid stored Attempt proof report")
+	}
+	if item.Proof.ReportID != path || item.Proof.CheckpointHead != report.Repository.Head || item.Proof.ImplementationSHA != report.Repository.Head || !reflect.DeepEqual(item.Proof.GateResults, report.ServerGateResults) {
+		return fmt.Errorf("stored implementation proof does not match Attempt report")
+	}
+	return nil
+}
+
+func (s *Service) recoverFinalizedTaskProof(ctx context.Context, projectID string, train model.TrainV2, item model.TrainV2Item, report model.TrainV2AttemptReport, reportPath string) (model.TrainV2AttemptReport, error) {
+	if err := validateProofRecoveryReport(report, projectID, train, item, reportPath); err != nil {
+		return model.TrainV2AttemptReport{}, fmt.Errorf("proof recovery rejected: %w", err)
+	}
+	project, err := s.projectConfig(projectID)
+	if err != nil {
+		return model.TrainV2AttemptReport{}, err
+	}
+	startPath := hub.ProtocolRoot + "/projects/" + projectID + "/train-v2-starts/" + train.ID + ".json"
+	var start model.TrainV2StartRecord
+	if err := s.Hub.ReadJSON(ctx, startPath, &start); err != nil {
+		return model.TrainV2AttemptReport{}, fmt.Errorf("proof recovery start record: %w", err)
+	}
+	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, projectID, train.ID)
+	if err != nil {
+		return model.TrainV2AttemptReport{}, fmt.Errorf("proof recovery runtime: %w", err)
+	}
+	project.Root = runtime.WorktreePath
+	head, branch, clean, err := s.Git.CurrentHead(ctx, project)
+	if err != nil {
+		return model.TrainV2AttemptReport{}, err
+	}
+	if !clean || branch != start.LaneBranch || branch != report.Repository.Branch {
+		return model.TrainV2AttemptReport{}, fmt.Errorf("proof recovery lane identity is invalid")
+	}
+	ancestor, err := s.Git.IsAncestor(ctx, project.Root, report.Repository.Head, head)
+	if err != nil {
+		return model.TrainV2AttemptReport{}, fmt.Errorf("proof recovery checkpoint lookup: %w", err)
+	}
+	if !ancestor {
+		return model.TrainV2AttemptReport{}, fmt.Errorf("proof recovery checkpoint is not an ancestor of the current lane head")
+	}
+	expected, err := s.hubRevision(ctx)
+	if err != nil {
+		return model.TrainV2AttemptReport{}, err
+	}
+	proof := model.TrainV2ImplementationProof{CheckpointHead: report.Repository.Head, ImplementationSHA: report.Repository.Head, ReportID: reportPath, GateResults: append([]model.CompletionGateResult{}, report.ServerGateResults...), RecordedAt: report.FinishedAt}
+	_, err = s.Hub.Transact(ctx, expected, "gateway: recover Train Attempt implementation proof", func(worktree string) ([]string, error) {
+		var latest model.TrainV2
+		if err := readWorktreeJSON(worktree, s.trainV2Path(projectID, train.ID), &latest); err != nil {
+			return nil, err
+		}
+		if latest.Revision != train.Revision || item.Position >= len(latest.Items) {
+			return nil, fmt.Errorf("Train changed before proof recovery")
+		}
+		latestItem := latest.Items[item.Position]
+		if latestItem.TaskID != item.TaskID || latestItem.Status != model.TrainV2ItemFinalized || latestItem.SuccessfulAttemptNumber != item.SuccessfulAttemptNumber || latestItem.Proof != nil {
+			return nil, fmt.Errorf("Train Attempt proof recovery identity changed")
+		}
+		var latestReport model.TrainV2AttemptReport
+		if err := readWorktreeJSON(worktree, reportPath, &latestReport); err != nil {
+			return nil, err
+		}
+		if err := validateProofRecoveryReport(latestReport, projectID, latest, latestItem, reportPath); err != nil || !reflect.DeepEqual(latestReport, report) {
+			return nil, fmt.Errorf("Attempt report changed before proof recovery")
+		}
+		latestItem.Proof = &proof
+		latest.Items[item.Position] = latestItem
+		latest.Revision++
+		latest.UpdatedAt = time.Now().UTC()
+		if err := model.ValidateTrainV2(latest); err != nil {
+			return nil, err
+		}
+		trainPath := s.trainV2Path(projectID, train.ID)
+		if err := hub.WriteJSON(worktree, trainPath, latest); err != nil {
+			return nil, err
+		}
+		return []string{trainPath}, nil
+	})
+	if err != nil {
+		return model.TrainV2AttemptReport{}, err
+	}
+	return report, nil
 }
 
 func (s *Service) advanceFinalizedTask(ctx context.Context, projectID, taskID string, result TrainV2AttemptFinalizeResult) (TrainV2AttemptFinalizeResult, error) {
@@ -251,9 +374,42 @@ func (s *Service) closeoutTrain(ctx context.Context, projectID string, train mod
 	if !clean || branch != start.LaneBranch {
 		return model.TrainV2{}, fmt.Errorf("Train closeout requires a clean bound worktree")
 	}
+	for _, item := range train.Items {
+		if item.Status != model.TrainV2ItemFinalized || item.Proof != nil {
+			continue
+		}
+		if item.SuccessfulAttemptNumber == 0 || item.SuccessfulAttemptNumber > uint64(len(item.Attempts)) {
+			return model.TrainV2{}, fmt.Errorf("Train closeout cannot recover an item without a successful Attempt")
+		}
+		reportPath := trainV2AttemptReportPath(projectID, train.ID, item.Position, item.SuccessfulAttemptNumber)
+		var report model.TrainV2AttemptReport
+		if err := s.Hub.ReadJSON(ctx, reportPath, &report); err != nil {
+			return model.TrainV2{}, err
+		}
+		if _, err := s.recoverFinalizedTaskProof(ctx, projectID, train, item, report, reportPath); err != nil {
+			return model.TrainV2{}, err
+		}
+		train, err = s.TrainV2Read(ctx, projectID, train.ID)
+		if err != nil {
+			return model.TrainV2{}, err
+		}
+	}
 	if train.FullProof != nil {
 		if train.FullProof.CandidateHead != head {
 			return model.TrainV2{}, fmt.Errorf("Train closeout proof invalidated by exact-head drift")
+		}
+		for _, item := range train.Items {
+			if item.Status != model.TrainV2ItemFinalized || item.SuccessfulAttemptNumber == 0 || item.Proof == nil || item.SuccessfulAttemptNumber > uint64(len(item.Attempts)) {
+				return model.TrainV2{}, fmt.Errorf("Train closeout requires every finalized item to have proof")
+			}
+			reportPath := trainV2AttemptReportPath(projectID, train.ID, item.Position, item.SuccessfulAttemptNumber)
+			var report model.TrainV2AttemptReport
+			if err := s.Hub.ReadJSON(ctx, reportPath, &report); err != nil {
+				return model.TrainV2{}, err
+			}
+			if err := validateStoredTrainItemProof(report, train, item, reportPath, item.TaskID); err != nil {
+				return model.TrainV2{}, err
+			}
 		}
 		return train, nil
 	}
@@ -261,7 +417,18 @@ func (s *Service) closeoutTrain(ctx context.Context, projectID string, train mod
 		if item.Status != model.TrainV2ItemFinalized || item.SuccessfulAttemptNumber == 0 || item.SuccessfulAttemptNumber > uint64(len(item.Attempts)) || item.Attempts[item.SuccessfulAttemptNumber-1].Status != model.TrainV2AttemptSucceeded {
 			return model.TrainV2{}, fmt.Errorf("Train closeout requires every item to have a successful Attempt")
 		}
-		if i == len(train.Items)-1 && (item.Proof == nil || item.Proof.ImplementationSHA != head) {
+		if item.Proof == nil {
+			return model.TrainV2{}, fmt.Errorf("Train closeout requires every finalized item to have proof")
+		}
+		reportPath := trainV2AttemptReportPath(projectID, train.ID, item.Position, item.SuccessfulAttemptNumber)
+		var report model.TrainV2AttemptReport
+		if err := s.Hub.ReadJSON(ctx, reportPath, &report); err != nil {
+			return model.TrainV2{}, err
+		}
+		if err := validateStoredTrainItemProof(report, train, item, reportPath, item.TaskID); err != nil {
+			return model.TrainV2{}, err
+		}
+		if i == len(train.Items)-1 && item.Proof.ImplementationSHA != head {
 			return model.TrainV2{}, fmt.Errorf("Train closeout requires the final item proof to compose the exact lane head")
 		}
 	}
