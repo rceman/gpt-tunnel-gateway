@@ -12,18 +12,22 @@ import (
 )
 
 type dispatchReceipt struct {
-	TrainID       string    `json:"train_id"`
-	ItemPosition  int       `json:"item_position"`
-	TaskID        string    `json:"task_id"`
-	AttemptNumber uint64    `json:"attempt_number"`
-	SessionKey    string    `json:"session_key"`
-	PacketPath    string    `json:"packet_path"`
-	WorktreePath  string    `json:"worktree_path"`
-	Message       string    `json:"message"`
-	ExitCode      int       `json:"exit_code"`
-	Stdout        string    `json:"stdout,omitempty"`
-	Stderr        string    `json:"stderr,omitempty"`
-	FinishedAt    time.Time `json:"finished_at"`
+	TrainID            string    `json:"train_id"`
+	ItemPosition       int       `json:"item_position"`
+	TaskID             string    `json:"task_id"`
+	TaskRevision       int       `json:"task_revision"`
+	TaskRevisionSHA256 string    `json:"task_revision_sha256"`
+	AttemptNumber      uint64    `json:"attempt_number"`
+	AgentID            string    `json:"agent_id"`
+	SessionKey         string    `json:"session_key"`
+	StartHead          string    `json:"start_head"`
+	PacketPath         string    `json:"packet_path"`
+	WorktreePath       string    `json:"worktree_path"`
+	Message            string    `json:"message"`
+	ExitCode           int       `json:"exit_code"`
+	Stdout             string    `json:"stdout,omitempty"`
+	Stderr             string    `json:"stderr,omitempty"`
+	FinishedAt         time.Time `json:"finished_at"`
 }
 
 func PacketDispatchMessage(packet AgentTaskPacket) string {
@@ -64,25 +68,39 @@ func dispatchAttempt(ctx context.Context, deps StartDependencies, train model.Tr
 			finishedAt = time.Now().UTC()
 		}
 		receipt = dispatchReceipt{
-			TrainID:       train.ID,
-			ItemPosition:  item.Position,
-			TaskID:        item.TaskID,
-			AttemptNumber: attempt.Number,
-			SessionKey:    attempt.AirelaySessionKey,
-			PacketPath:    packet.Path,
-			WorktreePath:  packet.WorktreePath,
-			Message:       message,
-			ExitCode:      dispatch.ExitCode,
-			Stdout:        dispatch.Stdout,
-			Stderr:        dispatch.Stderr,
-			FinishedAt:    finishedAt,
+			TrainID:            train.ID,
+			ItemPosition:       item.Position,
+			TaskID:             item.TaskID,
+			TaskRevision:       item.TaskRevision,
+			TaskRevisionSHA256: item.TaskRevisionSHA256,
+			AttemptNumber:      attempt.Number,
+			AgentID:            attempt.AgentID,
+			SessionKey:         attempt.AirelaySessionKey,
+			StartHead:          attempt.StartHead,
+			PacketPath:         packet.Path,
+			WorktreePath:       packet.WorktreePath,
+			Message:            message,
+			ExitCode:           dispatch.ExitCode,
+			Stdout:             dispatch.Stdout,
+			Stderr:             dispatch.Stderr,
+			FinishedAt:         finishedAt,
 		}
 		if err := fsutil.WriteJSONAtomic(receiptPath, receipt, 0o600); err != nil {
 			return fmt.Errorf("persist durable Train dispatch receipt: %w", err)
 		}
 	}
-	if receipt.TrainID != train.ID || receipt.ItemPosition != item.Position || receipt.TaskID != item.TaskID || receipt.AttemptNumber != attempt.Number || receipt.SessionKey != attempt.AirelaySessionKey || receipt.PacketPath != packet.Path || receipt.WorktreePath != packet.WorktreePath || receipt.Message != message || receipt.FinishedAt.IsZero() {
-		return fmt.Errorf("durable Train dispatch receipt does not match the Attempt")
+	if !dispatchReceiptMatchesAttempt(receipt, train, item, attempt, packet, message) {
+		reused, err := reconcileDispatchReceipt(receipt, train, item, attempt)
+		if err != nil {
+			return err
+		}
+		if reused {
+			return nil
+		}
+		if err := os.Remove(receiptPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("retire stale Train dispatch receipt: %w", err)
+		}
+		return dispatchAttempt(ctx, deps, train, item, attempt, runtime, expected)
 	}
 	if expected == "" {
 		var err error
@@ -125,6 +143,35 @@ func dispatchAttempt(ctx context.Context, deps StartDependencies, train model.Tr
 		_ = os.Remove(receiptPath)
 	}
 	return err
+}
+
+func dispatchReceiptMatchesAttempt(receipt dispatchReceipt, train model.TrainV2, item model.TrainV2Item, attempt model.TrainV2Attempt, packet AgentTaskPacket, message string) bool {
+	return receipt.TrainID == train.ID && receipt.ItemPosition == item.Position && receipt.TaskID == item.TaskID && receipt.TaskRevision == item.TaskRevision && receipt.TaskRevisionSHA256 == item.TaskRevisionSHA256 && receipt.AttemptNumber == attempt.Number && receipt.AgentID == attempt.AgentID && receipt.SessionKey == attempt.AirelaySessionKey && receipt.StartHead == attempt.StartHead && receipt.PacketPath == packet.Path && receipt.WorktreePath == packet.WorktreePath && receipt.Message == message && !receipt.FinishedAt.IsZero()
+}
+
+func reconcileDispatchReceipt(receipt dispatchReceipt, train model.TrainV2, currentItem model.TrainV2Item, currentAttempt model.TrainV2Attempt) (bool, error) {
+	if receipt.TrainID != train.ID || receipt.ItemPosition < 0 || receipt.ItemPosition >= len(train.Items) {
+		return false, fmt.Errorf("durable Train dispatch receipt does not match the Train")
+	}
+	owner := train.Items[receipt.ItemPosition]
+	if owner.TaskID != receipt.TaskID || receipt.AttemptNumber == 0 || receipt.AttemptNumber > uint64(len(owner.Attempts)) {
+		return false, fmt.Errorf("durable Train dispatch receipt does not match an authoritative Attempt")
+	}
+	ownerAttempt := owner.Attempts[receipt.AttemptNumber-1]
+	legacy := receipt.AgentID == "" && receipt.StartHead == "" && receipt.TaskRevision == 0 && receipt.TaskRevisionSHA256 == ""
+	if ownerAttempt.AirelaySessionKey != receipt.SessionKey || (!legacy && (ownerAttempt.AgentID != receipt.AgentID || ownerAttempt.StartHead != receipt.StartHead || owner.TaskRevision != receipt.TaskRevision || owner.TaskRevisionSHA256 != receipt.TaskRevisionSHA256)) {
+		return false, fmt.Errorf("durable Train dispatch receipt execution identity does not match the Attempt")
+	}
+	if owner.Position == currentItem.Position && ownerAttempt.Number == currentAttempt.Number {
+		if ownerAttempt.DispatchedAt != nil {
+			return true, nil
+		}
+		return false, fmt.Errorf("durable Train dispatch receipt does not match the current Attempt")
+	}
+	if ownerAttempt.Status != model.TrainV2AttemptSucceeded && ownerAttempt.Status != model.TrainV2AttemptFailed && ownerAttempt.Status != model.TrainV2AttemptAborted && ownerAttempt.Status != model.TrainV2AttemptRecovered {
+		return false, fmt.Errorf("durable Train dispatch receipt belongs to a non-terminal Attempt")
+	}
+	return false, nil
 }
 
 // DispatchAttempt resumes or delivers an already-persisted TrainItem Attempt.
