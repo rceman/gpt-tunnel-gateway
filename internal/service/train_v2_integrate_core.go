@@ -183,13 +183,23 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 			Status:    operation.Phase,
 		}, fmt.Errorf("Train integration operation recovery_required")
 	}
-	preHook := operation.PreResult
+	preHook := integrationHookResult{Evidence: operation.PreResult}
+	if operation.PreResult != "" {
+		parse := parseIntegrationHookEvidence
+		if len(configuration.Integration.Pre.Command) != 0 {
+			parse = parseConfiguredIntegrationHookEvidence
+		}
+		preHook, err = parse(operation.PreResult, laneHead)
+		if err != nil {
+			return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("invalid persisted pre-integration hook evidence: %w", err)
+		}
+	}
 	if operation.Phase == trainv2.IntegrationPhasePrePending {
-		preHook, err = runIntegrationHook(ctx, configuration.Integration.Pre, lane.Root)
+		preHook, err = runIntegrationHook(ctx, configuration.Integration.Pre, lane.Root, laneHead)
 		if err != nil {
 			return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("pre-integration hook failed: %w", err)
 		}
-		operation, err = s.advanceIntegrationOperation(ctx, operation, trainv2.IntegrationPhasePreComplete, preHook)
+		operation, err = s.advanceIntegrationOperation(ctx, operation, trainv2.IntegrationPhasePreComplete, preHook.Evidence)
 		if err != nil {
 			return trainv2.IntegrationReceipt{}, OperationResult{}, err
 		}
@@ -229,23 +239,37 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 			return trainv2.IntegrationReceipt{}, OperationResult{}, err
 		}
 	}
-	postHook := operation.PostResult
+	postHook := integrationHookResult{Evidence: operation.PostResult}
+	if operation.PostResult != "" {
+		parse := parseIntegrationHookEvidence
+		if len(configuration.Integration.Post.Command) != 0 {
+			parse = parseConfiguredIntegrationHookEvidence
+		}
+		postHook, err = parse(operation.PostResult, laneHead)
+		if err != nil {
+			return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("invalid persisted post-integration hook evidence: %w", err)
+		}
+	}
 	if operation.Phase == trainv2.IntegrationPhasePostPending {
-		postHook, err = runIntegrationHook(ctx, configuration.Integration.Post, project.Root)
+		postHook, err = runIntegrationHook(ctx, configuration.Integration.Post, lane.Root, laneHead)
 		if err != nil {
 			return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("post-integration hook failed: %w", err)
 		}
 	}
+	runtimeHead := laneHead
+	if len(configuration.Integration.Post.Command) != 0 {
+		runtimeHead = postHook.SourceHead
+	}
 	now := time.Now().UTC()
-	receipt := trainv2.IntegrationReceipt{SchemaVersion: 1, ProjectID: in.ProjectID, TrainID: in.TrainID, BaseRevision: start.BaseRevision, LaneHead: laneHead, TargetBefore: targetBefore, IntegrationHead: laneHead, RuntimeHead: laneHead, ProofCandidate: train.FullProof.CandidateHead, PreActivation: preHook, PreSmoke: preHook, PostActivation: postHook, PostSmoke: postHook, Status: "completed", NextAction: "complete", UpdatedAt: now}
+	receipt := trainv2.IntegrationReceipt{SchemaVersion: 1, ProjectID: in.ProjectID, TrainID: in.TrainID, BaseRevision: start.BaseRevision, LaneHead: laneHead, TargetBefore: targetBefore, IntegrationHead: laneHead, RuntimeHead: runtimeHead, ProofCandidate: train.FullProof.CandidateHead, PreActivation: preHook.Evidence, PreSmoke: preHook.Evidence, PostActivation: postHook.Evidence, PostSmoke: postHook.Evidence, Status: "completed", NextAction: "complete", UpdatedAt: now}
 	if err := trainv2.ValidateIntegrationReceipt(receipt); err != nil {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, err
 	}
-	completed, operationResult, err := s.completeTrainV2Integration(ctx, in, train.Revision, laneHead, TaskActivationResult{SourceHead: laneHead}, receipt, project, start.LaneBranch)
+	completed, operationResult, err := s.completeTrainV2Integration(ctx, in, train.Revision, laneHead, TaskActivationResult{SourceHead: runtimeHead}, receipt, project, start.LaneBranch)
 	if err != nil {
 		return completed, operationResult, err
 	}
-	if _, err := s.advanceIntegrationOperation(ctx, operation, trainv2.IntegrationPhaseCompleted, postHook); err != nil {
+	if _, err := s.advanceIntegrationOperation(ctx, operation, trainv2.IntegrationPhaseCompleted, postHook.Evidence); err != nil {
 		return completed, operationResult, err
 	}
 	return completed, operationResult, nil
