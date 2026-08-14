@@ -22,7 +22,7 @@ func activeTrainAttemptInWorktree(worktree, projectID string) (bool, error) {
 		return false, err
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+		if entry.IsDir() || !canonicalTrainV2RecordName(entry.Name()) {
 			continue
 		}
 		var train model.TrainV2
@@ -56,6 +56,9 @@ func (s *Service) projectHasActiveTrainAttempt(ctx context.Context, projectID st
 		return false, err
 	}
 	for _, path := range paths {
+		if !canonicalTrainV2RecordName(filepath.Base(path)) {
+			continue
+		}
 		var train model.TrainV2
 		if err := s.Hub.ReadJSON(ctx, path, &train); err != nil {
 			return false, err

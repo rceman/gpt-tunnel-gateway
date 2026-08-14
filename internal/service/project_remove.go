@@ -239,6 +239,9 @@ func (s *Service) rejectActiveTrains(ctx context.Context, projectID string) erro
 		return fmt.Errorf("inspect project Train authority: %w", err)
 	}
 	for _, path := range paths {
+		if !canonicalTrainV2RecordName(filepath.Base(path)) {
+			continue
+		}
 		var train model.TrainV2
 		if err := s.Hub.ReadJSON(ctx, path, &train); err != nil {
 			return fmt.Errorf("inspect project Train authority: %w", err)
@@ -270,7 +273,7 @@ func activeTrainInHubWorktree(worktree, projectID string) error {
 		return fmt.Errorf("inspect project Train authority in transaction: %w", err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+		if entry.IsDir() || !canonicalTrainV2RecordName(entry.Name()) {
 			continue
 		}
 		var train model.TrainV2

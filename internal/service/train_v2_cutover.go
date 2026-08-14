@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -171,6 +172,9 @@ func (s *Service) readTrainV2Records(ctx context.Context, projectID string) ([]m
 	}
 	trains := make([]model.TrainV2, 0, len(paths))
 	for _, path := range paths {
+		if !canonicalTrainV2RecordName(filepath.Base(path)) {
+			continue
+		}
 		var train model.TrainV2
 		if err := s.Hub.ReadJSON(ctx, path, &train); err != nil {
 			return nil, err
