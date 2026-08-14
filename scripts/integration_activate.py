@@ -32,6 +32,38 @@ def status(ctl: str, root: Path) -> dict:
     return json.loads(run([ctl, "status"], root))
 
 
+def healthy_exact_runtime(ctl: str, root: Path, artifact_hashes: dict[str, str]) -> dict | None:
+    current = status(ctl, root)
+    gateway = current.get("gateway", {})
+    if (
+        not current.get("gateway_ready")
+        or not current.get("tunnel_ready")
+        or not current.get("version_match")
+        or not gateway.get("running")
+        or not gateway.get("identity_valid")
+    ):
+        return None
+    executable = gateway.get("executable")
+    if not isinstance(executable, str):
+        return None
+    try:
+        if sha256(Path(executable)) != artifact_hashes["gpt-tunnel-gatewayd"]:
+            return None
+        installed = {
+            name: sha256(Path.home() / ".local" / "bin" / name) for name in ARTIFACTS
+        }
+    except (FileNotFoundError, OSError):
+        return None
+    if installed != artifact_hashes:
+        return None
+    state = json.loads(run([ctl, "state", "check"], root))
+    if state.get("valid") is not True:
+        return None
+    if run([ctl, "doctor"], root).strip() != "doctor: ok":
+        return None
+    return current
+
+
 def activate(phase: str) -> None:
     root = Path.cwd()
     source_sha = run(["git", "rev-parse", "HEAD"], root).strip()
@@ -54,25 +86,29 @@ def activate(phase: str) -> None:
         run(["bash", "scripts/build-release.sh", str(dist)], root)
         artifact_hashes = {name: sha256(dist / name) for name in ARTIFACTS}
         run(["sha256sum", "-c", "SHA256SUMS"], dist)
-        run(
-            [
-                ctl,
-                "install",
-                "--gateway-bin",
-                str(dist / "gpt-tunnel-gatewayd"),
-                "--cli-bin",
-                str(dist / "gpt-tunnel"),
-                "--ctl-bin",
-                str(dist / "gpt-tunnelctl"),
-            ],
-            root,
-        )
-        installed = {name: sha256(Path.home() / ".local" / "bin" / name) for name in ARTIFACTS}
-        if installed != artifact_hashes:
-            raise RuntimeError("installed control binaries are not a coherent artifact set")
+        after = healthy_exact_runtime(ctl, root, artifact_hashes)
+        restarted = False
+        if after is None:
+            run(
+                [
+                    ctl,
+                    "install",
+                    "--gateway-bin",
+                    str(dist / "gpt-tunnel-gatewayd"),
+                    "--cli-bin",
+                    str(dist / "gpt-tunnel"),
+                    "--ctl-bin",
+                    str(dist / "gpt-tunnelctl"),
+                ],
+                root,
+            )
+            installed = {name: sha256(Path.home() / ".local" / "bin" / name) for name in ARTIFACTS}
+            if installed != artifact_hashes:
+                raise RuntimeError("installed control binaries are not a coherent artifact set")
 
-        run([ctl, "restart-gateway"], root)
-        after = status(ctl, root)
+            run([ctl, "restart-gateway"], root)
+            after = status(ctl, root)
+            restarted = True
         if after.get("tunnel", {}).get("pid") != tunnel_pid:
             raise RuntimeError("Gateway activation changed the Tunnel process")
         if not after.get("gateway_ready") or not after.get("tunnel_ready") or not after.get("version_match"):
@@ -86,7 +122,7 @@ def activate(phase: str) -> None:
 
     if run(["git", "rev-parse", "HEAD"], root).strip() != source_sha or run(["git", "status", "--porcelain"], root).strip():
         raise RuntimeError("activation changed the source worktree")
-    print(json.dumps({"phase": phase, "source_sha": source_sha, "tunnel_pid": tunnel_pid, "status": after}, sort_keys=True))
+    print(json.dumps({"phase": phase, "source_sha": source_sha, "tunnel_pid": tunnel_pid, "restarted": restarted, "status": after}, sort_keys=True))
 
 
 if __name__ == "__main__":
