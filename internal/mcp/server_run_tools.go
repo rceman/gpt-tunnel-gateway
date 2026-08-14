@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
@@ -48,19 +47,12 @@ func agentTailInputSchema(legacySkip bool) map[string]any {
 func agentTailSessionInputSchema() map[string]any {
 	lines := integer("Maximum number of transcript lines to return.", 1, 200)
 	lines["default"] = 30
-	return obj(map[string]any{
-		"lines":  lines,
-		"dedupe": map[string]any{"type": "boolean", "default": true},
-	})
+	return obj(map[string]any{"lines": lines})
 }
 
 func agentTailExecutionInputSchema() map[string]any {
 	lines := integer("Maximum number of transcript lines to return.", 1, 200)
-	return obj(map[string]any{
-		"project_id": str("Server-injected registered project identifier."),
-		"lines":      lines,
-		"dedupe":     map[string]any{"type": "boolean"},
-	}, "project_id")
+	return obj(map[string]any{"project_id": str("Server-injected registered project identifier."), "lines": lines}, "project_id")
 }
 
 func (s *Server) agentTailAction(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -72,15 +64,5 @@ func (s *Server) agentTailAction(ctx context.Context, raw json.RawMessage) (any,
 	if err != nil {
 		return nil, err
 	}
-	dedupe := true
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return nil, fmt.Errorf("input must be an object")
-	}
-	if value, ok := fields["dedupe"]; ok {
-		if err := json.Unmarshal(value, &dedupe); err != nil {
-			return nil, fmt.Errorf("dedupe must be boolean")
-		}
-	}
-	return s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{Lines: lines, Dedupe: dedupe, DedupeSet: true, SessionID: service.AgentSessionID(ctx)})
+	return s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{Lines: lines, SessionID: service.AgentSessionID(ctx)})
 }

@@ -22,8 +22,7 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 		output(v)
 	case "tail":
 		lines := 0
-		dedupe := true
-		seenLines, seenDedupe := false, false
+		seenLines := false
 		for i := 2; i < len(args); {
 			if i+1 >= len(args) {
 				usage()
@@ -38,21 +37,12 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 					usage()
 				}
 				lines, seenLines = value, true
-			case "--dedupe":
-				if seenDedupe {
-					usage()
-				}
-				value := args[i+1]
-				if value != "true" && value != "false" {
-					fatal(fmt.Errorf("invalid agent tail dedupe"))
-				}
-				dedupe, seenDedupe = value == "true", true
 			default:
 				usage()
 			}
 			i += 2
 		}
-		v, err := s.AgentTailPage(ctx, args[1], service.AgentTailInput{Lines: lines, Dedupe: dedupe, DedupeSet: true})
+		v, err := s.AgentTailPage(ctx, args[1], service.AgentTailInput{Lines: lines})
 		if err != nil {
 			fatal(err)
 		}

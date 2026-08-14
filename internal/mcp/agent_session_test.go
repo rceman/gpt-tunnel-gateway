@@ -113,8 +113,8 @@ func TestTailToolSchemaIsSessionBoundAndCursorFree(t *testing.T) {
 	if _, ok := properties["cursor"]; ok {
 		t.Fatal("agent/tail exposes cursor")
 	}
-	if _, ok := properties["dedupe"]; !ok {
-		t.Fatal("agent/tail omits dedupe")
+	if _, ok := properties["dedupe"]; ok {
+		t.Fatal("agent/tail exposes a caller-controlled dedupe override")
 	}
 	outputProperties := entry.OutputSchema["properties"].(map[string]any)
 	for _, field := range []string{"lines", "count", "has_new_info", "overflow", "history_truncated"} {

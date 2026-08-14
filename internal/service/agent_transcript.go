@@ -29,8 +29,6 @@ type AgentTailResult struct {
 
 type AgentTailInput struct {
 	Lines     int
-	Dedupe    bool
-	DedupeSet bool
 	SessionID string
 }
 
@@ -44,6 +42,7 @@ func agentSnapshotLines(text string) []string {
 
 type agentTailSeen struct {
 	SessionID  string `json:"session_id"`
+	ProjectID  string `json:"project_id"`
 	SessionKey string `json:"session_key"`
 	Timestamp  int64  `json:"timestamp"`
 	LineIndex  int    `json:"line_index"`
@@ -63,9 +62,7 @@ func AgentSessionID(ctx context.Context) string {
 
 func (s *Service) AgentTail(ctx context.Context, projectID string, lines int) (AgentTailResult, error) {
 	return s.AgentTailPage(ctx, projectID, AgentTailInput{
-		Lines:     lines,
-		Dedupe:    true,
-		DedupeSet: true,
+		Lines: lines,
 	})
 }
 
@@ -77,10 +74,6 @@ func (s *Service) AgentTailPage(ctx context.Context, projectID string, input Age
 	if lines < 1 || lines > agentMaxTailLines {
 		return AgentTailResult{}, fmt.Errorf("invalid agent tail bounds")
 	}
-	dedupe := true
-	if input.DedupeSet {
-		dedupe = input.Dedupe
-	}
 	session, err := s.resolveAgentSession(ctx, projectID)
 	if err != nil {
 		return AgentTailResult{}, err
@@ -89,24 +82,19 @@ func (s *Service) AgentTailPage(ctx context.Context, projectID string, input Age
 	if err != nil {
 		return AgentTailResult{}, err
 	}
-	statePath, lockName := s.agentTailStateLocation(input.SessionID, session)
-	var lock *lockfile.Lock
-	if dedupe {
-		lock, err = lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), lockName)
-		if err != nil {
-			return AgentTailResult{}, fmt.Errorf("agent tail observation is busy")
-		}
-		defer func() { _ = lock.Release() }()
+	statePath, lockName := s.agentTailStateLocation(input.SessionID, projectID, session)
+	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), lockName)
+	if err != nil {
+		return AgentTailResult{}, fmt.Errorf("agent tail observation is busy")
 	}
+	defer func() { _ = lock.Release() }()
 	seen := agentTailSeen{}
-	if dedupe {
-		seen, err = readAgentTailSeen(statePath)
-		if err != nil {
-			return AgentTailResult{}, err
-		}
-		if seen.HasLast && (seen.SessionID != input.SessionID || seen.SessionKey != session) {
-			return AgentTailResult{}, fmt.Errorf("agent tail observation identity mismatch")
-		}
+	seen, err = readAgentTailSeen(statePath)
+	if err != nil {
+		return AgentTailResult{}, err
+	}
+	if seen.HasLast && (seen.SessionID != input.SessionID || seen.ProjectID != projectID || seen.SessionKey != session) {
+		return AgentTailResult{}, fmt.Errorf("agent tail observation identity mismatch")
 	}
 	start := 0
 	if seen.HasLast {
@@ -127,18 +115,15 @@ func (s *Service) AgentTailPage(ctx context.Context, projectID string, input Age
 	hasNew := len(unseen) > 0
 	selected := transcript.Lines
 	overflow := false
-	if dedupe {
-		selected = unseen
-		if len(selected) > lines {
-			overflow = true
-			selected = selected[len(selected)-lines:]
-		}
-	} else if len(selected) > lines {
+	selected = unseen
+	if len(selected) > lines {
+		overflow = true
 		selected = selected[len(selected)-lines:]
 	}
-	if dedupe && len(transcript.Lines) > 0 {
+	if len(transcript.Lines) > 0 {
 		last := transcript.Lines[len(transcript.Lines)-1]
 		seen.SessionID = input.SessionID
+		seen.ProjectID = projectID
 		seen.SessionKey = session
 		seen.Timestamp = last.Timestamp
 		seen.LineIndex = len(transcript.Lines) - 1
@@ -160,8 +145,8 @@ func (s *Service) AgentTailPage(ctx context.Context, projectID string, input Age
 	}, nil
 }
 
-func (s *Service) agentTailStateLocation(sessionID, sessionKey string) (string, string) {
-	identity := sessionID + "\x00" + sessionKey
+func (s *Service) agentTailStateLocation(sessionID, projectID, sessionKey string) (string, string) {
+	identity := sessionID + "\x00" + projectID + "\x00" + sessionKey
 	digest := sha256.Sum256([]byte(identity))
 	name := hex.EncodeToString(digest[:12])
 	return filepath.Join(s.Config.StateDir, "agent-tail", name+".json"), "agent-tail-" + name
@@ -176,7 +161,7 @@ func readAgentTailSeen(path string) (agentTailSeen, error) {
 		return agentTailSeen{}, fmt.Errorf("read agent tail observation: %w", err)
 	}
 	var state agentTailSeen
-	if err := json.Unmarshal(data, &state); err != nil || state.SessionKey == "" {
+	if err := json.Unmarshal(data, &state); err != nil || state.ProjectID == "" || state.SessionKey == "" {
 		return agentTailSeen{}, fmt.Errorf("invalid agent tail observation")
 	}
 	return state, nil
