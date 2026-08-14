@@ -31,12 +31,10 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 			Execute:              execute,
 		}}
 	}
-	add("session/start", "Start a durable project-bound session.", sessionStartInputSchema(), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("session/start", "Start an unbound durable session.", sessionStartPublicInputSchema(), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in struct {
-			ProjectID string  `json:"project_id"`
-			Role      string  `json:"role"`
-			Label     *string `json:"label"`
-			Ref       *string `json:"ref"`
+			Role  string  `json:"role"`
+			Label *string `json:"label"`
 		}
 		if err := decode(raw, &in); err != nil {
 			return nil, err
@@ -45,8 +43,13 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		if err != nil {
 			return nil, err
 		}
-		return s.Service.SessionStart(trusted, service.SessionStartInput{ProjectID: in.ProjectID, Role: in.Role, SessionType: "chatgpt", SessionRef: in.Ref, Label: in.Label})
+		return s.Service.SessionStartUnbound(trusted, in.Role, in.Label)
 	})
+	add("session/bind", "Bind the current unbound session to one registered project.", obj(map[string]any{"project_id": str("Registered project identifier."), "ref": str("Optional caller reference.")}, "project_id"), true, s.sessionBindAction)
+	entry := entries["session/bind"]
+	entry.AuthorityRole = actionRolePlannerOrDelivery
+	entries["session/bind"] = entry
+	add("rules/read", "Read and acknowledge the current rules for the bound project.", obj(map[string]any{}), true, s.rulesReadAction)
 	add("session/list", "List active durable sessions.", obj(map[string]any{}), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.Service.SessionList()
 	})
@@ -87,6 +90,9 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 			session, err := s.activeSession(sessionID)
 			if err != nil {
 				return nil, fmt.Errorf("status session is invalid: %w", err)
+			}
+			if session.ProjectID == "" {
+				return base, nil
 			}
 			projectStatus, err := s.Service.ProjectStatus(ctx, session.ProjectID)
 			if err != nil {

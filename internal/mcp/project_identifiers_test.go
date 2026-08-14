@@ -82,27 +82,27 @@ func TestProjectIdentifiersMCPContractsAndHappyPath(t *testing.T) {
 		return mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": session, "action": action, "input": input}}})
 	}
 
-	adopted := genericActionResult(t, callMCP(t, server, request(1, exampleSession, "project/identifiers_adopt", map[string]any{"project_id": "example", "project_code": "GTW"})))
+	adopted := genericActionResult(t, callMCP(t, server, request(1, exampleSession, "project/identifiers_adopt", map[string]any{"project_code": "GTW"})))
 	if adopted["identifiers"].(map[string]any)["project_code"] != "GTW" {
 		t.Fatalf("unexpected adoption result: %#v", adopted)
 	}
-	read := genericActionResult(t, callMCP(t, server, request(2, exampleSession, "project/identifiers_read", map[string]any{"project_id": "example"})))
+	read := genericActionResult(t, callMCP(t, server, request(2, exampleSession, "project/identifiers_read", map[string]any{})))
 	if read["project_code"] != "GTW" {
 		t.Fatalf("unexpected identifier read result: %#v", read)
 	}
-	duplicate := genericStructured(t, callMCP(t, server, request(3, exampleSession, "project/identifiers_adopt", map[string]any{"project_id": "example", "project_code": "GTW"})))
+	duplicate := genericStructured(t, callMCP(t, server, request(3, exampleSession, "project/identifiers_adopt", map[string]any{"project_code": "GTW"})))
 	if duplicate["is_error"] != true {
 		t.Fatalf("duplicate adoption was accepted: %#v", duplicate)
 	}
-	duplicateCode := genericStructured(t, callMCP(t, server, request(6, secondSession, "project/identifiers_adopt", map[string]any{"project_id": "second", "project_code": "GTW"})))
+	duplicateCode := genericStructured(t, callMCP(t, server, request(6, secondSession, "project/identifiers_adopt", map[string]any{"project_code": "GTW"})))
 	if duplicateCode["is_error"] != true {
 		t.Fatalf("duplicate project code was accepted: %#v", duplicateCode)
 	}
-	unknown := callMCP(t, server, request(4, exampleSession, "project/identifiers_read", map[string]any{"project_id": "example", "unknown": true}))
+	unknown := callMCP(t, server, request(4, exampleSession, "project/identifiers_read", map[string]any{"unknown": true}))
 	if result := genericStructured(t, unknown); result["is_error"] != true {
 		t.Fatalf("unknown identifier field was accepted: %#v", unknown)
 	}
-	malformed := genericStructured(t, callMCP(t, server, request(5, exampleSession, "project/identifiers_adopt", map[string]any{"project_id": "example", "project_code": "gtw"})))
+	malformed := genericStructured(t, callMCP(t, server, request(5, exampleSession, "project/identifiers_adopt", map[string]any{"project_code": "gtw"})))
 	if malformed["is_error"] != true {
 		t.Fatalf("malformed project code was accepted: %#v", malformed)
 	}

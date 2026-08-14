@@ -178,6 +178,18 @@ func (s *Server) resolveSessionAuthority(ctx context.Context, record durableSess
 	if contract.Role == actionRolePlannerOrDelivery && record.Role != durableSession.RolePlanner && record.Role != durableSession.RoleDelivery {
 		return nil, fmt.Errorf("session role %q is not authorized for this action", record.Role)
 	}
+	if record.ProjectID == "" {
+		roleContext := bootstrapContext
+		switch record.Role {
+		case durableSession.RolePlanner:
+			roleContext = authority.WithPlanner(roleContext)
+		case durableSession.RoleDelivery:
+			roleContext = authority.WithDelivery(roleContext)
+		default:
+			return nil, fmt.Errorf("session role %q is invalid", record.Role)
+		}
+		return withResolvedSessionAuthority(roleContext, resolvedSessionAuthority{Session: record}), nil
+	}
 	project, err := s.Service.ProjectRead(bootstrapContext, record.ProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("session project %q is not durably registered: %w", record.ProjectID, err)

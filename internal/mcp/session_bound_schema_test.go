@@ -14,6 +14,9 @@ func TestSessionBoundActionSchemasDoNotExposeProjectID(t *testing.T) {
 		if !entry.SessionBound {
 			continue
 		}
+		if path == "session/bind" {
+			continue
+		}
 		if entry.ExecutionInputSchema == nil {
 			t.Fatalf("session-bound action %s has no internal execution schema", path)
 		}
@@ -21,7 +24,7 @@ func TestSessionBoundActionSchemasDoNotExposeProjectID(t *testing.T) {
 			t.Fatalf("session-bound action %s exposes project_id in its public schema: %#v", path, entry.InputSchema)
 		}
 	}
-	for _, path := range []string{"project/read", "project/update", "runtime/logs"} {
+	for _, path := range []string{"project/list", "runtime/logs"} {
 		if entry := entries[path]; entry.SessionBound {
 			t.Fatalf("explicit/sessionless action %s was marked session-bound", path)
 		}

@@ -17,6 +17,12 @@ type SessionStartInput struct {
 	Label       *string
 }
 
+type SessionBindInput struct {
+	SessionID  string
+	ProjectID  string
+	SessionRef *string
+}
+
 type SessionUpdateInput struct {
 	SessionID  string
 	SessionRef *string
@@ -63,6 +69,45 @@ func (s *Service) SessionStart(ctx context.Context, input SessionStartInput) (Se
 	}
 	return SessionResult{
 		Action:  "start",
+		Session: record,
+	}, nil
+}
+
+func (s *Service) SessionStartUnbound(ctx context.Context, role string, label *string) (SessionResult, error) {
+	if err := authority.RequireRole(ctx, role); err != nil {
+		return SessionResult{}, err
+	}
+	record, err := durableSession.NewStore(s.Config.StateDir).CreateUnbound(role, label)
+	if err != nil {
+		return SessionResult{}, err
+	}
+	return SessionResult{
+		Action:  "start",
+		Session: record,
+	}, nil
+}
+
+func (s *Service) SessionBind(ctx context.Context, input SessionBindInput) (SessionResult, error) {
+	if err := authority.RequireRole(ctx, durableSession.RolePlanner); err != nil {
+		if err := authority.RequireRole(ctx, durableSession.RoleDelivery); err != nil {
+			return SessionResult{}, err
+		}
+	}
+	if _, err := s.ProjectRead(ctx, input.ProjectID); err != nil {
+		return SessionResult{}, fmt.Errorf("session project is not durably registered: %w", err)
+	}
+	record, err := durableSession.NewStore(s.Config.StateDir).Bind(input.SessionID, input.ProjectID)
+	if err != nil {
+		return SessionResult{}, err
+	}
+	if input.SessionRef != nil {
+		record, err = durableSession.NewStore(s.Config.StateDir).Update(record.ID, durableSession.UpdateInput{SessionRef: input.SessionRef})
+		if err != nil {
+			return SessionResult{}, err
+		}
+	}
+	return SessionResult{
+		Action:  "bind",
 		Session: record,
 	}, nil
 }

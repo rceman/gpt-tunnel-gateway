@@ -84,16 +84,22 @@ func TestDefaultDeliveryRootResolvesPlannerAndDeliverySessionsAndLegacyDeliveryT
 
 func TestSessionStartValidatesProjectRoleAndTypeBeforeCreation(t *testing.T) {
 	server := newSessionTestServer(t)
-	for _, args := range []map[string]any{
-		{"action": "start", "project_id": "missing", "role": "delivery", "session_type": "chatgpt"},
-		{"action": "start", "project_id": "example", "role": "operator", "session_type": "chatgpt"},
-		{"action": "start", "project_id": "example", "role": "delivery", "session_type": "unknown"},
-	} {
-		response := sessionCall(t, server, args)
-		result := genericStructured(t, response)
-		if result["is_error"] != true {
-			t.Fatalf("invalid start was accepted: %#v", response)
+	invalidRole := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"role": "operator"}},
+	}))
+	if invalidRole["error"] == nil {
+		result, _ := invalidRole["result"].(map[string]any)
+		if result["isError"] != true {
+			t.Fatalf("invalid role was accepted: %#v", invalidRole)
 		}
+	}
+	unknownProjectField := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"role": "delivery", "project_id": "example"}},
+	}))
+	if unknownProjectField["error"] == nil {
+		t.Fatalf("session_start accepted project_id: %#v", unknownProjectField)
 	}
 	entries, err := os.ReadDir(filepath.Join(server.Service.Config.StateDir, "sessions"))
 	if err == nil && len(entries) != 0 {
@@ -126,8 +132,7 @@ func TestGenericCallRequiresSessionAndInheritsProject(t *testing.T) {
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"action": "test/project", "input": map[string]any{}}},
 	}))
-	missingResult := genericStructured(t, missing)
-	if missingResult["is_error"] != true || !strings.Contains(string(mustJSON(t, missingResult)), "SESSION_REQUIRED") {
+	if missing["error"] == nil || !strings.Contains(string(mustJSON(t, missing)), "session") {
 		t.Fatalf("missing session did not fail schema validation: %#v", missing)
 	}
 	start := genericStructured(t, sessionCall(t, server, map[string]any{

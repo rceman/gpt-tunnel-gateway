@@ -16,6 +16,9 @@ import (
 )
 
 func addGenericTransportTools(add func(string, string, map[string]any, func(context.Context, json.RawMessage) (any, error)), s *Server, legacy map[string]Tool) {
+	add("session_start", "Create an unbound durable session and return workflow bootstrap guidance.", sessionStartPublicInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return s.sessionStartPublic(ctx, raw)
+	})
 	add("call", "Dispatch one server-owned action through its authoritative schema and handler.", genericCallInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.genericCall(ctx, legacy, raw)
 	})
@@ -63,10 +66,8 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	if entry.SessionRequired && record.ID == "" {
 		return genericActionError(action, "SESSION_REQUIRED: provide the public session field"), nil
 	}
-	if entry.SessionBound {
-		if err := validateGenericActionInput(entry.InputSchema, raw); err != nil {
-			return genericActionError(action, err.Error()+"; inspect schema with path=\""+action+"\""), nil
-		}
+	if record.ID != "" && record.ProjectID == "" && !unboundActionAllowed(action) {
+		return genericActionError(action, "PROJECT_BINDING_REQUIRED: bind the session before project work"), nil
 	}
 	if record.ID != "" {
 		bootstrapContext := ctx
@@ -85,11 +86,26 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		}
 		ctx = resolved
 		ctx = service.WithAgentSessionID(ctx, record.ID)
-		if entry.SessionBound {
+		if entry.SessionBound && action != "session/bind" {
+			if err := validateGenericActionInput(entry.InputSchema, raw); err != nil {
+				return genericActionError(action, err.Error()+"; inspect schema with path=\""+action+"\""), nil
+			}
 			raw, err = inheritSessionProject(entry.ExecutionInputSchema, record.ProjectID, raw)
 			if err != nil {
 				return genericActionError(action, err.Error()), nil
 			}
+		}
+		if err := s.validateSessionRules(ctx, record, action); err != nil {
+			return genericActionError(action, err.Error()), nil
+		}
+	}
+	if entry.SessionBound {
+		validationSchema := entry.InputSchema
+		if action != "session/bind" && entry.ExecutionInputSchema != nil {
+			validationSchema = entry.ExecutionInputSchema
+		}
+		if err := validateGenericActionInput(validationSchema, raw); err != nil {
+			return genericActionError(action, err.Error()+"; inspect schema with path=\""+action+"\""), nil
 		}
 	}
 	if entry.RouteLegacyByProjectModel && entry.LegacyExecute != nil {
@@ -255,6 +271,9 @@ func (s *Server) genericBatch(ctx context.Context, legacy map[string]Tool, raw j
 	if err := decode(raw, &input); err != nil {
 		return nil, err
 	}
+	if input.SessionID == "" {
+		return nil, fmt.Errorf("session is required")
+	}
 	if len(input.Calls) > genericBatchMaxItems {
 		return nil, fmt.Errorf("calls exceeds maximum of %d", genericBatchMaxItems)
 	}
@@ -304,31 +323,61 @@ func decodeBatchCall(raw json.RawMessage, input *genericCallInput) (map[string]a
 }
 
 func inheritSessionProject(schema map[string]any, projectID string, raw json.RawMessage) (json.RawMessage, error) {
-	properties, _ := schema["properties"].(map[string]any)
-	if _, ok := properties["project_id"]; !ok {
-		return raw, nil
-	}
-	var args map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &args); err != nil || args == nil {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
 		return nil, fmt.Errorf("input must be an object")
 	}
-	if value, ok := args["project_id"]; ok {
-		var supplied string
-		if err := json.Unmarshal(value, &supplied); err != nil || supplied != projectID {
-			return nil, fmt.Errorf("project_id does not match session project")
+	bound, err := bindProjectValue(schema, value, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(bound)
+}
+
+func bindProjectValue(schema map[string]any, value any, projectID string) (any, error) {
+	properties, _ := schema["properties"].(map[string]any)
+	switch current := value.(type) {
+	case map[string]any:
+		result := make(map[string]any, len(current)+1)
+		for key, child := range current {
+			childSchema, _ := properties[key].(map[string]any)
+			bound, err := bindProjectValue(childSchema, child, projectID)
+			if err != nil {
+				return nil, err
+			}
+			result[key] = bound
 		}
-		return raw, nil
+		if _, ok := properties["project_id"]; ok {
+			if supplied, exists := current["project_id"]; exists {
+				if suppliedString, ok := supplied.(string); !ok || suppliedString != projectID {
+					return nil, fmt.Errorf("project_id does not match session project")
+				}
+			} else if containsRequired(stringList(schema["required"]), "project_id") {
+				result["project_id"] = projectID
+			}
+		}
+		return result, nil
+	case []any:
+		items, _ := schema["items"].(map[string]any)
+		result := make([]any, len(current))
+		for i, child := range current {
+			bound, err := bindProjectValue(items, child, projectID)
+			if err != nil {
+				return nil, err
+			}
+			result[i] = bound
+		}
+		return result, nil
+	default:
+		return value, nil
 	}
-	required := false
-	for _, key := range stringList(schema["required"]) {
-		if key == "project_id" {
-			required = true
-			break
+}
+
+func containsRequired(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
 		}
 	}
-	if !required {
-		return raw, nil
-	}
-	args["project_id"], _ = json.Marshal(projectID)
-	return json.Marshal(args)
+	return false
 }

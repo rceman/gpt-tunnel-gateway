@@ -67,6 +67,15 @@ func TestQueryRunUsesSharedReadOnlyDSLAndSchemaDiscovery(t *testing.T) {
 	server := newSessionTestServer(t)
 	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT}))
 	sessionID := started["session"].(map[string]any)["session_id"].(string)
+	revision, err := server.Service.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	adoptTestWorkflowPolicy(t, server.Service, "example", revision)
+	rules := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 0, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}}}})))
+	if rules["is_error"] == true {
+		t.Fatalf("rules/read failed after policy setup: %#v", rules)
+	}
 	result := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "query/run", "input": map[string]any{"dsl": "task.list().select(id,status).limit(2)"}}}})))
 	queryResult := result["result"].(map[string]any)
 	if _, ok := result["action"]; ok || result["is_error"] == true || queryResult["entity"] != "task" {
@@ -279,7 +288,16 @@ func TestGenericWorkflowPolicyMutationMatchesLegacyHandler(t *testing.T) {
 	current.Revision++
 	current.UpdatedBy = "generic-equivalence-test"
 	current.UpdatedAt = time.Now().UTC()
-	input := map[string]any{"policy": current, "expected_hub_revision": hubRevision}
+	policyJSON, err := json.Marshal(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var policy map[string]any
+	if err := json.Unmarshal(policyJSON, &policy); err != nil {
+		t.Fatal(err)
+	}
+	delete(policy, "project_id")
+	input := map[string]any{"policy": policy, "expected_hub_revision": hubRevision}
 	server := &Server{
 		Service:          s,
 		AuthorityContext: authority.WithPlanner(context.Background()),
@@ -300,7 +318,15 @@ func TestGenericWorkflowPolicyMutationMatchesLegacyHandler(t *testing.T) {
 	}
 	current.Revision++
 	current.UpdatedAt = time.Now().UTC()
-	genericInput := map[string]any{"policy": current, "expected_hub_revision": nextRevision}
+	policyJSON, err = json.Marshal(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(policyJSON, &policy); err != nil {
+		t.Fatal(err)
+	}
+	delete(policy, "project_id")
+	genericInput := map[string]any{"policy": policy, "expected_hub_revision": nextRevision}
 	generic := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "project/workflow_policy_update", "input": genericInput}},

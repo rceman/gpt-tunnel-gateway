@@ -122,9 +122,8 @@ func TestSessionBootstrapCreatesIndependentPlannerAndDeliveryTypedSessions(t *te
 
 func TestSessionListIsSessionlessAndPreservesUpdatedReference(t *testing.T) {
 	server := newSessionTestServer(t)
-	oldRef := "https://chatgpt.com/c/old"
 	planner := genericStructured(t, sessionCall(t, server, map[string]any{
-		"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt", "session_ref": oldRef,
+		"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt", "label": "main",
 	}))
 	plannerRecord := planner["session"].(map[string]any)
 	plannerID := plannerRecord["session_id"].(string)
@@ -133,7 +132,7 @@ func TestSessionListIsSessionlessAndPreservesUpdatedReference(t *testing.T) {
 	}))
 	deliveryID := delivery["session"].(map[string]any)["session_id"].(string)
 
-	listed := genericStructured(t, sessionCall(t, server, map[string]any{"action": "list"}))
+	listed := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": plannerID, "action": "session/list", "input": map[string]any{}}}})))
 	sessions, ok := listed["sessions"].([]any)
 	if !ok || len(sessions) != 2 {
 		t.Fatalf("session.list did not discover both active sessions: %#v", listed)
@@ -159,7 +158,7 @@ func TestSessionListIsSessionlessAndPreservesUpdatedReference(t *testing.T) {
 	if _, ok := genericStructured(t, sessionCall(t, server, map[string]any{"action": "end", "session_id": deliveryID}))["session"]; !ok {
 		t.Fatal("session.end did not return the ended session")
 	}
-	listed = genericStructured(t, sessionCall(t, server, map[string]any{"action": "list"}))
+	listed = genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": plannerID, "action": "session/list", "input": map[string]any{}}}})))
 	sessions = listed["sessions"].([]any)
 	if len(sessions) != 1 {
 		t.Fatalf("session.list included ended session: %#v", listed)

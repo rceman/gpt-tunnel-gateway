@@ -31,18 +31,22 @@ const (
 )
 
 type Record struct {
-	SchemaVersion int        `json:"schema_version"`
-	ID            string     `json:"session_id"`
-	ProjectID     string     `json:"project_id"`
-	Role          string     `json:"role"`
-	SessionType   string     `json:"session_type"`
-	SessionRef    *string    `json:"session_ref,omitempty"`
-	Label         *string    `json:"label,omitempty"`
-	Status        string     `json:"status"`
-	CreatedAt     time.Time  `json:"created_at"`
-	StartedAt     time.Time  `json:"started_at"`
-	EndedAt       *time.Time `json:"ended_at,omitempty"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	SchemaVersion        int        `json:"schema_version"`
+	ID                   string     `json:"session_id"`
+	ProjectID            string     `json:"project_id,omitempty"`
+	Role                 string     `json:"role"`
+	SessionType          string     `json:"session_type"`
+	SessionRef           *string    `json:"session_ref,omitempty"`
+	Label                *string    `json:"label,omitempty"`
+	Status               string     `json:"status"`
+	CreatedAt            time.Time  `json:"created_at"`
+	StartedAt            time.Time  `json:"started_at"`
+	EndedAt              *time.Time `json:"ended_at,omitempty"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	GlobalRulesRevision  string     `json:"global_rules_revision,omitempty"`
+	GlobalRulesDigest    string     `json:"global_rules_digest,omitempty"`
+	ProjectRulesRevision int        `json:"project_rules_revision,omitempty"`
+	ProjectRulesDigest   string     `json:"project_rules_digest,omitempty"`
 }
 
 type CreateInput struct {
@@ -73,7 +77,19 @@ func NewStore(stateDir string) Store {
 }
 
 func (s Store) Create(input CreateInput) (Record, error) {
-	if err := validateCreateInput(input); err != nil {
+	return s.create(input, true)
+}
+
+func (s Store) CreateUnbound(role string, label *string) (Record, error) {
+	return s.create(CreateInput{
+		Role:        role,
+		Label:       label,
+		SessionType: SessionTypeChatGPT,
+	}, false)
+}
+
+func (s Store) create(input CreateInput, requireProject bool) (Record, error) {
+	if err := validateCreateInput(input, requireProject); err != nil {
 		return Record{}, err
 	}
 	if err := s.ensureRoot(); err != nil {
@@ -121,6 +137,68 @@ func (s Store) Create(input CreateInput) (Record, error) {
 		return record, nil
 	}
 	return Record{}, fmt.Errorf("session ID allocation exhausted after %d attempts", maxCreateAttempts)
+}
+
+func (s Store) Bind(id, projectID string) (Record, error) {
+	if strings.TrimSpace(projectID) == "" {
+		return Record{}, fmt.Errorf("%w: project_id is required", ErrInvalidSession)
+	}
+	lock, err := s.acquireMutationLock()
+	if err != nil {
+		return Record{}, err
+	}
+	defer lock.Release()
+	record, err := s.Get(id)
+	if err != nil {
+		return Record{}, err
+	}
+	if record.Status != StatusActive {
+		return Record{}, ErrAlreadyEnded
+	}
+	if record.ProjectID != "" && record.ProjectID != projectID {
+		return Record{}, fmt.Errorf("%w: session project is immutable", ErrInvalidSession)
+	}
+	record.ProjectID = projectID
+	record.ProjectRulesRevision = 0
+	record.ProjectRulesDigest = ""
+	record.UpdatedAt = time.Now().UTC()
+	if err := record.Validate(); err != nil {
+		return Record{}, err
+	}
+	if err := fsutil.WriteJSONAtomic(s.path(id), record, 0o600); err != nil {
+		return Record{}, err
+	}
+	return record, nil
+}
+
+func (s Store) AcknowledgeRules(id, globalRevision, globalDigest string, projectRevision int, projectDigest string) (Record, error) {
+	lock, err := s.acquireMutationLock()
+	if err != nil {
+		return Record{}, err
+	}
+	defer lock.Release()
+	record, err := s.Get(id)
+	if err != nil {
+		return Record{}, err
+	}
+	if record.Status != StatusActive {
+		return Record{}, ErrAlreadyEnded
+	}
+	if record.ProjectID == "" && projectRevision != 0 {
+		return Record{}, fmt.Errorf("%w: cannot acknowledge project rules before binding", ErrInvalidSession)
+	}
+	record.GlobalRulesRevision = globalRevision
+	record.GlobalRulesDigest = globalDigest
+	record.ProjectRulesRevision = projectRevision
+	record.ProjectRulesDigest = projectDigest
+	record.UpdatedAt = time.Now().UTC()
+	if err := record.Validate(); err != nil {
+		return Record{}, err
+	}
+	if err := fsutil.WriteJSONAtomic(s.path(id), record, 0o600); err != nil {
+		return Record{}, err
+	}
+	return record, nil
 }
 
 func (s Store) Get(id string) (Record, error) {

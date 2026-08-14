@@ -14,7 +14,7 @@ func TestMCP7ExposesExactlyThreeTopLevelTools(t *testing.T) {
 	}))
 	result := response["result"].(map[string]any)
 	tools := result["tools"].([]any)
-	want := []string{"batch", "call", "schema"}
+	want := []string{"batch", "call", "schema", "session_start"}
 	got := make([]string, 0, len(tools))
 	for _, raw := range tools {
 		got = append(got, raw.(map[string]any)["name"].(string))
@@ -36,32 +36,34 @@ func TestMCP7ExposesExactlyThreeTopLevelTools(t *testing.T) {
 
 func TestMCP7SessionlessBootstrapAndSessionBoundTransport(t *testing.T) {
 	server := newSessionTestServer(t)
-	project := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+	started := genericStructured(t, callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "project", "arguments": map[string]any{
-			"action": "read", "input": map[string]any{"project_id": "example"},
-		}},
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"role": "delivery"}},
 	})))
-	if project["id"] != "example" {
-		t.Fatalf("sessionless project bootstrap failed: %#v", project)
+	sessionID := started["session"].(string)
+	bound := genericStructured(t, callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "session/bind", "input": map[string]any{"project_id": "example"}}},
+	})))
+	if bound["is_error"] == true {
+		t.Fatalf("session bind failed: %#v", bound)
 	}
-
 	revision, err := server.Service.Hub.RemoteRevision(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = adoptTestWorkflowPolicy(t, server.Service, "example", revision)
-	rules := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "rules", "arguments": map[string]any{"project_id": "example"}},
+	rules := genericStructured(t, callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}}},
 	})))
-	if rules["project_id"] != "example" {
-		t.Fatalf("sessionless rules bootstrap failed: %#v", rules)
+	if rules["is_error"] == true {
+		t.Fatalf("rules/read failed: %#v", rules)
 	}
 
-	ping := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]any{"name": "status", "arguments": map[string]any{}},
+	ping := genericActionResult(t, callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "gateway/status", "input": map[string]any{}}},
 	})))
 	if ping["gateway_id"] != "test_gateway" {
 		t.Fatalf("sessionless ping failed: %#v", ping)
@@ -72,56 +74,34 @@ func TestMCP7SessionlessBootstrapAndSessionBoundTransport(t *testing.T) {
 	if err := validateOutputValue(toolOutputSchemas["status"], ping); err != nil {
 		t.Fatalf("sessionless status violated its output schema: %v", err)
 	}
-	projectIDStatus := callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
-		"params": map[string]any{"name": "status", "arguments": map[string]any{"project_id": "example"}},
+	projectIDStatus := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "gateway/status", "input": map[string]any{"project_id": "example"}}},
 	}))
 	if genericStructured(t, projectIDStatus)["is_error"] != true {
 		t.Fatalf("status accepted project_id as alternate authority: %#v", projectIDStatus)
 	}
-	statusSession := genericSession(t, server.Service, "example")
-	bound := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 6, "method": "tools/call",
-		"params": map[string]any{"name": "status", "arguments": map[string]any{"session_id": statusSession}},
-	})))
-	if _, ok := bound["project_status"].(map[string]any); !ok {
-		t.Fatalf("session-bound status omitted project status: %#v", bound)
+	if _, ok := ping["project_status"].(map[string]any); !ok {
+		t.Fatalf("session-bound status omitted project status: %#v", ping)
 	}
-	if err := validateOutputValue(toolOutputSchemas["status"], bound); err != nil {
+	if err := validateOutputValue(toolOutputSchemas["status"], ping); err != nil {
 		t.Fatalf("session-bound status violated its output schema: %v", err)
 	}
-	projectStatus := callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 7, "method": "tools/call",
-		"params": map[string]any{"name": "project", "arguments": map[string]any{"action": "status", "input": map[string]any{"project_id": "example"}}},
-	}))
-	if genericStructured(t, projectStatus)["is_error"] != true {
-		t.Fatalf("project/status remained in the project whitelist: %#v", projectStatus)
-	}
 	genericProjectStatus := callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 8, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": statusSession, "action": "project/status", "input": map[string]any{"project_id": "example"}}},
+		"jsonrpc": "2.0", "id": 6, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "project/status", "input": map[string]any{}}},
 	}))
 	genericStructuredResult := genericStructured(t, genericProjectStatus)
 	if genericStructuredResult["is_error"] != true {
 		t.Fatalf("project/status remained routable through call: %#v", genericProjectStatus)
 	}
 
-	missingSession := callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+	missingSession := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 7, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"action": "project/read", "input": map[string]any{}}},
 	}))
-	if genericStructured(t, missingSession)["is_error"] != true {
+	if missingSession["error"] == nil {
 		t.Fatalf("sessionless call was not rejected: %#v", missingSession)
-	}
-
-	started := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 5, "method": "tools/call",
-		"params": map[string]any{"name": "session", "arguments": map[string]any{
-			"action": "start", "project_id": "example", "role": "delivery", "session_type": "chatgpt",
-		}},
-	})))
-	if started["action"] != "start" {
-		t.Fatalf("sessionless session.start failed: %#v", started)
 	}
 }
 

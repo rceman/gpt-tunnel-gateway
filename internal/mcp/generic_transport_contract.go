@@ -174,7 +174,10 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		entries["query/run"] = queryGenericAction(s)
 	}
 	for path, entry := range entries {
-		if !strings.HasPrefix(path, "project/") && !strings.HasPrefix(path, "runtime/") && (sessionBoundActionPath(path) || schemaHasProperty(entry.InputSchema, "project_id")) {
+		if path == "session/bind" {
+			entry.SessionBound = true
+			entry.SessionRequired = true
+		} else if !sessionlessActionPath(path) && !strings.HasPrefix(path, "runtime/") && (sessionBoundActionPath(path) || schemaHasProperty(entry.InputSchema, "project_id")) {
 			entry.SessionBound = true
 			entry.InputSchema = withoutProjectID(entry.InputSchema)
 			if entry.LegacyInputSchema != nil {
@@ -230,54 +233,45 @@ func withoutProjectID(schema map[string]any) map[string]any {
 	if schema == nil {
 		return nil
 	}
-	result, _ := stripProjectID(schema).(map[string]any)
+	result := make(map[string]any, len(schema))
+	for key, value := range schema {
+		if nested, ok := value.(map[string]any); ok {
+			result[key] = withoutProjectID(nested)
+		} else if branches, ok := value.([]any); ok {
+			copied := make([]any, len(branches))
+			for i, branch := range branches {
+				if nested, ok := branch.(map[string]any); ok {
+					copied[i] = withoutProjectID(nested)
+				} else {
+					copied[i] = branch
+				}
+			}
+			result[key] = copied
+		} else {
+			result[key] = value
+		}
+	}
+	if properties, ok := result["properties"].(map[string]any); ok {
+		filtered := make(map[string]any, len(properties))
+		for property, value := range properties {
+			if property != "project_id" {
+				filtered[property] = value
+			}
+		}
+		result["properties"] = filtered
+	}
+	result["required"] = removeRequiredKey(result["required"], "project_id")
 	return result
 }
 
-func stripProjectID(value any) any {
-	switch current := value.(type) {
-	case map[string]any:
-		result := make(map[string]any, len(current))
-		for key, child := range current {
-			if key == "properties" {
-				properties, ok := child.(map[string]any)
-				if ok {
-					filtered := make(map[string]any, len(properties))
-					for property, schema := range properties {
-						if property == "project_id" {
-							continue
-						}
-						filtered[property] = stripProjectID(schema)
-					}
-					result[key] = filtered
-					continue
-				}
-			}
-			if key == "required" {
-				list := stringList(child)
-				filtered := make([]string, 0, len(list))
-				for _, item := range list {
-					if item != "project_id" {
-						filtered = append(filtered, item)
-					}
-				}
-				if len(list) > 0 {
-					result[key] = filtered
-					continue
-				}
-			}
-			result[key] = stripProjectID(child)
+func removeRequiredKey(value any, remove string) []string {
+	result := []string{}
+	for _, key := range stringList(value) {
+		if key != remove {
+			result = append(result, key)
 		}
-		return result
-	case []any:
-		result := make([]any, len(current))
-		for i, child := range current {
-			result[i] = stripProjectID(child)
-		}
-		return result
-	default:
-		return value
 	}
+	return result
 }
 
 func genericCallInputSchema() map[string]any {
@@ -287,6 +281,7 @@ func genericCallInputSchema() map[string]any {
 		"input":   map[string]any{"type": "object", "additionalProperties": true, "description": "Generic action input validated by the server-owned action contract."},
 	}, "action", "input")
 	schema["x-sessionless"] = true
+	schema["required"] = []string{"session", "action", "input"}
 	return schema
 }
 
@@ -311,7 +306,26 @@ func genericBatchInputSchema() map[string]any {
 	calls["maxItems"] = genericBatchMaxItems
 	schema := obj(map[string]any{"session": str("Optional durable session shared by every batch item."), "calls": calls}, "calls")
 	schema["x-sessionless"] = true
+	schema["required"] = []string{"session", "calls"}
 	return schema
+}
+
+func sessionlessActionPath(path string) bool {
+	switch path {
+	case "gateway/status", "project/list", "session/list", "session/info", "session/end":
+		return true
+	default:
+		return false
+	}
+}
+
+func unboundActionAllowed(path string) bool {
+	switch path {
+	case "gateway/status", "project/list", "session/list", "session/bind", "session/info", "session/end":
+		return true
+	default:
+		return false
+	}
 }
 
 func genericBatchCallInputSchema() map[string]any {
@@ -361,6 +375,9 @@ func (s *Server) genericCall(ctx context.Context, legacy map[string]Tool, raw js
 	var input genericCallInput
 	if err := decode(raw, &input); err != nil {
 		return nil, err
+	}
+	if input.SessionID == "" {
+		return nil, fmt.Errorf("session is required")
 	}
 	entries := s.genericActionRegistry(legacy)
 	record := durableSession.Record{}

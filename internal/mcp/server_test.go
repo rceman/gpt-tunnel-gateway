@@ -18,7 +18,10 @@ import (
 
 func TestToolsListAndToolResultsUseObjects(t *testing.T) {
 	c := config.Config{GatewayID: "test", ListenAddr: "127.0.0.1:1", MaxReadBytes: 1, MaxDiffBytes: 1, MaxListItems: 1}
-	srv := &Server{Service: service.New(c)}
+	srv := &Server{
+		Service:          service.New(c),
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:1/mcp", bytes.NewReader(body))
 	req.Host = "127.0.0.1:1"
@@ -36,7 +39,7 @@ func TestToolsListAndToolResultsUseObjects(t *testing.T) {
 	if _, ok := result["tools"].([]any); !ok {
 		t.Fatalf("tools missing: %#v", result)
 	}
-	call := []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"call","arguments":{"action":"gateway/status","input":{}}}}`)
+	call := []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"schema","arguments":{"path":""}}}`)
 	req = httptest.NewRequest(http.MethodPost, "http://127.0.0.1:1/mcp", bytes.NewReader(call))
 	req.Host = "127.0.0.1:1"
 	req.RemoteAddr = "127.0.0.1:1234"
@@ -67,14 +70,13 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	arguments := map[string]any{"action": "project/onboard", "input": map[string]any{"unexpected": true}}
+	arguments := map[string]any{"role": "delivery"}
 	body := mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": arguments, "_meta": map[string]any{"role": "delivery"}},
+		"params": map[string]any{"name": "session_start", "arguments": arguments, "_meta": map[string]any{"role": "delivery"}},
 	})
 	without := callMCP(t, &Server{Service: svc}, body)
-	withoutStructured := genericStructured(t, without)
-	withoutText, _ := json.Marshal(withoutStructured)
+	withoutText, _ := json.Marshal(without)
 	if !strings.Contains(string(withoutText), "AUTHORITY_UNAVAILABLE") {
 		t.Fatalf("unconfigured server did not fail closed: %s", withoutText)
 	}

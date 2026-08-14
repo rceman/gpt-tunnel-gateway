@@ -41,7 +41,7 @@ func TestProjectRemoveIsGenericDestructiveAndNotTyped(t *testing.T) {
 		t.Fatal("project/remove was incorrectly added as a typed tool")
 	}
 	properties := entry.InputSchema["properties"].(map[string]any)
-	if _, ok := properties["project_id"]; !ok {
-		t.Fatal("project/remove omits project_id")
+	if _, ok := properties["project_id"]; ok {
+		t.Fatal("project/remove exposes caller-selectable project_id")
 	}
 }

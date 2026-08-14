@@ -16,8 +16,11 @@ var (
 )
 
 func (r Record) Validate() error {
-	if r.SchemaVersion != SchemaVersion || !sessionIDRE.MatchString(r.ID) || !sessionIDMatchesRole(r.ID, r.Role) || strings.TrimSpace(r.ProjectID) == "" || !validRole(r.Role) || !validSessionType(r.SessionType) {
+	if r.SchemaVersion != SchemaVersion || !sessionIDRE.MatchString(r.ID) || !sessionIDMatchesRole(r.ID, r.Role) || !validRole(r.Role) || !validSessionType(r.SessionType) {
 		return fmt.Errorf("%w: invalid session record", ErrInvalidSession)
+	}
+	if strings.TrimSpace(r.ProjectID) == "" && r.ProjectRulesRevision != 0 {
+		return fmt.Errorf("%w: unbound session has project rules acknowledgement", ErrInvalidSession)
 	}
 	if r.Status != StatusActive && r.Status != StatusEnded {
 		return fmt.Errorf("%w: invalid session status", ErrInvalidSession)
@@ -55,8 +58,8 @@ func sessionIDMatchesRole(id, role string) bool {
 
 func validSessionType(value string) bool { return value == SessionTypeChatGPT }
 
-func validateCreateInput(input CreateInput) error {
-	if strings.TrimSpace(input.ProjectID) == "" || !validRole(input.Role) || !validSessionType(input.SessionType) {
+func validateCreateInput(input CreateInput, requireProject bool) error {
+	if (requireProject && strings.TrimSpace(input.ProjectID) == "") || !validRole(input.Role) || !validSessionType(input.SessionType) {
 		return fmt.Errorf("%w: invalid session creation request", ErrInvalidSession)
 	}
 	if err := validateOptionalText(input.SessionRef, "session_ref"); err != nil {
