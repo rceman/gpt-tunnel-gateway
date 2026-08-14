@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -123,5 +124,36 @@ func TestTrainV2ServiceKeepsAuthorityAndProjectGuards(t *testing.T) {
 		},
 	}); err == nil {
 		t.Fatal("cross-project Task was accepted")
+	}
+}
+
+func TestTrainV2CreateIgnoresIntegrationAuxiliaryRecord(t *testing.T) {
+	s, hubRevision, _ := testServiceWithoutIdentifiers(t)
+	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)
+	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
+	first, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "Train admission with auxiliary state")
+	operation, err := s.Hub.Transact(context.Background(), hubRevision, "test: add Train integration auxiliary record", func(worktree string) ([]string, error) {
+		path := s.trainV2Root("example") + "/EXM-TRN4.integration-operation.json"
+		if err := hub.WriteJSON(worktree, path, map[string]any{"operation_id": "integration-1"}); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
+		ProjectID: "example",
+		TaskIDs:   []string{first.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.After,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Train/create treated integration auxiliary JSON as a Train: %v", err)
+	}
+	if created.ID != "EXM-TRN1" || len(created.Items) != 1 {
+		t.Fatalf("unexpected Train created with auxiliary record present: %#v", created)
 	}
 }

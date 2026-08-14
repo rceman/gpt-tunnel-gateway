@@ -98,6 +98,10 @@ func (d Descriptor) ValidateID(id string) error {
 		return fmt.Errorf("invalid %s identifier", d.Name)
 	}
 	switch d.Family {
+	case TrainFamily:
+		if _, _, err := model.ParseTrainV2ID(id); err != nil {
+			return err
+		}
 	case RuleFamily:
 		if err := model.ValidateRuleID(id); err != nil {
 			return err

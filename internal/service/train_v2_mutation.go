@@ -144,7 +144,7 @@ func (s *Service) trainV2AdmissionTasks(worktree, projectID string, taskIDs []st
 	}
 	existing := make([]model.TrainV2, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		if entry.IsDir() || !canonicalTrainV2RecordName(entry.Name()) {
 			continue
 		}
 		var existingTrain model.TrainV2
@@ -194,7 +194,7 @@ func taskAdmittedToNonterminalTrainInWorktree(worktree, root, taskID string) (bo
 	}
 	trains := make([]model.TrainV2, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		if entry.IsDir() || !canonicalTrainV2RecordName(entry.Name()) {
 			continue
 		}
 		var train model.TrainV2
@@ -219,7 +219,7 @@ func nextTrainV2ID(worktree, root, projectCode string) (string, error) {
 	}
 	var next uint64 = 1
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		if entry.IsDir() || !canonicalTrainV2RecordName(entry.Name()) {
 			continue
 		}
 		code, number, err := model.ParseTrainV2ID(strings.TrimSuffix(entry.Name(), ".json"))
@@ -231,4 +231,12 @@ func nextTrainV2ID(worktree, root, projectCode string) (string, error) {
 		}
 	}
 	return model.FormatTrainV2ID(projectCode, next)
+}
+
+func canonicalTrainV2RecordName(name string) bool {
+	if !strings.HasSuffix(name, ".json") {
+		return false
+	}
+	_, _, err := model.ParseTrainV2ID(strings.TrimSuffix(name, ".json"))
+	return err == nil
 }
