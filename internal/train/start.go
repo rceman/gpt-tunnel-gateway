@@ -48,6 +48,7 @@ type StartDependencies struct {
 	Policy            model.ProjectWorkflowPolicy
 	Train             model.TrainV2
 	GatewayID         string
+	ProjectCode       string
 	StateDir          string
 	MaterializePacket PacketMaterializer
 	Now               func() time.Time

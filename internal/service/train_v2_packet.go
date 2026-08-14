@@ -36,6 +36,10 @@ func (s *Service) materializeTrainV2Packet(ctx context.Context, train model.Trai
 	if err != nil {
 		return trainv2.AgentTaskPacket{}, err
 	}
+	identifiers, err := s.ProjectIdentifiersRead(ctx, train.ProjectID)
+	if err != nil {
+		return trainv2.AgentTaskPacket{}, err
+	}
 	configuration, err := s.ProjectConfigurationRead(ctx, train.ProjectID)
 	if err != nil {
 		return trainv2.AgentTaskPacket{}, err
@@ -44,7 +48,16 @@ func (s *Service) materializeTrainV2Packet(ctx context.Context, train model.Trai
 	if err != nil {
 		return trainv2.AgentTaskPacket{}, err
 	}
-	packetPath := filepath.Join(s.Config.StateDir, "train-attempts", train.ProjectID, train.ID, fmt.Sprintf("item-%d", item.Position), fmt.Sprintf("attempt-%d", attempt.Number), "task-packet.md")
+	var packetPath string
+	if runtime.ProjectCode == "" {
+		packetPath = filepath.Join(trainv2.LegacyAttemptPath(s.Config.StateDir, train.ProjectID, train.ID, item.Position, attempt.Number), "task-packet.md")
+	} else {
+		attemptPath, err := trainv2.CompactAttemptPath(s.Config.StateDir, identifiers.ProjectCode, train.ID, item.TaskID, attempt.Number)
+		if err != nil {
+			return trainv2.AgentTaskPacket{}, err
+		}
+		packetPath = filepath.Join(attemptPath, "task-packet.md")
+	}
 	if info, statErr := os.Lstat(packetPath); statErr == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return trainv2.AgentTaskPacket{}, fmt.Errorf("Train packet path is not a regular file")

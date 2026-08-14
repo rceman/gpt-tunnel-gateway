@@ -108,18 +108,45 @@ func ownedTrainWorktreePath(stateDir, projectID, trainID string) (string, error)
 	return filepath.Join(stateDir, "train-worktrees", projectID, trainID), nil
 }
 
+func ownedCompactTrainWorktreePath(stateDir, projectCode, trainID string) (string, error) {
+	if err := model.ValidateProjectCode(projectCode); err != nil {
+		return "", err
+	}
+	code, _, err := model.ParseTrainV2ID(trainID)
+	if err != nil || code != projectCode {
+		return "", fmt.Errorf("train ID project code does not match project code")
+	}
+	if stateDir == "" || strings.ContainsAny(stateDir, "\x00\r\n") {
+		return "", fmt.Errorf("invalid train runtime state directory")
+	}
+	return filepath.Join(stateDir, "work", projectCode, trainID[len(projectCode)+1:]), nil
+}
+
 // CreateTrainWorktree creates the server-owned isolated checkout for a
 // TrainV2 lane. The caller supplies identity, never an arbitrary filesystem
 // path; the path is derived from the Gateway-owned state directory.
 func (r Runner) CreateTrainWorktree(ctx context.Context, p config.ProjectConfig, stateDir, projectID, trainID, branch, base string) error {
+	path, err := ownedTrainWorktreePath(stateDir, projectID, trainID)
+	if err != nil {
+		return err
+	}
+	return r.createTrainWorktree(ctx, p, path, branch, base)
+}
+
+// CreateTrainWorktreeCompact creates the post-cutover compact worktree path.
+func (r Runner) CreateTrainWorktreeCompact(ctx context.Context, p config.ProjectConfig, stateDir, projectCode, trainID, branch, base string) error {
+	path, err := ownedCompactTrainWorktreePath(stateDir, projectCode, trainID)
+	if err != nil {
+		return err
+	}
+	return r.createTrainWorktree(ctx, p, path, branch, base)
+}
+
+func (r Runner) createTrainWorktree(ctx context.Context, p config.ProjectConfig, path, branch, base string) error {
 	if err := model.ValidateBranch(branch); err != nil {
 		return err
 	}
 	if err := model.ValidateCommitSHA(base); err != nil {
-		return err
-	}
-	path, err := ownedTrainWorktreePath(stateDir, projectID, trainID)
-	if err != nil {
 		return err
 	}
 	root, err := filepath.Abs(p.Root)
@@ -148,6 +175,19 @@ func (r Runner) RemoveTrainWorktree(ctx context.Context, p config.ProjectConfig,
 	if err != nil {
 		return err
 	}
+	return r.removeTrainWorktree(ctx, p, path)
+}
+
+// RemoveTrainWorktreeCompact removes a post-cutover compact worktree.
+func (r Runner) RemoveTrainWorktreeCompact(ctx context.Context, p config.ProjectConfig, stateDir, projectCode, trainID string) error {
+	path, err := ownedCompactTrainWorktreePath(stateDir, projectCode, trainID)
+	if err != nil {
+		return err
+	}
+	return r.removeTrainWorktree(ctx, p, path)
+}
+
+func (r Runner) removeTrainWorktree(ctx context.Context, p config.ProjectConfig, path string) error {
 	target, err := filepath.Abs(path)
 	if err != nil || target == filepath.Clean(p.Root) {
 		return fmt.Errorf("invalid train worktree path")

@@ -37,8 +37,23 @@ func trainV2AttemptReportPath(projectID, trainID string, position int, attempt u
 	return hub.ProtocolRoot + fmt.Sprintf("/projects/%s/train-attempts/%s/item-%d/attempt-%d/report.json", projectID, trainID, position, attempt)
 }
 
-func trainV2AttemptCompletionPath(stateDir, projectID, trainID string, position int, attempt uint64) string {
-	return filepath.Join(stateDir, "train-attempts", projectID, trainID, fmt.Sprintf("item-%d", position), fmt.Sprintf("attempt-%d", attempt), "completion.json")
+func (s *Service) trainV2AttemptCompletionPath(ctx context.Context, projectID, trainID, taskID string, position int, attempt uint64) (string, error) {
+	identifiers, err := s.ProjectIdentifiersRead(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, trainID)
+	if runtimeErr == nil && runtime.ProjectCode == "" {
+		return filepath.Join(trainv2.LegacyAttemptPath(s.Config.StateDir, projectID, trainID, position, attempt), "completion.json"), nil
+	}
+	if runtimeErr != nil && !os.IsNotExist(runtimeErr) {
+		return "", runtimeErr
+	}
+	root, err := trainv2.CompactAttemptPath(s.Config.StateDir, identifiers.ProjectCode, trainID, taskID, attempt)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "completion.json"), nil
 }
 
 func (s *Service) TrainV2AttemptFinalize(ctx context.Context, in TrainV2AttemptFinalizeInput) (TrainV2AttemptFinalizeResult, error) {
@@ -121,7 +136,7 @@ func (s *Service) TrainV2AttemptFinalize(ctx context.Context, in TrainV2AttemptF
 	if err != nil || finalHead != head || finalBranch != branch || !finalClean {
 		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("Train lane changed during Attempt gates")
 	}
-	completion, err := s.readTrainV2AttemptCompletion(in, task, item, attempt)
+	completion, err := s.readTrainV2AttemptCompletion(ctx, in, task, item, attempt)
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
@@ -188,10 +203,14 @@ func (s *Service) TrainV2AttemptFinalize(ctx context.Context, in TrainV2AttemptF
 	}, nil
 }
 
-func (s *Service) readTrainV2AttemptCompletion(in TrainV2AttemptFinalizeInput, task model.TaskAuthoring, item model.TrainV2Item, attempt model.TrainV2Attempt) (model.TrainV2AttemptCompletion, error) {
+func (s *Service) readTrainV2AttemptCompletion(ctx context.Context, in TrainV2AttemptFinalizeInput, task model.TaskAuthoring, item model.TrainV2Item, attempt model.TrainV2Attempt) (model.TrainV2AttemptCompletion, error) {
 	path := in.CompletionFile
 	if path == "" {
-		return model.TrainV2AttemptCompletion{}, fmt.Errorf("Attempt completion file is required")
+		var err error
+		path, err = s.trainV2AttemptCompletionPath(ctx, in.ProjectID, in.TrainID, item.TaskID, item.Position, attempt.Number)
+		if err != nil {
+			return model.TrainV2AttemptCompletion{}, err
+		}
 	}
 	info, err := os.Lstat(path)
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {

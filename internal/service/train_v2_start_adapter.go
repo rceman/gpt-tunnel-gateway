@@ -35,6 +35,10 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 	if err != nil {
 		return trainv2.StartResult{}, err
 	}
+	identifiers, err := s.ProjectIdentifiersRead(ctx, in.ProjectID)
+	if err != nil {
+		return trainv2.StartResult{}, err
+	}
 	policy, err := s.ProjectWorkflowPolicyRead(ctx, in.ProjectID)
 	if err != nil {
 		return trainv2.StartResult{}, err
@@ -77,6 +81,7 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 		Policy:            policy,
 		Train:             train,
 		GatewayID:         s.Config.GatewayID,
+		ProjectCode:       identifiers.ProjectCode,
 		StateDir:          s.Config.StateDir,
 		MaterializePacket: s.materializeTrainV2Packet,
 		Now:               s.durableNow,

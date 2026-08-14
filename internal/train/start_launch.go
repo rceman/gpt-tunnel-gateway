@@ -93,14 +93,17 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 		return StartResult{}, fmt.Errorf("integration branch %q does not resolve to an exact commit", integrationBranch)
 	}
 	laneBranch := "train/" + deps.Train.ID
-	worktreePath := ExpectedWorktreePath(deps.StateDir, in.ProjectID, in.TrainID)
-	if err := deps.Git.CreateTrainWorktree(ctx, deps.ProjectConfig, deps.StateDir, in.ProjectID, in.TrainID, laneBranch, base); err != nil {
+	worktreePath, err := CompactWorktreePath(deps.StateDir, deps.ProjectCode, in.TrainID)
+	if err != nil {
+		return StartResult{}, err
+	}
+	if err := deps.Git.CreateTrainWorktreeCompact(ctx, deps.ProjectConfig, deps.StateDir, deps.ProjectCode, in.TrainID, laneBranch, base); err != nil {
 		return StartResult{}, err
 	}
 	createdWorktree := true
 	defer func() {
 		if createdWorktree {
-			_ = deps.Git.RemoveTrainWorktree(context.Background(), deps.ProjectConfig, deps.StateDir, in.ProjectID, in.TrainID)
+			_ = deps.Git.RemoveTrainWorktreeCompact(context.Background(), deps.ProjectConfig, deps.StateDir, deps.ProjectCode, in.TrainID)
 			_ = deps.Git.DeleteTrainBranch(context.Background(), deps.ProjectConfig, laneBranch, base)
 		}
 	}()
@@ -109,6 +112,7 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 	runtime := RuntimeBinding{
 		SchemaVersion: runtimeSchemaVersion,
 		ProjectID:     in.ProjectID,
+		ProjectCode:   deps.ProjectCode,
 		TrainID:       in.TrainID,
 		WorktreePath:  worktreePath,
 		AgentID:       in.ResolvedAgentID,

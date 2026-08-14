@@ -12,7 +12,17 @@ import (
 )
 
 func (s *Service) releaseTrainRuntime(ctx context.Context, project config.ProjectConfig, projectID, trainID, branch, head string) error {
-	if err := s.Git.RemoveTrainWorktree(ctx, project, s.Config.StateDir, projectID, trainID); err != nil {
+	removeWorktree := func() error {
+		runtime, err := trainv2.ReadRuntime(s.Config.StateDir, projectID, trainID)
+		if err == nil && runtime.ProjectCode != "" {
+			return s.Git.RemoveTrainWorktreeCompact(ctx, project, s.Config.StateDir, runtime.ProjectCode, trainID)
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return s.Git.RemoveTrainWorktree(ctx, project, s.Config.StateDir, projectID, trainID)
+	}
+	if err := removeWorktree(); err != nil {
 		return fmt.Errorf("release Train worktree: %w", err)
 	}
 	if err := s.Git.DeleteTrainBranch(ctx, project, branch, head); err != nil {

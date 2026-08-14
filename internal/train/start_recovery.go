@@ -22,13 +22,18 @@ func recoverMissingRuntime(ctx context.Context, deps StartDependencies) (StartRe
 	if err != nil {
 		return StartResult{}, err
 	}
-	path := ExpectedWorktreePath(deps.StateDir, deps.Project.ID, deps.Train.ID)
+	path, compactErr := CompactWorktreePath(deps.StateDir, deps.ProjectCode, deps.Train.ID)
+	compact := compactErr == nil
+	if !compact {
+		path = ExpectedWorktreePath(deps.StateDir, deps.Project.ID, deps.Train.ID)
+	}
 	if info, statErr := os.Stat(path); statErr != nil || !info.IsDir() {
 		return StartResult{}, fmt.Errorf("server-owned Train worktree is unavailable")
 	}
 	binding := RuntimeBinding{
 		SchemaVersion: runtimeSchemaVersion,
 		ProjectID:     deps.Project.ID,
+		ProjectCode:   map[bool]string{true: deps.ProjectCode, false: ""}[compact],
 		TrainID:       deps.Train.ID,
 		WorktreePath:  path,
 		AgentID:       attempt.AgentID,

@@ -15,6 +15,7 @@ import (
 type RuntimeBinding struct {
 	SchemaVersion   int       `json:"schema_version"`
 	ProjectID       string    `json:"project_id"`
+	ProjectCode     string    `json:"project_code,omitempty"`
 	TrainID         string    `json:"train_id"`
 	WorktreePath    string    `json:"worktree_path"`
 	AgentID         string    `json:"agent_id"`
@@ -29,6 +30,11 @@ type RuntimeBinding struct {
 const runtimeSchemaVersion = 1
 
 func ExpectedWorktreePath(stateDir, projectID, trainID string) string {
+	if model.ValidateProjectCode(projectID) == nil {
+		if path, err := CompactWorktreePath(stateDir, projectID, trainID); err == nil {
+			return path
+		}
+	}
 	return filepath.Join(stateDir, "train-worktrees", projectID, trainID)
 }
 
@@ -45,8 +51,14 @@ func ValidateRuntimeBindingShape(v RuntimeBinding) error {
 	if v.SchemaVersion != runtimeSchemaVersion || model.ValidateProjectIdentifier(v.ProjectID) != nil || v.WorktreePath == "" || model.ValidateObjectIdentifier(v.AgentID) != nil || v.SessionKey == "" || strings.ContainsAny(v.SessionKey, "\x00\r\n") || v.ItemPosition < 0 || model.ValidateCanonicalTaskID(v.TaskID) != nil || v.AttemptNumber < 1 || v.StartedAt.IsZero() {
 		return fmt.Errorf("invalid local train runtime binding")
 	}
-	if _, _, err := model.ParseTrainV2ID(v.TrainID); err != nil {
+	projectCode, _, err := model.ParseTrainV2ID(v.TrainID)
+	if err != nil {
 		return fmt.Errorf("invalid local train runtime train ID")
+	}
+	if v.ProjectCode != "" {
+		if err := model.ValidateProjectCode(v.ProjectCode); err != nil || projectCode != v.ProjectCode {
+			return fmt.Errorf("invalid local train runtime project code")
+		}
 	}
 	return nil
 }
@@ -55,7 +67,15 @@ func ValidateRuntimeBinding(v RuntimeBinding, stateDir string) error {
 	if err := ValidateRuntimeBindingShape(v); err != nil {
 		return err
 	}
-	if v.WorktreePath != ExpectedWorktreePath(stateDir, v.ProjectID, v.TrainID) {
+	expected := ExpectedWorktreePath(stateDir, v.ProjectID, v.TrainID)
+	if v.ProjectCode != "" {
+		var err error
+		expected, err = CompactWorktreePath(stateDir, v.ProjectCode, v.TrainID)
+		if err != nil {
+			return err
+		}
+	}
+	if v.WorktreePath != expected {
 		return fmt.Errorf("invalid local train runtime worktree path")
 	}
 	return nil
