@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -14,6 +15,11 @@ import (
 )
 
 const taskFinalizeSummary = "Gateway verified the Task worktree, created the checkpoint, and finalized the TrainItem Attempt."
+
+const (
+	taskCheckpointAuthor      = "GPT Tunnel Gateway"
+	taskCheckpointAuthorEmail = "gpt-tunnel-gateway@localhost"
+)
 
 func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInput) (TrainV2AttemptFinalizeResult, error) {
 	if in.ProjectID == "" {
@@ -45,7 +51,7 @@ func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInp
 		return TrainV2AttemptFinalizeResult{}, err
 	}
 	defer lock.Release()
-	startHead, branch, _, err := s.Git.CurrentHead(ctx, project)
+	startHead, branch, clean, err := s.Git.CurrentHead(ctx, project)
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
@@ -54,8 +60,17 @@ func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInp
 	if err := s.Hub.ReadJSON(ctx, startPath, &start); err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
-	if branch != start.LaneBranch || startHead != current.Attempt.StartHead {
+	if branch != start.LaneBranch {
 		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("Task worktree identity changed before finalization")
+	}
+	orphan := startHead != current.Attempt.StartHead
+	if orphan {
+		if !clean {
+			return TrainV2AttemptFinalizeResult{}, fmt.Errorf("orphan Task checkpoint worktree is not clean")
+		}
+		if err := s.validateOrphanTaskCheckpoint(ctx, project, in.TaskID, current.Attempt.StartHead, startHead); err != nil {
+			return TrainV2AttemptFinalizeResult{}, err
+		}
 	}
 	gates, err := s.ResolveProjectGates(ctx, in.ProjectID, "implementation")
 	if err != nil {
@@ -81,9 +96,12 @@ func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInp
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
-	checkpoint, err := s.Git.CommitCandidate(ctx, project, "Task checkpoint "+in.TaskID)
-	if err != nil {
-		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("create verified Task checkpoint: %w", err)
+	checkpoint := startHead
+	if !orphan {
+		checkpoint, err = s.Git.CommitCandidate(ctx, project, "Task checkpoint "+in.TaskID)
+		if err != nil {
+			return TrainV2AttemptFinalizeResult{}, fmt.Errorf("create verified Task checkpoint: %w", err)
+		}
 	}
 	finalHead, finalBranch, clean, err := s.Git.CurrentHead(ctx, project)
 	if err != nil {
@@ -125,11 +143,11 @@ func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInp
 		if err := readWorktreeJSON(worktree, s.trainV2Path(in.ProjectID, current.Train.ID), &latest); err != nil {
 			return nil, err
 		}
-		if latest.Revision != current.Train.Revision || current.Item.Position >= len(latest.Items) {
+		if current.Item.Position >= len(latest.Items) {
 			return nil, fmt.Errorf("Train changed before Task checkpoint publication")
 		}
 		item := latest.Items[current.Item.Position]
-		if item.TaskID != in.TaskID || item.ActiveAttemptNumber != current.Attempt.Number || item.Attempts[current.Attempt.Number-1].Status != model.TrainV2AttemptRunning {
+		if item.TaskID != in.TaskID || item.ActiveAttemptNumber != current.Attempt.Number || current.Attempt.Number == 0 || current.Attempt.Number > uint64(len(item.Attempts)) || item.Attempts[current.Attempt.Number-1].Status != model.TrainV2AttemptRunning {
 			return nil, fmt.Errorf("Task Attempt changed before checkpoint publication")
 		}
 		item.Status = model.TrainV2ItemFinalized
@@ -163,6 +181,29 @@ func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInp
 		Hub:    tx,
 	}
 	return s.advanceFinalizedTaskLocked(ctx, in.ProjectID, in.TaskID, result)
+}
+
+func (s *Service) validateOrphanTaskCheckpoint(ctx context.Context, project config.ProjectConfig, taskID, startHead, checkpoint string) error {
+	if model.ValidateCommitSHA(startHead) != nil || model.ValidateCommitSHA(checkpoint) != nil {
+		return fmt.Errorf("orphan Task checkpoint identity is invalid")
+	}
+	commits, err := s.Git.Log(ctx, project, checkpoint, 1)
+	if err != nil || len(commits) != 1 {
+		return fmt.Errorf("orphan Task checkpoint provenance is unavailable")
+	}
+	commit := commits[0]
+	if commit.SHA != checkpoint || len(commit.Parents) != 1 || commit.Parents[0] != startHead || commit.Subject != "Task checkpoint "+taskID || commit.AuthorName != taskCheckpointAuthor || commit.AuthorEmail != taskCheckpointAuthorEmail {
+		return fmt.Errorf("orphan Task checkpoint provenance does not match the active Attempt")
+	}
+	tree, err := s.Git.TreeID(ctx, project)
+	if err != nil {
+		return err
+	}
+	content, err := s.Git.WorktreeContentID(ctx, project)
+	if err != nil || tree != content {
+		return fmt.Errorf("orphan Task checkpoint tree does not match the prepared worktree")
+	}
+	return nil
 }
 
 func (s *Service) reuseFinalizedTask(ctx context.Context, projectID, taskID string) (TrainV2AttemptFinalizeResult, bool, error) {
