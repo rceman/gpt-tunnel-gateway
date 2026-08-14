@@ -54,21 +54,29 @@ func (s *Service) TaskAuthoringFind(ctx context.Context, taskID string) (model.T
 	if err != nil {
 		return model.TaskAuthoring{}, err
 	}
+	var matches []model.TaskAuthoring
 	for _, project := range projects {
-		enabled, configErr := s.trainV2Enabled(ctx, project.ID)
-		if configErr != nil {
-			return model.TaskAuthoring{}, configErr
-		}
-		if !enabled {
-			continue
-		}
-		task, readErr := s.TaskAuthoringRead(ctx, project.ID, taskID)
+		var task model.TaskAuthoring
+		readErr := s.Hub.ReadJSON(ctx, s.taskAuthoringPath(project.ID, taskID), &task)
 		if readErr == nil {
-			return task, nil
+			if task.ProjectID != project.ID || task.ID != taskID {
+				return model.TaskAuthoring{}, fmt.Errorf("task %s has invalid durable ownership in project %q", taskID, project.ID)
+			}
+			if err := model.ValidateTaskAuthoring(task); err != nil {
+				return model.TaskAuthoring{}, fmt.Errorf("task %s is malformed in project %q: %w", taskID, project.ID, err)
+			}
+			matches = append(matches, task)
+			continue
 		}
 		if !IsNotFound(readErr) {
 			return model.TaskAuthoring{}, readErr
 		}
+	}
+	if len(matches) > 1 {
+		return model.TaskAuthoring{}, fmt.Errorf("task %s has duplicate durable ownership", taskID)
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
 	}
 	return model.TaskAuthoring{}, notFoundf("task authoring %s", taskID)
 }

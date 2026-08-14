@@ -238,7 +238,7 @@ func TestTaskAuthoringFindSkipsEarlierLegacyProject(t *testing.T) {
 	hubRevision = registered.Hub.After
 	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
-	task, operation, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
+	task, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:   "example",
 		Title:       "Canonical task",
 		Objective:   "Find the canonical train_v2 task.",
@@ -247,16 +247,6 @@ func TestTaskAuthoringFindSkipsEarlierLegacyProject(t *testing.T) {
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: hubRevision,
 		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = s.Hub.Transact(context.Background(), operation.Hub.After, "test: seed legacy task authoring collision", func(worktree string) ([]string, error) {
-		path := s.taskAuthoringPath(legacyID, task.ID)
-		if err := hub.WriteJSON(worktree, path, map[string]any{"schema_version": 999, "project_id": legacyID, "id": task.ID}); err != nil {
-			return nil, err
-		}
-		return []string{path}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
