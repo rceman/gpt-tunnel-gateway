@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -24,6 +26,8 @@ type ReadSnapshot struct {
 	release   func() error
 	readBytes int64
 }
+
+type readSnapshotContextKey struct{}
 
 // ReadSnapshot opens one validated managed root and captures its remote
 // revision. Callers must close the snapshot when the graph read is complete.
@@ -49,6 +53,64 @@ func (s Store) ReadSnapshot(ctx context.Context) (*ReadSnapshot, error) {
 		revision: revision,
 		release:  release,
 	}, nil
+}
+
+// FreshReadSnapshot fetches the configured Hub ref once and holds the
+// repository lock for a bounded request-scoped read. Nested Hub reads can
+// reuse it through WithReadSnapshot without issuing another fetch.
+func (s Store) FreshReadSnapshot(ctx context.Context) (*ReadSnapshot, error) {
+	root := ManagedRoot(s.Config)
+	info, err := os.Lstat(root)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil, errors.New("read-only hub unavailable")
+	}
+	lock, err := acquireRepositoryLock(ctx, s.Config.StateDir)
+	if err != nil {
+		return nil, err
+	}
+	release := func() error { return lock.Release() }
+	root, err = s.refreshReadOnlyRoot(ctx)
+	if err != nil {
+		_ = release()
+		return nil, err
+	}
+	revision, err := s.remoteRevisionLocked(ctx, root)
+	if err != nil {
+		_ = release()
+		return nil, err
+	}
+	return &ReadSnapshot{
+		store:    s,
+		root:     root,
+		revision: revision,
+		release:  release,
+	}, nil
+}
+
+func (s Store) refreshReadOnlyRoot(ctx context.Context) (string, error) {
+	root := ManagedRoot(s.Config)
+	if err := s.validateManagedRoot(ctx, root); err != nil {
+		return "", errors.New("read-only hub unavailable")
+	}
+	if _, err := command(ctx, root, "fetch", "--prune", "--tags", RemoteName); err != nil {
+		return "", errors.New("read-only hub refresh unavailable")
+	}
+	if _, err := command(ctx, root, "rev-parse", "--verify", s.remoteRef()+"^{commit}"); err != nil {
+		return "", errors.New("read-only hub branch unavailable")
+	}
+	return root, nil
+}
+
+func WithReadSnapshot(ctx context.Context, snapshot *ReadSnapshot) context.Context {
+	return context.WithValue(ctx, readSnapshotContextKey{}, snapshot)
+}
+
+func readSnapshotFromContext(ctx context.Context) *ReadSnapshot {
+	snapshot, _ := ctx.Value(readSnapshotContextKey{}).(*ReadSnapshot)
+	if snapshot == nil || snapshot.release == nil {
+		return nil
+	}
+	return snapshot
 }
 
 func (r *ReadSnapshot) Close() error {
@@ -87,6 +149,13 @@ func (r *ReadSnapshot) List(ctx context.Context, prefix, suffix string) ([]strin
 func (r *ReadSnapshot) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	if err := validateHubPath(path); err != nil {
 		return nil, err
+	}
+	entries, err := command(ctx, r.root, "ls-tree", "-r", "--name-only", r.revision, "--", filepath.ToSlash(path))
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(string(entries)) == "" {
+		return nil, fmt.Errorf("hub path %s: %w", path, os.ErrNotExist)
 	}
 	out, err := command(ctx, r.root, "show", r.revision+":"+filepath.ToSlash(path))
 	if err != nil {

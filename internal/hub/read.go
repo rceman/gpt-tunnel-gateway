@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
@@ -38,30 +37,15 @@ func (s Store) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	if err := validateHubPath(path); err != nil {
 		return nil, err
 	}
-	lock, err := s.readOnlyLock()
+	if snapshot := readSnapshotFromContext(ctx); snapshot != nil {
+		return snapshot.ReadFile(ctx, path)
+	}
+	snapshot, err := s.FreshReadSnapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer lock.Release()
-	root, err := s.readOnlyRoot(ctx)
-	if err != nil {
-		return nil, err
-	}
-	entries, err := command(ctx, root, "ls-tree", "-r", "--name-only", s.remoteRef(), "--", filepath.ToSlash(path))
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(string(entries)) == "" {
-		return nil, fmt.Errorf("hub path %s: %w", path, os.ErrNotExist)
-	}
-	out, err := command(ctx, root, "show", s.remoteRef()+":"+filepath.ToSlash(path))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(out)) > s.Config.MaxReadBytes {
-		return nil, fmt.Errorf("hub file exceeds read limit")
-	}
-	return out, nil
+	defer snapshot.Close()
+	return snapshot.ReadFile(ctx, path)
 }
 
 // ReadFileAtCommit reads immutable Hub history without changing the managed
@@ -119,31 +103,15 @@ func (s Store) List(ctx context.Context, prefix, suffix string) ([]string, error
 	if err := validateHubPath(prefix); err != nil {
 		return nil, err
 	}
-	lock, err := s.readOnlyLock()
+	if snapshot := readSnapshotFromContext(ctx); snapshot != nil {
+		return snapshot.List(ctx, prefix, suffix)
+	}
+	snapshot, err := s.FreshReadSnapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer lock.Release()
-	root, err := s.readOnlyRoot(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out, err := command(ctx, root, "ls-tree", "-r", "--name-only", s.remoteRef(), "--", prefix)
-	if err != nil {
-		return nil, err
-	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	result := []string{}
-	for _, line := range lines {
-		if line != "" && (suffix == "" || strings.HasSuffix(line, suffix)) {
-			result = append(result, line)
-			if len(result) > s.Config.MaxListItems {
-				return nil, fmt.Errorf("hub list exceeds limit")
-			}
-		}
-	}
-	sort.Strings(result)
-	return result, nil
+	defer snapshot.Close()
+	return snapshot.List(ctx, prefix, suffix)
 }
 func (s Store) History(ctx context.Context, path string, limit int) ([]map[string]string, error) {
 	if err := validateHubPath(path); err != nil {

@@ -137,14 +137,13 @@ func (s Store) remoteRevisionLocked(ctx context.Context, root string) (string, e
 	return strings.TrimSpace(string(out)), nil
 }
 func (s Store) RemoteRevision(ctx context.Context) (string, error) {
-	lock, err := s.readOnlyLock()
+	if snapshot := readSnapshotFromContext(ctx); snapshot != nil {
+		return snapshot.Revision(), nil
+	}
+	snapshot, err := s.FreshReadSnapshot(ctx)
 	if err != nil {
 		return "", err
 	}
-	defer lock.Release()
-	root, err := s.readOnlyRoot(ctx)
-	if err != nil {
-		return "", err
-	}
-	return s.remoteRevisionLocked(ctx, root)
+	defer snapshot.Close()
+	return snapshot.Revision(), nil
 }

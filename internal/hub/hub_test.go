@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,6 +60,39 @@ func TestReadDoesNotCreateCloneBranchOrLockArtifacts(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(c.StateDir, "locks")); !os.IsNotExist(err) {
 		t.Fatalf("read created lock directory: %v", err)
+	}
+}
+
+func TestReadFileRefreshesStaleRemoteTrackingRef(t *testing.T) {
+	bare, work, base := testutil.RepoWithBareRemote(t)
+	c := testConfig(t, bare, "gpt-tunnel/home_pc")
+	store := Store{Config: c}
+	if err := store.Ensure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(work, ProtocolRoot, "fresh.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"fresh":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, work, "add", filepath.ToSlash(filepath.Join(ProtocolRoot, "fresh.json")))
+	testutil.Git(t, work, "commit", "-m", "advance hub for freshness test")
+	testutil.Git(t, work, "push", "origin", "HEAD:refs/heads/gpt-tunnel/home_pc")
+	remote := strings.TrimSpace(testutil.Git(t, bare, "rev-parse", "refs/heads/gpt-tunnel/home_pc"))
+	if remote == base {
+		t.Fatal("remote branch did not advance")
+	}
+	data, err := store.ReadFile(context.Background(), ProtocolRoot+"/fresh.json")
+	if err != nil || string(data) != `{"fresh":true}` {
+		t.Fatalf("fresh read=%q err=%v", data, err)
+	}
+	if got, err := store.RemoteRevision(context.Background()); err != nil || got != remote {
+		t.Fatalf("fresh revision=%q want=%q err=%v", got, remote, err)
+	}
+	if _, err := store.ReadFile(context.Background(), ProtocolRoot+"/missing-after-refresh.json"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing path error=%v, want canonical not-found", err)
 	}
 }
 
