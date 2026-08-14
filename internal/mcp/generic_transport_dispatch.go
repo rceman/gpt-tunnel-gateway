@@ -19,6 +19,9 @@ func addGenericTransportTools(add func(string, string, map[string]any, func(cont
 	add("session_start", "Create an unbound durable session and return workflow bootstrap guidance.", sessionStartPublicInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.sessionStartPublic(ctx, raw)
 	})
+	add("session_update", "Bind one durable session to one canonical project before project work.", sessionUpdatePublicInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return s.sessionUpdatePublic(ctx, raw)
+	})
 	add("call", "Dispatch one server-owned action through its authoritative schema and handler.", genericCallInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.genericCall(ctx, legacy, raw)
 	})

@@ -35,8 +35,37 @@ func sessionStartPublicInputSchema() map[string]any {
 	}, "role")
 }
 
+func sessionUpdatePublicInputSchema() map[string]any {
+	sessionID := str("Existing durable session identifier.")
+	sessionID["pattern"] = `^(?:S|SP|SD|SA|SW)-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$`
+	return obj(map[string]any{
+		"session":    sessionID,
+		"project_id": str("Canonical registered project identifier."),
+		"ref":        str("Optional caller reference."),
+	}, "session", "project_id")
+}
+
 func sessionStartPublicOutputSchema() map[string]any {
-	return map[string]any{"type": "object", "additionalProperties": true}
+	project := closedOutput(map[string]any{
+		"project_id": outputString(), "project_code": outputString(), "status": outputString(), "default_branch": outputString(),
+	}, "project_id", "status")
+	rules := map[string]any{"type": "object", "additionalProperties": true}
+	return closedOutput(map[string]any{
+		"session":    sessionIDOutputSchema(),
+		"rules":      rules,
+		"workflow":   rules,
+		"projects":   outputArray(project),
+		"next_steps": outputArray(outputString()),
+	}, "session", "rules", "projects", "next_steps")
+}
+
+func sessionUpdatePublicOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"session":                        sessionIDOutputSchema(),
+		"project_id":                     outputString(),
+		"rules_acknowledgement_required": outputBoolean(),
+		"project_rules_acknowledged":     outputBoolean(),
+	}, "session", "project_id", "rules_acknowledgement_required", "project_rules_acknowledged")
 }
 
 func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -68,15 +97,60 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	if max := s.Service.Config.MaxListItems; max > 0 && len(projects) > max {
 		projects = projects[:max]
 	}
+	projectSummaries := make([]map[string]any, 0, len(projects))
+	for _, project := range projects {
+		if project.Status != "active" {
+			continue
+		}
+		summary := map[string]any{
+			"project_id":     project.ID,
+			"status":         project.Status,
+			"default_branch": project.DefaultBranch,
+		}
+		if identifiers, err := s.Service.ProjectIdentifiersRead(ctx, project.ID); err == nil && identifiers.ProjectCode != "" {
+			summary["project_code"] = identifiers.ProjectCode
+		}
+		projectSummaries = append(projectSummaries, summary)
+	}
 	return map[string]any{
 		"session":  started.Session.ID,
+		"rules":    workflowWithDigest(workflow, digest),
 		"workflow": workflowWithDigest(workflow, digest),
-		"projects": projects,
+		"projects": projectSummaries,
 		"next_steps": []string{
 			"inspect schema",
-			"bind one project through session/bind",
+			"bind one project through session_update",
 			"read project rules through rules/read",
 		},
+	}, nil
+}
+
+func (s *Server) sessionUpdatePublic(ctx context.Context, raw json.RawMessage) (any, error) {
+	var in struct {
+		Session   string  `json:"session"`
+		ProjectID string  `json:"project_id"`
+		Ref       *string `json:"ref"`
+	}
+	if err := decode(raw, &in); err != nil {
+		return nil, err
+	}
+	record, err := s.activeSession(in.Session)
+	if err != nil {
+		return nil, err
+	}
+	roleContext, err := existingSessionRoleContext(ctx, record.Role)
+	if err != nil {
+		return nil, err
+	}
+	bound, err := s.Service.SessionBind(roleContext, service.SessionBindInput{SessionID: in.Session, ProjectID: in.ProjectID, SessionRef: in.Ref})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"session":                        bound.Session.ID,
+		"project_id":                     bound.Session.ProjectID,
+		"rules_acknowledgement_required": true,
+		"project_rules_acknowledged":     bound.Session.ProjectRulesRevision > 0 && bound.Session.ProjectRulesDigest != "",
 	}, nil
 }
 

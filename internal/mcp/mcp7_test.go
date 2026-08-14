@@ -5,16 +5,18 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
-func TestMCP7ExposesExactlyThreeTopLevelTools(t *testing.T) {
+func TestMCP249ExposesExactlyFiveTopLevelTools(t *testing.T) {
 	server := newSessionTestServer(t)
 	response := callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/list",
 	}))
 	result := response["result"].(map[string]any)
 	tools := result["tools"].([]any)
-	want := []string{"batch", "call", "schema", "session_start"}
+	want := []string{"batch", "call", "schema", "session_start", "session_update"}
 	got := make([]string, 0, len(tools))
 	for _, raw := range tools {
 		got = append(got, raw.(map[string]any)["name"].(string))
@@ -43,7 +45,7 @@ func TestMCP7SessionlessBootstrapAndSessionBoundTransport(t *testing.T) {
 	sessionID := started["session"].(string)
 	bound := genericStructured(t, callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "session/bind", "input": map[string]any{"project_id": "example"}}},
+		"params": map[string]any{"name": "session_update", "arguments": map[string]any{"session": sessionID, "project_id": "example"}},
 	})))
 	if bound["is_error"] == true {
 		t.Fatalf("session bind failed: %#v", bound)
@@ -129,5 +131,76 @@ func TestMCP7BatchCannotCrossSessionProjectAuthority(t *testing.T) {
 	results := response["results"].([]any)
 	if len(results) != 1 || results[0].(map[string]any)["is_error"] != true {
 		t.Fatalf("cross-project batch was not rejected: %#v", response)
+	}
+}
+
+func TestMCP249SessionFirstBindingAndEnvelopeGuards(t *testing.T) {
+	server := newSessionTestServer(t)
+	started := genericStructured(t, callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"role": durableSession.RoleDelivery, "label": "test"}},
+	})))
+	sessionID, ok := started["session"].(string)
+	if !ok || sessionID == "" {
+		t.Fatalf("session_start did not return public session: %#v", started)
+	}
+	if _, ok := started["rules"].(map[string]any); !ok {
+		t.Fatalf("session_start omitted global rules: %#v", started)
+	}
+	if _, ok := started["projects"].([]any); !ok {
+		t.Fatalf("session_start omitted active projects: %#v", started)
+	}
+
+	bound := genericStructured(t, callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+		"params": map[string]any{"name": "session_update", "arguments": map[string]any{"session": sessionID, "project_id": "example", "ref": "first"}},
+	})))
+	if bound["project_id"] != "example" || bound["rules_acknowledgement_required"] != true {
+		t.Fatalf("session_update did not bind project: %#v", bound)
+	}
+	retried := genericStructured(t, callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+		"params": map[string]any{"name": "session_update", "arguments": map[string]any{"session": sessionID, "project_id": "example", "ref": "retry"}},
+	})))
+	if retried["project_id"] != "example" {
+		t.Fatalf("same-project session_update was not retry-safe: %#v", retried)
+	}
+	record, err := durableSession.NewStore(server.Service.Config.StateDir).Get(sessionID)
+	if err != nil || record.ProjectID != "example" || record.SessionRef == nil || *record.SessionRef != "retry" {
+		t.Fatalf("session update did not persist the bound identity/ref: %#v err=%v", record, err)
+	}
+
+	cross := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+		"params": map[string]any{"name": "session_update", "arguments": map[string]any{"session": sessionID, "project_id": "other"}},
+	}))
+	if result, ok := cross["result"].(map[string]any); !ok || result["isError"] != true {
+		t.Fatalf("cross-project session_update was not rejected: %#v", cross)
+	}
+	unchanged, err := durableSession.NewStore(server.Service.Config.StateDir).Get(sessionID)
+	if err != nil || unchanged.ProjectID != "example" {
+		t.Fatalf("cross-project rejection changed session authority: %#v err=%v", unchanged, err)
+	}
+
+	wrongField := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "rules/read", "input": map[string]any{}}},
+	}))
+	if wrongField["error"] == nil {
+		t.Fatalf("call accepted retired session_id envelope: %#v", wrongField)
+	}
+	missingBatchSession := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 6, "method": "tools/call",
+		"params": map[string]any{"name": "batch", "arguments": map[string]any{"calls": []any{}}},
+	}))
+	if missingBatchSession["error"] == nil {
+		t.Fatalf("batch accepted without root session: %#v", missingBatchSession)
+	}
+	retiredBind := genericStructured(t, callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 7, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "session/bind", "input": map[string]any{"project_id": "example"}}},
+	})))
+	if retiredBind["is_error"] != true {
+		t.Fatalf("retired session/bind action remained callable: %#v", retiredBind)
 	}
 }

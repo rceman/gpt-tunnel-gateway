@@ -45,10 +45,6 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		}
 		return s.Service.SessionStartUnbound(trusted, in.Role, in.Label)
 	})
-	add("session/bind", "Bind the current unbound session to one registered project.", obj(map[string]any{"project_id": str("Registered project identifier."), "ref": str("Optional caller reference.")}, "project_id"), true, s.sessionBindAction)
-	entry := entries["session/bind"]
-	entry.AuthorityRole = actionRolePlannerOrDelivery
-	entries["session/bind"] = entry
 	add("rules/read", "Read and acknowledge the current rules for the bound project.", obj(map[string]any{}), true, s.rulesReadAction)
 	add("session/list", "List active durable sessions.", obj(map[string]any{}), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.Service.SessionList()

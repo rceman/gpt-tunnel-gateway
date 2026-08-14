@@ -158,9 +158,11 @@ func (s Store) Bind(id, projectID string) (Record, error) {
 	if record.ProjectID != "" && record.ProjectID != projectID {
 		return Record{}, fmt.Errorf("%w: session project is immutable", ErrInvalidSession)
 	}
-	record.ProjectID = projectID
-	record.ProjectRulesRevision = 0
-	record.ProjectRulesDigest = ""
+	if record.ProjectID == "" {
+		record.ProjectID = projectID
+		record.ProjectRulesRevision = 0
+		record.ProjectRulesDigest = ""
+	}
 	record.UpdatedAt = time.Now().UTC()
 	if err := record.Validate(); err != nil {
 		return Record{}, err

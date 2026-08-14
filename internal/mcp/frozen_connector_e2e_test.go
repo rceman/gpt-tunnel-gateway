@@ -120,13 +120,13 @@ func TestFrozenConnectorDiscoversAndInvokesRuntimeActionWithoutReconnect(t *test
 	}))
 	sessionID := started["session"].(string)
 	bound := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "session/bind", "input": map[string]any{"project_id": "example"}},
+		"name": "session_update", "arguments": map[string]any{"session": sessionID, "project_id": "example"},
 	}))
 	if bound["is_error"] == true {
 		t.Fatalf("session bind failed: %#v", bound)
 	}
-	if _, ok := bound["result"].(map[string]any); !ok {
-		t.Fatalf("unexpected session bind: %#v", bound)
+	if bound["project_id"] != "example" || bound["rules_acknowledgement_required"] != true {
+		t.Fatalf("unexpected session update: %#v", bound)
 	}
 	rules := frozenResult(t, client.request(t, "tools/call", map[string]any{
 		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}},

@@ -27,10 +27,11 @@ func runtimeIdentityOutputSchema() map[string]any {
 
 func coreToolOutputSchemas() map[string]map[string]any {
 	return map[string]map[string]any{
-		"session_start": sessionStartPublicOutputSchema(),
-		"call":          genericCallOutputSchema(),
-		"schema":        genericSchemaOutputSchema(),
-		"batch":         genericBatchOutputSchema(),
+		"session_start":  sessionStartPublicOutputSchema(),
+		"session_update": sessionUpdatePublicOutputSchema(),
+		"call":           genericCallOutputSchema(),
+		"schema":         genericSchemaOutputSchema(),
+		"batch":          genericBatchOutputSchema(),
 		"status": closedOutput(map[string]any{
 			"service": outputString(), "version": outputString(), "gateway_id": outputString(), "time": outputDateTime(),
 			"project_status": projectStatusOutputSchema(), "runtime_identity": runtimeIdentityOutputSchema(),

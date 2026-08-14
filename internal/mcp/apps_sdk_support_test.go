@@ -55,9 +55,16 @@ func normalizeLegacySessionStartResult(t *testing.T, srv *Server, response map[s
 	if sessionID == "" {
 		return response
 	}
-	bind := callMCPRaw(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 90, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "session/bind", "input": map[string]any{"project_id": projectID}}}}))
+	bind := callMCPRaw(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 90, "method": "tools/call", "params": map[string]any{"name": "session_update", "arguments": map[string]any{"session": sessionID, "project_id": projectID}}}))
 	bindStructured := genericStructured(t, bind)
-	bound, _ := bindStructured["result"].(map[string]any)
+	if bindStructured["is_error"] == true {
+		return response
+	}
+	recordValue, err := durableSession.NewStore(srv.Service.Config.StateDir).Get(sessionID)
+	if err != nil {
+		return response
+	}
+	bound := map[string]any{"session": map[string]any{"session_id": recordValue.ID, "project_id": recordValue.ProjectID, "role": recordValue.Role, "status": recordValue.Status}}
 	read := callMCPRaw(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 91, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}}}}))
 	readStructured := genericStructured(t, read)
 	record, _ := bound["session"].(map[string]any)

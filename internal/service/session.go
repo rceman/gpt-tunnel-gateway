@@ -93,8 +93,15 @@ func (s *Service) SessionBind(ctx context.Context, input SessionBindInput) (Sess
 			return SessionResult{}, err
 		}
 	}
-	if _, err := s.ProjectRead(ctx, input.ProjectID); err != nil {
+	project, err := s.ProjectRead(ctx, input.ProjectID)
+	if err != nil {
 		return SessionResult{}, fmt.Errorf("session project is not durably registered: %w", err)
+	}
+	if err := model.ValidateProject(project); err != nil {
+		return SessionResult{}, fmt.Errorf("session project is invalid: %w", err)
+	}
+	if project.Status != "active" {
+		return SessionResult{}, fmt.Errorf("session project is not active")
 	}
 	record, err := durableSession.NewStore(s.Config.StateDir).Bind(input.SessionID, input.ProjectID)
 	if err != nil {
