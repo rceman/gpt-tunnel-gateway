@@ -69,7 +69,7 @@ func TestQueryRunUsesSharedReadOnlyDSLAndSchemaDiscovery(t *testing.T) {
 	sessionID := started["session"].(map[string]any)["session_id"].(string)
 	result := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "query/run", "input": map[string]any{"dsl": "task.list().select(id,status).limit(2)"}}}})))
 	queryResult := result["result"].(map[string]any)
-	if result["action"] != "query/run" || result["is_error"] == true || queryResult["entity"] != "task" {
+	if _, ok := result["action"]; ok || result["is_error"] == true || queryResult["entity"] != "task" {
 		t.Fatalf("query/run failed: %#v", result)
 	}
 	contract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "query/task"}}})))
@@ -170,14 +170,14 @@ func TestGenericRegisteredActionDiscoveryCallAndBatchFailureContinuation(t *test
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/echo", "input": map[string]any{"value": "ok"}}},
 	})))
-	if call["action"] != "test/echo" || call["is_error"] != false {
+	if _, ok := call["action"]; ok || call["is_error"] != false {
 		t.Fatalf("unexpected generic call: %#v", call)
 	}
 	invalid := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/echo", "input": map[string]any{"wrong": true}}},
 	})))
-	if invalid["is_error"] != true || !strings.Contains(invalid["result"].(map[string]any)["error"].(string), `schema with path="test/echo"`) {
+	if _, ok := invalid["action"]; ok || invalid["is_error"] != true || !strings.Contains(invalid["result"].(map[string]any)["error"].(string), `schema with path="test/echo"`) {
 		t.Fatalf("generic validation error was not actionable: %#v", invalid)
 	}
 
@@ -190,7 +190,7 @@ func TestGenericRegisteredActionDiscoveryCallAndBatchFailureContinuation(t *test
 		}}},
 	})))
 	results := batch["results"].([]any)
-	if len(results) != 3 || results[1].(map[string]any)["is_error"] != true || results[2].(map[string]any)["is_error"] != false {
+	if len(results) != 3 || results[0].(map[string]any)["action"] != "test/echo" || results[1].(map[string]any)["action"] != "missing/action" || results[1].(map[string]any)["is_error"] != true || results[2].(map[string]any)["action"] != "test/echo" || results[2].(map[string]any)["is_error"] != false {
 		t.Fatalf("batch did not preserve ordered continuation: %#v", batch)
 	}
 }
@@ -217,6 +217,40 @@ func TestGenericLegacyReadAndMutationAuthorityReuse(t *testing.T) {
 	unauthorizedResult := genericStructured(t, unauthorized)
 	if unauthorizedResult["is_error"] != true || !strings.Contains(unauthorizedResult["result"].(map[string]any)["error"].(string), "AUTHORITY_UNAVAILABLE") {
 		t.Fatalf("generic mutation did not reuse authority enforcement: %#v", unauthorizedResult)
+	}
+}
+
+func TestGenericTransportEnvelopeAndActionPathContracts(t *testing.T) {
+	callSchema := genericCallOutputSchema()
+	callProperties := callSchema["properties"].(map[string]any)
+	if len(callProperties) != 2 {
+		t.Fatalf("single-call schema has unexpected properties: %#v", callProperties)
+	}
+	if _, ok := callProperties["action"]; ok {
+		t.Fatal("single-call schema still exposes action")
+	}
+	batchSchema := genericBatchOutputSchema()
+	items := batchSchema["properties"].(map[string]any)["results"].(map[string]any)["items"].(map[string]any)
+	itemProperties := items["properties"].(map[string]any)
+	if len(itemProperties) != 3 {
+		t.Fatalf("batch item schema has unexpected properties: %#v", itemProperties)
+	}
+	if _, ok := itemProperties["action"]; !ok {
+		t.Fatal("batch item schema lost action correlation")
+	}
+
+	for _, test := range []struct {
+		path string
+		want bool
+	}{
+		{path: "task/read", want: true},
+		{path: "task.create", want: false},
+		{path: "task/read/extra", want: false},
+		{path: "query/run", want: true},
+	} {
+		if _, _, ok := genericActionParts(test.path); ok != test.want {
+			t.Fatalf("genericActionParts(%q) ok=%v, want %v", test.path, ok, test.want)
+		}
 	}
 }
 

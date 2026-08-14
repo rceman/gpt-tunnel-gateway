@@ -53,7 +53,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		s.recordRuntimeAction(ctx, record, event, level, action, returnErr)
 	}()
 	if action == "" {
-		return nil, fmt.Errorf("action is required; inspect schema with path=\"\"")
+		return genericActionError(action, "action is required; inspect schema with path=\"\""), nil
 	}
 	entry, ok := entries[action]
 	if !ok {
@@ -117,7 +117,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 			if err := validateOutputValue(entry.LegacyOutputSchema, result); err != nil {
 				return genericActionError(action, "action output contract violation: "+err.Error()), nil
 			}
-			return map[string]any{"action": action, "result": result, "is_error": false}, nil
+			return genericActionSuccess(result), nil
 		}
 	}
 	if entry.Authority != nil {
@@ -142,7 +142,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	if err := validateOutputValue(entry.OutputSchema, result); err != nil {
 		return genericActionError(action, "action output contract violation: "+err.Error()), nil
 	}
-	return map[string]any{"action": action, "result": result, "is_error": false}, nil
+	return genericActionSuccess(result), nil
 }
 
 func (s *Server) recordRuntimeAction(ctx context.Context, sessionRecord durableSession.Record, event, level, action string, cause error) {
@@ -176,8 +176,20 @@ func operationIDFromRaw(raw json.RawMessage) string {
 	return operationID
 }
 
-func genericActionError(action, message string) map[string]any {
-	return map[string]any{"action": action, "result": map[string]any{"error": message}, "is_error": true}
+func genericActionError(_ string, message string) map[string]any {
+	return map[string]any{"result": map[string]any{"error": message}, "is_error": true}
+}
+
+func genericActionSuccess(result map[string]any) map[string]any {
+	return map[string]any{"result": result, "is_error": false}
+}
+
+func genericBatchResult(action string, result map[string]any) map[string]any {
+	item := map[string]any{"action": action}
+	for key, value := range result {
+		item[key] = value
+	}
+	return item
 }
 
 func validateGenericActionInput(schema map[string]any, raw json.RawMessage) error {
@@ -228,7 +240,11 @@ func (s *Server) genericBatch(ctx context.Context, legacy map[string]Tool, raw j
 	results := make([]map[string]any, 0, len(input.Calls))
 	for _, call := range input.Calls {
 		var item genericCallInput
+		action := ""
 		result, err := decodeBatchCall(call, &item)
+		if err == nil {
+			action = item.Action
+		}
 		if err == nil && item.SessionID != "" && item.SessionID != input.SessionID {
 			result = nil
 			err = fmt.Errorf("batch item session_id does not match batch session_id")
@@ -241,9 +257,10 @@ func (s *Server) genericBatch(ctx context.Context, legacy map[string]Tool, raw j
 				Action string `json:"action"`
 			}
 			_ = json.Unmarshal(call, &probe)
+			action = probe.Action
 			result = genericActionError(probe.Action, err.Error())
 		}
-		results = append(results, result)
+		results = append(results, genericBatchResult(action, result))
 	}
 	return map[string]any{"results": results}, nil
 }

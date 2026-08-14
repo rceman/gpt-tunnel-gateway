@@ -293,10 +293,7 @@ func sessionStartInputSchema() map[string]any {
 }
 
 func genericActionParts(path string) (string, string, bool) {
-	if parts := strings.SplitN(path, "/", 2); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-		return parts[0], parts[1], true
-	}
-	if parts := strings.SplitN(path, ".", 2); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+	if parts := strings.Split(path, "/"); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
 		return parts[0], parts[1], true
 	}
 	return "", "", false
@@ -321,6 +318,13 @@ func genericSchemaInputSchema() map[string]any {
 
 func genericCallOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
+		"result":   map[string]any{"type": "object", "additionalProperties": true},
+		"is_error": outputBoolean(),
+	}, "result", "is_error")
+}
+
+func genericBatchItemOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
 		"action":   outputString(),
 		"result":   map[string]any{"type": "object", "additionalProperties": true},
 		"is_error": outputBoolean(),
@@ -328,7 +332,7 @@ func genericCallOutputSchema() map[string]any {
 }
 
 func genericBatchOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"results": outputArray(genericCallOutputSchema())}, "results")
+	return closedOutput(map[string]any{"results": outputArray(genericBatchItemOutputSchema())}, "results")
 }
 
 func genericSchemaOutputSchema() map[string]any {

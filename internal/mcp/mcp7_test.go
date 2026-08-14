@@ -42,7 +42,7 @@ func TestMCP7SessionlessBootstrapAndSessionBoundTransport(t *testing.T) {
 			"action": "read", "input": map[string]any{"project_id": "example"},
 		}},
 	})))
-	if project["action"] != "project/read" || project["is_error"] != false {
+	if _, ok := project["action"]; ok || project["is_error"] != false {
 		t.Fatalf("sessionless project bootstrap failed: %#v", project)
 	}
 

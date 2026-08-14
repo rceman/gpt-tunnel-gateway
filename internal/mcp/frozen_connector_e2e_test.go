@@ -173,7 +173,7 @@ func TestFrozenConnectorDiscoversAndInvokesRuntimeActionWithoutReconnect(t *test
 		"name":      "call",
 		"arguments": map[string]any{"session_id": sessionID, "action": "frozen/probe", "input": map[string]any{"value": "call"}},
 	}))
-	if call["action"] != "frozen/probe" || call["is_error"] != false || call["result"].(map[string]any)["value"] != "call" {
+	if _, ok := call["action"]; ok || call["is_error"] != false || call["result"].(map[string]any)["value"] != "call" {
 		t.Fatalf("deployed action call failed: %#v", call)
 	}
 
