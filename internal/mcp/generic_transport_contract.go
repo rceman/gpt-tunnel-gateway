@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 const genericSchemaRevision = "generic-mcp-v1"
@@ -25,6 +27,7 @@ type GenericAction struct {
 	RequiresWorkflowPolicy bool
 	AllowLegacyOverride    bool
 	SessionBound           bool
+	SessionRequired        bool
 	ExecutionInputSchema   map[string]any
 	Execute                func(context.Context, json.RawMessage) (any, error)
 }
@@ -39,13 +42,13 @@ type genericActionEntry struct {
 }
 
 type genericCallInput struct {
-	SessionID string          `json:"session_id"`
+	SessionID string          `json:"session"`
 	Action    string          `json:"action"`
 	Input     json.RawMessage `json:"input"`
 }
 
 type genericBatchInput struct {
-	SessionID string            `json:"session_id"`
+	SessionID string            `json:"session"`
 	Calls     []json.RawMessage `json:"calls"`
 }
 
@@ -179,7 +182,10 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 			}
 			entries[path] = entry
 		}
+		entry.SessionRequired = entry.SessionBound
+		entries[path] = entry
 	}
+	s.addBootstrapActions(entries, legacy)
 	return entries
 }
 
@@ -275,21 +281,22 @@ func stripProjectID(value any) any {
 }
 
 func genericCallInputSchema() map[string]any {
-	return obj(map[string]any{
-		"session_id": str("Explicit durable project-bound session identifier."),
-		"action":     str("Server-owned action path; inspect schema for available actions."),
-		"input":      map[string]any{"type": "object", "additionalProperties": true, "description": "Generic action input validated by the server-owned action contract."},
-	}, "session_id", "action", "input")
+	schema := obj(map[string]any{
+		"session": str("Optional durable project-bound session identifier."),
+		"action":  str("Server-owned action path; inspect schema for available actions."),
+		"input":   map[string]any{"type": "object", "additionalProperties": true, "description": "Generic action input validated by the server-owned action contract."},
+	}, "action", "input")
+	schema["x-sessionless"] = true
+	return schema
 }
 
 func sessionStartInputSchema() map[string]any {
 	return obj(map[string]any{
-		"project_id":   str("Registered project identifier."),
-		"role":         str("Server-authorized session role."),
-		"session_type": str("Session type; currently chatgpt."),
-		"session_ref":  str("Optional caller reference."),
-		"label":        str("Optional bounded session label."),
-	}, "project_id", "role", "session_type")
+		"project_id": str("Registered project identifier."),
+		"role":       str("Server-authorized session role."),
+		"label":      str("Optional bounded session label."),
+		"ref":        str("Optional caller reference."),
+	}, "project_id", "role")
 }
 
 func genericActionParts(path string) (string, string, bool) {
@@ -302,7 +309,9 @@ func genericActionParts(path string) (string, string, bool) {
 func genericBatchInputSchema() map[string]any {
 	calls := array(genericBatchCallInputSchema())
 	calls["maxItems"] = genericBatchMaxItems
-	return obj(map[string]any{"session_id": str("One explicit durable session shared by every batch item."), "calls": calls}, "session_id", "calls")
+	schema := obj(map[string]any{"session": str("Optional durable session shared by every batch item."), "calls": calls}, "calls")
+	schema["x-sessionless"] = true
+	return schema
 }
 
 func genericBatchCallInputSchema() map[string]any {
@@ -339,8 +348,8 @@ func genericSchemaOutputSchema() map[string]any {
 	action := closedOutput(map[string]any{
 		"path": outputString(), "domain": outputString(), "name": outputString(),
 		"description": outputString(), "input_schema": map[string]any{"type": "object", "additionalProperties": true},
-		"output_schema": map[string]any{"type": "object", "additionalProperties": true}, "annotations": map[string]any{"type": "object", "additionalProperties": true},
-	}, "path", "domain", "name", "description", "input_schema", "output_schema", "annotations")
+		"output_schema": map[string]any{"type": "object", "additionalProperties": true}, "annotations": map[string]any{"type": "object", "additionalProperties": true}, "session_required": outputBoolean(),
+	}, "path", "domain", "name", "description", "input_schema", "output_schema", "annotations", "session_required")
 	return closedOutput(map[string]any{
 		"revision": outputString(), "path": outputString(), "kind": outputString(),
 		"domains": outputArray(outputString()), "actions": outputArray(action),
@@ -353,14 +362,15 @@ func (s *Server) genericCall(ctx context.Context, legacy map[string]Tool, raw js
 	if err := decode(raw, &input); err != nil {
 		return nil, err
 	}
-	if input.SessionID == "" {
-		return nil, fmt.Errorf("session_id is required; use the session tool for session.start")
-	}
 	entries := s.genericActionRegistry(legacy)
-	record, err := s.activeSession(input.SessionID)
-	if err != nil {
-		return nil, err
+	record := durableSession.Record{}
+	if input.SessionID != "" {
+		var err error
+		record, err = s.activeSession(input.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		ctx = withSession(ctx, record)
 	}
-	ctx = withSession(ctx, record)
 	return s.genericDispatch(ctx, entries, record, input.Action, input.Input)
 }

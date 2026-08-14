@@ -161,7 +161,7 @@ func TestTypedAndGenericBoundedProjectListParity(t *testing.T) {
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "project/list", "input": map[string]any{"limit": 1}}},
 	})))
-	assertJSONEqual(t, projectResponse["result"].(map[string]any), projectGeneric)
+	assertJSONEqual(t, projectResponse, projectGeneric)
 }
 
 func TestGenericAgentTailTranscriptDedupe(t *testing.T) {

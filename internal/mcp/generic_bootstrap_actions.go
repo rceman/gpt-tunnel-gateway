@@ -1,0 +1,128 @@
+package mcp
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
+	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
+	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+)
+
+type sessionUpdateActionInput struct {
+	Label *string `json:"label"`
+	Ref   *string `json:"ref"`
+}
+
+func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, legacy map[string]Tool) {
+	add := func(path, description string, schema map[string]any, required bool, execute func(context.Context, json.RawMessage) (any, error)) {
+		if _, exists := entries[path]; exists {
+			return
+		}
+		entries[path] = genericActionEntry{GenericAction: GenericAction{
+			Path:                 path,
+			Description:          description,
+			InputSchema:          schema,
+			OutputSchema:         map[string]any{"type": "object", "additionalProperties": true},
+			SessionBound:         required,
+			SessionRequired:      required,
+			ExecutionInputSchema: schema,
+			Execute:              execute,
+		}}
+	}
+	add("session/start", "Start a durable project-bound session.", sessionStartInputSchema(), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in struct {
+			ProjectID string  `json:"project_id"`
+			Role      string  `json:"role"`
+			Label     *string `json:"label"`
+			Ref       *string `json:"ref"`
+		}
+		if err := decode(raw, &in); err != nil {
+			return nil, err
+		}
+		trusted, err := authority.BootstrapSessionAuthority(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return s.Service.SessionStart(trusted, service.SessionStartInput{ProjectID: in.ProjectID, Role: in.Role, SessionType: "chatgpt", SessionRef: in.Ref, Label: in.Label})
+	})
+	add("session/list", "List active durable sessions.", obj(map[string]any{}), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return s.Service.SessionList()
+	})
+	add("session/info", "Read the durable session bound to the public session.", obj(map[string]any{}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return s.sessionActionForContext(ctx, "info", nil)
+	})
+	add("session/update", "Update the durable session metadata.", obj(map[string]any{"label": str("Optional bounded session label."), "ref": str("Optional caller reference.")}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in sessionUpdateActionInput
+		if err := decode(raw, &in); err != nil {
+			return nil, err
+		}
+		return s.sessionActionForContext(ctx, "update", &in)
+	})
+	add("session/end", "End the durable session bound to the public session.", obj(map[string]any{}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return s.sessionActionForContext(ctx, "end", nil)
+	})
+	if tool, ok := legacy["system_ping"]; ok {
+		add("gateway/status", "Read Gateway health and runtime status.", obj(map[string]any{}), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
+			baseValue, err := tool.Execute(ctx, []byte(`{}`))
+			if err != nil {
+				return nil, err
+			}
+			base, ok := baseValue.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("system status handler returned an invalid object")
+			}
+			runtime := controller.Controller{Config: s.Service.Config, ConfigPath: s.Service.ConfigPath}.RuntimeIdentity(ctx)
+			base["runtime_identity"] = runtime
+			if runtime.RunningVersion != "" {
+				base["version"] = runtime.RunningVersion
+			} else if runtime.InstalledVersion != "" {
+				base["version"] = runtime.InstalledVersion
+			}
+			sessionID := service.AgentSessionID(ctx)
+			if sessionID == "" {
+				return base, nil
+			}
+			session, err := s.activeSession(sessionID)
+			if err != nil {
+				return nil, fmt.Errorf("status session is invalid: %w", err)
+			}
+			projectStatus, err := s.Service.ProjectStatus(ctx, session.ProjectID)
+			if err != nil {
+				return nil, err
+			}
+			base["project_status"] = projectStatus
+			return base, nil
+		})
+	}
+	if tool, ok := legacy["project_workflow_policy_read"]; ok {
+		add("workflow/rules", "Read workflow rules for a registered project.", tool.InputSchema, false, tool.Execute)
+	}
+}
+
+func (s *Server) sessionActionForContext(ctx context.Context, action string, input any) (any, error) {
+	id := service.AgentSessionID(ctx)
+	if id == "" {
+		return nil, fmt.Errorf("session is unavailable")
+	}
+	info, err := s.Service.SessionInfo(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	roleCtx, err := existingSessionRoleContext(ctx, info.Session.Role)
+	if err != nil {
+		return nil, err
+	}
+	switch action {
+	case "info":
+		return info, nil
+	case "end":
+		return s.Service.SessionEnd(roleCtx, id)
+	case "update":
+		v := input.(*sessionUpdateActionInput)
+		return s.Service.SessionUpdate(roleCtx, service.SessionUpdateInput{SessionID: id, Label: v.Label, SessionRef: v.Ref})
+	default:
+		return nil, fmt.Errorf("unsupported session action %q", action)
+	}
+}

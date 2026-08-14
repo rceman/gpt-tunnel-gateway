@@ -116,7 +116,6 @@ func (s *Server) tools() map[string]Tool {
 		legacyTools[name] = tool
 	}
 	addGenericTransportTools(add, s, legacyTools)
-	addMCP7BootstrapTools(add, s, legacyTools)
 	for name, tool := range t {
 		if _, required := typedSessionAuthorityContract(name); required {
 			tool.InputSchema = typedSessionInputSchema(tool.InputSchema)

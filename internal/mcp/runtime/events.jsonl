@@ -1,0 +1,2 @@
+{"timestamp":"2026-08-14T15:35:13.980236283Z","level":"info","component":"mcp","event":"action_start","action":"gateway/status","request_id":"req-9ca8966fb8552bb699abfdbd1ff2dc59"}
+{"timestamp":"2026-08-14T15:35:15.992629268Z","level":"info","component":"mcp","event":"action_finish","action":"gateway/status","request_id":"req-9ca8966fb8552bb699abfdbd1ff2dc59"}

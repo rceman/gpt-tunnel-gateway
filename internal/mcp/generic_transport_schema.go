@@ -70,6 +70,7 @@ func genericActionSummary(path string, entry genericActionEntry) map[string]any 
 	return map[string]any{
 		"path": path, "domain": domain, "name": name, "description": entry.Description,
 		"input_schema": entry.InputSchema, "output_schema": entry.OutputSchema, "annotations": entry.Annotations,
+		"session_required": entry.SessionRequired,
 	}
 }
 

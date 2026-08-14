@@ -80,8 +80,4 @@ func TestToolAnnotationsMatchActualSideEffects(t *testing.T) {
 	assert("call", destructiveExternalAnnotations())
 	assert("batch", destructiveExternalAnnotations())
 	assert("schema", readOnlyAnnotations())
-	assert("status", readOnlyAnnotations())
-	assert("rules", readOnlyAnnotations())
-	assert("session", destructiveExternalAnnotations())
-	assert("project", destructiveExternalAnnotations())
 }

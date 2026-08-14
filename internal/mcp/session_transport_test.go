@@ -90,8 +90,8 @@ func TestSessionStartValidatesProjectRoleAndTypeBeforeCreation(t *testing.T) {
 		{"action": "start", "project_id": "example", "role": "delivery", "session_type": "unknown"},
 	} {
 		response := sessionCall(t, server, args)
-		result, ok := response["result"].(map[string]any)
-		if !ok || result["isError"] != true {
+		result := genericStructured(t, response)
+		if result["is_error"] != true {
 			t.Fatalf("invalid start was accepted: %#v", response)
 		}
 	}
@@ -126,7 +126,8 @@ func TestGenericCallRequiresSessionAndInheritsProject(t *testing.T) {
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"action": "test/project", "input": map[string]any{}}},
 	}))
-	if result, ok := missing["result"].(map[string]any); ok || result != nil {
+	missingResult := genericStructured(t, missing)
+	if missingResult["is_error"] != true || !strings.Contains(string(mustJSON(t, missingResult)), "SESSION_REQUIRED") {
 		t.Fatalf("missing session did not fail schema validation: %#v", missing)
 	}
 	start := genericStructured(t, sessionCall(t, server, map[string]any{

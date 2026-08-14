@@ -116,12 +116,9 @@ func TestFrozenConnectorDiscoversAndInvokesRuntimeActionWithoutReconnect(t *test
 		t.Fatal("initial tools/list was empty")
 	}
 	started := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "session",
-		"arguments": map[string]any{
-			"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT,
-		},
+		"name": "call", "arguments": map[string]any{"action": "session/start", "input": map[string]any{"project_id": "example", "role": durableSession.RoleDelivery}},
 	}))
-	session := started["session"].(map[string]any)
+	session := started["result"].(map[string]any)["session"].(map[string]any)
 	sessionID := session["session_id"].(string)
 	if session["project_id"] != "example" || session["role"] != durableSession.RoleDelivery {
 		t.Fatalf("unexpected durable session: %#v", session)
@@ -171,7 +168,7 @@ func TestFrozenConnectorDiscoversAndInvokesRuntimeActionWithoutReconnect(t *test
 
 	call := frozenResult(t, client.request(t, "tools/call", map[string]any{
 		"name":      "call",
-		"arguments": map[string]any{"session_id": sessionID, "action": "frozen/probe", "input": map[string]any{"value": "call"}},
+		"arguments": map[string]any{"session": sessionID, "action": "frozen/probe", "input": map[string]any{"value": "call"}},
 	}))
 	if _, ok := call["action"]; ok || call["is_error"] != false || call["result"].(map[string]any)["value"] != "call" {
 		t.Fatalf("deployed action call failed: %#v", call)
@@ -179,7 +176,7 @@ func TestFrozenConnectorDiscoversAndInvokesRuntimeActionWithoutReconnect(t *test
 
 	batch := frozenResult(t, client.request(t, "tools/call", map[string]any{
 		"name": "batch",
-		"arguments": map[string]any{"session_id": sessionID, "calls": []any{
+		"arguments": map[string]any{"session": sessionID, "calls": []any{
 			map[string]any{"action": "frozen/probe", "input": map[string]any{"value": "batch"}},
 		}},
 	}))
@@ -190,7 +187,7 @@ func TestFrozenConnectorDiscoversAndInvokesRuntimeActionWithoutReconnect(t *test
 
 	wrongProject := frozenResult(t, client.request(t, "tools/call", map[string]any{
 		"name":      "call",
-		"arguments": map[string]any{"session_id": sessionID, "action": "frozen/probe", "input": map[string]any{"project_id": "other", "value": "blocked"}},
+		"arguments": map[string]any{"session": sessionID, "action": "frozen/probe", "input": map[string]any{"project_id": "other", "value": "blocked"}},
 	}))
 	if wrongProject["is_error"] != true || executions.Load() != 2 {
 		t.Fatalf("session project authority was bypassed: result=%#v executions=%d", wrongProject, executions.Load())

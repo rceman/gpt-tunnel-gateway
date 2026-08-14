@@ -36,7 +36,7 @@ func TestToolsListAndToolResultsUseObjects(t *testing.T) {
 	if _, ok := result["tools"].([]any); !ok {
 		t.Fatalf("tools missing: %#v", result)
 	}
-	call := []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"status","arguments":{}}}`)
+	call := []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"call","arguments":{"action":"gateway/status","input":{}}}}`)
 	req = httptest.NewRequest(http.MethodPost, "http://127.0.0.1:1/mcp", bytes.NewReader(call))
 	req.Host = "127.0.0.1:1"
 	req.RemoteAddr = "127.0.0.1:1234"
@@ -67,10 +67,10 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	arguments := map[string]any{"action": "onboard", "input": map[string]any{"unexpected": true}}
+	arguments := map[string]any{"action": "project/onboard", "input": map[string]any{"unexpected": true}}
 	body := mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "project", "arguments": arguments, "_meta": map[string]any{"role": "delivery"}},
+		"params": map[string]any{"name": "call", "arguments": arguments, "_meta": map[string]any{"role": "delivery"}},
 	})
 	without := callMCP(t, &Server{Service: svc}, body)
 	withoutStructured := genericStructured(t, without)

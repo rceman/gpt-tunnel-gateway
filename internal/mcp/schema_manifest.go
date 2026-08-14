@@ -9,10 +9,10 @@ func readOnlyAnnotations() ToolAnnotations {
 	}
 }
 
-// canonicalToolManifest is the single stable public MCP7 inventory. Legacy
+// canonicalToolManifest is the single stable public MCP transport inventory. Legacy
 // handlers remain internal action registrations for call/batch resolution.
 var canonicalToolManifest = []string{
-	"call", "batch", "schema", "status", "rules", "session", "project",
+	"call", "batch", "schema",
 }
 
 func canonicalToolNames() []string { return append([]string{}, canonicalToolManifest...) }

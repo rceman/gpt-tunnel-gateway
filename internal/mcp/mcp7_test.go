@@ -7,14 +7,14 @@ import (
 	"testing"
 )
 
-func TestMCP7ExposesExactlySevenTopLevelTools(t *testing.T) {
+func TestMCP7ExposesExactlyThreeTopLevelTools(t *testing.T) {
 	server := newSessionTestServer(t)
 	response := callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/list",
 	}))
 	result := response["result"].(map[string]any)
 	tools := result["tools"].([]any)
-	want := []string{"batch", "call", "project", "rules", "schema", "session", "status"}
+	want := []string{"batch", "call", "schema"}
 	got := make([]string, 0, len(tools))
 	for _, raw := range tools {
 		got = append(got, raw.(map[string]any)["name"].(string))
@@ -22,7 +22,7 @@ func TestMCP7ExposesExactlySevenTopLevelTools(t *testing.T) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("public MCP tool surface=%v want=%v", got, want)
 	}
-	legacy := callMCP(t, server, mustJSON(t, map[string]any{
+	legacy := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": map[string]any{"name": "system_ping", "arguments": map[string]any{}},
 	}))
@@ -42,7 +42,7 @@ func TestMCP7SessionlessBootstrapAndSessionBoundTransport(t *testing.T) {
 			"action": "read", "input": map[string]any{"project_id": "example"},
 		}},
 	})))
-	if _, ok := project["action"]; ok || project["is_error"] != false {
+	if project["id"] != "example" {
 		t.Fatalf("sessionless project bootstrap failed: %#v", project)
 	}
 
@@ -76,7 +76,7 @@ func TestMCP7SessionlessBootstrapAndSessionBoundTransport(t *testing.T) {
 		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
 		"params": map[string]any{"name": "status", "arguments": map[string]any{"project_id": "example"}},
 	}))
-	if projectIDStatus["error"] == nil {
+	if genericStructured(t, projectIDStatus)["is_error"] != true {
 		t.Fatalf("status accepted project_id as alternate authority: %#v", projectIDStatus)
 	}
 	statusSession := genericSession(t, server.Service, "example")
@@ -94,8 +94,7 @@ func TestMCP7SessionlessBootstrapAndSessionBoundTransport(t *testing.T) {
 		"jsonrpc": "2.0", "id": 7, "method": "tools/call",
 		"params": map[string]any{"name": "project", "arguments": map[string]any{"action": "status", "input": map[string]any{"project_id": "example"}}},
 	}))
-	result := projectStatus["result"].(map[string]any)
-	if result["isError"] != true {
+	if genericStructured(t, projectStatus)["is_error"] != true {
 		t.Fatalf("project/status remained in the project whitelist: %#v", projectStatus)
 	}
 	genericProjectStatus := callMCP(t, server, mustJSON(t, map[string]any{
@@ -111,7 +110,7 @@ func TestMCP7SessionlessBootstrapAndSessionBoundTransport(t *testing.T) {
 		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"action": "project/read", "input": map[string]any{}}},
 	}))
-	if missingSession["error"] == nil || !strings.Contains(string(mustJSON(t, missingSession)), "session_id") {
+	if genericStructured(t, missingSession)["is_error"] != true {
 		t.Fatalf("sessionless call was not rejected: %#v", missingSession)
 	}
 

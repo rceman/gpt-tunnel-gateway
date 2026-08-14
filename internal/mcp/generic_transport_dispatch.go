@@ -60,6 +60,9 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	if !ok {
 		return genericActionError(action, fmt.Sprintf("unknown action %q; inspect schema with path=\"\"", action)), nil
 	}
+	if entry.SessionRequired && record.ID == "" {
+		return genericActionError(action, "SESSION_REQUIRED: provide the public session field"), nil
+	}
 	if entry.SessionBound {
 		if err := validateGenericActionInput(entry.InputSchema, raw); err != nil {
 			return genericActionError(action, err.Error()+"; inspect schema with path=\""+action+"\""), nil
@@ -255,14 +258,15 @@ func (s *Server) genericBatch(ctx context.Context, legacy map[string]Tool, raw j
 	if len(input.Calls) > genericBatchMaxItems {
 		return nil, fmt.Errorf("calls exceeds maximum of %d", genericBatchMaxItems)
 	}
-	if input.SessionID == "" {
-		return nil, fmt.Errorf("session_id is required")
+	record := durableSession.Record{}
+	if input.SessionID != "" {
+		var err error
+		record, err = s.activeSession(input.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		ctx = withSession(ctx, record)
 	}
-	record, err := s.activeSession(input.SessionID)
-	if err != nil {
-		return nil, err
-	}
-	ctx = withSession(ctx, record)
 	entries := s.genericActionRegistry(legacy)
 	results := make([]map[string]any, 0, len(input.Calls))
 	for _, call := range input.Calls {
@@ -272,9 +276,9 @@ func (s *Server) genericBatch(ctx context.Context, legacy map[string]Tool, raw j
 		if err == nil {
 			action = item.Action
 		}
-		if err == nil && item.SessionID != "" && item.SessionID != input.SessionID {
+		if err == nil && item.SessionID != "" {
 			result = nil
-			err = fmt.Errorf("batch item session_id does not match batch session_id")
+			err = fmt.Errorf("batch item session is not accepted; use the batch root session")
 		}
 		if err == nil {
 			result, err = s.genericDispatch(ctx, entries, record, item.Action, item.Input)

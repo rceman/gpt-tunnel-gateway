@@ -111,7 +111,10 @@ func mutateWorkflowPolicyStatusFixture(t *testing.T, s *service.Service, revisio
 
 func readAndValidateProjectStatus(t *testing.T, s *service.Service) map[string]any {
 	t.Helper()
-	server := &Server{Service: s}
+	server := &Server{
+		Service:          s,
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	sessionID := genericSession(t, s, "example")
 	response := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "status", "arguments": map[string]any{"session_id": sessionID}}}))
 	status := genericStructured(t, response)
