@@ -85,7 +85,7 @@ func (s *Service) AgentSend(ctx context.Context, projectID, message string) (Age
 		return AgentSendResult{}, fmt.Errorf("agent session send is already in progress")
 	}
 	defer func() { _ = lock.Release() }()
-	result, sendErr := s.Airelay.Prompt(ctx, session, message)
+	result, sendErr := s.Airelay.PromptWithProvenance(ctx, session, AgentSessionID(ctx), message)
 	receipt := AgentSendResult{
 		ProjectID:  projectID,
 		Delivered:  sendErr == nil,

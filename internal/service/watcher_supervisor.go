@@ -153,7 +153,7 @@ func (s *Service) promptWatcherIfIdle(ctx context.Context, projectID string, obs
 		return false, nil
 	}
 	defer func() { _ = lock.Release() }()
-	if _, err := s.Airelay.Prompt(ctx, binding.SessionKey, message); err != nil {
+	if _, err := s.Airelay.PromptWithProvenance(ctx, binding.SessionKey, AgentSessionID(ctx), message); err != nil {
 		return false, err
 	}
 	return true, nil

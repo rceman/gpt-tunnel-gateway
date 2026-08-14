@@ -14,6 +14,7 @@ import (
 )
 
 var sessionRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+var provenanceRE = regexp.MustCompile(`^(?:S|SP|SD|SA|SW)-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$`)
 
 type Result struct {
 	ExitCode   int       `json:"exit_code"`
@@ -78,10 +79,26 @@ func (b *tailBuffer) Write(p []byte) (int, error) {
 }
 
 func (c Client) Prompt(ctx context.Context, session, message string) (Result, error) {
+	return c.PromptWithProvenance(ctx, session, "", message)
+}
+
+// PromptWithProvenance is the sole outbound text boundary. An empty origin
+// denotes Gateway-owned automation; non-empty origins must be durable session
+// IDs supplied by the server context, never by the caller's message.
+func (c Client) PromptWithProvenance(ctx context.Context, session, origin, message string) (Result, error) {
 	if !sessionRE.MatchString(session) {
 		return Result{}, fmt.Errorf("invalid Airelay session key")
 	}
-	if message == "" || len(message) > c.MaxMessageBytes || strings.ContainsRune(message, 0) {
+	if origin == "" {
+		origin = "GTW"
+	} else if !provenanceRE.MatchString(origin) {
+		return Result{}, fmt.Errorf("invalid durable session provenance")
+	}
+	if message == "" || strings.ContainsRune(message, 0) {
+		return Result{}, fmt.Errorf("invalid Airelay message")
+	}
+	message = "[" + origin + "] " + message
+	if len(message) > c.MaxMessageBytes {
 		return Result{}, fmt.Errorf("invalid Airelay message")
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.Timeout)

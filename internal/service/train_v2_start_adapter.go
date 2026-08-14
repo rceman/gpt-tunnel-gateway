@@ -82,6 +82,7 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 		Train:             train,
 		GatewayID:         s.Config.GatewayID,
 		ProjectCode:       identifiers.ProjectCode,
+		SessionOrigin:     AgentSessionID(ctx),
 		StateDir:          s.Config.StateDir,
 		MaterializePacket: s.materializeTrainV2Packet,
 		Now:               s.durableNow,

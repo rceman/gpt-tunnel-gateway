@@ -27,7 +27,7 @@ func TestPromptUsesFixedArgumentVector(t *testing.T) {
 	}
 	data, _ := os.ReadFile(log)
 	got := strings.Split(strings.TrimSpace(string(data)), "\n")
-	want := []string{"prompt", "project_master", "Read task and execute it."}
+	want := []string{"prompt", "project_master", "[GTW] Read task and execute it."}
 	if len(got) != len(want) {
 		t.Fatalf("%q", got)
 	}
@@ -35,6 +35,31 @@ func TestPromptUsesFixedArgumentVector(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("arg %d=%q", i, got[i])
 		}
+	}
+}
+
+func TestPromptWithProvenancePrefixesExactlyAtTransportBoundary(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "message")
+	script := filepath.Join(dir, "airelay")
+	body := "#!/bin/sh\nprintf '%s' \"$3\" > \"" + log + "\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := Client{
+		Command:         script,
+		Timeout:         time.Second,
+		MaxMessageBytes: 256,
+	}
+	if _, err := c.PromptWithProvenance(context.Background(), "project_master", "SP-ABCDEFGH", "[SD-ABCDEFGH] hello"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(data); got != "[SP-ABCDEFGH] [SD-ABCDEFGH] hello" {
+		t.Fatalf("message=%q", got)
 	}
 }
 

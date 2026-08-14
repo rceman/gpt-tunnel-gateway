@@ -197,7 +197,7 @@ func (s *Service) dispatchNextTrainV2Attempt(ctx context.Context, train model.Tr
 	if attempt.DispatchedAt != nil {
 		return trainv2.StartResult{ItemPosition: item.Position, Attempt: attempt, Runtime: runtime}, nil
 	}
-	if err := trainv2.DispatchAttempt(ctx, trainv2.StartDependencies{Hub: s.Hub, Airelay: s.Airelay, StateDir: s.Config.StateDir, MaterializePacket: s.materializeTrainV2Packet}, train, item, attempt, runtime, expected); err != nil {
+	if err := trainv2.DispatchAttempt(ctx, trainv2.StartDependencies{Hub: s.Hub, Airelay: s.Airelay, StateDir: s.Config.StateDir, SessionOrigin: AgentSessionID(ctx), MaterializePacket: s.materializeTrainV2Packet}, train, item, attempt, runtime, expected); err != nil {
 		return trainv2.StartResult{}, err
 	}
 	updated, err := s.TrainV2Read(ctx, train.ProjectID, train.ID)
@@ -229,7 +229,7 @@ func (s *Service) dispatchTrainV2Continuation(ctx context.Context, previous trai
 	if err != nil {
 		return hub.TransactionResult{}, fmt.Errorf("materialize Train continuation packet: %w", err)
 	}
-	dispatch, err := s.Airelay.Prompt(ctx, attempt.AirelaySessionKey, trainv2.PacketDispatchMessage(packet))
+	dispatch, err := s.Airelay.PromptWithProvenance(ctx, attempt.AirelaySessionKey, AgentSessionID(ctx), trainv2.PacketDispatchMessage(packet))
 	if err != nil {
 		return hub.TransactionResult{}, fmt.Errorf("train continuation dispatch failed: %w", err)
 	}

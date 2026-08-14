@@ -59,7 +59,7 @@ func dispatchAttempt(ctx context.Context, deps StartDependencies, train model.Tr
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("read durable Train dispatch receipt: %w", err)
 		}
-		dispatch, promptErr := deps.Airelay.Prompt(ctx, attempt.AirelaySessionKey, message)
+		dispatch, promptErr := deps.Airelay.PromptWithProvenance(ctx, attempt.AirelaySessionKey, deps.SessionOrigin, message)
 		if promptErr != nil {
 			return fmt.Errorf("train agent dispatch retry failed: %w", promptErr)
 		}

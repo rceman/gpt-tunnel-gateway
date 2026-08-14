@@ -43,7 +43,7 @@ func (s *Service) WatcherNudge(ctx context.Context, in WatcherNudgeInput) (model
 		return model.WatcherNudgeReceipt{}, fmt.Errorf("watcher nudge is already in progress")
 	}
 	defer func() { _ = lock.Release() }()
-	result, sendErr := s.Airelay.Prompt(ctx, active.Attempt.AirelaySessionKey, in.Text)
+	result, sendErr := s.Airelay.PromptWithProvenance(ctx, active.Attempt.AirelaySessionKey, AgentSessionID(ctx), in.Text)
 	receipt := model.WatcherNudgeReceipt{SchemaVersion: model.WatcherObservationSchemaVersion, ProjectID: in.ProjectID, TrainID: active.Train.ID, TaskID: active.Item.TaskID, ItemPosition: active.Item.Position, AttemptNumber: active.Attempt.Number, Delivered: sendErr == nil, ExitCode: result.ExitCode, StartedAt: result.StartedAt, FinishedAt: result.FinishedAt}
 	if sendErr != nil {
 		receipt.Error = sendErr.Error()

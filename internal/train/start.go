@@ -49,6 +49,7 @@ type StartDependencies struct {
 	Train             model.TrainV2
 	GatewayID         string
 	ProjectCode       string
+	SessionOrigin     string
 	StateDir          string
 	MaterializePacket PacketMaterializer
 	Now               func() time.Time
