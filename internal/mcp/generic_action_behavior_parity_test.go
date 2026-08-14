@@ -168,7 +168,7 @@ func TestGenericAgentTailTranscriptDedupe(t *testing.T) {
 	s, _ := newWorkflowPolicyStatusService(t)
 	ctx := context.Background()
 	script := filepath.Join(t.TempDir(), "airelay")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' '{\"lines\":[{\"timestamp\":1,\"text\":\"one\"},{\"timestamp\":2,\"text\":\"two\"},{\"timestamp\":3,\"text\":\"three\"}]}'\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf 'two\\nthree\\n'\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	s.Airelay.Command = script

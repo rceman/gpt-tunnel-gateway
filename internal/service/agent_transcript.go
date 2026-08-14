@@ -16,7 +16,6 @@ import (
 const (
 	agentDefaultTailLines = 30
 	agentMaxTailLines     = 200
-	agentTranscriptRead   = 200
 )
 
 type AgentTailResult struct {
@@ -41,12 +40,11 @@ func agentSnapshotLines(text string) []string {
 }
 
 type agentTailSeen struct {
-	SessionID  string `json:"session_id"`
-	ProjectID  string `json:"project_id"`
-	SessionKey string `json:"session_key"`
-	Timestamp  int64  `json:"timestamp"`
-	LineIndex  int    `json:"line_index"`
-	HasLast    bool   `json:"has_last"`
+	SessionID  string   `json:"session_id"`
+	ProjectID  string   `json:"project_id"`
+	SessionKey string   `json:"session_key"`
+	LastLines  []string `json:"last_lines,omitempty"`
+	HasLast    bool     `json:"has_last"`
 }
 
 type agentSessionContextKey struct{}
@@ -78,7 +76,7 @@ func (s *Service) AgentTailPage(ctx context.Context, projectID string, input Age
 	if err != nil {
 		return AgentTailResult{}, err
 	}
-	transcript, err := s.Airelay.Transcript(ctx, session, agentTranscriptRead)
+	tail, err := s.Airelay.TailSnapshot(ctx, session, lines)
 	if err != nil {
 		return AgentTailResult{}, err
 	}
@@ -96,37 +94,13 @@ func (s *Service) AgentTailPage(ctx context.Context, projectID string, input Age
 	if seen.HasLast && (seen.SessionID != input.SessionID || seen.ProjectID != projectID || seen.SessionKey != session) {
 		return AgentTailResult{}, fmt.Errorf("agent tail observation identity mismatch")
 	}
-	start := 0
-	if seen.HasLast {
-		start = len(transcript.Lines)
-		found := false
-		for index, line := range transcript.Lines {
-			if line.Timestamp == seen.Timestamp && index == seen.LineIndex {
-				start = index + 1
-				found = true
-				break
-			}
-		}
-		if !found && len(transcript.Lines) > 0 {
-			start = 0
-		}
-	}
-	unseen := transcript.Lines[start:]
-	hasNew := len(unseen) > 0
-	selected := transcript.Lines
-	overflow := false
-	selected = unseen
-	if len(selected) > lines {
-		overflow = true
-		selected = selected[len(selected)-lines:]
-	}
-	if len(transcript.Lines) > 0 {
-		last := transcript.Lines[len(transcript.Lines)-1]
+	snapshot := agentSnapshotLines(tail.Stdout)
+	selected, hasNew, historyTruncated := agentTailDelta(seen.LastLines, snapshot, seen.HasLast)
+	if len(snapshot) > 0 || seen.HasLast {
 		seen.SessionID = input.SessionID
 		seen.ProjectID = projectID
 		seen.SessionKey = session
-		seen.Timestamp = last.Timestamp
-		seen.LineIndex = len(transcript.Lines) - 1
+		seen.LastLines = append([]string(nil), snapshot...)
 		seen.HasLast = true
 		if err := writeAgentTailSeen(statePath, seen); err != nil {
 			return AgentTailResult{}, err
@@ -134,15 +108,39 @@ func (s *Service) AgentTailPage(ctx context.Context, projectID string, input Age
 	}
 	linesOut := make([]string, 0, len(selected))
 	for _, line := range selected {
-		linesOut = append(linesOut, line.Text)
+		linesOut = append(linesOut, line)
 	}
 	return AgentTailResult{
 		Lines:            linesOut,
 		Count:            len(linesOut),
 		HasNewInfo:       hasNew,
-		Overflow:         overflow,
-		HistoryTruncated: len(transcript.Lines) >= agentTranscriptRead,
+		Overflow:         false,
+		HistoryTruncated: historyTruncated,
 	}, nil
+}
+
+func agentTailDelta(previous, current []string, hadPrevious bool) ([]string, bool, bool) {
+	if !hadPrevious {
+		return current, len(current) > 0, false
+	}
+	maxOverlap := len(previous)
+	if len(current) < maxOverlap {
+		maxOverlap = len(current)
+	}
+	for overlap := maxOverlap; overlap > 0; overlap-- {
+		match := true
+		for i := 0; i < overlap; i++ {
+			if previous[len(previous)-overlap+i] != current[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			selected := current[overlap:]
+			return selected, len(selected) > 0, false
+		}
+	}
+	return current, len(current) > 0, len(current) > 0
 }
 
 func (s *Service) agentTailStateLocation(sessionID, projectID, sessionKey string) (string, string) {

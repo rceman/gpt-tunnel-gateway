@@ -1,6 +1,20 @@
 package service
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
+
+func TestAgentTailDeltaReturnsOnlyCurrentViewportSuffix(t *testing.T) {
+	selected, hasNew, historyTruncated := agentTailDelta([]string{"old-2", "old-3"}, []string{"old-2", "old-3", "new-4"}, true)
+	if !reflect.DeepEqual(selected, []string{"new-4"}) || !hasNew || historyTruncated {
+		t.Fatalf("incremental tail delta=%#v new=%v truncated=%v", selected, hasNew, historyTruncated)
+	}
+	selected, hasNew, historyTruncated = agentTailDelta([]string{"old-2", "old-3"}, []string{"old-2", "old-3"}, true)
+	if len(selected) != 0 || hasNew || historyTruncated {
+		t.Fatalf("unchanged tail delta=%#v new=%v truncated=%v", selected, hasNew, historyTruncated)
+	}
+}
 
 func TestAgentTailObservationKeyScopesSessionProjectAndTarget(t *testing.T) {
 	s := &Service{}
