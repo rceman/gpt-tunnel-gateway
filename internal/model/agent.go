@@ -43,16 +43,24 @@ type Agent struct {
 // AgentAvailabilityStatus is a bounded projection and never includes local
 // session keys, provider names, model names, or profile paths.
 type AgentAvailabilityStatus struct {
-	SchemaVersion int    `json:"schema_version"`
-	ProjectID     string `json:"project_id"`
-	AgentID       string `json:"agent_id"`
-	Role          string `json:"role"`
-	Registered    bool   `json:"registered"`
-	Enabled       bool   `json:"enabled"`
-	Bound         bool   `json:"bound"`
-	Usable        bool   `json:"usable"`
-	State         string `json:"state"`
-	Reason        string `json:"reason"`
+	SchemaVersion  int    `json:"schema_version"`
+	ProjectID      string `json:"project_id"`
+	AgentID        string `json:"agent_id"`
+	Role           string `json:"role"`
+	Registered     bool   `json:"registered"`
+	Enabled        bool   `json:"enabled"`
+	Bound          bool   `json:"bound"`
+	Usable         bool   `json:"usable"`
+	State          string `json:"state"`
+	Reason         string `json:"reason"`
+	SessionState   string `json:"session_state,omitempty"`
+	AttemptState   string `json:"attempt_state,omitempty"`
+	TrainID        string `json:"train_id,omitempty"`
+	ItemPosition   int    `json:"item_position,omitempty"`
+	TaskID         string `json:"task_id,omitempty"`
+	AttemptNumber  uint64 `json:"attempt_number,omitempty"`
+	Recoverable    bool   `json:"recoverable,omitempty"`
+	RecoveryReason string `json:"recovery_reason,omitempty"`
 }
 
 func ValidateAgent(v Agent) error {

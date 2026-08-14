@@ -13,13 +13,20 @@ import (
 func TestAgentActionsAreGenericDiscoverableAndInvokable(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"agent/prompt", "agent/interrupt", "agent/register", "agent/update", "agent/disable", "agent/read", "agent/list", "agent/status"} {
+	for _, path := range []string{"agent/prompt", "agent/recover", "agent/interrupt", "agent/register", "agent/update", "agent/disable", "agent/read", "agent/list", "agent/status"} {
 		entry, ok := entries[path]
 		if !ok {
 			t.Fatalf("missing agent generic action %s", path)
 		}
 		if entry.InputSchema == nil || entry.OutputSchema == nil || entry.Execute == nil {
 			t.Fatalf("incomplete agent generic action %s", path)
+		}
+	}
+	recovery := entries["agent/recover"]
+	recoveryProperties := recovery.InputSchema["properties"].(map[string]any)
+	for _, field := range []string{"train_id", "item_position", "task_id", "attempt_number", "agent_id"} {
+		if _, ok := recoveryProperties[field]; !ok {
+			t.Fatalf("agent/recover omitted exact Attempt field %s", field)
 		}
 	}
 	for _, path := range []string{"agent/send", "agent/followup", "agent/force_prompt", "agent/redirect"} {

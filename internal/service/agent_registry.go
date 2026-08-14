@@ -200,6 +200,16 @@ func (s *Service) AgentRegistryStatus(ctx context.Context, projectID, agentID st
 		Enabled:       agent.Enabled,
 		State:         "registered",
 	}
+	active, activeFound, activeErr := s.trainV2ActiveAttempt(ctx, projectID)
+	if activeErr == nil && activeFound && active.Attempt.AgentID == agentID {
+		status.AttemptState = active.Attempt.Status
+		status.TrainID = active.Train.ID
+		status.ItemPosition = active.Item.Position
+		status.TaskID = active.Item.TaskID
+		status.AttemptNumber = active.Attempt.Number
+		status.Recoverable = active.Attempt.Status == model.TrainV2AttemptRunning
+		status.RecoveryReason = "durable Train Attempt owns this Agent execution"
+	}
 	if !agent.Enabled {
 		status.State, status.Reason = "disabled", "agent is disabled"
 		return status, nil
@@ -224,11 +234,15 @@ func (s *Service) AgentRegistryStatus(ctx context.Context, projectID, agentID st
 	}
 	status.Bound = true
 	probe, probeErr := s.Airelay.Status(ctx, binding.SessionKey)
+	status.SessionState = probe.State
 	if probeErr != nil || !probe.ControllerReachable || probe.State != "idle" {
 		status.State = "unavailable"
 		status.Reason = "host-local agent session is not usable"
 		if probeErr != nil {
 			status.Reason = "host-local agent session probe failed"
+		}
+		if status.Recoverable {
+			status.RecoveryReason = "durable Attempt is recoverable without creating a parallel Agent"
 		}
 		return status, nil
 	}

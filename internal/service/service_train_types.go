@@ -115,3 +115,29 @@ type TaskFinalizeInput struct {
 	ProjectID string `json:"project_id"`
 	TaskID    string `json:"task_id"`
 }
+
+type AgentRecoverInput struct {
+	ProjectID     string `json:"project_id"`
+	TrainID       string `json:"train_id"`
+	ItemPosition  int    `json:"item_position"`
+	TaskID        string `json:"task_id"`
+	AttemptNumber uint64 `json:"attempt_number"`
+	AgentID       string `json:"agent_id"`
+}
+
+type AgentRecoveryResult struct {
+	ProjectID           string `json:"project_id"`
+	TrainID             string `json:"train_id"`
+	ItemPosition        int    `json:"item_position"`
+	TaskID              string `json:"task_id"`
+	AttemptNumber       uint64 `json:"attempt_number"`
+	AgentID             string `json:"agent_id"`
+	AttemptStatus       string `json:"attempt_status"`
+	SessionState        string `json:"session_state"`
+	ControllerReachable bool   `json:"controller_reachable"`
+	Recoverable         bool   `json:"recoverable"`
+	Outcome             string `json:"outcome"`
+	Phase               string `json:"phase"`
+	RecoveryEvent       string `json:"recovery_event,omitempty"`
+	Reason              string `json:"reason,omitempty"`
+}
