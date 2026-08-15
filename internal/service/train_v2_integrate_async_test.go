@@ -36,4 +36,5 @@ func TestTrainV2IntegrateAsyncReturnsBoundedIdempotentInitiationReceipt(t *testi
 	if _, err := s.TrainV2IntegrateOperationStatus(context.Background(), first.OperationID); err != nil {
 		t.Fatal(err)
 	}
+	waitDurableMutationTerminal(t, s, first.OperationID)
 }
