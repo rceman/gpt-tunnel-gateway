@@ -153,3 +153,26 @@ func TestCompactSuccessfulAgentPromptKeepsOnlyProjectID(t *testing.T) {
 		t.Fatalf("compact successful Agent result was not project-only: %#v", compact)
 	}
 }
+
+func TestCompactMutationDoesNotLeakNestedDurablePayloads(t *testing.T) {
+	value := map[string]any{
+		"agent":         map[string]any{"agent_id": "coder", "secret": "agent-detail"},
+		"guide":         map[string]any{"project_id": "example", "revision": float64(2), "content": "full guide"},
+		"configuration": map[string]any{"project_id": "example", "revision": float64(2), "gate_commands": "full commands"},
+		"policy":        map[string]any{"project_id": "example", "revision": float64(2), "gates": []any{"format"}, "secret": "policy-detail"},
+		"identifiers":   map[string]any{"project_id": "example", "project_code": "EXM", "next_task_number": float64(2), "secret": "counter-detail"},
+		"adr":           map[string]any{"id": "GTW-ADR1", "title": "ADR", "context": "full context"},
+	}
+	compact := compactActionResult("project/workflow_policy_update", value, false)
+	for key, forbidden := range map[string]string{
+		"agent": "secret", "guide": "content", "configuration": "gate_commands", "policy": "secret", "identifiers": "secret", "adr": "context",
+	} {
+		object, ok := compact[key].(map[string]any)
+		if !ok {
+			t.Fatalf("compact mutation lost %s object: %#v", key, compact)
+		}
+		if _, leaked := object[forbidden]; leaked {
+			t.Fatalf("compact mutation leaked %s.%s: %#v", key, forbidden, compact)
+		}
+	}
+}

@@ -156,7 +156,7 @@ func compactTrainReadResult(value map[string]any) map[string]any {
 
 func compactMutationResult(action string, value map[string]any) map[string]any {
 	result := copyProjectionMap(value)
-	for _, key := range []string{"task", "train", "result", "receipt", "operation", "item", "attempt"} {
+	for _, key := range []string{"task", "train", "result", "receipt", "operation", "item", "attempt", "agent", "guide", "configuration", "policy", "identifiers", "adr"} {
 		if object, ok := value[key].(map[string]any); ok {
 			if key == "result" && action == "agent/prompt" {
 				if delivered, ok := object["delivered"].(bool); ok && delivered {
@@ -215,6 +215,18 @@ func compactNestedRecord(key string, value map[string]any) map[string]any {
 		return compactExecution(value)
 	case "operation":
 		return compactOperation(value)
+	case "agent":
+		return selectProjectionFields(value, "schema_version", "project_id", "agent_id", "role", "enabled", "recommended_reasoning", "capabilities", "created_at", "updated_at")
+	case "guide":
+		return selectProjectionFields(value, "schema_version", "project_id", "revision", "updated_by", "updated_at")
+	case "configuration":
+		return selectProjectionFields(value, "schema_version", "project_id", "revision", "execution_model", "activation_profile_ref", "updated_by", "updated_at")
+	case "policy":
+		return selectProjectionFields(value, "schema_version", "project_id", "revision", "workflow_stage", "integration_branch", "agent", "ci", "gates", "updated_by", "updated_at")
+	case "identifiers":
+		return selectProjectionFields(value, "schema_version", "project_id", "project_code", "next_task_number", "next_adr_number")
+	case "adr":
+		return selectProjectionFields(value, "schema_version", "id", "project_id", "title", "status", "supersedes", "created_at")
 	default:
 		return compactExecution(value)
 	}
