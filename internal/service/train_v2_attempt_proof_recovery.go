@@ -151,5 +151,8 @@ func (s *Service) recoverTrainV2AttemptProof(ctx context.Context, in TrainV2Atte
 	if err != nil {
 		return TrainV2AttemptProofRecoveryResult{}, err
 	}
-	return TrainV2AttemptProofRecoveryResult{Report: report, Hub: tx}, nil
+	return TrainV2AttemptProofRecoveryResult{
+		Report: report,
+		Hub:    tx,
+	}, nil
 }
