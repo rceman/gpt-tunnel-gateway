@@ -30,22 +30,23 @@ func (s *Server) registerTrainV2Actions() error {
 		Path:         "train/create",
 		Description:  "Create a non-running ordered train_v2 admission record.",
 		InputSchema:  trainV2CreateSchema(),
-		OutputSchema: trainV2OutputSchema(),
+		OutputSchema: trainV2AdmissionReceiptOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  false,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2CreateInput
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			train, operation, err := s.Service.TrainV2Create(ctx, in)
+			receipt, err := s.Service.TrainV2CreateAsync(ctx, in)
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"train": train, "operation": operation}, nil
+			return receipt, nil
 		},
 	}); err != nil {
 		return err
@@ -54,22 +55,63 @@ func (s *Server) registerTrainV2Actions() error {
 		Path:         "train/add",
 		Description:  "Append ready Tasks to the unstarted tail of a train_v2.",
 		InputSchema:  trainV2AddSchema(),
-		OutputSchema: trainV2OutputSchema(),
+		OutputSchema: trainV2AdmissionReceiptOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  false,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2AddInput
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			train, operation, err := s.Service.TrainV2Add(ctx, in)
+			receipt, err := s.Service.TrainV2AddAsync(ctx, in)
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"train": train, "operation": operation}, nil
+			return receipt, nil
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:             "train/create_status",
+		Description:      "Read the durable receipt for an asynchronous Train create.",
+		InputSchema:      obj(map[string]any{"operation_id": str("Durable Train create operation identifier.")}, "operation_id"),
+		OutputSchema:     trainV2AdmissionReceiptOutputSchema(),
+		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2AdmissionOperationStatus(ctx, input.OperationID, "train-v2-create")
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:             "train/add_status",
+		Description:      "Read the durable receipt for an asynchronous Train add.",
+		InputSchema:      obj(map[string]any{"operation_id": str("Durable Train add operation identifier.")}, "operation_id"),
+		OutputSchema:     trainV2AdmissionReceiptOutputSchema(),
+		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2AdmissionOperationStatus(ctx, input.OperationID, "train-v2-add")
 		},
 	}); err != nil {
 		return err

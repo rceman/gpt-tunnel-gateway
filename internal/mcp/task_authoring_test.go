@@ -147,7 +147,7 @@ func TestTrainV2MCPWiringAndSchemaParity(t *testing.T) {
 	configureTrainV2MCPTest(t, server)
 	first := createReadyMCPTrainTask(t, server)
 	sessionID := genericSession(t, server.Service, "example")
-	for _, path := range []string{"train/create", "train/add", "train/read", "train/list", "train/start", "train/start_status", "train/advance", "train/advance_status", "train/attempt-finalize", "train/attempt-finalize_status", "train/attempt-review", "train/attempt-review_status", "train/integrate", "train/integrate_status", "train/cutover"} {
+	for _, path := range []string{"train/create", "train/create_status", "train/add", "train/add_status", "train/read", "train/list", "train/start", "train/start_status", "train/advance", "train/advance_status", "train/attempt-finalize", "train/attempt-finalize_status", "train/attempt-review", "train/attempt-review_status", "train/integrate", "train/integrate_status", "train/cutover"} {
 		contract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"path": path}}})))
 		if contract["kind"] != "action" || contract["path"] != path {
 			t.Fatalf("missing Train v2 action contract %s: %#v", path, contract)
@@ -162,7 +162,20 @@ func TestTrainV2MCPWiringAndSchemaParity(t *testing.T) {
 		}
 	}
 	created := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "train/create", "input": map[string]any{"task_ids": []any{first.ID}, "created_by": "planner"}}}})))
-	if created["train"].(map[string]any)["status"] != model.TrainV2Planned {
+	operationID, ok := created["operation_id"].(string)
+	if !ok || operationID == "" || created["status"] != "accepted" {
 		t.Fatalf("generic train/create wiring failed: %#v", created)
+	}
+	var completed map[string]any
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		completed = genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 12, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "train/create_status", "input": map[string]any{"operation_id": operationID}}}})))
+		if completed["status"] == "completed" || completed["status"] == "failed" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if completed["status"] != "completed" || completed["train"].(map[string]any)["status"] != model.TrainV2Planned {
+		t.Fatalf("generic train/create worker did not complete: %#v", completed)
 	}
 }

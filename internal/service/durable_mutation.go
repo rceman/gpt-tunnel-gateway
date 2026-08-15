@@ -324,6 +324,26 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 			return nil, err
 		}
 		return json.Marshal(result)
+	case "train-v2-create":
+		var input TrainV2CreateInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		train, result, err := s.TrainV2Create(authority.WithPlannerOrDelivery(ctx), input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"train": train, "operation": result})
+	case "train-v2-add":
+		var input TrainV2AddInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		train, result, err := s.TrainV2Add(authority.WithPlannerOrDelivery(ctx), input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"train": train, "operation": result})
 	case "train-attempt-review":
 		var input TrainV2AttemptReviewInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
