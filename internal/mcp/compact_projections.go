@@ -95,7 +95,7 @@ func compactActionResult(action string, value map[string]any, detail bool) map[s
 	case "train/read":
 		return compactTrainReadResult(value)
 	default:
-		return compactMutationResult(value)
+		return compactMutationResult(action, value)
 	}
 }
 
@@ -154,14 +154,29 @@ func compactTrainReadResult(value map[string]any) map[string]any {
 	return result
 }
 
-func compactMutationResult(value map[string]any) map[string]any {
+func compactMutationResult(action string, value map[string]any) map[string]any {
 	result := copyProjectionMap(value)
 	for _, key := range []string{"task", "train", "result", "receipt", "operation", "item", "attempt"} {
 		if object, ok := value[key].(map[string]any); ok {
-			result[key] = compactNestedRecord(key, object)
+			if key == "task" && (action == "task/supersede" || action == "task/supersede_status") {
+				// Some mutation receipts expose a closed taskOutputSchema. Keep
+				// that schema's required fields while still dropping optional
+				// preparation/detail fields from the nested projection.
+				result[key] = compactReceiptTask(object)
+			} else {
+				result[key] = compactNestedRecord(key, object)
+			}
 		}
 	}
 	return result
+}
+
+func compactReceiptTask(value map[string]any) map[string]any {
+	return selectProjectionFields(value,
+		"schema_version", "id", "sha256", "project_id", "title", "objective", "branch",
+		"acceptance_criteria", "constraints", "status", "created_by", "created_at",
+		"revision", "revision_sha256", "operation_class", "updated_at",
+	)
 }
 
 func compactTaskRecord(value map[string]any) map[string]any {

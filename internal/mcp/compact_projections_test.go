@@ -119,3 +119,22 @@ func TestGenericDispatchUsesCompactDefaultAndHonorsDetail(t *testing.T) {
 		t.Fatalf("detail dispatch did not preserve detail: %#v", full)
 	}
 }
+
+func TestCompactMutationPreservesStrictTaskReceiptSchema(t *testing.T) {
+	receipt := map[string]any{
+		"operation_id": "OP-1", "status": "completed", "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:01Z",
+		"task": map[string]any{
+			"schema_version": float64(1), "id": "GTW-TSK1", "sha256": "task-sha", "project_id": "example",
+			"title": "Task", "objective": "Objective", "branch": "task/example",
+			"acceptance_criteria": []any{"AC1"}, "constraints": []any{"bounded"}, "status": "ready",
+			"created_by": "planner", "created_at": "2026-01-01T00:00:00Z", "metadata": map[string]any{"large": true},
+		},
+	}
+	compact := compactActionResult("task/supersede", receipt, false)
+	if err := validateOutputValue(taskSupersedeReceiptOutputSchema(), compact); err != nil {
+		t.Fatalf("compact receipt violates strict output schema: %v; result=%#v", err, compact)
+	}
+	if _, ok := compact["task"].(map[string]any)["metadata"]; ok {
+		t.Fatalf("compact receipt retained optional task metadata: %#v", compact)
+	}
+}
