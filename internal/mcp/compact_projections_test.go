@@ -138,3 +138,24 @@ func TestCompactMutationPreservesStrictTaskReceiptSchema(t *testing.T) {
 		t.Fatalf("compact receipt retained optional task metadata: %#v", compact)
 	}
 }
+
+func TestCompactAgentMutationPreservesDecisionFields(t *testing.T) {
+	value := map[string]any{
+		"operation_id": "OP-AGENT", "status": "completed",
+		"result": map[string]any{
+			"project_id": "example", "delivered": true, "outcome": "acknowledged",
+			"stdout": "large execution output", "stderr": "large diagnostic output",
+		},
+	}
+	compact := compactActionResult("agent/prompt", value, false)
+	result, ok := compact["result"].(map[string]any)
+	if !ok || result["project_id"] != "example" || result["delivered"] != true || result["outcome"] != "acknowledged" {
+		t.Fatalf("compact Agent result lost decision fields: %#v", compact)
+	}
+	if _, ok := result["stdout"]; ok {
+		t.Fatalf("compact Agent result retained stdout: %#v", compact)
+	}
+	if _, ok := result["stderr"]; ok {
+		t.Fatalf("compact Agent result retained stderr: %#v", compact)
+	}
+}
