@@ -8,6 +8,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 func TestTaskTrainActionsAdvertiseOptionalDetailProjection(t *testing.T) {
@@ -78,5 +79,43 @@ func TestCompactTaskAndTrainResultsDropLargePayloads(t *testing.T) {
 	}
 	if _, ok := compactTrainResult["items"]; ok {
 		t.Fatalf("compact train retained items: %#v", compactTrainResult)
+	}
+}
+
+func TestGenericDispatchUsesCompactDefaultAndHonorsDetail(t *testing.T) {
+	server := &Server{Service: service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}), AuthorityContext: authority.WithDelivery(context.Background())}
+	if err := server.RegisterGenericAction(GenericAction{
+		Path:        "task/probe",
+		Description: "Projection test action.",
+		InputSchema: obj(map[string]any{"value": str("Value.")}, "value"),
+		OutputSchema: map[string]any{
+			"type":                 "object",
+			"additionalProperties": true,
+		},
+		Execute: func(context.Context, json.RawMessage) (any, error) {
+			return map[string]any{"task": map[string]any{"id": "GTW-TSK1", "status": "ready", "objective": "detail"}}, nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	entries := server.genericActionRegistry(server.tools())
+	sessionID := genericSession(t, server.Service, "example")
+	record, err := durableSession.NewStore(server.Service.Config.StateDir).Get(sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compact, err := server.genericDispatch(authority.WithDelivery(context.Background()), entries, record, "task/probe", json.RawMessage(`{"value":"x"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := compact["result"].(map[string]any)["task"].(map[string]any)["objective"]; ok {
+		t.Fatalf("compact dispatch leaked detail: %#v", compact)
+	}
+	full, err := server.genericDispatch(authority.WithDelivery(context.Background()), entries, record, "task/probe", json.RawMessage(`{"value":"x","detail":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full["result"].(map[string]any)["task"].(map[string]any)["objective"] != "detail" {
+		t.Fatalf("detail dispatch did not preserve detail: %#v", full)
 	}
 }
