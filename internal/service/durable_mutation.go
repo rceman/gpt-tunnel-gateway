@@ -38,12 +38,20 @@ func durableMutationPath(stateDir, operationID string) string {
 }
 
 func durableMutationDigest(kind, sessionID string, input []byte) string {
+	return durableMutationDigestWithIdentity(kind, sessionID, input, nil)
+}
+
+func durableMutationDigestWithIdentity(kind, sessionID string, input, identity []byte) string {
 	hash := sha256.New()
 	hash.Write([]byte(kind))
 	hash.Write([]byte{0})
 	hash.Write([]byte(sessionID))
 	hash.Write([]byte{0})
 	hash.Write(input)
+	if identity != nil {
+		hash.Write([]byte{0})
+		hash.Write(identity)
+	}
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
@@ -70,6 +78,10 @@ func (s *Service) enqueueDurableMutation(operationID string) {
 }
 
 func (s *Service) enqueueTypedDurableMutation(ctx context.Context, kind, projectID string, input any) (durableMutationOperation, error) {
+	return s.enqueueTypedDurableMutationWithIdentity(ctx, kind, projectID, input, nil)
+}
+
+func (s *Service) enqueueTypedDurableMutationWithIdentity(ctx context.Context, kind, projectID string, input, identity any) (durableMutationOperation, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return durableMutationOperation{}, err
 	}
@@ -78,7 +90,14 @@ func (s *Service) enqueueTypedDurableMutation(ctx context.Context, kind, project
 		return durableMutationOperation{}, err
 	}
 	sessionID := AgentSessionID(ctx)
-	digest := durableMutationDigest(kind, sessionID, raw)
+	var identityRaw []byte
+	if identity != nil {
+		identityRaw, err = json.Marshal(identity)
+		if err != nil {
+			return durableMutationOperation{}, err
+		}
+	}
+	digest := durableMutationDigestWithIdentity(kind, sessionID, raw, identityRaw)
 	operationID := "mutation-" + digest
 	if err := model.ValidateObjectIdentifier(operationID); err != nil {
 		return durableMutationOperation{}, err

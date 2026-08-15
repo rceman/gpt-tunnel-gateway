@@ -23,6 +23,43 @@ type TrainV2LifecycleReceipt struct {
 	UpdatedAt   time.Time            `json:"updated_at"`
 }
 
+// trainV2AdvanceIdentity binds the public receipt to the local execution
+// generation that the worker is advancing. The runtime binding is a bounded,
+// Gateway-owned snapshot and avoids a Hub refresh before the receipt is
+// durably written. A changed item/attempt/session generation therefore gets a
+// new operation identity instead of reusing an older receipt.
+type trainV2AdvanceIdentity struct {
+	ProjectID       string    `json:"project_id"`
+	TrainID         string    `json:"train_id"`
+	RuntimePresent  bool      `json:"runtime_present"`
+	ItemPosition    int       `json:"item_position,omitempty"`
+	TaskID          string    `json:"task_id,omitempty"`
+	AttemptNumber   uint64    `json:"attempt_number,omitempty"`
+	AgentID         string    `json:"agent_id,omitempty"`
+	SessionKey      string    `json:"session_key,omitempty"`
+	WorktreePath    string    `json:"worktree_path,omitempty"`
+	StartedAt       time.Time `json:"started_at,omitempty"`
+	RestartRequired bool      `json:"restart_required,omitempty"`
+}
+
+func (s *Service) trainV2AdvanceIdentity(in TrainV2AdvanceInput) trainV2AdvanceIdentity {
+	identity := trainV2AdvanceIdentity{ProjectID: in.ProjectID, TrainID: in.TrainID}
+	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, in.ProjectID, in.TrainID)
+	if err != nil {
+		return identity
+	}
+	identity.RuntimePresent = true
+	identity.ItemPosition = runtime.ItemPosition
+	identity.TaskID = runtime.TaskID
+	identity.AttemptNumber = runtime.AttemptNumber
+	identity.AgentID = runtime.AgentID
+	identity.SessionKey = runtime.SessionKey
+	identity.WorktreePath = runtime.WorktreePath
+	identity.StartedAt = runtime.StartedAt
+	identity.RestartRequired = runtime.RestartRequired
+	return identity
+}
+
 func trainV2LifecycleReceipt(operation durableMutationOperation) TrainV2LifecycleReceipt {
 	receipt := TrainV2LifecycleReceipt{
 		OperationID: operation.OperationID,
@@ -69,7 +106,7 @@ func (s *Service) TrainV2AdvanceAsync(ctx context.Context, in TrainV2AdvanceInpu
 	if _, _, err := model.ParseTrainV2ID(in.TrainID); err != nil {
 		return TrainV2LifecycleReceipt{}, err
 	}
-	operation, err := s.enqueueTypedDurableMutation(ctx, "train-v2-advance", in.ProjectID, in)
+	operation, err := s.enqueueTypedDurableMutationWithIdentity(ctx, "train-v2-advance", in.ProjectID, in, s.trainV2AdvanceIdentity(in))
 	if err != nil {
 		return TrainV2LifecycleReceipt{}, err
 	}

@@ -4,7 +4,57 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
+
+func TestTrainV2AdvanceReceiptIdentityTracksLocalExecutionGeneration(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	in := TrainV2AdvanceInput{ProjectID: "example", TrainID: "GTW-TRN999"}
+	runtime := trainv2.RuntimeBinding{
+		SchemaVersion: 1,
+		ProjectID:     in.ProjectID,
+		TrainID:       in.TrainID,
+		WorktreePath:  trainv2.ExpectedWorktreePath(s.Config.StateDir, in.ProjectID, in.TrainID),
+		AgentID:       "agent",
+		SessionKey:    "session-a",
+		ItemPosition:  16,
+		TaskID:        "GTW-TSK274",
+		AttemptNumber: 1,
+		StartedAt:     time.Unix(1, 0).UTC(),
+	}
+	if err := fsutil.WriteJSONAtomic(trainv2.RuntimePath(s.Config.StateDir, in.ProjectID, in.TrainID), runtime, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.TrainV2AdvanceAsync(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitDurableMutationTerminal(t, s, first.OperationID)
+	same, err := s.TrainV2AdvanceAsync(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if same.OperationID != first.OperationID {
+		t.Fatalf("same execution generation was not idempotent: %q != %q", same.OperationID, first.OperationID)
+	}
+	waitDurableMutationTerminal(t, s, same.OperationID)
+	runtime.ItemPosition = 17
+	runtime.TaskID = "GTW-TSK276"
+	runtime.StartedAt = time.Unix(2, 0).UTC()
+	if err := fsutil.WriteJSONAtomic(trainv2.RuntimePath(s.Config.StateDir, in.ProjectID, in.TrainID), runtime, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := s.TrainV2AdvanceAsync(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.OperationID == first.OperationID {
+		t.Fatal("changed execution generation reused stale advance receipt")
+	}
+	waitDurableMutationTerminal(t, s, changed.OperationID)
+}
 
 func TestTrainV2LifecycleInitiationsAreBoundedAndIdempotent(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
