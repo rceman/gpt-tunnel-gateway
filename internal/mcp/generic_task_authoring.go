@@ -192,17 +192,37 @@ func (s *Server) registerTaskAuthoringActions() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TaskAuthoringReadyInput
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			task, operation, err := s.Service.TaskAuthoringReady(ctx, in)
-			if err != nil {
+			return s.Service.TaskAuthoringReadyAsync(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "task/ready_status",
+		Description:  "Read the bounded durable receipt for an asynchronous task/ready operation.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable task/ready operation identifier.")}, "operation_id"),
+		OutputSchema: taskAuthoringOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
 				return nil, err
 			}
-			return map[string]any{"task": task, "operation": operation}, nil
+			return s.Service.TaskAuthoringReadyOperationStatus(ctx, input.OperationID)
 		},
 	}); err != nil {
 		return err

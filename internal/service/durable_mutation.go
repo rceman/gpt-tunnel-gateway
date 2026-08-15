@@ -134,9 +134,89 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 		}
 		result.OperationID = operation.OperationID
 		return json.Marshal(map[string]any{"task": task, "operation": result})
+	case "task-authoring-ready":
+		var input TaskAuthoringReadyInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		if current, err := s.TaskAuthoringRead(ctx, input.ProjectID, input.TaskID); err == nil && current.Status == model.TaskAuthoringReady && current.ReadySeal != nil && current.ReadySeal.Revision == input.ExpectedRevision && current.ReadySeal.RevisionSHA256 == input.ExpectedRevisionSHA256 && current.ReadySeal.ReadyBy == input.ReadyBy {
+			return json.Marshal(map[string]any{
+				"task":      current,
+				"operation": OperationResult{OperationID: operation.OperationID, ProjectID: current.ProjectID, TaskID: current.ID, Status: current.Status},
+			})
+		}
+		task, result, err := s.TaskAuthoringReady(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		result.OperationID = operation.OperationID
+		return json.Marshal(map[string]any{"task": task, "operation": result})
 	default:
 		return nil, fmt.Errorf("unsupported durable mutation kind %q", operation.Kind)
 	}
+}
+
+func (s *Service) enqueueTaskAuthoringReady(ctx context.Context, in TaskAuthoringReadyInput) (durableMutationOperation, error) {
+	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
+		return durableMutationOperation{}, err
+	}
+	if err := model.ValidateCanonicalTaskID(in.TaskID); err != nil {
+		return durableMutationOperation{}, err
+	}
+	if in.ExpectedRevision < 1 || strings.TrimSpace(in.ReadyBy) == "" || strings.ContainsAny(in.ReadyBy, "\x00\r\n") {
+		return durableMutationOperation{}, fmt.Errorf("expected_revision and ready_by are required")
+	}
+	input, err := json.Marshal(in)
+	if err != nil {
+		return durableMutationOperation{}, err
+	}
+	sessionID := AgentSessionID(ctx)
+	digest := durableMutationDigest("task-authoring-ready", sessionID, input)
+	operationID := "mutation-" + digest
+	if err := model.ValidateObjectIdentifier(operationID); err != nil {
+		return durableMutationOperation{}, err
+	}
+	s.durableMutationMu.Lock()
+	defer s.durableMutationMu.Unlock()
+	operation, err := s.readDurableMutation(operationID)
+	if err == nil {
+		if operation.RequestSHA256 != digest || operation.Kind != "task-authoring-ready" {
+			return durableMutationOperation{}, fmt.Errorf("durable mutation identity mismatch")
+		}
+		if operation.Status == "failed" {
+			operation.Status = "accepted"
+			operation.Error = ""
+			operation.UpdatedAt = time.Now().UTC()
+			if err := s.writeDurableMutation(operation); err != nil {
+				return durableMutationOperation{}, err
+			}
+		}
+		s.startDurableMutationWorker()
+		s.enqueueDurableMutation(operationID)
+		return operation, nil
+	}
+	if !os.IsNotExist(err) {
+		return durableMutationOperation{}, err
+	}
+	now := time.Now().UTC()
+	operation = durableMutationOperation{
+		SchemaVersion: durableMutationSchemaVersion,
+		OperationID:   operationID,
+		Kind:          "task-authoring-ready",
+		RequestSHA256: digest,
+		SessionID:     sessionID,
+		ProjectID:     in.ProjectID,
+		Input:         input,
+		Status:        "accepted",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := s.writeDurableMutation(operation); err != nil {
+		return durableMutationOperation{}, err
+	}
+	s.startDurableMutationWorker()
+	s.enqueueDurableMutation(operationID)
+	return operation, nil
 }
 
 func (s *Service) readDurableMutation(operationID string) (durableMutationOperation, error) {
