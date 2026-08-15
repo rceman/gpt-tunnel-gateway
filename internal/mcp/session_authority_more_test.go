@@ -14,6 +14,8 @@ import (
 
 func TestGenericAuthorityRequiresDurableWorkflowPolicy(t *testing.T) {
 	server := newSessionTestServer(t)
+	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT}))
+	sessionID := started["session"].(map[string]any)["session_id"].(string)
 	revision, err := server.Service.Hub.RemoteRevision(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -30,8 +32,6 @@ func TestGenericAuthorityRequiresDurableWorkflowPolicy(t *testing.T) {
 	}
 	var calls int
 	registerAuthorityTestAction(t, server, "test/policy", durableSession.RoleDelivery, true, &calls)
-	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT}))
-	sessionID := started["session"].(map[string]any)["session_id"].(string)
 	result := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/policy", "input": map[string]any{"value": "ok"}}}})))
 	message := result["result"].(map[string]any)["error"].(string)
 	if result["is_error"] != true || !strings.Contains(message, "workflow policy") || calls != 0 {
