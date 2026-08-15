@@ -52,6 +52,49 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "train/attempt-proof-recover",
+		Description:  "Recover missing immutable proof for one succeeded TrainItem Attempt while preserving an accepted review.",
+		InputSchema:  trainV2AttemptProofRecoverySchema(),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.TrainV2AttemptProofRecoveryInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2AttemptProofRecoveryAsync(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "train/attempt-proof-recover_status",
+		Description:  "Read the durable receipt for Train Attempt proof recovery.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train Attempt proof recovery operation identifier.")}, "operation_id"),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2AttemptOperationStatus(ctx, input.OperationID)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "train/add",
 		Description:  "Append ready Tasks to the unstarted tail of a train_v2.",
 		InputSchema:  trainV2AddSchema(),

@@ -45,7 +45,7 @@ func (s *Service) TrainV2AttemptReview(ctx context.Context, in TrainV2AttemptRev
 		return TrainV2AttemptReviewResult{}, fmt.Errorf("Train item position is out of range")
 	}
 	item := train.Items[in.ItemPosition]
-	if item.TaskID == "" || len(item.Attempts) < int(in.AttemptNumber) || item.SuccessfulAttemptNumber != in.AttemptNumber || item.Status != model.TrainV2ItemFinalized {
+	if item.TaskID == "" || len(item.Attempts) < int(in.AttemptNumber) || item.SuccessfulAttemptNumber != in.AttemptNumber || item.Status != model.TrainV2ItemFinalized || item.Proof == nil {
 		return TrainV2AttemptReviewResult{}, fmt.Errorf("Attempt is not the exact successful review target")
 	}
 	attempt := item.Attempts[in.AttemptNumber-1]
@@ -76,7 +76,7 @@ func (s *Service) TrainV2AttemptReview(ctx context.Context, in TrainV2AttemptRev
 			return nil, fmt.Errorf("Train changed before Attempt review")
 		}
 		currentItem := current.Items[in.ItemPosition]
-		if currentItem.SuccessfulAttemptNumber != in.AttemptNumber || currentItem.Status != model.TrainV2ItemFinalized || len(currentItem.Attempts) < int(in.AttemptNumber) || currentItem.Attempts[in.AttemptNumber-1].Status != model.TrainV2AttemptSucceeded || currentItem.Attempts[in.AttemptNumber-1].ReviewID != "" {
+		if currentItem.SuccessfulAttemptNumber != in.AttemptNumber || currentItem.Status != model.TrainV2ItemFinalized || currentItem.Proof == nil || len(currentItem.Attempts) < int(in.AttemptNumber) || currentItem.Attempts[in.AttemptNumber-1].Status != model.TrainV2AttemptSucceeded || currentItem.Attempts[in.AttemptNumber-1].ReviewID != "" {
 			return nil, fmt.Errorf("Attempt changed before review")
 		}
 		currentItem.Attempts[in.AttemptNumber-1].ReviewID = review.ID

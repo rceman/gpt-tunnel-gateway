@@ -174,11 +174,22 @@ func (s *Service) TrainV2AttemptFinalize(ctx context.Context, in TrainV2AttemptF
 			currentItem.Attempts[in.AttemptNumber-1].Status = model.TrainV2AttemptSucceeded
 			currentItem.Status = model.TrainV2ItemFinalized
 			currentItem.SuccessfulAttemptNumber = in.AttemptNumber
+			currentItem.ActiveAttemptNumber = 0
+			implementationProof := model.TrainV2ImplementationProof{
+				CheckpointHead:    finalHead,
+				ImplementationSHA: finalHead,
+				ReportID:          reportPath,
+				GateResults:       append([]model.CompletionGateResult{}, serverGates...),
+				RecordedAt:        finished,
+			}
+			if err := applyTrainV2AttemptProof(&currentItem, implementationProof); err != nil {
+				return nil, err
+			}
 		} else {
 			currentItem.Attempts[in.AttemptNumber-1].Status = model.TrainV2AttemptFailed
 			currentItem.Status = model.TrainV2ItemBlocked
+			currentItem.ActiveAttemptNumber = 0
 		}
-		currentItem.ActiveAttemptNumber = 0
 		current.Items[in.ItemPosition] = currentItem
 		current.Revision++
 		current.UpdatedAt = finished

@@ -25,6 +25,15 @@ type TrainV2AttemptReviewReceipt struct {
 	UpdatedAt   time.Time                   `json:"updated_at"`
 }
 
+type TrainV2AttemptProofRecoveryReceipt struct {
+	OperationID string                             `json:"operation_id"`
+	Status      string                             `json:"status"`
+	Result      *TrainV2AttemptProofRecoveryResult `json:"result,omitempty"`
+	Error       string                             `json:"error,omitempty"`
+	CreatedAt   time.Time                          `json:"created_at"`
+	UpdatedAt   time.Time                          `json:"updated_at"`
+}
+
 func trainV2AttemptFinalizeReceipt(operation durableMutationOperation) TrainV2AttemptFinalizeReceipt {
 	receipt := TrainV2AttemptFinalizeReceipt{
 		OperationID: operation.OperationID,
@@ -67,6 +76,27 @@ func trainV2AttemptReviewReceipt(operation durableMutationOperation) TrainV2Atte
 	return receipt
 }
 
+func trainV2AttemptProofRecoveryReceipt(operation durableMutationOperation) TrainV2AttemptProofRecoveryReceipt {
+	receipt := TrainV2AttemptProofRecoveryReceipt{
+		OperationID: operation.OperationID,
+		Status:      operation.Status,
+		Error:       operation.Error,
+		CreatedAt:   operation.CreatedAt,
+		UpdatedAt:   operation.UpdatedAt,
+	}
+	if operation.Status != "completed" || len(operation.Result) == 0 {
+		return receipt
+	}
+	var result TrainV2AttemptProofRecoveryResult
+	if err := json.Unmarshal(operation.Result, &result); err != nil {
+		receipt.Status = "failed"
+		receipt.Error = "invalid durable Train Attempt proof recovery result"
+		return receipt
+	}
+	receipt.Result = &result
+	return receipt
+}
+
 func (s *Service) TrainV2AttemptFinalizeAsync(ctx context.Context, in TrainV2AttemptFinalizeInput) (TrainV2AttemptFinalizeReceipt, error) {
 	if in.ProjectID == "" {
 		return TrainV2AttemptFinalizeReceipt{}, fmt.Errorf("project_id is required")
@@ -89,6 +119,17 @@ func (s *Service) TrainV2AttemptReviewAsync(ctx context.Context, in TrainV2Attem
 	return trainV2AttemptReviewReceipt(operation), nil
 }
 
+func (s *Service) TrainV2AttemptProofRecoveryAsync(ctx context.Context, in TrainV2AttemptProofRecoveryInput) (TrainV2AttemptProofRecoveryReceipt, error) {
+	if in.ProjectID == "" {
+		return TrainV2AttemptProofRecoveryReceipt{}, fmt.Errorf("project_id is required")
+	}
+	operation, err := s.enqueueTypedDurableMutation(ctx, "train-attempt-proof-recovery", in.ProjectID, in)
+	if err != nil {
+		return TrainV2AttemptProofRecoveryReceipt{}, err
+	}
+	return trainV2AttemptProofRecoveryReceipt(operation), nil
+}
+
 func (s *Service) TrainV2AttemptOperationStatus(ctx context.Context, operationID string) (any, error) {
 	operation, err := s.readDurableMutation(operationID)
 	if err != nil {
@@ -102,6 +143,8 @@ func (s *Service) TrainV2AttemptOperationStatus(ctx context.Context, operationID
 		return trainV2AttemptFinalizeReceipt(operation), nil
 	case "train-attempt-review":
 		return trainV2AttemptReviewReceipt(operation), nil
+	case "train-attempt-proof-recovery":
+		return trainV2AttemptProofRecoveryReceipt(operation), nil
 	default:
 		return nil, fmt.Errorf("operation is not a Train Attempt mutation")
 	}

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,9 +64,23 @@ func TestTrainV2AdvanceStartsNextItemAndIsIdempotent(t *testing.T) {
 		attempt := &latest.Items[0].Attempts[0]
 		attempt.Status = model.TrainV2AttemptSucceeded
 		attempt.FinishedAt = &finished
-		latest.Items[0].Status = model.TrainV2ItemFinalized
+		attempt.ReportID = "implementation-report"
+		attempt.ReviewID = "review-report"
+		latest.Items[0].Status = model.TrainV2ItemReviewed
 		latest.Items[0].ActiveAttemptNumber = 0
 		latest.Items[0].SuccessfulAttemptNumber = 1
+		latest.Items[0].Proof = &model.TrainV2ImplementationProof{
+			CheckpointHead:    strings.Repeat("a", 40),
+			ImplementationSHA: strings.Repeat("b", 40),
+			ReportID:          attempt.ReportID,
+			GateResults:       []model.CompletionGateResult{{ID: model.WorkflowGateCheck, ExitCode: 0}},
+			RecordedAt:        finished,
+		}
+		latest.Items[0].Review = &model.TrainV2ItemReview{
+			Outcome:    model.ReviewOutcomeAccepted,
+			ReportID:   attempt.ReviewID,
+			ReviewedAt: finished,
+		}
 		latest.Revision++
 		latest.UpdatedAt = finished
 		if err := model.ValidateTrainV2(latest); err != nil {
@@ -98,7 +113,7 @@ func TestTrainV2AdvanceStartsNextItemAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(updated.Items[0].Attempts) != 1 || updated.Items[0].Status != model.TrainV2ItemFinalized || len(updated.Items[1].Attempts) != 1 || updated.Items[1].Status != model.TrainV2ItemRunning {
+	if len(updated.Items[0].Attempts) != 1 || updated.Items[0].Status != model.TrainV2ItemReviewed || len(updated.Items[1].Attempts) != 1 || updated.Items[1].Status != model.TrainV2ItemRunning {
 		t.Fatalf("unexpected persisted next-item state: %#v", updated)
 	}
 

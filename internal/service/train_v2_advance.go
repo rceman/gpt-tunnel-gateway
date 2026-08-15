@@ -79,8 +79,8 @@ func (s *Service) advanceTrainV2Locked(ctx context.Context, in TrainV2AdvanceInp
 		result.Record = start
 		return result, nil
 	}
-	if currentAttempt.Status != model.TrainV2AttemptSucceeded || currentItem.Status != model.TrainV2ItemFinalized {
-		return trainv2.StartResult{}, fmt.Errorf("current TrainItem Attempt is not successfully finalized")
+	if err := validateTrainV2AdvanceCurrentItem(currentItem, start.CurrentAttemptNumber); err != nil {
+		return trainv2.StartResult{}, err
 	}
 	nextPosition := start.CurrentItemPosition + 1
 	if nextPosition >= len(train.Items) {
@@ -175,7 +175,13 @@ func (s *Service) advanceTrainV2Locked(ctx context.Context, in TrainV2AdvanceInp
 		if err := readWorktreeJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), &latest); err != nil {
 			return nil, err
 		}
-		if latest.Revision != train.Revision || start.CurrentItemPosition >= len(latest.Items) || latest.Items[start.CurrentItemPosition].Status != model.TrainV2ItemFinalized || latest.Items[start.CurrentItemPosition].Attempts[start.CurrentAttemptNumber-1].Status != model.TrainV2AttemptSucceeded || nextPosition >= len(latest.Items) || latest.Items[nextPosition].Status != model.TrainV2ItemQueued || len(latest.Items[nextPosition].Attempts) != 0 {
+		if latest.Revision != train.Revision || start.CurrentItemPosition < 0 || start.CurrentItemPosition >= len(latest.Items) || nextPosition >= len(latest.Items) {
+			return nil, fmt.Errorf("Train changed before next Attempt start")
+		}
+		if err := validateTrainV2AdvanceCurrentItem(latest.Items[start.CurrentItemPosition], start.CurrentAttemptNumber); err != nil {
+			return nil, fmt.Errorf("Train changed before next Attempt start: %w", err)
+		}
+		if latest.Items[nextPosition].Status != model.TrainV2ItemQueued || len(latest.Items[nextPosition].Attempts) != 0 {
 			return nil, fmt.Errorf("Train changed before next Attempt start")
 		}
 		var latestTask model.TaskAuthoring
@@ -218,6 +224,23 @@ func (s *Service) advanceTrainV2Locked(ctx context.Context, in TrainV2AdvanceInp
 	}
 	result.Record = updatedStart
 	return result, nil
+}
+
+func validateTrainV2AdvanceCurrentItem(item model.TrainV2Item, attemptNumber uint64) error {
+	if attemptNumber == 0 || attemptNumber > uint64(len(item.Attempts)) || item.SuccessfulAttemptNumber != attemptNumber {
+		return fmt.Errorf("current TrainItem Attempt is not successfully finalized")
+	}
+	attempt := item.Attempts[attemptNumber-1]
+	if attempt.Status != model.TrainV2AttemptSucceeded {
+		return fmt.Errorf("current TrainItem Attempt is not successfully finalized")
+	}
+	if item.Status == model.TrainV2ItemFinalized {
+		return nil
+	}
+	if item.Status == model.TrainV2ItemReviewed && item.Proof != nil && item.Review != nil && item.Review.Outcome == model.ReviewOutcomeAccepted && item.Review.ReportID != "" && attempt.ReviewID == item.Review.ReportID {
+		return nil
+	}
+	return fmt.Errorf("current TrainItem Attempt is not successfully finalized")
 }
 
 func (s *Service) dispatchNextTrainV2Attempt(ctx context.Context, train model.TrainV2, item model.TrainV2Item, attempt model.TrainV2Attempt, runtime trainv2.RuntimeBinding, expected string) (trainv2.StartResult, error) {

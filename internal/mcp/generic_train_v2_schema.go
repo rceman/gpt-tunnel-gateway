@@ -85,6 +85,16 @@ func trainV2AttemptReviewSchema() map[string]any {
 	}, "project_id", "train_id", "item_position", "attempt_number", "outcome", "reviewed_head")
 }
 
+func trainV2AttemptProofRecoverySchema() map[string]any {
+	return obj(map[string]any{
+		"project_id":            str("Registered project identifier."),
+		"train_id":              str("Server-allocated Train identifier."),
+		"item_position":         integer("Zero-based TrainItem position.", 0, 1000000),
+		"attempt_number":        integer("TrainItem-local Attempt number.", 1, 1000000),
+		"expected_hub_revision": str("Optimistic Hub revision."),
+	}, "project_id", "train_id", "item_position", "attempt_number")
+}
+
 func trainV2CutoverSchema() map[string]any {
 	return obj(map[string]any{
 		"project_id":                   str("Registered project identifier."),

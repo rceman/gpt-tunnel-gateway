@@ -13,7 +13,7 @@ import (
 // present before Train v2 becomes the sole writable execution authority.
 var RequiredCutoverActions = []string{
 	"task/create", "task/update", "task/ready", "task/list", "task/read",
-	"train/create", "train/add", "train/read", "train/list", "train/start", "train/advance", "train/attempt-finalize", "train/attempt-review", "train/integrate", "train/cutover",
+	"train/create", "train/add", "train/read", "train/list", "train/start", "train/advance", "train/attempt-finalize", "train/attempt-proof-recover", "train/attempt-review", "train/integrate", "train/cutover",
 }
 
 type CutoverEvidence struct {
