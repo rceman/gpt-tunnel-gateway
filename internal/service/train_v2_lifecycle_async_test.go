@@ -56,6 +56,31 @@ func TestTrainV2AdvanceReceiptIdentityTracksLocalExecutionGeneration(t *testing.
 	waitDurableMutationTerminal(t, s, changed.OperationID)
 }
 
+func TestTaskWorkReceiptIdentityTracksHubRevision(t *testing.T) {
+	s, revision, _ := testServiceWithoutIdentifiers(t)
+	in := TaskWorkInput{ProjectID: "example", TaskID: "EXM-TSK1"}
+	first, err := s.TaskWorkAsync(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitDurableMutationTerminal(t, s, first.OperationID)
+	if _, _, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
+		ProjectID:    "example",
+		ProjectCode:  "EXM",
+		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.TaskWorkAsync(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.OperationID == first.OperationID {
+		t.Fatal("changed Hub revision reused stale task/work receipt")
+	}
+	waitDurableMutationTerminal(t, s, second.OperationID)
+}
+
 func TestTrainV2LifecycleInitiationsAreBoundedAndIdempotent(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
 	_ = enableTrainV2ForTest(t, s, revision)

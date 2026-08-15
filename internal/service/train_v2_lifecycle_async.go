@@ -31,6 +31,7 @@ type TrainV2LifecycleReceipt struct {
 type trainV2AdvanceIdentity struct {
 	ProjectID       string    `json:"project_id"`
 	TrainID         string    `json:"train_id"`
+	HubRevision     string    `json:"hub_revision,omitempty"`
 	RuntimePresent  bool      `json:"runtime_present"`
 	ItemPosition    int       `json:"item_position,omitempty"`
 	TaskID          string    `json:"task_id,omitempty"`
@@ -42,8 +43,23 @@ type trainV2AdvanceIdentity struct {
 	RestartRequired bool      `json:"restart_required,omitempty"`
 }
 
-func (s *Service) trainV2AdvanceIdentity(in TrainV2AdvanceInput) trainV2AdvanceIdentity {
-	identity := trainV2AdvanceIdentity{ProjectID: in.ProjectID, TrainID: in.TrainID}
+type taskWorkIdentity struct {
+	ProjectID   string `json:"project_id"`
+	TaskID      string `json:"task_id"`
+	HubRevision string `json:"hub_revision,omitempty"`
+}
+
+func (s *Service) localHubRevision(ctx context.Context) string {
+	snapshot, err := s.Hub.ReadSnapshot(ctx)
+	if err != nil {
+		return ""
+	}
+	defer snapshot.Close()
+	return snapshot.Revision()
+}
+
+func (s *Service) trainV2AdvanceIdentity(ctx context.Context, in TrainV2AdvanceInput) trainV2AdvanceIdentity {
+	identity := trainV2AdvanceIdentity{ProjectID: in.ProjectID, TrainID: in.TrainID, HubRevision: s.localHubRevision(ctx)}
 	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, in.ProjectID, in.TrainID)
 	if err != nil {
 		return identity
@@ -106,7 +122,7 @@ func (s *Service) TrainV2AdvanceAsync(ctx context.Context, in TrainV2AdvanceInpu
 	if _, _, err := model.ParseTrainV2ID(in.TrainID); err != nil {
 		return TrainV2LifecycleReceipt{}, err
 	}
-	operation, err := s.enqueueTypedDurableMutationWithIdentity(ctx, "train-v2-advance", in.ProjectID, in, s.trainV2AdvanceIdentity(in))
+	operation, err := s.enqueueTypedDurableMutationWithIdentity(ctx, "train-v2-advance", in.ProjectID, in, s.trainV2AdvanceIdentity(ctx, in))
 	if err != nil {
 		return TrainV2LifecycleReceipt{}, err
 	}
