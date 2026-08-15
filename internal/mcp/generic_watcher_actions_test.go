@@ -10,7 +10,7 @@ import (
 func TestWatcherActionsAreGenericAndDiscoverable(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"watcher/watch", "watcher/nudge", "watcher/status", "watcher/guide", "watcher/guide_update"} {
+	for _, path := range []string{"watcher/watch", "watcher/nudge", "watcher/status", "watcher/guide", "watcher/guide_update", "watcher/guide_update_status"} {
 		entry, ok := entries[path]
 		if !ok {
 			t.Fatalf("missing watcher generic action %s", path)

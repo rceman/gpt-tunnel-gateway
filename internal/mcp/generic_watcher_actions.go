@@ -127,7 +127,7 @@ func (s *Server) registerWatcherActions() error {
 	}); err != nil {
 		return err
 	}
-	return register(GenericAction{
+	if err := register(GenericAction{
 		Path:        "watcher/guide_update",
 		Description: "Update the one revisioned Gateway watcher guide with optimistic Hub revision guarding.",
 		InputSchema: obj(map[string]any{
@@ -135,7 +135,7 @@ func (s *Server) registerWatcherActions() error {
 			"guide":                 watcherGuideInputSchema(),
 			"expected_hub_revision": str("Optional exact Hub revision guard."),
 		}, "project_id", "guide"),
-		OutputSchema: watcherObjectOutputSchema(),
+		OutputSchema: watcherGuideMutationReceiptOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  false,
@@ -149,7 +149,29 @@ func (s *Server) registerWatcherActions() error {
 			if in.Guide.ProjectID == "" {
 				in.Guide.ProjectID = in.ProjectID
 			}
-			return s.Service.WatcherGuideUpdate(ctx, in)
+			return s.Service.WatcherGuideUpdateAsync(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	return register(GenericAction{
+		Path:         "watcher/guide_update_status",
+		Description:  "Read the durable receipt for an asynchronous watcher guide update.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable watcher guide operation identifier.")}, "operation_id"),
+		OutputSchema: watcherGuideMutationReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole: durableSession.RolePlanner,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.WatcherGuideUpdateOperationStatus(ctx, in.OperationID)
 		},
 	})
 }

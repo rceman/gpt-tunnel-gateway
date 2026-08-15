@@ -270,6 +270,20 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"agent": agent, "operation": result})
+	case "watcher-guide-update":
+		var input WatcherGuideUpdateInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.WatcherGuideUpdate(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		guide, err := s.WatcherGuideRead(ctx, input.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"guide": guide, "operation": result})
 	default:
 		return nil, fmt.Errorf("unsupported durable mutation kind %q", operation.Kind)
 	}
