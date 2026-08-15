@@ -158,6 +158,12 @@ func compactMutationResult(action string, value map[string]any) map[string]any {
 	result := copyProjectionMap(value)
 	for _, key := range []string{"task", "train", "result", "receipt", "operation", "item", "attempt"} {
 		if object, ok := value[key].(map[string]any); ok {
+			if key == "result" && action == "agent/prompt" {
+				if delivered, ok := object["delivered"].(bool); ok && delivered {
+					result[key] = selectProjectionFields(object, "project_id")
+					continue
+				}
+			}
 			if key == "task" && (action == "task/supersede" || action == "task/supersede_status") {
 				// Some mutation receipts expose a closed taskOutputSchema. Keep
 				// that schema's required fields while still dropping optional

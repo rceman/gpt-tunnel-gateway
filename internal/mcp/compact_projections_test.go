@@ -139,7 +139,7 @@ func TestCompactMutationPreservesStrictTaskReceiptSchema(t *testing.T) {
 	}
 }
 
-func TestCompactAgentMutationPreservesDecisionFields(t *testing.T) {
+func TestCompactSuccessfulAgentPromptKeepsOnlyProjectID(t *testing.T) {
 	value := map[string]any{
 		"operation_id": "OP-AGENT", "status": "completed",
 		"result": map[string]any{
@@ -149,13 +149,7 @@ func TestCompactAgentMutationPreservesDecisionFields(t *testing.T) {
 	}
 	compact := compactActionResult("agent/prompt", value, false)
 	result, ok := compact["result"].(map[string]any)
-	if !ok || result["project_id"] != "example" || result["delivered"] != true || result["outcome"] != "acknowledged" {
-		t.Fatalf("compact Agent result lost decision fields: %#v", compact)
-	}
-	if _, ok := result["stdout"]; ok {
-		t.Fatalf("compact Agent result retained stdout: %#v", compact)
-	}
-	if _, ok := result["stderr"]; ok {
-		t.Fatalf("compact Agent result retained stderr: %#v", compact)
+	if !ok || len(result) != 1 || result["project_id"] != "example" {
+		t.Fatalf("compact successful Agent result was not project-only: %#v", compact)
 	}
 }
