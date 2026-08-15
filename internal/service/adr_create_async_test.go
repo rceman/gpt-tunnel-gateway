@@ -20,7 +20,9 @@ func TestADRCreateAsyncIsBoundedAndIdempotent(t *testing.T) {
 			Decision:     "decision",
 			Consequences: "consequences",
 		},
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	}
 
 	started := time.Now()

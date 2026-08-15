@@ -106,7 +106,18 @@ func (s *Service) enqueueTypedDurableMutation(ctx context.Context, kind, project
 		return durableMutationOperation{}, err
 	}
 	now := time.Now().UTC()
-	operation = durableMutationOperation{SchemaVersion: durableMutationSchemaVersion, OperationID: operationID, Kind: kind, RequestSHA256: digest, SessionID: sessionID, ProjectID: projectID, Input: raw, Status: "accepted", CreatedAt: now, UpdatedAt: now}
+	operation = durableMutationOperation{
+		SchemaVersion: durableMutationSchemaVersion,
+		OperationID:   operationID,
+		Kind:          kind,
+		RequestSHA256: digest,
+		SessionID:     sessionID,
+		ProjectID:     projectID,
+		Input:         raw,
+		Status:        "accepted",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
 	if err := s.writeDurableMutation(operation); err != nil {
 		return durableMutationOperation{}, err
 	}
@@ -175,8 +186,13 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 		// proves that this exact operation already applied.
 		if current, err := s.TaskAuthoringRead(ctx, input.ProjectID, input.TaskID); err == nil && current.Metadata != nil && current.Metadata["gateway_operation_id"] == operation.OperationID {
 			return json.Marshal(map[string]any{
-				"task":      current,
-				"operation": OperationResult{OperationID: operation.OperationID, ProjectID: current.ProjectID, TaskID: current.ID, Status: current.Status},
+				"task": current,
+				"operation": OperationResult{
+					OperationID: operation.OperationID,
+					ProjectID:   current.ProjectID,
+					TaskID:      current.ID,
+					Status:      current.Status,
+				},
 			})
 		}
 		task, result, err := s.TaskAuthoringUpdate(ctx, input)
@@ -192,8 +208,13 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 		}
 		if current, err := s.TaskAuthoringRead(ctx, input.ProjectID, input.TaskID); err == nil && current.Status == model.TaskAuthoringReady && current.ReadySeal != nil && current.ReadySeal.Revision == input.ExpectedRevision && current.ReadySeal.RevisionSHA256 == input.ExpectedRevisionSHA256 && current.ReadySeal.ReadyBy == input.ReadyBy {
 			return json.Marshal(map[string]any{
-				"task":      current,
-				"operation": OperationResult{OperationID: operation.OperationID, ProjectID: current.ProjectID, TaskID: current.ID, Status: current.Status},
+				"task": current,
+				"operation": OperationResult{
+					OperationID: operation.OperationID,
+					ProjectID:   current.ProjectID,
+					TaskID:      current.ID,
+					Status:      current.Status,
+				},
 			})
 		}
 		task, result, err := s.TaskAuthoringReady(ctx, input)

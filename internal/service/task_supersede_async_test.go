@@ -10,9 +10,16 @@ func TestTaskSupersedeAsyncIsBoundedAndIdempotent(t *testing.T) {
 	s, revision, _ := testService(t)
 	ctx := context.Background()
 	original, operation, err := s.TaskCreate(ctx, TaskCreateInput{
-		ProjectID: "example", Slug: "original-task", Title: "Original task", Objective: "Create a task to supersede.",
-		AcceptanceCriteria: []string{"original"}, OperationClass: "implementation", CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID:          "example",
+		Slug:               "original-task",
+		Title:              "Original task",
+		Objective:          "Create a task to supersede.",
+		AcceptanceCriteria: []string{"original"},
+		OperationClass:     "implementation",
+		CreatedBy:          "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -20,9 +27,16 @@ func TestTaskSupersedeAsyncIsBoundedAndIdempotent(t *testing.T) {
 	in := TaskSupersedeInput{
 		OldTaskID: original.ID,
 		Task: TaskCreateInput{
-			ProjectID: "example", Slug: "replacement-task", Title: "Replacement task", Objective: "Replace the original task.",
-			AcceptanceCriteria: []string{"replacement"}, OperationClass: "implementation", CreatedBy: "planner",
-			WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After},
+			ProjectID:          "example",
+			Slug:               "replacement-task",
+			Title:              "Replacement task",
+			Objective:          "Replace the original task.",
+			AcceptanceCriteria: []string{"replacement"},
+			OperationClass:     "implementation",
+			CreatedBy:          "planner",
+			WriteOptions: WriteOptions{
+				ExpectedHubRevision: operation.Hub.After,
+			},
 		},
 	}
 	started := time.Now()

@@ -19,18 +19,34 @@ func TestAgentIPCMutationsReturnBoundedReceipts(t *testing.T) {
 	}{
 		{kind: "agent-prompt", call: func() (string, error) {
 			started := time.Now()
-			receipt, err := s.AgentPromptAsync(ctx, AgentPromptInput{ProjectID: "example", Message: "bounded test prompt"})
+			receipt, err := s.AgentPromptAsync(ctx, AgentPromptInput{
+				ProjectID: "example",
+				Message:   "bounded test prompt",
+			})
 			if err == nil && time.Since(started) >= time.Second {
 				t.Fatalf("agent/prompt initiation exceeded one second")
 			}
 			return receipt.OperationID, err
 		}},
 		{kind: "agent-recover", call: func() (string, error) {
-			receipt, err := s.AgentRecoveryAsync(ctx, AgentRecoverInput{ProjectID: "example", TrainID: "invalid", TaskID: "EXM-TSK1", AgentID: "EXM-AGT1", AttemptNumber: 1})
+			receipt, err := s.AgentRecoveryAsync(ctx, AgentRecoverInput{
+				ProjectID:     "example",
+				TrainID:       "invalid",
+				TaskID:        "EXM-TSK1",
+				AgentID:       "EXM-AGT1",
+				AttemptNumber: 1,
+			})
 			return receipt.OperationID, err
 		}},
 		{kind: "agent-interrupt", call: func() (string, error) {
-			receipt, err := s.AgentInterruptAsync(ctx, AgentInterruptInput{OperationID: "interrupt-test", ProjectID: "example", TrainID: "invalid", TaskID: "EXM-TSK1", AgentID: "EXM-AGT1", AttemptNumber: 1})
+			receipt, err := s.AgentInterruptAsync(ctx, AgentInterruptInput{
+				OperationID:   "interrupt-test",
+				ProjectID:     "example",
+				TrainID:       "invalid",
+				TaskID:        "EXM-TSK1",
+				AgentID:       "EXM-AGT1",
+				AttemptNumber: 1,
+			})
 			return receipt.OperationID, err
 		}},
 	}

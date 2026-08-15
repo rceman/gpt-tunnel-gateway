@@ -9,7 +9,10 @@ import (
 func TestTrainV2CutoverReturnsBoundedReceipt(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
 	started := time.Now()
-	receipt, err := s.TrainV2CutoverAsync(context.Background(), TrainV2CutoverInput{ProjectID: "example", UpdatedBy: "planner"})
+	receipt, err := s.TrainV2CutoverAsync(context.Background(), TrainV2CutoverInput{
+		ProjectID: "example",
+		UpdatedBy: "planner",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

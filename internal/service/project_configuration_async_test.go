@@ -20,9 +20,13 @@ func TestProjectConfigurationUpdateAsyncIsBoundedAndIdempotent(t *testing.T) {
 	in := ProjectConfigurationUpdateInput{
 		ProjectID:        "example",
 		ExpectedRevision: current.Revision,
-		Patch:            ProjectConfigurationPatch{AgentRouting: &routing},
-		UpdatedBy:        "planner",
-		WriteOptions:     WriteOptions{ExpectedHubRevision: revision},
+		Patch: ProjectConfigurationPatch{
+			AgentRouting: &routing,
+		},
+		UpdatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	}
 	started := time.Now()
 	first, err := s.ProjectConfigurationUpdateAsync(ctx, in)

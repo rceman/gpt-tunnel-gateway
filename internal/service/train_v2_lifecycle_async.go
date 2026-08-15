@@ -24,7 +24,14 @@ type TrainV2LifecycleReceipt struct {
 }
 
 func trainV2LifecycleReceipt(operation durableMutationOperation) TrainV2LifecycleReceipt {
-	receipt := TrainV2LifecycleReceipt{OperationID: operation.OperationID, Kind: operation.Kind, Status: operation.Status, Error: operation.Error, CreatedAt: operation.CreatedAt, UpdatedAt: operation.UpdatedAt}
+	receipt := TrainV2LifecycleReceipt{
+		OperationID: operation.OperationID,
+		Kind:        operation.Kind,
+		Status:      operation.Status,
+		Error:       operation.Error,
+		CreatedAt:   operation.CreatedAt,
+		UpdatedAt:   operation.UpdatedAt,
+	}
 	if operation.Status != "completed" || len(operation.Result) == 0 {
 		return receipt
 	}

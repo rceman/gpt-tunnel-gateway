@@ -9,7 +9,10 @@ import (
 func TestWatcherNudgeReturnsBoundedReceipt(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
 	started := time.Now()
-	receipt, err := s.WatcherNudgeAsync(context.Background(), WatcherNudgeInput{ProjectID: "example", Text: "bounded nudge"})
+	receipt, err := s.WatcherNudgeAsync(context.Background(), WatcherNudgeInput{
+		ProjectID: "example",
+		Text:      "bounded nudge",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

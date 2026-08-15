@@ -10,8 +10,13 @@ func TestTrainV2AttemptMutationsReturnBoundedReceipts(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
 	ctx := context.Background()
 	finalizeInput := TrainV2AttemptFinalizeInput{
-		ProjectID: "example", TrainID: "GTW-TRN999", ItemPosition: 0, AttemptNumber: 1,
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID:     "example",
+		TrainID:       "GTW-TRN999",
+		ItemPosition:  0,
+		AttemptNumber: 1,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	}
 	started := time.Now()
 	finalizeReceipt, err := s.TrainV2AttemptFinalizeAsync(ctx, finalizeInput)
@@ -33,8 +38,14 @@ func TestTrainV2AttemptMutationsReturnBoundedReceipts(t *testing.T) {
 	}
 
 	reviewInput := TrainV2AttemptReviewInput{
-		ProjectID: "example", TrainID: "GTW-TRN999", ItemPosition: 0, AttemptNumber: 1, Outcome: "accepted",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID:     "example",
+		TrainID:       "GTW-TRN999",
+		ItemPosition:  0,
+		AttemptNumber: 1,
+		Outcome:       "accepted",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	}
 	started = time.Now()
 	reviewReceipt, err := s.TrainV2AttemptReviewAsync(ctx, reviewInput)

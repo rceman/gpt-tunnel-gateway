@@ -13,9 +13,15 @@ func TestTaskAuthoringUpdateAsyncIsBoundedIdempotentAndRestartReadable(t *testin
 	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	task, operation, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
-		ProjectID: "example", Title: "Async update task", Objective: "Persist an update intent before Hub work.",
-		AcceptanceCriteria: []string{"one bounded receipt"}, ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+		ProjectID:          "example",
+		Title:              "Async update task",
+		Objective:          "Persist an update intent before Hub work.",
+		AcceptanceCriteria: []string{"one bounded receipt"},
+		ADRRelation:        model.TaskADRNoRequired,
+		CreatedBy:          "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +34,9 @@ func TestTaskAuthoringUpdateAsyncIsBoundedIdempotentAndRestartReadable(t *testin
 		ExpectedRevisionSHA256: task.RevisionSHA256,
 		Title:                  &title,
 		UpdatedBy:              "planner",
-		WriteOptions:           WriteOptions{ExpectedHubRevision: operation.Hub.After},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.Hub.After,
+		},
 	}
 	ownerContext := WithAgentSessionID(context.Background(), "SP-ABCDEFGH")
 	started := time.Now()

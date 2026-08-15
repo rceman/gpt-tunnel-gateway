@@ -26,7 +26,13 @@ type TrainV2AttemptReviewReceipt struct {
 }
 
 func trainV2AttemptFinalizeReceipt(operation durableMutationOperation) TrainV2AttemptFinalizeReceipt {
-	receipt := TrainV2AttemptFinalizeReceipt{OperationID: operation.OperationID, Status: operation.Status, Error: operation.Error, CreatedAt: operation.CreatedAt, UpdatedAt: operation.UpdatedAt}
+	receipt := TrainV2AttemptFinalizeReceipt{
+		OperationID: operation.OperationID,
+		Status:      operation.Status,
+		Error:       operation.Error,
+		CreatedAt:   operation.CreatedAt,
+		UpdatedAt:   operation.UpdatedAt,
+	}
 	if operation.Status != "completed" || len(operation.Result) == 0 {
 		return receipt
 	}
@@ -41,7 +47,13 @@ func trainV2AttemptFinalizeReceipt(operation durableMutationOperation) TrainV2At
 }
 
 func trainV2AttemptReviewReceipt(operation durableMutationOperation) TrainV2AttemptReviewReceipt {
-	receipt := TrainV2AttemptReviewReceipt{OperationID: operation.OperationID, Status: operation.Status, Error: operation.Error, CreatedAt: operation.CreatedAt, UpdatedAt: operation.UpdatedAt}
+	receipt := TrainV2AttemptReviewReceipt{
+		OperationID: operation.OperationID,
+		Status:      operation.Status,
+		Error:       operation.Error,
+		CreatedAt:   operation.CreatedAt,
+		UpdatedAt:   operation.UpdatedAt,
+	}
 	if operation.Status != "completed" || len(operation.Result) == 0 {
 		return receipt
 	}

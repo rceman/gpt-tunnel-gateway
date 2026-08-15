@@ -12,7 +12,10 @@ import (
 )
 
 func TestTaskTrainActionsAdvertiseOptionalDetailProjection(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}), AuthorityContext: authority.WithDelivery(context.Background())}
+	server := &Server{
+		Service:          service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}),
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	entries := server.genericActionRegistry(server.tools())
 	for _, path := range []string{"task/list", "task/read", "train/list", "train/read"} {
 		entry, ok := entries[path]
@@ -30,7 +33,10 @@ func TestTaskTrainActionsAdvertiseOptionalDetailProjection(t *testing.T) {
 }
 
 func TestControlAndReceiptActionsDoNotAdvertiseDetailProjection(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}), AuthorityContext: authority.WithDelivery(context.Background())}
+	server := &Server{
+		Service:          service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}),
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	entries := server.genericActionRegistry(server.tools())
 	for _, path := range []string{"task/create_status", "train/start_status", "agent/prompt", "project/update", "watcher/nudge", "runtime/restart"} {
 		entry, ok := entries[path]
@@ -47,7 +53,10 @@ func TestControlAndReceiptActionsDoNotAdvertiseDetailProjection(t *testing.T) {
 }
 
 func TestSchemaDomainDiscoveryIsCompactUnlessDetailRequested(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}), AuthorityContext: authority.WithDelivery(context.Background())}
+	server := &Server{
+		Service:          service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}),
+		AuthorityContext: authority.WithDelivery(context.Background()),
+	}
 	entries := server.genericActionRegistry(server.tools())
 	compact, err := server.genericSchema(server.tools(), json.RawMessage(`{"path":"task"}`))
 	if err != nil {

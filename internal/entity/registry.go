@@ -196,7 +196,11 @@ func (r Registry) ListPageRecords(ctx context.Context, query Query) (Page, []Rec
 	}
 	items := make([]Projection, 0, len(paths))
 	for _, recordPath := range paths {
-		items = append(items, Projection{Family: query.Family, ID: strings.TrimSuffix(path.Base(recordPath), descriptor.Suffix), Path: recordPath})
+		items = append(items, Projection{
+			Family: query.Family,
+			ID:     strings.TrimSuffix(path.Base(recordPath), descriptor.Suffix),
+			Path:   recordPath,
+		})
 	}
 	pageItems, info, err := pagination.Page("entity:"+string(query.Family)+":"+r.ProjectID+":"+query.Text, items, limit, query.Cursor, func(item Projection) string { return item.ID })
 	if err != nil {
@@ -213,7 +217,11 @@ func (r Registry) ListPageRecords(ctx context.Context, query Query) (Page, []Rec
 	for i := range pageItems {
 		pageItems[i].Bytes = len(records[i].Bytes)
 	}
-	return Page{Items: pageItems, NextCursor: info.NextCursor, HasMore: info.HasMore}, records, nil
+	return Page{
+		Items:      pageItems,
+		NextCursor: info.NextCursor,
+		HasMore:    info.HasMore,
+	}, records, nil
 }
 
 func (r Registry) List(ctx context.Context, query Query) (Page, error) {

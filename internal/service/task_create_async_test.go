@@ -13,9 +13,15 @@ func TestTaskAuthoringCreateAsyncIsDurableAndIdempotent(t *testing.T) {
 	revision = adoptAuthoringIdentifiersForTest(t, s, revision)
 	revision = enableTrainV2ForTest(t, s, revision)
 	in := TaskAuthoringCreateInput{
-		ProjectID: "example", Title: "Async task receipt", Objective: "Persist intent before remote Hub work.",
-		AcceptanceCriteria: []string{"one durable task"}, ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID:          "example",
+		Title:              "Async task receipt",
+		Objective:          "Persist intent before remote Hub work.",
+		AcceptanceCriteria: []string{"one durable task"},
+		ADRRelation:        model.TaskADRNoRequired,
+		CreatedBy:          "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	}
 	started := time.Now()
 	first, err := s.TaskAuthoringCreateAsync(context.Background(), in)
@@ -48,7 +54,10 @@ func TestTaskAuthoringCreateAsyncIsDurableAndIdempotent(t *testing.T) {
 	if completed.Status != "completed" || completed.Task == nil {
 		t.Fatalf("task/create worker did not complete: %#v", completed)
 	}
-	all, err := s.TaskAuthoringList(context.Background(), TaskAuthoringListInput{ProjectID: "example", Limit: MaxTaskListLimit})
+	all, err := s.TaskAuthoringList(context.Background(), TaskAuthoringListInput{
+		ProjectID: "example",
+		Limit:     MaxTaskListLimit,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

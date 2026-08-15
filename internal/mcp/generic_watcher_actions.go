@@ -85,11 +85,14 @@ func (s *Server) registerWatcherActions() error {
 		return err
 	}
 	if err := register(GenericAction{
-		Path:             "watcher/nudge_status",
-		Description:      "Read the durable receipt for an asynchronous watcher nudge.",
-		InputSchema:      obj(map[string]any{"operation_id": str("Durable watcher nudge operation identifier.")}, "operation_id"),
-		OutputSchema:     watcherNudgeReceiptOutputSchema(),
-		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "watcher/nudge_status",
+		Description:  "Read the durable receipt for an asynchronous watcher nudge.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable watcher nudge operation identifier.")}, "operation_id"),
+		OutputSchema: watcherNudgeReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:    durableSession.RoleDelivery,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {

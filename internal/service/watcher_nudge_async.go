@@ -19,7 +19,13 @@ type WatcherNudgeMutationReceipt struct {
 }
 
 func watcherNudgeMutationReceipt(operation durableMutationOperation) WatcherNudgeMutationReceipt {
-	receipt := WatcherNudgeMutationReceipt{OperationID: operation.OperationID, Status: operation.Status, Error: operation.Error, CreatedAt: operation.CreatedAt, UpdatedAt: operation.UpdatedAt}
+	receipt := WatcherNudgeMutationReceipt{
+		OperationID: operation.OperationID,
+		Status:      operation.Status,
+		Error:       operation.Error,
+		CreatedAt:   operation.CreatedAt,
+		UpdatedAt:   operation.UpdatedAt,
+	}
 	if operation.Status != "completed" || len(operation.Result) == 0 {
 		return receipt
 	}

@@ -24,7 +24,9 @@ func TestAgentRegistryMutationsUseBoundedDurableReceipts(t *testing.T) {
 			CreatedAt:            now,
 			UpdatedAt:            now,
 		},
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	}
 	started := time.Now()
 	first, err := s.AgentRegisterAsync(ctx, register)
@@ -50,8 +52,13 @@ func TestAgentRegistryMutationsUseBoundedDurableReceipts(t *testing.T) {
 
 	updated := true
 	updateReceipt, err := s.AgentUpdateAsync(ctx, AgentUpdateInput{
-		ProjectID: "example", AgentID: "async-coder", Enabled: &updated, UpdatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: completed.Operation.Hub.After},
+		ProjectID: "example",
+		AgentID:   "async-coder",
+		Enabled:   &updated,
+		UpdatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: completed.Operation.Hub.After,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -63,8 +70,12 @@ func TestAgentRegistryMutationsUseBoundedDurableReceipts(t *testing.T) {
 
 	disabled := false
 	disableReceipt, err := s.AgentDisableAsync(ctx, AgentDisableInput{
-		ProjectID: "example", AgentID: "async-coder", UpdatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: updatedResult.Operation.Hub.After},
+		ProjectID: "example",
+		AgentID:   "async-coder",
+		UpdatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: updatedResult.Operation.Hub.After,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

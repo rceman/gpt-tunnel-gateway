@@ -11,7 +11,10 @@ func TestTaskExecutionMutationsReturnBoundedReceipts(t *testing.T) {
 	ctx := context.Background()
 
 	started := time.Now()
-	work, err := s.TaskWorkAsync(ctx, TaskWorkInput{ProjectID: "example", TaskID: "EXM-TSK1"})
+	work, err := s.TaskWorkAsync(ctx, TaskWorkInput{
+		ProjectID: "example",
+		TaskID:    "EXM-TSK1",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +25,10 @@ func TestTaskExecutionMutationsReturnBoundedReceipts(t *testing.T) {
 	}
 
 	started = time.Now()
-	finalize, err := s.TaskFinalizeAsync(ctx, TaskFinalizeInput{ProjectID: "example", TaskID: "EXM-TSK1"})
+	finalize, err := s.TaskFinalizeAsync(ctx, TaskFinalizeInput{
+		ProjectID: "example",
+		TaskID:    "EXM-TSK1",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

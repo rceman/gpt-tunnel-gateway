@@ -22,7 +22,13 @@ type TrainV2IntegrateReceipt struct {
 }
 
 func (s *Service) trainV2IntegrateReceipt(ctx context.Context, operation durableMutationOperation) TrainV2IntegrateReceipt {
-	receipt := TrainV2IntegrateReceipt{OperationID: operation.OperationID, Status: operation.Status, Error: operation.Error, CreatedAt: operation.CreatedAt, UpdatedAt: operation.UpdatedAt}
+	receipt := TrainV2IntegrateReceipt{
+		OperationID: operation.OperationID,
+		Status:      operation.Status,
+		Error:       operation.Error,
+		CreatedAt:   operation.CreatedAt,
+		UpdatedAt:   operation.UpdatedAt,
+	}
 	if lifecycle, err := s.readIntegrationOperation(ctx, operation.ProjectID, integrationTrainID(operation)); err == nil {
 		receipt.Phase = lifecycle.Phase
 	}

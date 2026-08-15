@@ -25,7 +25,13 @@ type TaskSupersedeReceipt struct {
 }
 
 func taskSupersedeReceipt(operation durableMutationOperation) TaskSupersedeReceipt {
-	receipt := TaskSupersedeReceipt{OperationID: operation.OperationID, Status: operation.Status, Error: operation.Error, CreatedAt: operation.CreatedAt, UpdatedAt: operation.UpdatedAt}
+	receipt := TaskSupersedeReceipt{
+		OperationID: operation.OperationID,
+		Status:      operation.Status,
+		Error:       operation.Error,
+		CreatedAt:   operation.CreatedAt,
+		UpdatedAt:   operation.UpdatedAt,
+	}
 	if operation.Status != "completed" || len(operation.Result) == 0 {
 		return receipt
 	}

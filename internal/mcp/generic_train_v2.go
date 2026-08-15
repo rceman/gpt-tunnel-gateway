@@ -77,11 +77,14 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:             "train/create_status",
-		Description:      "Read the durable receipt for an asynchronous Train create.",
-		InputSchema:      obj(map[string]any{"operation_id": str("Durable Train create operation identifier.")}, "operation_id"),
-		OutputSchema:     trainV2AdmissionReceiptOutputSchema(),
-		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "train/create_status",
+		Description:  "Read the durable receipt for an asynchronous Train create.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train create operation identifier.")}, "operation_id"),
+		OutputSchema: trainV2AdmissionReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:    actionRolePlannerOrDelivery,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -97,11 +100,14 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:             "train/add_status",
-		Description:      "Read the durable receipt for an asynchronous Train add.",
-		InputSchema:      obj(map[string]any{"operation_id": str("Durable Train add operation identifier.")}, "operation_id"),
-		OutputSchema:     trainV2AdmissionReceiptOutputSchema(),
-		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "train/add_status",
+		Description:  "Read the durable receipt for an asynchronous Train add.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train add operation identifier.")}, "operation_id"),
+		OutputSchema: trainV2AdmissionReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:    actionRolePlannerOrDelivery,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -181,11 +187,14 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:             "train/start_status",
-		Description:      "Read the durable receipt for a Train start initiation.",
-		InputSchema:      obj(map[string]any{"operation_id": str("Durable Train start operation identifier.")}, "operation_id"),
-		OutputSchema:     trainV2OutputSchema(),
-		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "train/start_status",
+		Description:  "Read the durable receipt for a Train start initiation.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train start operation identifier.")}, "operation_id"),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:    actionRolePlannerOrDelivery,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -222,11 +231,14 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:             "train/advance_status",
-		Description:      "Read the durable receipt for a Train advance initiation.",
-		InputSchema:      obj(map[string]any{"operation_id": str("Durable Train advance operation identifier.")}, "operation_id"),
-		OutputSchema:     trainV2OutputSchema(),
-		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "train/advance_status",
+		Description:  "Read the durable receipt for a Train advance initiation.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train advance operation identifier.")}, "operation_id"),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:    actionRolePlannerOrDelivery,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -262,11 +274,14 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:             "train/attempt-finalize_status",
-		Description:      "Read the durable receipt for an asynchronous Train Attempt finalization.",
-		InputSchema:      obj(map[string]any{"operation_id": str("Durable Train Attempt finalize operation identifier.")}, "operation_id"),
-		OutputSchema:     trainV2AttemptFinalizeReceiptOutputSchema(),
-		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "train/attempt-finalize_status",
+		Description:  "Read the durable receipt for an asynchronous Train Attempt finalization.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train Attempt finalize operation identifier.")}, "operation_id"),
+		OutputSchema: trainV2AttemptFinalizeReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:    actionRolePlannerOrDelivery,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -302,11 +317,14 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:             "train/attempt-review_status",
-		Description:      "Read the durable receipt for an asynchronous Train Attempt review.",
-		InputSchema:      obj(map[string]any{"operation_id": str("Durable Train Attempt review operation identifier.")}, "operation_id"),
-		OutputSchema:     trainV2AttemptReviewReceiptOutputSchema(),
-		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "train/attempt-review_status",
+		Description:  "Read the durable receipt for an asynchronous Train Attempt review.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train Attempt review operation identifier.")}, "operation_id"),
+		OutputSchema: trainV2AttemptReviewReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:    actionRolePlannerOrDelivery,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -366,11 +384,14 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:             "train/cutover_status",
-		Description:      "Read the durable receipt for an asynchronous Train cutover.",
-		InputSchema:      obj(map[string]any{"operation_id": str("Durable Train cutover operation identifier.")}, "operation_id"),
-		OutputSchema:     trainV2CutoverReceiptOutputSchema(),
-		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "train/cutover_status",
+		Description:  "Read the durable receipt for an asynchronous Train cutover.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train cutover operation identifier.")}, "operation_id"),
+		OutputSchema: trainV2CutoverReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:    actionRolePlannerOrDelivery,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {

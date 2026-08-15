@@ -11,7 +11,14 @@ func TestTrainV2LifecycleInitiationsAreBoundedAndIdempotent(t *testing.T) {
 	_ = enableTrainV2ForTest(t, s, revision)
 	ctx := context.Background()
 
-	startInput := TrainV2StartInput{ProjectID: "example", TrainID: "GTW-TRN999", StartedBy: "planner", WriteOptions: WriteOptions{ExpectedHubRevision: revision}}
+	startInput := TrainV2StartInput{
+		ProjectID: "example",
+		TrainID:   "GTW-TRN999",
+		StartedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	}
 	startedAt := time.Now()
 	startReceipt, err := s.TrainV2StartAsync(ctx, startInput)
 	if err != nil {
@@ -31,7 +38,13 @@ func TestTrainV2LifecycleInitiationsAreBoundedAndIdempotent(t *testing.T) {
 	}
 	waitDurableMutationTerminal(t, s, startReceipt.OperationID)
 
-	advanceInput := TrainV2AdvanceInput{ProjectID: "example", TrainID: "GTW-TRN999", WriteOptions: WriteOptions{ExpectedHubRevision: revision}}
+	advanceInput := TrainV2AdvanceInput{
+		ProjectID: "example",
+		TrainID:   "GTW-TRN999",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	}
 	advancedAt := time.Now()
 	advanceReceipt, err := s.TrainV2AdvanceAsync(ctx, advanceInput)
 	if err != nil {

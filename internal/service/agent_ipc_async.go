@@ -40,7 +40,13 @@ type AgentInterruptReceipt struct {
 }
 
 func agentPromptReceipt(operation durableMutationOperation) AgentPromptReceipt {
-	receipt := AgentPromptReceipt{OperationID: operation.OperationID, Status: operation.Status, Error: operation.Error, CreatedAt: operation.CreatedAt, UpdatedAt: operation.UpdatedAt}
+	receipt := AgentPromptReceipt{
+		OperationID: operation.OperationID,
+		Status:      operation.Status,
+		Error:       operation.Error,
+		CreatedAt:   operation.CreatedAt,
+		UpdatedAt:   operation.UpdatedAt,
+	}
 	if operation.Status != "completed" || len(operation.Result) == 0 {
 		return receipt
 	}
@@ -55,7 +61,13 @@ func agentPromptReceipt(operation durableMutationOperation) AgentPromptReceipt {
 }
 
 func agentRecoveryReceipt(operation durableMutationOperation) AgentRecoveryReceipt {
-	receipt := AgentRecoveryReceipt{OperationID: operation.OperationID, Status: operation.Status, Error: operation.Error, CreatedAt: operation.CreatedAt, UpdatedAt: operation.UpdatedAt}
+	receipt := AgentRecoveryReceipt{
+		OperationID: operation.OperationID,
+		Status:      operation.Status,
+		Error:       operation.Error,
+		CreatedAt:   operation.CreatedAt,
+		UpdatedAt:   operation.UpdatedAt,
+	}
 	if operation.Status != "completed" || len(operation.Result) == 0 {
 		return receipt
 	}
@@ -70,7 +82,13 @@ func agentRecoveryReceipt(operation durableMutationOperation) AgentRecoveryRecei
 }
 
 func agentInterruptReceiptFromOperation(operation durableMutationOperation) AgentInterruptReceipt {
-	receipt := AgentInterruptReceipt{OperationID: operation.OperationID, Status: operation.Status, Error: operation.Error, CreatedAt: operation.CreatedAt, UpdatedAt: operation.UpdatedAt}
+	receipt := AgentInterruptReceipt{
+		OperationID: operation.OperationID,
+		Status:      operation.Status,
+		Error:       operation.Error,
+		CreatedAt:   operation.CreatedAt,
+		UpdatedAt:   operation.UpdatedAt,
+	}
 	if operation.Status != "completed" || len(operation.Result) == 0 {
 		return receipt
 	}

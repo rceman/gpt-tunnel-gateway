@@ -13,17 +13,28 @@ func TestTaskAuthoringReadyAsyncIsBoundedAndIdempotent(t *testing.T) {
 	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	task, operation, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
-		ProjectID: "example", Title: "Async ready task", Objective: "Persist a readiness intent before Hub work.",
-		AcceptanceCriteria: []string{"one durable readiness seal"}, ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+		ProjectID:          "example",
+		Title:              "Async ready task",
+		Objective:          "Persist a readiness intent before Hub work.",
+		AcceptanceCriteria: []string{"one durable readiness seal"},
+		ADRRelation:        model.TaskADRNoRequired,
+		CreatedBy:          "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	in := TaskAuthoringReadyInput{
-		ProjectID: task.ProjectID, TaskID: task.ID, ExpectedRevision: task.Revision,
-		ExpectedRevisionSHA256: task.RevisionSHA256, ReadyBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After},
+		ProjectID:              task.ProjectID,
+		TaskID:                 task.ID,
+		ExpectedRevision:       task.Revision,
+		ExpectedRevisionSHA256: task.RevisionSHA256,
+		ReadyBy:                "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: operation.Hub.After,
+		},
 	}
 	started := time.Now()
 	first, err := s.TaskAuthoringReadyAsync(context.Background(), in)

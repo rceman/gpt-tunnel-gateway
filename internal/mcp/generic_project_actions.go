@@ -125,11 +125,14 @@ func (s *Server) registerProjectActions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:             "project/remove_status",
-		Description:      "Read the durable receipt for an asynchronous project/remove operation.",
-		InputSchema:      obj(map[string]any{"operation_id": str("Durable project removal operation identifier.")}, "operation_id"),
-		OutputSchema:     projectRemoveReceiptOutputSchema(),
-		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "project/remove_status",
+		Description:  "Read the durable receipt for an asynchronous project/remove operation.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable project removal operation identifier.")}, "operation_id"),
+		OutputSchema: projectRemoveReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:    actionRolePlannerOrDelivery,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {

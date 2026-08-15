@@ -110,20 +110,31 @@ func TestTrainV2ListSortsGloballyBeforeApplyingLimit(t *testing.T) {
 	first, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "First list ordering item")
 	second, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "Second list ordering item")
 	_, firstOperation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
-		ProjectID: "example", TaskIDs: []string{first.ID}, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+		ProjectID: "example",
+		TaskIDs:   []string{first.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	secondTrain, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
-		ProjectID: "example", TaskIDs: []string{second.ID}, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: firstOperation.Hub.After},
+		ProjectID: "example",
+		TaskIDs:   []string{second.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: firstOperation.Hub.After,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	listed, err := s.TrainV2List(context.Background(), TrainV2ListInput{ProjectID: "example", Limit: 1})
+	listed, err := s.TrainV2List(context.Background(), TrainV2ListInput{
+		ProjectID: "example",
+		Limit:     1,
+	})
 	if err != nil || len(listed.Trains) != 1 || listed.Trains[0].ID != secondTrain.ID {
 		t.Fatalf("global newest-first ordering lost: trains=%#v err=%v", listed.Trains, err)
 	}

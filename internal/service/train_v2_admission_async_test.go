@@ -9,7 +9,11 @@ import (
 func TestTrainV2AdmissionMutationsReturnBoundedReceipts(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
 	ctx := context.Background()
-	create := TrainV2CreateInput{ProjectID: "example", TaskIDs: []string{"EXM-TSK1"}, CreatedBy: "planner"}
+	create := TrainV2CreateInput{
+		ProjectID: "example",
+		TaskIDs:   []string{"EXM-TSK1"},
+		CreatedBy: "planner",
+	}
 
 	started := time.Now()
 	first, err := s.TrainV2CreateAsync(ctx, create)
@@ -29,7 +33,13 @@ func TestTrainV2AdmissionMutationsReturnBoundedReceipts(t *testing.T) {
 		t.Fatalf("train/create initiation was not idempotent: first=%#v second=%#v", first, second)
 	}
 
-	add := TrainV2AddInput{ProjectID: "example", TrainID: "EXM-TRN1", TaskIDs: []string{"EXM-TSK1"}, ExpectedRevision: 1, AddedBy: "planner"}
+	add := TrainV2AddInput{
+		ProjectID:        "example",
+		TrainID:          "EXM-TRN1",
+		TaskIDs:          []string{"EXM-TSK1"},
+		ExpectedRevision: 1,
+		AddedBy:          "planner",
+	}
 	started = time.Now()
 	addFirst, err := s.TrainV2AddAsync(ctx, add)
 	if err != nil {

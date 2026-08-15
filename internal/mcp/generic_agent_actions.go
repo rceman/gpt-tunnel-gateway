@@ -88,11 +88,14 @@ func (s *Server) registerAgentActions() error {
 		return err
 	}
 	if err := register(GenericAction{
-		Path:             "agent/prompt_status",
-		Description:      "Read the durable receipt for an asynchronous Agent prompt.",
-		InputSchema:      obj(map[string]any{"operation_id": str("Durable Agent prompt operation identifier.")}, "operation_id"),
-		OutputSchema:     agentIPCReceiptOutputSchema(),
-		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "agent/prompt_status",
+		Description:  "Read the durable receipt for an asynchronous Agent prompt.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Agent prompt operation identifier.")}, "operation_id"),
+		OutputSchema: agentIPCReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:    actionRolePlannerOrDelivery,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -108,11 +111,14 @@ func (s *Server) registerAgentActions() error {
 		return err
 	}
 	if err := register(GenericAction{
-		Path:             "agent/recover_status",
-		Description:      "Read the durable receipt for asynchronous Agent recovery.",
-		InputSchema:      obj(map[string]any{"operation_id": str("Durable Agent recovery operation identifier.")}, "operation_id"),
-		OutputSchema:     agentIPCReceiptOutputSchema(),
-		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "agent/recover_status",
+		Description:  "Read the durable receipt for asynchronous Agent recovery.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Agent recovery operation identifier.")}, "operation_id"),
+		OutputSchema: agentIPCReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:    actionRolePlannerOrDelivery,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -156,11 +162,14 @@ func (s *Server) registerAgentActions() error {
 		return err
 	}
 	if err := register(GenericAction{
-		Path:             "agent/interrupt_status",
-		Description:      "Read the durable receipt for an asynchronous Agent interrupt.",
-		InputSchema:      obj(map[string]any{"operation_id": str("Durable Agent interrupt operation identifier.")}, "operation_id"),
-		OutputSchema:     agentIPCReceiptOutputSchema(),
-		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "agent/interrupt_status",
+		Description:  "Read the durable receipt for an asynchronous Agent interrupt.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Agent interrupt operation identifier.")}, "operation_id"),
+		OutputSchema: agentIPCReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:    actionRolePlannerOrDelivery,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {

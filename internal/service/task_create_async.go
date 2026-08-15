@@ -45,7 +45,15 @@ type TaskCreateReceipt struct {
 }
 
 func (o TaskCreateOperation) Receipt() TaskCreateReceipt {
-	return TaskCreateReceipt{OperationID: o.OperationID, Status: o.Status, Task: o.Task, Operation: o.Operation, Error: o.Error, CreatedAt: o.CreatedAt, UpdatedAt: o.UpdatedAt}
+	return TaskCreateReceipt{
+		OperationID: o.OperationID,
+		Status:      o.Status,
+		Task:        o.Task,
+		Operation:   o.Operation,
+		Error:       o.Error,
+		CreatedAt:   o.CreatedAt,
+		UpdatedAt:   o.UpdatedAt,
+	}
 }
 
 func taskCreateOperationPath(stateDir, operationID string) string {
@@ -218,18 +226,37 @@ func (s *Service) processTaskCreate(operationID string) {
 	}()
 
 	if existing, findErr := s.findTaskCreateResult(context.Background(), operation); findErr == nil {
-		s.finishTaskCreate(operation, existing, OperationResult{OperationID: operationID, ProjectID: existing.ProjectID, TaskID: existing.ID, Status: existing.Status}, "")
+		s.finishTaskCreate(operation, existing, OperationResult{
+			OperationID: operationID,
+			ProjectID:   existing.ProjectID,
+			TaskID:      existing.ID,
+			Status:      existing.Status,
+		}, "")
 		return
 	} else if !errors.Is(findErr, os.ErrNotExist) {
-		s.finishTaskCreate(operation, nil, OperationResult{OperationID: operationID, ProjectID: operation.Input.ProjectID, Status: "failed"}, findErr.Error())
+		s.finishTaskCreate(operation, nil, OperationResult{
+			OperationID: operationID,
+			ProjectID:   operation.Input.ProjectID,
+			Status:      "failed",
+		}, findErr.Error())
 		return
 	}
 	task, result, err := s.TaskAuthoringCreate(context.Background(), operation.Input)
 	if err != nil {
-		s.finishTaskCreate(operation, nil, OperationResult{OperationID: operationID, ProjectID: operation.Input.ProjectID, Status: "failed"}, err.Error())
+		s.finishTaskCreate(operation, nil, OperationResult{
+			OperationID: operationID,
+			ProjectID:   operation.Input.ProjectID,
+			Status:      "failed",
+		}, err.Error())
 		return
 	}
-	s.finishTaskCreate(operation, &task, OperationResult{OperationID: operationID, ProjectID: result.ProjectID, TaskID: result.TaskID, Hub: result.Hub, Status: result.Status}, "")
+	s.finishTaskCreate(operation, &task, OperationResult{
+		OperationID: operationID,
+		ProjectID:   result.ProjectID,
+		TaskID:      result.TaskID,
+		Hub:         result.Hub,
+		Status:      result.Status,
+	}, "")
 }
 
 func (s *Service) findTaskCreateResult(ctx context.Context, operation TaskCreateOperation) (*model.TaskAuthoring, error) {

@@ -21,7 +21,13 @@ type TaskAuthoringReadyReceipt struct {
 }
 
 func taskAuthoringReadyReceipt(operation durableMutationOperation) TaskAuthoringReadyReceipt {
-	receipt := TaskAuthoringReadyReceipt{OperationID: operation.OperationID, Status: operation.Status, Error: operation.Error, CreatedAt: operation.CreatedAt, UpdatedAt: operation.UpdatedAt}
+	receipt := TaskAuthoringReadyReceipt{
+		OperationID: operation.OperationID,
+		Status:      operation.Status,
+		Error:       operation.Error,
+		CreatedAt:   operation.CreatedAt,
+		UpdatedAt:   operation.UpdatedAt,
+	}
 	if operation.Status != "completed" || len(operation.Result) == 0 {
 		return receipt
 	}

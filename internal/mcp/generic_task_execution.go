@@ -52,11 +52,14 @@ func (s *Server) registerTaskExecutionActions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:             "task/work_status",
-		Description:      "Read the durable receipt for an asynchronous task/work operation.",
-		InputSchema:      obj(map[string]any{"operation_id": str("Durable task work operation identifier.")}, "operation_id"),
-		OutputSchema:     taskWorkReceiptOutputSchema(),
-		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "task/work_status",
+		Description:  "Read the durable receipt for an asynchronous task/work operation.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable task work operation identifier.")}, "operation_id"),
+		OutputSchema: taskWorkReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:    actionRolePlannerOrDelivery,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {

@@ -98,8 +98,15 @@ func TestRegistryPageReadsOnlySelectedRecordsInOneBatch(t *testing.T) {
 			"gpt-tunnel/v1/projects/p/tasks/TSK3.json": []byte("three"),
 		},
 	}
-	registry := Registry{Source: source, ProjectID: "p", MaxItems: 100}
-	page, records, err := registry.ListPageRecords(context.Background(), Query{Family: TaskFamily, Limit: 2})
+	registry := Registry{
+		Source:    source,
+		ProjectID: "p",
+		MaxItems:  100,
+	}
+	page, records, err := registry.ListPageRecords(context.Background(), Query{
+		Family: TaskFamily,
+		Limit:  2,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

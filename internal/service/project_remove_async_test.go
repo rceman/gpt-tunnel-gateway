@@ -9,7 +9,12 @@ import (
 func TestProjectRemoveUsesBoundedDurableReceipt(t *testing.T) {
 	s, _, revision := registerManagedRemovalProject(t)
 	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
-	in := ProjectRemoveInput{ProjectID: "removable", WriteOptions: WriteOptions{ExpectedHubRevision: revision}}
+	in := ProjectRemoveInput{
+		ProjectID: "removable",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	}
 
 	started := time.Now()
 	first, err := s.ProjectRemoveAsync(ctx, in)

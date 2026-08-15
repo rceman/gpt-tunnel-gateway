@@ -34,7 +34,10 @@ func TestAgentTailUsesLocalSessionWithoutDurableAgentLookup(t *testing.T) {
 		},
 		Airelay: airelay.Client{Command: script, Timeout: time.Second},
 	}
-	result, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{SessionID: "SP-FASTTAIL", Lines: 30})
+	result, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{
+		SessionID: "SP-FASTTAIL",
+		Lines:     30,
+	})
 	if err != nil {
 		t.Fatalf("local tail failed without Hub access: %v", err)
 	}
