@@ -30,3 +30,10 @@ func trainV2AdmissionReceiptOutputSchema() map[string]any {
 		"created_at": outputDateTime(), "updated_at": outputDateTime(),
 	}, "operation_id", "kind", "status", "created_at", "updated_at")
 }
+
+func trainV2CutoverReceiptOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"operation_id": outputString(), "status": outputString(), "receipt": trainV2OutputSchema(), "operation": operationOutputSchema(), "error": outputString(),
+		"created_at": outputDateTime(), "updated_at": outputDateTime(),
+	}, "operation_id", "status", "created_at", "updated_at")
+}

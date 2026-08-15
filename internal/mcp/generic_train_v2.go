@@ -365,16 +365,37 @@ func (s *Server) registerTrainV2Actions() error {
 	}); err != nil {
 		return err
 	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:             "train/cutover_status",
+		Description:      "Read the durable receipt for an asynchronous Train cutover.",
+		InputSchema:      obj(map[string]any{"operation_id": str("Durable Train cutover operation identifier.")}, "operation_id"),
+		OutputSchema:     trainV2CutoverReceiptOutputSchema(),
+		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2CutoverOperationStatus(ctx, input.OperationID)
+		},
+	}); err != nil {
+		return err
+	}
 	return s.RegisterGenericAction(GenericAction{
 		Path:         "train/cutover",
 		Description:  "Atomically activate train_v2 authority after bounded migration, runtime and Action Registry proofs.",
 		InputSchema:  trainV2CutoverSchema(),
-		OutputSchema: trainV2OutputSchema(),
+		OutputSchema: trainV2CutoverReceiptOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			if err := s.validateTrainV2ActionRegistry(); err != nil {
 				return nil, err
@@ -383,8 +404,7 @@ func (s *Server) registerTrainV2Actions() error {
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			receipt, operation, err := s.Service.TrainV2Cutover(ctx, in)
-			return map[string]any{"receipt": receipt, "operation": operation}, err
+			return s.Service.TrainV2CutoverAsync(ctx, in)
 		},
 	})
 }
