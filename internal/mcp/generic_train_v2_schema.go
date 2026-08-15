@@ -59,6 +59,14 @@ func trainV2IntegrateSchema() map[string]any {
 	}, "project_id", "train_id")
 }
 
+func trainV2FullProofSchema() map[string]any {
+	return obj(map[string]any{
+		"project_id":            str("Registered project identifier."),
+		"train_id":              str("Server-allocated Train identifier."),
+		"expected_hub_revision": str("Optimistic Hub revision."),
+	}, "project_id", "train_id")
+}
+
 func trainV2AttemptFinalizeSchema() map[string]any {
 	return obj(map[string]any{
 		"project_id":            str("Registered project identifier."),

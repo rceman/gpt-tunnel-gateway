@@ -57,6 +57,14 @@ type TrainV2IntegrateInput struct {
 	WriteOptions
 }
 
+// TrainV2FullProofInput records the train-wide proof without performing
+// integration, activation, or any mutation of the integration branch.
+type TrainV2FullProofInput struct {
+	ProjectID string `json:"project_id"`
+	TrainID   string `json:"train_id"`
+	WriteOptions
+}
+
 // TrainV2CutoverInput contains only the explicit migration decisions. Source,
 // runtime, active-run and action-registry proofs are derived server-side.
 type TrainV2CutoverInput struct {

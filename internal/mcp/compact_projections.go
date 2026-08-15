@@ -40,7 +40,7 @@ var projectionClasses = map[string]projectionClass{
 	"task/supersede_status": projectionClosedDefault, "task/update": projectionCompactDefault, "task/update_status": projectionClosedDefault, "task/work": projectionCompactDefault, "task/work_status": projectionClosedDefault,
 	"train/add": projectionCompactDefault, "train/add_status": projectionClosedDefault, "train/advance": projectionCompactDefault, "train/advance_status": projectionClosedDefault,
 	"train/attempt-finalize": projectionCompactDefault, "train/attempt-finalize_status": projectionClosedDefault, "train/attempt-proof-recover": projectionCompactDefault, "train/attempt-proof-recover_status": projectionClosedDefault, "train/attempt-review": projectionCompactDefault, "train/attempt-review_status": projectionClosedDefault,
-	"train/create": projectionCompactDefault, "train/create_status": projectionClosedDefault, "train/cutover": projectionCompactDefault, "train/cutover_status": projectionClosedDefault,
+	"train/create": projectionCompactDefault, "train/create_status": projectionClosedDefault, "train/cutover": projectionCompactDefault, "train/cutover_status": projectionClosedDefault, "train/full-proof": projectionCompactDefault, "train/full-proof_status": projectionClosedDefault,
 	"train/integrate": projectionCompactDefault, "train/integrate_status": projectionCompactDefault, "train/list": projectionCompactDefault, "train/read": projectionCompactDefault,
 	"train/start": projectionCompactDefault, "train/start_status": projectionCompactDefault,
 	"watcher/guide": projectionIntentionalPayload, "watcher/guide_update": projectionCompactDefault, "watcher/guide_update_status": projectionClosedDefault,

@@ -253,6 +253,16 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 		}
 		result.OperationID = operation.OperationID
 		return json.Marshal(map[string]any{"receipt": receipt, "operation": result})
+	case "train-v2-full-proof":
+		var input TrainV2FullProofInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.TrainV2FullProof(authority.WithPlannerOrDelivery(ctx), input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
 	case "train-v2-start":
 		var input TrainV2StartInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
