@@ -64,9 +64,12 @@ func sessionUpdatePublicOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"session":                        sessionIDOutputSchema(),
 		"project_id":                     outputString(),
+		"rules":                          workflowPolicyOutputSchema(),
+		"project_rules_revision":         outputInteger(),
+		"project_rules_digest":           outputString(),
 		"rules_acknowledgement_required": outputBoolean(),
 		"project_rules_acknowledged":     outputBoolean(),
-	}, "session", "project_id", "rules_acknowledgement_required", "project_rules_acknowledged")
+	}, "session", "project_id", "rules", "project_rules_revision", "project_rules_digest", "rules_acknowledgement_required", "project_rules_acknowledged")
 }
 
 func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -150,15 +153,32 @@ func (s *Server) sessionUpdatePublic(ctx context.Context, raw json.RawMessage) (
 	if err != nil {
 		return nil, err
 	}
-	bound, err := s.Service.SessionBind(roleContext, service.SessionBindInput{SessionID: in.Session, ProjectID: in.ProjectID, SessionRef: in.Ref})
+	var bound service.SessionResult
+	if record.ProjectID == in.ProjectID {
+		bound, err = s.Service.SessionUpdate(roleContext, service.SessionUpdateInput{SessionID: in.Session, SessionRef: in.Ref})
+	} else {
+		bound, err = s.Service.SessionBind(roleContext, service.SessionBindInput{SessionID: in.Session, ProjectID: in.ProjectID, SessionRef: in.Ref})
+	}
+	if err != nil {
+		return nil, err
+	}
+	policy, err := s.Service.ProjectWorkflowPolicyReadFast(ctx, bound.Session.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("session project rules unavailable: %w", err)
+	}
+	digest := digestJSON(policy)
+	updated, err := session.NewStore(s.Service.Config.StateDir).AcknowledgeRules(in.Session, globalWorkflowRevision, globalWorkflowDigest(), policy.Revision, digest)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{
-		"session":                        bound.Session.ID,
-		"project_id":                     bound.Session.ProjectID,
+		"session":                        updated.ID,
+		"project_id":                     updated.ProjectID,
+		"rules":                          policy,
+		"project_rules_revision":         updated.ProjectRulesRevision,
+		"project_rules_digest":           updated.ProjectRulesDigest,
 		"rules_acknowledgement_required": true,
-		"project_rules_acknowledged":     bound.Session.ProjectRulesRevision > 0 && bound.Session.ProjectRulesDigest != "",
+		"project_rules_acknowledged":     updated.ProjectRulesRevision > 0 && updated.ProjectRulesDigest != "",
 	}, nil
 }
 

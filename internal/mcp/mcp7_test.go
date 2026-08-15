@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
@@ -203,4 +204,31 @@ func TestMCP249SessionFirstBindingAndEnvelopeGuards(t *testing.T) {
 	if retiredBind["is_error"] != true {
 		t.Fatalf("retired session/bind action remained callable: %#v", retiredBind)
 	}
+}
+
+func TestMCP7SessionStartAndUpdateStayUnderOneSecond(t *testing.T) {
+	server := newSessionTestServer(t)
+	startedAt := time.Now()
+	started := genericStructured(t, callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"role": durableSession.RoleDelivery}},
+	})))
+	startLatency := time.Since(startedAt)
+	if startLatency >= time.Second {
+		t.Fatalf("session_start exceeded one second: %s", startLatency)
+	}
+	sessionID := started["session"].(string)
+	updatedAt := time.Now()
+	updated := genericStructured(t, callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+		"params": map[string]any{"name": "session_update", "arguments": map[string]any{"session": sessionID, "project_id": "example"}},
+	})))
+	updateLatency := time.Since(updatedAt)
+	if updated["is_error"] == true {
+		t.Fatalf("session_update failed: %#v", updated)
+	}
+	if updateLatency >= time.Second {
+		t.Fatalf("session_update exceeded one second: %s", updateLatency)
+	}
+	t.Logf("session_start latency: %s; session_update latency: %s", startLatency, updateLatency)
 }
