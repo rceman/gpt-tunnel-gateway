@@ -25,6 +25,7 @@ type GenericAction struct {
 	Authority              func(context.Context) error
 	AuthorityRole          string
 	RequiresWorkflowPolicy bool
+	LocalReceiptOnly       bool
 	AllowLegacyOverride    bool
 	SessionBound           bool
 	SessionRequired        bool

@@ -15,6 +15,7 @@ const actionRolePlannerOrDelivery = "planner_or_delivery"
 type actionAuthorityContract struct {
 	Role                   string
 	RequiresWorkflowPolicy bool
+	LocalReceiptOnly       bool
 }
 
 func actionAuthorityContractFor(toolName string) actionAuthorityContract {
@@ -177,6 +178,19 @@ func (s *Server) resolveSessionAuthority(ctx context.Context, record durableSess
 	}
 	if contract.Role == actionRolePlannerOrDelivery && record.Role != durableSession.RolePlanner && record.Role != durableSession.RoleDelivery {
 		return nil, fmt.Errorf("session role %q is not authorized for this action", record.Role)
+	}
+	if contract.LocalReceiptOnly {
+		if record.ProjectID == "" {
+			return nil, fmt.Errorf("project binding is required for local receipt action")
+		}
+		roleContext := bootstrapContext
+		switch record.Role {
+		case durableSession.RolePlanner:
+			roleContext = authority.WithPlanner(roleContext)
+		case durableSession.RoleDelivery:
+			roleContext = authority.WithDelivery(roleContext)
+		}
+		return withResolvedSessionAuthority(roleContext, resolvedSessionAuthority{Session: record}), nil
 	}
 	if record.ProjectID == "" {
 		roleContext := bootstrapContext

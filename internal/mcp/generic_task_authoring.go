@@ -100,6 +100,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 			IdempotentHint:  false,
 		},
 		AuthorityRole:       actionRolePlannerOrDelivery,
+		LocalReceiptOnly:    true,
 		AllowLegacyOverride: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TaskAuthoringCreateInput
@@ -124,7 +125,8 @@ func (s *Server) registerTaskAuthoringActions() error {
 			ReadOnlyHint:   true,
 			IdempotentHint: true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input struct {
 				OperationID string `json:"operation_id"`

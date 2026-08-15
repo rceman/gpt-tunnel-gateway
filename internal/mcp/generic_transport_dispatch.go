@@ -83,6 +83,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		resolved, err := s.resolveSessionAuthority(bootstrapContext, record, actionAuthorityContract{
 			Role:                   entry.AuthorityRole,
 			RequiresWorkflowPolicy: entry.RequiresWorkflowPolicy,
+			LocalReceiptOnly:       entry.LocalReceiptOnly,
 		})
 		if err != nil {
 			return genericActionError(action, err.Error()), nil
@@ -98,8 +99,10 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 				return genericActionError(action, err.Error()), nil
 			}
 		}
-		if err := s.validateSessionRules(ctx, record, action); err != nil {
-			return genericActionError(action, err.Error()), nil
+		if !entry.LocalReceiptOnly {
+			if err := s.validateSessionRules(ctx, record, action); err != nil {
+				return genericActionError(action, err.Error()), nil
+			}
 		}
 	}
 	if entry.SessionBound {
