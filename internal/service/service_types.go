@@ -40,19 +40,25 @@ type Service struct {
 	taskCreateMu                    sync.Mutex
 	taskCreateWake                  chan string
 	taskCreateActive                map[string]struct{}
+	durableMutationWorkerOnce       sync.Once
+	durableMutationMu               sync.Mutex
+	durableMutationWake             chan string
+	durableMutationActive           map[string]struct{}
 	workflowPolicyCacheMu           sync.RWMutex
 }
 
 func New(c config.Config) *Service {
 	executor := gates.NewExecutor()
 	s := &Service{
-		Config:           c,
-		ConfigPath:       config.DefaultPath(),
-		Hub:              hub.Store{Config: c},
-		Git:              gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems},
-		Airelay:          airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: 256},
-		taskCreateWake:   make(chan string, 32),
-		taskCreateActive: make(map[string]struct{}),
+		Config:                c,
+		ConfigPath:            config.DefaultPath(),
+		Hub:                   hub.Store{Config: c},
+		Git:                   gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems},
+		Airelay:               airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: 256},
+		taskCreateWake:        make(chan string, 32),
+		taskCreateActive:      make(map[string]struct{}),
+		durableMutationWake:   make(chan string, 32),
+		durableMutationActive: make(map[string]struct{}),
 		gateExecutor: func(ctx context.Context, root string, names []string) ([]model.CompletionGateResult, error) {
 			return executor.Execute(ctx, root, names)
 		},
@@ -80,6 +86,7 @@ func New(c config.Config) *Service {
 		},
 	}
 	s.startTaskCreateWorker()
+	s.startDurableMutationWorker()
 	return s
 }
 

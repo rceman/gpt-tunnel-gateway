@@ -146,19 +146,39 @@ func (s *Server) registerTaskAuthoringActions() error {
 		OutputSchema: taskAuthoringOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
-			IdempotentHint:  false,
+			IdempotentHint:  true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TaskAuthoringUpdateInput
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			task, operation, err := s.Service.TaskAuthoringUpdate(ctx, in)
-			if err != nil {
+			return s.Service.TaskAuthoringUpdateAsync(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "task/update_status",
+		Description:  "Read the bounded durable receipt for an asynchronous task/update operation.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable task/update operation identifier.")}, "operation_id"),
+		OutputSchema: taskAuthoringOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
 				return nil, err
 			}
-			return map[string]any{"task": task, "operation": operation}, nil
+			return s.Service.TaskAuthoringUpdateOperationStatus(ctx, input.OperationID)
 		},
 	}); err != nil {
 		return err
