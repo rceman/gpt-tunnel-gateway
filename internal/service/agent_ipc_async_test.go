@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -50,6 +53,47 @@ func TestAgentIPCMutationsReturnBoundedReceipts(t *testing.T) {
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
+	}
+}
+
+func TestAgentPromptWorkerPreservesOriginatingSessionProvenance(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	messagePath := filepath.Join(t.TempDir(), "message")
+	command := filepath.Join(t.TempDir(), "airelay")
+	script := "#!/bin/sh\nif [ \"$1\" = prompt ]; then printf '%s' \"$3\" > \"" + messagePath + "\"; fi\nexit 0\n"
+	if err := os.WriteFile(command, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s.Airelay.Command = command
+
+	const sessionID = "SP-ABCDEFGH"
+	receipt, err := s.AgentPromptAsync(WithAgentSessionID(context.Background(), sessionID), AgentPromptInput{
+		ProjectID: "example",
+		Message:   "preserve this provenance",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		value, statusErr := s.AgentIPCOperationStatus(WithAgentSessionID(context.Background(), sessionID), receipt.OperationID, "agent-prompt")
+		if statusErr != nil {
+			t.Fatal(statusErr)
+		}
+		if agentIPCReceiptTerminal(value) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	message, err := os.ReadFile(messagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(message), "["+sessionID+"] ") {
+		t.Fatalf("outbound message lost originating session: %q", message)
+	}
+	if strings.HasPrefix(string(message), "[GTW] ") {
+		t.Fatalf("outbound message used Gateway provenance: %q", message)
 	}
 }
 

@@ -143,7 +143,11 @@ func (s *Service) processDurableMutation(operationID string) {
 		s.durableMutationMu.Unlock()
 	}()
 
-	result, runErr := s.executeDurableMutation(context.Background(), operation)
+	// Durable workers run after the request context is gone. Rebind the
+	// immutable originating Session so outbound Agent IPC keeps its
+	// provenance instead of falling back to the Gateway identity.
+	workerCtx := WithAgentSessionID(context.Background(), operation.SessionID)
+	result, runErr := s.executeDurableMutation(workerCtx, operation)
 	s.durableMutationMu.Lock()
 	defer s.durableMutationMu.Unlock()
 	operation.UpdatedAt = time.Now().UTC()
