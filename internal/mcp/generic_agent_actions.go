@@ -67,12 +67,13 @@ func (s *Server) registerAgentActions() error {
 			"project_id": str("Registered project identifier."),
 			"message":    boundedAgentMessageSchema(),
 		}, "project_id", "message"),
-		OutputSchema: agentPromptOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  false,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		OutputSchema:     agentIPCReceiptOutputSchema(),
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				ProjectID string `json:"project_id"`
@@ -81,7 +82,47 @@ func (s *Server) registerAgentActions() error {
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			return s.Service.AgentPrompt(ctx, in.ProjectID, in.Message)
+			return s.Service.AgentPromptAsync(ctx, service.AgentPromptInput{ProjectID: in.ProjectID, Message: in.Message})
+		},
+	}); err != nil {
+		return err
+	}
+	if err := register(GenericAction{
+		Path:             "agent/prompt_status",
+		Description:      "Read the durable receipt for an asynchronous Agent prompt.",
+		InputSchema:      obj(map[string]any{"operation_id": str("Durable Agent prompt operation identifier.")}, "operation_id"),
+		OutputSchema:     agentIPCReceiptOutputSchema(),
+		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.AgentIPCOperationStatus(ctx, input.OperationID, "agent-prompt")
+		},
+	}); err != nil {
+		return err
+	}
+	if err := register(GenericAction{
+		Path:             "agent/recover_status",
+		Description:      "Read the durable receipt for asynchronous Agent recovery.",
+		InputSchema:      obj(map[string]any{"operation_id": str("Durable Agent recovery operation identifier.")}, "operation_id"),
+		OutputSchema:     agentIPCReceiptOutputSchema(),
+		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.AgentIPCOperationStatus(ctx, input.OperationID, "agent-recover")
 		},
 	}); err != nil {
 		return err
@@ -97,18 +138,39 @@ func (s *Server) registerAgentActions() error {
 			"attempt_number": integer("TrainItem-local Attempt number.", 1, 1000000),
 			"agent_id":       str("Exact durable coding Agent identity."),
 		}, "project_id", "train_id", "item_position", "task_id", "attempt_number", "agent_id"),
-		OutputSchema: agentObjectOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		OutputSchema:     agentIPCReceiptOutputSchema(),
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.AgentRecoverInput
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			return s.Service.AgentRecover(ctx, in)
+			return s.Service.AgentRecoveryAsync(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := register(GenericAction{
+		Path:             "agent/interrupt_status",
+		Description:      "Read the durable receipt for an asynchronous Agent interrupt.",
+		InputSchema:      obj(map[string]any{"operation_id": str("Durable Agent interrupt operation identifier.")}, "operation_id"),
+		OutputSchema:     agentIPCReceiptOutputSchema(),
+		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.AgentIPCOperationStatus(ctx, input.OperationID, "agent-interrupt")
 		},
 	}); err != nil {
 		return err
@@ -149,18 +211,19 @@ func (s *Server) registerAgentActions() error {
 			"agent_id":       str("Exact current Agent identity."),
 			"message":        boundedAgentMessageSchema(),
 		}, "operation_id", "project_id", "train_id", "item_position", "task_id", "attempt_number", "agent_id"),
-		OutputSchema: agentInterruptOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		OutputSchema:     agentIPCReceiptOutputSchema(),
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.AgentInterruptInput
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			return s.Service.AgentInterrupt(ctx, in)
+			return s.Service.AgentInterruptAsync(ctx, in)
 		},
 	}); err != nil {
 		return err

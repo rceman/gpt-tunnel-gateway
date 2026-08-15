@@ -13,7 +13,7 @@ import (
 func TestAgentActionsAreGenericDiscoverableAndInvokable(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"agent/prompt", "agent/recover", "agent/interrupt", "agent/register", "agent/register_status", "agent/update", "agent/update_status", "agent/disable", "agent/disable_status", "agent/read", "agent/list", "agent/status"} {
+	for _, path := range []string{"agent/prompt", "agent/prompt_status", "agent/recover", "agent/recover_status", "agent/interrupt", "agent/interrupt_status", "agent/register", "agent/register_status", "agent/update", "agent/update_status", "agent/disable", "agent/disable_status", "agent/read", "agent/list", "agent/status"} {
 		entry, ok := entries[path]
 		if !ok {
 			t.Fatalf("missing agent generic action %s", path)
@@ -43,9 +43,9 @@ func TestAgentActionsAreGenericDiscoverableAndInvokable(t *testing.T) {
 		t.Fatal("agent/interrupt omitted optional replacement message")
 	}
 	outputProperties := interrupt.OutputSchema["properties"].(map[string]any)
-	for _, field := range []string{"interrupt_outcome", "prompt_outcome", "prompt_delivered"} {
+	for _, field := range []string{"operation_id", "status", "created_at", "updated_at"} {
 		if _, ok := outputProperties[field]; !ok {
-			t.Fatalf("agent/interrupt output omitted phase field %s", field)
+			t.Fatalf("agent/interrupt receipt omitted field %s", field)
 		}
 	}
 	if _, ok := server.tools()["agent_register"]; ok {
@@ -61,26 +61,17 @@ func TestAgentPromptOutputSchemaKeepsSuccessCompact(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
 	entry := server.genericActionRegistry(server.tools())["agent/prompt"]
 	if err := validateSchemaValue(entry.OutputSchema, map[string]any{
-		"project_id": "example",
-		"delivered":  true,
+		"operation_id": "mutation-test",
+		"status":       "accepted",
+		"created_at":   "2026-08-15T00:00:00Z",
+		"updated_at":   "2026-08-15T00:00:00Z",
 	}, "result"); err != nil {
-		t.Fatalf("compact success rejected: %v", err)
+		t.Fatalf("compact receipt rejected: %v", err)
 	}
-	for _, field := range []string{"started_at", "finished_at", "exit_code", "stdout", "stderr"} {
-		result := map[string]any{"project_id": "example", "delivered": true, field: "unexpected"}
-		if field == "exit_code" {
-			result[field] = float64(0)
-		}
+	for _, field := range []string{"started_at", "finished_at", "stdout", "stderr"} {
+		result := map[string]any{"operation_id": "mutation-test", "status": "accepted", "created_at": "2026-08-15T00:00:00Z", "updated_at": "2026-08-15T00:00:00Z", field: "unexpected"}
 		if err := validateSchemaValue(entry.OutputSchema, result, "result"); err == nil {
-			t.Fatalf("success schema accepted retired field %s", field)
+			t.Fatalf("receipt accepted retired field %s", field)
 		}
-	}
-	if err := validateSchemaValue(entry.OutputSchema, map[string]any{
-		"project_id": "example",
-		"delivered":  false,
-		"exit_code":  float64(7),
-		"stderr":     "delivery failed",
-	}, "result"); err != nil {
-		t.Fatalf("bounded failure rejected: %v", err)
 	}
 }

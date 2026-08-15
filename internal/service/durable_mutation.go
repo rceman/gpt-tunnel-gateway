@@ -250,6 +250,36 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"agent": agent, "operation": result})
+	case "agent-prompt":
+		var input AgentPromptInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.AgentPrompt(authority.WithPlannerOrDelivery(ctx), input.ProjectID, input.Message)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
+	case "agent-recover":
+		var input AgentRecoverInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.AgentRecover(authority.WithPlannerOrDelivery(ctx), input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
+	case "agent-interrupt":
+		var input AgentInterruptInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.AgentInterrupt(authority.WithPlannerOrDelivery(ctx), input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
 	case "agent-update":
 		var input AgentUpdateInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {

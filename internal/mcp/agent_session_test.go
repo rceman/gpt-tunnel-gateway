@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -48,14 +49,29 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	sessionID := genericSession(t, s, "example")
 	send := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/prompt", "input": map[string]any{"message": "hello"}}}}))
 	sendResult := genericStructured(t, send)
-	if sendResult["is_error"] != false || sendResult["result"].(map[string]any)["delivered"] != true {
+	if sendResult["is_error"] != false {
 		t.Fatalf("send failed: %#v", send)
 	}
 	sendPayload := sendResult["result"].(map[string]any)
-	for _, field := range []string{"started_at", "finished_at", "exit_code", "stdout", "stderr"} {
-		if _, ok := sendPayload[field]; ok {
-			t.Fatalf("agent/prompt success exposed %s: %#v", field, sendPayload)
+	operationID, ok := sendPayload["operation_id"].(string)
+	if !ok || operationID == "" || sendPayload["status"] != "accepted" {
+		t.Fatalf("agent/prompt did not return an accepted receipt: %#v", send)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		status := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/prompt_status", "input": map[string]any{"operation_id": operationID}}}}))
+		statusResult := genericStructured(t, status)
+		if statusResult["is_error"] == true {
+			t.Fatalf("agent/prompt status failed: %#v", status)
 		}
+		statusPayload := statusResult["result"].(map[string]any)
+		if statusPayload["status"] == "completed" || statusPayload["status"] == "failed" {
+			if statusPayload["status"] != "completed" || statusPayload["result"].(map[string]any)["delivered"] != true {
+				t.Fatalf("agent/prompt worker failed: %#v", status)
+			}
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	tail := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"lines": 4}}}}))
