@@ -3,18 +3,18 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
-	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 func TestTaskTrainActionsAdvertiseOptionalDetailProjection(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}), AuthorityContext: authority.WithDelivery(context.Background())}
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"task/list", "task/read", "task/create", "task/create_status", "train/list", "train/read", "train/create", "train/start_status", "project/update", "agent/prompt", "watcher/nudge"} {
+	for _, path := range []string{"task/list", "task/read", "train/list", "train/read"} {
 		entry, ok := entries[path]
 		if !ok {
 			t.Fatalf("missing action %s", path)
@@ -25,6 +25,23 @@ func TestTaskTrainActionsAdvertiseOptionalDetailProjection(t *testing.T) {
 		}
 		if _, ok := properties["detail"]; !ok {
 			t.Fatalf("action %s does not advertise detail", path)
+		}
+	}
+}
+
+func TestControlAndReceiptActionsDoNotAdvertiseDetailProjection(t *testing.T) {
+	server := &Server{Service: service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}), AuthorityContext: authority.WithDelivery(context.Background())}
+	entries := server.genericActionRegistry(server.tools())
+	for _, path := range []string{"task/create_status", "train/start_status", "agent/prompt", "project/update", "watcher/nudge", "runtime/restart"} {
+		entry, ok := entries[path]
+		if !ok {
+			t.Fatalf("missing action %s", path)
+		}
+		properties, ok := entry.InputSchema["properties"].(map[string]any)
+		if ok {
+			if _, hasDetail := properties["detail"]; hasDetail {
+				t.Fatalf("control or receipt action %s advertises detail", path)
+			}
 		}
 	}
 }
@@ -82,44 +99,6 @@ func TestCompactTaskAndTrainResultsDropLargePayloads(t *testing.T) {
 	}
 }
 
-func TestGenericDispatchUsesCompactDefaultAndHonorsDetail(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}), AuthorityContext: authority.WithDelivery(context.Background())}
-	if err := server.RegisterGenericAction(GenericAction{
-		Path:        "task/probe",
-		Description: "Projection test action.",
-		InputSchema: obj(map[string]any{"value": str("Value.")}, "value"),
-		OutputSchema: map[string]any{
-			"type":                 "object",
-			"additionalProperties": true,
-		},
-		Execute: func(context.Context, json.RawMessage) (any, error) {
-			return map[string]any{"task": map[string]any{"id": "GTW-TSK1", "status": "ready", "objective": "detail"}}, nil
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	entries := server.genericActionRegistry(server.tools())
-	sessionID := genericSession(t, server.Service, "example")
-	record, err := durableSession.NewStore(server.Service.Config.StateDir).Get(sessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	compact, err := server.genericDispatch(authority.WithDelivery(context.Background()), entries, record, "task/probe", json.RawMessage(`{"value":"x"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := compact["result"].(map[string]any)["task"].(map[string]any)["objective"]; ok {
-		t.Fatalf("compact dispatch leaked detail: %#v", compact)
-	}
-	full, err := server.genericDispatch(authority.WithDelivery(context.Background()), entries, record, "task/probe", json.RawMessage(`{"value":"x","detail":true}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if full["result"].(map[string]any)["task"].(map[string]any)["objective"] != "detail" {
-		t.Fatalf("detail dispatch did not preserve detail: %#v", full)
-	}
-}
-
 func TestCompactMutationPreservesStrictTaskReceiptSchema(t *testing.T) {
 	receipt := map[string]any{
 		"operation_id": "OP-1", "status": "completed", "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:01Z",
@@ -173,6 +152,34 @@ func TestCompactMutationDoesNotLeakNestedDurablePayloads(t *testing.T) {
 		}
 		if _, leaked := object[forbidden]; leaked {
 			t.Fatalf("compact mutation leaked %s.%s: %#v", key, forbidden, compact)
+		}
+	}
+}
+
+func TestEveryRegisteredActionHasExplicitProjectionClassification(t *testing.T) {
+	server := &Server{Service: service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()})}
+	entries := server.genericActionRegistry(server.tools())
+	paths := make([]string, 0, len(entries))
+	for path := range entries {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		class, ok := projectionClasses[path]
+		if !ok {
+			t.Errorf("active action %q has no explicit projection classification", path)
+			continue
+		}
+		if class < projectionCompactDefault || class > projectionIntentionalPayload {
+			t.Errorf("active action %q has invalid projection classification %d", path, class)
+		}
+		if compactProjectionAction(path) != (class == projectionCompactDefault) {
+			t.Errorf("active action %q classification disagrees with compact projection dispatch", path)
+		}
+	}
+	for path := range projectionClasses {
+		if _, ok := entries[path]; !ok {
+			t.Errorf("projection classification is not attached to active action %q", path)
 		}
 	}
 }

@@ -68,7 +68,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		return genericActionError(action, fmt.Sprintf("unknown action %q; inspect schema with path=\"\"", action)), nil
 	}
 	detail := false
-	if compactProjectionAction(action) {
+	if projectionDetailAction(action) {
 		var err error
 		raw, detail, err = stripProjectionDetail(raw)
 		if err != nil {

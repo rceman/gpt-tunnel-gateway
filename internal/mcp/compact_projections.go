@@ -3,26 +3,62 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 )
 
-// compactProjectionAction identifies the task/train public surface whose
-// payloads can contain immutable specifications, execution packets, or proof.
-// The durable models remain unchanged; compaction is a transport concern.
+type projectionClass uint8
+
+const (
+	projectionCompactDefault projectionClass = iota + 1
+	projectionClosedDefault
+	projectionIntentionalPayload
+)
+
+// projectionClasses is the complete classification of the active generic
+// action registry. Keep this table explicit: a newly registered action must
+// choose a bounded default or be deliberately documented as a payload action.
+var projectionClasses = map[string]projectionClass{
+	"adr/create": projectionCompactDefault, "adr/create_status": projectionClosedDefault, "adr/list": projectionClosedDefault, "adr/read": projectionIntentionalPayload,
+	"agent/disable": projectionCompactDefault, "agent/disable_status": projectionClosedDefault, "agent/interrupt": projectionCompactDefault, "agent/interrupt_status": projectionClosedDefault,
+	"agent/list": projectionClosedDefault, "agent/prompt": projectionCompactDefault, "agent/prompt_status": projectionClosedDefault, "agent/read": projectionClosedDefault,
+	"agent/recover": projectionCompactDefault, "agent/recover_status": projectionClosedDefault, "agent/register": projectionCompactDefault, "agent/register_status": projectionClosedDefault,
+	"agent/status": projectionClosedDefault, "agent/tail": projectionIntentionalPayload, "agent/update": projectionCompactDefault, "agent/update_status": projectionClosedDefault,
+	"gateway/capabilities": projectionClosedDefault, "gateway/status": projectionClosedDefault,
+	"git/compare": projectionIntentionalPayload, "git/diff": projectionIntentionalPayload, "git/log": projectionIntentionalPayload, "git/merge_base": projectionIntentionalPayload,
+	"git/read_file": projectionIntentionalPayload, "git/refresh": projectionClosedDefault, "git/refs": projectionIntentionalPayload, "git/show": projectionIntentionalPayload,
+	"git/tree": projectionIntentionalPayload, "git/worktree_diff": projectionIntentionalPayload, "git/worktree_status": projectionClosedDefault,
+	"operator/checkpoint": projectionCompactDefault, "operator/history": projectionIntentionalPayload, "operator/record": projectionCompactDefault,
+	"project/identifiers_adopt": projectionCompactDefault, "project/identifiers_read": projectionClosedDefault, "project/list": projectionClosedDefault,
+	"project/onboard": projectionCompactDefault, "project/onboard_recover": projectionCompactDefault, "project/onboard_status": projectionClosedDefault, "project/read": projectionIntentionalPayload,
+	"project/register": projectionCompactDefault, "project/remove": projectionCompactDefault, "project/remove_status": projectionClosedDefault, "project/update": projectionCompactDefault, "project/update_status": projectionClosedDefault,
+	"project/workflow_policy_adopt": projectionCompactDefault, "project/workflow_policy_read": projectionClosedDefault, "project/workflow_policy_update": projectionCompactDefault,
+	"query/run": projectionIntentionalPayload, "rules/read": projectionIntentionalPayload, "runtime/logs": projectionIntentionalPayload, "runtime/restart": projectionCompactDefault,
+	"session/end": projectionClosedDefault, "session/info": projectionClosedDefault, "session/list": projectionClosedDefault, "session/start": projectionClosedDefault, "session/update": projectionClosedDefault,
+	"system/batch": projectionClosedDefault, "system/call": projectionClosedDefault, "system/schema": projectionClosedDefault,
+	"task/correction_create": projectionCompactDefault, "task/create": projectionCompactDefault, "task/create_status": projectionClosedDefault, "task/finalize": projectionCompactDefault,
+	"task/list": projectionCompactDefault, "task/read": projectionCompactDefault, "task/ready": projectionCompactDefault, "task/ready_status": projectionClosedDefault,
+	"task/revision_list": projectionCompactDefault, "task/revision_read": projectionCompactDefault, "task/revision_status": projectionClosedDefault, "task/supersede": projectionCompactDefault,
+	"task/supersede_status": projectionClosedDefault, "task/update": projectionCompactDefault, "task/update_status": projectionClosedDefault, "task/work": projectionCompactDefault, "task/work_status": projectionClosedDefault,
+	"train/add": projectionCompactDefault, "train/add_status": projectionClosedDefault, "train/advance": projectionCompactDefault, "train/advance_status": projectionClosedDefault,
+	"train/attempt-finalize": projectionCompactDefault, "train/attempt-finalize_status": projectionClosedDefault, "train/attempt-review": projectionCompactDefault, "train/attempt-review_status": projectionClosedDefault,
+	"train/create": projectionCompactDefault, "train/create_status": projectionClosedDefault, "train/cutover": projectionCompactDefault, "train/cutover_status": projectionClosedDefault,
+	"train/integrate": projectionCompactDefault, "train/integrate_status": projectionCompactDefault, "train/list": projectionCompactDefault, "train/read": projectionCompactDefault,
+	"train/start": projectionCompactDefault, "train/start_status": projectionCompactDefault,
+	"watcher/guide": projectionIntentionalPayload, "watcher/guide_update": projectionCompactDefault, "watcher/guide_update_status": projectionClosedDefault,
+	"watcher/nudge": projectionCompactDefault, "watcher/nudge_status": projectionClosedDefault, "watcher/status": projectionClosedDefault, "watcher/watch": projectionClosedDefault,
+	"workflow/rules": projectionIntentionalPayload,
+}
+
 func compactProjectionAction(path string) bool {
-	if strings.HasPrefix(path, "task/") || strings.HasPrefix(path, "train/") {
+	return projectionClasses[path] == projectionCompactDefault
+}
+
+func projectionDetailAction(path string) bool {
+	switch path {
+	case "task/list", "task/read", "train/list", "train/read":
 		return true
+	default:
+		return false
 	}
-	for _, mutation := range []string{
-		"adr/create", "agent/disable", "agent/interrupt", "agent/prompt", "agent/recover", "agent/register", "agent/update",
-		"operator/checkpoint", "operator/record", "project/identifiers_adopt", "project/remove", "project/update",
-		"project/workflow_policy_adopt", "project/workflow_policy_update", "runtime/restart", "watcher/guide_update", "watcher/nudge",
-	} {
-		if path == mutation {
-			return true
-		}
-	}
-	return false
 }
 
 func withProjectionDetail(schema map[string]any) map[string]any {
