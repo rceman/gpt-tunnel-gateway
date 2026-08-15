@@ -19,6 +19,8 @@ import (
 
 const taskCreateOperationSchemaVersion = 1
 
+const taskCreateWorkerCount = 4
+
 type TaskCreateOperation struct {
 	SchemaVersion int                      `json:"schema_version"`
 	OperationID   string                   `json:"operation_id"`
@@ -166,7 +168,16 @@ func (s *Service) TaskCreateOperationStatus(ctx context.Context, operationID str
 
 func (s *Service) startTaskCreateWorker() {
 	s.taskCreateWorkerOnce.Do(func() {
-		go s.taskCreateWorker()
+		entries, _ := os.ReadDir(filepath.Dir(taskCreateOperationPath(s.Config.StateDir, "placeholder")))
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+				continue
+			}
+			s.enqueueTaskCreate(strings.TrimSuffix(entry.Name(), ".json"))
+		}
+		for i := 0; i < taskCreateWorkerCount; i++ {
+			go s.taskCreateWorker()
+		}
 	})
 }
 
@@ -178,29 +189,33 @@ func (s *Service) enqueueTaskCreate(operationID string) {
 }
 
 func (s *Service) taskCreateWorker() {
-	entries, _ := os.ReadDir(filepath.Dir(taskCreateOperationPath(s.Config.StateDir, "placeholder")))
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		s.enqueueTaskCreate(strings.TrimSuffix(entry.Name(), ".json"))
-	}
 	for operationID := range s.taskCreateWake {
 		s.processTaskCreate(operationID)
 	}
 }
 
 func (s *Service) processTaskCreate(operationID string) {
+	s.taskCreateMu.Lock()
 	operation, err := s.TaskCreateOperationRead(context.Background(), operationID)
 	if err != nil || operation.Status == "completed" {
+		s.taskCreateMu.Unlock()
 		return
 	}
-	s.taskCreateMu.Lock()
+	if _, active := s.taskCreateActive[operationID]; active {
+		s.taskCreateMu.Unlock()
+		return
+	}
+	s.taskCreateActive[operationID] = struct{}{}
 	operation.Status = "running"
 	operation.UpdatedAt = time.Now().UTC()
 	path := taskCreateOperationPath(s.Config.StateDir, operationID)
 	_ = fsutil.WriteJSONAtomic(path, operation, 0o600)
 	s.taskCreateMu.Unlock()
+	defer func() {
+		s.taskCreateMu.Lock()
+		delete(s.taskCreateActive, operationID)
+		s.taskCreateMu.Unlock()
+	}()
 
 	if existing, findErr := s.findTaskCreateResult(context.Background(), operation); findErr == nil {
 		s.finishTaskCreate(operation, existing, OperationResult{OperationID: operationID, ProjectID: existing.ProjectID, TaskID: existing.ID, Status: existing.Status}, "")
