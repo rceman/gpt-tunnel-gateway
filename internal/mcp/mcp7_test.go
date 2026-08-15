@@ -156,7 +156,7 @@ func TestMCP249SessionFirstBindingAndEnvelopeGuards(t *testing.T) {
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": map[string]any{"name": "session_update", "arguments": map[string]any{"session": sessionID, "project_id": "example", "ref": "first"}},
 	})))
-	if bound["project_id"] != "example" || bound["rules_acknowledgement_required"] != true {
+	if bound["project_id"] != "example" || bound["rules_acknowledgement_required"] != false || bound["project_rules_acknowledged"] != true || bound["rules"] == nil {
 		t.Fatalf("session_update did not bind project: %#v", bound)
 	}
 	retried := genericStructured(t, callMCPRaw(t, server, mustJSON(t, map[string]any{

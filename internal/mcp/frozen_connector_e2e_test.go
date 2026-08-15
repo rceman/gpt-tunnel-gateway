@@ -125,7 +125,7 @@ func TestFrozenConnectorDiscoversAndInvokesRuntimeActionWithoutReconnect(t *test
 	if bound["is_error"] == true {
 		t.Fatalf("session bind failed: %#v", bound)
 	}
-	if bound["project_id"] != "example" || bound["rules_acknowledgement_required"] != true {
+	if bound["project_id"] != "example" || bound["rules_acknowledgement_required"] != false || bound["project_rules_acknowledged"] != true || bound["rules"] == nil {
 		t.Fatalf("unexpected session update: %#v", bound)
 	}
 	rules := frozenResult(t, client.request(t, "tools/call", map[string]any{

@@ -19,7 +19,7 @@ func globalWorkflowRules() map[string]any {
 	return map[string]any{
 		"name":     "gpt-tunnel-workflow",
 		"revision": globalWorkflowRevision,
-		"content":  "Inspect schema, bind one project, read project rules, then perform project work.",
+		"content":  "Bind one project, then perform project work; inspect schema only when a contract is unknown.",
 	}
 }
 
@@ -129,9 +129,9 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 		"workflow": workflowWithDigest(workflow, digest),
 		"projects": projectSummaries,
 		"next_steps": []string{
-			"inspect schema",
 			"bind one project through session_update",
-			"read project rules through rules/read",
+			"perform project work",
+			"inspect schema only when a contract is unknown",
 		},
 	}, nil
 }
@@ -177,7 +177,7 @@ func (s *Server) sessionUpdatePublic(ctx context.Context, raw json.RawMessage) (
 		"rules":                          policy,
 		"project_rules_revision":         updated.ProjectRulesRevision,
 		"project_rules_digest":           updated.ProjectRulesDigest,
-		"rules_acknowledgement_required": true,
+		"rules_acknowledgement_required": false,
 		"project_rules_acknowledged":     updated.ProjectRulesRevision > 0 && updated.ProjectRulesDigest != "",
 	}, nil
 }
