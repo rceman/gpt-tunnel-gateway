@@ -177,6 +177,10 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		entries["query/run"] = queryGenericAction(s)
 	}
 	for path, entry := range entries {
+		if compactProjectionAction(path) {
+			entry.InputSchema = withProjectionDetail(entry.InputSchema)
+			entry.ExecutionInputSchema = withProjectionDetail(entry.ExecutionInputSchema)
+		}
 		if path == "session/bind" {
 			entry.SessionBound = true
 			entry.SessionRequired = true
@@ -339,7 +343,10 @@ func genericBatchCallInputSchema() map[string]any {
 }
 
 func genericSchemaInputSchema() map[string]any {
-	return obj(map[string]any{"path": str("Empty for the root index, a domain for its actions, or an exact action path.")})
+	return obj(map[string]any{
+		"path":   str("Empty for the root index, a domain for its actions, or an exact action path."),
+		"detail": map[string]any{"type": "boolean", "description": "Return complete action contracts for a domain.", "default": false},
+	})
 }
 
 func genericCallOutputSchema() map[string]any {
@@ -366,7 +373,7 @@ func genericSchemaOutputSchema() map[string]any {
 		"path": outputString(), "domain": outputString(), "name": outputString(),
 		"description": outputString(), "input_schema": map[string]any{"type": "object", "additionalProperties": true},
 		"output_schema": map[string]any{"type": "object", "additionalProperties": true}, "annotations": map[string]any{"type": "object", "additionalProperties": true}, "session_required": outputBoolean(),
-	}, "path", "domain", "name", "description", "input_schema", "output_schema", "annotations", "session_required")
+	}, "path", "domain", "name", "description", "session_required")
 	return closedOutput(map[string]any{
 		"revision": outputString(), "path": outputString(), "kind": outputString(),
 		"domains": outputArray(outputString()), "actions": outputArray(action),

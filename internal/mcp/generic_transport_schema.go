@@ -9,7 +9,8 @@ import (
 
 func (s *Server) genericSchema(legacy map[string]Tool, raw json.RawMessage) (any, error) {
 	var input struct {
-		Path string `json:"path"`
+		Path   string `json:"path"`
+		Detail bool   `json:"detail,omitempty"`
 	}
 	if err := decode(raw, &input); err != nil {
 		return nil, err
@@ -49,7 +50,11 @@ func (s *Server) genericSchema(legacy map[string]Tool, raw json.RawMessage) (any
 	actions := make([]map[string]any, 0)
 	for path, entry := range entries {
 		if domain, _, ok := genericActionParts(path); ok && domain == input.Path {
-			actions = append(actions, genericActionSummary(path, entry))
+			if input.Detail {
+				actions = append(actions, genericActionSummary(path, entry))
+			} else {
+				actions = append(actions, genericActionCompactSummary(path, entry))
+			}
 		}
 	}
 	if len(actions) == 0 {
@@ -63,6 +68,14 @@ func (s *Server) genericSchema(legacy map[string]Tool, raw json.RawMessage) (any
 
 func genericActionContract(entry genericActionEntry) map[string]any {
 	return genericActionSummary(entry.Path, entry)
+}
+
+func genericActionCompactSummary(path string, entry genericActionEntry) map[string]any {
+	domain, name, _ := genericActionParts(path)
+	return map[string]any{
+		"path": path, "domain": domain, "name": name, "description": entry.Description,
+		"annotations": entry.Annotations, "session_required": entry.SessionRequired,
+	}
 }
 
 func genericActionSummary(path string, entry genericActionEntry) map[string]any {

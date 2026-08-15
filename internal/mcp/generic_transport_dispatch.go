@@ -67,6 +67,14 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	if !ok {
 		return genericActionError(action, fmt.Sprintf("unknown action %q; inspect schema with path=\"\"", action)), nil
 	}
+	detail := false
+	if compactProjectionAction(action) {
+		var err error
+		raw, detail, err = stripProjectionDetail(raw)
+		if err != nil {
+			return genericActionError(action, err.Error()), nil
+		}
+	}
 	if entry.SessionRequired && record.ID == "" {
 		return genericActionError(action, "SESSION_REQUIRED: provide the public session field"), nil
 	}
@@ -140,7 +148,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 			if err != nil {
 				return genericActionError(action, err.Error()), nil
 			}
-			result := normalizeObject(value)
+			result := compactActionResult(action, normalizeObject(value), detail)
 			if err := validateOutputValue(entry.LegacyOutputSchema, result); err != nil {
 				return genericActionError(action, "action output contract violation: "+err.Error()), nil
 			}
@@ -176,7 +184,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	if err != nil {
 		return genericActionError(action, err), nil
 	}
-	result = normalizeObject(value)
+	result = compactActionResult(action, normalizeObject(value), detail)
 	if err := validateOutputValue(entry.OutputSchema, result); err != nil {
 		return genericActionError(action, "action output contract violation: "+err.Error()), nil
 	}
