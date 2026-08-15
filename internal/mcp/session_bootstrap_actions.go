@@ -194,7 +194,7 @@ func (s *Server) rulesReadAction(ctx context.Context, raw json.RawMessage) (any,
 	if info.Session.ProjectID == "" {
 		return nil, fmt.Errorf("PROJECT_BINDING_REQUIRED: bind the session before reading project rules")
 	}
-	policy, err := s.Service.ProjectWorkflowPolicyRead(ctx, info.Session.ProjectID)
+	policy, err := s.Service.ProjectWorkflowPolicyReadFast(ctx, info.Session.ProjectID)
 	if err != nil {
 		return nil, err
 	}

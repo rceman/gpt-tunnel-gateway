@@ -53,6 +53,16 @@ func (s *Service) ProjectWorkflowPolicyRead(ctx context.Context, projectID strin
 	return policy, err
 }
 
+// ProjectWorkflowPolicyReadFast serves the validated local projection when it
+// is already seeded, falling back to the canonical read only to seed or repair
+// the cache. Read callers never receive an unvalidated cache entry.
+func (s *Service) ProjectWorkflowPolicyReadFast(ctx context.Context, projectID string) (model.ProjectWorkflowPolicy, error) {
+	if policy, err := s.CachedProjectWorkflowPolicy(projectID); err == nil {
+		return policy, nil
+	}
+	return s.ProjectWorkflowPolicyRead(ctx, projectID)
+}
+
 func workflowPolicyFromConfiguration(configuration model.ProjectConfiguration) (model.ProjectWorkflowPolicy, error) {
 	policy := model.ProjectWorkflowPolicy{
 		SchemaVersion:     model.SchemaVersion,

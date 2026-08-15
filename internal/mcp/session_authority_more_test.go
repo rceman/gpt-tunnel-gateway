@@ -60,6 +60,23 @@ func TestBoundSessionRulesUseLocalPolicyCacheWithoutHubRead(t *testing.T) {
 	}
 }
 
+func TestRulesReadUsesSeededPolicyCacheWithoutHubRead(t *testing.T) {
+	server := newSessionTestServer(t)
+	if _, err := server.Service.ProjectWorkflowPolicyRead(context.Background(), "example"); err != nil {
+		t.Fatal(err)
+	}
+	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT}))
+	sessionID := started["session"].(map[string]any)["session_id"].(string)
+	server.Service.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable.git")
+	result := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "rules/read", "input": map[string]any{}}},
+	})))
+	if result["is_error"] == true {
+		t.Fatalf("rules/read did not use the seeded cache: %#v", result)
+	}
+}
+
 func TestGenericRegistryAndTypedAuthorityUseSameContract(t *testing.T) {
 	server := &Server{}
 	legacy := map[string]Tool{}
