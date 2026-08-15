@@ -114,6 +114,28 @@ func (s *Server) registerAgentActions() error {
 		return err
 	}
 	if err := register(GenericAction{
+		Path:         "agent/register_status",
+		Description:  "Read the durable receipt for an asynchronous Agent registration.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Agent registration operation identifier.")}, "operation_id"),
+		OutputSchema: agentMutationReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.AgentMutationOperationStatus(ctx, in.OperationID)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := register(GenericAction{
 		Path:        "agent/interrupt",
 		Description: "Interrupt exactly the current TrainItem Attempt turn once.",
 		InputSchema: obj(map[string]any{
@@ -143,10 +165,32 @@ func (s *Server) registerAgentActions() error {
 		return err
 	}
 	if err := register(GenericAction{
+		Path:         "agent/update_status",
+		Description:  "Read the durable receipt for an asynchronous Agent update.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Agent update operation identifier.")}, "operation_id"),
+		OutputSchema: agentMutationReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.AgentMutationOperationStatus(ctx, in.OperationID)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := register(GenericAction{
 		Path:         "agent/register",
 		Description:  "Register one portable project-scoped Agent identity.",
 		InputSchema:  obj(map[string]any{"agent": agentInputSchema(), "expected_hub_revision": str("Optional exact Hub revision guard.")}, "agent"),
-		OutputSchema: agentObjectOutputSchema(),
+		OutputSchema: agentMutationReceiptOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 		},
@@ -156,11 +200,33 @@ func (s *Server) registerAgentActions() error {
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			agent, operation, err := s.Service.AgentRegister(ctx, in)
+			receipt, err := s.Service.AgentRegisterAsync(ctx, in)
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"agent": agent, "operation": operation}, nil
+			return receipt, nil
+		},
+	}); err != nil {
+		return err
+	}
+	if err := register(GenericAction{
+		Path:         "agent/disable_status",
+		Description:  "Read the durable receipt for an asynchronous Agent disable.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Agent disable operation identifier.")}, "operation_id"),
+		OutputSchema: agentMutationReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.AgentMutationOperationStatus(ctx, in.OperationID)
 		},
 	}); err != nil {
 		return err
@@ -174,7 +240,7 @@ func (s *Server) registerAgentActions() error {
 			"recommended_reasoning": str("Routing preference."), "capabilities": array(str("Capability identifier.")),
 			"updated_by": str("Trusted mutation author."), "expected_hub_revision": str("Optional exact Hub revision guard."),
 		}, "project_id", "agent_id", "updated_by"),
-		OutputSchema: agentObjectOutputSchema(),
+		OutputSchema: agentMutationReceiptOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 		},
@@ -184,11 +250,11 @@ func (s *Server) registerAgentActions() error {
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			agent, operation, err := s.Service.AgentUpdate(ctx, in)
+			receipt, err := s.Service.AgentUpdateAsync(ctx, in)
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"agent": agent, "operation": operation}, nil
+			return receipt, nil
 		},
 	}); err != nil {
 		return err
@@ -200,7 +266,7 @@ func (s *Server) registerAgentActions() error {
 			"project_id": str("Registered project identifier."), "agent_id": str("Stable agent identifier."),
 			"updated_by": str("Trusted mutation author."), "expected_hub_revision": str("Optional exact Hub revision guard."),
 		}, "project_id", "agent_id", "updated_by"),
-		OutputSchema: agentObjectOutputSchema(),
+		OutputSchema: agentMutationReceiptOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 		},
@@ -210,11 +276,11 @@ func (s *Server) registerAgentActions() error {
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			agent, operation, err := s.Service.AgentDisable(ctx, in)
+			receipt, err := s.Service.AgentDisableAsync(ctx, in)
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"agent": agent, "operation": operation}, nil
+			return receipt, nil
 		},
 	}); err != nil {
 		return err

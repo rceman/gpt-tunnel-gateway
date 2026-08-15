@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
@@ -239,6 +240,36 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 		}
 		result.OperationID = operation.OperationID
 		return json.Marshal(result)
+	case "agent-register":
+		var input AgentRegisterInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		agent, result, err := s.AgentRegister(authority.WithPlannerOrDelivery(ctx), input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"agent": agent, "operation": result})
+	case "agent-update":
+		var input AgentUpdateInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		agent, result, err := s.AgentUpdate(authority.WithPlannerOrDelivery(ctx), input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"agent": agent, "operation": result})
+	case "agent-disable":
+		var input AgentDisableInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		agent, result, err := s.AgentDisable(authority.WithPlannerOrDelivery(ctx), input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"agent": agent, "operation": result})
 	default:
 		return nil, fmt.Errorf("unsupported durable mutation kind %q", operation.Kind)
 	}

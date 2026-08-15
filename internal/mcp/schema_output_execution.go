@@ -23,6 +23,13 @@ func durableMutationReceiptOutputSchema() map[string]any {
 	}, "operation_id", "status", "created_at", "updated_at")
 }
 
+func agentMutationReceiptOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"operation_id": outputString(), "status": outputString(), "agent": agentObjectOutputSchema(), "operation": operationOutputSchema(), "error": outputString(),
+		"created_at": outputDateTime(), "updated_at": outputDateTime(),
+	}, "operation_id", "status", "created_at", "updated_at")
+}
+
 func operatorJournalEventOutputSchema() map[string]any {
 	contentItem := operatorJournalBoundedString(outputString(), model.MaxOperatorContentItemBytes)
 	content := closedOutput(map[string]any{

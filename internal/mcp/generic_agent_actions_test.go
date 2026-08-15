@@ -13,7 +13,7 @@ import (
 func TestAgentActionsAreGenericDiscoverableAndInvokable(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"agent/prompt", "agent/recover", "agent/interrupt", "agent/register", "agent/update", "agent/disable", "agent/read", "agent/list", "agent/status"} {
+	for _, path := range []string{"agent/prompt", "agent/recover", "agent/interrupt", "agent/register", "agent/register_status", "agent/update", "agent/update_status", "agent/disable", "agent/disable_status", "agent/read", "agent/list", "agent/status"} {
 		entry, ok := entries[path]
 		if !ok {
 			t.Fatalf("missing agent generic action %s", path)
