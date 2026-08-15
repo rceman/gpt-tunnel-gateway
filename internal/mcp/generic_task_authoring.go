@@ -295,5 +295,27 @@ func (s *Server) registerTaskAuthoringActions() error {
 	}); err != nil {
 		return err
 	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "task/supersede_status",
+		Description:  "Read the durable receipt for an asynchronous task supersede operation.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable task supersede operation identifier.")}, "operation_id"),
+		OutputSchema: taskSupersedeReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.TaskSupersedeOperationStatus(ctx, in.OperationID)
+		},
+	}); err != nil {
+		return err
+	}
 	return s.registerTaskExecutionActions()
 }

@@ -49,7 +49,7 @@ func TestTrainV2TaskAuthoringMCPWiringAndSchemaParity(t *testing.T) {
 	server.AuthorityContext = authority.WithDelivery(context.Background())
 	configureTrainV2MCPTest(t, server)
 	sessionID := genericSession(t, server.Service, "example")
-	for _, path := range []string{"task/create", "task/create_status", "task/update", "task/ready", "task/list", "task/read"} {
+	for _, path := range []string{"task/create", "task/create_status", "task/update", "task/ready", "task/list", "task/read", "task/supersede_status"} {
 		contract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"path": path}}})))
 		if contract["kind"] != "action" || contract["path"] != path {
 			t.Fatalf("missing task authoring action contract %s: %#v", path, contract)

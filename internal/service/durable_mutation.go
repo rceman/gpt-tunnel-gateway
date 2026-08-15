@@ -294,6 +294,16 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"configuration": configuration, "operation": result})
+	case "task-supersede":
+		var input TaskSupersedeInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		task, result, err := s.TaskSupersede(ctx, input.OldTaskID, input.Task)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"task": task, "operation": result})
 	default:
 		return nil, fmt.Errorf("unsupported durable mutation kind %q", operation.Kind)
 	}

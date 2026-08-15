@@ -82,14 +82,10 @@ func (s *Server) addTaskTools(add toolAdder) {
 		return s.Service.TaskAuthoringFind(ctx, id)
 	})
 	add("task_supersede", "Create a replacement immutable task.", obj(map[string]any{"old_task_id": str("Superseded task"), "task": taskInputSchema}, "old_task_id", "task"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var envelope struct {
-			OldTaskID string                  `json:"old_task_id"`
-			Task      service.TaskCreateInput `json:"task"`
-		}
+		var envelope service.TaskSupersedeInput
 		if e := decode(raw, &envelope); e != nil {
 			return nil, e
 		}
-		task, res, e := s.Service.TaskSupersede(ctx, envelope.OldTaskID, envelope.Task)
-		return map[string]any{"task": task, "operation": res}, e
+		return s.Service.TaskSupersedeAsync(ctx, envelope)
 	})
 }
