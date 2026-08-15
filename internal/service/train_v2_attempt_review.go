@@ -10,14 +10,14 @@ import (
 )
 
 type TrainV2AttemptReviewInput struct {
-	ProjectID     string
-	TrainID       string
-	ItemPosition  int
-	AttemptNumber uint64
-	Outcome       string
-	ReviewedHead  string
-	Findings      []model.ReviewFinding
-	ScopeCoverage []model.ReviewScopeCoverage
+	ProjectID     string                      `json:"project_id"`
+	TrainID       string                      `json:"train_id"`
+	ItemPosition  int                         `json:"item_position"`
+	AttemptNumber uint64                      `json:"attempt_number"`
+	Outcome       string                      `json:"outcome"`
+	ReviewedHead  string                      `json:"reviewed_head,omitempty"`
+	Findings      []model.ReviewFinding       `json:"findings,omitempty"`
+	ScopeCoverage []model.ReviewScopeCoverage `json:"scope_coverage,omitempty"`
 	WriteOptions
 }
 

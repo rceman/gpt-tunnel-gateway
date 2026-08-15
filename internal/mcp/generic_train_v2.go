@@ -203,7 +203,7 @@ func (s *Server) registerTrainV2Actions() error {
 		Path:         "train/attempt-finalize",
 		Description:  "Finalize one exact TrainItem Attempt without creating a global Run.",
 		InputSchema:  trainV2AttemptFinalizeSchema(),
-		OutputSchema: trainV2OutputSchema(),
+		OutputSchema: trainV2AttemptFinalizeReceiptOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  true,
@@ -214,7 +214,27 @@ func (s *Server) registerTrainV2Actions() error {
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			return s.Service.TrainV2AttemptFinalize(ctx, in)
+			return s.Service.TrainV2AttemptFinalizeAsync(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:             "train/attempt-finalize_status",
+		Description:      "Read the durable receipt for an asynchronous Train Attempt finalization.",
+		InputSchema:      obj(map[string]any{"operation_id": str("Durable Train Attempt finalize operation identifier.")}, "operation_id"),
+		OutputSchema:     trainV2AttemptFinalizeReceiptOutputSchema(),
+		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2AttemptOperationStatus(ctx, input.OperationID)
 		},
 	}); err != nil {
 		return err
@@ -223,7 +243,7 @@ func (s *Server) registerTrainV2Actions() error {
 		Path:         "train/attempt-review",
 		Description:  "Publish review for one exact successful TrainItem Attempt.",
 		InputSchema:  trainV2AttemptReviewSchema(),
-		OutputSchema: trainV2OutputSchema(),
+		OutputSchema: trainV2AttemptReviewReceiptOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  true,
@@ -234,7 +254,27 @@ func (s *Server) registerTrainV2Actions() error {
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			return s.Service.TrainV2AttemptReview(ctx, in)
+			return s.Service.TrainV2AttemptReviewAsync(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:             "train/attempt-review_status",
+		Description:      "Read the durable receipt for an asynchronous Train Attempt review.",
+		InputSchema:      obj(map[string]any{"operation_id": str("Durable Train Attempt review operation identifier.")}, "operation_id"),
+		OutputSchema:     trainV2AttemptReviewReceiptOutputSchema(),
+		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2AttemptOperationStatus(ctx, input.OperationID)
 		},
 	}); err != nil {
 		return err

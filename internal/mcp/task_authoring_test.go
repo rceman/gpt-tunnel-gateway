@@ -147,7 +147,7 @@ func TestTrainV2MCPWiringAndSchemaParity(t *testing.T) {
 	configureTrainV2MCPTest(t, server)
 	first := createReadyMCPTrainTask(t, server)
 	sessionID := genericSession(t, server.Service, "example")
-	for _, path := range []string{"train/create", "train/add", "train/read", "train/list", "train/start", "train/start_status", "train/advance", "train/advance_status", "train/integrate", "train/integrate_status", "train/cutover"} {
+	for _, path := range []string{"train/create", "train/add", "train/read", "train/list", "train/start", "train/start_status", "train/advance", "train/advance_status", "train/attempt-finalize", "train/attempt-finalize_status", "train/attempt-review", "train/attempt-review_status", "train/integrate", "train/integrate_status", "train/cutover"} {
 		contract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"path": path}}})))
 		if contract["kind"] != "action" || contract["path"] != path {
 			t.Fatalf("missing Train v2 action contract %s: %#v", path, contract)

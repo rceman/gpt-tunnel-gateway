@@ -304,6 +304,26 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"task": task, "operation": result})
+	case "train-attempt-finalize":
+		var input TrainV2AttemptFinalizeInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.TrainV2AttemptFinalize(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
+	case "train-attempt-review":
+		var input TrainV2AttemptReviewInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.TrainV2AttemptReview(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
 	default:
 		return nil, fmt.Errorf("unsupported durable mutation kind %q", operation.Kind)
 	}
