@@ -284,6 +284,16 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"guide": guide, "operation": result})
+	case "project-configuration-update":
+		var input ProjectConfigurationUpdateInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		configuration, result, err := s.ProjectConfigurationUpdate(projectConfigurationMutationContext(ctx), input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"configuration": configuration, "operation": result})
 	default:
 		return nil, fmt.Errorf("unsupported durable mutation kind %q", operation.Kind)
 	}

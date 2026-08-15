@@ -80,7 +80,7 @@ func (s *Server) registerProjectActions() error {
 		Path:         "project/update",
 		Description:  "Update the durable revisioned portable project configuration.",
 		InputSchema:  projectConfigurationUpdateSchema(),
-		OutputSchema: map[string]any{"type": "object", "additionalProperties": true},
+		OutputSchema: projectConfigurationMutationReceiptOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  false,
@@ -91,11 +91,33 @@ func (s *Server) registerProjectActions() error {
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			configuration, operation, err := s.Service.ProjectConfigurationUpdate(ctx, in)
+			receipt, err := s.Service.ProjectConfigurationUpdateAsync(ctx, in)
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"configuration": configuration, "operation": operation}, nil
+			return receipt, nil
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "project/update_status",
+		Description:  "Read the durable receipt for an asynchronous project/update operation.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable project configuration operation identifier.")}, "operation_id"),
+		OutputSchema: projectConfigurationMutationReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.ProjectConfigurationUpdateOperationStatus(ctx, in.OperationID)
 		},
 	}); err != nil {
 		return err
