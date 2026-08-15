@@ -206,14 +206,37 @@ func (s *Server) registerTrainV2Actions() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2IntegrateInput
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			receipt, operation, err := s.Service.TrainV2Integrate(ctx, in)
-			return map[string]any{"receipt": receipt, "operation": operation}, err
+			return s.Service.TrainV2IntegrateAsync(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "train/integrate_status",
+		Description:  "Read the durable initiation receipt and existing Train integration phase.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable train/integrate operation identifier.")}, "operation_id"),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2IntegrateOperationStatus(ctx, input.OperationID)
 		},
 	}); err != nil {
 		return err

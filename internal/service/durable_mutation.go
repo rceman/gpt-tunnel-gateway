@@ -151,9 +151,80 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 		}
 		result.OperationID = operation.OperationID
 		return json.Marshal(map[string]any{"task": task, "operation": result})
+	case "train-v2-integrate":
+		var input TrainV2IntegrateInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		receipt, result, err := s.TrainV2Integrate(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		result.OperationID = operation.OperationID
+		return json.Marshal(map[string]any{"receipt": receipt, "operation": result})
 	default:
 		return nil, fmt.Errorf("unsupported durable mutation kind %q", operation.Kind)
 	}
+}
+
+func (s *Service) enqueueTrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput) (durableMutationOperation, error) {
+	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
+		return durableMutationOperation{}, err
+	}
+	if _, _, err := model.ParseTrainV2ID(in.TrainID); err != nil {
+		return durableMutationOperation{}, err
+	}
+	input, err := json.Marshal(in)
+	if err != nil {
+		return durableMutationOperation{}, err
+	}
+	sessionID := AgentSessionID(ctx)
+	digest := durableMutationDigest("train-v2-integrate", sessionID, input)
+	operationID := "mutation-" + digest
+	if err := model.ValidateObjectIdentifier(operationID); err != nil {
+		return durableMutationOperation{}, err
+	}
+	s.durableMutationMu.Lock()
+	defer s.durableMutationMu.Unlock()
+	operation, err := s.readDurableMutation(operationID)
+	if err == nil {
+		if operation.RequestSHA256 != digest || operation.Kind != "train-v2-integrate" {
+			return durableMutationOperation{}, fmt.Errorf("durable mutation identity mismatch")
+		}
+		if operation.Status == "failed" {
+			operation.Status = "accepted"
+			operation.Error = ""
+			operation.UpdatedAt = time.Now().UTC()
+			if err := s.writeDurableMutation(operation); err != nil {
+				return durableMutationOperation{}, err
+			}
+		}
+		s.startDurableMutationWorker()
+		s.enqueueDurableMutation(operationID)
+		return operation, nil
+	}
+	if !os.IsNotExist(err) {
+		return durableMutationOperation{}, err
+	}
+	now := time.Now().UTC()
+	operation = durableMutationOperation{
+		SchemaVersion: durableMutationSchemaVersion,
+		OperationID:   operationID,
+		Kind:          "train-v2-integrate",
+		RequestSHA256: digest,
+		SessionID:     sessionID,
+		ProjectID:     in.ProjectID,
+		Input:         input,
+		Status:        "accepted",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := s.writeDurableMutation(operation); err != nil {
+		return durableMutationOperation{}, err
+	}
+	s.startDurableMutationWorker()
+	s.enqueueDurableMutation(operationID)
+	return operation, nil
 }
 
 func (s *Service) enqueueTaskAuthoringReady(ctx context.Context, in TaskAuthoringReadyInput) (durableMutationOperation, error) {
