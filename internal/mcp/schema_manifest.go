@@ -80,6 +80,7 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	for _, name := range []string{"project_register", "project_identifiers_adopt", "project_workflow_policy_adopt", "project_workflow_policy_update", "adr_create", "task_create", "plan_section_create"} {
 		result[name] = additiveExternalAnnotations()
 	}
+	result["adr_create_status"] = readOnlyAnnotations()
 	result["task_correction_create"] = additiveExternalAnnotations()
 	result["project_onboard"] = idempotentMutationAnnotations()
 	result["project_onboard_recover"] = idempotentMutationAnnotations()

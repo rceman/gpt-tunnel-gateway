@@ -118,6 +118,15 @@ func (s *Server) addPlanTools(add toolAdder) {
 		if e := decode(raw, &in); e != nil {
 			return nil, e
 		}
-		return s.Service.ADRCreate(ctx, in)
+		return s.Service.ADRCreateAsync(ctx, in)
+	})
+	add("adr_create_status", "Read the durable receipt for an asynchronous ADR create operation.", obj(map[string]any{"operation_id": str("Durable ADR create operation identifier.")}, "operation_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var in struct {
+			OperationID string `json:"operation_id"`
+		}
+		if e := decode(raw, &in); e != nil {
+			return nil, e
+		}
+		return s.Service.ADRCreateOperationStatus(ctx, in.OperationID)
 	})
 }

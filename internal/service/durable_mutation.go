@@ -228,6 +228,17 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"result": result})
+	case "adr-create":
+		var input ADRCreateInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.ADRCreate(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		result.OperationID = operation.OperationID
+		return json.Marshal(result)
 	default:
 		return nil, fmt.Errorf("unsupported durable mutation kind %q", operation.Kind)
 	}
