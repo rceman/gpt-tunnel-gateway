@@ -114,7 +114,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 			return genericActionError(action, err.Error()+"; inspect schema with path=\""+action+"\""), nil
 		}
 	}
-	if entry.RouteLegacyByProjectModel && entry.LegacyExecute != nil {
+	if entry.RouteLegacyByProjectModel && entry.LegacyExecute != nil && !entry.LocalReceiptOnly {
 		projectID := ""
 		if record.ID != "" {
 			projectID = record.ProjectID
