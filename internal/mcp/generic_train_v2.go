@@ -126,13 +126,34 @@ func (s *Server) registerTrainV2Actions() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2StartInput
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			return s.Service.TrainV2Start(ctx, in)
+			return s.Service.TrainV2StartAsync(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:             "train/start_status",
+		Description:      "Read the durable receipt for a Train start initiation.",
+		InputSchema:      obj(map[string]any{"operation_id": str("Durable Train start operation identifier.")}, "operation_id"),
+		OutputSchema:     trainV2OutputSchema(),
+		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2StartOperationStatus(ctx, input.OperationID)
 		},
 	}); err != nil {
 		return err
@@ -146,13 +167,34 @@ func (s *Server) registerTrainV2Actions() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2AdvanceInput
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			return s.Service.TrainV2Advance(ctx, in)
+			return s.Service.TrainV2AdvanceAsync(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:             "train/advance_status",
+		Description:      "Read the durable receipt for a Train advance initiation.",
+		InputSchema:      obj(map[string]any{"operation_id": str("Durable Train advance operation identifier.")}, "operation_id"),
+		OutputSchema:     trainV2OutputSchema(),
+		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2AdvanceOperationStatus(ctx, input.OperationID)
 		},
 	}); err != nil {
 		return err

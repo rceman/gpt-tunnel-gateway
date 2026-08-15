@@ -68,6 +68,52 @@ func (s *Service) enqueueDurableMutation(operationID string) {
 	}
 }
 
+func (s *Service) enqueueTypedDurableMutation(ctx context.Context, kind, projectID string, input any) (durableMutationOperation, error) {
+	if err := model.ValidateProjectIdentifier(projectID); err != nil {
+		return durableMutationOperation{}, err
+	}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return durableMutationOperation{}, err
+	}
+	sessionID := AgentSessionID(ctx)
+	digest := durableMutationDigest(kind, sessionID, raw)
+	operationID := "mutation-" + digest
+	if err := model.ValidateObjectIdentifier(operationID); err != nil {
+		return durableMutationOperation{}, err
+	}
+	s.durableMutationMu.Lock()
+	defer s.durableMutationMu.Unlock()
+	operation, err := s.readDurableMutation(operationID)
+	if err == nil {
+		if operation.RequestSHA256 != digest || operation.Kind != kind {
+			return durableMutationOperation{}, fmt.Errorf("durable mutation identity mismatch")
+		}
+		if operation.Status == "failed" {
+			operation.Status = "accepted"
+			operation.Error = ""
+			operation.UpdatedAt = time.Now().UTC()
+			if err := s.writeDurableMutation(operation); err != nil {
+				return durableMutationOperation{}, err
+			}
+		}
+		s.startDurableMutationWorker()
+		s.enqueueDurableMutation(operationID)
+		return operation, nil
+	}
+	if !os.IsNotExist(err) {
+		return durableMutationOperation{}, err
+	}
+	now := time.Now().UTC()
+	operation = durableMutationOperation{SchemaVersion: durableMutationSchemaVersion, OperationID: operationID, Kind: kind, RequestSHA256: digest, SessionID: sessionID, ProjectID: projectID, Input: raw, Status: "accepted", CreatedAt: now, UpdatedAt: now}
+	if err := s.writeDurableMutation(operation); err != nil {
+		return durableMutationOperation{}, err
+	}
+	s.startDurableMutationWorker()
+	s.enqueueDurableMutation(operationID)
+	return operation, nil
+}
+
 func (s *Service) durableMutationWorker() {
 	for operationID := range s.durableMutationWake {
 		s.processDurableMutation(operationID)
@@ -162,6 +208,26 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 		}
 		result.OperationID = operation.OperationID
 		return json.Marshal(map[string]any{"receipt": receipt, "operation": result})
+	case "train-v2-start":
+		var input TrainV2StartInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.TrainV2Start(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"result": result})
+	case "train-v2-advance":
+		var input TrainV2AdvanceInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.TrainV2Advance(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"result": result})
 	default:
 		return nil, fmt.Errorf("unsupported durable mutation kind %q", operation.Kind)
 	}
