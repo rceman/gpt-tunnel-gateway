@@ -314,6 +314,26 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"task": task, "operation": result})
+	case "task-work":
+		var input TaskWorkInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.TaskWork(authority.WithPlannerOrDelivery(ctx), input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
+	case "task-finalize":
+		var input TaskFinalizeInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.TaskFinalize(authority.WithPlannerOrDelivery(ctx), input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
 	case "train-attempt-finalize":
 		var input TrainV2AttemptFinalizeInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {

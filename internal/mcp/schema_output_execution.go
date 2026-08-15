@@ -23,6 +23,20 @@ func durableMutationReceiptOutputSchema() map[string]any {
 	}, "operation_id", "status", "created_at", "updated_at")
 }
 
+func taskWorkReceiptOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"operation_id": outputString(), "status": outputString(), "result": map[string]any{"type": "object", "additionalProperties": true}, "error": outputString(),
+		"created_at": outputDateTime(), "updated_at": outputDateTime(),
+	}, "operation_id", "status", "created_at", "updated_at")
+}
+
+func taskFinalizeReceiptOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"operation_id": outputString(), "status": outputString(), "result": map[string]any{"type": "object", "additionalProperties": true}, "error": outputString(),
+		"created_at": outputDateTime(), "updated_at": outputDateTime(),
+	}, "operation_id", "status", "created_at", "updated_at")
+}
+
 func agentMutationReceiptOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"operation_id": outputString(), "status": outputString(), "agent": agentObjectOutputSchema(), "operation": operationOutputSchema(), "error": outputString(),
