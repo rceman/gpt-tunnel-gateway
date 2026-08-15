@@ -20,7 +20,7 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		if _, exists := entries[path]; exists {
 			return
 		}
-		entries[path] = genericActionEntry{GenericAction: GenericAction{
+		entry := genericActionEntry{GenericAction: GenericAction{
 			Path:                 path,
 			Description:          description,
 			InputSchema:          schema,
@@ -30,6 +30,10 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 			ExecutionInputSchema: schema,
 			Execute:              execute,
 		}}
+		if path == "session/info" {
+			entry.LocalReadOnly = true
+		}
+		entries[path] = entry
 	}
 	add("session/start", "Start an unbound durable session.", sessionStartPublicInputSchema(), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in struct {

@@ -39,6 +39,27 @@ func TestGenericAuthorityRequiresDurableWorkflowPolicy(t *testing.T) {
 	}
 }
 
+func TestBoundSessionRulesUseLocalPolicyCacheWithoutHubRead(t *testing.T) {
+	server := newSessionTestServer(t)
+	policy, err := server.Service.ProjectWorkflowPolicyRead(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.Service.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable.git")
+	record := durableSession.Record{
+		ID:                   "SP-FASTAUTH1",
+		Role:                 durableSession.RoleDelivery,
+		ProjectID:            "example",
+		GlobalRulesRevision:  globalWorkflowRevision,
+		GlobalRulesDigest:    globalWorkflowDigest(),
+		ProjectRulesRevision: policy.Revision,
+		ProjectRulesDigest:   digestJSON(policy),
+	}
+	if err := server.validateSessionRules(context.Background(), record, "agent/tail"); err != nil {
+		t.Fatalf("cached bound-session authority unexpectedly used Hub: %v", err)
+	}
+}
+
 func TestGenericRegistryAndTypedAuthorityUseSameContract(t *testing.T) {
 	server := &Server{}
 	legacy := map[string]Tool{}

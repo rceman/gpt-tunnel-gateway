@@ -1,9 +1,47 @@
 package service
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 )
+
+func TestAgentTailUsesLocalSessionWithoutDurableAgentLookup(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n[ \"$1\" = tail ] && printf 'one\\ntwo\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := &Service{
+		Config: config.Config{
+			StateDir:     dir,
+			MaxReadBytes: 1 << 20,
+			Projects: map[string]config.ProjectConfig{
+				"example": {
+					Root:              filepath.Join(dir, "root"),
+					Mirror:            filepath.Join(dir, "mirror.git"),
+					Remote:            "origin",
+					DefaultBranch:     "main",
+					AirelaySessionKey: "example_master",
+				},
+			},
+		},
+		Airelay: airelay.Client{Command: script, Timeout: time.Second},
+	}
+	result, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{SessionID: "SP-FASTTAIL", Lines: 30})
+	if err != nil {
+		t.Fatalf("local tail failed without Hub access: %v", err)
+	}
+	if !reflect.DeepEqual(result.Lines, []string{"one", "two"}) || !result.HasNewInfo {
+		t.Fatalf("unexpected local tail result: %#v", result)
+	}
+}
 
 func TestAgentTailDeltaReturnsOnlyCurrentViewportSuffix(t *testing.T) {
 	selected, hasNew, historyTruncated := agentTailDelta([]string{"old-2", "old-3"}, []string{"old-2", "old-3", "new-4"}, true)

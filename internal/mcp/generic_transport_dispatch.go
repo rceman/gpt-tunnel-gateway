@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
@@ -160,7 +161,18 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	if err := validateGenericActionInput(executionSchema, raw); err != nil {
 		return genericActionError(action, err.Error()+"; inspect schema with path=\""+action+"\""), nil
 	}
-	value, err := entry.Execute(ctx, raw)
+	executeCtx := ctx
+	var readSnapshot *hub.ReadSnapshot
+	if entry.Annotations.ReadOnlyHint && !entry.LocalReceiptOnly && !entry.LocalReadOnly && !strings.HasPrefix(action, "runtime/") {
+		var snapshotErr error
+		readSnapshot, snapshotErr = s.Service.Hub.ReadSnapshot(ctx)
+		if snapshotErr != nil {
+			return genericActionError(action, snapshotErr), nil
+		}
+		executeCtx = hub.WithReadSnapshot(ctx, readSnapshot)
+		defer readSnapshot.Close()
+	}
+	value, err := entry.Execute(executeCtx, raw)
 	if err != nil {
 		return genericActionError(action, err), nil
 	}

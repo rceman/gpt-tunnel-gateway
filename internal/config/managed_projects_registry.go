@@ -16,9 +16,10 @@ const (
 )
 
 var (
-	managedProjectIDRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
-	managedRemoteRE    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
-	managedSessionRE   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+	managedProjectIDRE   = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+	managedProjectCodeRE = regexp.MustCompile(`^[A-Z]{3}$`)
+	managedRemoteRE      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
+	managedSessionRE     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 )
 
 // ManagedProjectRegistry is the local, gateway-owned project registry.
@@ -35,6 +36,7 @@ type ManagedProjectEntry struct {
 	RepositoryURL     string          `json:"repository_url"`
 	Remote            string          `json:"remote"`
 	DefaultBranch     string          `json:"default_branch"`
+	ProjectCode       string          `json:"project_code,omitempty"`
 	AirelaySessionKey string          `json:"airelay_session_key"`
 	Watcher           WatcherSettings `json:"watcher,omitempty"`
 }

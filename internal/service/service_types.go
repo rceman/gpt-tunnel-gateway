@@ -40,6 +40,7 @@ type Service struct {
 	taskCreateMu                    sync.Mutex
 	taskCreateWake                  chan string
 	taskCreateActive                map[string]struct{}
+	workflowPolicyCacheMu           sync.RWMutex
 }
 
 func New(c config.Config) *Service {

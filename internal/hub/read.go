@@ -48,6 +48,20 @@ func (s Store) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	return snapshot.ReadFile(ctx, path)
 }
 
+// ReadFiles reads exact paths from one pinned snapshot. It is intentionally
+// not a collection API: callers must select and bound the paths first.
+func (s Store) ReadFiles(ctx context.Context, paths []string) (map[string][]byte, error) {
+	if snapshot := readSnapshotFromContext(ctx); snapshot != nil {
+		return snapshot.ReadFiles(ctx, paths)
+	}
+	snapshot, err := s.FreshReadSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer snapshot.Close()
+	return snapshot.ReadFiles(ctx, paths)
+}
+
 // ReadFileAtCommit reads immutable Hub history without changing the managed
 // worktree or remote ref. It is used only by source-owned migrations that must
 // distinguish reused identifiers across historical lineages.

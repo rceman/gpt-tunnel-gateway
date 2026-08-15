@@ -68,6 +68,9 @@ func (c Config) Validate() error {
 		if p.Root == "" || p.Mirror == "" || p.Remote == "" || p.DefaultBranch == "" || !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`).MatchString(p.AirelaySessionKey) {
 			return fmt.Errorf("invalid project config %q", id)
 		}
+		if p.ProjectCode != "" && !regexp.MustCompile(`^[A-Z]{3}$`).MatchString(p.ProjectCode) {
+			return fmt.Errorf("invalid project code %q", id)
+		}
 		if err := p.Watcher.Validate(); err != nil {
 			return fmt.Errorf("invalid project watcher config %q: %w", id, err)
 		}

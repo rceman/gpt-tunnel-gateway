@@ -60,16 +60,21 @@ func (s *Service) taskListQuery(ctx context.Context, in TaskListInput, unbounded
 	if err != nil {
 		return TaskListResult{}, err
 	}
-	candidates := make([]taskListCandidate, 0, len(records))
+	tasks := make([]model.Task, 0, len(records))
 	for _, record := range records {
 		var task model.Task
 		if err := decodeStrict(record.Bytes, &task); err != nil {
 			return TaskListResult{}, err
 		}
-		state, err := s.taskState(ctx, task)
-		if err != nil {
-			return TaskListResult{}, err
-		}
+		tasks = append(tasks, task)
+	}
+	states, err := s.taskStatesBatch(ctx, tasks)
+	if err != nil {
+		return TaskListResult{}, err
+	}
+	candidates := make([]taskListCandidate, 0, len(records))
+	for _, task := range tasks {
+		state := states[task.ID]
 		if status != "" && state.Status != status {
 			continue
 		}
@@ -139,6 +144,38 @@ func (s *Service) taskListQuery(ctx context.Context, in TaskListInput, unbounded
 		result.NextCursor = pagination.Encode(taskListCursorKind(in), taskCursorKey(items[len(items)-1].Task))
 	}
 	return result, nil
+}
+
+func (s *Service) taskStatesBatch(ctx context.Context, tasks []model.Task) (map[string]model.TaskState, error) {
+	states := make(map[string]model.TaskState, len(tasks))
+	if len(tasks) == 0 {
+		return states, nil
+	}
+	paths := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		paths = append(paths, s.taskStatePath(task.ProjectID, task.ID))
+	}
+	dataByPath, err := s.Hub.ReadFiles(ctx, paths)
+	if err != nil {
+		return nil, err
+	}
+	for _, task := range tasks {
+		statePath := s.taskStatePath(task.ProjectID, task.ID)
+		data, ok := dataByPath[statePath]
+		if !ok {
+			states[task.ID] = model.TaskState{SchemaVersion: model.SchemaVersion, TaskID: task.ID, TaskSHA256: task.SHA256, Status: "created", UpdatedAt: task.CreatedAt}
+			continue
+		}
+		var state model.TaskState
+		if err := decodeStrict(data, &state); err != nil {
+			return nil, err
+		}
+		if err := model.ValidateTaskState(state, task); err != nil {
+			return nil, err
+		}
+		states[task.ID] = state
+	}
+	return states, nil
 }
 
 func (s *Service) taskListLimit(requested int) (int, error) {

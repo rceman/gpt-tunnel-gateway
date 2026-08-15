@@ -20,6 +20,10 @@ type Source interface {
 	ReadFile(context.Context, string) ([]byte, error)
 }
 
+type BatchSource interface {
+	ReadFiles(context.Context, []string) (map[string][]byte, error)
+}
+
 type Registry struct {
 	Source    Source
 	ProjectID string
@@ -98,6 +102,21 @@ func (r Registry) ReadInto(ctx context.Context, family Family, id string, out an
 }
 
 func (r Registry) ListRecords(ctx context.Context, query Query) ([]Record, error) {
+	_, err := DescriptorFor(query.Family)
+	if err != nil {
+		return nil, err
+	}
+	if r.Source == nil || r.ProjectID == "" {
+		return nil, fmt.Errorf("entity registry requires source and project_id")
+	}
+	paths, err := r.ListRecordPaths(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	return r.ReadRecords(ctx, query.Family, paths)
+}
+
+func (r Registry) ListRecordPaths(ctx context.Context, query Query) ([]string, error) {
 	descriptor, err := DescriptorFor(query.Family)
 	if err != nil {
 		return nil, err
@@ -110,7 +129,7 @@ func (r Registry) ListRecords(ctx context.Context, query Query) ([]Record, error
 	if err != nil {
 		return nil, err
 	}
-	records := make([]Record, 0, len(paths))
+	filtered := make([]string, 0, len(paths))
 	for _, recordPath := range paths {
 		id := strings.TrimSuffix(path.Base(recordPath), descriptor.Suffix)
 		if err := descriptor.ValidateID(id); err != nil || !entityPathAllowed(descriptor, recordPath) {
@@ -119,19 +138,82 @@ func (r Registry) ListRecords(ctx context.Context, query Query) ([]Record, error
 		if query.Text != "" && !strings.Contains(strings.ToLower(id), strings.ToLower(query.Text)) {
 			continue
 		}
-		data, err := r.Source.ReadFile(ctx, recordPath)
+		filtered = append(filtered, recordPath)
+	}
+	sort.Strings(filtered)
+	return filtered, nil
+}
+
+func (r Registry) ReadRecords(ctx context.Context, family Family, paths []string) ([]Record, error) {
+	descriptor, err := DescriptorFor(family)
+	if err != nil {
+		return nil, err
+	}
+	dataByPath := make(map[string][]byte, len(paths))
+	if batch, ok := r.Source.(BatchSource); ok && len(paths) > 0 {
+		dataByPath, err = batch.ReadFiles(ctx, paths)
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		for _, recordPath := range paths {
+			data, readErr := r.Source.ReadFile(ctx, recordPath)
+			if readErr != nil {
+				return nil, readErr
+			}
+			dataByPath[recordPath] = data
+		}
+	}
+	records := make([]Record, 0, len(paths))
+	for _, recordPath := range paths {
+		data, ok := dataByPath[recordPath]
+		if !ok {
+			return nil, fmt.Errorf("missing entity batch record %q", recordPath)
+		}
+		id := strings.TrimSuffix(path.Base(recordPath), descriptor.Suffix)
 		records = append(records, Record{
-			Family: query.Family,
+			Family: family,
 			ID:     id,
 			Path:   recordPath,
 			Bytes:  append([]byte(nil), data...),
 		})
 	}
-	sort.Slice(records, func(i, j int) bool { return records[i].ID < records[j].ID })
 	return records, nil
+}
+
+func (r Registry) ListPageRecords(ctx context.Context, query Query) (Page, []Record, error) {
+	descriptor, err := DescriptorFor(query.Family)
+	if err != nil {
+		return Page{}, nil, err
+	}
+	paths, err := r.ListRecordPaths(ctx, query)
+	if err != nil {
+		return Page{}, nil, err
+	}
+	limit, err := pagination.Limit(query.Limit, r.MaxItems)
+	if err != nil {
+		return Page{}, nil, err
+	}
+	items := make([]Projection, 0, len(paths))
+	for _, recordPath := range paths {
+		items = append(items, Projection{Family: query.Family, ID: strings.TrimSuffix(path.Base(recordPath), descriptor.Suffix), Path: recordPath})
+	}
+	pageItems, info, err := pagination.Page("entity:"+string(query.Family)+":"+r.ProjectID+":"+query.Text, items, limit, query.Cursor, func(item Projection) string { return item.ID })
+	if err != nil {
+		return Page{}, nil, err
+	}
+	selected := make([]string, 0, len(pageItems))
+	for _, item := range pageItems {
+		selected = append(selected, item.Path)
+	}
+	records, err := r.ReadRecords(ctx, query.Family, selected)
+	if err != nil {
+		return Page{}, nil, err
+	}
+	for i := range pageItems {
+		pageItems[i].Bytes = len(records[i].Bytes)
+	}
+	return Page{Items: pageItems, NextCursor: info.NextCursor, HasMore: info.HasMore}, records, nil
 }
 
 func (r Registry) List(ctx context.Context, query Query) (Page, error) {
@@ -141,33 +223,11 @@ func (r Registry) List(ctx context.Context, query Query) (Page, error) {
 	if r.Source == nil || r.ProjectID == "" {
 		return Page{}, fmt.Errorf("entity registry requires source and project_id")
 	}
-	limit, err := pagination.Limit(query.Limit, r.MaxItems)
+	page, _, err := r.ListPageRecords(ctx, query)
 	if err != nil {
 		return Page{}, err
 	}
-	records, err := r.ListRecords(ctx, query)
-	if err != nil {
-		return Page{}, err
-	}
-	items := make([]Projection, 0, len(records))
-	for _, record := range records {
-		items = append(items, Projection{
-			Family: record.Family,
-			ID:     record.ID,
-			Path:   record.Path,
-			Bytes:  len(record.Bytes),
-		})
-	}
-	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	page, info, err := pagination.Page("entity:"+string(query.Family)+":"+r.ProjectID+":"+query.Text, items, limit, query.Cursor, func(item Projection) string { return item.ID })
-	if err != nil {
-		return Page{}, err
-	}
-	return Page{
-		Items:      page,
-		NextCursor: info.NextCursor,
-		HasMore:    info.HasMore,
-	}, nil
+	return page, nil
 }
 
 func entityPathAllowed(descriptor Descriptor, recordPath string) bool {

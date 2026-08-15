@@ -72,7 +72,7 @@ func (s *Service) AgentTailPage(ctx context.Context, projectID string, input Age
 	if lines < 1 || lines > agentMaxTailLines {
 		return AgentTailResult{}, fmt.Errorf("invalid agent tail bounds")
 	}
-	session, err := s.resolveAgentSession(ctx, projectID)
+	session, err := s.resolveAgentTailSession(projectID)
 	if err != nil {
 		return AgentTailResult{}, err
 	}

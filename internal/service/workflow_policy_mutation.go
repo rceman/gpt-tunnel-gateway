@@ -101,6 +101,7 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 	if err != nil {
 		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
 	}
+	_ = s.cacheProjectWorkflowPolicy(policy)
 	return policy, OperationResult{
 		Hub:       tx,
 		ProjectID: policy.ProjectID,

@@ -39,6 +39,7 @@ type ProjectConfig struct {
 	Mirror            string          `json:"mirror"`
 	Remote            string          `json:"remote"`
 	DefaultBranch     string          `json:"default_branch"`
+	ProjectCode       string          `json:"project_code,omitempty"`
 	AirelaySessionKey string          `json:"airelay_session_key"`
 	Watcher           WatcherSettings `json:"watcher,omitempty"`
 }

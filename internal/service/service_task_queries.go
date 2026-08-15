@@ -19,22 +19,27 @@ func (s *Service) taskStatusList(ctx context.Context, project string) ([]TaskRec
 	if err != nil {
 		return nil, err
 	}
-	items := []TaskRecord{}
+	tasks := make([]model.Task, 0, len(records))
 	for _, record := range records {
 		var task model.Task
 		if err := decodeStrict(record.Bytes, &task); err != nil {
 			return nil, err
 		}
+		tasks = append(tasks, task)
+	}
+	states, err := s.taskStatesBatch(ctx, tasks)
+	if err != nil {
+		return nil, err
+	}
+	items := []TaskRecord{}
+	for _, task := range tasks {
 		if err := model.ValidateTask(task); err != nil {
 			return nil, err
 		}
 		if task.ProjectID != project {
 			return nil, fmt.Errorf("task project_id mismatch: %s", task.ID)
 		}
-		state, err := s.taskState(ctx, task)
-		if err != nil {
-			return nil, err
-		}
+		state := states[task.ID]
 		items = append(items, TaskRecord{
 			Task:  task,
 			State: state,

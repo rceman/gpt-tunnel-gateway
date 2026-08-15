@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
@@ -90,25 +91,32 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	if err != nil {
 		return nil, err
 	}
-	projects, err := s.Service.ProjectList(ctx)
+	// Bootstrap must preserve the project summary contract, but it must not
+	// refresh or read the Hub. The effective local registry is sufficient for
+	// the bounded identity/default-branch summary; durable project details are
+	// read only after the caller binds a project.
+	resolution, err := s.Service.EffectiveProjectSnapshot()
 	if err != nil {
 		return nil, err
 	}
-	if max := s.Service.Config.MaxListItems; max > 0 && len(projects) > max {
-		projects = projects[:max]
+	ids := make([]string, 0, len(resolution.Projects))
+	for id := range resolution.Projects {
+		ids = append(ids, id)
 	}
-	projectSummaries := make([]map[string]any, 0, len(projects))
-	for _, project := range projects {
-		if project.Status != "active" {
-			continue
-		}
+	sort.Strings(ids)
+	if max := s.Service.Config.MaxListItems; max > 0 && len(ids) > max {
+		ids = ids[:max]
+	}
+	projectSummaries := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		project := resolution.Projects[id]
 		summary := map[string]any{
-			"project_id":     project.ID,
-			"status":         project.Status,
+			"project_id":     id,
+			"status":         "active",
 			"default_branch": project.DefaultBranch,
 		}
-		if identifiers, err := s.Service.ProjectIdentifiersRead(ctx, project.ID); err == nil && identifiers.ProjectCode != "" {
-			summary["project_code"] = identifiers.ProjectCode
+		if project.ProjectCode != "" {
+			summary["project_code"] = project.ProjectCode
 		}
 		projectSummaries = append(projectSummaries, summary)
 	}
@@ -211,7 +219,7 @@ func (s *Server) validateSessionRules(ctx context.Context, record session.Record
 	if record.GlobalRulesRevision != globalWorkflowRevision || record.GlobalRulesDigest != globalWorkflowDigest() {
 		return fmt.Errorf("RULES_REFRESH_REQUIRED: global workflow rules changed")
 	}
-	policy, err := s.Service.ProjectWorkflowPolicyRead(ctx, record.ProjectID)
+	policy, err := s.Service.CachedProjectWorkflowPolicy(record.ProjectID)
 	if err != nil {
 		return fmt.Errorf("RULES_REFRESH_REQUIRED: project rules unavailable")
 	}

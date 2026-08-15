@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
@@ -150,17 +153,78 @@ func (r *ReadSnapshot) ReadFile(ctx context.Context, path string) ([]byte, error
 	if err := validateHubPath(path); err != nil {
 		return nil, err
 	}
-	entries, err := command(ctx, r.root, "ls-tree", "-r", "--name-only", r.revision, "--", filepath.ToSlash(path))
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(string(entries)) == "" {
-		return nil, fmt.Errorf("hub path %s: %w", path, os.ErrNotExist)
-	}
 	out, err := command(ctx, r.root, "show", r.revision+":"+filepath.ToSlash(path))
 	if err != nil {
+		if strings.Contains(err.Error(), "does not exist in") {
+			return nil, fmt.Errorf("hub path %s: %w", path, os.ErrNotExist)
+		}
 		return nil, err
 	}
+	return r.acceptFile(path, out)
+}
+
+// ReadFiles reads an explicitly bounded set of exact paths from this pinned
+// snapshot with one Git process. Callers choose the page; this method never
+// discovers or scans a collection.
+func (r *ReadSnapshot) ReadFiles(ctx context.Context, paths []string) (map[string][]byte, error) {
+	if len(paths) == 0 {
+		return map[string][]byte{}, nil
+	}
+	if len(paths) > r.store.Config.MaxListItems {
+		return nil, fmt.Errorf("hub batch exceeds configured maximum")
+	}
+	input := bytes.NewBuffer(nil)
+	for _, path := range paths {
+		if err := validateHubPath(path); err != nil {
+			return nil, err
+		}
+		fmt.Fprintf(input, "%s:%s\n", r.revision, filepath.ToSlash(path))
+	}
+	cmd := exec.CommandContext(ctx, "git", "cat-file", "--batch")
+	cmd.Dir = r.root
+	cmd.Env = cleanEnv()
+	cmd.Stdin = input
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("git cat-file --batch: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	reader := bufio.NewReader(bytes.NewReader(stdout.Bytes()))
+	result := make(map[string][]byte, len(paths))
+	for _, path := range paths {
+		header, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, fmt.Errorf("hub batch header for %s: %w", path, err)
+		}
+		fields := strings.Fields(strings.TrimSpace(header))
+		if len(fields) == 2 && fields[1] == "missing" {
+			continue
+		}
+		if len(fields) != 3 {
+			return nil, fmt.Errorf("invalid hub batch header for %s", path)
+		}
+		size, err := strconv.ParseInt(fields[2], 10, 64)
+		if err != nil || size < 0 || size > r.store.Config.MaxReadBytes {
+			return nil, fmt.Errorf("hub file %s exceeds read limit", path)
+		}
+		data := make([]byte, size)
+		if _, err := io.ReadFull(reader, data); err != nil {
+			return nil, fmt.Errorf("hub batch content for %s: %w", path, err)
+		}
+		if delimiter, err := reader.ReadByte(); err != nil || delimiter != '\n' {
+			return nil, fmt.Errorf("invalid hub batch delimiter for %s", path)
+		}
+		if r.readBytes > maxSnapshotAggregateReadBytes-int64(len(data)) {
+			return nil, fmt.Errorf("hub snapshot aggregate read exceeds configured maximum")
+		}
+		r.readBytes += int64(len(data))
+		result[path] = data
+	}
+	return result, nil
+}
+
+func (r *ReadSnapshot) acceptFile(path string, out []byte) ([]byte, error) {
 	if int64(len(out)) > r.store.Config.MaxReadBytes {
 		return nil, fmt.Errorf("hub file exceeds configured maximum")
 	}

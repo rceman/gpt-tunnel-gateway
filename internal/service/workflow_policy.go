@@ -47,6 +47,9 @@ func (s *Service) workflowPolicyPath(projectID string) string {
 
 func (s *Service) ProjectWorkflowPolicyRead(ctx context.Context, projectID string) (model.ProjectWorkflowPolicy, error) {
 	policy, _, err := s.projectWorkflowPolicyReadDetailed(ctx, projectID)
+	if err == nil {
+		_ = s.cacheProjectWorkflowPolicy(policy)
+	}
 	return policy, err
 }
 

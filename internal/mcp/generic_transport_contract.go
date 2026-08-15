@@ -26,6 +26,7 @@ type GenericAction struct {
 	AuthorityRole          string
 	RequiresWorkflowPolicy bool
 	LocalReceiptOnly       bool
+	LocalReadOnly          bool
 	AllowLegacyOverride    bool
 	SessionBound           bool
 	SessionRequired        bool
@@ -130,6 +131,7 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 				Annotations:            tool.Annotations,
 				AuthorityRole:          contract.Role,
 				RequiresWorkflowPolicy: contract.RequiresWorkflowPolicy,
+				LocalReadOnly:          toolName == "agent_tail" || strings.HasPrefix(path, "git/"),
 				Authority: func(ctx context.Context) error {
 					return requireToolAuthority(ctx, toolName)
 				},
