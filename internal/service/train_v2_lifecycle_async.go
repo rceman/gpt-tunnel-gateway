@@ -59,7 +59,11 @@ func (s *Service) localHubRevision(ctx context.Context) string {
 }
 
 func (s *Service) trainV2AdvanceIdentity(ctx context.Context, in TrainV2AdvanceInput) trainV2AdvanceIdentity {
-	identity := trainV2AdvanceIdentity{ProjectID: in.ProjectID, TrainID: in.TrainID, HubRevision: s.localHubRevision(ctx)}
+	identity := trainV2AdvanceIdentity{
+		ProjectID:   in.ProjectID,
+		TrainID:     in.TrainID,
+		HubRevision: s.localHubRevision(ctx),
+	}
 	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, in.ProjectID, in.TrainID)
 	if err != nil {
 		return identity

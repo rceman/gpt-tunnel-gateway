@@ -11,7 +11,10 @@ import (
 
 func TestTrainV2AdvanceReceiptIdentityTracksLocalExecutionGeneration(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
-	in := TrainV2AdvanceInput{ProjectID: "example", TrainID: "GTW-TRN999"}
+	in := TrainV2AdvanceInput{
+		ProjectID: "example",
+		TrainID:   "GTW-TRN999",
+	}
 	runtime := trainv2.RuntimeBinding{
 		SchemaVersion: 1,
 		ProjectID:     in.ProjectID,
@@ -58,16 +61,21 @@ func TestTrainV2AdvanceReceiptIdentityTracksLocalExecutionGeneration(t *testing.
 
 func TestTaskWorkReceiptIdentityTracksHubRevision(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
-	in := TaskWorkInput{ProjectID: "example", TaskID: "EXM-TSK1"}
+	in := TaskWorkInput{
+		ProjectID: "example",
+		TaskID:    "EXM-TSK1",
+	}
 	first, err := s.TaskWorkAsync(context.Background(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitDurableMutationTerminal(t, s, first.OperationID)
 	if _, _, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
-		ProjectID:    "example",
-		ProjectCode:  "EXM",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID:   "example",
+		ProjectCode: "EXM",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
