@@ -163,7 +163,8 @@ func (s *Server) registerWatcherActions() error {
 			ReadOnlyHint:   true,
 			IdempotentHint: true,
 		},
-		AuthorityRole: durableSession.RolePlanner,
+		AuthorityRole:    durableSession.RolePlanner,
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				OperationID string `json:"operation_id"`

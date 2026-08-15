@@ -122,7 +122,8 @@ func (s *Server) registerAgentActions() error {
 			ReadOnlyHint:   true,
 			IdempotentHint: true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				OperationID string `json:"operation_id"`
@@ -173,7 +174,8 @@ func (s *Server) registerAgentActions() error {
 			ReadOnlyHint:   true,
 			IdempotentHint: true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				OperationID string `json:"operation_id"`
@@ -218,7 +220,8 @@ func (s *Server) registerAgentActions() error {
 			ReadOnlyHint:   true,
 			IdempotentHint: true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				OperationID string `json:"operation_id"`

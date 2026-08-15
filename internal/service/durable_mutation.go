@@ -294,6 +294,16 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"configuration": configuration, "operation": result})
+	case "project-remove":
+		var input ProjectRemoveInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.ProjectRemove(authority.WithPlannerOrDelivery(ctx), input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
 	case "task-supersede":
 		var input TaskSupersedeInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
