@@ -56,9 +56,30 @@ func ValidateTrainV2AttemptCompletion(v TrainV2AttemptCompletion, task TaskAutho
 	if len(v.GateResults) > 128 || len(v.AcceptanceCoverage) > len(task.AcceptanceCriteria) {
 		return fmt.Errorf("Attempt completion exceeds task bounds")
 	}
-	for i, gate := range v.GateResults {
-		if gate.ID != fmt.Sprintf("G%d", i+1) {
-			return fmt.Errorf("Attempt gate results are not positional")
+	expectedGates := StandardWorkflowGates()
+	if len(v.GateResults) != len(expectedGates) {
+		return fmt.Errorf("Attempt gate results do not match required gates")
+	}
+	seenGates := make(map[string]bool, len(v.GateResults))
+	for _, gate := range v.GateResults {
+		if seenGates[gate.ID] {
+			return fmt.Errorf("duplicate Attempt gate result %q", gate.ID)
+		}
+		seenGates[gate.ID] = true
+		known := false
+		for _, expected := range expectedGates {
+			if gate.ID == expected {
+				known = true
+				break
+			}
+		}
+		if !known {
+			return fmt.Errorf("unexpected Attempt gate result %q", gate.ID)
+		}
+	}
+	for _, expected := range expectedGates {
+		if !seenGates[expected] {
+			return fmt.Errorf("missing Attempt gate result %q", expected)
 		}
 	}
 	for i, criterion := range v.AcceptanceCoverage {
