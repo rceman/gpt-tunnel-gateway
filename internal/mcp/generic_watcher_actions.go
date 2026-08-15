@@ -67,18 +67,39 @@ func (s *Server) registerWatcherActions() error {
 		Path:         "watcher/nudge",
 		Description:  "Deliver one bounded nudge to the exact active Run session.",
 		InputSchema:  obj(map[string]any{"project_id": str("Registered project identifier."), "text": str("Short bounded nudge.")}, "project_id", "text"),
-		OutputSchema: watcherObjectOutputSchema(),
+		OutputSchema: watcherNudgeReceiptOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  false,
 		},
-		AuthorityRole: durableSession.RoleDelivery,
+		AuthorityRole:    durableSession.RoleDelivery,
+		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.WatcherNudgeInput
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			return s.Service.WatcherNudge(ctx, in)
+			return s.Service.WatcherNudgeAsync(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := register(GenericAction{
+		Path:             "watcher/nudge_status",
+		Description:      "Read the durable receipt for an asynchronous watcher nudge.",
+		InputSchema:      obj(map[string]any{"operation_id": str("Durable watcher nudge operation identifier.")}, "operation_id"),
+		OutputSchema:     watcherNudgeReceiptOutputSchema(),
+		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole:    durableSession.RoleDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.WatcherNudgeOperationStatus(ctx, input.OperationID)
 		},
 	}); err != nil {
 		return err

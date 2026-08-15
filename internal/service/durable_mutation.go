@@ -314,6 +314,16 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"guide": guide, "operation": result})
+	case "watcher-nudge":
+		var input WatcherNudgeInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.WatcherNudge(authority.WithPlannerOrDelivery(ctx), input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
 	case "project-configuration-update":
 		var input ProjectConfigurationUpdateInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
