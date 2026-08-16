@@ -72,7 +72,12 @@ func TestRestartGatewayDiagnosticsExcludesPreviousShutdownOutput(t *testing.T) {
 	oldStop, oldStart, oldWait := restartGatewayStopFn, restartGatewayStartFn, restartGatewayWaitFn
 	defer func() { restartGatewayStopFn, restartGatewayStartFn, restartGatewayWaitFn = oldStop, oldStart, oldWait }()
 	restartGatewayStopFn = func(Controller) error { return appendLog("OLD_SHUTDOWN") }
-	restartGatewayStartFn = func(Controller) error { return appendLog("TARGET_FATAL") }
+	restartGatewayStartFn = func(Controller) error {
+		if err := appendLog("startup_phase=STATE_CHECK"); err != nil {
+			return err
+		}
+		return appendLog("TARGET_FATAL")
+	}
 	restartGatewayWaitFn = func(string, bool, time.Duration) error { return fmt.Errorf("target readiness failed") }
 	diagnostics, err := c.RestartGatewayAfterUpgradeDiagnostics()
 	if err == nil {
@@ -80,6 +85,9 @@ func TestRestartGatewayDiagnosticsExcludesPreviousShutdownOutput(t *testing.T) {
 	}
 	if strings.Contains(diagnostics.LogDelta, "OLD_SHUTDOWN") || !strings.Contains(diagnostics.LogDelta, "TARGET_FATAL") {
 		t.Fatalf("target log delta=%q", diagnostics.LogDelta)
+	}
+	if diagnostics.Phase != "STATE_CHECK" {
+		t.Fatalf("startup phase = %q, want STATE_CHECK", diagnostics.Phase)
 	}
 }
 

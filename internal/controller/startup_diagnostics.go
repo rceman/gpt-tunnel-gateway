@@ -50,6 +50,7 @@ func (c Controller) RestartGatewayAfterUpgradeDiagnostics() (GatewayStartupDiagn
 		} else {
 			diagnostics.CaptureStatus = "captured"
 		}
+		diagnostics.Phase = classifyStartupPhase(diagnostics.LogDelta, diagnostics.ReadinessPassed)
 	}
 	failed := func(startErr error) (GatewayStartupDiagnostics, error) {
 		diagnostics.Elapsed = time.Since(started)
@@ -91,6 +92,18 @@ func (c Controller) RestartGatewayAfterUpgradeDiagnostics() (GatewayStartupDiagn
 	diagnostics.Error = readyErr
 	capture()
 	return diagnostics, readyErr
+}
+
+func classifyStartupPhase(logDelta string, ready bool) string {
+	if ready || strings.Contains(logDelta, "startup_phase=HTTP_READY") {
+		return "HTTP_READY"
+	}
+	for _, phase := range []string{"HTTP_LISTEN_FAILED", "HTTP_LISTEN", "STATE_CHECK", "HUB_ENSURE"} {
+		if strings.Contains(logDelta, "startup_phase="+phase) {
+			return phase
+		}
+	}
+	return "TARGET_STARTUP"
 }
 
 func (c Controller) readGatewayLogDelta(path string, offset int64) (string, bool, error) {

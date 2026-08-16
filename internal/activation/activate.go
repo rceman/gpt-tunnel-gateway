@@ -156,44 +156,46 @@ func Source(ctx context.Context, c config.Config, configPath string, project con
 	if err := releaseartifacts.ValidateRelease(release, targetVersion); err != nil {
 		return Result{}, err
 	}
+	if err := SmokeCandidate(ctx, c, filepath.Join(release, "gpt-tunnel-gatewayd"), targetVersion); err != nil {
+		return Result{}, err
+	}
 	paths := releaseartifacts.Paths(c.Controller.GatewayBinary)
-	old := make(map[string][]byte, len(releaseartifacts.BinaryNames))
-	for _, name := range releaseartifacts.BinaryNames {
-		old[name], err = os.ReadFile(paths[name])
-		if err != nil {
-			return Result{}, err
-		}
+	old, err := releaseartifacts.SnapshotAll(paths)
+	if err != nil {
+		return Result{}, err
 	}
 	if err := releaseartifacts.ReplaceAll(release, paths, old); err != nil {
 		return Result{}, err
 	}
-	restore := func() {
-		_ = releaseartifacts.RestoreAll(paths, old)
-		_ = ctl.RestartGatewayAfterUpgrade()
+	restore := func(cause error) error {
+		restoreErr := releaseartifacts.RestoreAll(paths, old)
+		restartErr := ctl.RestartGatewayAfterUpgrade()
+		if restoreErr != nil {
+			return fmt.Errorf("activation rollback artifact restore failed: %w; original failure: %v", restoreErr, cause)
+		}
+		if restartErr != nil {
+			return fmt.Errorf("activation rollback gateway restart failed: %w; original failure: %v", restartErr, cause)
+		}
+		return cause
 	}
 	if err := ctl.RestartGatewayAfterUpgrade(); err != nil {
-		restore()
-		return Result{}, fmt.Errorf("gateway activation failed: %w", err)
+		return Result{}, restore(fmt.Errorf("gateway activation failed: %w", err))
 	}
 	if err := releaseartifacts.VerifyInstalled(release, paths); err != nil {
-		restore()
-		return Result{}, err
+		return Result{}, restore(err)
 	}
 	after, err := ctl.Status(ctx)
 	if err != nil || after.Tunnel.PID != before.Tunnel.PID || !after.GatewayReady || !after.TunnelReady || !after.VersionMatch {
-		restore()
 		if err != nil {
-			return Result{}, err
+			return Result{}, restore(err)
 		}
-		return Result{}, fmt.Errorf("activation runtime identity/readiness proof failed")
+		return Result{}, restore(fmt.Errorf("activation runtime identity/readiness proof failed"))
 	}
 	if err := ctl.Doctor(ctx); err != nil {
-		restore()
-		return Result{}, err
+		return Result{}, restore(err)
 	}
 	if err := liveMCPSmoke(ctx, c, targetVersion); err != nil {
-		restore()
-		return Result{}, err
+		return Result{}, restore(err)
 	}
 	return Result{
 		SourceHead: sourceHead,

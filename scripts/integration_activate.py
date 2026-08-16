@@ -91,8 +91,8 @@ def activate(phase: str) -> None:
         if after is None:
             run(
                 [
-                    ctl,
-                    "install",
+                    str(dist / "gpt-tunnelctl"),
+                    "install-and-restart-gateway",
                     "--gateway-bin",
                     str(dist / "gpt-tunnel-gatewayd"),
                     "--cli-bin",

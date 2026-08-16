@@ -125,6 +125,21 @@ func ReplaceAll(dir string, paths map[string]string, old map[string][]byte) erro
 	return nil
 }
 
+// SnapshotAll reads the complete control artifact set before replacement.
+// Callers must retain this snapshot until the new Gateway has passed all
+// readiness and provenance checks.
+func SnapshotAll(paths map[string]string) (map[string][]byte, error) {
+	old := make(map[string][]byte, len(BinaryNames))
+	for _, name := range BinaryNames {
+		data, err := os.ReadFile(paths[name])
+		if err != nil {
+			return nil, fmt.Errorf("snapshot %s: %w", name, err)
+		}
+		old[name] = data
+	}
+	return old, nil
+}
+
 func RestoreAll(paths map[string]string, old map[string][]byte) error {
 	var first error
 	for _, name := range BinaryNames {

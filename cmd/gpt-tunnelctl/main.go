@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/activation"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
@@ -35,6 +36,10 @@ func main() {
 	}
 	if os.Args[1] == "install" {
 		install(os.Args[2:])
+		return
+	}
+	if os.Args[1] == "install-and-restart-gateway" {
+		installAndRestartGateway(os.Args[2:])
 		return
 	}
 	if os.Args[1] == "init-config" {
@@ -129,6 +134,73 @@ func install(args []string) {
 		}
 	}
 	fmt.Println("installed gpt-tunnel-gateway binaries")
+}
+
+func installAndRestartGateway(args []string) {
+	fs := flag.NewFlagSet("install-and-restart-gateway", flag.ExitOnError)
+	gateway := fs.String("gateway-bin", "", "built gpt-tunnel-gatewayd")
+	cli := fs.String("cli-bin", "", "built gpt-tunnel")
+	ctlBin := fs.String("ctl-bin", "", "built gpt-tunnelctl")
+	_ = fs.Parse(args)
+	if *gateway == "" || *cli == "" || *ctlBin == "" {
+		fatal(fmt.Errorf("all three binary paths are required"))
+	}
+	configPath := config.DefaultPath()
+	c, err := config.Load(configPath)
+	if err != nil {
+		fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	ctl := controller.Controller{Config: c, ConfigPath: configPath}
+	target, err := releaseartifacts.BinaryVersion(*gateway)
+	if err != nil {
+		fatal(err)
+	}
+	releaseDir := filepath.Dir(*gateway)
+	if err := releaseartifacts.ValidateRelease(releaseDir, target); err != nil {
+		fatal(err)
+	}
+	if err := activation.SmokeCandidate(ctx, c, *gateway, target); err != nil {
+		fatal(err)
+	}
+	paths := releaseartifacts.Paths(c.Controller.GatewayBinary)
+	old, err := releaseartifacts.SnapshotAll(paths)
+	if err != nil {
+		fatal(err)
+	}
+	if err := releaseartifacts.ReplaceAll(releaseDir, paths, old); err != nil {
+		fatal(err)
+	}
+	rollback := func(cause error) {
+		restoreErr := releaseartifacts.RestoreAll(paths, old)
+		restartErr := ctl.RestartGatewayAfterUpgrade()
+		if restoreErr != nil {
+			fatal(fmt.Errorf("artifact-atomic rollback restore failed: %w; original failure: %v", restoreErr, cause))
+		}
+		if restartErr != nil {
+			fatal(fmt.Errorf("artifact-atomic rollback restart failed: %w; original failure: %v", restartErr, cause))
+		}
+		fatal(cause)
+	}
+	before, err := ctl.Status(ctx)
+	if err != nil {
+		rollback(err)
+	}
+	if err := ctl.RestartGatewayAfterUpgrade(); err != nil {
+		rollback(fmt.Errorf("gateway candidate startup failed: %w", err))
+	}
+	after, err := ctl.Status(ctx)
+	if err != nil {
+		rollback(err)
+	}
+	if after.Tunnel.PID != before.Tunnel.PID || !after.GatewayReady || !after.TunnelReady || !after.VersionMatch {
+		rollback(fmt.Errorf("candidate readiness or Tunnel identity proof failed"))
+	}
+	if err := ctl.Doctor(ctx); err != nil {
+		rollback(err)
+	}
+	output(after)
 }
 func initConfig(args []string) {
 	fs := flag.NewFlagSet("init-config", flag.ExitOnError)

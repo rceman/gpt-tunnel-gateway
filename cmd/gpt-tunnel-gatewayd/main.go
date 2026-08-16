@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -36,11 +37,13 @@ func main() {
 		fatal(err)
 	}
 	svc := service.New(c)
+	startupPhase("HUB_ENSURE")
 	hubCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	if err := svc.Hub.Ensure(hubCtx); err != nil {
 		cancel()
 		fatal(err)
 	}
+	startupPhase("STATE_CHECK")
 	state, err := svc.StateCheck(hubCtx)
 	if err != nil {
 		cancel()
@@ -57,8 +60,15 @@ func main() {
 	trustedMCPContext := authority.WithDelivery(context.Background())
 	go svc.RunWatcherSupervisors(context.Background())
 	srv := newGatewayHTTPServer(c.ListenAddr, (&mcp.Server{Service: svc, AuthorityContext: trustedMCPContext}).Router())
+	startupPhase("HTTP_LISTEN")
+	listener, err := net.Listen("tcp", c.ListenAddr)
+	if err != nil {
+		startupPhase("HTTP_LISTEN_FAILED")
+		fatal(err)
+	}
 	fmt.Fprintf(os.Stderr, "gpt-tunnel-gatewayd %s listening on %s\n", version, c.ListenAddr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	startupPhase("HTTP_READY")
+	if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
 		fatal(err)
 	}
 }
@@ -78,6 +88,10 @@ func newGatewayHTTPServer(addr string, handler http.Handler) *http.Server {
 }
 
 func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnel-gatewayd:", err); os.Exit(1) }
+
+func startupPhase(phase string) {
+	fmt.Fprintf(os.Stderr, "gpt-tunnel-gatewayd startup_phase=%s\n", phase)
+}
 
 func summarizeStateIssues(issues []service.StateIssue) string {
 	parts := make([]string, 0, len(issues))

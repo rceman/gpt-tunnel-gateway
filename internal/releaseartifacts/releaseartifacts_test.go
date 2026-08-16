@@ -55,6 +55,32 @@ func TestReplaceAllReplacesEveryControlBinary(t *testing.T) {
 	}
 }
 
+func TestSnapshotAndRestoreAllPreservesTheCompleteArtifactSet(t *testing.T) {
+	install := t.TempDir()
+	paths := Paths(filepath.Join(install, "gpt-tunnel-gatewayd"))
+	old := make(map[string][]byte, len(BinaryNames))
+	for _, name := range BinaryNames {
+		old[name] = []byte("old-" + name)
+		writeExecutable(t, paths[name], old[name])
+	}
+	snapshot, err := SnapshotAll(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range BinaryNames {
+		writeExecutable(t, paths[name], []byte("candidate-"+name))
+	}
+	if err := RestoreAll(paths, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range BinaryNames {
+		got, err := os.ReadFile(paths[name])
+		if err != nil || string(got) != string(old[name]) {
+			t.Fatalf("%s restore = %q, err=%v", name, got, err)
+		}
+	}
+}
+
 func TestReplaceAllRestoresEarlierBinariesAfterCommitFailure(t *testing.T) {
 	release, install := t.TempDir(), t.TempDir()
 	paths := Paths(filepath.Join(install, "gpt-tunnel-gatewayd"))
