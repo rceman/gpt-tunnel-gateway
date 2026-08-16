@@ -26,7 +26,10 @@ func seedTrainIntegrationOperation(t *testing.T, s *Service, expected string, op
 
 func TestIntegrationOperationReplacesUntouchedStalePrePendingWithCurrentIdentity(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
-	in := TrainV2IntegrateInput{ProjectID: "example", TrainID: "GTW-TRN999"}
+	in := TrainV2IntegrateInput{
+		ProjectID: "example",
+		TrainID:   "GTW-TRN999",
+	}
 	oldSource := strings.Repeat("a", 40)
 	oldTarget := strings.Repeat("b", 40)
 	currentSource := strings.Repeat("c", 40)
@@ -84,7 +87,10 @@ func TestIntegrationOperationReplacesUntouchedStalePrePendingWithCurrentIdentity
 
 func TestIntegrationOperationDoesNotRotateStalePrePendingWithPersistedHookEvidence(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
-	in := TrainV2IntegrateInput{ProjectID: "example", TrainID: "GTW-TRN998"}
+	in := TrainV2IntegrateInput{
+		ProjectID: "example",
+		TrainID:   "GTW-TRN998",
+	}
 	oldSource := strings.Repeat("a", 40)
 	oldTarget := strings.Repeat("b", 40)
 	digest, operationID, err := integrationRequestDigest(in, oldSource, "main", oldTarget)
