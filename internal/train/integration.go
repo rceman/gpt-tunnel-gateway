@@ -8,18 +8,20 @@ import (
 )
 
 type IntegrationOperation struct {
-	SchemaVersion int       `json:"schema_version"`
-	OperationID   string    `json:"operation_id"`
-	ProjectID     string    `json:"project_id"`
-	TrainID       string    `json:"train_id"`
-	RequestSHA256 string    `json:"request_sha256"`
-	SourceHead    string    `json:"source_head"`
-	TargetBranch  string    `json:"target_branch"`
-	TargetBefore  string    `json:"target_before"`
-	Phase         string    `json:"phase"`
-	PreResult     string    `json:"pre_result,omitempty"`
-	PostResult    string    `json:"post_result,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	SchemaVersion         int       `json:"schema_version"`
+	OperationID           string    `json:"operation_id"`
+	ProjectID             string    `json:"project_id"`
+	TrainID               string    `json:"train_id"`
+	RequestSHA256         string    `json:"request_sha256"`
+	SourceHead            string    `json:"source_head"`
+	TargetBranch          string    `json:"target_branch"`
+	TargetBefore          string    `json:"target_before"`
+	Phase                 string    `json:"phase"`
+	PreResult             string    `json:"pre_result,omitempty"`
+	PostResult            string    `json:"post_result,omitempty"`
+	SupersedesOperationID string    `json:"supersedes_operation_id,omitempty"`
+	RecoveryReason        string    `json:"recovery_reason,omitempty"`
+	UpdatedAt             time.Time `json:"updated_at"`
 }
 
 const (
@@ -41,6 +43,12 @@ func ValidateIntegrationOperation(v IntegrationOperation) error {
 	}
 	if model.ValidateObjectIdentifier(v.OperationID) != nil || len(v.RequestSHA256) != 64 || v.UpdatedAt.IsZero() {
 		return fmt.Errorf("invalid integration operation fields")
+	}
+	if v.SupersedesOperationID != "" && model.ValidateObjectIdentifier(v.SupersedesOperationID) != nil {
+		return fmt.Errorf("invalid integration operation supersedes identity")
+	}
+	if len(v.RecoveryReason) > 2048 {
+		return fmt.Errorf("integration operation recovery reason exceeds 2048 bytes")
 	}
 	if model.ValidateCommitSHA(v.SourceHead) != nil || model.ValidateCommitSHA(v.TargetBefore) != nil || model.ValidateBranch(v.TargetBranch) != nil {
 		return fmt.Errorf("invalid integration operation source/target")
