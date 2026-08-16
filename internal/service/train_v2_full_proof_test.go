@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,5 +151,40 @@ func TestTrainV2FullProofCandidateRejectsIncompleteOrInconsistentEvidence(t *tes
 	base.Items[0].Status = model.TrainV2ItemQueued
 	if _, err := trainV2FullProofCandidate(base); err == nil {
 		t.Fatal("queued item was accepted")
+	}
+}
+
+func TestTrainV2FullProofCandidateUsesTerminalSequentialHead(t *testing.T) {
+	now := time.Now().UTC()
+	item := func(position int, taskID, head string) model.TrainV2Item {
+		reviewID := fmt.Sprintf("GTW-TRN999-ITEM%d-ATTEMPT1-REVIEW", position)
+		reportID := fmt.Sprintf("gpt-tunnel/v1/projects/example/train-attempts/GTW-TRN999/item-%d/attempt-1/report.json", position)
+		return model.TrainV2Item{
+			Position: position, TaskID: taskID, TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("b", 64), Status: model.TrainV2ItemReviewed, AddedAt: now,
+			Attempts:                []model.TrainV2Attempt{{Number: 1, Status: model.TrainV2AttemptSucceeded, AgentID: "planner", AirelaySessionKey: "example_master", GatewayID: "home_pc", StartHead: head, StartedAt: now, FinishedAt: &now, ReviewID: reviewID}},
+			SuccessfulAttemptNumber: 1, Proof: &model.TrainV2ImplementationProof{CheckpointHead: head, ImplementationSHA: head, ReportID: reportID, GateResults: []model.CompletionGateResult{{ID: model.WorkflowGateFormat}, {ID: model.WorkflowGateCheck}, {ID: model.WorkflowGateTest}}, RecordedAt: now},
+			Review: &model.TrainV2ItemReview{Outcome: model.ReviewOutcomeAccepted, ReportID: reviewID, ReviewedAt: now},
+		}
+	}
+	first := strings.Repeat("a", 40)
+	last := strings.Repeat("c", 40)
+	train := model.TrainV2{Items: []model.TrainV2Item{item(0, "GTW-TSK1", first), item(1, "GTW-TSK2", last)}}
+	candidate, err := trainV2FullProofCandidate(train)
+	if err != nil || candidate != last {
+		t.Fatalf("terminal candidate=%q err=%v", candidate, err)
+	}
+
+	// Compatibility correction: historical item proofs may be sequential
+	// ancestors rather than identical heads. The terminal item remains the
+	// candidate, while a divergent/non-ancestor proof must fail closed.
+	if err := validateTrainV2FullProofAncestry(train, candidate, func(ancestor, descendant string) (bool, error) {
+		return (ancestor == first && descendant == last) || (ancestor == last && descendant == last), nil
+	}); err != nil {
+		t.Fatalf("sequential ancestor proof heads rejected: %v", err)
+	}
+	if err := validateTrainV2FullProofAncestry(train, candidate, func(string, string) (bool, error) {
+		return false, nil
+	}); err == nil {
+		t.Fatal("divergent/non-ancestor proof head was accepted")
 	}
 }

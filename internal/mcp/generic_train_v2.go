@@ -383,6 +383,50 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "train/review-backfill",
+		Description:  "Dry-run or atomically backfill accepted reviews for immutable pre-review Train Attempts.",
+		InputSchema:  trainV2ReviewBackfillSchema(),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.TrainV2ReviewBackfillInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2ReviewBackfillAsync(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "train/review-backfill_status",
+		Description:  "Read the durable receipt for Train review backfill.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train review backfill operation identifier.")}, "operation_id"),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2ReviewBackfillOperationStatus(ctx, input.OperationID)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "train/full-proof",
 		Description:  "Record full Train proof and move a terminal reviewed Train to ready_for_integration without integrating it.",
 		InputSchema:  trainV2FullProofSchema(),

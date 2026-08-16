@@ -263,6 +263,16 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 			return nil, err
 		}
 		return json.Marshal(result)
+	case "train-v2-review-backfill":
+		var input TrainV2ReviewBackfillInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.TrainV2ReviewBackfill(authority.WithPlannerOrDelivery(ctx), input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
 	case "train-v2-start":
 		var input TrainV2StartInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {

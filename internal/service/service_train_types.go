@@ -65,6 +65,15 @@ type TrainV2FullProofInput struct {
 	WriteOptions
 }
 
+type TrainV2ReviewBackfillInput struct {
+	ProjectID string `json:"project_id"`
+	TrainID   string `json:"train_id"`
+	ItemStart int    `json:"item_start"`
+	ItemEnd   int    `json:"item_end"`
+	Apply     bool   `json:"apply"`
+	WriteOptions
+}
+
 // TrainV2CutoverInput contains only the explicit migration decisions. Source,
 // runtime, active-run and action-registry proofs are derived server-side.
 type TrainV2CutoverInput struct {

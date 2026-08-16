@@ -67,6 +67,17 @@ func trainV2FullProofSchema() map[string]any {
 	}, "project_id", "train_id")
 }
 
+func trainV2ReviewBackfillSchema() map[string]any {
+	return obj(map[string]any{
+		"project_id":            str("Registered project identifier."),
+		"train_id":              str("Server-allocated Train identifier."),
+		"item_start":            integer("Inclusive first item position.", 0, 1000000),
+		"item_end":              integer("Inclusive last item position.", 0, 1000000),
+		"apply":                 map[string]any{"type": "boolean", "description": "Apply the validated migration; false performs a dry-run."},
+		"expected_hub_revision": str("Optimistic Hub revision required for apply."),
+	}, "project_id", "train_id", "item_start", "item_end", "apply")
+}
+
 func trainV2AttemptFinalizeSchema() map[string]any {
 	return obj(map[string]any{
 		"project_id":            str("Registered project identifier."),

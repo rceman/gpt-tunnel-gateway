@@ -95,16 +95,25 @@ func trainV2FullProofCandidate(train model.TrainV2) (string, error) {
 		if attempt.Status != model.TrainV2AttemptSucceeded || attempt.FinishedAt == nil || attempt.ReviewID == "" || attempt.ReviewID != item.Review.ReportID {
 			return "", fmt.Errorf("Train item %q has inconsistent successful Attempt evidence", item.TaskID)
 		}
-		if candidate == "" {
-			candidate = item.Proof.ImplementationSHA
-		} else if candidate != item.Proof.ImplementationSHA {
-			return "", fmt.Errorf("Train items have inconsistent implementation heads")
-		}
+		candidate = item.Proof.ImplementationSHA
 	}
 	if candidate == "" || model.ValidateCommitSHA(candidate) != nil {
 		return "", fmt.Errorf("Train has no valid full-proof candidate")
 	}
 	return candidate, nil
+}
+
+func validateTrainV2FullProofAncestry(train model.TrainV2, candidate string, isAncestor func(string, string) (bool, error)) error {
+	for _, item := range train.Items {
+		ancestor, err := isAncestor(item.Proof.ImplementationSHA, candidate)
+		if err != nil {
+			return err
+		}
+		if !ancestor {
+			return fmt.Errorf("Train item %q proof is not an ancestor of the terminal candidate", item.TaskID)
+		}
+	}
+	return nil
 }
 
 func (s *Service) TrainV2FullProof(ctx context.Context, in TrainV2FullProofInput) (TrainV2FullProofResult, error) {
@@ -155,6 +164,11 @@ func (s *Service) TrainV2FullProof(ctx context.Context, in TrainV2FullProofInput
 	head, branch, clean, err := s.Git.CurrentHead(ctx, lane)
 	if err != nil || !clean || branch != start.LaneBranch || head != candidate {
 		return TrainV2FullProofResult{}, fmt.Errorf("Train lane is not the exact clean full-proof candidate")
+	}
+	if err := validateTrainV2FullProofAncestry(train, candidate, func(ancestor, descendant string) (bool, error) {
+		return s.Git.IsAncestor(ctx, lane.Root, ancestor, descendant)
+	}); err != nil {
+		return TrainV2FullProofResult{}, err
 	}
 	gateNames, err := s.ResolveProjectGates(ctx, in.ProjectID, "integration")
 	if err != nil {
