@@ -19,18 +19,19 @@ import (
 const durableMutationSchemaVersion = 1
 
 type durableMutationOperation struct {
-	SchemaVersion int             `json:"schema_version"`
-	OperationID   string          `json:"operation_id"`
-	Kind          string          `json:"kind"`
-	RequestSHA256 string          `json:"request_sha256"`
-	SessionID     string          `json:"session_id,omitempty"`
-	ProjectID     string          `json:"project_id"`
-	Input         json.RawMessage `json:"input"`
-	Status        string          `json:"status"`
-	Result        json.RawMessage `json:"result,omitempty"`
-	Error         string          `json:"error,omitempty"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
+	SchemaVersion  int             `json:"schema_version"`
+	OperationID    string          `json:"operation_id"`
+	Kind           string          `json:"kind"`
+	RequestSHA256  string          `json:"request_sha256"`
+	SessionID      string          `json:"session_id,omitempty"`
+	ProjectID      string          `json:"project_id"`
+	Input          json.RawMessage `json:"input"`
+	Status         string          `json:"status"`
+	Result         json.RawMessage `json:"result,omitempty"`
+	Error          string          `json:"error,omitempty"`
+	RecoveryReason string          `json:"recovery_reason,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 func durableMutationPath(stateDir, operationID string) string {
@@ -61,13 +62,34 @@ func (s *Service) startDurableMutationWorker() {
 		entries, _ := os.ReadDir(dir)
 		for _, entry := range entries {
 			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
-				s.enqueueDurableMutation(strings.TrimSuffix(entry.Name(), ".json"))
+				operationID := strings.TrimSuffix(entry.Name(), ".json")
+				operation, err := s.readDurableMutation(operationID)
+				if err != nil || operation.Status == "completed" || operation.Status == "failed" {
+					continue
+				}
+				if operation.Status == "running" {
+					if err := s.recoverRunningDurableMutation(operation); err != nil {
+						continue
+					}
+				}
+				s.enqueueDurableMutation(operationID)
 			}
 		}
 		for i := 0; i < 4; i++ {
 			go s.durableMutationWorker()
 		}
 	})
+}
+
+func (s *Service) recoverRunningDurableMutation(operation durableMutationOperation) error {
+	if operation.Status != "running" {
+		return nil
+	}
+	operation.Status = "accepted"
+	operation.Error = ""
+	operation.RecoveryReason = "recovered after Gateway restart; retry is idempotent"
+	operation.UpdatedAt = time.Now().UTC()
+	return s.writeDurableMutation(operation)
 }
 
 func (s *Service) enqueueDurableMutation(operationID string) {

@@ -22,16 +22,17 @@ const taskCreateOperationSchemaVersion = 1
 const taskCreateWorkerCount = 4
 
 type TaskCreateOperation struct {
-	SchemaVersion int                      `json:"schema_version"`
-	OperationID   string                   `json:"operation_id"`
-	RequestSHA256 string                   `json:"request_sha256"`
-	Input         TaskAuthoringCreateInput `json:"input"`
-	Status        string                   `json:"status"`
-	Task          *model.TaskAuthoring     `json:"task,omitempty"`
-	Operation     OperationResult          `json:"operation,omitempty"`
-	Error         string                   `json:"error,omitempty"`
-	CreatedAt     time.Time                `json:"created_at"`
-	UpdatedAt     time.Time                `json:"updated_at"`
+	SchemaVersion  int                      `json:"schema_version"`
+	OperationID    string                   `json:"operation_id"`
+	RequestSHA256  string                   `json:"request_sha256"`
+	Input          TaskAuthoringCreateInput `json:"input"`
+	Status         string                   `json:"status"`
+	Task           *model.TaskAuthoring     `json:"task,omitempty"`
+	Operation      OperationResult          `json:"operation,omitempty"`
+	Error          string                   `json:"error,omitempty"`
+	RecoveryReason string                   `json:"recovery_reason,omitempty"`
+	CreatedAt      time.Time                `json:"created_at"`
+	UpdatedAt      time.Time                `json:"updated_at"`
 }
 
 type TaskCreateReceipt struct {
@@ -181,12 +182,33 @@ func (s *Service) startTaskCreateWorker() {
 			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 				continue
 			}
-			s.enqueueTaskCreate(strings.TrimSuffix(entry.Name(), ".json"))
+			operationID := strings.TrimSuffix(entry.Name(), ".json")
+			operation, err := s.TaskCreateOperationRead(context.Background(), operationID)
+			if err != nil || operation.Status == "completed" || operation.Status == "failed" {
+				continue
+			}
+			if operation.Status == "running" {
+				if err := s.recoverRunningTaskCreate(operation); err != nil {
+					continue
+				}
+			}
+			s.enqueueTaskCreate(operationID)
 		}
 		for i := 0; i < taskCreateWorkerCount; i++ {
 			go s.taskCreateWorker()
 		}
 	})
+}
+
+func (s *Service) recoverRunningTaskCreate(operation TaskCreateOperation) error {
+	if operation.Status != "running" {
+		return nil
+	}
+	operation.Status = "accepted"
+	operation.Error = ""
+	operation.RecoveryReason = "recovered after Gateway restart; retry is idempotent"
+	operation.UpdatedAt = time.Now().UTC()
+	return fsutil.WriteJSONAtomic(taskCreateOperationPath(s.Config.StateDir, operation.OperationID), operation, 0o600)
 }
 
 func (s *Service) enqueueTaskCreate(operationID string) {
