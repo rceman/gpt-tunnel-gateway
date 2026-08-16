@@ -126,3 +126,39 @@ func TestIntegrationOperationDoesNotRotateStalePrePendingWithPersistedHookEviden
 		t.Fatal("unsafe stale operation created recovery history")
 	}
 }
+
+func TestIntegrationOperationResumesPostPendingAfterTargetAdvanced(t *testing.T) {
+	s, revision, _ := testServiceWithoutIdentifiers(t)
+	in := TrainV2IntegrateInput{
+		ProjectID: "example",
+		TrainID:   "GTW-TRN997",
+	}
+	source := strings.Repeat("c", 40)
+	oldTarget := strings.Repeat("b", 40)
+	digest, operationID, err := integrationRequestDigest(in, source, "main", oldTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := trainv2.IntegrationOperation{
+		SchemaVersion: 1,
+		OperationID:   operationID,
+		ProjectID:     in.ProjectID,
+		TrainID:       in.TrainID,
+		RequestSHA256: digest,
+		SourceHead:    source,
+		TargetBranch:  "main",
+		TargetBefore:  oldTarget,
+		Phase:         trainv2.IntegrationPhasePostPending,
+		PreResult:     "pre-hook evidence",
+		UpdatedAt:     time.Now().UTC(),
+	}
+	seedTrainIntegrationOperation(t, s, revision, operation)
+
+	resumed, err := s.integrationOperation(context.Background(), in, source, "main", source, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("post-pending operation did not resume after target advance: %v", err)
+	}
+	if resumed.OperationID != operationID || resumed.RequestSHA256 != digest || resumed.TargetBefore != oldTarget || resumed.PreResult != operation.PreResult || resumed.Phase != trainv2.IntegrationPhasePostPending {
+		t.Fatalf("post-pending operation was rewritten: %#v", resumed)
+	}
+}

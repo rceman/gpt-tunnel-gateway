@@ -115,8 +115,13 @@ func (s *Service) integrationOperation(ctx context.Context, in TrainV2IntegrateI
 	}
 	current, readErr := s.readIntegrationOperation(ctx, in.ProjectID, in.TrainID)
 	if readErr == nil {
-		resumableTarget := target == source && current.Phase != trainv2.IntegrationPhasePrePending && current.Phase != trainv2.IntegrationPhasePreComplete
-		if current.RequestSHA256 != digest || current.SourceHead != source || current.TargetBranch != branch || (current.TargetBefore != target && !resumableTarget) {
+		resumableTarget := target == source && current.Phase == trainv2.IntegrationPhasePostPending
+		sameSourceAndBranch := current.SourceHead == source && current.TargetBranch == branch
+		identityMismatch := current.RequestSHA256 != digest || !sameSourceAndBranch || (current.TargetBefore != target && !resumableTarget)
+		if identityMismatch {
+			if resumableTarget && sameSourceAndBranch {
+				return current, nil
+			}
 			if current.Phase != trainv2.IntegrationPhasePrePending || current.PreResult != "" {
 				return trainv2.IntegrationOperation{}, fmt.Errorf("integration operation recovery_required: durable identity does not match current evidence")
 			}
