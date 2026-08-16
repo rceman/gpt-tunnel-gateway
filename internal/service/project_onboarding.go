@@ -9,9 +9,15 @@ import (
 type ProjectOnboardInput = onboarding.PublicInput
 type ProjectOnboardResult = onboarding.PublicResult
 type ProjectOnboardStatus = onboarding.StatusProjection
+type MinimalProjectOnboardInput = onboarding.MinimalInput
+type MinimalProjectOnboardResult = onboarding.MinimalResult
 
 func (s *Service) ProjectOnboard(ctx context.Context, in ProjectOnboardInput) (ProjectOnboardResult, error) {
 	return onboarding.NewPublicOrchestrator(s.Hub).Onboard(ctx, in)
+}
+
+func (s *Service) ProjectOnboardMinimal(ctx context.Context, in MinimalProjectOnboardInput) (MinimalProjectOnboardResult, error) {
+	return onboarding.NewPublicOrchestrator(s.Hub).OnboardMinimal(ctx, in)
 }
 
 func (s *Service) ProjectOnboardRecover(ctx context.Context, in ProjectOnboardInput) (ProjectOnboardResult, error) {

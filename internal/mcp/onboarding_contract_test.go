@@ -17,7 +17,7 @@ import (
 
 func TestProjectOnboardingMutationAuthorityPrecedesDecode(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{})}
-	malformed := json.RawMessage(`{"request":`)
+	malformed := json.RawMessage(`{"root":`)
 	for _, name := range []string{"project_onboard", "project_onboard_recover"} {
 		_, err := server.tools()[name].Execute(context.Background(), malformed)
 		if err == nil || err.Error() != "AUTHORITY_UNAVAILABLE" {
@@ -41,44 +41,28 @@ func TestProjectOnboardingTrustedContextReachesStrictDecoder(t *testing.T) {
 	}
 }
 
-func TestProjectOnboardingSchemasUseCanonicalUUIDAndClosedNestedRequest(t *testing.T) {
+func TestProjectOnboardingSchemasUseMinimalClosedIntent(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{})}
-	for _, name := range []string{"project_onboard", "project_onboard_status", "project_onboard_recover"} {
+	tool := server.tools()["project_onboard"]
+	if tool.InputSchema["additionalProperties"] != false {
+		t.Fatal("project_onboard input schema is not closed")
+	}
+	properties := tool.InputSchema["properties"].(map[string]any)
+	for _, field := range []string{"project_id", "root", "project_code", "initial_objective"} {
+		if _, ok := properties[field]; !ok {
+			t.Fatalf("project_onboard omitted %s", field)
+		}
+	}
+	if got := stringList(tool.InputSchema["required"]); len(got) != 2 || got[0] != "project_id" || got[1] != "root" {
+		t.Fatalf("project_onboard required fields = %v", got)
+	}
+	if err := validateToolArguments(tool.InputSchema, json.RawMessage(`{"project_id":"example","root":"/tmp","unexpected":true}`)); err == nil {
+		t.Fatal("project_onboard accepted an unknown field")
+	}
+	for _, name := range []string{"project_onboard_status", "project_onboard_recover"} {
 		tool := server.tools()[name]
 		if tool.InputSchema["additionalProperties"] != false {
 			t.Fatalf("%s input schema is not closed", name)
-		}
-		properties := tool.InputSchema["properties"].(map[string]any)
-		operation := properties["operation_id"].(map[string]any)
-		if operation["pattern"] != "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" {
-			t.Fatalf("%s operation_id pattern = %#v", name, operation["pattern"])
-		}
-		request := properties["request"].(map[string]any)
-		if request["additionalProperties"] != false {
-			t.Fatalf("%s request schema is not closed", name)
-		}
-		requestVersion := request["properties"].(map[string]any)["schema_version"].(map[string]any)
-		if requestVersion["const"] != 1 {
-			t.Fatalf("%s request schema_version = %#v, want const 1", name, requestVersion["const"])
-		}
-		initialPlan := request["properties"].(map[string]any)["initial_plan"].(map[string]any)
-		planVersion := initialPlan["properties"].(map[string]any)["schema_version"].(map[string]any)
-		if planVersion["const"] != 2 {
-			t.Fatalf("%s initial_plan schema_version = %#v, want const 2", name, planVersion["const"])
-		}
-		expectedRequired := []string{"schema_version", "project_id", "root", "remote", "repository_url", "default_branch", "airelay", "project_code", "gateway_state_dir", "initial_plan", "expected_hub_revision"}
-		if got := stringList(request["required"]); len(got) != len(expectedRequired) {
-			t.Fatalf("%s request required fields = %v, want %v", name, got, expectedRequired)
-		} else {
-			for i := range expectedRequired {
-				if got[i] != expectedRequired[i] {
-					t.Fatalf("%s request required fields = %v, want %v", name, got, expectedRequired)
-				}
-			}
-		}
-		var decoded service.ProjectOnboardInput
-		if err := decode([]byte(`{"operation_id":"11111111-1111-1111-1111-111111111111","request":{"unexpected":true}}`), &decoded); err == nil {
-			t.Fatalf("%s accepted unknown/missing nested request fields", name)
 		}
 	}
 	if annotations := server.tools()["project_onboard"].Annotations; annotations != (ToolAnnotations{

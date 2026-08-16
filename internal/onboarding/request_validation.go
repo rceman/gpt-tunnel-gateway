@@ -38,8 +38,6 @@ func ValidateRequest(request Request) error {
 		if err := validateSessionKey(*request.Airelay.SessionKey, "airelay.session_key"); err != nil {
 			return err
 		}
-	} else if request.Airelay.SessionKey != nil {
-		return fmt.Errorf("airelay.session_key is forbidden when session_required is false")
 	}
 	if err := validateProjectCode(request.ProjectCode, "project_code"); err != nil {
 		return err

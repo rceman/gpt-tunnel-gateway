@@ -10,7 +10,7 @@ import (
 )
 
 func (c *Coordinator) verifyRegistryAuthority(request Request, receipt Receipt, committed bool) (registryAuthority, error) {
-	if request.Airelay.SessionKey == nil || !request.Airelay.SessionRequired {
+	if request.Airelay.SessionKey == nil {
 		return registryAuthority{}, &CoordinatorError{
 			Code:  ErrOnboardingRecoveryRequired.Error(),
 			Cause: errors.New("managed registry projection requires a required Airelay session key"),

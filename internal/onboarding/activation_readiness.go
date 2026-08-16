@@ -10,7 +10,7 @@ import (
 )
 
 func managedEntryForRequest(request Request) config.ManagedProjectEntry {
-	return config.ManagedProjectEntry{Root: request.Root, RepositoryURL: request.RepositoryURL, Remote: request.Remote, DefaultBranch: request.DefaultBranch, AirelaySessionKey: sessionKey(request)}
+	return config.ManagedProjectEntry{Root: request.Root, RepositoryURL: request.RepositoryURL, Remote: request.Remote, DefaultBranch: request.DefaultBranch, ProjectCode: request.ProjectCode, AirelaySessionKey: sessionKey(request)}
 }
 
 func sessionKey(request Request) string {

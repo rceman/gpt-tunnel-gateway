@@ -31,7 +31,6 @@ func TestDecodeRequestRejectsClosedShapeViolations(t *testing.T) {
     "session_required": true,
     "session_key": "airelay_master"
   },`, `"airelay": {"session_required": true},`),
-		"forbidden optional session key": mustReplace(t, fixture, `"session_required": true,`, `"session_required": false,`),
 		"partial workflow": mustReplace(t, fixture, `"initial_plan": {`, `"workflow": {"repository": "rceman/gpt-review-planner"},
   "initial_plan": {`),
 		"plan project mismatch": mustReplace(t, fixture, `"initial_plan": {
@@ -49,6 +48,14 @@ func TestDecodeRequestRejectsClosedShapeViolations(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			expectInvalid(t, data)
 		})
+	}
+}
+
+func TestDecodeRequestAllowsOptionalSessionKey(t *testing.T) {
+	fixture := string(fixtureBytes(t))
+	optional := mustReplace(t, fixture, `"session_required": true,`, `"session_required": false,`)
+	if _, err := DecodeRequest(optional); err != nil {
+		t.Fatalf("optional session key should be accepted: %v", err)
 	}
 }
 

@@ -44,6 +44,24 @@ func projectOnboardingInputSchema() map[string]any {
 	return obj(map[string]any{"operation_id": operationID, "request": onboardingRequestSchema()}, "operation_id", "request")
 }
 
+func minimalProjectOnboardingInputSchema() map[string]any {
+	projectID := str("Durable project identifier")
+	projectID["pattern"] = "^[a-z0-9][a-z0-9_-]{0,63}$"
+	root := str("Absolute source repository root")
+	code := str("Optional three-letter uppercase project code")
+	code["pattern"] = "^[A-Z]{3}$"
+	objective := str("Optional bounded initial workflow objective")
+	return obj(map[string]any{"project_id": projectID, "root": root, "project_code": code, "initial_objective": objective}, "project_id", "root")
+}
+
+func minimalProjectOnboardingResultSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"project_id": outputString(), "project_code": outputString(), "state": outputString(), "activated": outputBoolean(),
+		"repository_url": outputString(), "default_branch": outputString(), "head": outputString(), "clean": outputBoolean(),
+		"agent_session_key": outputString(), "agent_ready": outputBoolean(), "next_step": outputString(), "operation_id": outputString(),
+	}, "project_id", "project_code", "state", "activated", "repository_url", "default_branch", "head", "clean", "agent_session_key", "agent_ready", "next_step", "operation_id")
+}
+
 func projectOnboardingResultSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"operation_id": outputString(), "project_id": outputString(), "state": outputEnum("prepared", "hub_committed", "recovery_required", "activated"),

@@ -63,7 +63,7 @@ func coreToolOutputSchemas() map[string]map[string]any {
 		"project_workflow_policy_read":   workflowPolicyOutputSchema(),
 		"project_workflow_policy_adopt":  closedOutput(map[string]any{"policy": workflowPolicyOutputSchema(), "operation": operationOutputSchema()}, "policy", "operation"),
 		"project_workflow_policy_update": closedOutput(map[string]any{"policy": workflowPolicyOutputSchema(), "operation": operationOutputSchema()}, "policy", "operation"),
-		"project_onboard":                projectOnboardingResultSchema(),
+		"project_onboard":                minimalProjectOnboardingResultSchema(),
 		"project_onboard_status":         projectOnboardingStatusSchema(),
 		"project_onboard_recover":        projectOnboardingResultSchema(),
 	}

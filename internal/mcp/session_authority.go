@@ -43,7 +43,7 @@ func validateActionAuthorityRole(role string) error {
 
 func typedSessionAuthorityContract(toolName string) (actionAuthorityContract, bool) {
 	contract := actionAuthorityContractFor(toolName)
-	if toolName == "session" || contract.Role == "" {
+	if toolName == "session" || toolName == "project_onboard" || contract.Role == "" {
 		return actionAuthorityContract{}, false
 	}
 	return contract, true

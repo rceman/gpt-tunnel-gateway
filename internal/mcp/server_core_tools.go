@@ -69,15 +69,15 @@ func (s *Server) addCoreTools(add toolAdder) {
 		}
 		return s.Service.ProjectStatus(ctx, id)
 	})
-	add("project_onboard", "Create or resume one trusted durable project onboarding operation.", projectOnboardingInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("project_onboard", "Create one new durable project from a bounded repository intent; no Session or Agent is required.", minimalProjectOnboardingInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		if err := service.RequireOnboardingAuthority(ctx); err != nil {
 			return nil, err
 		}
-		var in service.ProjectOnboardInput
+		var in service.MinimalProjectOnboardInput
 		if err := decode(raw, &in); err != nil {
 			return nil, err
 		}
-		return s.Service.ProjectOnboard(ctx, in)
+		return s.Service.ProjectOnboardMinimal(ctx, in)
 	})
 	add("project_onboard_status", "Read bounded redacted status for one onboarding operation.", projectOnboardingInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.ProjectOnboardInput
