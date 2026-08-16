@@ -173,7 +173,7 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 	if plan.Reconciliation {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("Train integration target still requires reconciliation")
 	}
-	operation, err := s.integrationOperation(ctx, in, laneHead, targetBranch, targetHead, time.Now().UTC())
+	operation, err := s.integrationOperation(ctx, in, laneHead, targetBranch, targetHead, ancestor, time.Now().UTC())
 	if err != nil {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, err
 	}

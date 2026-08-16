@@ -108,7 +108,7 @@ func (s *Service) replaceStaleIntegrationOperation(ctx context.Context, previous
 	return err
 }
 
-func (s *Service) integrationOperation(ctx context.Context, in TrainV2IntegrateInput, source, branch, target string, now time.Time) (trainv2.IntegrationOperation, error) {
+func (s *Service) integrationOperation(ctx context.Context, in TrainV2IntegrateInput, source, branch, target string, targetAncestorOfSource bool, now time.Time) (trainv2.IntegrationOperation, error) {
 	digest, operationID, err := integrationRequestDigest(in, source, branch, target)
 	if err != nil {
 		return trainv2.IntegrationOperation{}, err
@@ -117,10 +117,35 @@ func (s *Service) integrationOperation(ctx context.Context, in TrainV2IntegrateI
 	if readErr == nil {
 		resumableTarget := target == source && current.Phase == trainv2.IntegrationPhasePostPending
 		sameSourceAndBranch := current.SourceHead == source && current.TargetBranch == branch
+		recoverablePostPendingPrefix := current.Phase == trainv2.IntegrationPhasePostPending &&
+			current.TargetBranch == branch &&
+			target == current.SourceHead &&
+			targetAncestorOfSource &&
+			current.SourceHead != source
 		identityMismatch := current.RequestSHA256 != digest || !sameSourceAndBranch || (current.TargetBefore != target && !resumableTarget)
 		if identityMismatch {
 			if resumableTarget && sameSourceAndBranch {
 				return current, nil
+			}
+			if recoverablePostPendingPrefix {
+				replacement := trainv2.IntegrationOperation{
+					SchemaVersion:         1,
+					OperationID:           operationID,
+					ProjectID:             in.ProjectID,
+					TrainID:               in.TrainID,
+					RequestSHA256:         digest,
+					SourceHead:            source,
+					TargetBranch:          branch,
+					TargetBefore:          target,
+					Phase:                 trainv2.IntegrationPhasePrePending,
+					SupersedesOperationID: current.OperationID,
+					RecoveryReason:        "superseded post_pending prefix operation after proving current source descends from target",
+					UpdatedAt:             now,
+				}
+				if err := s.replaceStaleIntegrationOperation(ctx, current, replacement); err != nil {
+					return trainv2.IntegrationOperation{}, fmt.Errorf("integration operation recovery_required: %w", err)
+				}
+				return trainv2.IntegrationOperation{}, fmt.Errorf("integration operation recovery_required: post_pending prefix archived; retry with current source identity")
 			}
 			if current.Phase != trainv2.IntegrationPhasePrePending || current.PreResult != "" {
 				return trainv2.IntegrationOperation{}, fmt.Errorf("integration operation recovery_required: durable identity does not match current evidence")
