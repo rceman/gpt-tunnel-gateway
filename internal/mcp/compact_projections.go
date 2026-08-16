@@ -30,7 +30,7 @@ var projectionClasses = map[string]projectionClass{
 	"project/identifiers_adopt": projectionCompactDefault, "project/identifiers_read": projectionClosedDefault,
 	"project/onboard": projectionCompactDefault, "project/onboard_recover": projectionCompactDefault, "project/onboard_status": projectionClosedDefault, "project/read": projectionIntentionalPayload,
 	"project/register": projectionCompactDefault, "project/remove": projectionCompactDefault, "project/remove_status": projectionClosedDefault, "project/update": projectionCompactDefault, "project/update_status": projectionClosedDefault,
-	"project/workflow_policy_adopt": projectionCompactDefault, "project/workflow_policy_read": projectionClosedDefault, "project/workflow_policy_update": projectionCompactDefault,
+	"project/status": projectionClosedDefault, "project/workflow_policy_adopt": projectionCompactDefault, "project/workflow_policy_read": projectionClosedDefault, "project/workflow_policy_update": projectionCompactDefault,
 	"query/run": projectionIntentionalPayload, "rules/read": projectionIntentionalPayload, "runtime/logs": projectionIntentionalPayload, "runtime/restart": projectionCompactDefault,
 	"session/end": projectionClosedDefault, "session/info": projectionClosedDefault, "session/list": projectionClosedDefault, "session/start": projectionClosedDefault, "session/update": projectionClosedDefault, "system/bootstrap": projectionClosedDefault,
 	"system/batch": projectionClosedDefault, "system/call": projectionClosedDefault, "system/schema": projectionClosedDefault,

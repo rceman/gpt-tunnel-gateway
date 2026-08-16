@@ -12,6 +12,22 @@ func projectStatusOutputSchema() map[string]any {
 	}, "project", "local", "worktree", "plan", "hub_revision", "progress", "workflow_policy", "project_configuration")
 }
 
+func projectOperationalStatusOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"project": closedOutput(map[string]any{"project_id": outputString(), "project_code": outputString()}, "project_id", "project_code"),
+		"state":   outputString(), "task_id": outputString(), "train_id": outputString(), "item_position": outputInteger(), "attempt_number": outputInteger(),
+		"task_state": outputString(), "train_state": outputString(), "item_state": outputString(), "attempt_state": outputString(),
+		"agent": closedOutput(map[string]any{
+			"agent_id": outputString(), "expected": outputString(), "state": outputString(), "session_ready": outputBoolean(), "last_activity": outputDateTime(), "last_activity_age_seconds": outputInteger(),
+		}, "expected", "state", "session_ready", "last_activity_age_seconds"),
+		"operation":   closedOutput(map[string]any{"kind": outputString(), "operation_id": outputString(), "status": outputString()}, "kind", "operation_id", "status"),
+		"integration": closedOutput(map[string]any{"state": outputString(), "candidate_head": outputString(), "runtime_source_sha": outputString(), "ready": outputBoolean(), "version_match": outputBoolean(), "exact_source_match": outputBoolean()}, "state", "ready", "version_match", "exact_source_match"),
+		"rules":       closedOutput(map[string]any{"revision": outputInteger(), "digest": outputString(), "acknowledged": outputBoolean(), "fresh": outputBoolean()}, "revision", "digest", "acknowledged", "fresh"),
+		"release_ci":  closedOutput(map[string]any{"state": outputString(), "tag": outputString(), "sha": outputString(), "status": outputString()}, "state"),
+		"blocker":     outputString(), "recommended_next_action": outputString(),
+	}, "project", "state", "agent", "integration", "rules", "release_ci", "recommended_next_action")
+}
+
 func runtimeIdentityOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"gateway_pid": outputInteger(), "running_executable_path": outputString(), "running_executable_sha256": outputString(),

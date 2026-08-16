@@ -29,12 +29,18 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 			ExecutionInputSchema: schema,
 			Execute:              execute,
 		}}
+		if path == "project/status" {
+			entry.OutputSchema = projectOperationalStatusOutputSchema()
+		}
 		if path == "session/info" {
 			entry.LocalReadOnly = true
 		}
 		entries[path] = entry
 	}
 	add("rules/read", "Read and acknowledge the current rules for the bound project.", obj(map[string]any{}), true, s.rulesReadAction)
+	add("project/status", "Read the compact operational status of the project bound to this Session.", obj(map[string]any{}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return s.Service.ProjectOperationalStatus(ctx)
+	})
 	add("session/list", "List active durable sessions.", obj(map[string]any{}), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.Service.SessionList()
 	})
