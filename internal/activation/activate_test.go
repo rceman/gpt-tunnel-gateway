@@ -29,22 +29,44 @@ func TestBoundedDiagnosticOutputReportsTruncation(t *testing.T) {
 }
 
 func TestLiveMCPSmokeUsesCanonicalToolManifest(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := manifestSmokeServer(t, canonicalRuntimeTools)
+	defer server.Close()
+	c := config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://")}
+	if err := liveMCPSmoke(context.Background(), c, "0.6.11"); err != nil {
+		t.Fatalf("live MCP smoke failed: %v", err)
+	}
+}
+
+func TestLiveMCPSmokeRejectsManifestDrift(t *testing.T) {
+	for _, manifest := range [][]string{
+		{"bootstrap", "call", "project_onboard", "schema", "session_start", "session_update"},
+		{"batch", "call", "schema", "session_start"},
+	} {
+		server := manifestSmokeServer(t, manifest)
+		c := config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://")}
+		if err := liveMCPSmoke(context.Background(), c, "0.6.11"); err == nil {
+			t.Fatalf("manifest %v was accepted", manifest)
+		}
+		server.Close()
+	}
+}
+
+func manifestSmokeServer(t *testing.T, manifest []string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			Method string         `json:"method"`
-			Params map[string]any `json:"params"`
+			Method string `json:"method"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Errorf("decode MCP request: %v", err)
 			return
 		}
 		response := map[string]any{"jsonrpc": "2.0", "id": 1, "result": map[string]any{}}
-		switch request.Method {
-		case "initialize":
+		if request.Method == "initialize" {
 			response["result"] = map[string]any{"serverInfo": map[string]any{"version": "0.6.11"}}
-		case "tools/list":
-			tools := make([]any, 0, len(canonicalRuntimeTools))
-			for _, name := range canonicalRuntimeTools {
+		} else if request.Method == "tools/list" {
+			tools := make([]any, 0, len(manifest))
+			for _, name := range manifest {
 				tools = append(tools, map[string]any{"name": name})
 			}
 			response["result"] = map[string]any{"tools": tools}
@@ -52,12 +74,6 @@ func TestLiveMCPSmokeUsesCanonicalToolManifest(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(response)
 	}))
-	defer server.Close()
-
-	c := config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://")}
-	if err := liveMCPSmoke(context.Background(), c, "0.6.11"); err != nil {
-		t.Fatalf("live MCP smoke failed: %v", err)
-	}
 }
 
 func TestControlReleasePathsExcludeTunnelProcess(t *testing.T) {

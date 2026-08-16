@@ -17,12 +17,13 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
+	"github.com/rceman/gpt-tunnel-gateway/internal/mcpmanifest"
 	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 )
 
 const OutputLimit = 1 << 20
 
-var canonicalRuntimeTools = []string{"batch", "call", "schema", "session_start", "session_update"}
+var canonicalRuntimeTools = mcpmanifest.CanonicalToolNames()
 
 type Result struct {
 	SourceHead string `json:"source_head"`

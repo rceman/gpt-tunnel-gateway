@@ -1,5 +1,7 @@
 package mcp
 
+import "github.com/rceman/gpt-tunnel-gateway/internal/mcpmanifest"
+
 func readOnlyAnnotations() ToolAnnotations {
 	return ToolAnnotations{
 		ReadOnlyHint:    true,
@@ -11,9 +13,7 @@ func readOnlyAnnotations() ToolAnnotations {
 
 // canonicalToolManifest is the single stable public MCP transport inventory. Legacy
 // handlers remain internal action registrations for call/batch resolution.
-var canonicalToolManifest = []string{
-	"bootstrap", "project_onboard", "session_start", "schema", "call", "batch",
-}
+var canonicalToolManifest = mcpmanifest.CanonicalToolNames()
 
 func canonicalToolNames() []string { return append([]string{}, canonicalToolManifest...) }
 func additiveExternalAnnotations() ToolAnnotations {
