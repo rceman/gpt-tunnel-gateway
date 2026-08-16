@@ -27,6 +27,14 @@ func runtimeIdentityOutputSchema() map[string]any {
 
 func coreToolOutputSchemas() map[string]map[string]any {
 	return map[string]map[string]any{
+		"bootstrap": closedOutput(map[string]any{
+			"runtime": closedOutput(map[string]any{
+				"gateway_ready": outputBoolean(), "tunnel_ready": outputBoolean(), "version_match": outputBoolean(),
+				"exact_source_match": outputBoolean(), "source_sha": outputString(), "running_version": outputString(),
+			}, "gateway_ready", "tunnel_ready", "version_match", "exact_source_match"),
+			"projects": outputArray(closedOutput(map[string]any{"project_code": outputString(), "project_id": outputString()}, "project_code", "project_id")),
+			"rules":    closedOutput(map[string]any{"name": outputString(), "revision": outputString(), "content": outputString(), "digest": outputString(), "guidance": outputString()}, "name", "revision", "content", "digest", "guidance"),
+		}, "runtime", "projects", "rules"),
 		"session_start":  sessionStartPublicOutputSchema(),
 		"session_update": sessionUpdatePublicOutputSchema(),
 		"call":           genericCallOutputSchema(),

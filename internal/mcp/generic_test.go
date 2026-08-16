@@ -23,7 +23,11 @@ func genericSessionWithRole(t *testing.T, s *service.Service, projectID, role st
 	if s.Config.StateDir == "" {
 		s.Config.StateDir = t.TempDir()
 	}
-	record, err := durableSession.NewStore(s.Config.StateDir).Create(durableSession.CreateInput{ProjectID: projectID, Role: role, SessionType: durableSession.SessionTypeChatGPT})
+	projectCode := "EXM"
+	if projectID != "example" {
+		projectCode = "OTH"
+	}
+	record, err := durableSession.NewStore(s.Config.StateDir).Create(durableSession.CreateInput{ProjectID: projectID, ProjectCode: projectCode, Role: role, SessionType: durableSession.SessionTypeChatGPT})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,12 +52,9 @@ func genericStructured(t *testing.T, response map[string]any) map[string]any {
 
 func TestGenericSessionStartIsDiscoverableAndCreatesPlannerSession(t *testing.T) {
 	server := newSessionTestServer(t)
-	dispatch := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]any{"name": "session", "arguments": map[string]any{
-			"action": "start", "project_id": "example", "role": durableSession.RolePlanner, "session_type": durableSession.SessionTypeChatGPT,
-		}},
-	})))
+	dispatch := genericStructured(t, sessionCall(t, server, map[string]any{
+		"action": "start", "project_id": "example", "role": durableSession.RolePlanner, "session_type": durableSession.SessionTypeChatGPT,
+	}))
 	if dispatch["action"] != "start" {
 		t.Fatalf("session.start public call failed: %#v", dispatch)
 	}

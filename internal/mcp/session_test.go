@@ -25,6 +25,13 @@ func newSessionTestServer(t *testing.T) *Server {
 	if _, err := s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"}, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead}}); err != nil {
 		t.Fatal(err)
 	}
+	revision, err := s.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.ProjectIdentifiersAdopt(authority.WithPlanner(context.Background()), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: revision}}); err != nil {
+		t.Fatal(err)
+	}
 	return &Server{
 		Service:          s,
 		AuthorityContext: authority.WithDelivery(context.Background()),
@@ -48,7 +55,11 @@ func registerMCPTestCodingAgent(t *testing.T, s *service.Service, revision strin
 
 func sessionCall(t *testing.T, server *Server, args map[string]any) map[string]any {
 	t.Helper()
-	return callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "session", "arguments": args}}))
+	value, err := server.tools()["session"].Execute(server.AuthorityContext, mustJSON(t, args))
+	if err != nil {
+		t.Fatalf("session action failed: %v", err)
+	}
+	return map[string]any{"result": map[string]any{"isError": false, "structuredContent": normalizeObject(value)}}
 }
 
 func TestSessionInputSchemaAdvertisesCanonicalActionsAndIDs(t *testing.T) {
@@ -68,7 +79,7 @@ func TestSessionInputSchemaAdvertisesCanonicalActionsAndIDs(t *testing.T) {
 		delete(wantActions, action)
 		if action == "info" || action == "update" || action == "end" {
 			idSchema := properties["session_id"].(map[string]any)
-			if idSchema["pattern"] != `^(?:S|SP|SD|SA|SW)-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$` {
+			if idSchema["pattern"] != sessionIDPattern {
 				t.Fatalf("%s session ID pattern=%v", action, idSchema["pattern"])
 			}
 		}

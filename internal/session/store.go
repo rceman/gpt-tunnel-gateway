@@ -34,6 +34,7 @@ type Record struct {
 	SchemaVersion        int        `json:"schema_version"`
 	ID                   string     `json:"session_id"`
 	ProjectID            string     `json:"project_id,omitempty"`
+	ProjectCode          string     `json:"project_code,omitempty"`
 	Role                 string     `json:"role"`
 	SessionType          string     `json:"session_type"`
 	SessionRef           *string    `json:"session_ref,omitempty"`
@@ -51,6 +52,7 @@ type Record struct {
 
 type CreateInput struct {
 	ProjectID   string
+	ProjectCode string
 	Role        string
 	SessionType string
 	SessionRef  *string
@@ -81,11 +83,7 @@ func (s Store) Create(input CreateInput) (Record, error) {
 }
 
 func (s Store) CreateUnbound(role string, label *string) (Record, error) {
-	return s.create(CreateInput{
-		Role:        role,
-		Label:       label,
-		SessionType: SessionTypeChatGPT,
-	}, false)
+	return Record{}, fmt.Errorf("%w: unbound sessions are not supported", ErrInvalidSession)
 }
 
 func (s Store) create(input CreateInput, requireProject bool) (Record, error) {
@@ -101,7 +99,7 @@ func (s Store) create(input CreateInput, requireProject bool) (Record, error) {
 	}
 	defer lock.Release()
 	for attempt := 0; attempt < maxCreateAttempts; attempt++ {
-		id, err := s.nextID(input.Role)
+		id, err := s.nextID(input.Role, input.ProjectCode)
 		if err != nil {
 			return Record{}, err
 		}
@@ -119,6 +117,7 @@ func (s Store) create(input CreateInput, requireProject bool) (Record, error) {
 			SchemaVersion: SchemaVersion,
 			ID:            id,
 			ProjectID:     input.ProjectID,
+			ProjectCode:   input.ProjectCode,
 			Role:          input.Role,
 			SessionType:   input.SessionType,
 			SessionRef:    cloneString(input.SessionRef),

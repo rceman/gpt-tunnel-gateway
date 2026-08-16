@@ -7,7 +7,8 @@ import (
 	"strings"
 )
 
-var sessionIDRE = regexp.MustCompile(`^(?:S|SP|SD|SA|SW)-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$`)
+var sessionIDRE = regexp.MustCompile(`^(?:S|SP|SD|SA|SW)-(?:[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}|[A-Z]{3}-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{4})$`)
+var sessionProjectCodeRE = regexp.MustCompile(`^[A-Z]{3}$`)
 
 var (
 	ErrNotFound       = errors.New("session not found")
@@ -18,6 +19,14 @@ var (
 func (r Record) Validate() error {
 	if r.SchemaVersion != SchemaVersion || !sessionIDRE.MatchString(r.ID) || !sessionIDMatchesRole(r.ID, r.Role) || !validRole(r.Role) || !validSessionType(r.SessionType) {
 		return fmt.Errorf("%w: invalid session record", ErrInvalidSession)
+	}
+	if r.ProjectCode != "" {
+		if err := validateProjectCode(r.ProjectCode); err != nil {
+			return err
+		}
+		if sessionIDProjectCode(r.ID) != r.ProjectCode {
+			return fmt.Errorf("%w: session project code does not match session ID", ErrInvalidSession)
+		}
 	}
 	if strings.TrimSpace(r.ProjectID) == "" && r.ProjectRulesRevision != 0 {
 		return fmt.Errorf("%w: unbound session has project rules acknowledgement", ErrInvalidSession)
@@ -38,6 +47,21 @@ func (r Record) Validate() error {
 		return err
 	}
 	return validateOptionalText(r.Label, "label")
+}
+
+func validateProjectCode(value string) error {
+	if !sessionProjectCodeRE.MatchString(value) {
+		return fmt.Errorf("%w: project code must be three uppercase letters", ErrInvalidSession)
+	}
+	return nil
+}
+
+func sessionIDProjectCode(id string) string {
+	parts := strings.Split(id, "-")
+	if len(parts) == 3 && sessionProjectCodeRE.MatchString(parts[1]) {
+		return parts[1]
+	}
+	return ""
 }
 
 func validRole(role string) bool {
@@ -61,6 +85,13 @@ func validSessionType(value string) bool { return value == SessionTypeChatGPT }
 func validateCreateInput(input CreateInput, requireProject bool) error {
 	if (requireProject && strings.TrimSpace(input.ProjectID) == "") || !validRole(input.Role) || !validSessionType(input.SessionType) {
 		return fmt.Errorf("%w: invalid session creation request", ErrInvalidSession)
+	}
+	if input.ProjectCode != "" {
+		if err := validateProjectCode(input.ProjectCode); err != nil {
+			return err
+		}
+	} else if requireProject {
+		return fmt.Errorf("%w: project code is required for bound sessions", ErrInvalidSession)
 	}
 	if err := validateOptionalText(input.SessionRef, "session_ref"); err != nil {
 		return err

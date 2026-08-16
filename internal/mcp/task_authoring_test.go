@@ -14,19 +14,13 @@ import (
 func configureTrainV2MCPTest(t *testing.T, server *Server) {
 	t.Helper()
 	ctx := context.Background()
-	revision, err := server.Service.Hub.RemoteRevision(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	identifiers, operation, err := server.Service.ProjectIdentifiersAdopt(ctx, service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: revision}})
-	if err != nil || identifiers.ProjectCode != "EXM" {
-		t.Fatalf("adopt identifiers: %#v %v", identifiers, err)
-	}
+	revision := ensureMCPTestProjectIdentifiers(t, server.Service)
+	err := error(nil)
 	configuration, err := server.Service.ProjectConfigurationRead(ctx, "example")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = server.Service.Hub.Transact(ctx, operation.Hub.After, "test: seed train_v2 authority", func(worktree string) ([]string, error) {
+	_, err = server.Service.Hub.Transact(ctx, revision, "test: seed train_v2 authority", func(worktree string) ([]string, error) {
 		path := "gpt-tunnel/v1/projects/example/configuration/current.json"
 		latest := configuration
 		latest.ExecutionModel = "train_v2"
@@ -42,6 +36,30 @@ func configureTrainV2MCPTest(t *testing.T, server *Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func ensureMCPTestProjectIdentifiers(t *testing.T, s *service.Service) string {
+	t.Helper()
+	ctx := context.Background()
+	revision, err := s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identifiers, err := s.ProjectIdentifiersRead(ctx, "example")
+	if err == nil {
+		if identifiers.ProjectCode != "EXM" {
+			t.Fatalf("test project code=%q, want EXM", identifiers.ProjectCode)
+		}
+		return revision
+	}
+	if !service.IsNotFound(err) {
+		t.Fatal(err)
+	}
+	identifiers, operation, err := s.ProjectIdentifiersAdopt(ctx, service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: revision}})
+	if err != nil || identifiers.ProjectCode != "EXM" {
+		t.Fatalf("adopt identifiers: %#v %v", identifiers, err)
+	}
+	return operation.Hub.After
 }
 
 func TestTrainV2TaskAuthoringMCPWiringAndSchemaParity(t *testing.T) {

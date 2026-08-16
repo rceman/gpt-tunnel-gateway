@@ -86,7 +86,7 @@ func TestSessionStartValidatesProjectRoleAndTypeBeforeCreation(t *testing.T) {
 	server := newSessionTestServer(t)
 	invalidRole := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"role": "operator"}},
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"project": "EXM", "role": "operator"}},
 	}))
 	if invalidRole["error"] == nil {
 		result, _ := invalidRole["result"].(map[string]any)
@@ -96,7 +96,7 @@ func TestSessionStartValidatesProjectRoleAndTypeBeforeCreation(t *testing.T) {
 	}
 	unknownProjectField := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"role": "delivery", "project_id": "example"}},
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"project": "EXM", "role": "delivery", "project_id": "example"}},
 	}))
 	if unknownProjectField["error"] == nil {
 		t.Fatalf("session_start accepted project_id: %#v", unknownProjectField)
@@ -158,21 +158,30 @@ func TestGenericCallRequiresSessionAndInheritsProject(t *testing.T) {
 	}
 }
 
-func TestSystemPingRemainsStandaloneAndGenericBatchContinues(t *testing.T) {
+func TestBootstrapRemainsStandaloneAndRetiredSystemToolsStayHidden(t *testing.T) {
 	server := newSessionTestServer(t)
-	status := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+	bootstrap := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "status", "arguments": map[string]any{}},
+		"params": map[string]any{"name": "bootstrap", "arguments": map[string]any{}},
 	})))
-	if status["service"] != "gpt-tunnel-gatewayd" {
-		t.Fatalf("standalone status failed: %#v", status)
+	if bootstrap["runtime"] == nil || bootstrap["projects"] == nil || bootstrap["rules"] == nil {
+		t.Fatalf("standalone bootstrap failed: %#v", bootstrap)
+	}
+	for _, retired := range []string{"system_ping", "status"} {
+		retiredResponse := callMCPRaw(t, server, mustJSON(t, map[string]any{
+			"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+			"params": map[string]any{"name": retired, "arguments": map[string]any{}},
+		}))
+		if retiredResponse["error"] == nil {
+			t.Fatalf("retired tool %q remained callable: %#v", retired, retiredResponse)
+		}
 	}
 	root := callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "system"}},
 	}))
 	result, ok := root["result"].(map[string]any)
-	if !ok || result["isError"] != true {
-		t.Fatalf("system domain unexpectedly exposed: %#v", root)
+	if !ok || result["isError"] == true {
+		t.Fatalf("system bootstrap domain schema failed: %#v", root)
 	}
 }

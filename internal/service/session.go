@@ -11,6 +11,7 @@ import (
 
 type SessionStartInput struct {
 	ProjectID   string
+	ProjectCode string
 	Role        string
 	SessionType string
 	SessionRef  *string
@@ -60,10 +61,18 @@ func (s *Service) SessionStart(ctx context.Context, input SessionStartInput) (Se
 	if project.ID != input.ProjectID || project.Status != "active" {
 		return SessionResult{}, fmt.Errorf("session project is not active")
 	}
+	identifiers, identifiersErr := s.ProjectIdentifiersRead(ctx, input.ProjectID)
+	if identifiersErr != nil {
+		return SessionResult{}, fmt.Errorf("session project identifiers unavailable: %w", identifiersErr)
+	}
+	projectCode := identifiers.ProjectCode
+	if input.ProjectCode != "" && input.ProjectCode != projectCode {
+		return SessionResult{}, fmt.Errorf("session project code %q does not match durable project code %q", input.ProjectCode, projectCode)
+	}
 	if _, err := s.EffectiveProjectConfig(input.ProjectID); err != nil {
 		return SessionResult{}, err
 	}
-	record, err := durableSession.NewStore(s.Config.StateDir).Create(durableSession.CreateInput{ProjectID: input.ProjectID, Role: input.Role, SessionType: input.SessionType, SessionRef: input.SessionRef, Label: input.Label})
+	record, err := durableSession.NewStore(s.Config.StateDir).Create(durableSession.CreateInput{ProjectID: input.ProjectID, ProjectCode: projectCode, Role: input.Role, SessionType: input.SessionType, SessionRef: input.SessionRef, Label: input.Label})
 	if err != nil {
 		return SessionResult{}, err
 	}
@@ -73,18 +82,35 @@ func (s *Service) SessionStart(ctx context.Context, input SessionStartInput) (Se
 	}, nil
 }
 
-func (s *Service) SessionStartUnbound(ctx context.Context, role string, label *string) (SessionResult, error) {
-	if err := authority.RequireRole(ctx, role); err != nil {
+func (s *Service) SessionStartByCode(ctx context.Context, projectCode, role string, sessionRef, label *string) (SessionResult, error) {
+	if err := model.ValidateProjectCode(projectCode); err != nil {
 		return SessionResult{}, err
 	}
-	record, err := durableSession.NewStore(s.Config.StateDir).CreateUnbound(role, label)
+	ids, err := s.EffectiveProjectIDs()
 	if err != nil {
 		return SessionResult{}, err
 	}
-	return SessionResult{
-		Action:  "start",
-		Session: record,
-	}, nil
+	for _, projectID := range ids {
+		identifiers, readErr := s.ProjectIdentifiersRead(ctx, projectID)
+		if readErr != nil {
+			continue
+		}
+		if identifiers.ProjectCode == projectCode {
+			return s.SessionStart(ctx, SessionStartInput{
+				ProjectID:   projectID,
+				ProjectCode: projectCode,
+				Role:        role,
+				SessionType: durableSession.SessionTypeChatGPT,
+				SessionRef:  sessionRef,
+				Label:       label,
+			})
+		}
+	}
+	return SessionResult{}, fmt.Errorf("unknown project code %q", projectCode)
+}
+
+func (s *Service) SessionStartUnbound(ctx context.Context, role string, label *string) (SessionResult, error) {
+	return SessionResult{}, fmt.Errorf("unbound sessions are not supported")
 }
 
 func (s *Service) SessionBind(ctx context.Context, input SessionBindInput) (SessionResult, error) {

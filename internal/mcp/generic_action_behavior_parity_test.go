@@ -85,14 +85,7 @@ func callTypedAndGeneric(t *testing.T, server *Server, sessionID, name, action s
 func TestTypedAndGenericTaskListSearchStatusLimitCursorParity(t *testing.T) {
 	s, revision := newWorkflowPolicyStatusService(t)
 	ctx := context.Background()
-	_, identifierOperation, err := s.ProjectIdentifiersAdopt(ctx, service.ProjectIdentifiersAdoptInput{
-		ProjectID: "example", ProjectCode: "EXM",
-		WriteOptions: service.WriteOptions{ExpectedHubRevision: revision},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	revision = identifierOperation.Hub.After
+	revision = ensureMCPTestProjectIdentifiers(t, s)
 	for _, spec := range []struct{ slug, title string }{
 		{"alpha-parity", "Alpha parity task"},
 		{"beta-parity", "Beta parity task"},
@@ -146,22 +139,15 @@ func TestTypedAndGenericTaskListSearchStatusLimitCursorParity(t *testing.T) {
 	assertJSONEqual(t, direct, batchResult)
 }
 
-func TestTypedAndGenericBoundedProjectListParity(t *testing.T) {
-	s, _ := newWorkflowPolicyStatusService(t)
-	server := &Server{
-		Service:          s,
-		AuthorityContext: authority.WithDelivery(context.Background()),
-	}
-	sessionID := genericSession(t, s, "example")
-	projectResponse := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+func TestRetiredProjectListIsNotPubliclyCallable(t *testing.T) {
+	server := newSessionTestServer(t)
+	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "project", "arguments": map[string]any{"action": "list", "input": map[string]any{"limit": 1}}},
-	})))
-	projectGeneric := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "project/list", "input": map[string]any{"limit": 1}}},
-	})))
-	assertJSONEqual(t, projectResponse, projectGeneric)
+		"params": map[string]any{"name": "project_list", "arguments": map[string]any{}},
+	}))
+	if response["error"] == nil {
+		t.Fatalf("retired project_list remained callable: %#v", response)
+	}
 }
 
 func TestGenericAgentTailTranscriptDedupe(t *testing.T) {

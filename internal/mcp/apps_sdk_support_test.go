@@ -43,36 +43,6 @@ func callMCP(t *testing.T, srv *Server, body []byte) map[string]any {
 
 func normalizeLegacySessionStartResult(t *testing.T, srv *Server, response map[string]any, projectID string) map[string]any {
 	t.Helper()
-	result, ok := response["result"].(map[string]any)
-	if !ok {
-		return response
-	}
-	structured, ok := result["structuredContent"].(map[string]any)
-	if !ok {
-		return response
-	}
-	sessionID, _ := structured["session"].(string)
-	if sessionID == "" {
-		return response
-	}
-	bind := callMCPRaw(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 90, "method": "tools/call", "params": map[string]any{"name": "session_update", "arguments": map[string]any{"session": sessionID, "project_id": projectID}}}))
-	bindStructured := genericStructured(t, bind)
-	if bindStructured["is_error"] == true {
-		return response
-	}
-	recordValue, err := durableSession.NewStore(srv.Service.Config.StateDir).Get(sessionID)
-	if err != nil {
-		return response
-	}
-	bound := map[string]any{"session": map[string]any{"session_id": recordValue.ID, "project_id": recordValue.ProjectID, "role": recordValue.Role, "status": recordValue.Status}}
-	read := callMCPRaw(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 91, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}}}}))
-	readStructured := genericStructured(t, read)
-	record, _ := bound["session"].(map[string]any)
-	if readStructured["is_error"] == true && record == nil {
-		return response
-	}
-	structured = map[string]any{"action": "start", "session": record}
-	result["structuredContent"] = structured
 	return response
 }
 
@@ -109,13 +79,12 @@ func prepareLegacyTransportSession(t *testing.T, srv *Server, originalName strin
 	if projectID == "" && originalName == "rules" {
 		projectID, _ = arguments["project_id"].(string)
 	}
-	var record durableSession.Record
-	var err error
 	if projectID == "" {
-		record, err = durableSession.NewStore(srv.Service.Config.StateDir).CreateUnbound(durableSession.RoleDelivery, nil)
-	} else {
-		record, err = durableSession.NewStore(srv.Service.Config.StateDir).Create(durableSession.CreateInput{ProjectID: projectID, Role: durableSession.RoleDelivery, SessionType: durableSession.SessionTypeChatGPT})
+		return body
 	}
+	var record durableSession.Record
+	projectCode := "EXM"
+	record, err := durableSession.NewStore(srv.Service.Config.StateDir).Create(durableSession.CreateInput{ProjectID: projectID, ProjectCode: projectCode, Role: durableSession.RoleDelivery, SessionType: durableSession.SessionTypeChatGPT})
 	if err != nil {
 		t.Fatalf("create legacy transport test session: %v", err)
 	}
@@ -189,6 +158,9 @@ func normalizeLegacyTransportTestRequest(t *testing.T, body []byte) []byte {
 			params["name"] = "session_start"
 			delete(arguments, "action")
 			delete(arguments, "session_type")
+			if projectID, ok := arguments["project_id"].(string); ok && projectID != "" {
+				arguments["project"] = "EXM"
+			}
 			delete(arguments, "project_id")
 			params["arguments"] = arguments
 			return mustJSON(t, request)

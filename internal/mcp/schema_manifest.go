@@ -12,7 +12,7 @@ func readOnlyAnnotations() ToolAnnotations {
 // canonicalToolManifest is the single stable public MCP transport inventory. Legacy
 // handlers remain internal action registrations for call/batch resolution.
 var canonicalToolManifest = []string{
-	"session_start", "session_update", "call", "batch", "schema",
+	"bootstrap", "project_onboard", "session_start", "schema", "call", "batch",
 }
 
 func canonicalToolNames() []string { return append([]string{}, canonicalToolManifest...) }
@@ -43,6 +43,7 @@ func destructiveExternalAnnotations() ToolAnnotations {
 
 var toolAnnotations = func() map[string]ToolAnnotations {
 	result := map[string]ToolAnnotations{}
+	result["bootstrap"] = readOnlyAnnotations()
 	result["schema"] = readOnlyAnnotations()
 	result["session_start"] = destructiveExternalAnnotations()
 	result["session_update"] = idempotentMutationAnnotations()

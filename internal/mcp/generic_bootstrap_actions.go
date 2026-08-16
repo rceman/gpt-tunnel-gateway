@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
@@ -35,33 +34,12 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		}
 		entries[path] = entry
 	}
-	add("session/start", "Start an unbound durable session.", sessionStartPublicInputSchema(), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var in struct {
-			Role  string  `json:"role"`
-			Label *string `json:"label"`
-		}
-		if err := decode(raw, &in); err != nil {
-			return nil, err
-		}
-		trusted, err := authority.BootstrapSessionAuthority(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return s.Service.SessionStartUnbound(trusted, in.Role, in.Label)
-	})
 	add("rules/read", "Read and acknowledge the current rules for the bound project.", obj(map[string]any{}), true, s.rulesReadAction)
 	add("session/list", "List active durable sessions.", obj(map[string]any{}), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.Service.SessionList()
 	})
 	add("session/info", "Read the durable session bound to the public session.", obj(map[string]any{}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.sessionActionForContext(ctx, "info", nil)
-	})
-	add("session/update", "Update the durable session metadata.", obj(map[string]any{"label": str("Optional bounded session label."), "ref": str("Optional caller reference.")}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var in sessionUpdateActionInput
-		if err := decode(raw, &in); err != nil {
-			return nil, err
-		}
-		return s.sessionActionForContext(ctx, "update", &in)
 	})
 	add("session/end", "End the durable session bound to the public session.", obj(map[string]any{}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.sessionActionForContext(ctx, "end", nil)

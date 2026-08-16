@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -15,6 +16,7 @@ func TestStoreCreateReloadUpdateAndEnd(t *testing.T) {
 	ref, label := "conversation-1", "primary"
 	record, err := store.Create(CreateInput{
 		ProjectID:   "example",
+		ProjectCode: "EXM",
 		Role:        RoleDelivery,
 		SessionType: SessionTypeChatGPT,
 		SessionRef:  &ref,
@@ -54,7 +56,7 @@ func TestStoreCreateReloadUpdateAndEnd(t *testing.T) {
 
 func TestStoreRetriesIDCollisionAtomically(t *testing.T) {
 	state := t.TempDir()
-	ids := []string{"S-01234567", "S-01234567", "S-89ABCDEF"}
+	ids := []string{"SP-EXM-0123", "SP-EXM-0123", "SP-EXM-89AB"}
 	store := NewStore(state)
 	store.IDGenerator = func() (string, error) {
 		id := ids[0]
@@ -63,6 +65,7 @@ func TestStoreRetriesIDCollisionAtomically(t *testing.T) {
 	}
 	if _, err := store.Create(CreateInput{
 		ProjectID:   "example",
+		ProjectCode: "EXM",
 		Role:        RolePlanner,
 		SessionType: SessionTypeChatGPT,
 	}); err != nil {
@@ -70,10 +73,11 @@ func TestStoreRetriesIDCollisionAtomically(t *testing.T) {
 	}
 	created, err := store.Create(CreateInput{
 		ProjectID:   "example",
+		ProjectCode: "EXM",
 		Role:        RolePlanner,
 		SessionType: SessionTypeChatGPT,
 	})
-	if err != nil || created.ID != "S-89ABCDEF" {
+	if err != nil || created.ID != "SP-EXM-89AB" {
 		t.Fatalf("collision retry record=%#v err=%v", created, err)
 	}
 }
@@ -81,16 +85,17 @@ func TestStoreRetriesIDCollisionAtomically(t *testing.T) {
 func TestStoreCreatesRoleTypedIDsAndReadsLegacyIDs(t *testing.T) {
 	state := t.TempDir()
 	store := NewStore(state)
-	for role, prefix := range map[string]string{RolePlanner: "SP-", RoleDelivery: "SD-", RoleAgent: "SA-", RoleWatcher: "SW-"} {
+	for role, prefix := range map[string]string{RolePlanner: "SP-EXM-", RoleDelivery: "SD-EXM-", RoleAgent: "SA-EXM-", RoleWatcher: "SW-EXM-"} {
 		record, err := store.Create(CreateInput{
 			ProjectID:   "example",
+			ProjectCode: "EXM",
 			Role:        role,
 			SessionType: SessionTypeChatGPT,
 		})
 		if err != nil {
 			t.Fatalf("create %s: %v", role, err)
 		}
-		if len(record.ID) != 11 || record.ID[:3] != prefix {
+		if len(record.ID) != 11 || !strings.HasPrefix(record.ID, prefix) {
 			t.Fatalf("role %s received ID %q", role, record.ID)
 		}
 	}

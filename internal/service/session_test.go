@@ -26,8 +26,22 @@ func TestServiceSessionLifecycleUsesRegisteredProject(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	revision, err := s.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.ProjectIdentifiersAdopt(authority.WithPlanner(context.Background()), ProjectIdentifiersAdoptInput{
+		ProjectID:   "example",
+		ProjectCode: "EXM",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	started, err := s.SessionStart(authority.WithDelivery(context.Background()), SessionStartInput{
 		ProjectID:   "example",
+		ProjectCode: "EXM",
 		Role:        "delivery",
 		SessionType: "chatgpt",
 	})

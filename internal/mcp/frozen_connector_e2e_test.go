@@ -116,17 +116,14 @@ func TestFrozenConnectorDiscoversAndInvokesRuntimeActionWithoutReconnect(t *test
 		t.Fatal("initial tools/list was empty")
 	}
 	started := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "session_start", "arguments": map[string]any{"role": durableSession.RoleDelivery},
+		"name": "session_start", "arguments": map[string]any{"project": "EXM", "role": durableSession.RoleDelivery},
 	}))
 	sessionID := started["session"].(string)
 	bound := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "session_update", "arguments": map[string]any{"session": sessionID, "project_id": "example"},
+		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}},
 	}))
 	if bound["is_error"] == true {
-		t.Fatalf("session bind failed: %#v", bound)
-	}
-	if bound["project_id"] != "example" || bound["rules_acknowledgement_required"] != false || bound["project_rules_acknowledged"] != true || bound["rules"] == nil {
-		t.Fatalf("unexpected session update: %#v", bound)
+		t.Fatalf("project status through bound session failed: %#v", bound)
 	}
 	rules := frozenResult(t, client.request(t, "tools/call", map[string]any{
 		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}},

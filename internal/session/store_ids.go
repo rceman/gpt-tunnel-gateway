@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-func (s Store) nextID(role string) (string, error) {
+func (s Store) nextID(role, projectCode string) (string, error) {
 	if s.IDGenerator != nil {
 		return s.IDGenerator()
 	}
@@ -29,6 +29,12 @@ func (s Store) nextID(role string) (string, error) {
 	prefix := map[string]string{RolePlanner: SessionIDPrefixPlanner, RoleDelivery: SessionIDPrefixDelivery, RoleAgent: SessionIDPrefixAgent, RoleWatcher: SessionIDPrefixWatcher}[role]
 	if prefix == "" {
 		return "", fmt.Errorf("%w: unsupported session role", ErrInvalidSession)
+	}
+	if projectCode != "" {
+		if err := validateProjectCode(projectCode); err != nil {
+			return "", err
+		}
+		return prefix + "-" + projectCode + "-" + string(encoded[4:]), nil
 	}
 	return prefix + "-" + string(encoded[:]), nil
 }

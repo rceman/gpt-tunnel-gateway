@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,18 +86,10 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatalf("status failed: %#v", status)
 	}
 
-	projectStatus := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": map[string]any{"name": "status", "arguments": map[string]any{"session_id": sessionID}}}))
-	projectStatusResult := genericStructured(t, projectStatus)
-	projectStatusContent := projectStatusResult["project_status"].(map[string]any)
-	if projectStatusContent["progress"] == nil {
-		t.Fatalf("session-bound project status aggregation failed: %#v", projectStatus)
-	}
-	local := projectStatusContent["local"].(map[string]any)
-	if _, ok := local["root"]; ok || strings.Contains(string(mustJSON(t, projectStatusContent)), c.Projects["example"].Root) || strings.Contains(string(mustJSON(t, projectStatusContent)), "example_master") {
-		t.Fatalf("project status exposed internal project metadata: %#v", projectStatusContent)
-	}
-	if schema, err := json.Marshal(toolOutputSchemas["project_status"]); err != nil || strings.Contains(string(schema), `"root"`) {
-		t.Fatalf("project status schema exposed repository root: %s", schema)
+	rules := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}}}}))
+	rulesResult := genericStructured(t, rules)
+	if rulesResult["is_error"] != false {
+		t.Fatalf("session-bound project rules read failed: %#v", rules)
 	}
 
 	unknown := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/prompt", "input": map[string]any{"message": "hello", "session_key": "arbitrary"}}}}))

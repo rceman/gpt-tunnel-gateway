@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"sort"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
@@ -19,7 +18,7 @@ func globalWorkflowRules() map[string]any {
 	return map[string]any{
 		"name":     "gpt-tunnel-workflow",
 		"revision": globalWorkflowRevision,
-		"content":  "Bind one project, then perform project work; inspect schema only when a contract is unknown.",
+		"content":  "Bootstrap, bind one immutable project Session, read project/status, then perform project work; inspect schema only when a contract is unknown.",
 	}
 }
 
@@ -31,14 +30,16 @@ func globalWorkflowDigest() string {
 
 func sessionStartPublicInputSchema() map[string]any {
 	return obj(map[string]any{
-		"role":  str("Server-authorized session role."),
-		"label": str("Optional bounded session label."),
-	}, "role")
+		"project": str("Immutable three-letter project code."),
+		"role":    str("Server-authorized session role."),
+		"label":   str("Optional bounded session label."),
+		"ref":     str("Optional caller reference."),
+	}, "project", "role")
 }
 
 func sessionUpdatePublicInputSchema() map[string]any {
 	sessionID := str("Existing durable session identifier.")
-	sessionID["pattern"] = `^(?:S|SP|SD|SA|SW)-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$`
+	sessionID["pattern"] = sessionIDPattern
 	return obj(map[string]any{
 		"session":    sessionID,
 		"project_id": str("Canonical registered project identifier."),
@@ -53,11 +54,10 @@ func sessionStartPublicOutputSchema() map[string]any {
 	rules := map[string]any{"type": "object", "additionalProperties": true}
 	return closedOutput(map[string]any{
 		"session":    sessionIDOutputSchema(),
+		"project":    project,
 		"rules":      rules,
-		"workflow":   rules,
-		"projects":   outputArray(project),
 		"next_steps": outputArray(outputString()),
-	}, "session", "rules", "projects", "next_steps")
+	}, "session", "project", "rules", "next_steps")
 }
 
 func sessionUpdatePublicOutputSchema() map[string]any {
@@ -74,8 +74,10 @@ func sessionUpdatePublicOutputSchema() map[string]any {
 
 func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (any, error) {
 	var in struct {
-		Role  string  `json:"role"`
-		Label *string `json:"label"`
+		Project string  `json:"project"`
+		Role    string  `json:"role"`
+		Label   *string `json:"label"`
+		Ref     *string `json:"ref"`
 	}
 	if err := decode(raw, &in); err != nil {
 		return nil, err
@@ -84,7 +86,7 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	if err != nil {
 		return nil, err
 	}
-	started, err := s.Service.SessionStartUnbound(trusted, in.Role, in.Label)
+	started, err := s.Service.SessionStartByCode(trusted, in.Project, in.Role, in.Ref, in.Label)
 	if err != nil {
 		return nil, err
 	}
@@ -94,43 +96,36 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	if err != nil {
 		return nil, err
 	}
-	// Bootstrap must preserve the project summary contract, but it must not
-	// refresh or read the Hub. The effective local registry is sufficient for
-	// the bounded identity/default-branch summary; durable project details are
-	// read only after the caller binds a project.
-	resolution, err := s.Service.EffectiveProjectSnapshot()
+	project, err := s.Service.ProjectRead(ctx, started.Session.ProjectID)
 	if err != nil {
 		return nil, err
 	}
-	ids := make([]string, 0, len(resolution.Projects))
-	for id := range resolution.Projects {
-		ids = append(ids, id)
+	identifiers, err := s.Service.ProjectIdentifiersRead(ctx, started.Session.ProjectID)
+	if err != nil {
+		return nil, err
 	}
-	sort.Strings(ids)
-	if max := s.Service.Config.MaxListItems; max > 0 && len(ids) > max {
-		ids = ids[:max]
+	policy, err := s.Service.ProjectWorkflowPolicyReadFast(ctx, started.Session.ProjectID)
+	if err != nil {
+		return nil, err
 	}
-	projectSummaries := make([]map[string]any, 0, len(ids))
-	for _, id := range ids {
-		project := resolution.Projects[id]
-		summary := map[string]any{
-			"project_id":     id,
-			"status":         "active",
-			"default_branch": project.DefaultBranch,
-		}
-		if project.ProjectCode != "" {
-			summary["project_code"] = project.ProjectCode
-		}
-		projectSummaries = append(projectSummaries, summary)
+	projectSummary := map[string]any{
+		"project_id":     project.ID,
+		"project_code":   identifiers.ProjectCode,
+		"status":         project.Status,
+		"default_branch": project.DefaultBranch,
 	}
 	return map[string]any{
-		"session":  started.Session.ID,
-		"rules":    workflowWithDigest(workflow, digest),
-		"workflow": workflowWithDigest(workflow, digest),
-		"projects": projectSummaries,
+		"session": started.Session.ID,
+		"project": projectSummary,
+		"rules": map[string]any{
+			"global":                 workflowWithDigest(workflow, digest),
+			"project":                policy,
+			"project_rules_revision": policy.Revision,
+			"project_rules_digest":   digestJSON(policy),
+		},
 		"next_steps": []string{
-			"bind one project through session_update",
-			"perform project work",
+			"read project/status",
+			"perform project work through call or batch",
 			"inspect schema only when a contract is unknown",
 		},
 	}, nil

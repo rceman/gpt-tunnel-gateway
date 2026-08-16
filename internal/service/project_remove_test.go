@@ -82,7 +82,7 @@ func TestProjectRemoveCleansManagedStateButPreservesExternalRootAndIsIdempotent(
 func TestProjectRemoveRefusesActiveSessionWithoutMutation(t *testing.T) {
 	s, _, revision := registerManagedRemovalProject(t)
 	store := session.NewStore(s.Config.StateDir)
-	record, err := store.Create(session.CreateInput{ProjectID: "removable", Role: session.RolePlanner, SessionType: session.SessionTypeChatGPT})
+	record, err := store.Create(session.CreateInput{ProjectID: "removable", ProjectCode: "REM", Role: session.RolePlanner, SessionType: session.SessionTypeChatGPT})
 	if err != nil {
 		t.Fatal(err)
 	}

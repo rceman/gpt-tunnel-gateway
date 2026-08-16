@@ -70,10 +70,10 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	arguments := map[string]any{"role": "delivery"}
+	arguments := map[string]any{}
 	body := mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": arguments, "_meta": map[string]any{"role": "delivery"}},
+		"params": map[string]any{"name": "project_onboard", "arguments": arguments, "_meta": map[string]any{"role": "delivery"}},
 	})
 	without := callMCP(t, &Server{Service: svc}, body)
 	withoutText, _ := json.Marshal(without)
@@ -95,8 +95,7 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 		Service:          svc,
 		AuthorityContext: authority.WithDelivery(context.Background()),
 	}, body)
-	withStructured := genericStructured(t, with)
-	withText, _ := json.Marshal(withStructured)
+	withText, _ := json.Marshal(with)
 	if strings.Contains(string(withText), "AUTHORITY_UNAVAILABLE") {
 		t.Fatalf("trusted server ignored configured authority: %s", withText)
 	}
