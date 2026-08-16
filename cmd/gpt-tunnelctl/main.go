@@ -159,48 +159,147 @@ func installAndRestartGateway(args []string) {
 	}
 	releaseDir := filepath.Dir(*gateway)
 	if err := releaseartifacts.ValidateRelease(releaseDir, target); err != nil {
-		fatal(err)
+		emitActivationFailure("artifact_validation", err, nil, nil)
 	}
 	if err := activation.SmokeCandidate(ctx, c, *gateway, target); err != nil {
-		fatal(err)
+		emitActivationFailure("candidate_smoke", err, nil, nil)
 	}
 	paths := releaseartifacts.Paths(c.Controller.GatewayBinary)
 	old, err := releaseartifacts.SnapshotAll(paths)
 	if err != nil {
-		fatal(err)
+		emitActivationFailure("artifact_snapshot", err, nil, nil)
 	}
 	if err := releaseartifacts.ReplaceAll(releaseDir, paths, old); err != nil {
-		fatal(err)
+		emitActivationFailure("artifact_replacement", err, nil, nil)
 	}
-	rollback := func(cause error) {
+	rollback := func(failedPhase string, cause error, restartDiagnostics *controller.GatewayStartupDiagnostics) {
 		restoreErr := releaseartifacts.RestoreAll(paths, old)
-		restartErr := ctl.RestartGatewayAfterUpgrade()
+		rollbackDiagnostics, restartErr := ctl.RestartGatewayAfterUpgradeDiagnostics()
+		rollbackState := &activationRollbackDiagnostics{
+			ArtifactsRestored: restoreErr == nil,
+			GatewayRestarted:  restartErr == nil,
+		}
 		if restoreErr != nil {
-			fatal(fmt.Errorf("artifact-atomic rollback restore failed: %w; original failure: %v", restoreErr, cause))
+			rollbackState.RestoreError = boundedError(restoreErr)
 		}
 		if restartErr != nil {
-			fatal(fmt.Errorf("artifact-atomic rollback restart failed: %w; original failure: %v", restartErr, cause))
+			rollbackState.RestartError = boundedError(restartErr)
 		}
-		fatal(cause)
+		rollbackState.RestartDiagnostics = startupDiagnostics(rollbackDiagnostics)
+		if restoreErr != nil || restartErr != nil {
+			emitActivationFailure("rollback", fmt.Errorf("rollback failed after %s: restore=%v restart=%v; original failure: %v", failedPhase, restoreErr, restartErr, cause), rollbackState, restartDiagnostics)
+		}
+		emitActivationFailure(failedPhase, cause, rollbackState, restartDiagnostics)
 	}
 	before, err := ctl.Status(ctx)
 	if err != nil {
-		rollback(err)
+		rollback("preflight", err, nil)
 	}
-	if err := ctl.RestartGatewayAfterUpgrade(); err != nil {
-		rollback(fmt.Errorf("gateway candidate startup failed: %w", err))
+	restartDiagnostics, restartErr := ctl.RestartGatewayAfterUpgradeDiagnostics()
+	if restartErr != nil {
+		rollback("gateway_restart_readiness", fmt.Errorf("gateway candidate startup failed: %w", restartErr), &restartDiagnostics)
 	}
 	after, err := ctl.Status(ctx)
 	if err != nil {
-		rollback(err)
+		rollback("gateway_restart_readiness", err, &restartDiagnostics)
 	}
 	if after.Tunnel.PID != before.Tunnel.PID || !after.GatewayReady || !after.TunnelReady || !after.VersionMatch {
-		rollback(fmt.Errorf("candidate readiness or Tunnel identity proof failed"))
+		rollback("gateway_restart_readiness", fmt.Errorf("candidate readiness or Tunnel identity proof failed"), &restartDiagnostics)
 	}
 	if err := ctl.Doctor(ctx); err != nil {
-		rollback(err)
+		rollback("doctor", err, &restartDiagnostics)
 	}
 	output(after)
+}
+
+type activationFailureDiagnostics struct {
+	SchemaVersion  int                            `json:"schema_version"`
+	Phase          string                         `json:"phase"`
+	Error          string                         `json:"error"`
+	ErrorTruncated bool                           `json:"error_truncated"`
+	Rollback       *activationRollbackDiagnostics `json:"rollback,omitempty"`
+	Restart        *activationStartupDiagnostics  `json:"restart,omitempty"`
+}
+
+type activationRollbackDiagnostics struct {
+	ArtifactsRestored  bool                          `json:"artifacts_restored"`
+	GatewayRestarted   bool                          `json:"gateway_restarted"`
+	RestoreError       string                        `json:"restore_error,omitempty"`
+	RestartError       string                        `json:"restart_error,omitempty"`
+	RestartDiagnostics *activationStartupDiagnostics `json:"restart_diagnostics,omitempty"`
+}
+
+type activationStartupDiagnostics struct {
+	Phase                  string `json:"phase"`
+	CaptureStatus          string `json:"capture_status"`
+	TargetPID              int    `json:"target_pid,omitempty"`
+	TargetProcessRunning   bool   `json:"target_process_running"`
+	TargetProcessExited    bool   `json:"target_process_exited"`
+	ProcessStateError      string `json:"process_state_error,omitempty"`
+	AliveButUnready        bool   `json:"alive_but_unready"`
+	ElapsedMilliseconds    int64  `json:"elapsed_ms"`
+	ReadinessPassed        bool   `json:"readiness_passed"`
+	Error                  string `json:"error,omitempty"`
+	LogDelta               string `json:"log_delta,omitempty"`
+	LogDeltaTruncated      bool   `json:"log_delta_truncated"`
+	DiagnosticCaptureError string `json:"diagnostic_capture_error,omitempty"`
+}
+
+func boundedError(err error) string {
+	value, _ := boundedErrorWithTruncation(err)
+	return value
+}
+
+func boundedErrorWithTruncation(err error) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+	return activation.BoundedDiagnosticOutput([]byte(err.Error()))
+}
+
+func startupDiagnostics(value controller.GatewayStartupDiagnostics) *activationStartupDiagnostics {
+	result := &activationStartupDiagnostics{
+		Phase:                value.Phase,
+		CaptureStatus:        value.CaptureStatus,
+		TargetPID:            value.TargetPID,
+		TargetProcessRunning: value.TargetProcessRunning,
+		TargetProcessExited:  value.TargetProcessExited,
+		AliveButUnready:      value.AliveButUnready,
+		ElapsedMilliseconds:  value.Elapsed.Milliseconds(),
+		ReadinessPassed:      value.ReadinessPassed,
+		LogDelta:             value.LogDelta,
+		LogDeltaTruncated:    value.LogDeltaTruncated,
+	}
+	if value.ProcessStateError != nil {
+		result.ProcessStateError = boundedError(value.ProcessStateError)
+	}
+	if value.Error != nil {
+		result.Error = boundedError(value.Error)
+	}
+	if value.LogCaptureError != nil {
+		result.DiagnosticCaptureError = boundedError(value.LogCaptureError)
+	}
+	return result
+}
+
+func emitActivationFailure(phase string, err error, rollback *activationRollbackDiagnostics, restart *controller.GatewayStartupDiagnostics) {
+	errorText, truncated := boundedErrorWithTruncation(err)
+	diagnostic := activationFailureDiagnostics{
+		SchemaVersion:  1,
+		Phase:          phase,
+		Error:          errorText,
+		ErrorTruncated: truncated,
+		Rollback:       rollback,
+	}
+	if restart != nil {
+		diagnostic.Restart = startupDiagnostics(*restart)
+	}
+	payload, marshalErr := json.Marshal(diagnostic)
+	if marshalErr != nil {
+		fatal(fmt.Errorf("activation failure diagnostics: %w; original failure: %s", marshalErr, errorText))
+	}
+	fmt.Fprintln(os.Stderr, "gpt-tunnelctl: activation_failure", string(payload))
+	os.Exit(1)
 }
 func initConfig(args []string) {
 	fs := flag.NewFlagSet("init-config", flag.ExitOnError)

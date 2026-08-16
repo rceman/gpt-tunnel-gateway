@@ -10,14 +10,42 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import re
 
 
 ARTIFACTS = ("gpt-tunnel", "gpt-tunnel-gatewayd", "gpt-tunnelctl")
+DIAGNOSTIC_LIMIT = 16 * 1024
 
 
-def run(argv: list[str], root: Path, *, text: bool = True) -> str:
-    completed = subprocess.run(argv, cwd=root, check=True, text=text, capture_output=True)
-    return completed.stdout
+def bounded(value: bytes) -> tuple[str, bool]:
+    truncated = len(value) > DIAGNOSTIC_LIMIT
+    return value[:DIAGNOSTIC_LIMIT].decode("utf-8", errors="replace"), truncated
+
+
+def redact(value: str) -> str:
+    value = re.sub(r"(?i)(authorization\s*:\s*bearer\s+)[^\s,;]+", r"\1[redacted]", value)
+    value = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer [redacted]", value)
+    return re.sub(r"(?i)(token|password|secret|authorization|api[_-]?key)(\s*[:=]\s*)[^\s,;]+", r"\1\2[redacted]", value)
+
+
+def run(argv: list[str], root: Path, *, text: bool = True, phase: str = "command") -> str:
+    try:
+        completed = subprocess.run(argv, cwd=root, check=True, text=text, capture_output=True)
+        return completed.stdout
+    except subprocess.CalledProcessError as exc:
+        stdout, stdout_truncated = bounded((exc.stdout or "").encode("utf-8"))
+        stderr, stderr_truncated = bounded((exc.stderr or "").encode("utf-8"))
+        evidence = {
+            "schema_version": 1,
+            "phase": phase,
+            "command": Path(argv[0]).name if argv else "unknown",
+            "exit_code": exc.returncode,
+            "stdout": redact(stdout),
+            "stdout_truncated": stdout_truncated,
+            "stderr": redact(stderr),
+            "stderr_truncated": stderr_truncated,
+        }
+        raise RuntimeError("activation child failure: " + json.dumps(evidence, sort_keys=True)) from exc
 
 
 def sha256(path: Path) -> str:
@@ -83,9 +111,9 @@ def activate(phase: str) -> None:
 
     with tempfile.TemporaryDirectory(prefix="gpt-tunnel-integration-") as directory:
         dist = Path(directory) / "dist"
-        run(["bash", "scripts/build-release.sh", str(dist)], root)
+        run(["bash", "scripts/build-release.sh", str(dist)], root, phase="release_build")
         artifact_hashes = {name: sha256(dist / name) for name in ARTIFACTS}
-        run(["sha256sum", "-c", "SHA256SUMS"], dist)
+        run(["sha256sum", "-c", "SHA256SUMS"], dist, phase="artifact_checksum")
         after = healthy_exact_runtime(ctl, root, artifact_hashes)
         restarted = False
         if after is None:
@@ -101,6 +129,7 @@ def activate(phase: str) -> None:
                     str(dist / "gpt-tunnelctl"),
                 ],
                 root,
+                phase="install_and_restart_gateway",
             )
             installed = {name: sha256(Path.home() / ".local" / "bin" / name) for name in ARTIFACTS}
             if installed != artifact_hashes:

@@ -16,6 +16,22 @@ SPEC.loader.exec_module(integration_activate)
 
 
 class IntegrationActivateTests(unittest.TestCase):
+    def test_failed_child_preserves_bounded_phase_streams_and_redacts(self):
+        large = "x" * (integration_activate.DIAGNOSTIC_LIMIT + 100)
+        failure = subprocess.CalledProcessError(7, ["gpt-tunnelctl"], output=large, stderr="token=secret-value\nAuthorization: Bearer abc123\n" + large)
+        with mock.patch.object(integration_activate.subprocess, "run", side_effect=failure):
+            with self.assertRaises(RuntimeError) as raised:
+                integration_activate.run(["/tmp/gpt-tunnelctl", "install-and-restart-gateway"], Path("/tmp"), phase="install_and_restart_gateway")
+        payload = json.loads(str(raised.exception).split(": ", 1)[1])
+        self.assertEqual(payload["phase"], "install_and_restart_gateway")
+        self.assertEqual(payload["exit_code"], 7)
+        self.assertTrue(payload["stdout_truncated"])
+        self.assertTrue(payload["stderr_truncated"])
+        self.assertNotIn("secret-value", payload["stderr"])
+        self.assertNotIn("abc123", payload["stderr"])
+        self.assertIn("[redacted]", payload["stderr"])
+        self.assertLessEqual(len(payload["stdout"].encode()), integration_activate.DIAGNOSTIC_LIMIT)
+
     def test_exact_active_runtime_skips_install_and_restart(self):
         with tempfile.TemporaryDirectory(prefix="integration-activate-test-") as temp:
             root = Path(temp)

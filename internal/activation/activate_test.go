@@ -21,6 +21,13 @@ func TestBoundedOutputIsDeterministicAndLimited(t *testing.T) {
 	}
 }
 
+func TestBoundedDiagnosticOutputReportsTruncation(t *testing.T) {
+	value, truncated := BoundedDiagnosticOutput([]byte(strings.Repeat("x", DiagnosticOutputLimit+1)))
+	if !truncated || len(value) != DiagnosticOutputLimit {
+		t.Fatalf("diagnostic output bound=%d truncated=%v", len(value), truncated)
+	}
+}
+
 func TestLiveMCPSmokeUsesCanonicalToolManifest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
