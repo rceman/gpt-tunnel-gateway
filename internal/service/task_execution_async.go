@@ -97,8 +97,15 @@ func (s *Service) TaskWorkOperationStatus(ctx context.Context, operationID strin
 }
 
 func (s *Service) TaskFinalizeAsync(ctx context.Context, in TaskFinalizeInput) (TaskFinalizeReceipt, error) {
-	if in.ProjectID == "" || in.TaskID == "" {
-		return TaskFinalizeReceipt{}, fmt.Errorf("project_id and task_id are required for asynchronous task/finalize")
+	if in.TaskID == "" {
+		return TaskFinalizeReceipt{}, fmt.Errorf("task_id is required for asynchronous task/finalize")
+	}
+	if in.ProjectID == "" {
+		task, err := s.TaskAuthoringFind(ctx, in.TaskID)
+		if err != nil {
+			return TaskFinalizeReceipt{}, err
+		}
+		in.ProjectID = task.ProjectID
 	}
 	operation, err := s.enqueueTypedDurableMutation(ctx, "task-finalize", in.ProjectID, in)
 	if err != nil {

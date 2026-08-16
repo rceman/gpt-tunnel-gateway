@@ -84,10 +84,12 @@ func trainV2AttemptFinalizeSchema() map[string]any {
 		"train_id":              str("Server-allocated Train identifier."),
 		"item_position":         integer("Zero-based TrainItem position.", 0, 1000000),
 		"attempt_number":        integer("TrainItem-local Attempt number.", 1, 1000000),
-		"completion_file":       str("Canonical local Attempt completion receipt path."),
 		"summary":               str("Optional server-owned summary."),
+		"acceptance_coverage":   array(str("Acceptance criterion identifier.")),
+		"deviations":            array(str("Bounded deviation.")),
+		"remaining_risks":       array(str("Bounded remaining risk.")),
 		"expected_hub_revision": str("Optimistic Hub revision."),
-	}, "project_id", "train_id", "item_position", "attempt_number", "completion_file")
+	}, "project_id", "train_id", "item_position", "attempt_number")
 }
 
 func trainV2AttemptReviewSchema() map[string]any {

@@ -129,8 +129,13 @@ type TaskWorkResult struct {
 }
 
 type TaskFinalizeInput struct {
-	ProjectID string `json:"project_id"`
-	TaskID    string `json:"task_id"`
+	ProjectID          string   `json:"project_id,omitempty"`
+	TaskID             string   `json:"task_id"`
+	Summary            string   `json:"summary,omitempty"`
+	AcceptanceCoverage []string `json:"acceptance_coverage,omitempty"`
+	Deviations         []string `json:"deviations,omitempty"`
+	RemainingRisks     []string `json:"remaining_risks,omitempty"`
+	WriteOptions
 }
 
 type AgentRecoverInput struct {

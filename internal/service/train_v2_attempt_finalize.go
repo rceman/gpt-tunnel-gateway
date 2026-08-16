@@ -17,12 +17,15 @@ import (
 )
 
 type TrainV2AttemptFinalizeInput struct {
-	ProjectID      string `json:"project_id"`
-	TrainID        string `json:"train_id"`
-	ItemPosition   int    `json:"item_position"`
-	AttemptNumber  uint64 `json:"attempt_number"`
-	CompletionFile string `json:"completion_file,omitempty"`
-	Summary        string `json:"summary,omitempty"`
+	ProjectID          string   `json:"project_id"`
+	TrainID            string   `json:"train_id"`
+	ItemPosition       int      `json:"item_position"`
+	AttemptNumber      uint64   `json:"attempt_number"`
+	CompletionFile     string   `json:"completion_file,omitempty"`
+	Summary            string   `json:"summary,omitempty"`
+	AcceptanceCoverage []string `json:"acceptance_coverage,omitempty"`
+	Deviations         []string `json:"deviations,omitempty"`
+	RemainingRisks     []string `json:"remaining_risks,omitempty"`
 	WriteOptions
 }
 
@@ -136,7 +139,7 @@ func (s *Service) TrainV2AttemptFinalize(ctx context.Context, in TrainV2AttemptF
 	if err != nil || finalHead != head || finalBranch != branch || !finalClean {
 		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("Train lane changed during Attempt gates")
 	}
-	completion, err := s.readTrainV2AttemptCompletion(ctx, in, task, item, attempt)
+	completion, err := s.readTrainV2AttemptCompletion(ctx, in, task, item, attempt, serverGates)
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
@@ -214,14 +217,19 @@ func (s *Service) TrainV2AttemptFinalize(ctx context.Context, in TrainV2AttemptF
 	}, nil
 }
 
-func (s *Service) readTrainV2AttemptCompletion(ctx context.Context, in TrainV2AttemptFinalizeInput, task model.TaskAuthoring, item model.TrainV2Item, attempt model.TrainV2Attempt) (model.TrainV2AttemptCompletion, error) {
+func (s *Service) readTrainV2AttemptCompletion(ctx context.Context, in TrainV2AttemptFinalizeInput, task model.TaskAuthoring, item model.TrainV2Item, attempt model.TrainV2Attempt, serverGates []model.CompletionGateResult) (model.TrainV2AttemptCompletion, error) {
 	path := in.CompletionFile
 	if path == "" {
-		var err error
-		path, err = s.trainV2AttemptCompletionPath(ctx, in.ProjectID, in.TrainID, item.TaskID, item.Position, attempt.Number)
-		if err != nil {
-			return model.TrainV2AttemptCompletion{}, err
+		summary := in.Summary
+		if summary == "" {
+			summary = "Gateway finalized the exact TrainItem Attempt from server-owned evidence."
 		}
+		return model.TrainV2AttemptCompletion{
+			SchemaVersion: 1, TrainID: in.TrainID, TaskID: item.TaskID, ItemPosition: item.Position,
+			AttemptNumber: attempt.Number, TaskSHA256: task.RevisionSHA256, Status: "succeeded", Summary: summary,
+			GateResults: append([]model.CompletionGateResult{}, serverGates...), AcceptanceCoverage: append([]string{}, in.AcceptanceCoverage...),
+			Deviations: append([]string{}, in.Deviations...), RemainingRisks: append([]string{}, in.RemainingRisks...),
+		}, nil
 	}
 	info, err := os.Lstat(path)
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {

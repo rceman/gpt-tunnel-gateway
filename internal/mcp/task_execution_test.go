@@ -13,12 +13,16 @@ func TestTaskExecutionSchemasAreTaskIdentityOnly(t *testing.T) {
 		if _, ok := properties["completion_file"]; ok {
 			t.Fatalf("%s exposes completion_file", name)
 		}
-		if _, ok := properties["summary"]; ok {
-			t.Fatalf("%s exposes summary", name)
-		}
 	}
-	properties := finalize["properties"].(map[string]any)
-	if _, ok := properties["task_id"]; !ok {
+	finalizeProperties := finalize["properties"].(map[string]any)
+	if _, ok := finalizeProperties["task_id"]; !ok {
 		t.Fatal("finalize does not expose task_id")
+	}
+	if _, ok := finalizeProperties["summary"]; !ok {
+		t.Fatal("finalize does not expose bounded semantic summary")
+	}
+	required, ok := finalize["required"].([]string)
+	if !ok || len(required) != 1 || required[0] != "task_id" {
+		t.Fatalf("finalize required fields=%#v, want task_id only", finalize["required"])
 	}
 }

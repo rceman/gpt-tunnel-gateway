@@ -21,7 +21,24 @@ const (
 	taskCheckpointAuthorEmail = "gpt-tunnel-gateway@localhost"
 )
 
+func validateTaskFinalizeSemantics(in TaskFinalizeInput) error {
+	if len([]byte(in.Summary)) > 4096 || len(in.AcceptanceCoverage) > 128 || len(in.Deviations) > 128 || len(in.RemainingRisks) > 128 {
+		return fmt.Errorf("Task finalize semantic data exceeds bounds")
+	}
+	for _, values := range [][]string{in.AcceptanceCoverage, in.Deviations, in.RemainingRisks} {
+		for _, value := range values {
+			if len([]byte(value)) > 1024 {
+				return fmt.Errorf("Task finalize semantic value exceeds bounds")
+			}
+		}
+	}
+	return nil
+}
+
 func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInput) (TrainV2AttemptFinalizeResult, error) {
+	if err := validateTaskFinalizeSemantics(in); err != nil {
+		return TrainV2AttemptFinalizeResult{}, err
+	}
 	if in.ProjectID == "" {
 		task, err := s.TaskAuthoringFind(ctx, in.TaskID)
 		if err != nil {
@@ -123,20 +140,28 @@ func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInp
 	}
 	finished := time.Now().UTC()
 	reportPath := trainV2AttemptReportPath(in.ProjectID, current.Train.ID, current.Item.Position, current.Attempt.Number)
+	summary := in.Summary
+	if summary == "" {
+		summary = taskFinalizeSummary
+	}
 	report := model.TrainV2AttemptReport{
 		SchemaVersion: 1, TrainID: current.Train.ID, TaskID: in.TaskID, ItemPosition: current.Item.Position,
-		AttemptNumber: current.Attempt.Number, ProjectID: in.ProjectID, Status: "succeeded", Summary: taskFinalizeSummary,
-		GateResults: []model.CompletionGateResult{}, ServerGateResults: serverGates, AcceptanceCoverage: []string{},
-		Deviations: []string{}, RemainingRisks: []string{},
+		AttemptNumber: current.Attempt.Number, ProjectID: in.ProjectID, Status: "succeeded", Summary: summary,
+		GateResults: []model.CompletionGateResult{}, ServerGateResults: serverGates, AcceptanceCoverage: append([]string{}, in.AcceptanceCoverage...),
+		Deviations: append([]string{}, in.Deviations...), RemainingRisks: append([]string{}, in.RemainingRisks...),
 		Repository: model.RepositoryProof{Branch: finalBranch, Head: finalHead, WorktreeClean: true, BaseAncestor: true, Commits: []string{finalHead}, ChangedFiles: changed, DiffScope: "attempt-start..task-checkpoint"},
 		FinishedAt: finished,
 	}
 	if err := model.ValidateTrainV2AttemptReport(report); err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
-	expected, err := s.hubRevision(ctx)
-	if err != nil {
-		return TrainV2AttemptFinalizeResult{}, err
+	expected := in.ExpectedHubRevision
+	if expected == "" {
+		var err error
+		expected, err = s.hubRevision(ctx)
+		if err != nil {
+			return TrainV2AttemptFinalizeResult{}, err
+		}
 	}
 	tx, err := s.Hub.Transact(ctx, expected, "gateway: finalize Task checkpoint", func(worktree string) ([]string, error) {
 		var latest model.TrainV2

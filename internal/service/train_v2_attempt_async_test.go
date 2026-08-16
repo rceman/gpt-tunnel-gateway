@@ -4,7 +4,33 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
+
+func TestTrainV2AttemptCompletionIsServerMaterializedWithoutAgentFile(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	task := model.TaskAuthoring{SchemaVersion: 1, ID: "GTW-TSK285", RevisionSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	item := model.TrainV2Item{Position: 0, TaskID: task.ID}
+	attempt := model.TrainV2Attempt{Number: 1}
+	completion, err := s.readTrainV2AttemptCompletion(context.Background(), TrainV2AttemptFinalizeInput{
+		ProjectID:     "example",
+		TrainID:       "GTW-TRN999",
+		ItemPosition:  0,
+		AttemptNumber: 1,
+		Summary:       "server materialized completion",
+	}, task, item, attempt, []model.CompletionGateResult{
+		{ID: model.WorkflowGateFormat, ExitCode: 0},
+		{ID: model.WorkflowGateCheck, ExitCode: 0},
+		{ID: model.WorkflowGateTest, ExitCode: 0},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completion.TaskID != task.ID || completion.TaskSHA256 != task.RevisionSHA256 || completion.Status != "succeeded" || completion.Summary != "server materialized completion" || len(completion.GateResults) != 3 {
+		t.Fatalf("unexpected server completion: %#v", completion)
+	}
+}
 
 func TestTrainV2AttemptMutationsReturnBoundedReceipts(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)

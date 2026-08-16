@@ -24,10 +24,14 @@ func taskWorkSchema() map[string]any {
 
 func taskFinalizeSchema() map[string]any {
 	return obj(map[string]any{
-		"project_id":            str("Server-bound project identifier."),
+		"project_id":            str("Optional project hint; server resolves the canonical project from Task identity."),
 		"task_id":               str("Canonical Task identifier."),
+		"summary":               str("Optional bounded semantic completion summary."),
+		"acceptance_coverage":   array(str("Acceptance criterion identifier.")),
+		"deviations":            array(str("Bounded deviation.")),
+		"remaining_risks":       array(str("Bounded remaining risk.")),
 		"expected_hub_revision": str("Optimistic Hub revision."),
-	}, "project_id", "task_id")
+	}, "task_id")
 }
 
 func (s *Server) registerTaskExecutionActions() error {
@@ -76,7 +80,7 @@ func (s *Server) registerTaskExecutionActions() error {
 	}
 	return s.RegisterGenericAction(GenericAction{
 		Path:         "task/finalize",
-		Description:  "Finalize the exact current TrainItem Attempt addressed by Task identity.",
+		Description:  "Finalize the exact current TrainItem Attempt addressed by Task identity. Leave scoped edits uncommitted; the Gateway owns gates, checkpoint commit, completion/report/proof, and no completion file is required.",
 		InputSchema:  taskFinalizeSchema(),
 		OutputSchema: taskFinalizeReceiptOutputSchema(),
 		Annotations: ToolAnnotations{
