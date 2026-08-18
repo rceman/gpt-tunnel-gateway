@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -24,6 +26,14 @@ func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
 		return result, nil
 	}
 	result.ConfiguredProjectIDs = append(result.ConfiguredProjectIDs, configuredIDs...)
+	snapshot, err := s.Hub.FreshReadSnapshot(ctx)
+	if err != nil {
+		result.Issues = append(result.Issues, stateIssue("HUB_UNAVAILABLE", "", "", "", err.Error()))
+		result.Valid = false
+		return result, nil
+	}
+	defer snapshot.Close()
+	ctx = hub.WithReadSnapshot(ctx, snapshot)
 	revision, err := s.Hub.RemoteRevision(ctx)
 	if err != nil {
 		result.Issues = append(result.Issues, stateIssue("HUB_UNAVAILABLE", "", "", "", err.Error()))
@@ -66,6 +76,44 @@ func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
 		}
 		if project.Status != "active" {
 			result.Issues = append(result.Issues, stateIssue("CONFIGURED_PROJECT_NOT_ACTIVE", id, "", s.projectPath(id), "configured project is not active"))
+		}
+		trains, trainErr := s.readTrainV2Records(ctx, id)
+		if trainErr != nil {
+			if !IsNotFound(trainErr) {
+				result.Issues = append(result.Issues, stateIssue("TRAIN_V2_UNAVAILABLE", id, "", s.trainV2Root(id), trainErr.Error()))
+			}
+			continue
+		}
+		owners := make(map[string]string)
+		reported := make(map[string]bool)
+		for _, train := range trains {
+			if train.Historical != nil {
+				continue
+			}
+			for _, item := range train.Items {
+				if owner, exists := owners[item.TaskID]; exists {
+					if !reported[item.TaskID] {
+						result.Issues = append(result.Issues, stateIssue("DUPLICATE_TRAIN_TASK_MEMBERSHIP", id, item.TaskID, s.trainV2Path(id, train.ID), fmt.Sprintf("Task %q belongs to Trains %q and %q", item.TaskID, owner, train.ID)))
+						reported[item.TaskID] = true
+					}
+					continue
+				}
+				owners[item.TaskID] = train.ID
+			}
+		}
+		for _, train := range trains {
+			if train.Historical != nil {
+				continue
+			}
+			classification, classifyErr := s.classifyTrainV2LifecycleWithContext(ctx, id, train)
+			if classifyErr != nil {
+				result.Issues = append(result.Issues, stateIssue("TRAIN_V2_RECONCILIATION_UNAVAILABLE", id, "", s.trainV2Path(id, train.ID), classifyErr.Error()))
+				continue
+			}
+			switch classification.Class {
+			case trainV2ClassStale, trainV2ClassAmbiguous:
+				result.Issues = append(result.Issues, stateIssue("TRAIN_STALE_RECONCILIATION_REQUIRED", id, "", s.trainV2Path(id, train.ID), classification.Detail))
+			}
 		}
 	}
 	// Plan files remain immutable history and are intentionally not part of

@@ -40,21 +40,22 @@ type AgentTaskPacket struct {
 type PacketMaterializer func(context.Context, model.TrainV2, model.TrainV2Item, model.TrainV2Attempt, RuntimeBinding) (AgentTaskPacket, error)
 
 type StartDependencies struct {
-	Hub                hub.Store
-	Git                gitx.Runner
-	Airelay            airelay.Client
-	ProjectConfig      config.ProjectConfig
-	Project            model.Project
-	Policy             model.ProjectWorkflowPolicy
-	Train              model.TrainV2
-	GatewayID          string
-	ProjectCode        string
-	SessionOrigin      string
-	StateDir           string
-	MaterializePacket  PacketMaterializer
-	ReadTask           func(context.Context, string, string) (model.TaskAuthoring, error)
-	ReadTaskInWorktree func(string, string, string) (model.TaskAuthoring, error)
-	Now                func() time.Time
+	Hub                              hub.Store
+	Git                              gitx.Runner
+	Airelay                          airelay.Client
+	ProjectConfig                    config.ProjectConfig
+	Project                          model.Project
+	Policy                           model.ProjectWorkflowPolicy
+	Train                            model.TrainV2
+	GatewayID                        string
+	ProjectCode                      string
+	SessionOrigin                    string
+	StateDir                         string
+	MaterializePacket                PacketMaterializer
+	ReadTask                         func(context.Context, string, string) (model.TaskAuthoring, error)
+	ReadTaskInWorktree               func(string, string, string) (model.TaskAuthoring, error)
+	ValidateTaskMembershipInWorktree func(string, string, string) error
+	Now                              func() time.Time
 }
 
 type StartResult struct {

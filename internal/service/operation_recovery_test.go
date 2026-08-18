@@ -4,6 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,6 +39,33 @@ func TestRecoverRunningDurableMutationForStartup(t *testing.T) {
 	}
 	if recovered.Status != "accepted" || recovered.RecoveryReason == "" || recovered.Error != "" {
 		t.Fatalf("recovered operation=%#v", recovered)
+	}
+}
+
+func TestDurableMutationReadsBoundedCapturedStateCompatibility(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	operationID := "mutation-captured-state"
+	raw := []byte(`{"schema_version":1,"operation_id":"mutation-captured-state","kind":"train-v2-advance","request_sha256":"` + strings.Repeat("a", 64) + `","project_id":"example","input":{"train_id":"GTW-TRN11"},"status":"failed","captured_state":"revision=unbound;train=GTW-TRN11;item=16;task=GTW-TSK273;attempt=1","created_at":"2026-08-18T00:00:00Z","updated_at":"2026-08-18T00:00:01Z"}`)
+	if err := os.MkdirAll(filepath.Dir(durableMutationPath(s.Config.StateDir, operationID)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(durableMutationPath(s.Config.StateDir, operationID), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(durableMutationPath(s.Config.StateDir, operationID)) })
+	operation, err := s.readDurableMutation(operationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if operation.CapturedState == "" || operation.Status != "failed" {
+		t.Fatalf("captured state compatibility was lost: %#v", operation)
+	}
+	bad := append(append([]byte{}, raw[:len(raw)-1]...), []byte(`,"unrelated":true}`)...)
+	if err := os.WriteFile(durableMutationPath(s.Config.StateDir, operationID), bad, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.readDurableMutation(operationID); err == nil {
+		t.Fatal("unrelated durable mutation field was accepted")
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/activation"
@@ -428,9 +429,62 @@ func stateCommand(ctx context.Context, c config.Config) {
 		stateMigrateTrainV2Attempts(ctx, s)
 	case "retire-run-state":
 		stateRetireRunState(ctx, s)
+	case "migrate-train-v2-legacy":
+		stateMigrateTrainV2Legacy(ctx, s)
 	default:
 		usage()
 	}
+}
+
+func stateMigrateTrainV2Legacy(ctx context.Context, s *service.Service) {
+	input := service.TrainV2LegacyStateMigrationInput{}
+	modeSet, projectSet := false, false
+	for i := 3; i < len(os.Args); i++ {
+		if os.Args[i] == "--dry-run" || os.Args[i] == "--apply" {
+			if modeSet {
+				usage()
+			}
+			modeSet = true
+			input.Apply = os.Args[i] == "--apply"
+			continue
+		}
+		if i+1 >= len(os.Args) {
+			usage()
+		}
+		value := os.Args[i+1]
+		switch os.Args[i] {
+		case "--project":
+			input.ProjectID, projectSet = value, true
+		case "--expected-hub-revision":
+			input.ExpectedHubRevision = value
+		case "--reason":
+			input.Reason = value
+		case "--action":
+			parts := strings.Split(value, ":")
+			if len(parts) != 3 && len(parts) != 4 && len(parts) != 6 {
+				fatal(fmt.Errorf("--action requires action:train_id:train_sha256[:integration_sha256[:mutation_id:mutation_sha256]]"))
+			}
+			action := service.TrainV2LegacyStateMigrationAction{Action: parts[0], TrainID: parts[1], TrainSHA256: parts[2]}
+			if len(parts) == 4 {
+				action.IntegrationSHA256 = parts[3]
+			}
+			if len(parts) == 6 {
+				action.IntegrationSHA256, action.IntegrationMutationID, action.IntegrationMutationSHA256 = parts[3], parts[4], parts[5]
+			}
+			input.Actions = append(input.Actions, action)
+		default:
+			usage()
+		}
+		i++
+	}
+	if !modeSet || !projectSet || len(input.Actions) == 0 || (input.Apply && input.ExpectedHubRevision == "") {
+		usage()
+	}
+	result, err := s.TrainV2MigrateLegacyState(ctx, input)
+	if err != nil {
+		fatal(err)
+	}
+	output(result)
 }
 
 func stateRetireRunState(ctx context.Context, s *service.Service) {
@@ -550,7 +604,7 @@ func copyExecutable(src, dst string) error {
 	return os.Rename(name, dst)
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade [inspect|status]|start|stop|restart|restart-gateway|status|doctor|diagnose-startup|state {check|repair --dry-run|repair --apply|migrate-train-v2-attempts --project <project> --train <train> --dry-run|migrate-train-v2-attempts --project <project> --train <train> --apply|retire-run-state --project <project> --dry-run|retire-run-state --project <project> --apply}|logs [gateway|tunnel|all] [lines]|version}")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade [inspect|status]|start|stop|restart|restart-gateway|status|doctor|diagnose-startup|state {check|repair --dry-run|repair --apply|migrate-train-v2-attempts --project <project> --train <train> --dry-run|migrate-train-v2-attempts --project <project> --train <train> --apply|retire-run-state --project <project> --dry-run|retire-run-state --project <project> --apply|migrate-train-v2-legacy --project <project> --action action:train:sha[:opsha[:mutation:mutationsha]] --dry-run|migrate-train-v2-legacy --project <project> --action action:train:sha[:opsha[:mutation:mutationsha]] --apply --expected-hub-revision <sha>}|logs [gateway|tunnel|all] [lines]|version}")
 	os.Exit(2)
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnelctl:", err); os.Exit(1) }

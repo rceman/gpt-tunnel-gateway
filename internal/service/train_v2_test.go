@@ -103,6 +103,42 @@ func TestTrainV2ServicePersistsPureAdmissionResults(t *testing.T) {
 	}
 }
 
+func TestTrainV2CreateRejectsTaskAlreadyAdmittedByAnotherTrain(t *testing.T) {
+	s, hubRevision, _ := testServiceWithoutIdentifiers(t)
+	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)
+	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
+	task, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "Duplicate Train membership")
+	_, firstOperation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
+		ProjectID: "example",
+		TaskIDs:   []string{task.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := firstOperation.Hub.After
+	if _, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
+		ProjectID: "example",
+		TaskIDs:   []string{task.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: before,
+		},
+	}); err == nil || !strings.Contains(err.Error(), "already belongs to train") {
+		t.Fatalf("duplicate Task membership was not rejected without mutation: %v", err)
+	}
+	after, err := s.hubRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatalf("duplicate membership changed Hub revision from %s to %s", before, after)
+	}
+}
+
 func TestTrainV2ListSortsGloballyBeforeApplyingLimit(t *testing.T) {
 	s, hubRevision, _ := testServiceWithoutIdentifiers(t)
 	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)

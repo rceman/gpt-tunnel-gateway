@@ -3,9 +3,12 @@ package service
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
+	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
@@ -52,6 +55,11 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 			return s.finishTrainReconciliationRestart(ctx, in.ProjectID, in.TrainID, receipt)
 		}
 	}
+	integrationLock, err := s.acquireTrainV2IntegrationLock(ctx, in.ProjectID)
+	if err != nil {
+		return trainv2.IntegrationReceipt{}, OperationResult{}, err
+	}
+	defer integrationLock.Release()
 	train, err := s.TrainV2Read(ctx, in.ProjectID, in.TrainID)
 	if err != nil {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, err
@@ -87,7 +95,7 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 	if err != nil || !laneClean || laneBranch != start.LaneBranch {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("Train lane worktree is unavailable or changed")
 	}
-	targetHead, exists, err := s.Git.MirrorBranchHead(ctx, project, targetBranch)
+	targetHead, exists, err := s.trainV2IntegrationTargetHead(ctx, project, targetBranch)
 	if err != nil || !exists {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("integration branch is unavailable")
 	}
@@ -274,4 +282,38 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 	}
 	return completed, operationResult, nil
 
+}
+
+// trainV2IntegrationTargetHead refreshes the managed mirror while the
+// project-scoped integration lock is held, then resolves the exact target
+// branch. A waiter must validate the current remote target after the previous
+// integration owner releases the lock; a cached mirror ref is insufficient.
+func (s *Service) trainV2IntegrationTargetHead(ctx context.Context, project config.ProjectConfig, branch string) (string, bool, error) {
+	if err := s.Git.Refresh(ctx, project); err != nil {
+		return "", false, err
+	}
+	return s.Git.MirrorBranchHead(ctx, project, branch)
+}
+
+// acquireTrainV2IntegrationLock is deliberately project-scoped: Git main is
+// shared by all Trains in a project. A second eligible Train waits for the
+// first lifecycle to finish instead of failing admission or racing main.
+func (s *Service) acquireTrainV2IntegrationLock(ctx context.Context, projectID string) (*lockfile.Lock, error) {
+	lockName := "train-v2-integration-" + projectID
+	for {
+		lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), lockName)
+		if err == nil {
+			return lock, nil
+		}
+		if !lockfile.IsBusy(err) {
+			return nil, err
+		}
+		timer := time.NewTimer(25 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }

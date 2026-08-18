@@ -44,7 +44,7 @@ func ValidateTrainV2(v TrainV2) error {
 		return fmt.Errorf("invalid train v2 identity")
 	}
 	switch v.Status {
-	case TrainV2Planned, TrainV2Running, TrainV2Paused, TrainV2Blocked, TrainV2ReadyForIntegration, TrainV2Completed, TrainV2RecoveryQuarantined:
+	case TrainV2Planned, TrainV2Running, TrainV2Paused, TrainV2Blocked, TrainV2ReadyForIntegration, TrainV2Completed, TrainV2RecoveryQuarantined, TrainV2Retired:
 	default:
 		return fmt.Errorf("invalid train v2 status")
 	}
@@ -53,6 +53,24 @@ func ValidateTrainV2(v TrainV2) error {
 	}
 	if v.FullProof != nil {
 		if err := validateTrainV2FullProof(*v.FullProof); err != nil {
+			return err
+		}
+	}
+	if v.Status == TrainV2Retired {
+		if v.Retirement == nil {
+			return fmt.Errorf("retired train requires retirement evidence")
+		}
+		if err := validateTrainV2Retirement(*v.Retirement); err != nil {
+			return err
+		}
+	} else if v.Retirement != nil {
+		return fmt.Errorf("non-retired train has retirement evidence")
+	}
+	if v.Historical != nil {
+		if v.Status != TrainV2RecoveryQuarantined && v.Status != TrainV2Retired {
+			return fmt.Errorf("historical Train must be non-runnable")
+		}
+		if err := validateTrainV2HistoricalDisposition(*v.Historical); err != nil {
 			return err
 		}
 	}
@@ -68,6 +86,25 @@ func ValidateTrainV2(v TrainV2) error {
 			return fmt.Errorf("duplicate train v2 task %q", item.TaskID)
 		}
 		seen[item.TaskID] = true
+	}
+	return nil
+}
+
+func validateTrainV2HistoricalDisposition(v TrainV2HistoricalDisposition) error {
+	if v.Kind != TrainV2HistoricalDispositionKind || strings.TrimSpace(v.SourcePath) == "" || strings.HasPrefix(v.SourcePath, "/") || strings.Contains(v.SourcePath, "..") || !strings.Contains(v.SourcePath, "/trains-v2/") || !strings.HasSuffix(v.SourcePath, ".json") || !trainV2SHA256RE.MatchString(v.SourceSHA256) || strings.TrimSpace(v.Reason) == "" || strings.ContainsAny(v.Reason, "\x00\r\n") || len(v.Reason) > 512 || v.MarkedAt.IsZero() {
+		return fmt.Errorf("invalid Train-v2 historical disposition")
+	}
+	return nil
+}
+
+func validateTrainV2Retirement(v TrainV2Retirement) error {
+	switch v.PreviousStatus {
+	case TrainV2Planned, TrainV2Running, TrainV2Paused, TrainV2Blocked, TrainV2RecoveryQuarantined:
+	default:
+		return fmt.Errorf("invalid retired train previous status")
+	}
+	if strings.TrimSpace(v.Classification) == "" || strings.ContainsAny(v.Classification, "\x00\r\n") || len(v.Classification) > 64 || strings.TrimSpace(v.Reason) == "" || strings.ContainsAny(v.Reason, "\x00\r\n") || len(v.Reason) > 512 || strings.TrimSpace(v.ActorSessionID) == "" || strings.ContainsAny(v.ActorSessionID, "\x00\r\n") || len(v.ActorSessionID) > 128 || v.RetiredAt.IsZero() {
+		return fmt.Errorf("invalid train retirement evidence")
 	}
 	return nil
 }
@@ -183,6 +220,63 @@ func ValidateRunRetirementReceipt(v RunRetirementReceipt) error {
 		seen[record.SourcePath] = struct{}{}
 	}
 	return nil
+}
+
+func ValidateTrainV2LegacyStateMigrationRecord(v TrainV2LegacyStateMigrationRecord) error {
+	if ValidateObjectIdentifier(v.TrainID) != nil || strings.TrimSpace(v.TrainPath) == "" || strings.HasPrefix(v.TrainPath, "/") || strings.Contains(v.TrainPath, "..") || !strings.Contains(v.TrainPath, "/trains-v2/") || !strings.HasSuffix(v.TrainPath, ".json") || !trainV2SHA256RE.MatchString(v.TrainSHA256) {
+		return fmt.Errorf("invalid Train-v2 legacy migration Train identity")
+	}
+	trainRaw, err := base64.StdEncoding.DecodeString(v.OriginalTrainJSONB64)
+	if err != nil || len(trainRaw) == 0 || digestBytes(trainRaw) != v.TrainSHA256 {
+		return fmt.Errorf("Train-v2 legacy migration Train digest mismatch")
+	}
+	if v.Action != "mark_historical" && v.Action != "retire_stale" && v.Action != "recover_integration" {
+		return fmt.Errorf("invalid Train-v2 legacy migration action")
+	}
+	if v.Action == "recover_integration" {
+		if strings.TrimSpace(v.IntegrationPath) == "" || strings.HasPrefix(v.IntegrationPath, "/") || strings.Contains(v.IntegrationPath, "..") || !strings.HasSuffix(v.IntegrationPath, ".integration-operation.json") || !trainV2SHA256RE.MatchString(v.IntegrationSHA256) {
+			return fmt.Errorf("invalid Train-v2 integration migration identity")
+		}
+		opRaw, decodeErr := base64.StdEncoding.DecodeString(v.OriginalIntegrationJSONB64)
+		if decodeErr != nil || len(opRaw) == 0 || digestBytes(opRaw) != v.IntegrationSHA256 {
+			return fmt.Errorf("Train-v2 integration migration digest mismatch")
+		}
+		if strings.TrimSpace(v.MutationPath) == "" || strings.HasPrefix(v.MutationPath, "/") || strings.Contains(v.MutationPath, "..") || !strings.HasPrefix(v.MutationPath, "operations/mutations/") || !strings.HasSuffix(v.MutationPath, ".json") || !trainV2SHA256RE.MatchString(v.MutationSHA256) {
+			return fmt.Errorf("invalid Train-v2 mutation migration identity")
+		}
+		mutationRaw, mutationDecodeErr := base64.StdEncoding.DecodeString(v.OriginalMutationJSONB64)
+		if mutationDecodeErr != nil || len(mutationRaw) == 0 || digestBytes(mutationRaw) != v.MutationSHA256 {
+			return fmt.Errorf("Train-v2 mutation migration digest mismatch")
+		}
+	}
+	return nil
+}
+
+func ValidateTrainV2LegacyStateMigrationReceipt(v TrainV2LegacyStateMigrationReceipt) error {
+	if v.SchemaVersion != TrainV2AttemptSchemaVersion || ValidateProjectIdentifier(v.ProjectID) != nil || (v.State != "pending" && v.State != "completed") || !shaRE.MatchString(v.HubBefore) || (v.State == "completed" && !shaRE.MatchString(v.HubAfter)) || strings.TrimSpace(v.Reason) == "" || v.CreatedAt.IsZero() || v.UpdatedAt.IsZero() || len(v.Records) > 4096 {
+		return fmt.Errorf("invalid Train-v2 legacy migration receipt")
+	}
+	seen := make(map[string]struct{}, len(v.Records))
+	seenTrainIDs := make(map[string]struct{}, len(v.Records))
+	for _, record := range v.Records {
+		if err := ValidateTrainV2LegacyStateMigrationRecord(record); err != nil {
+			return err
+		}
+		if _, ok := seenTrainIDs[record.TrainID]; ok {
+			return fmt.Errorf("duplicate Train-v2 legacy migration Train ID")
+		}
+		seenTrainIDs[record.TrainID] = struct{}{}
+		if _, ok := seen[record.TrainPath]; ok {
+			return fmt.Errorf("duplicate Train-v2 legacy migration Train")
+		}
+		seen[record.TrainPath] = struct{}{}
+	}
+	return nil
+}
+
+func digestBytes(raw []byte) string {
+	digest := sha256.Sum256(raw)
+	return hex.EncodeToString(digest[:])
 }
 
 func validateTrainV2ImplementationProof(proof TrainV2ImplementationProof) error {

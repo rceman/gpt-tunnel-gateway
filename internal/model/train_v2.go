@@ -15,6 +15,7 @@ const (
 	TrainV2ReadyForIntegration  = "ready_for_integration"
 	TrainV2Completed            = "completed"
 	TrainV2RecoveryQuarantined  = "recovery_quarantined"
+	TrainV2Retired              = "retired"
 	TrainV2ItemQueued           = "queued"
 	TrainV2ItemRunning          = "running"
 	TrainV2ItemFinalized        = "finalized"
@@ -180,16 +181,70 @@ type TrainV2AttemptReview struct {
 // TrainV2 is a non-running, ordered execution admission record. A later
 // train/start transition owns Git and Agent execution identity.
 type TrainV2 struct {
-	SchemaVersion int               `json:"schema_version"`
-	ID            string            `json:"id"`
-	ProjectID     string            `json:"project_id"`
-	Revision      int               `json:"revision"`
-	Items         []TrainV2Item     `json:"items"`
-	Status        string            `json:"status"`
-	CreatedBy     string            `json:"created_by"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
-	FullProof     *TrainV2FullProof `json:"full_proof,omitempty"`
+	SchemaVersion int                           `json:"schema_version"`
+	ID            string                        `json:"id"`
+	ProjectID     string                        `json:"project_id"`
+	Revision      int                           `json:"revision"`
+	Items         []TrainV2Item                 `json:"items"`
+	Status        string                        `json:"status"`
+	CreatedBy     string                        `json:"created_by"`
+	CreatedAt     time.Time                     `json:"created_at"`
+	UpdatedAt     time.Time                     `json:"updated_at"`
+	FullProof     *TrainV2FullProof             `json:"full_proof,omitempty"`
+	Retirement    *TrainV2Retirement            `json:"retirement,omitempty"`
+	Historical    *TrainV2HistoricalDisposition `json:"historical_disposition,omitempty"`
+}
+
+// TrainV2HistoricalDisposition is an explicit, immutable marker for a
+// pre-cutover Train that is retained for audit but excluded from live Train
+// ownership. It is deliberately not a compatibility lookup path.
+type TrainV2HistoricalDisposition struct {
+	Kind         string    `json:"kind"`
+	SourcePath   string    `json:"source_path"`
+	SourceSHA256 string    `json:"source_sha256"`
+	Reason       string    `json:"reason"`
+	MarkedAt     time.Time `json:"marked_at"`
+}
+
+const TrainV2HistoricalDispositionKind = "legacy_historical"
+
+type TrainV2LegacyStateMigrationRecord struct {
+	Action                     string `json:"action"`
+	TrainID                    string `json:"train_id"`
+	TrainPath                  string `json:"train_path"`
+	TrainSHA256                string `json:"train_sha256"`
+	OriginalTrainJSONB64       string `json:"original_train_json_base64"`
+	IntegrationPath            string `json:"integration_path,omitempty"`
+	IntegrationSHA256          string `json:"integration_sha256,omitempty"`
+	OriginalIntegrationJSONB64 string `json:"original_integration_json_base64,omitempty"`
+	MutationPath               string `json:"mutation_path,omitempty"`
+	MutationSHA256             string `json:"mutation_sha256,omitempty"`
+	OriginalMutationJSONB64    string `json:"original_mutation_json_base64,omitempty"`
+}
+
+type TrainV2LegacyStateMigrationReceipt struct {
+	SchemaVersion int                                 `json:"schema_version"`
+	ProjectID     string                              `json:"project_id"`
+	State         string                              `json:"state"`
+	HubBefore     string                              `json:"hub_before"`
+	HubAfter      string                              `json:"hub_after"`
+	Records       []TrainV2LegacyStateMigrationRecord `json:"records"`
+	Reason        string                              `json:"reason"`
+	CreatedAt     time.Time                           `json:"created_at"`
+	UpdatedAt     time.Time                           `json:"updated_at"`
+}
+
+// TrainV2Retirement is the immutable server-owned lifecycle evidence for a
+// Train that was proven stale and removed from the active execution set.
+// It is intentionally part of the Train record rather than an operator
+// journal concern: reads and restart reconciliation need the same authority
+// without consulting a second audit stream.
+type TrainV2Retirement struct {
+	PreviousStatus string    `json:"previous_status"`
+	Classification string    `json:"classification"`
+	Reason         string    `json:"reason"`
+	ActorSessionID string    `json:"actor_session_id"`
+	RetiredAt      time.Time `json:"retired_at"`
 }
 
 type TrainV2FullProof struct {

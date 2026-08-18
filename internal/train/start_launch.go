@@ -158,6 +158,11 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 		if err := readWorktreeJSON(worktree, trainPath(in.ProjectID, in.TrainID), &latest); err != nil {
 			return nil, err
 		}
+		if deps.ValidateTaskMembershipInWorktree != nil {
+			if err := deps.ValidateTaskMembershipInWorktree(worktree, in.ProjectID, in.TrainID); err != nil {
+				return nil, err
+			}
+		}
 		if latest.Revision != deps.Train.Revision || latest.Status != model.TrainV2Planned || len(latest.Items) == 0 || latest.Items[0].TaskID != item.TaskID || len(latest.Items[0].Attempts) != 0 {
 			return nil, fmt.Errorf("Train v2 changed before Attempt start")
 		}

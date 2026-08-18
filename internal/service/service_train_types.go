@@ -65,6 +65,46 @@ type TrainV2FullProofInput struct {
 	WriteOptions
 }
 
+type TrainV2RetireInput struct {
+	ProjectID string `json:"project_id"`
+	TrainID   string `json:"train_id"`
+	Reason    string `json:"reason"`
+	WriteOptions
+}
+
+type TrainV2RetireResult struct {
+	Train          model.TrainV2 `json:"train"`
+	PreviousStatus string        `json:"previous_status"`
+	Classification string        `json:"classification"`
+	OperationID    string        `json:"operation_id,omitempty"`
+	Status         string        `json:"status"`
+}
+
+type TrainV2ReconcileInput struct {
+	ProjectID string `json:"project_id"`
+	Apply     bool   `json:"apply"`
+	Reason    string `json:"reason"`
+	WriteOptions
+}
+
+type TrainV2ReconcileRecord struct {
+	TrainID               string `json:"train_id"`
+	Status                string `json:"status"`
+	Classification        string `json:"classification"`
+	SafeToRetire          bool   `json:"safe_to_retire"`
+	Changed               bool   `json:"changed"`
+	Blocker               string `json:"blocker,omitempty"`
+	RecommendedNextAction string `json:"recommended_next_action"`
+}
+
+type TrainV2ReconcileResult struct {
+	ProjectID   string                   `json:"project_id"`
+	DryRun      bool                     `json:"dry_run"`
+	Records     []TrainV2ReconcileRecord `json:"records"`
+	OperationID string                   `json:"operation_id,omitempty"`
+	Hub         OperationResult          `json:"hub"`
+}
+
 type TrainV2ReviewBackfillInput struct {
 	ProjectID string `json:"project_id"`
 	TrainID   string `json:"train_id"`
@@ -85,15 +125,25 @@ type TrainV2CutoverInput struct {
 }
 
 type TrainV2ProjectStatus struct {
-	ExecutionModel  string         `json:"execution_model"`
-	TaskCounts      map[string]int `json:"task_counts"`
-	TrainCounts     map[string]int `json:"train_counts"`
-	CurrentTrain    string         `json:"current_train,omitempty"`
-	CurrentTask     string         `json:"current_task,omitempty"`
-	CurrentAttempt  string         `json:"current_attempt,omitempty"`
-	ActiveTrains    []string       `json:"active_trains,omitempty"`
-	AmbiguousActive bool           `json:"ambiguous_active,omitempty"`
-	NextAction      string         `json:"next_action"`
+	ExecutionModel  string             `json:"execution_model"`
+	TaskCounts      map[string]int     `json:"task_counts"`
+	TrainCounts     map[string]int     `json:"train_counts"`
+	CurrentTrain    string             `json:"current_train,omitempty"`
+	CurrentTask     string             `json:"current_task,omitempty"`
+	CurrentAttempt  string             `json:"current_attempt,omitempty"`
+	ActiveTrains    []string           `json:"active_trains,omitempty"`
+	AmbiguousActive bool               `json:"ambiguous_active,omitempty"`
+	NextAction      string             `json:"next_action"`
+	StaleTrain      *TrainV2StaleTrain `json:"stale_train,omitempty"`
+}
+
+type TrainV2StaleTrain struct {
+	TrainID               string `json:"train_id"`
+	Status                string `json:"status"`
+	Classification        string `json:"classification"`
+	Blocker               string `json:"blocker"`
+	Detail                string `json:"detail"`
+	RecommendedNextAction string `json:"recommended_next_action"`
 }
 
 type TrainV2TaskPacket struct {

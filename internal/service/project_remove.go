@@ -249,7 +249,7 @@ func (s *Service) rejectActiveTrains(ctx context.Context, projectID string) erro
 		if err := model.ValidateTrainV2(train); err != nil {
 			return fmt.Errorf("inspect project Train authority: %w", err)
 		}
-		if train.Status != model.TrainV2Completed && train.Status != model.TrainV2RecoveryQuarantined {
+		if train.Status != model.TrainV2Completed && train.Status != model.TrainV2RecoveryQuarantined && train.Status != model.TrainV2Retired {
 			return fmt.Errorf("PROJECT_REMOVE_ACTIVE_AUTHORITY: Train %s is %s", train.ID, train.Status)
 		}
 		for _, item := range train.Items {
@@ -284,7 +284,7 @@ func activeTrainInHubWorktree(worktree, projectID string) error {
 		if err := model.ValidateTrainV2(train); err != nil {
 			return fmt.Errorf("inspect project Train authority in transaction: %w", err)
 		}
-		if train.Status != model.TrainV2Completed && train.Status != model.TrainV2RecoveryQuarantined {
+		if train.Status != model.TrainV2Completed && train.Status != model.TrainV2RecoveryQuarantined && train.Status != model.TrainV2Retired {
 			return fmt.Errorf("PROJECT_REMOVE_ACTIVE_AUTHORITY: Train %s changed to %s", train.ID, train.Status)
 		}
 	}

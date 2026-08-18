@@ -198,6 +198,55 @@ func (s *Service) trainV2AdmissionTasks(worktree, projectID string, taskIDs []st
 	return tasks, nil
 }
 
+// validateTrainV2TaskMembershipInWorktree is called inside the start
+// transaction so a pre-existing duplicate Task cannot execute through either
+// Train, even when another admission transaction raced the initial read.
+func (s *Service) validateTrainV2TaskMembershipInWorktree(worktree, projectID, targetTrainID string) error {
+	root := filepath.Join(worktree, filepath.FromSlash(s.trainV2Root(projectID)))
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	owners := make(map[string]string)
+	seenTrain := false
+	for _, entry := range entries {
+		if entry.IsDir() || !canonicalTrainV2RecordName(entry.Name()) {
+			continue
+		}
+		var train model.TrainV2
+		path := filepath.ToSlash(filepath.Join(s.trainV2Root(projectID), entry.Name()))
+		if err := readWorktreeJSON(worktree, path, &train); err != nil {
+			return err
+		}
+		if err := model.ValidateTrainV2(train); err != nil {
+			return err
+		}
+		if train.Historical != nil {
+			if train.ID == targetTrainID {
+				return fmt.Errorf("historical Train %q cannot start", targetTrainID)
+			}
+			continue
+		}
+		if train.ID == targetTrainID {
+			seenTrain = true
+		}
+		for _, item := range train.Items {
+			owner, exists := owners[item.TaskID]
+			if exists {
+				return fmt.Errorf("task %q belongs to multiple trains (%s, %s)", item.TaskID, owner, train.ID)
+			}
+			owners[item.TaskID] = train.ID
+		}
+	}
+	if !seenTrain {
+		return fmt.Errorf("Train %q has no canonical Task membership", targetTrainID)
+	}
+	return nil
+}
+
 func (s *Service) taskAdmittedToNonterminalTrain(ctx context.Context, projectID, taskID string) (bool, error) {
 	trains, err := s.readTrainV2Records(ctx, projectID)
 	if err != nil {

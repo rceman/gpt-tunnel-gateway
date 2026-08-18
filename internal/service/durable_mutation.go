@@ -30,6 +30,7 @@ type durableMutationOperation struct {
 	Result         json.RawMessage `json:"result,omitempty"`
 	Error          string          `json:"error,omitempty"`
 	RecoveryReason string          `json:"recovery_reason,omitempty"`
+	CapturedState  string          `json:"captured_state,omitempty"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
@@ -315,6 +316,28 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"result": result})
+	case "train-v2-retire":
+		var input TrainV2RetireInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.TrainV2Retire(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		result.OperationID = operation.OperationID
+		return json.Marshal(result)
+	case "train-v2-reconcile":
+		var input TrainV2ReconcileInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.TrainV2Reconcile(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		result.OperationID = operation.OperationID
+		return json.Marshal(result)
 	case "adr-create":
 		var input ADRCreateInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {

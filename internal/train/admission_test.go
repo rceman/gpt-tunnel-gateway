@@ -88,6 +88,39 @@ func TestAdmissionRejectsInvalidExistingTrainBeforeCheckingCandidates(t *testing
 	}
 }
 
+func TestAdmissionRejectsTaskFromCompletedTrainHistory(t *testing.T) {
+	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	task := readyAdmissionTask(t, "GTW-TSK184", now)
+	train, err := New("gateway", "GTW-TRN2", "planner", []model.TaskAuthoring{task}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	train.Status = model.TrainV2Completed
+	if err := model.ValidateTrainV2(train); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateUnadmitted([]model.TrainV2{train}, []string{task.ID}); err == nil {
+		t.Fatal("completed Train history released Task membership")
+	}
+}
+
+func TestAdmissionRejectsTaskFromHistoricalTrainHistory(t *testing.T) {
+	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	task := readyAdmissionTask(t, "GTW-TSK185", now)
+	train, err := New("gateway", "GTW-TRN1", "planner", []model.TaskAuthoring{task}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	train.Status = model.TrainV2RecoveryQuarantined
+	train.Historical = &model.TrainV2HistoricalDisposition{Kind: model.TrainV2HistoricalDispositionKind, SourcePath: "gpt-tunnel/v1/projects/gateway/trains-v2/GTW-TRN1.json", SourceSHA256: strings.Repeat("a", 64), Reason: "historical duplicate", MarkedAt: now}
+	if err := model.ValidateTrainV2(train); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateUnadmitted([]model.TrainV2{train}, []string{task.ID}); err == nil {
+		t.Fatal("historical Train released Task membership")
+	}
+}
+
 func TestAppendReadyTrainClearsFullProofAndPreservesPriorItems(t *testing.T) {
 	now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
 	first := readyAdmissionTask(t, "GTW-TSK225", now)

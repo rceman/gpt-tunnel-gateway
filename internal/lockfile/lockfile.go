@@ -13,6 +13,12 @@ type Lock struct{ file *os.File }
 
 var ErrReadOnlyUnavailable = errors.New("read-only lock unavailable")
 
+// IsBusy reports only an owned-lock collision. Callers that retry acquisition
+// must propagate every filesystem, permission, and lock-file corruption error.
+func IsBusy(err error) bool {
+	return errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN)
+}
+
 // AcquireReadOnly coordinates with writers without creating or modifying the
 // lock file. Read-only callers must run after the owning controller has
 // created the lock files during startup.

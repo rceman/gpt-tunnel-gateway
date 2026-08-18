@@ -95,6 +95,7 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 			}
 			return task, nil
 		},
-		Now: s.durableNow,
+		ValidateTaskMembershipInWorktree: s.validateTrainV2TaskMembershipInWorktree,
+		Now:                              s.durableNow,
 	})
 }

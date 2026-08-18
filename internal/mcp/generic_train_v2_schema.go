@@ -51,6 +51,22 @@ func trainV2AdvanceSchema() map[string]any {
 	}, "project_id", "train_id")
 }
 
+func trainV2RetireSchema() map[string]any {
+	return obj(map[string]any{
+		"train_id":              str("Train identifier within the bound session project."),
+		"reason":                str("Bounded server-recorded retirement reason."),
+		"expected_hub_revision": str("Optimistic Hub revision."),
+	}, "train_id", "reason")
+}
+
+func trainV2ReconcileSchema() map[string]any {
+	return obj(map[string]any{
+		"apply":                 map[string]any{"type": "boolean", "description": "Apply only exact safe stale classifications; false is a dry-run."},
+		"reason":                str("Optional bounded reconciliation reason."),
+		"expected_hub_revision": str("Optimistic Hub revision required for apply."),
+	}, "apply")
+}
+
 func trainV2IntegrateSchema() map[string]any {
 	return obj(map[string]any{
 		"project_id":            str("Registered project identifier."),
