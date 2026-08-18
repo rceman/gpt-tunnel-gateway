@@ -4,6 +4,7 @@ type Runner struct {
 	MaxReadBytes int64
 	MaxDiffBytes int64
 	MaxListItems int
+	StateDir     string
 }
 
 type Ref struct {

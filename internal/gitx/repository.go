@@ -17,10 +17,11 @@ func (r Runner) Show(ctx context.Context, p config.ProjectConfig, rev string) (s
 	if err := model.ValidateRevision(rev); err != nil {
 		return "", err
 	}
-	if err := r.EnsureMirror(ctx, p); err != nil {
+	root, err := r.revisionRoot(ctx, p, rev)
+	if err != nil {
 		return "", err
 	}
-	out, err := r.command(ctx, p.Mirror, true, "show", "--no-ext-diff", "--no-textconv", "--format=fuller", "--stat", "--summary", rev)
+	out, err := r.command(ctx, root, root == p.Mirror, "show", "--no-ext-diff", "--no-textconv", "--format=fuller", "--stat", "--summary", rev)
 	if err != nil {
 		return "", err
 	}
@@ -33,14 +34,15 @@ func (r Runner) Tree(ctx context.Context, p config.ProjectConfig, rev, path stri
 	if err := validatePath(path); err != nil {
 		return nil, err
 	}
-	if err := r.EnsureMirror(ctx, p); err != nil {
+	root, err := r.revisionRoot(ctx, p, rev)
+	if err != nil {
 		return nil, err
 	}
 	args := []string{"ls-tree", "-r", "--name-only", rev}
 	if path != "" {
 		args = append(args, "--", path)
 	}
-	out, err := r.command(ctx, p.Mirror, true, args...)
+	out, err := r.command(ctx, root, root == p.Mirror, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -64,14 +66,15 @@ func (r Runner) TreePage(ctx context.Context, p config.ProjectConfig, rev, path 
 	if err := validatePath(path); err != nil {
 		return nil, pagination.PageInfo{}, err
 	}
-	if err := r.EnsureMirror(ctx, p); err != nil {
+	root, err := r.revisionRoot(ctx, p, rev)
+	if err != nil {
 		return nil, pagination.PageInfo{}, err
 	}
 	args := []string{"ls-tree", "-r", "--name-only", rev}
 	if path != "" {
 		args = append(args, "--", path)
 	}
-	out, err := r.command(ctx, p.Mirror, true, args...)
+	out, err := r.command(ctx, root, root == p.Mirror, args...)
 	if err != nil {
 		return nil, pagination.PageInfo{}, err
 	}
@@ -91,10 +94,11 @@ func (r Runner) ReadFile(ctx context.Context, p config.ProjectConfig, rev, path 
 	if err := model.ValidateRelativePath(path); err != nil {
 		return "", err
 	}
-	if err := r.EnsureMirror(ctx, p); err != nil {
+	root, err := r.revisionRoot(ctx, p, rev)
+	if err != nil {
 		return "", err
 	}
-	out, err := r.command(ctx, p.Mirror, true, "show", rev+":"+filepath.ToSlash(path))
+	out, err := r.command(ctx, root, root == p.Mirror, "show", rev+":"+filepath.ToSlash(path))
 	if err != nil {
 		return "", err
 	}
@@ -112,7 +116,8 @@ func (r Runner) Diff(ctx context.Context, p config.ProjectConfig, from, to strin
 			return "", err
 		}
 	}
-	if err := r.EnsureMirror(ctx, p); err != nil {
+	root, err := r.revisionsRoot(ctx, p, from, to)
+	if err != nil {
 		return "", err
 	}
 	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", from, to}
@@ -120,7 +125,7 @@ func (r Runner) Diff(ctx context.Context, p config.ProjectConfig, from, to strin
 		args = append(args, "--")
 		args = append(args, paths...)
 	}
-	out, err := r.command(ctx, p.Mirror, true, args...)
+	out, err := r.command(ctx, root, root == p.Mirror, args...)
 	if err != nil {
 		return "", err
 	}
@@ -159,10 +164,11 @@ func (r Runner) MergeBase(ctx context.Context, p config.ProjectConfig, left, rig
 	if err := model.ValidateRevision(right); err != nil {
 		return "", err
 	}
-	if err := r.EnsureMirror(ctx, p); err != nil {
+	root, err := r.revisionsRoot(ctx, p, left, right)
+	if err != nil {
 		return "", err
 	}
-	out, err := r.command(ctx, p.Mirror, true, "merge-base", left, right)
+	out, err := r.command(ctx, root, root == p.Mirror, "merge-base", left, right)
 	if err != nil {
 		return "", err
 	}
@@ -173,7 +179,11 @@ func (r Runner) Compare(ctx context.Context, p config.ProjectConfig, left, right
 	if err != nil {
 		return Compare{}, err
 	}
-	out, err := r.command(ctx, p.Mirror, true, "rev-list", "--left-right", "--count", left+"..."+right)
+	root, err := r.revisionsRoot(ctx, p, left, right)
+	if err != nil {
+		return Compare{}, err
+	}
+	out, err := r.command(ctx, root, root == p.Mirror, "rev-list", "--left-right", "--count", left+"..."+right)
 	if err != nil {
 		return Compare{}, err
 	}

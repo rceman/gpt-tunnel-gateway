@@ -53,7 +53,7 @@ func New(c config.Config) *Service {
 		Config:                c,
 		ConfigPath:            config.DefaultPath(),
 		Hub:                   hub.Store{Config: c},
-		Git:                   gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems},
+		Git:                   gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems, StateDir: c.StateDir},
 		Airelay:               airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: 256},
 		taskCreateWake:        make(chan string, 32),
 		taskCreateActive:      make(map[string]struct{}),

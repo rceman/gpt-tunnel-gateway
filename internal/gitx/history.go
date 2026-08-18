@@ -84,11 +84,12 @@ func (r Runner) Log(ctx context.Context, p config.ProjectConfig, rev string, lim
 	if limit < 1 || limit > r.MaxListItems {
 		return nil, fmt.Errorf("invalid log limit")
 	}
-	if err := r.EnsureMirror(ctx, p); err != nil {
+	root, err := r.revisionRoot(ctx, p, rev)
+	if err != nil {
 		return nil, err
 	}
 	format := "%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00"
-	out, err := r.command(ctx, p.Mirror, true, "log", "--no-decorate", "--max-count="+strconv.Itoa(limit), "--format="+format, rev)
+	out, err := r.command(ctx, root, root == p.Mirror, "log", "--no-decorate", "--max-count="+strconv.Itoa(limit), "--format="+format, rev)
 	if err != nil {
 		return nil, err
 	}
