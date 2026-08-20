@@ -32,7 +32,7 @@ var projectionClasses = map[string]projectionClass{
 	"project/register": projectionCompactDefault, "project/remove": projectionCompactDefault, "project/remove_status": projectionClosedDefault, "project/update": projectionCompactDefault, "project/update_status": projectionClosedDefault,
 	"project/status": projectionClosedDefault, "project/workflow_policy_adopt": projectionCompactDefault, "project/workflow_policy_read": projectionClosedDefault, "project/workflow_policy_update": projectionCompactDefault,
 	"query/run": projectionIntentionalPayload, "rules/read": projectionIntentionalPayload, "runtime/logs": projectionIntentionalPayload, "runtime/restart": projectionCompactDefault,
-	"session/end": projectionClosedDefault, "session/info": projectionClosedDefault, "session/list": projectionClosedDefault, "session/start": projectionClosedDefault, "session/update": projectionClosedDefault, "system/bootstrap": projectionClosedDefault,
+	"session/end": projectionClosedDefault, "session/info": projectionClosedDefault, "session/list": projectionClosedDefault, "session/start": projectionClosedDefault, "session/update": projectionClosedDefault, "system/await": projectionClosedDefault, "system/bootstrap": projectionClosedDefault,
 	"system/batch": projectionClosedDefault, "system/call": projectionClosedDefault, "system/schema": projectionClosedDefault,
 	"task/correction_create": projectionCompactDefault, "task/create": projectionCompactDefault, "task/create_status": projectionClosedDefault, "task/finalize": projectionCompactDefault,
 	"task/list": projectionCompactDefault, "task/read": projectionCompactDefault, "task/ready": projectionCompactDefault, "task/ready_status": projectionClosedDefault,
