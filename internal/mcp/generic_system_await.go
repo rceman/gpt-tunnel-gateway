@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -13,13 +14,13 @@ const (
 	minAwaitSeconds      = 1
 	maxAwaitSeconds      = maxAwaitMinutes * 60
 	agentStatusTailLines = 20
+	minAwaitTailLines    = 10
+	maxAwaitTailLines    = 40
 )
 
 type awaitResult struct {
-	StartedAt      time.Time `json:"started_at"`
-	FinishedAt     time.Time `json:"finished_at"`
-	ElapsedSeconds float64   `json:"elapsed_seconds"`
-	Continuation   any       `json:"continuation,omitempty"`
+	FinishedAt   string `json:"finished_at"`
+	Continuation any    `json:"continuation,omitempty"`
 }
 
 type awaitInput struct {
@@ -64,9 +65,9 @@ func (s *Server) ensureSystemAwaitActions() {
 			Description: "Block for a bounded interval while preserving caller cancellation.",
 			InputSchema: awaitInputSchema(),
 			OutputSchema: closedOutput(map[string]any{
-				"started_at": outputDateTime(), "finished_at": outputDateTime(), "elapsed_seconds": map[string]any{"type": "number"},
+				"finished_at":  outputString(),
 				"continuation": map[string]any{"type": "object", "additionalProperties": true},
-			}, "started_at", "finished_at", "elapsed_seconds"),
+			}, "finished_at"),
 			Annotations: ToolAnnotations{
 				ReadOnlyHint:   true,
 				IdempotentHint: true,
@@ -127,7 +128,7 @@ func (s *Server) awaitWithContinuation(ctx context.Context, duration time.Durati
 	if action == "" {
 		return result, nil
 	}
-	continuation, err := s.agentStatusContinuationProjection(ctx, raw)
+	continuation, err := s.agentStatusContinuationProjection(ctx, raw, awaitTailLines(duration))
 	if err != nil {
 		return awaitResult{}, err
 	}
@@ -135,17 +136,25 @@ func (s *Server) awaitWithContinuation(ctx context.Context, duration time.Durati
 	return result, nil
 }
 
+func awaitTailLines(duration time.Duration) int {
+	lines := int(math.Ceil(duration.Seconds() / 3))
+	if lines < minAwaitTailLines {
+		return minAwaitTailLines
+	}
+	if lines > maxAwaitTailLines {
+		return maxAwaitTailLines
+	}
+	return lines
+}
+
 func awaitDuration(ctx context.Context, duration time.Duration) (awaitResult, error) {
-	started := time.Now().UTC()
 	timer := time.NewTimer(duration)
 	defer timer.Stop()
 	select {
 	case <-timer.C:
 		finished := time.Now().UTC()
 		return awaitResult{
-			StartedAt:      started,
-			FinishedAt:     finished,
-			ElapsedSeconds: finished.Sub(started).Seconds(),
+			FinishedAt: finished.Format("15:04:05"),
 		}, nil
 	case <-ctx.Done():
 		return awaitResult{}, ctx.Err()

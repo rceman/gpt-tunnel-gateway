@@ -106,6 +106,10 @@ func (s *Server) agent_action_set4() error {
 // observation state is scoped by the durable Gateway session, project, and
 // resolved Airelay session.
 func (s *Server) agentStatusAction(ctx context.Context, raw json.RawMessage) (any, error) {
+	return s.agentStatusActionWithTail(ctx, raw, agentStatusTailLines, false)
+}
+
+func (s *Server) agentStatusActionWithTail(ctx context.Context, raw json.RawMessage, tailLines int, preserveBacklog bool) (any, error) {
 	var in struct {
 		ProjectID string `json:"project_id"`
 		AgentID   string `json:"agent_id"`
@@ -135,17 +139,22 @@ func (s *Server) agentStatusAction(ctx context.Context, raw json.RawMessage) (an
 		}
 		in.AgentID = resolved.AgentID
 	}
-	return s.agentStatusProjection(ctx, in.ProjectID, in.AgentID)
+	return s.agentStatusProjectionWithTail(ctx, in.ProjectID, in.AgentID, tailLines, preserveBacklog)
 }
 
 func (s *Server) agentStatusProjection(ctx context.Context, projectID, agentID string) (map[string]any, error) {
+	return s.agentStatusProjectionWithTail(ctx, projectID, agentID, agentStatusTailLines, false)
+}
+
+func (s *Server) agentStatusProjectionWithTail(ctx context.Context, projectID, agentID string, tailLines int, preserveBacklog bool) (map[string]any, error) {
 	status, err := s.Service.AgentRegistryStatus(ctx, projectID, agentID)
 	if err != nil {
 		return nil, err
 	}
 	tail, err := s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{
-		Lines:     agentStatusTailLines,
-		SessionID: service.AgentSessionID(ctx),
+		Lines:           tailLines,
+		SessionID:       service.AgentSessionID(ctx),
+		PreserveBacklog: preserveBacklog,
 	})
 	if err != nil {
 		return nil, err
@@ -163,14 +172,19 @@ func (s *Server) agentStatusProjection(ctx context.Context, projectID, agentID s
 	projection["tail_count"] = tail.Count
 	projection["tail_has_new_info"] = tail.HasNewInfo
 	projection["tail_history_truncated"] = tail.HistoryTruncated
+	projection["tail_overflow"] = tail.Overflow
 	return projection, nil
 }
 
 // agentStatusContinuationProjection deliberately omits durable identity and
 // unchanged registry metadata. The tail cursor is advanced by
 // AgentTailPage, so only newly observed lines are retained here.
-func (s *Server) agentStatusContinuationProjection(ctx context.Context, raw json.RawMessage) (map[string]any, error) {
-	value, err := s.agentStatusAction(ctx, raw)
+func (s *Server) agentStatusContinuationProjection(ctx context.Context, raw json.RawMessage, requested ...int) (map[string]any, error) {
+	tailLines, preserveBacklog := agentStatusTailLines, false
+	if len(requested) > 0 {
+		tailLines, preserveBacklog = requested[0], true
+	}
+	value, err := s.agentStatusActionWithTail(ctx, raw, tailLines, preserveBacklog)
 	if err != nil {
 		return nil, err
 	}
@@ -208,6 +222,9 @@ func sparseAgentStatusProjection(full map[string]any) map[string]any {
 	}
 	if truncated, ok := full["tail_history_truncated"].(bool); ok && truncated {
 		sparse["tail_history_truncated"] = true
+	}
+	if overflow, ok := full["tail_overflow"].(bool); ok && overflow {
+		sparse["tail_overflow"] = true
 	}
 	return sparse
 }

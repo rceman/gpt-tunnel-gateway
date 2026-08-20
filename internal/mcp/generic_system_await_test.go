@@ -17,8 +17,30 @@ func TestSystemAwaitCompletesWithTimingResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.StartedAt.IsZero() || result.FinishedAt.Before(result.StartedAt) || result.ElapsedSeconds < 0.01 {
-		t.Fatalf("invalid await timing result: %#v", result)
+	if len(result.FinishedAt) != len("15:04:05") {
+		t.Fatalf("invalid compact await completion: %#v", result)
+	}
+	encoded, _ := json.Marshal(result)
+	if strings.Contains(string(encoded), "started_at") || strings.Contains(string(encoded), "elapsed_seconds") {
+		t.Fatalf("await response leaked removed timing fields: %s", encoded)
+	}
+}
+
+func TestSystemAwaitTailBudgetScalesAndClamps(t *testing.T) {
+	for _, test := range []struct {
+		seconds int
+		want    int
+	}{
+		{seconds: 30, want: 10}, {seconds: 60, want: 20}, {seconds: 90, want: 30}, {seconds: 120, want: 40}, {seconds: 240, want: 40},
+	} {
+		if got := awaitTailLines(time.Duration(test.seconds) * time.Second); got != test.want {
+			t.Errorf("%ds tail budget=%d, want %d", test.seconds, got, test.want)
+		}
+	}
+	minutes := 2
+	duration, err := awaitInputDuration(awaitInput{Minutes: &minutes})
+	if err != nil || awaitTailLines(duration) != 40 {
+		t.Fatalf("legacy minutes did not use equivalent clamped budget: duration=%s lines=%d err=%v", duration, awaitTailLines(duration), err)
 	}
 }
 
@@ -56,7 +78,7 @@ func TestSystemAwaitSchemaIsBoundedAndRegistered(t *testing.T) {
 	if len(onComplete) != 1 || onComplete[0] != "agent/status" {
 		t.Fatalf("unexpected await continuation allowlist: %#v", onComplete)
 	}
-	if agentStatusTailLines != 20 {
+	if agentStatusTailLines != 20 || minAwaitTailLines != 10 || maxAwaitTailLines != 40 {
 		t.Fatalf("agent/status tail default changed: %d", agentStatusTailLines)
 	}
 }

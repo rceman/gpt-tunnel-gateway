@@ -71,6 +71,35 @@ func TestAgentTailDeltaReturnsOnlyCurrentViewportSuffix(t *testing.T) {
 	}
 }
 
+func TestAgentTailContinuationPreservesUnreadBacklogAcrossBudgets(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nif [ ! -f '"+filepath.Join(dir, "seen")+"' ]; then touch '"+filepath.Join(dir, "seen")+"'; printf 'one\\ntwo\\n'; else printf 'one\\ntwo\\nthree\\nfour\\nfive\\nsix\\nseven\\neight\\nnine\\nten\\neleven\\ntwelve\\nthirteen\\nfourteen\\nfifteen\\n'; fi\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := &Service{
+		Config:  config.Config{StateDir: dir, Projects: map[string]config.ProjectConfig{"example": {Root: filepath.Join(dir, "root"), Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}},
+		Airelay: airelay.Client{Command: script, Timeout: time.Second},
+	}
+	input := AgentTailInput{
+		SessionID:       "SP-BACKLOG",
+		Lines:           3,
+		PreserveBacklog: true,
+	}
+	first, err := s.AgentTailPage(context.Background(), "example", input)
+	if err != nil || len(first.Lines) != 2 {
+		t.Fatalf("initial continuation tail=%#v err=%v", first, err)
+	}
+	second, err := s.AgentTailPage(context.Background(), "example", input)
+	if err != nil || !reflect.DeepEqual(second.Lines, []string{"three", "four", "five"}) || !second.Overflow {
+		t.Fatalf("first backlog chunk=%#v err=%v", second, err)
+	}
+	third, err := s.AgentTailPage(context.Background(), "example", input)
+	if err != nil || !reflect.DeepEqual(third.Lines, []string{"six", "seven", "eight"}) || !third.Overflow {
+		t.Fatalf("second backlog chunk skipped unread lines: %#v err=%v", third, err)
+	}
+}
+
 func TestAgentTailObservationKeyScopesSessionProjectAndTarget(t *testing.T) {
 	s := &Service{}
 	firstPath, firstLock := s.agentTailStateLocation("SP-ONE", "project-one", "project-one_master")

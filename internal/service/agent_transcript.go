@@ -27,8 +27,9 @@ type AgentTailResult struct {
 }
 
 type AgentTailInput struct {
-	Lines     int
-	SessionID string
+	Lines           int
+	SessionID       string
+	PreserveBacklog bool
 }
 
 func agentSnapshotLines(text string) []string {
@@ -40,11 +41,12 @@ func agentSnapshotLines(text string) []string {
 }
 
 type agentTailSeen struct {
-	SessionID  string   `json:"session_id"`
-	ProjectID  string   `json:"project_id"`
-	SessionKey string   `json:"session_key"`
-	LastLines  []string `json:"last_lines,omitempty"`
-	HasLast    bool     `json:"has_last"`
+	SessionID    string   `json:"session_id"`
+	ProjectID    string   `json:"project_id"`
+	SessionKey   string   `json:"session_key"`
+	LastLines    []string `json:"last_lines,omitempty"`
+	PendingLines []string `json:"pending_lines,omitempty"`
+	HasLast      bool     `json:"has_last"`
 }
 
 type agentSessionContextKey struct{}
@@ -76,10 +78,6 @@ func (s *Service) AgentTailPage(ctx context.Context, projectID string, input Age
 	if err != nil {
 		return AgentTailResult{}, err
 	}
-	tail, err := s.Airelay.TailSnapshot(ctx, session, lines)
-	if err != nil {
-		return AgentTailResult{}, err
-	}
 	statePath, lockName := s.agentTailStateLocation(input.SessionID, projectID, session)
 	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), lockName)
 	if err != nil {
@@ -94,27 +92,48 @@ func (s *Service) AgentTailPage(ctx context.Context, projectID string, input Age
 	if seen.HasLast && (seen.SessionID != input.SessionID || seen.ProjectID != projectID || seen.SessionKey != session) {
 		return AgentTailResult{}, fmt.Errorf("agent tail observation identity mismatch")
 	}
+	readLines := lines
+	if input.PreserveBacklog && seen.HasLast {
+		readLines = agentMaxTailLines
+	}
+	tail, err := s.Airelay.TailSnapshot(ctx, session, readLines)
+	if err != nil {
+		return AgentTailResult{}, err
+	}
 	snapshot := agentSnapshotLines(tail.Stdout)
 	selected, hasNew, historyTruncated := agentTailDelta(seen.LastLines, snapshot, seen.HasLast)
+	if input.PreserveBacklog && len(seen.PendingLines) > 0 {
+		selected = append(append([]string(nil), seen.PendingLines...), selected...)
+		hasNew = len(selected) > 0
+	}
+	emitted := selected
+	if input.PreserveBacklog && len(emitted) > lines {
+		emitted = emitted[:lines]
+	}
+	pending := []string(nil)
+	if input.PreserveBacklog && len(selected) > len(emitted) {
+		pending = append(pending, selected[len(emitted):]...)
+	}
 	if len(snapshot) > 0 || seen.HasLast {
 		seen.SessionID = input.SessionID
 		seen.ProjectID = projectID
 		seen.SessionKey = session
 		seen.LastLines = append([]string(nil), snapshot...)
+		seen.PendingLines = pending
 		seen.HasLast = true
 		if err := writeAgentTailSeen(statePath, seen); err != nil {
 			return AgentTailResult{}, err
 		}
 	}
-	linesOut := make([]string, 0, len(selected))
-	for _, line := range selected {
+	linesOut := make([]string, 0, len(emitted))
+	for _, line := range emitted {
 		linesOut = append(linesOut, line)
 	}
 	return AgentTailResult{
 		Lines:            linesOut,
 		Count:            len(linesOut),
 		HasNewInfo:       hasNew,
-		Overflow:         false,
+		Overflow:         len(pending) > 0,
 		HistoryTruncated: historyTruncated,
 	}, nil
 }
