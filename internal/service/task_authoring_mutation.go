@@ -96,6 +96,9 @@ func (s *Service) TaskAuthoringReady(ctx context.Context, in TaskAuthoringReadyI
 	if err := s.validateAuthoringADRReferences(ctx, current); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
+	if err := s.validateTaskDependencies(ctx, in.ProjectID, current); err != nil {
+		return model.TaskAuthoring{}, OperationResult{}, err
+	}
 	ready, err := trainv2.ReadyTask(current, in.ReadyBy, s.durableNow())
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
@@ -110,6 +113,9 @@ func (s *Service) TaskAuthoringReady(ctx context.Context, in TaskAuthoringReadyI
 		}
 		if latest.Status == model.TaskAuthoringReady {
 			return []string{s.taskAuthoringPath(in.ProjectID, in.TaskID)}, nil
+		}
+		if err := s.validateTaskDependenciesInWorktree(w, in.ProjectID, []model.TaskAuthoring{latest}); err != nil {
+			return nil, err
 		}
 		if err := hub.WriteJSON(w, s.taskAuthoringPath(in.ProjectID, in.TaskID), ready); err != nil {
 			return nil, err

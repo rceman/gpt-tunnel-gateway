@@ -31,6 +31,15 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 	if err != nil {
 		return trainv2.StartResult{}, err
 	}
+	for _, item := range train.Items {
+		task, taskErr := s.TaskAuthoringRead(ctx, in.ProjectID, item.TaskID)
+		if taskErr != nil {
+			return trainv2.StartResult{}, taskErr
+		}
+		if err := s.validateTaskDependencies(ctx, in.ProjectID, task); err != nil {
+			return trainv2.StartResult{}, err
+		}
+	}
 	project, err := s.ProjectRead(ctx, in.ProjectID)
 	if err != nil {
 		return trainv2.StartResult{}, err

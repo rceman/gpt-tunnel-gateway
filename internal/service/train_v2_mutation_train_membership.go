@@ -50,6 +50,9 @@ func (s *Service) trainV2AdmissionTasks(worktree, projectID string, taskIDs []st
 		}
 		tasks = append(tasks, task)
 	}
+	if err := s.validateTaskDependenciesInWorktree(worktree, projectID, tasks); err != nil {
+		return nil, err
+	}
 	return tasks, nil
 }
 

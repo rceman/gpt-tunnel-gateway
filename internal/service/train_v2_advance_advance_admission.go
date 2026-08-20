@@ -99,6 +99,9 @@ func (s *Service) advanceTrainV2Locked(ctx context.Context, in TrainV2AdvanceInp
 	if currentTask.ID != nextItem.TaskID || currentTask.ProjectID != in.ProjectID {
 		return trainv2.StartResult{}, fmt.Errorf("Train item Task identity does not match the current Task")
 	}
+	if err := s.validateTaskDependencies(ctx, in.ProjectID, currentTask); err != nil {
+		return trainv2.StartResult{}, err
+	}
 	nextItem.TaskRevision = currentTask.Revision
 	nextItem.TaskRevisionSHA256 = currentTask.RevisionSHA256
 
@@ -192,6 +195,9 @@ func (s *Service) advanceTrainV2Locked(ctx context.Context, in TrainV2AdvanceInp
 		}
 		if latestTask.ID != nextItem.TaskID || latestTask.ProjectID != in.ProjectID {
 			return nil, fmt.Errorf("Train item Task identity does not match the current Task")
+		}
+		if err := s.validateTaskDependenciesInWorktree(worktree, in.ProjectID, []model.TaskAuthoring{latestTask}); err != nil {
+			return nil, err
 		}
 		updatedItem.TaskRevision = latestTask.Revision
 		updatedItem.TaskRevisionSHA256 = latestTask.RevisionSHA256
