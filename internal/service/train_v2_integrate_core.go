@@ -24,35 +24,8 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 		return trainv2.IntegrationReceipt{}, OperationResult{}, err
 	}
 	if receipt, err := s.readTrainV2IntegrationReceipt(ctx, in.ProjectID, in.TrainID); err == nil {
-		if receipt.Status == "completed" {
-			if operation, operationErr := s.readIntegrationOperation(ctx, in.ProjectID, in.TrainID); operationErr == nil && operation.Phase != trainv2.IntegrationPhaseCompleted {
-				_, _ = s.advanceIntegrationOperation(ctx, operation, trainv2.IntegrationPhaseCompleted, operation.PostResult)
-			}
-			project, projectErr := s.projectConfig(in.ProjectID)
-			if projectErr != nil {
-				return trainv2.IntegrationReceipt{}, OperationResult{}, projectErr
-			}
-			startPath := hub.ProtocolRoot + "/projects/" + in.ProjectID + "/train-v2-starts/" + in.TrainID + ".json"
-			var start model.TrainV2StartRecord
-			if startErr := s.Hub.ReadJSON(ctx, startPath, &start); startErr != nil {
-				return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("read completed Train start: %w", startErr)
-			}
-			if cleanupErr := s.releaseTrainRuntime(ctx, project, in.ProjectID, in.TrainID, start.LaneBranch, receipt.LaneHead); cleanupErr != nil {
-				return trainv2.IntegrationReceipt{}, OperationResult{}, cleanupErr
-			}
-			return receipt, OperationResult{
-				ProjectID: in.ProjectID,
-				Status:    receipt.Status,
-			}, nil
-		}
-		if receipt.Status == "reconciliation_blocked" {
-			return receipt, OperationResult{
-				ProjectID: in.ProjectID,
-				Status:    receipt.Status,
-			}, fmt.Errorf("Train reconciliation is blocked; bounded Agent correction is required")
-		}
-		if receipt.Status == "reconciliation_complete" || receipt.Status == "reconciliation_requires_restart" {
-			return s.finishTrainReconciliationRestart(ctx, in.ProjectID, in.TrainID, receipt)
+		if resumedReceipt, result, resumeErr, handled := s.resumeTrainV2IntegrationReceipt(ctx, in, receipt); handled {
+			return resumedReceipt, result, resumeErr
 		}
 	}
 	integrationLock, err := s.acquireTrainV2IntegrationLock(ctx, in.ProjectID)
@@ -100,59 +73,11 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("integration branch is unavailable")
 	}
 	targetBefore := targetHead
-	ancestor, err := s.Git.IsAncestor(ctx, lane.Root, targetHead, laneHead)
-	if err != nil {
-		return trainv2.IntegrationReceipt{}, OperationResult{}, err
+	reconciliationReceipt, reconciliationResult, reconciliationErr, handled := s.reconcileTrainV2Integration(ctx, in, train, start, lane, laneHead, targetHead)
+	if handled {
+		return reconciliationReceipt, reconciliationResult, reconciliationErr
 	}
-	if !ancestor {
-		commits, logErr := s.Git.LocalLog(ctx, lane.Root, start.BaseRevision, laneHead, s.Config.MaxListItems)
-		if logErr != nil {
-			return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("read owned Train reconciliation range: %w", logErr)
-		}
-		commitIDs := make([]string, 0, len(commits))
-		for _, commit := range commits {
-			commitIDs = append(commitIDs, commit.SHA)
-		}
-		reconciledHead, _, replayErr := s.Git.ReplayTrainCommits(ctx, lane, targetHead, commitIDs)
-		if replayErr != nil {
-			receipt := trainv2.IntegrationReceipt{SchemaVersion: 1, ProjectID: in.ProjectID, TrainID: in.TrainID, BaseRevision: start.BaseRevision, LaneHead: laneHead, TargetBefore: targetHead, Status: "reconciliation_blocked", NextAction: "bounded_agent_correction", Conflict: replayErr.Error(), UpdatedAt: time.Now().UTC()}
-			if recordErr := s.writeTrainV2IntegrationReceipt(ctx, receipt); recordErr != nil {
-				return receipt, OperationResult{}, recordErr
-			}
-			return receipt, OperationResult{
-				ProjectID: in.ProjectID,
-				Status:    receipt.Status,
-			}, replayErr
-		}
-		updatedTrain, rebindErr := trainv2.ResetImplementationProofsForRestart(train, time.Now().UTC())
-		if rebindErr != nil {
-			_ = s.Git.ResetTrainWorktree(context.Background(), lane, laneHead)
-			return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("reset Train proof for restart: %w", rebindErr)
-		}
-		receipt := trainv2.IntegrationReceipt{SchemaVersion: 1, ProjectID: in.ProjectID, TrainID: in.TrainID, BaseRevision: start.BaseRevision, LaneHead: targetHead, TargetBefore: targetHead, Status: "reconciliation_requires_restart", NextAction: "restart_train_items_from_refreshed_target", Conflict: fmt.Sprintf("discarded replay head %s; prior item proofs and reviews were invalidated", reconciledHead), UpdatedAt: time.Now().UTC()}
-		if recordErr := s.persistTrainV2Reconciliation(ctx, in.ProjectID, in.TrainID, train.Revision, updatedTrain, receipt); recordErr != nil {
-			if restoreErr := s.Git.ResetTrainWorktree(context.Background(), lane, laneHead); restoreErr != nil {
-				return receipt, OperationResult{}, fmt.Errorf("record reconciliation reset: %w; restore original Train lane: %v", recordErr, restoreErr)
-			}
-			return receipt, OperationResult{}, recordErr
-		}
-		if resetErr := s.Git.ResetTrainWorktree(ctx, lane, targetHead); resetErr != nil {
-			return receipt, OperationResult{
-				ProjectID: in.ProjectID,
-				Status:    receipt.Status,
-			}, fmt.Errorf("Train reconciliation is recorded but local replay reset is pending: %w", resetErr)
-		}
-		if _, retireErr := trainv2.RetireRuntimeForRestart(s.Config.StateDir, in.ProjectID, in.TrainID, start.CurrentAttemptNumber); retireErr != nil {
-			return receipt, OperationResult{
-				ProjectID: in.ProjectID,
-				Status:    receipt.Status,
-			}, fmt.Errorf("Train reconciliation is recorded but local execution retirement is pending: %w", retireErr)
-		}
-		return receipt, OperationResult{
-			ProjectID: in.ProjectID,
-			Status:    receipt.Status,
-		}, fmt.Errorf("Train reconciliation requires restart from the refreshed target; replay was discarded and item proofs require re-execution")
-	}
+	ancestor := true
 	if train.FullProof == nil || train.FullProof.CandidateHead != laneHead {
 		gateNames, gateErr := s.ResolveProjectGates(ctx, in.ProjectID, "integration")
 		if gateErr != nil {

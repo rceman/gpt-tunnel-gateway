@@ -2,8 +2,9 @@ package service
 
 import (
 	"context"
-	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"testing"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 func TestWatcherNudgeUsesExactTrainAttemptSession(t *testing.T) {
