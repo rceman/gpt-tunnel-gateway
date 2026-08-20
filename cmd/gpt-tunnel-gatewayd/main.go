@@ -15,6 +15,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/mcp"
 	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 var version = "0.6.11"
@@ -36,7 +37,12 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	svc := service.New(c)
+	durability, err := sqlitestore.Open(c.StateDir)
+	if err != nil {
+		fatal(err)
+	}
+	defer durability.Close()
+	svc := service.NewWithDurability(c, durability)
 	startupPhase("HUB_ENSURE")
 	hubCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	if err := svc.Hub.Ensure(hubCtx); err != nil {

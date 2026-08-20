@@ -13,6 +13,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 const (
@@ -28,6 +29,7 @@ type Service struct {
 	Config                                  config.Config
 	ConfigPath                              string
 	Hub                                     hub.Store
+	Durability                              *sqlitestore.Databases
 	Git                                     gitx.Runner
 	Airelay                                 airelay.Client
 	clock                                   func() time.Time
@@ -50,11 +52,20 @@ type Service struct {
 }
 
 func New(c config.Config) *Service {
+	return newService(c, nil)
+}
+
+func NewWithDurability(c config.Config, durability *sqlitestore.Databases) *Service {
+	return newService(c, durability)
+}
+
+func newService(c config.Config, durability *sqlitestore.Databases) *Service {
 	executor := gates.NewExecutor()
 	s := &Service{
 		Config:                c,
 		ConfigPath:            config.DefaultPath(),
 		Hub:                   hub.Store{Config: c},
+		Durability:            durability,
 		Git:                   gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems, StateDir: c.StateDir},
 		Airelay:               airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: 256},
 		taskCreateWake:        make(chan string, 32),
