@@ -137,6 +137,25 @@ func (s *Service) TrainV2AdvanceOperationStatus(ctx context.Context, operationID
 	return s.trainV2LifecycleOperationStatus(ctx, operationID, "train-v2-advance")
 }
 
+func (s *Service) TrainV2CorrectionStartAsync(ctx context.Context, in TrainV2CorrectionStartInput) (TrainV2LifecycleReceipt, error) {
+	if err := validateTrainV2CorrectionStartInput(in); err != nil {
+		return TrainV2LifecycleReceipt{}, err
+	}
+	identity := s.trainV2AdvanceIdentity(ctx, TrainV2AdvanceInput{
+		ProjectID: in.ProjectID,
+		TrainID:   in.TrainID,
+	})
+	operation, err := s.enqueueTypedDurableMutationWithIdentity(ctx, "train-v2-correction-start", in.ProjectID, in, identity)
+	if err != nil {
+		return TrainV2LifecycleReceipt{}, err
+	}
+	return trainV2LifecycleReceipt(operation), nil
+}
+
+func (s *Service) TrainV2CorrectionStartOperationStatus(ctx context.Context, operationID string) (TrainV2LifecycleReceipt, error) {
+	return s.trainV2LifecycleOperationStatus(ctx, operationID, "train-v2-correction-start")
+}
+
 func (s *Service) trainV2LifecycleOperationStatus(ctx context.Context, operationID, kind string) (TrainV2LifecycleReceipt, error) {
 	operation, err := s.readDurableMutation(operationID)
 	if err != nil {

@@ -49,6 +49,25 @@ type TrainV2AdvanceInput struct {
 	WriteOptions
 }
 
+// TrainV2CorrectionStartInput starts the exact queued correction item after a
+// rejected review. The rejected review and correction item are both immutable
+// identity bindings; callers cannot select a different Train or Attempt.
+type TrainV2CorrectionStartInput struct {
+	ProjectID                    string `json:"project_id"`
+	TrainID                      string `json:"train_id"`
+	RejectedItemPosition         int    `json:"rejected_item_position"`
+	RejectedAttemptNumber        uint64 `json:"rejected_attempt_number"`
+	RejectedReviewID             string `json:"rejected_review_id"`
+	CorrectionItemPosition       int    `json:"correction_item_position"`
+	CorrectionTaskID             string `json:"correction_task_id"`
+	CorrectionTaskRevision       int    `json:"correction_task_revision"`
+	CorrectionTaskRevisionSHA256 string `json:"correction_task_revision_sha256"`
+	StartedBy                    string `json:"started_by"`
+	AgentID                      string `json:"agent_id,omitempty"`
+	RecommendedReasoning         string `json:"recommended_reasoning,omitempty"`
+	WriteOptions
+}
+
 // TrainV2IntegrateInput contains only the Train identity and optimistic Hub
 // guard. Branches, SHAs, activation inputs and Git options are server-owned.
 type TrainV2IntegrateInput struct {

@@ -51,6 +51,15 @@ func trainV2AdvanceSchema() map[string]any {
 	}, "project_id", "train_id")
 }
 
+func trainV2CorrectionStartSchema() map[string]any {
+	return obj(map[string]any{
+		"project_id": str("Bound session project identifier."), "train_id": str("Exact Train identifier."),
+		"rejected_item_position": integer("Exact rejected TrainItem position.", 0, 1000000), "rejected_attempt_number": integer("Exact rejected Attempt number.", 1, 1000000), "rejected_review_id": str("Exact immutable rejected review identifier."),
+		"correction_item_position": integer("Exact queued correction TrainItem position.", 0, 1000000), "correction_task_id": str("Exact queued correction Task identifier."), "correction_task_revision": integer("Exact queued correction Task revision.", 1, 1000000), "correction_task_revision_sha256": str("Exact queued correction Task revision digest."),
+		"started_by": str("Server-authorized start actor."), "agent_id": str("Optional coding Agent identity."), "recommended_reasoning": str("Optional reasoning preference."), "expected_hub_revision": str("Optimistic Hub revision."),
+	}, "project_id", "train_id", "rejected_item_position", "rejected_attempt_number", "rejected_review_id", "correction_item_position", "correction_task_id", "correction_task_revision", "correction_task_revision_sha256", "started_by")
+}
+
 func trainV2RetireSchema() map[string]any {
 	return obj(map[string]any{
 		"train_id":              str("Train identifier within the bound session project."),

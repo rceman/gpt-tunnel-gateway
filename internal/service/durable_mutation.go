@@ -316,6 +316,16 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"result": result})
+	case "train-v2-correction-start":
+		var input TrainV2CorrectionStartInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.TrainV2CorrectionStart(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"result": result})
 	case "train-v2-retire":
 		var input TrainV2RetireInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {

@@ -417,6 +417,50 @@ func (s *Server) registerTrainV2Actions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "train/correction-start",
+		Description:  "Start one exact queued Train correction after a rejected immutable review.",
+		InputSchema:  trainV2CorrectionStartSchema(),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.TrainV2CorrectionStartInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2CorrectionStartAsync(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "train/correction-start_status",
+		Description:  "Read the durable receipt for a Train correction start.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train correction-start operation identifier.")}, "operation_id"),
+		OutputSchema: trainV2OutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.TrainV2CorrectionStartOperationStatus(ctx, input.OperationID)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "train/attempt-finalize_status",
 		Description:  "Read the durable receipt for an asynchronous Train Attempt finalization.",
 		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train Attempt finalize operation identifier.")}, "operation_id"),
