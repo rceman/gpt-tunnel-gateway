@@ -181,18 +181,19 @@ type TrainV2AttemptReview struct {
 // TrainV2 is a non-running, ordered execution admission record. A later
 // train/start transition owns Git and Agent execution identity.
 type TrainV2 struct {
-	SchemaVersion int                           `json:"schema_version"`
-	ID            string                        `json:"id"`
-	ProjectID     string                        `json:"project_id"`
-	Revision      int                           `json:"revision"`
-	Items         []TrainV2Item                 `json:"items"`
-	Status        string                        `json:"status"`
-	CreatedBy     string                        `json:"created_by"`
-	CreatedAt     time.Time                     `json:"created_at"`
-	UpdatedAt     time.Time                     `json:"updated_at"`
-	FullProof     *TrainV2FullProof             `json:"full_proof,omitempty"`
-	Retirement    *TrainV2Retirement            `json:"retirement,omitempty"`
-	Historical    *TrainV2HistoricalDisposition `json:"historical_disposition,omitempty"`
+	SchemaVersion     int                           `json:"schema_version"`
+	ID                string                        `json:"id"`
+	ProjectID         string                        `json:"project_id"`
+	Revision          int                           `json:"revision"`
+	Items             []TrainV2Item                 `json:"items"`
+	Status            string                        `json:"status"`
+	CreatedBy         string                        `json:"created_by"`
+	CreatedAt         time.Time                     `json:"created_at"`
+	UpdatedAt         time.Time                     `json:"updated_at"`
+	FullProof         *TrainV2FullProof             `json:"full_proof,omitempty"`
+	ReviewResolutions []TrainV2ReviewResolution     `json:"review_resolutions,omitempty"`
+	Retirement        *TrainV2Retirement            `json:"retirement,omitempty"`
+	Historical        *TrainV2HistoricalDisposition `json:"historical_disposition,omitempty"`
 }
 
 // TrainV2HistoricalDisposition is an explicit, immutable marker for a

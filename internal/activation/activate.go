@@ -292,5 +292,19 @@ func liveMCPSmoke(ctx context.Context, c config.Config, expectedVersion string) 
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		return fmt.Errorf("MCP public tool manifest mismatch")
 	}
+	actionSchema, err := call(3, "tools/call", map[string]any{
+		"name": "schema", "arguments": map[string]any{"path": "train/review-resolve"},
+	})
+	if err != nil {
+		return fmt.Errorf("review-resolve schema smoke: %w", err)
+	}
+	actionResult, ok := actionSchema["result"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("review-resolve schema result missing")
+	}
+	structured, ok := actionResult["structuredContent"].(map[string]any)
+	if !ok || structured["kind"] != "action" || structured["path"] != "train/review-resolve" {
+		return fmt.Errorf("review-resolve schema/registry parity mismatch")
+	}
 	return nil
 }

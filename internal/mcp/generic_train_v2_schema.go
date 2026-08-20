@@ -92,6 +92,21 @@ func trainV2FullProofSchema() map[string]any {
 	}, "project_id", "train_id")
 }
 
+func trainV2ReviewResolveSchema() map[string]any {
+	correction := obj(map[string]any{
+		"project_id": str("Exact correction project."), "train_id": str("Exact correction Train."), "task_id": str("Accepted correction Task."),
+		"item_position": integer("Accepted correction item position.", 0, 1000000), "attempt_number": integer("Accepted correction Attempt number.", 1, 1000000),
+		"review_id": str("Accepted correction review ID."), "reviewed_head": str("Accepted correction reviewed head."), "proof_head": str("Accepted correction proof head."),
+		"finding_ids": array(str("Rejected finding ID covered by this correction.")),
+	}, "project_id", "train_id", "task_id", "item_position", "attempt_number", "review_id", "reviewed_head", "proof_head", "finding_ids")
+	return obj(map[string]any{
+		"project_id": str("Registered project identifier."), "train_id": str("Exact Train identifier."), "rejected_task_id": str("Exact rejected Task identifier."),
+		"rejected_item_position": integer("Rejected item position.", 0, 1000000), "rejected_attempt_number": integer("Rejected Attempt number.", 1, 1000000),
+		"rejected_review_id": str("Immutable rejected review ID."), "rejected_reviewed_head": str("Rejected review checkpoint head."), "finding_ids": array(str("Exact rejected finding ID.")),
+		"corrections": array(correction), "resolving_head": str("Resolving candidate head."), "reviewer_evidence": str("Bounded Planner reviewer evidence."), "expected_hub_revision": str("Optimistic Hub revision."),
+	}, "project_id", "train_id", "rejected_task_id", "rejected_item_position", "rejected_attempt_number", "rejected_review_id", "rejected_reviewed_head", "finding_ids", "corrections", "resolving_head", "reviewer_evidence")
+}
+
 func trainV2ReviewBackfillSchema() map[string]any {
 	return obj(map[string]any{
 		"project_id":            str("Registered project identifier."),

@@ -1,6 +1,9 @@
 package service
 
-import "github.com/rceman/gpt-tunnel-gateway/internal/model"
+import (
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+)
 
 type TrainV2CreateInput struct {
 	ProjectID string   `json:"project_id"`
@@ -82,6 +85,27 @@ type TrainV2FullProofInput struct {
 	ProjectID string `json:"project_id"`
 	TrainID   string `json:"train_id"`
 	WriteOptions
+}
+
+type TrainV2ReviewResolveInput struct {
+	ProjectID             string                          `json:"project_id"`
+	TrainID               string                          `json:"train_id"`
+	RejectedTaskID        string                          `json:"rejected_task_id"`
+	RejectedItemPosition  int                             `json:"rejected_item_position"`
+	RejectedAttemptNumber uint64                          `json:"rejected_attempt_number"`
+	RejectedReviewID      string                          `json:"rejected_review_id"`
+	RejectedReviewedHead  string                          `json:"rejected_reviewed_head"`
+	FindingIDs            []string                        `json:"finding_ids"`
+	Corrections           []model.TrainV2ReviewCorrection `json:"corrections"`
+	ResolvingHead         string                          `json:"resolving_head"`
+	ReviewerEvidence      string                          `json:"reviewer_evidence"`
+	WriteOptions
+}
+
+type TrainV2ReviewResolveResult struct {
+	Train      model.TrainV2                 `json:"train"`
+	Resolution model.TrainV2ReviewResolution `json:"resolution"`
+	Hub        hub.TransactionResult         `json:"hub"`
 }
 
 type TrainV2RetireInput struct {

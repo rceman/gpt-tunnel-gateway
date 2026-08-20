@@ -56,6 +56,19 @@ func ValidateTrainV2(v TrainV2) error {
 			return err
 		}
 	}
+	if len(v.ReviewResolutions) > MaxTrainV2ReviewResolutionFindings {
+		return fmt.Errorf("too many train v2 review resolutions")
+	}
+	seenResolutions := map[string]bool{}
+	for _, resolution := range v.ReviewResolutions {
+		if err := ValidateTrainV2ReviewResolution(resolution); err != nil {
+			return err
+		}
+		if resolution.ProjectID != v.ProjectID || resolution.TrainID != v.ID || seenResolutions[resolution.ID] {
+			return fmt.Errorf("invalid train v2 review resolution ownership")
+		}
+		seenResolutions[resolution.ID] = true
+	}
 	if v.Status == TrainV2Retired {
 		if v.Retirement == nil {
 			return fmt.Errorf("retired train requires retirement evidence")

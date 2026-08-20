@@ -24,6 +24,12 @@ func trainV2AttemptReviewReceiptOutputSchema() map[string]any {
 	}, "operation_id", "status", "created_at", "updated_at")
 }
 
+func trainV2ReviewResolutionOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"train": trainV2OutputSchema(), "resolution": trainV2OutputSchema(), "hub": map[string]any{"type": "object", "additionalProperties": true},
+	}, "train", "resolution")
+}
+
 func trainV2AdmissionReceiptOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"operation_id": outputString(), "kind": outputString(), "status": outputString(), "train": trainV2OutputSchema(), "operation": operationOutputSchema(), "error": outputString(),

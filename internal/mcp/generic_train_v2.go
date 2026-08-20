@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
@@ -499,6 +500,31 @@ func (s *Server) registerTrainV2Actions() error {
 				return nil, err
 			}
 			return s.Service.TrainV2AttemptReviewAsync(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "train/review-resolve",
+		Description:  "Record Planner-owned resolution evidence for an exact rejected Train review.",
+		InputSchema:  trainV2ReviewResolveSchema(),
+		OutputSchema: trainV2ReviewResolutionOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		AuthorityRole: durableSession.RolePlanner,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.TrainV2ReviewResolveInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			projectID, err := s.boundTrainProject(ctx)
+			if err != nil {
+				return nil, err
+			}
+			in.ProjectID = projectID
+			return s.Service.TrainV2ReviewResolve(ctx, in)
 		},
 	}); err != nil {
 		return err
