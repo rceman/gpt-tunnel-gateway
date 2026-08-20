@@ -35,12 +35,18 @@ func (s *Service) projectStatusTrainV2(ctx context.Context, id string, local con
 		NextAction:     "no pending Train v2 action",
 	}
 	if taskErr == nil && trainErr == nil {
-		pure := trainv2.ProjectStatus(tasks, trains)
+		operationalTrains := make([]model.TrainV2, 0, len(trains))
+		for _, train := range trains {
+			if train.Historical == nil {
+				operationalTrains = append(operationalTrains, train)
+			}
+		}
+		pure := trainv2.ProjectStatus(tasks, operationalTrains)
 		projection.TaskCounts, projection.TrainCounts = pure.TaskCounts, pure.TrainCounts
 		projection.CurrentTrain, projection.CurrentTask, projection.CurrentAttempt, projection.NextAction = pure.CurrentTrain, pure.CurrentTask, pure.CurrentAttempt, pure.NextAction
 		projection.ActiveTrains, projection.AmbiguousActive = pure.ActiveTrains, pure.AmbiguousActive
 		stale := make([]*TrainV2StaleTrain, 0)
-		for _, train := range trains {
+		for _, train := range operationalTrains {
 			classification, classifyErr := s.classifyTrainV2Lifecycle(id, train)
 			if classifyErr != nil {
 				trainErr = classifyErr
@@ -48,6 +54,10 @@ func (s *Service) projectStatusTrainV2(ctx context.Context, id string, local con
 			}
 			if value := staleTrainProjection(classification, train); value != nil {
 				stale = append(stale, value)
+			}
+			if value := correctionTrainProjection(classification, train); value != nil {
+				projection.CorrectionPending = value
+				projection.NextAction = value.RecommendedNextAction
 			}
 		}
 		if len(stale) > 0 {

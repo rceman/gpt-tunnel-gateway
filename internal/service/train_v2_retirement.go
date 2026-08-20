@@ -21,6 +21,7 @@ const (
 	trainV2ClassLiveAttempt   = "live_attempt"
 	trainV2ClassLiveOperation = "live_operation"
 	trainV2ClassIntegration   = "integration_pending"
+	trainV2ClassCorrection    = "correction_pending"
 	trainV2ClassStale         = "stale"
 	trainV2ClassAmbiguous     = "ambiguous"
 	trainV2ClassRetired       = "retired"
@@ -100,6 +101,14 @@ func (s *Service) classifyTrainV2LifecycleWithContext(ctx context.Context, proje
 			Recommended: "let the operation reach a terminal state before retirement",
 		}, nil
 	}
+	if rejected, ok := correctionPendingTrain(train); ok {
+		return trainV2LifecycleClassification{
+			Class:       trainV2ClassCorrection,
+			Blocker:     "TRAIN_CORRECTION_PENDING",
+			Detail:      fmt.Sprintf("item %d has an immutable rejected review and a queued correction tail", rejected),
+			Recommended: "start the exact queued correction with train/correction-start",
+		}, nil
+	}
 
 	allTerminal := true
 	for _, item := range train.Items {
@@ -129,6 +138,31 @@ func (s *Service) classifyTrainV2LifecycleWithContext(ctx context.Context, proje
 		Detail:      "durable state is non-terminal but cannot be proven inactive",
 		Recommended: "inspect and reconcile the Train before retirement",
 	}, nil
+}
+
+func correctionPendingTrain(train model.TrainV2) (int, bool) {
+	rejected := -1
+	for position, item := range train.Items {
+		if item.Status == model.TrainV2ItemReviewed && item.Review != nil && item.Review.Outcome == model.ReviewOutcomeRejectedCorrection && item.SuccessfulAttemptNumber > 0 && item.SuccessfulAttemptNumber <= uint64(len(item.Attempts)) {
+			attempt := item.Attempts[item.SuccessfulAttemptNumber-1]
+			if attempt.Status == model.TrainV2AttemptSucceeded && attempt.ReviewID == item.Review.ReportID {
+				if rejected != -1 {
+					return -1, false
+				}
+				rejected = position
+			}
+		}
+	}
+	if rejected < 0 || rejected == len(train.Items)-1 {
+		return -1, false
+	}
+	for position := rejected + 1; position < len(train.Items); position++ {
+		item := train.Items[position]
+		if item.Status != model.TrainV2ItemQueued || len(item.Attempts) != 0 || item.Review != nil || item.Proof != nil {
+			return -1, false
+		}
+	}
+	return rejected, true
 }
 
 func (s *Service) trainV2HasLiveOperation(projectID, trainID string) (bool, error) {
@@ -490,6 +524,20 @@ func staticTrainV2SafeToRetire(train model.TrainV2) bool {
 
 func staleTrainProjection(classification trainV2LifecycleClassification, train model.TrainV2) *TrainV2StaleTrain {
 	if classification.Class != trainV2ClassStale && classification.Class != trainV2ClassAmbiguous {
+		return nil
+	}
+	return &TrainV2StaleTrain{
+		TrainID:               train.ID,
+		Status:                train.Status,
+		Classification:        classification.Class,
+		Blocker:               classification.Blocker,
+		Detail:                classification.Detail,
+		RecommendedNextAction: classification.Recommended,
+	}
+}
+
+func correctionTrainProjection(classification trainV2LifecycleClassification, train model.TrainV2) *TrainV2StaleTrain {
+	if classification.Class != trainV2ClassCorrection {
 		return nil
 	}
 	return &TrainV2StaleTrain{

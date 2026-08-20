@@ -144,16 +144,17 @@ type TrainV2CutoverInput struct {
 }
 
 type TrainV2ProjectStatus struct {
-	ExecutionModel  string             `json:"execution_model"`
-	TaskCounts      map[string]int     `json:"task_counts"`
-	TrainCounts     map[string]int     `json:"train_counts"`
-	CurrentTrain    string             `json:"current_train,omitempty"`
-	CurrentTask     string             `json:"current_task,omitempty"`
-	CurrentAttempt  string             `json:"current_attempt,omitempty"`
-	ActiveTrains    []string           `json:"active_trains,omitempty"`
-	AmbiguousActive bool               `json:"ambiguous_active,omitempty"`
-	NextAction      string             `json:"next_action"`
-	StaleTrain      *TrainV2StaleTrain `json:"stale_train,omitempty"`
+	ExecutionModel    string             `json:"execution_model"`
+	TaskCounts        map[string]int     `json:"task_counts"`
+	TrainCounts       map[string]int     `json:"train_counts"`
+	CurrentTrain      string             `json:"current_train,omitempty"`
+	CurrentTask       string             `json:"current_task,omitempty"`
+	CurrentAttempt    string             `json:"current_attempt,omitempty"`
+	ActiveTrains      []string           `json:"active_trains,omitempty"`
+	AmbiguousActive   bool               `json:"ambiguous_active,omitempty"`
+	NextAction        string             `json:"next_action"`
+	StaleTrain        *TrainV2StaleTrain `json:"stale_train,omitempty"`
+	CorrectionPending *TrainV2StaleTrain `json:"correction_pending,omitempty"`
 }
 
 type TrainV2StaleTrain struct {

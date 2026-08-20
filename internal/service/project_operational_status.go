@@ -212,6 +212,9 @@ func projectOperationalDigest(value any) string {
 func (s *Service) populateProjectOperationalTrain(result *ProjectOperationalStatus, trains []model.TrainV2) {
 	sort.Slice(trains, func(i, j int) bool { return trains[i].UpdatedAt.After(trains[j].UpdatedAt) })
 	for _, train := range trains {
+		if train.Historical != nil {
+			continue
+		}
 		classification, err := s.classifyTrainV2Lifecycle(train.ProjectID, train)
 		if err != nil {
 			result.TrainID = train.ID
@@ -227,6 +230,14 @@ func (s *Service) populateProjectOperationalTrain(result *ProjectOperationalStat
 			result.State = "blocked"
 			result.Blocker = stale.Blocker
 			result.RecommendedNextAction = stale.RecommendedNextAction
+			return
+		}
+		if correction := correctionTrainProjection(classification, train); correction != nil {
+			result.TrainID = correction.TrainID
+			result.TrainState = correction.Status
+			result.State = "correction_pending"
+			result.Blocker = correction.Blocker
+			result.RecommendedNextAction = correction.RecommendedNextAction
 			return
 		}
 		if train.Status == model.TrainV2Completed || train.Status == model.TrainV2ReadyForIntegration || train.Status == model.TrainV2Retired {
