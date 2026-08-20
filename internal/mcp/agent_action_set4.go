@@ -135,11 +135,15 @@ func (s *Server) agentStatusAction(ctx context.Context, raw json.RawMessage) (an
 		}
 		in.AgentID = resolved.AgentID
 	}
-	status, err := s.Service.AgentRegistryStatus(ctx, in.ProjectID, in.AgentID)
+	return s.agentStatusProjection(ctx, in.ProjectID, in.AgentID)
+}
+
+func (s *Server) agentStatusProjection(ctx context.Context, projectID, agentID string) (map[string]any, error) {
+	status, err := s.Service.AgentRegistryStatus(ctx, projectID, agentID)
 	if err != nil {
 		return nil, err
 	}
-	tail, err := s.Service.AgentTailPage(ctx, in.ProjectID, service.AgentTailInput{
+	tail, err := s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{
 		Lines:     agentStatusTailLines,
 		SessionID: service.AgentSessionID(ctx),
 	})
@@ -160,4 +164,50 @@ func (s *Server) agentStatusAction(ctx context.Context, raw json.RawMessage) (an
 	projection["tail_has_new_info"] = tail.HasNewInfo
 	projection["tail_history_truncated"] = tail.HistoryTruncated
 	return projection, nil
+}
+
+// agentStatusContinuationProjection deliberately omits durable identity and
+// unchanged registry metadata. The tail cursor is advanced by
+// AgentTailPage, so only newly observed lines are retained here.
+func (s *Server) agentStatusContinuationProjection(ctx context.Context, raw json.RawMessage) (map[string]any, error) {
+	value, err := s.agentStatusAction(ctx, raw)
+	if err != nil {
+		return nil, err
+	}
+	full, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("agent/status returned an invalid projection")
+	}
+	return sparseAgentStatusProjection(full), nil
+}
+
+func sparseAgentStatusProjection(full map[string]any) map[string]any {
+	sparse := map[string]any{}
+	if value, ok := full["runtime_state"].(string); ok && value != "" {
+		sparse["runtime_state"] = value
+	}
+	if value, ok := full["controller_reachable"].(bool); ok && !value {
+		sparse["controller_reachable"] = false
+	}
+	if value, ok := full["state"].(string); ok && value != "" && value != "usable" && value != "registered" {
+		sparse["state"] = value
+		if reason, ok := full["reason"].(string); ok && reason != "" {
+			sparse["reason"] = reason
+		}
+	}
+	if value, ok := full["error"].(string); ok && value != "" {
+		sparse["error"] = value
+	}
+	for _, field := range []string{"attempt_state", "train_id", "task_id", "attempt_number", "item_position", "recoverable", "recovery_reason"} {
+		if value, ok := full[field]; ok {
+			sparse[field] = value
+		}
+	}
+	if tail, ok := full["tail"].([]string); ok && len(tail) > 0 {
+		sparse["tail"] = tail
+	}
+	if truncated, ok := full["tail_history_truncated"].(bool); ok && truncated {
+		sparse["tail_history_truncated"] = true
+	}
+	return sparse
 }

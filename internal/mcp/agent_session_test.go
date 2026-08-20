@@ -73,6 +73,23 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		time.Sleep(10 * time.Millisecond)
 	}
 
+	firstHeartbeat, err := srv.awaitWithContinuation(
+		service.WithAgentSessionID(context.Background(), sessionID),
+		5*time.Millisecond,
+		"agent/status",
+		mustJSON(t, map[string]any{}),
+	)
+	if err != nil {
+		t.Fatalf("first heartbeat failed: %v", err)
+	}
+	firstProjection := firstHeartbeat.Continuation.(map[string]any)
+	if _, ok := firstProjection["project_id"]; ok {
+		t.Fatalf("first heartbeat leaked static project identity: %#v", firstProjection)
+	}
+	if tail, ok := firstProjection["tail"].([]string); !ok || len(tail) == 0 {
+		t.Fatalf("first heartbeat omitted new tail lines: %#v", firstProjection)
+	}
+
 	tail := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"lines": 4}}}}))
 	tailResult := genericStructured(t, tail)
 	if tailResult["is_error"] != false {
@@ -94,17 +111,23 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	if _, ok := statusContent["tail_has_new_info"].(bool); !ok {
 		t.Fatalf("status omitted tail dedupe state: %#v", statusContent)
 	}
-	awaited, err := srv.awaitWithContinuation(
+	secondHeartbeat, err := srv.awaitWithContinuation(
 		service.WithAgentSessionID(context.Background(), sessionID),
 		5*time.Millisecond,
 		"agent/status",
 		mustJSON(t, map[string]any{}),
 	)
 	if err != nil {
-		t.Fatalf("agent/status await continuation failed: %v", err)
+		t.Fatalf("unchanged heartbeat failed: %v", err)
 	}
-	if awaited.Continuation == nil {
-		t.Fatal("agent/status await continuation returned no result")
+	secondProjection := secondHeartbeat.Continuation.(map[string]any)
+	if _, ok := secondProjection["tail"]; ok {
+		t.Fatalf("unchanged heartbeat repeated tail lines: %#v", secondProjection)
+	}
+	for _, field := range []string{"project_id", "agent_id", "registered", "enabled", "bound", "role", "schema_version", "usable", "session_state", "tail_count", "tail_has_new_info"} {
+		if _, ok := secondProjection[field]; ok {
+			t.Fatalf("unchanged heartbeat leaked redundant field %q: %#v", field, secondProjection)
+		}
 	}
 
 	rules := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}}}}))

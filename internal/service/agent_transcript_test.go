@@ -44,6 +44,20 @@ func TestAgentTailUsesLocalSessionWithoutDurableAgentLookup(t *testing.T) {
 	if !reflect.DeepEqual(result.Lines, []string{"one", "two"}) || !result.HasNewInfo {
 		t.Fatalf("unexpected local tail result: %#v", result)
 	}
+	repeat, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{
+		SessionID: "SP-FASTTAIL",
+		Lines:     20,
+	})
+	if err != nil || len(repeat.Lines) != 0 || repeat.HasNewInfo {
+		t.Fatalf("unchanged session tail was not deduplicated: %#v err=%v", repeat, err)
+	}
+	independent, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{
+		SessionID: "SP-OTHER",
+		Lines:     20,
+	})
+	if err != nil || !reflect.DeepEqual(independent.Lines, []string{"one", "two"}) || !independent.HasNewInfo {
+		t.Fatalf("tail state leaked across durable sessions: %#v err=%v", independent, err)
+	}
 }
 
 func TestAgentTailDeltaReturnsOnlyCurrentViewportSuffix(t *testing.T) {

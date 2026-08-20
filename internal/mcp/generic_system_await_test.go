@@ -84,6 +84,32 @@ func TestSystemAwaitSecondsAndMinutesAreMutuallyExclusive(t *testing.T) {
 	}
 }
 
+func TestAgentStatusContinuationProjectionIsSparseAndPreservesChanges(t *testing.T) {
+	projection := sparseAgentStatusProjection(map[string]any{
+		"schema_version": 1, "project_id": "example", "agent_id": "coding-example",
+		"role": "coding", "registered": true, "enabled": true, "bound": true,
+		"usable": true, "state": "usable", "reason": "ready", "session_state": "idle",
+		"runtime_state": "idle", "tail": []string{"new line"}, "tail_count": 1,
+		"tail_has_new_info": true, "tail_history_truncated": false,
+	})
+	for _, field := range []string{"schema_version", "project_id", "agent_id", "role", "registered", "enabled", "bound", "usable", "reason", "session_state", "tail_count", "tail_has_new_info"} {
+		if _, ok := projection[field]; ok {
+			t.Fatalf("sparse projection leaked static/empty field %q: %#v", field, projection)
+		}
+	}
+	tail, tailOK := projection["tail"].([]string)
+	if projection["runtime_state"] != "idle" || !tailOK || len(tail) != 1 || tail[0] != "new line" {
+		t.Fatalf("sparse projection lost heartbeat data: %#v", projection)
+	}
+
+	abnormal := sparseAgentStatusProjection(map[string]any{
+		"runtime_state": "busy", "state": "unavailable", "reason": "host-local session is not usable", "error": "controller unavailable",
+	})
+	if abnormal["state"] != "unavailable" || abnormal["reason"] == nil || abnormal["error"] == nil {
+		t.Fatalf("sparse projection hid abnormal metadata: %#v", abnormal)
+	}
+}
+
 func TestSystemAwaitRejectsInvalidBoundsThroughGenericDispatch(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{GatewayID: "await-test", StateDir: t.TempDir()})}
 	entries := server.genericActionRegistry(server.tools())

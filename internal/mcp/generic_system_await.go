@@ -127,7 +127,7 @@ func (s *Server) awaitWithContinuation(ctx context.Context, duration time.Durati
 	if action == "" {
 		return result, nil
 	}
-	continuation, err := s.agentStatusAction(ctx, raw)
+	continuation, err := s.agentStatusContinuationProjection(ctx, raw)
 	if err != nil {
 		return awaitResult{}, err
 	}
