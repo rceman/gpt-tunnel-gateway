@@ -85,6 +85,27 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	if statusResult["is_error"] != false || statusContent["agent_id"] != "coding-example" || statusContent["registered"] != true {
 		t.Fatalf("status failed: %#v", status)
 	}
+	if _, ok := statusContent["runtime_state"].(string); !ok {
+		t.Fatalf("status omitted runtime state: %#v", statusContent)
+	}
+	if _, ok := statusContent["tail"].([]any); !ok {
+		t.Fatalf("status omitted compact tail: %#v", statusContent)
+	}
+	if _, ok := statusContent["tail_has_new_info"].(bool); !ok {
+		t.Fatalf("status omitted tail dedupe state: %#v", statusContent)
+	}
+	awaited, err := srv.awaitWithContinuation(
+		service.WithAgentSessionID(context.Background(), sessionID),
+		5*time.Millisecond,
+		"agent/status",
+		mustJSON(t, map[string]any{}),
+	)
+	if err != nil {
+		t.Fatalf("agent/status await continuation failed: %v", err)
+	}
+	if awaited.Continuation == nil {
+		t.Fatal("agent/status await continuation returned no result")
+	}
 
 	rules := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}}}}))
 	rulesResult := genericStructured(t, rules)

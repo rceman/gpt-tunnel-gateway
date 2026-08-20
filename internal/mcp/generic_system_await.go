@@ -8,14 +8,50 @@ import (
 )
 
 const (
-	minAwaitMinutes = 1
-	maxAwaitMinutes = 10
+	minAwaitMinutes      = 1
+	maxAwaitMinutes      = 10
+	minAwaitSeconds      = 1
+	maxAwaitSeconds      = maxAwaitMinutes * 60
+	agentStatusTailLines = 20
 )
 
 type awaitResult struct {
 	StartedAt      time.Time `json:"started_at"`
 	FinishedAt     time.Time `json:"finished_at"`
 	ElapsedSeconds float64   `json:"elapsed_seconds"`
+	Continuation   any       `json:"continuation,omitempty"`
+}
+
+type awaitInput struct {
+	Minutes         *int            `json:"minutes,omitempty"`
+	Seconds         *int            `json:"seconds,omitempty"`
+	OnComplete      string          `json:"on_complete,omitempty"`
+	OnCompleteInput json.RawMessage `json:"on_complete_input,omitempty"`
+}
+
+func awaitContinuationInputSchema() map[string]any {
+	return obj(map[string]any{
+		"agent_id": str("Registered Agent identifier for the read-only status continuation."),
+	})
+}
+
+func awaitInputSchema() map[string]any {
+	continuation := map[string]any{
+		"on_complete":       outputEnum("agent/status"),
+		"on_complete_input": awaitContinuationInputSchema(),
+	}
+	minutes := map[string]any{"minutes": integer("Minutes to await.", minAwaitMinutes, maxAwaitMinutes)}
+	seconds := map[string]any{"seconds": integer("Seconds to await.", minAwaitSeconds, maxAwaitSeconds)}
+	for key, value := range continuation {
+		minutes[key] = value
+		seconds[key] = value
+	}
+	return map[string]any{
+		"oneOf": []any{
+			obj(minutes, "minutes"),
+			obj(seconds, "seconds"),
+		},
+	}
 }
 
 func (s *Server) ensureSystemAwaitActions() {
@@ -23,13 +59,13 @@ func (s *Server) ensureSystemAwaitActions() {
 		return
 	}
 	s.systemAwaitActions.Do(func() {
-		minutes := integer("Minutes to await.", minAwaitMinutes, maxAwaitMinutes)
 		s.systemAwaitActionErr = s.RegisterGenericAction(GenericAction{
 			Path:        "system/await",
 			Description: "Block for a bounded interval while preserving caller cancellation.",
-			InputSchema: obj(map[string]any{"minutes": minutes}, "minutes"),
+			InputSchema: awaitInputSchema(),
 			OutputSchema: closedOutput(map[string]any{
 				"started_at": outputDateTime(), "finished_at": outputDateTime(), "elapsed_seconds": map[string]any{"type": "number"},
+				"continuation": map[string]any{"type": "object", "additionalProperties": true},
 			}, "started_at", "finished_at", "elapsed_seconds"),
 			Annotations: ToolAnnotations{
 				ReadOnlyHint:   true,
@@ -37,22 +73,66 @@ func (s *Server) ensureSystemAwaitActions() {
 			},
 			LocalReadOnly: true,
 			Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-				var input struct {
-					Minutes int `json:"minutes"`
-				}
+				var input awaitInput
 				if err := decode(raw, &input); err != nil {
 					return nil, err
 				}
-				if input.Minutes < minAwaitMinutes || input.Minutes > maxAwaitMinutes {
-					return nil, fmt.Errorf("minutes must be between %d and %d", minAwaitMinutes, maxAwaitMinutes)
+				duration, err := awaitInputDuration(input)
+				if err != nil {
+					return nil, err
 				}
-				return awaitDuration(ctx, time.Duration(input.Minutes)*time.Minute)
+				if err := validateAwaitContinuation(input.OnComplete); err != nil {
+					return nil, err
+				}
+				return s.awaitWithContinuation(ctx, duration, input.OnComplete, input.OnCompleteInput)
 			},
 		})
 	})
 	if s.systemAwaitActionErr != nil {
 		panic(s.systemAwaitActionErr)
 	}
+}
+
+func awaitInputDuration(input awaitInput) (time.Duration, error) {
+	if input.Minutes != nil && input.Seconds != nil {
+		return 0, fmt.Errorf("minutes and seconds are mutually exclusive")
+	}
+	if input.Minutes == nil && input.Seconds == nil {
+		return 0, fmt.Errorf("one of minutes or seconds is required")
+	}
+	if input.Minutes != nil {
+		if *input.Minutes < minAwaitMinutes || *input.Minutes > maxAwaitMinutes {
+			return 0, fmt.Errorf("minutes must be between %d and %d", minAwaitMinutes, maxAwaitMinutes)
+		}
+		return time.Duration(*input.Minutes) * time.Minute, nil
+	}
+	if *input.Seconds < minAwaitSeconds || *input.Seconds > maxAwaitSeconds {
+		return 0, fmt.Errorf("seconds must be between %d and %d", minAwaitSeconds, maxAwaitSeconds)
+	}
+	return time.Duration(*input.Seconds) * time.Second, nil
+}
+
+func validateAwaitContinuation(action string) error {
+	if action == "" || action == "agent/status" {
+		return nil
+	}
+	return fmt.Errorf("await continuation %q is not an allowlisted read-only action", action)
+}
+
+func (s *Server) awaitWithContinuation(ctx context.Context, duration time.Duration, action string, raw json.RawMessage) (awaitResult, error) {
+	result, err := awaitDuration(ctx, duration)
+	if err != nil {
+		return awaitResult{}, err
+	}
+	if action == "" {
+		return result, nil
+	}
+	continuation, err := s.agentStatusAction(ctx, raw)
+	if err != nil {
+		return awaitResult{}, err
+	}
+	result.Continuation = continuation
+	return result, nil
 }
 
 func awaitDuration(ctx context.Context, duration time.Duration) (awaitResult, error) {

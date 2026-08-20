@@ -40,10 +40,47 @@ func TestSystemAwaitSchemaIsBoundedAndRegistered(t *testing.T) {
 	if !ok {
 		t.Fatal("system/await is not registered")
 	}
-	properties := entry.InputSchema["properties"].(map[string]any)
-	minutes := properties["minutes"].(map[string]any)
+	branches := entry.InputSchema["oneOf"].([]any)
+	if len(branches) != 2 {
+		t.Fatalf("unexpected await input branches: %#v", entry.InputSchema)
+	}
+	minutes := branches[0].(map[string]any)["properties"].(map[string]any)["minutes"].(map[string]any)
+	seconds := branches[1].(map[string]any)["properties"].(map[string]any)["seconds"].(map[string]any)
 	if minutes["minimum"] != minAwaitMinutes || minutes["maximum"] != maxAwaitMinutes {
-		t.Fatalf("unexpected await bounds: %#v", minutes)
+		t.Fatalf("unexpected await minute bounds: %#v", minutes)
+	}
+	if seconds["minimum"] != minAwaitSeconds || seconds["maximum"] != maxAwaitSeconds {
+		t.Fatalf("unexpected await second bounds: %#v", seconds)
+	}
+	onComplete := branches[1].(map[string]any)["properties"].(map[string]any)["on_complete"].(map[string]any)["enum"].([]any)
+	if len(onComplete) != 1 || onComplete[0] != "agent/status" {
+		t.Fatalf("unexpected await continuation allowlist: %#v", onComplete)
+	}
+	if agentStatusTailLines != 20 {
+		t.Fatalf("agent/status tail default changed: %d", agentStatusTailLines)
+	}
+}
+
+func TestSystemAwaitRejectsMutationContinuation(t *testing.T) {
+	if err := validateAwaitContinuation("task/create"); err == nil {
+		t.Fatal("mutation action was accepted as an await continuation")
+	}
+	if err := validateAwaitContinuation("agent/status"); err != nil {
+		t.Fatalf("read-only continuation was rejected: %v", err)
+	}
+}
+
+func TestSystemAwaitSecondsAndMinutesAreMutuallyExclusive(t *testing.T) {
+	seconds := 60
+	if duration, err := awaitInputDuration(awaitInput{Seconds: &seconds}); err != nil || duration != time.Minute {
+		t.Fatalf("seconds input was not accepted: duration=%s err=%v", duration, err)
+	}
+	minutes := 1
+	if _, err := awaitInputDuration(awaitInput{
+		Minutes: &minutes,
+		Seconds: &seconds,
+	}); err == nil {
+		t.Fatal("minutes and seconds were accepted together")
 	}
 }
 
@@ -56,7 +93,7 @@ func TestSystemAwaitRejectsInvalidBoundsThroughGenericDispatch(t *testing.T) {
 			t.Fatalf("minutes=%d dispatch error: %v", minutes, err)
 		}
 		encoded, _ := json.Marshal(result)
-		if !containsAny(string(encoded), "minutes", "between") {
+		if !containsAny(string(encoded), "minutes", "between", "matching output shape") {
 			t.Fatalf("minutes=%d was not rejected by generic dispatch: %s", minutes, encoded)
 		}
 	}
