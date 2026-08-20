@@ -25,26 +25,28 @@ func PublicCollectionLimit(requested, configured int) (int, error) {
 }
 
 type Service struct {
-	Config                          config.Config
-	ConfigPath                      string
-	Hub                             hub.Store
-	Git                             gitx.Runner
-	Airelay                         airelay.Client
-	clock                           func() time.Time
-	gateExecutor                    func(context.Context, string, []string) ([]model.CompletionGateResult, error)
-	gateExecutorWithScope           func(context.Context, string, []string, gates.TestScope) ([]model.CompletionGateResult, error)
-	gateExecutorWithProjectCommands func(context.Context, string, []string, model.ProjectGateCommands, string) ([]model.CompletionGateResult, error)
-	taskActivator                   func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
-	runtimeSourceProver             func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
-	taskCreateWorkerOnce            sync.Once
-	taskCreateMu                    sync.Mutex
-	taskCreateWake                  chan string
-	taskCreateActive                map[string]struct{}
-	durableMutationWorkerOnce       sync.Once
-	durableMutationMu               sync.Mutex
-	durableMutationWake             chan string
-	durableMutationActive           map[string]struct{}
-	workflowPolicyCacheMu           sync.RWMutex
+	Config                                  config.Config
+	ConfigPath                              string
+	Hub                                     hub.Store
+	Git                                     gitx.Runner
+	Airelay                                 airelay.Client
+	clock                                   func() time.Time
+	gateExecutor                            func(context.Context, string, []string) ([]model.CompletionGateResult, error)
+	gateExecutorWithScope                   func(context.Context, string, []string, gates.TestScope) ([]model.CompletionGateResult, error)
+	gateExecutorWithProjectCommands         func(context.Context, string, []string, model.ProjectGateCommands, string) ([]model.CompletionGateResult, error)
+	gateExecutorWithProjectCommandsAndScope func(context.Context, string, []string, model.ProjectGateCommands, string, gates.TestScope) ([]model.CompletionGateResult, error)
+	formatExecutor                          func(context.Context, string) error
+	taskActivator                           func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
+	runtimeSourceProver                     func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
+	taskCreateWorkerOnce                    sync.Once
+	taskCreateMu                            sync.Mutex
+	taskCreateWake                          chan string
+	taskCreateActive                        map[string]struct{}
+	durableMutationWorkerOnce               sync.Once
+	durableMutationMu                       sync.Mutex
+	durableMutationWake                     chan string
+	durableMutationActive                   map[string]struct{}
+	workflowPolicyCacheMu                   sync.RWMutex
 }
 
 func New(c config.Config) *Service {
@@ -67,6 +69,12 @@ func New(c config.Config) *Service {
 		},
 		gateExecutorWithProjectCommands: func(ctx context.Context, root string, names []string, commands model.ProjectGateCommands, testMode string) ([]model.CompletionGateResult, error) {
 			return executor.ExecuteWithProjectCommands(ctx, root, names, commands, testMode)
+		},
+		gateExecutorWithProjectCommandsAndScope: func(ctx context.Context, root string, names []string, commands model.ProjectGateCommands, testMode string, scope gates.TestScope) ([]model.CompletionGateResult, error) {
+			return executor.ExecuteWithProjectCommandsAndScope(ctx, root, names, commands, testMode, scope)
+		},
+		formatExecutor: func(ctx context.Context, root string) error {
+			return gates.Format(ctx, root)
 		},
 		taskActivator: func(ctx context.Context, project config.ProjectConfig, source string) (TaskActivationResult, error) {
 			return activateTaskSource(ctx, c, config.DefaultPath(), project, source)

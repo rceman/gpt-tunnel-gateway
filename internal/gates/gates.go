@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/tokenizer"
@@ -18,6 +19,10 @@ const MaxTokens = tokenizer.MaxTokens
 const maxGateOutputBytes = 64 << 10
 
 const gateOutputTruncationMarker = "[gate output truncated; showing final output bytes]\n"
+
+const GateOptimizationWarning = "GATES_OPTIMIZATION_REQUIRED"
+
+const gateOptimizationBudget = 30 * time.Second
 
 const TestGateRunnerContractVersion = "gpt-tunnel-test-gate/v2"
 
@@ -116,9 +121,11 @@ func (e Executor) ExecuteWithScope(ctx context.Context, root string, requested [
 		return nil, fmt.Errorf("gate executor is not configured")
 	}
 	results := make([]model.CompletionGateResult, 0, len(resolved))
+	started := time.Now()
 	for _, gate := range resolved {
+		gateStarted := time.Now()
 		code, output, runErr := e.runGate(ctx, root, gate, normalized)
-		results = append(results, model.CompletionGateResult{ID: gate, ExitCode: code})
+		results = append(results, timedGateResult(gate, code, time.Since(gateStarted)))
 		if runErr != nil || code != 0 {
 			detail := strings.TrimSpace(output)
 			if detail != "" {
@@ -133,6 +140,7 @@ func (e Executor) ExecuteWithScope(ctx context.Context, root string, requested [
 			return results, fmt.Errorf("gate %s failed with exit code %d", gate, code)
 		}
 	}
+	annotateGateAggregate(results, time.Since(started))
 	return results, nil
 }
 
@@ -141,6 +149,15 @@ func (e Executor) ExecuteWithScope(ctx context.Context, root string, requested [
 // named group and test mode; it does not derive language-specific package
 // scopes or rewrite command arguments.
 func (e Executor) ExecuteWithProjectCommands(ctx context.Context, root string, requested []string, commands model.ProjectGateCommands, testMode string) ([]model.CompletionGateResult, error) {
+	return e.ExecuteWithProjectCommandsAndScope(ctx, root, requested, commands, testMode, FullTestScope())
+}
+
+// ExecuteWithProjectCommandsAndScope preserves project-owned format/check
+// commands while applying the server-owned affected-package scope to the
+// canonical Go task test command. Unknown/custom test commands fail closed to
+// the configured full command; the scope resolver itself already falls back
+// to FullTestScope on uncertainty.
+func (e Executor) ExecuteWithProjectCommandsAndScope(ctx context.Context, root string, requested []string, commands model.ProjectGateCommands, testMode string, scope TestScope) ([]model.CompletionGateResult, error) {
 	resolved, err := Resolve(requested)
 	if err != nil {
 		return nil, err
@@ -154,8 +171,14 @@ func (e Executor) ExecuteWithProjectCommands(ctx context.Context, root string, r
 	if e.Command == nil {
 		return nil, fmt.Errorf("gate executor is not configured")
 	}
+	normalized, err := scope.Normalize()
+	if err != nil {
+		return nil, err
+	}
 	results := make([]model.CompletionGateResult, 0, len(resolved))
+	started := time.Now()
 	for _, gate := range resolved {
+		gateStarted := time.Now()
 		command := commands.Format
 		switch gate {
 		case model.WorkflowGateCheck:
@@ -167,13 +190,68 @@ func (e Executor) ExecuteWithProjectCommands(ctx context.Context, root string, r
 				command = commands.Test.Train
 			}
 		}
-		code, output, runErr := e.Command(ctx, root, command.Command[0], command.Command[1:]...)
-		results = append(results, model.CompletionGateResult{ID: gate, ExitCode: code})
+		argv := append([]string{}, command.Command...)
+		if gate == model.WorkflowGateTest && testMode == "task" && normalized.Mode == TestScopePackages {
+			argv = scopedGoTestCommand(argv, normalized)
+		}
+		code, output, runErr := e.Command(ctx, root, argv[0], argv[1:]...)
+		results = append(results, timedGateResult(gate, code, time.Since(gateStarted)))
 		if runErr != nil || code != 0 {
 			return results, gateFailure(gate, code, output, runErr)
 		}
 	}
+	annotateGateAggregate(results, time.Since(started))
 	return results, nil
+}
+
+func scopedGoTestCommand(command []string, scope TestScope) []string {
+	if len(command) < 2 || command[0] != "go" || command[1] != "test" {
+		return command
+	}
+	args, err := scope.CommandArgs()
+	if err != nil || len(args) < 2 {
+		return command
+	}
+	result := []string{"go", "test"}
+	hasCount := false
+	for _, arg := range command[2:] {
+		if arg == "./..." {
+			result = append(result, args[2:len(args)-1]...)
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			result = append(result, arg)
+			if strings.HasPrefix(arg, "-count=") {
+				hasCount = true
+			}
+		}
+	}
+	if len(result) == 2 {
+		return command
+	}
+	if !hasCount {
+		result = append(result, "-count=1")
+	}
+	return result
+}
+
+func timedGateResult(id string, exitCode int, elapsed time.Duration) model.CompletionGateResult {
+	result := model.CompletionGateResult{ID: id, ExitCode: exitCode, DurationMS: elapsed.Milliseconds()}
+	if elapsed >= gateOptimizationBudget {
+		result.Warnings = []string{fmt.Sprintf("%s: gate=%s duration_ms=%d", GateOptimizationWarning, id, result.DurationMS)}
+	}
+	return result
+}
+
+func annotateGateAggregate(results []model.CompletionGateResult, elapsed time.Duration) {
+	if len(results) == 0 {
+		return
+	}
+	ms := elapsed.Milliseconds()
+	results[0].AggregateMS = ms
+	if elapsed >= gateOptimizationBudget {
+		results[0].Warnings = append(results[0].Warnings, fmt.Sprintf("%s: aggregate_ms=%d", GateOptimizationWarning, ms))
+	}
 }
 
 func gateFailure(gate string, code int, output string, runErr error) error {

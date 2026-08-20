@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/gates"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -36,19 +37,112 @@ func (s *Service) ExecuteProjectGates(ctx context.Context, projectID, operationC
 }
 
 func (s *Service) executeProjectGatesWithProjectCommands(ctx context.Context, projectID, root string, names []string, testMode string) ([]model.CompletionGateResult, error) {
+	return s.executeProjectGatesWithProjectCommandsAndScope(ctx, projectID, root, names, testMode, gates.FullTestScope())
+}
+
+func (s *Service) executeProjectGatesWithProjectCommandsAndScope(ctx context.Context, projectID, root string, names []string, testMode string, scope gates.TestScope) ([]model.CompletionGateResult, error) {
 	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
-	if s.gateExecutorWithProjectCommands == nil {
+	if s.gateExecutorWithProjectCommands == nil && s.gateExecutorWithProjectCommandsAndScope == nil {
 		return nil, fmt.Errorf("project gate executor is not configured")
 	}
-	results, err := s.gateExecutorWithProjectCommands(ctx, root, names, configuration.Workflow.GateCommands, testMode)
+	if testMode == "task" && containsGate(names, model.WorkflowGateTest) {
+		results, err := s.executeProjectTaskGatesWithTestReuse(ctx, projectID, root, names, configuration.Workflow.GateCommands, scope)
+		if err != nil {
+			return results, err
+		}
+		if err := validateProjectGateEvidence(results, names); err != nil {
+			return nil, err
+		}
+		return results, nil
+	}
+	results, err := s.executeProjectGatesCommandSet(ctx, root, names, configuration.Workflow.GateCommands, testMode, scope)
 	if err != nil {
 		return results, err
 	}
 	if err := validateProjectGateEvidence(results, names); err != nil {
 		return nil, err
+	}
+	return results, nil
+}
+
+func (s *Service) executeProjectGatesCommandSet(ctx context.Context, root string, names []string, commands model.ProjectGateCommands, testMode string, scope gates.TestScope) ([]model.CompletionGateResult, error) {
+	normalized, err := scope.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	if normalized.Mode != gates.TestScopeFull && s.gateExecutorWithProjectCommandsAndScope != nil {
+		return s.gateExecutorWithProjectCommandsAndScope(ctx, root, names, commands, testMode, scope)
+	}
+	if s.gateExecutorWithProjectCommands == nil {
+		return nil, fmt.Errorf("project gate executor is not configured")
+	}
+	return s.gateExecutorWithProjectCommands(ctx, root, names, commands, testMode)
+}
+
+func (s *Service) executeProjectTaskGatesWithTestReuse(ctx context.Context, projectID, root string, names []string, commands model.ProjectGateCommands, scope gates.TestScope) ([]model.CompletionGateResult, error) {
+	normalized, scopeErr := scope.Normalize()
+	if scopeErr != nil {
+		normalized = gates.FullTestScope()
+	}
+	tree, _, identityErr := s.currentTestIdentity(ctx, projectID, root)
+	contract, contractErr := gates.TestGateCommandContractDigest(names, normalized)
+	var reused model.CompletionGateResult
+	if identityErr == nil && scopeErr == nil && contractErr == nil {
+		if receipt, receiptDigest, err := s.loadTestPassReceipt(projectID); err == nil && receipt.ProjectID == projectID && receipt.TreeID == tree && receipt.ScopeMode == normalized.Mode && reflect.DeepEqual(receipt.ScopePackages, normalized.Packages) && receipt.ContractDigest == contract {
+			reused = model.CompletionGateResult{ID: model.WorkflowGateTest, ExitCode: 0, Execution: "reused", TreeID: receipt.TreeID, ContractDigest: receipt.ContractDigest, ReceiptDigest: receiptDigest}
+		}
+	}
+	if reused.ID == "" {
+		if err := s.invalidateTestPassReceipt(projectID); err != nil {
+			return nil, err
+		}
+		results, err := s.executeProjectGatesCommandSet(ctx, root, names, commands, "task", normalized)
+		if err != nil {
+			return results, err
+		}
+		results = annotateExecutedGateResults(results)
+		receipt, receiptDigest, err := s.writeTestPassReceiptLocked(ctx, projectID, root, names, normalized)
+		if err != nil {
+			return nil, fmt.Errorf("store test pass receipt: %w", err)
+		}
+		for i := range results {
+			if results[i].ID == model.WorkflowGateTest {
+				results[i].TreeID = receipt.TreeID
+				results[i].ContractDigest = receipt.ContractDigest
+				results[i].ReceiptDigest = receiptDigest
+			}
+		}
+		return results, nil
+	}
+	nonTest := make([]string, 0, len(names)-1)
+	for _, name := range names {
+		if name != model.WorkflowGateTest {
+			nonTest = append(nonTest, name)
+		}
+	}
+	var nonTestResults []model.CompletionGateResult
+	if len(nonTest) > 0 {
+		results, err := s.executeProjectGatesCommandSet(ctx, root, nonTest, commands, "task", gates.FullTestScope())
+		if err != nil {
+			return results, err
+		}
+		nonTestResults = annotateExecutedGateResults(results)
+	}
+	results := make([]model.CompletionGateResult, 0, len(names))
+	for _, name := range names {
+		if name == model.WorkflowGateTest {
+			results = append(results, reused)
+			continue
+		}
+		for _, result := range nonTestResults {
+			if result.ID == name {
+				results = append(results, result)
+				break
+			}
+		}
 	}
 	return results, nil
 }

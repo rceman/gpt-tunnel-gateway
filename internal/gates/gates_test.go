@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
@@ -183,6 +184,39 @@ func TestExecutorUsesScopedAndLegacyFullTestCommands(t *testing.T) {
 	}
 	if len(calls) != 2 || !reflect.DeepEqual(calls[0], []string{"go", "test", "./a", "./z", "-count=1"}) || !reflect.DeepEqual(calls[1], []string{"go", "test", "./...", "-count=1"}) {
 		t.Fatalf("test commands=%v", calls)
+	}
+}
+
+func TestProjectTaskCommandUsesAffectedPackagesAndTrainStaysFull(t *testing.T) {
+	var calls [][]string
+	e := Executor{Command: func(_ context.Context, _ string, name string, args ...string) (int, string, error) {
+		calls = append(calls, append([]string{name}, args...))
+		return 0, "", nil
+	}}
+	commands := model.DefaultProjectGateCommands()
+	if _, err := e.ExecuteWithProjectCommandsAndScope(context.Background(), "/repo", []string{"test"}, commands, "task", TestScope{
+		Mode:     TestScopePackages,
+		Packages: []string{"./internal/service"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.ExecuteWithProjectCommandsAndScope(context.Background(), "/repo", []string{"test"}, commands, "train", FullTestScope()); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(calls[0], []string{"go", "test", "./internal/service", "-count=1"}) || !reflect.DeepEqual(calls[1], []string{"go", "test", "./...", "-count=1"}) {
+		t.Fatalf("project task/train commands=%v", calls)
+	}
+}
+
+func TestGateTimingWarningIsNonfatalAndBounded(t *testing.T) {
+	result := timedGateResult(model.WorkflowGateTest, 0, gateOptimizationBudget+time.Millisecond)
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], GateOptimizationWarning) || result.DurationMS < 30000 {
+		t.Fatalf("timing warning=%#v", result)
+	}
+	results := []model.CompletionGateResult{result}
+	annotateGateAggregate(results, gateOptimizationBudget+time.Millisecond)
+	if results[0].AggregateMS < 30000 || len(results[0].Warnings) != 2 {
+		t.Fatalf("aggregate timing=%#v", results[0])
 	}
 }
 

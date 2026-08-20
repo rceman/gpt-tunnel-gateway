@@ -3,12 +3,15 @@ package model
 import "time"
 
 type CompletionGateResult struct {
-	ID             string `json:"id"`
-	ExitCode       int    `json:"exit_code"`
-	Execution      string `json:"execution,omitempty"`
-	TreeID         string `json:"tree_id,omitempty"`
-	ContractDigest string `json:"contract_digest,omitempty"`
-	ReceiptDigest  string `json:"receipt_digest,omitempty"`
+	ID             string   `json:"id"`
+	ExitCode       int      `json:"exit_code"`
+	Execution      string   `json:"execution,omitempty"`
+	TreeID         string   `json:"tree_id,omitempty"`
+	ContractDigest string   `json:"contract_digest,omitempty"`
+	ReceiptDigest  string   `json:"receipt_digest,omitempty"`
+	DurationMS     int64    `json:"duration_ms,omitempty"`
+	AggregateMS    int64    `json:"aggregate_ms,omitempty"`
+	Warnings       []string `json:"warnings,omitempty"`
 }
 
 type RepositoryProof struct {

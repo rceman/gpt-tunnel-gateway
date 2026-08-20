@@ -112,6 +112,14 @@ func EffectiveProjectWorkflowGates(gates []string) []string {
 func ValidateServerGateEvidence(results []CompletionGateResult) error {
 	seen := map[string]bool{}
 	for _, result := range results {
+		if result.DurationMS < 0 || result.AggregateMS < 0 || len(result.Warnings) > 8 {
+			return fmt.Errorf("invalid server gate timing evidence")
+		}
+		for _, warning := range result.Warnings {
+			if len(warning) == 0 || len(warning) > 256 {
+				return fmt.Errorf("invalid server gate warning evidence")
+			}
+		}
 		if result.ID != WorkflowGateFormat && result.ID != WorkflowGateCheck && result.ID != WorkflowGateTest {
 			return fmt.Errorf("invalid server gate evidence %q", result.ID)
 		}

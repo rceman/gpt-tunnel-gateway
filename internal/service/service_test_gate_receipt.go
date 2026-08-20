@@ -140,9 +140,13 @@ func (s *Service) currentTestIdentity(ctx context.Context, projectID, root strin
 	if err != nil {
 		return "", "", err
 	}
-	if filepath.Clean(project.Root) != filepath.Clean(root) {
+	if filepath.Clean(root) == "." || filepath.IsAbs(filepath.Clean(root)) == false {
 		return "", "", fmt.Errorf("test root does not match configured project")
 	}
+	// Finalization may run against the server-owned Train worktree rather than
+	// the configured checkout. The caller has already bound that runtime path
+	// to the current Attempt; use it for the exact receipt identity.
+	project.Root = filepath.Clean(root)
 	status, err := s.Git.WorktreeStatus(ctx, project)
 	if err != nil {
 		return "", "", err

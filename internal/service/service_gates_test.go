@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/gates"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -55,5 +56,30 @@ func TestExecuteProjectGatesUsesProjectOwnedTaskAndTrainModes(t *testing.T) {
 	}
 	if len(modes) != 2 || modes[0] != "task" || modes[1] != "train" {
 		t.Fatalf("project gate modes=%v", modes)
+	}
+}
+
+func TestProjectTaskGatesPassResolvedScopeAndReuseExactReceipt(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	root := s.Config.Projects["example"].Root
+	var scopes []gates.TestScope
+	s.gateExecutorWithProjectCommandsAndScope = func(_ context.Context, _ string, names []string, _ model.ProjectGateCommands, mode string, scope gates.TestScope) ([]model.CompletionGateResult, error) {
+		if mode != "task" {
+			t.Fatalf("mode=%q", mode)
+		}
+		scopes = append(scopes, scope)
+		return fakeReceiptResults(names), nil
+	}
+	scope := gates.TestScope{Mode: gates.TestScopePackages, Packages: []string{"./internal/service"}}
+	first, err := s.executeProjectGatesWithProjectCommandsAndScope(context.Background(), "example", root, []string{"format", "check", "test"}, "task", scope)
+	if err != nil || len(first) != 3 || first[2].Execution != "executed" {
+		t.Fatalf("first scoped gate run=%#v err=%v", first, err)
+	}
+	second, err := s.executeProjectGatesWithProjectCommandsAndScope(context.Background(), "example", root, []string{"format", "check", "test"}, "task", scope)
+	if err != nil || len(second) != 3 || second[2].Execution != "reused" {
+		t.Fatalf("second scoped gate run=%#v err=%v", second, err)
+	}
+	if len(scopes) != 1 || scopes[0].Mode != gates.TestScopePackages || len(scopes[0].Packages) != 1 || scopes[0].Packages[0] != "./internal/service" {
+		t.Fatalf("scope execution=%#v", scopes)
 	}
 }
