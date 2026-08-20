@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -108,6 +109,44 @@ func TestTrainV2CorrectionStartRequiresExactRejectedReviewAndQueuedTask(t *testi
 	}
 	good := bad
 	good.RejectedReviewID = reviewID
+	if _, err := s.TrainV2Advance(context.Background(), TrainV2AdvanceInput{
+		ProjectID: "example",
+		TrainID:   train.ID,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: updated.After,
+		},
+	}); err == nil {
+		t.Fatal("ordinary advance opened rejected correction")
+	}
+	wrongTask := bad
+	wrongTask.RejectedReviewID, wrongTask.CorrectionTaskID = reviewID, "EXM-TSK999"
+	if _, err := s.TrainV2CorrectionStart(context.Background(), wrongTask); err == nil {
+		t.Fatal("wrong queued Task identity was accepted")
+	}
+	wrongRevision := bad
+	wrongRevision.RejectedReviewID, wrongRevision.CorrectionTaskRevision = reviewID, correctionTask.Revision+1
+	if _, err := s.TrainV2CorrectionStart(context.Background(), wrongRevision); err == nil {
+		t.Fatal("wrong queued Task revision was accepted")
+	}
+	wrongDigest := bad
+	wrongDigest.RejectedReviewID, wrongDigest.CorrectionTaskRevisionSHA256 = reviewID, strings.Repeat("d", 64)
+	if _, err := s.TrainV2CorrectionStart(context.Background(), wrongDigest); err == nil {
+		t.Fatal("wrong queued Task digest was accepted")
+	}
+	wrongTrain := bad
+	wrongTrain.RejectedReviewID, wrongTrain.TrainID = reviewID, "EXM-TRN999"
+	if _, err := s.TrainV2CorrectionStart(context.Background(), wrongTrain); err == nil {
+		t.Fatal("cross-Train correction was accepted")
+	}
+	if err := os.WriteFile(started.Runtime.WorktreePath+"/TSK338-dirty", []byte("dirty"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.TrainV2CorrectionStart(context.Background(), good); err == nil {
+		t.Fatal("dirty correction lane was accepted")
+	}
+	if err := os.Remove(started.Runtime.WorktreePath + "/TSK338-dirty"); err != nil {
+		t.Fatal(err)
+	}
 	startedCorrection, err := s.TrainV2CorrectionStart(context.Background(), good)
 	if err != nil {
 		t.Fatal(err)
