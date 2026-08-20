@@ -51,3 +51,38 @@ func TestClassifyTrainV2CorrectionPending(t *testing.T) {
 		t.Fatalf("unexpected correction classification: %#v", classification)
 	}
 }
+
+func TestCorrectionPendingAllowsMultipleRejectedReviewsWithAcceptedHistory(t *testing.T) {
+	now := time.Now().UTC()
+	train := correctionPendingTrainFixture(now)
+	accepted := train.Items[1]
+	queued := train.Items[1]
+	accepted.TaskID = "EXM-TSK337-accepted"
+	accepted.Status = model.TrainV2ItemReviewed
+	accepted.SuccessfulAttemptNumber = 1
+	accepted.Review = &model.TrainV2ItemReview{Outcome: model.ReviewOutcomeAccepted, ReportID: "EXM-TRN336-ITEM1-ATTEMPT1-REVIEW", ReviewedAt: now}
+	accepted.Attempts = []model.TrainV2Attempt{{Number: 1, Status: model.TrainV2AttemptSucceeded, ReviewID: accepted.Review.ReportID, StartedAt: now.Add(-time.Hour)}}
+	train.Items[1] = accepted
+	secondRejected := train.Items[0]
+	secondRejected.Position = 2
+	secondRejected.TaskID = "EXM-TSK338"
+	secondRejected.Attempts = append([]model.TrainV2Attempt(nil), secondRejected.Attempts...)
+	secondRejected.Review = &model.TrainV2ItemReview{Outcome: model.ReviewOutcomeRejectedCorrection, ReportID: "EXM-TRN336-ITEM2-ATTEMPT1-REVIEW", ReviewedAt: now}
+	secondRejected.Attempts[0].ReviewID = secondRejected.Review.ReportID
+	train.Items = []model.TrainV2Item{train.Items[0], accepted, secondRejected, queued}
+	for position := range train.Items {
+		train.Items[position].Position = position
+	}
+	if position, ok := correctionPendingTrain(train); !ok || position != 2 {
+		t.Fatalf("multiple rejected reviews were not correction-pending: position=%d ok=%t", position, ok)
+	}
+}
+
+func TestCorrectionPendingRejectsMalformedRejectedHistory(t *testing.T) {
+	train := correctionPendingTrainFixture(time.Now().UTC())
+	train.Items = append(train.Items, model.TrainV2Item{Position: 2, TaskID: "EXM-TSK338", Status: model.TrainV2ItemQueued})
+	train.Items[0].Attempts[0].ReviewID = "tampered-review"
+	if _, ok := correctionPendingTrain(train); ok {
+		t.Fatal("malformed rejected history was classified as correction-pending")
+	}
+}

@@ -141,28 +141,34 @@ func (s *Service) classifyTrainV2LifecycleWithContext(ctx context.Context, proje
 }
 
 func correctionPendingTrain(train model.TrainV2) (int, bool) {
-	rejected := -1
+	eligible := -1
 	for position, item := range train.Items {
-		if item.Status == model.TrainV2ItemReviewed && item.Review != nil && item.Review.Outcome == model.ReviewOutcomeRejectedCorrection && item.SuccessfulAttemptNumber > 0 && item.SuccessfulAttemptNumber <= uint64(len(item.Attempts)) {
-			attempt := item.Attempts[item.SuccessfulAttemptNumber-1]
-			if attempt.Status == model.TrainV2AttemptSucceeded && attempt.ReviewID == item.Review.ReportID {
-				if rejected != -1 {
-					return -1, false
-				}
-				rejected = position
-			}
+		if item.Status != model.TrainV2ItemReviewed || item.Review == nil || item.Review.Outcome != model.ReviewOutcomeRejectedCorrection {
+			continue
 		}
-	}
-	if rejected < 0 || rejected == len(train.Items)-1 {
-		return -1, false
-	}
-	for position := rejected + 1; position < len(train.Items); position++ {
-		item := train.Items[position]
-		if item.Status != model.TrainV2ItemQueued || len(item.Attempts) != 0 || item.Review != nil || item.Proof != nil {
+		if item.SuccessfulAttemptNumber == 0 || item.SuccessfulAttemptNumber > uint64(len(item.Attempts)) {
 			return -1, false
 		}
+		attempt := item.Attempts[item.SuccessfulAttemptNumber-1]
+		if attempt.Status != model.TrainV2AttemptSucceeded || attempt.ReviewID != item.Review.ReportID {
+			return -1, false
+		}
+		tailQueued := position < len(train.Items)-1
+		for tailPosition := position + 1; tailPosition < len(train.Items); tailPosition++ {
+			tail := train.Items[tailPosition]
+			if tail.Status != model.TrainV2ItemQueued || len(tail.Attempts) != 0 || tail.Review != nil || tail.Proof != nil {
+				tailQueued = false
+				break
+			}
+		}
+		if tailQueued {
+			if eligible != -1 {
+				return -1, false
+			}
+			eligible = position
+		}
 	}
-	return rejected, true
+	return eligible, eligible >= 0
 }
 
 func (s *Service) trainV2HasLiveOperation(projectID, trainID string) (bool, error) {
