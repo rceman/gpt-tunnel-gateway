@@ -76,6 +76,7 @@ func (s Store) RecordMCPTokenUsage(id string, inputTokens, outputTokens int, upd
 	if updatedAt.IsZero() {
 		updatedAt = time.Now().UTC()
 	}
+	updatedAt = monotonicSessionTimestamp(record.UpdatedAt, updatedAt)
 	record.MCPInputTokens += inputTokens
 	record.MCPOutputTokens += outputTokens
 	record.MCPTokenTotal += inputTokens + outputTokens
@@ -205,7 +206,7 @@ func (s Store) Bind(id, projectID string) (Record, error) {
 		record.ProjectRulesRevision = 0
 		record.ProjectRulesDigest = ""
 	}
-	record.UpdatedAt = time.Now().UTC()
+	record.UpdatedAt = monotonicSessionTimestamp(record.UpdatedAt, time.Now().UTC())
 	if err := record.Validate(); err != nil {
 		return Record{}, err
 	}
@@ -235,7 +236,7 @@ func (s Store) AcknowledgeRules(id, globalRevision, globalDigest string, project
 	record.GlobalRulesDigest = globalDigest
 	record.ProjectRulesRevision = projectRevision
 	record.ProjectRulesDigest = projectDigest
-	record.UpdatedAt = time.Now().UTC()
+	record.UpdatedAt = monotonicSessionTimestamp(record.UpdatedAt, time.Now().UTC())
 	if err := record.Validate(); err != nil {
 		return Record{}, err
 	}
@@ -302,7 +303,7 @@ func (s Store) Update(id string, input UpdateInput) (Record, error) {
 	if input.Label != nil {
 		record.Label = cloneString(input.Label)
 	}
-	record.UpdatedAt = time.Now().UTC()
+	record.UpdatedAt = monotonicSessionTimestamp(record.UpdatedAt, time.Now().UTC())
 	if err := record.Validate(); err != nil {
 		return Record{}, err
 	}
@@ -325,7 +326,10 @@ func (s Store) End(id string) (Record, error) {
 	if record.Status == StatusEnded {
 		return record, nil
 	}
-	now := time.Now().UTC()
+	now := monotonicSessionTimestamp(record.UpdatedAt, time.Now().UTC())
+	if now.Before(record.StartedAt) {
+		now = record.StartedAt
+	}
 	record.Status = StatusEnded
 	record.EndedAt = &now
 	record.UpdatedAt = now
@@ -336,6 +340,13 @@ func (s Store) End(id string) (Record, error) {
 		return Record{}, err
 	}
 	return record, nil
+}
+
+func monotonicSessionTimestamp(previous, candidate time.Time) time.Time {
+	if candidate.Before(previous) {
+		return previous
+	}
+	return candidate
 }
 
 func (s Store) List() ([]Record, error) {
