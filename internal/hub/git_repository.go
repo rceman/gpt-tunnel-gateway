@@ -33,6 +33,9 @@ func command(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), ctxErr)
+		}
 		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.Bytes(), nil
@@ -45,6 +48,9 @@ func cloneRepository(ctx context.Context, parent, repositoryURL, target string) 
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("clone managed hub repository: %w", ctxErr)
+		}
 		return fmt.Errorf("clone managed hub repository: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return nil

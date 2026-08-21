@@ -10,6 +10,16 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 )
 
+// EnsureObserver receives bounded startup sub-phase names. It is optional and
+// does not alter the Hub reconciliation semantics.
+type EnsureObserver func(string)
+
+func observeEnsure(observer EnsureObserver, phase string) {
+	if observer != nil {
+		observer(phase)
+	}
+}
+
 func (s Store) remoteRef() string {
 	return "refs/remotes/" + RemoteName + "/" + s.Config.Hub.Branch
 }
@@ -104,26 +114,40 @@ func (s Store) ensureBranch(ctx context.Context, root string) error {
 	_, err = command(ctx, root, "fetch", "--prune", "--tags", RemoteName)
 	return err
 }
-func (s Store) ensureLocked(ctx context.Context) (string, error) {
+func (s Store) ensureLocked(ctx context.Context, observer EnsureObserver) (string, error) {
 	root := ManagedRoot(s.Config)
+	observeEnsure(observer, "HUB_ENSURE_MANAGED_ROOT_START")
 	if err := s.cloneIfMissing(ctx, root); err != nil {
 		return "", err
 	}
+	observeEnsure(observer, "HUB_ENSURE_MANAGED_ROOT_DONE")
+	observeEnsure(observer, "HUB_ENSURE_REMOTE_FETCH_START")
 	if _, err := command(ctx, root, "fetch", "--prune", "--tags", RemoteName); err != nil {
 		return "", err
 	}
+	observeEnsure(observer, "HUB_ENSURE_REMOTE_FETCH_DONE")
+	observeEnsure(observer, "HUB_ENSURE_BRANCH_RECONCILE_START")
 	if err := s.ensureBranch(ctx, root); err != nil {
 		return "", err
 	}
+	observeEnsure(observer, "HUB_ENSURE_BRANCH_RECONCILE_DONE")
 	return root, nil
 }
 func (s Store) Ensure(ctx context.Context) error {
+	return s.EnsureWithObserver(ctx, nil)
+}
+func (s Store) EnsureWithObserver(ctx context.Context, observer EnsureObserver) error {
+	observeEnsure(observer, "HUB_ENSURE_LOCK_ACQUIRE_START")
 	lock, err := acquireRepositoryLock(ctx, s.Config.StateDir)
 	if err != nil {
 		return err
 	}
 	defer lock.Release()
-	_, err = s.ensureLocked(ctx)
+	observeEnsure(observer, "HUB_ENSURE_LOCK_ACQUIRE_DONE")
+	_, err = s.ensureLocked(ctx, observer)
+	if err == nil {
+		observeEnsure(observer, "HUB_ENSURE_DONE")
+	}
 	return err
 }
 func (s Store) Refresh(ctx context.Context) error {

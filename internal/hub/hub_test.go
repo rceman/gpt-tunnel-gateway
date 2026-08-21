@@ -48,6 +48,31 @@ func TestEnsureCreatesManagedCloneAndMissingBranch(t *testing.T) {
 	}
 }
 
+func TestEnsureObserverReportsBoundedSubphases(t *testing.T) {
+	bare, _, _ := testutil.RepoWithBareRemote(t)
+	c := testConfig(t, bare, "gpt-tunnel/home_pc")
+	var phases []string
+	if err := (Store{Config: c}).EnsureWithObserver(context.Background(), func(phase string) {
+		phases = append(phases, phase)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"HUB_ENSURE_LOCK_ACQUIRE_START",
+		"HUB_ENSURE_LOCK_ACQUIRE_DONE",
+		"HUB_ENSURE_MANAGED_ROOT_START",
+		"HUB_ENSURE_MANAGED_ROOT_DONE",
+		"HUB_ENSURE_REMOTE_FETCH_START",
+		"HUB_ENSURE_REMOTE_FETCH_DONE",
+		"HUB_ENSURE_BRANCH_RECONCILE_START",
+		"HUB_ENSURE_BRANCH_RECONCILE_DONE",
+		"HUB_ENSURE_DONE",
+	}
+	if strings.Join(phases, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("phases=%q want=%q", phases, want)
+	}
+}
+
 func TestReadDoesNotCreateCloneBranchOrLockArtifacts(t *testing.T) {
 	bare, _, _ := testutil.RepoWithBareRemote(t)
 	c := testConfig(t, bare, "gpt-tunnel/home_pc")

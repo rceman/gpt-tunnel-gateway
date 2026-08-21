@@ -24,7 +24,7 @@ func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mu
 		return TransactionResult{}, err
 	}
 	defer repositoryLock.Release()
-	root, err := s.ensureLocked(ctx)
+	root, err := s.ensureLocked(ctx, nil)
 	if err != nil {
 		return TransactionResult{}, err
 	}

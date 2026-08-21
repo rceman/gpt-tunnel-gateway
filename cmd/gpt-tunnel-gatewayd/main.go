@@ -48,15 +48,17 @@ func main() {
 	defer durability.Close()
 	svc := service.NewWithDurability(c, durability)
 	startupPhase("HUB_ENSURE")
-	hubCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	if err := svc.Hub.Ensure(hubCtx); err != nil {
+	hubCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	if err := svc.Hub.EnsureWithObserver(hubCtx, startupPhase); err != nil {
 		cancel()
+		startupErrorForPhase("HUB_ENSURE", err)
 		fatal(err)
 	}
 	startupPhase("STATE_CHECK")
 	state, err := svc.StateCheck(hubCtx)
 	if err != nil {
 		cancel()
+		startupErrorForPhase("STATE_CHECK", err)
 		fatal(err)
 	}
 	if !state.Valid {
@@ -104,8 +106,12 @@ func startupPhase(phase string) {
 }
 
 func startupError(err error) {
+	startupErrorForPhase("SQLITE_OPEN", err)
+}
+
+func startupErrorForPhase(phase string, err error) {
 	details := map[string]string{
-		"phase": "SQLITE_OPEN",
+		"phase": phase,
 		"stage": "other_initialization",
 		"error": boundedStartupError(err),
 	}
