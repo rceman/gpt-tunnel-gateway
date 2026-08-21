@@ -114,10 +114,11 @@ func sha256File(path string) (string, error) {
 	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
 
-// Source builds and activates one exact source revision into an external
-// operation directory. It restarts only Gateway, preserves Tunnel identity,
-// verifies source/version/readiness/doctor/MCP, and removes all artifacts.
-func Source(ctx context.Context, c config.Config, configPath string, project config.ProjectConfig, sourceHead string) (Result, error) {
+// SelfActivate builds and activates one exact GTW source revision into an
+// external operation directory. It performs offline verification first, then
+// holds the controller handoff lock across Gateway stop, atomic replacement,
+// start, readiness/provenance proof, and rollback. Tunnel is never touched.
+func SelfActivate(ctx context.Context, c config.Config, configPath string, project config.ProjectConfig, sourceHead string) (Result, error) {
 	if project.Root == "" || sourceHead == "" {
 		return Result{}, fmt.Errorf("activation source is incomplete")
 	}
@@ -165,38 +166,34 @@ func Source(ctx context.Context, c config.Config, configPath string, project con
 	if err != nil {
 		return Result{}, err
 	}
-	if err := releaseartifacts.ReplaceAll(release, paths, old); err != nil {
+	var after controller.Status
+	err = ctl.ActivateGateway(controller.GatewayActivation{
+		Replace: func() error {
+			return releaseartifacts.ReplaceAll(release, paths, old)
+		},
+		Restore: func() error {
+			return releaseartifacts.RestoreAll(paths, old)
+		},
+		Verify: func() error {
+			if err := releaseartifacts.VerifyInstalled(release, paths); err != nil {
+				return err
+			}
+			var statusErr error
+			after, statusErr = ctl.Status(ctx)
+			if statusErr != nil {
+				return statusErr
+			}
+			if after.Tunnel.PID != before.Tunnel.PID || !after.GatewayReady || !after.TunnelReady || !after.VersionMatch || !after.RuntimeIdentity.ExactSourceMatch || after.RuntimeIdentity.SourceSHA != sourceHead {
+				return fmt.Errorf("activation runtime identity/readiness/source proof failed")
+			}
+			if err := ctl.Doctor(ctx); err != nil {
+				return err
+			}
+			return liveMCPSmoke(ctx, c, targetVersion)
+		},
+	})
+	if err != nil {
 		return Result{}, err
-	}
-	restore := func(cause error) error {
-		restoreErr := releaseartifacts.RestoreAll(paths, old)
-		restartErr := ctl.RestartGatewayAfterUpgrade()
-		if restoreErr != nil {
-			return fmt.Errorf("activation rollback artifact restore failed: %w; original failure: %v", restoreErr, cause)
-		}
-		if restartErr != nil {
-			return fmt.Errorf("activation rollback gateway restart failed: %w; original failure: %v", restartErr, cause)
-		}
-		return cause
-	}
-	if err := ctl.RestartGatewayAfterUpgrade(); err != nil {
-		return Result{}, restore(fmt.Errorf("gateway activation failed: %w", err))
-	}
-	if err := releaseartifacts.VerifyInstalled(release, paths); err != nil {
-		return Result{}, restore(err)
-	}
-	after, err := ctl.Status(ctx)
-	if err != nil || after.Tunnel.PID != before.Tunnel.PID || !after.GatewayReady || !after.TunnelReady || !after.VersionMatch {
-		if err != nil {
-			return Result{}, restore(err)
-		}
-		return Result{}, restore(fmt.Errorf("activation runtime identity/readiness proof failed"))
-	}
-	if err := ctl.Doctor(ctx); err != nil {
-		return Result{}, restore(err)
-	}
-	if err := liveMCPSmoke(ctx, c, targetVersion); err != nil {
-		return Result{}, restore(err)
 	}
 	return Result{
 		SourceHead: sourceHead,

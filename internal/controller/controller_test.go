@@ -91,6 +91,56 @@ func TestRestartGatewayDiagnosticsExcludesPreviousShutdownOutput(t *testing.T) {
 	}
 }
 
+func TestActivateGatewayOrdersStopSwapStartReadyAndVerify(t *testing.T) {
+	oldStop, oldStart, oldWait := restartGatewayStopFn, restartGatewayStartFn, restartGatewayWaitFn
+	defer func() { restartGatewayStopFn, restartGatewayStartFn, restartGatewayWaitFn = oldStop, oldStart, oldWait }()
+	var steps []string
+	restartGatewayStopFn = func(Controller) error { steps = append(steps, "stop"); return nil }
+	restartGatewayStartFn = func(Controller) error { steps = append(steps, "start"); return nil }
+	restartGatewayWaitFn = func(string, bool, time.Duration) error { steps = append(steps, "ready"); return nil }
+	c := Controller{Config: config.Config{Controller: config.ControllerConfig{PIDDir: t.TempDir()}}}
+	err := c.ActivateGateway(GatewayActivation{
+		Replace: func() error { steps = append(steps, "swap"); return nil },
+		Restore: func() error { steps = append(steps, "restore"); return nil },
+		Verify:  func() error { steps = append(steps, "verify"); return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(steps, ","), "stop,swap,start,ready,verify"; got != want {
+		t.Fatalf("activation order=%q want=%q", got, want)
+	}
+}
+
+func TestActivateGatewayRestoresPreviousArtifactsAfterReadinessFailure(t *testing.T) {
+	oldStop, oldStart, oldWait := restartGatewayStopFn, restartGatewayStartFn, restartGatewayWaitFn
+	defer func() { restartGatewayStopFn, restartGatewayStartFn, restartGatewayWaitFn = oldStop, oldStart, oldWait }()
+	var steps []string
+	waits := 0
+	restartGatewayStopFn = func(Controller) error { steps = append(steps, "stop"); return nil }
+	restartGatewayStartFn = func(Controller) error { steps = append(steps, "start"); return nil }
+	restartGatewayWaitFn = func(string, bool, time.Duration) error {
+		steps = append(steps, "ready")
+		waits++
+		if waits == 1 {
+			return fmt.Errorf("candidate not ready")
+		}
+		return nil
+	}
+	c := Controller{Config: config.Config{Controller: config.ControllerConfig{PIDDir: t.TempDir()}}}
+	err := c.ActivateGateway(GatewayActivation{
+		Replace: func() error { steps = append(steps, "swap"); return nil },
+		Restore: func() error { steps = append(steps, "restore"); return nil },
+		Verify:  func() error { t.Fatal("verification ran after readiness failure"); return nil },
+	})
+	if err == nil || !strings.Contains(err.Error(), "candidate not ready") {
+		t.Fatalf("activation error=%v", err)
+	}
+	if got, want := strings.Join(steps, ","), "stop,swap,start,ready,stop,restore,start,ready"; got != want {
+		t.Fatalf("rollback order=%q want=%q", got, want)
+	}
+}
+
 func TestReadGatewayLogDeltaRejectsSymlink(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target.log")

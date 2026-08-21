@@ -7,11 +7,10 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 )
 
-// activateTaskSource is the legacy service adapter. The reusable activation
-// implementation belongs to internal/activation so Train v2 can use the same
-// exact-source transaction without importing service internals.
+// activateTaskSource is the server-owned GTW self-activation adapter. The
+// Gateway handoff is never exposed as a generic public activation action.
 func activateTaskSource(ctx context.Context, c config.Config, configPath string, project config.ProjectConfig, sourceHead string) (TaskActivationResult, error) {
-	result, err := activation.Source(ctx, c, configPath, project, sourceHead)
+	result, err := activation.SelfActivate(ctx, c, configPath, project, sourceHead)
 	if err != nil {
 		return TaskActivationResult{}, err
 	}
