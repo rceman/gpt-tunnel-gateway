@@ -30,6 +30,7 @@ func projectConfigurationMutationReceipt(operation durableMutationOperation) Pro
 		CreatedAt:   operation.CreatedAt,
 		UpdatedAt:   operation.UpdatedAt,
 	}
+	receipt.Operation.Hub.Paths = []string{}
 	if operation.Status != "completed" || len(operation.Result) == 0 {
 		return receipt
 	}
@@ -44,6 +45,9 @@ func projectConfigurationMutationReceipt(operation durableMutationOperation) Pro
 	}
 	receipt.Configuration = &result.Configuration
 	receipt.Operation = result.Operation
+	if receipt.Operation.Hub.Paths == nil {
+		receipt.Operation.Hub.Paths = []string{}
+	}
 	return receipt
 }
 
