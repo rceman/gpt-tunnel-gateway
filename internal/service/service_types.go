@@ -52,6 +52,7 @@ type Service struct {
 	durableMutationWorkerOnce               sync.Once
 	sharedOutboxWorkerOnce                  sync.Once
 	durableMutationMu                       sync.Mutex
+	localOperationMu                        sync.Mutex
 	durableMutationWake                     chan string
 	durableMutationActive                   map[string]struct{}
 	workflowPolicyCacheMu                   sync.RWMutex
