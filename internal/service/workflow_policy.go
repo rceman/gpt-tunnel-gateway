@@ -104,17 +104,21 @@ func (s *Service) projectWorkflowPolicyReadDetailed(ctx context.Context, project
 		return model.ProjectWorkflowPolicy{}, "", err
 	}
 	configuration, configurationErr := s.ProjectConfigurationRead(ctx, projectID)
-	legacyPath := s.workflowPolicyPath(projectID)
-	var policy model.ProjectWorkflowPolicy
-	legacyErr := s.Hub.ReadJSON(ctx, legacyPath, &policy)
+	var canonical model.ProjectWorkflowPolicy
 	if configurationErr == nil {
-		canonical, err := workflowPolicyFromConfiguration(configuration)
+		var err error
+		canonical, err = workflowPolicyFromConfiguration(configuration)
 		if err != nil {
 			return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("project configuration workflow is invalid: %w", err)
 		}
 		if s.Durability != nil {
 			return canonical, "project_configuration", nil
 		}
+	}
+	legacyPath := s.workflowPolicyPath(projectID)
+	var policy model.ProjectWorkflowPolicy
+	legacyErr := s.Hub.ReadJSON(ctx, legacyPath, &policy)
+	if configurationErr == nil {
 		if legacyErr == nil {
 			if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
 				return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("legacy workflow policy is invalid: %w", err)

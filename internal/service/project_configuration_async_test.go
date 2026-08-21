@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
@@ -155,10 +156,18 @@ func TestProjectConfigurationMutationReceiptPreservesErrorAndSchemaValidPaths(t 
 }
 
 func TestProjectConfigurationReadUsesSharedWhenHubUnavailable(t *testing.T) {
-	s, _, _ := testServiceWithoutIdentifiers(t)
+	s, revision, _ := testServiceWithoutIdentifiers(t)
 	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
 	configuration, err := s.ProjectConfigurationRead(ctx, "example")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Hub.Transact(ctx, revision, "test: invalidate legacy workflow policy", func(worktree string) ([]string, error) {
+		if err := hub.WriteText(worktree, s.workflowPolicyPath("example"), "{"); err != nil {
+			return nil, err
+		}
+		return []string{s.workflowPolicyPath("example")}, nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	db, err := sqlitestore.Open(s.Config.StateDir)
