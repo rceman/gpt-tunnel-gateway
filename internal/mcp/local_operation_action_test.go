@@ -22,4 +22,8 @@ func TestOperationReadIsSessionBoundAndLocalOnly(t *testing.T) {
 	if _, ok := entry.ExecutionInputSchema["properties"].(map[string]any); !ok {
 		t.Fatal("operation/read has no execution schema")
 	}
+	search, ok := entries["project/search"]
+	if !ok || !search.SessionBound || !search.LocalReadOnly || !search.LocalReceiptOnly {
+		t.Fatalf("project/search authority=%#v", search.GenericAction)
+	}
 }
