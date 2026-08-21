@@ -92,29 +92,44 @@ func (s *Service) readAnySharedTask(ctx context.Context, taskID string) (model.T
 func (s *Service) sharedProjectEntities(ctx context.Context, entityType, projectID string) ([]sqlitestore.SharedEntity, error) {
 	const pageSize = 1000
 	entities := make([]sqlitestore.SharedEntity, 0)
+	seen := make(map[string]struct{})
 	var afterUpdatedAt, afterID string
 	for {
 		page, err := s.Durability.ListSharedEntitiesAfter(ctx, entityType, afterUpdatedAt, afterID, pageSize)
 		if err != nil {
 			return nil, err
 		}
-		for _, entity := range page {
-			var owner struct {
-				ProjectID string `json:"project_id"`
-			}
-			if err := json.Unmarshal(entity.Payload, &owner); err != nil {
-				return nil, fmt.Errorf("decode shared %s %s: %w", entityType, entity.ID, err)
-			}
-			if owner.ProjectID == projectID {
-				entities = append(entities, entity)
-			}
+		filtered, err := sharedProjectEntitiesFromPage(page, entityType, projectID, seen)
+		if err != nil {
+			return nil, err
 		}
+		entities = append(entities, filtered...)
 		if len(page) < pageSize {
 			return entities, nil
 		}
 		last := page[len(page)-1]
 		afterUpdatedAt, afterID = last.UpdatedAt, last.ID
 	}
+}
+
+func sharedProjectEntitiesFromPage(page []sqlitestore.SharedEntity, entityType, projectID string, seen map[string]struct{}) ([]sqlitestore.SharedEntity, error) {
+	entities := make([]sqlitestore.SharedEntity, 0, len(page))
+	for _, entity := range page {
+		if _, ok := seen[entity.ID]; ok {
+			continue
+		}
+		seen[entity.ID] = struct{}{}
+		var owner struct {
+			ProjectID string `json:"project_id"`
+		}
+		if err := json.Unmarshal(entity.Payload, &owner); err != nil {
+			return nil, fmt.Errorf("decode shared %s %s: %w", entityType, entity.ID, err)
+		}
+		if owner.ProjectID == projectID {
+			entities = append(entities, entity)
+		}
+	}
+	return entities, nil
 }
 
 func (s *Service) sharedTaskAuthoringAll(ctx context.Context, projectID string) ([]model.TaskAuthoring, error) {

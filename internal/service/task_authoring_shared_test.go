@@ -243,6 +243,20 @@ func TestSharedQueriesScopeBeforeGlobalPageLimit(t *testing.T) {
 	}
 }
 
+func TestSharedProjectEntitiesDeduplicateKeysetRepeats(t *testing.T) {
+	page := []sqlitestore.SharedEntity{
+		{ID: "EXM-TSK904", Payload: []byte(`{"project_id":"example"}`)},
+		{ID: "EXM-TSK904", Payload: []byte(`{"project_id":"example"}`)},
+	}
+	entities, err := sharedProjectEntitiesFromPage(page, "task", "example", map[string]struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entities) != 1 || entities[0].ID != "EXM-TSK904" {
+		t.Fatalf("repeated keyset entity was not deduplicated: %#v", entities)
+	}
+}
+
 func TestSharedADRPublishConvergesAfterRestart(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
 	db, err := sqlitestore.Open(s.Config.StateDir)
