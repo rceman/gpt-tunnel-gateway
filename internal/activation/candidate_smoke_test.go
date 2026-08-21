@@ -17,7 +17,7 @@ import (
 )
 
 func TestSmokeCandidateReachesHTTPReadyWithinExistingDeadline(t *testing.T) {
-	_, hubRoot, _ := testutil.RepoWithBareRemote(t)
+	_, hubFixture, _ := testutil.RepoWithBareRemote(t)
 	_, sourceFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
@@ -36,22 +36,22 @@ func TestSmokeCandidateReachesHTTPReadyWithinExistingDeadline(t *testing.T) {
 	if err := build.Run(); err != nil {
 		t.Fatalf("build candidate: %v: %s", err, BoundedOutput(output.Bytes()))
 	}
-	stateDir := t.TempDir()
-	productionDB, err := sqlitestore.Open(stateDir)
+	fixtureStateDir := t.TempDir()
+	fixtureDB, err := sqlitestore.Open(fixtureStateDir)
 	if err != nil {
-		t.Fatal("open production store:", err)
+		t.Fatal("open isolated fixture store:", err)
 	}
-	t.Cleanup(func() { _ = productionDB.Close() })
-	productionHubLock, err := lockfile.Acquire(filepath.Join(stateDir, "locks"), "hub-repository")
+	t.Cleanup(func() { _ = fixtureDB.Close() })
+	fixtureHubLock, err := lockfile.Acquire(filepath.Join(fixtureStateDir, "locks"), "hub-repository")
 	if err != nil {
-		t.Fatal("hold production Hub lock:", err)
+		t.Fatal("hold isolated fixture Hub lock:", err)
 	}
-	t.Cleanup(func() { _ = productionHubLock.Release() })
+	t.Cleanup(func() { _ = fixtureHubLock.Release() })
 	c := config.Config{
 		SchemaVersion:          1,
 		GatewayID:              "candidate_test",
 		ListenAddr:             "127.0.0.1:18877",
-		StateDir:               stateDir,
+		StateDir:               fixtureStateDir,
 		MaxReadBytes:           1 << 20,
 		MaxDiffBytes:           1 << 20,
 		MaxListItems:           100,
@@ -59,7 +59,7 @@ func TestSmokeCandidateReachesHTTPReadyWithinExistingDeadline(t *testing.T) {
 		RunTimeoutSeconds:      60,
 		AirelayCommand:         "/bin/true",
 		Hub: config.HubConfig{
-			RepositoryURL: hubRoot,
+			RepositoryURL: hubFixture,
 			Branch:        "main",
 			AuthorName:    "Gateway Test",
 			AuthorEmail:   "gateway-test@example.invalid",
@@ -74,7 +74,7 @@ func TestSmokeCandidateReachesHTTPReadyWithinExistingDeadline(t *testing.T) {
 	if err := SmokeCandidate(ctx, c, gatewayPath, strings.TrimSpace(string(versionBytes))); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := productionDB.Shared.Exec(context.Background(), `INSERT INTO shared_tasks(id,revision,payload,updated_at) VALUES(?,?,?,?)`, "candidate-smoke-production", 1, []byte("ok"), time.Now().UTC()); err != nil {
-		t.Fatalf("production store unusable after candidate smoke: %v", err)
+	if _, err := fixtureDB.Shared.Exec(context.Background(), `INSERT INTO shared_tasks(id,revision,payload,updated_at) VALUES(?,?,?,?)`, "candidate-smoke-fixture", 1, []byte("ok"), time.Now().UTC()); err != nil {
+		t.Fatalf("isolated fixture store unusable after candidate smoke: %v", err)
 	}
 }
