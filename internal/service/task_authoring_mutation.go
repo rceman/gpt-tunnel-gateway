@@ -137,6 +137,32 @@ func (s *Service) TaskAuthoringList(ctx context.Context, in TaskAuthoringListInp
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return TaskAuthoringListResult{}, err
 	}
+	if s.Durability != nil {
+		tasks, err := s.sharedTaskAuthoringAll(ctx, in.ProjectID)
+		if err != nil {
+			return TaskAuthoringListResult{}, err
+		}
+		if in.Status != "" {
+			filtered := tasks[:0]
+			for _, task := range tasks {
+				if task.Status == in.Status {
+					filtered = append(filtered, task)
+				}
+			}
+			tasks = filtered
+		}
+		limit := in.Limit
+		if limit == 0 {
+			limit = DefaultTaskListLimit
+		}
+		if limit < 1 || limit > MaxTaskListLimit {
+			return TaskAuthoringListResult{}, fmt.Errorf("task authoring list limit must be between 1 and %d", MaxTaskListLimit)
+		}
+		if len(tasks) > limit {
+			tasks = tasks[:limit]
+		}
+		return TaskAuthoringListResult{Tasks: tasks}, nil
+	}
 	paths, err := s.Hub.List(ctx, s.projectPrefix(in.ProjectID)+"/tasks-v2", ".json")
 	if err != nil {
 		if IsNotFound(err) {
@@ -175,6 +201,9 @@ func (s *Service) TaskAuthoringList(ctx context.Context, in TaskAuthoringListInp
 func (s *Service) taskAuthoringAll(ctx context.Context, projectID string) ([]model.TaskAuthoring, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return nil, err
+	}
+	if s.Durability != nil {
+		return s.sharedTaskAuthoringAll(ctx, projectID)
 	}
 	paths, err := s.Hub.List(ctx, s.projectPrefix(projectID)+"/tasks-v2", ".json")
 	if err != nil {

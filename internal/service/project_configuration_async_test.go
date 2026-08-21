@@ -182,6 +182,10 @@ func TestProjectConfigurationReadUsesSharedWhenHubUnavailable(t *testing.T) {
 	if err != nil || read.Revision != configuration.Revision {
 		t.Fatalf("Shared project configuration read failed without Hub: %#v %v", read, err)
 	}
+	policy, err := s.ProjectWorkflowPolicyRead(ctx, "example")
+	if err != nil || policy.ProjectID != "example" || policy.Revision != configuration.Revision {
+		t.Fatalf("Shared workflow policy read failed without Hub: %#v %v", policy, err)
+	}
 }
 
 func TestProjectConfigurationUpdateUsesSharedCASAndOutbox(t *testing.T) {

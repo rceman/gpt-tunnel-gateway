@@ -123,6 +123,9 @@ func (s *Service) ADRList(ctx context.Context, project string) ([]model.ADR, err
 	if err := validateEntityProject(project); err != nil {
 		return nil, err
 	}
+	if s.Durability != nil {
+		return s.listSharedADRs(ctx, project)
+	}
 	records, err := s.entityRegistry(project).ListRecords(ctx, entity.Query{Family: entity.ADRFamily})
 	if err != nil {
 		return nil, err
@@ -168,6 +171,9 @@ func (s *Service) ADRRead(ctx context.Context, project, id string) (model.ADR, e
 	}
 	if model.ValidateADRIdentifier(id) != nil && model.ValidateCanonicalADRIdentifier(id) != nil {
 		return model.ADR{}, fmt.Errorf("invalid ADR identifier")
+	}
+	if s.Durability != nil {
+		return s.readSharedADR(ctx, project, id)
 	}
 	var v model.ADR
 	_, err := s.entityRegistry(project).ReadInto(ctx, entity.ADRFamily, id, &v)

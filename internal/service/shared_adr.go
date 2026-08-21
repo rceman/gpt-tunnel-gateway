@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -13,6 +14,56 @@ import (
 )
 
 type durableMutationOperationIDKey struct{}
+
+func (s *Service) readSharedADR(ctx context.Context, projectID, id string) (model.ADR, error) {
+	if err := s.requireLocalTaskAuthoring(ctx, projectID); err != nil {
+		return model.ADR{}, err
+	}
+	entity, err := s.Durability.ReadSharedEntity(ctx, "adr", id)
+	if err != nil {
+		return model.ADR{}, err
+	}
+	var adr model.ADR
+	if err := json.Unmarshal(entity.Payload, &adr); err != nil {
+		return model.ADR{}, fmt.Errorf("decode shared ADR %s: %w", id, err)
+	}
+	if adr.ID != id || adr.ProjectID != projectID {
+		return model.ADR{}, fmt.Errorf("shared ADR ownership mismatch")
+	}
+	if err := model.ValidateADR(adr); err != nil {
+		return model.ADR{}, err
+	}
+	return adr, nil
+}
+
+func (s *Service) listSharedADRs(ctx context.Context, projectID string) ([]model.ADR, error) {
+	if err := s.requireLocalTaskAuthoring(ctx, projectID); err != nil {
+		return nil, err
+	}
+	entities, err := s.Durability.ListSharedEntities(ctx, "adr", 1000)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.ADR, 0, len(entities))
+	for _, entity := range entities {
+		var adr model.ADR
+		if err := json.Unmarshal(entity.Payload, &adr); err != nil {
+			return nil, fmt.Errorf("decode shared ADR %s: %w", entity.ID, err)
+		}
+		if adr.ProjectID != projectID {
+			continue
+		}
+		if adr.ID != entity.ID {
+			return nil, fmt.Errorf("shared ADR identity mismatch")
+		}
+		if err := model.ValidateADR(adr); err != nil {
+			return nil, err
+		}
+		items = append(items, adr)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	return items, nil
+}
 
 func withDurableMutationOperationID(ctx context.Context, operationID string) context.Context {
 	return context.WithValue(ctx, durableMutationOperationIDKey{}, operationID)

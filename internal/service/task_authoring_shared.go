@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
@@ -65,6 +66,56 @@ func (s *Service) readSharedTask(ctx context.Context, projectID, taskID string) 
 		return model.TaskAuthoring{}, err
 	}
 	return task, nil
+}
+
+func (s *Service) readAnySharedTask(ctx context.Context, taskID string) (model.TaskAuthoring, error) {
+	shared, err := s.Durability.ReadSharedTask(ctx, taskID)
+	if err != nil {
+		return model.TaskAuthoring{}, err
+	}
+	var task model.TaskAuthoring
+	if err := json.Unmarshal(shared.Payload, &task); err != nil {
+		return model.TaskAuthoring{}, fmt.Errorf("decode shared task %s: %w", taskID, err)
+	}
+	if task.ID != taskID {
+		return model.TaskAuthoring{}, fmt.Errorf("shared task identity mismatch")
+	}
+	if err := s.requireLocalTaskAuthoring(ctx, task.ProjectID); err != nil {
+		return model.TaskAuthoring{}, err
+	}
+	if err := model.ValidateTaskAuthoring(task); err != nil {
+		return model.TaskAuthoring{}, err
+	}
+	return task, nil
+}
+
+func (s *Service) sharedTaskAuthoringAll(ctx context.Context, projectID string) ([]model.TaskAuthoring, error) {
+	if err := s.requireLocalTaskAuthoring(ctx, projectID); err != nil {
+		return nil, err
+	}
+	entities, err := s.Durability.ListSharedEntities(ctx, "task", 1000)
+	if err != nil {
+		return nil, err
+	}
+	tasks := make([]model.TaskAuthoring, 0, len(entities))
+	for _, entity := range entities {
+		var task model.TaskAuthoring
+		if err := json.Unmarshal(entity.Payload, &task); err != nil {
+			return nil, fmt.Errorf("decode shared task %s: %w", entity.ID, err)
+		}
+		if task.ProjectID != projectID {
+			continue
+		}
+		if task.ID != entity.ID {
+			return nil, fmt.Errorf("shared task identity mismatch")
+		}
+		if err := model.ValidateTaskAuthoring(task); err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
+	}
+	sort.Slice(tasks, func(i, j int) bool { return tasks[i].UpdatedAt.After(tasks[j].UpdatedAt) })
+	return tasks, nil
 }
 
 func (s *Service) taskAuthoringCreateShared(ctx context.Context, operationID string, in TaskAuthoringCreateInput) (model.TaskAuthoring, OperationResult, error) {

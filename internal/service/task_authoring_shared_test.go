@@ -138,6 +138,56 @@ func TestTaskAuthoringReadUsesSharedBeforeHub(t *testing.T) {
 	}
 }
 
+func TestSharedTaskAndADRQueriesDoNotUseHub(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	db, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s.Durability = db
+	project := s.Config.Projects["example"]
+	project.ProjectCode = "EXM"
+	s.Config.Projects["example"] = project
+	markSharedBootstrapCompleteForTest(t, db)
+	task, err := trainv2.NewTask("example", "EXM-TSK901", trainv2.AuthoringDraft{Title: "Shared query", Objective: "Query locally", ADRRelation: model.TaskADRNoRequired}, "planner", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskPayload, err := json.Marshal(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(context.Background(), "task", sqlitestore.SharedEntity{ID: task.ID, Revision: int64(task.Revision), Payload: taskPayload, UpdatedAt: task.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	adr := model.ADR{SchemaVersion: model.SchemaVersion, ID: "EXM-ADR901", ProjectID: "example", Title: "Shared ADR", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: time.Now().UTC()}
+	adrPayload, err := json.Marshal(adr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(context.Background(), "adr", sqlitestore.SharedEntity{ID: adr.ID, Revision: 1, Payload: adrPayload, UpdatedAt: adr.CreatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
+	found, err := s.TaskAuthoringFind(context.Background(), task.ID)
+	if err != nil || found.ID != task.ID {
+		t.Fatalf("Shared task/find failed: %#v %v", found, err)
+	}
+	listed, err := s.TaskAuthoringList(context.Background(), TaskAuthoringListInput{ProjectID: "example", Limit: 10})
+	if err != nil || len(listed.Tasks) != 1 || listed.Tasks[0].ID != task.ID {
+		t.Fatalf("Shared task/list failed: %#v %v", listed, err)
+	}
+	foundADR, err := s.ADRRead(context.Background(), "example", adr.ID)
+	if err != nil || foundADR.ID != adr.ID {
+		t.Fatalf("Shared ADR/read failed: %#v %v", foundADR, err)
+	}
+	listedADRs, err := s.ADRList(context.Background(), "example")
+	if err != nil || len(listedADRs) != 1 || listedADRs[0].ID != adr.ID {
+		t.Fatalf("Shared ADR/list failed: %#v %v", listedADRs, err)
+	}
+}
+
 func TestSharedADRPublishConvergesAfterRestart(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
 	db, err := sqlitestore.Open(s.Config.StateDir)

@@ -56,6 +56,9 @@ func (s *Service) TaskAuthoringFind(ctx context.Context, taskID string) (model.T
 	if err := model.ValidateCanonicalTaskID(taskID); err != nil {
 		return model.TaskAuthoring{}, err
 	}
+	if s.Durability != nil {
+		return s.readAnySharedTask(ctx, taskID)
+	}
 	projects, err := s.ProjectList(ctx)
 	if err != nil {
 		return model.TaskAuthoring{}, err

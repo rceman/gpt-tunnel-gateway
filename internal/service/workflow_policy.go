@@ -112,6 +112,9 @@ func (s *Service) projectWorkflowPolicyReadDetailed(ctx context.Context, project
 		if err != nil {
 			return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("project configuration workflow is invalid: %w", err)
 		}
+		if s.Durability != nil {
+			return canonical, "project_configuration", nil
+		}
 		if legacyErr == nil {
 			if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
 				return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("legacy workflow policy is invalid: %w", err)
