@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
@@ -242,7 +244,24 @@ func (s *Service) validateTaskDependenciesShared(ctx context.Context, projectID 
 				continue
 			}
 			for _, item := range train.Items {
-				if item.TaskID == dependencyID && item.Proof != nil && item.Proof.ImplementationSHA == train.FullProof.CandidateHead {
+				if item.TaskID != dependencyID || item.Proof == nil || item.Proof.ImplementationSHA != train.FullProof.CandidateHead {
+					continue
+				}
+				receipt, err := s.Durability.ReadSharedEntity(ctx, "integration_receipt", sqlitestore.SharedIntegrationReceiptID(projectID, train.ID))
+				if err != nil {
+					if errors.Is(err, os.ErrNotExist) {
+						continue
+					}
+					return fmt.Errorf("read local integration receipt for Train %q: %w", train.ID, err)
+				}
+				var integration trainv2.IntegrationReceipt
+				if err := json.Unmarshal(receipt.Payload, &integration); err != nil {
+					return fmt.Errorf("decode local integration receipt for Train %q: %w", train.ID, err)
+				}
+				if err := trainv2.ValidateIntegrationReceipt(integration); err != nil {
+					return fmt.Errorf("invalid local integration receipt for Train %q: %w", train.ID, err)
+				}
+				if integration.ProjectID == projectID && integration.TrainID == train.ID && integration.Status == "completed" && integration.IntegrationHead == train.FullProof.CandidateHead {
 					integrated = true
 				}
 			}

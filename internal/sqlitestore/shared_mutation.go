@@ -76,12 +76,28 @@ type SharedEntity struct {
 	UpdatedAt string
 }
 
+type SharedIntegrationReceipt struct {
+	ID        string
+	Revision  int64
+	Payload   []byte
+	UpdatedAt string
+}
+
 var sharedEntityTables = map[string]string{
 	"task":    "shared_tasks",
 	"train":   "shared_trains",
 	"adr":     "shared_adrs",
 	"rule":    "shared_rules",
 	"journal": "shared_journals",
+}
+
+var sharedProjectionTables = map[string]string{
+	"task":                "shared_tasks",
+	"train":               "shared_trains",
+	"adr":                 "shared_adrs",
+	"rule":                "shared_rules",
+	"journal":             "shared_journals",
+	"integration_receipt": "shared_integration_receipts",
 }
 
 func (d *Databases) CommitSharedMutation(ctx context.Context, mutation SharedMutation) (SharedMutationReceipt, error) {
@@ -265,7 +281,7 @@ func (d *Databases) ReadSharedTask(ctx context.Context, taskID string) (SharedTa
 }
 
 func (d *Databases) ReadSharedEntity(ctx context.Context, entityType, entityID string) (SharedEntity, error) {
-	table, ok := sharedEntityTables[entityType]
+	table, ok := sharedProjectionTables[entityType]
 	if !ok {
 		return SharedEntity{}, fmt.Errorf("unsupported shared entity type %q", entityType)
 	}
@@ -290,6 +306,21 @@ func (d *Databases) ReadSharedEntity(ctx context.Context, entityType, entityID s
 		return SharedEntity{}, fmt.Errorf("invalid shared %s row", entityType)
 	}
 	return SharedEntity{ID: id, Revision: revision, Payload: append([]byte(nil), payload...), UpdatedAt: updatedAt}, nil
+}
+
+func SharedIntegrationReceiptID(projectID, trainID string) string {
+	return projectID + "\x00" + trainID
+}
+
+func (d *Databases) PutSharedIntegrationReceipt(ctx context.Context, receipt SharedIntegrationReceipt) error {
+	if d == nil || d.Shared == nil {
+		return fmt.Errorf("shared store is unavailable")
+	}
+	if receipt.ID == "" || receipt.Revision < 1 || len(receipt.Payload) == 0 || receipt.UpdatedAt == "" {
+		return fmt.Errorf("invalid shared integration receipt")
+	}
+	_, err := d.Shared.Exec(ctx, `INSERT INTO shared_integration_receipts(id,revision,payload,updated_at) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload,updated_at=excluded.updated_at WHERE excluded.revision >= shared_integration_receipts.revision`, receipt.ID, receipt.Revision, receipt.Payload, receipt.UpdatedAt)
+	return err
 }
 
 func (d *Databases) ListSharedEntities(ctx context.Context, entityType string, limit int) ([]SharedEntity, error) {

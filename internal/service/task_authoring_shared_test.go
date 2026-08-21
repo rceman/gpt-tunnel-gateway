@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
@@ -160,6 +162,63 @@ func TestTaskAuthoringAsyncMutationsCommitSharedWhenHubUnavailable(t *testing.T)
 	}
 	if stored.Status != model.TaskAuthoringReady {
 		t.Fatalf("shared task=%#v", stored)
+	}
+}
+
+func TestTaskAuthoringReadySharedRequiresLocalIntegrationReceipt(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	db, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s.Durability = db
+	project := s.Config.Projects["example"]
+	project.ProjectCode = "EXM"
+	s.Config.Projects["example"] = project
+	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
+
+	dependencyID := "GTW-TSK324"
+	task, err := trainv2.NewTask("example", "EXM-TSK330", trainv2.AuthoringDraft{
+		Title: "Dependent task", Objective: "Require a locally proven integration.",
+		AcceptanceCriteria: []string{"local receipt is required"}, Dependencies: []string{dependencyID},
+		ADRRelation: model.TaskADRNoRequired,
+	}, "planner", time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SeedSharedTask(context.Background(), sqlitestore.SharedTask{ID: task.ID, Revision: int64(task.Revision), Payload: payload, UpdatedAt: task.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	train, integration := dependencyIntegrationFixture(model.TrainV2Completed)
+	trainPayload, err := json.Marshal(train)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Shared.Exec(context.Background(), `INSERT INTO shared_trains(id,revision,payload,updated_at) VALUES(?,?,?,?)`, train.ID, train.Revision, trainPayload, train.UpdatedAt.UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	readyInput := TaskAuthoringReadyInput{ProjectID: "example", TaskID: task.ID, ExpectedRevision: task.Revision, ExpectedRevisionSHA256: task.RevisionSHA256, ReadyBy: "planner"}
+	if _, _, err := s.taskAuthoringReadyShared(context.Background(), "op-missing-receipt", readyInput); err == nil || !strings.Contains(err.Error(), "dependency-not-integrated") {
+		t.Fatalf("missing local integration receipt error=%v", err)
+	}
+	integrationPayload, err := json.Marshal(integration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedIntegrationReceipt(context.Background(), sqlitestore.SharedIntegrationReceipt{ID: sqlitestore.SharedIntegrationReceiptID("example", train.ID), Revision: 1, Payload: integrationPayload, UpdatedAt: integration.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	ready, _, err := s.taskAuthoringReadyShared(context.Background(), "op-with-receipt", readyInput)
+	if err != nil {
+		t.Fatalf("ready with local integration receipt: %v", err)
+	}
+	if ready.Status != model.TaskAuthoringReady {
+		t.Fatalf("ready task status=%q", ready.Status)
 	}
 }
 

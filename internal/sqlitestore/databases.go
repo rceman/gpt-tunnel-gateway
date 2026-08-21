@@ -186,6 +186,11 @@ var sharedMigrations = []migrate.Migration{{
 		{SQL: `CREATE TABLE IF NOT EXISTS hub_outbox (id TEXT PRIMARY KEY, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, revision INTEGER NOT NULL, kind TEXT NOT NULL, payload BLOB NOT NULL, created_at TEXT NOT NULL, published_at TEXT)`},
 		{SQL: `CREATE INDEX IF NOT EXISTS hub_outbox_pending_idx ON hub_outbox(published_at, created_at)`},
 	},
+}, {
+	Version: 2, Name: "gpt_tunnel_shared_integration_receipts_v2",
+	Statements: []store.Statement{
+		{SQL: `CREATE TABLE IF NOT EXISTS shared_integration_receipts (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`},
+	},
 }}
 
 var localMigrations = []migrate.Migration{{

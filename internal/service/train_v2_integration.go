@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
@@ -39,5 +42,17 @@ func (s *Service) writeTrainV2IntegrationReceipt(ctx context.Context, receipt tr
 		}
 		return []string{path}, nil
 	})
-	return err
+	if err != nil || s.Durability == nil {
+		return err
+	}
+	payload, err := json.Marshal(receipt)
+	if err != nil {
+		return err
+	}
+	return s.Durability.PutSharedIntegrationReceipt(ctx, sqlitestore.SharedIntegrationReceipt{
+		ID:        sqlitestore.SharedIntegrationReceiptID(receipt.ProjectID, receipt.TrainID),
+		Revision:  receipt.UpdatedAt.UnixNano(),
+		Payload:   payload,
+		UpdatedAt: receipt.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	})
 }
