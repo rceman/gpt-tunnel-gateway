@@ -14,7 +14,7 @@ func verify(ctx context.Context, s *service.Service, args []string) {
 			fatalf("verify status requires an operation ID")
 		}
 		receipt, err := s.VerifyStatus(ctx, args[1])
-		output(receipt)
+		outputVerifyReceipt(receipt)
 		if err != nil || receipt.Status == "failed" {
 			os.Exit(1)
 		}
@@ -46,10 +46,33 @@ func verify(ctx context.Context, s *service.Service, args []string) {
 		}
 	}
 	receipt, err := s.Verify(ctx, in)
-	output(receipt)
+	outputVerifyReceipt(receipt)
 	if err != nil || receipt.Status != "completed" {
 		os.Exit(1)
 	}
+}
+
+func outputVerifyReceipt(receipt service.VerifyReceipt) {
+	if receipt.Status == "failed" {
+		output(receipt)
+		return
+	}
+	compact := struct {
+		OperationID string   `json:"operation_id"`
+		Status      string   `json:"status"`
+		ProjectID   string   `json:"project_id,omitempty"`
+		Scope       string   `json:"scope"`
+		Packages    []string `json:"packages,omitempty"`
+		Reused      bool     `json:"reused,omitempty"`
+	}{
+		OperationID: receipt.OperationID,
+		Status:      receipt.Status,
+		ProjectID:   receipt.ProjectID,
+		Scope:       receipt.Scope,
+		Packages:    receipt.Packages,
+		Reused:      receipt.Reused,
+	}
+	output(compact)
 }
 
 func fatalf(format string, args ...any) { fatal(fmt.Errorf(format, args...)) }
