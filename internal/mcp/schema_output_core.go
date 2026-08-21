@@ -24,8 +24,9 @@ func projectOperationalStatusOutputSchema() map[string]any {
 		"integration": closedOutput(map[string]any{"state": outputString(), "candidate_head": outputString(), "runtime_source_sha": outputString(), "ready": outputBoolean(), "version_match": outputBoolean(), "exact_source_match": outputBoolean()}, "state", "ready", "version_match", "exact_source_match"),
 		"rules":       closedOutput(map[string]any{"revision": outputInteger(), "digest": outputString(), "acknowledged": outputBoolean(), "fresh": outputBoolean()}, "revision", "digest", "acknowledged", "fresh"),
 		"release_ci":  closedOutput(map[string]any{"state": outputString(), "tag": outputString(), "sha": outputString(), "status": outputString()}, "state"),
+		"shared_sync": closedOutput(map[string]any{"state": outputString(), "pending": outputInteger(), "retrying": outputInteger(), "last_error": outputString()}, "state", "pending", "retrying"),
 		"blocker":     outputString(), "recommended_next_action": outputString(),
-	}, "project", "state", "agent", "integration", "rules", "release_ci", "recommended_next_action")
+	}, "project", "state", "agent", "integration", "rules", "release_ci", "shared_sync", "recommended_next_action")
 }
 
 func runtimeIdentityOutputSchema() map[string]any {

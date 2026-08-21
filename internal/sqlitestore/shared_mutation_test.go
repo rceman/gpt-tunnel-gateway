@@ -153,3 +153,68 @@ func TestCommitSharedMutationRejectsOperationalEventFamilies(t *testing.T) {
 		t.Fatal("operational event was imported into Shared authority")
 	}
 }
+
+func TestSharedADRCreatePublishesThroughOutbox(t *testing.T) {
+	db, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	receipt, id, payload, err := db.CommitSharedADRCreate(context.Background(), SharedADRCreate{
+		OperationID: "OPR-GTW-ADR-1", ProjectID: "example", ProjectCode: "EXM", Kind: "adr-create",
+		BuildPayload: func(id string) ([]byte, error) { return []byte(`{"id":"` + id + `"}`), nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !receipt.Committed || id != "EXM-ADR1" || len(payload) == 0 {
+		t.Fatalf("receipt=%#v id=%q", receipt, id)
+	}
+	entries, err := db.PendingOutbox(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].EntityType != "adr" {
+		t.Fatalf("entries=%#v", entries)
+	}
+}
+
+func TestSharedOutboxRetryBackoffAndHealthSurviveRestart(t *testing.T) {
+	state := t.TempDir()
+	db, err := Open(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CommitSharedMutation(context.Background(), SharedMutation{OperationID: "OPR-GTW-RETRY", EntityType: "task", EntityID: "TSK-GTW-RETRY", ExpectedRevision: 0, Revision: 1, Kind: "create", Payload: []byte("retry"), Create: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkOutboxRetry(context.Background(), "OPR-GTW-RETRY", time.Now().UTC().Add(time.Hour), errors.New("remote unavailable")); err != nil {
+		t.Fatal(err)
+	}
+	health, err := db.SharedSyncHealth(context.Background())
+	if err != nil || health.State != "degraded" || health.Pending != 1 || health.Retrying != 1 {
+		t.Fatalf("health=%#v err=%v", health, err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = Open(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	entries, err := db.PendingOutbox(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("backoff was not honored after restart: %#v", entries)
+	}
+	if err := db.MarkOutboxRetry(context.Background(), "OPR-GTW-RETRY", time.Now().UTC().Add(-time.Second), errors.New("retry now")); err != nil {
+		t.Fatal(err)
+	}
+	entries, err = db.PendingOutbox(context.Background(), 10)
+	if err != nil || len(entries) != 1 || entries[0].Attempts != 2 {
+		t.Fatalf("retry convergence entries=%#v err=%v", entries, err)
+	}
+}

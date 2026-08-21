@@ -41,6 +41,7 @@ func (s *Service) processDurableMutation(operationID string) {
 	workerCtx, cancel := s.asyncMutationContext(operation.Kind, operation.OperationID)
 	defer cancel()
 	workerCtx = WithAgentSessionID(workerCtx, operation.SessionID)
+	workerCtx = withDurableMutationOperationID(workerCtx, operation.OperationID)
 	execute := s.durableMutationExecutor
 	if execute == nil {
 		execute = s.executeDurableMutation

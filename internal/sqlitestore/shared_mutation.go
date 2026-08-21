@@ -39,14 +39,27 @@ type SharedMutationReceipt struct {
 }
 
 type OutboxEntry struct {
-	ID          string
-	EntityType  string
-	EntityID    string
-	Revision    int64
-	Kind        string
-	Payload     []byte
-	CreatedAt   string
-	PublishedAt string
+	ID            string
+	EntityType    string
+	EntityID      string
+	Revision      int64
+	Kind          string
+	Payload       []byte
+	CreatedAt     string
+	PublishedAt   string
+	Attempts      int64
+	NextAttemptAt string
+	LastError     string
+}
+
+type SharedADRCreate struct {
+	OperationID          string
+	ProjectID            string
+	ProjectCode          string
+	InitialNextADRNumber int64
+	Kind                 string
+	CreatedAt            time.Time
+	BuildPayload         func(string) ([]byte, error)
 }
 
 // SharedTaskCreate is the local allocation unit for task/create. The payload
@@ -211,6 +224,88 @@ func (d *Databases) CommitSharedTaskCreate(ctx context.Context, request SharedTa
 		}
 	}
 	return SharedMutationReceipt{}, "", nil, fmt.Errorf("shared task sequence changed during allocation")
+}
+
+func (d *Databases) CommitSharedADRCreate(ctx context.Context, request SharedADRCreate) (SharedMutationReceipt, string, []byte, error) {
+	if d == nil || d.Shared == nil {
+		return SharedMutationReceipt{}, "", nil, fmt.Errorf("shared store is unavailable")
+	}
+	if request.OperationID == "" || request.ProjectID == "" || request.Kind == "" || request.BuildPayload == nil {
+		return SharedMutationReceipt{}, "", nil, fmt.Errorf("shared ADR create identity is incomplete")
+	}
+	if len(request.ProjectCode) != 3 || strings.ToUpper(request.ProjectCode) != request.ProjectCode {
+		return SharedMutationReceipt{}, "", nil, fmt.Errorf("invalid shared ADR project code")
+	}
+	created := request.CreatedAt.UTC().Format(time.RFC3339Nano)
+	if request.CreatedAt.IsZero() {
+		created = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	if existing, found, err := d.outboxEntry(ctx, request.OperationID); err != nil {
+		return SharedMutationReceipt{}, "", nil, err
+	} else if found {
+		receipt, reuseErr := d.reuseSharedMutation(SharedMutation{OperationID: request.OperationID, EntityType: "adr", EntityID: existing.EntityID, Revision: existing.Revision, Kind: request.Kind, Payload: existing.Payload}, existing)
+		return receipt, existing.EntityID, append([]byte(nil), existing.Payload...), reuseErr
+	}
+	next, err := d.nextADRNumber(ctx, request.ProjectID, request.ProjectCode, request.InitialNextADRNumber)
+	if err != nil {
+		return SharedMutationReceipt{}, "", nil, err
+	}
+	id := fmt.Sprintf("%s-ADR%d", request.ProjectCode, next)
+	payload, err := request.BuildPayload(id)
+	if err != nil {
+		return SharedMutationReceipt{}, "", nil, err
+	}
+	if len(payload) == 0 {
+		return SharedMutationReceipt{}, "", nil, fmt.Errorf("shared ADR payload is empty")
+	}
+	_, err = d.Shared.Batch(ctx, []upstream.Statement{
+		{SQL: `UPDATE shared_adr_sequences SET next_adr_number=? WHERE project_id=? AND project_code=? AND next_adr_number=?`, Args: []any{next + 1, request.ProjectID, request.ProjectCode, next}, RequireRowsAffected: 1},
+		{SQL: `INSERT INTO shared_adrs(id,revision,payload,updated_at) VALUES(?,?,?,?)`, Args: []any{id, 1, payload, created}, RequireRowsAffected: 1},
+		{SQL: `INSERT INTO hub_outbox(id,entity_type,entity_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?)`, Args: []any{request.OperationID, "adr", id, 1, request.Kind, payload, created}, RequireRowsAffected: 1},
+	})
+	if err != nil {
+		if existing, found, readErr := d.outboxEntry(ctx, request.OperationID); readErr == nil && found {
+			receipt, reuseErr := d.reuseSharedMutation(SharedMutation{OperationID: request.OperationID, EntityType: "adr", EntityID: existing.EntityID, Revision: existing.Revision, Kind: request.Kind, Payload: existing.Payload}, existing)
+			return receipt, existing.EntityID, append([]byte(nil), existing.Payload...), reuseErr
+		}
+		return SharedMutationReceipt{}, "", nil, err
+	}
+	return SharedMutationReceipt{OperationID: request.OperationID, EntityType: "adr", EntityID: id, Revision: 1, Committed: true}, id, payload, nil
+}
+
+func (d *Databases) nextADRNumber(ctx context.Context, projectID, projectCode string, initial int64) (int64, error) {
+	rows, err := d.Shared.Query(ctx, `SELECT project_code,next_adr_number FROM shared_adr_sequences WHERE project_id=?`, projectID)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows.Rows) == 0 {
+		if initial < 1 {
+			initial = 1
+		}
+		if _, err := d.Shared.Exec(ctx, `INSERT OR IGNORE INTO shared_adr_sequences(project_id,project_code,next_adr_number) VALUES(?,?,?)`, projectID, projectCode, initial); err != nil {
+			return 0, err
+		}
+		rows, err = d.Shared.Query(ctx, `SELECT project_code,next_adr_number FROM shared_adr_sequences WHERE project_id=?`, projectID)
+		if err != nil {
+			return 0, err
+		}
+	}
+	if len(rows.Rows) != 1 || rows.Rows[0][0] != projectCode {
+		return 0, fmt.Errorf("shared ADR project code mismatch")
+	}
+	next, ok := rows.Rows[0][1].(int64)
+	if !ok || next < 1 {
+		return 0, fmt.Errorf("invalid shared ADR sequence")
+	}
+	return next, nil
+}
+
+func (d *Databases) PutSharedADRSequence(ctx context.Context, projectID, projectCode string, next int64) error {
+	if d == nil || d.Shared == nil || projectID == "" || len(projectCode) != 3 || strings.ToUpper(projectCode) != projectCode || next < 1 {
+		return fmt.Errorf("invalid shared ADR sequence")
+	}
+	_, err := d.Shared.Exec(ctx, `INSERT INTO shared_adr_sequences(project_id,project_code,next_adr_number) VALUES(?,?,?) ON CONFLICT(project_id) DO UPDATE SET project_code=excluded.project_code,next_adr_number=CASE WHEN excluded.next_adr_number > shared_adr_sequences.next_adr_number THEN excluded.next_adr_number ELSE shared_adr_sequences.next_adr_number END`, projectID, projectCode, next)
+	return err
 }
 
 func (d *Databases) nextTaskNumber(ctx context.Context, projectID, projectCode string, initial int64) (int64, error) {
@@ -441,7 +536,7 @@ func (d *Databases) PendingOutbox(ctx context.Context, limit int) ([]OutboxEntry
 	if limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("invalid outbox limit")
 	}
-	rows, err := d.Shared.Query(ctx, `SELECT id,entity_type,entity_id,revision,kind,payload,created_at,COALESCE(published_at,'') FROM hub_outbox WHERE published_at IS NULL ORDER BY created_at,id LIMIT ?`, limit)
+	rows, err := d.Shared.Query(ctx, `SELECT id,entity_type,entity_id,revision,kind,payload,created_at,COALESCE(published_at,''),attempts,COALESCE(next_attempt_at,''),COALESCE(last_error,'') FROM hub_outbox WHERE published_at IS NULL AND (next_attempt_at IS NULL OR next_attempt_at='' OR next_attempt_at<=?) ORDER BY created_at,id LIMIT ?`, time.Now().UTC().Format(time.RFC3339Nano), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -467,8 +562,66 @@ func (d *Databases) MarkOutboxPublished(ctx context.Context, id string, at time.
 	return err
 }
 
+func (d *Databases) MarkOutboxRetry(ctx context.Context, id string, at time.Time, cause error) error {
+	if d == nil || d.Shared == nil {
+		return fmt.Errorf("shared store is unavailable")
+	}
+	if id == "" {
+		return fmt.Errorf("outbox id is required")
+	}
+	message := "outbox publish failed"
+	if cause != nil {
+		message = cause.Error()
+	}
+	if len(message) > 512 {
+		message = message[:512]
+	}
+	_, err := d.Shared.Exec(ctx, `UPDATE hub_outbox SET attempts=attempts+1,next_attempt_at=?,last_error=? WHERE id=? AND published_at IS NULL`, at.UTC().Format(time.RFC3339Nano), message, id)
+	return err
+}
+
+type SharedSyncHealth struct {
+	State     string `json:"state"`
+	Pending   int    `json:"pending"`
+	Retrying  int    `json:"retrying"`
+	LastError string `json:"last_error,omitempty"`
+}
+
+func (d *Databases) SharedSyncHealth(ctx context.Context) (SharedSyncHealth, error) {
+	if d == nil || d.Shared == nil {
+		return SharedSyncHealth{}, fmt.Errorf("shared store is unavailable")
+	}
+	rows, err := d.Shared.Query(ctx, `SELECT COUNT(*),SUM(CASE WHEN attempts>0 THEN 1 ELSE 0 END),COALESCE((SELECT last_error FROM hub_outbox WHERE published_at IS NULL AND last_error<>'' ORDER BY created_at DESC LIMIT 1),'') FROM hub_outbox WHERE published_at IS NULL`)
+	if err != nil {
+		return SharedSyncHealth{}, err
+	}
+	if len(rows.Rows) != 1 || len(rows.Rows[0]) != 3 {
+		return SharedSyncHealth{}, fmt.Errorf("invalid shared sync health row")
+	}
+	pending, ok := rows.Rows[0][0].(int64)
+	if !ok {
+		return SharedSyncHealth{}, fmt.Errorf("invalid shared sync pending count")
+	}
+	retrying, ok := rows.Rows[0][1].(int64)
+	if !ok {
+		return SharedSyncHealth{}, fmt.Errorf("invalid shared sync retry count")
+	}
+	last, ok := rows.Rows[0][2].(string)
+	if !ok {
+		return SharedSyncHealth{}, fmt.Errorf("invalid shared sync error")
+	}
+	state := "healthy"
+	if pending > 0 {
+		state = "pending"
+	}
+	if last != "" {
+		state = "degraded"
+	}
+	return SharedSyncHealth{State: state, Pending: int(pending), Retrying: int(retrying), LastError: last}, nil
+}
+
 func (d *Databases) outboxEntry(ctx context.Context, id string) (OutboxEntry, bool, error) {
-	rows, err := d.Shared.Query(ctx, `SELECT id,entity_type,entity_id,revision,kind,payload,created_at,COALESCE(published_at,'') FROM hub_outbox WHERE id=?`, id)
+	rows, err := d.Shared.Query(ctx, `SELECT id,entity_type,entity_id,revision,kind,payload,created_at,COALESCE(published_at,''),attempts,COALESCE(next_attempt_at,''),COALESCE(last_error,'') FROM hub_outbox WHERE id=?`, id)
 	if err != nil {
 		return OutboxEntry{}, false, err
 	}
@@ -480,7 +633,7 @@ func (d *Databases) outboxEntry(ctx context.Context, id string) (OutboxEntry, bo
 }
 
 func decodeOutboxRow(row []any) (OutboxEntry, error) {
-	if len(row) != 8 {
+	if len(row) != 11 {
 		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox row")
 	}
 	revision, ok := row[3].(int64)
@@ -507,5 +660,17 @@ func decodeOutboxRow(row []any) (OutboxEntry, error) {
 	if !ok {
 		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox published_at")
 	}
-	return OutboxEntry{ID: values[0], EntityType: values[1], EntityID: values[2], Revision: revision, Kind: values[3], Payload: payload, CreatedAt: created, PublishedAt: published}, nil
+	attempts, ok := row[8].(int64)
+	if !ok {
+		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox attempts")
+	}
+	nextAttempt, ok := row[9].(string)
+	if !ok {
+		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox next attempt")
+	}
+	lastError, ok := row[10].(string)
+	if !ok {
+		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox last error")
+	}
+	return OutboxEntry{ID: values[0], EntityType: values[1], EntityID: values[2], Revision: revision, Kind: values[3], Payload: payload, CreatedAt: created, PublishedAt: published, Attempts: attempts, NextAttemptAt: nextAttempt, LastError: lastError}, nil
 }

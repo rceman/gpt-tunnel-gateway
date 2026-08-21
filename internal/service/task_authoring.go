@@ -33,6 +33,12 @@ func (s *Service) TaskAuthoringRead(ctx context.Context, projectID, taskID strin
 	if err := model.ValidateCanonicalTaskID(taskID); err != nil {
 		return model.TaskAuthoring{}, err
 	}
+	if s.Durability != nil {
+		if err := s.requireLocalTaskAuthoring(ctx, projectID); err != nil {
+			return model.TaskAuthoring{}, err
+		}
+		return s.readSharedTask(ctx, projectID, taskID)
+	}
 	var task model.TaskAuthoring
 	if err := s.Hub.ReadJSON(ctx, s.taskAuthoringPath(projectID, taskID), &task); err != nil {
 		return model.TaskAuthoring{}, err

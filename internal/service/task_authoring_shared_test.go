@@ -83,7 +83,12 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 	if stored.Status != model.TaskAuthoringReady || stored.Revision != readyReceipt.Task.Revision {
 		t.Fatalf("shared task=%#v", stored)
 	}
-	if _, err := s.TaskAuthoringRead(context.Background(), "example", readyReceipt.Task.ID); !IsNotFound(err) {
+	sharedRead, err := s.TaskAuthoringRead(context.Background(), "example", readyReceipt.Task.ID)
+	if err != nil || sharedRead.Status != model.TaskAuthoringReady {
+		t.Fatalf("Shared task/read failed before Hub publish: %#v %v", sharedRead, err)
+	}
+	var hubTask model.TaskAuthoring
+	if err := s.Hub.ReadJSON(context.Background(), s.taskAuthoringPath("example", readyReceipt.Task.ID), &hubTask); !IsNotFound(err) {
 		t.Fatalf("task mutation wrote Hub synchronously: %v", err)
 	}
 	for _, entry := range pending {
@@ -100,6 +105,81 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 	}
 	if revision == "" {
 		t.Fatal("test fixture did not establish Hub baseline")
+	}
+}
+
+func TestTaskAuthoringReadUsesSharedBeforeHub(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	db, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s.Durability = db
+	project := s.Config.Projects["example"]
+	project.ProjectCode = "EXM"
+	s.Config.Projects["example"] = project
+	markSharedBootstrapCompleteForTest(t, db)
+	created, err := trainv2.NewTask("example", "EXM-TSK900", trainv2.AuthoringDraft{Title: "Shared read", Objective: "Read locally", ADRRelation: model.TaskADRNoRequired}, "planner", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(context.Background(), "task", sqlitestore.SharedEntity{ID: created.ID, Revision: int64(created.Revision), Payload: payload, UpdatedAt: created.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "missing-hub.git")
+	read, err := s.TaskAuthoringRead(context.Background(), "example", created.ID)
+	if err != nil || read.ID != created.ID {
+		t.Fatalf("Shared task/read failed: %#v %v", read, err)
+	}
+}
+
+func TestSharedADRPublishConvergesAfterRestart(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	db, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := s.Config.Projects["example"]
+	project.ProjectCode = "EXM"
+	s.Config.Projects["example"] = project
+	adr := model.ADR{SchemaVersion: model.SchemaVersion, ID: "EXM-ADR1", ProjectID: "example", Title: "Local ADR", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: time.Now().UTC()}
+	payload, err := json.Marshal(adr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := db.CommitSharedADRCreate(context.Background(), sqlitestore.SharedADRCreate{OperationID: "OPR-ADR-RESTART", ProjectID: "example", ProjectCode: "EXM", Kind: "adr-create", BuildPayload: func(string) ([]byte, error) { return payload, nil }}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s.Durability = db
+	pending, err := db.PendingOutbox(context.Background(), 10)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("restart pending=%#v err=%v", pending, err)
+	}
+	if err := s.publishSharedOutboxEntry(context.Background(), pending[0]); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkOutboxPublished(context.Background(), pending[0].ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var published model.ADR
+	if err := s.Hub.ReadJSON(context.Background(), s.adrPath("example", adr.ID), &published); err != nil {
+		t.Fatal(err)
+	}
+	if published.ID != adr.ID || published.Title != adr.Title {
+		t.Fatalf("published ADR=%#v", published)
 	}
 }
 

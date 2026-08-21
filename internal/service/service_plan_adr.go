@@ -193,6 +193,9 @@ func allocatorConflict(err error) bool {
 const allocatorRetryLimit = 20
 
 func (s *Service) ADRCreate(ctx context.Context, in ADRCreateInput) (OperationResult, error) {
+	if s.Durability != nil {
+		return s.adrCreateShared(ctx, in)
+	}
 	for attempt := 0; ; attempt++ {
 		result, err := s.adrCreateOnce(ctx, in)
 		if in.ExpectedHubRevision != "" || err == nil || !allocatorConflict(err) || attempt+1 >= allocatorRetryLimit {

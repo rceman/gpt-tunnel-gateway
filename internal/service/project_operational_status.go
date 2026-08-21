@@ -15,6 +15,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 // ProjectOperationalStatus is the compact, session-bound operator projection.
@@ -36,6 +37,7 @@ type ProjectOperationalStatus struct {
 	Integration           ProjectOperationalIntegration `json:"integration"`
 	Rules                 ProjectOperationalRules       `json:"rules"`
 	ReleaseCI             ProjectOperationalReleaseCI   `json:"release_ci"`
+	SharedSync            sqlitestore.SharedSyncHealth  `json:"shared_sync"`
 	Blocker               string                        `json:"blocker,omitempty"`
 	RecommendedNextAction string                        `json:"recommended_next_action"`
 }
@@ -131,7 +133,15 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 		ReleaseCI: ProjectOperationalReleaseCI{
 			State: "unavailable",
 		},
+		SharedSync:            sqlitestore.SharedSyncHealth{State: "unavailable"},
 		RecommendedNextAction: "await work",
+	}
+	if s.Durability != nil {
+		if syncHealth, syncErr := s.Durability.SharedSyncHealth(ctx); syncErr == nil {
+			result.SharedSync = syncHealth
+		} else {
+			result.SharedSync = sqlitestore.SharedSyncHealth{State: "degraded", LastError: "shared sync health unavailable"}
+		}
 	}
 	if sessionID := AgentSessionID(ctx); sessionID != "" {
 		if session, sessionErr := s.SessionInfo(ctx, sessionID); sessionErr == nil {
