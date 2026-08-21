@@ -108,6 +108,33 @@ func TestPostReadyHubUnavailableDegradesWithoutBlockingLocalStore(t *testing.T) 
 	}
 }
 
+func TestRetryPostReadyHubBootstrapRetriesTransientFailure(t *testing.T) {
+	oldDelays := postReadyHubRetryDelays
+	postReadyHubRetryDelays = []time.Duration{time.Millisecond}
+	t.Cleanup(func() { postReadyHubRetryDelays = oldDelays })
+
+	attempts := 0
+	var phases []string
+	err := retryPostReadyHubBootstrap(context.Background(), func(phase string) {
+		phases = append(phases, phase)
+	}, func(context.Context) error {
+		attempts++
+		if attempts == 1 {
+			return fmt.Errorf("transient Hub failure")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("retry returned error: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts=%d, want 2", attempts)
+	}
+	if len(phases) != 1 || phases[0] != "POST_READY_HUB_RETRY_WAIT_1" {
+		t.Fatalf("phases=%v, want one bounded retry phase", phases)
+	}
+}
+
 func TestBootstrapFailsBeforeHTTPReadyOnCorruptSQLite(t *testing.T) {
 	c := testBootstrapConfig(t)
 	sharedPath := filepath.Join(c.StateDir, "databases", "shared.db")
