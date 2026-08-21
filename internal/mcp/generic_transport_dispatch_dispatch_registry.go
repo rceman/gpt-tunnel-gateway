@@ -42,8 +42,32 @@ func (s *Server) genericCallWithEntries(ctx context.Context, entries map[string]
 func genericDispatchTimed(s *Server, ctx context.Context, entries map[string]genericActionEntry, record durableSession.Record, action string, raw json.RawMessage) (map[string]any, error) {
 	started := time.Now()
 	result, err := s.genericDispatch(ctx, entries, record, action, raw)
+	addTokenUsage(s, result, raw)
 	addSparseExecTime(result, time.Since(started))
 	return result, err
+}
+
+func addTokenUsage(s *Server, result map[string]any, request json.RawMessage) {
+	if result == nil {
+		return
+	}
+	started := time.Now()
+	requestTokens, requestErr := s.tokenCounter.CountText(request)
+	responseBytes, marshalErr := json.Marshal(result)
+	responseTokens, responseErr := 0, error(nil)
+	if marshalErr == nil {
+		responseTokens, responseErr = s.tokenCounter.CountText(responseBytes)
+	}
+	result["request_tokens"] = requestTokens
+	result["response_tokens"] = responseTokens
+	result["token_count_ms"] = time.Since(started).Milliseconds()
+	if requestErr != nil {
+		result["token_count_error"] = requestErr.Error()
+	} else if marshalErr != nil {
+		result["token_count_error"] = marshalErr.Error()
+	} else if responseErr != nil {
+		result["token_count_error"] = responseErr.Error()
+	}
 }
 
 func addSparseExecTime(result map[string]any, elapsed time.Duration) {

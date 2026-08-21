@@ -103,7 +103,7 @@ func TestGenericLegacyReadAndMutationAuthorityReuse(t *testing.T) {
 func TestGenericTransportEnvelopeAndActionPathContracts(t *testing.T) {
 	callSchema := genericCallOutputSchema()
 	callProperties := callSchema["properties"].(map[string]any)
-	if len(callProperties) != 3 {
+	if len(callProperties) != 7 {
 		t.Fatalf("single-call schema has unexpected properties: %#v", callProperties)
 	}
 	if _, ok := callProperties["action"]; ok {
@@ -112,7 +112,7 @@ func TestGenericTransportEnvelopeAndActionPathContracts(t *testing.T) {
 	batchSchema := genericBatchOutputSchema()
 	items := batchSchema["properties"].(map[string]any)["results"].(map[string]any)["items"].(map[string]any)
 	itemProperties := items["properties"].(map[string]any)
-	if len(itemProperties) != 4 {
+	if len(itemProperties) != 8 {
 		t.Fatalf("batch item schema has unexpected properties: %#v", itemProperties)
 	}
 	if _, ok := itemProperties["action"]; !ok {

@@ -57,8 +57,37 @@ func (s *Server) genericBatch(ctx context.Context, legacy map[string]Tool, raw j
 		results = append(results, genericBatchResult(action, result))
 	}
 	response := map[string]any{"results": results}
+	requestTokens, responseTokens, tokenCountMS := 0, 0, int64(0)
+	var tokenCountError string
+	for _, item := range results {
+		requestTokens += intValue(item["request_tokens"])
+		responseTokens += intValue(item["response_tokens"])
+		tokenCountMS += int64(intValue(item["token_count_ms"]))
+		if tokenCountError == "" {
+			tokenCountError, _ = item["token_count_error"].(string)
+		}
+	}
+	response["request_tokens"] = requestTokens
+	response["response_tokens"] = responseTokens
+	response["token_count_ms"] = tokenCountMS
+	if tokenCountError != "" {
+		response["token_count_error"] = tokenCountError
+	}
 	addSparseExecTime(response, time.Since(started))
 	return response, nil
+}
+
+func intValue(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	default:
+		return 0
+	}
 }
 func decodeBatchCall(raw json.RawMessage, input *genericCallInput) (map[string]any, error) {
 	if err := decode(raw, input); err != nil {
