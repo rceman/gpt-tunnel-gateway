@@ -150,7 +150,7 @@ func TestOpenAcceptsHistoricalVersionTwoNamesAndAppliesReceiptMigration(t *testi
 				raw.Close()
 				t.Fatal(err)
 			}
-			if _, err := raw.Exec(ctx, `DELETE FROM schema_migrations WHERE version=?`, int64(5)); err != nil {
+			if _, err := raw.Exec(ctx, `DELETE FROM schema_migrations WHERE version=?`, int64(8)); err != nil {
 				raw.Close()
 				t.Fatal(err)
 			}
@@ -190,7 +190,7 @@ func TestOpenAcceptsReleasedVersionThreeAndAppliesBootstrapMigration(t *testing.
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if _, err := raw.Exec(ctx, `DELETE FROM schema_migrations WHERE version=?`, int64(6)); err != nil {
+	if _, err := raw.Exec(ctx, `DELETE FROM schema_migrations WHERE version=?`, int64(9)); err != nil {
 		raw.Close()
 		t.Fatal(err)
 	}
@@ -211,9 +211,45 @@ func TestOpenAcceptsReleasedVersionThreeAndAppliesBootstrapMigration(t *testing.
 	if err != nil || len(rows.Rows) != 1 || rows.Rows[0][0] != sharedCutoverMigrationName {
 		t.Fatalf("released version-3 identity changed: rows=%#v err=%v", rows.Rows, err)
 	}
-	rows, err = reopened.Shared.Query(ctx, `SELECT name FROM schema_migrations WHERE version=?`, int64(6))
+	rows, err = reopened.Shared.Query(ctx, `SELECT name FROM schema_migrations WHERE version=?`, int64(9))
 	if err != nil || len(rows.Rows) != 1 || rows.Rows[0][0] != sharedBootstrapMigrationName {
-		t.Fatalf("bootstrap migration was not applied at version 6: rows=%#v err=%v", rows.Rows, err)
+		t.Fatalf("bootstrap migration was not applied at version 9: rows=%#v err=%v", rows.Rows, err)
+	}
+}
+
+func TestSharedMigrationHistoryPreservesReleasedVersionsBeforeCandidates(t *testing.T) {
+	db, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	rows, err := db.Shared.Query(context.Background(), `SELECT version,name FROM schema_migrations ORDER BY version`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []struct {
+		version int64
+		name    string
+	}{
+		{1, "gpt_tunnel_shared_authority_v1"},
+		{2, sharedReplicationMigrationName},
+		{3, sharedCutoverMigrationName},
+		{4, "gpt_tunnel_shared_project_identifiers_v1"},
+		{5, "gpt_tunnel_shared_train_admission_v1"},
+		{6, "gpt_tunnel_shared_train_admission_update_guard_v1"},
+		{7, sharedTaskSequenceMigrationName},
+		{8, sharedIntegrationCurrentMigrationName},
+		{9, sharedBootstrapMigrationName},
+		{10, sharedADROutboxMigrationName},
+	}
+	if len(rows.Rows) != len(want) {
+		t.Fatalf("migration history length=%d, want=%d: %#v", len(rows.Rows), len(want), rows.Rows)
+	}
+	for i, entry := range want {
+		if rows.Rows[i][0] != entry.version || rows.Rows[i][1] != entry.name {
+			t.Fatalf("migration history[%d]=%#v, want version=%d name=%q", i, rows.Rows[i], entry.version, entry.name)
+		}
 	}
 }
 

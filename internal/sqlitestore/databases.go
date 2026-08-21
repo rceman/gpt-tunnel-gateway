@@ -177,10 +177,13 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 }
 
 const (
-	sharedReplicationMigrationName = "gpt_tunnel_shared_replication_v1"
-	sharedIntegrationMigrationName = "gpt_tunnel_shared_integration_receipts_v2"
-	sharedCutoverMigrationName     = "gpt_tunnel_shared_cutover_v1"
-	sharedBootstrapMigrationName   = "gpt_tunnel_shared_bootstrap_markers_v6"
+	sharedReplicationMigrationName        = "gpt_tunnel_shared_replication_v1"
+	sharedIntegrationMigrationName        = "gpt_tunnel_shared_integration_receipts_v2"
+	sharedCutoverMigrationName            = "gpt_tunnel_shared_cutover_v1"
+	sharedTaskSequenceMigrationName       = "gpt_tunnel_shared_task_sequences_v7"
+	sharedIntegrationCurrentMigrationName = "gpt_tunnel_shared_integration_receipts_v8"
+	sharedBootstrapMigrationName          = "gpt_tunnel_shared_bootstrap_markers_v9"
+	sharedADROutboxMigrationName          = "gpt_tunnel_shared_adr_outbox_retry_v10"
 )
 
 // normalizeSharedMigrationHistory repairs only the known version-2 naming
@@ -215,25 +218,44 @@ func normalizeSharedMigrationHistory(ctx context.Context, shared *store.Store) e
 }
 
 var sharedMigrations = []migrate.Migration{{
-	Version: 1, Name: "gpt_tunnel_shared_authority_v1",
+	Version: 1,
+	Name:    "gpt_tunnel_shared_authority_v1",
 	Statements: []store.Statement{
 		{SQL: `CREATE TABLE IF NOT EXISTS shared_tasks (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`},
 		{SQL: `CREATE TABLE IF NOT EXISTS shared_trains (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`},
 		{SQL: `CREATE TABLE IF NOT EXISTS shared_adrs (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`},
 		{SQL: `CREATE TABLE IF NOT EXISTS shared_rules (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`},
 		{SQL: `CREATE TABLE IF NOT EXISTS shared_journals (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`},
-		{SQL: `CREATE TABLE IF NOT EXISTS shared_task_sequences (project_id TEXT PRIMARY KEY, project_code TEXT NOT NULL, next_task_number INTEGER NOT NULL)`},
 		{SQL: `CREATE TABLE IF NOT EXISTS shared_replication (entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, last_revision INTEGER NOT NULL, last_synced_at TEXT, PRIMARY KEY(entity_type, entity_id))`},
 		{SQL: `CREATE TABLE IF NOT EXISTS hub_outbox (id TEXT PRIMARY KEY, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, revision INTEGER NOT NULL, kind TEXT NOT NULL, payload BLOB NOT NULL, created_at TEXT NOT NULL, published_at TEXT)`},
 		{SQL: `CREATE INDEX IF NOT EXISTS hub_outbox_pending_idx ON hub_outbox(published_at, created_at)`},
 	},
 }, {
-	Version: 2, Name: sharedReplicationMigrationName,
+	Version: 2,
+	Name:    sharedReplicationMigrationName,
 	Statements: []store.Statement{
-		{SQL: `CREATE TABLE IF NOT EXISTS shared_replication (entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, last_revision INTEGER NOT NULL, last_synced_at TEXT, PRIMARY KEY(entity_type, entity_id))`},
+		{SQL: `CREATE TABLE IF NOT EXISTS replication_state (
+			id INTEGER PRIMARY KEY CHECK(id = 1),
+			status TEXT NOT NULL,
+			cursor TEXT NOT NULL DEFAULT '',
+			last_success_at TEXT,
+			oldest_pending_at TEXT,
+			pending_count INTEGER NOT NULL DEFAULT 0,
+			failed_count INTEGER NOT NULL DEFAULT 0,
+			last_error_code TEXT,
+			attempt INTEGER NOT NULL DEFAULT 0,
+			next_attempt_at TEXT,
+			updated_at TEXT NOT NULL
+		)`},
+		{SQL: `INSERT OR IGNORE INTO replication_state(id,status,updated_at) VALUES(1,'synced',CURRENT_TIMESTAMP)`},
+		{SQL: `ALTER TABLE hub_outbox ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0`},
+		{SQL: `ALTER TABLE hub_outbox ADD COLUMN last_error_code TEXT`},
+		{SQL: `ALTER TABLE hub_outbox ADD COLUMN next_attempt_at TEXT`},
+		{SQL: `CREATE INDEX IF NOT EXISTS hub_outbox_due_idx ON hub_outbox(published_at,next_attempt_at,created_at,id)`},
 	},
 }, {
-	Version: 3, Name: sharedCutoverMigrationName,
+	Version: 3,
+	Name:    sharedCutoverMigrationName,
 	Statements: []store.Statement{
 		{SQL: `CREATE TABLE IF NOT EXISTS shared_authority (
 			id INTEGER PRIMARY KEY CHECK(id = 1),
@@ -257,14 +279,71 @@ var sharedMigrations = []migrate.Migration{{
 		{SQL: `CREATE INDEX IF NOT EXISTS hub_outbox_operation_idx ON hub_outbox(operation_id)`},
 	},
 }, {
-	Version: 6, Name: sharedBootstrapMigrationName,
+	Version: 4,
+	Name:    "gpt_tunnel_shared_project_identifiers_v1",
+	Statements: []store.Statement{
+		{SQL: `CREATE TABLE IF NOT EXISTS shared_project_identifiers (
+			project_id TEXT PRIMARY KEY,
+			project_code TEXT NOT NULL,
+			next_task_number INTEGER NOT NULL,
+			next_adr_number INTEGER NOT NULL,
+			next_rule_number INTEGER NOT NULL,
+			next_journal_number INTEGER NOT NULL,
+			next_train_number INTEGER NOT NULL
+		)`},
+	},
+}, {
+	Version: 5,
+	Name:    "gpt_tunnel_shared_train_admission_v1",
+	Statements: []store.Statement{
+		{SQL: `CREATE TABLE IF NOT EXISTS shared_train_task_admissions (
+			project_id TEXT NOT NULL,
+			task_id TEXT NOT NULL,
+			train_id TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			PRIMARY KEY(project_id, task_id)
+		)`},
+		{SQL: `CREATE INDEX IF NOT EXISTS shared_train_task_admissions_train_idx ON shared_train_task_admissions(project_id,train_id)`},
+		{SQL: `CREATE TRIGGER IF NOT EXISTS shared_train_task_admission_conflict
+				BEFORE INSERT ON shared_train_task_admissions
+				WHEN EXISTS (SELECT 1 FROM shared_train_task_admissions WHERE project_id=NEW.project_id AND task_id=NEW.task_id AND train_id<>NEW.train_id)
+				BEGIN SELECT RAISE(ABORT,'task is already admitted to another Shared Train'); END`},
+	},
+}, {
+	Version: 6,
+	Name:    "gpt_tunnel_shared_train_admission_update_guard_v1",
+	Statements: []store.Statement{
+		{SQL: `CREATE TRIGGER IF NOT EXISTS shared_train_task_admission_update_conflict
+			BEFORE UPDATE ON shared_train_task_admissions
+			WHEN OLD.train_id<>NEW.train_id
+			BEGIN SELECT RAISE(ABORT,'task is already admitted to another Shared Train'); END`},
+	},
+}, {
+	Version: 7,
+	Name:    sharedTaskSequenceMigrationName,
+	Statements: []store.Statement{
+		{SQL: `CREATE TABLE IF NOT EXISTS shared_task_sequences (project_id TEXT PRIMARY KEY, project_code TEXT NOT NULL, next_task_number INTEGER NOT NULL)`},
+	},
+}, {
+	Version: 8,
+	Name:    sharedIntegrationCurrentMigrationName,
+	Statements: []store.Statement{
+		{SQL: `CREATE TABLE IF NOT EXISTS shared_integration_receipts (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`},
+	},
+}, {
+	Version: 9,
+	Name:    sharedBootstrapMigrationName,
 	Statements: []store.Statement{
 		{SQL: `CREATE TABLE IF NOT EXISTS shared_bootstrap_markers (project_id TEXT PRIMARY KEY, hub_revision TEXT NOT NULL, completed_at TEXT NOT NULL)`},
 	},
 }, {
-	Version: 5, Name: "gpt_tunnel_shared_integration_receipts_v5",
+	Version: 10,
+	Name:    sharedADROutboxMigrationName,
 	Statements: []store.Statement{
-		{SQL: `CREATE TABLE IF NOT EXISTS shared_integration_receipts (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`},
+		{SQL: `CREATE TABLE IF NOT EXISTS shared_adr_sequences (project_id TEXT PRIMARY KEY, project_code TEXT NOT NULL, next_adr_number INTEGER NOT NULL)`},
+		{SQL: `ALTER TABLE hub_outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0`},
+		{SQL: `ALTER TABLE hub_outbox ADD COLUMN last_error TEXT NOT NULL DEFAULT ''`},
+		{SQL: `CREATE INDEX IF NOT EXISTS hub_outbox_retry_idx ON hub_outbox(published_at, next_attempt_at, created_at)`},
 	},
 }}
 
