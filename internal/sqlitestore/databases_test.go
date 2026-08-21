@@ -174,6 +174,49 @@ func TestOpenAcceptsHistoricalVersionTwoNamesAndAppliesReceiptMigration(t *testi
 	}
 }
 
+func TestOpenAcceptsReleasedVersionThreeAndAppliesBootstrapMigration(t *testing.T) {
+	stateDir := t.TempDir()
+	db, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sharedPath := db.SharedPath()
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := upstream.Open(upstream.Config{Path: sharedPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := raw.Exec(ctx, `DELETE FROM schema_migrations WHERE version=?`, int64(6)); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(ctx, `DROP TABLE shared_bootstrap_markers`); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	rows, err := reopened.Shared.Query(ctx, `SELECT name FROM schema_migrations WHERE version=?`, int64(3))
+	if err != nil || len(rows.Rows) != 1 || rows.Rows[0][0] != sharedCutoverMigrationName {
+		t.Fatalf("released version-3 identity changed: rows=%#v err=%v", rows.Rows, err)
+	}
+	rows, err = reopened.Shared.Query(ctx, `SELECT name FROM schema_migrations WHERE version=?`, int64(6))
+	if err != nil || len(rows.Rows) != 1 || rows.Rows[0][0] != sharedBootstrapMigrationName {
+		t.Fatalf("bootstrap migration was not applied at version 6: rows=%#v err=%v", rows.Rows, err)
+	}
+}
+
 func BenchmarkSharedAndLocalTraffic(b *testing.B) {
 	db, err := Open(filepath.Join(b.TempDir(), "state"))
 	if err != nil {

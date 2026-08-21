@@ -179,6 +179,8 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 const (
 	sharedReplicationMigrationName = "gpt_tunnel_shared_replication_v1"
 	sharedIntegrationMigrationName = "gpt_tunnel_shared_integration_receipts_v2"
+	sharedCutoverMigrationName     = "gpt_tunnel_shared_cutover_v1"
+	sharedBootstrapMigrationName   = "gpt_tunnel_shared_bootstrap_markers_v6"
 )
 
 // normalizeSharedMigrationHistory repairs only the known version-2 naming
@@ -231,7 +233,31 @@ var sharedMigrations = []migrate.Migration{{
 		{SQL: `CREATE TABLE IF NOT EXISTS shared_replication (entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, last_revision INTEGER NOT NULL, last_synced_at TEXT, PRIMARY KEY(entity_type, entity_id))`},
 	},
 }, {
-	Version: 3, Name: "gpt_tunnel_shared_bootstrap_markers_v3",
+	Version: 3, Name: sharedCutoverMigrationName,
+	Statements: []store.Statement{
+		{SQL: `CREATE TABLE IF NOT EXISTS shared_authority (
+			id INTEGER PRIMARY KEY CHECK(id = 1),
+			mode TEXT NOT NULL,
+			baseline_revision TEXT NOT NULL,
+			baseline_digest TEXT NOT NULL,
+			cutover_at TEXT NOT NULL
+		)`},
+		{SQL: `CREATE TABLE IF NOT EXISTS shared_operations (
+			operation_id TEXT PRIMARY KEY,
+			entity_type TEXT NOT NULL,
+			entity_id TEXT NOT NULL,
+			revision INTEGER NOT NULL,
+			request_sha256 TEXT NOT NULL,
+			result_payload BLOB NOT NULL,
+			created_at TEXT NOT NULL
+		)`},
+		{SQL: `ALTER TABLE hub_outbox ADD COLUMN operation_id TEXT NOT NULL DEFAULT ''`},
+		{SQL: `ALTER TABLE hub_outbox ADD COLUMN request_sha256 TEXT NOT NULL DEFAULT ''`},
+		{SQL: `CREATE INDEX IF NOT EXISTS shared_operations_entity_idx ON shared_operations(entity_type,entity_id,revision)`},
+		{SQL: `CREATE INDEX IF NOT EXISTS hub_outbox_operation_idx ON hub_outbox(operation_id)`},
+	},
+}, {
+	Version: 6, Name: sharedBootstrapMigrationName,
 	Statements: []store.Statement{
 		{SQL: `CREATE TABLE IF NOT EXISTS shared_bootstrap_markers (project_id TEXT PRIMARY KEY, hub_revision TEXT NOT NULL, completed_at TEXT NOT NULL)`},
 	},
