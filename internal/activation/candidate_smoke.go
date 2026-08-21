@@ -18,8 +18,8 @@ const candidateSmokeTimeout = 15 * time.Second
 
 // SmokeCandidate starts the built Gateway on an isolated loopback port and
 // exercises readiness plus the canonical MCP ABI before installed artifacts
-// are replaced. It shares the durable state for read-only validation but never
-// touches the installed Gateway or Tunnel processes.
+// are replaced. Candidate durability and Hub locks are isolated from the
+// production StateDir for the entire process lifetime.
 func SmokeCandidate(ctx context.Context, c config.Config, gatewayPath, expectedVersion string) error {
 	probeCtx, cancel := context.WithTimeout(ctx, candidateSmokeTimeout)
 	defer cancel()
@@ -31,6 +31,12 @@ func SmokeCandidate(ctx context.Context, c config.Config, gatewayPath, expectedV
 	_ = listener.Close()
 	candidate := c
 	candidate.ListenAddr = addr
+	candidateStateDir, err := os.MkdirTemp("", "gpt-tunnel-candidate-state-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(candidateStateDir)
+	candidate.StateDir = candidateStateDir
 	configFile, err := os.CreateTemp("", "gpt-tunnel-candidate-config-*.json")
 	if err != nil {
 		return err

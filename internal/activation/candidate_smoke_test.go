@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
@@ -35,6 +37,16 @@ func TestSmokeCandidateReachesHTTPReadyWithinExistingDeadline(t *testing.T) {
 		t.Fatalf("build candidate: %v: %s", err, BoundedOutput(output.Bytes()))
 	}
 	stateDir := t.TempDir()
+	productionDB, err := sqlitestore.Open(stateDir)
+	if err != nil {
+		t.Fatal("open production store:", err)
+	}
+	t.Cleanup(func() { _ = productionDB.Close() })
+	productionHubLock, err := lockfile.Acquire(filepath.Join(stateDir, "locks"), "hub-repository")
+	if err != nil {
+		t.Fatal("hold production Hub lock:", err)
+	}
+	t.Cleanup(func() { _ = productionHubLock.Release() })
 	c := config.Config{
 		SchemaVersion:          1,
 		GatewayID:              "candidate_test",
@@ -61,5 +73,8 @@ func TestSmokeCandidateReachesHTTPReadyWithinExistingDeadline(t *testing.T) {
 	defer cancel()
 	if err := SmokeCandidate(ctx, c, gatewayPath, strings.TrimSpace(string(versionBytes))); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := productionDB.Shared.Exec(context.Background(), `INSERT INTO shared_tasks(id,revision,payload,updated_at) VALUES(?,?,?,?)`, "candidate-smoke-production", 1, []byte("ok"), time.Now().UTC()); err != nil {
+		t.Fatalf("production store unusable after candidate smoke: %v", err)
 	}
 }
