@@ -60,6 +60,36 @@ func TestMirrorReadsAllRefsWithoutSwitchingWorktree(t *testing.T) {
 	}
 }
 
+func TestWorktreeFingerprintChangesWithWorkingTreeBytes(t *testing.T) {
+	_, work, _ := testutil.RepoWithBareRemote(t)
+	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	first, err := r.WorktreeFingerprint(context.Background(), work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(work, "fingerprint.txt")
+	if err := os.WriteFile(path, []byte("one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := r.WorktreeFingerprint(context.Background(), work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("untracked file was omitted from worktree fingerprint")
+	}
+	if err := os.WriteFile(path, []byte("two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	third, err := r.WorktreeFingerprint(context.Background(), work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second == third {
+		t.Fatal("working-tree byte change was omitted from fingerprint")
+	}
+}
+
 func TestResolveMirrorRefStatusDistinguishesMissingBranch(t *testing.T) {
 	_, work, _ := testutil.RepoWithBareRemote(t)
 	p := config.ProjectConfig{Root: work, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "x_master"}

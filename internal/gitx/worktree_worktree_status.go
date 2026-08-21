@@ -2,7 +2,11 @@ package gitx
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -72,6 +76,71 @@ func (r Runner) ChangedWorkingFiles(ctx context.Context, root string) ([]string,
 	}
 	sort.Strings(paths)
 	return paths, nil
+}
+
+// WorktreeFingerprint hashes the exact current worktree state, including
+// tracked edits, staged edits, untracked files, deletions, and file modes.
+// It is deliberately content-based so a completed verification cannot be
+// reused after source bytes change.
+func (r Runner) WorktreeFingerprint(ctx context.Context, root string) (string, error) {
+	status, err := r.command(ctx, root, false, "status", "--porcelain=v2", "--branch")
+	if err != nil {
+		return "", err
+	}
+	if _, err := bounded(status, r.MaxReadBytes); err != nil {
+		return "", err
+	}
+	pathsRaw, err := r.command(ctx, root, false, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return "", err
+	}
+	if _, err := bounded(pathsRaw, r.MaxReadBytes); err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	_, _ = h.Write(status)
+	paths := strings.Split(strings.TrimSuffix(string(pathsRaw), "\x00"), "\x00")
+	sort.Strings(paths)
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		if err := model.ValidateRelativePath(path); err != nil {
+			return "", err
+		}
+		full := filepath.Join(root, filepath.FromSlash(path))
+		info, statErr := os.Lstat(full)
+		_, _ = io.WriteString(h, path+"\x00")
+		if os.IsNotExist(statErr) {
+			_, _ = io.WriteString(h, "missing\x00")
+			continue
+		}
+		if statErr != nil {
+			return "", statErr
+		}
+		_, _ = io.WriteString(h, info.Mode().String()+"\x00")
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(full)
+			if err != nil {
+				return "", err
+			}
+			_, _ = io.WriteString(h, target+"\x00")
+			continue
+		}
+		file, err := os.Open(full)
+		if err != nil {
+			return "", err
+		}
+		if _, err := io.Copy(h, file); err != nil {
+			_ = file.Close()
+			return "", err
+		}
+		if err := file.Close(); err != nil {
+			return "", err
+		}
+		_, _ = io.WriteString(h, "\x00")
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 func (r Runner) WorktreeDiff(ctx context.Context, p config.ProjectConfig, staged bool) (string, error) {
 	args := []string{"diff", "--no-ext-diff", "--no-textconv"}

@@ -9,6 +9,17 @@ import (
 )
 
 func verify(ctx context.Context, s *service.Service, args []string) {
+	if len(args) > 0 && args[0] == "status" {
+		if len(args) != 2 {
+			fatalf("verify status requires an operation ID")
+		}
+		receipt, err := s.VerifyStatus(ctx, args[1])
+		output(receipt)
+		if err != nil || receipt.Status == "failed" {
+			os.Exit(1)
+		}
+		return
+	}
 	in := service.VerifyInput{Root: mustWorkingDirectory(), Scope: "full"}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
