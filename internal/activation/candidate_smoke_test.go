@@ -13,12 +13,9 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
-	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
 func TestSmokeCandidateReachesHTTPReadyWithinExistingDeadline(t *testing.T) {
-	_, hubFixture, _ := testutil.RepoWithBareRemote(t)
-	hubBefore := testutil.Git(t, hubFixture, "rev-parse", "refs/heads/main")
 	_, sourceFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
@@ -60,7 +57,7 @@ func TestSmokeCandidateReachesHTTPReadyWithinExistingDeadline(t *testing.T) {
 		RunTimeoutSeconds:      60,
 		AirelayCommand:         "/bin/true",
 		Hub: config.HubConfig{
-			RepositoryURL: hubFixture,
+			RepositoryURL: "http://127.0.0.1:1/forbidden-production-hub.git",
 			Branch:        "main",
 			AuthorName:    "Gateway Test",
 			AuthorEmail:   "gateway-test@example.invalid",
@@ -77,8 +74,5 @@ func TestSmokeCandidateReachesHTTPReadyWithinExistingDeadline(t *testing.T) {
 	}
 	if _, err := fixtureDB.Shared.Exec(context.Background(), `INSERT INTO shared_tasks(id,revision,payload,updated_at) VALUES(?,?,?,?)`, "candidate-smoke-fixture", 1, []byte("ok"), time.Now().UTC()); err != nil {
 		t.Fatalf("isolated fixture store unusable after candidate smoke: %v", err)
-	}
-	if hubAfter := testutil.Git(t, hubFixture, "rev-parse", "refs/heads/main"); hubAfter != hubBefore {
-		t.Fatalf("source Hub fixture changed during candidate smoke: before=%s after=%s", hubBefore, hubAfter)
 	}
 }

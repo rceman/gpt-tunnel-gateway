@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -38,17 +39,11 @@ func SmokeCandidate(ctx context.Context, c config.Config, gatewayPath, expectedV
 	}
 	defer os.RemoveAll(candidateStateDir)
 	candidate.StateDir = candidateStateDir
-	candidateHubDir, err := os.MkdirTemp("", "gpt-tunnel-candidate-hub-")
+	candidateHubPath, cleanupHub, err := createOfflineCandidateHub(probeCtx, c.Hub)
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(candidateHubDir)
-	candidateHubPath := filepath.Join(candidateHubDir, "repository.git")
-	clone := exec.CommandContext(probeCtx, "git", "clone", "--mirror", "--", c.Hub.RepositoryURL, candidateHubPath)
-	cloneOutput, err := clone.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("candidate Hub fixture: %w (%s)", err, BoundedOutput(cloneOutput))
-	}
+	defer cleanupHub()
 	candidate.Hub.RepositoryURL = candidateHubPath
 	configFile, err := os.CreateTemp("", "gpt-tunnel-candidate-config-*.json")
 	if err != nil {
@@ -102,6 +97,73 @@ func SmokeCandidate(ctx context.Context, c config.Config, gatewayPath, expectedV
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
+}
+
+func createOfflineCandidateHub(ctx context.Context, hub config.HubConfig) (string, func(), error) {
+	root, err := os.MkdirTemp("", "gpt-tunnel-candidate-hub-")
+	if err != nil {
+		return "", func() {}, err
+	}
+	cleanup := func() { _ = os.RemoveAll(root) }
+	bare := filepath.Join(root, "repository.git")
+	seed := filepath.Join(root, "seed")
+	if err := os.MkdirAll(seed, 0o700); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := runCandidateGit(ctx, seed, "init"); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := os.MkdirAll(bare, 0o700); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := runCandidateGit(ctx, bare, "init", "--bare"); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := os.WriteFile(filepath.Join(seed, "README.md"), []byte("offline candidate Hub fixture\n"), 0o600); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := runCandidateGit(ctx, seed, "add", "README.md"); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := runCandidateGit(ctx, seed, "-c", "user.name="+hub.AuthorName, "-c", "user.email="+hub.AuthorEmail, "commit", "-m", "candidate Hub fixture"); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := runCandidateGit(ctx, seed, "remote", "add", "origin", bare); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	branch := strings.TrimSpace(hub.Branch)
+	if branch == "" {
+		cleanup()
+		return "", func() {}, fmt.Errorf("candidate Hub branch is empty")
+	}
+	if err := runCandidateGit(ctx, seed, "push", "origin", "HEAD:refs/heads/"+branch); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := runCandidateGit(ctx, bare, "symbolic-ref", "HEAD", "refs/heads/"+branch); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	return bare, cleanup, nil
+}
+
+func runCandidateGit(ctx context.Context, dir string, args ...string) error {
+	command := exec.CommandContext(ctx, "git", args...)
+	command.Dir = dir
+	command.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("candidate Hub fixture git %s: %w (%s)", strings.Join(args, " "), err, BoundedOutput(output))
+	}
+	return nil
 }
 
 type boundedBuffer struct {
