@@ -52,14 +52,21 @@ type Service struct {
 }
 
 func New(c config.Config) *Service {
-	return newService(c, nil)
+	return newService(c, nil, true)
 }
 
 func NewWithDurability(c config.Config, durability *sqlitestore.Databases) *Service {
-	return newService(c, durability)
+	return newService(c, durability, true)
 }
 
-func newService(c config.Config, durability *sqlitestore.Databases) *Service {
+// NewWithDurabilityDeferredWorkers constructs the Gateway service without
+// replaying durable operations. Startup must run Hub.Ensure and StateCheck
+// before recovery workers can acquire the Hub repository lock.
+func NewWithDurabilityDeferredWorkers(c config.Config, durability *sqlitestore.Databases) *Service {
+	return newService(c, durability, false)
+}
+
+func newService(c config.Config, durability *sqlitestore.Databases, startWorkers bool) *Service {
 	executor := gates.NewExecutor()
 	s := &Service{
 		Config:                c,
@@ -104,9 +111,17 @@ func newService(c config.Config, durability *sqlitestore.Databases) *Service {
 			}, nil
 		},
 	}
+	if startWorkers {
+		s.StartBackgroundWorkers()
+	}
+	return s
+}
+
+// StartBackgroundWorkers replays and serves durable operations after startup
+// has established a valid Hub snapshot.
+func (s *Service) StartBackgroundWorkers() {
 	s.startTaskCreateWorker()
 	s.startDurableMutationWorker()
-	return s
 }
 
 type TaskActivationResult struct {

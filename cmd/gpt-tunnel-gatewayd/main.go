@@ -46,7 +46,7 @@ func main() {
 		fatal(err)
 	}
 	defer durability.Close()
-	svc := service.NewWithDurability(c, durability)
+	svc := service.NewWithDurabilityDeferredWorkers(c, durability)
 	startupPhase("HUB_ENSURE")
 	hubCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	if err := svc.Hub.EnsureWithObserver(hubCtx, startupPhase); err != nil {
@@ -66,6 +66,7 @@ func main() {
 		fatal(fmt.Errorf("durable state validation failed: %s", summarizeStateIssues(state.Issues)))
 	}
 	cancel()
+	svc.StartBackgroundWorkers()
 	// Keep the legacy typed-tool authority exact. session.start performs a
 	// checked, narrow bootstrap elevation for either durable role; all other
 	// handlers retain the daemon's established delivery root.
