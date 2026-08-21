@@ -120,6 +120,8 @@ func compactActionResult(action string, value map[string]any, detail bool) map[s
 	switch action {
 	case "task/list":
 		return compactTaskListResult(value)
+	case "task/revision_list":
+		return compactTaskRevisionListResult(value)
 	case "task/read":
 		return compactTaskReadResult(value)
 	case "train/list":

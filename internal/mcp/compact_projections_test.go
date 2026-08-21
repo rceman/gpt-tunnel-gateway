@@ -108,6 +108,40 @@ func TestCompactTaskAndTrainResultsDropLargePayloads(t *testing.T) {
 	}
 }
 
+func TestCompactTaskRevisionListDropsRevisionPayloads(t *testing.T) {
+	compact := compactActionResult("task/revision_list", map[string]any{
+		"revisions": []any{map[string]any{
+			"id": "GTW-TSK1", "revision": float64(2), "sha256": "sha",
+			"status": "ready", "title": "Task", "objective": "large detail",
+		}},
+		"next_cursor": "cursor", "has_more": false,
+	}, false)
+	revision := compact["revisions"].([]any)[0].(map[string]any)
+	if _, ok := revision["objective"]; ok {
+		t.Fatalf("compact revision retained objective: %#v", revision)
+	}
+	if revision["id"] != "GTW-TSK1" || revision["revision"] != float64(2) {
+		t.Fatalf("compact revision lost identity: %#v", revision)
+	}
+}
+
+func TestCompactTrainMutationDropsItemPayload(t *testing.T) {
+	compact := compactActionResult("train/create", map[string]any{
+		"operation_id": "OP-1", "status": "completed",
+		"train": map[string]any{
+			"id": "GTW-TRN1", "project_id": "example", "revision": float64(2),
+			"status": "planned", "items": []any{map[string]any{"task_id": "GTW-TSK1", "attempts": []any{"large"}}},
+		},
+	}, false)
+	train := compact["train"].(map[string]any)
+	if _, ok := train["items"]; ok {
+		t.Fatalf("compact train retained items: %#v", train)
+	}
+	if train["id"] != "GTW-TRN1" || train["item_count"] != 1 {
+		t.Fatalf("compact train lost identity/count: %#v", train)
+	}
+}
+
 func TestCompactMutationPreservesStrictTaskReceiptSchema(t *testing.T) {
 	receipt := map[string]any{
 		"operation_id": "OP-1", "status": "completed", "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:01Z",
