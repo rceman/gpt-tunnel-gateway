@@ -643,7 +643,7 @@ func (d *Databases) SharedSyncHealth(ctx context.Context) (SharedSyncHealth, err
 	if d == nil || d.Shared == nil {
 		return SharedSyncHealth{}, fmt.Errorf("shared store is unavailable")
 	}
-	rows, err := d.Shared.Query(ctx, `SELECT COUNT(*),SUM(CASE WHEN attempts>0 THEN 1 ELSE 0 END),COALESCE((SELECT last_error FROM hub_outbox WHERE published_at IS NULL AND last_error<>'' ORDER BY created_at DESC LIMIT 1),'') FROM hub_outbox WHERE published_at IS NULL`)
+	rows, err := d.Shared.Query(ctx, `SELECT COUNT(*),COALESCE(SUM(CASE WHEN attempts>0 THEN 1 ELSE 0 END),0),COALESCE((SELECT last_error FROM hub_outbox WHERE published_at IS NULL AND last_error<>'' ORDER BY created_at DESC LIMIT 1),'') FROM hub_outbox WHERE published_at IS NULL`)
 	if err != nil {
 		return SharedSyncHealth{}, err
 	}

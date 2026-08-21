@@ -218,3 +218,19 @@ func TestSharedOutboxRetryBackoffAndHealthSurviveRestart(t *testing.T) {
 		t.Fatalf("retry convergence entries=%#v err=%v", entries, err)
 	}
 }
+
+func TestSharedSyncHealthEmptyOutboxIsHealthy(t *testing.T) {
+	db, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	health, err := db.SharedSyncHealth(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.State != "healthy" || health.Pending != 0 || health.Retrying != 0 || health.LastError != "" {
+		t.Fatalf("empty outbox health=%#v", health)
+	}
+}
