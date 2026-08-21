@@ -60,12 +60,55 @@ func (s *Service) WorkCheckpoint(ctx context.Context, in WorkProgressInput) (Wor
 	if in.ProjectID == "" {
 		return WorkProgressReceipt{}, fmt.Errorf("work checkpoint project is required")
 	}
-	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), workCheckpointLockName(in))
+	lock, receipt, err := s.acquireWorkCheckpointLock(ctx, in)
 	if err != nil {
 		return WorkProgressReceipt{}, err
 	}
+	if receipt != nil {
+		return *receipt, nil
+	}
 	defer lock.Release()
 	return s.workCheckpointLocked(ctx, in)
+}
+
+const workCheckpointBusyWait = 2 * time.Second
+
+// acquireWorkCheckpointLock makes project+root checkpoint execution
+// single-flight. A busy lock is expected when another caller is already
+// running the same checkpoint; it is not a gate failure. Observe the durable
+// running receipt and return it, or wait briefly for that receipt to appear.
+func (s *Service) acquireWorkCheckpointLock(ctx context.Context, in WorkProgressInput) (*lockfile.Lock, *WorkProgressReceipt, error) {
+	lockDir := filepath.Join(s.Config.StateDir, "locks")
+	statePath := workCheckpointStatePath(s.Config.StateDir, in.Root, in.ProjectID)
+	deadline := time.NewTimer(workCheckpointBusyWait)
+	defer deadline.Stop()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		lock, err := lockfile.Acquire(lockDir, workCheckpointLockName(in))
+		if err == nil {
+			return lock, nil, nil
+		}
+		if !lockfile.IsBusy(err) {
+			return nil, nil, err
+		}
+		state, stateErr := readWorkProgressState(statePath)
+		if stateErr != nil && !os.IsNotExist(stateErr) {
+			return nil, nil, stateErr
+		}
+		if stateErr == nil && state.LastReceipt.Status == "running" && state.LastReceipt.OperationID != "" {
+			receipt := state.LastReceipt
+			receipt.Reused = true
+			return nil, &receipt, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		case <-deadline.C:
+			return nil, &WorkProgressReceipt{Status: "running", ProjectID: in.ProjectID, Reused: true, UpdatedAt: time.Now().UTC()}, nil
+		case <-ticker.C:
+		}
+	}
 }
 
 func workCheckpointLockName(in WorkProgressInput) string {

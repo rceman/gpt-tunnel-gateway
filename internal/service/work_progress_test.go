@@ -5,7 +5,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
@@ -103,6 +105,60 @@ func TestWorkCheckpointRequiresExplicitProjectAdapter(t *testing.T) {
 	}
 	if _, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{Root: root, ProjectID: "example"}); err == nil {
 		t.Fatal("checkpoint used an implicit adapter")
+	}
+}
+
+func TestWorkCheckpointBusyProjectRootIsSingleFlight(t *testing.T) {
+	s, revision, _ := testServiceWithoutIdentifiers(t)
+	configureGoCheckpoint(t, s, revision)
+	root := s.Config.Projects["example"].Root
+	path := filepath.Join(root, "docs", "single-flight.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("before\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	s.workCheckpointExecutor = func(_ context.Context, _ string, _ string, _ []string, names []string) ([]model.CompletionGateResult, error) {
+		if calls.Add(1) == 1 {
+			close(entered)
+			<-release
+		}
+		return fakeReceiptResults(names), nil
+	}
+	firstResult := make(chan WorkProgressReceipt, 1)
+	firstError := make(chan error, 1)
+	go func() {
+		receipt, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{Root: root, ProjectID: "example"})
+		firstResult <- receipt
+		firstError <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("first checkpoint did not enter its adapter")
+	}
+	second, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{Root: root, ProjectID: "example"})
+	if err != nil || second.Status != "running" || !second.Reused {
+		t.Fatalf("busy checkpoint=%#v err=%v", second, err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("busy checkpoint started %d gate executions", got)
+	}
+	close(release)
+	select {
+	case first := <-firstResult:
+		if first.Status != "completed" || !first.BaselineAdvanced {
+			t.Fatalf("first checkpoint=%#v", first)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("first checkpoint did not finish")
+	}
+	if err := <-firstError; err != nil {
+		t.Fatal(err)
 	}
 }
 
