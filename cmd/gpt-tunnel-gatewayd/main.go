@@ -117,6 +117,12 @@ func postReadyHubSyncContext(svc *service.Service, ctx context.Context, observe 
 		phase("HUB_SYNC_DEGRADED")
 		return err
 	}
+	phase("POST_READY_SHARED_BOOTSTRAP")
+	if err := svc.BootstrapSharedFromHub(ctx); err != nil {
+		startupErrorForPhase("POST_READY_SHARED_BOOTSTRAP", err)
+		phase("HUB_SYNC_DEGRADED")
+		return err
+	}
 	phase("POST_READY_STATE_CHECK")
 	state, err := svc.StateCheck(ctx)
 	if err != nil {

@@ -256,6 +256,17 @@ func (d *Databases) ReadSharedTaskSequence(ctx context.Context, projectID string
 	return code, next, true, nil
 }
 
+func (d *Databases) PutSharedTaskSequence(ctx context.Context, projectID, projectCode string, next int64) error {
+	if d == nil || d.Shared == nil {
+		return fmt.Errorf("shared store is unavailable")
+	}
+	if projectID == "" || len(projectCode) != 3 || strings.ToUpper(projectCode) != projectCode || next < 1 {
+		return fmt.Errorf("invalid shared task sequence")
+	}
+	_, err := d.Shared.Exec(ctx, `INSERT INTO shared_task_sequences(project_id,project_code,next_task_number) VALUES(?,?,?) ON CONFLICT(project_id) DO UPDATE SET project_code=excluded.project_code,next_task_number=CASE WHEN excluded.next_task_number > shared_task_sequences.next_task_number THEN excluded.next_task_number ELSE shared_task_sequences.next_task_number END`, projectID, projectCode, next)
+	return err
+}
+
 func (d *Databases) ReadSharedTask(ctx context.Context, taskID string) (SharedTask, error) {
 	if d == nil || d.Shared == nil {
 		return SharedTask{}, fmt.Errorf("shared store is unavailable")
@@ -312,15 +323,25 @@ func SharedIntegrationReceiptID(projectID, trainID string) string {
 	return projectID + "\x00" + trainID
 }
 
-func (d *Databases) PutSharedIntegrationReceipt(ctx context.Context, receipt SharedIntegrationReceipt) error {
+func (d *Databases) PutSharedProjection(ctx context.Context, entityType string, entity SharedEntity) error {
+	table, ok := sharedProjectionTables[entityType]
+	if !ok {
+		return fmt.Errorf("unsupported shared projection type %q", entityType)
+	}
 	if d == nil || d.Shared == nil {
 		return fmt.Errorf("shared store is unavailable")
 	}
-	if receipt.ID == "" || receipt.Revision < 1 || len(receipt.Payload) == 0 || receipt.UpdatedAt == "" {
-		return fmt.Errorf("invalid shared integration receipt")
+	if entity.ID == "" || entity.Revision < 1 || len(entity.Payload) == 0 || entity.UpdatedAt == "" {
+		return fmt.Errorf("invalid shared projection")
 	}
-	_, err := d.Shared.Exec(ctx, `INSERT INTO shared_integration_receipts(id,revision,payload,updated_at) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload,updated_at=excluded.updated_at WHERE excluded.revision >= shared_integration_receipts.revision`, receipt.ID, receipt.Revision, receipt.Payload, receipt.UpdatedAt)
+	_, err := d.Shared.Exec(ctx, fmt.Sprintf(`INSERT INTO %s(id,revision,payload,updated_at) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload,updated_at=excluded.updated_at WHERE excluded.revision >= %s.revision`, table, table), entity.ID, entity.Revision, entity.Payload, entity.UpdatedAt)
 	return err
+}
+
+func (d *Databases) PutSharedIntegrationReceipt(ctx context.Context, receipt SharedIntegrationReceipt) error {
+	return d.PutSharedProjection(ctx, "integration_receipt", SharedEntity{
+		ID: receipt.ID, Revision: receipt.Revision, Payload: receipt.Payload, UpdatedAt: receipt.UpdatedAt,
+	})
 }
 
 func (d *Databases) ListSharedEntities(ctx context.Context, entityType string, limit int) ([]SharedEntity, error) {
