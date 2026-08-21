@@ -249,27 +249,23 @@ func (s *Service) processTaskCreate(operationID string) {
 
 	workerCtx, cancel := s.asyncMutationContext("task/create", operation.OperationID)
 	defer cancel()
-	if existing, findErr := s.findTaskCreateResult(workerCtx, operation); findErr == nil {
-		s.finishTaskCreate(operation, existing, OperationResult{
-			OperationID: operationID,
-			ProjectID:   existing.ProjectID,
-			TaskID:      existing.ID,
-			Status:      existing.Status,
-		}, "")
-		return
+	var task model.TaskAuthoring
+	var result OperationResult
+	if s.Durability != nil {
+		task, result, err = s.taskAuthoringCreateShared(workerCtx, operation.OperationID, operation.Input)
+	} else if existing, findErr := s.findTaskCreateResult(workerCtx, operation); findErr == nil {
+		task = *existing
+		result = OperationResult{OperationID: operationID, ProjectID: existing.ProjectID, TaskID: existing.ID, Status: existing.Status}
 	} else if !errors.Is(findErr, os.ErrNotExist) {
 		if asyncMutationOutcomeUnknown(findErr) {
 			s.finishTaskCreateUnknown(operation, findErr)
 			return
 		}
-		s.finishTaskCreate(operation, nil, OperationResult{
-			OperationID: operationID,
-			ProjectID:   operation.Input.ProjectID,
-			Status:      "failed",
-		}, findErr.Error())
+		s.finishTaskCreate(operation, nil, OperationResult{OperationID: operationID, ProjectID: operation.Input.ProjectID, Status: "failed"}, findErr.Error())
 		return
+	} else {
+		task, result, err = s.TaskAuthoringCreate(workerCtx, operation.Input)
 	}
-	task, result, err := s.TaskAuthoringCreate(workerCtx, operation.Input)
 	if err != nil {
 		if asyncMutationOutcomeUnknown(err) {
 			s.finishTaskCreateUnknown(operation, err)

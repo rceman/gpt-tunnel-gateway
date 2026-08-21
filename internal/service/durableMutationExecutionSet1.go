@@ -15,6 +15,13 @@ func (s *Service) durableMutationExecutionSet1(ctx context.Context, operation du
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return nil, err
 		}
+		if s.Durability != nil {
+			task, result, err := s.taskAuthoringUpdateShared(ctx, operation.OperationID, input)
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(map[string]any{"task": task, "operation": result})
+		}
 		// The operation marker makes a retry after a process crash safe: if the
 		// Hub write committed before the receipt did, the durable Task itself
 		// proves that this exact operation already applied.
@@ -39,6 +46,13 @@ func (s *Service) durableMutationExecutionSet1(ctx context.Context, operation du
 		var input TaskAuthoringReadyInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return nil, err
+		}
+		if s.Durability != nil {
+			task, result, err := s.taskAuthoringReadyShared(ctx, operation.OperationID, input)
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(map[string]any{"task": task, "operation": result})
 		}
 		if current, err := s.TaskAuthoringRead(ctx, input.ProjectID, input.TaskID); err == nil && current.Status == model.TaskAuthoringReady && current.ReadySeal != nil && current.ReadySeal.Revision == input.ExpectedRevision && current.ReadySeal.RevisionSHA256 == input.ExpectedRevisionSHA256 && current.ReadySeal.ReadyBy == input.ReadyBy {
 			return json.Marshal(map[string]any{
