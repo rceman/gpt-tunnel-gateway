@@ -39,51 +39,99 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	startupPhase("SQLITE_OPEN")
-	durability, err := sqlitestore.OpenWithObserver(c.StateDir, startupPhase)
+	runtime, err := bootstrapGateway(c, startupPhase)
 	if err != nil {
-		startupError(err)
+		startupErrorForPhase("LOCAL_BOOTSTRAP", err)
 		fatal(err)
 	}
-	defer durability.Close()
-	svc := service.NewWithDurabilityDeferredWorkers(c, durability)
-	startupPhase("HUB_ENSURE")
-	hubCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	if err := svc.Hub.EnsureWithObserver(hubCtx, startupPhase); err != nil {
-		cancel()
-		startupErrorForPhase("HUB_ENSURE", err)
-		fatal(err)
-	}
-	startupPhase("STATE_CHECK")
-	state, err := svc.StateCheck(hubCtx)
-	if err != nil {
-		cancel()
-		startupErrorForPhase("STATE_CHECK", err)
-		fatal(err)
-	}
-	if !state.Valid {
-		cancel()
-		fatal(fmt.Errorf("durable state validation failed: %s", summarizeStateIssues(state.Issues)))
-	}
-	cancel()
+	defer runtime.durability.Close()
+	svc := runtime.service
+	// HTTP_READY is the local bootstrap boundary. Recovery workers may start
+	// only after it; Hub synchronization remains an independent post-ready
+	// activity and must not gate listener readiness.
 	svc.StartBackgroundWorkers()
+	startupPhase("POST_READY_RECOVERY_WORKERS")
+	go postReadyHubSync(svc)
+	go svc.RunWatcherSupervisors(context.Background())
+	if err := <-runtime.serveErr; err != nil && err != http.ErrServerClosed {
+		fatal(err)
+	}
+}
+
+type gatewayRuntime struct {
+	service    *service.Service
+	durability *sqlitestore.Databases
+	server     *http.Server
+	listener   net.Listener
+	serveErr   chan error
+}
+
+func bootstrapGateway(c config.Config, observe func(string)) (*gatewayRuntime, error) {
+	startup := func(phase string) {
+		if observe != nil {
+			observe(phase)
+		}
+	}
+	startup("SQLITE_OPEN")
+	durability, err := sqlitestore.OpenWithObserver(c.StateDir, startup)
+	if err != nil {
+		return nil, err
+	}
+	svc := service.NewWithDurabilityDeferredWorkers(c, durability)
+	startup("LOCAL_STATE_READY")
 	// Keep the legacy typed-tool authority exact. session.start performs a
 	// checked, narrow bootstrap elevation for either durable role; all other
 	// handlers retain the daemon's established delivery root.
 	trustedMCPContext := authority.WithDelivery(context.Background())
-	go svc.RunWatcherSupervisors(context.Background())
 	srv := newGatewayHTTPServer(c.ListenAddr, (&mcp.Server{Service: svc, AuthorityContext: trustedMCPContext}).Router())
-	startupPhase("HTTP_LISTEN")
 	listener, err := net.Listen("tcp", c.ListenAddr)
 	if err != nil {
-		startupPhase("HTTP_LISTEN_FAILED")
-		fatal(err)
+		_ = durability.Close()
+		startup("HTTP_LISTEN_FAILED")
+		return nil, err
 	}
+	startup("HTTP_LISTEN")
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- srv.Serve(listener) }()
 	fmt.Fprintf(os.Stderr, "gpt-tunnel-gatewayd %s listening on %s\n", version, c.ListenAddr)
-	startupPhase("HTTP_READY")
-	if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
-		fatal(err)
+	startup("HTTP_READY")
+	runtime := &gatewayRuntime{service: svc, durability: durability, server: srv, listener: listener, serveErr: serveErr}
+	return runtime, nil
+}
+
+func postReadyHubSync(svc *service.Service) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_ = postReadyHubSyncContext(svc, ctx, startupPhase)
+}
+
+func postReadyHubSyncContext(svc *service.Service, ctx context.Context, observe func(string)) error {
+	phase := func(name string) {
+		if observe != nil {
+			observe(name)
+		}
 	}
+	phase("POST_READY_HUB_ENSURE")
+	if err := svc.Hub.EnsureWithObserver(ctx, phase); err != nil {
+		startupErrorForPhase("POST_READY_HUB_ENSURE", err)
+		phase("HUB_SYNC_DEGRADED")
+		return err
+	}
+	phase("POST_READY_STATE_CHECK")
+	state, err := svc.StateCheck(ctx)
+	if err != nil {
+		startupErrorForPhase("POST_READY_STATE_CHECK", err)
+		phase("HUB_SYNC_DEGRADED")
+		return err
+	}
+	if !state.Valid {
+		err = fmt.Errorf("durable state validation failed: %s", summarizeStateIssues(state.Issues))
+		startupErrorForPhase("POST_READY_STATE_CHECK", err)
+		phase("HUB_SYNC_DEGRADED")
+		return err
+	}
+	phase("HUB_SYNC_READY")
+	return nil
 }
 
 func newGatewayHTTPServer(addr string, handler http.Handler) *http.Server {

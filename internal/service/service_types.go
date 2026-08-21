@@ -60,8 +60,8 @@ func NewWithDurability(c config.Config, durability *sqlitestore.Databases) *Serv
 }
 
 // NewWithDurabilityDeferredWorkers constructs the Gateway service without
-// replaying durable operations. Startup must run Hub.Ensure and StateCheck
-// before recovery workers can acquire the Hub repository lock.
+// replaying durable operations. The daemon starts those workers only after
+// local HTTP readiness, so recovery cannot self-contend with local bootstrap.
 func NewWithDurabilityDeferredWorkers(c config.Config, durability *sqlitestore.Databases) *Service {
 	return newService(c, durability, false)
 }
@@ -117,8 +117,8 @@ func newService(c config.Config, durability *sqlitestore.Databases, startWorkers
 	return s
 }
 
-// StartBackgroundWorkers replays and serves durable operations after startup
-// has established a valid Hub snapshot.
+// StartBackgroundWorkers replays and serves durable operations after local
+// startup has reached HTTP readiness.
 func (s *Service) StartBackgroundWorkers() {
 	s.startTaskCreateWorker()
 	s.startDurableMutationWorker()
