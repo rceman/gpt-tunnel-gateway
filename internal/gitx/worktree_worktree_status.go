@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -38,6 +39,39 @@ func (r Runner) WorktreeStatus(ctx context.Context, p config.ProjectConfig) (Wor
 		}
 	}
 	return s, nil
+}
+
+// ChangedWorkingFiles returns the bounded tracked/untracked paths in the
+// working tree. It is a typed status operation used by verification scope
+// resolution; callers never construct Git commands.
+func (r Runner) ChangedWorkingFiles(ctx context.Context, root string) ([]string, error) {
+	out, err := r.command(ctx, root, false, "status", "--porcelain=v1", "--untracked-files=all")
+	if err != nil {
+		return nil, err
+	}
+	text, err := bounded(out, r.MaxReadBytes)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0)
+	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
+		if line == "" {
+			continue
+		}
+		path := strings.TrimSpace(line)
+		if len(path) > 3 {
+			path = strings.TrimSpace(path[3:])
+		}
+		if arrow := strings.LastIndex(path, " -> "); arrow >= 0 {
+			path = strings.TrimSpace(path[arrow+4:])
+		}
+		if err := model.ValidateRelativePath(path); err != nil {
+			return nil, err
+		}
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths, nil
 }
 func (r Runner) WorktreeDiff(ctx context.Context, p config.ProjectConfig, staged bool) (string, error) {
 	args := []string{"diff", "--no-ext-diff", "--no-textconv"}
