@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -37,6 +38,18 @@ func SmokeCandidate(ctx context.Context, c config.Config, gatewayPath, expectedV
 	}
 	defer os.RemoveAll(candidateStateDir)
 	candidate.StateDir = candidateStateDir
+	candidateHubDir, err := os.MkdirTemp("", "gpt-tunnel-candidate-hub-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(candidateHubDir)
+	candidateHubPath := filepath.Join(candidateHubDir, "repository.git")
+	clone := exec.CommandContext(probeCtx, "git", "clone", "--mirror", "--", c.Hub.RepositoryURL, candidateHubPath)
+	cloneOutput, err := clone.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("candidate Hub fixture: %w (%s)", err, BoundedOutput(cloneOutput))
+	}
+	candidate.Hub.RepositoryURL = candidateHubPath
 	configFile, err := os.CreateTemp("", "gpt-tunnel-candidate-config-*.json")
 	if err != nil {
 		return err

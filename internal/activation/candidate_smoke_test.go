@@ -18,6 +18,7 @@ import (
 
 func TestSmokeCandidateReachesHTTPReadyWithinExistingDeadline(t *testing.T) {
 	_, hubFixture, _ := testutil.RepoWithBareRemote(t)
+	hubBefore := testutil.Git(t, hubFixture, "rev-parse", "refs/heads/main")
 	_, sourceFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
@@ -76,5 +77,8 @@ func TestSmokeCandidateReachesHTTPReadyWithinExistingDeadline(t *testing.T) {
 	}
 	if _, err := fixtureDB.Shared.Exec(context.Background(), `INSERT INTO shared_tasks(id,revision,payload,updated_at) VALUES(?,?,?,?)`, "candidate-smoke-fixture", 1, []byte("ok"), time.Now().UTC()); err != nil {
 		t.Fatalf("isolated fixture store unusable after candidate smoke: %v", err)
+	}
+	if hubAfter := testutil.Git(t, hubFixture, "rev-parse", "refs/heads/main"); hubAfter != hubBefore {
+		t.Fatalf("source Hub fixture changed during candidate smoke: before=%s after=%s", hubBefore, hubAfter)
 	}
 }
