@@ -141,13 +141,6 @@ func projectIdentifiersOutputSchema() map[string]any {
 	}, "schema_version", "project_id", "project_code", "next_task_number", "next_adr_number")
 }
 
-func agentSendOutputSchema() map[string]any {
-	return closedOutput(map[string]any{
-		"project_id": outputString(), "delivered": outputBoolean(), "exit_code": outputInteger(),
-		"stdout": outputString(), "stderr": outputString(), "started_at": outputDateTime(), "finished_at": outputDateTime(), "error": outputString(),
-	}, "project_id", "delivered", "exit_code", "stdout", "stderr", "started_at", "finished_at")
-}
-
 func agentTailOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"lines": outputArray(outputString()), "count": outputInteger(), "has_new_info": outputBoolean(), "overflow": outputBoolean(), "history_truncated": outputBoolean(),

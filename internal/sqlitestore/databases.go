@@ -327,6 +327,38 @@ var localMigrations = []migrate.Migration{{
 		{SQL: `CREATE TABLE IF NOT EXISTS local_logs (id TEXT PRIMARY KEY, level TEXT NOT NULL, component TEXT NOT NULL, event TEXT NOT NULL, payload BLOB NOT NULL, recorded_at TEXT NOT NULL)`},
 		{SQL: `CREATE TABLE IF NOT EXISTS local_retention (name TEXT PRIMARY KEY, cutoff_at TEXT NOT NULL)`},
 	},
+}, {
+	Version: 2, Name: "gpt_tunnel_local_pmt_v1",
+	Statements: []store.Statement{
+		{SQL: `CREATE TABLE IF NOT EXISTS local_pmt_sequences (project_id TEXT PRIMARY KEY, project_code TEXT NOT NULL, next_number INTEGER NOT NULL)`},
+		{SQL: `CREATE TABLE IF NOT EXISTS local_pmts (
+			id TEXT PRIMARY KEY,
+			project_id TEXT NOT NULL,
+			project_code TEXT NOT NULL,
+			title TEXT NOT NULL,
+			instruction BLOB NOT NULL,
+			planner_session_id TEXT NOT NULL,
+			target_session_id TEXT NOT NULL DEFAULT '',
+			target_airelay_session_key TEXT NOT NULL,
+			target_agent_id TEXT NOT NULL,
+			train_id TEXT NOT NULL DEFAULT '',
+			item_position INTEGER NOT NULL DEFAULT 0,
+			task_id TEXT NOT NULL DEFAULT '',
+			attempt_number INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL,
+			state TEXT NOT NULL,
+			first_fetched_at TEXT,
+			delivered_at TEXT,
+			last_fetched_at TEXT,
+			cancelled_at TEXT,
+			superseded_by TEXT NOT NULL DEFAULT '',
+			reference TEXT NOT NULL,
+			reference_submitted_at TEXT,
+			read_count INTEGER NOT NULL DEFAULT 0,
+			expires_at TEXT
+		)`},
+		{SQL: `CREATE INDEX IF NOT EXISTS local_pmts_pending_idx ON local_pmts(project_id,target_airelay_session_key,state,created_at,id)`},
+	},
 }}
 
 func (d *Databases) SharedPath() string { return d.sharedPath }

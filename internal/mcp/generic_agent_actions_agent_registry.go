@@ -48,6 +48,9 @@ func (s *Server) registerAgentActions() error {
 	if err := s.agent_action_set1(); err != nil {
 		return err
 	}
+	if err := s.agentActionSet5(); err != nil {
+		return err
+	}
 	if err := s.agent_action_set2(); err != nil {
 		return err
 	}

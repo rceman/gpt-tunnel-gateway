@@ -149,8 +149,6 @@ func (s *Service) completeAgentInterruptPrompt(ctx context.Context, in AgentInte
 		result.PromptOutcome = "failed"
 		if promptErr != nil {
 			result.Error = promptErr.Error()
-		} else if prompt.Error != "" {
-			result.Error = prompt.Error
 		}
 	}
 	if !result.PromptDelivered {

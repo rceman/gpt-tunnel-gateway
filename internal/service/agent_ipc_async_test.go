@@ -73,7 +73,7 @@ func TestAgentIPCMutationsReturnBoundedReceipts(t *testing.T) {
 }
 
 func TestAgentPromptWorkerPreservesOriginatingSessionProvenance(t *testing.T) {
-	s, _, _ := testServiceWithoutIdentifiers(t)
+	s, _ := newPMTTestService(t)
 	messagePath := filepath.Join(t.TempDir(), "message")
 	command := filepath.Join(t.TempDir(), "airelay")
 	script := "#!/bin/sh\nif [ \"$1\" = prompt ]; then printf '%s' \"$3\" > \"" + messagePath + "\"; fi\nexit 0\n"

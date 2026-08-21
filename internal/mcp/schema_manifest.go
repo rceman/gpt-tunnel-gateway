@@ -74,7 +74,6 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 		IdempotentHint:  true,
 		OpenWorldHint:   true,
 	}
-	result["agent_send"] = additiveExternalAnnotations()
 	result["operator_record"] = additiveExternalAnnotations()
 	result["operator_checkpoint"] = additiveExternalAnnotations()
 	result["operator_history"] = readOnlyAnnotations()

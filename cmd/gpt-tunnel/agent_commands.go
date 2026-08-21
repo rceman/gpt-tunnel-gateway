@@ -9,17 +9,8 @@ import (
 )
 
 func agent(ctx context.Context, s *service.Service, args []string) {
-	require(args, 2)
+	require(args, 1)
 	switch args[0] {
-	case "send":
-		if len(args) != 4 || args[2] != "--text" {
-			usage()
-		}
-		v, err := s.AgentSend(ctx, args[1], args[3])
-		if err != nil {
-			fatal(err)
-		}
-		output(v)
 	case "tail":
 		lines := 0
 		seenLines := false

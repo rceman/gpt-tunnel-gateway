@@ -14,6 +14,7 @@ func (s *Server) agent_action_set1() error {
 		Description: "Send one bounded non-interrupting prompt to the exact project-bound Agent session.",
 		InputSchema: obj(map[string]any{
 			"project_id": str("Registered project identifier."),
+			"title":      str("Bounded prompt title."),
 			"message":    boundedAgentMessageSchema(),
 		}, "project_id", "message"),
 		Annotations: ToolAnnotations{
@@ -26,12 +27,13 @@ func (s *Server) agent_action_set1() error {
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				ProjectID string `json:"project_id"`
+				Title     string `json:"title"`
 				Message   string `json:"message"`
 			}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			return s.Service.AgentPromptAsync(ctx, service.AgentPromptInput{ProjectID: in.ProjectID, Message: in.Message})
+			return s.Service.AgentPromptAsync(ctx, service.AgentPromptInput{ProjectID: in.ProjectID, Title: in.Title, Message: in.Message})
 		},
 	}); err != nil {
 		return err

@@ -11,6 +11,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 var version = "0.6.11"
@@ -31,10 +32,20 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	s := service.New(c)
 	ctx := context.Background()
 	group := os.Args[1]
 	args := os.Args[2:]
+	var s *service.Service
+	if group == "prompt" {
+		db, openErr := sqlitestore.Open(c.StateDir)
+		if openErr != nil {
+			fatal(openErr)
+		}
+		defer db.Close()
+		s = service.NewWithDurability(c, db)
+	} else {
+		s = service.New(c)
+	}
 	switch group {
 	case "format", "check", "test":
 		gate(ctx, s, group, args)
@@ -52,6 +63,8 @@ func main() {
 		task(ctx, s, args)
 	case "agent":
 		agent(ctx, s, args)
+	case "prompt":
+		prompt(ctx, s, args)
 	case "watcher":
 		watcher(ctx, s, args)
 	case "operator":
@@ -65,7 +78,7 @@ func main() {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {format|check|test|verify|work|project|plan|adr|task|agent|watcher|operator|git|query} [args]")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {format|check|test|verify|work|project|plan|adr|task|agent|prompt|watcher|operator|git|query} [args]")
 	fmt.Fprintln(os.Stderr, "new operational IDs: CODE-TSK<N>, CODE-TSK<N>-RUN<M>, CODE-ADR<N>, CODE-OPR<N>")
 	fmt.Fprintln(os.Stderr, "task create --file requires slug; branch and base_revision are derived by the gateway")
 	fmt.Fprintln(os.Stderr, "pre-cutover IDs remain read-only history and are not accepted by operational mutations")
