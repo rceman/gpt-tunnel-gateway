@@ -50,7 +50,7 @@ func planStatusOutputSchema() map[string]any {
 		"schema_version": outputInteger(), "project_id": outputString(), "revision": outputInteger(),
 		"title": outputString(), "summary": outputString(), "current_objective": outputString(), "queue": outputArray(outputString()), "sections": outputArray(outputString()),
 		"active_task_id": outputString(), "updated_by": outputString(), "updated_at": outputDateTime(),
-	}, "schema_version", "project_id", "revision", "title", "summary", "current_objective", "queue", "sections", "updated_by", "updated_at")
+	}, "schema_version", "project_id", "revision", "title", "summary", "current_objective", "queue", "sections", "updated_by")
 }
 
 func planSectionOutputSchema() map[string]any {

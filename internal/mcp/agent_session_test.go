@@ -12,6 +12,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
@@ -29,6 +30,15 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	}
 	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: script, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
 	s := service.New(c)
+	db, err := sqlitestore.Open(c.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Durability = db
+	t.Cleanup(func() { _ = db.Close() })
+	projectConfig := s.Config.Projects["example"]
+	projectConfig.ProjectCode = "EXM"
+	s.Config.Projects["example"] = projectConfig
 	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"}
 	registered, err := s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: project, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead}})
 	if err != nil {
@@ -65,13 +75,14 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		}
 		statusPayload := statusResult["result"].(map[string]any)
 		if statusPayload["status"] == "completed" || statusPayload["status"] == "failed" {
-			if statusPayload["status"] != "completed" || statusPayload["result"].(map[string]any)["delivered"] != true {
+			if statusPayload["status"] != "completed" || statusPayload["result"].(map[string]any)["delivered"] != false || statusPayload["result"].(map[string]any)["pmt_id"] == "" {
 				t.Fatalf("agent/prompt worker failed: %#v", status)
 			}
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	s.Durability = nil
 
 	firstHeartbeat, err := srv.awaitWithContinuation(
 		service.WithAgentSessionID(context.Background(), sessionID),

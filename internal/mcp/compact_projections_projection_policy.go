@@ -19,7 +19,7 @@ const (
 var projectionClasses = map[string]projectionClass{
 	"adr/create": projectionCompactDefault, "adr/create_status": projectionClosedDefault, "adr/list": projectionClosedDefault, "adr/read": projectionIntentionalPayload,
 	"agent/disable": projectionCompactDefault, "agent/disable_status": projectionClosedDefault, "agent/interrupt": projectionCompactDefault, "agent/interrupt_status": projectionClosedDefault,
-	"agent/list": projectionClosedDefault, "agent/prompt": projectionCompactDefault, "agent/prompt_status": projectionClosedDefault, "agent/read": projectionClosedDefault,
+	"agent/list": projectionClosedDefault, "agent/prompt": projectionCompactDefault, "agent/prompt_cancel": projectionCompactDefault, "agent/prompt_queue": projectionClosedDefault, "agent/prompt_read": projectionIntentionalPayload, "agent/prompt_status": projectionClosedDefault, "agent/prompt_supersede": projectionCompactDefault, "agent/read": projectionClosedDefault,
 	"agent/recover": projectionCompactDefault, "agent/recover_status": projectionClosedDefault, "agent/register": projectionCompactDefault, "agent/register_status": projectionClosedDefault,
 	"agent/status": projectionClosedDefault, "agent/tail": projectionIntentionalPayload, "agent/update": projectionCompactDefault, "agent/update_status": projectionClosedDefault,
 	"gateway/capabilities": projectionClosedDefault, "gateway/status": projectionClosedDefault,

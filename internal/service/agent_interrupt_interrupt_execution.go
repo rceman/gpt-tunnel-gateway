@@ -142,16 +142,17 @@ func (s *Service) completeAgentInterruptPrompt(ctx context.Context, in AgentInte
 		return s.finishAgentInterrupt(receiptPath, requestDigest, result, result.Outcome, result.Error)
 	}
 	prompt, promptErr := s.AgentPrompt(ctx, in.ProjectID, in.Message)
-	result.PromptDelivered = prompt.Delivered && promptErr == nil
-	if result.PromptDelivered {
-		result.PromptOutcome = "delivered"
+	if promptErr == nil && prompt.Queued {
+		result.PromptOutcome = "queued"
+		result.Outcome = "completed"
+		return s.finishAgentInterrupt(receiptPath, requestDigest, result, result.Outcome, "")
 	} else {
 		result.PromptOutcome = "failed"
 		if promptErr != nil {
 			result.Error = promptErr.Error()
 		}
 	}
-	if !result.PromptDelivered {
+	if !prompt.Queued {
 		result.Outcome = "failed"
 	}
 	return s.finishAgentInterrupt(receiptPath, requestDigest, result, result.Outcome, result.Error)
