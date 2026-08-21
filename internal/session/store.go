@@ -48,6 +48,49 @@ type Record struct {
 	GlobalRulesDigest    string     `json:"global_rules_digest,omitempty"`
 	ProjectRulesRevision int        `json:"project_rules_revision,omitempty"`
 	ProjectRulesDigest   string     `json:"project_rules_digest,omitempty"`
+	MCPInputTokens       int        `json:"mcp_input_tokens,omitempty"`
+	MCPOutputTokens      int        `json:"mcp_output_tokens,omitempty"`
+	MCPTokenTotal        int        `json:"mcp_token_total,omitempty"`
+	MCPCallCount         int        `json:"mcp_call_count,omitempty"`
+	MCPLatestRequest     int        `json:"mcp_latest_request_tokens,omitempty"`
+	MCPLatestResponse    int        `json:"mcp_latest_response_tokens,omitempty"`
+	MCPTokenUpdatedAt    *time.Time `json:"mcp_token_updated_at,omitempty"`
+}
+
+// RecordMCPTokenUsage updates only the local session telemetry projection.
+// It is intentionally independent of Hub/workflow authority and is safe to
+// replay because each completed dispatch records one bounded observation.
+func (s Store) RecordMCPTokenUsage(id string, inputTokens, outputTokens int, updatedAt time.Time) (Record, error) {
+	lock, err := s.acquireMutationLock()
+	if err != nil {
+		return Record{}, err
+	}
+	defer lock.Release()
+	record, err := s.Get(id)
+	if err != nil {
+		return Record{}, err
+	}
+	if inputTokens < 0 || outputTokens < 0 {
+		return Record{}, fmt.Errorf("invalid MCP token usage")
+	}
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
+	record.MCPInputTokens += inputTokens
+	record.MCPOutputTokens += outputTokens
+	record.MCPTokenTotal += inputTokens + outputTokens
+	record.MCPCallCount++
+	record.MCPLatestRequest = inputTokens
+	record.MCPLatestResponse = outputTokens
+	record.MCPTokenUpdatedAt = &updatedAt
+	record.UpdatedAt = updatedAt
+	if err := record.Validate(); err != nil {
+		return Record{}, err
+	}
+	if err := fsutil.WriteJSONAtomic(s.path(id), record, 0o600); err != nil {
+		return Record{}, err
+	}
+	return record, nil
 }
 
 type CreateInput struct {
