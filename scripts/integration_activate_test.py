@@ -32,7 +32,7 @@ class IntegrationActivateTests(unittest.TestCase):
         self.assertIn("[redacted]", payload["stderr"])
         self.assertLessEqual(len(payload["stdout"].encode()), integration_activate.DIAGNOSTIC_LIMIT)
 
-    def test_exact_active_runtime_skips_install_and_restart(self):
+    def test_exact_active_runtime_is_independent_of_stale_state_check(self):
         with tempfile.TemporaryDirectory(prefix="integration-activate-test-") as temp:
             root = Path(temp)
             home = root / "home"
@@ -82,7 +82,7 @@ class IntegrationActivateTests(unittest.TestCase):
                 "set -eu\n"
                 "case \"$1${2:+ $2}\" in\n"
                 f"  status) cat {status!s} ;;\n"
-                "  'state check') printf '{\"valid\":true}\\n' ;;\n"
+                "  'state check') printf '{\"valid\":false}\\n' ;;\n"
                 "  doctor) printf 'doctor: ok\\n' ;;\n"
                 f"  install|restart-gateway) printf '%s\\n' \"$1\" >> {log!s}; exit 1 ;;\n"
                 "  *) exit 1 ;;\n"
@@ -98,7 +98,8 @@ class IntegrationActivateTests(unittest.TestCase):
                 with mock.patch.object(integration_activate.Path, "home", return_value=home), mock.patch.dict(
                     os.environ, {"PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]}
                 ):
-                    integration_activate.activate("post")
+                    with self.assertRaisesRegex(RuntimeError, "durable state check failed"):
+                        integration_activate.activate("post")
             finally:
                 os.chdir(old_cwd)
 

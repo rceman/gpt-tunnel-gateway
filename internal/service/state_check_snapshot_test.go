@@ -127,6 +127,9 @@ func TestFailedIntegrationMutationMakesStalePrePendingNonLive(t *testing.T) {
 	if err != nil || classification.Class != trainV2ClassStale || classification.Blocker != "TRAIN_INTEGRATION_RECONCILIATION_REQUIRED" {
 		t.Fatalf("stale integration was not classified as reconciliation history: %#v err=%v", classification, err)
 	}
+	if classification.Recommended != "retry train/integrate with the current source identity" {
+		t.Fatalf("stale integration recommendation=%q", classification.Recommended)
+	}
 }
 
 func TestStateCheckAllowsTwoIndependentActiveTrains(t *testing.T) {

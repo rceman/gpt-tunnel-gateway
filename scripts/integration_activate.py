@@ -84,11 +84,6 @@ def healthy_exact_runtime(ctl: str, root: Path, artifact_hashes: dict[str, str])
         return None
     if installed != artifact_hashes:
         return None
-    state = json.loads(run([ctl, "state", "check"], root))
-    if state.get("valid") is not True:
-        return None
-    if run([ctl, "doctor"], root).strip() != "doctor: ok":
-        return None
     return current
 
 
@@ -135,7 +130,6 @@ def activate(phase: str) -> None:
             if installed != artifact_hashes:
                 raise RuntimeError("installed control binaries are not a coherent artifact set")
 
-            run([ctl, "restart-gateway"], root)
             after = status(ctl, root)
             restarted = True
         if after.get("tunnel", {}).get("pid") != tunnel_pid:

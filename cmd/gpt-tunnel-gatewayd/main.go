@@ -128,19 +128,17 @@ func postReadyHubSyncContext(svc *service.Service, ctx context.Context, observe 
 }
 
 func postReadyHubBootstrapContext(svc *service.Service, ctx context.Context, phase func(string)) error {
-	return retryPostReadyHubBootstrap(ctx, phase, func(attemptCtx context.Context) error {
-		phase("POST_READY_HUB_ENSURE")
-		if err := svc.Hub.EnsureWithObserver(attemptCtx, phase); err != nil {
-			startupErrorForPhase("POST_READY_HUB_ENSURE", err)
-			return err
-		}
-		phase("POST_READY_SHARED_BOOTSTRAP")
-		if err := svc.BootstrapSharedFromHub(attemptCtx); err != nil {
-			startupErrorForPhase("POST_READY_SHARED_BOOTSTRAP", err)
-			return err
-		}
-		return nil
-	})
+	phase("POST_READY_HUB_ENSURE")
+	if err := svc.Hub.EnsureWithObserver(ctx, phase); err != nil {
+		startupErrorForPhase("POST_READY_HUB_ENSURE", err)
+		return err
+	}
+	phase("POST_READY_SHARED_BOOTSTRAP")
+	if err := svc.BootstrapSharedFromHub(ctx); err != nil {
+		startupErrorForPhase("POST_READY_SHARED_BOOTSTRAP", err)
+		return err
+	}
+	return nil
 }
 
 func postReadyHubStateCheckContext(svc *service.Service, ctx context.Context, phase func(string)) error {
@@ -208,36 +206,6 @@ func min(left, right int) int {
 		return left
 	}
 	return right
-}
-
-func retryPostReadyHubBootstrap(ctx context.Context, phase func(string), attempt func(context.Context) error) error {
-	var lastErr error
-	for attemptNumber := 1; ; attemptNumber++ {
-		if err := ctx.Err(); err != nil {
-			if lastErr != nil {
-				return lastErr
-			}
-			return err
-		}
-		if err := attempt(ctx); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-		if attemptNumber > len(postReadyHubRetryDelays) {
-			return lastErr
-		}
-		phase(fmt.Sprintf("POST_READY_HUB_RETRY_WAIT_%d", attemptNumber))
-		timer := time.NewTimer(postReadyHubRetryDelays[attemptNumber-1])
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
-			return lastErr
-		case <-timer.C:
-		}
-	}
 }
 
 func newGatewayHTTPServer(addr string, handler http.Handler) *http.Server {

@@ -231,7 +231,7 @@ func (s *Service) populateProjectOperationalTrain(result *ProjectOperationalStat
 			result.TrainState = train.Status
 			result.State = "blocked"
 			result.Blocker = "TRAIN_RECONCILIATION_UNAVAILABLE"
-			result.RecommendedNextAction = "inspect Train reconciliation blocker"
+			result.RecommendedNextAction = "diagnose Hub/state availability, then retry project/status"
 			return
 		}
 		if stale := staleTrainProjection(classification, train); stale != nil {

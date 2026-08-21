@@ -22,6 +22,22 @@ func TestProjectOperationalStatusFailsClosedOnTrainClassificationError(t *testin
 	if result.State != "blocked" || result.Blocker != "TRAIN_RECONCILIATION_UNAVAILABLE" || result.TrainID != "EXM-TRN1" {
 		t.Fatalf("classification error was not projected as a blocker: %#v", result)
 	}
+	if result.RecommendedNextAction != "diagnose Hub/state availability, then retry project/status" {
+		t.Fatalf("classification error recommendation=%q", result.RecommendedNextAction)
+	}
+}
+
+func TestTrainV2IntegrationPendingRecommendationNamesCanonicalActions(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	train := staleTrainV2ForRetirementTest(time.Now().UTC())
+	train.Status = model.TrainV2ReadyForIntegration
+	classification, err := s.classifyTrainV2LifecycleWithContext(context.Background(), "example", train)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if classification.Class != trainV2ClassIntegration || classification.Recommended != "run train/integrate" {
+		t.Fatalf("integration classification=%#v", classification)
+	}
 }
 func TestTrainV2RetirePreservesImmutableAttemptHistory(t *testing.T) {
 	s, revision, _ := testService(t)

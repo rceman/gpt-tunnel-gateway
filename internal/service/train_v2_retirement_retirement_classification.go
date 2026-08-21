@@ -53,14 +53,14 @@ func (s *Service) classifyTrainV2LifecycleWithContext(ctx context.Context, proje
 				Class:       trainV2ClassStale,
 				Blocker:     "TRAIN_INTEGRATION_RECONCILIATION_REQUIRED",
 				Detail:      "failed durable integration mutation left a pre_pending prefix requiring reconciliation",
-				Recommended: "reconcile the stale integration prefix before retrying integration",
+				Recommended: "retry train/integrate with the current source identity",
 			}, nil
 		}
 		return trainV2LifecycleClassification{
 			Class:       trainV2ClassIntegration,
 			Blocker:     "TRAIN_INTEGRATION_PENDING",
 			Detail:      "Train has completed execution and still requires integration",
-			Recommended: "integrate or explicitly recover the Train",
+			Recommended: "run train/integrate",
 		}, nil
 	}
 	if train.Status == model.TrainV2Planned {
@@ -120,7 +120,7 @@ func (s *Service) classifyTrainV2LifecycleWithContext(ctx context.Context, proje
 			SafeToRetire: true,
 			Blocker:      "TRAIN_STALE",
 			Detail:       "no live Attempt or durable operation remains for this non-terminal Train",
-			Recommended:  "retire the stale Train with server-owned evidence",
+			Recommended:  "run train/retire with server-owned evidence",
 		}, nil
 	}
 	return trainV2LifecycleClassification{
