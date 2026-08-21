@@ -119,6 +119,13 @@ func (s *Service) TaskRevisionList(ctx context.Context, taskID string) ([]model.
 	if err != nil {
 		return nil, err
 	}
+	if s.Durability != nil {
+		current, err := s.sharedCurrentTaskRevision(ctx, taskID)
+		if err != nil {
+			return nil, err
+		}
+		return []model.TaskRevision{current}, nil
+	}
 	return s.taskRevisionListForTask(ctx, task)
 }
 
@@ -134,9 +141,18 @@ func (s *Service) TaskRevisionListPage(ctx context.Context, taskID string, in Co
 	if err != nil {
 		return TaskRevisionListPageResult{}, err
 	}
-	items, err := s.taskRevisionListForTask(ctx, task)
-	if err != nil {
-		return TaskRevisionListPageResult{}, err
+	var items []model.TaskRevision
+	if s.Durability != nil {
+		current, currentErr := s.sharedCurrentTaskRevision(ctx, taskID)
+		if currentErr != nil {
+			return TaskRevisionListPageResult{}, currentErr
+		}
+		items = []model.TaskRevision{current}
+	} else {
+		items, err = s.taskRevisionListForTask(ctx, task)
+		if err != nil {
+			return TaskRevisionListPageResult{}, err
+		}
 	}
 	page, info, err := pagination.Page("task_revision_list:"+taskID, items, limit, in.Cursor, func(item model.TaskRevision) string {
 		return fmt.Sprintf("%09d", item.TaskRevision)
@@ -160,7 +176,34 @@ func (s *Service) TaskRevisionRead(ctx context.Context, revisionID string) (mode
 	if err != nil {
 		return model.TaskRevision{}, err
 	}
+	if s.Durability != nil {
+		current, currentErr := s.sharedCurrentTaskRevision(ctx, taskID)
+		if currentErr != nil {
+			return model.TaskRevision{}, currentErr
+		}
+		if revision != current.TaskRevision {
+			return model.TaskRevision{}, fmt.Errorf("task revision %s is not present in Shared", revisionID)
+		}
+		return current, nil
+	}
 	return s.readTaskRevision(ctx, task.ProjectID, taskID, revision)
+}
+
+func (s *Service) sharedCurrentTaskRevision(ctx context.Context, taskID string) (model.TaskRevision, error) {
+	authoring, err := s.readAnySharedTask(ctx, taskID)
+	if err != nil {
+		return model.TaskRevision{}, err
+	}
+	revision := authoring.Revision
+	if revision < 1 {
+		revision = 1
+	}
+	return model.TaskRevision{
+		SchemaVersion: model.TaskRevisionSchemaVersion, ID: model.FormatTaskRevisionIDUnchecked(authoring.ID, revision),
+		TaskID: authoring.ID, TaskRevision: revision, RevisionSHA256: authoring.RevisionSHA256, ProjectID: authoring.ProjectID,
+		Title: authoring.Title, Objective: authoring.Objective, AcceptanceCriteria: append([]string{}, authoring.AcceptanceCriteria...),
+		Constraints: append([]string{}, authoring.Constraints...), Status: authoring.Status, CreatedBy: authoring.CreatedBy, CreatedAt: authoring.CreatedAt,
+	}, nil
 }
 
 func (s *Service) TaskRevisionStatus(ctx context.Context, revisionID string) (model.TaskRevisionStatus, error) {
