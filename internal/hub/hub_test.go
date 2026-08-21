@@ -124,6 +124,22 @@ func TestReadFileRefreshesStaleRemoteTrackingRef(t *testing.T) {
 	}
 }
 
+func TestReadFileReportsRemoteFetchFailurePhase(t *testing.T) {
+	bare, _, _ := testutil.RepoWithBareRemote(t)
+	c := testConfig(t, bare, "gpt-tunnel/home_pc")
+	store := Store{Config: c}
+	if err := store.Ensure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(bare); err != nil {
+		t.Fatal(err)
+	}
+	_, err := store.ReadFile(context.Background(), ProtocolRoot+"/missing.json")
+	if err == nil || !strings.Contains(err.Error(), "read-only hub refresh unavailable: git fetch:") {
+		t.Fatalf("error=%v, want fetch phase", err)
+	}
+}
+
 func TestReadSnapshotUsesOneRevisionAndEnforcesPerFileAndAggregateBounds(t *testing.T) {
 	bare, _, base := testutil.RepoWithBareRemote(t)
 	c := testConfig(t, bare, "gpt-tunnel/home_pc")

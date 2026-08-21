@@ -93,13 +93,13 @@ func (s Store) FreshReadSnapshot(ctx context.Context) (*ReadSnapshot, error) {
 func (s Store) refreshReadOnlyRoot(ctx context.Context) (string, error) {
 	root := ManagedRoot(s.Config)
 	if err := s.validateManagedRoot(ctx, root); err != nil {
-		return "", errors.New("read-only hub unavailable")
+		return "", fmt.Errorf("read-only hub validation unavailable: %w", err)
 	}
 	if _, err := command(ctx, root, "fetch", "--prune", "--tags", RemoteName); err != nil {
-		return "", errors.New("read-only hub refresh unavailable")
+		return "", fmt.Errorf("read-only hub refresh unavailable: git fetch: %w", err)
 	}
 	if _, err := command(ctx, root, "rev-parse", "--verify", s.remoteRef()+"^{commit}"); err != nil {
-		return "", errors.New("read-only hub branch unavailable")
+		return "", fmt.Errorf("read-only hub branch unavailable: git rev-parse: %w", err)
 	}
 	return root, nil
 }
