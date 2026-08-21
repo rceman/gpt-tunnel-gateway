@@ -36,7 +36,21 @@ func (s *Server) genericCallWithEntries(ctx context.Context, entries map[string]
 	if err := decode(raw, &input); err != nil {
 		return nil, err
 	}
-	return s.genericDispatch(ctx, entries, durableSession.Record{}, input.Action, input.Input)
+	return genericDispatchTimed(s, ctx, entries, durableSession.Record{}, input.Action, input.Input)
+}
+
+func genericDispatchTimed(s *Server, ctx context.Context, entries map[string]genericActionEntry, record durableSession.Record, action string, raw json.RawMessage) (map[string]any, error) {
+	started := time.Now()
+	result, err := s.genericDispatch(ctx, entries, record, action, raw)
+	addSparseExecTime(result, time.Since(started))
+	return result, err
+}
+
+func addSparseExecTime(result map[string]any, elapsed time.Duration) {
+	if result == nil || elapsed < time.Second {
+		return
+	}
+	result["exec_time_ms"] = elapsed.Milliseconds()
 }
 func (s *Server) genericDispatch(ctx context.Context, entries map[string]genericActionEntry, record durableSession.Record, action string, raw json.RawMessage) (result map[string]any, returnErr error) {
 	if runtime_log.RequestID(ctx) == "" {
@@ -46,6 +60,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		ctx = runtime_log.WithOperationID(ctx, operationID)
 	}
 	started := false
+	dispatchStarted := time.Now()
 	defer func() {
 		if !started {
 			return
@@ -54,7 +69,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		if returnErr != nil || (result != nil && result["is_error"] == true) {
 			event, level = "action_failure", "warn"
 		}
-		s.recordRuntimeAction(ctx, record, event, level, action, returnErr, result)
+		s.recordRuntimeAction(ctx, record, event, level, action, returnErr, result, time.Since(dispatchStarted))
 	}()
 	if action == "" {
 		return genericActionError(action, "action is required; inspect schema with path=\"\""), nil
@@ -157,7 +172,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		}
 	}
 	started = true
-	s.recordRuntimeAction(ctx, record, "action_start", "info", action, nil, nil)
+	s.recordRuntimeAction(ctx, record, "action_start", "info", action, nil, nil, 0)
 	executionSchema := entry.InputSchema
 	if entry.ExecutionInputSchema != nil {
 		executionSchema = entry.ExecutionInputSchema
@@ -186,7 +201,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	}
 	return genericActionSuccess(result), nil
 }
-func (s *Server) recordRuntimeAction(ctx context.Context, sessionRecord durableSession.Record, event, level, action string, cause error, result map[string]any) {
+func (s *Server) recordRuntimeAction(ctx context.Context, sessionRecord durableSession.Record, event, level, action string, cause error, result map[string]any, elapsed time.Duration) {
 	if s.Service == nil {
 		return
 	}
@@ -200,6 +215,7 @@ func (s *Server) recordRuntimeAction(ctx context.Context, sessionRecord durableS
 		OperationID: runtime_log.OperationID(ctx),
 		SessionID:   sessionRecord.ID,
 		ProjectID:   sessionRecord.ProjectID,
+		ExecTimeMS:  elapsed.Milliseconds(),
 	}
 	if cause != nil {
 		eventRecord.Error = fmt.Sprintf("%T", cause)

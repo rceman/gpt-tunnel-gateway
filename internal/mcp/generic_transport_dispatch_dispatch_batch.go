@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 func (s *Server) genericBatch(ctx context.Context, legacy map[string]Tool, raw json.RawMessage) (any, error) {
+	started := time.Now()
 	var input genericBatchInput
 	if err := decode(raw, &input); err != nil {
 		return nil, err
@@ -42,7 +44,7 @@ func (s *Server) genericBatch(ctx context.Context, legacy map[string]Tool, raw j
 			err = fmt.Errorf("batch item session is not accepted; use the batch root session")
 		}
 		if err == nil {
-			result, err = s.genericDispatch(ctx, entries, record, item.Action, item.Input)
+			result, err = genericDispatchTimed(s, ctx, entries, record, item.Action, item.Input)
 		}
 		if err != nil {
 			var probe struct {
@@ -54,7 +56,9 @@ func (s *Server) genericBatch(ctx context.Context, legacy map[string]Tool, raw j
 		}
 		results = append(results, genericBatchResult(action, result))
 	}
-	return map[string]any{"results": results}, nil
+	response := map[string]any{"results": results}
+	addSparseExecTime(response, time.Since(started))
+	return response, nil
 }
 func decodeBatchCall(raw json.RawMessage, input *genericCallInput) (map[string]any, error) {
 	if err := decode(raw, input); err != nil {

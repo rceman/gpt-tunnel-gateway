@@ -46,19 +46,21 @@ func genericSchemaInputSchema() map[string]any {
 }
 func genericCallOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"result":   map[string]any{"type": "object", "additionalProperties": true},
-		"is_error": outputBoolean(),
+		"result":       map[string]any{"type": "object", "additionalProperties": true},
+		"is_error":     outputBoolean(),
+		"exec_time_ms": outputInteger(),
 	}, "result", "is_error")
 }
 func genericBatchItemOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"action":   outputString(),
-		"result":   map[string]any{"type": "object", "additionalProperties": true},
-		"is_error": outputBoolean(),
+		"action":       outputString(),
+		"result":       map[string]any{"type": "object", "additionalProperties": true},
+		"is_error":     outputBoolean(),
+		"exec_time_ms": outputInteger(),
 	}, "action", "result", "is_error")
 }
 func genericBatchOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"results": outputArray(genericBatchItemOutputSchema())}, "results")
+	return closedOutput(map[string]any{"results": outputArray(genericBatchItemOutputSchema()), "exec_time_ms": outputInteger()}, "results")
 }
 func genericSchemaOutputSchema() map[string]any {
 	action := closedOutput(map[string]any{
@@ -90,5 +92,5 @@ func (s *Server) genericCall(ctx context.Context, legacy map[string]Tool, raw js
 		}
 		ctx = withSession(ctx, record)
 	}
-	return s.genericDispatch(ctx, entries, record, input.Action, input.Input)
+	return genericDispatchTimed(s, ctx, entries, record, input.Action, input.Input)
 }

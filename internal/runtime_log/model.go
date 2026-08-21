@@ -44,6 +44,7 @@ type Event struct {
 	Source         string    `json:"source,omitempty"`
 	Version        string    `json:"version,omitempty"`
 	Signal         string    `json:"signal,omitempty"`
+	ExecTimeMS     int64     `json:"exec_time_ms,omitempty"`
 	Message        string    `json:"message,omitempty"`
 	Error          string    `json:"error,omitempty"`
 }
@@ -127,6 +128,9 @@ func (e Event) Validate() error {
 	}
 	if e.PID < 0 {
 		return fmt.Errorf("runtime event PID is invalid")
+	}
+	if e.ExecTimeMS < 0 {
+		return fmt.Errorf("runtime event execution time is invalid")
 	}
 	return nil
 }
