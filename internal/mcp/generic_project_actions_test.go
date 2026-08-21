@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -24,6 +25,24 @@ func TestProjectConfigurationUpdateIsGenericAndStrictlyDiscoverable(t *testing.T
 	patch := properties["patch"].(map[string]any)
 	if patch["additionalProperties"] != false {
 		t.Fatal("project/update patch is not closed")
+	}
+	checkpoint, ok := patch["properties"].(map[string]any)["checkpoint"].(map[string]any)
+	if !ok || checkpoint["additionalProperties"] != false {
+		t.Fatal("project/update omits closed checkpoint patch")
+	}
+	if _, ok := checkpoint["properties"].(map[string]any)["adapter"]; !ok {
+		t.Fatal("project/update checkpoint omits adapter")
+	}
+}
+
+func TestProjectConfigurationUpdateDecoderAcceptsCheckpointPatch(t *testing.T) {
+	var input service.ProjectConfigurationUpdateInput
+	raw := json.RawMessage(`{"project_id":"gpt-tunnel-gateway","expected_revision":7,"patch":{"checkpoint":{"adapter":"go"}},"updated_by":"planner"}`)
+	if err := decode(raw, &input); err != nil {
+		t.Fatal(err)
+	}
+	if input.Patch.Checkpoint == nil || input.Patch.Checkpoint.Adapter != "go" {
+		t.Fatalf("checkpoint patch was not decoded: %#v", input.Patch.Checkpoint)
 	}
 }
 

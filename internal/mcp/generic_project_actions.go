@@ -62,6 +62,9 @@ func projectConfigurationUpdateSchema() map[string]any {
 				"gate_commands":      gateCommands,
 				"wait_for_ci":        map[string]any{"type": "boolean"},
 			}, "workflow_stage", "integration_branch", "ci", "gates", "gate_commands", "wait_for_ci"),
+			"checkpoint": obj(map[string]any{
+				"adapter": str("Explicit project-owned work checkpoint adapter; empty is fail-closed."),
+			}),
 			"activation_profile_ref": str("Portable activation profile reference."),
 			"integration": obj(map[string]any{
 				"target_branch": str("Project-owned integration target branch."),
