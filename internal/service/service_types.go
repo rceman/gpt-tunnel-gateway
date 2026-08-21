@@ -34,7 +34,7 @@ type Service struct {
 	Git                                     gitx.Runner
 	Airelay                                 airelay.Client
 	clock                                   func() time.Time
-	asyncMutationTimeout                    time.Duration
+	asyncMutationTimeouts                   map[string]time.Duration
 	durableMutationExecutor                 func(context.Context, durableMutationOperation) (json.RawMessage, error)
 	gateExecutor                            func(context.Context, string, []string) ([]model.CompletionGateResult, error)
 	gateExecutorWithScope                   func(context.Context, string, []string, gates.TestScope) ([]model.CompletionGateResult, error)
@@ -82,7 +82,7 @@ func newService(c config.Config, durability *sqlitestore.Databases, startWorkers
 		taskCreateActive:      make(map[string]struct{}),
 		durableMutationWake:   make(chan string, 32),
 		durableMutationActive: make(map[string]struct{}),
-		asyncMutationTimeout:  defaultAsyncMutationTimeout,
+		asyncMutationTimeouts: map[string]time.Duration{"train-v2-integrate": defaultIntegrationTimeout},
 		gateExecutor: func(ctx context.Context, root string, names []string) ([]model.CompletionGateResult, error) {
 			return executor.Execute(ctx, root, names)
 		},

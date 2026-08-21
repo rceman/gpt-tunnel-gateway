@@ -15,6 +15,8 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
 )
 
+const transactionCleanupTimeout = 10 * time.Second
+
 func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mutator) (TransactionResult, error) {
 	transactionLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "hub")
 	if err != nil {
@@ -69,7 +71,11 @@ func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mu
 	if _, err = command(ctx, root, "worktree", "add", "--detach", worktree, before); err != nil {
 		return TransactionResult{}, err
 	}
-	defer command(ctx, root, "worktree", "remove", "--force", worktree)
+	defer func() {
+		cleanupCtx, cancel := boundedCleanupContext(ctx)
+		defer cancel()
+		_, _ = command(cleanupCtx, root, "worktree", "remove", "--force", worktree)
+	}()
 	paths, err := mutate(worktree)
 	if err != nil {
 		return TransactionResult{}, err
@@ -127,6 +133,10 @@ func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mu
 		Branch: s.Config.Hub.Branch,
 		Paths:  append([]string{}, paths...),
 	}, nil
+}
+
+func boundedCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), transactionCleanupTimeout)
 }
 
 func recordLockEvent(stateDir string, ctx context.Context, event string, evidence *lockfile.ContentionEvidence, cause error) {

@@ -245,6 +245,19 @@ func TestTransactionDeadlineReleasesRepositoryLock(t *testing.T) {
 	}
 }
 
+func TestTransactionCleanupContextIsDetachedAndBounded(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cleanup, cleanupCancel := boundedCleanupContext(ctx)
+	defer cleanupCancel()
+	cancel()
+	if cleanup.Err() != nil {
+		t.Fatal("cleanup context inherited cancellation")
+	}
+	if _, ok := cleanup.Deadline(); !ok {
+		t.Fatal("cleanup context has no deadline")
+	}
+}
+
 func TestConcurrentRepositoryWorkersRegainLock(t *testing.T) {
 	stateDir := t.TempDir()
 	holder, err := lockfile.Acquire(filepath.Join(stateDir, "locks"), "hub-repository")

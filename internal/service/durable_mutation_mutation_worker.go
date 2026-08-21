@@ -20,7 +20,7 @@ func (s *Service) startDurableMutationWorker() {
 			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
 				operationID := strings.TrimSuffix(entry.Name(), ".json")
 				operation, err := s.readDurableMutation(operationID)
-				if err != nil || operation.Status == "completed" || operation.Status == "failed" {
+				if err != nil || !replayDurableMutationOnStartup(operation.Status) {
 					continue
 				}
 				if operation.Status == "running" {
@@ -35,6 +35,10 @@ func (s *Service) startDurableMutationWorker() {
 			go s.durableMutationWorker()
 		}
 	})
+}
+
+func replayDurableMutationOnStartup(status string) bool {
+	return status == "accepted" || status == "running"
 }
 func (s *Service) recoverRunningDurableMutation(operation durableMutationOperation) error {
 	if operation.Status != "running" {

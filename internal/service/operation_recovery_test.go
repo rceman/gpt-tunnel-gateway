@@ -45,7 +45,7 @@ func TestRecoverRunningDurableMutationForStartup(t *testing.T) {
 
 func TestRecoveredDurableMutationUsesBoundedContextAndPersistsUnknownOutcome(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
-	s.asyncMutationTimeout = 20 * time.Millisecond
+	s.asyncMutationTimeouts = map[string]time.Duration{"train-v2-integrate": 20 * time.Millisecond}
 	digest := sha256.Sum256([]byte("bounded recovery"))
 	operation := durableMutationOperation{
 		SchemaVersion: durableMutationSchemaVersion,
@@ -75,6 +75,31 @@ func TestRecoveredDurableMutationUsesBoundedContextAndPersistsUnknownOutcome(t *
 	}
 	if got.Status != "outcome_unknown" || got.RecoveryReason == "" {
 		t.Fatalf("bounded recovery status=%#v", got)
+	}
+}
+
+func TestOutcomeUnknownIsNotReplayedOnStartup(t *testing.T) {
+	if replayDurableMutationOnStartup("outcome_unknown") {
+		t.Fatal("outcome_unknown must remain recovery-only after restart")
+	}
+	if !replayDurableMutationOnStartup("accepted") || !replayDurableMutationOnStartup("running") {
+		t.Fatal("accepted/running operations must remain restart-recoverable")
+	}
+}
+
+func TestAsyncMutationTimeoutsArePerKind(t *testing.T) {
+	s := &Service{}
+	integration, integrationCancel := s.asyncMutationContext("train-v2-integrate", "integration-timeout-test")
+	defer integrationCancel()
+	integrationDeadline, ok := integration.Deadline()
+	if !ok || time.Until(integrationDeadline) < 4*time.Minute {
+		t.Fatalf("integration timeout is not extended: %v", integrationDeadline)
+	}
+	generic, genericCancel := s.asyncMutationContext("task-authoring-update", "generic-timeout-test")
+	defer genericCancel()
+	genericDeadline, ok := generic.Deadline()
+	if !ok || time.Until(genericDeadline) > 65*time.Second {
+		t.Fatalf("generic timeout is not bounded to the default: %v", genericDeadline)
 	}
 }
 
