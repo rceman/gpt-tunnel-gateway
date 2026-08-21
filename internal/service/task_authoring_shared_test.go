@@ -79,6 +79,18 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 	if _, err := s.TaskAuthoringRead(context.Background(), "example", readyReceipt.Task.ID); !IsNotFound(err) {
 		t.Fatalf("task mutation wrote Hub synchronously: %v", err)
 	}
+	for _, entry := range pending {
+		if err := s.publishSharedOutboxEntry(context.Background(), entry); err != nil {
+			t.Fatalf("publish outbox %s: %v", entry.ID, err)
+		}
+		if err := db.MarkOutboxPublished(context.Background(), entry.ID, time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	published, err := s.TaskAuthoringRead(context.Background(), "example", readyReceipt.Task.ID)
+	if err != nil || published.Status != model.TaskAuthoringReady {
+		t.Fatalf("published Hub task=%#v err=%v", published, err)
+	}
 	if revision == "" {
 		t.Fatal("test fixture did not establish Hub baseline")
 	}

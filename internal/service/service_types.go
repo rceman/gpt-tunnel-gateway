@@ -48,6 +48,7 @@ type Service struct {
 	taskCreateWake                          chan string
 	taskCreateActive                        map[string]struct{}
 	durableMutationWorkerOnce               sync.Once
+	sharedOutboxWorkerOnce                  sync.Once
 	durableMutationMu                       sync.Mutex
 	durableMutationWake                     chan string
 	durableMutationActive                   map[string]struct{}
@@ -127,6 +128,7 @@ func newService(c config.Config, durability *sqlitestore.Databases, startWorkers
 func (s *Service) StartBackgroundWorkers() {
 	s.startTaskCreateWorker()
 	s.startDurableMutationWorker()
+	s.startSharedOutboxWorker()
 }
 
 type TaskActivationResult struct {
