@@ -55,6 +55,7 @@ type Service struct {
 	durableMutationWake                     chan string
 	durableMutationActive                   map[string]struct{}
 	workflowPolicyCacheMu                   sync.RWMutex
+	legacyWorkflowPolicyRead                func(context.Context, string, *model.ProjectWorkflowPolicy) error
 }
 
 func New(c config.Config) *Service {

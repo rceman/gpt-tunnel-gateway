@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -187,6 +188,11 @@ func TestProjectConfigurationReadUsesSharedWhenHubUnavailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
+	legacyReads := 0
+	s.legacyWorkflowPolicyRead = func(context.Context, string, *model.ProjectWorkflowPolicy) error {
+		legacyReads++
+		return errors.New("legacy workflow policy read trap")
+	}
 	read, err := s.ProjectConfigurationRead(ctx, "example")
 	if err != nil || read.Revision != configuration.Revision {
 		t.Fatalf("Shared project configuration read failed without Hub: %#v %v", read, err)
@@ -194,6 +200,9 @@ func TestProjectConfigurationReadUsesSharedWhenHubUnavailable(t *testing.T) {
 	policy, err := s.ProjectWorkflowPolicyRead(ctx, "example")
 	if err != nil || policy.ProjectID != "example" || policy.Revision != configuration.Revision {
 		t.Fatalf("Shared workflow policy read failed without Hub: %#v %v", policy, err)
+	}
+	if legacyReads != 0 {
+		t.Fatalf("Shared workflow policy unexpectedly read legacy Hub policy %d time(s)", legacyReads)
 	}
 }
 

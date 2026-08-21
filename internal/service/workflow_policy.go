@@ -117,7 +117,7 @@ func (s *Service) projectWorkflowPolicyReadDetailed(ctx context.Context, project
 	}
 	legacyPath := s.workflowPolicyPath(projectID)
 	var policy model.ProjectWorkflowPolicy
-	legacyErr := s.Hub.ReadJSON(ctx, legacyPath, &policy)
+	legacyErr := s.readLegacyWorkflowPolicy(ctx, legacyPath, &policy)
 	if configurationErr == nil {
 		if legacyErr == nil {
 			if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
@@ -144,4 +144,11 @@ func (s *Service) projectWorkflowPolicyReadDetailed(ctx context.Context, project
 		return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("workflow policy project_id mismatch")
 	}
 	return policy, "legacy_compatibility", nil
+}
+
+func (s *Service) readLegacyWorkflowPolicy(ctx context.Context, path string, policy *model.ProjectWorkflowPolicy) error {
+	if s.legacyWorkflowPolicyRead != nil {
+		return s.legacyWorkflowPolicyRead(ctx, path, policy)
+	}
+	return s.Hub.ReadJSON(ctx, path, policy)
 }
