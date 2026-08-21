@@ -101,6 +101,12 @@ func (s *Service) publishSharedOutboxEntry(ctx context.Context, entry sqlitestor
 			return []string{path}, nil
 		})
 		return err
+	case "project_configuration":
+		var configuration model.ProjectConfiguration
+		if err := json.Unmarshal(entry.Payload, &configuration); err != nil {
+			return err
+		}
+		return s.publishSharedProjectConfiguration(ctx, configuration)
 	default:
 		return fmt.Errorf("unsupported shared outbox entity %q", entry.EntityType)
 	}

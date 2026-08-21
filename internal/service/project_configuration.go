@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
@@ -21,16 +20,14 @@ func (s *Service) ProjectConfigurationRead(ctx context.Context, projectID string
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return model.ProjectConfiguration{}, err
 	}
+	if s.Durability != nil {
+		return s.projectConfigurationReadShared(ctx, projectID)
+	}
 	var configuration model.ProjectConfiguration
 	if err := s.Hub.ReadJSON(ctx, s.projectConfigurationPath(projectID), &configuration); err != nil {
 		return model.ProjectConfiguration{}, err
 	}
-	if configuration.Workflow.GateCommands.IsZero() {
-		configuration.Workflow.GateCommands = model.DefaultProjectGateCommands()
-	}
-	if configuration.Integration.TargetBranch == "" {
-		configuration.Integration.TargetBranch = configuration.Workflow.IntegrationBranch
-	}
+	normalizeProjectConfiguration(&configuration)
 	if err := model.ValidateProjectConfiguration(configuration); err != nil {
 		return model.ProjectConfiguration{}, err
 	}
@@ -79,17 +76,11 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 	if err := RequireWorkflowPolicyAuthority(ctx); err != nil {
 		return model.ProjectConfiguration{}, OperationResult{}, err
 	}
+	if s.Durability != nil {
+		return s.projectConfigurationUpdateShared(ctx, in)
+	}
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return model.ProjectConfiguration{}, OperationResult{}, err
-	}
-	if in.ExpectedRevision < 1 {
-		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("expected_revision is required")
-	}
-	if in.UpdatedBy == "" || strings.ContainsAny(in.UpdatedBy, "\x00\r\n") {
-		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("updated_by is required")
-	}
-	if in.Patch.AgentRouting == nil && in.Patch.Watcher == nil && in.Patch.Workflow == nil && in.Patch.GateCommands == nil && in.Patch.Checkpoint == nil && in.Patch.Integration == nil && in.Patch.ActivationProfileRef == nil {
-		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("project configuration patch is empty")
 	}
 	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
 		return model.ProjectConfiguration{}, OperationResult{}, err
@@ -114,7 +105,7 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 	if err != nil {
 		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("inspect active Train Attempt: %w", err)
 	}
-	if active && (in.Patch.Workflow != nil || in.Patch.Integration != nil || in.Patch.ActivationProfileRef != nil) {
+	if active && projectConfigurationPatchIsExecutionSensitive(in.Patch) {
 		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("execution-sensitive project configuration cannot change while an active Train Attempt exists")
 	}
 	path := s.projectConfigurationPath(in.ProjectID)
@@ -123,12 +114,7 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 		if err := readWorktreeJSON(worktree, path, &latest); err != nil {
 			return nil, fmt.Errorf("read project configuration: %w", err)
 		}
-		if latest.Workflow.GateCommands.IsZero() {
-			latest.Workflow.GateCommands = model.DefaultProjectGateCommands()
-		}
-		if latest.Integration.TargetBranch == "" {
-			latest.Integration.TargetBranch = latest.Workflow.IntegrationBranch
-		}
+		normalizeProjectConfiguration(&latest)
 		if err := model.ValidateProjectConfiguration(latest); err != nil {
 			return nil, fmt.Errorf("current project configuration is invalid: %w", err)
 		}
@@ -139,7 +125,7 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 		if err != nil {
 			return nil, fmt.Errorf("inspect active Train Attempt: %w", err)
 		}
-		if active && (in.Patch.Workflow != nil || in.Patch.Integration != nil || in.Patch.ActivationProfileRef != nil) {
+		if active && projectConfigurationPatchIsExecutionSensitive(in.Patch) {
 			return nil, fmt.Errorf("execution-sensitive project configuration cannot change while an active Train Attempt exists")
 		}
 		candidate := latest

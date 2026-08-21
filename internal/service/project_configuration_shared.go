@@ -1,0 +1,162 @@
+package service
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"reflect"
+	"time"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
+)
+
+func (s *Service) projectConfigurationReadShared(ctx context.Context, projectID string) (model.ProjectConfiguration, error) {
+	entity, err := s.Durability.ReadSharedEntity(ctx, "project_configuration", projectID)
+	if err != nil {
+		return model.ProjectConfiguration{}, err
+	}
+	var configuration model.ProjectConfiguration
+	if err := json.Unmarshal(entity.Payload, &configuration); err != nil {
+		return model.ProjectConfiguration{}, fmt.Errorf("decode Shared project configuration %s: %w", projectID, err)
+	}
+	if configuration.ProjectID != projectID || int64(configuration.Revision) != entity.Revision {
+		return model.ProjectConfiguration{}, fmt.Errorf("Shared project configuration identity mismatch")
+	}
+	normalizeProjectConfiguration(&configuration)
+	if err := model.ValidateProjectConfiguration(configuration); err != nil {
+		return model.ProjectConfiguration{}, err
+	}
+	return configuration, nil
+}
+
+func normalizeProjectConfiguration(configuration *model.ProjectConfiguration) {
+	if configuration.Workflow.GateCommands.IsZero() {
+		configuration.Workflow.GateCommands = model.DefaultProjectGateCommands()
+	}
+	if configuration.Integration.TargetBranch == "" {
+		configuration.Integration.TargetBranch = configuration.Workflow.IntegrationBranch
+	}
+}
+
+func (s *Service) projectConfigurationUpdateShared(ctx context.Context, in ProjectConfigurationUpdateInput) (model.ProjectConfiguration, OperationResult, error) {
+	if err := requireSharedProjectConfiguration(ctx, s, in.ProjectID); err != nil {
+		return model.ProjectConfiguration{}, OperationResult{}, err
+	}
+	if err := validateProjectConfigurationUpdateInput(in); err != nil {
+		return model.ProjectConfiguration{}, OperationResult{}, err
+	}
+	current, err := s.projectConfigurationReadShared(ctx, in.ProjectID)
+	if err != nil {
+		return model.ProjectConfiguration{}, OperationResult{}, err
+	}
+	if current.Revision != in.ExpectedRevision {
+		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("project configuration revision conflict: expected %d, current %d", in.ExpectedRevision, current.Revision)
+	}
+	active, err := s.projectHasActiveTrainAttempt(ctx, in.ProjectID)
+	if err != nil {
+		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("inspect active Train Attempt: %w", err)
+	}
+	if active && projectConfigurationPatchIsExecutionSensitive(in.Patch) {
+		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("execution-sensitive project configuration cannot change while an active Train Attempt exists")
+	}
+	updated := current
+	applyProjectConfigurationPatch(&updated, in.Patch)
+	updated.Revision = current.Revision + 1
+	updated.UpdatedBy = in.UpdatedBy
+	updated.UpdatedAt = time.Now().UTC()
+	if err := model.ValidateProjectConfiguration(updated); err != nil {
+		return model.ProjectConfiguration{}, OperationResult{}, err
+	}
+	payload, err := json.Marshal(updated)
+	if err != nil {
+		return model.ProjectConfiguration{}, OperationResult{}, err
+	}
+	operationID := durableMutationOperationID(ctx)
+	if operationID == "" {
+		encoded, marshalErr := json.Marshal(in)
+		if marshalErr != nil {
+			return model.ProjectConfiguration{}, OperationResult{}, marshalErr
+		}
+		digest := sha256.Sum256(encoded)
+		operationID = "project-configuration-shared-" + hex.EncodeToString(digest[:])
+	}
+	if _, err := s.Durability.CommitSharedMutation(ctx, sqlitestore.SharedMutation{
+		OperationID: operationID, EntityType: "project_configuration", EntityID: in.ProjectID,
+		ExpectedRevision: int64(current.Revision), Revision: int64(updated.Revision),
+		Kind: "project-configuration-update", Payload: payload, CreatedAt: updated.UpdatedAt,
+	}); err != nil {
+		return model.ProjectConfiguration{}, OperationResult{}, err
+	}
+	return updated, OperationResult{OperationID: operationID, ProjectID: in.ProjectID, Status: "updated", Hub: hub.TransactionResult{Paths: []string{}}}, nil
+}
+
+func requireSharedProjectConfiguration(ctx context.Context, s *Service, projectID string) error {
+	if err := model.ValidateProjectIdentifier(projectID); err != nil {
+		return err
+	}
+	if _, ok := s.Config.Projects[projectID]; !ok {
+		return fmt.Errorf("project %q is not configured locally", projectID)
+	}
+	complete, err := s.Durability.SharedBootstrapComplete(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("read Shared bootstrap marker: %w", err)
+	}
+	if !complete {
+		return fmt.Errorf("Shared bootstrap is incomplete for project %q", projectID)
+	}
+	return nil
+}
+
+func validateProjectConfigurationUpdateInput(in ProjectConfigurationUpdateInput) error {
+	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
+		return err
+	}
+	if in.ExpectedRevision < 1 {
+		return fmt.Errorf("expected_revision is required")
+	}
+	if in.UpdatedBy == "" || containsControl(in.UpdatedBy) {
+		return fmt.Errorf("updated_by is required")
+	}
+	if in.Patch.AgentRouting == nil && in.Patch.Watcher == nil && in.Patch.Workflow == nil && in.Patch.GateCommands == nil && in.Patch.Checkpoint == nil && in.Patch.Integration == nil && in.Patch.ActivationProfileRef == nil {
+		return fmt.Errorf("project configuration patch is empty")
+	}
+	return nil
+}
+
+func projectConfigurationPatchIsExecutionSensitive(patch ProjectConfigurationPatch) bool {
+	return patch.Workflow != nil || patch.Integration != nil || patch.ActivationProfileRef != nil
+}
+
+func (s *Service) publishSharedProjectConfiguration(ctx context.Context, configuration model.ProjectConfiguration) error {
+	if err := model.ValidateProjectConfiguration(configuration); err != nil {
+		return err
+	}
+	path := s.projectConfigurationPath(configuration.ProjectID)
+	_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared project configuration "+configuration.ProjectID, func(worktree string) ([]string, error) {
+		var latest model.ProjectConfiguration
+		readErr := readWorktreeJSON(worktree, path, &latest)
+		if readErr == nil {
+			normalizeProjectConfiguration(&latest)
+			if latest.Revision > configuration.Revision {
+				return nil, fmt.Errorf("Hub project configuration is newer than Shared outbox")
+			}
+			if latest.Revision == configuration.Revision && reflect.DeepEqual(latest, configuration) {
+				return nil, nil
+			}
+			if latest.Revision == configuration.Revision {
+				return nil, fmt.Errorf("Hub project configuration conflicts with Shared outbox")
+			}
+		} else if !IsNotFound(readErr) {
+			return nil, readErr
+		}
+		if err := hub.WriteJSON(worktree, path, configuration); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	return err
+}

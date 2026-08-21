@@ -103,20 +103,22 @@ type SharedBootstrapMarker struct {
 }
 
 var sharedEntityTables = map[string]string{
-	"task":    "shared_tasks",
-	"train":   "shared_trains",
-	"adr":     "shared_adrs",
-	"rule":    "shared_rules",
-	"journal": "shared_journals",
+	"task":                  "shared_tasks",
+	"train":                 "shared_trains",
+	"adr":                   "shared_adrs",
+	"rule":                  "shared_rules",
+	"journal":               "shared_journals",
+	"project_configuration": "shared_project_configurations",
 }
 
 var sharedProjectionTables = map[string]string{
-	"task":                "shared_tasks",
-	"train":               "shared_trains",
-	"adr":                 "shared_adrs",
-	"rule":                "shared_rules",
-	"journal":             "shared_journals",
-	"integration_receipt": "shared_integration_receipts",
+	"task":                  "shared_tasks",
+	"train":                 "shared_trains",
+	"adr":                   "shared_adrs",
+	"rule":                  "shared_rules",
+	"journal":               "shared_journals",
+	"integration_receipt":   "shared_integration_receipts",
+	"project_configuration": "shared_project_configurations",
 }
 
 func (d *Databases) CommitSharedMutation(ctx context.Context, mutation SharedMutation) (SharedMutationReceipt, error) {

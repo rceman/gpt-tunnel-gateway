@@ -174,12 +174,13 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 }
 
 const (
-	sharedReplicationMigrationName        = "gpt_tunnel_shared_replication_v1"
-	sharedCutoverMigrationName            = "gpt_tunnel_shared_cutover_v1"
-	sharedTaskSequenceMigrationName       = "gpt_tunnel_shared_task_sequences_v7"
-	sharedIntegrationCurrentMigrationName = "gpt_tunnel_shared_integration_receipts_v8"
-	sharedBootstrapMigrationName          = "gpt_tunnel_shared_bootstrap_markers_v9"
-	sharedADROutboxMigrationName          = "gpt_tunnel_shared_adr_outbox_retry_v10"
+	sharedReplicationMigrationName          = "gpt_tunnel_shared_replication_v1"
+	sharedCutoverMigrationName              = "gpt_tunnel_shared_cutover_v1"
+	sharedTaskSequenceMigrationName         = "gpt_tunnel_shared_task_sequences_v7"
+	sharedIntegrationCurrentMigrationName   = "gpt_tunnel_shared_integration_receipts_v8"
+	sharedBootstrapMigrationName            = "gpt_tunnel_shared_bootstrap_markers_v9"
+	sharedADROutboxMigrationName            = "gpt_tunnel_shared_adr_outbox_retry_v10"
+	sharedProjectConfigurationMigrationName = "gpt_tunnel_shared_project_configurations_v11"
 )
 
 var sharedMigrations = []migrate.Migration{{
@@ -309,6 +310,12 @@ var sharedMigrations = []migrate.Migration{{
 		{SQL: `ALTER TABLE hub_outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0`},
 		{SQL: `ALTER TABLE hub_outbox ADD COLUMN last_error TEXT NOT NULL DEFAULT ''`},
 		{SQL: `CREATE INDEX IF NOT EXISTS hub_outbox_retry_idx ON hub_outbox(published_at, next_attempt_at, created_at)`},
+	},
+}, {
+	Version: 11,
+	Name:    sharedProjectConfigurationMigrationName,
+	Statements: []store.Statement{
+		{SQL: `CREATE TABLE IF NOT EXISTS shared_project_configurations (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`},
 	},
 }}
 

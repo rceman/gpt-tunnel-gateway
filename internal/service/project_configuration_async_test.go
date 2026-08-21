@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func TestProjectConfigurationUpdateAsyncIsBoundedAndIdempotent(t *testing.T) {
@@ -148,5 +150,132 @@ func TestProjectConfigurationMutationReceiptPreservesErrorAndSchemaValidPaths(t 
 	}
 	if receipt.Operation.Hub.Paths == nil {
 		t.Fatal("failed project/update receipt has null operation.hub.paths")
+	}
+}
+
+func TestProjectConfigurationReadUsesSharedWhenHubUnavailable(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
+	configuration, err := s.ProjectConfigurationRead(ctx, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s.Durability = db
+	markSharedBootstrapCompleteForTest(t, db)
+	payload, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(ctx, "project_configuration", sqlitestore.SharedEntity{
+		ID: configuration.ProjectID, Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
+	read, err := s.ProjectConfigurationRead(ctx, "example")
+	if err != nil || read.Revision != configuration.Revision {
+		t.Fatalf("Shared project configuration read failed without Hub: %#v %v", read, err)
+	}
+}
+
+func TestProjectConfigurationUpdateUsesSharedCASAndOutbox(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
+	configuration, err := s.ProjectConfigurationRead(ctx, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s.Durability = db
+	markSharedBootstrapCompleteForTest(t, db)
+	payload, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(ctx, "project_configuration", sqlitestore.SharedEntity{
+		ID: configuration.ProjectID, Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
+	routing := configuration.AgentRouting
+	routing.SingletonRecommendedReasoning = model.ReasoningMedium
+	updated, operation, err := s.ProjectConfigurationUpdate(ctx, ProjectConfigurationUpdateInput{
+		ProjectID: "example", ExpectedRevision: configuration.Revision,
+		Patch: ProjectConfigurationPatch{AgentRouting: &routing}, UpdatedBy: "planner",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Revision != configuration.Revision+1 || operation.OperationID == "" {
+		t.Fatalf("unexpected Shared project update: updated=%#v operation=%#v", updated, operation)
+	}
+	entries, err := db.PendingOutbox(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].EntityType != "project_configuration" || entries[0].EntityID != "example" {
+		t.Fatalf("project configuration outbox=%#v", entries)
+	}
+	if _, _, err := s.ProjectConfigurationUpdate(ctx, ProjectConfigurationUpdateInput{
+		ProjectID: "example", ExpectedRevision: configuration.Revision,
+		Patch: ProjectConfigurationPatch{AgentRouting: &routing}, UpdatedBy: "planner",
+	}); err == nil {
+		t.Fatal("stale project configuration update unexpectedly passed Shared CAS")
+	}
+}
+
+func TestProjectConfigurationUpdateUsesSharedActiveTrainGuard(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
+	configuration, err := s.ProjectConfigurationRead(ctx, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s.Durability = db
+	markSharedBootstrapCompleteForTest(t, db)
+	payload, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(ctx, "project_configuration", sqlitestore.SharedEntity{
+		ID: configuration.ProjectID, Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	active := staleTrainV2ForRetirementTest(time.Now().UTC())
+	active.Status = model.TrainV2Running
+	active.Items[0].Status = model.TrainV2ItemRunning
+	active.Items[0].Attempts[0].Status = model.TrainV2AttemptRunning
+	active.Items[0].Attempts[0].FinishedAt = nil
+	trainPayload, err := json.Marshal(active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(ctx, "train", sqlitestore.SharedEntity{
+		ID: active.ID, Revision: int64(active.Revision), Payload: trainPayload, UpdatedAt: active.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	workflow := configuration.Workflow
+	if _, _, err := s.ProjectConfigurationUpdate(ctx, ProjectConfigurationUpdateInput{
+		ProjectID: "example", ExpectedRevision: configuration.Revision,
+		Patch: ProjectConfigurationPatch{Workflow: &workflow}, UpdatedBy: "planner",
+	}); err == nil {
+		t.Fatal("execution-sensitive project update passed with active Shared Train Attempt")
 	}
 }

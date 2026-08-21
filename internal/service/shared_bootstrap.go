@@ -35,6 +35,9 @@ func (s *Service) BootstrapSharedFromHub(ctx context.Context) error {
 	}
 	sort.Strings(projectIDs)
 	for _, projectID := range projectIDs {
+		if err := s.bootstrapSharedProjectConfiguration(ctx, snapshot, projectID); err != nil {
+			return err
+		}
 		if err := s.bootstrapSharedTasks(ctx, snapshot, projectID); err != nil {
 			return err
 		}
@@ -49,6 +52,27 @@ func (s *Service) BootstrapSharedFromHub(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (s *Service) bootstrapSharedProjectConfiguration(ctx context.Context, snapshot *hub.ReadSnapshot, projectID string) error {
+	path := s.projectConfigurationPath(projectID)
+	files, err := snapshot.ReadFiles(ctx, []string{path})
+	if err != nil {
+		return fmt.Errorf("read project configuration bootstrap %s: %w", path, err)
+	}
+	var configuration model.ProjectConfiguration
+	if err := decodeStrict(files[path], &configuration); err != nil {
+		return fmt.Errorf("decode project configuration bootstrap %s: %w", path, err)
+	}
+	if configuration.ProjectID != projectID {
+		return fmt.Errorf("project configuration bootstrap project mismatch %s", path)
+	}
+	if err := model.ValidateProjectConfiguration(configuration); err != nil {
+		return fmt.Errorf("invalid project configuration bootstrap %s: %w", path, err)
+	}
+	return s.Durability.PutSharedProjection(ctx, "project_configuration", sqlitestore.SharedEntity{
+		ID: configuration.ProjectID, Revision: int64(configuration.Revision), Payload: files[path], UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	})
 }
 
 func (s *Service) bootstrapSharedTasks(ctx context.Context, snapshot *hub.ReadSnapshot, projectID string) error {
