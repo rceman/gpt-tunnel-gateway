@@ -17,19 +17,25 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-const testPassReceiptSchemaVersion = 2
+const (
+	testPassReceiptLegacySchemaVersion = 2
+	testPassReceiptSchemaVersion       = 3
+)
 
 type testPassReceipt struct {
-	SchemaVersion  int       `json:"schema_version"`
-	ProjectID      string    `json:"project_id"`
-	TreeID         string    `json:"tree_id"`
-	Head           string    `json:"head"`
-	GateNames      []string  `json:"gate_names"`
-	ScopeMode      string    `json:"scope_mode"`
-	ScopePackages  []string  `json:"scope_packages,omitempty"`
-	RunnerContract string    `json:"runner_contract_version"`
-	ContractDigest string    `json:"contract_digest"`
-	RecordedAt     time.Time `json:"recorded_at"`
+	SchemaVersion  int                          `json:"schema_version"`
+	ProjectID      string                       `json:"project_id"`
+	TreeID         string                       `json:"tree_id"`
+	Head           string                       `json:"head"`
+	GateNames      []string                     `json:"gate_names"`
+	ScopeMode      string                       `json:"scope_mode"`
+	ScopePackages  []string                     `json:"scope_packages,omitempty"`
+	RunnerContract string                       `json:"runner_contract_version"`
+	ContractDigest string                       `json:"contract_digest"`
+	TestMode       string                       `json:"test_mode,omitempty"`
+	GateResults    []model.CompletionGateResult `json:"gate_results,omitempty"`
+	CommandDigests map[string]string            `json:"command_digests,omitempty"`
+	RecordedAt     time.Time                    `json:"recorded_at"`
 }
 
 func (s *Service) testPassReceiptPath(projectID string) (string, error) {
@@ -66,7 +72,7 @@ func normalizeReceiptScope(mode string, packages []string) (gates.TestScope, err
 }
 
 func validateTestPassReceipt(receipt testPassReceipt) error {
-	if receipt.SchemaVersion != testPassReceiptSchemaVersion || model.ValidateProjectIdentifier(receipt.ProjectID) != nil || model.ValidateRevision(receipt.TreeID) != nil || model.ValidateRevision(receipt.Head) != nil || receipt.RecordedAt.IsZero() {
+	if (receipt.SchemaVersion != testPassReceiptLegacySchemaVersion && receipt.SchemaVersion != testPassReceiptSchemaVersion) || model.ValidateProjectIdentifier(receipt.ProjectID) != nil || model.ValidateRevision(receipt.TreeID) != nil || model.ValidateRevision(receipt.Head) != nil || receipt.RecordedAt.IsZero() {
 		return fmt.Errorf("invalid test pass receipt identity")
 	}
 	if len(receipt.GateNames) == 0 || len(receipt.GateNames) > 3 {
@@ -96,6 +102,24 @@ func validateTestPassReceipt(receipt testPassReceipt) error {
 	normalizedGates, err := gates.Resolve(receipt.GateNames)
 	if err != nil || !reflect.DeepEqual(normalizedGates, receipt.GateNames) {
 		return fmt.Errorf("invalid test pass receipt gate names")
+	}
+	if receipt.SchemaVersion == testPassReceiptSchemaVersion {
+		if receipt.TestMode != "task" && receipt.TestMode != "train" {
+			return fmt.Errorf("invalid test pass receipt mode")
+		}
+		for gate, digest := range receipt.CommandDigests {
+			if gate != model.WorkflowGateFormat && gate != model.WorkflowGateCheck && gate != model.WorkflowGateTest || len(digest) != sha256.Size*2 {
+				return fmt.Errorf("invalid test pass receipt command identity")
+			}
+			if _, err := hex.DecodeString(digest); err != nil {
+				return fmt.Errorf("invalid test pass receipt command identity")
+			}
+		}
+		for _, result := range receipt.GateResults {
+			if result.ExitCode != 0 || result.TreeID != receipt.TreeID {
+				return fmt.Errorf("invalid test pass receipt gate result")
+			}
+		}
 	}
 	return nil
 }
@@ -185,6 +209,80 @@ func (s *Service) writeTestPassReceiptLocked(ctx context.Context, projectID, roo
 		ScopePackages:  append([]string{}, normalizedScope.Packages...),
 		RunnerContract: gates.TestGateRunnerContractVersion,
 		ContractDigest: contract,
+		TestMode:       "task",
+		CommandDigests: map[string]string{},
+		RecordedAt:     s.durableNow(),
+	}
+	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
+	if err != nil {
+		return testPassReceipt{}, "", err
+	}
+	digest, err := gates.ProjectGateCommandDigest(configuration.Workflow.GateCommands, model.WorkflowGateTest, "task", normalizedScope)
+	if err != nil {
+		return testPassReceipt{}, "", err
+	}
+	receipt.CommandDigests[model.WorkflowGateTest] = digest
+	path, err := s.testPassReceiptPath(projectID)
+	if err != nil {
+		return testPassReceipt{}, "", err
+	}
+	if err := fsutil.WriteJSONAtomic(path, receipt, 0o600); err != nil {
+		return testPassReceipt{}, "", err
+	}
+	receiptDigest, err := testPassReceiptDigest(receipt)
+	return receipt, receiptDigest, err
+}
+
+func (s *Service) writeProjectGatePassReceiptLocked(ctx context.Context, projectID, root string, gateNames []string, commands model.ProjectGateCommands, testMode string, scope gates.TestScope, results []model.CompletionGateResult) (testPassReceipt, string, error) {
+	tree, head, err := s.currentTestIdentity(ctx, projectID, root)
+	if err != nil {
+		return testPassReceipt{}, "", err
+	}
+	normalized, err := scope.Normalize()
+	if err != nil {
+		return testPassReceipt{}, "", err
+	}
+	normalizedGates, err := gates.Resolve(gateNames)
+	if err != nil {
+		return testPassReceipt{}, "", err
+	}
+	contract, err := gates.TestGateCommandContractDigest(normalizedGates, normalized)
+	if err != nil {
+		return testPassReceipt{}, "", err
+	}
+	digests := make(map[string]string, len(normalizedGates))
+	stored := make([]model.CompletionGateResult, 0, len(results))
+	for _, name := range normalizedGates {
+		digest, digestErr := gates.ProjectGateCommandDigest(commands, name, testMode, normalized)
+		if digestErr != nil {
+			return testPassReceipt{}, "", digestErr
+		}
+		digests[name] = digest
+		for _, result := range results {
+			if result.ID == name {
+				copy := result
+				copy.TreeID = tree
+				stored = append(stored, copy)
+				break
+			}
+		}
+	}
+	if len(stored) != len(normalizedGates) {
+		return testPassReceipt{}, "", fmt.Errorf("gate receipt is missing required evidence")
+	}
+	receipt := testPassReceipt{
+		SchemaVersion:  testPassReceiptSchemaVersion,
+		ProjectID:      projectID,
+		TreeID:         tree,
+		Head:           head,
+		GateNames:      append([]string{}, normalizedGates...),
+		ScopeMode:      normalized.Mode,
+		ScopePackages:  append([]string{}, normalized.Packages...),
+		RunnerContract: gates.TestGateRunnerContractVersion,
+		ContractDigest: contract,
+		TestMode:       testMode,
+		GateResults:    stored,
+		CommandDigests: digests,
 		RecordedAt:     s.durableNow(),
 	}
 	path, err := s.testPassReceiptPath(projectID)

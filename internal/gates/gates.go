@@ -179,20 +179,9 @@ func (e Executor) ExecuteWithProjectCommandsAndScope(ctx context.Context, root s
 	started := time.Now()
 	for _, gate := range resolved {
 		gateStarted := time.Now()
-		command := commands.Format
-		switch gate {
-		case model.WorkflowGateCheck:
-			command = commands.Check
-		case model.WorkflowGateTest:
-			if testMode == "task" {
-				command = commands.Test.Task
-			} else {
-				command = commands.Test.Train
-			}
-		}
-		argv := append([]string{}, command.Command...)
-		if gate == model.WorkflowGateTest && testMode == "task" && normalized.Mode == TestScopePackages {
-			argv = scopedGoTestCommand(argv, normalized)
+		argv, err := ProjectGateCommandArgs(commands, gate, testMode, normalized)
+		if err != nil {
+			return results, err
 		}
 		code, output, runErr := e.Command(ctx, root, argv[0], argv[1:]...)
 		results = append(results, timedGateResult(gate, code, time.Since(gateStarted)))
@@ -202,6 +191,78 @@ func (e Executor) ExecuteWithProjectCommandsAndScope(ctx context.Context, root s
 	}
 	annotateGateAggregate(results, time.Since(started))
 	return results, nil
+}
+
+// ProjectGateCommandArgs returns the exact argv that a project-owned gate
+// would execute after applying the server-owned scope to a canonical Go task
+// test command.
+func ProjectGateCommandArgs(commands model.ProjectGateCommands, gate, testMode string, scope TestScope) ([]string, error) {
+	if err := commands.Validate(); err != nil {
+		return nil, err
+	}
+	if testMode != "task" && testMode != "train" {
+		return nil, fmt.Errorf("invalid project test mode %q", testMode)
+	}
+	normalized, err := scope.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	command := commands.Format
+	switch gate {
+	case model.WorkflowGateCheck:
+		command = commands.Check
+	case model.WorkflowGateTest:
+		if testMode == "task" {
+			command = commands.Test.Task
+		} else {
+			command = commands.Test.Train
+		}
+	case model.WorkflowGateFormat:
+	default:
+		return nil, fmt.Errorf("unsupported workflow gate %q", gate)
+	}
+	argv := append([]string{}, command.Command...)
+	if gate == model.WorkflowGateTest && testMode == "task" && normalized.Mode == TestScopePackages {
+		argv = scopedGoTestCommand(argv, normalized)
+	}
+	return argv, nil
+}
+
+func ProjectGateCommandDigest(commands model.ProjectGateCommands, gate, testMode string, scope TestScope) (string, error) {
+	argv, err := ProjectGateCommandArgs(commands, gate, testMode, scope)
+	if err != nil {
+		return "", err
+	}
+	normalized, err := scope.Normalize()
+	if err != nil {
+		return "", err
+	}
+	scopeIdentity := gatesScopeIdentity(normalized, gate)
+	payload := struct {
+		Version string   `json:"version"`
+		Gate    string   `json:"gate"`
+		Scope   string   `json:"scope"`
+		Argv    []string `json:"argv"`
+	}{"gpt-tunnel-project-gate/v1", gate, scopeIdentity, argv}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func gatesScopeIdentity(scope TestScope, gate string) string {
+	if gate != model.WorkflowGateTest {
+		return TestScopeFull
+	}
+	if scope.Mode == TestScopePackages {
+		identity, err := scope.CommandIdentity()
+		if err == nil {
+			return identity
+		}
+	}
+	return scope.Mode
 }
 
 func scopedGoTestCommand(command []string, scope TestScope) []string {

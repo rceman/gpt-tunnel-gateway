@@ -58,6 +58,16 @@ func (s *Service) executeProjectGatesWithProjectCommandsAndScope(ctx context.Con
 		}
 		return results, nil
 	}
+	if testMode == "train" {
+		results, err := s.executeProjectTrainGatesWithReceiptReuse(ctx, projectID, root, names, configuration.Workflow.GateCommands, scope)
+		if err != nil {
+			return results, err
+		}
+		if err := validateProjectGateEvidence(results, names); err != nil {
+			return nil, err
+		}
+		return results, nil
+	}
 	results, err := s.executeProjectGatesCommandSet(ctx, root, names, configuration.Workflow.GateCommands, testMode, scope)
 	if err != nil {
 		return results, err
@@ -66,6 +76,65 @@ func (s *Service) executeProjectGatesWithProjectCommandsAndScope(ctx context.Con
 		return nil, err
 	}
 	return results, nil
+}
+
+func (s *Service) executeProjectTrainGatesWithReceiptReuse(ctx context.Context, projectID, root string, names []string, commands model.ProjectGateCommands, scope gates.TestScope) ([]model.CompletionGateResult, error) {
+	normalized, err := scope.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	tree, _, identityErr := s.currentTestIdentity(ctx, projectID, root)
+	receipt, receiptDigest, receiptErr := s.loadTestPassReceipt(projectID)
+	byID := make(map[string]model.CompletionGateResult, len(names))
+	missing := make([]string, 0, len(names))
+	for _, name := range names {
+		digest, digestErr := gates.ProjectGateCommandDigest(commands, name, "train", normalized)
+		candidate, ok := byReceiptGate(receipt, name)
+		scopeMatches := name != model.WorkflowGateTest || (receipt.ScopeMode == normalized.Mode && reflect.DeepEqual(receipt.ScopePackages, normalized.Packages))
+		if identityErr != nil || receiptErr != nil || digestErr != nil || receipt.ProjectID != projectID || receipt.TreeID != tree || !scopeMatches || receipt.CommandDigests[name] != digest || !ok || candidate.ExitCode != 0 {
+			missing = append(missing, name)
+			continue
+		}
+		candidate.Execution = "reused"
+		candidate.ReceiptDigest = receiptDigest
+		byID[name] = candidate
+	}
+	if len(missing) > 0 {
+		results, execErr := s.executeProjectGatesCommandSet(ctx, root, missing, commands, "train", normalized)
+		if execErr != nil {
+			return results, execErr
+		}
+		for _, result := range annotateExecutedGateResults(results) {
+			byID[result.ID] = result
+		}
+	}
+	results := make([]model.CompletionGateResult, 0, len(names))
+	for _, name := range names {
+		result, ok := byID[name]
+		if !ok {
+			return nil, fmt.Errorf("train gate evidence missing %q", name)
+		}
+		results = append(results, result)
+	}
+	recorded, recordedDigest, err := s.writeProjectGatePassReceiptLocked(ctx, projectID, root, names, commands, "train", normalized, results)
+	if err != nil {
+		return nil, fmt.Errorf("store Train gate pass receipt: %w", err)
+	}
+	for i := range results {
+		results[i].TreeID = recorded.TreeID
+		results[i].ContractDigest = recorded.CommandDigests[results[i].ID]
+		results[i].ReceiptDigest = recordedDigest
+	}
+	return results, nil
+}
+
+func byReceiptGate(receipt testPassReceipt, wanted string) (model.CompletionGateResult, bool) {
+	for _, result := range receipt.GateResults {
+		if result.ID == wanted {
+			return result, true
+		}
+	}
+	return model.CompletionGateResult{}, false
 }
 
 func (s *Service) executeProjectGatesCommandSet(ctx context.Context, root string, names []string, commands model.ProjectGateCommands, testMode string, scope gates.TestScope) ([]model.CompletionGateResult, error) {
@@ -89,10 +158,11 @@ func (s *Service) executeProjectTaskGatesWithTestReuse(ctx context.Context, proj
 	}
 	tree, _, identityErr := s.currentTestIdentity(ctx, projectID, root)
 	contract, contractErr := gates.TestGateCommandContractDigest(names, normalized)
+	testCommandDigest, commandErr := gates.ProjectGateCommandDigest(commands, model.WorkflowGateTest, "task", normalized)
 	var reused model.CompletionGateResult
-	if identityErr == nil && scopeErr == nil && contractErr == nil {
-		if receipt, receiptDigest, err := s.loadTestPassReceipt(projectID); err == nil && receipt.ProjectID == projectID && receipt.TreeID == tree && receipt.ScopeMode == normalized.Mode && reflect.DeepEqual(receipt.ScopePackages, normalized.Packages) && receipt.ContractDigest == contract {
-			reused = model.CompletionGateResult{ID: model.WorkflowGateTest, ExitCode: 0, Execution: "reused", TreeID: receipt.TreeID, ContractDigest: receipt.ContractDigest, ReceiptDigest: receiptDigest}
+	if identityErr == nil && scopeErr == nil && contractErr == nil && commandErr == nil {
+		if receipt, receiptDigest, err := s.loadTestPassReceipt(projectID); err == nil && receipt.ProjectID == projectID && receipt.TreeID == tree && receipt.ScopeMode == normalized.Mode && reflect.DeepEqual(receipt.ScopePackages, normalized.Packages) && receipt.ContractDigest == contract && receipt.CommandDigests[model.WorkflowGateTest] == testCommandDigest {
+			reused = model.CompletionGateResult{ID: model.WorkflowGateTest, ExitCode: 0, Execution: "reused", TreeID: receipt.TreeID, ContractDigest: testCommandDigest, ReceiptDigest: receiptDigest}
 		}
 	}
 	if reused.ID == "" {
@@ -104,14 +174,14 @@ func (s *Service) executeProjectTaskGatesWithTestReuse(ctx context.Context, proj
 			return results, err
 		}
 		results = annotateExecutedGateResults(results)
-		receipt, receiptDigest, err := s.writeTestPassReceiptLocked(ctx, projectID, root, names, normalized)
+		receipt, receiptDigest, err := s.writeProjectGatePassReceiptLocked(ctx, projectID, root, names, commands, "task", normalized, results)
 		if err != nil {
 			return nil, fmt.Errorf("store test pass receipt: %w", err)
 		}
 		for i := range results {
-			if results[i].ID == model.WorkflowGateTest {
+			if digest, ok := receipt.CommandDigests[results[i].ID]; ok {
 				results[i].TreeID = receipt.TreeID
-				results[i].ContractDigest = receipt.ContractDigest
+				results[i].ContractDigest = digest
 				results[i].ReceiptDigest = receiptDigest
 			}
 		}
@@ -142,6 +212,17 @@ func (s *Service) executeProjectTaskGatesWithTestReuse(ctx context.Context, proj
 				results = append(results, result)
 				break
 			}
+		}
+	}
+	receipt, receiptDigest, err := s.writeProjectGatePassReceiptLocked(ctx, projectID, root, names, commands, "task", normalized, results)
+	if err != nil {
+		return nil, fmt.Errorf("store test pass receipt: %w", err)
+	}
+	for i := range results {
+		if digest, ok := receipt.CommandDigests[results[i].ID]; ok {
+			results[i].TreeID = receipt.TreeID
+			results[i].ContractDigest = digest
+			results[i].ReceiptDigest = receiptDigest
 		}
 	}
 	return results, nil
