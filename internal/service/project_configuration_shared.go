@@ -49,6 +49,29 @@ func (s *Service) projectConfigurationUpdateShared(ctx context.Context, in Proje
 	if err := validateProjectConfigurationUpdateInput(in); err != nil {
 		return model.ProjectConfiguration{}, OperationResult{}, err
 	}
+	operationID, err := projectConfigurationOperationID(ctx, in)
+	if err != nil {
+		return model.ProjectConfiguration{}, OperationResult{}, err
+	}
+	if existing, found, err := s.Durability.ReadSharedOutboxEntry(ctx, operationID); err != nil {
+		return model.ProjectConfiguration{}, OperationResult{}, err
+	} else if found {
+		if existing.EntityType != "project_configuration" || existing.EntityID != in.ProjectID || existing.Kind != "project-configuration-update" {
+			return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("shared project configuration operation identity mismatch")
+		}
+		var committed model.ProjectConfiguration
+		if err := json.Unmarshal(existing.Payload, &committed); err != nil {
+			return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("decode committed Shared project configuration %s: %w", in.ProjectID, err)
+		}
+		normalizeProjectConfiguration(&committed)
+		if committed.ProjectID != in.ProjectID || int64(committed.Revision) != existing.Revision {
+			return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("committed Shared project configuration identity mismatch")
+		}
+		if err := model.ValidateProjectConfiguration(committed); err != nil {
+			return model.ProjectConfiguration{}, OperationResult{}, err
+		}
+		return committed, OperationResult{OperationID: operationID, ProjectID: in.ProjectID, Status: "updated", Hub: hub.TransactionResult{Paths: []string{}}}, nil
+	}
 	current, err := s.projectConfigurationReadShared(ctx, in.ProjectID)
 	if err != nil {
 		return model.ProjectConfiguration{}, OperationResult{}, err
@@ -75,15 +98,6 @@ func (s *Service) projectConfigurationUpdateShared(ctx context.Context, in Proje
 	if err != nil {
 		return model.ProjectConfiguration{}, OperationResult{}, err
 	}
-	operationID := durableMutationOperationID(ctx)
-	if operationID == "" {
-		encoded, marshalErr := json.Marshal(in)
-		if marshalErr != nil {
-			return model.ProjectConfiguration{}, OperationResult{}, marshalErr
-		}
-		digest := sha256.Sum256(encoded)
-		operationID = "project-configuration-shared-" + hex.EncodeToString(digest[:])
-	}
 	if _, err := s.Durability.CommitSharedMutation(ctx, sqlitestore.SharedMutation{
 		OperationID: operationID, EntityType: "project_configuration", EntityID: in.ProjectID,
 		ExpectedRevision: int64(current.Revision), Revision: int64(updated.Revision),
@@ -92,6 +106,18 @@ func (s *Service) projectConfigurationUpdateShared(ctx context.Context, in Proje
 		return model.ProjectConfiguration{}, OperationResult{}, err
 	}
 	return updated, OperationResult{OperationID: operationID, ProjectID: in.ProjectID, Status: "updated", Hub: hub.TransactionResult{Paths: []string{}}}, nil
+}
+
+func projectConfigurationOperationID(ctx context.Context, in ProjectConfigurationUpdateInput) (string, error) {
+	if operationID := durableMutationOperationID(ctx); operationID != "" {
+		return operationID, nil
+	}
+	encoded, err := json.Marshal(in)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return "project-configuration-shared-" + hex.EncodeToString(digest[:]), nil
 }
 
 func requireSharedProjectConfiguration(ctx context.Context, s *Service, projectID string) error {

@@ -553,6 +553,13 @@ func (d *Databases) PendingOutbox(ctx context.Context, limit int) ([]OutboxEntry
 	return entries, nil
 }
 
+func (d *Databases) ReadSharedOutboxEntry(ctx context.Context, operationID string) (OutboxEntry, bool, error) {
+	if operationID == "" {
+		return OutboxEntry{}, false, fmt.Errorf("shared outbox operation id is required")
+	}
+	return d.outboxEntry(ctx, operationID)
+}
+
 func (d *Databases) MarkOutboxPublished(ctx context.Context, id string, at time.Time) error {
 	if d == nil || d.Shared == nil {
 		return fmt.Errorf("shared store is unavailable")
