@@ -145,23 +145,33 @@ func (s *Service) bootstrapSharedADRs(ctx context.Context, snapshot *hub.ReadSna
 		if err := model.ValidateADR(adr); err != nil {
 			return fmt.Errorf("invalid ADR bootstrap %s: %w", filePath, err)
 		}
-		number, err := model.ParseADRIDForProject(adr.ID, projectCode)
-		if err == nil {
-			if number >= uint64(nextADRNumber) {
-				nextADRNumber = int64(number + 1)
-			}
-		} else if _, historicalNumber, historicalErr := model.ParseHistoricalADRID(adr.ID); historicalErr == nil {
-			if historicalNumber >= uint64(nextADRNumber) {
-				nextADRNumber = int64(historicalNumber + 1)
-			}
-		} else {
+		number, counted, err := sharedADRBootstrapSequenceNumber(adr.ID, projectCode)
+		if err != nil {
 			return fmt.Errorf("invalid ADR bootstrap identifier %s: %w", filePath, err)
+		}
+		if counted && number >= uint64(nextADRNumber) {
+			nextADRNumber = int64(number + 1)
 		}
 		if err := s.Durability.PutSharedProjection(ctx, "adr", sqlitestore.SharedEntity{ID: adr.ID, Revision: projectionRevision(adr.CreatedAt), Payload: files[filePath], UpdatedAt: adr.CreatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
 			return err
 		}
 	}
 	return s.Durability.PutSharedADRSequence(ctx, projectID, projectCode, nextADRNumber)
+}
+
+func sharedADRBootstrapSequenceNumber(id, projectCode string) (uint64, bool, error) {
+	if number, err := model.ParseADRIDForProject(id, projectCode); err == nil {
+		return number, true, nil
+	}
+	if _, number, err := model.ParseHistoricalADRID(id); err == nil {
+		return number, true, nil
+	}
+	if model.ValidateADRIdentifier(id) == nil {
+		// Legacy ADR identifiers remain valid stored records, but do not
+		// influence the canonical project-local allocator sequence.
+		return 0, false, nil
+	}
+	return 0, false, fmt.Errorf("unsupported ADR identifier")
 }
 
 func (s *Service) bootstrapSharedTrains(ctx context.Context, snapshot *hub.ReadSnapshot, projectID string) error {
