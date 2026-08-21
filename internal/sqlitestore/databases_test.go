@@ -172,6 +172,49 @@ func TestOpenAcceptsReleasedVersionThreeAndAppliesBootstrapMigration(t *testing.
 	}
 }
 
+func TestOpenRejectsWrongVersionTwoNameWithoutChangingMarker(t *testing.T) {
+	stateDir := t.TempDir()
+	db, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sharedPath := db.SharedPath()
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	const wrongName = "gpt_tunnel_shared_wrong_v2"
+	ctx := context.Background()
+	raw, err := upstream.Open(upstream.Config{Path: sharedPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(ctx, `UPDATE schema_migrations SET name=? WHERE version=?`, wrongName, int64(2)); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Open(stateDir); err == nil {
+		t.Fatal("Open succeeded with a wrong version-2 migration name")
+	}
+
+	raw, err = upstream.Open(upstream.Config{Path: sharedPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	rows, err := raw.Query(ctx, `SELECT name FROM schema_migrations WHERE version=?`, int64(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows.Rows) != 1 || rows.Rows[0][0] != wrongName {
+		t.Fatalf("version-2 marker changed after rejection: %#v", rows.Rows)
+	}
+}
+
 func TestSharedMigrationHistoryPreservesReleasedVersionsBeforeCandidates(t *testing.T) {
 	db, err := Open(t.TempDir())
 	if err != nil {
