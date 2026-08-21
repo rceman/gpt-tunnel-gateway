@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
@@ -37,8 +39,10 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	durability, err := sqlitestore.Open(c.StateDir)
+	startupPhase("SQLITE_OPEN")
+	durability, err := sqlitestore.OpenWithObserver(c.StateDir, startupPhase)
 	if err != nil {
+		startupError(err)
 		fatal(err)
 	}
 	defer durability.Close()
@@ -97,6 +101,34 @@ func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnel-gatewayd:", err); os
 
 func startupPhase(phase string) {
 	fmt.Fprintf(os.Stderr, "gpt-tunnel-gatewayd startup_phase=%s\n", phase)
+}
+
+func startupError(err error) {
+	details := map[string]string{
+		"phase": "SQLITE_OPEN",
+		"stage": "other_initialization",
+		"error": boundedStartupError(err),
+	}
+	var openErr *sqlitestore.OpenError
+	if errors.As(err, &openErr) {
+		details["stage"] = openErr.Stage
+		details["database"] = openErr.Database
+		details["path"] = openErr.Path
+	}
+	payload, marshalErr := json.Marshal(details)
+	if marshalErr != nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "gpt-tunnel-gatewayd startup_error=%s\n", payload)
+}
+
+func boundedStartupError(err error) string {
+	const maxErrorBytes = 2048
+	message := err.Error()
+	if len(message) > maxErrorBytes {
+		return message[:maxErrorBytes]
+	}
+	return message
 }
 
 func summarizeStateIssues(issues []service.StateIssue) string {

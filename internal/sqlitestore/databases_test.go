@@ -83,6 +83,52 @@ func TestOpenRejectsSecondOwner(t *testing.T) {
 	}
 }
 
+func TestOpenReportsLockAcquisitionStage(t *testing.T) {
+	stateDir := t.TempDir()
+	owned, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owned.Close()
+
+	_, err = Open(stateDir)
+	var openErr *OpenError
+	if !errors.As(err, &openErr) {
+		t.Fatalf("open error type=%T value=%v", err, err)
+	}
+	if openErr.Stage != "lock_acquisition" || openErr.Database != "shared" || openErr.Path == "" {
+		t.Fatalf("open error=%#v", openErr)
+	}
+	if !errors.Is(err, upstream.ErrAlreadyOpen) {
+		t.Fatalf("open error does not preserve ownership sentinel: %v", err)
+	}
+}
+
+func TestOpenObserverReportsSQLiteStartupPhases(t *testing.T) {
+	var phases []string
+	db, err := OpenWithObserver(t.TempDir(), func(phase string) { phases = append(phases, phase) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	want := []string{
+		"SQLITE_DIRECTORY_PREPARE",
+		"SQLITE_SHARED_OPEN",
+		"SQLITE_LOCAL_OPEN",
+		"SQLITE_SHARED_MIGRATION",
+		"SQLITE_LOCAL_MIGRATION",
+		"SQLITE_READY",
+	}
+	if len(phases) != len(want) {
+		t.Fatalf("startup phases=%v, want=%v", phases, want)
+	}
+	for i := range want {
+		if phases[i] != want[i] {
+			t.Fatalf("startup phases=%v, want=%v", phases, want)
+		}
+	}
+}
+
 func BenchmarkSharedAndLocalTraffic(b *testing.B) {
 	db, err := Open(filepath.Join(b.TempDir(), "state"))
 	if err != nil {

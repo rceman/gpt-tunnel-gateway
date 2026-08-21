@@ -89,10 +89,23 @@ func procUID(pid int) (uint32, error) {
 	return 0, fmt.Errorf("process UID unavailable")
 }
 func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
+
+func expectedCommandLine(name, executable, configPath string) string {
+	if name == "gateway" && configPath != "" {
+		return executable + " --config " + configPath
+	}
+	if name == "tunnel" {
+		return executable + " run"
+	}
+	return executable
+}
+
 func (c Controller) process(name, expected string) ProcessStatus {
 	p := ProcessStatus{
-		Name:               name,
-		ExpectedExecutable: expected,
+		Name:                name,
+		ExpectedExecutable:  expected,
+		ExpectedCommandLine: expectedCommandLine(name, expected, c.ConfigPath),
+		ExpectedUID:         uint32(os.Getuid()),
 	}
 	if expected == "" {
 		p.IdentityReason = "configured executable is unavailable"
@@ -100,16 +113,24 @@ func (c Controller) process(name, expected string) ProcessStatus {
 	}
 	record, err := readPIDRecord(c.pidPath(name))
 	if err != nil {
+		p.IdentityReason = "PID record unavailable"
 		return p
 	}
 	p.PID = record.PID
+	p.ExpectedStartTimeTicks = record.StartTimeTicks
 	if !alive(record.PID) {
 		_ = os.Remove(c.pidPath(name))
+		p.IdentityReason = "process is not running"
 		return p
 	}
-	p.StartTimeTicks, _ = procStartTime(record.PID)
+	p.Running = true
+	p.ActualStartTimeTicks, _ = procStartTime(record.PID)
+	p.StartTimeTicks = p.ActualStartTimeTicks
 	uid, uidErr := procUID(record.PID)
 	cmdline, cmdErr := procCmdline(record.PID)
+	p.ActualUID = uid
+	p.CommandLine = cmdline
+	p.Executable, _ = procExe(record.PID)
 	if uidErr != nil || cmdErr != nil || uid != uint32(os.Getuid()) {
 		p.IdentityReason = "process UID does not match controller owner"
 		return p
@@ -130,9 +151,6 @@ func (c Controller) process(name, expected string) ProcessStatus {
 		p.IdentityReason = "managed tunnel command is not run"
 		return p
 	}
-	exe, _ := procExe(record.PID)
-	p.Executable = exe
-	p.Running = true
 	p.IdentityValid = true
 	return p
 }

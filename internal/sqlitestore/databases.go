@@ -44,6 +44,21 @@ type Databases struct {
 	localPath  string
 }
 
+// OpenError preserves the bounded startup diagnostic boundary without
+// changing the store's ownership or durability behavior.
+type OpenError struct {
+	Stage    string
+	Database string
+	Path     string
+	Err      error
+}
+
+func (e *OpenError) Error() string {
+	return fmt.Sprintf("sqlite %s %s (%s): %v", e.Stage, e.Database, e.Path, e.Err)
+}
+
+func (e *OpenError) Unwrap() error { return e.Err }
+
 func Paths(stateDir string) (shared, local string) {
 	root := filepath.Join(filepath.Clean(stateDir), "databases")
 	return filepath.Join(root, "shared.db"), filepath.Join(root, "local.db")
@@ -51,23 +66,41 @@ func Paths(stateDir string) (shared, local string) {
 
 func Open(stateDir string) (*Databases, error) { return OpenWithConfig(Config{StateDir: stateDir}) }
 
+// OpenWithObserver is the same durable open path as OpenWithConfig, with
+// bounded phase notifications for daemon startup diagnostics.
+func OpenWithObserver(stateDir string, observe func(string)) (*Databases, error) {
+	return openWithConfig(Config{StateDir: stateDir}, observe)
+}
+
 func OpenWithConfig(cfg Config) (*Databases, error) {
-	if cfg.StateDir == "" || !filepath.IsAbs(cfg.StateDir) {
-		return nil, fmt.Errorf("sqlite store state directory must be absolute")
+	return openWithConfig(cfg, nil)
+}
+
+func openWithConfig(cfg Config, observe func(string)) (*Databases, error) {
+	notify := func(phase string) {
+		if observe != nil {
+			observe(phase)
+		}
 	}
+	if cfg.StateDir == "" || !filepath.IsAbs(cfg.StateDir) {
+		return nil, &OpenError{Stage: "directory_prepare", Database: "state", Err: fmt.Errorf("sqlite store state directory must be absolute")}
+	}
+	notify("SQLITE_DIRECTORY_PREPARE")
 	sharedPath, localPath := Paths(cfg.StateDir)
 	if err := os.MkdirAll(filepath.Dir(sharedPath), 0o700); err != nil {
-		return nil, fmt.Errorf("create sqlite store directory: %w", err)
+		return nil, &OpenError{Stage: "directory_prepare", Database: "state", Path: filepath.Dir(sharedPath), Err: err}
 	}
 	engine := engineConfig(cfg)
+	notify("SQLITE_SHARED_OPEN")
 	shared, err := store.Open(engine(sharedPath))
 	if err != nil {
-		return nil, fmt.Errorf("open shared sqlite store: %w", err)
+		return nil, &OpenError{Stage: openStage(err), Database: "shared", Path: sharedPath, Err: err}
 	}
+	notify("SQLITE_LOCAL_OPEN")
 	local, err := store.Open(engine(localPath))
 	if err != nil {
 		_ = shared.Close()
-		return nil, fmt.Errorf("open local sqlite store: %w", err)
+		return nil, &OpenError{Stage: openStage(err), Database: "local", Path: localPath, Err: err}
 	}
 	db := &Databases{
 		Shared:     shared,
@@ -75,11 +108,19 @@ func OpenWithConfig(cfg Config) (*Databases, error) {
 		sharedPath: sharedPath,
 		localPath:  localPath,
 	}
-	if err := applyMigrations(context.Background(), db); err != nil {
+	if err := applyMigrations(context.Background(), db, notify); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
+	notify("SQLITE_READY")
 	return db, nil
+}
+
+func openStage(err error) string {
+	if errors.Is(err, store.ErrAlreadyOpen) {
+		return "lock_acquisition"
+	}
+	return "database_open"
 }
 
 func engineConfig(cfg Config) func(string) store.Config {
@@ -116,12 +157,18 @@ func engineConfig(cfg Config) func(string) store.Config {
 	}
 }
 
-func applyMigrations(ctx context.Context, db *Databases) error {
+func applyMigrations(ctx context.Context, db *Databases, notify func(string)) error {
+	if notify != nil {
+		notify("SQLITE_SHARED_MIGRATION")
+	}
 	if err := migrate.Apply(ctx, db.Shared, sharedMigrations, migrate.Options{}); err != nil {
-		return fmt.Errorf("migrate shared sqlite store: %w", err)
+		return &OpenError{Stage: "migration", Database: "shared", Path: db.sharedPath, Err: err}
+	}
+	if notify != nil {
+		notify("SQLITE_LOCAL_MIGRATION")
 	}
 	if err := migrate.Apply(ctx, db.Local, localMigrations, migrate.Options{}); err != nil {
-		return fmt.Errorf("migrate local sqlite store: %w", err)
+		return &OpenError{Stage: "migration", Database: "local", Path: db.localPath, Err: err}
 	}
 	return nil
 }

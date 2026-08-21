@@ -127,13 +127,37 @@ func TestProcessIdentityRejectsMismatchedPIDFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Gateway.Running {
-		t.Fatal("mismatched executable accepted")
+	if !st.Gateway.Running || st.Gateway.IdentityValid {
+		t.Fatalf("mismatched executable status=%#v", st.Gateway)
+	}
+	if st.Gateway.IdentityReason == "" || st.Gateway.CommandLine == "" || st.Gateway.ExpectedCommandLine == "" || st.Gateway.Executable == "" || st.Gateway.ActualUID == 0 {
+		t.Fatalf("identity mismatch evidence is incomplete: %#v", st.Gateway)
+	}
+	diagnosis := c.DiagnoseStartup(context.Background())
+	if diagnosis.ErrorCode != "GATEWAY_PROCESS_IDENTITY_INVALID" {
+		t.Fatalf("diagnosis error=%q, want identity mismatch", diagnosis.ErrorCode)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	_ = ctx
 	_ = os.ErrNotExist
+}
+
+func TestDiagnoseStartupClassifiesAbsentGatewayAsNotRunning(t *testing.T) {
+	c := Controller{Config: config.Config{
+		ListenAddr: "127.0.0.1:1",
+		StateDir:   t.TempDir(),
+		Controller: config.ControllerConfig{
+			GatewayBinary:      "/bin/false",
+			TunnelClientBinary: "/bin/false",
+			PIDDir:             t.TempDir(),
+			LogDir:             t.TempDir(),
+		},
+	}}
+	diagnosis := c.DiagnoseStartup(context.Background())
+	if diagnosis.ErrorCode != "GATEWAY_NOT_RUNNING" || !diagnosis.Exited {
+		t.Fatalf("diagnosis=%#v, want stopped Gateway classification", diagnosis)
+	}
 }
 
 func TestProcessIdentitySurvivesAtomicBinaryReplacement(t *testing.T) {

@@ -56,13 +56,13 @@ func (c Controller) DiagnoseStartup(ctx context.Context) StartupDiagnosis {
 		result.FirstFatalLine = sanitizeLogLine(err.Error())
 		return result
 	}
-	if !status.Gateway.IdentityValid {
-		result.Phase = "PROCESS_VALIDATE"
-		result.ErrorCode = "GATEWAY_PROCESS_IDENTITY_INVALID"
-	} else if !status.Gateway.Running {
+	if !status.Gateway.Running {
 		result.Phase = "PROCESS_VALIDATE"
 		result.ErrorCode = "GATEWAY_NOT_RUNNING"
 		result.Exited = true
+	} else if !status.Gateway.IdentityValid {
+		result.Phase = "PROCESS_VALIDATE"
+		result.ErrorCode = "GATEWAY_PROCESS_IDENTITY_INVALID"
 	} else if !status.GatewayReady {
 		result.Phase = "READY"
 		result.ErrorCode = "GATEWAY_NOT_READY"

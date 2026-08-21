@@ -11,14 +11,20 @@ type Controller struct {
 	ConfigPath string
 }
 type ProcessStatus struct {
-	Name               string `json:"name"`
-	Running            bool   `json:"running"`
-	PID                int    `json:"pid,omitempty"`
-	Executable         string `json:"executable,omitempty"`
-	ExpectedExecutable string `json:"expected_executable"`
-	IdentityValid      bool   `json:"identity_valid"`
-	IdentityReason     string `json:"identity_reason,omitempty"`
-	StartTimeTicks     uint64 `json:"start_time_ticks,omitempty"`
+	Name                   string `json:"name"`
+	Running                bool   `json:"running"`
+	PID                    int    `json:"pid,omitempty"`
+	Executable             string `json:"executable,omitempty"`
+	ExpectedExecutable     string `json:"expected_executable"`
+	CommandLine            string `json:"command_line,omitempty"`
+	ExpectedCommandLine    string `json:"expected_command_line,omitempty"`
+	ActualUID              uint32 `json:"actual_uid,omitempty"`
+	ExpectedUID            uint32 `json:"expected_uid,omitempty"`
+	IdentityValid          bool   `json:"identity_valid"`
+	IdentityReason         string `json:"identity_reason,omitempty"`
+	StartTimeTicks         uint64 `json:"start_time_ticks,omitempty"`
+	ExpectedStartTimeTicks uint64 `json:"expected_start_time_ticks,omitempty"`
+	ActualStartTimeTicks   uint64 `json:"actual_start_time_ticks,omitempty"`
 }
 
 // RuntimeIdentity is the server-owned, read-only proof used by CLI and MCP
