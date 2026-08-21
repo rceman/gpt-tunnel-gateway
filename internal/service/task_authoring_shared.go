@@ -12,7 +12,7 @@ import (
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
-func (s *Service) requireLocalTaskAuthoring(projectID string) error {
+func (s *Service) requireLocalTaskAuthoring(ctx context.Context, projectID string) error {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return err
 	}
@@ -20,11 +20,20 @@ func (s *Service) requireLocalTaskAuthoring(projectID string) error {
 	if !ok {
 		return fmt.Errorf("project %q is not configured locally", projectID)
 	}
+	if s.Durability != nil {
+		complete, err := s.Durability.SharedBootstrapComplete(ctx, projectID)
+		if err != nil {
+			return fmt.Errorf("read Shared bootstrap marker: %w", err)
+		}
+		if !complete {
+			return fmt.Errorf("Shared bootstrap is incomplete for project %q", projectID)
+		}
+	}
 	return nil
 }
 
 func (s *Service) sharedTaskProjectCode(ctx context.Context, projectID string) (string, error) {
-	if err := s.requireLocalTaskAuthoring(projectID); err != nil {
+	if err := s.requireLocalTaskAuthoring(ctx, projectID); err != nil {
 		return "", err
 	}
 	if code := s.Config.Projects[projectID].ProjectCode; model.ValidateProjectCode(code) == nil {
@@ -59,7 +68,7 @@ func (s *Service) readSharedTask(ctx context.Context, projectID, taskID string) 
 }
 
 func (s *Service) taskAuthoringCreateShared(ctx context.Context, operationID string, in TaskAuthoringCreateInput) (model.TaskAuthoring, OperationResult, error) {
-	if err := s.requireLocalTaskAuthoring(in.ProjectID); err != nil {
+	if err := s.requireLocalTaskAuthoring(ctx, in.ProjectID); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	if in.CreatedBy == "" || containsControl(in.CreatedBy) {
@@ -102,7 +111,7 @@ func (s *Service) taskAuthoringCreateShared(ctx context.Context, operationID str
 }
 
 func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID string, in TaskAuthoringUpdateInput) (model.TaskAuthoring, OperationResult, error) {
-	if err := s.requireLocalTaskAuthoring(in.ProjectID); err != nil {
+	if err := s.requireLocalTaskAuthoring(ctx, in.ProjectID); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	current, err := s.readSharedTask(ctx, in.ProjectID, in.TaskID)
@@ -135,7 +144,7 @@ func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID str
 }
 
 func (s *Service) taskAuthoringReadyShared(ctx context.Context, operationID string, in TaskAuthoringReadyInput) (model.TaskAuthoring, OperationResult, error) {
-	if err := s.requireLocalTaskAuthoring(in.ProjectID); err != nil {
+	if err := s.requireLocalTaskAuthoring(ctx, in.ProjectID); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	current, err := s.readSharedTask(ctx, in.ProjectID, in.TaskID)

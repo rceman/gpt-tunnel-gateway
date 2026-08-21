@@ -83,6 +83,12 @@ type SharedIntegrationReceipt struct {
 	UpdatedAt string
 }
 
+type SharedBootstrapMarker struct {
+	ProjectID   string
+	HubRevision string
+	CompletedAt string
+}
+
 var sharedEntityTables = map[string]string{
 	"task":    "shared_tasks",
 	"train":   "shared_trains",
@@ -265,6 +271,40 @@ func (d *Databases) PutSharedTaskSequence(ctx context.Context, projectID, projec
 	}
 	_, err := d.Shared.Exec(ctx, `INSERT INTO shared_task_sequences(project_id,project_code,next_task_number) VALUES(?,?,?) ON CONFLICT(project_id) DO UPDATE SET project_code=excluded.project_code,next_task_number=CASE WHEN excluded.next_task_number > shared_task_sequences.next_task_number THEN excluded.next_task_number ELSE shared_task_sequences.next_task_number END`, projectID, projectCode, next)
 	return err
+}
+
+func (d *Databases) MarkSharedBootstrapComplete(ctx context.Context, marker SharedBootstrapMarker) error {
+	if d == nil || d.Shared == nil {
+		return fmt.Errorf("shared store is unavailable")
+	}
+	if marker.ProjectID == "" || marker.HubRevision == "" || marker.CompletedAt == "" {
+		return fmt.Errorf("invalid shared bootstrap marker")
+	}
+	_, err := d.Shared.Exec(ctx, `INSERT INTO shared_bootstrap_markers(project_id,hub_revision,completed_at) VALUES(?,?,?) ON CONFLICT(project_id) DO UPDATE SET hub_revision=excluded.hub_revision,completed_at=excluded.completed_at`, marker.ProjectID, marker.HubRevision, marker.CompletedAt)
+	return err
+}
+
+func (d *Databases) SharedBootstrapComplete(ctx context.Context, projectID string) (bool, error) {
+	if d == nil || d.Shared == nil {
+		return false, fmt.Errorf("shared store is unavailable")
+	}
+	rows, err := d.Shared.Query(ctx, `SELECT project_id,hub_revision,completed_at FROM shared_bootstrap_markers WHERE project_id=?`, projectID)
+	if err != nil {
+		return false, err
+	}
+	if len(rows.Rows) == 0 {
+		return false, nil
+	}
+	if len(rows.Rows) != 1 || len(rows.Rows[0]) != 3 {
+		return false, fmt.Errorf("invalid shared bootstrap marker")
+	}
+	project, projectOK := rows.Rows[0][0].(string)
+	revision, revisionOK := rows.Rows[0][1].(string)
+	completed, completedOK := rows.Rows[0][2].(string)
+	if !projectOK || !revisionOK || !completedOK || project != projectID || revision == "" || completed == "" {
+		return false, fmt.Errorf("invalid shared bootstrap marker")
+	}
+	return true, nil
 }
 
 func (d *Databases) ReadSharedTask(ctx context.Context, taskID string) (SharedTask, error) {

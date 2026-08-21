@@ -26,6 +26,7 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
+	markSharedBootstrapCompleteForTest(t, db)
 
 	created, err := s.TaskAuthoringCreateAsync(context.Background(), TaskAuthoringCreateInput{
 		ProjectID: "example", Title: "Shared task", Objective: "Commit task state locally first.",
@@ -115,6 +116,7 @@ func TestTaskAuthoringAsyncMutationsCommitSharedWhenHubUnavailable(t *testing.T)
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
+	markSharedBootstrapCompleteForTest(t, db)
 	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
 
 	created, err := s.TaskAuthoringCreateAsync(context.Background(), TaskAuthoringCreateInput{
@@ -176,6 +178,7 @@ func TestTaskAuthoringReadySharedRequiresLocalIntegrationReceipt(t *testing.T) {
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
+	markSharedBootstrapCompleteForTest(t, db)
 	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
 
 	dependencyID := "GTW-TSK324"
@@ -245,11 +248,12 @@ func TestTaskAuthoringUpdateSharedBootstrapsLegacyTaskBeforeHubUnavailable(t *te
 	s.Durability = db
 	bootstrapCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
 	if err := s.BootstrapSharedFromHub(bootstrapCtx); err != nil {
 		t.Fatalf("shared bootstrap: %v", err)
 	}
-	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
 	title := "Updated while Hub is unavailable"
+	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
 	started, err := s.TaskAuthoringUpdateAsync(context.Background(), TaskAuthoringUpdateInput{
 		ProjectID: "example", TaskID: legacy.ID, ExpectedRevision: legacy.Revision,
 		ExpectedRevisionSHA256: legacy.RevisionSHA256, Title: &title, UpdatedBy: "planner",
@@ -260,6 +264,49 @@ func TestTaskAuthoringUpdateSharedBootstrapsLegacyTaskBeforeHubUnavailable(t *te
 	updated := waitTaskUpdateReceipt(t, s, started.OperationID)
 	if updated.Task == nil || updated.Task.Title != title {
 		t.Fatalf("Hub-unavailable update receipt=%#v", updated)
+	}
+}
+
+func TestSharedBootstrapMarkerBlocksAuthoringAndSurvivesRestart(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	project := s.Config.Projects["example"]
+	project.ProjectCode = "EXM"
+	s.Config.Projects["example"] = project
+	db, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Durability = db
+	in := TaskAuthoringCreateInput{ProjectID: "example", Title: "Marker task", Objective: "Require bootstrap first.", AcceptanceCriteria: []string{"marker"}, ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner"}
+	if _, _, err := s.taskAuthoringCreateShared(context.Background(), "op-before-bootstrap", in); err == nil || !strings.Contains(err.Error(), "bootstrap is incomplete") {
+		t.Fatalf("authoring before bootstrap error=%v", err)
+	}
+	markSharedBootstrapCompleteForTest(t, db)
+	if _, _, err := s.taskAuthoringCreateShared(context.Background(), "op-after-bootstrap", in); err != nil {
+		t.Fatalf("authoring after bootstrap: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s.Durability = db
+	complete, err := db.SharedBootstrapComplete(context.Background(), "example")
+	if err != nil || !complete {
+		t.Fatalf("bootstrap marker after restart: complete=%v err=%v", complete, err)
+	}
+	if err := s.requireLocalTaskAuthoring(context.Background(), "example"); err != nil {
+		t.Fatalf("restart lost bootstrap authority: %v", err)
+	}
+}
+
+func markSharedBootstrapCompleteForTest(t *testing.T, db *sqlitestore.Databases) {
+	t.Helper()
+	if err := db.MarkSharedBootstrapComplete(context.Background(), sqlitestore.SharedBootstrapMarker{ProjectID: "example", HubRevision: "fixture", CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
 	}
 }
 

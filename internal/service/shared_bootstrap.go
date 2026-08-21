@@ -15,14 +15,14 @@ import (
 
 const maxSharedBootstrapRecords = 1000
 
-// BootstrapSharedFromHub imports one bounded, pinned Hub snapshot into the
-// local Shared projections. It is an explicit post-ready/bootstrap operation;
+// BootstrapSharedFromHub imports one bounded, pinned local Hub snapshot into
+// the Shared projections. It is an explicit post-ready/bootstrap operation;
 // authoring workers only consume the resulting projections and never call Hub.
 func (s *Service) BootstrapSharedFromHub(ctx context.Context) error {
 	if s.Durability == nil {
 		return fmt.Errorf("shared store is unavailable")
 	}
-	snapshot, err := s.Hub.FreshReadSnapshot(ctx)
+	snapshot, err := s.Hub.ReadLocalSnapshot(ctx)
 	if err != nil {
 		return err
 	}
@@ -42,6 +42,9 @@ func (s *Service) BootstrapSharedFromHub(ctx context.Context) error {
 			return err
 		}
 		if err := s.bootstrapSharedTrains(ctx, snapshot, projectID); err != nil {
+			return err
+		}
+		if err := s.Durability.MarkSharedBootstrapComplete(ctx, sqlitestore.SharedBootstrapMarker{ProjectID: projectID, HubRevision: snapshot.Revision(), CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
 			return err
 		}
 	}

@@ -53,6 +53,28 @@ func (s Store) validateManagedRoot(ctx context.Context, root string) error {
 	}
 	return nil
 }
+
+func (s Store) validateManagedRootLocal(ctx context.Context, root string) error {
+	info, err := os.Lstat(root)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("managed hub root must be a real directory: %s", root)
+	}
+	gitInfo, err := os.Stat(filepath.Join(root, ".git"))
+	if err != nil || !gitInfo.IsDir() {
+		return fmt.Errorf("managed hub root is not a standard Git clone: %s", root)
+	}
+	status, err := command(ctx, root, "status", "--porcelain")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(status)) != "" {
+		return fmt.Errorf("managed hub worktree is dirty")
+	}
+	return nil
+}
 func (s Store) cloneIfMissing(ctx context.Context, root string) error {
 	_, err := os.Lstat(root)
 	if err == nil {

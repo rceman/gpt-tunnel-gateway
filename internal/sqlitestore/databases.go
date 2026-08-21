@@ -191,6 +191,11 @@ var sharedMigrations = []migrate.Migration{{
 	Statements: []store.Statement{
 		{SQL: `CREATE TABLE IF NOT EXISTS shared_integration_receipts (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`},
 	},
+}, {
+	Version: 3, Name: "gpt_tunnel_shared_bootstrap_markers_v3",
+	Statements: []store.Statement{
+		{SQL: `CREATE TABLE IF NOT EXISTS shared_bootstrap_markers (project_id TEXT PRIMARY KEY, hub_revision TEXT NOT NULL, completed_at TEXT NOT NULL)`},
+	},
 }}
 
 var localMigrations = []migrate.Migration{{

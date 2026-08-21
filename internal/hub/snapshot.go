@@ -58,6 +58,28 @@ func (s Store) ReadSnapshot(ctx context.Context) (*ReadSnapshot, error) {
 	}, nil
 }
 
+// ReadLocalSnapshot pins the managed local mirror without validating or
+// contacting its configured remote. It is used by post-cutover bootstrap;
+// callers must have a local mirror and remote-tracking ref already present.
+func (s Store) ReadLocalSnapshot(ctx context.Context) (*ReadSnapshot, error) {
+	lock, err := s.readOnlyLock()
+	if err != nil {
+		return nil, err
+	}
+	release := func() error { return lock.Release() }
+	root := ManagedRoot(s.Config)
+	if err := s.validateManagedRootLocal(ctx, root); err != nil {
+		_ = release()
+		return nil, errors.New("local hub snapshot unavailable")
+	}
+	revision, err := s.remoteRevisionLocked(ctx, root)
+	if err != nil {
+		_ = release()
+		return nil, errors.New("local hub snapshot ref unavailable")
+	}
+	return &ReadSnapshot{store: s, root: root, revision: revision, release: release}, nil
+}
+
 // FreshReadSnapshot fetches the configured Hub ref once and holds the
 // repository lock for a bounded request-scoped read. Nested Hub reads can
 // reuse it through WithReadSnapshot without issuing another fetch.
