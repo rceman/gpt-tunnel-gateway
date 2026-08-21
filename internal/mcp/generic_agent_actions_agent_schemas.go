@@ -1,8 +1,10 @@
 package mcp
 
+import "github.com/rceman/gpt-tunnel-gateway/internal/airelay"
+
 func boundedAgentMessageSchema() map[string]any {
 	message := str("Bounded non-interrupting Agent prompt.")
-	message["minLength"], message["maxLength"] = 1, 256
+	message["minLength"], message["maxLength"] = 1, airelay.MaxPromptBytes
 	return message
 }
 func agentInterruptOutputSchema() map[string]any {

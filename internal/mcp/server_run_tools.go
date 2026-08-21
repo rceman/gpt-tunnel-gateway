@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
@@ -12,7 +13,7 @@ import (
 // surface is intentionally not registered after the hard cutover.
 func (s *Server) addRunTools(add toolAdder) {
 	message := str("Bounded message to the registered project session")
-	message["minLength"], message["maxLength"] = 1, 256
+	message["minLength"], message["maxLength"] = 1, airelay.MaxPromptBytes
 	add("agent_send", "Send one bounded message to the configured project Airelay session.", obj(map[string]any{"project_id": str("Registered project identifier"), "message": message}, "project_id", "message"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		projectID, err := getString(raw, "project_id")
 		if err != nil {

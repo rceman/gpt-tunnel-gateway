@@ -80,7 +80,7 @@ func newService(c config.Config, durability *sqlitestore.Databases, startWorkers
 		Hub:                   hub.Store{Config: c},
 		Durability:            durability,
 		Git:                   gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems, StateDir: c.StateDir},
-		Airelay:               airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: 256},
+		Airelay:               airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: airelay.MaxTransportMessageBytes},
 		taskCreateWake:        make(chan string, 32),
 		taskCreateActive:      make(map[string]struct{}),
 		durableMutationWake:   make(chan string, 32),

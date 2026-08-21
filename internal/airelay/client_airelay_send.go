@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 func (b *tailBuffer) Write(p []byte) (int, error) {
@@ -37,12 +38,27 @@ func (c Client) PromptWithProvenance(ctx context.Context, session, origin, messa
 	} else if !provenanceRE.MatchString(origin) {
 		return Result{}, fmt.Errorf("invalid durable session provenance")
 	}
-	if message == "" || strings.ContainsRune(message, 0) {
-		return Result{}, fmt.Errorf("invalid Airelay message")
+	if message == "" {
+		return Result{}, &MessageValidationError{Code: "EMPTY", Reason: "message is empty"}
+	}
+	if strings.ContainsRune(message, 0) {
+		return Result{}, &MessageValidationError{Code: "NUL", Reason: "message contains NUL"}
+	}
+	if !utf8.ValidString(message) {
+		return Result{}, &MessageValidationError{Code: "INVALID_UTF8", Reason: "message is not valid UTF-8"}
+	}
+	contentBytes := len([]byte(message))
+	if contentBytes > MaxPromptBytes {
+		return Result{}, &MessageValidationError{Code: "CONTENT_TOO_LARGE", Reason: "message exceeds UTF-8 content limit", LimitBytes: MaxPromptBytes, ActualBytes: contentBytes}
 	}
 	message = "[" + origin + "] " + message
-	if len(message) > c.MaxMessageBytes {
-		return Result{}, fmt.Errorf("invalid Airelay message")
+	transportLimit := c.MaxMessageBytes
+	if transportLimit <= 0 {
+		transportLimit = MaxTransportMessageBytes
+	}
+	transportBytes := len([]byte(message))
+	if transportBytes > transportLimit {
+		return Result{}, &MessageValidationError{Code: "TRANSPORT_TOO_LARGE", Reason: "provenance-prefixed message exceeds Airelay transport limit", LimitBytes: transportLimit, ActualBytes: transportBytes}
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()

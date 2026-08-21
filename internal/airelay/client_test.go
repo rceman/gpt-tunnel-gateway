@@ -2,6 +2,7 @@ package airelay
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,6 +61,58 @@ func TestPromptWithProvenancePrefixesExactlyAtTransportBoundary(t *testing.T) {
 	}
 	if got := string(data); got != "[SP-ABCDEFGH] [SD-ABCDEFGH] hello" {
 		t.Fatalf("message=%q", got)
+	}
+}
+
+func TestPromptUsesUTF8ByteBoundAndPreservesProvenanceMarker(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "message")
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$3\" > \""+log+"\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: MaxTransportMessageBytes}
+	message := strings.Repeat("é", MaxPromptBytes/2)
+	if got := len([]byte(message)); got != MaxPromptBytes {
+		t.Fatalf("UTF-8 fixture bytes=%d want %d", got, MaxPromptBytes)
+	}
+	if _, err := c.PromptWithProvenance(context.Background(), "project_master", "SP-ABCDEFGH", message); err != nil {
+		t.Fatalf("UTF-8 message at byte bound rejected: %v", err)
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(data); got != "[SP-ABCDEFGH] "+message {
+		t.Fatalf("marker or UTF-8 payload changed: %q", got)
+	}
+	var validation *MessageValidationError
+	if _, err := c.PromptWithProvenance(context.Background(), "project_master", "SP-ABCDEFGH", message+"é"); !errors.As(err, &validation) || validation.Code != "CONTENT_TOO_LARGE" || validation.ActualBytes != MaxPromptBytes+2 {
+		t.Fatalf("oversized UTF-8 message error=%T %v", err, err)
+	}
+}
+
+func TestPromptPreservesEmptyAndNULValidationAsStructuredErrors(t *testing.T) {
+	c := Client{MaxMessageBytes: MaxTransportMessageBytes}
+	for _, test := range []struct {
+		name string
+		text string
+		code string
+	}{
+		{name: "empty", code: "EMPTY"},
+		{name: "nul", text: "before\x00after", code: "NUL"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var validation *MessageValidationError
+			_, err := c.PromptWithProvenance(context.Background(), "project_master", "SP-ABCDEFGH", test.text)
+			if !errors.As(err, &validation) || validation.Code != test.code {
+				t.Fatalf("validation=%T %v", err, err)
+			}
+			structured := validation.StructuredActionError()
+			if structured["code"] != "AIRELAY_MESSAGE_INVALID" {
+				t.Fatalf("structured=%#v", structured)
+			}
+		})
 	}
 }
 

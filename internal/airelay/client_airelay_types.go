@@ -2,8 +2,16 @@ package airelay
 
 import (
 	"bytes"
+	"fmt"
 	"regexp"
 	"time"
+)
+
+const (
+	// MaxTransportMessageBytes is the Airelay wire limit. Prompt content is
+	// kept below this so the server-owned provenance marker always fits.
+	MaxTransportMessageBytes = 256
+	MaxPromptBytes           = 240
 )
 
 var sessionRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
@@ -47,6 +55,34 @@ type Client struct {
 	Timeout         time.Duration
 	MaxMessageBytes int
 }
+
+// MessageValidationError is safe to expose through structured MCP errors.
+// ActualBytes counts UTF-8 bytes, matching the Airelay transport contract.
+type MessageValidationError struct {
+	Code        string `json:"code"`
+	Reason      string `json:"reason"`
+	LimitBytes  int    `json:"limit_bytes,omitempty"`
+	ActualBytes int    `json:"actual_bytes,omitempty"`
+}
+
+func (e *MessageValidationError) Error() string {
+	if e == nil {
+		return "invalid Airelay message"
+	}
+	return fmt.Sprintf("%s: %s", e.Code, e.Reason)
+}
+
+func (e *MessageValidationError) StructuredActionError() map[string]any {
+	return map[string]any{
+		"code":  "AIRELAY_MESSAGE_INVALID",
+		"phase": "validate",
+		"details": map[string]any{
+			"reason": e.Reason, "message_code": e.Code,
+			"limit_bytes": e.LimitBytes, "actual_bytes": e.ActualBytes,
+		},
+	}
+}
+
 type tailBuffer struct {
 	bytes.Buffer
 	max      int

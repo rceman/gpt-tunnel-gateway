@@ -45,6 +45,6 @@ func NewActivationCoordinator(store hub.Store) *ActivationCoordinator {
 		Hub:      store,
 		StateDir: store.Config.StateDir,
 		Git:      gitx.Runner{MaxReadBytes: store.Config.MaxReadBytes, MaxDiffBytes: store.Config.MaxDiffBytes, MaxListItems: store.Config.MaxListItems},
-		Airelay:  airelay.Client{Command: store.Config.AirelayCommand, Timeout: time.Duration(store.Config.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: 256},
+		Airelay:  airelay.Client{Command: store.Config.AirelayCommand, Timeout: time.Duration(store.Config.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: airelay.MaxTransportMessageBytes},
 	}
 }
