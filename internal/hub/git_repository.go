@@ -68,6 +68,11 @@ func refExists(ctx context.Context, root, ref string) (bool, error) {
 	return true, nil
 }
 func acquireRepositoryLock(ctx context.Context, stateDir string) (*lockfile.Lock, error) {
+	return acquireRepositoryLockWithObserver(ctx, stateDir, nil)
+}
+
+func acquireRepositoryLockWithObserver(ctx context.Context, stateDir string, onBusy func(lockfile.ContentionEvidence)) (*lockfile.Lock, error) {
+	path := filepath.Join(stateDir, "locks", "hub-repository.lock")
 	for {
 		lock, err := lockfile.Acquire(filepath.Join(stateDir, "locks"), "hub-repository")
 		if err == nil {
@@ -76,9 +81,12 @@ func acquireRepositoryLock(ctx context.Context, stateDir string) (*lockfile.Lock
 		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
 			return nil, err
 		}
+		if onBusy != nil {
+			onBusy(lockfile.ReadContentionEvidence(path))
+		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("hub-repository flock acquisition: %w", ctx.Err())
 		case <-time.After(25 * time.Millisecond):
 		}
 	}

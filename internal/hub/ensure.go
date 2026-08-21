@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
+	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 )
 
 // EnsureObserver receives bounded startup sub-phase names. It is optional and
@@ -138,7 +139,18 @@ func (s Store) Ensure(ctx context.Context) error {
 }
 func (s Store) EnsureWithObserver(ctx context.Context, observer EnsureObserver) error {
 	observeEnsure(observer, "HUB_ENSURE_LOCK_ACQUIRE_START")
-	lock, err := acquireRepositoryLock(ctx, s.Config.StateDir)
+	seenContention := make(map[string]struct{})
+	lock, err := acquireRepositoryLockWithObserver(ctx, s.Config.StateDir, func(e lockfile.ContentionEvidence) {
+		if observer == nil {
+			return
+		}
+		key := e.BoundedJSON()
+		if _, exists := seenContention[key]; exists || len(seenContention) >= 4 {
+			return
+		}
+		seenContention[key] = struct{}{}
+		observeEnsure(observer, "HUB_ENSURE_LOCK_CONTENTION "+key)
+	})
 	if err != nil {
 		return err
 	}
