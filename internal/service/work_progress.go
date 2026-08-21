@@ -60,6 +60,20 @@ func (s *Service) WorkCheckpoint(ctx context.Context, in WorkProgressInput) (Wor
 	if in.ProjectID == "" {
 		return WorkProgressReceipt{}, fmt.Errorf("work checkpoint project is required")
 	}
+	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), workCheckpointLockName(in))
+	if err != nil {
+		return WorkProgressReceipt{}, err
+	}
+	defer lock.Release()
+	return s.workCheckpointLocked(ctx, in)
+}
+
+func workCheckpointLockName(in WorkProgressInput) string {
+	digest := sha256.Sum256([]byte(in.Root + "\x00" + in.ProjectID))
+	return "work-checkpoint-lock-" + hex.EncodeToString(digest[:])
+}
+
+func (s *Service) workCheckpointLocked(ctx context.Context, in WorkProgressInput) (WorkProgressReceipt, error) {
 	current, err := s.Git.WorktreeFileHashes(ctx, in.Root)
 	if err != nil {
 		return WorkProgressReceipt{}, fmt.Errorf("worktree file hashes: %w", err)
@@ -99,39 +113,33 @@ func (s *Service) WorkCheckpoint(ctx context.Context, in WorkProgressInput) (Wor
 		receipt := WorkProgressReceipt{OperationID: operationID, Status: "completed", ProjectID: in.ProjectID, SourceFingerprint: sourceFingerprint, GateIdentity: gateIdentity, GateNames: gateNames, UpdatedAt: time.Now().UTC(), Reused: true}
 		return receipt, nil
 	}
-	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), operationID)
+	adapter, err := s.resolveWorkCheckpointAdapter(ctx, in.ProjectID)
 	if err != nil {
-		return WorkProgressReceipt{}, err
+		return s.persistWorkCheckpointFailure(statePath, state, WorkProgressReceipt{OperationID: operationID, Status: "failed", ProjectID: in.ProjectID, ChangedFiles: append([]string{}, delta...), SourceFingerprint: sourceFingerprint, GateIdentity: gateIdentity, GateNames: append([]string{}, gateNames...)}, err)
 	}
-	defer lock.Release()
+	if s.workCheckpointExecutor != nil {
+		adapter = s.workCheckpointExecutor
+	}
 	now := time.Now().UTC()
 	receipt := WorkProgressReceipt{OperationID: operationID, Status: "running", ProjectID: in.ProjectID, ChangedFiles: append([]string{}, delta...), SourceFingerprint: sourceFingerprint, GateIdentity: gateIdentity, GateNames: append([]string{}, gateNames...), CreatedAt: now, UpdatedAt: now}
-	if s.workCheckpointExecutor == nil {
-		return WorkProgressReceipt{}, fmt.Errorf("work checkpoint project adapter is not configured")
+	state.LastReceipt = receipt
+	state.UpdatedAt = receipt.UpdatedAt
+	if err := fsutil.WriteJSONAtomic(statePath, state, 0o600); err != nil {
+		return WorkProgressReceipt{}, fmt.Errorf("persist running work checkpoint receipt: %w", err)
 	}
-	results, runErr := s.workCheckpointExecutor(ctx, in.ProjectID, in.Root, append([]string{}, delta...), append([]string{}, gateNames...))
+	results, runErr := adapter(ctx, in.ProjectID, in.Root, append([]string{}, delta...), append([]string{}, gateNames...))
 	receipt.Gates = results
 	receipt.UpdatedAt = time.Now().UTC()
 	if runErr != nil {
-		receipt.Status = "failed"
-		receipt.Error = boundedVerifyError(runErr.Error())
-		state.LastReceipt = receipt
-		state.UpdatedAt = receipt.UpdatedAt
-		_ = fsutil.WriteJSONAtomic(statePath, state, 0o600)
-		return receipt, runErr
+		return s.persistWorkCheckpointFailure(statePath, state, receipt, runErr)
 	}
 	postHashes, err := s.Git.WorktreeFileHashes(ctx, in.Root)
 	if err != nil {
-		receipt.Status = "failed"
-		receipt.Error = boundedVerifyError(fmt.Sprintf("post-gate file hashes: %v", err))
-		state.LastReceipt = receipt
-		state.UpdatedAt = time.Now().UTC()
-		_ = fsutil.WriteJSONAtomic(statePath, state, 0o600)
-		return receipt, err
+		return s.persistWorkCheckpointFailure(statePath, state, receipt, fmt.Errorf("post-gate file hashes: %w", err))
 	}
 	postFingerprint, err := s.Git.WorktreeFingerprint(ctx, in.Root)
 	if err != nil {
-		return receipt, fmt.Errorf("post-gate worktree fingerprint: %w", err)
+		return s.persistWorkCheckpointFailure(statePath, state, receipt, fmt.Errorf("post-gate worktree fingerprint: %w", err))
 	}
 	receipt.Status = "completed"
 	receipt.SourceFingerprint = postFingerprint
@@ -148,6 +156,18 @@ func (s *Service) WorkCheckpoint(ctx context.Context, in WorkProgressInput) (Wor
 	return receipt, nil
 }
 
+func (s *Service) persistWorkCheckpointFailure(path string, state workProgressState, receipt WorkProgressReceipt, runErr error) (WorkProgressReceipt, error) {
+	receipt.Status = "failed"
+	receipt.Error = boundedVerifyError(runErr.Error())
+	receipt.UpdatedAt = time.Now().UTC()
+	state.LastReceipt = receipt
+	state.UpdatedAt = receipt.UpdatedAt
+	if err := fsutil.WriteJSONAtomic(path, state, 0o600); err != nil {
+		return receipt, fmt.Errorf("%v; persist failed work checkpoint receipt: %w", runErr, err)
+	}
+	return receipt, runErr
+}
+
 func (s *Service) executeVerifyPlanGates(ctx context.Context, plan verifyPlan) ([]model.CompletionGateResult, error) {
 	if plan.Input.ProjectID != "" {
 		return s.executeProjectGatesWithProjectCommandsAndScope(ctx, plan.Input.ProjectID, plan.Input.Root, plan.GateNames, "task", plan.Scope)
@@ -155,7 +175,7 @@ func (s *Service) executeVerifyPlanGates(ctx context.Context, plan verifyPlan) (
 	return s.executeGateNamesWithScope(ctx, plan.Input.Root, plan.GateNames, plan.Scope)
 }
 
-func (s *Service) executeDefaultWorkCheckpoint(ctx context.Context, projectID, root string, changedFiles, gateNames []string) ([]model.CompletionGateResult, error) {
+func (s *Service) executeGoWorkCheckpoint(ctx context.Context, projectID, root string, changedFiles, gateNames []string) ([]model.CompletionGateResult, error) {
 	if projectID == "" {
 		return nil, fmt.Errorf("work checkpoint project adapter requires project")
 	}
@@ -178,6 +198,21 @@ func (s *Service) executeDefaultWorkCheckpoint(ctx context.Context, projectID, r
 		return nil, err
 	}
 	return results, nil
+}
+
+func (s *Service) resolveWorkCheckpointAdapter(ctx context.Context, projectID string) (func(context.Context, string, string, []string, []string) ([]model.CompletionGateResult, error), error) {
+	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	switch configuration.Checkpoint.Adapter {
+	case "go":
+		return s.executeGoWorkCheckpoint, nil
+	case "":
+		return nil, fmt.Errorf("project %s has no work checkpoint adapter", projectID)
+	default:
+		return nil, fmt.Errorf("project %s work checkpoint adapter %q is unsupported", projectID, configuration.Checkpoint.Adapter)
+	}
 }
 
 // resolveWorkCheckpointGoScope is the Go project adapter. The checkpoint
@@ -258,6 +293,9 @@ type WorkCheckpointStatus struct {
 func (s *Service) WorkCheckpointStatus(ctx context.Context, in WorkCheckpointInput) (WorkCheckpointStatus, error) {
 	if in.Root == "" || in.ProjectID == "" {
 		return WorkCheckpointStatus{}, fmt.Errorf("work status requires root and project")
+	}
+	if _, err := s.resolveWorkCheckpointAdapter(ctx, in.ProjectID); err != nil {
+		return WorkCheckpointStatus{}, err
 	}
 	current, err := s.Git.WorktreeFileHashes(ctx, in.Root)
 	if err != nil {

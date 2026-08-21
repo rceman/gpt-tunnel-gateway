@@ -88,7 +88,7 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 	if in.UpdatedBy == "" || strings.ContainsAny(in.UpdatedBy, "\x00\r\n") {
 		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("updated_by is required")
 	}
-	if in.Patch.AgentRouting == nil && in.Patch.Watcher == nil && in.Patch.Workflow == nil && in.Patch.GateCommands == nil && in.Patch.Integration == nil && in.Patch.ActivationProfileRef == nil {
+	if in.Patch.AgentRouting == nil && in.Patch.Watcher == nil && in.Patch.Workflow == nil && in.Patch.GateCommands == nil && in.Patch.Checkpoint == nil && in.Patch.Integration == nil && in.Patch.ActivationProfileRef == nil {
 		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("project configuration patch is empty")
 	}
 	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
@@ -178,6 +178,9 @@ func applyProjectConfigurationPatch(configuration *model.ProjectConfiguration, p
 	}
 	if patch.GateCommands != nil {
 		configuration.Workflow.GateCommands = *patch.GateCommands
+	}
+	if patch.Checkpoint != nil {
+		configuration.Checkpoint = *patch.Checkpoint
 	}
 	if patch.Integration != nil {
 		configuration.Integration = *patch.Integration

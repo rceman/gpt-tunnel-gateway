@@ -15,6 +15,9 @@ func TestProjectConfigurationDefaultsValidate(t *testing.T) {
 	if configuration.AgentRouting.Fallback != ReasoningBestAvailable || configuration.Workflow.IntegrationBranch != "main" {
 		t.Fatalf("unexpected defaults: %#v", configuration)
 	}
+	if configuration.Checkpoint.Adapter != "" {
+		t.Fatalf("generic defaults selected a checkpoint adapter: %q", configuration.Checkpoint.Adapter)
+	}
 	if err := configuration.Workflow.GateCommands.Validate(); err != nil {
 		t.Fatal(err)
 	}

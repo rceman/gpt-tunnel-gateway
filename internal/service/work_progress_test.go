@@ -11,7 +11,8 @@ import (
 )
 
 func TestWorkProgressAdvancesPostGateBaselineAndNextCallUsesDelta(t *testing.T) {
-	s, _, _ := testServiceWithoutIdentifiers(t)
+	s, revision, _ := testServiceWithoutIdentifiers(t)
+	configureGoCheckpoint(t, s, revision)
 	root := s.Config.Projects["example"].Root
 	path := filepath.Join(root, "docs", "progress.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -53,7 +54,8 @@ func TestWorkProgressAdvancesPostGateBaselineAndNextCallUsesDelta(t *testing.T) 
 }
 
 func TestWorkProgressFailureDoesNotAdvanceBaseline(t *testing.T) {
-	s, _, _ := testServiceWithoutIdentifiers(t)
+	s, revision, _ := testServiceWithoutIdentifiers(t)
+	configureGoCheckpoint(t, s, revision)
 	root := s.Config.Projects["example"].Root
 	path := filepath.Join(root, "docs", "progress-failure.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -86,5 +88,38 @@ func TestWorkProgressFailureDoesNotAdvanceBaseline(t *testing.T) {
 	second, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{Root: root, ProjectID: "example"})
 	if err != nil || second.Status != "completed" || !second.BaselineAdvanced || calls != 2 {
 		t.Fatalf("retry progress=%#v err=%v calls=%d", second, err, calls)
+	}
+}
+
+func TestWorkCheckpointRequiresExplicitProjectAdapter(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	root := s.Config.Projects["example"].Root
+	path := filepath.Join(root, "docs", "unconfigured.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("change\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{Root: root, ProjectID: "example"}); err == nil {
+		t.Fatal("checkpoint used an implicit adapter")
+	}
+}
+
+func configureGoCheckpoint(t *testing.T, s *Service, hubRevision string) {
+	t.Helper()
+	configuration, err := s.ProjectConfigurationRead(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = s.ProjectConfigurationUpdate(trustedWorkflowPolicyContext(context.Background(), "planner"), ProjectConfigurationUpdateInput{
+		ProjectID:        "example",
+		ExpectedRevision: configuration.Revision,
+		Patch:            ProjectConfigurationPatch{Checkpoint: &model.ProjectCheckpointProfile{Adapter: "go"}},
+		UpdatedBy:        "test",
+		WriteOptions:     WriteOptions{ExpectedHubRevision: hubRevision},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

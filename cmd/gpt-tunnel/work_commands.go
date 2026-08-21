@@ -15,7 +15,7 @@ func work(ctx context.Context, s *service.Service, args []string) {
 	projectID := ""
 	for i := 1; i < len(args); i++ {
 		if args[i] != "--project" || i+1 >= len(args) {
-			fatalf("unexpected work progress argument %q", args[i])
+			fatalf("unexpected work checkpoint argument %q", args[i])
 		}
 		projectID = args[i+1]
 		i++

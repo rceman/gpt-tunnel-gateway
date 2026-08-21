@@ -60,6 +60,12 @@ type ProjectConfigurationWorkflow struct {
 	WaitForCI         bool                `json:"wait_for_ci"`
 }
 
+// ProjectCheckpointProfile selects the explicit adapter used by the neutral
+// work checkpoint engine. An empty adapter is never interpreted as Go.
+type ProjectCheckpointProfile struct {
+	Adapter string `json:"adapter,omitempty"`
+}
+
 // ProjectConfiguration is the canonical portable project settings authority.
 // Host paths, provider/model/session bindings, process IDs and secrets remain
 // in config.Config and are intentionally absent from this model.
@@ -71,6 +77,7 @@ type ProjectConfiguration struct {
 	AgentRouting         ProjectAgentRouting             `json:"agent_routing"`
 	Watcher              ProjectConfigurationWatcher     `json:"watcher"`
 	Workflow             ProjectConfigurationWorkflow    `json:"workflow"`
+	Checkpoint           ProjectCheckpointProfile        `json:"checkpoint"`
 	Integration          ProjectIntegrationConfiguration `json:"integration"`
 	ActivationProfileRef string                          `json:"activation_profile_ref,omitempty"`
 	UpdatedBy            string                          `json:"updated_by"`
