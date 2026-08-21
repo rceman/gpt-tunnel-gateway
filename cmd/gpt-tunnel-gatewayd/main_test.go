@@ -135,6 +135,39 @@ func TestRetryPostReadyHubBootstrapRetriesTransientFailure(t *testing.T) {
 	}
 }
 
+func TestPostReadyHubSyncLoopRetriesExpiredAttemptUntilBootstrapCompletes(t *testing.T) {
+	oldTimeout, oldDelays := postReadyHubAttemptTimeout, postReadyHubRetryDelays
+	postReadyHubAttemptTimeout = time.Millisecond
+	postReadyHubRetryDelays = []time.Duration{time.Millisecond}
+	t.Cleanup(func() {
+		postReadyHubAttemptTimeout = oldTimeout
+		postReadyHubRetryDelays = oldDelays
+	})
+
+	attempts := 0
+	sharedBootstrapComplete := false
+	err := postReadyHubSyncLoop(context.Background(), func(string) {}, func(ctx context.Context) error {
+		attempts++
+		if attempts == 1 {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		sharedBootstrapComplete = true
+		return nil
+	}, func(context.Context) error {
+		if !sharedBootstrapComplete {
+			t.Fatal("state check ran before Shared bootstrap completed")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("persistent retry returned error: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts=%d, want 2", attempts)
+	}
+}
+
 func TestBootstrapFailsBeforeHTTPReadyOnCorruptSQLite(t *testing.T) {
 	c := testBootstrapConfig(t)
 	sharedPath := filepath.Join(c.StateDir, "databases", "shared.db")

@@ -51,9 +51,13 @@ func main() {
 	// activity and must not gate listener readiness.
 	svc.StartBackgroundWorkers()
 	startupPhase("POST_READY_RECOVERY_WORKERS")
-	go postReadyHubSync(svc)
+	syncCtx, cancelSync := context.WithCancel(context.Background())
+	defer cancelSync()
+	go postReadyHubSync(syncCtx, svc)
 	go svc.RunWatcherSupervisors(context.Background())
-	if err := <-runtime.serveErr; err != nil && err != http.ErrServerClosed {
+	serveErr := <-runtime.serveErr
+	cancelSync()
+	if err := serveErr; err != nil && err != http.ErrServerClosed {
 		fatal(err)
 	}
 }
@@ -99,10 +103,15 @@ func bootstrapGateway(c config.Config, observe func(string)) (*gatewayRuntime, e
 	return runtime, nil
 }
 
-func postReadyHubSync(svc *service.Service) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	_ = postReadyHubSyncContext(svc, ctx, startupPhase)
+func postReadyHubSync(ctx context.Context, svc *service.Service) {
+	_ = postReadyHubSyncLoop(ctx, startupPhase,
+		func(attemptCtx context.Context) error {
+			return postReadyHubBootstrapContext(svc, attemptCtx, startupPhase)
+		},
+		func(attemptCtx context.Context) error {
+			return postReadyHubStateCheckContext(svc, attemptCtx, startupPhase)
+		},
+	)
 }
 
 func postReadyHubSyncContext(svc *service.Service, ctx context.Context, observe func(string)) error {
@@ -111,7 +120,15 @@ func postReadyHubSyncContext(svc *service.Service, ctx context.Context, observe 
 			observe(name)
 		}
 	}
-	if err := retryPostReadyHubBootstrap(ctx, phase, func(attemptCtx context.Context) error {
+	if err := postReadyHubBootstrapContext(svc, ctx, phase); err != nil {
+		phase("HUB_SYNC_DEGRADED")
+		return err
+	}
+	return postReadyHubStateCheckContext(svc, ctx, phase)
+}
+
+func postReadyHubBootstrapContext(svc *service.Service, ctx context.Context, phase func(string)) error {
+	return retryPostReadyHubBootstrap(ctx, phase, func(attemptCtx context.Context) error {
 		phase("POST_READY_HUB_ENSURE")
 		if err := svc.Hub.EnsureWithObserver(attemptCtx, phase); err != nil {
 			startupErrorForPhase("POST_READY_HUB_ENSURE", err)
@@ -123,10 +140,10 @@ func postReadyHubSyncContext(svc *service.Service, ctx context.Context, observe 
 			return err
 		}
 		return nil
-	}); err != nil {
-		phase("HUB_SYNC_DEGRADED")
-		return err
-	}
+	})
+}
+
+func postReadyHubStateCheckContext(svc *service.Service, ctx context.Context, phase func(string)) error {
 	phase("POST_READY_STATE_CHECK")
 	state, err := svc.StateCheck(ctx)
 	if err != nil {
@@ -144,6 +161,8 @@ func postReadyHubSyncContext(svc *service.Service, ctx context.Context, observe 
 	return nil
 }
 
+var postReadyHubAttemptTimeout = 20 * time.Second
+
 var postReadyHubRetryDelays = []time.Duration{
 	100 * time.Millisecond,
 	250 * time.Millisecond,
@@ -152,6 +171,43 @@ var postReadyHubRetryDelays = []time.Duration{
 	2 * time.Second,
 	4 * time.Second,
 	8 * time.Second,
+}
+
+func postReadyHubSyncLoop(parent context.Context, phase func(string), bootstrap func(context.Context) error, stateCheck func(context.Context) error) error {
+	for attemptNumber := 1; ; attemptNumber++ {
+		attemptCtx, cancel := context.WithTimeout(parent, postReadyHubAttemptTimeout)
+		err := bootstrap(attemptCtx)
+		if err == nil {
+			stateErr := stateCheck(attemptCtx)
+			cancel()
+			if stateErr != nil {
+				return stateErr
+			}
+			return nil
+		}
+		cancel()
+		if parent.Err() != nil {
+			return err
+		}
+		startupErrorForPhase("POST_READY_HUB_SYNC_ATTEMPT", err)
+		phase(fmt.Sprintf("POST_READY_HUB_RETRY_WAIT_%d", attemptNumber))
+		timer := time.NewTimer(postReadyHubRetryDelays[min(attemptNumber-1, len(postReadyHubRetryDelays)-1)])
+		select {
+		case <-parent.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return parent.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func min(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
 }
 
 func retryPostReadyHubBootstrap(ctx context.Context, phase func(string), attempt func(context.Context) error) error {
