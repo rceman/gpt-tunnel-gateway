@@ -69,6 +69,13 @@ type SharedTask struct {
 	UpdatedAt string
 }
 
+type SharedEntity struct {
+	ID        string
+	Revision  int64
+	Payload   []byte
+	UpdatedAt string
+}
+
 var sharedEntityTables = map[string]string{
 	"task":    "shared_tasks",
 	"train":   "shared_trains",
@@ -255,6 +262,66 @@ func (d *Databases) ReadSharedTask(ctx context.Context, taskID string) (SharedTa
 		return SharedTask{}, fmt.Errorf("invalid shared task row")
 	}
 	return SharedTask{ID: id, Revision: revision, Payload: append([]byte(nil), payload...), UpdatedAt: updatedAt}, nil
+}
+
+func (d *Databases) ReadSharedEntity(ctx context.Context, entityType, entityID string) (SharedEntity, error) {
+	table, ok := sharedEntityTables[entityType]
+	if !ok {
+		return SharedEntity{}, fmt.Errorf("unsupported shared entity type %q", entityType)
+	}
+	if d == nil || d.Shared == nil {
+		return SharedEntity{}, fmt.Errorf("shared store is unavailable")
+	}
+	rows, err := d.Shared.Query(ctx, fmt.Sprintf(`SELECT id,revision,payload,updated_at FROM %s WHERE id=?`, table), entityID)
+	if err != nil {
+		return SharedEntity{}, err
+	}
+	if len(rows.Rows) == 0 {
+		return SharedEntity{}, fmt.Errorf("shared %s %q: %w", entityType, entityID, os.ErrNotExist)
+	}
+	if len(rows.Rows) != 1 || len(rows.Rows[0]) != 4 {
+		return SharedEntity{}, fmt.Errorf("invalid shared %s row", entityType)
+	}
+	id, idOK := rows.Rows[0][0].(string)
+	revision, revisionOK := rows.Rows[0][1].(int64)
+	payload, payloadOK := rows.Rows[0][2].([]byte)
+	updatedAt, updatedOK := rows.Rows[0][3].(string)
+	if !idOK || !revisionOK || !payloadOK || !updatedOK {
+		return SharedEntity{}, fmt.Errorf("invalid shared %s row", entityType)
+	}
+	return SharedEntity{ID: id, Revision: revision, Payload: append([]byte(nil), payload...), UpdatedAt: updatedAt}, nil
+}
+
+func (d *Databases) ListSharedEntities(ctx context.Context, entityType string, limit int) ([]SharedEntity, error) {
+	table, ok := sharedEntityTables[entityType]
+	if !ok {
+		return nil, fmt.Errorf("unsupported shared entity type %q", entityType)
+	}
+	if d == nil || d.Shared == nil {
+		return nil, fmt.Errorf("shared store is unavailable")
+	}
+	if limit < 1 || limit > 1000 {
+		return nil, fmt.Errorf("invalid shared entity limit")
+	}
+	rows, err := d.Shared.Query(ctx, fmt.Sprintf(`SELECT id,revision,payload,updated_at FROM %s ORDER BY updated_at,id LIMIT ?`, table), limit)
+	if err != nil {
+		return nil, err
+	}
+	entities := make([]SharedEntity, 0, len(rows.Rows))
+	for _, row := range rows.Rows {
+		if len(row) != 4 {
+			return nil, fmt.Errorf("invalid shared %s row", entityType)
+		}
+		id, idOK := row[0].(string)
+		revision, revisionOK := row[1].(int64)
+		payload, payloadOK := row[2].([]byte)
+		updatedAt, updatedOK := row[3].(string)
+		if !idOK || !revisionOK || !payloadOK || !updatedOK {
+			return nil, fmt.Errorf("invalid shared %s row", entityType)
+		}
+		entities = append(entities, SharedEntity{ID: id, Revision: revision, Payload: append([]byte(nil), payload...), UpdatedAt: updatedAt})
+	}
+	return entities, nil
 }
 
 // SeedSharedTask imports a compatibility read into Shared without producing
