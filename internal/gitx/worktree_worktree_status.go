@@ -90,44 +90,70 @@ func (r Runner) WorktreeFingerprint(ctx context.Context, root string) (string, e
 	if _, err := bounded(status, r.MaxReadBytes); err != nil {
 		return "", err
 	}
-	pathsRaw, err := r.command(ctx, root, false, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+	fileHashes, err := r.WorktreeFileHashes(ctx, root)
 	if err != nil {
-		return "", err
-	}
-	if _, err := bounded(pathsRaw, r.MaxReadBytes); err != nil {
 		return "", err
 	}
 	h := sha256.New()
 	_, _ = h.Write(status)
-	paths := strings.Split(strings.TrimSuffix(string(pathsRaw), "\x00"), "\x00")
+	paths := make([]string, 0, len(fileHashes))
+	for path := range fileHashes {
+		paths = append(paths, path)
+	}
 	sort.Strings(paths)
+	for _, path := range paths {
+		_, _ = io.WriteString(h, path+"\x00"+fileHashes[path]+"\x00")
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// WorktreeFileHashes returns content-and-mode identities for every tracked or
+// non-ignored untracked path. Missing tracked paths are retained as "missing"
+// entries so deletions participate in delta calculation.
+func (r Runner) WorktreeFileHashes(ctx context.Context, root string) (map[string]string, error) {
+	pathsRaw, err := r.command(ctx, root, false, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := bounded(pathsRaw, r.MaxReadBytes); err != nil {
+		return nil, err
+	}
+	paths := strings.Split(strings.TrimSuffix(string(pathsRaw), "\x00"), "\x00")
+	hashes := make(map[string]string, len(paths))
 	for _, path := range paths {
 		if path == "" {
 			continue
 		}
 		if err := model.ValidateRelativePath(path); err != nil {
+			return nil, err
+		}
+		value, err := hashWorktreeFile(filepath.Join(root, filepath.FromSlash(path)))
+		if err != nil {
+			return nil, fmt.Errorf("hash %s: %w", path, err)
+		}
+		hashes[path] = value
+	}
+	return hashes, nil
+}
+
+func hashWorktreeFile(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return "missing", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	_, _ = io.WriteString(h, info.Mode().String()+"\x00")
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(path)
+		if err != nil {
 			return "", err
 		}
-		full := filepath.Join(root, filepath.FromSlash(path))
-		info, statErr := os.Lstat(full)
-		_, _ = io.WriteString(h, path+"\x00")
-		if os.IsNotExist(statErr) {
-			_, _ = io.WriteString(h, "missing\x00")
-			continue
-		}
-		if statErr != nil {
-			return "", statErr
-		}
-		_, _ = io.WriteString(h, info.Mode().String()+"\x00")
-		if info.Mode()&os.ModeSymlink != 0 {
-			target, err := os.Readlink(full)
-			if err != nil {
-				return "", err
-			}
-			_, _ = io.WriteString(h, target+"\x00")
-			continue
-		}
-		file, err := os.Open(full)
+		_, _ = io.WriteString(h, target)
+	} else {
+		file, err := os.Open(path)
 		if err != nil {
 			return "", err
 		}
@@ -138,7 +164,6 @@ func (r Runner) WorktreeFingerprint(ctx context.Context, root string) (string, e
 		if err := file.Close(); err != nil {
 			return "", err
 		}
-		_, _ = io.WriteString(h, "\x00")
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }

@@ -145,25 +145,9 @@ func (s *Service) resolveVerifyPlan(ctx context.Context, in VerifyInput) (verify
 	if in.Scope == "packages" {
 		scope = gates.TestScope{Mode: gates.TestScopePackages, Packages: append([]string{}, in.Packages...)}
 	}
-	names := []string{"format", "check", "test"}
-	var configuration *model.ProjectConfiguration
-	var policy *model.ProjectWorkflowPolicy
-	if in.ProjectID != "" {
-		resolved, err := s.ProjectConfigurationRead(ctx, in.ProjectID)
-		if err != nil {
-			return verifyPlan{}, err
-		}
-		resolvedPolicy, err := s.ProjectWorkflowPolicyRead(ctx, in.ProjectID)
-		if err != nil {
-			return verifyPlan{}, err
-		}
-		effective, err := model.WorkflowPolicyForOperation(resolvedPolicy, "implementation")
-		if err != nil {
-			return verifyPlan{}, err
-		}
-		configuration = &resolved
-		policy = &resolvedPolicy
-		names = append([]string{}, effective.Gates...)
+	names, gateIdentity, err := s.resolveVerifyGateProfile(ctx, in.ProjectID, scope)
+	if err != nil {
+		return verifyPlan{}, err
 	}
 	fingerprint := s.verifyWorktreeFingerprint
 	if fingerprint == nil {
@@ -175,19 +159,42 @@ func (s *Service) resolveVerifyPlan(ctx context.Context, in VerifyInput) (verify
 	if err != nil {
 		return verifyPlan{}, fmt.Errorf("worktree fingerprint: %w", err)
 	}
-	gateIdentityInput := struct {
+	return verifyPlan{Input: in, Scope: scope, GateNames: names, GateIdentity: gateIdentity, SourceFingerprint: sourceFingerprint}, nil
+}
+
+func (s *Service) resolveVerifyGateProfile(ctx context.Context, projectID string, scope gates.TestScope) ([]string, string, error) {
+	names := []string{"format", "check", "test"}
+	var configuration *model.ProjectConfiguration
+	var policy *model.ProjectWorkflowPolicy
+	if projectID != "" {
+		resolved, err := s.ProjectConfigurationRead(ctx, projectID)
+		if err != nil {
+			return nil, "", err
+		}
+		resolvedPolicy, err := s.ProjectWorkflowPolicyRead(ctx, projectID)
+		if err != nil {
+			return nil, "", err
+		}
+		effective, err := model.WorkflowPolicyForOperation(resolvedPolicy, "implementation")
+		if err != nil {
+			return nil, "", err
+		}
+		configuration = &resolved
+		policy = &resolvedPolicy
+		names = append([]string{}, effective.Gates...)
+	}
+	identity, err := json.Marshal(struct {
 		Scope         gates.TestScope
 		GateNames     []string
 		Configuration *model.ProjectConfiguration
 		Policy        *model.ProjectWorkflowPolicy
 		DefaultGates  bool
-	}{scope, names, configuration, policy, in.ProjectID == ""}
-	gateIdentityBytes, err := json.Marshal(gateIdentityInput)
+	}{scope, names, configuration, policy, projectID == ""})
 	if err != nil {
-		return verifyPlan{}, err
+		return nil, "", err
 	}
-	gateDigest := sha256.Sum256(gateIdentityBytes)
-	return verifyPlan{Input: in, Scope: scope, GateNames: names, GateIdentity: hex.EncodeToString(gateDigest[:]), SourceFingerprint: sourceFingerprint}, nil
+	digest := sha256.Sum256(identity)
+	return names, hex.EncodeToString(digest[:]), nil
 }
 
 func (s *Service) runVerifyUnderLock(ctx context.Context, lock *lockfile.Lock, path, operationID string, plan verifyPlan) (VerifyReceipt, error) {
@@ -203,16 +210,7 @@ func (s *Service) runVerifyUnderLock(ctx context.Context, lock *lockfile.Lock, p
 	}
 	scope := plan.Scope
 	names := plan.GateNames
-	var results []model.CompletionGateResult
-	var runErr error
-	if in.ProjectID != "" {
-		names, runErr = s.ResolveProjectGates(ctx, in.ProjectID, "implementation")
-		if runErr == nil {
-			results, runErr = s.executeProjectGatesWithProjectCommandsAndScope(ctx, in.ProjectID, in.Root, names, "task", scope)
-		}
-	} else {
-		results, runErr = s.executeGateNamesWithScope(ctx, in.Root, names, scope)
-	}
+	results, runErr := s.executeVerifyPlanGates(ctx, verifyPlan{Input: in, Scope: scope, GateNames: names, GateIdentity: plan.GateIdentity, SourceFingerprint: plan.SourceFingerprint})
 	receipt.Gates = results
 	receipt.UpdatedAt = time.Now().UTC()
 	if runErr != nil {

@@ -40,6 +40,8 @@ func main() {
 		gate(ctx, s, group, args)
 	case "verify":
 		verify(ctx, s, args)
+	case "work":
+		work(ctx, s, args)
 	case "project":
 		project(ctx, s, args)
 	case "plan":
@@ -63,7 +65,7 @@ func main() {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {format|check|test|verify|project|plan|adr|task|agent|watcher|operator|git|query} [args]")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {format|check|test|verify|work|project|plan|adr|task|agent|watcher|operator|git|query} [args]")
 	fmt.Fprintln(os.Stderr, "new operational IDs: CODE-TSK<N>, CODE-TSK<N>-RUN<M>, CODE-ADR<N>, CODE-OPR<N>")
 	fmt.Fprintln(os.Stderr, "task create --file requires slug; branch and base_revision are derived by the gateway")
 	fmt.Fprintln(os.Stderr, "pre-cutover IDs remain read-only history and are not accepted by operational mutations")
