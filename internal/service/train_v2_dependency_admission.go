@@ -88,6 +88,9 @@ func dependencyHasCanonicalIntegration(worktree, projectID string, trains []mode
 }
 
 func (s *Service) validateTaskDependencies(ctx context.Context, projectID string, task model.TaskAuthoring) error {
+	if s.Durability != nil {
+		return s.validateTaskDependenciesShared(ctx, projectID, task)
+	}
 	if len(task.Dependencies) == 0 {
 		return nil
 	}
