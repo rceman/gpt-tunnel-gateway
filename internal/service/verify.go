@@ -163,26 +163,12 @@ func (s *Service) resolveVerifyPlan(ctx context.Context, in VerifyInput) (verify
 }
 
 func (s *Service) resolveVerifyGateProfile(ctx context.Context, projectID string, scope gates.TestScope) ([]string, string, error) {
+	if projectID != "" {
+		return s.resolveProjectGateProfile(ctx, projectID)
+	}
 	names := []string{"format", "check", "test"}
 	var configuration *model.ProjectConfiguration
 	var policy *model.ProjectWorkflowPolicy
-	if projectID != "" {
-		resolved, err := s.ProjectConfigurationRead(ctx, projectID)
-		if err != nil {
-			return nil, "", err
-		}
-		resolvedPolicy, err := s.ProjectWorkflowPolicyRead(ctx, projectID)
-		if err != nil {
-			return nil, "", err
-		}
-		effective, err := model.WorkflowPolicyForOperation(resolvedPolicy, "implementation")
-		if err != nil {
-			return nil, "", err
-		}
-		configuration = &resolved
-		policy = &resolvedPolicy
-		names = append([]string{}, effective.Gates...)
-	}
 	identity, err := json.Marshal(struct {
 		Scope         gates.TestScope
 		GateNames     []string
@@ -190,6 +176,35 @@ func (s *Service) resolveVerifyGateProfile(ctx context.Context, projectID string
 		Policy        *model.ProjectWorkflowPolicy
 		DefaultGates  bool
 	}{scope, names, configuration, policy, projectID == ""})
+	if err != nil {
+		return nil, "", err
+	}
+	digest := sha256.Sum256(identity)
+	return names, hex.EncodeToString(digest[:]), nil
+}
+
+func (s *Service) resolveProjectGateProfile(ctx context.Context, projectID string) ([]string, string, error) {
+	if projectID == "" {
+		return nil, "", fmt.Errorf("project-defined gate profile requires project")
+	}
+	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
+	if err != nil {
+		return nil, "", err
+	}
+	policy, err := s.ProjectWorkflowPolicyRead(ctx, projectID)
+	if err != nil {
+		return nil, "", err
+	}
+	effective, err := model.WorkflowPolicyForOperation(policy, "implementation")
+	if err != nil {
+		return nil, "", err
+	}
+	names := append([]string{}, effective.Gates...)
+	identity, err := json.Marshal(struct {
+		GateNames     []string
+		Configuration model.ProjectConfiguration
+		Policy        model.ProjectWorkflowPolicy
+	}{names, configuration, policy})
 	if err != nil {
 		return nil, "", err
 	}

@@ -9,18 +9,30 @@ import (
 )
 
 func work(ctx context.Context, s *service.Service, args []string) {
-	if len(args) == 0 || args[0] != "progress" {
-		fatalf("usage: gpt-tunnel work progress [--project PROJECT_ID]")
+	if len(args) == 0 || (args[0] != "checkpoint" && args[0] != "status") {
+		fatalf("usage: gpt-tunnel work {checkpoint|status} --project PROJECT_ID")
 	}
-	input := service.WorkProgressInput{Root: mustWorkingDirectory()}
+	projectID := ""
 	for i := 1; i < len(args); i++ {
 		if args[i] != "--project" || i+1 >= len(args) {
 			fatalf("unexpected work progress argument %q", args[i])
 		}
-		input.ProjectID = args[i+1]
+		projectID = args[i+1]
 		i++
 	}
-	receipt, err := s.WorkProgress(ctx, input)
+	if projectID == "" {
+		fatalf("--project is required")
+	}
+	input := service.WorkCheckpointInput{Root: mustWorkingDirectory(), ProjectID: projectID}
+	if args[0] == "status" {
+		status, err := s.WorkCheckpointStatus(ctx, input)
+		if err != nil {
+			fatal(err)
+		}
+		output(status)
+		return
+	}
+	receipt, err := s.WorkCheckpoint(ctx, input)
 	output(receipt)
 	if err != nil || receipt.Status != "completed" {
 		if err != nil {

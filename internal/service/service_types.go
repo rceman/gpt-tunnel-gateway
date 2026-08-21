@@ -42,6 +42,7 @@ type Service struct {
 	gateExecutorWithProjectCommandsAndScope func(context.Context, string, []string, model.ProjectGateCommands, string, gates.TestScope) ([]model.CompletionGateResult, error)
 	formatExecutor                          func(context.Context, string) error
 	verifyWorktreeFingerprint               func(context.Context, string) (string, error)
+	workCheckpointExecutor                  func(context.Context, string, string, []string, []string) ([]model.CompletionGateResult, error)
 	taskActivator                           func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
 	runtimeSourceProver                     func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
 	taskCreateWorkerOnce                    sync.Once
@@ -120,6 +121,7 @@ func newService(c config.Config, durability *sqlitestore.Databases, startWorkers
 	s.verifyWorktreeFingerprint = func(ctx context.Context, root string) (string, error) {
 		return s.Git.WorktreeFingerprint(ctx, root)
 	}
+	s.workCheckpointExecutor = s.executeDefaultWorkCheckpoint
 	s.durableMutationExecutor = s.executeDurableMutation
 	if startWorkers {
 		s.StartBackgroundWorkers()

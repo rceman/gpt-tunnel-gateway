@@ -48,14 +48,17 @@ type workProgressState struct {
 	UpdatedAt    time.Time           `json:"updated_at"`
 }
 
-func workProgressStatePath(stateDir, root, projectID string) string {
+func workCheckpointStatePath(stateDir, root, projectID string) string {
 	digest := sha256.Sum256([]byte(root + "\x00" + projectID))
-	return filepath.Join(stateDir, "operations", "work-progress", hex.EncodeToString(digest[:])+".json")
+	return filepath.Join(stateDir, "operations", "work-checkpoint", hex.EncodeToString(digest[:])+".json")
 }
 
-func (s *Service) WorkProgress(ctx context.Context, in WorkProgressInput) (WorkProgressReceipt, error) {
+func (s *Service) WorkCheckpoint(ctx context.Context, in WorkProgressInput) (WorkProgressReceipt, error) {
 	if in.Root == "" {
-		return WorkProgressReceipt{}, fmt.Errorf("work progress root is required")
+		return WorkProgressReceipt{}, fmt.Errorf("work checkpoint root is required")
+	}
+	if in.ProjectID == "" {
+		return WorkProgressReceipt{}, fmt.Errorf("work checkpoint project is required")
 	}
 	current, err := s.Git.WorktreeFileHashes(ctx, in.Root)
 	if err != nil {
@@ -65,7 +68,7 @@ func (s *Service) WorkProgress(ctx context.Context, in WorkProgressInput) (WorkP
 	if err != nil {
 		return WorkProgressReceipt{}, fmt.Errorf("worktree fingerprint: %w", err)
 	}
-	statePath := workProgressStatePath(s.Config.StateDir, in.Root, in.ProjectID)
+	statePath := workCheckpointStatePath(s.Config.StateDir, in.Root, in.ProjectID)
 	state, err := readWorkProgressState(statePath)
 	if err != nil && !os.IsNotExist(err) {
 		return WorkProgressReceipt{}, err
@@ -74,24 +77,16 @@ func (s *Service) WorkProgress(ctx context.Context, in WorkProgressInput) (WorkP
 		state = workProgressState{Root: in.Root, ProjectID: in.ProjectID, Baseline: map[string]string{}}
 	}
 	if state.Root != in.Root || state.ProjectID != in.ProjectID {
-		return WorkProgressReceipt{}, fmt.Errorf("work progress baseline identity mismatch")
+		return WorkProgressReceipt{}, fmt.Errorf("work checkpoint baseline identity mismatch")
 	}
 	delta := workProgressDelta(state.Baseline, current)
-	gateScope := gates.FullTestScope()
-	if len(delta) > 0 {
-		resolved, scopeErr := gates.ResolveTestScope(ctx, in.Root, delta)
-		if scopeErr == nil {
-			gateScope = resolved
-		}
-	}
-	gateNames, gateIdentity, err := s.resolveVerifyGateProfile(ctx, in.ProjectID, gateScope)
+	gateNames, gateIdentity, err := s.resolveProjectGateProfile(ctx, in.ProjectID)
 	if err != nil {
 		return WorkProgressReceipt{}, err
 	}
 	if state.GateIdentity != "" && state.GateIdentity != gateIdentity && len(delta) == 0 {
 		delta = workProgressDelta(nil, current)
-		gateScope = gates.FullTestScope()
-		gateNames, gateIdentity, err = s.resolveVerifyGateProfile(ctx, in.ProjectID, gateScope)
+		gateNames, gateIdentity, err = s.resolveProjectGateProfile(ctx, in.ProjectID)
 		if err != nil {
 			return WorkProgressReceipt{}, err
 		}
@@ -111,8 +106,10 @@ func (s *Service) WorkProgress(ctx context.Context, in WorkProgressInput) (WorkP
 	defer lock.Release()
 	now := time.Now().UTC()
 	receipt := WorkProgressReceipt{OperationID: operationID, Status: "running", ProjectID: in.ProjectID, ChangedFiles: append([]string{}, delta...), SourceFingerprint: sourceFingerprint, GateIdentity: gateIdentity, GateNames: append([]string{}, gateNames...), CreatedAt: now, UpdatedAt: now}
-	plan := verifyPlan{Input: VerifyInput{Root: in.Root, ProjectID: in.ProjectID, Scope: gateScope.Mode, Packages: append([]string{}, gateScope.Packages...)}, Scope: gateScope, GateNames: gateNames, GateIdentity: gateIdentity, SourceFingerprint: sourceFingerprint}
-	results, runErr := s.executeVerifyPlanGates(ctx, plan)
+	if s.workCheckpointExecutor == nil {
+		return WorkProgressReceipt{}, fmt.Errorf("work checkpoint project adapter is not configured")
+	}
+	results, runErr := s.workCheckpointExecutor(ctx, in.ProjectID, in.Root, append([]string{}, delta...), append([]string{}, gateNames...))
 	receipt.Gates = results
 	receipt.UpdatedAt = time.Now().UTC()
 	if runErr != nil {
@@ -158,6 +155,45 @@ func (s *Service) executeVerifyPlanGates(ctx context.Context, plan verifyPlan) (
 	return s.executeGateNamesWithScope(ctx, plan.Input.Root, plan.GateNames, plan.Scope)
 }
 
+func (s *Service) executeDefaultWorkCheckpoint(ctx context.Context, projectID, root string, changedFiles, gateNames []string) ([]model.CompletionGateResult, error) {
+	if projectID == "" {
+		return nil, fmt.Errorf("work checkpoint project adapter requires project")
+	}
+	scope, err := resolveWorkCheckpointGoScope(ctx, root, changedFiles)
+	if err != nil {
+		return nil, err
+	}
+	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if s.gateExecutorWithProjectCommandsAndScope == nil {
+		return nil, fmt.Errorf("project checkpoint adapter executor is not configured")
+	}
+	results, err := s.gateExecutorWithProjectCommandsAndScope(ctx, root, gateNames, configuration.Workflow.GateCommands, "task", scope)
+	if err != nil {
+		return results, err
+	}
+	if err := validateProjectGateEvidence(results, gateNames); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+// resolveWorkCheckpointGoScope is the Go project adapter. The checkpoint
+// engine itself carries only neutral changed paths; other projects provide a
+// different adapter through Service.workCheckpointExecutor.
+func resolveWorkCheckpointGoScope(ctx context.Context, root string, changedFiles []string) (gates.TestScope, error) {
+	if len(changedFiles) == 0 {
+		return gates.TestScope{Mode: gates.TestScopePackages, Packages: []string{}}, nil
+	}
+	scope, err := gates.ResolveTestScope(ctx, root, changedFiles)
+	if err != nil {
+		return gates.TestScope{}, fmt.Errorf("resolve project incremental scope: %w", err)
+	}
+	return scope, nil
+}
+
 func workProgressDelta(baseline, current map[string]string) []string {
 	seen := make(map[string]struct{}, len(baseline)+len(current))
 	for path := range baseline {
@@ -197,4 +233,51 @@ func readWorkProgressState(path string) (workProgressState, error) {
 		return workProgressState{}, fmt.Errorf("invalid work progress state")
 	}
 	return state, nil
+}
+
+type WorkCheckpointInput = WorkProgressInput
+type WorkCheckpointReceipt = WorkProgressReceipt
+
+func (s *Service) WorkProgress(ctx context.Context, in WorkProgressInput) (WorkProgressReceipt, error) {
+	return s.WorkCheckpoint(ctx, in)
+}
+
+type WorkCheckpointStatus struct {
+	Root              string                `json:"root"`
+	ProjectID         string                `json:"project_id"`
+	BaselinePresent   bool                  `json:"baseline_present"`
+	BaselineFileCount int                   `json:"baseline_file_count"`
+	ChangedFiles      []string              `json:"changed_files,omitempty"`
+	SourceFingerprint string                `json:"source_fingerprint"`
+	GateIdentity      string                `json:"gate_identity"`
+	GateNames         []string              `json:"gate_names"`
+	LastReceipt       WorkCheckpointReceipt `json:"last_receipt"`
+	UpdatedAt         time.Time             `json:"updated_at"`
+}
+
+func (s *Service) WorkCheckpointStatus(ctx context.Context, in WorkCheckpointInput) (WorkCheckpointStatus, error) {
+	if in.Root == "" || in.ProjectID == "" {
+		return WorkCheckpointStatus{}, fmt.Errorf("work status requires root and project")
+	}
+	current, err := s.Git.WorktreeFileHashes(ctx, in.Root)
+	if err != nil {
+		return WorkCheckpointStatus{}, fmt.Errorf("worktree file hashes: %w", err)
+	}
+	fingerprint, err := s.Git.WorktreeFingerprint(ctx, in.Root)
+	if err != nil {
+		return WorkCheckpointStatus{}, fmt.Errorf("worktree fingerprint: %w", err)
+	}
+	state, err := readWorkProgressState(workCheckpointStatePath(s.Config.StateDir, in.Root, in.ProjectID))
+	if err != nil && !os.IsNotExist(err) {
+		return WorkCheckpointStatus{}, err
+	}
+	if os.IsNotExist(err) {
+		state = workProgressState{Root: in.Root, ProjectID: in.ProjectID, Baseline: map[string]string{}}
+	}
+	delta := workProgressDelta(state.Baseline, current)
+	names, gateIdentity, err := s.resolveProjectGateProfile(ctx, in.ProjectID)
+	if err != nil {
+		return WorkCheckpointStatus{}, err
+	}
+	return WorkCheckpointStatus{Root: in.Root, ProjectID: in.ProjectID, BaselinePresent: len(state.Baseline) > 0, BaselineFileCount: len(state.Baseline), ChangedFiles: delta, SourceFingerprint: fingerprint, GateIdentity: gateIdentity, GateNames: names, LastReceipt: state.LastReceipt, UpdatedAt: state.UpdatedAt}, nil
 }
