@@ -68,6 +68,9 @@ func (s *Service) WorkCheckpoint(ctx context.Context, in WorkProgressInput) (Wor
 		return *receipt, nil
 	}
 	defer lock.Release()
+	if err := s.persistWorkCheckpointClaim(in); err != nil {
+		return WorkProgressReceipt{}, err
+	}
 	return s.workCheckpointLocked(ctx, in)
 }
 
@@ -105,10 +108,33 @@ func (s *Service) acquireWorkCheckpointLock(ctx context.Context, in WorkProgress
 		case <-ctx.Done():
 			return nil, nil, ctx.Err()
 		case <-deadline.C:
-			return nil, &WorkProgressReceipt{Status: "running", ProjectID: in.ProjectID, Reused: true, UpdatedAt: time.Now().UTC()}, nil
+			return nil, nil, fmt.Errorf("checkpoint lock busy without durable running receipt")
 		case <-ticker.C:
 		}
 	}
+}
+
+func workCheckpointClaimOperationID(in WorkProgressInput) string {
+	digest := sha256.Sum256([]byte(in.Root + "\x00" + in.ProjectID))
+	return "work-checkpoint-claim-" + hex.EncodeToString(digest[:])
+}
+
+func (s *Service) persistWorkCheckpointClaim(in WorkProgressInput) error {
+	path := workCheckpointStatePath(s.Config.StateDir, in.Root, in.ProjectID)
+	state, err := readWorkProgressState(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if os.IsNotExist(err) {
+		state = workProgressState{Root: in.Root, ProjectID: in.ProjectID, Baseline: map[string]string{}}
+	}
+	if state.Root != in.Root || state.ProjectID != in.ProjectID {
+		return fmt.Errorf("work checkpoint baseline identity mismatch")
+	}
+	now := time.Now().UTC()
+	state.LastReceipt = WorkProgressReceipt{OperationID: workCheckpointClaimOperationID(in), Status: "running", ProjectID: in.ProjectID, CreatedAt: now, UpdatedAt: now}
+	state.UpdatedAt = now
+	return fsutil.WriteJSONAtomic(path, state, 0o600)
 }
 
 func workCheckpointLockName(in WorkProgressInput) string {
@@ -154,6 +180,11 @@ func (s *Service) workCheckpointLocked(ctx context.Context, in WorkProgressInput
 	}
 	if len(delta) == 0 {
 		receipt := WorkProgressReceipt{OperationID: operationID, Status: "completed", ProjectID: in.ProjectID, SourceFingerprint: sourceFingerprint, GateIdentity: gateIdentity, GateNames: gateNames, UpdatedAt: time.Now().UTC(), Reused: true}
+		state.LastReceipt = receipt
+		state.UpdatedAt = receipt.UpdatedAt
+		if err := fsutil.WriteJSONAtomic(statePath, state, 0o600); err != nil {
+			return WorkProgressReceipt{}, fmt.Errorf("persist reused work checkpoint receipt: %w", err)
+		}
 		return receipt, nil
 	}
 	adapter, err := s.resolveWorkCheckpointAdapter(ctx, in.ProjectID)

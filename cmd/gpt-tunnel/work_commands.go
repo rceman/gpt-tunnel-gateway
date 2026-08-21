@@ -34,6 +34,10 @@ func work(ctx context.Context, s *service.Service, args []string) {
 	}
 	receipt, err := s.WorkCheckpoint(ctx, input)
 	output(receipt)
+	if err == nil && receipt.Status == "running" {
+		fmt.Fprintf(os.Stderr, "gpt-tunnel: checkpoint %s is running; use `gpt-tunnel work status --project %s` for progress\n", receipt.OperationID, projectID)
+		return
+	}
 	if err != nil || receipt.Status != "completed" {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "gpt-tunnel:", err)

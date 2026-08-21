@@ -142,7 +142,7 @@ func TestWorkCheckpointBusyProjectRootIsSingleFlight(t *testing.T) {
 		t.Fatal("first checkpoint did not enter its adapter")
 	}
 	second, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{Root: root, ProjectID: "example"})
-	if err != nil || second.Status != "running" || !second.Reused {
+	if err != nil || second.Status != "running" || !second.Reused || second.OperationID == "" {
 		t.Fatalf("busy checkpoint=%#v err=%v", second, err)
 	}
 	if got := calls.Load(); got != 1 {
