@@ -278,7 +278,7 @@ func (s *Service) projectOperationalOperation(projectID string) *ProjectOperatio
 			continue
 		}
 		operation, readErr := s.readDurableMutation(strings.TrimSuffix(entry.Name(), ".json"))
-		if readErr != nil || operation.ProjectID != projectID || operation.Status == "completed" || operation.Status == "failed" {
+		if readErr != nil || operation.ProjectID != projectID || operation.Status == "completed" || operation.Status == "failed" || operation.Status == "outcome_unknown" {
 			continue
 		}
 		candidates = append(candidates, operation)

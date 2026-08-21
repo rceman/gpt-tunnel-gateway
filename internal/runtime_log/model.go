@@ -24,6 +24,7 @@ type contextKey string
 const (
 	requestIDKey   contextKey = "runtime-log-request-id"
 	operationIDKey contextKey = "runtime-log-operation-id"
+	actionKey      contextKey = "runtime-log-action"
 )
 
 type Event struct {
@@ -90,6 +91,15 @@ func WithOperationID(ctx context.Context, id string) context.Context {
 
 func OperationID(ctx context.Context) string {
 	value, _ := ctx.Value(operationIDKey).(string)
+	return value
+}
+
+func WithAction(ctx context.Context, action string) context.Context {
+	return context.WithValue(ctx, actionKey, boundedIdentifier(action))
+}
+
+func Action(ctx context.Context) string {
+	value, _ := ctx.Value(actionKey).(string)
 	return value
 }
 

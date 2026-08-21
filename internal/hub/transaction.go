@@ -8,9 +8,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
+	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
 )
 
 func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mutator) (TransactionResult, error) {
@@ -19,11 +21,23 @@ func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mu
 		return TransactionResult{}, err
 	}
 	defer transactionLock.Release()
-	repositoryLock, err := acquireRepositoryLock(ctx, s.Config.StateDir)
+	lockWaitRecorded := false
+	repositoryLock, err := acquireRepositoryLockWithObserver(ctx, s.Config.StateDir, func(e lockfile.ContentionEvidence) {
+		if lockWaitRecorded {
+			return
+		}
+		lockWaitRecorded = true
+		recordLockEvent(s.Config.StateDir, ctx, "hub_lock_wait", &e, nil)
+	})
 	if err != nil {
+		recordLockEvent(s.Config.StateDir, ctx, "hub_lock_failed", nil, err)
 		return TransactionResult{}, err
 	}
-	defer repositoryLock.Release()
+	recordLockEvent(s.Config.StateDir, ctx, "hub_lock_acquired", nil, nil)
+	defer func() {
+		releaseErr := repositoryLock.Release()
+		recordLockEvent(s.Config.StateDir, ctx, "hub_lock_released", nil, releaseErr)
+	}()
 	root, err := s.ensureLocked(ctx, nil)
 	if err != nil {
 		return TransactionResult{}, err
@@ -55,7 +69,7 @@ func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mu
 	if _, err = command(ctx, root, "worktree", "add", "--detach", worktree, before); err != nil {
 		return TransactionResult{}, err
 	}
-	defer command(context.Background(), root, "worktree", "remove", "--force", worktree)
+	defer command(ctx, root, "worktree", "remove", "--force", worktree)
 	paths, err := mutate(worktree)
 	if err != nil {
 		return TransactionResult{}, err
@@ -113,4 +127,29 @@ func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mu
 		Branch: s.Config.Hub.Branch,
 		Paths:  append([]string{}, paths...),
 	}, nil
+}
+
+func recordLockEvent(stateDir string, ctx context.Context, event string, evidence *lockfile.ContentionEvidence, cause error) {
+	action := runtime_log.Action(ctx)
+	operationID := runtime_log.OperationID(ctx)
+	if action == "" && operationID == "" {
+		return
+	}
+	record := runtime_log.Event{
+		Timestamp:   time.Now().UTC(),
+		Level:       "info",
+		Component:   "hub",
+		Event:       event,
+		Action:      action,
+		OperationID: operationID,
+		PID:         os.Getpid(),
+	}
+	if evidence != nil {
+		record.Message = evidence.BoundedJSON()
+	}
+	if cause != nil {
+		record.Level = "error"
+		record.Error = cause.Error()
+	}
+	_ = runtime_log.New(stateDir).Append(record)
 }

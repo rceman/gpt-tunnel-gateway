@@ -7,8 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
+	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
@@ -215,6 +218,89 @@ func TestTransactionPushesThroughManagedClone(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(work, "gpt-tunnel")); !os.IsNotExist(err) {
 		t.Fatalf("user clone modified")
 	}
+}
+
+func TestTransactionDeadlineReleasesRepositoryLock(t *testing.T) {
+	bare, _, base := testutil.RepoWithBareRemote(t)
+	c := testConfig(t, bare, "gpt-tunnel/home_pc")
+	store := Store{Config: c}
+	if err := store.Ensure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err := store.Transact(ctx, base, "test: bounded transaction", func(string) ([]string, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	if err == nil {
+		t.Fatal("timed-out transaction unexpectedly succeeded")
+	}
+	lock, err := acquireRepositoryLock(context.Background(), c.StateDir)
+	if err != nil {
+		t.Fatalf("repository lock remained held after timeout: %v", err)
+	}
+	if err := lock.Release(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConcurrentRepositoryWorkersRegainLock(t *testing.T) {
+	stateDir := t.TempDir()
+	holder, err := lockfile.Acquire(filepath.Join(stateDir, "locks"), "hub-repository")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	acquired := make(chan *lockfile.Lock, 1)
+	failed := make(chan error, 1)
+	go func() {
+		lock, acquireErr := acquireRepositoryLock(ctx, stateDir)
+		if acquireErr != nil {
+			failed <- acquireErr
+			return
+		}
+		acquired <- lock
+	}()
+	time.Sleep(50 * time.Millisecond)
+	if err := holder.Release(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-failed:
+		t.Fatal(err)
+	case lock := <-acquired:
+		if err := lock.Release(); err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("worker did not regain repository lock")
+	}
+}
+
+func TestRepositoryLockEventsCarryOperationAttribution(t *testing.T) {
+	bare, _, base := testutil.RepoWithBareRemote(t)
+	c := testConfig(t, bare, "gpt-tunnel/home_pc")
+	ctx := runtime_log.WithAction(context.Background(), "task/create")
+	ctx = runtime_log.WithOperationID(ctx, "task-create-lock-test")
+	store := Store{Config: c}
+	if _, err := store.Transact(ctx, base, "test: attributed transaction", func(worktree string) ([]string, error) {
+		path := ProtocolRoot + "/attributed.json"
+		return []string{path}, WriteJSON(worktree, path, map[string]any{"ok": true})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	read, err := runtime_log.New(c.StateDir).Read(runtime_log.Filter{OperationID: "task-create-lock-test", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range read.Events {
+		if event.Event == "hub_lock_acquired" && event.Action == "task/create" {
+			return
+		}
+	}
+	t.Fatalf("missing attributed lock event: %#v", read.Events)
 }
 
 func TestEnsurePreservesExistingWritableBranch(t *testing.T) {

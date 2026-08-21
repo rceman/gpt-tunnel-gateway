@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -37,13 +38,23 @@ func (s *Service) processDurableMutation(operationID string) {
 	// Durable workers run after the request context is gone. Rebind the
 	// immutable originating Session so outbound Agent IPC keeps its
 	// provenance instead of falling back to the Gateway identity.
-	workerCtx := WithAgentSessionID(context.Background(), operation.SessionID)
-	result, runErr := s.executeDurableMutation(workerCtx, operation)
+	workerCtx, cancel := s.asyncMutationContext(operation.Kind, operation.OperationID)
+	defer cancel()
+	workerCtx = WithAgentSessionID(workerCtx, operation.SessionID)
+	execute := s.durableMutationExecutor
+	if execute == nil {
+		execute = s.executeDurableMutation
+	}
+	result, runErr := execute(workerCtx, operation)
 	s.durableMutationMu.Lock()
 	defer s.durableMutationMu.Unlock()
 	operation.UpdatedAt = time.Now().UTC()
 	if runErr != nil {
 		operation.Status = "failed"
+		if errors.Is(runErr, context.DeadlineExceeded) || errors.Is(runErr, context.Canceled) {
+			operation.Status = "outcome_unknown"
+			operation.RecoveryReason = "bounded worker context ended before Hub outcome was proven; retry is idempotent"
+		}
 		operation.Error = runErr.Error()
 		operation.Result = nil
 	} else {

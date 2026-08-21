@@ -120,7 +120,7 @@ func (s *Service) TaskAuthoringCreateAsync(ctx context.Context, in TaskAuthoring
 		if operation.RequestSHA256 != requestSHA || operation.OperationID != operationID {
 			return TaskCreateOperation{}, fmt.Errorf("task/create operation identity mismatch")
 		}
-		if operation.Status == "failed" {
+		if operation.Status == "failed" || operation.Status == "outcome_unknown" {
 			operation.Status = "accepted"
 			operation.Error = ""
 			operation.UpdatedAt = time.Now().UTC()
@@ -184,7 +184,7 @@ func (s *Service) startTaskCreateWorker() {
 			}
 			operationID := strings.TrimSuffix(entry.Name(), ".json")
 			operation, err := s.TaskCreateOperationRead(context.Background(), operationID)
-			if err != nil || operation.Status == "completed" || operation.Status == "failed" {
+			if err != nil || operation.Status == "completed" || operation.Status == "failed" || operation.Status == "outcome_unknown" {
 				continue
 			}
 			if operation.Status == "running" {
@@ -247,7 +247,9 @@ func (s *Service) processTaskCreate(operationID string) {
 		s.taskCreateMu.Unlock()
 	}()
 
-	if existing, findErr := s.findTaskCreateResult(context.Background(), operation); findErr == nil {
+	workerCtx, cancel := s.asyncMutationContext("task/create", operation.OperationID)
+	defer cancel()
+	if existing, findErr := s.findTaskCreateResult(workerCtx, operation); findErr == nil {
 		s.finishTaskCreate(operation, existing, OperationResult{
 			OperationID: operationID,
 			ProjectID:   existing.ProjectID,
@@ -256,6 +258,10 @@ func (s *Service) processTaskCreate(operationID string) {
 		}, "")
 		return
 	} else if !errors.Is(findErr, os.ErrNotExist) {
+		if asyncMutationOutcomeUnknown(findErr) {
+			s.finishTaskCreateUnknown(operation, findErr)
+			return
+		}
 		s.finishTaskCreate(operation, nil, OperationResult{
 			OperationID: operationID,
 			ProjectID:   operation.Input.ProjectID,
@@ -263,8 +269,12 @@ func (s *Service) processTaskCreate(operationID string) {
 		}, findErr.Error())
 		return
 	}
-	task, result, err := s.TaskAuthoringCreate(context.Background(), operation.Input)
+	task, result, err := s.TaskAuthoringCreate(workerCtx, operation.Input)
 	if err != nil {
+		if asyncMutationOutcomeUnknown(err) {
+			s.finishTaskCreateUnknown(operation, err)
+			return
+		}
 		s.finishTaskCreate(operation, nil, OperationResult{
 			OperationID: operationID,
 			ProjectID:   operation.Input.ProjectID,
@@ -279,6 +289,15 @@ func (s *Service) processTaskCreate(operationID string) {
 		Hub:         result.Hub,
 		Status:      result.Status,
 	}, "")
+}
+
+func (s *Service) finishTaskCreateUnknown(operation TaskCreateOperation, err error) {
+	operation.Status = "outcome_unknown"
+	operation.Operation = OperationResult{OperationID: operation.OperationID, ProjectID: operation.Input.ProjectID, Status: "outcome_unknown"}
+	operation.Error = err.Error()
+	operation.RecoveryReason = "bounded worker context ended before Hub outcome was proven; retry is idempotent"
+	operation.UpdatedAt = time.Now().UTC()
+	_ = fsutil.WriteJSONAtomic(taskCreateOperationPath(s.Config.StateDir, operation.OperationID), operation, 0o600)
 }
 
 func (s *Service) findTaskCreateResult(ctx context.Context, operation TaskCreateOperation) (*model.TaskAuthoring, error) {

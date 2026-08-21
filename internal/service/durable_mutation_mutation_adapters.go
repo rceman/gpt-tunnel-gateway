@@ -38,7 +38,7 @@ func (s *Service) enqueueTrainV2Integrate(ctx context.Context, in TrainV2Integra
 		if operation.RequestSHA256 != digest || operation.Kind != "train-v2-integrate" {
 			return durableMutationOperation{}, fmt.Errorf("durable mutation identity mismatch")
 		}
-		if operation.Status == "failed" {
+		if operation.Status == "failed" || operation.Status == "outcome_unknown" {
 			operation.Status = "accepted"
 			operation.Error = ""
 			operation.UpdatedAt = time.Now().UTC()
@@ -100,7 +100,7 @@ func (s *Service) enqueueTaskAuthoringReady(ctx context.Context, in TaskAuthorin
 		if operation.RequestSHA256 != digest || operation.Kind != "task-authoring-ready" {
 			return durableMutationOperation{}, fmt.Errorf("durable mutation identity mismatch")
 		}
-		if operation.Status == "failed" {
+		if operation.Status == "failed" || operation.Status == "outcome_unknown" {
 			operation.Status = "accepted"
 			operation.Error = ""
 			operation.UpdatedAt = time.Now().UTC()
@@ -153,7 +153,7 @@ func (s *Service) readDurableMutation(operationID string) (durableMutationOperat
 		return durableMutationOperation{}, fmt.Errorf("invalid durable mutation request digest: %w", err)
 	}
 	switch operation.Status {
-	case "accepted", "running", "completed", "failed":
+	case "accepted", "running", "completed", "failed", "outcome_unknown":
 	default:
 		return durableMutationOperation{}, fmt.Errorf("invalid durable mutation status %q", operation.Status)
 	}
@@ -207,7 +207,7 @@ func (s *Service) enqueueTaskAuthoringUpdate(ctx context.Context, in TaskAuthori
 		if operation.RequestSHA256 != digest || operation.Kind != "task-authoring-update" {
 			return durableMutationOperation{}, fmt.Errorf("durable mutation identity mismatch")
 		}
-		if operation.Status == "failed" {
+		if operation.Status == "failed" || operation.Status == "outcome_unknown" {
 			operation.Status = "accepted"
 			operation.Error = ""
 			operation.UpdatedAt = time.Now().UTC()

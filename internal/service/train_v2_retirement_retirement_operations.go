@@ -60,7 +60,7 @@ func (s *Service) trainV2HasLiveOperationInWorktreeContext(ctx context.Context, 
 		if err != nil {
 			return false, err
 		}
-		if operation.ProjectID != projectID || operation.Status == "completed" || operation.Status == "failed" {
+		if operation.ProjectID != projectID || operation.Status == "completed" || operation.Status == "failed" || operation.Status == "outcome_unknown" {
 			continue
 		}
 		switch operation.Kind {

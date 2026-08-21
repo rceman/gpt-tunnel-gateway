@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,6 +40,41 @@ func TestRecoverRunningDurableMutationForStartup(t *testing.T) {
 	}
 	if recovered.Status != "accepted" || recovered.RecoveryReason == "" || recovered.Error != "" {
 		t.Fatalf("recovered operation=%#v", recovered)
+	}
+}
+
+func TestRecoveredDurableMutationUsesBoundedContextAndPersistsUnknownOutcome(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	s.asyncMutationTimeout = 20 * time.Millisecond
+	digest := sha256.Sum256([]byte("bounded recovery"))
+	operation := durableMutationOperation{
+		SchemaVersion: durableMutationSchemaVersion,
+		OperationID:   "mutation-" + hex.EncodeToString(digest[:]),
+		Kind:          "train-v2-integrate",
+		RequestSHA256: hex.EncodeToString(digest[:]),
+		ProjectID:     "example",
+		Input:         []byte(`{"train_id":"GTW-TRN1"}`),
+		Status:        "running",
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+	}
+	if err := s.writeDurableMutation(operation); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.recoverRunningDurableMutation(operation); err != nil {
+		t.Fatal(err)
+	}
+	s.durableMutationExecutor = func(ctx context.Context, _ durableMutationOperation) (json.RawMessage, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	s.processDurableMutation(operation.OperationID)
+	got, err := s.readDurableMutation(operation.OperationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "outcome_unknown" || got.RecoveryReason == "" {
+		t.Fatalf("bounded recovery status=%#v", got)
 	}
 }
 

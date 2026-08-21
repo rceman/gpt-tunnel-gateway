@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -33,6 +34,8 @@ type Service struct {
 	Git                                     gitx.Runner
 	Airelay                                 airelay.Client
 	clock                                   func() time.Time
+	asyncMutationTimeout                    time.Duration
+	durableMutationExecutor                 func(context.Context, durableMutationOperation) (json.RawMessage, error)
 	gateExecutor                            func(context.Context, string, []string) ([]model.CompletionGateResult, error)
 	gateExecutorWithScope                   func(context.Context, string, []string, gates.TestScope) ([]model.CompletionGateResult, error)
 	gateExecutorWithProjectCommands         func(context.Context, string, []string, model.ProjectGateCommands, string) ([]model.CompletionGateResult, error)
@@ -79,6 +82,7 @@ func newService(c config.Config, durability *sqlitestore.Databases, startWorkers
 		taskCreateActive:      make(map[string]struct{}),
 		durableMutationWake:   make(chan string, 32),
 		durableMutationActive: make(map[string]struct{}),
+		asyncMutationTimeout:  defaultAsyncMutationTimeout,
 		gateExecutor: func(ctx context.Context, root string, names []string) ([]model.CompletionGateResult, error) {
 			return executor.Execute(ctx, root, names)
 		},
@@ -111,6 +115,7 @@ func newService(c config.Config, durability *sqlitestore.Databases, startWorkers
 			}, nil
 		},
 	}
+	s.durableMutationExecutor = s.executeDurableMutation
 	if startWorkers {
 		s.StartBackgroundWorkers()
 	}
