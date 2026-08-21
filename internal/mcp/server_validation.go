@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 )
 
 func requireToolAuthority(ctx context.Context, toolName string) error {
@@ -131,13 +132,57 @@ func normalizeObject(v any) map[string]any {
 	data, _ := json.Marshal(v)
 	var obj map[string]any
 	if json.Unmarshal(data, &obj) == nil && obj != nil {
-		return obj
+		return normalizePublicObject(obj)
 	}
 	var arr []any
 	if json.Unmarshal(data, &arr) == nil {
-		return map[string]any{"items": arr}
+		return map[string]any{"items": normalizePublicValue(arr)}
 	}
 	return map[string]any{"value": v}
+}
+
+// normalizePublicObject is the single public projection boundary for JSON
+// values. Persisted/internal timestamps keep their full precision; public
+// timestamps are UTC, second-precision, and zero values are omitted.
+func normalizePublicObject(obj map[string]any) map[string]any {
+	value := normalizePublicValue(obj)
+	return value.(map[string]any)
+}
+
+func normalizePublicValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			if isPublicTimestampKey(key) {
+				if timestamp, ok := item.(string); ok {
+					parsed, err := time.Parse(time.RFC3339Nano, timestamp)
+					if err == nil {
+						if parsed.IsZero() {
+							continue
+						}
+						out[key] = parsed.UTC().Format(time.RFC3339)
+						continue
+					}
+				}
+			}
+			out[key] = normalizePublicValue(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for index, item := range typed {
+			out[index] = normalizePublicValue(item)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func isPublicTimestampKey(key string) bool {
+	return key == "time" || key == "timestamp" || key == "last_activity" ||
+		strings.HasSuffix(key, "_at") || strings.HasSuffix(key, "_time")
 }
 
 func obj(properties map[string]any, required ...string) map[string]any {
