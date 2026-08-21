@@ -53,7 +53,7 @@ func (s *Service) classifyTrainV2LifecycleWithContext(ctx context.Context, proje
 				Class:       trainV2ClassStale,
 				Blocker:     "TRAIN_INTEGRATION_RECONCILIATION_REQUIRED",
 				Detail:      "failed durable integration mutation left a pre_pending prefix requiring reconciliation",
-				Recommended: "retry train/integrate with the current source identity",
+				Recommended: "verify current source identity; retry train/integrate only if canonical, otherwise use administrative recovery or retire",
 			}, nil
 		}
 		return trainV2LifecycleClassification{
