@@ -40,7 +40,7 @@ func (s *Service) listSharedADRs(ctx context.Context, projectID string) ([]model
 	if err := s.requireLocalTaskAuthoring(ctx, projectID); err != nil {
 		return nil, err
 	}
-	entities, err := s.Durability.ListSharedEntities(ctx, "adr", 1000)
+	entities, err := s.sharedProjectEntities(ctx, "adr", projectID)
 	if err != nil {
 		return nil, err
 	}

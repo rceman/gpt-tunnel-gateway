@@ -89,11 +89,39 @@ func (s *Service) readAnySharedTask(ctx context.Context, taskID string) (model.T
 	return task, nil
 }
 
+func (s *Service) sharedProjectEntities(ctx context.Context, entityType, projectID string) ([]sqlitestore.SharedEntity, error) {
+	const pageSize = 1000
+	entities := make([]sqlitestore.SharedEntity, 0)
+	var afterUpdatedAt, afterID string
+	for {
+		page, err := s.Durability.ListSharedEntitiesAfter(ctx, entityType, afterUpdatedAt, afterID, pageSize)
+		if err != nil {
+			return nil, err
+		}
+		for _, entity := range page {
+			var owner struct {
+				ProjectID string `json:"project_id"`
+			}
+			if err := json.Unmarshal(entity.Payload, &owner); err != nil {
+				return nil, fmt.Errorf("decode shared %s %s: %w", entityType, entity.ID, err)
+			}
+			if owner.ProjectID == projectID {
+				entities = append(entities, entity)
+			}
+		}
+		if len(page) < pageSize {
+			return entities, nil
+		}
+		last := page[len(page)-1]
+		afterUpdatedAt, afterID = last.UpdatedAt, last.ID
+	}
+}
+
 func (s *Service) sharedTaskAuthoringAll(ctx context.Context, projectID string) ([]model.TaskAuthoring, error) {
 	if err := s.requireLocalTaskAuthoring(ctx, projectID); err != nil {
 		return nil, err
 	}
-	entities, err := s.Durability.ListSharedEntities(ctx, "task", 1000)
+	entities, err := s.sharedProjectEntities(ctx, "task", projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +266,7 @@ func containsControl(value string) bool {
 }
 
 func (s *Service) sharedTrains(ctx context.Context, projectID string) ([]model.TrainV2, error) {
-	entities, err := s.Durability.ListSharedEntities(ctx, "train", 1000)
+	entities, err := s.sharedProjectEntities(ctx, "train", projectID)
 	if err != nil {
 		return nil, err
 	}

@@ -482,6 +482,21 @@ func (d *Databases) PutSharedIntegrationReceipt(ctx context.Context, receipt Sha
 }
 
 func (d *Databases) ListSharedEntities(ctx context.Context, entityType string, limit int) ([]SharedEntity, error) {
+	return d.listSharedEntitiesQuery(ctx, entityType, `SELECT id,revision,payload,updated_at FROM %s ORDER BY updated_at,id LIMIT ?`, limit)
+}
+
+func (d *Databases) ListSharedEntitiesPage(ctx context.Context, entityType string, offset, limit int) ([]SharedEntity, error) {
+	return d.listSharedEntitiesQuery(ctx, entityType, `SELECT id,revision,payload,updated_at FROM %s ORDER BY updated_at,id LIMIT ? OFFSET ?`, limit, offset)
+}
+
+func (d *Databases) ListSharedEntitiesAfter(ctx context.Context, entityType, afterUpdatedAt, afterID string, limit int) ([]SharedEntity, error) {
+	if afterUpdatedAt == "" && afterID == "" {
+		return d.listSharedEntitiesQuery(ctx, entityType, `SELECT id,revision,payload,updated_at FROM %s ORDER BY updated_at,id LIMIT ?`, limit)
+	}
+	return d.listSharedEntitiesQuery(ctx, entityType, `SELECT id,revision,payload,updated_at FROM %s WHERE updated_at > ? OR (updated_at = ? AND id > ?) ORDER BY updated_at,id LIMIT ?`, afterUpdatedAt, afterUpdatedAt, afterID, limit)
+}
+
+func (d *Databases) listSharedEntitiesQuery(ctx context.Context, entityType, queryFormat string, args ...any) ([]SharedEntity, error) {
 	table, ok := sharedEntityTables[entityType]
 	if !ok {
 		return nil, fmt.Errorf("unsupported shared entity type %q", entityType)
@@ -489,10 +504,38 @@ func (d *Databases) ListSharedEntities(ctx context.Context, entityType string, l
 	if d == nil || d.Shared == nil {
 		return nil, fmt.Errorf("shared store is unavailable")
 	}
+	var limit int
+	switch len(args) {
+	case 1:
+		var ok bool
+		limit, ok = args[0].(int)
+		if !ok {
+			return nil, fmt.Errorf("invalid shared entity limit")
+		}
+	case 2:
+		var ok bool
+		limit, ok = args[0].(int)
+		if !ok {
+			return nil, fmt.Errorf("invalid shared entity limit")
+		}
+		if offset, ok := args[1].(int); !ok || offset < 0 {
+			return nil, fmt.Errorf("invalid shared entity offset")
+		}
+	case 4:
+		var ok bool
+		limit, ok = args[3].(int)
+		if !ok {
+			return nil, fmt.Errorf("invalid shared entity limit")
+		}
+	default:
+		return nil, fmt.Errorf("invalid shared entity limit")
+	}
 	if limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("invalid shared entity limit")
 	}
-	rows, err := d.Shared.Query(ctx, fmt.Sprintf(`SELECT id,revision,payload,updated_at FROM %s ORDER BY updated_at,id LIMIT ?`, table), limit)
+	queryArgs := append([]any(nil), args...)
+	query := fmt.Sprintf(queryFormat, table)
+	rows, err := d.Shared.Query(ctx, query, queryArgs...)
 	if err != nil {
 		return nil, err
 	}

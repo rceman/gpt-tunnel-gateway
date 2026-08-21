@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -185,6 +186,60 @@ func TestSharedTaskAndADRQueriesDoNotUseHub(t *testing.T) {
 	listedADRs, err := s.ADRList(context.Background(), "example")
 	if err != nil || len(listedADRs) != 1 || listedADRs[0].ID != adr.ID {
 		t.Fatalf("Shared ADR/list failed: %#v %v", listedADRs, err)
+	}
+}
+
+func TestSharedQueriesScopeBeforeGlobalPageLimit(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	db, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s.Durability = db
+	project := s.Config.Projects["example"]
+	project.ProjectCode = "EXM"
+	s.Config.Projects["example"] = project
+	markSharedBootstrapCompleteForTest(t, db)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for i := 0; i < 1001; i++ {
+		id := fmt.Sprintf("AAA-TSK%04d", i)
+		if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_tasks(id,revision,payload,updated_at) VALUES(?,?,?,?)`, id, 1, []byte(`{"project_id":"other"}`), now); err != nil {
+			t.Fatal(err)
+		}
+		adrID := fmt.Sprintf("AAA-ADR%04d", i)
+		if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_adrs(id,revision,payload,updated_at) VALUES(?,?,?,?)`, adrID, 1, []byte(`{"project_id":"other"}`), now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	task, err := trainv2.NewTask("example", "EXM-TSK903", trainv2.AuthoringDraft{Title: "After page", Objective: "Remain visible", ADRRelation: model.TaskADRNoRequired}, "planner", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskPayload, err := json.Marshal(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_tasks(id,revision,payload,updated_at) VALUES(?,?,?,?)`, task.ID, task.Revision, taskPayload, now); err != nil {
+		t.Fatal(err)
+	}
+	adr := model.ADR{SchemaVersion: model.SchemaVersion, ID: "EXM-ADR903", ProjectID: "example", Title: "After page", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: time.Now().UTC()}
+	adrPayload, err := json.Marshal(adr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_adrs(id,revision,payload,updated_at) VALUES(?,?,?,?)`, adr.ID, 1, adrPayload, now); err != nil {
+		t.Fatal(err)
+	}
+	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
+	listed, err := s.TaskAuthoringList(ctx, TaskAuthoringListInput{ProjectID: "example", Limit: 1})
+	if err != nil || len(listed.Tasks) != 1 || listed.Tasks[0].ID != task.ID {
+		t.Fatalf("task after global page was lost: %#v %v", listed, err)
+	}
+	listedADRs, err := s.ADRList(ctx, "example")
+	if err != nil || len(listedADRs) != 1 || listedADRs[0].ID != adr.ID {
+		t.Fatalf("ADR after global page was lost: %#v %v", listedADRs, err)
 	}
 }
 
