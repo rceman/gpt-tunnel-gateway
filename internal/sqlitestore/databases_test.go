@@ -129,51 +129,6 @@ func TestOpenObserverReportsSQLiteStartupPhases(t *testing.T) {
 	}
 }
 
-func TestOpenAcceptsHistoricalVersionTwoNamesAndAppliesReceiptMigration(t *testing.T) {
-	for _, name := range []string{sharedReplicationMigrationName, sharedIntegrationMigrationName} {
-		t.Run(name, func(t *testing.T) {
-			stateDir := t.TempDir()
-			db, err := Open(stateDir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			sharedPath := db.SharedPath()
-			if err := db.Close(); err != nil {
-				t.Fatal(err)
-			}
-			raw, err := upstream.Open(upstream.Config{Path: sharedPath})
-			if err != nil {
-				t.Fatal(err)
-			}
-			ctx := context.Background()
-			if _, err := raw.Exec(ctx, `UPDATE schema_migrations SET name=? WHERE version=?`, name, int64(2)); err != nil {
-				raw.Close()
-				t.Fatal(err)
-			}
-			if _, err := raw.Exec(ctx, `DELETE FROM schema_migrations WHERE version=?`, int64(8)); err != nil {
-				raw.Close()
-				t.Fatal(err)
-			}
-			if _, err := raw.Exec(ctx, `DROP TABLE shared_integration_receipts`); err != nil {
-				raw.Close()
-				t.Fatal(err)
-			}
-			if err := raw.Close(); err != nil {
-				t.Fatal(err)
-			}
-			reopened, err := Open(stateDir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer reopened.Close()
-			rows, err := reopened.Shared.Query(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name='shared_integration_receipts'`)
-			if err != nil || len(rows.Rows) != 1 {
-				t.Fatalf("receipt migration was not applied for %q: rows=%#v err=%v", name, rows.Rows, err)
-			}
-		})
-	}
-}
-
 func TestOpenAcceptsReleasedVersionThreeAndAppliesBootstrapMigration(t *testing.T) {
 	stateDir := t.TempDir()
 	db, err := Open(stateDir)

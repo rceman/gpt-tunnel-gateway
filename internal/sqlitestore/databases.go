@@ -161,9 +161,6 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 	if notify != nil {
 		notify("SQLITE_SHARED_MIGRATION")
 	}
-	if err := normalizeSharedMigrationHistory(ctx, db.Shared); err != nil {
-		return &OpenError{Stage: "migration", Database: "shared", Path: db.sharedPath, Err: err}
-	}
 	if err := migrate.Apply(ctx, db.Shared, sharedMigrations, migrate.Options{}); err != nil {
 		return &OpenError{Stage: "migration", Database: "shared", Path: db.sharedPath, Err: err}
 	}
@@ -178,44 +175,12 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 
 const (
 	sharedReplicationMigrationName        = "gpt_tunnel_shared_replication_v1"
-	sharedIntegrationMigrationName        = "gpt_tunnel_shared_integration_receipts_v2"
 	sharedCutoverMigrationName            = "gpt_tunnel_shared_cutover_v1"
 	sharedTaskSequenceMigrationName       = "gpt_tunnel_shared_task_sequences_v7"
 	sharedIntegrationCurrentMigrationName = "gpt_tunnel_shared_integration_receipts_v8"
 	sharedBootstrapMigrationName          = "gpt_tunnel_shared_bootstrap_markers_v9"
 	sharedADROutboxMigrationName          = "gpt_tunnel_shared_adr_outbox_retry_v10"
 )
-
-// normalizeSharedMigrationHistory repairs only the known version-2 naming
-// collision introduced by the integration-receipt migration. The old marker
-// is authoritative history; the alias is renamed so the receipt schema can be
-// applied at its new version without weakening migration validation.
-func normalizeSharedMigrationHistory(ctx context.Context, shared *store.Store) error {
-	if _, err := shared.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL)`); err != nil {
-		return fmt.Errorf("create migration history: %w", err)
-	}
-	rows, err := shared.Query(ctx, `SELECT version, name FROM schema_migrations WHERE version=?`, int64(2))
-	if err != nil {
-		return fmt.Errorf("read version-2 migration history: %w", err)
-	}
-	if len(rows.Rows) == 0 {
-		return nil
-	}
-	if len(rows.Rows[0]) != 2 {
-		return fmt.Errorf("invalid version-2 migration history row")
-	}
-	name, ok := rows.Rows[0][1].(string)
-	if !ok {
-		return fmt.Errorf("invalid version-2 migration name type %T", rows.Rows[0][1])
-	}
-	if name != sharedIntegrationMigrationName {
-		return nil
-	}
-	if _, err := shared.Exec(ctx, `UPDATE schema_migrations SET name=? WHERE version=?`, sharedReplicationMigrationName, int64(2)); err != nil {
-		return fmt.Errorf("normalize version-2 migration identity: %w", err)
-	}
-	return nil
-}
 
 var sharedMigrations = []migrate.Migration{{
 	Version: 1,
