@@ -43,18 +43,8 @@ func genericDispatchTimed(s *Server, ctx context.Context, entries map[string]gen
 	started := time.Now()
 	result, err := s.genericDispatch(ctx, entries, record, action, raw)
 	addTokenUsage(s, result, raw)
-	if record.ID != "" && result != nil {
-		_ = recordSessionTokenUsage(s, record.ID, result)
-	}
 	addSparseExecTime(result, time.Since(started))
 	return result, err
-}
-
-func recordSessionTokenUsage(s *Server, sessionID string, result map[string]any) error {
-	requestTokens := intValue(result["request_tokens"])
-	responseTokens := intValue(result["response_tokens"])
-	_, err := durableSession.NewStore(s.Service.Config.StateDir).RecordMCPTokenUsage(sessionID, requestTokens, responseTokens, time.Now().UTC())
-	return err
 }
 
 func addTokenUsage(s *Server, result map[string]any, request json.RawMessage) {

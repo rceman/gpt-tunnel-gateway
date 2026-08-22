@@ -56,20 +56,12 @@ func (s *Service) AgentRecover(ctx context.Context, in AgentRecoverInput) (Agent
 	if runtime.ItemPosition != in.ItemPosition || runtime.TaskID != in.TaskID || runtime.AttemptNumber != in.AttemptNumber {
 		return recoveryBlockAt(result, "runtime_identity", "host-local runtime binding does not match the exact Attempt")
 	}
-	var agent model.Agent
-	if s.Durability != nil {
-		// After Shared bootstrap the portable Agent registry is not a prerequisite
-		// for recovery. The exact Attempt snapshot plus host-local binding are the
-		// authority; a missing binding fails closed below without a Hub fallback.
-		agent = model.Agent{AgentID: in.AgentID, ProjectID: in.ProjectID, Role: model.AgentRoleCoding, Enabled: true}
-	} else {
-		agent, err = s.AgentRead(ctx, in.ProjectID, in.AgentID)
-		if err != nil {
-			return recoveryBlockAt(result, "agent_read", err.Error())
-		}
-		if !agent.Enabled || agent.Role != model.AgentRoleCoding {
-			return recoveryBlockAt(result, "agent_read", "exact coding Agent is disabled or has the wrong role")
-		}
+	agent, err := s.AgentRead(ctx, in.ProjectID, in.AgentID)
+	if err != nil {
+		return recoveryBlockAt(result, "agent_read", err.Error())
+	}
+	if !agent.Enabled || agent.Role != model.AgentRoleCoding {
+		return recoveryBlockAt(result, "agent_read", "exact coding Agent is disabled or has the wrong role")
 	}
 	agents := []model.Agent{agent}
 	binding, ok := s.resolveLocalAgentBinding(in.ProjectID, agent, agents)
