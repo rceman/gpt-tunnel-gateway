@@ -15,23 +15,6 @@ func compactTaskListResult(value map[string]any) map[string]any {
 	}
 	return result
 }
-
-func compactTaskRevisionListResult(value map[string]any) map[string]any {
-	result := copyProjectionMap(value)
-	if revisions, ok := value["revisions"].([]any); ok {
-		compact := make([]any, len(revisions))
-		for i, revision := range revisions {
-			if object, ok := revision.(map[string]any); ok {
-				compact[i] = compactRevision(object)
-			} else {
-				compact[i] = revision
-			}
-		}
-		result["revisions"] = compact
-	}
-	return result
-}
-
 func compactTaskReadResult(value map[string]any) map[string]any {
 	result := copyProjectionMap(value)
 	for _, key := range []string{"task", "state", "current_revision", "workflow_policy", "train", "item", "attempt"} {
