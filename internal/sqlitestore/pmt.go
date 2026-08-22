@@ -241,7 +241,7 @@ func (d *Databases) ReadPMT(ctx context.Context, id string) (model.PMT, error) {
 	return pmt, nil
 }
 
-func (d *Databases) ListPendingPMTs(ctx context.Context, projectID, targetAirelay string, limit int) ([]model.PMTSummary, int, error) {
+func (d *Databases) ListPendingPMTs(ctx context.Context, projectID, targetSessionID string, limit int) ([]model.PMTSummary, int, error) {
 	if d == nil || d.Local == nil {
 		return nil, 0, fmt.Errorf("local store is unavailable")
 	}
@@ -249,7 +249,7 @@ func (d *Databases) ListPendingPMTs(ctx context.Context, projectID, targetAirela
 		return nil, 0, fmt.Errorf("invalid PMT queue limit")
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	countRows, err := d.Local.Query(ctx, `SELECT COUNT(*) FROM local_pmts WHERE project_id=? AND target_airelay_session_key=? AND state=? AND (expires_at IS NULL OR expires_at>?)`, projectID, targetAirelay, model.PMTStateUnread, now)
+	countRows, err := d.Local.Query(ctx, `SELECT COUNT(*) FROM local_pmts WHERE project_id=? AND target_session_id=? AND state=? AND (expires_at IS NULL OR expires_at>?)`, projectID, targetSessionID, model.PMTStateUnread, now)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -260,7 +260,7 @@ func (d *Databases) ListPendingPMTs(ctx context.Context, projectID, targetAirela
 	if !ok {
 		return nil, 0, fmt.Errorf("invalid PMT queue count")
 	}
-	rows, err := d.Local.Query(ctx, `SELECT id,title,state,created_at FROM local_pmts WHERE project_id=? AND target_airelay_session_key=? AND state=? AND (expires_at IS NULL OR expires_at>?) ORDER BY created_at,id LIMIT ?`, projectID, targetAirelay, model.PMTStateUnread, now, limit)
+	rows, err := d.Local.Query(ctx, `SELECT id,title,state,created_at FROM local_pmts WHERE project_id=? AND target_session_id=? AND state=? AND (expires_at IS NULL OR expires_at>?) ORDER BY created_at,id LIMIT ?`, projectID, targetSessionID, model.PMTStateUnread, now, limit)
 	if err != nil {
 		return nil, 0, err
 	}

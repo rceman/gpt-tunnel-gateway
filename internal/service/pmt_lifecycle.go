@@ -241,11 +241,11 @@ func (s *Service) PMTQueue(ctx context.Context, projectID string, limit int) (PM
 	if s.Durability == nil {
 		return PMTQueueResult{}, fmt.Errorf("local PMT store is unavailable")
 	}
-	target, err := s.resolveAgentTailSession(projectID)
+	_, _, targetSessionID, err := s.resolvePMTTarget(ctx, projectID)
 	if err != nil {
 		return PMTQueueResult{}, err
 	}
-	queue, count, err := s.Durability.ListPendingPMTs(ctx, projectID, target, limit)
+	queue, count, err := s.Durability.ListPendingPMTs(ctx, projectID, targetSessionID, limit)
 	if err != nil {
 		return PMTQueueResult{}, err
 	}
@@ -268,6 +268,9 @@ func (s *Service) PMTCancel(ctx context.Context, projectID, id string) (PMTCance
 	}
 	if pmt.ProjectID != projectID || AgentSessionID(ctx) == "" || pmt.PlannerSessionID != AgentSessionID(ctx) {
 		return PMTCancelResult{}, fmt.Errorf("PMT authority mismatch")
+	}
+	if pmt.State != model.PMTStateUnread {
+		return PMTCancelResult{}, fmt.Errorf("PMT %s cannot be cancelled from state %q", id, pmt.State)
 	}
 	cancelled, err := s.Durability.CancelPMT(ctx, id, time.Now().UTC())
 	if err != nil {

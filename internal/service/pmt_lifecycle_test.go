@@ -147,6 +147,21 @@ func TestPMTQueueCancelSupersedeAndStaleReference(t *testing.T) {
 	}
 }
 
+func TestPMTCancelRejectsFetchedPMT(t *testing.T) {
+	s, _ := newPMTTestService(t)
+	planner := WithAgentSessionID(context.Background(), "SP-ABCDEFGH")
+	created, err := s.AgentPrompt(planner, "example", "fetch before cancel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PMTRead(pmtAgentContext(t, s), created.PMTID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PMTCancel(planner, "example", created.PMTID); err == nil {
+		t.Fatal("fetched PMT cancellation succeeded")
+	}
+}
+
 func TestPMTReadRejectsWrongSessionAndStaleExecution(t *testing.T) {
 	s, db := newPMTTestService(t)
 	ctx := context.Background()

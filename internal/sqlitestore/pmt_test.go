@@ -12,7 +12,7 @@ func testPMT() model.PMT {
 	return model.PMT{
 		SchemaVersion: model.PMTSchemaVersion, ProjectID: "example", ProjectCode: "EXM",
 		Title: "bounded title", Instruction: "read the durable prompt", PlannerSessionID: "SP-ABCDEFGH",
-		TargetSessionID: "", TargetAirelaySessionKey: "example_master", TargetAgentID: "coding",
+		TargetSessionID: "SA-ABCDEFGH", TargetAirelaySessionKey: "example_master", TargetAgentID: "coding",
 		CreatedAt: time.Now().UTC(), State: model.PMTStateUnread, Reference: "pending",
 	}
 }
@@ -35,7 +35,7 @@ func TestPMTLocalLifecycleAndAtomicCancel(t *testing.T) {
 	if err != nil || read.Instruction != "read the durable prompt" {
 		t.Fatalf("read=%#v err=%v", read, err)
 	}
-	queue, count, err := db.ListPendingPMTs(ctx, "example", "example_master", 8)
+	queue, count, err := db.ListPendingPMTs(ctx, "example", "SA-ABCDEFGH", 8)
 	if err != nil || count != 1 || len(queue) != 1 {
 		t.Fatalf("queue=%#v count=%d err=%v", queue, count, err)
 	}
@@ -110,7 +110,7 @@ func TestPMTQueueCancelAndExpiryLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	queue, count, err := db.ListPendingPMTs(ctx, "example", "example_master", 8)
+	queue, count, err := db.ListPendingPMTs(ctx, "example", "SA-ABCDEFGH", 8)
 	if err != nil || count != 3 || len(queue) != 3 {
 		t.Fatalf("initial queue=%#v count=%d err=%v", queue, count, err)
 	}
@@ -118,7 +118,7 @@ func TestPMTQueueCancelAndExpiryLifecycle(t *testing.T) {
 	if err != nil || !cancelled {
 		t.Fatalf("cancelled=%v err=%v", cancelled, err)
 	}
-	queue, count, err = db.ListPendingPMTs(ctx, "example", "example_master", 8)
+	queue, count, err = db.ListPendingPMTs(ctx, "example", "SA-ABCDEFGH", 8)
 	if err != nil || count != 2 || len(queue) != 2 || queue[0].ID != one.ID || queue[1].ID != three.ID {
 		t.Fatalf("refreshed queue=%#v count=%d err=%v", queue, count, err)
 	}
@@ -161,6 +161,31 @@ func TestPMTUnreadSurvivesPendingGC(t *testing.T) {
 	}
 	if _, err := db.ReadPMT(ctx, pmt.ID); err != nil {
 		t.Fatalf("pending PMT was collected: %v", err)
+	}
+}
+
+func TestPMTQueueIsScopedByTargetSessionID(t *testing.T) {
+	db, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	first := testPMT()
+	first.TargetSessionID = "SA-ABCDEFGH"
+	second := testPMT()
+	second.TargetSessionID = "SA-IJKLMNOP"
+	if _, err := db.CreatePMT(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreatePMT(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"SA-ABCDEFGH", "SA-IJKLMNOP"} {
+		queue, count, err := db.ListPendingPMTs(ctx, "example", target, 8)
+		if err != nil || count != 1 || len(queue) != 1 {
+			t.Fatalf("target=%q queue=%#v count=%d err=%v", target, queue, count, err)
+		}
 	}
 }
 
