@@ -27,7 +27,13 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 	if strings.TrimSpace(in.StartedBy) == "" || strings.ContainsAny(in.StartedBy, "\x00\r\n") {
 		return trainv2.StartResult{}, fmt.Errorf("started_by is required")
 	}
-	train, err := s.TrainV2Read(ctx, in.ProjectID, in.TrainID)
+	var train model.TrainV2
+	var err error
+	if s.Durability != nil {
+		train, err = s.trainV2ReadShared(ctx, in.ProjectID, in.TrainID)
+	} else {
+		train, err = s.TrainV2Read(ctx, in.ProjectID, in.TrainID)
+	}
 	if err != nil {
 		return trainv2.StartResult{}, err
 	}

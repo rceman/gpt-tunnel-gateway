@@ -81,7 +81,12 @@ func (s *Service) advanceTrainV2Locked(ctx context.Context, in TrainV2AdvanceInp
 		defer lock.Release()
 	}
 
-	train, err := s.TrainV2Read(ctx, in.ProjectID, in.TrainID)
+	var train model.TrainV2
+	if s.Durability != nil {
+		train, err = s.trainV2ReadShared(ctx, in.ProjectID, in.TrainID)
+	} else {
+		train, err = s.TrainV2Read(ctx, in.ProjectID, in.TrainID)
+	}
 	if err != nil {
 		return trainv2.StartResult{}, err
 	}

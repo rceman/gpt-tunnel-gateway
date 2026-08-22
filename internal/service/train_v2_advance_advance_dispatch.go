@@ -34,7 +34,13 @@ func (s *Service) dispatchNextTrainV2Attempt(ctx context.Context, train model.Tr
 	if err := trainv2.DispatchAttempt(ctx, trainv2.StartDependencies{Hub: s.Hub, Shared: s.Durability, OperationID: durableMutationOperationID(ctx), Airelay: s.Airelay, StateDir: s.Config.StateDir, SessionOrigin: AgentSessionID(ctx), MaterializePacket: s.materializeTrainV2Packet}, train, item, attempt, runtime, expected); err != nil {
 		return trainv2.StartResult{}, err
 	}
-	updated, err := s.TrainV2Read(ctx, train.ProjectID, train.ID)
+	var updated model.TrainV2
+	var err error
+	if s.Durability != nil {
+		updated, err = s.trainV2ReadShared(ctx, train.ProjectID, train.ID)
+	} else {
+		updated, err = s.TrainV2Read(ctx, train.ProjectID, train.ID)
+	}
 	if err != nil {
 		return trainv2.StartResult{}, err
 	}

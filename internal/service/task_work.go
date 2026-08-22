@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
@@ -116,11 +115,8 @@ func (s *Service) taskAttemptShared(ctx context.Context, projectID, taskID strin
 			if attempt.Status != model.TrainV2AttemptRunning {
 				return currentTaskAttempt{}, fmt.Errorf("Task does not have a running Attempt")
 			}
-			runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, train.ID)
+			runtime, runtimeErr := s.sharedRuntimeForAttempt(projectID, train, item, attempt)
 			if runtimeErr != nil {
-				if os.IsNotExist(runtimeErr) {
-					return currentTaskAttempt{}, fmt.Errorf("Task Attempt runtime is unavailable: %w", runtimeErr)
-				}
 				return currentTaskAttempt{}, fmt.Errorf("Task Attempt runtime is unavailable: %w", runtimeErr)
 			}
 			if runtime.TrainID != train.ID || runtime.ItemPosition != item.Position || runtime.TaskID != taskID || runtime.AttemptNumber != attempt.Number {
@@ -216,15 +212,20 @@ func (s *Service) TaskFinalize(ctx context.Context, in TaskFinalizeInput) (Train
 }
 
 func (s *Service) resolvePlannedTaskTrain(ctx context.Context, projectID, taskID string) (string, error) {
-	trains, err := s.TrainV2List(ctx, TrainV2ListInput{
-		ProjectID: projectID,
-		Limit:     model.MaxTrainV2Items,
-	})
+	var trains []model.TrainV2
+	var err error
+	if s.Durability != nil {
+		trains, err = s.trainV2ListShared(ctx, projectID, model.MaxTrainV2Items)
+	} else {
+		var listed TrainV2ListResult
+		listed, err = s.TrainV2List(ctx, TrainV2ListInput{ProjectID: projectID, Limit: model.MaxTrainV2Items})
+		trains = listed.Trains
+	}
 	if err != nil {
 		return "", err
 	}
 	trainID := ""
-	for _, train := range trains.Trains {
+	for _, train := range trains {
 		for _, item := range train.Items {
 			if item.TaskID != taskID {
 				continue

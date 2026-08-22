@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -38,15 +37,7 @@ func (s *Service) TrainV2Read(ctx context.Context, projectID, trainID string) (m
 		return model.TrainV2{}, err
 	}
 	var train model.TrainV2
-	if s.Durability != nil {
-		shared, err := s.Durability.ReadSharedEntity(ctx, "train", trainID)
-		if err != nil {
-			return model.TrainV2{}, err
-		}
-		if err := json.Unmarshal(shared.Payload, &train); err != nil {
-			return model.TrainV2{}, err
-		}
-	} else if _, err := s.entityRegistry(projectID).ReadInto(ctx, entity.TrainFamily, trainID, &train); err != nil {
+	if _, err := s.entityRegistry(projectID).ReadInto(ctx, entity.TrainFamily, trainID, &train); err != nil {
 		return model.TrainV2{}, err
 	}
 	if train.ProjectID != projectID || train.ID != trainID {
@@ -72,29 +63,20 @@ func (s *Service) TrainV2List(ctx context.Context, in TrainV2ListInput) (TrainV2
 	if limit < 1 || limit > model.MaxTrainV2Items {
 		return TrainV2ListResult{}, fmt.Errorf("invalid train v2 list limit")
 	}
-	var trains []model.TrainV2
-	if s.Durability != nil {
-		var err error
-		trains, err = s.sharedTrains(ctx, in.ProjectID)
-		if err != nil {
+	records, err := s.entityRegistry(in.ProjectID).ListRecords(ctx, entity.Query{Family: entity.TrainFamily})
+	if err != nil {
+		return TrainV2ListResult{}, err
+	}
+	trains := make([]model.TrainV2, 0, len(records))
+	for _, record := range records {
+		var train model.TrainV2
+		if err := decodeStrict(record.Bytes, &train); err != nil {
 			return TrainV2ListResult{}, err
 		}
-	} else {
-		records, err := s.entityRegistry(in.ProjectID).ListRecords(ctx, entity.Query{Family: entity.TrainFamily})
-		if err != nil {
-			return TrainV2ListResult{}, err
+		if train.ProjectID != in.ProjectID || model.ValidateTrainV2(train) != nil {
+			return TrainV2ListResult{}, fmt.Errorf("invalid train v2 record %q", record.Path)
 		}
-		trains = make([]model.TrainV2, 0, len(records))
-		for _, record := range records {
-			var train model.TrainV2
-			if err := decodeStrict(record.Bytes, &train); err != nil {
-				return TrainV2ListResult{}, err
-			}
-			if train.ProjectID != in.ProjectID || model.ValidateTrainV2(train) != nil {
-				return TrainV2ListResult{}, fmt.Errorf("invalid train v2 record %q", record.Path)
-			}
-			trains = append(trains, train)
-		}
+		trains = append(trains, train)
 	}
 	sort.Slice(trains, func(i, j int) bool { return trains[i].UpdatedAt.After(trains[j].UpdatedAt) })
 	if len(trains) > limit {
