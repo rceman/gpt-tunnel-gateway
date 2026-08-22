@@ -76,15 +76,21 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 	if err != nil {
 		return trainv2.StartResult{}, err
 	}
-	resolved, err := s.resolveTrainAgentLocalFirst(ctx, AgentResolveInput{
-		ProjectID:            in.ProjectID,
-		Role:                 model.AgentRoleCoding,
-		AgentID:              in.AgentID,
-		RecommendedReasoning: in.RecommendedReasoning,
-		RequireUsable:        true,
-	})
+	resolved, existingAuthority, err := s.deriveExistingTrainAttemptAuthority(in.ProjectID, in.TrainID, train, in.RecommendedReasoning)
 	if err != nil {
 		return trainv2.StartResult{}, err
+	}
+	if !existingAuthority {
+		resolved, err = s.resolveTrainAgentLocalFirst(ctx, AgentResolveInput{
+			ProjectID:            in.ProjectID,
+			Role:                 model.AgentRoleCoding,
+			AgentID:              in.AgentID,
+			RecommendedReasoning: in.RecommendedReasoning,
+			RequireUsable:        true,
+		})
+		if err != nil {
+			return trainv2.StartResult{}, err
+		}
 	}
 	if err := s.checkSessionAvailableForTrainAttemptLocalFirst(ctx, resolved.SessionKey, train.ID); err != nil {
 		return trainv2.StartResult{}, err

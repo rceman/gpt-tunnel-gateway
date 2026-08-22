@@ -17,24 +17,28 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
-func TestStartSharedAdmitsAttemptWithoutHubRefresh(t *testing.T) {
+func TestStartUsesExistingFlowForSharedFirstAttempt(t *testing.T) {
 	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	stateDir := t.TempDir()
-	mirror := filepath.Join(stateDir, "mirror.git")
+	projectConfig := config.ProjectConfig{Root: projectRoot, Mirror: filepath.Join(stateDir, "mirror.git"), Remote: "origin", DefaultBranch: "main", ProjectCode: "GTW"}
+	gitRunner := gitx.Runner{StateDir: stateDir, MaxReadBytes: 1 << 20}
+	if err := gitRunner.EnsureMirror(context.Background(), projectConfig); err != nil {
+		t.Fatal(err)
+	}
 	airelayPath := filepath.Join(stateDir, "airelay")
 	if err := os.WriteFile(airelayPath, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	timeNow := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
-	task, err := NewTask("gateway", "GTW-TSK1", AuthoringDraft{Title: "Shared start", Objective: "admit locally", ADRRelation: model.TaskADRNoRequired}, "planner", timeNow)
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	task, err := NewTask("gateway", "GTW-TSK1", AuthoringDraft{Title: "Shared start", Objective: "admit locally", ADRRelation: model.TaskADRNoRequired}, "planner", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err = ReadyTask(task, "planner", timeNow.Add(time.Minute))
+	task, err = ReadyTask(task, "planner", now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	train, err := New("gateway", "GTW-TRN1", "planner", []model.TaskAuthoring{task}, timeNow)
+	train, err := New("gateway", "GTW-TRN1", "planner", []model.TaskAuthoring{task}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,28 +54,15 @@ func TestStartSharedAdmitsAttemptWithoutHubRefresh(t *testing.T) {
 	if err := db.PutSharedProjection(context.Background(), "train", sqlitestore.SharedEntity{ID: train.ID, Revision: int64(train.Revision), Payload: payload, UpdatedAt: train.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
 		t.Fatal(err)
 	}
-	projectConfig := config.ProjectConfig{Root: projectRoot, Mirror: mirror, Remote: "origin", DefaultBranch: "main", ProjectCode: "GTW"}
-	gitRunner := gitx.Runner{StateDir: stateDir, MaxReadBytes: 1 << 20}
-	if err := gitRunner.EnsureMirror(context.Background(), projectConfig); err != nil {
-		t.Fatal(err)
-	}
 	deps := StartDependencies{
-		Shared:        db,
-		OperationID:   "mutation-train-start-shared",
-		Git:           gitRunner,
-		Airelay:       airelay.Client{Command: airelayPath, Timeout: time.Second},
-		ProjectConfig: projectConfig,
-		Project:       model.Project{ID: "gateway", DefaultBranch: "main"},
-		Policy:        model.ProjectWorkflowPolicy{IntegrationBranch: "main"},
-		Train:         train,
-		GatewayID:     "gateway",
-		ProjectCode:   "GTW",
-		StateDir:      stateDir,
+		Shared: db, OperationID: "mutation-train-start-shared", Git: gitRunner,
+		Airelay: airelay.Client{Command: airelayPath, Timeout: time.Second}, ProjectConfig: projectConfig,
+		Project: model.Project{ID: "gateway", DefaultBranch: "main"}, Policy: model.ProjectWorkflowPolicy{IntegrationBranch: "main"},
+		Train: train, GatewayID: "gateway", ProjectCode: "GTW", StateDir: stateDir,
 		MaterializePacket: func(_ context.Context, _ model.TrainV2, _ model.TrainV2Item, _ model.TrainV2Attempt, runtime RuntimeBinding) (AgentTaskPacket, error) {
 			return AgentTaskPacket{Path: filepath.Join(runtime.WorktreePath, "packet.md"), WorktreePath: runtime.WorktreePath}, nil
 		},
-		ReadTask: func(context.Context, string, string) (model.TaskAuthoring, error) { return task, nil },
-		Now:      func() time.Time { return timeNow },
+		ReadTask: func(context.Context, string, string) (model.TaskAuthoring, error) { return task, nil }, Now: func() time.Time { return now },
 	}
 	started, err := Start(context.Background(), StartInput{ProjectID: "gateway", TrainID: train.ID, StartedBy: "planner", ResolvedAgentID: "agent-1", SessionKey: "gateway_master"}, deps)
 	if err != nil {

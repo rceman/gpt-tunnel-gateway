@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
-	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func (s *Service) TaskDispatch(context.Context, DispatchInput) (model.TrainV2Attempt, OperationResult, error) {
@@ -63,12 +62,14 @@ func (s *Service) checkSessionAvailableForTrainAttemptLocalFirst(ctx context.Con
 			if train.ID == trainID || (train.Status != model.TrainV2Running && train.Status != model.TrainV2Paused && train.Status != model.TrainV2Blocked) {
 				continue
 			}
-			runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, train.ID)
-			if runtimeErr != nil {
-				continue
-			}
-			if runtime.SessionKey == session {
-				return fmt.Errorf("Train Attempt %s:%d already owns the project session", train.ID, runtime.AttemptNumber)
+			for _, item := range train.Items {
+				if item.ActiveAttemptNumber == 0 || item.ActiveAttemptNumber > uint64(len(item.Attempts)) {
+					continue
+				}
+				attempt := item.Attempts[item.ActiveAttemptNumber-1]
+				if attempt.Status == model.TrainV2AttemptRunning && attempt.AirelaySessionKey == session {
+					return fmt.Errorf("Train Attempt %s:%d already owns the project session", train.ID, attempt.Number)
+				}
 			}
 		}
 	}

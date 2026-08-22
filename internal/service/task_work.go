@@ -105,32 +105,36 @@ func (s *Service) taskAttemptShared(ctx context.Context, projectID, taskID strin
 		if train.Status != model.TrainV2Running && train.Status != model.TrainV2Paused && train.Status != model.TrainV2Blocked {
 			continue
 		}
-		runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, train.ID)
-		if runtimeErr != nil {
-			if os.IsNotExist(runtimeErr) {
+		for _, item := range train.Items {
+			if item.TaskID != taskID || item.ActiveAttemptNumber == 0 {
 				continue
 			}
-			return currentTaskAttempt{}, fmt.Errorf("Task Attempt runtime is unavailable: %w", runtimeErr)
+			attempt, err := trainv2Attempt(item, item.ActiveAttemptNumber)
+			if err != nil {
+				return currentTaskAttempt{}, err
+			}
+			if attempt.Status != model.TrainV2AttemptRunning {
+				return currentTaskAttempt{}, fmt.Errorf("Task does not have a running Attempt")
+			}
+			runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, train.ID)
+			if runtimeErr != nil {
+				if os.IsNotExist(runtimeErr) {
+					return currentTaskAttempt{}, fmt.Errorf("Task Attempt runtime is unavailable: %w", runtimeErr)
+				}
+				return currentTaskAttempt{}, fmt.Errorf("Task Attempt runtime is unavailable: %w", runtimeErr)
+			}
+			if runtime.TrainID != train.ID || runtime.ItemPosition != item.Position || runtime.TaskID != taskID || runtime.AttemptNumber != attempt.Number {
+				return currentTaskAttempt{}, fmt.Errorf("Task current TrainItem binding is invalid")
+			}
+			if runtime.AgentID != attempt.AgentID || runtime.SessionKey != attempt.AirelaySessionKey {
+				return currentTaskAttempt{}, fmt.Errorf("Task Attempt runtime execution snapshot mismatch")
+			}
+			if err := trainv2.ValidateRuntimeBinding(runtime, s.Config.StateDir); err != nil {
+				return currentTaskAttempt{}, err
+			}
+			found = currentTaskAttempt{Train: train, Item: item, Attempt: attempt, Runtime: runtime}
+			foundCount++
 		}
-		if runtime.TaskID != taskID || runtime.ItemPosition < 0 || runtime.ItemPosition >= len(train.Items) {
-			continue
-		}
-		item := train.Items[runtime.ItemPosition]
-		if item.TaskID != taskID || item.ActiveAttemptNumber != runtime.AttemptNumber {
-			return currentTaskAttempt{}, fmt.Errorf("Task current TrainItem binding is invalid")
-		}
-		attempt, err := trainv2Attempt(item, runtime.AttemptNumber)
-		if err != nil {
-			return currentTaskAttempt{}, err
-		}
-		if attempt.Status != model.TrainV2AttemptRunning {
-			return currentTaskAttempt{}, fmt.Errorf("Task does not have a running Attempt")
-		}
-		if err := trainv2.ValidateRuntimeBinding(runtime, s.Config.StateDir); err != nil {
-			return currentTaskAttempt{}, err
-		}
-		found = currentTaskAttempt{Train: train, Item: item, Attempt: attempt, Runtime: runtime}
-		foundCount++
 	}
 	if foundCount == 0 {
 		return currentTaskAttempt{}, errTaskHasNoCurrentAttempt

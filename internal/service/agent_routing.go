@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 // ResolveAgent is the single service-side authority for selecting a usable
@@ -112,15 +113,59 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 	}, nil
 }
 
-// resolveTrainAgentLocalFirst refuses to invent portable Agent authority from
-// host configuration. Until the Agent registry is locally authoritative, a
-// Shared-first Train admission fails closed rather than consulting Hub or
-// synthesizing a role/enabled state.
+// resolveTrainAgentLocalFirst uses only explicit local authority for the
+// Shared-first path: the caller supplies the portable Agent identity, config
+// supplies its explicit session binding, and the durable local session proves
+// the project-scoped Agent role and active state. It never invents an Agent
+// role/enabled record from host config and never consults Hub.
 func (s *Service) resolveTrainAgentLocalFirst(ctx context.Context, in AgentResolveInput) (ResolvedAgent, error) {
 	if s.Durability == nil {
 		return s.ResolveAgent(ctx, in)
 	}
-	return ResolvedAgent{}, fmt.Errorf("local Agent authority is unavailable for project %q", in.ProjectID)
+	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
+		return ResolvedAgent{}, err
+	}
+	if in.Role != model.AgentRoleCoding || in.AgentID == "" {
+		return ResolvedAgent{}, fmt.Errorf("local coding Agent authority is unavailable for project %q", in.ProjectID)
+	}
+	if err := model.ValidateObjectIdentifier(in.AgentID); err != nil {
+		return ResolvedAgent{}, err
+	}
+	reasoning := in.RecommendedReasoning
+	if reasoning == "" {
+		reasoning = model.ReasoningBestAvailable
+	}
+	if !validRoutingReasoning(reasoning) {
+		return ResolvedAgent{}, fmt.Errorf("invalid recommended reasoning")
+	}
+	binding, ok := s.Config.ResolveAgentBinding(in.ProjectID, in.AgentID)
+	if !ok || binding.Validate() != nil {
+		return ResolvedAgent{}, fmt.Errorf("local coding Agent authority is unavailable for project %q", in.ProjectID)
+	}
+	records, err := durableSession.NewStore(s.Config.StateDir).List()
+	if err != nil {
+		return ResolvedAgent{}, fmt.Errorf("read local Agent sessions: %w", err)
+	}
+	found := false
+	for _, record := range records {
+		if record.Status != durableSession.StatusActive || record.Role != durableSession.RoleAgent || record.ProjectID != in.ProjectID || record.SessionRef == nil || *record.SessionRef != binding.SessionKey {
+			continue
+		}
+		if found {
+			return ResolvedAgent{}, fmt.Errorf("project %q has ambiguous local coding Agent sessions", in.ProjectID)
+		}
+		found = true
+	}
+	if !found {
+		return ResolvedAgent{}, fmt.Errorf("project %q has no active local coding Agent session", in.ProjectID)
+	}
+	if in.RequireUsable {
+		status, statusErr := s.Airelay.Status(ctx, binding.SessionKey)
+		if statusErr != nil || !status.ControllerReachable || status.State != "idle" {
+			return ResolvedAgent{}, fmt.Errorf("local coding Agent %q is not currently usable", in.AgentID)
+		}
+	}
+	return ResolvedAgent{ProjectID: in.ProjectID, AgentID: in.AgentID, Role: in.Role, RequestedReasoning: reasoning, ResolvedReasoning: reasoning, SessionKey: binding.SessionKey, Profile: binding.Profile}, nil
 }
 
 func validRoutingReasoning(value string) bool {

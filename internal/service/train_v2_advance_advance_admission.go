@@ -28,6 +28,48 @@ func (s *Service) TrainV2Advance(ctx context.Context, in TrainV2AdvanceInput) (t
 	}
 	return s.advanceTrainV2Locked(ctx, in, false)
 }
+
+func (s *Service) deriveSharedTrainStartRecord(ctx context.Context, train model.TrainV2) (model.TrainV2StartRecord, error) {
+	projectConfig, ok := s.Config.Projects[train.ProjectID]
+	if !ok {
+		return model.TrainV2StartRecord{}, fmt.Errorf("project %q has no local runtime configuration", train.ProjectID)
+	}
+	policy, err := s.ProjectWorkflowPolicyRead(ctx, train.ProjectID)
+	if err != nil {
+		return model.TrainV2StartRecord{}, err
+	}
+	project := model.Project{SchemaVersion: model.SchemaVersion, ID: train.ProjectID, DefaultBranch: projectConfig.DefaultBranch, Status: "active"}
+	var record *model.TrainV2StartRecord
+	for _, item := range train.Items {
+		if item.ActiveAttemptNumber == 0 || item.ActiveAttemptNumber > uint64(len(item.Attempts)) {
+			continue
+		}
+		attempt := item.Attempts[item.ActiveAttemptNumber-1]
+		candidate := trainv2.DeriveStartRecord(train, item, attempt, policy, project, attempt.StartedAt)
+		if record != nil {
+			return model.TrainV2StartRecord{}, fmt.Errorf("Train has ambiguous active Attempt authority")
+		}
+		record = &candidate
+	}
+	if record == nil {
+		return model.TrainV2StartRecord{}, fmt.Errorf("Train has no local Attempt start authority")
+	}
+	return *record, nil
+}
+
+func (s *Service) validateSharedTrainAdvance(before, updated model.TrainV2, start, updatedStart model.TrainV2StartRecord, nextPosition int, updatedItem model.TrainV2Item) error {
+	if updated.Revision != before.Revision+1 || updated.Status != model.TrainV2Running || nextPosition < 0 || nextPosition >= len(updated.Items) {
+		return fmt.Errorf("Train changed before next Attempt start")
+	}
+	if err := validateTrainV2AdvanceCurrentItem(updated.Items[start.CurrentItemPosition], start.CurrentAttemptNumber); err != nil {
+		return fmt.Errorf("Train changed before next Attempt start: %w", err)
+	}
+	if updated.Items[nextPosition].TaskID != updatedItem.TaskID || updated.Items[nextPosition].Status != model.TrainV2ItemRunning || len(updated.Items[nextPosition].Attempts) != 1 || updatedStart.CurrentItemPosition != nextPosition || updatedStart.CurrentAttemptNumber != 1 {
+		return fmt.Errorf("Train changed before next Attempt start")
+	}
+	return model.ValidateTrainV2(updated)
+}
+
 func (s *Service) advanceTrainV2Locked(ctx context.Context, in TrainV2AdvanceInput, lockHeld bool) (trainv2.StartResult, error) {
 	var lock *lockfile.Lock
 	var err error
@@ -48,8 +90,13 @@ func (s *Service) advanceTrainV2Locked(ctx context.Context, in TrainV2AdvanceInp
 	}
 	var start model.TrainV2StartRecord
 	startPath := hub.ProtocolRoot + "/projects/" + in.ProjectID + "/train-v2-starts/" + in.TrainID + ".json"
-	if err := s.Hub.ReadJSON(ctx, startPath, &start); err != nil {
+	if s.Durability != nil {
+		start, err = s.deriveSharedTrainStartRecord(ctx, train)
+	} else if err := s.Hub.ReadJSON(ctx, startPath, &start); err != nil {
 		return trainv2.StartResult{}, fmt.Errorf("read Train start: %w", err)
+	}
+	if err != nil {
+		return trainv2.StartResult{}, err
 	}
 	if err := model.ValidateTrainV2StartRecord(start); err != nil {
 		return trainv2.StartResult{}, err
@@ -99,7 +146,11 @@ func (s *Service) advanceTrainV2Locked(ctx context.Context, in TrainV2AdvanceInp
 	if currentTask.ID != nextItem.TaskID || currentTask.ProjectID != in.ProjectID {
 		return trainv2.StartResult{}, fmt.Errorf("Train item Task identity does not match the current Task")
 	}
-	if err := s.validateTaskDependencies(ctx, in.ProjectID, currentTask); err != nil {
+	if s.Durability != nil {
+		if err := s.validateTaskDependenciesShared(ctx, in.ProjectID, currentTask); err != nil {
+			return trainv2.StartResult{}, err
+		}
+	} else if err := s.validateTaskDependencies(ctx, in.ProjectID, currentTask); err != nil {
 		return trainv2.StartResult{}, err
 	}
 	nextItem.TaskRevision = currentTask.Revision
@@ -166,61 +217,71 @@ func (s *Service) advanceTrainV2Locked(ctx context.Context, in TrainV2AdvanceInp
 		}
 	}()
 	expected := in.ExpectedHubRevision
-	if expected == "" {
-		expected, err = s.hubRevision(ctx)
+	var tx hub.TransactionResult
+	if s.Durability != nil {
+		if err := s.validateSharedTrainAdvance(train, updatedTrain, start, updatedStart, nextPosition, updatedItem); err != nil {
+			return trainv2.StartResult{}, err
+		}
+		if err := trainv2.CommitSharedTrain(ctx, trainv2.StartDependencies{Shared: s.Durability, OperationID: durableMutationOperationID(ctx)}, updatedTrain, "train-v2-advance", now); err != nil {
+			return trainv2.StartResult{}, err
+		}
+	} else {
+		if expected == "" {
+			expected, err = s.hubRevision(ctx)
+			if err != nil {
+				return trainv2.StartResult{}, err
+			}
+		}
+		tx, err = s.Hub.Transact(ctx, expected, "gateway: advance Train v2 Attempt", func(worktree string) ([]string, error) {
+			var latest model.TrainV2
+			if err := readWorktreeJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), &latest); err != nil {
+				return nil, err
+			}
+			if latest.Revision != train.Revision || start.CurrentItemPosition < 0 || start.CurrentItemPosition >= len(latest.Items) || nextPosition >= len(latest.Items) {
+				return nil, fmt.Errorf("Train changed before next Attempt start")
+			}
+			if err := validateTrainV2AdvanceCurrentItem(latest.Items[start.CurrentItemPosition], start.CurrentAttemptNumber); err != nil {
+				return nil, fmt.Errorf("Train changed before next Attempt start: %w", err)
+			}
+			if latest.Items[nextPosition].Status != model.TrainV2ItemQueued || len(latest.Items[nextPosition].Attempts) != 0 {
+				return nil, fmt.Errorf("Train changed before next Attempt start")
+			}
+			var latestTask model.TaskAuthoring
+			if err := readWorktreeJSON(worktree, s.taskAuthoringPath(in.ProjectID, nextItem.TaskID), &latestTask); err != nil {
+				return nil, err
+			}
+			if err := trainv2.ValidateExecutionTask(latestTask); err != nil {
+				return nil, err
+			}
+			if latestTask.ID != nextItem.TaskID || latestTask.ProjectID != in.ProjectID {
+				return nil, fmt.Errorf("Train item Task identity does not match the current Task")
+			}
+			if err := s.validateTaskDependenciesInWorktree(worktree, in.ProjectID, []model.TaskAuthoring{latestTask}); err != nil {
+				return nil, err
+			}
+			updatedItem.TaskRevision = latestTask.Revision
+			updatedItem.TaskRevisionSHA256 = latestTask.RevisionSHA256
+			updatedTrain.Items[nextPosition] = updatedItem
+			updatedStart.CurrentTaskRevision = latestTask.Revision
+			updatedStart.CurrentTaskRevisionSHA256 = latestTask.RevisionSHA256
+			if err := hub.WriteJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), updatedTrain); err != nil {
+				return nil, err
+			}
+			var latestStart model.TrainV2StartRecord
+			if err := readWorktreeJSON(worktree, startPath, &latestStart); err != nil {
+				return nil, err
+			}
+			if latestStart.CurrentItemPosition != start.CurrentItemPosition || latestStart.CurrentAttemptNumber != start.CurrentAttemptNumber || latestStart.CurrentTaskID != start.CurrentTaskID {
+				return nil, fmt.Errorf("Train start changed before next Attempt start")
+			}
+			if err := hub.WriteJSON(worktree, startPath, updatedStart); err != nil {
+				return nil, err
+			}
+			return []string{s.trainV2Path(in.ProjectID, in.TrainID), startPath}, nil
+		})
 		if err != nil {
 			return trainv2.StartResult{}, err
 		}
-	}
-	tx, err := s.Hub.Transact(ctx, expected, "gateway: advance Train v2 Attempt", func(worktree string) ([]string, error) {
-		var latest model.TrainV2
-		if err := readWorktreeJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), &latest); err != nil {
-			return nil, err
-		}
-		if latest.Revision != train.Revision || start.CurrentItemPosition < 0 || start.CurrentItemPosition >= len(latest.Items) || nextPosition >= len(latest.Items) {
-			return nil, fmt.Errorf("Train changed before next Attempt start")
-		}
-		if err := validateTrainV2AdvanceCurrentItem(latest.Items[start.CurrentItemPosition], start.CurrentAttemptNumber); err != nil {
-			return nil, fmt.Errorf("Train changed before next Attempt start: %w", err)
-		}
-		if latest.Items[nextPosition].Status != model.TrainV2ItemQueued || len(latest.Items[nextPosition].Attempts) != 0 {
-			return nil, fmt.Errorf("Train changed before next Attempt start")
-		}
-		var latestTask model.TaskAuthoring
-		if err := readWorktreeJSON(worktree, s.taskAuthoringPath(in.ProjectID, nextItem.TaskID), &latestTask); err != nil {
-			return nil, err
-		}
-		if err := trainv2.ValidateExecutionTask(latestTask); err != nil {
-			return nil, err
-		}
-		if latestTask.ID != nextItem.TaskID || latestTask.ProjectID != in.ProjectID {
-			return nil, fmt.Errorf("Train item Task identity does not match the current Task")
-		}
-		if err := s.validateTaskDependenciesInWorktree(worktree, in.ProjectID, []model.TaskAuthoring{latestTask}); err != nil {
-			return nil, err
-		}
-		updatedItem.TaskRevision = latestTask.Revision
-		updatedItem.TaskRevisionSHA256 = latestTask.RevisionSHA256
-		updatedTrain.Items[nextPosition] = updatedItem
-		updatedStart.CurrentTaskRevision = latestTask.Revision
-		updatedStart.CurrentTaskRevisionSHA256 = latestTask.RevisionSHA256
-		if err := hub.WriteJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), updatedTrain); err != nil {
-			return nil, err
-		}
-		var latestStart model.TrainV2StartRecord
-		if err := readWorktreeJSON(worktree, startPath, &latestStart); err != nil {
-			return nil, err
-		}
-		if latestStart.CurrentItemPosition != start.CurrentItemPosition || latestStart.CurrentAttemptNumber != start.CurrentAttemptNumber || latestStart.CurrentTaskID != start.CurrentTaskID {
-			return nil, fmt.Errorf("Train start changed before next Attempt start")
-		}
-		if err := hub.WriteJSON(worktree, startPath, updatedStart); err != nil {
-			return nil, err
-		}
-		return []string{s.trainV2Path(in.ProjectID, in.TrainID), startPath}, nil
-	})
-	if err != nil {
-		return trainv2.StartResult{}, err
 	}
 	keepRuntime = true
 	result, err := s.dispatchNextTrainV2Attempt(ctx, updatedTrain, updatedItem, attempt, newRuntime, tx.After)

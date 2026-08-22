@@ -2,6 +2,7 @@ package train
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 type dispatchReceipt struct {
@@ -182,4 +184,52 @@ func reconcileDispatchReceipt(receipt dispatchReceipt, train model.TrainV2, curr
 // completed but before its Hub transaction has been observed by the caller.
 func DispatchAttempt(ctx context.Context, deps StartDependencies, train model.TrainV2, item model.TrainV2Item, attempt model.TrainV2Attempt, runtime RuntimeBinding, expected string) error {
 	return dispatchAttempt(ctx, deps, train, item, attempt, runtime, expected)
+}
+
+func dispatchAttemptShared(ctx context.Context, deps StartDependencies, train model.TrainV2, item model.TrainV2Item, attempt model.TrainV2Attempt, receipt dispatchReceipt) error {
+	if attempt.DispatchedAt != nil {
+		return nil
+	}
+	if item.Position < 0 || item.Position >= len(train.Items) || item.TaskID != train.Items[item.Position].TaskID {
+		return fmt.Errorf("Train Attempt item changed before local dispatch")
+	}
+	current := train.Items[item.Position]
+	if attempt.Number == 0 || attempt.Number > uint64(len(current.Attempts)) {
+		return fmt.Errorf("Train Attempt changed before local dispatch")
+	}
+	currentAttempt := current.Attempts[attempt.Number-1]
+	if currentAttempt.AgentID != attempt.AgentID || currentAttempt.AirelaySessionKey != attempt.AirelaySessionKey || currentAttempt.StartHead != attempt.StartHead {
+		return fmt.Errorf("Train Attempt execution snapshot changed before local dispatch")
+	}
+	dispatchedAt := receipt.FinishedAt
+	if dispatchedAt.IsZero() {
+		dispatchedAt = time.Now().UTC()
+	}
+	currentAttempt.Status = model.TrainV2AttemptRunning
+	currentAttempt.DispatchedAt = &dispatchedAt
+	current.Attempts[attempt.Number-1] = currentAttempt
+	train.Items[item.Position] = current
+	train.Revision++
+	train.UpdatedAt = dispatchedAt
+	if err := model.ValidateTrainV2(train); err != nil {
+		return err
+	}
+	payload, err := json.Marshal(train)
+	if err != nil {
+		return err
+	}
+	operationID := deps.OperationID
+	if operationID == "" {
+		operationID = "train-v2-dispatch-" + train.ID + fmt.Sprintf("-%d", train.Revision-1)
+	} else {
+		operationID += "-dispatch"
+	}
+	_, err = deps.Shared.CommitSharedMutation(ctx, sqlitestore.SharedMutation{OperationID: operationID, EntityType: "train", EntityID: train.ID, ExpectedRevision: int64(train.Revision - 1), Revision: int64(train.Revision), Kind: "train-v2-dispatch", Payload: payload, CreatedAt: dispatchedAt})
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(dispatchReceiptPath(deps.StateDir, train.ProjectID, train.ID)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
