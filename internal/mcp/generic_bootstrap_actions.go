@@ -38,42 +38,6 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		entries[path] = entry
 	}
 	add("rules/read", "Read and acknowledge the current rules for the bound project.", obj(map[string]any{}), true, s.rulesReadAction)
-	operationInput := obj(map[string]any{"operation_id": str("Project-scoped local operation identifier.")}, "operation_id")
-	operationExecution := obj(map[string]any{"operation_id": str("Project-scoped local operation identifier."), "project_id": str("Session-bound project.")}, "operation_id", "project_id")
-	entries["operation/read"] = genericActionEntry{GenericAction: GenericAction{
-		Path: "operation/read", Description: "Read one bounded local operation projection.", InputSchema: operationInput,
-		OutputSchema: closedOutput(map[string]any{
-			"schema_version": outputInteger(), "id": outputString(), "project_id": outputString(), "kind": outputString(), "status": outputString(),
-			"correlation_id": outputString(), "entity_id": outputString(), "request_sha256": outputString(), "result": outputString(), "error": outputString(),
-			"created_at": outputDateTime(), "updated_at": outputDateTime(),
-		}, "schema_version", "id", "project_id", "kind", "status", "created_at", "updated_at"),
-		Annotations: readOnlyAnnotations(), LocalReceiptOnly: true, SessionBound: true, SessionRequired: true, ExecutionInputSchema: operationExecution,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in service.LocalOperationReadInput
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			return s.Service.LocalOperationRead(ctx, in)
-		},
-	}}
-	searchInput := obj(map[string]any{"query": str("Case-insensitive bounded lexical search text."), "limit": integer("Maximum results.", 1, 100), "cursor": str("Opaque continuation cursor.")}, "query")
-	searchExecution := obj(map[string]any{"project_id": str("Session-bound project."), "query": str("Case-insensitive bounded lexical search text."), "limit": integer("Maximum results.", 1, 100), "cursor": str("Opaque continuation cursor.")}, "project_id", "query")
-	entries["project/search"] = genericActionEntry{GenericAction: GenericAction{
-		Path: "project/search", Description: "Search local Shared Task, ADR, Rule, and Journal projections.", InputSchema: searchInput,
-		OutputSchema: closedOutput(map[string]any{
-			"items": outputArray(map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{
-				"family": outputString(), "id": outputString(), "project_id": outputString(), "title": outputString(), "summary": outputString(), "status": outputString(), "kind": outputString(), "updated_at": outputDateTime(),
-			}}), "next_cursor": outputString(), "has_more": outputBoolean(),
-		}, "items", "next_cursor", "has_more"),
-		Annotations: readOnlyAnnotations(), LocalReadOnly: true, LocalReceiptOnly: true, SessionBound: true, SessionRequired: true, ExecutionInputSchema: searchExecution,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in service.ProjectSearchInput
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			return s.Service.ProjectSearch(ctx, in)
-		},
-	}}
 	add("project/status", "Read the compact operational status of the project bound to this Session.", obj(map[string]any{}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.Service.ProjectOperationalStatus(ctx)
 	})

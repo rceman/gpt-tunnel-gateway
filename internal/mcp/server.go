@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
-	"github.com/rceman/gpt-tunnel-gateway/internal/tokenizer"
 )
 
 type Server struct {
@@ -29,7 +28,6 @@ type Server struct {
 	runtimeLogActionErr    error
 	systemAwaitActions     sync.Once
 	systemAwaitActionErr   error
-	tokenCounter           tokenizer.Counter
 }
 type request struct {
 	JSONRPC string          `json:"jsonrpc"`

@@ -50,13 +50,6 @@ func (s *Service) taskStatusList(ctx context.Context, project string) ([]TaskRec
 }
 
 func (s *Service) findTask(ctx context.Context, id string) (model.Task, error) {
-	if s.Durability != nil {
-		authoring, err := s.readAnySharedTask(ctx, id)
-		if err != nil {
-			return model.Task{}, err
-		}
-		return taskFromAuthoring(authoring), nil
-	}
 	projects, err := s.ProjectList(ctx)
 	if err != nil {
 		return model.Task{}, err
@@ -72,16 +65,6 @@ func (s *Service) findTask(ctx context.Context, id string) (model.Task, error) {
 		}
 	}
 	return model.Task{}, notFoundf("task %s", id)
-}
-
-func taskFromAuthoring(authoring model.TaskAuthoring) model.Task {
-	return model.Task{
-		SchemaVersion: model.SchemaVersion, ID: authoring.ID, ProjectID: authoring.ProjectID,
-		Title: authoring.Title, Objective: authoring.Objective, AcceptanceCriteria: append([]string{}, authoring.AcceptanceCriteria...),
-		Constraints: append([]string{}, authoring.Constraints...), CreatedBy: authoring.CreatedBy,
-		CreatedAt: authoring.CreatedAt, SHA256: authoring.RevisionSHA256,
-		Status: authoring.Status,
-	}
 }
 
 func (s *Service) TaskReadRecord(ctx context.Context, id string) (TaskRecord, error) {

@@ -31,7 +31,7 @@ func taskRevisionStatusOutputSchema() map[string]any {
 func taskCorrectionInputSchema() map[string]any {
 	return obj(map[string]any{
 		"task_id": str("Stable task identifier"), "source_revision_id": str("Exact terminal source revision"),
-		"source_train_id": str("Exact source Train"), "source_item_position": integer("Exact source item position", 0, 1000000), "source_attempt_number": integer("Exact source attempt", 1, 1000000),
+		"source_train_id": str("Exact source Train"), "source_item_position": integer("Exact source item position", 1, 1000000), "source_attempt_number": integer("Exact source attempt", 1, 1000000),
 		"title": str("Optional bounded corrected title"), "objective": str("Optional bounded corrected objective"),
 		"acceptance_criteria": array(str("Acceptance criterion")), "constraints": array(str("Task constraint")),
 		"required_gates": array(str("Required gate")), "created_by": str("Delivery identity"),

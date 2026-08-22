@@ -36,9 +36,6 @@ func (s *Service) TrainV2Read(ctx context.Context, projectID, trainID string) (m
 	if _, _, err := model.ParseTrainV2ID(trainID); err != nil {
 		return model.TrainV2{}, err
 	}
-	if s.Durability != nil {
-		return s.readSharedTrain(ctx, projectID, trainID)
-	}
 	var train model.TrainV2
 	if _, err := s.entityRegistry(projectID).ReadInto(ctx, entity.TrainFamily, trainID, &train); err != nil {
 		return model.TrainV2{}, err
@@ -66,17 +63,6 @@ func (s *Service) TrainV2List(ctx context.Context, in TrainV2ListInput) (TrainV2
 	if limit < 1 || limit > model.MaxTrainV2Items {
 		return TrainV2ListResult{}, fmt.Errorf("invalid train v2 list limit")
 	}
-	if s.Durability != nil {
-		trains, err := s.sharedTrains(ctx, in.ProjectID)
-		if err != nil {
-			return TrainV2ListResult{}, err
-		}
-		sort.Slice(trains, func(i, j int) bool { return trains[i].UpdatedAt.After(trains[j].UpdatedAt) })
-		if len(trains) > limit {
-			trains = trains[:limit]
-		}
-		return TrainV2ListResult{Trains: trains}, nil
-	}
 	records, err := s.entityRegistry(in.ProjectID).ListRecords(ctx, entity.Query{Family: entity.TrainFamily})
 	if err != nil {
 		return TrainV2ListResult{}, err
@@ -97,22 +83,4 @@ func (s *Service) TrainV2List(ctx context.Context, in TrainV2ListInput) (TrainV2
 		trains = trains[:limit]
 	}
 	return TrainV2ListResult{Trains: trains}, nil
-}
-
-func (s *Service) readSharedTrain(ctx context.Context, projectID, trainID string) (model.TrainV2, error) {
-	entity, err := s.Durability.ReadSharedEntity(ctx, "train", trainID)
-	if err != nil {
-		return model.TrainV2{}, err
-	}
-	var train model.TrainV2
-	if err := decodeStrict(entity.Payload, &train); err != nil {
-		return model.TrainV2{}, fmt.Errorf("decode shared Train %s: %w", trainID, err)
-	}
-	if train.ProjectID != projectID || train.ID != trainID {
-		return model.TrainV2{}, fmt.Errorf("shared train ownership mismatch")
-	}
-	if err := model.ValidateTrainV2(train); err != nil {
-		return model.TrainV2{}, err
-	}
-	return train, nil
 }

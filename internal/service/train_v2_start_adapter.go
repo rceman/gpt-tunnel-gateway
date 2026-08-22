@@ -21,9 +21,6 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 	if err := requireTrainV2Authoring(ctx, s, in.ProjectID); err != nil {
 		return trainv2.StartResult{}, err
 	}
-	if s.Durability != nil {
-		return s.trainV2StartFromSharedRuntime(ctx, in)
-	}
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return trainv2.StartResult{}, err
 	}
@@ -110,53 +107,4 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 		ValidateTaskMembershipInWorktree: s.validateTrainV2TaskMembershipInWorktree,
 		Now:                              s.durableNow,
 	})
-}
-
-// trainV2StartFromSharedRuntime is the local recovery/admission path used
-// after Shared bootstrap. It deliberately accepts only an already materialized
-// local Attempt runtime: an incomplete local projection fails closed instead
-// of falling back to Hub fetches or creating a second execution state machine.
-func (s *Service) trainV2StartFromSharedRuntime(ctx context.Context, in TrainV2StartInput) (trainv2.StartResult, error) {
-	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
-		return trainv2.StartResult{}, err
-	}
-	if strings.TrimSpace(in.StartedBy) == "" || strings.ContainsAny(in.StartedBy, "\x00\r\n") {
-		return trainv2.StartResult{}, fmt.Errorf("started_by is required")
-	}
-	train, err := s.TrainV2Read(ctx, in.ProjectID, in.TrainID)
-	if err != nil {
-		return trainv2.StartResult{}, err
-	}
-	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, in.ProjectID, in.TrainID)
-	if err != nil {
-		return trainv2.StartResult{}, fmt.Errorf("Shared Train has no local Attempt runtime; refusing Hub fallback: %w", err)
-	}
-	if runtime.TrainID != train.ID || runtime.ItemPosition < 0 || runtime.ItemPosition >= len(train.Items) {
-		return trainv2.StartResult{}, fmt.Errorf("local Train Attempt runtime ownership mismatch")
-	}
-	item := train.Items[runtime.ItemPosition]
-	if item.TaskID != runtime.TaskID || runtime.AttemptNumber == 0 || runtime.AttemptNumber > uint64(len(item.Attempts)) {
-		return trainv2.StartResult{}, fmt.Errorf("local Train Attempt item binding is invalid")
-	}
-	attempt := item.Attempts[runtime.AttemptNumber-1]
-	if attempt.Status != model.TrainV2AttemptRunning && attempt.Status != model.TrainV2AttemptRecovered {
-		return trainv2.StartResult{}, fmt.Errorf("local Train Attempt is not resumable")
-	}
-	if in.AgentID != "" && in.AgentID != attempt.AgentID {
-		return trainv2.StartResult{}, fmt.Errorf("Train Attempt Agent binding mismatch")
-	}
-	if err := trainv2.ValidateRuntimeBinding(runtime, s.Config.StateDir); err != nil {
-		return trainv2.StartResult{}, err
-	}
-	return trainv2.StartResult{
-		Record: model.TrainV2StartRecord{
-			SchemaVersion: model.TrainV2StartSchemaVersion, ProjectID: train.ProjectID, TrainID: train.ID,
-			Status: model.TrainV2StartActive, CurrentItemPosition: item.Position,
-			CurrentAttemptNumber: attempt.Number, CurrentTaskID: item.TaskID,
-			CurrentTaskRevision: item.TaskRevision, CurrentTaskRevisionSHA256: item.TaskRevisionSHA256,
-			BaseRevision: attempt.StartHead, LaneBranch: "train/" + train.ID,
-			StartedAt: attempt.StartedAt,
-		},
-		ItemPosition: item.Position, Attempt: attempt, Runtime: runtime,
-	}, nil
 }

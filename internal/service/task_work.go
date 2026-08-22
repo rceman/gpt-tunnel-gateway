@@ -34,9 +34,6 @@ func (s *Service) taskAttempt(ctx context.Context, projectID, taskID string) (cu
 	if _, err := s.TaskAuthoringRead(ctx, projectID, taskID); err != nil {
 		return currentTaskAttempt{}, err
 	}
-	if s.Durability != nil {
-		return s.sharedTaskAttempt(ctx, projectID, taskID)
-	}
 	trains, err := s.TrainV2List(ctx, TrainV2ListInput{
 		ProjectID: projectID,
 		Limit:     model.MaxTrainV2Items,
@@ -82,44 +79,6 @@ func (s *Service) taskAttempt(ctx context.Context, projectID, taskID string) (cu
 			Attempt: attempt,
 			Runtime: runtime,
 		}
-		foundCount++
-	}
-	if foundCount == 0 {
-		return currentTaskAttempt{}, errTaskHasNoCurrentAttempt
-	}
-	if foundCount != 1 {
-		return currentTaskAttempt{}, fmt.Errorf("Task has ambiguous current TrainItem ownership")
-	}
-	return found, nil
-}
-
-func (s *Service) sharedTaskAttempt(ctx context.Context, projectID, taskID string) (currentTaskAttempt, error) {
-	trains, err := s.sharedTrains(ctx, projectID)
-	if err != nil {
-		return currentTaskAttempt{}, err
-	}
-	var found currentTaskAttempt
-	foundCount := 0
-	for _, train := range trains {
-		if train.Status != model.TrainV2Running && train.Status != model.TrainV2Paused && train.Status != model.TrainV2Blocked {
-			continue
-		}
-		runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, train.ID)
-		if runtimeErr != nil || runtime.TaskID != taskID || runtime.ItemPosition < 0 || runtime.ItemPosition >= len(train.Items) {
-			continue
-		}
-		item := train.Items[runtime.ItemPosition]
-		if item.TaskID != taskID || runtime.AttemptNumber == 0 || runtime.AttemptNumber > uint64(len(item.Attempts)) {
-			return currentTaskAttempt{}, fmt.Errorf("Task current TrainItem binding is invalid")
-		}
-		attempt := item.Attempts[runtime.AttemptNumber-1]
-		if attempt.Status != model.TrainV2AttemptRunning {
-			return currentTaskAttempt{}, fmt.Errorf("Task does not have a running Attempt")
-		}
-		if err := trainv2.ValidateRuntimeBinding(runtime, s.Config.StateDir); err != nil {
-			return currentTaskAttempt{}, err
-		}
-		found = currentTaskAttempt{Train: train, Item: item, Attempt: attempt, Runtime: runtime}
 		foundCount++
 	}
 	if foundCount == 0 {
