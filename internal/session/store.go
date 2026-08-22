@@ -48,7 +48,6 @@ type Record struct {
 	GlobalRulesDigest    string     `json:"global_rules_digest,omitempty"`
 	ProjectRulesRevision int        `json:"project_rules_revision,omitempty"`
 	ProjectRulesDigest   string     `json:"project_rules_digest,omitempty"`
-	}
 }
 
 type CreateInput struct {
