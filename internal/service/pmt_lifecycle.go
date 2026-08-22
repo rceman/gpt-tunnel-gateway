@@ -276,6 +276,9 @@ func (s *Service) PMTCancel(ctx context.Context, projectID, id string) (PMTCance
 	if err != nil {
 		return PMTCancelResult{}, err
 	}
+	if !cancelled {
+		return PMTCancelResult{}, fmt.Errorf("PMT %s changed before cancellation", id)
+	}
 	queue, err := s.PMTQueue(ctx, projectID, model.MaxPMTQueueEntries)
 	if err != nil {
 		return PMTCancelResult{}, err

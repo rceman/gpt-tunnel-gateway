@@ -331,7 +331,10 @@ func (d *Databases) CancelPMT(ctx context.Context, id string, now time.Time) (bo
 	if err != nil {
 		return false, err
 	}
-	return result.RowsAffected == 1, nil
+	if result.RowsAffected != 1 {
+		return false, fmt.Errorf("PMT cancel race: state changed before cancellation")
+	}
+	return true, nil
 }
 
 func (d *Databases) MarkPMTReferenceSubmitted(ctx context.Context, id, reference string, now time.Time) error {

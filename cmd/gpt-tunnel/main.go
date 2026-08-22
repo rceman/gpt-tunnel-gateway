@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"reflect"
 	"strings"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
@@ -88,84 +86,11 @@ func usage() {
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnel:", err); os.Exit(1) }
 func output(v any) {
-	data, err := json.MarshalIndent(normalizeCLITimestamps(v), "", "  ")
+	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		fatal(err)
 	}
 	fmt.Println(string(data))
-}
-
-var cliTimestampType = reflect.TypeOf(time.Time{})
-
-func normalizeCLITimestamps(v any) any {
-	value := normalizeCLIValue(reflect.ValueOf(v))
-	if !value.IsValid() {
-		return nil
-	}
-	return value.Interface()
-}
-
-func normalizeCLIValue(value reflect.Value) reflect.Value {
-	if !value.IsValid() {
-		return value
-	}
-	if value.Type() == cliTimestampType {
-		return reflect.ValueOf(value.Interface().(time.Time).UTC().Truncate(time.Second))
-	}
-	switch value.Kind() {
-	case reflect.Interface:
-		if value.IsNil() {
-			return reflect.Zero(value.Type())
-		}
-		return normalizeCLIValue(value.Elem())
-	case reflect.Pointer:
-		if value.IsNil() {
-			return reflect.Zero(value.Type())
-		}
-		result := reflect.New(value.Type().Elem())
-		result.Elem().Set(normalizeCLIValue(value.Elem()))
-		return result
-	case reflect.Struct:
-		result := reflect.New(value.Type()).Elem()
-		result.Set(value)
-		for i := 0; i < value.NumField(); i++ {
-			if !result.Field(i).CanSet() {
-				continue
-			}
-			normalized := normalizeCLIValue(value.Field(i))
-			if normalized.IsValid() && normalized.Type().AssignableTo(result.Field(i).Type()) {
-				result.Field(i).Set(normalized)
-			}
-		}
-		return result
-	case reflect.Slice:
-		if value.IsNil() {
-			return reflect.Zero(value.Type())
-		}
-		result := reflect.MakeSlice(value.Type(), value.Len(), value.Len())
-		for i := 0; i < value.Len(); i++ {
-			result.Index(i).Set(normalizeCLIValue(value.Index(i)))
-		}
-		return result
-	case reflect.Array:
-		result := reflect.New(value.Type()).Elem()
-		for i := 0; i < value.Len(); i++ {
-			result.Index(i).Set(normalizeCLIValue(value.Index(i)))
-		}
-		return result
-	case reflect.Map:
-		if value.IsNil() {
-			return reflect.Zero(value.Type())
-		}
-		result := reflect.MakeMapWithSize(value.Type(), value.Len())
-		iter := value.MapRange()
-		for iter.Next() {
-			result.SetMapIndex(iter.Key(), normalizeCLIValue(iter.Value()))
-		}
-		return result
-	default:
-		return value
-	}
 }
 func readFile(path string, out any) {
 	data, err := os.ReadFile(path)

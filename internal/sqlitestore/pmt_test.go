@@ -59,6 +59,16 @@ func TestPMTLocalLifecycleAndAtomicCancel(t *testing.T) {
 	if err != nil || changed {
 		t.Fatalf("cancel/fetch race changed=%v err=%v", changed, err)
 	}
+	fetchedTarget, err := db.CreatePMT(ctx, testPMT())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, changed, err := db.MarkPMTFetched(ctx, fetchedTarget.ID, time.Now().UTC()); err != nil || !changed {
+		t.Fatalf("fetch before cancel changed=%v err=%v", changed, err)
+	}
+	if cancelled, err := db.CancelPMT(ctx, fetchedTarget.ID, time.Now().UTC()); err == nil || cancelled {
+		t.Fatalf("fetched PMT cancel cancelled=%v err=%v", cancelled, err)
+	}
 }
 
 func TestPMTSupersedeIsAtomicAndUsesLocalSequence(t *testing.T) {
