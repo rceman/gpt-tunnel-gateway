@@ -112,6 +112,17 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 	}, nil
 }
 
+// resolveTrainAgentLocalFirst refuses to invent portable Agent authority from
+// host configuration. Until the Agent registry is locally authoritative, a
+// Shared-first Train admission fails closed rather than consulting Hub or
+// synthesizing a role/enabled state.
+func (s *Service) resolveTrainAgentLocalFirst(ctx context.Context, in AgentResolveInput) (ResolvedAgent, error) {
+	if s.Durability == nil {
+		return s.ResolveAgent(ctx, in)
+	}
+	return ResolvedAgent{}, fmt.Errorf("local Agent authority is unavailable for project %q", in.ProjectID)
+}
+
 func validRoutingReasoning(value string) bool {
 	switch value {
 	case model.ReasoningLow, model.ReasoningMedium, model.ReasoningHigh, model.ReasoningMax, model.ReasoningBestAvailable:

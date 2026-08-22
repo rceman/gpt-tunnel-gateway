@@ -102,6 +102,9 @@ func dispatchAttempt(ctx context.Context, deps StartDependencies, train model.Tr
 		}
 		return dispatchAttempt(ctx, deps, train, item, attempt, runtime, expected)
 	}
+	if deps.Shared != nil {
+		return dispatchAttemptShared(ctx, deps, train, item, attempt, receipt)
+	}
 	if expected == "" {
 		var err error
 		expected, err = deps.Hub.RemoteRevision(ctx)

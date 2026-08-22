@@ -36,27 +36,47 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 		if taskErr != nil {
 			return trainv2.StartResult{}, taskErr
 		}
-		if err := s.validateTaskDependencies(ctx, in.ProjectID, task); err != nil {
-			return trainv2.StartResult{}, err
+		var dependencyErr error
+		if s.Durability != nil {
+			dependencyErr = s.validateTaskDependenciesShared(ctx, in.ProjectID, task)
+		} else {
+			dependencyErr = s.validateTaskDependencies(ctx, in.ProjectID, task)
 		}
-	}
-	project, err := s.ProjectRead(ctx, in.ProjectID)
-	if err != nil {
-		return trainv2.StartResult{}, err
-	}
-	identifiers, err := s.ProjectIdentifiersRead(ctx, in.ProjectID)
-	if err != nil {
-		return trainv2.StartResult{}, err
-	}
-	policy, err := s.ProjectWorkflowPolicyRead(ctx, in.ProjectID)
-	if err != nil {
-		return trainv2.StartResult{}, err
+		if dependencyErr != nil {
+			return trainv2.StartResult{}, dependencyErr
+		}
 	}
 	projectConfig, ok := s.Config.Projects[in.ProjectID]
 	if !ok {
 		return trainv2.StartResult{}, fmt.Errorf("project %q has no local runtime configuration", in.ProjectID)
 	}
-	resolved, err := s.ResolveAgent(ctx, AgentResolveInput{
+	var project model.Project
+	var projectCode string
+	if s.Durability != nil {
+		project = model.Project{SchemaVersion: model.SchemaVersion, ID: in.ProjectID, DefaultBranch: projectConfig.DefaultBranch, Status: "active"}
+		projectCode = projectConfig.ProjectCode
+		if model.ValidateProjectCode(projectCode) != nil {
+			projectCode, err = s.sharedTaskProjectCode(ctx, in.ProjectID)
+			if err != nil {
+				return trainv2.StartResult{}, err
+			}
+		}
+	} else {
+		project, err = s.ProjectRead(ctx, in.ProjectID)
+		if err != nil {
+			return trainv2.StartResult{}, err
+		}
+		identifiers, err := s.ProjectIdentifiersRead(ctx, in.ProjectID)
+		if err != nil {
+			return trainv2.StartResult{}, err
+		}
+		projectCode = identifiers.ProjectCode
+	}
+	policy, err := s.ProjectWorkflowPolicyRead(ctx, in.ProjectID)
+	if err != nil {
+		return trainv2.StartResult{}, err
+	}
+	resolved, err := s.resolveTrainAgentLocalFirst(ctx, AgentResolveInput{
 		ProjectID:            in.ProjectID,
 		Role:                 model.AgentRoleCoding,
 		AgentID:              in.AgentID,
@@ -66,7 +86,7 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 	if err != nil {
 		return trainv2.StartResult{}, err
 	}
-	if err := s.checkSessionAvailableForTrainAttempt(ctx, resolved.SessionKey, train.ID); err != nil {
+	if err := s.checkSessionAvailableForTrainAttemptLocalFirst(ctx, resolved.SessionKey, train.ID); err != nil {
 		return trainv2.StartResult{}, err
 	}
 	return trainv2.Start(ctx, trainv2.StartInput{
@@ -83,6 +103,8 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 		ExpectedHubRevision: in.ExpectedHubRevision,
 	}, trainv2.StartDependencies{
 		Hub:               s.Hub,
+		Shared:            s.Durability,
+		OperationID:       durableMutationOperationID(ctx),
 		Git:               s.Git,
 		Airelay:           s.Airelay,
 		ProjectConfig:     projectConfig,
@@ -90,7 +112,7 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 		Policy:            policy,
 		Train:             train,
 		GatewayID:         s.Config.GatewayID,
-		ProjectCode:       identifiers.ProjectCode,
+		ProjectCode:       projectCode,
 		SessionOrigin:     AgentSessionID(ctx),
 		StateDir:          s.Config.StateDir,
 		MaterializePacket: s.materializeTrainV2Packet,

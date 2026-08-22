@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
@@ -33,6 +34,9 @@ func (s *Service) taskAttempt(ctx context.Context, projectID, taskID string) (cu
 	}
 	if _, err := s.TaskAuthoringRead(ctx, projectID, taskID); err != nil {
 		return currentTaskAttempt{}, err
+	}
+	if s.Durability != nil {
+		return s.taskAttemptShared(ctx, projectID, taskID)
 	}
 	trains, err := s.TrainV2List(ctx, TrainV2ListInput{
 		ProjectID: projectID,
@@ -88,6 +92,60 @@ func (s *Service) taskAttempt(ctx context.Context, projectID, taskID string) (cu
 		return currentTaskAttempt{}, fmt.Errorf("Task has ambiguous current TrainItem ownership")
 	}
 	return found, nil
+}
+
+func (s *Service) taskAttemptShared(ctx context.Context, projectID, taskID string) (currentTaskAttempt, error) {
+	trains, err := s.sharedTrains(ctx, projectID)
+	if err != nil {
+		return currentTaskAttempt{}, err
+	}
+	var found currentTaskAttempt
+	foundCount := 0
+	for _, train := range trains {
+		if train.Status != model.TrainV2Running && train.Status != model.TrainV2Paused && train.Status != model.TrainV2Blocked {
+			continue
+		}
+		runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, train.ID)
+		if runtimeErr != nil {
+			if os.IsNotExist(runtimeErr) {
+				continue
+			}
+			return currentTaskAttempt{}, fmt.Errorf("Task Attempt runtime is unavailable: %w", runtimeErr)
+		}
+		if runtime.TaskID != taskID || runtime.ItemPosition < 0 || runtime.ItemPosition >= len(train.Items) {
+			continue
+		}
+		item := train.Items[runtime.ItemPosition]
+		if item.TaskID != taskID || item.ActiveAttemptNumber != runtime.AttemptNumber {
+			return currentTaskAttempt{}, fmt.Errorf("Task current TrainItem binding is invalid")
+		}
+		attempt, err := trainv2Attempt(item, runtime.AttemptNumber)
+		if err != nil {
+			return currentTaskAttempt{}, err
+		}
+		if attempt.Status != model.TrainV2AttemptRunning {
+			return currentTaskAttempt{}, fmt.Errorf("Task does not have a running Attempt")
+		}
+		if err := trainv2.ValidateRuntimeBinding(runtime, s.Config.StateDir); err != nil {
+			return currentTaskAttempt{}, err
+		}
+		found = currentTaskAttempt{Train: train, Item: item, Attempt: attempt, Runtime: runtime}
+		foundCount++
+	}
+	if foundCount == 0 {
+		return currentTaskAttempt{}, errTaskHasNoCurrentAttempt
+	}
+	if foundCount != 1 {
+		return currentTaskAttempt{}, fmt.Errorf("Task has ambiguous current TrainItem ownership")
+	}
+	return found, nil
+}
+
+func trainv2Attempt(item model.TrainV2Item, number uint64) (model.TrainV2Attempt, error) {
+	if number == 0 || number > uint64(len(item.Attempts)) || item.Attempts[number-1].Number != number {
+		return model.TrainV2Attempt{}, fmt.Errorf("Train item has no exact Attempt %d", number)
+	}
+	return item.Attempts[number-1], nil
 }
 
 func (s *Service) TaskWork(ctx context.Context, in TaskWorkInput) (TaskWorkResult, error) {

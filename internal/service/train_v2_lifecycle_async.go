@@ -44,9 +44,44 @@ type trainV2AdvanceIdentity struct {
 }
 
 type taskWorkIdentity struct {
-	ProjectID   string `json:"project_id"`
-	TaskID      string `json:"task_id"`
-	HubRevision string `json:"hub_revision,omitempty"`
+	ProjectID      string `json:"project_id"`
+	TaskID         string `json:"task_id"`
+	HubRevision    string `json:"hub_revision,omitempty"`
+	SharedTrainID  string `json:"shared_train_id,omitempty"`
+	SharedRevision int    `json:"shared_revision,omitempty"`
+	ItemPosition   int    `json:"item_position,omitempty"`
+	AttemptNumber  uint64 `json:"attempt_number,omitempty"`
+}
+
+func (s *Service) taskWorkIdentity(ctx context.Context, in TaskWorkInput) (taskWorkIdentity, error) {
+	identity := taskWorkIdentity{ProjectID: in.ProjectID, TaskID: in.TaskID}
+	if s.Durability == nil {
+		identity.HubRevision = s.localHubRevision(ctx)
+		return identity, nil
+	}
+	if err := s.requireLocalTaskAuthoring(ctx, in.ProjectID); err != nil {
+		return taskWorkIdentity{}, err
+	}
+	if _, err := s.readSharedTask(ctx, in.ProjectID, in.TaskID); err != nil {
+		return taskWorkIdentity{}, err
+	}
+	trains, err := s.sharedTrains(ctx, in.ProjectID)
+	if err != nil {
+		return taskWorkIdentity{}, err
+	}
+	for _, train := range trains {
+		for _, item := range train.Items {
+			if item.TaskID != in.TaskID {
+				continue
+			}
+			identity.SharedTrainID = train.ID
+			identity.SharedRevision = train.Revision
+			identity.ItemPosition = item.Position
+			identity.AttemptNumber = item.ActiveAttemptNumber
+			return identity, nil
+		}
+	}
+	return identity, nil
 }
 
 func (s *Service) localHubRevision(ctx context.Context) string {

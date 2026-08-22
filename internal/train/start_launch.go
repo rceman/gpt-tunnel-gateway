@@ -24,6 +24,9 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 	if err := model.ValidateTrainV2(deps.Train); err != nil || deps.Train.ProjectID != in.ProjectID || deps.Train.ID != in.TrainID || len(deps.Train.Items) == 0 {
 		return StartResult{}, fmt.Errorf("train v2 is not startable")
 	}
+	if deps.Shared != nil {
+		return startShared(ctx, in, deps)
+	}
 	now := time.Now().UTC()
 	if deps.Now != nil {
 		now = deps.Now().UTC()

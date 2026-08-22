@@ -71,11 +71,11 @@ func (s *Service) TaskWorkAsync(ctx context.Context, in TaskWorkInput) (TaskWork
 	if in.ProjectID == "" || in.TaskID == "" {
 		return TaskWorkReceipt{}, fmt.Errorf("project_id and task_id are required for asynchronous task/work")
 	}
-	operation, err := s.enqueueTypedDurableMutationWithIdentity(ctx, "task-work", in.ProjectID, in, taskWorkIdentity{
-		ProjectID:   in.ProjectID,
-		TaskID:      in.TaskID,
-		HubRevision: s.localHubRevision(ctx),
-	})
+	identity, err := s.taskWorkIdentity(ctx, in)
+	if err != nil {
+		return TaskWorkReceipt{}, err
+	}
+	operation, err := s.enqueueTypedDurableMutationWithIdentity(ctx, "task-work", in.ProjectID, in, identity)
 	if err != nil {
 		return TaskWorkReceipt{}, err
 	}

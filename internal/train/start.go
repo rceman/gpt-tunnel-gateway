@@ -9,6 +9,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 type StartInput struct {
@@ -41,6 +42,8 @@ type PacketMaterializer func(context.Context, model.TrainV2, model.TrainV2Item, 
 
 type StartDependencies struct {
 	Hub                              hub.Store
+	Shared                           *sqlitestore.Databases
+	OperationID                      string
 	Git                              gitx.Runner
 	Airelay                          airelay.Client
 	ProjectConfig                    config.ProjectConfig
