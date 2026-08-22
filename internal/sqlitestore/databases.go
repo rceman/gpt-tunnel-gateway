@@ -83,24 +83,43 @@ func openWithConfig(cfg Config, observe func(string)) (*Databases, error) {
 		}
 	}
 	if cfg.StateDir == "" || !filepath.IsAbs(cfg.StateDir) {
-		return nil, &OpenError{Stage: "directory_prepare", Database: "state", Err: fmt.Errorf("sqlite store state directory must be absolute")}
+		return nil, &OpenError{
+			Stage:    "directory_prepare",
+			Database: "state",
+			Err:      fmt.Errorf("sqlite store state directory must be absolute"),
+		}
 	}
 	notify("SQLITE_DIRECTORY_PREPARE")
 	sharedPath, localPath := Paths(cfg.StateDir)
 	if err := os.MkdirAll(filepath.Dir(sharedPath), 0o700); err != nil {
-		return nil, &OpenError{Stage: "directory_prepare", Database: "state", Path: filepath.Dir(sharedPath), Err: err}
+		return nil, &OpenError{
+			Stage:    "directory_prepare",
+			Database: "state",
+			Path:     filepath.Dir(sharedPath),
+			Err:      err,
+		}
 	}
 	engine := engineConfig(cfg)
 	notify("SQLITE_SHARED_OPEN")
 	shared, err := store.Open(engine(sharedPath))
 	if err != nil {
-		return nil, &OpenError{Stage: openStage(err), Database: "shared", Path: sharedPath, Err: err}
+		return nil, &OpenError{
+			Stage:    openStage(err),
+			Database: "shared",
+			Path:     sharedPath,
+			Err:      err,
+		}
 	}
 	notify("SQLITE_LOCAL_OPEN")
 	local, err := store.Open(engine(localPath))
 	if err != nil {
 		_ = shared.Close()
-		return nil, &OpenError{Stage: openStage(err), Database: "local", Path: localPath, Err: err}
+		return nil, &OpenError{
+			Stage:    openStage(err),
+			Database: "local",
+			Path:     localPath,
+			Err:      err,
+		}
 	}
 	db := &Databases{
 		Shared:     shared,
@@ -162,13 +181,23 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 		notify("SQLITE_SHARED_MIGRATION")
 	}
 	if err := migrate.Apply(ctx, db.Shared, sharedMigrations, migrate.Options{}); err != nil {
-		return &OpenError{Stage: "migration", Database: "shared", Path: db.sharedPath, Err: err}
+		return &OpenError{
+			Stage:    "migration",
+			Database: "shared",
+			Path:     db.sharedPath,
+			Err:      err,
+		}
 	}
 	if notify != nil {
 		notify("SQLITE_LOCAL_MIGRATION")
 	}
 	if err := migrate.Apply(ctx, db.Local, localMigrations, migrate.Options{}); err != nil {
-		return &OpenError{Stage: "migration", Database: "local", Path: db.localPath, Err: err}
+		return &OpenError{
+			Stage:    "migration",
+			Database: "local",
+			Path:     db.localPath,
+			Err:      err,
+		}
 	}
 	return nil
 }

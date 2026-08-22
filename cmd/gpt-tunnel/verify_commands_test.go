@@ -16,7 +16,11 @@ func TestVerifySuccessProjectionIsCompactAndFailureKeepsDiagnostics(t *testing.T
 		Scope       string   `json:"scope"`
 		Packages    []string `json:"packages,omitempty"`
 		Reused      bool     `json:"reused,omitempty"`
-	}{OperationID: "verify-a", Status: "completed", Scope: "changed"}
+	}{
+		OperationID: "verify-a",
+		Status:      "completed",
+		Scope:       "changed",
+	}
 	data, err := json.Marshal(compact)
 	if err != nil {
 		t.Fatal(err)
