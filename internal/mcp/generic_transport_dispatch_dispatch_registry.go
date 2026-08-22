@@ -98,7 +98,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 			bootstrapContext = elevated
 		}
 		if err := requireSessionRole(bootstrapContext, record.Role); err != nil {
-			agentLocalReceipt := record.Role == durableSession.RoleAgent && entry.LocalReceiptOnly && entry.AuthorityRole == ""
+			agentLocalReceipt := record.Role == durableSession.RoleAgent && action == "agent/prompt_read" && entry.LocalReceiptOnly && entry.AuthorityRole == ""
 			if !agentLocalReceipt {
 				return genericActionError(action, err.Error()), nil
 			}
