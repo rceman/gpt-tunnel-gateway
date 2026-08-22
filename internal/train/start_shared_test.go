@@ -51,10 +51,14 @@ func TestStartSharedAdmitsAttemptWithoutHubRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	projectConfig := config.ProjectConfig{Root: projectRoot, Mirror: mirror, Remote: "origin", DefaultBranch: "main", ProjectCode: "GTW"}
+	gitRunner := gitx.Runner{StateDir: stateDir, MaxReadBytes: 1 << 20}
+	if err := gitRunner.EnsureMirror(context.Background(), projectConfig); err != nil {
+		t.Fatal(err)
+	}
 	deps := StartDependencies{
 		Shared:        db,
 		OperationID:   "mutation-train-start-shared",
-		Git:           gitx.Runner{StateDir: stateDir, MaxReadBytes: 1 << 20},
+		Git:           gitRunner,
 		Airelay:       airelay.Client{Command: airelayPath, Timeout: time.Second},
 		ProjectConfig: projectConfig,
 		Project:       model.Project{ID: "gateway", DefaultBranch: "main"},

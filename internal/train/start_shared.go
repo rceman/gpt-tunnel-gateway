@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -84,6 +85,9 @@ func startShared(ctx context.Context, in StartInput, deps StartDependencies) (St
 	}
 	if !status.Clean {
 		return StartResult{}, fmt.Errorf("project worktree is dirty")
+	}
+	if _, err := os.Stat(filepath.Join(deps.ProjectConfig.Mirror, "HEAD")); err != nil {
+		return StartResult{}, fmt.Errorf("local project mirror is unavailable: %w", err)
 	}
 	integrationBranch := deps.Policy.IntegrationBranch
 	if integrationBranch == "" {
