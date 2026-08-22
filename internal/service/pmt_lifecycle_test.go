@@ -235,6 +235,10 @@ func TestInterruptReplacementQueuesPMTReference(t *testing.T) {
 	}
 	s.Durability = db
 	t.Cleanup(func() { _ = db.Close() })
+	agentRef := "example_master"
+	if _, err := session.NewStore(s.Config.StateDir).Create(session.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: session.RoleAgent, SessionType: session.SessionTypeChatGPT, SessionRef: &agentRef}); err != nil {
+		t.Fatal(err)
+	}
 	projectConfig := s.Config.Projects["example"]
 	projectConfig.ProjectCode = "EXM"
 	s.Config.Projects["example"] = projectConfig
