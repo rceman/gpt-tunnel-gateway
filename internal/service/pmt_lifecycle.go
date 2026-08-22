@@ -206,37 +206,6 @@ func (s *Service) PMTRead(ctx context.Context, id string) (PMTReadResult, error)
 	}, nil
 }
 
-// PMTReadCLI derives the exact active coding Session from durable session
-// state. The CLI supplies only the PMT identifier; it cannot select a project,
-// Agent, or session authority.
-func (s *Service) PMTReadCLI(ctx context.Context, id string) (PMTReadResult, error) {
-	if s.Durability == nil {
-		return PMTReadResult{}, fmt.Errorf("local PMT store is unavailable")
-	}
-	pmt, err := s.Durability.ReadPMT(ctx, id)
-	if err != nil {
-		return PMTReadResult{}, err
-	}
-	records, err := session.NewStore(s.Config.StateDir).List()
-	if err != nil {
-		return PMTReadResult{}, err
-	}
-	var bound string
-	for _, record := range records {
-		if record.Status != session.StatusActive || record.Role != session.RoleAgent || record.ProjectID != pmt.ProjectID || record.SessionRef == nil || *record.SessionRef != pmt.TargetAirelaySessionKey {
-			continue
-		}
-		if bound != "" {
-			return PMTReadResult{}, fmt.Errorf("PMT coding Session binding is ambiguous")
-		}
-		bound = record.ID
-	}
-	if bound == "" {
-		return PMTReadResult{}, fmt.Errorf("PMT coding Session binding is unavailable or stale")
-	}
-	return s.PMTRead(WithAgentSessionID(ctx, bound), id)
-}
-
 func (s *Service) PMTQueue(ctx context.Context, projectID string, limit int) (PMTQueueResult, error) {
 	if s.Durability == nil {
 		return PMTQueueResult{}, fmt.Errorf("local PMT store is unavailable")

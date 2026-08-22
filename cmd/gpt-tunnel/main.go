@@ -11,7 +11,6 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
-	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 var version = "0.6.11"
@@ -36,16 +35,7 @@ func main() {
 	group := os.Args[1]
 	args := os.Args[2:]
 	var s *service.Service
-	if group == "prompt" {
-		db, openErr := sqlitestore.Open(c.StateDir)
-		if openErr != nil {
-			fatal(openErr)
-		}
-		defer db.Close()
-		s = service.NewWithDurability(c, db)
-	} else {
-		s = service.New(c)
-	}
+	s = service.New(c)
 	switch group {
 	case "format", "check", "test":
 		gate(ctx, s, group, args)
