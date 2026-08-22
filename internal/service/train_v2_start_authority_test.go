@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -83,6 +84,19 @@ func TestSharedRunningAttemptReconstructsMissingRuntimeWithoutNewAgent(t *testin
 	if _, err := os.Stat(runtimePath); !os.IsNotExist(err) {
 		t.Fatalf("runtime unexpectedly exists: %v", err)
 	}
+	if _, _, err := s.deriveExistingTrainAttemptAuthority("example", train.ID, train, ""); err == nil {
+		t.Fatal("runtime recovery succeeded without an existing worktree")
+	}
+	if _, err := os.Stat(runtimePath); !os.IsNotExist(err) {
+		t.Fatalf("failed recovery created runtime: %v", err)
+	}
+	worktree, err := trainv2.CompactWorktreePath(s.Config.StateDir, "EXM", train.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(worktree, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	resolved, existing, err := s.deriveExistingTrainAttemptAuthority("example", train.ID, train, "")
 	if err != nil || !existing {
 		t.Fatalf("derive Shared Attempt authority: existing=%v err=%v", existing, err)
@@ -96,5 +110,20 @@ func TestSharedRunningAttemptReconstructsMissingRuntimeWithoutNewAgent(t *testin
 	}
 	if runtime.AgentID != "coder-example" || runtime.SessionKey != "example_master" || runtime.AttemptNumber != 1 || runtime.TaskID != task.ID {
 		t.Fatalf("recovered runtime does not match Attempt: %#v", runtime)
+	}
+	configuration := model.DefaultProjectConfiguration("example", now)
+	policy, err := workflowPolicyFromConfiguration(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.cacheProjectWorkflowPolicy(policy); err != nil {
+		t.Fatal(err)
+	}
+	start, err := s.readTrainV2StartForAttempt(context.Background(), "example", train, train.Items[0], train.Items[0].Attempts[0], runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if start.TrainID != train.ID || start.CurrentItemPosition != 0 || start.CurrentAttemptNumber != 1 || start.LaneBranch != "train/"+train.ID {
+		t.Fatalf("Shared finalize bridge derived wrong start identity: %#v", start)
 	}
 }

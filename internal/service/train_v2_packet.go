@@ -32,21 +32,49 @@ func (s *Service) materializeTrainV2Packet(ctx context.Context, train model.Trai
 	if item.TaskRevisionSHA256 != task.RevisionSHA256 || attempt.AgentID == "" || attempt.AirelaySessionKey == "" {
 		return trainv2.AgentTaskPacket{}, fmt.Errorf("Train packet Task revision does not match the Attempt")
 	}
-	project, err := s.ProjectRead(ctx, train.ProjectID)
-	if err != nil {
-		return trainv2.AgentTaskPacket{}, err
-	}
-	identifiers, err := s.ProjectIdentifiersRead(ctx, train.ProjectID)
-	if err != nil {
-		return trainv2.AgentTaskPacket{}, err
-	}
-	configuration, err := s.ProjectConfigurationRead(ctx, train.ProjectID)
-	if err != nil {
-		return trainv2.AgentTaskPacket{}, err
-	}
-	policy, err := s.ProjectWorkflowPolicyRead(ctx, train.ProjectID)
-	if err != nil {
-		return trainv2.AgentTaskPacket{}, err
+	var project model.Project
+	var identifiers model.ProjectIdentifiers
+	var configuration model.ProjectConfiguration
+	var policy model.ProjectWorkflowPolicy
+	if s.Durability != nil {
+		projectConfig, ok := s.Config.Projects[train.ProjectID]
+		if !ok {
+			return trainv2.AgentTaskPacket{}, fmt.Errorf("project %q has no local runtime configuration", train.ProjectID)
+		}
+		projectCode := projectConfig.ProjectCode
+		if model.ValidateProjectCode(projectCode) != nil {
+			projectCode, err = s.sharedTaskProjectCode(ctx, train.ProjectID)
+			if err != nil {
+				return trainv2.AgentTaskPacket{}, err
+			}
+		}
+		project = model.Project{SchemaVersion: model.SchemaVersion, ID: train.ProjectID, DefaultBranch: projectConfig.DefaultBranch, Status: "active"}
+		identifiers = model.ProjectIdentifiers{SchemaVersion: model.SchemaVersion, ProjectID: train.ProjectID, ProjectCode: projectCode}
+		configuration, err = s.ProjectConfigurationRead(ctx, train.ProjectID)
+		if err != nil {
+			return trainv2.AgentTaskPacket{}, err
+		}
+		policy, err = s.ProjectWorkflowPolicyRead(ctx, train.ProjectID)
+		if err != nil {
+			return trainv2.AgentTaskPacket{}, err
+		}
+	} else {
+		project, err = s.ProjectRead(ctx, train.ProjectID)
+		if err != nil {
+			return trainv2.AgentTaskPacket{}, err
+		}
+		identifiers, err = s.ProjectIdentifiersRead(ctx, train.ProjectID)
+		if err != nil {
+			return trainv2.AgentTaskPacket{}, err
+		}
+		configuration, err = s.ProjectConfigurationRead(ctx, train.ProjectID)
+		if err != nil {
+			return trainv2.AgentTaskPacket{}, err
+		}
+		policy, err = s.ProjectWorkflowPolicyRead(ctx, train.ProjectID)
+		if err != nil {
+			return trainv2.AgentTaskPacket{}, err
+		}
 	}
 	var packetPath string
 	if runtime.ProjectCode == "" {

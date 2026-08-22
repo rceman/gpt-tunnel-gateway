@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -56,6 +57,37 @@ func (s *Service) sharedRuntimeForAttempt(projectID string, train model.TrainV2,
 		return trainv2.RuntimeBinding{}, fmt.Errorf("persist recovered Train runtime: %w", err)
 	}
 	return runtime, nil
+}
+
+// readTrainV2StartForAttempt preserves the legacy Hub start-record read while
+// Shared execution derives the same authority from the exact Attempt and its
+// validated local runtime projection.
+func (s *Service) readTrainV2StartForAttempt(ctx context.Context, projectID string, train model.TrainV2, item model.TrainV2Item, attempt model.TrainV2Attempt, runtime trainv2.RuntimeBinding) (model.TrainV2StartRecord, error) {
+	if s.Durability == nil {
+		var start model.TrainV2StartRecord
+		path := "gpt-tunnel/v1/projects/" + projectID + "/train-v2-starts/" + train.ID + ".json"
+		if err := s.Hub.ReadJSON(ctx, path, &start); err != nil {
+			return model.TrainV2StartRecord{}, err
+		}
+		return start, nil
+	}
+	if runtime.ProjectID != projectID || runtime.TrainID != train.ID || runtime.ItemPosition != item.Position || runtime.TaskID != item.TaskID || runtime.AttemptNumber != attempt.Number || runtime.AgentID != attempt.AgentID || runtime.SessionKey != attempt.AirelaySessionKey {
+		return model.TrainV2StartRecord{}, fmt.Errorf("Shared Train start authority does not match exact Attempt runtime")
+	}
+	projectConfig, ok := s.Config.Projects[projectID]
+	if !ok || projectConfig.DefaultBranch == "" {
+		return model.TrainV2StartRecord{}, fmt.Errorf("project %q has no local default branch for Shared Train start authority", projectID)
+	}
+	policy, err := s.ProjectWorkflowPolicyReadFast(ctx, projectID)
+	if err != nil {
+		return model.TrainV2StartRecord{}, err
+	}
+	project := model.Project{SchemaVersion: model.SchemaVersion, ID: projectID, DefaultBranch: projectConfig.DefaultBranch, Status: "active"}
+	start := trainv2.DeriveStartRecord(train, item, attempt, policy, project, attempt.StartedAt)
+	if err := model.ValidateTrainV2StartRecord(start); err != nil {
+		return model.TrainV2StartRecord{}, err
+	}
+	return start, nil
 }
 
 // deriveExistingTrainAttemptAuthority makes the persisted Attempt the source

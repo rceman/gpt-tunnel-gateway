@@ -91,12 +91,11 @@ func (s *Service) TrainV2AttemptFinalize(ctx context.Context, in TrainV2AttemptF
 	if err := model.ValidateTaskAuthoring(task); err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
-	startPath := hub.ProtocolRoot + "/projects/" + in.ProjectID + "/train-v2-starts/" + in.TrainID + ".json"
-	var start model.TrainV2StartRecord
-	if err := s.Hub.ReadJSON(ctx, startPath, &start); err != nil {
+	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, in.ProjectID, in.TrainID)
+	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
-	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, in.ProjectID, in.TrainID)
+	start, err := s.readTrainV2StartForAttempt(ctx, in.ProjectID, train, item, attempt, runtime)
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}

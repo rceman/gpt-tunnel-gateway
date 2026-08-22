@@ -58,6 +58,13 @@ func RuntimeBindingFromAttempt(stateDir, projectID, projectCode string, train mo
 	if err != nil {
 		return RuntimeBinding{}, err
 	}
+	info, err := os.Stat(worktree)
+	if err != nil {
+		return RuntimeBinding{}, fmt.Errorf("cannot recover runtime without existing Train worktree: %w", err)
+	}
+	if !info.IsDir() {
+		return RuntimeBinding{}, fmt.Errorf("cannot recover runtime from non-directory Train worktree")
+	}
 	runtime := RuntimeBinding{SchemaVersion: runtimeSchemaVersion, ProjectID: projectID, ProjectCode: projectCode, TrainID: train.ID, WorktreePath: worktree, AgentID: attempt.AgentID, SessionKey: attempt.AirelaySessionKey, ItemPosition: item.Position, TaskID: item.TaskID, AttemptNumber: attempt.Number, StartedAt: attempt.StartedAt}
 	if err := ValidateRuntimeBinding(runtime, stateDir); err != nil {
 		return RuntimeBinding{}, err
