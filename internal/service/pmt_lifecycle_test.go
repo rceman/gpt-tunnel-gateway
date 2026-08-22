@@ -10,6 +10,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
@@ -28,8 +29,27 @@ func newPMTTestService(t *testing.T) (*Service, *sqlitestore.Databases) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := session.NewStore(c.StateDir).Create(session.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: session.RoleAgent, SessionType: session.SessionTypeChatGPT, SessionRef: strPtr("example_master")}); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = db.Close() })
 	return NewWithDurability(c, db), db
+}
+
+func strPtr(value string) *string { return &value }
+
+func pmtAgentContext(t *testing.T, s *Service) context.Context {
+	t.Helper()
+	return WithAgentSessionID(context.Background(), pmtAgentSessionID(t, s))
+}
+
+func pmtAgentSessionID(t *testing.T, s *Service) string {
+	t.Helper()
+	records, err := session.NewStore(s.Config.StateDir).List()
+	if err != nil || len(records) != 1 {
+		t.Fatalf("agent session records=%#v err=%v", records, err)
+	}
+	return records[0].ID
 }
 
 func TestAgentPromptCreatesPMTAndSendsReferenceOnly(t *testing.T) {
@@ -47,6 +67,9 @@ func TestAgentPromptCreatesPMTAndSendsReferenceOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := session.NewStore(c.StateDir).Create(session.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: session.RoleAgent, SessionType: session.SessionTypeChatGPT, SessionRef: strPtr("example_master")}); err != nil {
+		t.Fatal(err)
+	}
 	defer db.Close()
 	s := NewWithDurability(c, db)
 	result, err := s.AgentPrompt(WithAgentSessionID(context.Background(), "SP-ABCDEFGH"), "example", "secret instruction")
@@ -56,6 +79,10 @@ func TestAgentPromptCreatesPMTAndSendsReferenceOnly(t *testing.T) {
 	if !result.Queued || result.Delivered || result.PMTID != "EXM-PMT1" {
 		t.Fatalf("result=%#v", result)
 	}
+	stored, err := db.ReadPMT(context.Background(), result.PMTID)
+	if err != nil || stored.TargetSessionID != pmtAgentSessionID(t, s) {
+		t.Fatalf("PMT target session=%q err=%v", stored.TargetSessionID, err)
+	}
 	wire, err := os.ReadFile(messagePath)
 	if err != nil {
 		t.Fatal(err)
@@ -63,14 +90,14 @@ func TestAgentPromptCreatesPMTAndSendsReferenceOnly(t *testing.T) {
 	if !strings.Contains(string(wire), "read prompt: gpt-tunnel prompt EXM-PMT1") || strings.Contains(string(wire), "secret instruction") {
 		t.Fatalf("wire=%q", wire)
 	}
-	read, err := s.PMTRead(context.Background(), result.PMTID)
+	read, err := s.PMTRead(pmtAgentContext(t, s), result.PMTID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if read.Instruction != "secret instruction" || read.State != "fetched" {
 		t.Fatalf("read=%#v", read)
 	}
-	repeat, err := s.PMTRead(context.Background(), result.PMTID)
+	repeat, err := s.PMTRead(pmtAgentContext(t, s), result.PMTID)
 	if err != nil || repeat.Instruction != read.Instruction || repeat.ReadCount != read.ReadCount+1 {
 		t.Fatalf("repeat=%#v err=%v", repeat, err)
 	}
@@ -114,7 +141,7 @@ func TestPMTQueueCancelSupersedeAndStaleReference(t *testing.T) {
 	if replacement.Queue.Entries[0].ID != third.PMTID || replacement.Queue.Entries[1].ID != replacement.PMTID {
 		t.Fatalf("replacement queue=%#v", replacement.Queue)
 	}
-	stale, err := s.PMTRead(context.Background(), first.PMTID)
+	stale, err := s.PMTRead(pmtAgentContext(t, s), first.PMTID)
 	if err != nil || !stale.Tombstone || stale.State != model.PMTStateSuperseded || stale.Instruction != "" {
 		t.Fatalf("stale=%#v err=%v", stale, err)
 	}
@@ -123,15 +150,22 @@ func TestPMTQueueCancelSupersedeAndStaleReference(t *testing.T) {
 func TestPMTReadRejectsWrongSessionAndStaleExecution(t *testing.T) {
 	s, db := newPMTTestService(t)
 	ctx := context.Background()
-	wrongSession := testPMTForService()
-	wrongSession, err := db.CreatePMT(ctx, wrongSession)
+	targetSessionID := pmtAgentSessionID(t, s)
+	other, err := session.NewStore(s.Config.StateDir).Create(session.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: session.RoleAgent, SessionType: session.SessionTypeChatGPT, SessionRef: strPtr("example_master-2")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PMTRead(WithAgentSessionID(ctx, "SP-WRONG123"), wrongSession.ID); err == nil {
+	wrongSession := testPMTForService()
+	wrongSession.TargetSessionID = targetSessionID
+	wrongSession, err = db.CreatePMT(ctx, wrongSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PMTRead(WithAgentSessionID(ctx, other.ID), wrongSession.ID); err == nil {
 		t.Fatal("wrong session was accepted")
 	}
 	stale := testPMTForService()
+	stale.TargetSessionID = targetSessionID
 	stale.TrainID = "EXM-TRN1"
 	stale.TaskID = "EXM-TSK1"
 	stale.AttemptNumber = 1
@@ -139,7 +173,7 @@ func TestPMTReadRejectsWrongSessionAndStaleExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PMTRead(ctx, stale.ID); err == nil {
+	if _, err := s.PMTRead(WithAgentSessionID(ctx, targetSessionID), stale.ID); err == nil {
 		t.Fatal("stale execution was accepted")
 	}
 }
@@ -148,12 +182,13 @@ func TestPMTExpiredReadReturnsTombstone(t *testing.T) {
 	s, db := newPMTTestService(t)
 	expires := time.Now().UTC().Add(-time.Minute)
 	pmt := testPMTForService()
+	pmt.TargetSessionID = pmtAgentSessionID(t, s)
 	pmt.ExpiresAt = &expires
 	pmt, err := db.CreatePMT(context.Background(), pmt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	read, err := s.PMTRead(context.Background(), pmt.ID)
+	read, err := s.PMTRead(pmtAgentContext(t, s), pmt.ID)
 	if err != nil || !read.Tombstone || read.State != model.PMTStateExpired || read.Instruction != "" {
 		t.Fatalf("expired read=%#v err=%v", read, err)
 	}

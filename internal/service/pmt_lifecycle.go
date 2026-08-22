@@ -56,7 +56,7 @@ func (s *Service) createAndSendPMT(ctx context.Context, projectID, title, instru
 	if err := validatePMTInput(title, instruction); err != nil {
 		return AgentPromptResult{}, err
 	}
-	agentID, target, err := s.resolvePMTTarget(ctx, projectID)
+	agentID, target, targetSessionID, err := s.resolvePMTTarget(ctx, projectID)
 	if err != nil {
 		return AgentPromptResult{}, err
 	}
@@ -68,7 +68,7 @@ func (s *Service) createAndSendPMT(ctx context.Context, projectID, title, instru
 	pmt := model.PMT{
 		SchemaVersion: model.PMTSchemaVersion, ProjectID: projectID, ProjectCode: project.ProjectCode,
 		Title: title, Instruction: instruction, PlannerSessionID: planner,
-		TargetAirelaySessionKey: target, TargetAgentID: agentID, CreatedAt: now,
+		TargetSessionID: targetSessionID, TargetAirelaySessionKey: target, TargetAgentID: agentID, CreatedAt: now,
 		State: model.PMTStateUnread, Reference: "pending",
 	}
 	enabled, activeErr := s.trainV2Enabled(ctx, projectID)
@@ -133,12 +133,29 @@ func (s *Service) createAndSendPMT(ctx context.Context, projectID, title, instru
 	}, nil
 }
 
-func (s *Service) resolvePMTTarget(ctx context.Context, projectID string) (string, string, error) {
+func (s *Service) resolvePMTTarget(ctx context.Context, projectID string) (string, string, string, error) {
 	local, localErr := s.projectConfig(projectID)
 	if localErr != nil || strings.TrimSpace(local.AirelaySessionKey) == "" {
-		return "", "", fmt.Errorf("project %q has no local Agent session binding", projectID)
+		return "", "", "", fmt.Errorf("project %q has no local Agent session binding", projectID)
 	}
-	return "coding", local.AirelaySessionKey, nil
+	records, err := session.NewStore(s.Config.StateDir).List()
+	if err != nil {
+		return "", "", "", fmt.Errorf("read coding Agent sessions: %w", err)
+	}
+	var targetSession string
+	for _, record := range records {
+		if record.Status != session.StatusActive || record.Role != session.RoleAgent || record.ProjectID != projectID || record.SessionRef == nil || *record.SessionRef != local.AirelaySessionKey {
+			continue
+		}
+		if targetSession != "" {
+			return "", "", "", fmt.Errorf("project %q has ambiguous coding Agent sessions", projectID)
+		}
+		targetSession = record.ID
+	}
+	if targetSession == "" {
+		return "", "", "", fmt.Errorf("project %q has no active coding Agent session", projectID)
+	}
+	return "coding", local.AirelaySessionKey, targetSession, nil
 }
 
 func (s *Service) PMTRead(ctx context.Context, id string) (PMTReadResult, error) {
@@ -288,11 +305,13 @@ func (s *Service) PMTSupersede(ctx context.Context, in PMTSupersedeInput) (Agent
 }
 
 func (s *Service) authorizePMTTarget(ctx context.Context, pmt model.PMT) error {
-	if sessionID := AgentSessionID(ctx); sessionID != "" {
-		info, err := s.SessionInfo(ctx, sessionID)
-		if err != nil || info.Session.ProjectID != pmt.ProjectID || info.Session.Role != session.RoleAgent {
-			return fmt.Errorf("PMT session authority mismatch")
-		}
+	sessionID := AgentSessionID(ctx)
+	if sessionID == "" || pmt.TargetSessionID == "" || sessionID != pmt.TargetSessionID {
+		return fmt.Errorf("PMT session authority mismatch")
+	}
+	info, err := s.SessionInfo(ctx, sessionID)
+	if err != nil || info.Session.ProjectID != pmt.ProjectID || info.Session.Role != session.RoleAgent {
+		return fmt.Errorf("PMT session authority mismatch")
 	}
 	target, err := s.resolveAgentTailSession(pmt.ProjectID)
 	if err != nil || target != pmt.TargetAirelaySessionKey {
