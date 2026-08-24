@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -60,9 +61,41 @@ func TestMirrorReadsAllRefsWithoutSwitchingWorktree(t *testing.T) {
 	}
 }
 
+func TestChangedWorkingFilesPreservesFirstPathCharacter(t *testing.T) {
+	_, work, _ := testutil.RepoWithBareRemote(t)
+	path := filepath.Join(work, "internal", "gates", "gates.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, work, "add", "internal/gates/gates.go")
+	testutil.Git(t, work, "commit", "-m", "seed changed working file")
+	if err := os.WriteFile(path, []byte("package main\nvar _ = 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+	}
+	paths, err := r.ChangedWorkingFiles(context.Background(), work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(paths, []string{"internal/gates/gates.go"}) {
+		t.Fatalf("changed paths=%v; want exact parser result", paths)
+	}
+}
+
 func TestWorktreeFingerprintChangesWithWorkingTreeBytes(t *testing.T) {
 	_, work, _ := testutil.RepoWithBareRemote(t)
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+	}
 	first, err := r.WorktreeFingerprint(context.Background(), work)
 	if err != nil {
 		t.Fatal(err)

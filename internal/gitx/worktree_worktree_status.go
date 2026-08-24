@@ -58,11 +58,11 @@ func (r Runner) ChangedWorkingFiles(ctx context.Context, root string) ([]string,
 		return nil, err
 	}
 	paths := make([]string, 0)
-	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
-		if line == "" {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		path := strings.TrimSpace(line)
+		path := line
 		if len(path) > 3 {
 			path = strings.TrimSpace(path[3:])
 		}

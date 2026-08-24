@@ -170,15 +170,8 @@ func (s *Service) TrainV2FullProof(ctx context.Context, in TrainV2FullProofInput
 	}); err != nil {
 		return TrainV2FullProofResult{}, err
 	}
-	gateNames, err := s.ResolveProjectGates(ctx, in.ProjectID, "integration")
+	gates, err := s.executeTrainGatesWithScopedFormat(ctx, in.ProjectID, lane, start.BaseRevision, candidate)
 	if err != nil {
-		return TrainV2FullProofResult{}, err
-	}
-	gates, err := s.executeProjectGatesWithProjectCommands(ctx, in.ProjectID, lane.Root, gateNames, "train")
-	if err != nil {
-		return TrainV2FullProofResult{}, err
-	}
-	if err := validateProjectGateEvidence(gates, gateNames); err != nil {
 		return TrainV2FullProofResult{}, err
 	}
 	updated, err := trainv2.RecordFullProof(train, candidate, gates, time.Now().UTC())

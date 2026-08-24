@@ -132,11 +132,7 @@ func (s *Service) closeoutTrain(ctx context.Context, projectID string, train mod
 	if err != nil {
 		return model.TrainV2{}, err
 	}
-	gates, err := s.ResolveProjectGates(ctx, projectID, "integration")
-	if err != nil {
-		return model.TrainV2{}, err
-	}
-	results, err := s.executeProjectGatesWithProjectCommands(ctx, projectID, project.Root, gates, "train")
+	results, err := s.executeTrainGatesWithScopedFormat(ctx, projectID, project, start.BaseRevision, head)
 	if err != nil {
 		return model.TrainV2{}, fmt.Errorf("Train closeout gates failed; repair the Train lane and retry: %w", err)
 	}

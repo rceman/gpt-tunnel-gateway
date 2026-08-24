@@ -78,9 +78,6 @@ func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInp
 	if s.formatExecutor == nil {
 		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("canonical formatter is not configured")
 	}
-	if err := s.formatExecutor(ctx, project.Root); err != nil {
-		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("canonical formatting failed: %w", err)
-	}
 	_, _, clean, err = s.Git.CurrentHead(ctx, project)
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
@@ -94,7 +91,7 @@ func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInp
 			return TrainV2AttemptFinalizeResult{}, err
 		}
 	}
-	changedBeforeGates, err := s.Git.ChangedFiles(ctx, project.Root, current.Attempt.StartHead, startHead)
+	changedBeforeGates, err := s.taskFinalizeChangedFiles(ctx, project.Root, current.Attempt.StartHead, startHead)
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
@@ -103,7 +100,7 @@ func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInp
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
-	serverGates, err := s.executeProjectGatesWithProjectCommandsAndScope(ctx, in.ProjectID, project.Root, gates, "task", testScope)
+	serverGates, err := s.executeTaskFinalizeGatesWithSnapshot(ctx, in.ProjectID, project, gates, changedBeforeGates, testScope)
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("Task finalize gates failed; repair the candidate worktree and retry: %w", err)
 	}

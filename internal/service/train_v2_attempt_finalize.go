@@ -129,7 +129,7 @@ func (s *Service) TrainV2AttemptFinalize(ctx context.Context, in TrainV2AttemptF
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
-	serverGates, err := s.executeProjectGatesWithProjectCommandsAndScope(ctx, in.ProjectID, local.Root, gates, "task", testScope)
+	serverGates, err := s.executeTaskFinalizeGatesWithSnapshot(ctx, in.ProjectID, local, gates, changed, testScope)
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}

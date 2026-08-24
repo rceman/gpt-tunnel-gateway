@@ -40,7 +40,7 @@ type Service struct {
 	gateExecutorWithScope                   func(context.Context, string, []string, gates.TestScope) ([]model.CompletionGateResult, error)
 	gateExecutorWithProjectCommands         func(context.Context, string, []string, model.ProjectGateCommands, string) ([]model.CompletionGateResult, error)
 	gateExecutorWithProjectCommandsAndScope func(context.Context, string, []string, model.ProjectGateCommands, string, gates.TestScope) ([]model.CompletionGateResult, error)
-	formatExecutor                          func(context.Context, string) error
+	formatExecutor                          func(context.Context, string, []string) error
 	verifyWorktreeFingerprint               func(context.Context, string) (string, error)
 	workCheckpointExecutor                  func(context.Context, string, string, []string, []string) ([]model.CompletionGateResult, error)
 	taskActivator                           func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
@@ -99,8 +99,8 @@ func newService(c config.Config, durability *sqlitestore.Databases, startWorkers
 		gateExecutorWithProjectCommandsAndScope: func(ctx context.Context, root string, names []string, commands model.ProjectGateCommands, testMode string, scope gates.TestScope) ([]model.CompletionGateResult, error) {
 			return executor.ExecuteWithProjectCommandsAndScope(ctx, root, names, commands, testMode, scope)
 		},
-		formatExecutor: func(ctx context.Context, root string) error {
-			return gates.Format(ctx, root)
+		formatExecutor: func(ctx context.Context, root string, paths []string) error {
+			return gates.CheckFormatFiles(ctx, root, paths)
 		},
 		taskActivator: func(ctx context.Context, project config.ProjectConfig, source string) (TaskActivationResult, error) {
 			return activateTaskSource(ctx, c, config.DefaultPath(), project, source)

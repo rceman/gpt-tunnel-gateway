@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -111,6 +113,87 @@ func TestCheckGateWorksWithoutExternalTokenTools(t *testing.T) {
 	if err != nil || len(results) != 1 || results[0].ExitCode != 0 {
 		t.Fatalf("check results=%#v err=%v", results, err)
 	}
+}
+
+func TestCheckFormatFilesIsScopedAndNonMutating(t *testing.T) {
+	activeRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(t.TempDir(), "repo")
+	if err := runGateGit(activeRoot, "worktree", "add", "--detach", root, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = runGateGit(activeRoot, "worktree", "remove", "--force", root)
+	})
+	changedDir, err := os.MkdirTemp(filepath.Join(root, "internal", "gates"), ".check-format-files-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrelatedDir, err := os.MkdirTemp(filepath.Join(root, "internal", "gates"), ".check-format-unrelated-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(changedDir)
+		_ = os.RemoveAll(unrelatedDir)
+	})
+	changedPath := filepath.Join(changedDir, "changed.go")
+	unrelatedPath := filepath.Join(unrelatedDir, "unrelated.go")
+	misformatted := []byte("package scopecheck\n\ntype S struct { A int; B int }\nvar _ = S{A: 1, B: 2}\n")
+	if err := os.WriteFile(changedPath, misformatted, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unrelatedPath, misformatted, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	changedRel, err := filepath.Rel(root, changedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrelatedRel, err := filepath.Rel(root, unrelatedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := config.ProjectConfig{Root: root}
+	runner := gitx.Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000}
+	snapshot := func() (gitx.WorktreeStatus, string, string) {
+		status, err := runner.WorktreeStatus(context.Background(), project)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tree, err := runner.TreeID(context.Background(), project)
+		if err != nil {
+			t.Fatal(err)
+		}
+		content, err := runner.WorktreeContentID(context.Background(), project)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return status, tree, content
+	}
+	assertUnchanged := func(beforeStatus gitx.WorktreeStatus, beforeTree, beforeContent string) {
+		afterStatus, afterTree, afterContent := snapshot()
+		if !reflect.DeepEqual(beforeStatus, afterStatus) || beforeTree != afterTree || beforeContent != afterContent {
+			t.Fatalf("CheckFormatFiles mutated repository: before=%#v/%s/%s after=%#v/%s/%s", beforeStatus, beforeTree, beforeContent, afterStatus, afterTree, afterContent)
+		}
+	}
+	beforeStatus, beforeTree, beforeContent := snapshot()
+	err = CheckFormatFiles(context.Background(), root, []string{changedRel})
+	if err == nil || !strings.Contains(err.Error(), changedRel) || strings.Contains(err.Error(), unrelatedRel) {
+		t.Fatalf("scoped misformat result=%v; changed=%q unrelated=%q", err, changedRel, unrelatedRel)
+	}
+	assertUnchanged(beforeStatus, beforeTree, beforeContent)
+
+	if err := os.WriteFile(changedPath, []byte("package scopecheck\n\nvar _ = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	beforeStatus, beforeTree, beforeContent = snapshot()
+	if err := CheckFormatFiles(context.Background(), root, []string{changedRel}); err != nil {
+		t.Fatalf("unrelated misformatted file participated in scoped check: %v", err)
+	}
+	assertUnchanged(beforeStatus, beforeTree, beforeContent)
 }
 
 func runGateGit(root string, args ...string) error {

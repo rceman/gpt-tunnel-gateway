@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -361,9 +362,41 @@ func (e Executor) runGate(ctx context.Context, root, gate string, scope TestScop
 }
 
 func Format(ctx context.Context, root string) error {
-	code, output, err := fixedCommand(ctx, root, "go", "run", "./cmd/gofmt-struct", "--write", ".")
+	return runFormat(ctx, root, "--write", ".")
+}
+
+func CheckFormat(ctx context.Context, root string) error {
+	return runFormat(ctx, root, "--check", ".")
+}
+
+func CheckFormatFiles(ctx context.Context, root string, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	validated := make([]string, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		if err := model.ValidateRelativePath(path); err != nil {
+			return err
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		validated = append(validated, path)
+	}
+	sort.Strings(validated)
+	return runFormat(ctx, root, "--check", validated...)
+}
+
+func runFormat(ctx context.Context, root, mode string, paths ...string) error {
+	args := append([]string{"go", "run", "./cmd/gofmt-struct", mode}, paths...)
+	code, output, err := fixedCommand(ctx, root, args[0], args[1:]...)
 	if err != nil || code != 0 {
 		if err != nil {
+			if detail := compact(output); detail != "" {
+				return fmt.Errorf("format failed: %w: %s", err, detail)
+			}
 			return fmt.Errorf("format failed: %w", err)
 		}
 		return fmt.Errorf("format failed with exit code %d: %s", code, compact(output))
