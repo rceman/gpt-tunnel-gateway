@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -251,21 +250,11 @@ func (s *Service) processTaskCreate(operationID string) {
 	defer cancel()
 	var task model.TaskAuthoring
 	var result OperationResult
-	if s.Durability != nil {
-		task, result, err = s.taskAuthoringCreateShared(workerCtx, operation.OperationID, operation.Input)
-	} else if existing, findErr := s.findTaskCreateResult(workerCtx, operation); findErr == nil {
-		task = *existing
-		result = OperationResult{OperationID: operationID, ProjectID: existing.ProjectID, TaskID: existing.ID, Status: existing.Status}
-	} else if !errors.Is(findErr, os.ErrNotExist) {
-		if asyncMutationOutcomeUnknown(findErr) {
-			s.finishTaskCreateUnknown(operation, findErr)
-			return
-		}
-		s.finishTaskCreate(operation, nil, OperationResult{OperationID: operationID, ProjectID: operation.Input.ProjectID, Status: "failed"}, findErr.Error())
+	if s.Durability == nil {
+		s.finishTaskCreate(operation, nil, OperationResult{OperationID: operationID, ProjectID: operation.Input.ProjectID, Status: "failed"}, "Shared Task authority is unavailable")
 		return
-	} else {
-		task, result, err = s.TaskAuthoringCreate(workerCtx, operation.Input)
 	}
+	task, result, err = s.taskAuthoringCreateShared(workerCtx, operation.OperationID, operation.Input)
 	if err != nil {
 		if asyncMutationOutcomeUnknown(err) {
 			s.finishTaskCreateUnknown(operation, err)

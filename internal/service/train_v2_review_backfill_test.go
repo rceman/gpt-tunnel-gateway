@@ -8,7 +8,25 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/persistence"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
+
+func seedReviewEvidence(t *testing.T, raw []byte) trainv2.EvidenceStore {
+	t.Helper()
+	store := persistence.NewLocalEvidenceStore(t.TempDir())
+	if _, err := store.WriteAttemptReport(model.TrainV2AttemptReport{TrainID: "GTW-TRN999", TaskID: "GTW-TSK999", AttemptNumber: 1}); err != nil {
+		t.Fatal(err)
+	}
+	path, err := store.AttemptReportID("GTW-TRN999", "GTW-TSK999", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
 
 func reviewBackfillFixture(t *testing.T) (model.TrainV2, []byte) {
 	t.Helper()
@@ -16,7 +34,7 @@ func reviewBackfillFixture(t *testing.T) (model.TrainV2, []byte) {
 	head := strings.Repeat("a", 40)
 	trainID := "GTW-TRN999"
 	taskID := "GTW-TSK999"
-	reportPath := trainV2AttemptReportPath("example", trainID, 0, 1)
+	reportPath := "/projects/example/train-attempts/" + trainID + "/item-0/attempt-1/report.json"
 	report := model.TrainV2AttemptReport{
 		SchemaVersion: 1, TrainID: trainID, TaskID: taskID, ItemPosition: 0, AttemptNumber: 1, ProjectID: "example", Status: "succeeded", Summary: "completed",
 		GateResults: []model.CompletionGateResult{{ID: model.WorkflowGateFormat}, {ID: model.WorkflowGateCheck}, {ID: model.WorkflowGateTest}},
@@ -38,36 +56,22 @@ func reviewBackfillFixture(t *testing.T) (model.TrainV2, []byte) {
 
 func TestBuildTrainV2ReviewBackfillPlanValidatesImmutableProof(t *testing.T) {
 	train, raw := reviewBackfillFixture(t)
-	readReport := func(path string) ([]byte, error) {
-		if strings.HasSuffix(path, "/report.json") {
-			return raw, nil
-		}
-		return nil, os.ErrNotExist
-	}
-	items, err := buildTrainV2ReviewBackfillPlan(train, 0, 0, readReport)
+	evidence := seedReviewEvidence(t, raw)
+	items, err := buildTrainV2ReviewBackfillPlan(train, 0, 0, evidence)
 	if err != nil || len(items) != 1 || items[0].ReportSHA256 != digestBytes(raw) || items[0].ReviewedHead == "" {
 		t.Fatalf("valid backfill plan failed: %#v err=%v", items, err)
 	}
 	corrupt := append([]byte{}, raw...)
 	corrupt[len(corrupt)-2] ^= 1
-	if _, err := buildTrainV2ReviewBackfillPlan(train, 0, 0, func(path string) ([]byte, error) {
-		if strings.HasSuffix(path, "/report.json") {
-			return corrupt, nil
-		}
-		return nil, os.ErrNotExist
-	}); err == nil {
+	if _, err := buildTrainV2ReviewBackfillPlan(train, 0, 0, seedReviewEvidence(t, corrupt)); err == nil {
 		t.Fatal("corrupt report was accepted")
 	}
 }
 
 func TestApplyTrainV2ReviewBackfillIsIdempotentlyVerifiable(t *testing.T) {
 	train, raw := reviewBackfillFixture(t)
-	items, err := buildTrainV2ReviewBackfillPlan(train, 0, 0, func(path string) ([]byte, error) {
-		if strings.HasSuffix(path, "/report.json") {
-			return raw, nil
-		}
-		return nil, os.ErrNotExist
-	})
+	evidence := seedReviewEvidence(t, raw)
+	items, err := buildTrainV2ReviewBackfillPlan(train, 0, 0, evidence)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,12 +82,7 @@ func TestApplyTrainV2ReviewBackfillIsIdempotentlyVerifiable(t *testing.T) {
 	if train.Items[0].Status != model.TrainV2ItemReviewed || train.Items[0].Attempts[0].ReviewID == "" {
 		t.Fatalf("review metadata was not applied: %#v", train.Items[0])
 	}
-	if _, err := buildTrainV2ReviewBackfillPlan(train, 0, 0, func(path string) ([]byte, error) {
-		if strings.HasSuffix(path, "/report.json") {
-			return raw, nil
-		}
-		return nil, os.ErrNotExist
-	}); err == nil {
+	if _, err := buildTrainV2ReviewBackfillPlan(train, 0, 0, evidence); err == nil {
 		t.Fatal("already reviewed item was accepted as a fresh migration")
 	}
 }

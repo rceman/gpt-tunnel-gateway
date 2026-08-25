@@ -48,7 +48,10 @@ func hubTrainRoot(projectID string) string {
 }
 
 func (s *Service) projectHasActiveTrainAttempt(ctx context.Context, projectID string) (bool, error) {
-	if s.Durability != nil {
+	if s.Durability == nil {
+		return false, nil
+	}
+	{
 		trains, err := s.sharedTrains(ctx, projectID)
 		if err != nil {
 			return false, err
@@ -64,31 +67,5 @@ func (s *Service) projectHasActiveTrainAttempt(ctx context.Context, projectID st
 		}
 		return false, nil
 	}
-	paths, err := s.Hub.List(ctx, s.trainV2Root(projectID), ".json")
-	if err != nil {
-		if IsNotFound(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	for _, path := range paths {
-		if !canonicalTrainV2RecordName(filepath.Base(path)) {
-			continue
-		}
-		var train model.TrainV2
-		if err := s.Hub.ReadJSON(ctx, path, &train); err != nil {
-			return false, err
-		}
-		if err := model.ValidateTrainV2(train); err != nil {
-			return false, err
-		}
-		for _, item := range train.Items {
-			for _, attempt := range item.Attempts {
-				if attempt.Status == model.TrainV2AttemptRunning {
-					return true, nil
-				}
-			}
-		}
-	}
-	return false, nil
+
 }

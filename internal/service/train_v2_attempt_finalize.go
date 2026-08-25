@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
@@ -31,35 +30,18 @@ type TrainV2AttemptFinalizeInput struct {
 
 type TrainV2AttemptFinalizeResult struct {
 	Report      model.TrainV2AttemptReport `json:"report"`
-	Hub         hub.TransactionResult      `json:"hub"`
 	NextTaskID  string                     `json:"next_task_id,omitempty"`
 	TrainStatus string                     `json:"train_status,omitempty"`
 }
 
-func trainV2AttemptReportPath(projectID, trainID string, position int, attempt uint64) string {
-	return hub.ProtocolRoot + fmt.Sprintf("/projects/%s/train-attempts/%s/item-%d/attempt-%d/report.json", projectID, trainID, position, attempt)
-}
-
 func (s *Service) trainV2AttemptCompletionPath(ctx context.Context, projectID, trainID, taskID string, position int, attempt uint64) (string, error) {
-	identifiers, err := s.ProjectIdentifiersRead(ctx, projectID)
-	if err != nil {
-		return "", err
-	}
-	runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, trainID)
-	if runtimeErr == nil && runtime.ProjectCode == "" {
-		return filepath.Join(trainv2.LegacyAttemptPath(s.Config.StateDir, projectID, trainID, position, attempt), "completion.json"), nil
-	}
-	if runtimeErr != nil && !os.IsNotExist(runtimeErr) {
-		return "", runtimeErr
-	}
-	root, err := trainv2.CompactAttemptPath(s.Config.StateDir, identifiers.ProjectCode, trainID, taskID, attempt)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(root, "completion.json"), nil
+	return s.attemptCompletionID(trainID, taskID, attempt)
 }
 
 func (s *Service) TrainV2AttemptFinalize(ctx context.Context, in TrainV2AttemptFinalizeInput) (TrainV2AttemptFinalizeResult, error) {
+	if s.Durability == nil {
+		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("Shared Train authority is unavailable")
+	}
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
@@ -69,7 +51,7 @@ func (s *Service) TrainV2AttemptFinalize(ctx context.Context, in TrainV2AttemptF
 	if in.ItemPosition < 0 || in.AttemptNumber == 0 {
 		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("invalid Train-v2 Attempt identity")
 	}
-	train, err := s.TrainV2Read(ctx, in.ProjectID, in.TrainID)
+	train, err := s.trainV2ReadShared(ctx, in.ProjectID, in.TrainID)
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
@@ -91,11 +73,16 @@ func (s *Service) TrainV2AttemptFinalize(ctx context.Context, in TrainV2AttemptF
 	if err := model.ValidateTaskAuthoring(task); err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
-	startPath := hub.ProtocolRoot + "/projects/" + in.ProjectID + "/train-v2-starts/" + in.TrainID + ".json"
 	var start model.TrainV2StartRecord
-	if err := s.Hub.ReadJSON(ctx, startPath, &start); err != nil {
-		return TrainV2AttemptFinalizeResult{}, err
+	policy, policyErr := s.ProjectWorkflowPolicyRead(ctx, in.ProjectID)
+	if policyErr != nil {
+		return TrainV2AttemptFinalizeResult{}, policyErr
 	}
+	projectConfig, ok := s.Config.Projects[in.ProjectID]
+	if !ok {
+		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("project %q has no local runtime configuration", in.ProjectID)
+	}
+	start = trainv2.DeriveStartRecord(train, item, attempt, policy, model.Project{ID: in.ProjectID, DefaultBranch: projectConfig.DefaultBranch}, attempt.StartedAt)
 	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, in.ProjectID, in.TrainID)
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
@@ -152,69 +139,51 @@ func (s *Service) TrainV2AttemptFinalize(ctx context.Context, in TrainV2AttemptF
 	if err := model.ValidateTrainV2AttemptReport(report); err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
-	expected := in.ExpectedHubRevision
-	if expected == "" {
-		expected, err = s.hubRevision(ctx)
-		if err != nil {
-			return TrainV2AttemptFinalizeResult{}, err
-		}
+	evidence, evidenceErr := s.sharedTrainEvidence()
+	if evidenceErr != nil {
+		return TrainV2AttemptFinalizeResult{}, evidenceErr
 	}
-	reportPath := trainV2AttemptReportPath(in.ProjectID, in.TrainID, in.ItemPosition, in.AttemptNumber)
-	tx, err := s.Hub.Transact(ctx, expected, "gateway: finalize Train-v2 Attempt", func(worktree string) ([]string, error) {
-		var current model.TrainV2
-		if err := readWorktreeJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), &current); err != nil {
-			return nil, err
-		}
-		if current.Revision != train.Revision || in.ItemPosition >= len(current.Items) {
-			return nil, fmt.Errorf("Train changed before Attempt finalization")
-		}
-		currentItem := current.Items[in.ItemPosition]
-		if currentItem.TaskID != item.TaskID || currentItem.ActiveAttemptNumber != in.AttemptNumber || len(currentItem.Attempts) < int(in.AttemptNumber) || currentItem.Attempts[in.AttemptNumber-1].Status != model.TrainV2AttemptRunning {
-			return nil, fmt.Errorf("Attempt changed before finalization")
-		}
-		finished := completion.FinishedAt
-		currentItem.Attempts[in.AttemptNumber-1].FinishedAt = &finished
-		if completion.Status == "succeeded" {
-			currentItem.Attempts[in.AttemptNumber-1].Status = model.TrainV2AttemptSucceeded
-			currentItem.Status = model.TrainV2ItemFinalized
-			currentItem.SuccessfulAttemptNumber = in.AttemptNumber
-			currentItem.ActiveAttemptNumber = 0
-			implementationProof := model.TrainV2ImplementationProof{
-				CheckpointHead:    finalHead,
-				ImplementationSHA: finalHead,
-				ReportID:          reportPath,
-				GateResults:       append([]model.CompletionGateResult{}, serverGates...),
-				RecordedAt:        finished,
-			}
-			if err := applyTrainV2AttemptProof(&currentItem, implementationProof); err != nil {
-				return nil, err
-			}
-		} else {
-			currentItem.Attempts[in.AttemptNumber-1].Status = model.TrainV2AttemptFailed
-			currentItem.Status = model.TrainV2ItemBlocked
-			currentItem.ActiveAttemptNumber = 0
-		}
-		current.Items[in.ItemPosition] = currentItem
-		current.Revision++
-		current.UpdatedAt = finished
-		if err := model.ValidateTrainV2(current); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), current); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(worktree, reportPath, report); err != nil {
-			return nil, err
-		}
-		return []string{s.trainV2Path(in.ProjectID, in.TrainID), reportPath}, nil
-	})
+	current := train
+	currentItem := current.Items[in.ItemPosition]
+	if currentItem.TaskID != item.TaskID || currentItem.ActiveAttemptNumber != in.AttemptNumber || len(currentItem.Attempts) < int(in.AttemptNumber) || currentItem.Attempts[in.AttemptNumber-1].Status != model.TrainV2AttemptRunning {
+		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("Attempt changed before finalization")
+	}
+	finished := completion.FinishedAt
+	currentItem.Attempts[in.AttemptNumber-1].FinishedAt = &finished
+	if completion.Status == "succeeded" {
+		currentItem.Attempts[in.AttemptNumber-1].Status = model.TrainV2AttemptSucceeded
+		currentItem.Status = model.TrainV2ItemFinalized
+		currentItem.SuccessfulAttemptNumber = in.AttemptNumber
+		currentItem.ActiveAttemptNumber = 0
+	} else {
+		currentItem.Attempts[in.AttemptNumber-1].Status = model.TrainV2AttemptFailed
+		currentItem.Status = model.TrainV2ItemBlocked
+		currentItem.ActiveAttemptNumber = 0
+	}
+	current.Items[in.ItemPosition] = currentItem
+	current.Revision++
+	current.UpdatedAt = finished
+	if err := model.ValidateTrainV2(current); err != nil {
+		return TrainV2AttemptFinalizeResult{}, err
+	}
+	reportPath, err := evidence.WriteAttemptReport(report)
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
-	report.HubCommit = tx.After
+	if completion.Status == "succeeded" {
+		if err := applyTrainV2AttemptProof(&current.Items[in.ItemPosition], model.TrainV2ImplementationProof{CheckpointHead: finalHead, ImplementationSHA: finalHead, ReportID: reportPath, GateResults: append([]model.CompletionGateResult{}, serverGates...), RecordedAt: finished}); err != nil {
+			return TrainV2AttemptFinalizeResult{}, err
+		}
+		current.Items[in.ItemPosition].Attempts[in.AttemptNumber-1].ReportID = reportPath
+	}
+	if err := model.ValidateTrainV2(current); err != nil {
+		return TrainV2AttemptFinalizeResult{}, err
+	}
+	if err := s.commitSharedTrain(ctx, durableMutationOperationID(ctx), current, "train-attempt-finalize"); err != nil {
+		return TrainV2AttemptFinalizeResult{}, err
+	}
 	return TrainV2AttemptFinalizeResult{
 		Report: report,
-		Hub:    tx,
 	}, nil
 }
 

@@ -241,6 +241,10 @@ func TestSharedMigrationHistoryPreservesReleasedVersionsBeforeCandidates(t *test
 		{9, sharedBootstrapMigrationName},
 		{10, sharedADROutboxMigrationName},
 		{11, sharedProjectConfigurationMigrationName},
+		{12, sharedAgentMigrationName},
+		{13, sharedWatcherGuideMigrationName},
+		{14, sharedJournalMigrationName},
+		{15, sharedIntegrationOperationMigrationName},
 	}
 	if len(rows.Rows) != len(want) {
 		t.Fatalf("migration history length=%d, want=%d: %#v", len(rows.Rows), len(want), rows.Rows)

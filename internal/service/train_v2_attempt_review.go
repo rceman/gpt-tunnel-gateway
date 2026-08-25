@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -23,21 +22,19 @@ type TrainV2AttemptReviewInput struct {
 
 type TrainV2AttemptReviewResult struct {
 	Review model.TrainV2AttemptReview `json:"review"`
-	Hub    hub.TransactionResult      `json:"hub"`
-}
-
-func trainV2AttemptReviewPath(projectID, trainID string, position int, attempt uint64) string {
-	return hub.ProtocolRoot + fmt.Sprintf("/projects/%s/train-attempts/%s/item-%d/attempt-%d/review.json", projectID, trainID, position, attempt)
 }
 
 func (s *Service) TrainV2AttemptReview(ctx context.Context, in TrainV2AttemptReviewInput) (TrainV2AttemptReviewResult, error) {
+	if s.Durability == nil {
+		return TrainV2AttemptReviewResult{}, fmt.Errorf("Shared Train authority is unavailable")
+	}
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return TrainV2AttemptReviewResult{}, err
 	}
 	if _, _, err := model.ParseTrainV2ID(in.TrainID); err != nil || in.ItemPosition < 0 || in.AttemptNumber == 0 || model.ValidateReviewOutcome(in.Outcome) != nil {
 		return TrainV2AttemptReviewResult{}, fmt.Errorf("invalid Train-v2 Attempt review input")
 	}
-	train, err := s.TrainV2Read(ctx, in.ProjectID, in.TrainID)
+	train, err := s.trainV2ReadShared(ctx, in.ProjectID, in.TrainID)
 	if err != nil {
 		return TrainV2AttemptReviewResult{}, err
 	}
@@ -59,48 +56,30 @@ func (s *Service) TrainV2AttemptReview(ctx context.Context, in TrainV2AttemptRev
 	if err := model.ValidateTrainV2AttemptReview(review); err != nil {
 		return TrainV2AttemptReviewResult{}, err
 	}
-	expected := in.ExpectedHubRevision
-	if expected == "" {
-		expected, err = s.hubRevision(ctx)
-		if err != nil {
-			return TrainV2AttemptReviewResult{}, err
-		}
-	}
-	path := trainV2AttemptReviewPath(in.ProjectID, in.TrainID, in.ItemPosition, in.AttemptNumber)
-	tx, err := s.Hub.Transact(ctx, expected, "gateway: review Train-v2 Attempt", func(worktree string) ([]string, error) {
-		var current model.TrainV2
-		if err := readWorktreeJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), &current); err != nil {
-			return nil, err
-		}
-		if current.Revision != train.Revision || in.ItemPosition >= len(current.Items) {
-			return nil, fmt.Errorf("Train changed before Attempt review")
-		}
-		currentItem := current.Items[in.ItemPosition]
-		if currentItem.SuccessfulAttemptNumber != in.AttemptNumber || currentItem.Status != model.TrainV2ItemFinalized || currentItem.Proof == nil || len(currentItem.Attempts) < int(in.AttemptNumber) || currentItem.Attempts[in.AttemptNumber-1].Status != model.TrainV2AttemptSucceeded || currentItem.Attempts[in.AttemptNumber-1].ReviewID != "" {
-			return nil, fmt.Errorf("Attempt changed before review")
-		}
-		currentItem.Attempts[in.AttemptNumber-1].ReviewID = review.ID
-		currentItem.Review = &model.TrainV2ItemReview{Outcome: review.Outcome, ReportID: review.ID, ReviewedAt: review.ReviewedAt}
-		currentItem.Status = model.TrainV2ItemReviewed
-		current.Items[in.ItemPosition] = currentItem
-		current.Revision++
-		current.UpdatedAt = review.ReviewedAt
-		if err := model.ValidateTrainV2(current); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), current); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(worktree, path, review); err != nil {
-			return nil, err
-		}
-		return []string{s.trainV2Path(in.ProjectID, in.TrainID), path}, nil
-	})
+	evidence, err := s.sharedTrainEvidence()
 	if err != nil {
+		return TrainV2AttemptReviewResult{}, err
+	}
+	if _, err := evidence.WriteAttemptReview(review); err != nil {
+		return TrainV2AttemptReviewResult{}, err
+	}
+	currentItem := train.Items[in.ItemPosition]
+	if currentItem.SuccessfulAttemptNumber != in.AttemptNumber || currentItem.Status != model.TrainV2ItemFinalized || currentItem.Proof == nil || len(currentItem.Attempts) < int(in.AttemptNumber) || currentItem.Attempts[in.AttemptNumber-1].Status != model.TrainV2AttemptSucceeded || currentItem.Attempts[in.AttemptNumber-1].ReviewID != "" {
+		return TrainV2AttemptReviewResult{}, fmt.Errorf("Attempt changed before review")
+	}
+	currentItem.Attempts[in.AttemptNumber-1].ReviewID = review.ID
+	currentItem.Review = &model.TrainV2ItemReview{Outcome: review.Outcome, ReportID: review.ID, ReviewedAt: review.ReviewedAt}
+	currentItem.Status = model.TrainV2ItemReviewed
+	train.Items[in.ItemPosition] = currentItem
+	train.Revision++
+	train.UpdatedAt = review.ReviewedAt
+	if err := model.ValidateTrainV2(train); err != nil {
+		return TrainV2AttemptReviewResult{}, err
+	}
+	if err := s.commitSharedTrain(ctx, durableMutationOperationID(ctx), train, "train-attempt-review"); err != nil {
 		return TrainV2AttemptReviewResult{}, err
 	}
 	return TrainV2AttemptReviewResult{
 		Review: review,
-		Hub:    tx,
 	}, nil
 }

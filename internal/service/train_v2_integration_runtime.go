@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
@@ -35,69 +34,44 @@ func (s *Service) releaseTrainRuntime(ctx context.Context, project config.Projec
 }
 
 func (s *Service) completeTrainV2Integration(ctx context.Context, in TrainV2IntegrateInput, revision int, laneHead string, post TaskActivationResult, receipt trainv2.IntegrationReceipt, project config.ProjectConfig, laneBranch string) (trainv2.IntegrationReceipt, OperationResult, error) {
-	expected := in.ExpectedHubRevision
-	var err error
-	if expected == "" {
-		expected, err = s.hubRevision(ctx)
-		if err != nil {
-			return trainv2.IntegrationReceipt{}, OperationResult{}, err
-		}
+	if s.Durability == nil {
+		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("Shared integration authority is unavailable")
 	}
-	var integrated model.TrainV2
-	tx, err := s.Hub.Transact(ctx, expected, "gateway: integrate Train v2 "+in.TrainID, func(worktree string) ([]string, error) {
-		var latest model.TrainV2
-		if err := readWorktreeJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), &latest); err != nil {
-			return nil, err
-		}
-		if latest.Revision != revision || latest.FullProof == nil || latest.FullProof.CandidateHead != laneHead {
-			return nil, fmt.Errorf("Train changed before integration")
-		}
-		integrated, err = trainv2.MarkIntegrated(latest, laneHead, post.SourceHead, receipt.UpdatedAt)
-		if err != nil {
-			return nil, err
-		}
-		trainPath := s.trainV2Path(in.ProjectID, in.TrainID)
-		receiptPath := trainV2IntegrationPath(in.ProjectID, in.TrainID)
-		if err := hub.WriteJSON(worktree, trainPath, integrated); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(worktree, receiptPath, receipt); err != nil {
-			return nil, err
-		}
-		return []string{trainPath, receiptPath}, nil
-	})
+	latest, err := s.trainV2ReadShared(ctx, in.ProjectID, in.TrainID)
 	if err != nil {
+		return trainv2.IntegrationReceipt{}, OperationResult{}, err
+	}
+	if latest.Revision != revision || latest.FullProof == nil || latest.FullProof.CandidateHead != laneHead {
+		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("Train changed before integration")
+	}
+	integrated, err := trainv2.MarkIntegrated(latest, laneHead, post.SourceHead, receipt.UpdatedAt)
+	if err != nil {
+		return trainv2.IntegrationReceipt{}, OperationResult{}, err
+	}
+	if err := s.commitSharedTrain(ctx, "train-integration-"+in.TrainID, integrated, "train-v2-integrate"); err != nil {
+		return trainv2.IntegrationReceipt{}, OperationResult{}, err
+	}
+	if err := s.writeTrainV2IntegrationReceipt(ctx, receipt); err != nil {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, err
 	}
 	if err := s.releaseTrainRuntime(ctx, project, in.ProjectID, in.TrainID, laneBranch, laneHead); err != nil {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, err
 	}
 	return receipt, OperationResult{
-		Hub:       tx,
 		ProjectID: in.ProjectID,
 		Status:    receipt.Status,
 	}, nil
 }
 
 func (s *Service) persistTrainV2(ctx context.Context, projectID, trainID string, revision int, updated model.TrainV2) error {
-	expected, err := s.hubRevision(ctx)
+	current, err := s.trainV2ReadShared(ctx, projectID, trainID)
 	if err != nil {
 		return err
 	}
-	_, err = s.Hub.Transact(ctx, expected, "gateway: persist Train v2 proof "+trainID, func(worktree string) ([]string, error) {
-		var current model.TrainV2
-		if err := readWorktreeJSON(worktree, s.trainV2Path(projectID, trainID), &current); err != nil {
-			return nil, err
-		}
-		if current.Revision != revision {
-			return nil, fmt.Errorf("Train v2 changed before proof persistence")
-		}
-		if err := hub.WriteJSON(worktree, s.trainV2Path(projectID, trainID), updated); err != nil {
-			return nil, err
-		}
-		return []string{s.trainV2Path(projectID, trainID)}, nil
-	})
-	return err
+	if current.Revision != revision {
+		return fmt.Errorf("Train v2 changed before proof persistence")
+	}
+	return s.commitSharedTrain(ctx, fmt.Sprintf("train-proof-%s-%d", trainID, updated.Revision), updated, "train-v2-proof")
 }
 
 func (s *Service) persistTrainV2Reconciliation(ctx context.Context, projectID, trainID string, revision int, updated model.TrainV2, receipt trainv2.IntegrationReceipt) error {
@@ -107,28 +81,17 @@ func (s *Service) persistTrainV2Reconciliation(ctx context.Context, projectID, t
 	if err := trainv2.ValidateIntegrationReceipt(receipt); err != nil {
 		return err
 	}
-	expected, err := s.hubRevision(ctx)
+	current, err := s.trainV2ReadShared(ctx, projectID, trainID)
 	if err != nil {
 		return err
 	}
-	_, err = s.Hub.Transact(ctx, expected, "gateway: record Train reconciliation restart "+trainID, func(worktree string) ([]string, error) {
-		var current model.TrainV2
-		if err := readWorktreeJSON(worktree, s.trainV2Path(projectID, trainID), &current); err != nil {
-			return nil, err
-		}
-		if current.Revision != revision {
-			return nil, fmt.Errorf("Train v2 changed before reconciliation reset persistence")
-		}
-		if err := hub.WriteJSON(worktree, s.trainV2Path(projectID, trainID), updated); err != nil {
-			return nil, err
-		}
-		receiptPath := trainV2IntegrationPath(projectID, trainID)
-		if err := hub.WriteJSON(worktree, receiptPath, receipt); err != nil {
-			return nil, err
-		}
-		return []string{s.trainV2Path(projectID, trainID), receiptPath}, nil
-	})
-	return err
+	if current.Revision != revision {
+		return fmt.Errorf("Train v2 changed before reconciliation reset persistence")
+	}
+	if err := s.commitSharedTrain(ctx, fmt.Sprintf("train-reconciliation-%s-%d", trainID, updated.Revision), updated, "train-v2-reconciliation"); err != nil {
+		return err
+	}
+	return s.writeTrainV2IntegrationReceipt(ctx, receipt)
 }
 
 func (s *Service) finishTrainReconciliationRestart(ctx context.Context, projectID, trainID string, receipt trainv2.IntegrationReceipt) (trainv2.IntegrationReceipt, OperationResult, error) {
@@ -139,13 +102,12 @@ func (s *Service) finishTrainReconciliationRestart(ctx context.Context, projectI
 			Status:    receipt.Status,
 		}, err
 	}
-	startPath := hub.ProtocolRoot + "/projects/" + projectID + "/train-v2-starts/" + trainID + ".json"
-	var start model.TrainV2StartRecord
-	if err := s.Hub.ReadJSON(ctx, startPath, &start); err != nil {
+	train, err := s.trainV2ReadShared(ctx, projectID, trainID)
+	if err != nil {
 		return receipt, OperationResult{
 			ProjectID: projectID,
 			Status:    receipt.Status,
-		}, fmt.Errorf("read reconciled Train start: %w", err)
+		}, fmt.Errorf("read reconciled Train: %w", err)
 	}
 	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, projectID, trainID)
 	if err != nil {
@@ -161,7 +123,8 @@ func (s *Service) finishTrainReconciliationRestart(ctx context.Context, projectI
 		target = receipt.TargetBefore
 	}
 	currentHead, currentBranch, clean, err := s.Git.CurrentHead(ctx, lane)
-	if err != nil || !clean || currentBranch != start.LaneBranch {
+	laneBranch := "train/" + trainID
+	if err != nil || !clean || currentBranch != laneBranch {
 		return receipt, OperationResult{
 			ProjectID: projectID,
 			Status:    receipt.Status,
@@ -175,7 +138,11 @@ func (s *Service) finishTrainReconciliationRestart(ctx context.Context, projectI
 			}, fmt.Errorf("finish local reconciliation reset: %w", err)
 		}
 	}
-	if _, err := trainv2.RetireRuntimeForRestart(s.Config.StateDir, projectID, trainID, start.CurrentAttemptNumber); err != nil {
+	_, attemptNumber, _, found := trainv2.ActiveAttemptIdentity(train)
+	if !found {
+		return receipt, OperationResult{ProjectID: projectID, Status: receipt.Status}, fmt.Errorf("reconciled Train has no active Attempt")
+	}
+	if _, err := trainv2.RetireRuntimeForRestart(s.Config.StateDir, projectID, trainID, attemptNumber); err != nil {
 		return receipt, OperationResult{
 			ProjectID: projectID,
 			Status:    receipt.Status,

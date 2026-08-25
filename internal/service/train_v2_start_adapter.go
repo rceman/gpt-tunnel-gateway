@@ -18,6 +18,9 @@ type TrainV2StartResult = trainv2.StartResult
 // internal/train. The service is intentionally only a wiring and authority
 // adapter; it does not own Train v2 execution mechanics.
 func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (trainv2.StartResult, error) {
+	if s.Durability == nil {
+		return trainv2.StartResult{}, fmt.Errorf("Shared Train authority is unavailable")
+	}
 	if err := requireTrainV2Authoring(ctx, s, in.ProjectID); err != nil {
 		return trainv2.StartResult{}, err
 	}
@@ -27,7 +30,7 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 	if strings.TrimSpace(in.StartedBy) == "" || strings.ContainsAny(in.StartedBy, "\x00\r\n") {
 		return trainv2.StartResult{}, fmt.Errorf("started_by is required")
 	}
-	train, err := s.TrainV2Read(ctx, in.ProjectID, in.TrainID)
+	train, err := s.trainV2ReadShared(ctx, in.ProjectID, in.TrainID)
 	if err != nil {
 		return trainv2.StartResult{}, err
 	}
@@ -36,37 +39,43 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 		if taskErr != nil {
 			return trainv2.StartResult{}, taskErr
 		}
-		if err := s.validateTaskDependencies(ctx, in.ProjectID, task); err != nil {
+		if err := s.validateTaskDependenciesShared(ctx, in.ProjectID, task); err != nil {
 			return trainv2.StartResult{}, err
 		}
-	}
-	project, err := s.ProjectRead(ctx, in.ProjectID)
-	if err != nil {
-		return trainv2.StartResult{}, err
-	}
-	identifiers, err := s.ProjectIdentifiersRead(ctx, in.ProjectID)
-	if err != nil {
-		return trainv2.StartResult{}, err
-	}
-	policy, err := s.ProjectWorkflowPolicyRead(ctx, in.ProjectID)
-	if err != nil {
-		return trainv2.StartResult{}, err
 	}
 	projectConfig, ok := s.Config.Projects[in.ProjectID]
 	if !ok {
 		return trainv2.StartResult{}, fmt.Errorf("project %q has no local runtime configuration", in.ProjectID)
 	}
-	resolved, err := s.ResolveAgent(ctx, AgentResolveInput{
-		ProjectID:            in.ProjectID,
-		Role:                 model.AgentRoleCoding,
-		AgentID:              in.AgentID,
-		RecommendedReasoning: in.RecommendedReasoning,
-		RequireUsable:        true,
-	})
+	project := model.Project{SchemaVersion: model.SchemaVersion, ID: in.ProjectID, DefaultBranch: projectConfig.DefaultBranch, Status: "active"}
+	projectCode := projectConfig.ProjectCode
+	if model.ValidateProjectCode(projectCode) != nil {
+		projectCode, err = s.sharedTaskProjectCode(ctx, in.ProjectID)
+		if err != nil {
+			return trainv2.StartResult{}, err
+		}
+	}
+	policy, err := s.ProjectWorkflowPolicyRead(ctx, in.ProjectID)
 	if err != nil {
 		return trainv2.StartResult{}, err
 	}
-	if err := s.checkSessionAvailableForTrainAttempt(ctx, resolved.SessionKey, train.ID); err != nil {
+	resolved, existingAuthority, err := s.deriveExistingTrainAttemptAuthority(in.ProjectID, in.TrainID, train, in.RecommendedReasoning)
+	if err != nil {
+		return trainv2.StartResult{}, err
+	}
+	if !existingAuthority {
+		resolved, err = s.resolveTrainAgentLocalFirst(ctx, AgentResolveInput{
+			ProjectID:            in.ProjectID,
+			Role:                 model.AgentRoleCoding,
+			AgentID:              in.AgentID,
+			RecommendedReasoning: in.RecommendedReasoning,
+			RequireUsable:        true,
+		})
+		if err != nil {
+			return trainv2.StartResult{}, err
+		}
+	}
+	if err := s.checkSessionAvailableForTrainAttemptLocalFirst(ctx, resolved.SessionKey, train.ID); err != nil {
 		return trainv2.StartResult{}, err
 	}
 	return trainv2.Start(ctx, trainv2.StartInput{
@@ -82,7 +91,8 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 		AgentFallbackReason: resolved.FallbackReason,
 		ExpectedHubRevision: in.ExpectedHubRevision,
 	}, trainv2.StartDependencies{
-		Hub:               s.Hub,
+		Shared:            s.Durability,
+		OperationID:       durableMutationOperationID(ctx),
 		Git:               s.Git,
 		Airelay:           s.Airelay,
 		ProjectConfig:     projectConfig,
@@ -90,7 +100,7 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 		Policy:            policy,
 		Train:             train,
 		GatewayID:         s.Config.GatewayID,
-		ProjectCode:       identifiers.ProjectCode,
+		ProjectCode:       projectCode,
 		SessionOrigin:     AgentSessionID(ctx),
 		StateDir:          s.Config.StateDir,
 		MaterializePacket: s.materializeTrainV2Packet,

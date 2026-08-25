@@ -33,11 +33,6 @@ func (s *Service) resolveAgentInterruptTarget(ctx context.Context, in AgentInter
 	if attempt.Number != in.AttemptNumber || attempt.AgentID != in.AgentID || attempt.Status != model.TrainV2AttemptRunning {
 		return interruptTarget{}, true, nil
 	}
-	var start model.TrainV2StartRecord
-	startPath := "gpt-tunnel/v1/projects/" + in.ProjectID + "/train-v2-starts/" + in.TrainID + ".json"
-	if err := s.Hub.ReadJSON(ctx, startPath, &start); err != nil || start.CurrentItemPosition != in.ItemPosition || start.CurrentAttemptNumber != in.AttemptNumber || start.CurrentTaskID != in.TaskID {
-		return interruptTarget{}, true, nil
-	}
 	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, in.ProjectID, in.TrainID)
 	if err != nil || runtime.ItemPosition != in.ItemPosition || runtime.TaskID != in.TaskID || runtime.AttemptNumber != in.AttemptNumber || runtime.AgentID != in.AgentID || runtime.SessionKey != attempt.AirelaySessionKey {
 		return interruptTarget{}, true, nil

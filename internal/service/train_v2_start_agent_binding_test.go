@@ -2,18 +2,23 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/persistence"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func TestTrainV2StartBindsExactItemLocalAttempt(t *testing.T) {
 	s, hubRevision, _ := testService(t)
+	s.TrainEvidence = persistence.NewLocalEvidenceStore(s.Config.StateDir)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	task, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "Attempt start")
 	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
@@ -27,6 +32,7 @@ func TestTrainV2StartBindsExactItemLocalAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ensureTaskWorkMirrorForTest(t, s)
 	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
 		ProjectID: "example",
 		TrainID:   train.ID,
@@ -48,6 +54,7 @@ func TestTrainV2StartBindsExactItemLocalAttempt(t *testing.T) {
 
 func TestTrainV2StartRejectsAttemptSessionMismatch(t *testing.T) {
 	s, hubRevision, _ := testService(t)
+	s.TrainEvidence = persistence.NewLocalEvidenceStore(s.Config.StateDir)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	task, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "Attempt session")
 	train, operation, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
@@ -76,6 +83,7 @@ func TestTrainV2StartRejectsAttemptSessionMismatch(t *testing.T) {
 
 func TestTrainV2StartHistoricalDuplicateIsNotLiveOwner(t *testing.T) {
 	s, hubRevision, _ := testService(t)
+	s.TrainEvidence = persistence.NewLocalEvidenceStore(s.Config.StateDir)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	task, hubRevision := readyTrainTaskForTest(t, s, hubRevision, "Historical duplicate start")
 	now := nowUTC()
@@ -109,6 +117,15 @@ func TestTrainV2StartHistoricalDuplicateIsNotLiveOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, record := range []model.TrainV2{historical, canonical} {
+		payload, marshalErr := json.Marshal(record)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		if putErr := s.Durability.PutSharedProjection(context.Background(), "train", sqlitestore.SharedEntity{ID: record.ID, Revision: int64(record.Revision), Payload: payload, UpdatedAt: record.UpdatedAt.UTC().Format(time.RFC3339Nano)}); putErr != nil {
+			t.Fatal(putErr)
+		}
+	}
 	if _, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
 		ProjectID: "example",
 		TaskIDs:   []string{task.ID},
@@ -119,6 +136,7 @@ func TestTrainV2StartHistoricalDuplicateIsNotLiveOwner(t *testing.T) {
 	}); err == nil {
 		t.Fatal("historical Task was re-admitted")
 	}
+	ensureTaskWorkMirrorForTest(t, s)
 	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
 		ProjectID: "example",
 		TrainID:   canonical.ID,

@@ -7,10 +7,17 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-func (s *Service) readAttemptReview(ctx context.Context, projectID, trainID string, position int, attempt uint64) (model.TrainV2AttemptReview, error) {
-	var review model.TrainV2AttemptReview
-	if err := s.Hub.ReadJSON(ctx, trainV2AttemptReviewPath(projectID, trainID, position, attempt), &review); err != nil {
+func (s *Service) readAttemptReview(ctx context.Context, projectID, trainID, taskID string, position int, attempt uint64) (model.TrainV2AttemptReview, error) {
+	evidence, err := s.sharedTrainEvidence()
+	if err != nil {
 		return model.TrainV2AttemptReview{}, err
+	}
+	review, err := evidence.ReadAttemptReview(trainID, taskID, attempt)
+	if err != nil {
+		return model.TrainV2AttemptReview{}, err
+	}
+	if review.TrainID != trainID || review.ItemPosition != position {
+		return model.TrainV2AttemptReview{}, fmt.Errorf("Attempt review identity mismatch")
 	}
 	if err := model.ValidateTrainV2AttemptReview(review); err != nil {
 		return model.TrainV2AttemptReview{}, err
@@ -49,7 +56,7 @@ func (s *Service) validateTrainV2ReviewResolutions(ctx context.Context, projectI
 		if item.Status != model.TrainV2ItemReviewed || item.Proof == nil {
 			return fmt.Errorf("Train item %q has an unresolved rejected review", item.TaskID)
 		}
-		review, err := s.readAttemptReview(ctx, projectID, train.ID, position, item.SuccessfulAttemptNumber)
+		review, err := s.readAttemptReview(ctx, projectID, train.ID, item.TaskID, position, item.SuccessfulAttemptNumber)
 		if err != nil {
 			return err
 		}
@@ -85,7 +92,7 @@ func (s *Service) validateTrainV2ReviewResolutions(ctx context.Context, projectI
 			if correctionItem.TaskID != correction.TaskID || correctionItem.Review == nil || correctionItem.Review.Outcome != model.ReviewOutcomeAccepted || correctionItem.Review.ReportID != correction.ReviewID || correctionItem.Proof == nil || correctionItem.Proof.ImplementationSHA != correction.ProofHead || correctionItem.SuccessfulAttemptNumber != correction.AttemptNumber {
 				return fmt.Errorf("Train item %q resolution has invalid correction evidence", item.TaskID)
 			}
-			correctionReview, err := s.readAttemptReview(ctx, projectID, train.ID, correction.ItemPosition, correction.AttemptNumber)
+			correctionReview, err := s.readAttemptReview(ctx, projectID, train.ID, correction.TaskID, correction.ItemPosition, correction.AttemptNumber)
 			if err != nil {
 				return err
 			}

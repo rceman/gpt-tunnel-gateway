@@ -1,14 +1,18 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func (s *Service) startSharedOutboxWorker() {
@@ -107,7 +111,189 @@ func (s *Service) publishSharedOutboxEntry(ctx context.Context, entry sqlitestor
 			return err
 		}
 		return s.publishSharedProjectConfiguration(ctx, configuration)
+	case "agent":
+		var agent model.Agent
+		if err := json.Unmarshal(entry.Payload, &agent); err != nil {
+			return err
+		}
+		if err := model.ValidateAgent(agent); err != nil {
+			return err
+		}
+		path := s.agentPath(agent.ProjectID, agent.AgentID)
+		_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared Agent "+agent.ProjectID+"/"+agent.AgentID, func(worktree string) ([]string, error) {
+			var latest model.Agent
+			if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
+				if latest.UpdatedAt.Equal(agent.UpdatedAt) && latest.Enabled == agent.Enabled && latest.Role == agent.Role {
+					return nil, nil
+				}
+			} else if !IsNotFound(readErr) {
+				return nil, readErr
+			}
+			if err := hub.WriteJSON(worktree, path, agent); err != nil {
+				return nil, err
+			}
+			return []string{path}, nil
+		})
+		return err
+	case "train":
+		var train model.TrainV2
+		if err := json.Unmarshal(entry.Payload, &train); err != nil {
+			return err
+		}
+		if err := model.ValidateTrainV2(train); err != nil {
+			return err
+		}
+		path := s.trainV2Path(train.ProjectID, train.ID)
+		_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared Train "+train.ID, func(worktree string) ([]string, error) {
+			var latest model.TrainV2
+			if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
+				if latest.Revision > train.Revision {
+					return nil, fmt.Errorf("Hub Train changed while publishing Shared outbox")
+				}
+				if latest.Revision == train.Revision && bytes.Equal(mustJSON(latest), entry.Payload) {
+					return nil, nil
+				}
+			} else if !IsNotFound(readErr) {
+				return nil, readErr
+			}
+			if err := hub.WriteJSON(worktree, path, train); err != nil {
+				return nil, err
+			}
+			return []string{path}, nil
+		})
+		return err
+	case "integration_receipt":
+		var receipt trainv2.IntegrationReceipt
+		if err := json.Unmarshal(entry.Payload, &receipt); err != nil {
+			return err
+		}
+		if err := trainv2.ValidateIntegrationReceipt(receipt); err != nil {
+			return err
+		}
+		path := trainV2IntegrationPath(receipt.ProjectID, receipt.TrainID)
+		_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared Train integration receipt "+receipt.TrainID, func(worktree string) ([]string, error) {
+			var latest trainv2.IntegrationReceipt
+			if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
+				if latest.UpdatedAt.After(receipt.UpdatedAt) {
+					return nil, fmt.Errorf("Hub integration receipt changed while publishing Shared outbox")
+				}
+				if latest.UpdatedAt.Equal(receipt.UpdatedAt) && bytes.Equal(mustJSON(latest), entry.Payload) {
+					return nil, nil
+				}
+			} else if !IsNotFound(readErr) {
+				return nil, readErr
+			}
+			if err := hub.WriteJSON(worktree, path, receipt); err != nil {
+				return nil, err
+			}
+			return []string{path}, nil
+		})
+		return err
+	case "integration_operation":
+		var operation trainv2.IntegrationOperation
+		if err := json.Unmarshal(entry.Payload, &operation); err != nil {
+			return err
+		}
+		if err := trainv2.ValidateIntegrationOperation(operation); err != nil {
+			return err
+		}
+		path := trainV2IntegrationOperationPath(operation.ProjectID, operation.TrainID)
+		_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared Train integration operation "+operation.OperationID, func(worktree string) ([]string, error) {
+			var latest trainv2.IntegrationOperation
+			if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
+				if latest.UpdatedAt.After(operation.UpdatedAt) {
+					return nil, fmt.Errorf("Hub integration operation changed while publishing Shared outbox")
+				}
+				if latest.UpdatedAt.Equal(operation.UpdatedAt) && bytes.Equal(mustJSON(latest), entry.Payload) {
+					return nil, nil
+				}
+			} else if !IsNotFound(readErr) {
+				return nil, readErr
+			}
+			if err := hub.WriteJSON(worktree, path, operation); err != nil {
+				return nil, err
+			}
+			return []string{path}, nil
+		})
+		return err
+	case "journal":
+		var event model.OperatorJournalEvent
+		if err := json.Unmarshal(entry.Payload, &event); err != nil {
+			return err
+		}
+		if err := model.ValidateOperatorJournalEvent(event); err != nil {
+			return err
+		}
+		path := s.operatorEventPath(event.ProjectID, event.ID)
+		counterPath := s.operatorCounterPath(event.ProjectID)
+		_, number, err := model.ParseAnyJournalEventID(event.ID)
+		if err != nil {
+			return err
+		}
+		_, err = s.Hub.Transact(ctx, "", "gateway: publish Shared operator journal "+event.ID, func(worktree string) ([]string, error) {
+			var latest model.OperatorJournalEvent
+			if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
+				if bytes.Equal(mustJSON(latest), entry.Payload) {
+					return nil, nil
+				}
+				return nil, fmt.Errorf("Hub operator event changed while publishing Shared outbox")
+			} else if !IsNotFound(readErr) {
+				return nil, readErr
+			}
+			if err := hub.WriteJSON(worktree, path, event); err != nil {
+				return nil, err
+			}
+			counter := model.OperatorJournalCounter{SchemaVersion: model.OperatorJournalSchemaVersion, ProjectID: event.ProjectID, NextEventNumber: number + 1}
+			if raw, readErr := os.ReadFile(filepath.Join(worktree, filepath.FromSlash(counterPath))); readErr == nil {
+				var existing model.OperatorJournalCounter
+				if err := decodeStrict(raw, &existing); err != nil {
+					return nil, err
+				}
+				if existing.NextEventNumber > counter.NextEventNumber {
+					counter = existing
+				}
+			} else if !IsNotFound(readErr) {
+				return nil, readErr
+			}
+			if err := hub.WriteJSON(worktree, counterPath, counter); err != nil {
+				return nil, err
+			}
+			return []string{path, counterPath}, nil
+		})
+		return err
+	case "watcher_guide":
+		var guide model.WatcherGuide
+		if err := json.Unmarshal(entry.Payload, &guide); err != nil {
+			return err
+		}
+		if err := model.ValidateWatcherGuide(guide); err != nil {
+			return err
+		}
+		path := s.watcherGuidePath(guide.ProjectID)
+		_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared watcher guide "+guide.ProjectID, func(worktree string) ([]string, error) {
+			var latest model.WatcherGuide
+			if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
+				if latest.Revision > guide.Revision {
+					return nil, fmt.Errorf("Hub watcher guide changed while publishing Shared outbox")
+				}
+				if latest.Revision == guide.Revision && bytes.Equal(mustJSON(latest), entry.Payload) {
+					return nil, nil
+				}
+			} else if !IsNotFound(readErr) {
+				return nil, readErr
+			}
+			if err := hub.WriteJSON(worktree, path, guide); err != nil {
+				return nil, err
+			}
+			return []string{path}, nil
+		})
+		return err
 	default:
 		return fmt.Errorf("unsupported shared outbox entity %q", entry.EntityType)
 	}
+}
+
+func mustJSON(value any) []byte {
+	payload, _ := json.Marshal(value)
+	return payload
 }

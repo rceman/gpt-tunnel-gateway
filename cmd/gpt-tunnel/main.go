@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/gatewayclient"
 	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
@@ -32,6 +33,7 @@ func main() {
 		fatal(err)
 	}
 	s := service.New(c)
+	gateway := gatewayclient.New(c)
 	ctx := context.Background()
 	group := os.Args[1]
 	args := os.Args[2:]
@@ -49,7 +51,7 @@ func main() {
 	case "adr":
 		adr(ctx, s, args)
 	case "task":
-		task(ctx, s, args)
+		task(ctx, s, gateway, args)
 	case "agent":
 		agent(ctx, s, args)
 	case "watcher":

@@ -14,7 +14,9 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
+	"github.com/rceman/gpt-tunnel-gateway/internal/persistence"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 const (
@@ -31,6 +33,8 @@ type Service struct {
 	ConfigPath                              string
 	Hub                                     hub.Store
 	Durability                              *sqlitestore.Databases
+	TrainEvidence                           trainv2.EvidenceStore
+	Replica                                 persistence.Replica
 	Git                                     gitx.Runner
 	Airelay                                 airelay.Client
 	clock                                   func() time.Time
@@ -59,27 +63,33 @@ type Service struct {
 }
 
 func New(c config.Config) *Service {
-	return newService(c, nil, true)
+	return newService(c, nil, nil, true)
 }
 
 func NewWithDurability(c config.Config, durability *sqlitestore.Databases) *Service {
-	return newService(c, durability, true)
+	return newService(c, durability, nil, true)
 }
 
 // NewWithDurabilityDeferredWorkers constructs the Gateway service without
 // replaying durable operations. The daemon starts those workers only after
 // local HTTP readiness, so recovery cannot self-contend with local bootstrap.
 func NewWithDurabilityDeferredWorkers(c config.Config, durability *sqlitestore.Databases) *Service {
-	return newService(c, durability, false)
+	return newService(c, durability, nil, false)
 }
 
-func newService(c config.Config, durability *sqlitestore.Databases, startWorkers bool) *Service {
+func NewWithDurabilityDeferredWorkersAndEvidence(c config.Config, durability *sqlitestore.Databases, evidence trainv2.EvidenceStore) *Service {
+	return newService(c, durability, evidence, false)
+}
+
+func newService(c config.Config, durability *sqlitestore.Databases, evidence trainv2.EvidenceStore, startWorkers bool) *Service {
 	executor := gates.NewExecutor()
 	s := &Service{
 		Config:                c,
 		ConfigPath:            config.DefaultPath(),
 		Hub:                   hub.Store{Config: c},
 		Durability:            durability,
+		TrainEvidence:         evidence,
+		Replica:               persistence.NewHubReplica(hub.Store{Config: c}),
 		Git:                   gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems, StateDir: c.StateDir},
 		Airelay:               airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: airelay.MaxTransportMessageBytes},
 		taskCreateWake:        make(chan string, 32),

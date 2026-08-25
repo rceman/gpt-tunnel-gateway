@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/rceman/go-sqlite-store/migrate"
@@ -42,6 +43,7 @@ type Databases struct {
 	Local      *store.Store
 	sharedPath string
 	localPath  string
+	journalMu  sync.Mutex
 }
 
 // OpenError preserves the bounded startup diagnostic boundary without
@@ -181,6 +183,10 @@ const (
 	sharedBootstrapMigrationName            = "gpt_tunnel_shared_bootstrap_markers_v9"
 	sharedADROutboxMigrationName            = "gpt_tunnel_shared_adr_outbox_retry_v10"
 	sharedProjectConfigurationMigrationName = "gpt_tunnel_shared_project_configurations_v11"
+	sharedAgentMigrationName                = "gpt_tunnel_shared_agents_v12"
+	sharedWatcherGuideMigrationName         = "gpt_tunnel_shared_watcher_guides_v13"
+	sharedJournalMigrationName              = "gpt_tunnel_shared_journal_sequences_v14"
+	sharedIntegrationOperationMigrationName = "gpt_tunnel_shared_integration_operations_v15"
 )
 
 var sharedMigrations = []migrate.Migration{{
@@ -316,6 +322,31 @@ var sharedMigrations = []migrate.Migration{{
 	Name:    sharedProjectConfigurationMigrationName,
 	Statements: []store.Statement{
 		{SQL: `CREATE TABLE IF NOT EXISTS shared_project_configurations (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`},
+	},
+}, {
+	Version: 12,
+	Name:    sharedAgentMigrationName,
+	Statements: []store.Statement{
+		{SQL: `CREATE TABLE IF NOT EXISTS shared_agents (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`},
+	},
+}, {
+	Version: 13,
+	Name:    sharedWatcherGuideMigrationName,
+	Statements: []store.Statement{
+		{SQL: `CREATE TABLE IF NOT EXISTS shared_watcher_guides (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`},
+	},
+}, {
+	Version: 14,
+	Name:    sharedJournalMigrationName,
+	Statements: []store.Statement{
+		{SQL: `CREATE TABLE IF NOT EXISTS shared_journal_sequences (project_id TEXT PRIMARY KEY, project_code TEXT NOT NULL, next_event_number INTEGER NOT NULL)`},
+		{SQL: `CREATE TABLE IF NOT EXISTS shared_journal_supersessions (target_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL, created_at TEXT NOT NULL)`},
+	},
+}, {
+	Version: 15,
+	Name:    sharedIntegrationOperationMigrationName,
+	Statements: []store.Statement{
+		{SQL: `CREATE TABLE IF NOT EXISTS shared_integration_operations (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`},
 	},
 }}
 
