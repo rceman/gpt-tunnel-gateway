@@ -85,10 +85,6 @@ func RequireDelivery(ctx context.Context) error {
 	return nil
 }
 
-func RequireOnboarding(ctx context.Context) error {
-	return RequirePlannerOrDelivery(ctx)
-}
-
 func RequireRole(ctx context.Context, wanted string) error {
 	if v, ok := ctx.Value(contextKey{}).(role); ok && v == plannerOrDelivery && (wanted == "planner" || wanted == "delivery") {
 		return nil

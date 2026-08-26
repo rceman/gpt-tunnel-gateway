@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/onboarding"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
@@ -26,8 +24,6 @@ type OperationReadResult struct {
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
-
-var onboardingOperationIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 func (s *Service) OperationRead(ctx context.Context, operationID string) (OperationReadResult, error) {
 	var result OperationReadResult
@@ -87,44 +83,7 @@ func (s *Service) OperationRead(ctx context.Context, operationID string) (Operat
 			UpdatedAt:   receipt.UpdatedAt,
 		}
 	default:
-		if !onboardingOperationIDPattern.MatchString(operationID) {
-			return OperationReadResult{}, fmt.Errorf("unsupported durable operation identifier")
-		}
-		receipt, err := onboarding.LoadOnboardingJournal(s.Config.StateDir, operationID)
-		if err != nil {
-			return OperationReadResult{}, fmt.Errorf("read onboarding operation: %w", err)
-		}
-		createdAt, err := time.Parse(time.RFC3339Nano, receipt.Timestamps.StartedAt)
-		if err != nil {
-			return OperationReadResult{}, fmt.Errorf("invalid onboarding started_at: %w", err)
-		}
-		updatedAt, err := time.Parse(time.RFC3339Nano, receipt.Timestamps.UpdatedAt)
-		if err != nil {
-			return OperationReadResult{}, fmt.Errorf("invalid onboarding updated_at: %w", err)
-		}
-		step := ""
-		if receipt.Recovery.LastDurableStep != nil {
-			step = string(*receipt.Recovery.LastDurableStep)
-		}
-		resultBytes, err := json.Marshal(map[string]any{
-			"operation_id":    receipt.OperationID,
-			"project_id":      receipt.ProjectID,
-			"state":           string(receipt.State),
-			"recovery_status": string(receipt.Recovery.Status),
-			"recovery_step":   step,
-		})
-		if err != nil {
-			return OperationReadResult{}, fmt.Errorf("encode onboarding operation result: %w", err)
-		}
-		result = OperationReadResult{
-			OperationID: receipt.OperationID,
-			Kind:        "project-onboard",
-			Status:      string(receipt.State),
-			ProjectID:   receipt.ProjectID,
-			Result:      resultBytes,
-			CreatedAt:   createdAt,
-			UpdatedAt:   updatedAt,
-		}
+		return OperationReadResult{}, fmt.Errorf("unsupported durable operation identifier")
 	}
 	sessionID := AgentSessionID(ctx)
 	if sessionID == "" {

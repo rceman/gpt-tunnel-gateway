@@ -10,7 +10,7 @@ import (
 )
 
 // AgentMutationReceipt is the bounded durable response shared by Agent
-// register, update, and disable mutations.
+// update and disable mutations.
 type AgentMutationReceipt struct {
 	OperationID string          `json:"operation_id"`
 	Status      string          `json:"status"`
@@ -46,20 +46,6 @@ func agentMutationReceipt(operation durableMutationOperation) AgentMutationRecei
 	return receipt
 }
 
-func (s *Service) AgentRegisterAsync(ctx context.Context, in AgentRegisterInput) (AgentMutationReceipt, error) {
-	if err := s.requireAgentMutation(ctx); err != nil {
-		return AgentMutationReceipt{}, err
-	}
-	if in.Agent.ProjectID == "" {
-		return AgentMutationReceipt{}, fmt.Errorf("agent project_id is required")
-	}
-	operation, err := s.enqueueTypedDurableMutation(ctx, "agent-register", in.Agent.ProjectID, in)
-	if err != nil {
-		return AgentMutationReceipt{}, err
-	}
-	return agentMutationReceipt(operation), nil
-}
-
 func (s *Service) AgentUpdateAsync(ctx context.Context, in AgentUpdateInput) (AgentMutationReceipt, error) {
 	if err := s.requireAgentMutation(ctx); err != nil {
 		return AgentMutationReceipt{}, err
@@ -88,7 +74,7 @@ func (s *Service) AgentMutationOperationStatus(ctx context.Context, operationID 
 		return AgentMutationReceipt{}, err
 	}
 	switch operation.Kind {
-	case "agent-register", "agent-update", "agent-disable":
+	case "agent-update", "agent-disable":
 	default:
 		return AgentMutationReceipt{}, fmt.Errorf("operation is not an Agent registry mutation")
 	}

@@ -23,12 +23,12 @@ func actionAuthorityContractFor(toolName string) actionAuthorityContract {
 	switch toolName {
 	case "task_correction_create":
 		role = durableSession.RoleDelivery
-	case "project_onboard", "project_onboard_recover", "project_workflow_policy_adopt", "project_workflow_policy_update":
+	case "project_workflow_policy_adopt", "project_workflow_policy_update":
 		role = actionRolePlannerOrDelivery
 	}
 	return actionAuthorityContract{
 		Role:                   role,
-		RequiresWorkflowPolicy: role != "" && role != actionRolePlannerOrDelivery && toolName != "project_workflow_policy_adopt" && toolName != "project_workflow_policy_update" && toolName != "project_onboard" && toolName != "project_onboard_recover" && toolName != "session",
+		RequiresWorkflowPolicy: role != "" && role != actionRolePlannerOrDelivery && toolName != "project_workflow_policy_adopt" && toolName != "project_workflow_policy_update" && toolName != "session",
 	}
 }
 
@@ -43,7 +43,7 @@ func validateActionAuthorityRole(role string) error {
 
 func typedSessionAuthorityContract(toolName string) (actionAuthorityContract, bool) {
 	contract := actionAuthorityContractFor(toolName)
-	if toolName == "session" || toolName == "project_onboard" || contract.Role == "" {
+	if toolName == "session" || contract.Role == "" {
 		return actionAuthorityContract{}, false
 	}
 	return contract, true

@@ -228,11 +228,6 @@ type ProjectWorkflowPolicyInput struct {
 	WriteOptions
 }
 
-type AgentRegisterInput struct {
-	Agent model.Agent `json:"agent"`
-	WriteOptions
-}
-
 type AgentUpdateInput struct {
 	ProjectID            string    `json:"project_id"`
 	AgentID              string    `json:"agent_id"`

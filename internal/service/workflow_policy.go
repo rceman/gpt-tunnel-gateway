@@ -31,13 +31,6 @@ func RequireWorkflowPolicyAuthority(ctx context.Context) error {
 	return authority.RequirePlannerOrDelivery(ctx)
 }
 
-// RequireOnboardingAuthority accepts only server-owned Planner/Delivery
-// authority or the local dispatcher-owned operator context. Serialized role
-// fields are never consulted.
-func RequireOnboardingAuthority(ctx context.Context) error {
-	return authority.RequireOnboarding(ctx)
-}
-
 func (s *Service) workflowPolicyPath(projectID string) string {
 	if model.ValidateProjectIdentifier(projectID) != nil {
 		return "../invalid-workflow-policy"

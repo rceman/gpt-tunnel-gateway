@@ -2,9 +2,7 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -68,51 +66,6 @@ func (s *Service) AgentList(ctx context.Context, projectID string) ([]model.Agen
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].AgentID < result[j].AgentID })
 	return result, nil
-}
-
-func (s *Service) AgentRegister(ctx context.Context, in AgentRegisterInput) (model.Agent, OperationResult, error) {
-	if err := s.requireAgentMutation(ctx); err != nil {
-		return model.Agent{}, OperationResult{}, err
-	}
-	agent := in.Agent
-	if err := model.ValidateProjectIdentifier(agent.ProjectID); err != nil {
-		return model.Agent{}, OperationResult{}, err
-	}
-	if _, err := s.ProjectRead(ctx, agent.ProjectID); err != nil {
-		return model.Agent{}, OperationResult{}, err
-	}
-	now := time.Now().UTC()
-	if agent.CreatedAt.IsZero() {
-		agent.CreatedAt = now
-	}
-	if agent.UpdatedAt.IsZero() {
-		agent.UpdatedAt = agent.CreatedAt
-	}
-	agent.Capabilities = model.NormalizeAgentCapabilities(agent.Capabilities)
-	if err := model.ValidateAgent(agent); err != nil {
-		return model.Agent{}, OperationResult{}, err
-	}
-	path := s.agentPath(agent.ProjectID, agent.AgentID)
-	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: register agent "+agent.ProjectID+"/"+agent.AgentID, func(worktree string) ([]string, error) {
-		var existing model.Agent
-		if err := readWorktreeJSON(worktree, path, &existing); err == nil {
-			return nil, fmt.Errorf("agent %q/%q already exists", agent.ProjectID, agent.AgentID)
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return nil, err
-		}
-		if err := hub.WriteJSON(worktree, path, agent); err != nil {
-			return nil, err
-		}
-		return []string{path}, nil
-	})
-	if err != nil {
-		return model.Agent{}, OperationResult{}, err
-	}
-	return agent, OperationResult{
-		Hub:       tx,
-		ProjectID: agent.ProjectID,
-		Status:    "registered",
-	}, nil
 }
 
 func (s *Service) AgentUpdate(ctx context.Context, in AgentUpdateInput) (model.Agent, OperationResult, error) {

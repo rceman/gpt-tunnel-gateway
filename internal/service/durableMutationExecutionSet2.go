@@ -20,16 +20,6 @@ func (s *Service) durableMutationExecutionSet2(ctx context.Context, operation du
 		}
 		result.OperationID = operation.OperationID
 		return json.Marshal(result)
-	case "agent-register":
-		var input AgentRegisterInput
-		if err := json.Unmarshal(operation.Input, &input); err != nil {
-			return nil, err
-		}
-		agent, result, err := s.AgentRegister(authority.WithPlannerOrDelivery(ctx), input)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(map[string]any{"agent": agent, "operation": result})
 	case "agent-prompt":
 		var input AgentPromptInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
