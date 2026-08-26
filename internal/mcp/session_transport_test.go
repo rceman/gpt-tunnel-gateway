@@ -158,16 +158,16 @@ func TestGenericCallRequiresSessionAndInheritsProject(t *testing.T) {
 	}
 }
 
-func TestBootstrapRemainsStandaloneAndRetiredSystemToolsStayHidden(t *testing.T) {
+func TestStatusRemainsStandaloneAndRetiredSystemToolsStayHidden(t *testing.T) {
 	server := newSessionTestServer(t)
-	bootstrap := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+	status := genericStructured(t, callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "bootstrap", "arguments": map[string]any{}},
+		"params": map[string]any{"name": "status", "arguments": map[string]any{}},
 	})))
-	if bootstrap["runtime"] == nil || bootstrap["projects"] == nil || bootstrap["rules"] == nil {
-		t.Fatalf("standalone bootstrap failed: %#v", bootstrap)
+	if status["runtime_identity"] == nil || status["registered_projects"] == nil {
+		t.Fatalf("standalone status failed: %#v", status)
 	}
-	for _, retired := range []string{"system_ping", "status"} {
+	for _, retired := range []string{"system_ping", "bootstrap"} {
 		retiredResponse := callMCPRaw(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 			"params": map[string]any{"name": retired, "arguments": map[string]any{}},

@@ -2,13 +2,10 @@ package mcp
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"sync/atomic"
 	"testing"
 
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
@@ -89,15 +86,9 @@ func frozenResult(t *testing.T, response map[string]any) map[string]any {
 	return structured
 }
 
-func TestFrozenConnectorDiscoversAndInvokesRuntimeActionWithoutReconnect(t *testing.T) {
+func TestADR74FrozenConnectorContract(t *testing.T) {
 	server := newSessionTestServer(t)
-	var connections atomic.Int32
 	httpServer := httptest.NewUnstartedServer(server.Router())
-	httpServer.Config.ConnState = func(_ net.Conn, state http.ConnState) {
-		if state == http.StateNew {
-			connections.Add(1)
-		}
-	}
 	httpServer.Start()
 	defer httpServer.Close()
 
@@ -106,98 +97,96 @@ func TestFrozenConnectorDiscoversAndInvokesRuntimeActionWithoutReconnect(t *test
 		endpoint: httpServer.URL + "/mcp",
 		methods:  map[string]int{},
 	}
-	initialized := client.request(t, "initialize", map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "frozen-test", "version": "1"}})
+	initialized := client.request(t, "initialize", map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "adr74-test", "version": "1"}})
 	if initialized["error"] != nil {
 		t.Fatalf("initialize failed: %#v", initialized)
 	}
 	client.notify(t, "notifications/initialized")
 	tools := client.request(t, "tools/list", map[string]any{})
-	if len(tools["result"].(map[string]any)["tools"].([]any)) == 0 {
-		t.Fatal("initial tools/list was empty")
+	rawTools := tools["result"].(map[string]any)["tools"].([]any)
+	wantTools := map[string]bool{"status": true, "session_start": true, "schema": true, "call": true, "batch": true}
+	if len(rawTools) != len(wantTools) {
+		t.Fatalf("tools/list=%#v", rawTools)
+	}
+	for _, raw := range rawTools {
+		name := raw.(map[string]any)["name"].(string)
+		if !wantTools[name] || name == "session_update" {
+			t.Fatalf("unexpected public tool %q", name)
+		}
+		delete(wantTools, name)
+	}
+	if len(wantTools) != 0 {
+		t.Fatalf("missing public tools=%v", wantTools)
+	}
+	status := frozenResult(t, client.request(t, "tools/call", map[string]any{
+		"name": "status", "arguments": map[string]any{},
+	}))
+	if status["status"] == "" || status["recommended_next_action"] == "" {
+		t.Fatalf("status is incomplete: %#v", status)
+	}
+	if _, ok := status["time"]; ok {
+		t.Fatal("status exposed non-canonical time")
+	}
+	registered := status["registered_projects"].(map[string]any)
+	if _, ok := registered["has_more"].(bool); !ok {
+		t.Fatalf("status omitted registered-project has_more: %#v", status)
 	}
 	started := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "session_start", "arguments": map[string]any{"project": "EXM", "role": durableSession.RoleDelivery},
+		"name": "session_start", "arguments": map[string]any{"project_id": "example"},
 	}))
 	sessionID := started["session"].(string)
-	bound := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}},
-	}))
-	if bound["is_error"] == true {
-		t.Fatalf("project status through bound session failed: %#v", bound)
+	if _, ok := started["recommended_next_action"].(string); !ok {
+		t.Fatalf("session_start omitted recommended_next_action: %#v", started)
 	}
-	rules := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}},
-	}))
-	if rules["is_error"] == true {
-		t.Fatalf("rules read failed: %#v", rules)
+	if _, ok := started["next_steps"]; ok {
+		t.Fatal("session_start returned deprecated next_steps")
 	}
-
-	rootBefore := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "schema", "arguments": map[string]any{"path": ""},
-	}))
-	for _, domain := range rootBefore["domains"].([]any) {
-		if domain == "frozen" {
-			t.Fatal("runtime action was available before deployment")
+	record, err := durableSession.NewStore(server.Service.Config.StateDir).Get(sessionID)
+	if err != nil || record.ProjectID != "example" || record.Role != durableSession.RolePlanner || record.Status != durableSession.StatusActive {
+		t.Fatalf("session_start did not create bound Planner session: %#v err=%v", record, err)
+	}
+	for _, path := range []string{"", "project", "project/status"} {
+		contract := frozenResult(t, client.request(t, "tools/call", map[string]any{
+			"name": "schema", "arguments": map[string]any{"path": path},
+		}))
+		if contract["path"] != path {
+			t.Fatalf("schema(%q) returned %#v", path, contract)
 		}
 	}
-	connectionsBeforeDeploy := connections.Load()
-
-	var executions atomic.Int32
-	if err := server.RegisterGenericAction(GenericAction{
-		Path:          "frozen/probe",
-		Description:   "Runtime action deployed after connector initialization.",
-		AuthorityRole: durableSession.RoleDelivery,
-		InputSchema:   obj(map[string]any{"project_id": str("Bound session project"), "value": str("Probe value")}, "project_id", "value"),
-		OutputSchema:  closedOutput(map[string]any{"project_id": outputString(), "value": outputString()}, "project_id", "value"),
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				ProjectID string `json:"project_id"`
-				Value     string `json:"value"`
-			}
-			if err := decode(raw, &input); err != nil {
-				return nil, err
-			}
-			executions.Add(1)
-			return map[string]any{"project_id": input.ProjectID, "value": input.Value}, nil
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	contract := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "schema", "arguments": map[string]any{"path": "frozen/probe"},
-	}))
-	if contract["kind"] != "action" || contract["path"] != "frozen/probe" {
-		t.Fatalf("deployed action was not discovered through schema: %#v", contract)
-	}
-	if client.methods["initialize"] != 1 || client.methods["tools/list"] != 1 || connections.Load() != connectionsBeforeDeploy {
-		t.Fatalf("connector was refreshed or reconnected: methods=%v connections=%d before=%d", client.methods, connections.Load(), connectionsBeforeDeploy)
-	}
-
 	call := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name":      "call",
-		"arguments": map[string]any{"session": sessionID, "action": "frozen/probe", "input": map[string]any{"value": "call"}},
+		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}},
 	}))
-	if _, ok := call["action"]; ok || call["is_error"] != false || call["result"].(map[string]any)["value"] != "call" {
-		t.Fatalf("deployed action call failed: %#v", call)
+	if call["is_error"] == true {
+		t.Fatalf("call failed: %#v", call)
 	}
-
+	missing := client.request(t, "tools/call", map[string]any{
+		"name": "call", "arguments": map[string]any{"action": "rules/read", "input": map[string]any{}},
+	})
+	if missing["error"] == nil {
+		t.Fatalf("missing call session was accepted: %#v", missing)
+	}
+	unknownResponse := client.request(t, "tools/call", map[string]any{
+		"name": "call", "arguments": map[string]any{"session": "SP-INVALID1", "action": "rules/read", "input": map[string]any{}},
+	})
+	unknownResult := unknownResponse["result"].(map[string]any)
+	if unknownResult["isError"] != true {
+		t.Fatalf("unknown session was accepted: %#v", unknownResponse)
+	}
+	retired := client.request(t, "tools/call", map[string]any{
+		"name": "session_update", "arguments": map[string]any{},
+	})
+	if retired["error"] == nil {
+		t.Fatalf("session_update remained callable: %#v", retired)
+	}
 	batch := frozenResult(t, client.request(t, "tools/call", map[string]any{
 		"name": "batch",
 		"arguments": map[string]any{"session": sessionID, "calls": []any{
-			map[string]any{"action": "frozen/probe", "input": map[string]any{"value": "batch"}},
+			map[string]any{"action": "rules/read", "input": map[string]any{}},
+			map[string]any{"action": "rules/read", "input": map[string]any{}},
 		}},
 	}))
 	results := batch["results"].([]any)
-	if len(results) != 1 || results[0].(map[string]any)["is_error"] != false || results[0].(map[string]any)["result"].(map[string]any)["value"] != "batch" {
+	if len(results) != 2 || results[0].(map[string]any)["action"] != "rules/read" || results[1].(map[string]any)["action"] != "rules/read" {
 		t.Fatalf("deployed action batch failed: %#v", batch)
-	}
-
-	wrongProject := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name":      "call",
-		"arguments": map[string]any{"session": sessionID, "action": "frozen/probe", "input": map[string]any{"project_id": "other", "value": "blocked"}},
-	}))
-	if wrongProject["is_error"] != true || executions.Load() != 2 {
-		t.Fatalf("session project authority was bypassed: result=%#v executions=%d", wrongProject, executions.Load())
 	}
 }

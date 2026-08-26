@@ -28,10 +28,10 @@ func TestRetiredPlanActionsAreAbsentFromCanonicalRegistry(t *testing.T) {
 	}
 }
 
-func TestMCPReadOnlyBootstrapErrorIsBounded(t *testing.T) {
+func TestMCPReadOnlyStatusErrorIsBounded(t *testing.T) {
 	state := t.TempDir()
 	srv := &Server{Service: service.New(config.Config{StateDir: state})}
-	response := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "bootstrap", "arguments": map[string]any{}}}))
+	response := callMCPRaw(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "status", "arguments": map[string]any{}}}))
 	structured := genericStructured(t, response)
 	data, _ := json.Marshal(structured)
 	if strings.Contains(string(data), state) || strings.Contains(string(data), "hub/repository") {
