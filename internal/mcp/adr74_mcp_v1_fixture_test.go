@@ -12,9 +12,9 @@ var adr74MCPV1Fixture = map[string]struct {
 	required   []string
 	properties map[string]string
 }{
-	"status":        {properties: map[string]string{}},
+	"status":        {required: []string{}, properties: map[string]string{}},
 	"session_start": {required: []string{"project_id"}, properties: map[string]string{"project_id": "string"}},
-	"schema":        {properties: map[string]string{"path": "string"}},
+	"schema":        {required: []string{}, properties: map[string]string{"path": "string"}},
 	"call": {required: []string{"session", "action", "input"}, properties: map[string]string{
 		"session": "string", "action": "string", "input": "object",
 	}},
@@ -78,15 +78,20 @@ func assertADR74InputSchema(t *testing.T, name string, schema map[string]any, fi
 			t.Fatalf("%s has unexpected property %q", name, property)
 		}
 	}
-	if len(fixture.required) > 0 {
-		got, ok := schema["required"].([]any)
-		if !ok || len(got) != len(fixture.required) {
-			t.Fatalf("%s required=%#v", name, schema["required"])
+	got := []any{}
+	if raw, present := schema["required"]; present {
+		var ok bool
+		got, ok = raw.([]any)
+		if !ok {
+			t.Fatalf("%s required=%#v want=%v", name, raw, fixture.required)
 		}
-		for i, property := range fixture.required {
-			if got[i] != property {
-				t.Fatalf("%s required=%#v want=%v", name, got, fixture.required)
-			}
+	}
+	if len(got) != len(fixture.required) {
+		t.Fatalf("%s required=%#v want=%v", name, got, fixture.required)
+	}
+	for i, property := range fixture.required {
+		if got[i] != property {
+			t.Fatalf("%s required=%#v want=%v", name, got, fixture.required)
 		}
 	}
 	if name == "batch" {

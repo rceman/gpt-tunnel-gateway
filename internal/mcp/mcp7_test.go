@@ -1,8 +1,14 @@
 package mcp
 
 import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 )
 
 func TestBootstrapFirstPublicSurfaceIsExact(t *testing.T) {
@@ -49,6 +55,37 @@ func TestStatusReturnsCompactRuntimeProjects(t *testing.T) {
 	}
 	if structured["status"] == "" || structured["recommended_next_action"] == "" {
 		t.Fatalf("status omitted control-plane guidance: %#v", structured)
+	}
+}
+
+func TestDeliverySessionStartFailsBeforeCreatingOrphan(t *testing.T) {
+	server := newSessionTestServer(t)
+	server.AuthorityContext = authority.WithDelivery(context.Background())
+	sessionsDir := filepath.Join(server.Service.Config.StateDir, "sessions")
+	countSessions := func() int {
+		entries, err := os.ReadDir(sessionsDir)
+		if errors.Is(err, os.ErrNotExist) {
+			return 0
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(entries)
+	}
+	before := countSessions()
+	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"project_id": "example"}},
+	}))
+	if response["error"] == nil {
+		result, _ := response["result"].(map[string]any)
+		if result["isError"] != true {
+			t.Fatalf("Delivery session_start succeeded: %#v", response)
+		}
+	}
+	after := countSessions()
+	if after != before {
+		t.Fatalf("failed Delivery session_start created an orphan: before=%d after=%d", before, after)
 	}
 }
 
