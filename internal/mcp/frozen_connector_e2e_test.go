@@ -153,6 +153,19 @@ func TestADR74FrozenConnectorContract(t *testing.T) {
 			t.Fatalf("schema(%q) returned %#v", path, contract)
 		}
 	}
+	updateContract := frozenResult(t, client.request(t, "tools/call", map[string]any{
+		"name": "schema", "arguments": map[string]any{"path": "session/update"},
+	}))
+	if updateContract["path"] != "session/update" {
+		t.Fatalf("session/update was not discoverable as an application action: %#v", updateContract)
+	}
+	frozenResult(t, client.request(t, "tools/call", map[string]any{
+		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "session/update", "input": map[string]any{"label": "updated"}},
+	}))
+	updatedRecord, err := durableSession.NewStore(server.Service.Config.StateDir).Get(sessionID)
+	if err != nil || updatedRecord.Label == nil || *updatedRecord.Label != "updated" {
+		t.Fatalf("session/update did not update the bound session: %#v err=%v", updatedRecord, err)
+	}
 	call := frozenResult(t, client.request(t, "tools/call", map[string]any{
 		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}},
 	}))
