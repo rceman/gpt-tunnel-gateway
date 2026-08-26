@@ -100,7 +100,7 @@ func (s *Service) AgentRecover(ctx context.Context, in AgentRecoverInput) (Agent
 			return recoveryBlockAt(result, "runtime_rebind", err.Error())
 		}
 	}
-	if err := trainv2.DispatchAttempt(ctx, trainv2.StartDependencies{Hub: s.Hub, Airelay: s.Airelay, StateDir: s.Config.StateDir, SessionOrigin: AgentSessionID(ctx), MaterializePacket: s.materializeTrainV2Packet}, train, item, attempt, runtime, ""); err != nil {
+	if err := trainv2.DispatchAttempt(ctx, trainv2.StartDependencies{Shared: s.Durability, Airelay: s.Airelay, StateDir: s.Config.StateDir, SessionOrigin: AgentSessionID(ctx), MaterializePacket: s.materializeTrainV2Packet}, train, item, attempt, runtime, ""); err != nil {
 		return recoveryBlockAt(result, "dispatch", err.Error())
 	}
 	result.Outcome, result.Recoverable, result.Phase, result.RecoveryEvent = "recovered", true, "dispatch", "recovery_packet_delivered"

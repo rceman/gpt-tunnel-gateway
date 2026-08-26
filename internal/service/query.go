@@ -42,23 +42,17 @@ func (s *Service) QueryRun(ctx context.Context, in QueryRunInput) (QueryRunResul
 	if err := validateQueryFields(q, descriptor); err != nil {
 		return QueryRunResult{}, err
 	}
-	records, err := s.entityRegistry(in.ProjectID).ListRecords(ctx, entity.Query{Family: descriptor.Family})
+	rows, err := s.querySharedRows(ctx, in.ProjectID, descriptor)
 	if err != nil {
 		return QueryRunResult{}, err
 	}
-	rows := make([]map[string]any, 0, len(records))
-	for _, record := range records {
-		value, err := decodeQueryObject(record.Bytes)
-		if err != nil {
-			return QueryRunResult{}, err
-		}
-		if value["id"] == nil {
-			value["id"] = record.ID
-		}
+	filtered := make([]map[string]any, 0, len(rows))
+	for _, value := range rows {
 		if queryMatches(value, q, descriptor) {
-			rows = append(rows, value)
+			filtered = append(filtered, value)
 		}
 	}
+	rows = filtered
 	orderField := q.Order.Field
 	if orderField == "" {
 		orderField = descriptor.Default[0]
@@ -83,6 +77,48 @@ func (s *Service) QueryRun(ctx context.Context, in QueryRunInput) (QueryRunResul
 		result.Items = []map[string]any{}
 	}
 	return result, nil
+}
+
+// querySharedRows is the sole authority for the public collection query. The
+// Message family intentionally has no Shared projection; it therefore fails
+// closed instead of falling back to the Hub entity registry.
+func (s *Service) querySharedRows(ctx context.Context, projectID string, descriptor entity.Descriptor) ([]map[string]any, error) {
+	if err := s.requireLocalTaskAuthoring(ctx, projectID); err != nil {
+		return nil, err
+	}
+	entityType := ""
+	switch descriptor.Family {
+	case entity.TaskFamily:
+		entityType = "task"
+	case entity.ADRFamily:
+		entityType = "adr"
+	case entity.RuleFamily:
+		entityType = "rule"
+	case entity.TrainFamily:
+		entityType = "train"
+	case entity.JournalFamily:
+		entityType = "journal"
+	case entity.MessageFamily:
+		return nil, fmt.Errorf("Shared Message authority is unavailable")
+	default:
+		return nil, fmt.Errorf("Shared query authority is unavailable for %q", descriptor.Name)
+	}
+	entities, err := s.sharedProjectEntities(ctx, entityType, projectID)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]map[string]any, 0, len(entities))
+	for _, shared := range entities {
+		value, err := decodeQueryObject(shared.Payload)
+		if err != nil {
+			return nil, err
+		}
+		if value["id"] == nil {
+			value["id"] = shared.ID
+		}
+		rows = append(rows, value)
+	}
+	return rows, nil
 }
 
 func queryDescriptor(name string) (entity.Descriptor, error) {

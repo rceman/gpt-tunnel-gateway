@@ -54,12 +54,8 @@ func (s *Service) resolveAgentSession(ctx context.Context, projectID string) (st
 	if err != nil {
 		return "", err
 	}
-	project, err := s.ProjectRead(ctx, projectID)
-	if err != nil {
+	if _, err := s.EffectiveProjectConfig(projectID); err != nil {
 		return "", fmt.Errorf("registered project %q is unavailable", projectID)
-	}
-	if project.ID != projectID || project.Status != "active" {
-		return "", fmt.Errorf("project %q is not active", projectID)
 	}
 	if agents, listErr := s.AgentList(ctx, projectID); listErr == nil && len(agents) > 0 {
 		resolved, resolveErr := s.ResolveAgent(ctx, AgentResolveInput{

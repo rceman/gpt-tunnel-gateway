@@ -154,6 +154,51 @@ func TestCommitSharedMutationRejectsOperationalEventFamilies(t *testing.T) {
 	}
 }
 
+func TestCommitSharedMutationQueuesAttemptReplicaIntentsAtomically(t *testing.T) {
+	db, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mutation := SharedMutation{
+		OperationID:      "OPR-GTW-ATTEMPT-1",
+		EntityType:       "train",
+		EntityID:         "GTW-TRN1",
+		ExpectedRevision: 0,
+		Revision:         1,
+		Kind:             "train-attempt-finalize",
+		Payload:          []byte(`{"id":"GTW-TRN1"}`),
+		Create:           true,
+		ReplicaIntents: []SharedReplicaIntent{
+			{Kind: "attempt_report", EntityID: "gpt-tunnel/v1/projects/example/report.json", ProjectID: "example", Payload: []byte(`{"report":true}`)},
+			{Kind: "attempt_review", EntityID: "GTW-TRN1-ITEM0-ATTEMPT1-REVIEW", ProjectID: "example", Payload: []byte(`{"review":true}`)},
+		},
+	}
+	if _, err := db.CommitSharedMutation(context.Background(), mutation); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := db.PendingOutbox(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("atomic Train+replica outbox entries=%#v", entries)
+	}
+	seen := map[string]bool{}
+	for _, entry := range entries {
+		seen[entry.EntityType] = true
+		if entry.EntityType == "attempt_report" || entry.EntityType == "attempt_review" {
+			if entry.ProjectID != "example" {
+				t.Fatalf("replica project identity was not durable: %#v", entry)
+			}
+		}
+	}
+	if !seen["train"] || !seen["attempt_report"] || !seen["attempt_review"] {
+		t.Fatalf("missing atomic outbox intent: %#v", seen)
+	}
+}
+
 func TestSharedADRCreatePublishesThroughOutbox(t *testing.T) {
 	db, err := Open(t.TempDir())
 	if err != nil {

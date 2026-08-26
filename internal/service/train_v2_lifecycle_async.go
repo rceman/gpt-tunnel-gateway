@@ -49,20 +49,25 @@ type taskWorkIdentity struct {
 	HubRevision string `json:"hub_revision,omitempty"`
 }
 
-func (s *Service) localHubRevision(ctx context.Context) string {
-	snapshot, err := s.Hub.ReadSnapshot(ctx)
+// sharedBootstrapMarkerRevision returns the Hub revision recorded when the
+// local Shared projections were bootstrapped. It is an identity component,
+// not a live Hub read or execution authority.
+func (s *Service) sharedBootstrapMarkerRevision(ctx context.Context, projectIDs ...string) string {
+	if s.Durability == nil || len(projectIDs) == 0 || projectIDs[0] == "" {
+		return ""
+	}
+	marker, err := s.Durability.ReadSharedBootstrapMarker(ctx, projectIDs[0])
 	if err != nil {
 		return ""
 	}
-	defer snapshot.Close()
-	return snapshot.Revision()
+	return marker.HubRevision
 }
 
 func (s *Service) trainV2AdvanceIdentity(ctx context.Context, in TrainV2AdvanceInput) trainV2AdvanceIdentity {
 	identity := trainV2AdvanceIdentity{
 		ProjectID:   in.ProjectID,
 		TrainID:     in.TrainID,
-		HubRevision: s.localHubRevision(ctx),
+		HubRevision: s.sharedBootstrapMarkerRevision(ctx, in.ProjectID),
 	}
 	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, in.ProjectID, in.TrainID)
 	if err != nil {

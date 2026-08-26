@@ -17,7 +17,7 @@ func TestTaskAuthoringFindSkipsEarlierLegacyProject(t *testing.T) {
 	_, legacyRoot, _ := testutil.RepoWithBareRemote(t)
 	s.Config.Projects[legacyID] = config.ProjectConfig{
 		Root: legacyRoot, Mirror: filepath.Join(t.TempDir(), "legacy-mirror.git"), Remote: "origin",
-		DefaultBranch: "main", AirelaySessionKey: "legacy_master",
+		DefaultBranch: "main", AirelaySessionKey: "legacy_master", ProjectCode: "LEG",
 	}
 	registered, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{
 		Project: model.Project{

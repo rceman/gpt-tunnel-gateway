@@ -60,7 +60,7 @@ func (s *Service) TrainV2FullProofAsync(ctx context.Context, in TrainV2FullProof
 	operation, err := s.enqueueTypedDurableMutationWithIdentity(ctx, "train-v2-full-proof", in.ProjectID, in, trainV2FullProofIdentity{
 		ProjectID:   in.ProjectID,
 		TrainID:     in.TrainID,
-		HubRevision: s.localHubRevision(ctx),
+		HubRevision: s.sharedBootstrapMarkerRevision(ctx, in.ProjectID),
 	})
 	if err != nil {
 		return TrainV2FullProofReceipt{}, err
@@ -147,22 +147,30 @@ func (s *Service) TrainV2FullProof(ctx context.Context, in TrainV2FullProofInput
 	if err != nil {
 		return TrainV2FullProofResult{}, err
 	}
-	startPath := hub.ProtocolRoot + "/projects/" + in.ProjectID + "/train-v2-starts/" + in.TrainID + ".json"
-	var start model.TrainV2StartRecord
-	if err := s.Hub.ReadJSON(ctx, startPath, &start); err != nil {
-		return TrainV2FullProofResult{}, fmt.Errorf("read Train start: %w", err)
-	}
-	if err := model.ValidateTrainV2StartRecord(start); err != nil {
-		return TrainV2FullProofResult{}, err
-	}
 	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, in.ProjectID, in.TrainID)
 	if err != nil {
 		return TrainV2FullProofResult{}, fmt.Errorf("read Train runtime: %w", err)
 	}
+	if runtime.ItemPosition < 0 || runtime.ItemPosition >= len(train.Items) || runtime.AttemptNumber == 0 {
+		return TrainV2FullProofResult{}, fmt.Errorf("runtime does not identify an exact Train Attempt")
+	}
+	item := train.Items[runtime.ItemPosition]
+	if item.TaskID != runtime.TaskID || runtime.AttemptNumber > uint64(len(item.Attempts)) {
+		return TrainV2FullProofResult{}, fmt.Errorf("runtime Train Attempt identity mismatch")
+	}
+	attempt := item.Attempts[runtime.AttemptNumber-1]
+	if attempt.Number != runtime.AttemptNumber || attempt.AgentID != runtime.AgentID || attempt.AirelaySessionKey != runtime.SessionKey {
+		return TrainV2FullProofResult{}, fmt.Errorf("runtime does not match canonical Train Attempt")
+	}
+	policy, err := s.ProjectWorkflowPolicyRead(ctx, in.ProjectID)
+	if err != nil {
+		return TrainV2FullProofResult{}, err
+	}
+	start := trainv2.DeriveStartRecord(train, item, attempt, policy, model.Project{ID: in.ProjectID, DefaultBranch: project.DefaultBranch}, attempt.StartedAt)
 	lane := project
 	lane.Root = runtime.WorktreePath
-	head, branch, clean, err := s.Git.CurrentHead(ctx, lane)
-	if err != nil || !clean || branch != start.LaneBranch || head != candidate {
+	head, _, clean, err := s.Git.CurrentHead(ctx, lane)
+	if err != nil || !clean || head != candidate {
 		return TrainV2FullProofResult{}, fmt.Errorf("Train lane is not the exact clean full-proof candidate")
 	}
 	if err := validateTrainV2FullProofAncestry(train, candidate, func(ancestor, descendant string) (bool, error) {
@@ -178,33 +186,15 @@ func (s *Service) TrainV2FullProof(ctx context.Context, in TrainV2FullProofInput
 	if err != nil {
 		return TrainV2FullProofResult{}, err
 	}
-	expected := in.ExpectedHubRevision
-	if expected == "" {
-		expected, err = s.hubRevision(ctx)
-		if err != nil {
-			return TrainV2FullProofResult{}, err
-		}
+	operationID := durableMutationOperationID(ctx)
+	if operationID == "" {
+		operationID = "train-v2-full-proof-" + in.TrainID + fmt.Sprintf("-%d", train.Revision)
 	}
-	var tx hub.TransactionResult
-	tx, err = s.Hub.Transact(ctx, expected, "gateway: record Train full proof", func(worktree string) ([]string, error) {
-		var current model.TrainV2
-		if err := readWorktreeJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), &current); err != nil {
-			return nil, err
-		}
-		if current.Revision != train.Revision || current.FullProof != nil {
-			return nil, fmt.Errorf("Train changed before full-proof persistence")
-		}
-		if err := hub.WriteJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), updated); err != nil {
-			return nil, err
-		}
-		return []string{s.trainV2Path(in.ProjectID, in.TrainID)}, nil
-	})
-	if err != nil {
+	if err := s.commitSharedTrain(ctx, operationID, updated, "train-v2-full-proof"); err != nil {
 		return TrainV2FullProofResult{}, err
 	}
 	return TrainV2FullProofResult{
 		CandidateHead: candidate,
 		GateResults:   gates,
-		Hub:           tx,
 	}, nil
 }

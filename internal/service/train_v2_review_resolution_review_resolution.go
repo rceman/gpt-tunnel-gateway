@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -21,7 +20,7 @@ func (s *Service) TrainV2ReviewResolve(ctx context.Context, in TrainV2ReviewReso
 	if _, _, err := model.ParseTrainV2ID(in.TrainID); err != nil || model.ValidateCanonicalTaskID(in.RejectedTaskID) != nil || in.RejectedItemPosition < 0 || in.RejectedAttemptNumber == 0 || model.ValidateObjectIdentifier(in.RejectedReviewID) != nil || model.ValidateCommitSHA(in.RejectedReviewedHead) != nil || model.ValidateCommitSHA(in.ResolvingHead) != nil || len(in.Corrections) == 0 {
 		return TrainV2ReviewResolveResult{}, fmt.Errorf("invalid Train-v2 review resolution input")
 	}
-	train, err := s.TrainV2Read(ctx, in.ProjectID, in.TrainID)
+	train, err := s.trainV2ReadShared(ctx, in.ProjectID, in.TrainID)
 	if err != nil {
 		return TrainV2ReviewResolveResult{}, err
 	}
@@ -32,7 +31,7 @@ func (s *Service) TrainV2ReviewResolve(ctx context.Context, in TrainV2ReviewReso
 	if rejectedItem.TaskID != in.RejectedTaskID || rejectedItem.Status != model.TrainV2ItemReviewed || rejectedItem.Review == nil || rejectedItem.Review.ReportID != in.RejectedReviewID || rejectedItem.Review.Outcome != model.ReviewOutcomeRejectedCorrection || len(rejectedItem.Attempts) < int(in.RejectedAttemptNumber) {
 		return TrainV2ReviewResolveResult{}, fmt.Errorf("rejected review is not the exact correction target")
 	}
-	rejectedReview, err := s.readAttemptReview(ctx, in.ProjectID, in.TrainID, in.RejectedItemPosition, in.RejectedAttemptNumber)
+	rejectedReview, err := s.readAttemptReview(ctx, in.ProjectID, in.TrainID, rejectedItem.TaskID, in.RejectedItemPosition, in.RejectedAttemptNumber)
 	if err != nil {
 		return TrainV2ReviewResolveResult{}, err
 	}
@@ -57,7 +56,7 @@ func (s *Service) TrainV2ReviewResolve(ctx context.Context, in TrainV2ReviewReso
 		if item.TaskID != requested.TaskID || item.Status != model.TrainV2ItemReviewed || item.Review == nil || item.Review.Outcome != model.ReviewOutcomeAccepted || item.Review.ReportID != requested.ReviewID || item.Proof == nil || len(item.Attempts) < int(requested.AttemptNumber) || item.SuccessfulAttemptNumber != requested.AttemptNumber || item.Attempts[requested.AttemptNumber-1].Status != model.TrainV2AttemptSucceeded || item.Attempts[requested.AttemptNumber-1].ReviewID != requested.ReviewID {
 			return TrainV2ReviewResolveResult{}, fmt.Errorf("correction evidence is not an accepted exact Attempt")
 		}
-		review, err := s.readAttemptReview(ctx, in.ProjectID, in.TrainID, requested.ItemPosition, requested.AttemptNumber)
+		review, err := s.readAttemptReview(ctx, in.ProjectID, in.TrainID, requested.TaskID, requested.ItemPosition, requested.AttemptNumber)
 		if err != nil {
 			return TrainV2ReviewResolveResult{}, err
 		}
@@ -120,13 +119,6 @@ func (s *Service) TrainV2ReviewResolve(ctx context.Context, in TrainV2ReviewReso
 			}, nil
 		}
 	}
-	expected := in.ExpectedHubRevision
-	if expected == "" {
-		expected, err = s.hubRevision(ctx)
-		if err != nil {
-			return TrainV2ReviewResolveResult{}, err
-		}
-	}
 	updated := train
 	updated.ReviewResolutions = append(append([]model.TrainV2ReviewResolution{}, train.ReviewResolutions...), resolution)
 	updated.Revision++
@@ -134,42 +126,15 @@ func (s *Service) TrainV2ReviewResolve(ctx context.Context, in TrainV2ReviewReso
 	if err := model.ValidateTrainV2(updated); err != nil {
 		return TrainV2ReviewResolveResult{}, err
 	}
-	tx, err := s.Hub.Transact(ctx, expected, "gateway: record Train-v2 review resolution", func(worktree string) ([]string, error) {
-		var current model.TrainV2
-		if err := readWorktreeJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), &current); err != nil {
-			return nil, err
-		}
-		for _, existing := range current.ReviewResolutions {
-			if existing.ID == resolution.ID {
-				comparison := resolution
-				comparison.RecordedAt = existing.RecordedAt
-				if !reflect.DeepEqual(existing, comparison) {
-					return nil, fmt.Errorf("review resolution changed before persistence")
-				}
-				return nil, nil
-			}
-		}
-		if current.Revision != train.Revision {
-			return nil, fmt.Errorf("Train changed before review resolution")
-		}
-		current.ReviewResolutions = append(current.ReviewResolutions, resolution)
-		current.Revision++
-		current.UpdatedAt = now
-		if err := model.ValidateTrainV2(current); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), current); err != nil {
-			return nil, err
-		}
-		return []string{s.trainV2Path(in.ProjectID, in.TrainID)}, nil
-	})
-	if err != nil {
+	operationID := durableMutationOperationID(ctx)
+	if operationID == "" {
+		operationID = "train-review-resolve-" + resolution.ID
+	}
+	if err := s.commitSharedTrain(ctx, operationID, updated, "train-review-resolve"); err != nil {
 		return TrainV2ReviewResolveResult{}, err
 	}
-	updated.Revision = train.Revision + 1
 	return TrainV2ReviewResolveResult{
 		Train:      updated,
 		Resolution: resolution,
-		Hub:        tx,
 	}, nil
 }

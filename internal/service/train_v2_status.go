@@ -20,7 +20,12 @@ func (s *Service) projectStatusTrainV2(ctx context.Context, id string, local con
 	configurationStatus := s.projectConfigurationStatus(componentCtx, id)
 	tasks, taskErr := s.taskAuthoringAll(componentCtx, id)
 	trains, trainErr := s.readTrainV2Records(componentCtx, id)
-	hubRevision, hubErr := s.hubRevision(componentCtx)
+	hubRevision := ""
+	if s.Durability != nil {
+		if marker, markerErr := s.Durability.ReadSharedBootstrapMarker(componentCtx, id); markerErr == nil {
+			hubRevision = marker.HubRevision
+		}
+	}
 	agentSession := local.AirelaySessionKey
 	if resolved, resolveErr := s.resolveAgentSession(componentCtx, id); resolveErr == nil {
 		agentSession = resolved
@@ -86,7 +91,6 @@ func (s *Service) projectStatusTrainV2(ctx context.Context, id string, local con
 	appendComponentError(&progress.ComponentErrors, "workflow_policy", policyErr)
 	appendComponentError(&progress.ComponentErrors, "tasks", taskErr)
 	appendComponentError(&progress.ComponentErrors, "trains", trainErr)
-	appendComponentError(&progress.ComponentErrors, "hub_revision", hubErr)
 	if agentStatusErr != nil && !agentStatus.ControllerReachable {
 		appendComponentError(&progress.ComponentErrors, "agent_status", agentStatusErr)
 	}

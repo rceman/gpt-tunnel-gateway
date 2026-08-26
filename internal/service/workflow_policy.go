@@ -103,6 +103,9 @@ func (s *Service) projectWorkflowPolicyReadDetailed(ctx context.Context, project
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return model.ProjectWorkflowPolicy{}, "", err
 	}
+	if s.Durability == nil {
+		return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("Shared workflow policy authority is unavailable")
+	}
 	configuration, configurationErr := s.ProjectConfigurationRead(ctx, projectID)
 	var canonical model.ProjectWorkflowPolicy
 	if configurationErr == nil {
@@ -111,44 +114,11 @@ func (s *Service) projectWorkflowPolicyReadDetailed(ctx context.Context, project
 		if err != nil {
 			return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("project configuration workflow is invalid: %w", err)
 		}
-		if s.Durability != nil {
-			return canonical, "project_configuration", nil
-		}
-	}
-	legacyPath := s.workflowPolicyPath(projectID)
-	var policy model.ProjectWorkflowPolicy
-	legacyErr := s.readLegacyWorkflowPolicy(ctx, legacyPath, &policy)
-	if configurationErr == nil {
-		if legacyErr == nil {
-			if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
-				return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("legacy workflow policy is invalid: %w", err)
-			}
-			if !workflowPoliciesEquivalent(canonical, policy) {
-				return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("conflicting project configuration and legacy workflow policy")
-			}
-		} else if !IsNotFound(legacyErr) {
-			return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("legacy workflow policy is invalid: %w", legacyErr)
-		}
 		return canonical, "project_configuration", nil
 	}
-	if !IsNotFound(configurationErr) {
-		return model.ProjectWorkflowPolicy{}, "", configurationErr
-	}
-	if legacyErr != nil {
-		return model.ProjectWorkflowPolicy{}, "", configurationErr
-	}
-	if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
-		return model.ProjectWorkflowPolicy{}, "", err
-	}
-	if policy.ProjectID != projectID {
-		return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("workflow policy project_id mismatch")
-	}
-	return policy, "legacy_compatibility", nil
-}
-
-func (s *Service) readLegacyWorkflowPolicy(ctx context.Context, path string, policy *model.ProjectWorkflowPolicy) error {
-	if s.legacyWorkflowPolicyRead != nil {
-		return s.legacyWorkflowPolicyRead(ctx, path, policy)
-	}
-	return s.Hub.ReadJSON(ctx, path, policy)
+	// Shared project configuration is the sole workflow-policy authority after
+	// cutover. In particular, do not fall back to the legacy Hub policy file:
+	// doing so would make a failed local authority read appear healthy and would
+	// reintroduce Hub I/O into normal execution.
+	return model.ProjectWorkflowPolicy{}, "", configurationErr
 }

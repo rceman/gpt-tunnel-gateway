@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -17,6 +17,9 @@ import (
 func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartResult, error) {
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return StartResult{}, err
+	}
+	if deps.Shared == nil {
+		return StartResult{}, fmt.Errorf("Shared Train authority is unavailable")
 	}
 	if _, _, err := model.ParseTrainV2ID(in.TrainID); err != nil {
 		return StartResult{}, err
@@ -29,27 +32,36 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 		now = deps.Now().UTC()
 	}
 	if binding, err := ReadRuntime(deps.StateDir, in.ProjectID, in.TrainID); err == nil {
-		if binding.AgentID != in.ResolvedAgentID || binding.SessionKey != in.SessionKey {
+		train := deps.Train
+		var record model.TrainV2StartRecord
+		if binding.ItemPosition < 0 || binding.ItemPosition >= len(train.Items) {
+			return StartResult{}, fmt.Errorf("Train attempt item binding is invalid")
+		}
+		item := train.Items[binding.ItemPosition]
+		attempt, attemptErr := itemAttempt(item, binding.AttemptNumber)
+		if attemptErr != nil {
+			return StartResult{}, attemptErr
+		}
+		if attempt.AgentID != in.ResolvedAgentID || attempt.AirelaySessionKey != in.SessionKey {
 			return StartResult{}, fmt.Errorf("Train already has a different Agent/session binding")
 		}
-		record, err := readStartRecord(ctx, deps.Hub, in.ProjectID, in.TrainID)
-		if err != nil {
-			return StartResult{}, fmt.Errorf("durable Train attempt record is unavailable: %w", err)
+		if binding.AgentID != attempt.AgentID || binding.SessionKey != attempt.AirelaySessionKey || binding.TaskID != item.TaskID {
+			return StartResult{}, fmt.Errorf("Train runtime does not match Attempt authority")
 		}
-		train := deps.Train
+		record = DeriveStartRecord(train, item, attempt, deps.Policy, deps.Project, attempt.StartedAt)
 		if record.CurrentItemPosition < 0 || record.CurrentItemPosition >= len(train.Items) {
 			return StartResult{}, fmt.Errorf("Train attempt item binding is invalid")
 		}
-		item := train.Items[record.CurrentItemPosition]
-		attempt, err := itemAttempt(item, record.CurrentAttemptNumber)
+		item = train.Items[record.CurrentItemPosition]
+		attempt, err = itemAttempt(item, record.CurrentAttemptNumber)
 		if err != nil {
 			return StartResult{}, err
 		}
-		if attempt.Status == model.TrainV2AttemptRunning || attempt.Status == model.TrainV2AttemptRecovered {
+		if (attempt.Status == model.TrainV2AttemptRunning || attempt.Status == model.TrainV2AttemptRecovered) && attempt.DispatchedAt == nil {
 			if err := dispatchAttempt(ctx, deps, train, item, attempt, binding, ""); err != nil {
 				return StartResult{}, err
 			}
-			train, err = readTrain(ctx, deps.Hub, in.ProjectID, in.TrainID)
+			train, err = readSharedTrain(ctx, deps.Shared, in.ProjectID, in.TrainID)
 			if err != nil {
 				return StartResult{}, err
 			}
@@ -75,6 +87,9 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 		return StartResult{}, fmt.Errorf("train start identity is incomplete")
 	}
 	item := deps.Train.Items[0]
+	if item.Status != model.TrainV2ItemQueued || len(item.Attempts) != 0 || item.ActiveAttemptNumber != 0 {
+		return StartResult{}, fmt.Errorf("Train first item is not available for Attempt admission")
+	}
 	var currentTask model.TaskAuthoring
 	if deps.ReadTask != nil {
 		var err error
@@ -98,8 +113,8 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 	if !status.Clean {
 		return StartResult{}, fmt.Errorf("project worktree is dirty")
 	}
-	if err := deps.Git.Refresh(ctx, deps.ProjectConfig); err != nil {
-		return StartResult{}, fmt.Errorf("refresh integration branch: %w", err)
+	if _, err := os.Stat(filepath.Join(deps.ProjectConfig.Mirror, "HEAD")); err != nil {
+		return StartResult{}, fmt.Errorf("local project mirror is unavailable: %w", err)
 	}
 	integrationBranch := deps.Policy.IntegrationBranch
 	if integrationBranch == "" {
@@ -141,67 +156,22 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 	if err := ValidateRuntimeBinding(runtime, deps.StateDir); err != nil {
 		return StartResult{}, err
 	}
-	expected := in.ExpectedHubRevision
-	if expected == "" {
-		expected, err = deps.Hub.RemoteRevision(ctx)
-		if err != nil {
-			return StartResult{}, err
-		}
-	}
 	record := model.TrainV2StartRecord{SchemaVersion: model.TrainV2StartSchemaVersion, ProjectID: in.ProjectID, TrainID: in.TrainID, Status: model.TrainV2StartActive, IntegrationBranch: integrationBranch, BaseRevision: base, LaneBranch: laneBranch, CurrentItemPosition: item.Position, CurrentAttemptNumber: 1, CurrentTaskID: item.TaskID, CurrentTaskRevision: item.TaskRevision, CurrentTaskRevisionSHA256: item.TaskRevisionSHA256, StartedAt: now}
 	if err := model.ValidateTrainV2StartRecord(record); err != nil {
 		return StartResult{}, err
 	}
 	updatedTrain := deps.Train
-	tx, err := deps.Hub.Transact(ctx, expected, "gateway: start Train v2 Attempt "+in.TrainID, func(worktree string) ([]string, error) {
-		var latest model.TrainV2
-		if err := readWorktreeJSON(worktree, trainPath(in.ProjectID, in.TrainID), &latest); err != nil {
-			return nil, err
-		}
-		if deps.ValidateTaskMembershipInWorktree != nil {
-			if err := deps.ValidateTaskMembershipInWorktree(worktree, in.ProjectID, in.TrainID); err != nil {
-				return nil, err
-			}
-		}
-		if latest.Revision != deps.Train.Revision || latest.Status != model.TrainV2Planned || len(latest.Items) == 0 || latest.Items[0].TaskID != item.TaskID || len(latest.Items[0].Attempts) != 0 {
-			return nil, fmt.Errorf("Train v2 changed before Attempt start")
-		}
-		if deps.ReadTaskInWorktree != nil {
-			latestTask, err := deps.ReadTaskInWorktree(worktree, in.ProjectID, item.TaskID)
-			if err != nil {
-				return nil, err
-			}
-			if err := ValidateExecutionTask(latestTask); err != nil {
-				return nil, err
-			}
-			if latestTask.ID != item.TaskID || latestTask.ProjectID != in.ProjectID {
-				return nil, fmt.Errorf("Train item Task identity does not match the current Task")
-			}
-			latest.Items[0].TaskRevision = latestTask.Revision
-			latest.Items[0].TaskRevisionSHA256 = latestTask.RevisionSHA256
-			record.CurrentTaskRevision = latestTask.Revision
-			record.CurrentTaskRevisionSHA256 = latestTask.RevisionSHA256
-			item.TaskRevision = latestTask.Revision
-			item.TaskRevisionSHA256 = latestTask.RevisionSHA256
-		}
-		latest.Status = model.TrainV2Running
-		latest.Items[0].Status = model.TrainV2ItemRunning
-		latest.Items[0].Attempts = []model.TrainV2Attempt{attempt}
-		latest.Items[0].ActiveAttemptNumber = 1
-		if err := model.ValidateTrainV2(latest); err != nil {
-			return nil, err
-		}
-		updatedTrain = latest
-		startPath := projectRoot(in.ProjectID) + "/train-v2-starts/" + in.TrainID + ".json"
-		if err := hub.WriteJSON(worktree, startPath, record); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(worktree, trainPath(in.ProjectID, in.TrainID), latest); err != nil {
-			return nil, err
-		}
-		return []string{startPath, trainPath(in.ProjectID, in.TrainID)}, nil
-	})
-	if err != nil {
+	updatedTrain.Status = model.TrainV2Running
+	updatedTrain.Revision++
+	updatedTrain.UpdatedAt = now
+	updatedTrain.Items[0] = item
+	updatedTrain.Items[0].Status = model.TrainV2ItemRunning
+	updatedTrain.Items[0].Attempts = []model.TrainV2Attempt{attempt}
+	updatedTrain.Items[0].ActiveAttemptNumber = 1
+	if err := model.ValidateTrainV2(updatedTrain); err != nil {
+		return StartResult{}, err
+	}
+	if err := CommitSharedTrain(ctx, deps, updatedTrain, "train-v2-start", now); err != nil {
 		return StartResult{}, err
 	}
 	createdWorktree = false
@@ -209,10 +179,11 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 		return StartResult{}, err
 	}
 	item = updatedTrain.Items[0]
-	if err := dispatchAttempt(ctx, deps, updatedTrain, item, attempt, runtime, tx.After); err != nil {
+	if err := dispatchAttempt(ctx, deps, updatedTrain, item, attempt, runtime, ""); err != nil {
 		return StartResult{}, err
 	}
-	updated, err := readTrain(ctx, deps.Hub, in.ProjectID, in.TrainID)
+	var updated model.TrainV2
+	updated, err = readSharedTrain(ctx, deps.Shared, in.ProjectID, in.TrainID)
 	if err != nil {
 		return StartResult{}, err
 	}
@@ -227,17 +198,6 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 		Attempt:      attempt,
 		Runtime:      runtime,
 	}, nil
-}
-
-func readTrain(ctx context.Context, store hub.Store, projectID, trainID string) (model.TrainV2, error) {
-	var train model.TrainV2
-	if err := store.ReadJSON(ctx, trainPath(projectID, trainID), &train); err != nil {
-		return train, err
-	}
-	if err := model.ValidateTrainV2(train); err != nil {
-		return train, err
-	}
-	return train, nil
 }
 
 func itemAttempt(item model.TrainV2Item, number uint64) (model.TrainV2Attempt, error) {

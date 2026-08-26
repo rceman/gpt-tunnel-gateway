@@ -95,7 +95,7 @@ func (s *Service) TrainV2ReviewBackfillAsync(ctx context.Context, in TrainV2Revi
 		ItemStart:   in.ItemStart,
 		ItemEnd:     in.ItemEnd,
 		Apply:       in.Apply,
-		HubRevision: s.localHubRevision(ctx),
+		HubRevision: s.sharedBootstrapMarkerRevision(ctx, in.ProjectID),
 	})
 	if err != nil {
 		return TrainV2ReviewBackfillReceipt{}, err

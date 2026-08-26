@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
@@ -32,11 +30,7 @@ func (s *Service) materializeTrainV2Packet(ctx context.Context, train model.Trai
 	if item.TaskRevisionSHA256 != task.RevisionSHA256 || attempt.AgentID == "" || attempt.AirelaySessionKey == "" {
 		return trainv2.AgentTaskPacket{}, fmt.Errorf("Train packet Task revision does not match the Attempt")
 	}
-	project, err := s.ProjectRead(ctx, train.ProjectID)
-	if err != nil {
-		return trainv2.AgentTaskPacket{}, err
-	}
-	identifiers, err := s.ProjectIdentifiersRead(ctx, train.ProjectID)
+	project, err := s.localProjectProjection(train.ProjectID)
 	if err != nil {
 		return trainv2.AgentTaskPacket{}, err
 	}
@@ -48,15 +42,13 @@ func (s *Service) materializeTrainV2Packet(ctx context.Context, train model.Trai
 	if err != nil {
 		return trainv2.AgentTaskPacket{}, err
 	}
-	var packetPath string
-	if runtime.ProjectCode == "" {
-		packetPath = filepath.Join(trainv2.LegacyAttemptPath(s.Config.StateDir, train.ProjectID, train.ID, item.Position, attempt.Number), "task-packet.md")
-	} else {
-		attemptPath, err := trainv2.CompactAttemptPath(s.Config.StateDir, identifiers.ProjectCode, train.ID, item.TaskID, attempt.Number)
-		if err != nil {
-			return trainv2.AgentTaskPacket{}, err
-		}
-		packetPath = filepath.Join(attemptPath, "task-packet.md")
+	evidence, err := s.sharedTrainEvidence()
+	if err != nil {
+		return trainv2.AgentTaskPacket{}, err
+	}
+	packetPath, err := evidence.AttemptPacketID(train.ID, item.TaskID, attempt.Number)
+	if err != nil {
+		return trainv2.AgentTaskPacket{}, err
 	}
 	if info, statErr := os.Lstat(packetPath); statErr == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
@@ -69,7 +61,7 @@ func (s *Service) materializeTrainV2Packet(ctx context.Context, train model.Trai
 	if len([]byte(text)) > maxTrainV2PacketBytes {
 		return trainv2.AgentTaskPacket{}, fmt.Errorf("Train packet exceeds %d bytes", maxTrainV2PacketBytes)
 	}
-	if err := fsutil.WriteFileAtomic(packetPath, []byte(text), 0o600); err != nil {
+	if _, err := evidence.WriteAttemptPacket(train.ID, item.TaskID, attempt.Number, []byte(text)); err != nil {
 		return trainv2.AgentTaskPacket{}, err
 	}
 	return trainv2.AgentTaskPacket{Path: packetPath, WorktreePath: runtime.WorktreePath}, nil
@@ -104,7 +96,7 @@ func (s *Service) TrainV2TaskRead(ctx context.Context, projectID, taskID string)
 			break
 		}
 	}
-	project, err := s.ProjectRead(ctx, projectID)
+	project, err := s.localProjectProjection(projectID)
 	if err != nil {
 		return TrainV2TaskPacket{}, err
 	}
@@ -146,6 +138,14 @@ func (s *Service) TrainV2TaskRead(ctx context.Context, projectID, taskID string)
 		Recovery:             "Re-read this Train-owned packet and durable Train state before retrying after compaction.",
 		Text:                 text,
 	}, nil
+}
+
+func (s *Service) localProjectProjection(projectID string) (model.Project, error) {
+	projectConfig, ok := s.Config.Projects[projectID]
+	if !ok {
+		return model.Project{}, fmt.Errorf("project %q has no local runtime configuration", projectID)
+	}
+	return model.Project{SchemaVersion: model.SchemaVersion, ID: projectID, DefaultBranch: projectConfig.DefaultBranch, Status: "active"}, nil
 }
 
 func renderTrainV2Packet(task model.TaskAuthoring, train model.TrainV2, item model.TrainV2Item, attempt *model.TrainV2Attempt, project model.Project, configuration model.ProjectConfiguration, policy model.ProjectWorkflowPolicy, root string) string {

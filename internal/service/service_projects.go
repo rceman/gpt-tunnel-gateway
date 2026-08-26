@@ -105,22 +105,17 @@ func (s *Service) projectConfig(id string) (config.ProjectConfig, error) {
 func (s *Service) hubRevision(ctx context.Context) (string, error) { return s.Hub.RemoteRevision(ctx) }
 
 func (s *Service) ProjectList(ctx context.Context) ([]model.Project, error) {
-	result, err := s.projectListAll(ctx)
-	return result, err
+	return s.projectListAll(ctx)
 }
 
 func (s *Service) projectListAll(ctx context.Context) ([]model.Project, error) {
-	paths, err := s.Hub.List(ctx, hub.ProtocolRoot+"/projects", "/project.json")
+	resolution, err := s.resolveProjects()
 	if err != nil {
 		return nil, err
 	}
-	items := []model.Project{}
-	for _, path := range paths {
-		var p model.Project
-		if err := s.Hub.ReadJSON(ctx, path, &p); err != nil {
-			return nil, err
-		}
-		items = append(items, p)
+	items := make([]model.Project, 0, len(resolution.Projects))
+	for id, project := range resolution.Projects {
+		items = append(items, localProjectRecord(id, project, s.Config.Hub.RepositoryURL))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	return items, nil
@@ -181,24 +176,27 @@ func (s *Service) ValidateConfiguredProjectRecords(ctx context.Context) error {
 }
 
 func (s *Service) ProjectRead(ctx context.Context, id string) (model.Project, error) {
-	var p model.Project
-	err := s.Hub.ReadJSON(ctx, s.projectPath(id), &p)
-	return p, err
+	project, err := s.EffectiveProjectConfig(id)
+	if err != nil {
+		return model.Project{}, err
+	}
+	return localProjectRecord(id, project, s.Config.Hub.RepositoryURL), nil
 }
 
 func (s *Service) ProjectIdentifiersRead(ctx context.Context, projectID string) (model.ProjectIdentifiers, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return model.ProjectIdentifiers{}, err
 	}
-	var identifiers model.ProjectIdentifiers
-	if err := s.Hub.ReadJSON(ctx, s.projectIdentifiersPath(projectID), &identifiers); err != nil {
+	project, err := s.EffectiveProjectConfig(projectID)
+	if err != nil {
 		return model.ProjectIdentifiers{}, err
 	}
-	if err := model.ValidateProjectIdentifiers(identifiers); err != nil {
-		return model.ProjectIdentifiers{}, err
+	if s.Durability == nil {
+		return model.ProjectIdentifiers{}, fmt.Errorf("Shared project identifier authority is unavailable")
 	}
-	if identifiers.ProjectID != projectID {
-		return model.ProjectIdentifiers{}, fmt.Errorf("project identifiers project_id mismatch")
-	}
-	return identifiers, nil
+	return s.Durability.ReadSharedProjectIdentifiers(ctx, projectID, project.ProjectCode)
+}
+
+func localProjectRecord(id string, project config.ProjectConfig, repositoryURL string) model.Project {
+	return model.Project{SchemaVersion: model.SchemaVersion, ID: id, RepositoryURL: repositoryURL, DefaultBranch: project.DefaultBranch, Status: "active"}
 }

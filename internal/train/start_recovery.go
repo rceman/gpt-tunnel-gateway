@@ -10,17 +10,27 @@ import (
 )
 
 func recoverMissingRuntime(ctx context.Context, deps StartDependencies) (StartResult, error) {
-	record, err := readStartRecord(ctx, deps.Hub, deps.Project.ID, deps.Train.ID)
-	if err != nil || record.Status != model.TrainV2StartActive || record.CurrentAttemptNumber == 0 {
+	var record *model.TrainV2StartRecord
+	var item model.TrainV2Item
+	var attempt model.TrainV2Attempt
+	for _, candidate := range deps.Train.Items {
+		if candidate.ActiveAttemptNumber == 0 || candidate.ActiveAttemptNumber > uint64(len(candidate.Attempts)) {
+			continue
+		}
+		candidateAttempt := candidate.Attempts[candidate.ActiveAttemptNumber-1]
+		if candidateAttempt.Status != model.TrainV2AttemptRunning {
+			continue
+		}
+		if record != nil {
+			return StartResult{}, fmt.Errorf("durable Train Attempt authority is ambiguous")
+		}
+		item = candidate
+		attempt = candidateAttempt
+		derived := DeriveStartRecord(deps.Train, candidate, candidateAttempt, deps.Policy, deps.Project, candidateAttempt.StartedAt)
+		record = &derived
+	}
+	if record == nil {
 		return StartResult{}, fmt.Errorf("durable Train Attempt record is unavailable")
-	}
-	if record.CurrentItemPosition < 0 || record.CurrentItemPosition >= len(deps.Train.Items) {
-		return StartResult{}, fmt.Errorf("durable Train Attempt item is unavailable")
-	}
-	item := deps.Train.Items[record.CurrentItemPosition]
-	attempt, err := itemAttempt(item, record.CurrentAttemptNumber)
-	if err != nil {
-		return StartResult{}, err
 	}
 	path, compactErr := CompactWorktreePath(deps.StateDir, deps.ProjectCode, deps.Train.ID)
 	compact := compactErr == nil
@@ -50,7 +60,7 @@ func recoverMissingRuntime(ctx context.Context, deps StartDependencies) (StartRe
 		return StartResult{}, err
 	}
 	return StartResult{
-		Record:       record,
+		Record:       *record,
 		ItemPosition: record.CurrentItemPosition,
 		Attempt:      attempt,
 		Runtime:      binding,

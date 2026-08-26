@@ -12,10 +12,11 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
-func TestProjectIdentifiersReadRequiresExistingStrictRecord(t *testing.T) {
+func TestProjectIdentifiersReadUsesLocalSharedProjection(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
-	if _, err := s.ProjectIdentifiersRead(context.Background(), "example"); err == nil || !IsNotFound(err) {
-		t.Fatalf("missing identifiers record was not reported as not found: %v", err)
+	identifiers, err := s.ProjectIdentifiersRead(context.Background(), "example")
+	if err != nil || identifiers.ProjectCode != "EXM" {
+		t.Fatalf("local Shared identifiers were not readable: %#v err=%v", identifiers, err)
 	}
 }
 

@@ -56,6 +56,34 @@ func (s *Service) trainV2AdmissionTasks(worktree, projectID string, taskIDs []st
 	return tasks, nil
 }
 
+func (s *Service) trainV2AdmissionTasksShared(ctx context.Context, projectID string, taskIDs []string) ([]model.TaskAuthoring, error) {
+	if err := trainv2.ValidateTaskIDs(taskIDs); err != nil {
+		return nil, err
+	}
+	existing, err := s.sharedTrains(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if err := trainv2.ValidateUnadmitted(existing, taskIDs); err != nil {
+		return nil, err
+	}
+	tasks := make([]model.TaskAuthoring, 0, len(taskIDs))
+	for _, taskID := range taskIDs {
+		task, err := s.readSharedTask(ctx, projectID, taskID)
+		if err != nil {
+			return nil, fmt.Errorf("read ready task %q: %w", taskID, err)
+		}
+		if task.Status != model.TaskAuthoringReady || task.ReadySeal == nil || task.ReadySeal.Revision != task.Revision || task.ReadySeal.RevisionSHA256 != task.RevisionSHA256 {
+			return nil, fmt.Errorf("task %q is not an exact ready train_v2 Task", taskID)
+		}
+		if err := s.validateTaskDependenciesShared(ctx, projectID, task); err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
+	}
+	return tasks, nil
+}
+
 // validateTrainV2TaskMembershipInWorktree is called inside the start
 // transaction so a pre-existing duplicate Task cannot execute through either
 // Train, even when another admission transaction raced the initial read.

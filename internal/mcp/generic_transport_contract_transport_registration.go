@@ -105,6 +105,24 @@ func legacyActionPath(toolName string) string {
 	}
 	return "system/" + toolName
 }
+
+// sharedAuthorityReadAction identifies normal lifecycle reads whose service
+// handlers already use Shared SQLite or local configuration as authority.
+// They must not acquire a Hub read snapshot in the transport layer: doing so
+// would reintroduce synchronous Hub/network I/O before the handler runs.
+// Hub-backed compatibility, migration, admin, and Git reads intentionally do
+// not appear here and retain their existing snapshot behavior.
+func sharedAuthorityReadAction(path string) bool {
+	switch path {
+	case "project/list", "project/read", "project/status", "project/identifiers_read", "project/workflow_policy_read", "rules/read", "workflow/rules",
+		"task/list", "task/read", "adr/list", "adr/read", "train/read", "train/list", "query/run",
+		"agent/read", "agent/list", "agent/status", "operator/history", "watcher/status", "watcher/guide", "watcher/watch":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]genericActionEntry {
 	entries := make(map[string]genericActionEntry, len(legacy))
 	for toolName, tool := range legacy {
@@ -169,6 +187,9 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		entries["query/run"] = queryGenericAction(s)
 	}
 	for path, entry := range entries {
+		if sharedAuthorityReadAction(path) {
+			entry.LocalReadOnly = true
+		}
 		if projectionDetailAction(path) {
 			entry.InputSchema = withProjectionDetail(entry.InputSchema)
 			entry.ExecutionInputSchema = withProjectionDetail(entry.ExecutionInputSchema)
