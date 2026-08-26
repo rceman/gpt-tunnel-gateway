@@ -15,7 +15,7 @@ import (
 )
 
 func addGenericTransportTools(add func(string, string, map[string]any, func(context.Context, json.RawMessage) (any, error)), s *Server, legacy map[string]Tool) {
-	add("session_start", "Create an immutable project-bound durable session from a short project code.", sessionStartPublicInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("session_start", "Create an immutable Planner session bound to a canonical project.", sessionStartPublicInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.sessionStartPublic(ctx, raw)
 	})
 	add("call", "Dispatch one server-owned action through its authoritative schema and handler.", genericCallInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {

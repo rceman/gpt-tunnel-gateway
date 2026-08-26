@@ -31,9 +31,7 @@ func globalWorkflowDigest() string {
 func sessionStartPublicInputSchema() map[string]any {
 	return obj(map[string]any{
 		"project_id": str("Canonical registered project identifier."),
-		"role":       str("Server-authorized durable session role."),
-		"ref":        str("Optional bounded caller/session reference."),
-	}, "project_id", "role")
+	}, "project_id")
 }
 
 func sessionUpdatePublicInputSchema() map[string]any {
@@ -73,9 +71,7 @@ func sessionUpdatePublicOutputSchema() map[string]any {
 
 func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (any, error) {
 	var in struct {
-		ProjectID string  `json:"project_id"`
-		Role      string  `json:"role"`
-		Ref       *string `json:"ref"`
+		ProjectID string `json:"project_id"`
 	}
 	if err := decode(raw, &in); err != nil {
 		return nil, err
@@ -86,9 +82,8 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	}
 	started, err := s.Service.SessionStart(trusted, service.SessionStartInput{
 		ProjectID:   in.ProjectID,
-		Role:        in.Role,
+		Role:        durableSession.RolePlanner,
 		SessionType: durableSession.SessionTypeChatGPT,
-		SessionRef:  in.Ref,
 	})
 	if err != nil {
 		return nil, err
@@ -101,7 +96,7 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	if s.Service.Durability != nil {
 		localProject, localErr := s.Service.EffectiveProjectConfig(started.Session.ProjectID)
 		if localErr != nil {
-			return nil, localErr
+			return s.abortSessionStart(started.Session.ID, localErr)
 		}
 		projectCode = localProject.ProjectCode
 		projectStatus = "active"
@@ -109,11 +104,11 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	} else {
 		project, projectErr := s.Service.ProjectRead(ctx, started.Session.ProjectID)
 		if projectErr != nil {
-			return nil, projectErr
+			return s.abortSessionStart(started.Session.ID, projectErr)
 		}
 		identifiers, identifiersErr := s.Service.ProjectIdentifiersRead(ctx, started.Session.ProjectID)
 		if identifiersErr != nil {
-			return nil, identifiersErr
+			return s.abortSessionStart(started.Session.ID, identifiersErr)
 		}
 		projectCode = identifiers.ProjectCode
 		projectStatus = project.Status
@@ -121,11 +116,11 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	}
 	policy, err := s.Service.ProjectWorkflowPolicyReadFast(ctx, started.Session.ProjectID)
 	if err != nil {
-		return nil, err
+		return s.abortSessionStart(started.Session.ID, err)
 	}
 	started.Session, err = durableSession.NewStore(s.Service.Config.StateDir).AcknowledgeRules(started.Session.ID, globalWorkflowRevision, digest, policy.Revision, digestJSON(policy))
 	if err != nil {
-		return nil, err
+		return s.abortSessionStart(started.Session.ID, err)
 	}
 	projectSummary := map[string]any{
 		"project_id":     started.Session.ProjectID,
@@ -148,6 +143,13 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 			"inspect schema only when a contract is unknown",
 		},
 	}, nil
+}
+
+func (s *Server) abortSessionStart(id string, cause error) (any, error) {
+	if _, err := durableSession.NewStore(s.Service.Config.StateDir).End(id); err != nil {
+		return nil, fmt.Errorf("session start failed: %w; cleanup of session %s failed: %v", cause, id, err)
+	}
+	return nil, cause
 }
 
 func (s *Server) sessionUpdatePublic(ctx context.Context, raw json.RawMessage) (any, error) {
