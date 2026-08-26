@@ -13,6 +13,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
@@ -59,6 +60,24 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 	bare, _, _ := testutil.RepoWithBareRemote(t)
 	serviceConfig := config.Config{StateDir: state, Hub: config.HubConfig{RepositoryURL: bare, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"}}
 	svc := service.New(serviceConfig)
+	server := &Server{Service: svc}
+	if err := server.RegisterGenericAction(GenericAction{
+		Path: "test/authority", Description: "authority boundary test", InputSchema: obj(map[string]any{}),
+		OutputSchema:  closedOutput(map[string]any{"ok": outputBoolean()}, "ok"),
+		AuthorityRole: durableSession.RoleDelivery, Authority: authority.RequireDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			if err := authority.RequireDelivery(ctx); err != nil {
+				return nil, err
+			}
+			return map[string]any{"ok": true}, nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	record, err := durableSession.NewStore(state).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleDelivery, SessionType: durableSession.SessionTypeChatGPT})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := svc.Hub.Ensure(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -70,12 +89,12 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	arguments := map[string]any{}
+	arguments := map[string]any{"session": record.ID, "action": "test/authority", "input": map[string]any{}}
 	body := mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "project_onboard", "arguments": arguments, "_meta": map[string]any{"role": "delivery"}},
+		"params": map[string]any{"name": "call", "arguments": arguments, "_meta": map[string]any{"role": "delivery"}},
 	})
-	without := callMCP(t, &Server{Service: svc}, body)
+	without := callMCP(t, server, body)
 	withoutText, _ := json.Marshal(without)
 	if !strings.Contains(string(withoutText), "AUTHORITY_UNAVAILABLE") {
 		t.Fatalf("unconfigured server did not fail closed: %s", withoutText)
@@ -91,10 +110,8 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 	if len(afterState) != len(beforeState) {
 		t.Fatalf("unauthorized MCP call changed local state: before=%v after=%v", beforeState, afterState)
 	}
-	with := callMCP(t, &Server{
-		Service:          svc,
-		AuthorityContext: authority.WithDelivery(context.Background()),
-	}, body)
+	server.AuthorityContext = authority.WithDelivery(context.Background())
+	with := callMCP(t, server, body)
 	withText, _ := json.Marshal(with)
 	if strings.Contains(string(withText), "AUTHORITY_UNAVAILABLE") {
 		t.Fatalf("trusted server ignored configured authority: %s", withText)

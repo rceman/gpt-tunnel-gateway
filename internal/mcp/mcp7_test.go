@@ -12,7 +12,7 @@ func TestBootstrapFirstPublicSurfaceIsExact(t *testing.T) {
 	}))
 	result := response["result"].(map[string]any)
 	tools := result["tools"].([]any)
-	want := []string{"batch", "bootstrap", "call", "project_onboard", "schema", "session_start"}
+	want := []string{"batch", "call", "schema", "session_start", "status"}
 	got := make([]string, 0, len(tools))
 	for _, raw := range tools {
 		got = append(got, raw.(map[string]any)["name"].(string))
@@ -20,7 +20,7 @@ func TestBootstrapFirstPublicSurfaceIsExact(t *testing.T) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("public MCP tool surface=%v want=%v", got, want)
 	}
-	for _, retired := range []string{"project_list", "session_update"} {
+	for _, retired := range []string{"project_list", "session_update", "bootstrap", "project_onboard"} {
 		response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 			"params": map[string]any{"name": retired, "arguments": map[string]any{}},
@@ -31,30 +31,24 @@ func TestBootstrapFirstPublicSurfaceIsExact(t *testing.T) {
 	}
 }
 
-func TestBootstrapReturnsCompactRuntimeProjectsAndEffectiveRules(t *testing.T) {
+func TestStatusReturnsCompactRuntimeProjects(t *testing.T) {
 	server := newSessionTestServer(t)
-	structured := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+	structured := genericStructured(t, callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "bootstrap", "arguments": map[string]any{}},
+		"params": map[string]any{"name": "status", "arguments": map[string]any{}},
 	})))
-	runtime := structured["runtime"].(map[string]any)
+	runtime := structured["runtime_identity"].(map[string]any)
 	for _, field := range []string{"gateway_ready", "tunnel_ready", "version_match", "exact_source_match"} {
 		if _, ok := runtime[field]; !ok {
 			t.Fatalf("bootstrap runtime omitted %q: %#v", field, runtime)
 		}
 	}
-	projects := structured["projects"].([]any)
-	if len(projects) != 1 || projects[0].(map[string]any)["project_code"] != "EXM" || projects[0].(map[string]any)["project_id"] != "example" {
+	projects := structured["registered_projects"].(map[string]any)["projects"].([]any)
+	if len(projects) != 1 || projects[0].(map[string]any)["project_id"] != "example" {
 		t.Fatalf("bootstrap project discovery=%#v", projects)
 	}
-	rules := structured["rules"].(map[string]any)
-	for _, field := range []string{"name", "revision", "content", "digest", "guidance"} {
-		if _, ok := rules[field]; !ok {
-			t.Fatalf("bootstrap rules omitted effective field %q: %#v", field, rules)
-		}
-	}
-	if _, ok := structured["project_status"]; ok {
-		t.Fatal("bootstrap leaked project operational status")
+	if structured["status"] == "" || structured["recommended_next_action"] == "" {
+		t.Fatalf("status omitted control-plane guidance: %#v", structured)
 	}
 }
 
@@ -62,11 +56,11 @@ func TestProjectBoundSessionFlowUsesCodeAndSessionDerivedProject(t *testing.T) {
 	server := newSessionTestServer(t)
 	started := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"project": "EXM", "role": "delivery"}},
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"project_id": "example"}},
 	})))
 	sessionID := started["session"].(string)
-	if !strings.HasPrefix(sessionID, "SD-EXM-") {
-		t.Fatalf("session ID did not embed role and project code: %q", sessionID)
+	if !strings.HasPrefix(sessionID, "SP-EXM-") {
+		t.Fatalf("session ID did not embed Planner role and project code: %q", sessionID)
 	}
 	project := started["project"].(map[string]any)
 	if project["project_id"] != "example" || project["project_code"] != "EXM" {
@@ -81,7 +75,7 @@ func TestProjectBoundSessionFlowUsesCodeAndSessionDerivedProject(t *testing.T) {
 	}
 	bad := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"project": "NOPE", "role": "delivery"}},
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"project_id": "NOPE"}},
 	}))
 	if bad["error"] == nil && bad["result"].(map[string]any)["isError"] != true {
 		t.Fatalf("unknown project code was accepted: %#v", bad)
@@ -112,7 +106,7 @@ func TestCorruptProjectCodeInSessionIDFailsClosed(t *testing.T) {
 	server := newSessionTestServer(t)
 	started := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"project": "EXM", "role": "delivery"}},
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"project_id": "example"}},
 	})))
 	id := started["session"].(string)
 	corrupt := strings.Replace(id, "EXM", "BAD", 1)

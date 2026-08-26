@@ -34,7 +34,7 @@ func newSessionTestServer(t *testing.T) *Server {
 	}
 	return &Server{
 		Service:          s,
-		AuthorityContext: authority.WithDelivery(context.Background()),
+		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 }
 
