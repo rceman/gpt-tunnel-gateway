@@ -59,8 +59,11 @@ func coreToolOutputSchemas() map[string]map[string]any {
 		"batch":          genericBatchOutputSchema(),
 		"status": closedOutput(map[string]any{
 			"service": outputString(), "version": outputString(), "gateway_id": outputString(), "status": outputString(), "recommended_next_action": outputString(),
-			"registered_projects": outputArray(closedOutput(map[string]any{"project_id": outputString(), "project_code": outputString()}, "project_id", "project_code")),
-			"runtime_identity":    runtimeIdentityOutputSchema(),
+			"registered_projects": closedOutput(map[string]any{
+				"projects": outputArray(closedOutput(map[string]any{"project_id": outputString(), "project_code": outputString()}, "project_id", "project_code")),
+				"has_more": outputBoolean(),
+			}, "projects", "has_more"),
+			"runtime_identity": runtimeIdentityOutputSchema(),
 		}, "service", "version", "gateway_id", "status", "recommended_next_action", "registered_projects", "runtime_identity"),
 		"rules":   workflowPolicyOutputSchema(),
 		"project": genericCallOutputSchema(),

@@ -83,10 +83,9 @@ func bootstrapGateway(c config.Config, observe func(string)) (*gatewayRuntime, e
 	}
 	svc := service.NewWithDurabilityDeferredWorkers(c, durability)
 	startup("LOCAL_STATE_READY")
-	// Keep the legacy typed-tool authority exact. session.start performs a
-	// checked, narrow bootstrap elevation for either durable role; all other
-	// handlers retain the daemon's established delivery root.
-	trustedMCPContext := authority.WithDelivery(context.Background())
+	// session_start is Planner-only. Generic call/batch still derive the exact
+	// persisted Planner or Delivery role after resolving the durable session.
+	trustedMCPContext := authority.WithPlanner(context.Background())
 	srv := newGatewayHTTPServer(c.ListenAddr, (&mcp.Server{Service: svc, AuthorityContext: trustedMCPContext}).Router())
 	listener, err := net.Listen("tcp", c.ListenAddr)
 	if err != nil {

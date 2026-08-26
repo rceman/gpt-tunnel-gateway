@@ -76,10 +76,10 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	if err := decode(raw, &in); err != nil {
 		return nil, err
 	}
-	trusted, err := authority.BootstrapSessionAuthority(ctx)
-	if err != nil {
+	if err := authority.RequirePlanner(ctx); err != nil {
 		return nil, err
 	}
+	trusted := authority.WithPlanner(ctx)
 	started, err := s.Service.SessionStart(trusted, service.SessionStartInput{
 		ProjectID:   in.ProjectID,
 		Role:        durableSession.RolePlanner,

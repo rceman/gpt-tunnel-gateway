@@ -36,17 +36,18 @@ func addMCP7BootstrapTools(add func(string, string, map[string]any, func(context
 
 const mcpStatusMaxProjects = 100
 
-func mcpRegisteredProjects(s *service.Service) ([]map[string]any, bool) {
+func mcpRegisteredProjects(s *service.Service) (map[string]any, bool) {
 	resolution, err := s.EffectiveProjectSnapshot()
 	if err != nil {
-		return []map[string]any{}, false
+		return map[string]any{"projects": []map[string]any{}, "has_more": false}, false
 	}
 	ids := make([]string, 0, len(resolution.Projects))
 	for id := range resolution.Projects {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	if len(ids) > mcpStatusMaxProjects {
+	hasMore := len(ids) > mcpStatusMaxProjects
+	if hasMore {
 		ids = ids[:mcpStatusMaxProjects]
 	}
 	projects := make([]map[string]any, 0, len(ids))
@@ -54,7 +55,7 @@ func mcpRegisteredProjects(s *service.Service) ([]map[string]any, bool) {
 		project := resolution.Projects[id]
 		projects = append(projects, map[string]any{"project_id": id, "project_code": project.ProjectCode})
 	}
-	return projects, true
+	return map[string]any{"projects": projects, "has_more": hasMore}, true
 }
 
 func mcpStatusProjection(runtime controller.RuntimeIdentity) (string, string) {
