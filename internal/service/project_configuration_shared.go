@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
@@ -155,34 +154,4 @@ func validateProjectConfigurationUpdateInput(in ProjectConfigurationUpdateInput)
 
 func projectConfigurationPatchIsExecutionSensitive(patch ProjectConfigurationPatch) bool {
 	return patch.Workflow != nil || patch.Integration != nil || patch.ActivationProfileRef != nil
-}
-
-func (s *Service) publishSharedProjectConfiguration(ctx context.Context, configuration model.ProjectConfiguration) error {
-	if err := model.ValidateProjectConfiguration(configuration); err != nil {
-		return err
-	}
-	path := s.projectConfigurationPath(configuration.ProjectID)
-	_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared project configuration "+configuration.ProjectID, func(worktree string) ([]string, error) {
-		var latest model.ProjectConfiguration
-		readErr := readWorktreeJSON(worktree, path, &latest)
-		if readErr == nil {
-			normalizeProjectConfiguration(&latest)
-			if latest.Revision > configuration.Revision {
-				return nil, fmt.Errorf("Hub project configuration is newer than Shared outbox")
-			}
-			if latest.Revision == configuration.Revision && reflect.DeepEqual(latest, configuration) {
-				return nil, nil
-			}
-			if latest.Revision == configuration.Revision {
-				return nil, fmt.Errorf("Hub project configuration conflicts with Shared outbox")
-			}
-		} else if !IsNotFound(readErr) {
-			return nil, readErr
-		}
-		if err := hub.WriteJSON(worktree, path, configuration); err != nil {
-			return nil, err
-		}
-		return []string{path}, nil
-	})
-	return err
 }

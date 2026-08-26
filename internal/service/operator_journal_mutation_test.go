@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func installOperatorEventFixture(t *testing.T, s *Service, revision, eventPath string, event model.OperatorJournalEvent, next uint64) string {
@@ -32,6 +35,17 @@ func installOperatorEventFixture(t *testing.T, s *Service, revision, eventPath s
 		return []string{eventPath, counterPath}, nil
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	entityID := strings.TrimSuffix(filepath.Base(eventPath), ".json")
+	updatedAt := event.RecordedAt.UTC().Format(time.RFC3339Nano)
+	if event.RecordedAt.IsZero() {
+		updatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	if err := s.Durability.PutSharedProjection(context.Background(), "journal", sqlitestore.SharedEntity{ID: entityID, Revision: 1, Payload: eventBytes, UpdatedAt: updatedAt}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Durability.PutSharedJournalSequence(context.Background(), "example", "EXM", int64(next)); err != nil {
 		t.Fatal(err)
 	}
 	return tx.After
@@ -85,7 +99,7 @@ func TestOperatorRecordDoesNotOverwriteExistingEventOrAdvanceCounter(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	valid, _, err := s.OperatorRecord(context.Background(), OperatorRecordInput{
+	if _, _, err := s.OperatorRecord(context.Background(), OperatorRecordInput{
 		ProjectID:  "example",
 		Kind:       model.OperatorUserTalk,
 		Summary:    "next",
@@ -95,9 +109,8 @@ func TestOperatorRecordDoesNotOverwriteExistingEventOrAdvanceCounter(t *testing.
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: cleanup.After,
 		},
-	})
-	if err != nil || valid.ID != "EXM-JRN1" {
-		t.Fatalf("next allocation changed after rejected overwrite: event=%#v err=%v", valid, err)
+	}); err == nil {
+		t.Fatal("Shared journal overwrite unexpectedly became available after Hub-only cleanup")
 	}
 }
 
@@ -121,6 +134,9 @@ func TestOperatorMaxCounterAllocatesOnceAndCannotReuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := s.Durability.PutSharedJournalSequence(context.Background(), "example", "EXM", int64(model.MaxSafeInteger)); err != nil {
+		t.Fatal(err)
+	}
 	first, operation, err := s.OperatorRecord(context.Background(), OperatorRecordInput{
 		ProjectID:  "example",
 		Kind:       model.OperatorUserTalk,
@@ -139,7 +155,6 @@ func TestOperatorMaxCounterAllocatesOnceAndCannotReuse(t *testing.T) {
 	if err != nil || first.ID != wantID {
 		t.Fatalf("first max allocation=%s want=%s err=%v", first.ID, wantID, err)
 	}
-	beforeRetryRevision := operation.Hub.After
 	if _, _, err := s.OperatorRecord(context.Background(), OperatorRecordInput{
 		ProjectID:  "example",
 		Kind:       model.OperatorUserTalk,
@@ -148,24 +163,17 @@ func TestOperatorMaxCounterAllocatesOnceAndCannotReuse(t *testing.T) {
 		References: operatorReferences(),
 		Actor:      "owner",
 		WriteOptions: WriteOptions{
-			ExpectedHubRevision: beforeRetryRevision,
+			ExpectedHubRevision: operation.Hub.After,
 		},
 	}); err == nil {
 		t.Fatal("max operator counter was reused")
 	}
-	afterRetryRevision, err := s.Hub.RemoteRevision(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	if events, err := s.Durability.ListSharedEntities(context.Background(), "journal", 10); err != nil || len(events) != 1 {
+		t.Fatalf("failed max reuse changed Shared journal: events=%d err=%v", len(events), err)
 	}
-	if afterRetryRevision != beforeRetryRevision {
-		t.Fatalf("failed max reuse mutated hub: before=%s after=%s", beforeRetryRevision, afterRetryRevision)
-	}
-	var stored model.OperatorJournalCounter
-	if err := s.Hub.ReadJSON(context.Background(), s.operatorCounterPath("example"), &stored); err != nil {
-		t.Fatal(err)
-	}
-	if stored.NextEventNumber != model.MaxSafeInteger {
-		t.Fatalf("max counter advanced after allocation: %d", stored.NextEventNumber)
+	code, next, found, err := s.Durability.ReadSharedJournalSequence(context.Background(), "example")
+	if err != nil || !found || code != "EXM" || uint64(next) != model.MaxSafeInteger {
+		t.Fatalf("max Shared counter advanced after allocation: code=%s next=%d found=%v err=%v", code, next, found, err)
 	}
 }
 

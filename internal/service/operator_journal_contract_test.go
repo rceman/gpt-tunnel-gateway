@@ -2,10 +2,28 @@ package service
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
+
+func TestOperatorJournalSharedAuthorityDoesNotReadHub(t *testing.T) {
+	s, _ := operatorService(t)
+	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
+	s.Config.Hub.RepositoryURL = s.Hub.Config.Hub.RepositoryURL
+	ctx := context.Background()
+	event, _, err := s.OperatorRecord(ctx, OperatorRecordInput{
+		ProjectID: "example", Kind: model.OperatorUserTalk, Summary: "local", Content: operatorContent("shared"), References: operatorReferences(), Actor: "owner",
+	})
+	if err != nil || event.ID != "EXM-JRN1" {
+		t.Fatalf("Shared operator record failed with Hub unavailable: %#v %v", event, err)
+	}
+	history, err := s.OperatorHistory(ctx, OperatorHistoryInput{ProjectID: "example", Limit: 10})
+	if err != nil || len(history.Events) != 1 || history.Events[0].ID != event.ID {
+		t.Fatalf("Shared operator history failed with Hub unavailable: %#v %v", history, err)
+	}
+}
 
 func operatorContent(text string) model.OperatorJournalContent {
 	return model.OperatorJournalContent{Facts: []string{text}}
@@ -97,9 +115,9 @@ func TestOperatorRecordHistoryCheckpointAndNumericPagination(t *testing.T) {
 	}); err == nil {
 		t.Fatal("cross-project history cursor accepted")
 	}
-	paths, err := s.Hub.List(ctx, s.operatorEventsPrefix("example"), ".json")
-	if err != nil || len(paths) != 3 {
-		t.Fatalf("unexpected immutable event paths: %#v %v", paths, err)
+	entities, err := s.Durability.ListSharedEntities(ctx, "journal", 10)
+	if err != nil || len(entities) != 3 {
+		t.Fatalf("unexpected Shared journal entities: %#v %v", entities, err)
 	}
 }
 
@@ -144,7 +162,7 @@ func TestOperatorRecordReservedKindsMissingIdentifiersAndNoOpFailClosed(t *testi
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: revision,
 		},
-	}); err == nil {
-		t.Fatal("missing identifiers unexpectedly accepted")
+	}); err != nil {
+		t.Fatalf("local project-code authority unexpectedly unavailable: %v", err)
 	}
 }

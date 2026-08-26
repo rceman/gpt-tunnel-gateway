@@ -3,12 +3,8 @@ package service
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
-	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
@@ -23,13 +19,7 @@ func (s *Service) TrainV2CorrectionStart(ctx context.Context, in TrainV2Correcti
 	if err := validateTrainV2CorrectionStartInput(in); err != nil {
 		return trainv2.StartResult{}, err
 	}
-	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "train-"+in.TrainID)
-	if err != nil {
-		return trainv2.StartResult{}, err
-	}
-	defer lock.Release()
-
-	train, err := s.TrainV2Read(ctx, in.ProjectID, in.TrainID)
+	train, err := s.trainV2ReadShared(ctx, in.ProjectID, in.TrainID)
 	if err != nil {
 		return trainv2.StartResult{}, err
 	}
@@ -45,9 +35,12 @@ func (s *Service) TrainV2CorrectionStart(ctx context.Context, in TrainV2Correcti
 	if rejectedAttempt.Status != model.TrainV2AttemptSucceeded || rejectedAttempt.ReviewID != in.RejectedReviewID {
 		return trainv2.StartResult{}, fmt.Errorf("rejected Attempt is not the exact reviewed source")
 	}
-	reviewPath := trainV2AttemptReviewPath(in.ProjectID, in.TrainID, in.RejectedItemPosition, in.RejectedAttemptNumber)
-	var review model.TrainV2AttemptReview
-	if err := s.Hub.ReadJSON(ctx, reviewPath, &review); err != nil {
+	evidence, err := s.sharedTrainEvidence()
+	if err != nil {
+		return trainv2.StartResult{}, err
+	}
+	review, err := evidence.ReadAttemptReview(in.TrainID, rejected.TaskID, in.RejectedAttemptNumber)
+	if err != nil {
 		return trainv2.StartResult{}, fmt.Errorf("read rejected review: %w", err)
 	}
 	if review.ID != in.RejectedReviewID || review.TrainID != in.TrainID || review.TaskID != rejected.TaskID || review.ItemPosition != in.RejectedItemPosition || review.AttemptNumber != in.RejectedAttemptNumber || review.Outcome != model.ReviewOutcomeRejectedCorrection {
@@ -68,11 +61,16 @@ func (s *Service) TrainV2CorrectionStart(ctx context.Context, in TrainV2Correcti
 			return trainv2.StartResult{}, fmt.Errorf("another Train Attempt is active")
 		}
 	}
-	startPath := hub.ProtocolRoot + "/projects/" + in.ProjectID + "/train-v2-starts/" + in.TrainID + ".json"
-	var start model.TrainV2StartRecord
-	if err := s.Hub.ReadJSON(ctx, startPath, &start); err != nil {
-		return trainv2.StartResult{}, fmt.Errorf("read Train start: %w", err)
+	projectConfig, ok := s.Config.Projects[in.ProjectID]
+	if !ok {
+		return trainv2.StartResult{}, fmt.Errorf("project %q has no local runtime configuration", in.ProjectID)
 	}
+	project := model.Project{SchemaVersion: model.SchemaVersion, ID: in.ProjectID, DefaultBranch: projectConfig.DefaultBranch, Status: "active"}
+	policy, err := s.ProjectWorkflowPolicyRead(ctx, in.ProjectID)
+	if err != nil {
+		return trainv2.StartResult{}, err
+	}
+	start := trainv2.DeriveStartRecord(train, rejected, rejectedAttempt, policy, project, rejectedAttempt.StartedAt)
 	if err := model.ValidateTrainV2StartRecord(start); err != nil || start.CurrentItemPosition != in.RejectedItemPosition || start.CurrentAttemptNumber != in.RejectedAttemptNumber || start.CurrentTaskID != rejected.TaskID {
 		return trainv2.StartResult{}, fmt.Errorf("Train start is not bound to the rejected Attempt")
 	}
@@ -89,7 +87,7 @@ func (s *Service) TrainV2CorrectionStart(ctx context.Context, in TrainV2Correcti
 	if !clean || branch != start.LaneBranch {
 		return trainv2.StartResult{}, fmt.Errorf("Train correction lane is not clean and bound to its branch")
 	}
-	resolved, err := s.ResolveAgent(ctx, AgentResolveInput{
+	resolved, err := s.resolveTrainAgentLocalFirst(ctx, AgentResolveInput{
 		ProjectID:            in.ProjectID,
 		Role:                 model.AgentRoleCoding,
 		AgentID:              in.AgentID,
@@ -99,7 +97,7 @@ func (s *Service) TrainV2CorrectionStart(ctx context.Context, in TrainV2Correcti
 	if err != nil {
 		return trainv2.StartResult{}, err
 	}
-	if err := s.checkSessionAvailableForTrainAttempt(ctx, resolved.SessionKey, train.ID); err != nil {
+	if err := s.checkSessionAvailableForTrainAttemptLocalFirst(ctx, resolved.SessionKey, train.ID); err != nil {
 		return trainv2.StartResult{}, err
 	}
 	now := time.Now().UTC()
@@ -112,16 +110,7 @@ func (s *Service) TrainV2CorrectionStart(ctx context.Context, in TrainV2Correcti
 	updatedTrain.Items[in.CorrectionItemPosition] = updatedItem
 	updatedTrain.Revision++
 	updatedTrain.UpdatedAt = now
-	updatedStart := start
-	updatedStart.CurrentItemPosition = in.CorrectionItemPosition
-	updatedStart.CurrentAttemptNumber = 1
-	updatedStart.CurrentTaskID = correction.TaskID
-	updatedStart.CurrentTaskRevision = correction.TaskRevision
-	updatedStart.CurrentTaskRevisionSHA256 = correction.TaskRevisionSHA256
 	if err := model.ValidateTrainV2(updatedTrain); err != nil {
-		return trainv2.StartResult{}, err
-	}
-	if err := model.ValidateTrainV2StartRecord(updatedStart); err != nil {
 		return trainv2.StartResult{}, err
 	}
 	newRuntime := runtime
@@ -134,52 +123,9 @@ func (s *Service) TrainV2CorrectionStart(ctx context.Context, in TrainV2Correcti
 	if err := trainv2.ValidateRuntimeBinding(newRuntime, s.Config.StateDir); err != nil {
 		return trainv2.StartResult{}, err
 	}
-	runtimePath := trainv2.RuntimePath(s.Config.StateDir, in.ProjectID, in.TrainID)
-	if err := fsutil.WriteJSONAtomic(runtimePath, newRuntime, 0o600); err != nil {
+	if err := trainv2.CommitCorrectionStart(ctx, trainv2.StartDependencies{Shared: s.Durability, OperationID: durableMutationOperationID(ctx), StateDir: s.Config.StateDir}, train, updatedTrain, runtime, newRuntime, now); err != nil {
 		return trainv2.StartResult{}, err
 	}
-	keepRuntime := false
-	defer func() {
-		if !keepRuntime {
-			_ = fsutil.WriteJSONAtomic(runtimePath, runtime, 0o600)
-		}
-	}()
-	expected := in.ExpectedHubRevision
-	if expected == "" {
-		expected, err = s.hubRevision(ctx)
-		if err != nil {
-			return trainv2.StartResult{}, err
-		}
-	}
-	if _, err := s.Hub.Transact(ctx, expected, "gateway: start Train-v2 correction Attempt", func(worktree string) ([]string, error) {
-		var latest model.TrainV2
-		if err := readWorktreeJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), &latest); err != nil {
-			return nil, err
-		}
-		if latest.Revision != train.Revision || latest.Items[in.RejectedItemPosition].Review == nil || latest.Items[in.RejectedItemPosition].Review.ReportID != in.RejectedReviewID || latest.Items[in.CorrectionItemPosition].Status != model.TrainV2ItemQueued || len(latest.Items[in.CorrectionItemPosition].Attempts) != 0 {
-			return nil, fmt.Errorf("Train correction state changed before start")
-		}
-		latest.Items[in.CorrectionItemPosition] = updatedItem
-		latest.Revision++
-		latest.UpdatedAt = now
-		var latestStart model.TrainV2StartRecord
-		if err := readWorktreeJSON(worktree, startPath, &latestStart); err != nil {
-			return nil, err
-		}
-		if latestStart.CurrentItemPosition != start.CurrentItemPosition || latestStart.CurrentAttemptNumber != start.CurrentAttemptNumber || latestStart.CurrentTaskID != start.CurrentTaskID {
-			return nil, fmt.Errorf("Train start changed before correction start")
-		}
-		if err := hub.WriteJSON(worktree, s.trainV2Path(in.ProjectID, in.TrainID), latest); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(worktree, startPath, updatedStart); err != nil {
-			return nil, err
-		}
-		return []string{s.trainV2Path(in.ProjectID, in.TrainID), startPath}, nil
-	}); err != nil {
-		return trainv2.StartResult{}, err
-	}
-	keepRuntime = true
 	return s.TrainV2Start(ctx, TrainV2StartInput{
 		ProjectID:            in.ProjectID,
 		TrainID:              in.TrainID,

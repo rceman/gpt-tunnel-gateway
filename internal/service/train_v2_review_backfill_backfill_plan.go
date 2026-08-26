@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func validateTrainV2ReviewBackfillInput(in TrainV2ReviewBackfillInput) error {
@@ -43,7 +44,7 @@ func validateBackfillGates(report model.TrainV2AttemptReport) error {
 	}
 	return nil
 }
-func buildTrainV2ReviewBackfillPlan(train model.TrainV2, start, end int, readFile func(string) ([]byte, error)) ([]TrainV2ReviewBackfillItem, error) {
+func buildTrainV2ReviewBackfillPlan(train model.TrainV2, start, end int, evidence trainv2.EvidenceStore) ([]TrainV2ReviewBackfillItem, error) {
 	if start < 0 || end < start || end >= len(train.Items) {
 		return nil, fmt.Errorf("Train review backfill range is out of bounds")
 	}
@@ -54,11 +55,14 @@ func buildTrainV2ReviewBackfillPlan(train model.TrainV2, start, end int, readFil
 			return nil, fmt.Errorf("Train item %q is not an unreviewed finalized proof", item.TaskID)
 		}
 		attempt := item.Attempts[item.SuccessfulAttemptNumber-1]
-		reportPath := trainV2AttemptReportPath(train.ProjectID, train.ID, position, item.SuccessfulAttemptNumber)
+		reportPath := item.Proof.ReportID
+		if reportPath == "" {
+			return nil, fmt.Errorf("Train item %q has no typed report identity", item.TaskID)
+		}
 		if item.Proof.ReportID != reportPath || attempt.ReportID != reportPath || attempt.Status != model.TrainV2AttemptSucceeded || attempt.ReviewID != "" {
 			return nil, fmt.Errorf("Train item %q has inconsistent report identity", item.TaskID)
 		}
-		raw, err := readFile(reportPath)
+		raw, err := evidence.ReadAttemptReportBytes(train.ID, item.TaskID, item.SuccessfulAttemptNumber)
 		if err != nil {
 			return nil, fmt.Errorf("read Attempt report %s: %w", reportPath, err)
 		}
@@ -72,11 +76,16 @@ func buildTrainV2ReviewBackfillPlan(train model.TrainV2, start, end int, readFil
 		if err := validateBackfillGates(report); err != nil {
 			return nil, fmt.Errorf("Attempt report gates for %s: %w", item.TaskID, err)
 		}
-		reviewPath := trainV2AttemptReviewPath(train.ProjectID, train.ID, position, item.SuccessfulAttemptNumber)
-		if _, reviewErr := readFile(reviewPath); reviewErr == nil {
+		reviewPath, err := evidence.AttemptReviewID(train.ID, item.TaskID, item.SuccessfulAttemptNumber)
+		if err != nil {
+			return nil, fmt.Errorf("resolve Attempt review reference for %s: %w", item.TaskID, err)
+		}
+		reviewExists, reviewErr := evidence.AttemptReviewExists(train.ID, item.TaskID, item.SuccessfulAttemptNumber)
+		if reviewErr != nil {
+			return nil, fmt.Errorf("check existing review for %s: %w", item.TaskID, reviewErr)
+		}
+		if reviewExists {
 			return nil, fmt.Errorf("conflicting existing review for %s", item.TaskID)
-		} else if !IsNotFound(reviewErr) {
-			return nil, fmt.Errorf("read existing review %s: %w", reviewPath, reviewErr)
 		}
 		items = append(items, TrainV2ReviewBackfillItem{
 			Position:      position,

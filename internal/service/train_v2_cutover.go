@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -166,23 +165,5 @@ func (s *Service) TrainV2Cutover(ctx context.Context, in TrainV2CutoverInput) (m
 }
 
 func (s *Service) readTrainV2Records(ctx context.Context, projectID string) ([]model.TrainV2, error) {
-	paths, err := s.Hub.List(ctx, s.trainV2Root(projectID), ".json")
-	if err != nil {
-		return nil, err
-	}
-	trains := make([]model.TrainV2, 0, len(paths))
-	for _, path := range paths {
-		if !canonicalTrainV2RecordName(filepath.Base(path)) {
-			continue
-		}
-		var train model.TrainV2
-		if err := s.Hub.ReadJSON(ctx, path, &train); err != nil {
-			return nil, err
-		}
-		if err := model.ValidateTrainV2(train); err != nil {
-			return nil, err
-		}
-		trains = append(trains, train)
-	}
-	return trains, nil
+	return s.sharedTrains(ctx, projectID)
 }

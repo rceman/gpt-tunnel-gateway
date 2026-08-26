@@ -7,8 +7,8 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 type StartInput struct {
@@ -40,7 +40,9 @@ type AgentTaskPacket struct {
 type PacketMaterializer func(context.Context, model.TrainV2, model.TrainV2Item, model.TrainV2Attempt, RuntimeBinding) (AgentTaskPacket, error)
 
 type StartDependencies struct {
-	Hub                              hub.Store
+	Shared                           *sqlitestore.Databases
+	OperationID                      string
+	ReplicaIntents                   []sqlitestore.SharedReplicaIntent
 	Git                              gitx.Runner
 	Airelay                          airelay.Client
 	ProjectConfig                    config.ProjectConfig

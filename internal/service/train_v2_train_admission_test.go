@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
@@ -24,7 +25,7 @@ func readyTrainTaskForTest(t *testing.T, s *Service, hubRevision, title string) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	ready, operation, err := s.TaskAuthoringReady(context.Background(), TaskAuthoringReadyInput{
+	ready, _, err := s.TaskAuthoringReady(context.Background(), TaskAuthoringReadyInput{
 		ProjectID:              "example",
 		TaskID:                 task.ID,
 		ExpectedRevision:       task.Revision,
@@ -37,7 +38,26 @@ func readyTrainTaskForTest(t *testing.T, s *Service, hubRevision, title string) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ready, operation.Hub.After
+	if s.Durability == nil {
+		t.Fatal("Shared authority is unavailable")
+	}
+	entries, err := s.Durability.PendingOutbox(context.Background(), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if err := s.publishSharedOutboxEntry(context.Background(), entry); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Durability.MarkOutboxPublished(context.Background(), entry.ID, time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	revision, err := s.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ready, revision
 }
 
 // This is intentionally a persistence/wiring smoke test. Train transition
@@ -115,23 +135,23 @@ func TestTrainV2CreateRejectsTaskAlreadyAdmittedByAnotherTrain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before := firstOperation.Hub.After
+	before, err := s.TrainV2List(context.Background(), TrainV2ListInput{ProjectID: "example"})
+	if err != nil || len(before.Trains) != 1 {
+		t.Fatalf("unexpected Shared Train baseline: %#v err=%v", before, err)
+	}
 	if _, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
 		ProjectID: "example",
 		TaskIDs:   []string{task.ID},
 		CreatedBy: "planner",
 		WriteOptions: WriteOptions{
-			ExpectedHubRevision: before,
+			ExpectedHubRevision: firstOperation.Hub.After,
 		},
 	}); err == nil || !strings.Contains(err.Error(), "already belongs to train") {
 		t.Fatalf("duplicate Task membership was not rejected without mutation: %v", err)
 	}
-	after, err := s.hubRevision(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after != before {
-		t.Fatalf("duplicate membership changed Hub revision from %s to %s", before, after)
+	after, err := s.TrainV2List(context.Background(), TrainV2ListInput{ProjectID: "example"})
+	if err != nil || len(after.Trains) != 1 || after.Trains[0].Revision != before.Trains[0].Revision {
+		t.Fatalf("duplicate membership changed Shared authority: before=%#v after=%#v err=%v", before, after, err)
 	}
 }
 func TestTrainV2ListSortsGloballyBeforeApplyingLimit(t *testing.T) {

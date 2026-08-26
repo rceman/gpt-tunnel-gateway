@@ -22,11 +22,6 @@ func (s *Service) BootstrapSharedFromHub(ctx context.Context) error {
 	if s.Durability == nil {
 		return fmt.Errorf("shared store is unavailable")
 	}
-	snapshot, err := s.Hub.ReadLocalSnapshot(ctx)
-	if err != nil {
-		return err
-	}
-	defer snapshot.Close()
 	projectIDs := make([]string, 0, len(s.Config.Projects))
 	for projectID := range s.Config.Projects {
 		if model.ValidateProjectIdentifier(projectID) == nil {
@@ -34,8 +29,32 @@ func (s *Service) BootstrapSharedFromHub(ctx context.Context) error {
 		}
 	}
 	sort.Strings(projectIDs)
+	pendingProjectIDs := make([]string, 0, len(projectIDs))
 	for _, projectID := range projectIDs {
+		complete, err := s.Durability.SharedBootstrapComplete(ctx, projectID)
+		if err != nil {
+			return fmt.Errorf("read Shared bootstrap state for %q: %w", projectID, err)
+		}
+		if !complete {
+			pendingProjectIDs = append(pendingProjectIDs, projectID)
+		}
+	}
+	if len(pendingProjectIDs) == 0 {
+		return nil
+	}
+	snapshot, err := s.Hub.ReadLocalSnapshot(ctx)
+	if err != nil {
+		return err
+	}
+	defer snapshot.Close()
+	for _, projectID := range pendingProjectIDs {
 		if err := s.bootstrapSharedProjectConfiguration(ctx, snapshot, projectID); err != nil {
+			return err
+		}
+		if err := s.bootstrapSharedAgents(ctx, snapshot, projectID); err != nil {
+			return err
+		}
+		if err := s.bootstrapSharedWatcherGuide(ctx, snapshot, projectID); err != nil {
 			return err
 		}
 		if err := s.bootstrapSharedTasks(ctx, snapshot, projectID); err != nil {
@@ -44,10 +63,150 @@ func (s *Service) BootstrapSharedFromHub(ctx context.Context) error {
 		if err := s.bootstrapSharedADRs(ctx, snapshot, projectID); err != nil {
 			return err
 		}
+		if err := s.bootstrapSharedJournals(ctx, snapshot, projectID); err != nil {
+			return err
+		}
+		if err := s.bootstrapSharedIntegrationOperations(ctx, snapshot, projectID); err != nil {
+			return err
+		}
 		if err := s.bootstrapSharedTrains(ctx, snapshot, projectID); err != nil {
 			return err
 		}
 		if err := s.Durability.MarkSharedBootstrapComplete(ctx, sqlitestore.SharedBootstrapMarker{ProjectID: projectID, HubRevision: snapshot.Revision(), CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) bootstrapSharedJournals(ctx context.Context, snapshot *hub.ReadSnapshot, projectID string) error {
+	paths, err := snapshot.List(ctx, s.operatorEventsPrefix(projectID), ".json")
+	if err != nil {
+		if IsNotFound(err) {
+			return s.Durability.PutSharedJournalSequence(ctx, projectID, s.Config.Projects[projectID].ProjectCode, 1)
+		}
+		return err
+	}
+	if len(paths) > maxSharedBootstrapRecords {
+		return fmt.Errorf("Shared operator journal bootstrap exceeds bounded record limit")
+	}
+	files, err := snapshot.ReadFiles(ctx, paths)
+	if err != nil {
+		return err
+	}
+	projectCode := s.Config.Projects[projectID].ProjectCode
+	if model.ValidateProjectCode(projectCode) != nil {
+		return fmt.Errorf("project %q has no valid local project code for Shared journal bootstrap", projectID)
+	}
+	next := uint64(1)
+	for _, filePath := range paths {
+		var event model.OperatorJournalEvent
+		if err := decodeStrict(files[filePath], &event); err != nil {
+			return fmt.Errorf("decode operator journal bootstrap %s: %w", filePath, err)
+		}
+		number, err := validateOperatorEventPathIdentity(filePath, s.operatorEventsPrefix(projectID), event, projectID, projectCode)
+		if err != nil {
+			return fmt.Errorf("invalid operator journal bootstrap %s: %w", filePath, err)
+		}
+		if number >= next {
+			next = number + 1
+		}
+		if err := s.Durability.PutSharedProjection(ctx, "journal", sqlitestore.SharedEntity{ID: event.ID, Revision: projectionRevision(event.RecordedAt), Payload: files[filePath], UpdatedAt: event.RecordedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+			return err
+		}
+		if event.SupersedesEventID != "" {
+			if err := s.Durability.PutSharedJournalSupersession(ctx, event.SupersedesEventID, "bootstrap-journal-"+event.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return s.Durability.PutSharedJournalSequence(ctx, projectID, projectCode, int64(next))
+}
+
+func (s *Service) bootstrapSharedIntegrationOperations(ctx context.Context, snapshot *hub.ReadSnapshot, projectID string) error {
+	paths, err := snapshot.List(ctx, s.projectPrefix(projectID)+"/trains-v2", ".integration-operation.json")
+	if err != nil {
+		if IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if len(paths) > maxSharedBootstrapRecords {
+		return fmt.Errorf("Shared integration-operation bootstrap exceeds bounded record limit")
+	}
+	files, err := snapshot.ReadFiles(ctx, paths)
+	if err != nil {
+		return err
+	}
+	for _, filePath := range paths {
+		var operation trainv2.IntegrationOperation
+		if err := decodeStrict(files[filePath], &operation); err != nil {
+			return fmt.Errorf("decode integration operation bootstrap %s: %w", filePath, err)
+		}
+		if operation.ProjectID != projectID {
+			return fmt.Errorf("invalid integration operation bootstrap %s", filePath)
+		}
+		if _, _, err := model.ParseTrainV2ID(operation.TrainID); err != nil {
+			return fmt.Errorf("invalid integration operation bootstrap %s: %w", filePath, err)
+		}
+		if err := trainv2.ValidateIntegrationOperation(operation); err != nil {
+			return fmt.Errorf("invalid integration operation bootstrap %s: %w", filePath, err)
+		}
+		if err := s.Durability.PutSharedProjection(ctx, "integration_operation", sqlitestore.SharedEntity{ID: sharedIntegrationOperationID(operation.ProjectID, operation.TrainID), Revision: 1, Payload: files[filePath], UpdatedAt: operation.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) bootstrapSharedWatcherGuide(ctx context.Context, snapshot *hub.ReadSnapshot, projectID string) error {
+	path := s.watcherGuidePath(projectID)
+	files, err := snapshot.ReadFiles(ctx, []string{path})
+	if err != nil {
+		if IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if len(files[path]) == 0 {
+		return nil
+	}
+	var guide model.WatcherGuide
+	if err := decodeStrict(files[path], &guide); err != nil {
+		return fmt.Errorf("decode watcher guide bootstrap %s: %w", path, err)
+	}
+	if guide.ProjectID != projectID {
+		return fmt.Errorf("watcher guide bootstrap project mismatch %s", path)
+	}
+	if err := model.ValidateWatcherGuide(guide); err != nil {
+		return fmt.Errorf("invalid watcher guide bootstrap %s: %w", path, err)
+	}
+	return s.Durability.PutSharedProjection(ctx, "watcher_guide", sqlitestore.SharedEntity{
+		ID: guide.ProjectID, Revision: int64(guide.Revision), Payload: files[path], UpdatedAt: guide.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	})
+}
+
+func (s *Service) bootstrapSharedAgents(ctx context.Context, snapshot *hub.ReadSnapshot, projectID string) error {
+	paths, err := snapshot.List(ctx, s.projectPrefix(projectID)+"/agents", ".json")
+	if err != nil {
+		return err
+	}
+	if len(paths) > maxSharedBootstrapRecords {
+		return fmt.Errorf("Shared Agent bootstrap exceeds bounded record limit")
+	}
+	files, err := snapshot.ReadFiles(ctx, paths)
+	if err != nil {
+		return err
+	}
+	for _, filePath := range paths {
+		var agent model.Agent
+		if err := decodeStrict(files[filePath], &agent); err != nil {
+			return fmt.Errorf("decode Agent bootstrap %s: %w", filePath, err)
+		}
+		if agent.ProjectID != projectID || model.ValidateAgent(agent) != nil {
+			return fmt.Errorf("invalid Agent bootstrap %s", filePath)
+		}
+		if err := s.Durability.PutSharedProjection(ctx, "agent", sqlitestore.SharedEntity{ID: agent.ProjectID + "\x00" + agent.AgentID, Revision: projectionRevision(agent.UpdatedAt), Payload: files[filePath], UpdatedAt: agent.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
 			return err
 		}
 	}

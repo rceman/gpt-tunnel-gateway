@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 type WatcherGuideUpdateInput struct {
@@ -48,9 +50,19 @@ func (s *Service) WatcherGuideRead(ctx context.Context, projectID string) (model
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return model.WatcherGuide{}, err
 	}
-	var guide model.WatcherGuide
-	if err := s.Hub.ReadJSON(ctx, s.watcherGuidePath(projectID), &guide); err != nil {
+	if s.Durability == nil {
+		return model.WatcherGuide{}, fmt.Errorf("Shared watcher guide authority is unavailable")
+	}
+	entity, err := s.Durability.ReadSharedEntity(ctx, "watcher_guide", projectID)
+	if err != nil {
 		return model.WatcherGuide{}, err
+	}
+	var guide model.WatcherGuide
+	if err := json.Unmarshal(entity.Payload, &guide); err != nil {
+		return model.WatcherGuide{}, err
+	}
+	if int64(guide.Revision) != entity.Revision {
+		return model.WatcherGuide{}, fmt.Errorf("watcher guide Shared revision mismatch")
 	}
 	if err := model.ValidateWatcherGuide(guide); err != nil {
 		return model.WatcherGuide{}, err
@@ -71,41 +83,45 @@ func (s *Service) WatcherGuideUpdate(ctx context.Context, in WatcherGuideUpdateI
 	if err := model.ValidateWatcherGuide(in.Guide); err != nil {
 		return OperationResult{}, err
 	}
-	if in.ExpectedHubRevision == "" {
-		var err error
-		in.ExpectedHubRevision, err = s.hubRevision(ctx)
-		if err != nil {
+	if s.Durability == nil {
+		return OperationResult{}, fmt.Errorf("Shared watcher guide authority is unavailable")
+	}
+	entityID := in.ProjectID
+	expected := int64(0)
+	create := true
+	if current, readErr := s.Durability.ReadSharedEntity(ctx, "watcher_guide", entityID); readErr == nil {
+		var guide model.WatcherGuide
+		if err := json.Unmarshal(current.Payload, &guide); err != nil {
 			return OperationResult{}, err
 		}
+		if err := model.ValidateWatcherGuide(guide); err != nil {
+			return OperationResult{}, err
+		}
+		expected = current.Revision
+		create = false
+		if in.Guide.Revision != guide.Revision+1 {
+			return OperationResult{}, fmt.Errorf("WATCHER_GUIDE_REVISION_CONFLICT expected=%d actual=%d", guide.Revision+1, in.Guide.Revision)
+		}
+	} else if !IsNotFound(readErr) {
+		return OperationResult{}, readErr
+	} else if in.Guide.Revision != 1 {
+		return OperationResult{}, fmt.Errorf("first watcher guide revision must be 1")
 	}
-	path := s.watcherGuidePath(in.ProjectID)
-	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: update watcher guide "+in.ProjectID, func(w string) ([]string, error) {
-		var current model.WatcherGuide
-		readErr := readWorktreeJSON(w, path, &current)
-		if readErr != nil && !os.IsNotExist(readErr) {
-			return nil, readErr
-		}
-		if readErr == nil {
-			if err := model.ValidateWatcherGuide(current); err != nil {
-				return nil, err
-			}
-			if current.ProjectID != in.ProjectID || in.Guide.Revision != current.Revision+1 {
-				return nil, fmt.Errorf("WATCHER_GUIDE_REVISION_CONFLICT expected=%d actual=%d", current.Revision+1, in.Guide.Revision)
-			}
-		} else if in.Guide.Revision != 1 {
-			return nil, fmt.Errorf("first watcher guide revision must be 1")
-		}
-		if err := hub.WriteJSON(w, path, in.Guide); err != nil {
-			return nil, err
-		}
-		return []string{path}, nil
-	})
+	payload, err := json.Marshal(in.Guide)
 	if err != nil {
 		return OperationResult{}, err
 	}
+	operationID := durableMutationOperationID(ctx)
+	if operationID == "" {
+		digest := sha256.Sum256(payload)
+		operationID = "watcher-guide-" + hex.EncodeToString(digest[:])
+	}
+	if _, err := s.Durability.CommitSharedMutation(ctx, sqlitestore.SharedMutation{OperationID: operationID, EntityType: "watcher_guide", EntityID: entityID, ExpectedRevision: expected, Revision: expected + 1, Kind: "watcher-guide-update", Payload: payload, CreatedAt: in.Guide.UpdatedAt, Create: create}); err != nil {
+		return OperationResult{}, err
+	}
 	return OperationResult{
-		Hub:       tx,
-		ProjectID: in.ProjectID,
-		Status:    "updated",
+		OperationID: operationID,
+		ProjectID:   in.ProjectID,
+		Status:      "updated",
 	}, nil
 }

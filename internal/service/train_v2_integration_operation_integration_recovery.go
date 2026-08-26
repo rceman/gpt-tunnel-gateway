@@ -56,7 +56,10 @@ func (s *Service) replaceStaleIntegrationOperation(ctx context.Context, previous
 		}
 		return []string{historyPath, currentPath}, nil
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return s.persistIntegrationOperation(ctx, replacement)
 }
 func integrationRecoveryRequestDigest(in TrainV2IntegrateInput, source, branch, target, previousOperationID string) (string, string, error) {
 	payload, err := json.Marshal(struct {
@@ -177,5 +180,8 @@ func (s *Service) replaceRecoveredIntegrationOperation(ctx context.Context, prev
 		}
 		return []string{path}, nil
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return s.persistIntegrationOperation(ctx, replacement)
 }

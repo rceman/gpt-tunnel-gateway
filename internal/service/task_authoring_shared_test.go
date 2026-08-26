@@ -14,16 +14,43 @@ import (
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
+func TestTaskAuthoringMutationsSucceedWhenHubUnavailable(t *testing.T) {
+	s, revision, _ := testServiceWithoutIdentifiers(t)
+	revision = adoptAuthoringIdentifiersForTest(t, s, revision)
+	_ = enableTrainV2ForTest(t, s, revision)
+	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
+	created, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
+		ProjectID: "example", Title: "Offline authoring", Objective: "Commit through Shared authority.",
+		ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	title := "Offline authoring updated"
+	updated, _, err := s.TaskAuthoringUpdate(context.Background(), TaskAuthoringUpdateInput{
+		ProjectID: "example", TaskID: created.ID, ExpectedRevision: created.Revision,
+		ExpectedRevisionSHA256: created.RevisionSHA256, Title: &title, UpdatedBy: "planner",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready, _, err := s.TaskAuthoringReady(context.Background(), TaskAuthoringReadyInput{
+		ProjectID: "example", TaskID: updated.ID, ExpectedRevision: updated.Revision,
+		ExpectedRevisionSHA256: updated.RevisionSHA256, ReadyBy: "planner",
+	})
+	if err != nil || ready.Status != model.TaskAuthoringReady {
+		t.Fatalf("Shared authoring did not complete while Hub was unavailable: task=%#v err=%v", ready, err)
+	}
+}
+
 func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
 	revision = adoptAuthoringIdentifiersForTest(t, s, revision)
 	revision = enableTrainV2ForTest(t, s, revision)
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := s.Durability
+	if db == nil {
+		t.Fatal("Shared fixture database is unavailable")
 	}
-	defer db.Close()
-	s.Durability = db
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
@@ -111,12 +138,10 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 
 func TestTaskAuthoringReadUsesSharedBeforeHub(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := s.Durability
+	if db == nil {
+		t.Fatal("Shared fixture database is unavailable")
 	}
-	defer db.Close()
-	s.Durability = db
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
@@ -141,12 +166,10 @@ func TestTaskAuthoringReadUsesSharedBeforeHub(t *testing.T) {
 
 func TestSharedTaskAndADRQueriesDoNotUseHub(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := s.Durability
+	if db == nil {
+		t.Fatal("Shared fixture database is unavailable")
 	}
-	defer db.Close()
-	s.Durability = db
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
@@ -191,12 +214,10 @@ func TestSharedTaskAndADRQueriesDoNotUseHub(t *testing.T) {
 
 func TestSharedQueriesScopeBeforeGlobalPageLimit(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := s.Durability
+	if db == nil {
+		t.Fatal("Shared fixture database is unavailable")
 	}
-	defer db.Close()
-	s.Durability = db
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
@@ -259,9 +280,9 @@ func TestSharedProjectEntitiesDeduplicateKeysetRepeats(t *testing.T) {
 
 func TestSharedADRPublishConvergesAfterRestart(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := s.Durability
+	if db == nil {
+		t.Fatal("Shared fixture database is unavailable")
 	}
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
@@ -277,11 +298,12 @@ func TestSharedADRPublishConvergesAfterRestart(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	db, err = sqlitestore.Open(s.Config.StateDir)
+	reopened, err := sqlitestore.Open(s.Config.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer reopened.Close()
+	db = reopened
 	s.Durability = db
 	pending, err := db.PendingOutbox(context.Background(), 10)
 	if err != nil || len(pending) != 1 {
@@ -306,12 +328,10 @@ func TestTaskAuthoringAsyncMutationsCommitSharedWhenHubUnavailable(t *testing.T)
 	s, revision, _ := testServiceWithoutIdentifiers(t)
 	revision = adoptAuthoringIdentifiersForTest(t, s, revision)
 	revision = enableTrainV2ForTest(t, s, revision)
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := s.Durability
+	if db == nil {
+		t.Fatal("Shared fixture database is unavailable")
 	}
-	defer db.Close()
-	s.Durability = db
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
@@ -368,12 +388,10 @@ func TestTaskAuthoringAsyncMutationsCommitSharedWhenHubUnavailable(t *testing.T)
 
 func TestTaskAuthoringReadySharedRequiresLocalIntegrationReceipt(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := s.Durability
+	if db == nil {
+		t.Fatal("Shared fixture database is unavailable")
 	}
-	defer db.Close()
-	s.Durability = db
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
@@ -439,12 +457,10 @@ func TestTaskAuthoringUpdateSharedBootstrapsLegacyTaskBeforeHubUnavailable(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := s.Durability
+	if db == nil {
+		t.Fatal("Shared fixture database is unavailable")
 	}
-	defer db.Close()
-	s.Durability = db
 	bootstrapCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
@@ -471,11 +487,11 @@ func TestSharedBootstrapMarkerBlocksAuthoringAndSurvivesRestart(t *testing.T) {
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := s.Durability
+	if db == nil {
+		t.Fatal("Shared fixture database is unavailable")
 	}
-	s.Durability = db
+	removeSharedBootstrapMarkerForTest(t, s)
 	in := TaskAuthoringCreateInput{ProjectID: "example", Title: "Marker task", Objective: "Require bootstrap first.", AcceptanceCriteria: []string{"marker"}, ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner"}
 	if _, _, err := s.taskAuthoringCreateShared(context.Background(), "op-before-bootstrap", in); err == nil || !strings.Contains(err.Error(), "bootstrap is incomplete") {
 		t.Fatalf("authoring before bootstrap error=%v", err)
@@ -487,11 +503,12 @@ func TestSharedBootstrapMarkerBlocksAuthoringAndSurvivesRestart(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	db, err = sqlitestore.Open(s.Config.StateDir)
+	reopened, err := sqlitestore.Open(s.Config.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer reopened.Close()
+	db = reopened
 	s.Durability = db
 	complete, err := db.SharedBootstrapComplete(context.Background(), "example")
 	if err != nil || !complete {

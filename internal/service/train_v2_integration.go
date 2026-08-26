@@ -2,10 +2,11 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
-	"time"
+	"fmt"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
@@ -17,8 +18,15 @@ func trainV2IntegrationPath(projectID, trainID string) string {
 }
 
 func (s *Service) readTrainV2IntegrationReceipt(ctx context.Context, projectID, trainID string) (trainv2.IntegrationReceipt, error) {
+	if s.Durability == nil {
+		return trainv2.IntegrationReceipt{}, fmt.Errorf("Shared integration authority is unavailable")
+	}
+	entity, err := s.Durability.ReadSharedEntity(ctx, "integration_receipt", sqlitestore.SharedIntegrationReceiptID(projectID, trainID))
+	if err != nil {
+		return trainv2.IntegrationReceipt{}, err
+	}
 	var receipt trainv2.IntegrationReceipt
-	if err := s.Hub.ReadJSON(ctx, trainV2IntegrationPath(projectID, trainID), &receipt); err != nil {
+	if err := json.Unmarshal(entity.Payload, &receipt); err != nil {
 		return trainv2.IntegrationReceipt{}, err
 	}
 	if err := trainv2.ValidateIntegrationReceipt(receipt); err != nil {
@@ -31,28 +39,37 @@ func (s *Service) writeTrainV2IntegrationReceipt(ctx context.Context, receipt tr
 	if err := trainv2.ValidateIntegrationReceipt(receipt); err != nil {
 		return err
 	}
-	expected, err := s.hubRevision(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = s.Hub.Transact(ctx, expected, "gateway: record train v2 reconciliation "+receipt.TrainID, func(worktree string) ([]string, error) {
-		path := trainV2IntegrationPath(receipt.ProjectID, receipt.TrainID)
-		if err := hub.WriteJSON(worktree, path, receipt); err != nil {
-			return nil, err
-		}
-		return []string{path}, nil
-	})
-	if err != nil || s.Durability == nil {
-		return err
+	if s.Durability == nil {
+		return fmt.Errorf("Shared integration authority is unavailable")
 	}
 	payload, err := json.Marshal(receipt)
 	if err != nil {
 		return err
 	}
-	return s.Durability.PutSharedIntegrationReceipt(ctx, sqlitestore.SharedIntegrationReceipt{
-		ID:        sqlitestore.SharedIntegrationReceiptID(receipt.ProjectID, receipt.TrainID),
-		Revision:  receipt.UpdatedAt.UnixNano(),
-		Payload:   payload,
-		UpdatedAt: receipt.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	id := sqlitestore.SharedIntegrationReceiptID(receipt.ProjectID, receipt.TrainID)
+	expected := int64(0)
+	create := true
+	if current, readErr := s.Durability.ReadSharedEntity(ctx, "integration_receipt", id); readErr == nil {
+		expected = current.Revision
+		create = false
+		if string(current.Payload) == string(payload) {
+			return nil
+		}
+	} else if !IsNotFound(readErr) {
+		return readErr
+	}
+	digest := sha256.Sum256(payload)
+	operationID := "train-integration-receipt-" + hex.EncodeToString(digest[:])
+	_, err = s.Durability.CommitSharedMutation(ctx, sqlitestore.SharedMutation{
+		OperationID:      operationID,
+		EntityType:       "integration_receipt",
+		EntityID:         id,
+		ExpectedRevision: expected,
+		Revision:         expected + 1,
+		Kind:             "train-v2-integration-receipt",
+		Payload:          payload,
+		CreatedAt:        receipt.UpdatedAt,
+		Create:           create,
 	})
+	return err
 }

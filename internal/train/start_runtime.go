@@ -47,6 +47,24 @@ func RuntimePath(stateDir, projectID, trainID string) string {
 	return runtimePath(stateDir, projectID, trainID)
 }
 
+// RuntimeBindingFromAttempt reconstructs the disposable local runtime
+// projection from durable Attempt authority after a Gateway restart. It does
+// not select an Agent or create a new Attempt.
+func RuntimeBindingFromAttempt(stateDir, projectID, projectCode string, train model.TrainV2, item model.TrainV2Item, attempt model.TrainV2Attempt) (RuntimeBinding, error) {
+	if train.ProjectID != projectID || item.Position < 0 || item.Position >= len(train.Items) || train.Items[item.Position].TaskID != item.TaskID || attempt.Number == 0 || attempt.Number > uint64(len(item.Attempts)) || item.Attempts[attempt.Number-1].Number != attempt.Number {
+		return RuntimeBinding{}, fmt.Errorf("cannot reconstruct runtime for non-exact Train Attempt")
+	}
+	worktree, err := CompactWorktreePath(stateDir, projectCode, train.ID)
+	if err != nil {
+		return RuntimeBinding{}, err
+	}
+	runtime := RuntimeBinding{SchemaVersion: runtimeSchemaVersion, ProjectID: projectID, ProjectCode: projectCode, TrainID: train.ID, WorktreePath: worktree, AgentID: attempt.AgentID, SessionKey: attempt.AirelaySessionKey, ItemPosition: item.Position, TaskID: item.TaskID, AttemptNumber: attempt.Number, StartedAt: attempt.StartedAt}
+	if err := ValidateRuntimeBinding(runtime, stateDir); err != nil {
+		return RuntimeBinding{}, err
+	}
+	return runtime, nil
+}
+
 func ValidateRuntimeBindingShape(v RuntimeBinding) error {
 	if v.SchemaVersion != runtimeSchemaVersion || model.ValidateProjectIdentifier(v.ProjectID) != nil || v.WorktreePath == "" || model.ValidateObjectIdentifier(v.AgentID) != nil || v.SessionKey == "" || strings.ContainsAny(v.SessionKey, "\x00\r\n") || v.ItemPosition < 0 || model.ValidateCanonicalTaskID(v.TaskID) != nil || v.AttemptNumber < 1 || v.StartedAt.IsZero() {
 		return fmt.Errorf("invalid local train runtime binding")

@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
-	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
@@ -18,12 +16,10 @@ func (s *Service) resumeTrainV2IntegrationReceipt(ctx context.Context, in TrainV
 		if projectErr != nil {
 			return trainv2.IntegrationReceipt{}, OperationResult{}, projectErr, true
 		}
-		startPath := hub.ProtocolRoot + "/projects/" + in.ProjectID + "/train-v2-starts/" + in.TrainID + ".json"
-		var start model.TrainV2StartRecord
-		if startErr := s.Hub.ReadJSON(ctx, startPath, &start); startErr != nil {
-			return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("read completed Train start: %w", startErr), true
+		if _, err := s.trainV2ReadShared(ctx, in.ProjectID, in.TrainID); err != nil {
+			return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("read completed Train: %w", err), true
 		}
-		if cleanupErr := s.releaseTrainRuntime(ctx, project, in.ProjectID, in.TrainID, start.LaneBranch, receipt.LaneHead); cleanupErr != nil {
+		if cleanupErr := s.releaseTrainRuntime(ctx, project, in.ProjectID, in.TrainID, "train/"+in.TrainID, receipt.LaneHead); cleanupErr != nil {
 			return trainv2.IntegrationReceipt{}, OperationResult{}, cleanupErr, true
 		}
 		return receipt, OperationResult{

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
@@ -34,52 +33,50 @@ func (s *Service) taskAttempt(ctx context.Context, projectID, taskID string) (cu
 	if _, err := s.TaskAuthoringRead(ctx, projectID, taskID); err != nil {
 		return currentTaskAttempt{}, err
 	}
-	trains, err := s.TrainV2List(ctx, TrainV2ListInput{
-		ProjectID: projectID,
-		Limit:     model.MaxTrainV2Items,
-	})
+	if s.Durability == nil {
+		return currentTaskAttempt{}, fmt.Errorf("Shared Train authority is unavailable")
+	}
+	return s.taskAttemptShared(ctx, projectID, taskID)
+}
+
+func (s *Service) taskAttemptShared(ctx context.Context, projectID, taskID string) (currentTaskAttempt, error) {
+	trains, err := s.sharedTrains(ctx, projectID)
 	if err != nil {
 		return currentTaskAttempt{}, err
 	}
 	var found currentTaskAttempt
 	foundCount := 0
-	for _, train := range trains.Trains {
+	for _, train := range trains {
 		if train.Status != model.TrainV2Running && train.Status != model.TrainV2Paused && train.Status != model.TrainV2Blocked {
 			continue
 		}
-		startPath := hub.ProtocolRoot + "/projects/" + projectID + "/train-v2-starts/" + train.ID + ".json"
-		var start model.TrainV2StartRecord
-		if err := s.Hub.ReadJSON(ctx, startPath, &start); err != nil {
-			continue
+		for _, item := range train.Items {
+			if item.TaskID != taskID || item.ActiveAttemptNumber == 0 {
+				continue
+			}
+			attempt, err := trainv2Attempt(item, item.ActiveAttemptNumber)
+			if err != nil {
+				return currentTaskAttempt{}, err
+			}
+			if attempt.Status != model.TrainV2AttemptRunning {
+				return currentTaskAttempt{}, fmt.Errorf("Task does not have a running Attempt")
+			}
+			runtime, runtimeErr := s.sharedRuntimeForAttempt(projectID, train, item, attempt)
+			if runtimeErr != nil {
+				return currentTaskAttempt{}, fmt.Errorf("Task Attempt runtime is unavailable: %w", runtimeErr)
+			}
+			if runtime.TrainID != train.ID || runtime.ItemPosition != item.Position || runtime.TaskID != taskID || runtime.AttemptNumber != attempt.Number {
+				return currentTaskAttempt{}, fmt.Errorf("Task current TrainItem binding is invalid")
+			}
+			if runtime.AgentID != attempt.AgentID || runtime.SessionKey != attempt.AirelaySessionKey {
+				return currentTaskAttempt{}, fmt.Errorf("Task Attempt runtime execution snapshot mismatch")
+			}
+			if err := trainv2.ValidateRuntimeBinding(runtime, s.Config.StateDir); err != nil {
+				return currentTaskAttempt{}, err
+			}
+			found = currentTaskAttempt{Train: train, Item: item, Attempt: attempt, Runtime: runtime}
+			foundCount++
 		}
-		if start.CurrentTaskID != taskID || start.CurrentItemPosition < 0 || start.CurrentItemPosition >= len(train.Items) || start.CurrentAttemptNumber == 0 {
-			continue
-		}
-		item := train.Items[start.CurrentItemPosition]
-		if item.TaskID != taskID || item.ActiveAttemptNumber != start.CurrentAttemptNumber || start.CurrentAttemptNumber > uint64(len(item.Attempts)) {
-			return currentTaskAttempt{}, fmt.Errorf("Task current TrainItem binding is invalid")
-		}
-		attempt := item.Attempts[start.CurrentAttemptNumber-1]
-		if attempt.Status != model.TrainV2AttemptRunning {
-			return currentTaskAttempt{}, fmt.Errorf("Task does not have a running Attempt")
-		}
-		runtime, err := trainv2.ReadRuntime(s.Config.StateDir, projectID, train.ID)
-		if err != nil {
-			return currentTaskAttempt{}, fmt.Errorf("Task Attempt runtime is unavailable: %w", err)
-		}
-		if runtime.ItemPosition != item.Position || runtime.TaskID != taskID || runtime.AttemptNumber != attempt.Number {
-			return currentTaskAttempt{}, fmt.Errorf("Task Attempt runtime ownership mismatch")
-		}
-		if err := trainv2.ValidateRuntimeBinding(runtime, s.Config.StateDir); err != nil {
-			return currentTaskAttempt{}, err
-		}
-		found = currentTaskAttempt{
-			Train:   train,
-			Item:    item,
-			Attempt: attempt,
-			Runtime: runtime,
-		}
-		foundCount++
 	}
 	if foundCount == 0 {
 		return currentTaskAttempt{}, errTaskHasNoCurrentAttempt
@@ -88,6 +85,13 @@ func (s *Service) taskAttempt(ctx context.Context, projectID, taskID string) (cu
 		return currentTaskAttempt{}, fmt.Errorf("Task has ambiguous current TrainItem ownership")
 	}
 	return found, nil
+}
+
+func trainv2Attempt(item model.TrainV2Item, number uint64) (model.TrainV2Attempt, error) {
+	if number == 0 || number > uint64(len(item.Attempts)) || item.Attempts[number-1].Number != number {
+		return model.TrainV2Attempt{}, fmt.Errorf("Train item has no exact Attempt %d", number)
+	}
+	return item.Attempts[number-1], nil
 }
 
 func (s *Service) TaskWork(ctx context.Context, in TaskWorkInput) (TaskWorkResult, error) {
@@ -150,19 +154,46 @@ func (s *Service) TaskWork(ctx context.Context, in TaskWorkInput) (TaskWorkResul
 }
 
 func (s *Service) TaskFinalize(ctx context.Context, in TaskFinalizeInput) (TrainV2AttemptFinalizeResult, error) {
-	return s.finalizeTaskByIdentity(ctx, in)
+	if err := validateTaskFinalizeSemantics(in); err != nil {
+		return TrainV2AttemptFinalizeResult{}, err
+	}
+	if s.Durability == nil {
+		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("Shared Train authority is unavailable")
+	}
+	if in.ProjectID == "" {
+		task, err := s.TaskAuthoringFind(ctx, in.TaskID)
+		if err != nil {
+			return TrainV2AttemptFinalizeResult{}, err
+		}
+		in.ProjectID = task.ProjectID
+	}
+	current, err := s.taskAttempt(ctx, in.ProjectID, in.TaskID)
+	if err != nil {
+		return TrainV2AttemptFinalizeResult{}, err
+	}
+	return s.TrainV2AttemptFinalize(ctx, TrainV2AttemptFinalizeInput{
+		ProjectID:          in.ProjectID,
+		TrainID:            current.Train.ID,
+		ItemPosition:       current.Item.Position,
+		AttemptNumber:      current.Attempt.Number,
+		Summary:            in.Summary,
+		AcceptanceCoverage: append([]string{}, in.AcceptanceCoverage...),
+		Deviations:         append([]string{}, in.Deviations...),
+		RemainingRisks:     append([]string{}, in.RemainingRisks...),
+		WriteOptions:       in.WriteOptions,
+	})
 }
 
 func (s *Service) resolvePlannedTaskTrain(ctx context.Context, projectID, taskID string) (string, error) {
-	trains, err := s.TrainV2List(ctx, TrainV2ListInput{
-		ProjectID: projectID,
-		Limit:     model.MaxTrainV2Items,
-	})
+	if s.Durability == nil {
+		return "", fmt.Errorf("Shared Train authority is unavailable")
+	}
+	trains, err := s.trainV2ListShared(ctx, projectID, model.MaxTrainV2Items)
 	if err != nil {
 		return "", err
 	}
 	trainID := ""
-	for _, train := range trains.Trains {
+	for _, train := range trains {
 		for _, item := range train.Items {
 			if item.TaskID != taskID {
 				continue

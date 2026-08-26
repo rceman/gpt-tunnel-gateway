@@ -10,6 +10,7 @@ import (
 	"time"
 
 	upstream "github.com/rceman/go-sqlite-store/store"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 // SharedMutation is the local-first commit unit for one syncable entity. The
@@ -27,6 +28,27 @@ type SharedMutation struct {
 	CreatedAt         time.Time
 	Create            bool
 	AllowSameRevision bool
+	TrainAdmissions   []SharedTrainTaskAdmission
+	ReplicaIntents    []SharedReplicaIntent
+}
+
+// SharedTrainTaskAdmission is committed with the Train CAS and outbox row.
+// The primary key reserves a Task for one project Train, while the database
+// trigger rejects a competing Train inside the same SQLite transaction.
+type SharedTrainTaskAdmission struct {
+	ProjectID string
+	TaskID    string
+	TrainID   string
+}
+
+// SharedReplicaIntent is an opaque, typed Hub projection queued atomically
+// with its Shared authority transition. The outbox worker performs the slow
+// replica publication after the local commit has acknowledged.
+type SharedReplicaIntent struct {
+	Kind      string
+	EntityID  string
+	ProjectID string
+	Payload   []byte
 }
 
 type SharedMutationReceipt struct {
@@ -42,6 +64,7 @@ type OutboxEntry struct {
 	ID            string
 	EntityType    string
 	EntityID      string
+	ProjectID     string
 	Revision      int64
 	Kind          string
 	Payload       []byte
@@ -75,6 +98,17 @@ type SharedTaskCreate struct {
 	BuildPayload          func(string) ([]byte, error)
 }
 
+type SharedJournalCreate struct {
+	OperationID            string
+	ProjectID              string
+	ProjectCode            string
+	InitialNextEventNumber int64
+	SupersedesEventID      string
+	Kind                   string
+	CreatedAt              time.Time
+	BuildPayload           func(string) ([]byte, error)
+}
+
 type SharedTask struct {
 	ID        string
 	Revision  int64
@@ -102,13 +136,61 @@ type SharedBootstrapMarker struct {
 	CompletedAt string
 }
 
+// ReadSharedProjectIdentifiers returns the local allocator projection. It is
+// intentionally independent of Hub and is used by synchronous lifecycle
+// admission; Hub only receives the resulting outbox publication.
+func (d *Databases) ReadSharedProjectIdentifiers(ctx context.Context, projectID, projectCode string) (model.ProjectIdentifiers, error) {
+	if d == nil || d.Shared == nil {
+		return model.ProjectIdentifiers{}, fmt.Errorf("shared store is unavailable")
+	}
+	if err := model.ValidateProjectIdentifier(projectID); err != nil {
+		return model.ProjectIdentifiers{}, err
+	}
+	if err := model.ValidateProjectCode(projectCode); err != nil {
+		return model.ProjectIdentifiers{}, err
+	}
+	nextTask, nextADR := int64(1), int64(1)
+	found := false
+	for _, q := range []struct {
+		sql  string
+		args []any
+		dst  *int64
+	}{
+		{`SELECT next_task_number FROM shared_task_sequences WHERE project_id=?`, []any{projectID}, &nextTask},
+		{`SELECT next_adr_number FROM shared_adr_sequences WHERE project_id=?`, []any{projectID}, &nextADR},
+	} {
+		rows, err := d.Shared.Query(ctx, q.sql, q.args...)
+		if err != nil {
+			return model.ProjectIdentifiers{}, err
+		}
+		if len(rows.Rows) == 1 && len(rows.Rows[0]) == 1 {
+			if value, ok := rows.Rows[0][0].(int64); ok && value > 0 {
+				found = true
+				*q.dst = value
+			}
+		}
+	}
+	if !found {
+		return model.ProjectIdentifiers{}, fmt.Errorf("Shared project identifiers %q: %w", projectID, os.ErrNotExist)
+	}
+	result := model.ProjectIdentifiers{SchemaVersion: model.SchemaVersion, ProjectID: projectID, ProjectCode: projectCode, NextTaskNumber: uint64(nextTask), NextADRNumber: uint64(nextADR)}
+	if err := model.ValidateProjectIdentifiers(result); err != nil {
+		return model.ProjectIdentifiers{}, err
+	}
+	return result, nil
+}
+
 var sharedEntityTables = map[string]string{
 	"task":                  "shared_tasks",
 	"train":                 "shared_trains",
 	"adr":                   "shared_adrs",
 	"rule":                  "shared_rules",
 	"journal":               "shared_journals",
+	"integration_receipt":   "shared_integration_receipts",
 	"project_configuration": "shared_project_configurations",
+	"agent":                 "shared_agents",
+	"watcher_guide":         "shared_watcher_guides",
+	"integration_operation": "shared_integration_operations",
 }
 
 var sharedProjectionTables = map[string]string{
@@ -119,6 +201,9 @@ var sharedProjectionTables = map[string]string{
 	"journal":               "shared_journals",
 	"integration_receipt":   "shared_integration_receipts",
 	"project_configuration": "shared_project_configurations",
+	"agent":                 "shared_agents",
+	"watcher_guide":         "shared_watcher_guides",
+	"integration_operation": "shared_integration_operations",
 }
 
 func (d *Databases) CommitSharedMutation(ctx context.Context, mutation SharedMutation) (SharedMutationReceipt, error) {
@@ -160,10 +245,24 @@ func (d *Databases) CommitSharedMutation(ctx context.Context, mutation SharedMut
 	if !mutation.Create {
 		entityArgs = []any{mutation.Revision, mutation.Payload, created, mutation.EntityID, mutation.ExpectedRevision}
 	}
-	_, err := d.Shared.Batch(ctx, []upstream.Statement{
+	statements := []upstream.Statement{
 		{SQL: entitySQL, Args: entityArgs, RequireRowsAffected: 1},
-		{SQL: `INSERT INTO hub_outbox(id,entity_type,entity_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?)`, Args: []any{mutation.OperationID, mutation.EntityType, mutation.EntityID, mutation.Revision, mutation.Kind, mutation.Payload, created}, RequireRowsAffected: 1},
-	})
+	}
+	for _, admission := range mutation.TrainAdmissions {
+		if admission.ProjectID == "" || admission.TaskID == "" || admission.TrainID == "" {
+			return SharedMutationReceipt{}, fmt.Errorf("shared Train admission identity is incomplete")
+		}
+		statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_train_task_admissions(project_id,task_id,train_id,created_at) VALUES(?,?,?,?) ON CONFLICT(project_id,task_id) DO NOTHING`, Args: []any{admission.ProjectID, admission.TaskID, admission.TrainID, created}})
+	}
+	for _, intent := range mutation.ReplicaIntents {
+		if intent.Kind == "" || intent.EntityID == "" || intent.ProjectID == "" || len(intent.Payload) == 0 {
+			return SharedMutationReceipt{}, fmt.Errorf("shared replica intent is incomplete")
+		}
+		intentID := mutation.OperationID + "::replica::" + intent.Kind + "::" + intent.EntityID
+		statements = append(statements, upstream.Statement{SQL: `INSERT INTO hub_outbox(id,entity_type,entity_id,project_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?,?)`, Args: []any{intentID, intent.Kind, intent.EntityID, intent.ProjectID, mutation.Revision, mutation.Kind, intent.Payload, created}, RequireRowsAffected: 1})
+	}
+	statements = append(statements, upstream.Statement{SQL: `INSERT INTO hub_outbox(id,entity_type,entity_id,project_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?,?)`, Args: []any{mutation.OperationID, mutation.EntityType, mutation.EntityID, "", mutation.Revision, mutation.Kind, mutation.Payload, created}, RequireRowsAffected: 1})
+	_, err := d.Shared.Batch(ctx, statements)
 	if err != nil {
 		if existing, found, readErr := d.outboxEntry(ctx, mutation.OperationID); readErr == nil && found {
 			return d.reuseSharedMutation(mutation, existing)
@@ -275,6 +374,128 @@ func (d *Databases) CommitSharedADRCreate(ctx context.Context, request SharedADR
 	return SharedMutationReceipt{OperationID: request.OperationID, EntityType: "adr", EntityID: id, Revision: 1, Committed: true}, id, payload, nil
 }
 
+// CommitSharedJournalCreate allocates a journal ID, records a supersession
+// guard, and publishes the event to the Hub outbox in one local transaction.
+// Hub synchronization is deliberately left to the outbox worker.
+func (d *Databases) CommitSharedJournalCreate(ctx context.Context, request SharedJournalCreate) (SharedMutationReceipt, string, []byte, error) {
+	if d == nil || d.Shared == nil {
+		return SharedMutationReceipt{}, "", nil, fmt.Errorf("shared store is unavailable")
+	}
+	if request.OperationID == "" || request.ProjectID == "" || request.Kind == "" || request.BuildPayload == nil {
+		return SharedMutationReceipt{}, "", nil, fmt.Errorf("shared journal create identity is incomplete")
+	}
+	if len(request.ProjectCode) != 3 || strings.ToUpper(request.ProjectCode) != request.ProjectCode {
+		return SharedMutationReceipt{}, "", nil, fmt.Errorf("invalid shared journal project code")
+	}
+	d.journalMu.Lock()
+	defer d.journalMu.Unlock()
+	created := request.CreatedAt.UTC().Format(time.RFC3339Nano)
+	if request.CreatedAt.IsZero() {
+		created = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	for attempt := 0; attempt < 8; attempt++ {
+		if existing, found, err := d.outboxEntry(ctx, request.OperationID); err != nil {
+			return SharedMutationReceipt{}, "", nil, err
+		} else if found {
+			receipt, err := d.reuseSharedMutation(SharedMutation{OperationID: request.OperationID, EntityType: "journal", EntityID: existing.EntityID, Revision: existing.Revision, Kind: request.Kind, Payload: existing.Payload}, existing)
+			return receipt, existing.EntityID, append([]byte(nil), existing.Payload...), err
+		}
+		if _, err := d.Shared.Exec(ctx, `INSERT OR IGNORE INTO shared_journal_sequences(project_id,project_code,next_event_number) VALUES(?,?,?)`, request.ProjectID, request.ProjectCode, maxInt64(request.InitialNextEventNumber, 1)); err != nil {
+			return SharedMutationReceipt{}, "", nil, err
+		}
+		rows, err := d.Shared.Query(ctx, `SELECT project_code,next_event_number FROM shared_journal_sequences WHERE project_id=?`, request.ProjectID)
+		if err != nil {
+			return SharedMutationReceipt{}, "", nil, err
+		}
+		if len(rows.Rows) != 1 || rows.Rows[0][0] != request.ProjectCode {
+			return SharedMutationReceipt{}, "", nil, fmt.Errorf("shared journal project code mismatch")
+		}
+		next, ok := rows.Rows[0][1].(int64)
+		if !ok || next < 1 || uint64(next) > model.MaxSafeInteger {
+			return SharedMutationReceipt{}, "", nil, fmt.Errorf("invalid shared journal sequence")
+		}
+		entityID, err := model.FormatJournalID(request.ProjectCode, uint64(next))
+		if err != nil {
+			return SharedMutationReceipt{}, "", nil, err
+		}
+		payload, err := request.BuildPayload(entityID)
+		if err != nil {
+			return SharedMutationReceipt{}, "", nil, err
+		}
+		if len(payload) == 0 {
+			return SharedMutationReceipt{}, "", nil, fmt.Errorf("shared journal payload is empty")
+		}
+		nextSequence := next
+		if uint64(next) < model.MaxSafeInteger {
+			nextSequence++
+		}
+		statements := []upstream.Statement{
+			{SQL: `UPDATE shared_journal_sequences SET next_event_number=? WHERE project_id=? AND project_code=? AND next_event_number=?`, Args: []any{nextSequence, request.ProjectID, request.ProjectCode, next}, RequireRowsAffected: 1},
+			{SQL: `INSERT INTO shared_journals(id,revision,payload,updated_at) VALUES(?,?,?,?)`, Args: []any{entityID, 1, payload, created}, RequireRowsAffected: 1},
+		}
+		if request.SupersedesEventID != "" {
+			statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_journal_supersessions(target_id,operation_id,created_at) VALUES(?,?,?)`, Args: []any{request.SupersedesEventID, request.OperationID, created}, RequireRowsAffected: 1})
+		}
+		statements = append(statements, upstream.Statement{SQL: `INSERT INTO hub_outbox(id,entity_type,entity_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?)`, Args: []any{request.OperationID, "journal", entityID, 1, request.Kind, payload, created}, RequireRowsAffected: 1})
+		if _, err = d.Shared.Batch(ctx, statements); err == nil {
+			return SharedMutationReceipt{OperationID: request.OperationID, EntityType: "journal", EntityID: entityID, Revision: 1, Committed: true}, entityID, payload, nil
+		}
+		if existing, found, readErr := d.outboxEntry(ctx, request.OperationID); readErr == nil && found {
+			receipt, reuseErr := d.reuseSharedMutation(SharedMutation{OperationID: request.OperationID, EntityType: "journal", EntityID: existing.EntityID, Revision: existing.Revision, Kind: request.Kind, Payload: existing.Payload}, existing)
+			return receipt, existing.EntityID, append([]byte(nil), existing.Payload...), reuseErr
+		}
+		if !errors.Is(err, upstream.ErrRowsAffectedMismatch) {
+			return SharedMutationReceipt{}, "", nil, err
+		}
+	}
+	return SharedMutationReceipt{}, "", nil, fmt.Errorf("shared journal sequence changed during allocation")
+}
+
+func maxInt64(value, fallback int64) int64 {
+	if value > fallback {
+		return value
+	}
+	return fallback
+}
+
+func (d *Databases) PutSharedJournalSequence(ctx context.Context, projectID, projectCode string, next int64) error {
+	if d == nil || d.Shared == nil || projectID == "" || len(projectCode) != 3 || strings.ToUpper(projectCode) != projectCode || next < 1 {
+		return fmt.Errorf("invalid shared journal sequence")
+	}
+	_, err := d.Shared.Exec(ctx, `INSERT INTO shared_journal_sequences(project_id,project_code,next_event_number) VALUES(?,?,?) ON CONFLICT(project_id) DO UPDATE SET project_code=excluded.project_code,next_event_number=CASE WHEN excluded.next_event_number > shared_journal_sequences.next_event_number THEN excluded.next_event_number ELSE shared_journal_sequences.next_event_number END`, projectID, projectCode, next)
+	return err
+}
+
+func (d *Databases) ReadSharedJournalSequence(ctx context.Context, projectID string) (string, int64, bool, error) {
+	if d == nil || d.Shared == nil {
+		return "", 0, false, fmt.Errorf("shared store is unavailable")
+	}
+	rows, err := d.Shared.Query(ctx, `SELECT project_code,next_event_number FROM shared_journal_sequences WHERE project_id=?`, projectID)
+	if err != nil {
+		return "", 0, false, err
+	}
+	if len(rows.Rows) == 0 {
+		return "", 0, false, nil
+	}
+	if len(rows.Rows) != 1 {
+		return "", 0, false, fmt.Errorf("invalid shared journal sequence")
+	}
+	code, codeOK := rows.Rows[0][0].(string)
+	next, nextOK := rows.Rows[0][1].(int64)
+	if !codeOK || !nextOK || next < 1 {
+		return "", 0, false, fmt.Errorf("invalid shared journal sequence")
+	}
+	return code, next, true, nil
+}
+
+func (d *Databases) PutSharedJournalSupersession(ctx context.Context, targetID, operationID string) error {
+	if d == nil || d.Shared == nil || targetID == "" || operationID == "" {
+		return fmt.Errorf("invalid shared journal supersession")
+	}
+	_, err := d.Shared.Exec(ctx, `INSERT INTO shared_journal_supersessions(target_id,operation_id,created_at) VALUES(?,?,?) ON CONFLICT(target_id) DO NOTHING`, targetID, operationID, time.Now().UTC().Format(time.RFC3339Nano))
+	return err
+}
+
 func (d *Databases) nextADRNumber(ctx context.Context, projectID, projectCode string, initial int64) (int64, error) {
 	rows, err := d.Shared.Query(ctx, `SELECT project_code,next_adr_number FROM shared_adr_sequences WHERE project_id=?`, projectID)
 	if err != nil {
@@ -381,6 +602,19 @@ func (d *Databases) MarkSharedBootstrapComplete(ctx context.Context, marker Shar
 	return err
 }
 
+// DeleteSharedBootstrapMarker removes one test/recovery marker through the
+// typed persistence boundary. Callers do not need to know the table layout.
+func (d *Databases) DeleteSharedBootstrapMarker(ctx context.Context, projectID string) error {
+	if d == nil || d.Shared == nil {
+		return fmt.Errorf("shared store is unavailable")
+	}
+	if strings.TrimSpace(projectID) == "" {
+		return fmt.Errorf("project id is required")
+	}
+	_, err := d.Shared.Exec(ctx, `DELETE FROM shared_bootstrap_markers WHERE project_id=?`, projectID)
+	return err
+}
+
 func (d *Databases) SharedBootstrapComplete(ctx context.Context, projectID string) (bool, error) {
 	if d == nil || d.Shared == nil {
 		return false, fmt.Errorf("shared store is unavailable")
@@ -402,6 +636,29 @@ func (d *Databases) SharedBootstrapComplete(ctx context.Context, projectID strin
 		return false, fmt.Errorf("invalid shared bootstrap marker")
 	}
 	return true, nil
+}
+
+func (d *Databases) ReadSharedBootstrapMarker(ctx context.Context, projectID string) (SharedBootstrapMarker, error) {
+	if d == nil || d.Shared == nil {
+		return SharedBootstrapMarker{}, fmt.Errorf("shared store is unavailable")
+	}
+	rows, err := d.Shared.Query(ctx, `SELECT project_id,hub_revision,completed_at FROM shared_bootstrap_markers WHERE project_id=?`, projectID)
+	if err != nil {
+		return SharedBootstrapMarker{}, err
+	}
+	if len(rows.Rows) == 0 {
+		return SharedBootstrapMarker{}, fmt.Errorf("Shared bootstrap marker %q: %w", projectID, os.ErrNotExist)
+	}
+	if len(rows.Rows) != 1 || len(rows.Rows[0]) != 3 {
+		return SharedBootstrapMarker{}, fmt.Errorf("invalid Shared bootstrap marker")
+	}
+	project, ok1 := rows.Rows[0][0].(string)
+	revision, ok2 := rows.Rows[0][1].(string)
+	completed, ok3 := rows.Rows[0][2].(string)
+	if !ok1 || !ok2 || !ok3 || project != projectID {
+		return SharedBootstrapMarker{}, fmt.Errorf("invalid Shared bootstrap marker")
+	}
+	return SharedBootstrapMarker{ProjectID: project, HubRevision: revision, CompletedAt: completed}, nil
 }
 
 func (d *Databases) ReadSharedTask(ctx context.Context, taskID string) (SharedTask, error) {
@@ -581,7 +838,7 @@ func (d *Databases) PendingOutbox(ctx context.Context, limit int) ([]OutboxEntry
 	if limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("invalid outbox limit")
 	}
-	rows, err := d.Shared.Query(ctx, `SELECT id,entity_type,entity_id,revision,kind,payload,created_at,COALESCE(published_at,''),attempts,COALESCE(next_attempt_at,''),COALESCE(last_error,'') FROM hub_outbox WHERE published_at IS NULL AND (next_attempt_at IS NULL OR next_attempt_at='' OR next_attempt_at<=?) ORDER BY created_at,id LIMIT ?`, time.Now().UTC().Format(time.RFC3339Nano), limit)
+	rows, err := d.Shared.Query(ctx, `SELECT id,entity_type,entity_id,project_id,revision,kind,payload,created_at,COALESCE(published_at,''),attempts,COALESCE(next_attempt_at,''),COALESCE(last_error,'') FROM hub_outbox WHERE published_at IS NULL AND (next_attempt_at IS NULL OR next_attempt_at='' OR next_attempt_at<=?) ORDER BY created_at,id LIMIT ?`, time.Now().UTC().Format(time.RFC3339Nano), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -673,7 +930,7 @@ func (d *Databases) SharedSyncHealth(ctx context.Context) (SharedSyncHealth, err
 }
 
 func (d *Databases) outboxEntry(ctx context.Context, id string) (OutboxEntry, bool, error) {
-	rows, err := d.Shared.Query(ctx, `SELECT id,entity_type,entity_id,revision,kind,payload,created_at,COALESCE(published_at,''),attempts,COALESCE(next_attempt_at,''),COALESCE(last_error,'') FROM hub_outbox WHERE id=?`, id)
+	rows, err := d.Shared.Query(ctx, `SELECT id,entity_type,entity_id,project_id,revision,kind,payload,created_at,COALESCE(published_at,''),attempts,COALESCE(next_attempt_at,''),COALESCE(last_error,'') FROM hub_outbox WHERE id=?`, id)
 	if err != nil {
 		return OutboxEntry{}, false, err
 	}
@@ -685,44 +942,44 @@ func (d *Databases) outboxEntry(ctx context.Context, id string) (OutboxEntry, bo
 }
 
 func decodeOutboxRow(row []any) (OutboxEntry, error) {
-	if len(row) != 11 {
+	if len(row) != 12 {
 		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox row")
 	}
-	revision, ok := row[3].(int64)
+	revision, ok := row[4].(int64)
 	if !ok {
 		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox revision")
 	}
-	payload, ok := row[5].([]byte)
+	payload, ok := row[6].([]byte)
 	if !ok {
 		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox payload")
 	}
 	values := make([]string, 0, 4)
-	for _, index := range []int{0, 1, 2, 4} {
+	for _, index := range []int{0, 1, 2, 3, 5} {
 		value, ok := row[index].(string)
 		if !ok {
 			return OutboxEntry{}, fmt.Errorf("invalid Hub outbox text field")
 		}
 		values = append(values, value)
 	}
-	created, ok := row[6].(string)
+	created, ok := row[7].(string)
 	if !ok {
 		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox created_at")
 	}
-	published, ok := row[7].(string)
+	published, ok := row[8].(string)
 	if !ok {
 		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox published_at")
 	}
-	attempts, ok := row[8].(int64)
+	attempts, ok := row[9].(int64)
 	if !ok {
 		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox attempts")
 	}
-	nextAttempt, ok := row[9].(string)
+	nextAttempt, ok := row[10].(string)
 	if !ok {
 		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox next attempt")
 	}
-	lastError, ok := row[10].(string)
+	lastError, ok := row[11].(string)
 	if !ok {
 		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox last error")
 	}
-	return OutboxEntry{ID: values[0], EntityType: values[1], EntityID: values[2], Revision: revision, Kind: values[3], Payload: payload, CreatedAt: created, PublishedAt: published, Attempts: attempts, NextAttemptAt: nextAttempt, LastError: lastError}, nil
+	return OutboxEntry{ID: values[0], EntityType: values[1], EntityID: values[2], ProjectID: values[3], Revision: revision, Kind: values[4], Payload: payload, CreatedAt: created, PublishedAt: published, Attempts: attempts, NextAttemptAt: nextAttempt, LastError: lastError}, nil
 }

@@ -3,9 +3,9 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
-	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 func (s *Service) durableMutationExecutionSet1(ctx context.Context, operation durableMutationOperation) (json.RawMessage, error) {
@@ -15,62 +15,31 @@ func (s *Service) durableMutationExecutionSet1(ctx context.Context, operation du
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return nil, err
 		}
-		if s.Durability != nil {
+		if s.Durability == nil {
+			return nil, fmt.Errorf("Shared Task authority is unavailable")
+		}
+		{
 			task, result, err := s.taskAuthoringUpdateShared(ctx, operation.OperationID, input)
 			if err != nil {
 				return nil, err
 			}
 			return json.Marshal(map[string]any{"task": task, "operation": result})
 		}
-		// The operation marker makes a retry after a process crash safe: if the
-		// Hub write committed before the receipt did, the durable Task itself
-		// proves that this exact operation already applied.
-		if current, err := s.TaskAuthoringRead(ctx, input.ProjectID, input.TaskID); err == nil && current.Metadata != nil && current.Metadata["gateway_operation_id"] == operation.OperationID {
-			return json.Marshal(map[string]any{
-				"task": current,
-				"operation": OperationResult{
-					OperationID: operation.OperationID,
-					ProjectID:   current.ProjectID,
-					TaskID:      current.ID,
-					Status:      current.Status,
-				},
-			})
-		}
-		task, result, err := s.TaskAuthoringUpdate(ctx, input)
-		if err != nil {
-			return nil, err
-		}
-		result.OperationID = operation.OperationID
-		return json.Marshal(map[string]any{"task": task, "operation": result})
 	case "task-authoring-ready":
 		var input TaskAuthoringReadyInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return nil, err
 		}
-		if s.Durability != nil {
+		if s.Durability == nil {
+			return nil, fmt.Errorf("Shared Task authority is unavailable")
+		}
+		{
 			task, result, err := s.taskAuthoringReadyShared(ctx, operation.OperationID, input)
 			if err != nil {
 				return nil, err
 			}
 			return json.Marshal(map[string]any{"task": task, "operation": result})
 		}
-		if current, err := s.TaskAuthoringRead(ctx, input.ProjectID, input.TaskID); err == nil && current.Status == model.TaskAuthoringReady && current.ReadySeal != nil && current.ReadySeal.Revision == input.ExpectedRevision && current.ReadySeal.RevisionSHA256 == input.ExpectedRevisionSHA256 && current.ReadySeal.ReadyBy == input.ReadyBy {
-			return json.Marshal(map[string]any{
-				"task": current,
-				"operation": OperationResult{
-					OperationID: operation.OperationID,
-					ProjectID:   current.ProjectID,
-					TaskID:      current.ID,
-					Status:      current.Status,
-				},
-			})
-		}
-		task, result, err := s.TaskAuthoringReady(ctx, input)
-		if err != nil {
-			return nil, err
-		}
-		result.OperationID = operation.OperationID
-		return json.Marshal(map[string]any{"task": task, "operation": result})
 	case "train-v2-integrate":
 		var input TrainV2IntegrateInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
