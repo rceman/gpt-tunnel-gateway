@@ -139,6 +139,9 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	if err := model.ValidateRelativePath(in.Path); err != nil {
 		return CodeReadResult{}, err
 	}
+	if err := s.requireVisibleCodePaths(ctx, target, []string{in.Path}); err != nil {
+		return CodeReadResult{}, err
+	}
 	maxBytes, err := localCodeMaxBytes(in.MaxBytes)
 	if err != nil {
 		return CodeReadResult{}, err
@@ -159,6 +162,9 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	if err != nil {
 		return CodeSearchResult{}, err
 	}
+	if err := s.requireVisibleCodePaths(ctx, target, paths); err != nil {
+		return CodeSearchResult{}, err
+	}
 	if in.Query == "" || len(in.Query) > LocalCodeMaxQueryBytes || strings.ContainsAny(in.Query, "\x00\r\n") {
 		return CodeSearchResult{}, fmt.Errorf("invalid search query")
 	}
@@ -171,7 +177,8 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	}
 	result := CodeSearchResult{CodeIdentity: target.CodeIdentity, Matches: []CodeSearchMatch{}}
 	var scannedBytes int64
-	for _, path := range paths {
+	for pathIndex, path := range paths {
+		result.PathsScanned = pathIndex + 1
 		data, err := readLocalCodeFile(target.Worktree.Root, path)
 		if err != nil {
 			return CodeSearchResult{}, err
@@ -194,7 +201,6 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 			result.Matches = append(result.Matches, CodeSearchMatch{Path: path, Line: lineNumber + 1, Snippet: snippet})
 			if len(result.Matches) == limit {
 				result.Truncated = true
-				result.PathsScanned = len(paths)
 				return result, nil
 			}
 		}
@@ -208,9 +214,17 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 	if err != nil {
 		return CodeDiffResult{}, err
 	}
-	paths, err := validateLocalCodePaths(in.Paths, true)
+	if target.Dirty {
+		return CodeDiffResult{}, fmt.Errorf("code diff requires a clean local worktree")
+	}
+	paths, err := validateLocalCodePaths(in.Paths, false)
 	if err != nil {
 		return CodeDiffResult{}, err
+	}
+	if len(paths) > 0 {
+		if err := s.requireVisibleCodePaths(ctx, target, paths); err != nil {
+			return CodeDiffResult{}, err
+		}
 	}
 	maxBytes, err := localCodeMaxBytes(in.MaxBytes)
 	if err != nil {
@@ -226,6 +240,19 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 		result.Truncated = true
 	}
 	return result, nil
+}
+
+func (s *Service) requireVisibleCodePaths(ctx context.Context, target localCodeTarget, paths []string) error {
+	visible, err := s.Git.VisibleWorktreePaths(ctx, target.Worktree.Root, paths)
+	if err != nil {
+		return err
+	}
+	for _, path := range paths {
+		if _, ok := visible[path]; !ok {
+			return fmt.Errorf("code path is not Git-visible: %s", path)
+		}
+	}
+	return nil
 }
 
 func validateLocalCodePaths(paths []string, required bool) ([]string, error) {

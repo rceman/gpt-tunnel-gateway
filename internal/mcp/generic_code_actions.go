@@ -156,10 +156,10 @@ func codeSearchInputSchema() map[string]any {
 func codeDiffInputSchema() map[string]any {
 	properties := codeInputProperties()
 	paths := array(str("Explicit repository-relative diff path."))
-	paths["minItems"], paths["maxItems"] = 1, service.LocalCodeMaxPaths
+	paths["maxItems"] = service.LocalCodeMaxPaths
 	properties["paths"] = paths
 	properties["max_bytes"] = integer("Maximum diff response bytes.", 1, service.LocalCodeMaxBytes)
-	return obj(properties, "worktree_ref", "base_sha", "paths")
+	return obj(properties, "worktree_ref", "base_sha")
 }
 
 func codeIdentityOutputSchema() map[string]any {

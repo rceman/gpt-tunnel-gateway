@@ -46,6 +46,40 @@ func (r Runner) ResolveWorktree(ctx context.Context, p config.ProjectConfig, ref
 	return config.ProjectConfig{}, fmt.Errorf("local worktree_ref %q was not found", ref)
 }
 
+// VisibleWorktreePaths returns the exact tracked or non-ignored paths among
+// the requested paths. Git remains the authority for visibility; filesystem
+// existence is checked separately by code inspection.
+func (r Runner) VisibleWorktreePaths(ctx context.Context, root string, paths []string) (map[string]struct{}, error) {
+	if len(paths) == 0 {
+		return map[string]struct{}{}, nil
+	}
+	args := []string{"ls-files", "--cached", "--others", "--exclude-standard", "-z", "--"}
+	for _, path := range paths {
+		if err := model.ValidateRelativePath(path); err != nil {
+			return nil, err
+		}
+		args = append(args, path)
+	}
+	out, err := r.command(ctx, root, false, args...)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(out)) > r.MaxReadBytes {
+		return nil, fmt.Errorf("visible code path list exceeds read limit")
+	}
+	wanted := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		wanted[path] = struct{}{}
+	}
+	visible := make(map[string]struct{}, len(paths))
+	for _, path := range strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00") {
+		if _, ok := wanted[path]; ok {
+			visible[path] = struct{}{}
+		}
+	}
+	return visible, nil
+}
+
 func (r Runner) WorktreeStatus(ctx context.Context, p config.ProjectConfig) (WorktreeStatus, error) {
 	out, err := r.command(ctx, p.Root, false, "status", "--porcelain=v2", "--branch")
 	if err != nil {
