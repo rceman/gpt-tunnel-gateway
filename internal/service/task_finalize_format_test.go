@@ -40,8 +40,31 @@ func TestTaskFinalizeChangedFilesUnionsCommittedAndWorkingChanges(t *testing.T) 
 		t.Fatal(err)
 	}
 	want := []string{"committed.go", "staged.go", "working.go"}
-	if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(changedGoFiles(got), want) {
+	formatted, err := existingGoFiles(root, got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(formatted, want) {
 		t.Fatalf("changed files=%v want=%v", got, want)
+	}
+}
+
+func TestExistingGoFilesSkipsDeletedAndNonRegularPaths(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "present.go"), []byte("package present\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "directory.go"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := existingGoFiles(root, []string{"deleted.go", "directory.go", "notes.txt", "present.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"present.go"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("existing Go files=%v want=%v", got, want)
 	}
 }
 

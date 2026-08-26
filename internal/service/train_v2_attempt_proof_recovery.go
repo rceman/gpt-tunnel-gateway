@@ -87,11 +87,15 @@ func (s *Service) TrainV2AttemptProofRecover(ctx context.Context, in TrainV2Atte
 	if item.Status == model.TrainV2ItemReviewed && (item.Review == nil || item.Review.Outcome != model.ReviewOutcomeAccepted || item.Review.ReportID == "" || attempt.ReviewID != item.Review.ReportID) {
 		return TrainV2AttemptProofRecoveryResult{}, fmt.Errorf("reviewed Train item has invalid accepted review")
 	}
-	reportPath := trainV2AttemptReportPath(in.ProjectID, in.TrainID, in.ItemPosition, in.AttemptNumber)
-	var report model.TrainV2AttemptReport
-	if err := s.Hub.ReadJSON(ctx, reportPath, &report); err != nil {
+	evidence, err := s.sharedTrainEvidence()
+	if err != nil {
 		return TrainV2AttemptProofRecoveryResult{}, err
 	}
+	report, err := evidence.ReadAttemptReport(in.TrainID, item.TaskID, in.AttemptNumber)
+	if err != nil {
+		return TrainV2AttemptProofRecoveryResult{}, err
+	}
+	reportPath := hub.TrainAttemptReportPath(in.ProjectID, in.TrainID, item.Position, in.AttemptNumber)
 	if err := validateProofRecoveryReport(report, in.ProjectID, train, item, reportPath); err != nil {
 		return TrainV2AttemptProofRecoveryResult{}, fmt.Errorf("proof recovery rejected: %w", err)
 	}

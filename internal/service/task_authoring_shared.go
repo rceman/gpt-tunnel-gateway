@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +15,18 @@ import (
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
+func sharedTaskAuthoringOperationID(ctx context.Context, kind string, input any) (string, error) {
+	if operationID := durableMutationOperationID(ctx); operationID != "" {
+		return operationID, nil
+	}
+	payload, err := json.Marshal(input)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(append([]byte(kind+":"), payload...))
+	return kind + "-" + hex.EncodeToString(digest[:]), nil
+}
+
 func (s *Service) requireLocalTaskAuthoring(ctx context.Context, projectID string) error {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return err
@@ -21,7 +35,10 @@ func (s *Service) requireLocalTaskAuthoring(ctx context.Context, projectID strin
 	if !ok {
 		return fmt.Errorf("project %q is not configured locally", projectID)
 	}
-	if s.Durability != nil {
+	if s.Durability == nil {
+		return fmt.Errorf("Shared Task authority is unavailable")
+	}
+	{
 		complete, err := s.Durability.SharedBootstrapComplete(ctx, projectID)
 		if err != nil {
 			return fmt.Errorf("read Shared bootstrap marker: %w", err)
@@ -208,6 +225,9 @@ func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID str
 	if err := s.requireLocalTaskAuthoring(ctx, in.ProjectID); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
+	if in.ExpectedRevision < 1 || in.UpdatedBy == "" || containsControl(in.UpdatedBy) {
+		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("expected_revision and updated_by are required")
+	}
 	current, err := s.readSharedTask(ctx, in.ProjectID, in.TaskID)
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
@@ -240,6 +260,9 @@ func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID str
 func (s *Service) taskAuthoringReadyShared(ctx context.Context, operationID string, in TaskAuthoringReadyInput) (model.TaskAuthoring, OperationResult, error) {
 	if err := s.requireLocalTaskAuthoring(ctx, in.ProjectID); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
+	}
+	if in.ExpectedRevision < 1 || in.ReadyBy == "" || containsControl(in.ReadyBy) {
+		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("expected_revision and ready_by are required")
 	}
 	current, err := s.readSharedTask(ctx, in.ProjectID, in.TaskID)
 	if err != nil {

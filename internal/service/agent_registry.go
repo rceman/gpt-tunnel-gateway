@@ -2,15 +2,16 @@ package service
 
 import (
 	"context"
-	"errors"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func (s *Service) agentPath(projectID, agentID string) string {
@@ -24,6 +25,17 @@ func (s *Service) requireAgentMutation(ctx context.Context) error {
 	return RequireWorkflowPolicyAuthority(ctx)
 }
 
+func sharedAgentID(projectID, agentID string) string { return projectID + "\x00" + agentID }
+
+func sharedAgentOperationID(ctx context.Context, kind, projectID, agentID string, value any) string {
+	if operationID := durableMutationOperationID(ctx); operationID != "" {
+		return operationID
+	}
+	payload, _ := json.Marshal(value)
+	digest := sha256.Sum256(append([]byte(kind+"\x00"+projectID+"\x00"+agentID+"\x00"), payload...))
+	return "agent-" + hex.EncodeToString(digest[:])
+}
+
 func (s *Service) AgentRead(ctx context.Context, projectID, agentID string) (model.Agent, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return model.Agent{}, err
@@ -31,11 +43,18 @@ func (s *Service) AgentRead(ctx context.Context, projectID, agentID string) (mod
 	if err := model.ValidateObjectIdentifier(agentID); err != nil {
 		return model.Agent{}, err
 	}
-	if _, err := s.ProjectRead(ctx, projectID); err != nil {
+	if _, err := s.EffectiveProjectConfig(projectID); err != nil {
+		return model.Agent{}, err
+	}
+	if s.Durability == nil {
+		return model.Agent{}, fmt.Errorf("Shared Agent authority is unavailable")
+	}
+	entity, err := s.Durability.ReadSharedEntity(ctx, "agent", sharedAgentID(projectID, agentID))
+	if err != nil {
 		return model.Agent{}, err
 	}
 	var agent model.Agent
-	if err := s.Hub.ReadJSON(ctx, s.agentPath(projectID, agentID), &agent); err != nil {
+	if err := json.Unmarshal(entity.Payload, &agent); err != nil {
 		return model.Agent{}, err
 	}
 	if err := model.ValidateAgent(agent); err != nil || agent.ProjectID != projectID || agent.AgentID != agentID {
@@ -48,21 +67,27 @@ func (s *Service) AgentList(ctx context.Context, projectID string) ([]model.Agen
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return nil, err
 	}
-	if _, err := s.ProjectRead(ctx, projectID); err != nil {
+	if _, err := s.EffectiveProjectConfig(projectID); err != nil {
 		return nil, err
 	}
-	paths, err := s.Hub.List(ctx, s.projectPrefix(projectID)+"/agents", ".json")
+	if s.Durability == nil {
+		return nil, fmt.Errorf("Shared Agent authority is unavailable")
+	}
+	entities, err := s.Durability.ListSharedEntities(ctx, "agent", 1000)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]model.Agent, 0, len(paths))
-	for _, path := range paths {
+	result := make([]model.Agent, 0, len(entities))
+	for _, entity := range entities {
+		if !strings.HasPrefix(entity.ID, projectID+"\x00") {
+			continue
+		}
 		var agent model.Agent
-		if err := s.Hub.ReadJSON(ctx, path, &agent); err != nil {
+		if err := json.Unmarshal(entity.Payload, &agent); err != nil {
 			return nil, err
 		}
 		if err := model.ValidateAgent(agent); err != nil || agent.ProjectID != projectID {
-			return nil, fmt.Errorf("invalid project agent record %q", path)
+			return nil, fmt.Errorf("invalid project agent record %q", entity.ID)
 		}
 		result = append(result, agent)
 	}
@@ -78,7 +103,7 @@ func (s *Service) AgentRegister(ctx context.Context, in AgentRegisterInput) (mod
 	if err := model.ValidateProjectIdentifier(agent.ProjectID); err != nil {
 		return model.Agent{}, OperationResult{}, err
 	}
-	if _, err := s.ProjectRead(ctx, agent.ProjectID); err != nil {
+	if _, err := s.EffectiveProjectConfig(agent.ProjectID); err != nil {
 		return model.Agent{}, OperationResult{}, err
 	}
 	now := time.Now().UTC()
@@ -92,27 +117,24 @@ func (s *Service) AgentRegister(ctx context.Context, in AgentRegisterInput) (mod
 	if err := model.ValidateAgent(agent); err != nil {
 		return model.Agent{}, OperationResult{}, err
 	}
-	path := s.agentPath(agent.ProjectID, agent.AgentID)
-	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: register agent "+agent.ProjectID+"/"+agent.AgentID, func(worktree string) ([]string, error) {
-		var existing model.Agent
-		if err := readWorktreeJSON(worktree, path, &existing); err == nil {
-			return nil, fmt.Errorf("agent %q/%q already exists", agent.ProjectID, agent.AgentID)
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return nil, err
-		}
-		if err := hub.WriteJSON(worktree, path, agent); err != nil {
-			return nil, err
-		}
-		return []string{path}, nil
-	})
+	if s.Durability == nil {
+		return model.Agent{}, OperationResult{}, fmt.Errorf("Shared Agent authority is unavailable")
+	}
+	operationID := sharedAgentOperationID(ctx, "agent-register", agent.ProjectID, agent.AgentID, agent)
+	_, err := s.Durability.CommitSharedMutation(ctx, sharedMutationForAgent(operationID, agent, 0, 1, true, "agent-register"))
 	if err != nil {
 		return model.Agent{}, OperationResult{}, err
 	}
 	return agent, OperationResult{
-		Hub:       tx,
-		ProjectID: agent.ProjectID,
-		Status:    "registered",
+		OperationID: operationID,
+		ProjectID:   agent.ProjectID,
+		Status:      "registered",
 	}, nil
+}
+
+func sharedMutationForAgent(operationID string, agent model.Agent, expected, revision int64, create bool, kind string) sqlitestore.SharedMutation {
+	payload, _ := json.Marshal(agent)
+	return sqlitestore.SharedMutation{OperationID: operationID, EntityType: "agent", EntityID: sharedAgentID(agent.ProjectID, agent.AgentID), ExpectedRevision: expected, Revision: revision, Kind: kind, Payload: payload, CreatedAt: agent.UpdatedAt, Create: create}
 }
 
 func (s *Service) AgentUpdate(ctx context.Context, in AgentUpdateInput) (model.Agent, OperationResult, error) {
@@ -128,50 +150,52 @@ func (s *Service) AgentUpdate(ctx context.Context, in AgentUpdateInput) (model.A
 	if strings.TrimSpace(in.UpdatedBy) == "" {
 		return model.Agent{}, OperationResult{}, fmt.Errorf("updated_by is required")
 	}
-	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
+	if _, err := s.EffectiveProjectConfig(in.ProjectID); err != nil {
 		return model.Agent{}, OperationResult{}, err
 	}
-	path := s.agentPath(in.ProjectID, in.AgentID)
+	if s.Durability == nil {
+		return model.Agent{}, OperationResult{}, fmt.Errorf("Shared Agent authority is unavailable")
+	}
+	currentEntity, err := s.Durability.ReadSharedEntity(ctx, "agent", sharedAgentID(in.ProjectID, in.AgentID))
+	if err != nil {
+		return model.Agent{}, OperationResult{}, err
+	}
 	var updated model.Agent
-	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: update agent "+in.ProjectID+"/"+in.AgentID, func(worktree string) ([]string, error) {
-		if err := readWorktreeJSON(worktree, path, &updated); err != nil {
-			return nil, err
-		}
-		if err := model.ValidateAgent(updated); err != nil || updated.ProjectID != in.ProjectID || updated.AgentID != in.AgentID {
-			return nil, fmt.Errorf("invalid existing agent")
-		}
-		if in.Enabled != nil {
-			updated.Enabled = *in.Enabled
-		}
-		if in.Role != nil {
-			updated.Role = *in.Role
-		}
-		if in.RecommendedReasoning != nil {
-			updated.RecommendedReasoning = *in.RecommendedReasoning
-		}
-		if in.Capabilities != nil {
-			updated.Capabilities = model.NormalizeAgentCapabilities(*in.Capabilities)
-		}
-		updatedAt := time.Now().UTC()
-		if updatedAt.Before(updated.CreatedAt) {
-			updatedAt = updated.CreatedAt
-		}
-		updated.UpdatedAt = updatedAt
-		if err := model.ValidateAgent(updated); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(worktree, path, updated); err != nil {
-			return nil, err
-		}
-		return []string{path}, nil
-	})
+	if err := json.Unmarshal(currentEntity.Payload, &updated); err != nil {
+		return model.Agent{}, OperationResult{}, err
+	}
+	if err := model.ValidateAgent(updated); err != nil || updated.ProjectID != in.ProjectID || updated.AgentID != in.AgentID {
+		return model.Agent{}, OperationResult{}, fmt.Errorf("invalid existing agent")
+	}
+	if in.Enabled != nil {
+		updated.Enabled = *in.Enabled
+	}
+	if in.Role != nil {
+		updated.Role = *in.Role
+	}
+	if in.RecommendedReasoning != nil {
+		updated.RecommendedReasoning = *in.RecommendedReasoning
+	}
+	if in.Capabilities != nil {
+		updated.Capabilities = model.NormalizeAgentCapabilities(*in.Capabilities)
+	}
+	updatedAt := time.Now().UTC()
+	if updatedAt.Before(updated.CreatedAt) {
+		updatedAt = updated.CreatedAt
+	}
+	updated.UpdatedAt = updatedAt
+	if err := model.ValidateAgent(updated); err != nil {
+		return model.Agent{}, OperationResult{}, err
+	}
+	operationID := sharedAgentOperationID(ctx, "agent-update", in.ProjectID, in.AgentID, in)
+	_, err = s.Durability.CommitSharedMutation(ctx, sharedMutationForAgent(operationID, updated, currentEntity.Revision, currentEntity.Revision+1, false, "agent-update"))
 	if err != nil {
 		return model.Agent{}, OperationResult{}, err
 	}
 	return updated, OperationResult{
-		Hub:       tx,
-		ProjectID: in.ProjectID,
-		Status:    "updated",
+		OperationID: operationID,
+		ProjectID:   in.ProjectID,
+		Status:      "updated",
 	}, nil
 }
 

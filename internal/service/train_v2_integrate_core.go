@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
@@ -37,11 +36,6 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 	if err != nil {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, err
 	}
-	var start model.TrainV2StartRecord
-	startPath := hub.ProtocolRoot + "/projects/" + in.ProjectID + "/train-v2-starts/" + in.TrainID + ".json"
-	if err := s.Hub.ReadJSON(ctx, startPath, &start); err != nil {
-		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("read Train start: %w", err)
-	}
 	project, err := s.projectConfig(in.ProjectID)
 	if err != nil {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, err
@@ -65,9 +59,15 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 	lane := project
 	lane.Root = runtime.WorktreePath
 	laneHead, laneBranch, laneClean, err := s.Git.CurrentHead(ctx, lane)
-	if err != nil || !laneClean || laneBranch != start.LaneBranch {
+	if err != nil || !laneClean || laneBranch == "" {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("Train lane worktree is unavailable or changed")
 	}
+	item, attempt, found, authorityErr := currentTrainAttemptAuthority(train)
+	if authorityErr != nil || !found {
+		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("Train Attempt authority is unavailable")
+	}
+	start := trainv2.DeriveStartRecord(train, item, attempt, policy, model.Project{ID: in.ProjectID, DefaultBranch: project.DefaultBranch}, attempt.StartedAt)
+	start.LaneBranch = laneBranch
 	targetHead, exists, err := s.trainV2IntegrationTargetHead(ctx, project, targetBranch)
 	if err != nil || !exists {
 		return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("integration branch is unavailable")

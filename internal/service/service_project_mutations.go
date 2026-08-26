@@ -84,6 +84,14 @@ func (s *Service) ProjectIdentifiersAdopt(ctx context.Context, in ProjectIdentif
 	if err != nil {
 		return model.ProjectIdentifiers{}, OperationResult{}, err
 	}
+	if s.Durability != nil {
+		if err := s.Durability.PutSharedTaskSequence(ctx, in.ProjectID, in.ProjectCode, 1); err != nil {
+			return model.ProjectIdentifiers{}, OperationResult{}, err
+		}
+		if err := s.Durability.PutSharedADRSequence(ctx, in.ProjectID, in.ProjectCode, 1); err != nil {
+			return model.ProjectIdentifiers{}, OperationResult{}, err
+		}
+	}
 	return identifiers, OperationResult{
 		Hub:       tx,
 		ProjectID: in.ProjectID,

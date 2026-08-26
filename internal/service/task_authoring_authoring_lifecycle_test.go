@@ -34,6 +34,9 @@ func enableTrainV2ForTest(t *testing.T, s *Service, hubRevision string) string {
 	if err != nil {
 		t.Fatalf("seed train_v2 configuration: %v", err)
 	}
+	if err := s.BootstrapSharedFromHub(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	return tx.After
 }
 
@@ -58,6 +61,9 @@ func TestTaskAuthoringServiceWiresCanonicalLifecycle(t *testing.T) {
 	if err != nil || task.Status != model.TaskAuthoringPlanned || operation.Status != model.TaskAuthoringPlanned {
 		t.Fatalf("create wiring failed: %#v %#v %v", task, operation, err)
 	}
+	if err := s.BootstrapSharedFromHub(ctx); err != nil {
+		t.Fatal(err)
+	}
 	read, err := s.TaskAuthoringRead(ctx, "example", task.ID)
 	if err != nil || read.RevisionSHA256 != task.RevisionSHA256 {
 		t.Fatalf("read wiring failed: %#v %v", read, err)
@@ -77,6 +83,9 @@ func TestTaskAuthoringServiceWiresCanonicalLifecycle(t *testing.T) {
 	if err != nil || updated.Revision != 2 || updateOperation.Status != model.TaskAuthoringPlanned {
 		t.Fatalf("update wiring failed: %#v %#v %v", updated, updateOperation, err)
 	}
+	if err := s.BootstrapSharedFromHub(ctx); err != nil {
+		t.Fatal(err)
+	}
 	ready, readyOperation, err := s.TaskAuthoringReady(ctx, TaskAuthoringReadyInput{
 		ProjectID:              "example",
 		TaskID:                 task.ID,
@@ -89,6 +98,9 @@ func TestTaskAuthoringServiceWiresCanonicalLifecycle(t *testing.T) {
 	})
 	if err != nil || ready.Status != model.TaskAuthoringReady || ready.ReadySeal == nil || readyOperation.Status != model.TaskAuthoringReady {
 		t.Fatalf("ready wiring failed: %#v %#v %v", ready, readyOperation, err)
+	}
+	if err := s.BootstrapSharedFromHub(ctx); err != nil {
+		t.Fatal(err)
 	}
 	encoded, err := json.Marshal(ready)
 	if err != nil {
@@ -115,6 +127,9 @@ func TestTaskAuthoringQueuedTrainItemCanBeUpdatedUntilAttemptStarts(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedSharedTrainForTaskWorkTest(t, s, train)
+	seedLocalCodingAgentSessionForTaskWorkTest(t, s)
+	ensureTaskWorkMirrorForTest(t, s)
 	newTitle := "Queued task edited before execution"
 	updated, updateOperation, err := s.TaskAuthoringUpdate(context.Background(), TaskAuthoringUpdateInput{
 		ProjectID:              "example",
@@ -158,7 +173,7 @@ func TestTaskAuthoringQueuedTrainItemCanBeUpdatedUntilAttemptStarts(t *testing.T
 	if err != nil || ready.Status != model.TaskAuthoringReady {
 		t.Fatalf("edited queued Task was not re-readied: task=%#v err=%v", ready, err)
 	}
-	started, err := s.TaskWork(context.Background(), TaskWorkInput{TaskID: task.ID})
+	started, err := s.TaskWork(context.Background(), TaskWorkInput{TaskID: task.ID, AgentID: "coder-example"})
 	if err != nil || started.AttemptNumber != 1 {
 		t.Fatalf("re-readied queued Task did not start: result=%#v err=%v", started, err)
 	}

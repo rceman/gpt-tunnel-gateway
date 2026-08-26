@@ -2,9 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,69 +10,6 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
-
-func assertWorkflowPolicyStatusCI(t *testing.T, status ProjectWorkflowPolicyStatus) {
-	t.Helper()
-	if status.CI.Task != model.WorkflowCIModeDisabled || status.CI.TaskMerge != model.WorkflowCIModeDisabled || status.CI.Release != model.WorkflowCIModeDisabled {
-		t.Fatalf("workflow policy status exposed invalid CI modes: %#v", status)
-	}
-	encoded, err := json.Marshal(status)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var wire map[string]any
-	if err := json.Unmarshal(encoded, &wire); err != nil {
-		t.Fatal(err)
-	}
-	ci := wire["ci"].(map[string]any)
-	for _, field := range []string{"task", "task_merge", "release"} {
-		if ci[field] != string(model.WorkflowCIModeDisabled) {
-			t.Fatalf("serialized %s CI mode=%v: %s", field, ci[field], encoded)
-		}
-	}
-}
-
-func TestProjectStatusWorkflowPolicyStateMatrixUsesDeterministicCIProjection(t *testing.T) {
-	ctx := context.Background()
-	for _, state := range []string{"missing", "invalid"} {
-		t.Run(state, func(t *testing.T) {
-			s, revision, _ := testServiceWithoutIdentifiers(t)
-			path := s.projectConfigurationPath("example")
-			var txRevision string
-			if state == "missing" {
-				result, err := s.Hub.Transact(ctx, revision, "test: remove workflow policy", func(worktree string) ([]string, error) {
-					if err := os.Remove(filepath.Join(worktree, filepath.FromSlash(path))); err != nil {
-						return nil, err
-					}
-					return []string{path}, nil
-				})
-				if err != nil {
-					t.Fatal(err)
-				}
-				txRevision = result.After
-			} else {
-				result, err := s.Hub.Transact(ctx, revision, "test: corrupt workflow policy", func(worktree string) ([]string, error) {
-					if err := hub.WriteText(worktree, path, `{"schema_version":1,"project_id":"example"}`); err != nil {
-						return nil, err
-					}
-					return []string{path}, nil
-				})
-				if err != nil {
-					t.Fatal(err)
-				}
-				txRevision = result.After
-			}
-			status, err := s.ProjectStatus(ctx, "example")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if status.HubRevision != txRevision || status.WorkflowPolicy.State != state {
-				t.Fatalf("unexpected %s status: %#v", state, status)
-			}
-			assertWorkflowPolicyStatusCI(t, status.WorkflowPolicy)
-		})
-	}
-}
 
 func trustedWorkflowPolicyContext(ctx context.Context, role string) context.Context {
 	switch role {
@@ -174,11 +108,50 @@ func TestWorkflowPolicyRevisionAndTaskProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := s.BootstrapSharedFromHub(ctx); err != nil {
+		t.Fatal(err)
+	}
 	readBack, err := s.ProjectWorkflowPolicyRead(ctx, "example")
 	if err != nil || readBack.Revision != 2 || readBack.IntegrationBranch != "develop" {
 		t.Fatalf("policy update was not durable: policy=%#v err=%v", readBack, err)
 	}
 	if updated.Status != "updated" {
 		t.Fatalf("unexpected policy update status: %#v", updated)
+	}
+}
+
+func TestWorkflowPolicyReadDoesNotFallBackToLegacyHub(t *testing.T) {
+	s, revision, _ := testService(t)
+	ctx := context.Background()
+	legacy := model.ProjectWorkflowPolicy{
+		SchemaVersion:     model.SchemaVersion,
+		ProjectID:         "orphan",
+		Revision:          1,
+		WorkflowStage:     model.WorkflowStageTransitionalMain,
+		IntegrationBranch: "main",
+		Agent:             model.WorkflowPolicyAgent{WaitForCI: false},
+		CI:                model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve},
+		UpdatedBy:         "test",
+		UpdatedAt:         time.Now().UTC(),
+	}
+	if _, err := s.Hub.Transact(ctx, revision, "test: seed legacy-only policy", func(worktree string) ([]string, error) {
+		path := s.workflowPolicyPath("orphan")
+		if err := hub.WriteJSON(worktree, path, legacy); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	legacyReads := 0
+	s.legacyWorkflowPolicyRead = func(context.Context, string, *model.ProjectWorkflowPolicy) error {
+		legacyReads++
+		return nil
+	}
+	if _, err := s.ProjectWorkflowPolicyRead(ctx, "orphan"); err == nil {
+		t.Fatal("workflow policy read accepted legacy Hub fallback without Shared configuration")
+	}
+	if legacyReads != 0 {
+		t.Fatalf("workflow policy read invoked legacy fallback %d time(s)", legacyReads)
 	}
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,8 @@ import (
 
 func TestWatcherGuideRevisionedHubAuthority(t *testing.T) {
 	s, revision, _ := testService(t)
+	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "missing-hub.git")
+	s.Config.Hub.RepositoryURL = s.Hub.Config.Hub.RepositoryURL
 	now := time.Now().UTC()
 	guide := model.WatcherGuide{
 		SchemaVersion: model.WatcherGuideSchemaVersion,
@@ -41,7 +44,7 @@ func TestWatcherGuideRevisionedHubAuthority(t *testing.T) {
 	if _, err := s.WatcherGuideUpdate(context.Background(), WatcherGuideUpdateInput{
 		ProjectID:           "example",
 		Guide:               guide,
-		ExpectedHubRevision: result.Hub.After,
+		ExpectedHubRevision: "stale-and-ignored-after-cutover",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +52,7 @@ func TestWatcherGuideRevisionedHubAuthority(t *testing.T) {
 		ProjectID:           "example",
 		Guide:               guide,
 		ExpectedHubRevision: "bad-revision",
-	}); err == nil || !strings.Contains(err.Error(), "HUB_REVISION_CONFLICT") {
+	}); err == nil || !strings.Contains(err.Error(), "WATCHER_GUIDE_REVISION_CONFLICT") {
 		t.Fatalf("stale watcher guide update was not rejected: %v", err)
 	}
 }

@@ -21,6 +21,8 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	}
 	if enabled, enabledErr := s.trainV2Enabled(ctx, id); enabledErr == nil && enabled {
 		return s.projectStatusTrainV2(ctx, id, local)
+	} else if enabledErr != nil && s.Durability != nil {
+		return ProjectStatus{}, enabledErr
 	}
 	componentCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()

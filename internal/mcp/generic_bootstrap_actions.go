@@ -29,6 +29,9 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 			ExecutionInputSchema: schema,
 			Execute:              execute,
 		}}
+		if sharedAuthorityReadAction(path) {
+			entry.LocalReadOnly = true
+		}
 		if path == "project/status" {
 			entry.OutputSchema = projectOperationalStatusOutputSchema()
 		}

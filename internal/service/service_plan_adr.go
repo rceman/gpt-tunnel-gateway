@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/entity"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
@@ -123,26 +121,11 @@ func (s *Service) ADRList(ctx context.Context, project string) ([]model.ADR, err
 	if err := validateEntityProject(project); err != nil {
 		return nil, err
 	}
-	if s.Durability != nil {
-		return s.listSharedADRs(ctx, project)
+	if s.Durability == nil {
+		return nil, fmt.Errorf("Shared ADR authority is unavailable")
 	}
-	records, err := s.entityRegistry(project).ListRecords(ctx, entity.Query{Family: entity.ADRFamily})
-	if err != nil {
-		return nil, err
-	}
-	items := make([]model.ADR, 0, len(records))
-	for _, record := range records {
-		var v model.ADR
-		if err := decodeStrict(record.Bytes, &v); err != nil {
-			return nil, err
-		}
-		if err := model.ValidateADR(v); err != nil {
-			return nil, err
-		}
-		items = append(items, v)
-	}
-	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	return items, nil
+	return s.listSharedADRs(ctx, project)
+
 }
 
 func (s *Service) ADRListPage(ctx context.Context, project string, in CollectionPageInput) (ADRListPageResult, error) {
@@ -172,15 +155,11 @@ func (s *Service) ADRRead(ctx context.Context, project, id string) (model.ADR, e
 	if model.ValidateADRIdentifier(id) != nil && model.ValidateCanonicalADRIdentifier(id) != nil {
 		return model.ADR{}, fmt.Errorf("invalid ADR identifier")
 	}
-	if s.Durability != nil {
-		return s.readSharedADR(ctx, project, id)
+	if s.Durability == nil {
+		return model.ADR{}, fmt.Errorf("Shared ADR authority is unavailable")
 	}
-	var v model.ADR
-	_, err := s.entityRegistry(project).ReadInto(ctx, entity.ADRFamily, id, &v)
-	if err == nil {
-		err = model.ValidateADR(v)
-	}
-	return v, err
+	return s.readSharedADR(ctx, project, id)
+
 }
 
 func allocatorConflict(err error) bool {
@@ -199,13 +178,9 @@ func allocatorConflict(err error) bool {
 const allocatorRetryLimit = 20
 
 func (s *Service) ADRCreate(ctx context.Context, in ADRCreateInput) (OperationResult, error) {
-	if s.Durability != nil {
-		return s.adrCreateShared(ctx, in)
+	if s.Durability == nil {
+		return OperationResult{}, fmt.Errorf("Shared ADR authority is unavailable")
 	}
-	for attempt := 0; ; attempt++ {
-		result, err := s.adrCreateOnce(ctx, in)
-		if in.ExpectedHubRevision != "" || err == nil || !allocatorConflict(err) || attempt+1 >= allocatorRetryLimit {
-			return result, err
-		}
-	}
+	return s.adrCreateShared(ctx, in)
+
 }

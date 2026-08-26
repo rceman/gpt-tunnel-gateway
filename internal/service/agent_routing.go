@@ -112,6 +112,22 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 	}, nil
 }
 
+// resolveTrainAgentLocalFirst uses only explicit local authority for the
+// Shared-first path: the caller supplies the portable Agent identity, config
+// supplies its explicit session binding, and the durable local session proves
+// the project-scoped Agent role and active state. It never invents an Agent
+// role/enabled record from host config and never consults Hub.
+func (s *Service) resolveTrainAgentLocalFirst(ctx context.Context, in AgentResolveInput) (ResolvedAgent, error) {
+	if s.Durability == nil {
+		return s.ResolveAgent(ctx, in)
+	}
+	// ResolveAgent already reads the Shared Agent authority, validates the
+	// project-scoped binding, and proves the active local session. Reuse that
+	// single resolver so an omitted AgentID can select the authoritative
+	// enabled coding Agent without inventing one from host configuration.
+	return s.ResolveAgent(ctx, in)
+}
+
 func validRoutingReasoning(value string) bool {
 	switch value {
 	case model.ReasoningLow, model.ReasoningMedium, model.ReasoningHigh, model.ReasoningMax, model.ReasoningBestAvailable:

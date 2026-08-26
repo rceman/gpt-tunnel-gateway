@@ -3,12 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func (s *Service) TrainV2ReviewBackfill(ctx context.Context, in TrainV2ReviewBackfillInput) (TrainV2ReviewBackfillResult, error) {
@@ -39,12 +38,19 @@ func (s *Service) TrainV2ReviewBackfill(ctx context.Context, in TrainV2ReviewBac
 		HubBefore:   checkRevision,
 		ReceiptPath: receiptPath,
 	}
-	if raw, readErr := s.Hub.ReadFile(ctx, receiptPath); readErr == nil {
+	evidence, err := s.sharedTrainEvidence()
+	if err != nil {
+		return result, err
+	}
+	if s.Replica == nil {
+		return result, fmt.Errorf("replica persistence is unavailable")
+	}
+	if raw, readErr := s.Replica.ReadFile(ctx, receiptPath); readErr == nil {
 		var receipt trainV2ReviewBackfillHubReceipt
 		if err := decodeStrict(raw, &receipt); err != nil || receipt.ProjectID != in.ProjectID || receipt.TrainID != in.TrainID || receipt.ItemStart != in.ItemStart || receipt.ItemEnd != in.ItemEnd {
 			return result, fmt.Errorf("invalid Train review backfill receipt")
 		}
-		if err := s.validateAppliedReviewBackfill(ctx, train, receipt.Items); err != nil {
+		if err := s.validateAppliedReviewBackfill(train, receipt.Items, evidence); err != nil {
 			return result, err
 		}
 		if receipt.State == "completed" {
@@ -59,7 +65,7 @@ func (s *Service) TrainV2ReviewBackfill(ctx context.Context, in TrainV2ReviewBac
 	} else if !IsNotFound(readErr) {
 		return result, readErr
 	}
-	items, err := buildTrainV2ReviewBackfillPlan(train, in.ItemStart, in.ItemEnd, func(path string) ([]byte, error) { return s.Hub.ReadFile(ctx, path) })
+	items, err := buildTrainV2ReviewBackfillPlan(train, in.ItemStart, in.ItemEnd, evidence)
 	if err != nil {
 		return result, err
 	}
@@ -89,9 +95,7 @@ func (s *Service) TrainV2ReviewBackfill(ctx context.Context, in TrainV2ReviewBac
 		if latest.Revision != train.Revision {
 			return nil, fmt.Errorf("Train changed before review backfill")
 		}
-		planned, err := buildTrainV2ReviewBackfillPlan(latest, in.ItemStart, in.ItemEnd, func(path string) ([]byte, error) {
-			return os.ReadFile(filepath.Join(worktree, filepath.FromSlash(path)))
-		})
+		planned, err := buildTrainV2ReviewBackfillPlan(latest, in.ItemStart, in.ItemEnd, evidence)
 		if err != nil {
 			return nil, err
 		}
@@ -106,17 +110,16 @@ func (s *Service) TrainV2ReviewBackfill(ctx context.Context, in TrainV2ReviewBac
 			return nil, err
 		}
 		paths := []string{s.trainV2Path(in.ProjectID, in.TrainID), receiptPath}
-		for _, item := range planned {
-			review := model.TrainV2AttemptReview{SchemaVersion: model.TrainV2AttemptSchemaVersion, ID: fmt.Sprintf("%s-ITEM%d-ATTEMPT%d-REVIEW", in.TrainID, item.Position, item.AttemptNumber), TrainID: in.TrainID, TaskID: item.TaskID, ItemPosition: item.Position, AttemptNumber: item.AttemptNumber, Outcome: model.ReviewOutcomeAccepted, ReviewedHead: item.ReviewedHead, Findings: []model.ReviewFinding{}, ScopeCoverage: []model.ReviewScopeCoverage{}, ReviewedAt: now}
-			if err := hub.WriteJSON(worktree, item.ReviewPath, review); err != nil {
-				return nil, err
-			}
-			paths = append(paths, item.ReviewPath)
-		}
 		return paths, nil
 	})
 	if err != nil {
 		return result, err
+	}
+	for _, item := range items {
+		review := model.TrainV2AttemptReview{SchemaVersion: model.TrainV2AttemptSchemaVersion, ID: fmt.Sprintf("%s-ITEM%d-ATTEMPT%d-REVIEW", in.TrainID, item.Position, item.AttemptNumber), TrainID: in.TrainID, TaskID: item.TaskID, ItemPosition: item.Position, AttemptNumber: item.AttemptNumber, Outcome: model.ReviewOutcomeAccepted, ReviewedHead: item.ReviewedHead, Findings: []model.ReviewFinding{}, ScopeCoverage: []model.ReviewScopeCoverage{}, ReviewedAt: now}
+		if _, err := evidence.WriteAttemptReview(review); err != nil {
+			return result, fmt.Errorf("persist backfill review evidence for %s: %w", item.TaskID, err)
+		}
 	}
 	receipt.State, receipt.HubAfter, receipt.UpdatedAt = "completed", tx.After, nowUTC()
 	if _, err := s.Hub.Transact(ctx, tx.After, "gateway: complete Train-v2 review backfill", func(worktree string) ([]string, error) {
@@ -141,7 +144,7 @@ func applyTrainV2ReviewBackfill(train *model.TrainV2, items []TrainV2ReviewBackf
 	train.UpdatedAt = now
 	return model.ValidateTrainV2(*train)
 }
-func (s *Service) validateAppliedReviewBackfill(ctx context.Context, train model.TrainV2, items []TrainV2ReviewBackfillItem) error {
+func (s *Service) validateAppliedReviewBackfill(train model.TrainV2, items []TrainV2ReviewBackfillItem, evidence trainv2.EvidenceStore) error {
 	for _, planned := range items {
 		if planned.Position < 0 || planned.Position >= len(train.Items) {
 			return fmt.Errorf("Train review backfill receipt no longer matches item %d", planned.Position)
@@ -151,7 +154,7 @@ func (s *Service) validateAppliedReviewBackfill(ctx context.Context, train model
 		if item.Review == nil || item.Review.Outcome != model.ReviewOutcomeAccepted || item.Review.ReportID != reviewID || item.SuccessfulAttemptNumber != planned.AttemptNumber || len(item.Attempts) < int(planned.AttemptNumber) || item.Attempts[planned.AttemptNumber-1].ReviewID != reviewID {
 			return fmt.Errorf("Train review backfill receipt no longer matches item %d", planned.Position)
 		}
-		raw, err := s.Hub.ReadFile(ctx, planned.ReportPath)
+		raw, err := evidence.ReadAttemptReportBytes(train.ID, planned.TaskID, planned.AttemptNumber)
 		if err != nil || digestBytes(raw) != planned.ReportSHA256 {
 			return fmt.Errorf("Train review backfill report digest changed for item %d", planned.Position)
 		}
@@ -159,12 +162,11 @@ func (s *Service) validateAppliedReviewBackfill(ctx context.Context, train model
 		if err := decodeStrict(raw, &report); err != nil || report.TrainID != train.ID || report.TaskID != planned.TaskID || report.ItemPosition != planned.Position || report.AttemptNumber != planned.AttemptNumber || report.Repository.Head != planned.ReviewedHead || report.Status != "succeeded" {
 			return fmt.Errorf("Train review backfill report no longer matches item %d", planned.Position)
 		}
-		reviewRaw, err := s.Hub.ReadFile(ctx, planned.ReviewPath)
+		review, err := evidence.ReadAttemptReview(train.ID, planned.TaskID, planned.AttemptNumber)
 		if err != nil {
 			return fmt.Errorf("Train review backfill review is missing for item %d", planned.Position)
 		}
-		var review model.TrainV2AttemptReview
-		if err := decodeStrict(reviewRaw, &review); err != nil || review.ID != reviewID || review.TrainID != train.ID || review.TaskID != planned.TaskID || review.ItemPosition != planned.Position || review.AttemptNumber != planned.AttemptNumber || review.Outcome != model.ReviewOutcomeAccepted || review.ReviewedHead != planned.ReviewedHead {
+		if review.ID != reviewID || review.TrainID != train.ID || review.TaskID != planned.TaskID || review.ItemPosition != planned.Position || review.AttemptNumber != planned.AttemptNumber || review.Outcome != model.ReviewOutcomeAccepted || review.ReviewedHead != planned.ReviewedHead {
 			return fmt.Errorf("Train review backfill review no longer matches item %d", planned.Position)
 		}
 	}

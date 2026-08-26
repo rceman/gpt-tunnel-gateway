@@ -7,9 +7,11 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
@@ -21,6 +23,15 @@ func seedTrainIntegrationOperation(t *testing.T, s *Service, expected string, op
 			return nil, err
 		}
 		return []string{path}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Durability.PutSharedProjection(context.Background(), "integration_operation", sqlitestore.SharedEntity{
+		ID: sharedIntegrationOperationID(operation.ProjectID, operation.TrainID), Revision: 1, Payload: payload, UpdatedAt: operation.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -135,6 +146,15 @@ func seedMigratedRecoveryEvidence(t *testing.T, s *Service, revision string, tra
 	}); err != nil {
 		t.Fatal(err)
 	}
+	recoveryPayload, err := json.Marshal(recovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Durability.PutSharedProjection(context.Background(), "integration_operation", sqlitestore.SharedEntity{
+		ID: sharedIntegrationOperationID("example", trainID), Revision: 1, Payload: recoveryPayload, UpdatedAt: recovery.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	return recovery, archivedRaw
 }
 func TestIntegrationOperationResumesMigratedRecoveryWithFreshIdentityAndPreservesEvidence(t *testing.T) {
@@ -158,8 +178,9 @@ func TestIntegrationOperationResumesMigratedRecoveryWithFreshIdentityAndPreserve
 		t.Fatalf("archived operation changed: err=%v", err)
 	}
 	restarted := &Service{
-		Config: s.Config,
-		Hub:    s.Hub,
+		Config:     s.Config,
+		Hub:        s.Hub,
+		Durability: s.Durability,
 	}
 	retry, err := restarted.integrationOperation(context.Background(), input, source, "main", target, false, nowUTC())
 	if err != nil || retry.OperationID != resumed.OperationID {

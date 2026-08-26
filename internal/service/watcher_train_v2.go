@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 	"github.com/rceman/gpt-tunnel-gateway/internal/watcher"
@@ -74,26 +73,31 @@ func (s *Service) trainV2ActiveAttempt(ctx context.Context, projectID string) (a
 		if train.Status != model.TrainV2Running && train.Status != model.TrainV2Paused && train.Status != model.TrainV2Blocked {
 			continue
 		}
-		var start model.TrainV2StartRecord
-		path := hub.ProtocolRoot + "/projects/" + projectID + "/train-v2-starts/" + train.ID + ".json"
-		if err := s.Hub.ReadJSON(ctx, path, &start); err != nil {
-			continue
-		}
 		runtime, err := trainv2.ReadRuntime(s.Config.StateDir, projectID, train.ID)
 		if err != nil {
 			continue
 		}
-		if start.CurrentItemPosition < 0 || start.CurrentItemPosition >= len(train.Items) || start.CurrentAttemptNumber == 0 {
+		itemPosition, attemptNumber, taskID, ok := trainv2.ActiveAttemptIdentity(train)
+		if !ok || itemPosition < 0 || itemPosition >= len(train.Items) || attemptNumber == 0 {
 			continue
 		}
-		item := train.Items[start.CurrentItemPosition]
-		if item.TaskID != start.CurrentTaskID || start.CurrentAttemptNumber > uint64(len(item.Attempts)) {
+		item := train.Items[itemPosition]
+		if item.TaskID != taskID || attemptNumber > uint64(len(item.Attempts)) {
 			continue
 		}
-		attempt := item.Attempts[start.CurrentAttemptNumber-1]
+		attempt := item.Attempts[attemptNumber-1]
 		if attempt.Status != model.TrainV2AttemptRunning {
 			continue
 		}
+		policy, policyErr := s.ProjectWorkflowPolicyRead(ctx, projectID)
+		if policyErr != nil {
+			continue
+		}
+		project, projectErr := s.ProjectRead(ctx, projectID)
+		if projectErr != nil {
+			continue
+		}
+		start := trainv2.DeriveStartRecord(train, item, attempt, policy, project, attempt.StartedAt)
 		if _, err := watcher.BindTrainAttempt(train, start, runtime); err != nil {
 			return activeTrainAttempt{}, false, err
 		}
