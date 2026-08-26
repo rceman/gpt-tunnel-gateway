@@ -28,6 +28,8 @@ type Server struct {
 	runtimeLogActionErr    error
 	systemAwaitActions     sync.Once
 	systemAwaitActionErr   error
+	codeActions            sync.Once
+	codeActionErr          error
 }
 type request struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -91,6 +93,7 @@ func (s *Server) tools() map[string]Tool {
 	s.ensureTrainV2Actions()
 	s.ensureRuntimeLogActions()
 	s.ensureSystemAwaitActions()
+	s.ensureCodeActions()
 	t := map[string]Tool{}
 	add := toolAdder(func(name, description string, schema map[string]any, fn func(context.Context, json.RawMessage) (any, error)) {
 		output, outputOK := toolOutputSchemas[name]

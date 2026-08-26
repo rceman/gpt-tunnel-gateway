@@ -15,6 +15,37 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
+// ResolveWorktree resolves an exact server-owned branch ref to an existing
+// worktree of the configured repository. Callers provide a ref, never a path.
+func (r Runner) ResolveWorktree(ctx context.Context, p config.ProjectConfig, ref string) (config.ProjectConfig, error) {
+	if !strings.HasPrefix(ref, "refs/heads/") || len(ref) == len("refs/heads/") {
+		return config.ProjectConfig{}, fmt.Errorf("worktree_ref must be a full local branch ref")
+	}
+	if err := model.ValidateBranch(ref); err != nil {
+		return config.ProjectConfig{}, fmt.Errorf("invalid worktree_ref: %w", err)
+	}
+	out, err := r.command(ctx, p.Root, false, "worktree", "list", "--porcelain")
+	if err != nil {
+		return config.ProjectConfig{}, err
+	}
+	if int64(len(out)) > r.MaxReadBytes {
+		return config.ProjectConfig{}, fmt.Errorf("worktree list exceeds read limit")
+	}
+	var current config.ProjectConfig
+	for _, line := range strings.Split(string(out), "\n") {
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			current = p
+			current.Root = filepath.Clean(strings.TrimPrefix(line, "worktree "))
+		case strings.HasPrefix(line, "branch ") && current.Root != "":
+			if strings.TrimSpace(strings.TrimPrefix(line, "branch ")) == ref {
+				return current, nil
+			}
+		}
+	}
+	return config.ProjectConfig{}, fmt.Errorf("local worktree_ref %q was not found", ref)
+}
+
 func (r Runner) WorktreeStatus(ctx context.Context, p config.ProjectConfig) (WorktreeStatus, error) {
 	out, err := r.command(ctx, p.Root, false, "status", "--porcelain=v2", "--branch")
 	if err != nil {
@@ -171,6 +202,26 @@ func (r Runner) WorktreeDiff(ctx context.Context, p config.ProjectConfig, staged
 	args := []string{"diff", "--no-ext-diff", "--no-textconv"}
 	if staged {
 		args = append(args, "--cached")
+	}
+	out, err := r.command(ctx, p.Root, false, args...)
+	if err != nil {
+		return "", err
+	}
+	return bounded(out, r.MaxDiffBytes)
+}
+
+// WorktreeDiffFrom compares the configured local worktree with an exact local
+// base. It never resolves through a mirror or performs network I/O.
+func (r Runner) WorktreeDiffFrom(ctx context.Context, p config.ProjectConfig, from string, paths []string) (string, error) {
+	if err := model.ValidateCommitSHA(from); err != nil {
+		return "", err
+	}
+	args := []string{"diff", "--no-ext-diff", "--no-textconv", from, "--"}
+	for _, path := range paths {
+		if err := model.ValidateRelativePath(path); err != nil {
+			return "", err
+		}
+		args = append(args, path)
 	}
 	out, err := r.command(ctx, p.Root, false, args...)
 	if err != nil {
