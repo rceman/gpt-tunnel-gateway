@@ -50,11 +50,11 @@ func sessionStartPublicOutputSchema() map[string]any {
 	}, "project_id", "status")
 	rules := map[string]any{"type": "object", "additionalProperties": true}
 	return closedOutput(map[string]any{
-		"session":    sessionIDOutputSchema(),
-		"project":    project,
-		"rules":      rules,
-		"next_steps": outputArray(outputString()),
-	}, "session", "project", "rules", "next_steps")
+		"session":                 sessionIDOutputSchema(),
+		"project":                 project,
+		"rules":                   rules,
+		"recommended_next_action": outputString(),
+	}, "session", "project", "rules", "recommended_next_action")
 }
 
 func sessionUpdatePublicOutputSchema() map[string]any {
@@ -137,11 +137,7 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 			"project_rules_revision": policy.Revision,
 			"project_rules_digest":   digestJSON(policy),
 		},
-		"next_steps": []string{
-			"read project/status",
-			"perform project work through call or batch",
-			"inspect schema only when a contract is unknown",
-		},
+		"recommended_next_action": "Call project/status with the returned session before project work.",
 	}, nil
 }
 
