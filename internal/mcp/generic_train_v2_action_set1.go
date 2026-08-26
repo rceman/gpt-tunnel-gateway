@@ -9,104 +9,6 @@ import (
 
 func (s *Server) registerTrainV2ActionSet1() error {
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "train/retire",
-		Description:  "Retire one proven stale Train using the bound session project.",
-		InputSchema:  trainV2RetireSchema(),
-		OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{
-			DestructiveHint: true,
-			IdempotentHint:  true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in service.TrainV2RetireInput
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			projectID, err := s.boundTrainProject(ctx)
-			if err != nil {
-				return nil, err
-			}
-			in.ProjectID = projectID
-			return s.Service.TrainV2RetireAsync(ctx, in)
-		},
-	}); err != nil {
-		return err
-	}
-	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "train/retire_status",
-		Description:  "Read a bounded Train retirement receipt.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train retirement operation identifier.")}, "operation_id"),
-		OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			return s.Service.TrainV2RetirementOperationStatus(ctx, in.OperationID)
-		},
-	}); err != nil {
-		return err
-	}
-	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "train/reconcile",
-		Description:  "Dry-run or apply bounded stale Train reconciliation for the bound session project.",
-		InputSchema:  trainV2ReconcileSchema(),
-		OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{
-			DestructiveHint: true,
-			IdempotentHint:  true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in service.TrainV2ReconcileInput
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			projectID, err := s.boundTrainProject(ctx)
-			if err != nil {
-				return nil, err
-			}
-			in.ProjectID = projectID
-			return s.Service.TrainV2ReconcileAsync(ctx, in)
-		},
-	}); err != nil {
-		return err
-	}
-	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "train/reconcile_status",
-		Description:  "Read a bounded Train reconciliation receipt.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train reconciliation operation identifier.")}, "operation_id"),
-		OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			return s.Service.TrainV2RetirementOperationStatus(ctx, in.OperationID)
-		},
-	}); err != nil {
-		return err
-	}
-	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "train/create",
 		Description:  "Create a non-running ordered train_v2 admission record.",
 		InputSchema:  trainV2CreateSchema(),
@@ -147,29 +49,6 @@ func (s *Server) registerTrainV2ActionSet1() error {
 				return nil, err
 			}
 			return s.Service.TrainV2AttemptProofRecoveryAsync(ctx, in)
-		},
-	}); err != nil {
-		return err
-	}
-	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "train/attempt-proof-recover_status",
-		Description:  "Read the durable receipt for Train Attempt proof recovery.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train Attempt proof recovery operation identifier.")}, "operation_id"),
-		OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &input); err != nil {
-				return nil, err
-			}
-			return s.Service.TrainV2AttemptOperationStatus(ctx, input.OperationID)
 		},
 	}); err != nil {
 		return err

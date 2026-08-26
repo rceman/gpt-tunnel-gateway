@@ -12,7 +12,7 @@ func transactionOutputSchema() map[string]any {
 
 func operationOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"hub": transactionOutputSchema(), "project_id": outputString(), "task_id": outputString(), "status": outputString(),
+		"hub": transactionOutputSchema(), "operation_id": outputString(), "project_id": outputString(), "task_id": outputString(), "status": outputString(),
 	}, "hub", "status")
 }
 
@@ -21,6 +21,14 @@ func durableMutationReceiptOutputSchema() map[string]any {
 		"operation_id": outputString(), "status": outputString(), "operation": operationOutputSchema(), "error": outputString(),
 		"created_at": outputDateTime(), "updated_at": outputDateTime(),
 	}, "operation_id", "status", "created_at", "updated_at")
+}
+
+func operationReadOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"operation_id": outputString(), "kind": outputString(), "status": outputString(), "project_id": outputString(),
+		"result": map[string]any{"type": "object", "additionalProperties": true}, "error": outputString(), "recovery_reason": outputString(),
+		"created_at": outputDateTime(), "updated_at": outputDateTime(),
+	}, "operation_id", "kind", "status", "project_id", "created_at", "updated_at")
 }
 
 func taskWorkReceiptOutputSchema() map[string]any {
@@ -68,13 +76,6 @@ func watcherGuideMutationReceiptOutputSchema() map[string]any {
 func projectConfigurationMutationReceiptOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"operation_id": outputString(), "status": outputString(), "configuration": projectConfigurationObjectSchema(), "operation": operationOutputSchema(), "error": outputString(),
-		"created_at": outputDateTime(), "updated_at": outputDateTime(),
-	}, "operation_id", "status", "created_at", "updated_at")
-}
-
-func projectRemoveReceiptOutputSchema() map[string]any {
-	return closedOutput(map[string]any{
-		"operation_id": outputString(), "status": outputString(), "result": map[string]any{"type": "object", "additionalProperties": true}, "error": outputString(),
 		"created_at": outputDateTime(), "updated_at": outputDateTime(),
 	}, "operation_id", "status", "created_at", "updated_at")
 }

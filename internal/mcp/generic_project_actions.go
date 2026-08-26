@@ -127,50 +127,5 @@ func (s *Server) registerProjectActions() error {
 	}); err != nil {
 		return err
 	}
-	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "project/remove_status",
-		Description:  "Read the durable receipt for an asynchronous project/remove operation.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable project removal operation identifier.")}, "operation_id"),
-		OutputSchema: projectRemoveReceiptOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &input); err != nil {
-				return nil, err
-			}
-			return s.Service.ProjectRemoveOperationStatus(ctx, input.OperationID)
-		},
-	}); err != nil {
-		return err
-	}
-	return s.RegisterGenericAction(GenericAction{
-		Path:        "project/remove",
-		Description: "Remove one managed project from the active Gateway registry after fail-closed authority checks; the external repository is never touched.",
-		InputSchema: obj(map[string]any{
-			"project_id":            str("Managed project identifier."),
-			"expected_hub_revision": str("Optional exact Hub revision guard."),
-		}, "project_id"),
-		OutputSchema: projectRemoveReceiptOutputSchema(),
-		Annotations: ToolAnnotations{
-			DestructiveHint: true,
-			IdempotentHint:  true,
-		},
-		Authority:        service.RequireWorkflowPolicyAuthority,
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in service.ProjectRemoveInput
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			return s.Service.ProjectRemoveAsync(ctx, in)
-		},
-	})
+	return nil
 }

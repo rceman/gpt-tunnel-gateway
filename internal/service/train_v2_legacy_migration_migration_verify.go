@@ -63,10 +63,6 @@ func (s *Service) verifyLegacyMigrationReceipt(ctx context.Context, receipt mode
 			if record.TrainPath != s.trainV2Path(in.ProjectID, record.TrainID) || train.Historical == nil || train.Historical.SourcePath != record.TrainPath || train.Historical.SourceSHA256 != record.TrainSHA256 {
 				return fmt.Errorf("historical Train migration state is incomplete for %s", train.ID)
 			}
-		case TrainV2LegacyActionRetireStale:
-			if train.Status != model.TrainV2Retired || train.Retirement == nil {
-				return fmt.Errorf("stale Train migration state is incomplete for %s", train.ID)
-			}
 		case TrainV2LegacyActionRecoverIntegrate:
 			opRaw, err := s.Hub.ReadFile(ctx, record.IntegrationPath)
 			if err != nil {

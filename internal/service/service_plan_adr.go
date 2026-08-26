@@ -3,73 +3,13 @@ package service
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/entity"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
-
-func (s *Service) PlanSectionDelete(ctx context.Context, in PlanSectionDeleteInput) (OperationResult, error) {
-	if err := rejectPlanMutationAfterTrainV2(ctx, s, in.ProjectID); err != nil {
-		return OperationResult{}, err
-	}
-	if in.ExpectedSectionRevision < 1 {
-		return OperationResult{}, fmt.Errorf("expected section revision is required")
-	}
-	if _, err := s.PlanSectionRead(ctx, in.ProjectID, in.SectionID); err != nil {
-		return OperationResult{}, err
-	}
-	expectedHubRevision, err := s.sectionWriteExpectedRevision(ctx, in.ExpectedHubRevision)
-	if err != nil {
-		return OperationResult{}, err
-	}
-	now := time.Now().UTC()
-	tx, err := s.transactSectionWrite(ctx, expectedHubRevision, "gateway: delete plan section "+in.SectionID, func(w string) ([]string, error) {
-		var currentPlan model.Plan
-		if err := readWorktreeJSON(w, s.planPath(in.ProjectID), &currentPlan); err != nil {
-			return nil, err
-		}
-		index, section, err := sectionIndex(currentPlan, in.SectionID)
-		if err != nil {
-			return nil, err
-		}
-		var currentSection model.PlanSection
-		sectionPath := s.planSectionPath(in.ProjectID, in.SectionID)
-		if err := readWorktreeJSON(w, sectionPath, &currentSection); err != nil {
-			return nil, err
-		}
-		if currentSection.Revision != in.ExpectedSectionRevision || section.Revision != in.ExpectedSectionRevision {
-			return nil, fmt.Errorf("SECTION_REVISION_CONFLICT expected=%d actual=%d", in.ExpectedSectionRevision, currentSection.Revision)
-		}
-		if err := os.Remove(filepath.Join(w, filepath.FromSlash(sectionPath))); err != nil {
-			return nil, err
-		}
-		currentPlan.Sections = append(currentPlan.Sections[:index], currentPlan.Sections[index+1:]...)
-		currentPlan.Revision++
-		currentPlan.UpdatedBy, currentPlan.UpdatedAt = in.UpdatedBy, now
-		if err := model.ValidatePlan(currentPlan); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(w, s.planPath(in.ProjectID), currentPlan); err != nil {
-			return nil, err
-		}
-		return []string{sectionPath, s.planPath(in.ProjectID)}, nil
-	})
-	if err != nil {
-		return OperationResult{}, err
-	}
-	return OperationResult{
-		Hub:       tx,
-		ProjectID: in.ProjectID,
-		Status:    "deleted",
-	}, nil
-}
 
 func (s *Service) PlanRender(ctx context.Context, project string) (model.PlanRender, error) {
 	plan, err := s.PlanRead(ctx, project)

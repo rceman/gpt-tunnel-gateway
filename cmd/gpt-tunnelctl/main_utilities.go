@@ -48,7 +48,7 @@ func copyExecutable(src, dst string) error {
 	return os.Rename(name, dst)
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade [inspect|status]|start|stop|restart|restart-gateway|status|doctor|diagnose-startup|state {check|repair --dry-run|repair --apply|migrate-train-v2-attempts --project <project> --train <train> --dry-run|migrate-train-v2-attempts --project <project> --train <train> --apply|retire-run-state --project <project> --dry-run|retire-run-state --project <project> --apply|migrate-train-v2-legacy --project <project> --action action:train:sha[:opsha[:mutation:mutationsha]] --dry-run|migrate-train-v2-legacy --project <project> --action action:train:sha[:opsha[:mutation:mutationsha]] --apply --expected-hub-revision <sha>}|logs [gateway|tunnel|all] [lines]|version}")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnelctl {install|init-config|upgrade [inspect|status]|start|stop|restart|restart-gateway|status|doctor|diagnose-startup|state {check|repair --dry-run|repair --apply|migrate-train-v2-attempts --project <project> --train <train> --dry-run|migrate-train-v2-attempts --project <project> --train <train> --apply|migrate-train-v2-legacy --project <project> --action action:train:sha[:opsha[:mutation:mutationsha]] --dry-run|migrate-train-v2-legacy --project <project> --action action:train:sha[:opsha[:mutation:mutationsha]] --apply --expected-hub-revision <sha>}|logs [gateway|tunnel|all] [lines]|version}")
 	os.Exit(2)
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnelctl:", err); os.Exit(1) }

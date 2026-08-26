@@ -95,22 +95,6 @@ func plan(ctx context.Context, s *service.Service, args []string) {
 			fatal(e)
 		}
 		output(v)
-	case "section-delete":
-		f, rest := fileFlag("--file", args[1:])
-		ex, _ := expected(rest)
-		if f == "" {
-			usage()
-		}
-		var in service.PlanSectionDeleteInput
-		readFile(f, &in)
-		if ex != "" {
-			in.ExpectedHubRevision = ex
-		}
-		v, e := s.PlanSectionDelete(ctx, in)
-		if e != nil {
-			fatal(e)
-		}
-		output(v)
 	case "render":
 		require(args, 2)
 		v, e := s.PlanRender(ctx, args[1])

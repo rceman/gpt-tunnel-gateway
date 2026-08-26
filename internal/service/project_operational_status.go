@@ -225,31 +225,6 @@ func (s *Service) populateProjectOperationalTrain(result *ProjectOperationalStat
 		if train.Historical != nil {
 			continue
 		}
-		classification, err := s.classifyTrainV2Lifecycle(train.ProjectID, train)
-		if err != nil {
-			result.TrainID = train.ID
-			result.TrainState = train.Status
-			result.State = "blocked"
-			result.Blocker = "TRAIN_RECONCILIATION_UNAVAILABLE"
-			result.RecommendedNextAction = "diagnose Hub/state availability, then retry project/status"
-			return
-		}
-		if stale := staleTrainProjection(classification, train); stale != nil {
-			result.TrainID = stale.TrainID
-			result.TrainState = stale.Status
-			result.State = "blocked"
-			result.Blocker = stale.Blocker
-			result.RecommendedNextAction = stale.RecommendedNextAction
-			return
-		}
-		if correction := correctionTrainProjection(classification, train); correction != nil {
-			result.TrainID = correction.TrainID
-			result.TrainState = correction.Status
-			result.State = "correction_pending"
-			result.Blocker = correction.Blocker
-			result.RecommendedNextAction = correction.RecommendedNextAction
-			return
-		}
 		if train.Status == model.TrainV2Completed || train.Status == model.TrainV2ReadyForIntegration || train.Status == model.TrainV2Retired {
 			if result.State == "idle" {
 				result.RecommendedNextAction = "review or integrate current Train"

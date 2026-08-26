@@ -62,7 +62,7 @@ func ValidateTrainV2LegacyStateMigrationRecord(v TrainV2LegacyStateMigrationReco
 	if err != nil || len(trainRaw) == 0 || digestBytes(trainRaw) != v.TrainSHA256 {
 		return fmt.Errorf("Train-v2 legacy migration Train digest mismatch")
 	}
-	if v.Action != "mark_historical" && v.Action != "retire_stale" && v.Action != "recover_integration" {
+	if v.Action != "mark_historical" && v.Action != "recover_integration" {
 		return fmt.Errorf("invalid Train-v2 legacy migration action")
 	}
 	if v.Action == "recover_integration" {

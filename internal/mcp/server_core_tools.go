@@ -62,13 +62,6 @@ func (s *Server) addCoreTools(add toolAdder) {
 		}
 		return map[string]any{"identifiers": identifiers, "operation": operation}, nil
 	})
-	add("project_status", "Read durable project, local mapping, worktree, and hub revision.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		id, e := getString(raw, "project_id")
-		if e != nil {
-			return nil, e
-		}
-		return s.Service.ProjectStatus(ctx, id)
-	})
 	add("project_onboard", "Create one new durable project from a bounded repository intent; no Session or Agent is required.", minimalProjectOnboardingInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		if err := service.RequireOnboardingAuthority(ctx); err != nil {
 			return nil, err
@@ -78,13 +71,6 @@ func (s *Server) addCoreTools(add toolAdder) {
 			return nil, err
 		}
 		return s.Service.ProjectOnboardMinimal(ctx, in)
-	})
-	add("project_onboard_status", "Read bounded redacted status for one onboarding operation.", projectOnboardingInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var in service.ProjectOnboardInput
-		if err := decode(raw, &in); err != nil {
-			return nil, err
-		}
-		return s.Service.ProjectOnboardStatus(ctx, in)
 	})
 	add("project_onboard_recover", "Resume one existing trusted onboarding operation from durable evidence.", projectOnboardingInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		if err := service.RequireOnboardingAuthority(ctx); err != nil {

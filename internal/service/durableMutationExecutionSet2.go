@@ -9,28 +9,6 @@ import (
 
 func (s *Service) durableMutationExecutionSet2(ctx context.Context, operation durableMutationOperation) (json.RawMessage, error) {
 	switch operation.Kind {
-	case "train-v2-retire":
-		var input TrainV2RetireInput
-		if err := json.Unmarshal(operation.Input, &input); err != nil {
-			return nil, err
-		}
-		result, err := s.TrainV2Retire(ctx, input)
-		if err != nil {
-			return nil, err
-		}
-		result.OperationID = operation.OperationID
-		return json.Marshal(result)
-	case "train-v2-reconcile":
-		var input TrainV2ReconcileInput
-		if err := json.Unmarshal(operation.Input, &input); err != nil {
-			return nil, err
-		}
-		result, err := s.TrainV2Reconcile(ctx, input)
-		if err != nil {
-			return nil, err
-		}
-		result.OperationID = operation.OperationID
-		return json.Marshal(result)
 	case "adr-create":
 		var input ADRCreateInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {

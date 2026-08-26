@@ -53,6 +53,9 @@ func (s *Server) RegisterGenericAction(action GenericAction) error {
 	if !validGenericActionPath(action.Path) {
 		return fmt.Errorf("invalid generic action path %q", action.Path)
 	}
+	if strings.HasSuffix(action.Path, "_status") {
+		return nil
+	}
 	if strings.HasPrefix(action.Path, "plan/") {
 		return fmt.Errorf("plan actions are retired from the canonical action registry")
 	}
@@ -112,6 +115,9 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 			continue
 		}
 		path := legacyActionPath(toolName)
+		if strings.HasSuffix(path, "_status") {
+			continue
+		}
 		toolName, tool := toolName, tool
 		contract := actionAuthorityContractFor(toolName)
 		entry := genericActionEntry{

@@ -21,7 +21,7 @@ func (s *Service) planTrainV2LegacyMigration(ctx context.Context, in TrainV2Lega
 	seen := map[string]struct{}{}
 	plans := make([]trainV2LegacyMigrationPlan, 0, len(actions))
 	for _, action := range actions {
-		if action.Action != TrainV2LegacyActionMarkHistorical && action.Action != TrainV2LegacyActionRetireStale && action.Action != TrainV2LegacyActionRecoverIntegrate {
+		if action.Action != TrainV2LegacyActionMarkHistorical && action.Action != TrainV2LegacyActionRecoverIntegrate {
 			return nil, fmt.Errorf("unknown legacy Train migration action %q", action.Action)
 		}
 		if _, _, err := model.ParseTrainV2ID(action.TrainID); err != nil || !validSHA256(action.TrainSHA256) {
@@ -57,17 +57,6 @@ func (s *Service) planTrainV2LegacyMigration(ctx context.Context, in TrainV2Lega
 		case TrainV2LegacyActionMarkHistorical:
 			if train.Historical != nil || (train.Status != model.TrainV2RecoveryQuarantined && train.Status != model.TrainV2Retired) {
 				return nil, fmt.Errorf("Train %s is not proven legacy historical state", train.ID)
-			}
-		case TrainV2LegacyActionRetireStale:
-			if !staticTrainV2SafeToRetire(train) {
-				return nil, fmt.Errorf("Train %s is not safely stale", train.ID)
-			}
-			live, liveErr := s.trainV2HasLiveOperationWithContext(ctx, in.ProjectID, train.ID)
-			if liveErr != nil {
-				return nil, liveErr
-			}
-			if live {
-				return nil, fmt.Errorf("Train %s has a live operation", train.ID)
 			}
 		case TrainV2LegacyActionRecoverIntegrate:
 			if !validSHA256(action.IntegrationSHA256) {
@@ -141,22 +130,6 @@ func (s *Service) applyLegacyMigrationPlan(worktree, projectID string, plan trai
 		current.Historical = &model.TrainV2HistoricalDisposition{Kind: model.TrainV2HistoricalDispositionKind, SourcePath: plan.trainPath, SourceSHA256: plan.action.TrainSHA256, Reason: reason, MarkedAt: now}
 		current.Revision++
 		current.UpdatedAt = now
-	case TrainV2LegacyActionRetireStale:
-		if !staticTrainV2SafeToRetire(current) {
-			return fmt.Errorf("Train %s became active before migration", current.ID)
-		}
-		live, liveErr := s.trainV2HasLiveOperationInWorktree(projectID, current.ID, worktree)
-		if liveErr != nil || live {
-			if liveErr != nil {
-				return liveErr
-			}
-			return fmt.Errorf("Train %s became active before migration", current.ID)
-		}
-		previous := current.Status
-		current.Status = model.TrainV2Retired
-		current.Revision++
-		current.UpdatedAt = now
-		current.Retirement = &model.TrainV2Retirement{PreviousStatus: previous, Classification: trainV2ClassStale, Reason: reason, ActorSessionID: "state-migration", RetiredAt: now}
 	case TrainV2LegacyActionRecoverIntegrate:
 		mutationRaw, mutationErr := os.ReadFile(plan.mutationPath)
 		if mutationErr != nil || digestBytes(mutationRaw) != plan.action.IntegrationMutationSHA256 {

@@ -61,13 +61,6 @@ func (s *Server) addPlanTools(add toolAdder) {
 		}
 		return s.Service.PlanSectionUpdate(ctx, in)
 	})
-	add("plan_section_delete", "Delete one plan section from current state while retaining Git history.", obj(map[string]any{"project_id": str("Project identifier"), "section_id": str("Plan section identifier"), "updated_by": str("Author identity"), "expected_section_revision": integer("Expected section revision", 1, 1000000), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "section_id", "updated_by", "expected_section_revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var in service.PlanSectionDeleteInput
-		if e := decode(raw, &in); e != nil {
-			return nil, e
-		}
-		return s.Service.PlanSectionDelete(ctx, in)
-	})
 	add("plan_render", "Render the complete plan and all sections explicitly.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "project_id")
 		if e != nil {
@@ -119,14 +112,5 @@ func (s *Server) addPlanTools(add toolAdder) {
 			return nil, e
 		}
 		return s.Service.ADRCreateAsync(ctx, in)
-	})
-	add("adr_create_status", "Read the durable receipt for an asynchronous ADR create operation.", obj(map[string]any{"operation_id": str("Durable ADR create operation identifier.")}, "operation_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var in struct {
-			OperationID string `json:"operation_id"`
-		}
-		if e := decode(raw, &in); e != nil {
-			return nil, e
-		}
-		return s.Service.ADRCreateOperationStatus(ctx, in.OperationID)
 	})
 }
