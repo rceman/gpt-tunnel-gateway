@@ -22,6 +22,7 @@ var projectionClasses = map[string]projectionClass{
 	"agent/list": projectionClosedDefault, "agent/prompt": projectionCompactDefault, "agent/prompt_status": projectionClosedDefault, "agent/read": projectionClosedDefault,
 	"agent/recover": projectionCompactDefault, "agent/recover_status": projectionClosedDefault, "agent/register": projectionCompactDefault, "agent/register_status": projectionClosedDefault,
 	"agent/status": projectionClosedDefault, "agent/tail": projectionIntentionalPayload, "agent/update": projectionCompactDefault, "agent/update_status": projectionClosedDefault,
+	"code/diff": projectionIntentionalPayload, "code/read": projectionIntentionalPayload, "code/search": projectionIntentionalPayload,
 	"gateway/capabilities": projectionClosedDefault, "gateway/status": projectionClosedDefault,
 	"git/compare": projectionIntentionalPayload, "git/diff": projectionIntentionalPayload, "git/log": projectionIntentionalPayload, "git/merge_base": projectionIntentionalPayload,
 	"git/read_file": projectionIntentionalPayload, "git/refresh": projectionClosedDefault, "git/refs": projectionIntentionalPayload, "git/show": projectionIntentionalPayload,
