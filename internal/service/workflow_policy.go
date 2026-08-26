@@ -57,6 +57,13 @@ func (s *Service) ProjectWorkflowPolicyRead(ctx context.Context, projectID strin
 // is already seeded, falling back to the canonical read only to seed or repair
 // the cache. Read callers never receive an unvalidated cache entry.
 func (s *Service) ProjectWorkflowPolicyReadFast(ctx context.Context, projectID string) (model.ProjectWorkflowPolicy, error) {
+	if s.Durability != nil {
+		configuration, err := s.ProjectConfigurationRead(ctx, projectID)
+		if err != nil {
+			return model.ProjectWorkflowPolicy{}, err
+		}
+		return workflowPolicyFromConfiguration(configuration)
+	}
 	if policy, err := s.CachedProjectWorkflowPolicy(projectID); err == nil {
 		return policy, nil
 	}

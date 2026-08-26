@@ -99,23 +99,39 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	if err != nil {
 		return nil, err
 	}
-	project, err := s.Service.ProjectRead(ctx, started.Session.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	identifiers, err := s.Service.ProjectIdentifiersRead(ctx, started.Session.ProjectID)
-	if err != nil {
-		return nil, err
+	projectCode := ""
+	projectStatus := ""
+	defaultBranch := ""
+	if s.Service.Durability != nil {
+		localProject, localErr := s.Service.EffectiveProjectConfig(started.Session.ProjectID)
+		if localErr != nil {
+			return nil, localErr
+		}
+		projectCode = localProject.ProjectCode
+		projectStatus = "active"
+		defaultBranch = localProject.DefaultBranch
+	} else {
+		project, projectErr := s.Service.ProjectRead(ctx, started.Session.ProjectID)
+		if projectErr != nil {
+			return nil, projectErr
+		}
+		identifiers, identifiersErr := s.Service.ProjectIdentifiersRead(ctx, started.Session.ProjectID)
+		if identifiersErr != nil {
+			return nil, identifiersErr
+		}
+		projectCode = identifiers.ProjectCode
+		projectStatus = project.Status
+		defaultBranch = project.DefaultBranch
 	}
 	policy, err := s.Service.ProjectWorkflowPolicyReadFast(ctx, started.Session.ProjectID)
 	if err != nil {
 		return nil, err
 	}
 	projectSummary := map[string]any{
-		"project_id":     project.ID,
-		"project_code":   identifiers.ProjectCode,
-		"status":         project.Status,
-		"default_branch": project.DefaultBranch,
+		"project_id":     started.Session.ProjectID,
+		"project_code":   projectCode,
+		"status":         projectStatus,
+		"default_branch": defaultBranch,
 	}
 	return map[string]any{
 		"session": started.Session.ID,
