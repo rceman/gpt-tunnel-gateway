@@ -85,24 +85,20 @@ func (s *Server) registerWatcherActions() error {
 		return err
 	}
 	if err := register(GenericAction{
-		Path:         "watcher/nudge_status",
-		Description:  "Read the durable receipt for an asynchronous watcher nudge.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable watcher nudge operation identifier.")}, "operation_id"),
-		OutputSchema: watcherNudgeReceiptOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    durableSession.RoleDelivery,
-		LocalReceiptOnly: true,
+		Path:          "watcher/status",
+		Description:   "Read one bounded Gateway watcher status projection.",
+		InputSchema:   obj(map[string]any{"project_id": str("Registered project identifier.")}, "project_id"),
+		OutputSchema:  watcherObjectOutputSchema(),
+		Annotations:   ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole: durableSession.RoleDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				OperationID string `json:"operation_id"`
+			var in struct {
+				ProjectID string `json:"project_id"`
 			}
-			if err := decode(raw, &input); err != nil {
+			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			return s.Service.WatcherNudgeOperationStatus(ctx, input.OperationID)
+			return s.Service.WatcherStatus(ctx, in.ProjectID)
 		},
 	}); err != nil {
 		return err
@@ -156,25 +152,5 @@ func (s *Server) registerWatcherActions() error {
 	}); err != nil {
 		return err
 	}
-	return register(GenericAction{
-		Path:         "watcher/guide_update_status",
-		Description:  "Read the durable receipt for an asynchronous watcher guide update.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable watcher guide operation identifier.")}, "operation_id"),
-		OutputSchema: watcherGuideMutationReceiptOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    durableSession.RolePlanner,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			return s.Service.WatcherGuideUpdateOperationStatus(ctx, in.OperationID)
-		},
-	})
+	return nil
 }

@@ -61,7 +61,7 @@ func compactMutationResult(action string, value map[string]any) map[string]any {
 					continue
 				}
 			}
-			if key == "task" && (action == "task/supersede" || action == "task/supersede_status") {
+			if key == "task" && action == "task/supersede" {
 				// Some mutation receipts expose a closed taskOutputSchema. Keep
 				// that schema's required fields while still dropping optional
 				// preparation/detail fields from the nested projection.

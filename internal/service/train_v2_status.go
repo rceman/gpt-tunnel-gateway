@@ -45,6 +45,15 @@ func (s *Service) projectStatusTrainV2(ctx context.Context, id string, local con
 		projection.TaskCounts, projection.TrainCounts = pure.TaskCounts, pure.TrainCounts
 		projection.CurrentTrain, projection.CurrentTask, projection.CurrentAttempt, projection.NextAction = pure.CurrentTrain, pure.CurrentTask, pure.CurrentAttempt, pure.NextAction
 		projection.ActiveTrains, projection.AmbiguousActive = pure.ActiveTrains, pure.AmbiguousActive
+		for _, train := range operationalTrains {
+			if train.Status == model.TrainV2Planned || train.Status == model.TrainV2Completed || train.Status == model.TrainV2ReadyForIntegration || train.Status == model.TrainV2Retired {
+				continue
+			}
+			if position, ok := correctionPendingTrain(train); ok {
+				projection.CorrectionPending = correctionTrainProjection(train, position)
+				projection.NextAction = projection.CorrectionPending.RecommendedNextAction
+			}
+		}
 	}
 	progress := ProjectProgress{
 		AgentState:            agentStatus.State,

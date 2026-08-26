@@ -54,7 +54,7 @@ func (s *Server) RegisterGenericAction(action GenericAction) error {
 		return fmt.Errorf("invalid generic action path %q", action.Path)
 	}
 	if strings.HasSuffix(action.Path, "_status") {
-		return nil
+		return fmt.Errorf("generic action %q uses retired *_status receipt path; use operation/read", action.Path)
 	}
 	if strings.HasPrefix(action.Path, "plan/") {
 		return fmt.Errorf("plan actions are retired from the canonical action registry")

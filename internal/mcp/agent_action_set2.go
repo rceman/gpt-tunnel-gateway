@@ -38,52 +38,6 @@ func (s *Server) agent_action_set2() error {
 		return err
 	}
 	if err := register(GenericAction{
-		Path:         "agent/interrupt_status",
-		Description:  "Read the durable receipt for an asynchronous Agent interrupt.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable Agent interrupt operation identifier.")}, "operation_id"),
-		OutputSchema: agentIPCReceiptOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &input); err != nil {
-				return nil, err
-			}
-			return s.Service.AgentIPCOperationStatus(ctx, input.OperationID, "agent-interrupt")
-		},
-	}); err != nil {
-		return err
-	}
-	if err := register(GenericAction{
-		Path:         "agent/register_status",
-		Description:  "Read the durable receipt for an asynchronous Agent registration.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable Agent registration operation identifier.")}, "operation_id"),
-		OutputSchema: agentMutationReceiptOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			return s.Service.AgentMutationOperationStatus(ctx, in.OperationID)
-		},
-	}); err != nil {
-		return err
-	}
-	if err := register(GenericAction{
 		Path:        "agent/interrupt",
 		Description: "Interrupt exactly the current TrainItem Attempt turn once.",
 		InputSchema: obj(map[string]any{

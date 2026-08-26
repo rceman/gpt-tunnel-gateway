@@ -46,29 +46,6 @@ func (s *Server) registerTaskAuthoringActions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "task/create_status",
-		Description:  "Read the bounded durable receipt for an asynchronous task/create operation.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable task/create operation identifier.")}, "operation_id"),
-		OutputSchema: taskAuthoringOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &input); err != nil {
-				return nil, err
-			}
-			return s.Service.TaskCreateOperationStatus(ctx, input.OperationID)
-		},
-	}); err != nil {
-		return err
-	}
-	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "task/update",
 		Description:  "Optimistically update a train_v2 Task specification.",
 		InputSchema:  taskAuthoringUpdateSchema(),
@@ -90,29 +67,6 @@ func (s *Server) registerTaskAuthoringActions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "task/update_status",
-		Description:  "Read the bounded durable receipt for an asynchronous task/update operation.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable task/update operation identifier.")}, "operation_id"),
-		OutputSchema: taskAuthoringOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &input); err != nil {
-				return nil, err
-			}
-			return s.Service.TaskAuthoringUpdateOperationStatus(ctx, input.OperationID)
-		},
-	}); err != nil {
-		return err
-	}
-	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "task/ready",
 		Description:  "Persist the exact train_v2 Task readiness seal.",
 		InputSchema:  taskAuthoringReadySchema(),
@@ -129,29 +83,6 @@ func (s *Server) registerTaskAuthoringActions() error {
 				return nil, err
 			}
 			return s.Service.TaskAuthoringReadyAsync(ctx, in)
-		},
-	}); err != nil {
-		return err
-	}
-	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "task/ready_status",
-		Description:  "Read the bounded durable receipt for an asynchronous task/ready operation.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable task/ready operation identifier.")}, "operation_id"),
-		OutputSchema: taskAuthoringOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &input); err != nil {
-				return nil, err
-			}
-			return s.Service.TaskAuthoringReadyOperationStatus(ctx, input.OperationID)
 		},
 	}); err != nil {
 		return err
@@ -220,28 +151,6 @@ func (s *Server) registerTaskAuthoringActions() error {
 				return map[string]any{"task": task, "authoring": true}, nil
 			}
 			return nil, fmt.Errorf("Task is not admitted to Train-v2")
-		},
-	}); err != nil {
-		return err
-	}
-	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "task/supersede_status",
-		Description:  "Read the durable receipt for an asynchronous task supersede operation.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable task supersede operation identifier.")}, "operation_id"),
-		OutputSchema: taskSupersedeReceiptOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole: actionRolePlannerOrDelivery,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			return s.Service.TaskSupersedeOperationStatus(ctx, in.OperationID)
 		},
 	}); err != nil {
 		return err

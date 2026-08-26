@@ -128,15 +128,25 @@ type TrainV2CutoverInput struct {
 }
 
 type TrainV2ProjectStatus struct {
-	ExecutionModel  string         `json:"execution_model"`
-	TaskCounts      map[string]int `json:"task_counts"`
-	TrainCounts     map[string]int `json:"train_counts"`
-	CurrentTrain    string         `json:"current_train,omitempty"`
-	CurrentTask     string         `json:"current_task,omitempty"`
-	CurrentAttempt  string         `json:"current_attempt,omitempty"`
-	ActiveTrains    []string       `json:"active_trains,omitempty"`
-	AmbiguousActive bool           `json:"ambiguous_active,omitempty"`
-	NextAction      string         `json:"next_action"`
+	ExecutionModel    string             `json:"execution_model"`
+	TaskCounts        map[string]int     `json:"task_counts"`
+	TrainCounts       map[string]int     `json:"train_counts"`
+	CurrentTrain      string             `json:"current_train,omitempty"`
+	CurrentTask       string             `json:"current_task,omitempty"`
+	CurrentAttempt    string             `json:"current_attempt,omitempty"`
+	ActiveTrains      []string           `json:"active_trains,omitempty"`
+	AmbiguousActive   bool               `json:"ambiguous_active,omitempty"`
+	NextAction        string             `json:"next_action"`
+	CorrectionPending *TrainV2StaleTrain `json:"correction_pending,omitempty"`
+}
+
+type TrainV2StaleTrain struct {
+	TrainID               string `json:"train_id"`
+	Status                string `json:"status"`
+	Classification        string `json:"classification"`
+	Blocker               string `json:"blocker"`
+	Detail                string `json:"detail"`
+	RecommendedNextAction string `json:"recommended_next_action"`
 }
 
 type TrainV2TaskPacket struct {

@@ -231,6 +231,15 @@ func (s *Service) populateProjectOperationalTrain(result *ProjectOperationalStat
 			}
 			continue
 		}
+		if position, ok := correctionPendingTrain(train); ok {
+			correction := correctionTrainProjection(train, position)
+			result.TrainID = correction.TrainID
+			result.TrainState = correction.Status
+			result.State = "correction_pending"
+			result.Blocker = correction.Blocker
+			result.RecommendedNextAction = correction.RecommendedNextAction
+			return
+		}
 		result.TrainID, result.TrainState = train.ID, train.Status
 		for _, item := range train.Items {
 			if item.Status != model.TrainV2ItemRunning && item.Status != model.TrainV2ItemBlocked && item.Status != model.TrainV2ItemQueued {
