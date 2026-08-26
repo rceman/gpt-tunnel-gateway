@@ -3,9 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -111,6 +108,16 @@ func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, worktre
 	if err != nil {
 		return localCodeTarget{}, err
 	}
+	status, err := s.Git.WorktreeStatus(ctx, project)
+	if err != nil {
+		return localCodeTarget{}, fmt.Errorf("read local worktree status: %w", err)
+	}
+	if !status.Clean {
+		return localCodeTarget{}, fmt.Errorf("local worktree_ref %q is dirty", worktreeRef)
+	}
+	if status.Head == "" {
+		return localCodeTarget{}, fmt.Errorf("local worktree_ref %q has no committed HEAD", worktreeRef)
+	}
 	resolved, err := s.Git.Resolve(ctx, project.Root, baseSHA)
 	if err != nil {
 		return localCodeTarget{}, fmt.Errorf("resolve local base_sha: %w", err)
@@ -118,12 +125,15 @@ func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, worktre
 	if resolved != baseSHA {
 		return localCodeTarget{}, fmt.Errorf("local base_sha resolved to %s, want %s", resolved, baseSHA)
 	}
-	head, _, clean, err := s.Git.CurrentHead(ctx, project)
+	isAncestor, err := s.Git.IsAncestor(ctx, project.Root, baseSHA, status.Head)
 	if err != nil {
-		return localCodeTarget{}, err
+		return localCodeTarget{}, fmt.Errorf("verify local base ancestry: %w", err)
+	}
+	if !isAncestor {
+		return localCodeTarget{}, fmt.Errorf("base_sha %s is not an ancestor of local HEAD %s", baseSHA, status.Head)
 	}
 	return localCodeTarget{
-		CodeIdentity: CodeIdentity{ProjectID: projectID, WorktreeRef: worktreeRef, BaseSHA: baseSHA, CurrentHead: head, Dirty: !clean},
+		CodeIdentity: CodeIdentity{ProjectID: projectID, WorktreeRef: worktreeRef, BaseSHA: baseSHA, CurrentHead: status.Head, Dirty: false},
 		Worktree:     project,
 	}, nil
 }
@@ -146,7 +156,7 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	if err != nil {
 		return CodeReadResult{}, err
 	}
-	content, total, truncated, err := readLocalCodeRange(target.Worktree.Root, in.Path, in.Offset, maxBytes)
+	content, total, truncated, err := s.readCommittedCodeRange(ctx, target, in.Path, in.Offset, maxBytes)
 	if err != nil {
 		return CodeReadResult{}, err
 	}
@@ -179,9 +189,12 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	var scannedBytes int64
 	for pathIndex, path := range paths {
 		result.PathsScanned = pathIndex + 1
-		data, err := readLocalCodeFile(target.Worktree.Root, path)
+		data, err := s.Git.ReadLocalFile(ctx, target.Worktree, target.CurrentHead, path)
 		if err != nil {
 			return CodeSearchResult{}, err
+		}
+		if len(data) > LocalCodeMaxBytes {
+			return CodeSearchResult{}, fmt.Errorf("code search file exceeds bounded object limit")
 		}
 		scannedBytes += int64(len(data))
 		if scannedBytes > LocalCodeMaxSearchBytes {
@@ -230,7 +243,7 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 	if err != nil {
 		return CodeDiffResult{}, err
 	}
-	diff, err := s.Git.WorktreeDiffFrom(ctx, target.Worktree, target.BaseSHA, paths)
+	diff, err := s.Git.DiffLocalCommits(ctx, target.Worktree, target.BaseSHA, target.CurrentHead, paths)
 	if err != nil {
 		return CodeDiffResult{}, err
 	}
@@ -278,87 +291,21 @@ func validateLocalCodePaths(paths []string, required bool) ([]string, error) {
 	return result, nil
 }
 
-func readLocalCodeRange(root, path string, offset int64, maxBytes int) (string, int64, bool, error) {
-	full, err := safeLocalCodePath(root, path)
+func (s *Service) readCommittedCodeRange(ctx context.Context, target localCodeTarget, path string, offset int64, maxBytes int) (string, int64, bool, error) {
+	content, err := s.Git.ReadLocalFile(ctx, target.Worktree, target.CurrentHead, path)
 	if err != nil {
 		return "", 0, false, err
 	}
-	info, err := os.Stat(full)
-	if err != nil {
-		return "", 0, false, err
+	total := int64(len(content))
+	if offset > total {
+		return "", total, false, fmt.Errorf("offset exceeds file size")
 	}
-	if !info.Mode().IsRegular() {
-		return "", 0, false, fmt.Errorf("code path is not a regular file")
-	}
-	if offset > info.Size() {
-		return "", info.Size(), false, fmt.Errorf("offset exceeds file size")
-	}
-	file, err := os.Open(full)
-	if err != nil {
-		return "", 0, false, err
-	}
-	defer file.Close()
-	if _, err := file.Seek(offset, io.SeekStart); err != nil {
-		return "", 0, false, err
-	}
-	data, err := io.ReadAll(io.LimitReader(file, int64(maxBytes)+1))
-	if err != nil {
-		return "", 0, false, err
-	}
+	data := []byte(content)[offset:]
 	truncated := len(data) > maxBytes
 	if truncated {
 		data = data[:maxBytes]
 	}
-	return string(data), info.Size(), truncated, nil
-}
-
-func readLocalCodeFile(root, path string) ([]byte, error) {
-	full, err := safeLocalCodePath(root, path)
-	if err != nil {
-		return nil, err
-	}
-	info, err := os.Stat(full)
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() || info.Size() > LocalCodeMaxBytes {
-		return nil, fmt.Errorf("code search file exceeds bounded regular-file limit")
-	}
-	return os.ReadFile(full)
-}
-
-func safeLocalCodePath(root, path string) (string, error) {
-	if err := model.ValidateRelativePath(path); err != nil {
-		return "", err
-	}
-	rootAbs, err := filepath.Abs(root)
-	if err != nil {
-		return "", err
-	}
-	resolvedRoot, err := filepath.EvalSymlinks(rootAbs)
-	if err != nil {
-		return "", err
-	}
-	full, err := filepath.Abs(filepath.Join(rootAbs, filepath.FromSlash(path)))
-	if err != nil {
-		return "", err
-	}
-	resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(full))
-	if err != nil {
-		return "", err
-	}
-	resolvedFull := filepath.Join(resolvedParent, filepath.Base(full))
-	rel, err := filepath.Rel(resolvedRoot, resolvedFull)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("code path escapes configured local worktree")
-	}
-	if strings.EqualFold(strings.Split(filepath.ToSlash(rel), "/")[0], ".git") {
-		return "", fmt.Errorf("code path is not reviewable")
-	}
-	if info, statErr := os.Lstat(full); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("code path symlink is not reviewable")
-	}
-	return full, nil
+	return string(data), total, truncated, nil
 }
 
 func localCodeMaxBytes(requested int) (int, error) {

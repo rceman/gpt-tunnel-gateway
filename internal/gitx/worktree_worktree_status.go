@@ -80,6 +80,45 @@ func (r Runner) VisibleWorktreePaths(ctx context.Context, root string, paths []s
 	return visible, nil
 }
 
+// ReadLocalFile reads a committed object from an existing local worktree.
+// Unlike ReadFile, it never resolves through a mirror or performs network I/O.
+func (r Runner) ReadLocalFile(ctx context.Context, p config.ProjectConfig, revision, path string) (string, error) {
+	if err := model.ValidateCommitSHA(revision); err != nil {
+		return "", err
+	}
+	if err := model.ValidateRelativePath(path); err != nil {
+		return "", err
+	}
+	out, err := r.command(ctx, p.Root, false, "show", revision+":"+filepath.ToSlash(path))
+	if err != nil {
+		return "", err
+	}
+	return bounded(out, r.MaxReadBytes)
+}
+
+// DiffLocalCommits compares two exact local committed objects. It never
+// resolves revisions through a mirror or performs network I/O.
+func (r Runner) DiffLocalCommits(ctx context.Context, p config.ProjectConfig, from, to string, paths []string) (string, error) {
+	if err := model.ValidateCommitSHA(from); err != nil {
+		return "", err
+	}
+	if err := model.ValidateCommitSHA(to); err != nil {
+		return "", err
+	}
+	args := []string{"diff", "--no-ext-diff", "--no-textconv", from, to, "--"}
+	for _, path := range paths {
+		if err := model.ValidateRelativePath(path); err != nil {
+			return "", err
+		}
+		args = append(args, path)
+	}
+	out, err := r.command(ctx, p.Root, false, args...)
+	if err != nil {
+		return "", err
+	}
+	return bounded(out, r.MaxDiffBytes)
+}
+
 func (r Runner) WorktreeStatus(ctx context.Context, p config.ProjectConfig) (WorktreeStatus, error) {
 	out, err := r.command(ctx, p.Root, false, "status", "--porcelain=v2", "--branch")
 	if err != nil {
@@ -244,25 +283,6 @@ func (r Runner) WorktreeDiff(ctx context.Context, p config.ProjectConfig, staged
 	return bounded(out, r.MaxDiffBytes)
 }
 
-// WorktreeDiffFrom compares the configured local worktree with an exact local
-// base. It never resolves through a mirror or performs network I/O.
-func (r Runner) WorktreeDiffFrom(ctx context.Context, p config.ProjectConfig, from string, paths []string) (string, error) {
-	if err := model.ValidateCommitSHA(from); err != nil {
-		return "", err
-	}
-	args := []string{"diff", "--no-ext-diff", "--no-textconv", from, "--"}
-	for _, path := range paths {
-		if err := model.ValidateRelativePath(path); err != nil {
-			return "", err
-		}
-		args = append(args, path)
-	}
-	out, err := r.command(ctx, p.Root, false, args...)
-	if err != nil {
-		return "", err
-	}
-	return bounded(out, r.MaxDiffBytes)
-}
 func (r Runner) Resolve(ctx context.Context, root, rev string) (string, error) {
 	if err := model.ValidateRevision(rev); err != nil {
 		return "", err
