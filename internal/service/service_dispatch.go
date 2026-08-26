@@ -41,3 +41,37 @@ func (s *Service) checkSessionAvailableForTrainAttempt(ctx context.Context, sess
 	}
 	return nil
 }
+
+func (s *Service) checkSessionAvailableForTrainAttemptLocalFirst(ctx context.Context, session, trainID string) error {
+	if s.Durability == nil {
+		return s.checkSessionAvailableForTrainAttempt(ctx, session, trainID)
+	}
+	for projectID := range s.Config.Projects {
+		enabled, err := s.trainV2Enabled(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		if !enabled {
+			continue
+		}
+		trains, err := s.sharedTrains(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		for _, train := range trains {
+			if train.ID == trainID || (train.Status != model.TrainV2Running && train.Status != model.TrainV2Paused && train.Status != model.TrainV2Blocked) {
+				continue
+			}
+			for _, item := range train.Items {
+				if item.ActiveAttemptNumber == 0 || item.ActiveAttemptNumber > uint64(len(item.Attempts)) {
+					continue
+				}
+				attempt := item.Attempts[item.ActiveAttemptNumber-1]
+				if attempt.Status == model.TrainV2AttemptRunning && attempt.AirelaySessionKey == session {
+					return fmt.Errorf("Train Attempt %s:%d already owns the project session", train.ID, attempt.Number)
+				}
+			}
+		}
+	}
+	return nil
+}

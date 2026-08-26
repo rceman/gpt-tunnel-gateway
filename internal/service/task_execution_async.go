@@ -74,7 +74,7 @@ func (s *Service) TaskWorkAsync(ctx context.Context, in TaskWorkInput) (TaskWork
 	operation, err := s.enqueueTypedDurableMutationWithIdentity(ctx, "task-work", in.ProjectID, in, taskWorkIdentity{
 		ProjectID:   in.ProjectID,
 		TaskID:      in.TaskID,
-		HubRevision: s.localHubRevision(ctx),
+		HubRevision: s.localHubRevision(ctx, in.ProjectID),
 	})
 	if err != nil {
 		return TaskWorkReceipt{}, err

@@ -59,7 +59,7 @@ func TestTrainV2AdvanceReceiptIdentityTracksLocalExecutionGeneration(t *testing.
 	waitDurableMutationTerminal(t, s, changed.OperationID)
 }
 
-func TestTaskWorkReceiptIdentityTracksHubRevision(t *testing.T) {
+func TestTaskWorkReceiptIdentityIgnoresHubRevisionAfterSharedCutover(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
 	in := TaskWorkInput{
 		ProjectID: "example",
@@ -83,8 +83,8 @@ func TestTaskWorkReceiptIdentityTracksHubRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.OperationID == first.OperationID {
-		t.Fatal("changed Hub revision reused stale task/work receipt")
+	if second.OperationID != first.OperationID {
+		t.Fatalf("Hub replica revision changed Shared task/work identity: first=%q second=%q", first.OperationID, second.OperationID)
 	}
 	waitDurableMutationTerminal(t, s, second.OperationID)
 }

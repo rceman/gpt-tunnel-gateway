@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/application"
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/mcp"
@@ -44,7 +45,7 @@ func main() {
 		startupErrorForPhase("LOCAL_BOOTSTRAP", err)
 		fatal(err)
 	}
-	defer runtime.durability.Close()
+	defer runtime.local.Close()
 	svc := runtime.service
 	// HTTP_READY is the local bootstrap boundary. Recovery workers may start
 	// only after it; Hub synchronization remains an independent post-ready
@@ -63,6 +64,7 @@ func main() {
 }
 
 type gatewayRuntime struct {
+	local      *application.Runtime
 	service    *service.Service
 	durability *sqlitestore.Databases
 	server     *http.Server
@@ -77,12 +79,12 @@ func bootstrapGateway(c config.Config, observe func(string)) (*gatewayRuntime, e
 		}
 	}
 	startup("SQLITE_OPEN")
-	durability, err := sqlitestore.OpenWithObserver(c.StateDir, startup)
+	local, err := application.OpenRuntime(c, startup)
 	if err != nil {
 		return nil, err
 	}
-	svc := service.NewWithDurabilityDeferredWorkers(c, durability)
-	startup("LOCAL_STATE_READY")
+	durability := local.Durability
+	svc := local.Service
 	// Keep the legacy typed-tool authority exact. session.start performs a
 	// checked, narrow bootstrap elevation for either durable role; all other
 	// handlers retain the daemon's established delivery root.
@@ -90,7 +92,7 @@ func bootstrapGateway(c config.Config, observe func(string)) (*gatewayRuntime, e
 	srv := newGatewayHTTPServer(c.ListenAddr, (&mcp.Server{Service: svc, AuthorityContext: trustedMCPContext}).Router())
 	listener, err := net.Listen("tcp", c.ListenAddr)
 	if err != nil {
-		_ = durability.Close()
+		_ = local.Close()
 		startup("HTTP_LISTEN_FAILED")
 		return nil, err
 	}
@@ -99,7 +101,7 @@ func bootstrapGateway(c config.Config, observe func(string)) (*gatewayRuntime, e
 	go func() { serveErr <- srv.Serve(listener) }()
 	fmt.Fprintf(os.Stderr, "gpt-tunnel-gatewayd %s listening on %s\n", version, c.ListenAddr)
 	startup("HTTP_READY")
-	runtime := &gatewayRuntime{service: svc, durability: durability, server: srv, listener: listener, serveErr: serveErr}
+	runtime := &gatewayRuntime{local: local, service: svc, durability: durability, server: srv, listener: listener, serveErr: serveErr}
 	return runtime, nil
 }
 

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
@@ -96,6 +98,13 @@ func seedFullProofTrain(t *testing.T, s *Service, expected, head string) (model.
 	if err != nil {
 		t.Fatal(err)
 	}
+	payload, err := json.Marshal(train)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Durability.PutSharedProjection(context.Background(), "train", sqlitestore.SharedEntity{ID: train.ID, Revision: int64(train.Revision), Payload: payload, UpdatedAt: train.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
 	runtime := trainv2.RuntimeBinding{SchemaVersion: 1, ProjectID: "example", TrainID: train.ID, WorktreePath: worktree, AgentID: "agent", SessionKey: "session", ItemPosition: 0, TaskID: "GTW-TSK277", AttemptNumber: 1, StartedAt: now}
 	if err := fsutil.WriteJSONAtomic(trainv2.RuntimePath(s.Config.StateDir, "example", train.ID), runtime, 0o600); err != nil {
 		t.Fatal(err)
@@ -135,11 +144,10 @@ func TestTrainV2FullProofAsyncTransitionsTerminalReviewedTrain(t *testing.T) {
 	if _, err := restarted.TrainV2FullProofOperationStatus(context.Background(), first.OperationID); err != nil {
 		t.Fatalf("receipt was not readable after service restart: %v", err)
 	}
-	changed, err := s.TrainV2FullProofAsync(context.Background(), in)
-	if err != nil || changed.OperationID == first.OperationID {
-		t.Fatalf("changed Hub state reused stale full-proof receipt: %#v %v", changed, err)
+	reused, err := s.TrainV2FullProofAsync(context.Background(), in)
+	if err != nil || reused.OperationID != first.OperationID {
+		t.Fatalf("same Shared full-proof state did not reuse receipt: %#v %v", reused, err)
 	}
-	waitDurableMutationTerminal(t, s, changed.OperationID)
 }
 
 func TestTrainV2FullProofCandidateRejectsIncompleteOrInconsistentEvidence(t *testing.T) {

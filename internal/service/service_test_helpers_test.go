@@ -10,6 +10,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
@@ -30,9 +31,16 @@ func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
 		MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: airelay,
 		Hub:           config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"},
 		AgentBindings: map[string]config.AgentBinding{"watcher-example": {SessionKey: "watcher_master"}},
-		Projects:      map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master", Watcher: config.WatcherSettings{AgentID: "watcher-example"}}},
+		Projects:      map[string]config.ProjectConfig{"example": {ProjectCode: "EXM", Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master", Watcher: config.WatcherSettings{AgentID: "watcher-example"}}},
 	}
 	s := New(c)
+	db, err := sqlitestore.Open(c.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	s.Durability = db
+	now := time.Now().UTC()
 	s.gateExecutor = func(_ context.Context, _ string, names []string) ([]model.CompletionGateResult, error) {
 		out := make([]model.CompletionGateResult, len(names))
 		for i, name := range names {
@@ -54,7 +62,6 @@ func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now().UTC()
 	policy := model.ProjectWorkflowPolicy{SchemaVersion: model.SchemaVersion, ProjectID: project.ID, Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", Agent: model.WorkflowPolicyAgent{WaitForCI: false}, CI: model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve}, UpdatedBy: "test", UpdatedAt: now}
 	_, adopted, err := s.ProjectWorkflowPolicyAdopt(trustedWorkflowPolicyContext(context.Background(), "planner"), ProjectWorkflowPolicyInput{
 		Policy: policy,
@@ -65,7 +72,20 @@ func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := s.BootstrapSharedFromHub(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	return s, adopted.Hub.After, projectHead
+}
+
+func removeSharedBootstrapMarkerForTest(t *testing.T, s *Service) {
+	t.Helper()
+	if s.Durability == nil {
+		t.Fatal("Shared fixture database is unavailable")
+	}
+	if err := s.Durability.DeleteSharedBootstrapMarker(context.Background(), "example"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func testService(t *testing.T) (*Service, string, string) {

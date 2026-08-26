@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/persistence"
 )
 
 func TestTrainV2AdvanceStartsNextItemAndIsIdempotent(t *testing.T) {
 	s, revision, _ := testService(t)
+	s.TrainEvidence = persistence.NewLocalEvidenceStore(s.Config.StateDir)
 	revision = enableTrainV2ForTest(t, s, revision)
 	first, revision := readyTrainTaskForTest(t, s, revision, "first item")
 	second, revision := readyTrainTaskForTest(t, s, revision, "second item")
@@ -39,6 +40,7 @@ func TestTrainV2AdvanceStartsNextItemAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ensureTaskWorkMirrorForTest(t, s)
 	_, err = s.TrainV2Start(context.Background(), TrainV2StartInput{
 		ProjectID: "example",
 		TrainID:   train.ID,
@@ -50,17 +52,12 @@ func TestTrainV2AdvanceStartsNextItemAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	hubRevision, err := s.Hub.RemoteRevision(context.Background())
+	finished := time.Now().UTC()
+	latest, err := s.TrainV2Read(context.Background(), "example", train.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	finished := time.Now().UTC()
-	completed, err := s.Hub.Transact(context.Background(), hubRevision, "test: complete first Train item", func(worktree string) ([]string, error) {
-		var latest model.TrainV2
-		if err := readWorktreeJSON(worktree, s.trainV2Path("example", train.ID), &latest); err != nil {
-			return nil, err
-		}
+	{
 		attempt := &latest.Items[0].Attempts[0]
 		attempt.Status = model.TrainV2AttemptSucceeded
 		attempt.FinishedAt = &finished
@@ -84,24 +81,16 @@ func TestTrainV2AdvanceStartsNextItemAndIsIdempotent(t *testing.T) {
 		latest.Revision++
 		latest.UpdatedAt = finished
 		if err := model.ValidateTrainV2(latest); err != nil {
-			return nil, err
+			t.Fatal(err)
 		}
-		path := s.trainV2Path("example", train.ID)
-		if err := hub.WriteJSON(worktree, path, latest); err != nil {
-			return nil, err
+		if err := s.commitSharedTrain(context.Background(), "test-complete-"+train.ID, latest, "test-complete"); err != nil {
+			t.Fatal(err)
 		}
-		return []string{path}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 
 	advanced, err := s.TrainV2Advance(context.Background(), TrainV2AdvanceInput{
 		ProjectID: "example",
 		TrainID:   train.ID,
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: completed.After,
-		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -117,25 +106,14 @@ func TestTrainV2AdvanceStartsNextItemAndIsIdempotent(t *testing.T) {
 		t.Fatalf("unexpected persisted next-item state: %#v", updated)
 	}
 
-	beforeRetry, err := s.Hub.RemoteRevision(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
 	retried, err := s.TrainV2Advance(context.Background(), TrainV2AdvanceInput{
 		ProjectID: "example",
 		TrainID:   train.ID,
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: beforeRetry,
-		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	afterRetry, err := s.Hub.RemoteRevision(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if afterRetry != beforeRetry || retried.Attempt.Number != 1 || retried.ItemPosition != 1 {
-		t.Fatalf("advance retry was not idempotent: before=%s after=%s result=%#v", beforeRetry, afterRetry, retried)
+	if retried.Attempt.Number != 1 || retried.ItemPosition != 1 {
+		t.Fatalf("advance retry was not idempotent: result=%#v", retried)
 	}
 }

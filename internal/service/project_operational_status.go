@@ -15,7 +15,6 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
-	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 // ProjectOperationalStatus is the compact, session-bound operator projection.
@@ -37,9 +36,16 @@ type ProjectOperationalStatus struct {
 	Integration           ProjectOperationalIntegration `json:"integration"`
 	Rules                 ProjectOperationalRules       `json:"rules"`
 	ReleaseCI             ProjectOperationalReleaseCI   `json:"release_ci"`
-	SharedSync            sqlitestore.SharedSyncHealth  `json:"shared_sync"`
+	SharedSync            ProjectOperationalSharedSync  `json:"shared_sync"`
 	Blocker               string                        `json:"blocker,omitempty"`
 	RecommendedNextAction string                        `json:"recommended_next_action"`
+}
+
+type ProjectOperationalSharedSync struct {
+	State     string `json:"state"`
+	Pending   int    `json:"pending"`
+	Retrying  int    `json:"retrying"`
+	LastError string `json:"last_error,omitempty"`
 }
 
 type ProjectOperationalIdentity struct {
@@ -86,6 +92,9 @@ type ProjectOperationalReleaseCI struct {
 }
 
 func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperationalStatus, error) {
+	if s.Durability == nil {
+		return ProjectOperationalStatus{}, fmt.Errorf("Shared project operational authority is unavailable")
+	}
 	sessionID := AgentSessionID(ctx)
 	if sessionID == "" {
 		return ProjectOperationalStatus{}, fmt.Errorf("project status requires a bound session")
@@ -133,15 +142,13 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 		ReleaseCI: ProjectOperationalReleaseCI{
 			State: "unavailable",
 		},
-		SharedSync:            sqlitestore.SharedSyncHealth{State: "unavailable"},
+		SharedSync:            ProjectOperationalSharedSync{State: "unavailable"},
 		RecommendedNextAction: "await work",
 	}
-	if s.Durability != nil {
-		if syncHealth, syncErr := s.Durability.SharedSyncHealth(ctx); syncErr == nil {
-			result.SharedSync = syncHealth
-		} else {
-			result.SharedSync = sqlitestore.SharedSyncHealth{State: "degraded", LastError: "shared sync health unavailable"}
-		}
+	if syncHealth, syncErr := s.Durability.SharedSyncHealth(ctx); syncErr == nil {
+		result.SharedSync = ProjectOperationalSharedSync{State: syncHealth.State, Pending: syncHealth.Pending, Retrying: syncHealth.Retrying, LastError: syncHealth.LastError}
+	} else {
+		result.SharedSync = ProjectOperationalSharedSync{State: "degraded", LastError: "shared sync health unavailable"}
 	}
 	if sessionID := AgentSessionID(ctx); sessionID != "" {
 		if session, sessionErr := s.SessionInfo(ctx, sessionID); sessionErr == nil {

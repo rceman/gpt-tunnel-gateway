@@ -171,12 +171,10 @@ func TestProjectConfigurationReadUsesSharedWhenHubUnavailable(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := s.Durability
+	if db == nil {
+		t.Fatal("Shared fixture database is unavailable")
 	}
-	defer db.Close()
-	s.Durability = db
 	markSharedBootstrapCompleteForTest(t, db)
 	payload, err := json.Marshal(configuration)
 	if err != nil {
@@ -213,11 +211,10 @@ func TestProjectConfigurationUpdateUsesSharedCASAndOutbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := s.Durability
+	if db == nil {
+		t.Fatal("Shared fixture database is unavailable")
 	}
-	s.Durability = db
 	markSharedBootstrapCompleteForTest(t, db)
 	payload, err := json.Marshal(configuration)
 	if err != nil {
@@ -263,12 +260,10 @@ func TestProjectConfigurationUpdateUsesSharedActiveTrainGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := s.Durability
+	if db == nil {
+		t.Fatal("Shared fixture database is unavailable")
 	}
-	defer db.Close()
-	s.Durability = db
 	markSharedBootstrapCompleteForTest(t, db)
 	payload, err := json.Marshal(configuration)
 	if err != nil {
@@ -309,11 +304,10 @@ func TestProjectConfigurationUpdateSameOperationRetryReusesCommittedResult(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := s.Durability
+	if db == nil {
+		t.Fatal("Shared fixture database is unavailable")
 	}
-	s.Durability = db
 	markSharedBootstrapCompleteForTest(t, db)
 	payload, err := json.Marshal(configuration)
 	if err != nil {

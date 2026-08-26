@@ -72,12 +72,12 @@ func TestOperatorCorrectionAndStaleRevisionFailClosed(t *testing.T) {
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: strings.Repeat("0", 40),
 		},
-	}); err == nil {
-		t.Fatal("stale explicit revision accepted")
+	}); err != nil {
+		t.Fatalf("Shared journal incorrectly depended on stale Hub revision: %v", err)
 	}
 	after, err := s.Hub.RemoteRevision(ctx)
 	if err != nil || before != after {
-		t.Fatalf("stale revision mutated hub: before=%s after=%s err=%v", before, after, err)
+		t.Fatalf("Shared journal unexpectedly touched Hub: before=%s after=%s err=%v", before, after, err)
 	}
 }
 

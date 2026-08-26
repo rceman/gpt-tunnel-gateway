@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func genericSession(t *testing.T, s *service.Service, projectID string) string {
@@ -59,6 +61,27 @@ func TestGenericSessionStartIsDiscoverableAndCreatesPlannerSession(t *testing.T)
 }
 func TestQueryRunUsesSharedReadOnlyDSLAndSchemaDiscovery(t *testing.T) {
 	server := newSessionTestServer(t)
+	db, err := sqlitestore.Open(server.Service.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	server.Service.Durability = db
+	projectConfig := server.Service.Config.Projects["example"]
+	projectConfig.ProjectCode = "EXM"
+	server.Service.Config.Projects["example"] = projectConfig
+	if err := db.PutSharedTaskSequence(context.Background(), "example", "EXM", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedADRSequence(context.Background(), "example", "EXM", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkSharedBootstrapComplete(context.Background(), sqlitestore.SharedBootstrapMarker{ProjectID: "example", HubRevision: strings.Repeat("a", 40), CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(context.Background(), "task", sqlitestore.SharedEntity{ID: "EXM-TSK1", Revision: 1, Payload: []byte(`{"id":"EXM-TSK1","project_id":"example","status":"ready"}`), UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
 	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT}))
 	sessionID := started["session"].(map[string]any)["session_id"].(string)
 	revision, err := server.Service.Hub.RemoteRevision(context.Background())

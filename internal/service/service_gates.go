@@ -188,7 +188,10 @@ func (s *Service) executeTrainGatesWithScopedFormat(ctx context.Context, project
 			gateErr = fmt.Errorf("canonical formatter is not configured")
 		} else {
 			formatStarted := time.Now()
-			if err := s.formatExecutor(ctx, project.Root, changedGoFiles(changed)); err != nil {
+			formatPaths, err := existingGoFiles(project.Root, changed)
+			if err != nil {
+				gateErr = fmt.Errorf("Train scoped formatting file selection failed: %w", err)
+			} else if err := s.formatExecutor(ctx, project.Root, formatPaths); err != nil {
 				gateErr = fmt.Errorf("Train scoped formatting failed: %w", err)
 			} else {
 				formatResults = append(formatResults, model.CompletionGateResult{ID: model.WorkflowGateFormat, ExitCode: 0, Execution: "executed", DurationMS: time.Since(formatStarted).Milliseconds()})
@@ -233,7 +236,10 @@ func (s *Service) executeTaskFinalizeGatesWithSnapshot(ctx context.Context, proj
 			gateErr = fmt.Errorf("canonical formatter is not configured")
 		} else {
 			formatStarted := time.Now()
-			if err := s.formatExecutor(ctx, project.Root, changedGoFiles(changed)); err != nil {
+			formatPaths, err := existingGoFiles(project.Root, changed)
+			if err != nil {
+				gateErr = fmt.Errorf("canonical formatting file selection failed: %w", err)
+			} else if err := s.formatExecutor(ctx, project.Root, formatPaths); err != nil {
 				gateErr = fmt.Errorf("canonical formatting failed: %w", err)
 			} else {
 				formatResults = append(formatResults, model.CompletionGateResult{ID: model.WorkflowGateFormat, ExitCode: 0, Execution: "executed", DurationMS: time.Since(formatStarted).Milliseconds()})

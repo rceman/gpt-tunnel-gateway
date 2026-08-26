@@ -2,6 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -28,12 +32,22 @@ func (s *Service) taskFinalizeChangedFiles(ctx context.Context, root, baseHead, 
 	return changed, nil
 }
 
-func changedGoFiles(paths []string) []string {
+func existingGoFiles(root string, paths []string) ([]string, error) {
 	goPaths := make([]string, 0, len(paths))
 	for _, path := range paths {
-		if strings.HasSuffix(path, ".go") {
+		if !strings.HasSuffix(path, ".go") {
+			continue
+		}
+		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(path)))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("stat changed Go file %q: %w", path, err)
+		}
+		if info.Mode().IsRegular() {
 			goPaths = append(goPaths, path)
 		}
 	}
-	return goPaths
+	return goPaths, nil
 }
