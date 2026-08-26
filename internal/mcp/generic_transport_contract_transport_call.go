@@ -37,8 +37,7 @@ func genericBatchCallInputSchema() map[string]any {
 }
 func genericSchemaInputSchema() map[string]any {
 	return obj(map[string]any{
-		"path":   str("Empty for the root index, a domain for its actions, or an exact action path."),
-		"detail": map[string]any{"type": "boolean", "description": "Return complete action contracts for a domain.", "default": false},
+		"path": str("Empty for the root index, a domain for its actions, or an exact action path."),
 	})
 }
 func genericCallOutputSchema() map[string]any {
