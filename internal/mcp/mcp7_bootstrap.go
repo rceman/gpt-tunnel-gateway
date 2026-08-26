@@ -15,12 +15,28 @@ func addMCP7BootstrapTools(add func(string, string, map[string]any, func(context
 		if version == "" {
 			version = runtime.InstalledVersion
 		}
+		state, nextAction := mcpStatusProjection(runtime)
 		return map[string]any{
-			"service":          "gpt-tunnel-gatewayd",
-			"version":          version,
-			"gateway_id":       s.Service.Config.GatewayID,
-			"time":             time.Now().UTC(),
-			"runtime_identity": runtime,
+			"service":                 "gpt-tunnel-gatewayd",
+			"version":                 version,
+			"gateway_id":              s.Service.Config.GatewayID,
+			"time":                    time.Now().UTC(),
+			"status":                  state,
+			"recommended_next_action": nextAction,
+			"runtime_identity":        runtime,
 		}, nil
 	})
+}
+
+func mcpStatusProjection(runtime controller.RuntimeIdentity) (string, string) {
+	switch {
+	case !runtime.GatewayReady:
+		return "unavailable", "Restore Gateway readiness before using session_start, call, or batch."
+	case !runtime.VersionMatch:
+		return "degraded", "Verify Gateway artifact identity before using control-plane actions."
+	case !runtime.TunnelReady:
+		return "degraded", "Restore Tunnel readiness before remote control-plane use."
+	default:
+		return "ready", "Call session_start with project_id to create a project-bound Planner session."
+	}
 }

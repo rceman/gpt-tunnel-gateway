@@ -33,7 +33,15 @@ func (s *Server) genericCallWithEntries(ctx context.Context, entries map[string]
 	if err := decode(raw, &input); err != nil {
 		return nil, err
 	}
-	return s.genericDispatch(ctx, entries, durableSession.Record{}, input.Action, input.Input)
+	if input.SessionID == "" {
+		return nil, fmt.Errorf("session is required")
+	}
+	record, err := s.activeSession(input.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	ctx = withSession(ctx, record)
+	return s.genericDispatch(ctx, entries, record, input.Action, input.Input)
 }
 func (s *Server) genericDispatch(ctx context.Context, entries map[string]genericActionEntry, record durableSession.Record, action string, raw json.RawMessage) (result map[string]any, returnErr error) {
 	if runtime_log.RequestID(ctx) == "" {
