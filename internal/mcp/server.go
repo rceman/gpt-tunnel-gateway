@@ -114,6 +114,7 @@ func (s *Server) tools() map[string]Tool {
 	s.addRunTools(add)
 	addOperatorJournalTools(add, s)
 	addGitTools(add, s)
+	addMCP7BootstrapTools(add, s)
 	legacyTools := make(map[string]Tool, len(t))
 	for name, tool := range t {
 		legacyTools[name] = tool

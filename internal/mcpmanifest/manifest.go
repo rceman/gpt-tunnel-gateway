@@ -1,8 +1,7 @@
 package mcpmanifest
 
 var canonicalTools = []string{
-	"bootstrap",
-	"project_onboard",
+	"status",
 	"session_start",
 	"schema",
 	"call",

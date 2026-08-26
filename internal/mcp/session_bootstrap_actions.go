@@ -9,7 +9,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
-	"github.com/rceman/gpt-tunnel-gateway/internal/session"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 const globalWorkflowRevision = "gpt-tunnel-workflow-v1"
@@ -30,11 +30,10 @@ func globalWorkflowDigest() string {
 
 func sessionStartPublicInputSchema() map[string]any {
 	return obj(map[string]any{
-		"project": str("Immutable three-letter project code."),
-		"role":    str("Server-authorized session role."),
-		"label":   str("Optional bounded session label."),
-		"ref":     str("Optional caller reference."),
-	}, "project", "role")
+		"project_id": str("Canonical registered project identifier."),
+		"role":       str("Server-authorized durable session role."),
+		"ref":        str("Optional bounded caller/session reference."),
+	}, "project_id", "role")
 }
 
 func sessionUpdatePublicInputSchema() map[string]any {
@@ -74,10 +73,9 @@ func sessionUpdatePublicOutputSchema() map[string]any {
 
 func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (any, error) {
 	var in struct {
-		Project string  `json:"project"`
-		Role    string  `json:"role"`
-		Label   *string `json:"label"`
-		Ref     *string `json:"ref"`
+		ProjectID string  `json:"project_id"`
+		Role      string  `json:"role"`
+		Ref       *string `json:"ref"`
 	}
 	if err := decode(raw, &in); err != nil {
 		return nil, err
@@ -86,13 +84,18 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	if err != nil {
 		return nil, err
 	}
-	started, err := s.Service.SessionStartByCode(trusted, in.Project, in.Role, in.Ref, in.Label)
+	started, err := s.Service.SessionStart(trusted, service.SessionStartInput{
+		ProjectID:   in.ProjectID,
+		Role:        in.Role,
+		SessionType: durableSession.SessionTypeChatGPT,
+		SessionRef:  in.Ref,
+	})
 	if err != nil {
 		return nil, err
 	}
 	workflow := globalWorkflowRules()
 	digest := globalWorkflowDigest()
-	started.Session, err = session.NewStore(s.Service.Config.StateDir).AcknowledgeRules(started.Session.ID, globalWorkflowRevision, digest, 0, "")
+	started.Session, err = durableSession.NewStore(s.Service.Config.StateDir).AcknowledgeRules(started.Session.ID, globalWorkflowRevision, digest, 0, "")
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +165,7 @@ func (s *Server) sessionUpdatePublic(ctx context.Context, raw json.RawMessage) (
 		return nil, fmt.Errorf("session project rules unavailable: %w", err)
 	}
 	digest := digestJSON(policy)
-	updated, err := session.NewStore(s.Service.Config.StateDir).AcknowledgeRules(in.Session, globalWorkflowRevision, globalWorkflowDigest(), policy.Revision, digest)
+	updated, err := durableSession.NewStore(s.Service.Config.StateDir).AcknowledgeRules(in.Session, globalWorkflowRevision, globalWorkflowDigest(), policy.Revision, digest)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +217,7 @@ func (s *Server) rulesReadAction(ctx context.Context, raw json.RawMessage) (any,
 		return nil, err
 	}
 	digest := digestJSON(policy)
-	updated, err := session.NewStore(s.Service.Config.StateDir).AcknowledgeRules(id, globalWorkflowRevision, globalWorkflowDigest(), policy.Revision, digest)
+	updated, err := durableSession.NewStore(s.Service.Config.StateDir).AcknowledgeRules(id, globalWorkflowRevision, globalWorkflowDigest(), policy.Revision, digest)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +230,7 @@ func digestJSON(value any) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (s *Server) validateSessionRules(ctx context.Context, record session.Record, action string) error {
+func (s *Server) validateSessionRules(ctx context.Context, record durableSession.Record, action string) error {
 	if record.ProjectID == "" || record.GlobalRulesRevision == "" || action == "rules/read" || action == "session/bind" || action == "session/info" || action == "session/end" || action == "session/update" || action == "project/list" {
 		return nil
 	}

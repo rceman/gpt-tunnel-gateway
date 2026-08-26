@@ -11,10 +11,7 @@ import (
 func genericBatchInputSchema() map[string]any {
 	calls := array(genericBatchCallInputSchema())
 	calls["maxItems"] = genericBatchMaxItems
-	schema := obj(map[string]any{"session": str("Optional durable session shared by every batch item."), "calls": calls}, "calls")
-	schema["x-sessionless"] = true
-	schema["required"] = []string{"session", "calls"}
-	return schema
+	return obj(map[string]any{"session": str("Existing durable project-bound session shared by every batch item."), "calls": calls}, "session", "calls")
 }
 func sessionlessActionPath(path string) bool {
 	switch path {
