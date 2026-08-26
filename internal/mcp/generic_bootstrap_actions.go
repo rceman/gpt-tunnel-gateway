@@ -50,6 +50,16 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 	add("session/end", "End the durable session bound to the public session.", obj(map[string]any{}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.sessionActionForContext(ctx, "end", nil)
 	})
+	add("session/update", "Update the label or caller reference of the durable session bound to the public session.", obj(map[string]any{
+		"label": str("Optional bounded session label."),
+		"ref":   str("Optional caller reference."),
+	}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var input sessionUpdateActionInput
+		if err := decode(raw, &input); err != nil {
+			return nil, err
+		}
+		return s.sessionActionForContext(ctx, "update", &input)
+	})
 	if tool, ok := legacy["system_ping"]; ok {
 		add("gateway/status", "Read Gateway health and runtime status.", obj(map[string]any{}), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
 			baseValue, err := tool.Execute(ctx, []byte(`{}`))
