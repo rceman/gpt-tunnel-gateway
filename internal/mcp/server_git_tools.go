@@ -171,13 +171,6 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 		v, e := s.Service.Git.MergeBase(ctx, p, left, right)
 		return map[string]any{"merge_base": v}, e
 	})
-	add("git_worktree_status", "Read current local worktree state.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		_, p, e := projectConfig(raw)
-		if e != nil {
-			return nil, e
-		}
-		return s.Service.Git.WorktreeStatus(ctx, p)
-	})
 	add("git_worktree_diff", "Read unstaged or staged local worktree diff.", obj(map[string]any{"project_id": str("Project identifier"), "staged": map[string]any{"type": "boolean"}}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		_, p, e := projectConfig(raw)
 		if e != nil {

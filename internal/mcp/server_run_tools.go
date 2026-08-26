@@ -26,13 +26,6 @@ func (s *Server) addRunTools(add toolAdder) {
 		return s.Service.AgentSend(ctx, projectID, text)
 	})
 	add("agent_tail", "Read a bounded incremental transcript window from the configured project Airelay session.", agentTailInputSchema(false), func(ctx context.Context, raw json.RawMessage) (any, error) { return s.agentTailAction(ctx, raw) })
-	add("agent_status", "Read bounded status and capacity warnings from the configured project Airelay session.", obj(map[string]any{"project_id": str("Registered project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		projectID, err := getString(raw, "project_id")
-		if err != nil {
-			return nil, err
-		}
-		return s.Service.AgentStatus(ctx, projectID)
-	})
 }
 
 func agentTailInputSchema(legacySkip bool) map[string]any {

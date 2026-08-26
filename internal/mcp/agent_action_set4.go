@@ -83,21 +83,17 @@ func (s *Server) agent_action_set4() error {
 		return err
 	}
 	return register(GenericAction{
-		Path:         "agent/status",
-		Description:  "Read bounded registered, bound, and usable Agent status.",
-		InputSchema:  obj(map[string]any{"project_id": str("Registered project identifier."), "agent_id": str("Stable agent identifier.")}, "project_id", "agent_id"),
-		OutputSchema: agentObjectOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
+		Path:                "agent/status",
+		Description:         "Read bounded registered, bound, and usable Agent status.",
+		InputSchema:         obj(map[string]any{"project_id": str("Registered project identifier."), "agent_id": str("Stable agent identifier.")}, "project_id", "agent_id"),
+		OutputSchema:        agentObjectOutputSchema(),
+		Annotations:         ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
 		AuthorityRole:       durableSession.RoleDelivery,
 		AllowLegacyOverride: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			return s.agentStatusAction(ctx, raw)
 		},
 	})
-	return nil
 }
 
 // agentStatusAction keeps the durable registry projection at the top level

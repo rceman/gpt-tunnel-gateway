@@ -40,13 +40,6 @@ func (s *Server) addTaskTools(add toolAdder) {
 		}
 		return s.Service.TaskRevisionRead(ctx, id)
 	})
-	add("task_revision_status", "Read one bounded Task revision status projection.", obj(map[string]any{"revision_id": str("Exact TASK.REV<N> identifier")}, "revision_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		id, err := getString(raw, "revision_id")
-		if err != nil {
-			return nil, err
-		}
-		return s.Service.TaskRevisionStatus(ctx, id)
-	})
 	add("task_correction_create", "Delivery-authorized creation of one immutable bounded post-finalization Task revision.", taskCorrectionInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.TaskCorrectionCreateInput
 		if err := decode(raw, &in); err != nil {

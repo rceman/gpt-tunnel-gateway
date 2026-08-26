@@ -9,52 +9,6 @@ import (
 
 func (s *Server) registerTrainV2ActionSet2() error {
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "train/create_status",
-		Description:  "Read the durable receipt for an asynchronous Train create.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train create operation identifier.")}, "operation_id"),
-		OutputSchema: trainV2AdmissionReceiptOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &input); err != nil {
-				return nil, err
-			}
-			return s.Service.TrainV2AdmissionOperationStatus(ctx, input.OperationID, "train-v2-create")
-		},
-	}); err != nil {
-		return err
-	}
-	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "train/add_status",
-		Description:  "Read the durable receipt for an asynchronous Train add.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train add operation identifier.")}, "operation_id"),
-		OutputSchema: trainV2AdmissionReceiptOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &input); err != nil {
-				return nil, err
-			}
-			return s.Service.TrainV2AdmissionOperationStatus(ctx, input.OperationID, "train-v2-add")
-		},
-	}); err != nil {
-		return err
-	}
-	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "train/read",
 		Description:  "Read one train_v2 admission record.",
 		InputSchema:  trainV2ReadSchema(),
@@ -119,29 +73,6 @@ func (s *Server) registerTrainV2ActionSet2() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "train/start_status",
-		Description:  "Read the durable receipt for a Train start initiation.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train start operation identifier.")}, "operation_id"),
-		OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &input); err != nil {
-				return nil, err
-			}
-			return s.Service.TrainV2StartOperationStatus(ctx, input.OperationID)
-		},
-	}); err != nil {
-		return err
-	}
-	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "train/advance",
 		Description:  "Start the next queued TrainItem Attempt without creating a global Run.",
 		InputSchema:  trainV2AdvanceSchema(),
@@ -158,29 +89,6 @@ func (s *Server) registerTrainV2ActionSet2() error {
 				return nil, err
 			}
 			return s.Service.TrainV2AdvanceAsync(ctx, in)
-		},
-	}); err != nil {
-		return err
-	}
-	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "train/advance_status",
-		Description:  "Read the durable receipt for a Train advance initiation.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable Train advance operation identifier.")}, "operation_id"),
-		OutputSchema: trainV2OutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &input); err != nil {
-				return nil, err
-			}
-			return s.Service.TrainV2AdvanceOperationStatus(ctx, input.OperationID)
 		},
 	}); err != nil {
 		return err

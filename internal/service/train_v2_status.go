@@ -45,25 +45,14 @@ func (s *Service) projectStatusTrainV2(ctx context.Context, id string, local con
 		projection.TaskCounts, projection.TrainCounts = pure.TaskCounts, pure.TrainCounts
 		projection.CurrentTrain, projection.CurrentTask, projection.CurrentAttempt, projection.NextAction = pure.CurrentTrain, pure.CurrentTask, pure.CurrentAttempt, pure.NextAction
 		projection.ActiveTrains, projection.AmbiguousActive = pure.ActiveTrains, pure.AmbiguousActive
-		stale := make([]*TrainV2StaleTrain, 0)
 		for _, train := range operationalTrains {
-			classification, classifyErr := s.classifyTrainV2Lifecycle(id, train)
-			if classifyErr != nil {
-				trainErr = classifyErr
-				break
+			if train.Status == model.TrainV2Planned || train.Status == model.TrainV2Completed || train.Status == model.TrainV2ReadyForIntegration || train.Status == model.TrainV2Retired {
+				continue
 			}
-			if value := staleTrainProjection(classification, train); value != nil {
-				stale = append(stale, value)
+			if position, ok := correctionPendingTrain(train); ok {
+				projection.CorrectionPending = correctionTrainProjection(train, position)
+				projection.NextAction = projection.CorrectionPending.RecommendedNextAction
 			}
-			if value := correctionTrainProjection(classification, train); value != nil {
-				projection.CorrectionPending = value
-				projection.NextAction = value.RecommendedNextAction
-			}
-		}
-		if len(stale) > 0 {
-			sortTrainV2StaleProjection(stale)
-			projection.StaleTrain = stale[0]
-			projection.NextAction = projection.StaleTrain.RecommendedNextAction
 		}
 	}
 	progress := ProjectProgress{

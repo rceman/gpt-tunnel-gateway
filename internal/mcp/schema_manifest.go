@@ -54,21 +54,15 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	result["project"] = destructiveExternalAnnotations()
 	result["session"] = destructiveExternalAnnotations()
 	for _, name := range []string{
-		"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_status", "project_workflow_policy_read",
+		"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_workflow_policy_read",
 		"plan_read", "plan_section_read", "plan_render", "plan_history", "adr_list", "adr_read", "task_list", "task_read",
-		"task_revision_list", "task_revision_read", "task_revision_status",
+		"task_revision_list", "task_revision_read",
 		"git_refs", "git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare",
 		"git_merge_base", "git_worktree_status", "git_worktree_diff",
 	} {
 		result[name] = readOnlyAnnotations()
 	}
 	result["agent_tail"] = ToolAnnotations{
-		ReadOnlyHint:    true,
-		DestructiveHint: false,
-		IdempotentHint:  true,
-		OpenWorldHint:   true,
-	}
-	result["agent_status"] = ToolAnnotations{
 		ReadOnlyHint:    true,
 		DestructiveHint: false,
 		IdempotentHint:  true,
@@ -81,12 +75,10 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	for _, name := range []string{"project_register", "project_identifiers_adopt", "project_workflow_policy_adopt", "project_workflow_policy_update", "adr_create", "task_create", "plan_section_create"} {
 		result[name] = additiveExternalAnnotations()
 	}
-	result["adr_create_status"] = readOnlyAnnotations()
 	result["task_correction_create"] = additiveExternalAnnotations()
 	result["project_onboard"] = idempotentMutationAnnotations()
 	result["project_onboard_recover"] = idempotentMutationAnnotations()
-	result["project_onboard_status"] = readOnlyAnnotations()
-	for _, name := range []string{"plan_cutover", "plan_update", "plan_section_update", "plan_section_delete", "task_supersede"} {
+	for _, name := range []string{"plan_cutover", "plan_update", "plan_section_update", "task_supersede"} {
 		result[name] = destructiveExternalAnnotations()
 	}
 	result["git_refresh"] = ToolAnnotations{

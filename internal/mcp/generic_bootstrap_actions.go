@@ -32,7 +32,13 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		if path == "project/status" {
 			entry.OutputSchema = projectOperationalStatusOutputSchema()
 		}
+		if path == "operation/read" {
+			entry.OutputSchema = operationReadOutputSchema()
+		}
 		if path == "session/info" {
+			entry.LocalReadOnly = true
+		}
+		if path == "operation/read" {
 			entry.LocalReadOnly = true
 		}
 		entries[path] = entry
@@ -49,6 +55,17 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 	})
 	add("session/end", "End the durable session bound to the public session.", obj(map[string]any{}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.sessionActionForContext(ctx, "end", nil)
+	})
+	add("operation/read", "Read one authorized durable asynchronous mutation receipt.", obj(map[string]any{
+		"operation_id": str("Durable operation identifier."),
+	}, "operation_id"), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var input struct {
+			OperationID string `json:"operation_id"`
+		}
+		if err := decode(raw, &input); err != nil {
+			return nil, err
+		}
+		return s.Service.OperationRead(ctx, input.OperationID)
 	})
 	add("session/update", "Update the label or caller reference of the durable session bound to the public session.", obj(map[string]any{
 		"label": str("Optional bounded session label."),

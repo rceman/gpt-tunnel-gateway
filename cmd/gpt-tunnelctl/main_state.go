@@ -36,8 +36,6 @@ func stateCommand(ctx context.Context, c config.Config) {
 		output(result)
 	case "migrate-train-v2-attempts":
 		stateMigrateTrainV2Attempts(ctx, s)
-	case "retire-run-state":
-		stateRetireRunState(ctx, s)
 	case "migrate-train-v2-legacy":
 		stateMigrateTrainV2Legacy(ctx, s)
 	default:
@@ -89,41 +87,6 @@ func stateMigrateTrainV2Legacy(ctx context.Context, s *service.Service) {
 		usage()
 	}
 	result, err := s.TrainV2MigrateLegacyState(ctx, input)
-	if err != nil {
-		fatal(err)
-	}
-	output(result)
-}
-func stateRetireRunState(ctx context.Context, s *service.Service) {
-	input := service.RunRetirementInput{}
-	modeSet, projectSet := false, false
-	for i := 3; i < len(os.Args); i++ {
-		if os.Args[i] == "--dry-run" || os.Args[i] == "--apply" {
-			if modeSet {
-				usage()
-			}
-			modeSet = true
-			input.Apply = os.Args[i] == "--apply"
-			continue
-		}
-		if i+1 >= len(os.Args) {
-			usage()
-		}
-		value := os.Args[i+1]
-		switch os.Args[i] {
-		case "--project":
-			input.ProjectID, projectSet = value, true
-		case "--expected-hub-revision":
-			input.ExpectedHubRevision = value
-		default:
-			usage()
-		}
-		i++
-	}
-	if !modeSet || !projectSet || (input.Apply && input.ExpectedHubRevision == "") {
-		usage()
-	}
-	result, err := s.RetireRunRecords(ctx, input)
 	if err != nil {
 		fatal(err)
 	}

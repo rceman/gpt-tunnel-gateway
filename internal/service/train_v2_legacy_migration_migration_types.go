@@ -7,7 +7,6 @@ import (
 
 const (
 	TrainV2LegacyActionMarkHistorical   = "mark_historical"
-	TrainV2LegacyActionRetireStale      = "retire_stale"
 	TrainV2LegacyActionRecoverIntegrate = "recover_integration"
 )
 

@@ -101,20 +101,6 @@ func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
 				owners[item.TaskID] = train.ID
 			}
 		}
-		for _, train := range trains {
-			if train.Historical != nil {
-				continue
-			}
-			classification, classifyErr := s.classifyTrainV2LifecycleWithContext(ctx, id, train)
-			if classifyErr != nil {
-				result.Issues = append(result.Issues, stateIssue("TRAIN_V2_RECONCILIATION_UNAVAILABLE", id, "", s.trainV2Path(id, train.ID), classifyErr.Error()))
-				continue
-			}
-			switch classification.Class {
-			case trainV2ClassStale, trainV2ClassAmbiguous:
-				result.Issues = append(result.Issues, stateIssue("TRAIN_STALE_RECONCILIATION_REQUIRED", id, "", s.trainV2Path(id, train.ID), classification.Detail))
-			}
-		}
 	}
 	// Plan files remain immutable history and are intentionally not part of
 	// current-state validation after the Train-v2 cutover.

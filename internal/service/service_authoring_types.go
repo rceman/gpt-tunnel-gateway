@@ -34,14 +34,6 @@ type PlanSectionUpdateInput struct {
 	WriteOptions
 }
 
-type PlanSectionDeleteInput struct {
-	ProjectID               string `json:"project_id"`
-	SectionID               string `json:"section_id"`
-	UpdatedBy               string `json:"updated_by"`
-	ExpectedSectionRevision int    `json:"expected_section_revision"`
-	WriteOptions
-}
-
 type ADRCreateInput struct {
 	ADR model.ADR `json:"adr"`
 	WriteOptions

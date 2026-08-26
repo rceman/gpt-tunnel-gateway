@@ -55,29 +55,6 @@ func (s *Server) registerTaskExecutionActions() error {
 	}); err != nil {
 		return err
 	}
-	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "task/work_status",
-		Description:  "Read the durable receipt for an asynchronous task/work operation.",
-		InputSchema:  obj(map[string]any{"operation_id": str("Durable task work operation identifier.")}, "operation_id"),
-		OutputSchema: taskWorkReceiptOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
-		LocalReceiptOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				OperationID string `json:"operation_id"`
-			}
-			if err := decode(raw, &input); err != nil {
-				return nil, err
-			}
-			return s.Service.TaskWorkOperationStatus(ctx, input.OperationID)
-		},
-	}); err != nil {
-		return err
-	}
 	return s.RegisterGenericAction(GenericAction{
 		Path:         "task/finalize",
 		Description:  "Finalize the exact current TrainItem Attempt addressed by Task identity. Leave scoped edits uncommitted; the Gateway owns gates, checkpoint commit, completion/report/proof, and no completion file is required.",
