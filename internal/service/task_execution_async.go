@@ -107,7 +107,7 @@ func (s *Service) TaskFinalizeAsync(ctx context.Context, in TaskFinalizeInput) (
 		}
 		in.ProjectID = task.ProjectID
 	}
-	operation, err := s.enqueueTypedDurableMutation(ctx, "task-finalize", in.ProjectID, in)
+	operation, err := s.enqueueTypedDurableMutationWithoutTerminalRetry(ctx, "task-finalize", in.ProjectID, in)
 	if err != nil {
 		return TaskFinalizeReceipt{}, err
 	}

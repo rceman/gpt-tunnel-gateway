@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -67,5 +68,52 @@ func TestTaskExecutionMutationsReturnBoundedReceipts(t *testing.T) {
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
+	}
+}
+
+func TestTaskFinalizeDoesNotReacceptTerminalReceipt(t *testing.T) {
+	for _, status := range []string{"completed", "failed", "outcome_unknown"} {
+		t.Run(status, func(t *testing.T) {
+			s, _, _ := testServiceWithoutIdentifiers(t)
+			input := TaskFinalizeInput{
+				ProjectID: "example",
+				TaskID:    "EXM-TSK1",
+			}
+			raw, err := json.Marshal(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			digest := durableMutationDigestWithIdentity("task-finalize", "", raw, nil)
+			now := time.Now().UTC()
+			operation := durableMutationOperation{
+				SchemaVersion: durableMutationSchemaVersion,
+				OperationID:   "mutation-" + digest,
+				Kind:          "task-finalize",
+				RequestSHA256: digest,
+				ProjectID:     "example",
+				Input:         raw,
+				Status:        status,
+				Error:         "terminal evidence",
+				CreatedAt:     now,
+				UpdatedAt:     now,
+			}
+			if err := s.writeDurableMutation(operation); err != nil {
+				t.Fatal(err)
+			}
+			receipt, err := s.TaskFinalizeAsync(context.Background(), input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if receipt.Status != status {
+				t.Fatalf("terminal status was reaccepted: got=%q want=%q", receipt.Status, status)
+			}
+			stored, err := s.readDurableMutation(operation.OperationID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stored.Status != status {
+				t.Fatalf("terminal receipt changed: got=%q want=%q", stored.Status, status)
+			}
+		})
 	}
 }

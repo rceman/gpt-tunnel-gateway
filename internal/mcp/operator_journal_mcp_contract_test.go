@@ -12,6 +12,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
@@ -48,21 +49,30 @@ func TestOperatorJournalMCPContractsAndHappyPath(t *testing.T) {
 	now := time.Now().UTC()
 	session := "session"
 	validEvent := model.OperatorJournalEvent{SchemaVersion: 1, ID: "EXM-OPR1", ProjectID: "example", SessionID: &session, Kind: model.OperatorUserTalk, Summary: "context", Content: model.OperatorJournalContent{Facts: []string{"fact"}}, References: model.OperatorJournalReferences{}, Actor: "owner", OccurredAt: now, RecordedAt: now}
-	if err := validateOutputValue(tools["operator_record"].OutputSchema, normalizeObject(map[string]any{"event": validEvent, "operation": service.OperationResult{Hub: testOperationHub(), ProjectID: "example", Status: "recorded"}})); err != nil {
+	if err := validateOutputValue(tools["operator_record"].OutputSchema, normalizeObject(map[string]any{"event": validEvent, "operation": map[string]any{"operation_id": "journal-op", "project_id": "example", "status": "recorded"}})); err != nil {
 		t.Fatalf("operator output schema rejected valid event: %v", err)
 	}
 
 	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
 	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
-	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
+	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, Projects: map[string]config.ProjectConfig{"example": {ProjectCode: "EXM", Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
 	s := service.New(c)
+	db, err := sqlitestore.Open(c.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	s.Durability = db
 	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"}
 	registered, err := s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: project, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.BootstrapSharedFromHub(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	server = &Server{
@@ -76,6 +86,13 @@ func TestOperatorJournalMCPContractsAndHappyPath(t *testing.T) {
 	recorded := genericActionResult(t, callMCP(t, server, request(1, "operator/record", sessionOperatorMCPArguments("user_talk", "first context"))))
 	if _, ok := recorded["event"].(map[string]any); !ok {
 		t.Fatal("operator record omitted event")
+	}
+	operation, ok := recorded["operation"].(map[string]any)
+	if !ok || operation["project_id"] != "example" || operation["status"] != "recorded" {
+		t.Fatalf("operator record returned invalid Shared operation projection: %#v", recorded["operation"])
+	}
+	if _, hasHub := operation["hub"]; hasHub {
+		t.Fatalf("Shared operator record leaked a Hub transaction projection: %#v", operation)
 	}
 	checkpointArgs := map[string]any{"session_id": nil, "summary": "checkpoint", "content": map[string]any{"decisions": []string{}, "commitments": []string{"keep scope"}, "facts": []string{}, "assumptions": []string{}, "blockers": []string{}, "unresolved": []string{}, "next_actions": []string{}}, "references": map[string]any{"plan_sections": []string{}, "adrs": []string{}, "tasks": []string{}, "runs": []string{}, "commits": []string{}, "identities": []string{}}, "actor": "owner"}
 	genericActionResult(t, callMCP(t, server, request(2, "operator/checkpoint", checkpointArgs)))

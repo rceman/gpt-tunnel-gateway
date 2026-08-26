@@ -115,7 +115,13 @@ func operatorJournalEventOutputSchema() map[string]any {
 }
 
 func operatorJournalWriteOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"event": operatorJournalEventOutputSchema(), "operation": operationOutputSchema()}, "event", "operation")
+	return closedOutput(map[string]any{"event": operatorJournalEventOutputSchema(), "operation": sharedOperationOutputSchema()}, "event", "operation")
+}
+
+func sharedOperationOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"operation_id": outputString(), "project_id": outputString(), "status": outputString(),
+	}, "operation_id", "project_id", "status")
 }
 
 func operatorJournalHistoryOutputSchema() map[string]any {

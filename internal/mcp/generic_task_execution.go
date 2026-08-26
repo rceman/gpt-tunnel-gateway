@@ -78,7 +78,7 @@ func (s *Server) registerTaskExecutionActions() error {
 	}); err != nil {
 		return err
 	}
-	return s.RegisterGenericAction(GenericAction{
+	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "task/finalize",
 		Description:  "Finalize the exact current TrainItem Attempt addressed by Task identity. Leave scoped edits uncommitted; the Gateway owns gates, checkpoint commit, completion/report/proof, and no completion file is required.",
 		InputSchema:  taskFinalizeSchema(),
@@ -94,6 +94,29 @@ func (s *Server) registerTaskExecutionActions() error {
 				return nil, err
 			}
 			return s.Service.TaskFinalizeAsync(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	return s.RegisterGenericAction(GenericAction{
+		Path:         "task/finalize_status",
+		Description:  "Read the durable receipt for an asynchronous task/finalize operation.",
+		InputSchema:  obj(map[string]any{"operation_id": str("Durable task finalize operation identifier.")}, "operation_id"),
+		OutputSchema: taskFinalizeReceiptOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole:    actionRolePlannerOrDelivery,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			return s.Service.TaskFinalizeOperationStatus(ctx, input.OperationID)
 		},
 	})
 }

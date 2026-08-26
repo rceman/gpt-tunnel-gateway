@@ -60,6 +60,12 @@ func (s *Service) enqueueTypedDurableMutation(ctx context.Context, kind, project
 	return s.enqueueTypedDurableMutationWithIdentity(ctx, kind, projectID, input, nil)
 }
 func (s *Service) enqueueTypedDurableMutationWithIdentity(ctx context.Context, kind, projectID string, input, identity any) (durableMutationOperation, error) {
+	return s.enqueueTypedDurableMutationWithPolicy(ctx, kind, projectID, input, identity, true)
+}
+func (s *Service) enqueueTypedDurableMutationWithoutTerminalRetry(ctx context.Context, kind, projectID string, input any) (durableMutationOperation, error) {
+	return s.enqueueTypedDurableMutationWithPolicy(ctx, kind, projectID, input, nil, false)
+}
+func (s *Service) enqueueTypedDurableMutationWithPolicy(ctx context.Context, kind, projectID string, input, identity any, retryTerminal bool) (durableMutationOperation, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return durableMutationOperation{}, err
 	}
@@ -86,6 +92,9 @@ func (s *Service) enqueueTypedDurableMutationWithIdentity(ctx context.Context, k
 	if err == nil {
 		if operation.RequestSHA256 != digest || operation.Kind != kind {
 			return durableMutationOperation{}, fmt.Errorf("durable mutation identity mismatch")
+		}
+		if !retryTerminal && (operation.Status == "completed" || operation.Status == "failed" || operation.Status == "outcome_unknown") {
+			return operation, nil
 		}
 		if operation.Status == "failed" {
 			operation.Status = "accepted"

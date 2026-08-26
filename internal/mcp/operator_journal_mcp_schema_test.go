@@ -6,14 +6,13 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
 func operatorMCPOutputFixture(t *testing.T, event model.OperatorJournalEvent) map[string]any {
 	t.Helper()
-	return normalizeObject(map[string]any{"event": event, "operation": service.OperationResult{Hub: testOperationHub(), ProjectID: "example", Status: "recorded"}})
+	return normalizeObject(map[string]any{"event": event, "operation": map[string]any{"operation_id": "journal-op", "project_id": "example", "status": "recorded"}})
 }
 
 func TestOperatorJournalMCPSchemaParityRejectsInvalidOutputsAndInputs(t *testing.T) {
@@ -88,8 +87,4 @@ func TestOperatorJournalMCPSchemaParityRejectsInvalidOutputsAndInputs(t *testing
 	if err := validateSchemaValue(tools["operator_history"].InputSchema, historyInput, "$input"); err == nil {
 		t.Fatal("history limit above model maximum accepted")
 	}
-}
-
-func testOperationHub() hub.TransactionResult {
-	return hub.TransactionResult{Before: strings.Repeat("a", 40), After: strings.Repeat("b", 40), Remote: "origin", Branch: "main", Paths: []string{"gpt-tunnel/v1/projects/example/operator-journal/events/EXM-OPR1.json"}}
 }

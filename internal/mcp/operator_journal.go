@@ -111,6 +111,14 @@ func operatorHistoryInputSchema() map[string]any {
 	}, "project_id")
 }
 
+func sharedOperationProjection(operation service.OperationResult) map[string]any {
+	return map[string]any{
+		"operation_id": operation.OperationID,
+		"project_id":   operation.ProjectID,
+		"status":       operation.Status,
+	}
+}
+
 func addOperatorJournalTools(add func(string, string, map[string]any, func(context.Context, json.RawMessage) (any, error)), s *Server) {
 	add("operator_record", "Append one concise owner/operator context record to the immutable project journal.", operatorRecordInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.OperatorRecordInput
@@ -121,7 +129,7 @@ func addOperatorJournalTools(add func(string, string, map[string]any, func(conte
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"event": event, "operation": operation}, nil
+		return map[string]any{"event": event, "operation": sharedOperationProjection(operation)}, nil
 	})
 	add("operator_history", "Read bounded numeric chronological operator journal history.", operatorHistoryInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.OperatorHistoryInput
@@ -139,6 +147,6 @@ func addOperatorJournalTools(add func(string, string, map[string]any, func(conte
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"event": event, "operation": operation}, nil
+		return map[string]any{"event": event, "operation": sharedOperationProjection(operation)}, nil
 	})
 }
