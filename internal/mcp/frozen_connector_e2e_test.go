@@ -2,10 +2,13 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
@@ -201,5 +204,46 @@ func TestADR74FrozenConnectorContract(t *testing.T) {
 	results := batch["results"].([]any)
 	if len(results) != 2 || results[0].(map[string]any)["action"] != "rules/read" || results[1].(map[string]any)["action"] != "rules/read" {
 		t.Fatalf("deployed action batch failed: %#v", batch)
+	}
+}
+
+func TestADR74V1RuntimeActionDoesNotRefreshConnector(t *testing.T) {
+	server := newSessionTestServer(t)
+	var connections atomic.Int32
+	httpServer := httptest.NewUnstartedServer(server.Router())
+	httpServer.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			connections.Add(1)
+		}
+	}
+	httpServer.Start()
+	defer httpServer.Close()
+	client := &frozenConnectorClient{http: httpServer.Client(), endpoint: httpServer.URL + "/mcp", methods: map[string]int{}}
+	initialized := client.request(t, "initialize", map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "adr74-no-refresh", "version": "1"}})
+	if initialized["error"] != nil {
+		t.Fatalf("initialize failed: %#v", initialized)
+	}
+	client.notify(t, "notifications/initialized")
+	client.request(t, "tools/list", map[string]any{})
+	started := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "session_start", "arguments": map[string]any{"project_id": "example"}}))
+	sessionID := started["session"].(string)
+	connectionsBefore := connections.Load()
+	if err := server.RegisterGenericAction(GenericAction{
+		Path: "frozen/runtime_probe", Description: "Runtime action registered after connector bootstrap.", AuthorityRole: durableSession.RolePlanner,
+		InputSchema: obj(map[string]any{}), OutputSchema: closedOutput(map[string]any{"ok": outputBoolean()}, "ok"),
+		Execute: func(context.Context, json.RawMessage) (any, error) { return map[string]any{"ok": true}, nil },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	contract := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "schema", "arguments": map[string]any{"path": "frozen/runtime_probe"}}))
+	if contract["path"] != "frozen/runtime_probe" {
+		t.Fatalf("runtime action was not discovered: %#v", contract)
+	}
+	call := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "frozen/runtime_probe", "input": map[string]any{}}}))
+	if call["is_error"] != false || call["result"].(map[string]any)["ok"] != true {
+		t.Fatalf("runtime action call failed: %#v", call)
+	}
+	if client.methods["initialize"] != 1 || client.methods["tools/list"] != 1 || connections.Load() != connectionsBefore {
+		t.Fatalf("connector refreshed or reconnected: methods=%v connections=%d before=%d", client.methods, connections.Load(), connectionsBefore)
 	}
 }
