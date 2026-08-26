@@ -72,12 +72,10 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	result["operator_record"] = additiveExternalAnnotations()
 	result["operator_checkpoint"] = additiveExternalAnnotations()
 	result["operator_history"] = readOnlyAnnotations()
-	for _, name := range []string{"project_register", "project_identifiers_adopt", "project_workflow_policy_adopt", "project_workflow_policy_update", "adr_create", "task_create", "plan_section_create"} {
+	for _, name := range []string{"project_identifiers_adopt", "project_workflow_policy_adopt", "project_workflow_policy_update", "adr_create", "task_create", "plan_section_create"} {
 		result[name] = additiveExternalAnnotations()
 	}
 	result["task_correction_create"] = additiveExternalAnnotations()
-	result["project_onboard"] = idempotentMutationAnnotations()
-	result["project_onboard_recover"] = idempotentMutationAnnotations()
 	for _, name := range []string{"plan_cutover", "plan_update", "plan_section_update", "task_supersede"} {
 		result[name] = destructiveExternalAnnotations()
 	}

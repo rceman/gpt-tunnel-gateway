@@ -10,29 +10,6 @@ import (
 func (s *Server) agent_action_set3() error {
 	register := func(action GenericAction) error { return s.RegisterGenericAction(action) }
 	if err := register(GenericAction{
-		Path:         "agent/register",
-		Description:  "Register one portable project-scoped Agent identity.",
-		InputSchema:  obj(map[string]any{"agent": agentInputSchema(), "expected_hub_revision": str("Optional exact Hub revision guard.")}, "agent"),
-		OutputSchema: agentMutationReceiptOutputSchema(),
-		Annotations: ToolAnnotations{
-			DestructiveHint: true,
-		},
-		AuthorityRole: actionRolePlannerOrDelivery,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in service.AgentRegisterInput
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			receipt, err := s.Service.AgentRegisterAsync(ctx, in)
-			if err != nil {
-				return nil, err
-			}
-			return receipt, nil
-		},
-	}); err != nil {
-		return err
-	}
-	if err := register(GenericAction{
 		Path:        "agent/update",
 		Description: "Apply a typed partial update to one registered Agent.",
 		InputSchema: obj(map[string]any{

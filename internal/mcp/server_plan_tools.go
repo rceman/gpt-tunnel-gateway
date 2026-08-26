@@ -8,13 +8,6 @@ import (
 )
 
 func (s *Server) addPlanTools(add toolAdder) {
-	add("project_register", "Register a durable project from a JSON object.", obj(map[string]any{"project": map[string]any{"type": "object"}, "expected_hub_revision": str("Optimistic hub revision")}, "project"), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var in service.ProjectRegisterInput
-		if e := decode(raw, &in); e != nil {
-			return nil, e
-		}
-		return s.Service.ProjectRegister(ctx, in)
-	})
 	add("plan_read", "Read current global plan.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		id, e := getString(raw, "project_id")
 		if e != nil {

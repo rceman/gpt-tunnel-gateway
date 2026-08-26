@@ -2,7 +2,6 @@ package mcp
 
 func planToolOutputSchemas() map[string]map[string]any {
 	return map[string]map[string]any{
-		"project_register":    operationOutputSchema(),
 		"plan_read":           planOutputSchema(),
 		"plan_cutover":        operationOutputSchema(),
 		"plan_update":         operationOutputSchema(),
