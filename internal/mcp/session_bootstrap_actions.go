@@ -95,10 +95,6 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	}
 	workflow := globalWorkflowRules()
 	digest := globalWorkflowDigest()
-	started.Session, err = durableSession.NewStore(s.Service.Config.StateDir).AcknowledgeRules(started.Session.ID, globalWorkflowRevision, digest, 0, "")
-	if err != nil {
-		return nil, err
-	}
 	projectCode := ""
 	projectStatus := ""
 	defaultBranch := ""
@@ -124,6 +120,10 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 		defaultBranch = project.DefaultBranch
 	}
 	policy, err := s.Service.ProjectWorkflowPolicyReadFast(ctx, started.Session.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	started.Session, err = durableSession.NewStore(s.Service.Config.StateDir).AcknowledgeRules(started.Session.ID, globalWorkflowRevision, digest, policy.Revision, digestJSON(policy))
 	if err != nil {
 		return nil, err
 	}
