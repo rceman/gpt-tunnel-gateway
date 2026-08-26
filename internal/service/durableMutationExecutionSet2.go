@@ -9,6 +9,16 @@ import (
 
 func (s *Service) durableMutationExecutionSet2(ctx context.Context, operation durableMutationOperation) (json.RawMessage, error) {
 	switch operation.Kind {
+	case "train-v2-abandon":
+		var input TrainV2AbandonInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.TrainV2Abandon(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
 	case "train-v2-retire":
 		var input TrainV2RetireInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {

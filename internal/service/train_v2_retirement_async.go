@@ -14,6 +14,7 @@ type TrainV2RetirementReceipt struct {
 	Kind        string                  `json:"kind"`
 	Status      string                  `json:"status"`
 	Retirement  *TrainV2RetireResult    `json:"retirement,omitempty"`
+	Abandonment *TrainV2AbandonResult   `json:"abandonment,omitempty"`
 	Reconcile   *TrainV2ReconcileResult `json:"reconcile,omitempty"`
 	Error       string                  `json:"error,omitempty"`
 	CreatedAt   time.Time               `json:"created_at"`
@@ -40,6 +41,14 @@ func trainV2RetirementReceipt(operation durableMutationOperation) TrainV2Retirem
 			return receipt
 		}
 		receipt.Retirement = &result
+	} else if operation.Kind == "train-v2-abandon" {
+		var result TrainV2AbandonResult
+		if err := json.Unmarshal(operation.Result, &result); err != nil {
+			receipt.Status = "failed"
+			receipt.Error = "invalid durable Train abandonment result"
+			return receipt
+		}
+		receipt.Abandonment = &result
 	} else {
 		var result TrainV2ReconcileResult
 		if err := json.Unmarshal(operation.Result, &result); err != nil {
@@ -50,6 +59,17 @@ func trainV2RetirementReceipt(operation durableMutationOperation) TrainV2Retirem
 		receipt.Reconcile = &result
 	}
 	return receipt
+}
+
+func (s *Service) TrainV2AbandonAsync(ctx context.Context, in TrainV2AbandonInput) (TrainV2RetirementReceipt, error) {
+	if _, _, err := model.ParseTrainV2ID(in.TrainID); err != nil {
+		return TrainV2RetirementReceipt{}, err
+	}
+	operation, err := s.enqueueTypedDurableMutation(ctx, "train-v2-abandon", in.ProjectID, in)
+	if err != nil {
+		return TrainV2RetirementReceipt{}, err
+	}
+	return trainV2RetirementReceipt(operation), nil
 }
 
 func (s *Service) TrainV2RetireAsync(ctx context.Context, in TrainV2RetireInput) (TrainV2RetirementReceipt, error) {
@@ -76,7 +96,7 @@ func (s *Service) TrainV2RetirementOperationStatus(ctx context.Context, operatio
 	if err != nil {
 		return TrainV2RetirementReceipt{}, err
 	}
-	if operation.Kind != "train-v2-retire" && operation.Kind != "train-v2-reconcile" {
+	if operation.Kind != "train-v2-abandon" && operation.Kind != "train-v2-retire" && operation.Kind != "train-v2-reconcile" {
 		return TrainV2RetirementReceipt{}, fmt.Errorf("operation is not a Train retirement mutation")
 	}
 	if sessionID := AgentSessionID(ctx); sessionID != "" && operation.SessionID != sessionID {

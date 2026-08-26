@@ -123,6 +123,23 @@ type TrainV2RetireResult struct {
 	Status         string        `json:"status"`
 }
 
+type TrainV2AbandonInput struct {
+	ProjectID string `json:"project_id"`
+	TrainID   string `json:"train_id"`
+	Reason    string `json:"reason"`
+	WriteOptions
+}
+
+type TrainV2AbandonResult struct {
+	Train                model.TrainV2 `json:"train"`
+	PreviousStatus       string        `json:"previous_status"`
+	AbortedItemPosition  int           `json:"aborted_item_position"`
+	AbortedAttemptNumber uint64        `json:"aborted_attempt_number"`
+	AbortedAttemptStatus string        `json:"aborted_attempt_status"`
+	RetirementReason     string        `json:"retirement_reason"`
+	Status               string        `json:"status"`
+}
+
 type TrainV2ReconcileInput struct {
 	ProjectID string `json:"project_id"`
 	Apply     bool   `json:"apply"`

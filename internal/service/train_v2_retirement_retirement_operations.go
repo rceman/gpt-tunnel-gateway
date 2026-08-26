@@ -64,7 +64,7 @@ func (s *Service) trainV2HasLiveOperationInWorktreeContext(ctx context.Context, 
 			continue
 		}
 		switch operation.Kind {
-		case "train-v2-create", "train-v2-retire", "train-v2-reconcile":
+		case "train-v2-abandon", "train-v2-create", "train-v2-retire", "train-v2-reconcile":
 			// These are project-level lifecycle mutations or the current
 			// retirement operation itself. Hub revision checks serialize their
 			// writes; they do not represent an execution Attempt for this Train.

@@ -68,6 +68,14 @@ func trainV2RetireSchema() map[string]any {
 	}, "train_id", "reason")
 }
 
+func trainV2AbandonSchema() map[string]any {
+	return obj(map[string]any{
+		"train_id":              str("Train identifier within the bound session project."),
+		"reason":                str("Bounded server-recorded abandonment reason."),
+		"expected_hub_revision": str("Optimistic Hub revision."),
+	}, "train_id", "reason")
+}
+
 func trainV2ReconcileSchema() map[string]any {
 	return obj(map[string]any{
 		"apply":                 map[string]any{"type": "boolean", "description": "Apply only exact safe stale classifications; false is a dry-run."},
