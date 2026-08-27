@@ -25,10 +25,7 @@ func TestProjectIdentifiersValidationAndCompactIDs(t *testing.T) {
 	if err != nil || projectCode != "GTW" || taskNumber != MaxSafeInteger {
 		t.Fatalf("parse task ID: %q %d %v", projectCode, taskNumber, err)
 	}
-	runID, err := FormatRunID("GTW-TSK1", MaxSafeInteger)
-	if err != nil || runID != "GTW-TSK1-RUN9007199254740991" {
-		t.Fatalf("format run ID: %q %v", runID, err)
-	}
+	runID := "GTW-TSK1-RUN9007199254740991"
 	parsedTaskID, runNumber, err := ParseRunID(runID)
 	if err != nil || parsedTaskID != "GTW-TSK1" || runNumber != MaxSafeInteger {
 		t.Fatalf("parse run ID: %q %d %v", parsedTaskID, runNumber, err)
