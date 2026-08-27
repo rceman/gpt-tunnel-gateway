@@ -60,6 +60,20 @@ func TestCodeOutputSchemasRequireFullHead(t *testing.T) {
 	}
 }
 
+func TestCodeDiffUsesLinePaginationInsteadOfPublicByteLimit(t *testing.T) {
+	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{
+		GatewayID: "code-diff-contract-test", StateDir: t.TempDir(),
+	}, nil)}
+	entry := server.genericActionRegistry(server.tools())["code/diff"]
+	properties := entry.InputSchema["properties"].(map[string]any)
+	if _, ok := properties["max_bytes"]; ok {
+		t.Fatal("code/diff still exposes public max_bytes")
+	}
+	if _, ok := properties["line_count"]; !ok {
+		t.Fatal("code/diff omits public line_count")
+	}
+}
+
 func requiredOutputField(schema map[string]any, want string) bool {
 	required, ok := schema["required"].([]string)
 	if !ok {

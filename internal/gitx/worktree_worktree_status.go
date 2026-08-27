@@ -231,42 +231,70 @@ func pathSetContains(paths map[string]struct{}, path string) bool {
 	return false
 }
 
-type diffPageCollector struct {
-	offset int64
-	limit  int64
-	total  int64
-	data   bytes.Buffer
+type diffLinePageCollector struct {
+	offset    int64
+	limit     int64
+	total     int64
+	pageLines int64
+	maxBytes  int64
+	hasMore   bool
+	data      bytes.Buffer
+	pending   []byte
 }
 
-func (c *diffPageCollector) done() bool {
-	return c.total >= c.offset+c.limit+1
-}
+func (c *diffLinePageCollector) done() bool { return c.hasMore }
 
-func (c *diffPageCollector) write(chunk []byte) error {
-	start := c.total
-	c.total += int64(len(chunk))
-	if c.total <= c.offset || int64(c.data.Len()) >= c.limit {
+func (c *diffLinePageCollector) consume(line []byte) error {
+	if c.total < c.offset {
+		c.total++
 		return nil
 	}
-	if start < c.offset {
-		chunk = chunk[c.offset-start:]
-	}
-	remaining := c.limit - int64(c.data.Len())
-	if int64(len(chunk)) > remaining {
-		chunk = chunk[:remaining]
-	}
-	_, _ = c.data.Write(chunk)
-	if c.done() {
+	if c.pageLines >= c.limit {
+		c.total++
+		c.hasMore = true
 		return ErrStreamLimit
 	}
+	if c.maxBytes > 0 && int64(c.data.Len()+len(line)) > c.maxBytes {
+		return fmt.Errorf("diff page exceeds internal byte limit")
+	}
+	_, _ = c.data.Write(line)
+	c.pageLines++
+	c.total++
 	return nil
 }
 
-func (c *diffPageCollector) result() (string, bool, error) {
+func (c *diffLinePageCollector) write(chunk []byte) error {
+	c.pending = append(c.pending, chunk...)
+	if c.maxBytes > 0 && int64(len(c.pending)) > c.maxBytes {
+		return fmt.Errorf("diff line exceeds internal byte limit")
+	}
+	for {
+		index := bytes.IndexByte(c.pending, '\n')
+		if index < 0 {
+			return nil
+		}
+		line := c.pending[:index+1]
+		c.pending = c.pending[index+1:]
+		if err := c.consume(line); err != nil {
+			return err
+		}
+	}
+}
+
+func (c *diffLinePageCollector) finish() error {
+	if len(c.pending) == 0 {
+		return nil
+	}
+	line := c.pending
+	c.pending = nil
+	return c.consume(line)
+}
+
+func (c *diffLinePageCollector) result() (string, bool, error) {
 	if c.offset > c.total {
 		return "", false, fmt.Errorf("diff continuation cursor exceeds diff output")
 	}
-	return c.data.String(), c.total > c.offset+int64(c.data.Len()), nil
+	return c.data.String(), c.hasMore, nil
 }
 
 // DiffLocalCommitsPage streams a committed diff and retains only one response
@@ -289,13 +317,18 @@ func (r Runner) DiffLocalCommitsPage(ctx context.Context, p config.ProjectConfig
 		}
 		args = append(args, path)
 	}
-	collector := diffPageCollector{offset: offset, limit: int64(limit)}
+	collector := diffLinePageCollector{offset: offset, limit: int64(limit), maxBytes: r.MaxDiffBytes}
 	exitCode, err := r.streamCommand(ctx, p.Root, false, args, collector.write)
 	if err != nil {
 		return "", false, err
 	}
 	if exitCode != 0 {
 		return "", false, fmt.Errorf("git diff exited with status %d", exitCode)
+	}
+	if !collector.hasMore {
+		if err := collector.finish(); err != nil {
+			return "", false, err
+		}
 	}
 	return collector.result()
 }
@@ -315,7 +348,7 @@ func (r Runner) DiffWorkingFromBasePage(ctx context.Context, p config.ProjectCon
 			return "", false, err
 		}
 	}
-	collector := diffPageCollector{offset: offset, limit: int64(limit)}
+	collector := diffLinePageCollector{offset: offset, limit: int64(limit), maxBytes: r.MaxDiffBytes}
 	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", base}
 	if len(paths) > 0 {
 		args = append(args, "--")
@@ -327,6 +360,11 @@ func (r Runner) DiffWorkingFromBasePage(ctx context.Context, p config.ProjectCon
 	}
 	if exitCode != 0 {
 		return "", false, fmt.Errorf("git diff exited with status %d", exitCode)
+	}
+	if !collector.hasMore {
+		if err := collector.finish(); err != nil {
+			return "", false, err
+		}
 	}
 	if collector.done() {
 		return collector.result()
@@ -362,6 +400,11 @@ func (r Runner) DiffWorkingFromBasePage(ctx context.Context, p config.ProjectCon
 		}
 		if code != 0 && code != 1 {
 			return fmt.Errorf("git diff --no-index exited with status %d", code)
+		}
+		if !collector.hasMore {
+			if err := collector.finish(); err != nil {
+				return err
+			}
 		}
 		if collector.done() {
 			return ErrStreamLimit

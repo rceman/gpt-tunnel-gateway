@@ -235,12 +235,12 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fixture.server.Service.Config.Projects["example"].Root, "tracked.txt"), []byte(strings.Repeat("changed line\n", 512)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	diff := harness.call(t, "code/diff", map[string]any{"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "max_bytes": 128, "live": true})
+	diff := harness.call(t, "code/diff", map[string]any{"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "line_count": 8, "live": true})
 	assertPublicCodeHead(t, diff, fixture.currentHead)
 	if !diff["has_more"].(bool) || diff["next_cursor"] == "" {
 		t.Fatalf("code/diff first page is not paginated: %#v", diff)
 	}
-	diffPage := harness.call(t, "code/diff", map[string]any{"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "max_bytes": 128, "cursor": diff["next_cursor"], "live": true})
+	diffPage := harness.call(t, "code/diff", map[string]any{"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "line_count": 8, "cursor": diff["next_cursor"], "live": true})
 	assertPublicCodeHead(t, diffPage, fixture.currentHead)
 	if diffPage["diff"] == "" {
 		t.Fatalf("code/diff continuation was empty: %#v", diffPage)
@@ -251,7 +251,7 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 		"code/tree":     {"worktree": fixture.mainSelector, "limit": service.LocalCodeMaxMatches, "live": true},
 		"code/search":   {"worktree": fixture.mainSelector, "query": "needle", "limit": service.LocalCodeMaxMatches, "live": true},
 		"code/read":     {"worktree": fixture.mainSelector, "path": "tracked.txt", "line_count": service.LocalCodeMaxLines, "live": true},
-		"code/diff":     {"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "max_bytes": service.LocalCodeMaxDiffBytes, "live": true},
+		"code/diff":     {"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "line_count": service.LocalCodeMaxLines, "live": true},
 	} {
 		harness.call(t, action, input)
 	}

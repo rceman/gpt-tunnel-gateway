@@ -187,7 +187,7 @@ func codeSearchInputSchema() map[string]any {
 func codeDiffInputSchema() map[string]any {
 	paths := array(str("Optional repository-relative diff path."))
 	paths["maxItems"] = service.LocalCodeMaxPaths
-	return obj(map[string]any{"worktree": codeSelectorSchema(), "paths": paths, "max_bytes": integer("Maximum response bytes.", 1, service.LocalCodeMaxDiffBytes), "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree")
+	return obj(map[string]any{"worktree": codeSelectorSchema(), "paths": paths, "line_count": integer("Maximum diff lines.", 1, service.LocalCodeMaxLines), "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree")
 }
 
 func codeWorktreeOutputSchema() map[string]any {

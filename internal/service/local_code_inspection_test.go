@@ -329,7 +329,7 @@ func TestLocalCodeInspectionRejectsDirtyWorktree(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "dirty") {
 		t.Fatalf("dirty worktree was not rejected: %v", err)
 	}
-	live, err := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true, MaxBytes: 8})
+	live, err := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true, LineCount: 8})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func TestLocalCodeInspectionRejectsDirtyWorktree(t *testing.T) {
 		if pages > 100 {
 			t.Fatal("live diff pagination did not terminate")
 		}
-		live, err = f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true, MaxBytes: 8, Cursor: live.NextCursor})
+		live, err = f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true, LineCount: 8, Cursor: live.NextCursor})
 		if err != nil {
 			t.Fatal(err)
 		}

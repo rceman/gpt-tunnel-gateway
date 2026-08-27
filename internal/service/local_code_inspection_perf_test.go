@@ -174,7 +174,7 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 
 	var diffCursor string
 	measure("code/diff first", func() error {
-		result, callErr := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: mainSelector, Live: true, Paths: []string{"tracked.txt"}, MaxBytes: 128})
+		result, callErr := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: mainSelector, Live: true, Paths: []string{"tracked.txt"}, LineCount: 8})
 		if callErr == nil && (!result.HasMore || result.NextCursor == "") {
 			callErr = fmt.Errorf("expected paginated diff result: %#v", result)
 		}
@@ -182,7 +182,7 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 		return callErr
 	})
 	measure("code/diff continuation", func() error {
-		result, callErr := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: mainSelector, Live: true, Paths: []string{"tracked.txt"}, MaxBytes: 128, Cursor: diffCursor})
+		result, callErr := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: mainSelector, Live: true, Paths: []string{"tracked.txt"}, LineCount: 8, Cursor: diffCursor})
 		if callErr == nil && result.Diff == "" {
 			callErr = fmt.Errorf("expected diff continuation bytes: %#v", result)
 		}

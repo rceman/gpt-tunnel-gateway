@@ -18,16 +18,14 @@ import (
 )
 
 const (
-	LocalCodeDefaultMaxBytes = 8 << 10
-	LocalCodeMaxBytes        = 256 << 10
-	LocalCodeMaxDiffBytes    = 4 << 10
-	LocalCodeMaxPaths        = 64
-	LocalCodeMaxMatches      = 32
-	LocalCodeMaxQueryBytes   = 256
-	LocalCodeMaxLines        = 128
-	LocalCodeMaxPatterns     = 32
-	LocalCodeMaxScanPaths    = 4096
-	LocalCodeScanLookahead   = LocalCodeMaxScanPaths + 1
+	LocalCodeMaxBytes      = 256 << 10
+	LocalCodeMaxPaths      = 64
+	LocalCodeMaxMatches    = 32
+	LocalCodeMaxQueryBytes = 256
+	LocalCodeMaxLines      = 128
+	LocalCodeMaxPatterns   = 32
+	LocalCodeMaxScanPaths  = 4096
+	LocalCodeScanLookahead = LocalCodeMaxScanPaths + 1
 )
 
 type CodeSelectorErrorKind string
@@ -118,7 +116,7 @@ type CodeDiffInput struct {
 	ProjectID string   `json:"project_id"`
 	Worktree  string   `json:"worktree"`
 	Paths     []string `json:"paths"`
-	MaxBytes  int      `json:"max_bytes"`
+	LineCount int      `json:"line_count"`
 	Cursor    string   `json:"cursor"`
 	Live      bool     `json:"live"`
 }
@@ -858,7 +856,7 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 	if err != nil {
 		return CodeDiffResult{}, err
 	}
-	maxBytes, err := localCodeMaxBytes(in.MaxBytes)
+	lineCount, err := localCodeDiffLineCount(in.LineCount)
 	if err != nil {
 		return CodeDiffResult{}, err
 	}
@@ -877,26 +875,37 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 	var diff string
 	var hasMore bool
 	if target.Live {
-		diff, hasMore, err = s.Git.DiffWorkingFromBasePage(ctx, target.ProjectWorktree, target.DiffBase, paths, offset, maxBytes)
+		diff, hasMore, err = s.Git.DiffWorkingFromBasePage(ctx, target.ProjectWorktree, target.DiffBase, paths, offset, lineCount)
 	} else {
-		diff, hasMore, err = s.Git.DiffLocalCommitsPage(ctx, target.ProjectWorktree, target.DiffBase, target.CurrentHead, paths, offset, maxBytes)
+		diff, hasMore, err = s.Git.DiffLocalCommitsPage(ctx, target.ProjectWorktree, target.DiffBase, target.CurrentHead, paths, offset, lineCount)
 	}
 	if err != nil {
 		return CodeDiffResult{}, err
 	}
 	result := CodeDiffResult{CodeIdentity: target.CodeIdentity, Paths: paths, Diff: diff, HasMore: hasMore, Truncated: hasMore}
 	if hasMore {
-		result.NextCursor = pagination.EncodeOffset(kind, offset+int64(len(diff)))
+		result.NextCursor = pagination.EncodeOffset(kind, offset+diffLineCount(diff))
 	}
 	return result, nil
 }
 
-func localCodeMaxBytes(requested int) (int, error) {
-	if requested == 0 {
-		return LocalCodeDefaultMaxBytes, nil
+func diffLineCount(diff string) int64 {
+	if diff == "" {
+		return 0
 	}
-	if requested < 1 || requested > LocalCodeMaxDiffBytes {
-		return 0, fmt.Errorf("invalid code byte bound")
+	count := int64(strings.Count(diff, "\n"))
+	if !strings.HasSuffix(diff, "\n") {
+		count++
+	}
+	return count
+}
+
+func localCodeDiffLineCount(requested int) (int, error) {
+	if requested == 0 {
+		return LocalCodeMaxLines, nil
+	}
+	if requested < 1 || requested > LocalCodeMaxLines {
+		return 0, fmt.Errorf("invalid code line bound")
 	}
 	return requested, nil
 }
