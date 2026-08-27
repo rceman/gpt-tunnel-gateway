@@ -109,7 +109,7 @@ func (s *Service) HotfixIntegrate(ctx context.Context, projectID string, in Hotf
 		return HotfixIntegrateResult{}, fmt.Errorf("reviewed hotfix is not a strict descendant of refreshed origin/%s", p.DefaultBranch)
 	}
 	if mainBefore == in.ReviewedSHA {
-		return HotfixIntegrateResult{}, fmt.Errorf("reviewed hotfix must advance origin/%s", p.DefaultBranch)
+		return HotfixIntegrateResult{ProjectID: projectID, HotfixRef: in.HotfixRef, BaseSHA: in.BaseSHA, ReviewedSHA: in.ReviewedSHA, MainBefore: mainBefore, MainAfter: mainBefore}, nil
 	}
 	if err := s.Git.PushFastForward(ctx, p, p.DefaultBranch, mainBefore, in.ReviewedSHA); err != nil {
 		return HotfixIntegrateResult{}, err
