@@ -1,17 +1,7 @@
 package mcp
 
-func planToolOutputSchemas() map[string]map[string]any {
+func adrToolOutputSchemas() map[string]map[string]any {
 	return map[string]map[string]any{
-		"plan_read":           planOutputSchema(),
-		"plan_cutover":        operationOutputSchema(),
-		"plan_update":         operationOutputSchema(),
-		"plan_section_read":   planSectionOutputSchema(),
-		"plan_section_create": operationOutputSchema(),
-		"plan_section_update": operationOutputSchema(),
-		"plan_render":         planRenderOutputSchema(),
-		"plan_history": closedOutput(map[string]any{"history": outputArray(closedOutput(map[string]any{
-			"sha": outputString(), "date": outputString(), "author": outputString(), "subject": outputString(),
-		}, "sha", "date", "author", "subject")), "next_cursor": outputString(), "has_more": outputBoolean()}, "history", "next_cursor", "has_more"),
 		"adr_list":               closedOutput(map[string]any{"adrs": outputArray(adrOutputSchema()), "next_cursor": outputString(), "has_more": outputBoolean()}, "adrs", "next_cursor", "has_more"),
 		"adr_read":               adrOutputSchema(),
 		"adr_create":             durableMutationReceiptOutputSchema(),
