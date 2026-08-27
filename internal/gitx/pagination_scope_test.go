@@ -37,6 +37,30 @@ func TestVisitDiffStopsAtSemanticLineWithoutReadingTail(t *testing.T) {
 	}
 }
 
+func TestVisitDiffRejectsOversizedSemanticLineBeforeVisitor(t *testing.T) {
+	_, work, base := testutil.RepoWithBareRemote(t)
+	if err := os.WriteFile(filepath.Join(work, "oversized.txt"), []byte(strings.Repeat("x", 128)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, work, "add", "oversized.txt")
+	testutil.Git(t, work, "commit", "-m", "oversized diff")
+	head := strings.TrimSpace(testutil.Git(t, work, "rev-parse", "HEAD"))
+	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 64}
+	oversizedVisited := false
+	_, err := r.VisitDiffLocalCommits(context.Background(), config.ProjectConfig{Root: work}, base, head, nil, 0, func(_ int64, line []byte) error {
+		if len(line) > 64 {
+			oversizedVisited = true
+		}
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "internal byte safety limit") {
+		t.Fatalf("oversized semantic line was not rejected: %v", err)
+	}
+	if oversizedVisited {
+		t.Fatal("oversized semantic line reached visitor")
+	}
+}
+
 func TestLogPageRejectsCursorFromDifferentRevisionOrMirror(t *testing.T) {
 	_, work, _ := testutil.RepoWithBareRemote(t)
 	if err := os.WriteFile(filepath.Join(work, "second.txt"), []byte("second\n"), 0o600); err != nil {

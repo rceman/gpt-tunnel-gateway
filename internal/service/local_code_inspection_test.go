@@ -350,3 +350,18 @@ func TestLocalCodeInspectionRejectsDirtyWorktree(t *testing.T) {
 		}
 	}
 }
+
+func TestCodeDiffRejectsOversizedSemanticLineWithoutPagination(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	f.service.Git.MaxDiffBytes = 64
+	if err := os.WriteFile(filepath.Join(f.root, "oversized.txt"), []byte(strings.Repeat("x", 128)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	selector := "WT-MAIN-" + f.current[:8]
+	_, err := f.service.CodeDiff(context.Background(), CodeDiffInput{
+		ProjectID: "example", Worktree: selector, Live: true, Paths: []string{"oversized.txt"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "internal byte safety limit") {
+		t.Fatalf("oversized semantic line was not rejected without pagination: %v", err)
+	}
+}

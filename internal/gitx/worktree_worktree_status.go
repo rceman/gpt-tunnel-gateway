@@ -237,11 +237,12 @@ func pathSetContains(paths map[string]struct{}, path string) bool {
 type DiffLineVisitor func(offset int64, line []byte) error
 
 type diffLineStream struct {
-	offset  int64
-	total   int64
-	visitor DiffLineVisitor
-	pending []byte
-	stopped bool
+	offset          int64
+	total           int64
+	visitor         DiffLineVisitor
+	maxPendingBytes int64
+	pending         []byte
+	stopped         bool
 }
 
 func (s *diffLineStream) consume(line []byte) error {
@@ -261,18 +262,27 @@ func (s *diffLineStream) consume(line []byte) error {
 }
 
 func (s *diffLineStream) write(chunk []byte) error {
-	s.pending = append(s.pending, chunk...)
-	for {
-		index := bytes.IndexByte(s.pending, '\n')
+	for len(chunk) > 0 {
+		index := bytes.IndexByte(chunk, '\n')
+		part := chunk
+		if index >= 0 {
+			part = chunk[:index+1]
+		}
+		if s.maxPendingBytes > 0 && int64(len(s.pending)+len(part)) > s.maxPendingBytes {
+			return fmt.Errorf("diff semantic line exceeds internal byte safety limit of %d", s.maxPendingBytes)
+		}
+		s.pending = append(s.pending, part...)
 		if index < 0 {
 			return nil
 		}
-		line := s.pending[:index+1]
-		s.pending = s.pending[index+1:]
+		chunk = chunk[index+1:]
+		line := s.pending
+		s.pending = nil
 		if err := s.consume(line); err != nil {
 			return err
 		}
 	}
+	return nil
 }
 
 func (s *diffLineStream) finish() error {
@@ -327,7 +337,7 @@ func (r Runner) VisitDiffLocalCommits(ctx context.Context, p config.ProjectConfi
 		}
 		args = append(args, path)
 	}
-	stream := &diffLineStream{offset: offset, visitor: visit}
+	stream := &diffLineStream{offset: offset, visitor: visit, maxPendingBytes: r.MaxDiffBytes}
 	if err := r.streamDiffCommand(ctx, p.Root, args, stream); err != nil {
 		return false, err
 	}
@@ -348,7 +358,7 @@ func (r Runner) VisitDiffWorkingFromBase(ctx context.Context, p config.ProjectCo
 			return false, err
 		}
 	}
-	stream := &diffLineStream{offset: offset, visitor: visit}
+	stream := &diffLineStream{offset: offset, visitor: visit, maxPendingBytes: r.MaxDiffBytes}
 	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", base}
 	if len(paths) > 0 {
 		args = append(args, "--")
