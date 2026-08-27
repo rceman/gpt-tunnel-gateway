@@ -135,7 +135,7 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if search.PathsScanned != 2 || len(search.Matches) != 1 || !search.Truncated {
+	if search.PathsScanned != 2 || len(search.Matches) != 1 || search.Pagination == nil {
 		t.Fatalf("search pagination did not scan complete scope: %#v", search)
 	}
 
@@ -145,22 +145,22 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if full.Diff != "" || full.HasMore {
+	if full.Diff != "" || full.Pagination != nil {
 		t.Fatalf("clean committed selector reported a diff: %#v", full)
 	}
 	tree, err := f.service.CodeTree(ctx, CodeTreeInput{ProjectID: "example", Worktree: selector, Limit: 1})
-	if err != nil || len(tree.Paths) != 1 || !tree.HasMore || tree.NextCursor == "" {
+	if err != nil || len(tree.Paths) != 1 || tree.Pagination == nil || tree.Pagination.NextCursor == "" {
 		t.Fatalf("expected tree pagination beyond Git helper item cap: %#v %v", tree, err)
 	}
-	if len(tree.NextCursor) > 256 {
-		t.Fatalf("tree cursor is not bounded: %d", len(tree.NextCursor))
+	if len(tree.Pagination.NextCursor) > 256 {
+		t.Fatalf("tree cursor is not bounded: %d", len(tree.Pagination.NextCursor))
 	}
-	secondTree, err := f.service.CodeTree(ctx, CodeTreeInput{ProjectID: "example", Worktree: selector, Limit: 1, Cursor: tree.NextCursor})
+	secondTree, err := f.service.CodeTree(ctx, CodeTreeInput{ProjectID: "example", Worktree: selector, Limit: 1, Cursor: tree.Pagination.NextCursor})
 	if err != nil || len(secondTree.Paths) == 0 {
 		t.Fatalf("tree cursor did not resume: %#v %v", secondTree, err)
 	}
 	scopedTree, err := f.service.CodeTree(ctx, CodeTreeInput{ProjectID: "example", Worktree: selector, Path: "search-a.txt", Limit: 1})
-	if err != nil || len(scopedTree.Paths) != 1 || scopedTree.Paths[0] != "search-a.txt" || scopedTree.HasMore {
+	if err != nil || len(scopedTree.Paths) != 1 || scopedTree.Paths[0] != "search-a.txt" || scopedTree.Pagination != nil {
 		t.Fatalf("tree path scope was not applied: %#v %v", scopedTree, err)
 	}
 
@@ -185,19 +185,19 @@ func TestLocalCodeSearchContinuesFromExactScanPosition(t *testing.T) {
 	first, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
 		ProjectID: "example", Worktree: selector, Query: "needle", Paths: []string{"new.txt", "tracked.txt"}, Limit: 1,
 	})
-	if err != nil || len(first.Matches) != 1 || !first.HasMore || first.NextCursor == "" {
+	if err != nil || len(first.Matches) != 1 || first.Pagination == nil || first.Pagination.NextCursor == "" {
 		t.Fatalf("expected first bounded search page: %#v %v", first, err)
 	}
-	if len(first.NextCursor) > 256 {
-		t.Fatalf("search cursor is not bounded: %d", len(first.NextCursor))
+	if len(first.Pagination.NextCursor) > 256 {
+		t.Fatalf("search cursor is not bounded: %d", len(first.Pagination.NextCursor))
 	}
 	second, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
-		ProjectID: "example", Worktree: selector, Query: "needle", Paths: []string{"new.txt", "tracked.txt"}, Limit: 1, Cursor: first.NextCursor,
+		ProjectID: "example", Worktree: selector, Query: "needle", Paths: []string{"new.txt", "tracked.txt"}, Limit: 1, Cursor: first.Pagination.NextCursor,
 	})
 	if err != nil || len(second.Matches) != 1 || second.Matches[0].Path == first.Matches[0].Path {
 		t.Fatalf("expected exact continuation without duplicate: %#v %v", second, err)
 	}
-	if second.HasMore || second.NextCursor != "" {
+	if second.Pagination != nil {
 		t.Fatalf("terminal result page exposed an empty continuation: %#v", second)
 	}
 }
@@ -228,7 +228,7 @@ func TestLocalCodeSearchSkipsPreCursorFileContents(t *testing.T) {
 		ProjectID: "example", Worktree: selector, Live: true,
 		Query: "needle", Paths: []string{"a-before.txt", "b-match.txt", "c-match.txt"}, Limit: 1,
 	})
-	if err != nil || len(first.Matches) != 1 || first.Matches[0].Path != "b-match.txt" || !first.HasMore {
+	if err != nil || len(first.Matches) != 1 || first.Matches[0].Path != "b-match.txt" || first.Pagination == nil {
 		t.Fatalf("failed to establish live cursor: %#v %v", first, err)
 	}
 	if reads["a-before.txt"] != 1 || reads["b-match.txt"] != 1 || reads["c-match.txt"] != 1 {
@@ -240,7 +240,7 @@ func TestLocalCodeSearchSkipsPreCursorFileContents(t *testing.T) {
 	}
 	second, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
 		ProjectID: "example", Worktree: selector, Live: true,
-		Query: "needle", Paths: []string{"a-before.txt", "b-match.txt", "c-match.txt"}, Limit: 1, Cursor: first.NextCursor,
+		Query: "needle", Paths: []string{"a-before.txt", "b-match.txt", "c-match.txt"}, Limit: 1, Cursor: first.Pagination.NextCursor,
 	})
 	if err != nil || len(second.Matches) != 1 || second.Matches[0].Path != "c-match.txt" {
 		t.Fatalf("pre-cursor file was reread instead of skipped: %#v %v", second, err)
@@ -267,10 +267,10 @@ func TestLocalCodeSearchBoundsRareMatchesAndResumes(t *testing.T) {
 	first, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
 		ProjectID: "example", Worktree: selector, Query: "absent-query", Limit: 1,
 	})
-	if err != nil || len(first.Matches) != 0 || first.PathsScanned != LocalCodeScanLookahead || !first.HasMore || first.NextCursor == "" {
+	if err != nil || len(first.Matches) != 0 || first.PathsScanned != LocalCodeScanLookahead || first.Pagination == nil || first.Pagination.NextCursor == "" {
 		t.Fatalf("rare-match scan was not bounded: %#v %v", first, err)
 	}
-	cursor := first.NextCursor
+	cursor := first.Pagination.NextCursor
 	for page := 0; ; page++ {
 		if page >= 3 {
 			t.Fatal("zero-match continuation did not terminate")
@@ -281,16 +281,13 @@ func TestLocalCodeSearchBoundsRareMatchesAndResumes(t *testing.T) {
 		if nextErr != nil || len(next.Matches) != 0 || next.PathsScanned > LocalCodeScanLookahead+1 {
 			t.Fatalf("zero-match continuation page %d exceeded its scan bound: %#v %v", page, next, nextErr)
 		}
-		if !next.HasMore {
-			if next.NextCursor != "" {
-				t.Fatalf("terminal zero-match page exposed a cursor: %#v", next)
-			}
+		if next.Pagination == nil {
 			break
 		}
-		if next.NextCursor == "" {
+		if next.Pagination.NextCursor == "" {
 			t.Fatalf("nonterminal zero-match page omitted its cursor: %#v", next)
 		}
-		cursor = next.NextCursor
+		cursor = next.Pagination.NextCursor
 	}
 }
 
@@ -334,11 +331,11 @@ func TestLocalCodeInspectionRejectsDirtyWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	allDiff := live.Diff
-	for pages := 0; live.HasMore; pages++ {
+	for pages := 0; live.Pagination != nil; pages++ {
 		if pages > 100 {
 			t.Fatal("live diff pagination did not terminate")
 		}
-		live, err = f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true, LineCount: 8, Cursor: live.NextCursor})
+		live, err = f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true, LineCount: 8, Cursor: live.Pagination.NextCursor})
 		if err != nil {
 			t.Fatal(err)
 		}

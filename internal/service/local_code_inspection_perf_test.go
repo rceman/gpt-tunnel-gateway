@@ -107,10 +107,12 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 	var worktreeCursor string
 	measure("code/worktree first", func() error {
 		result, callErr := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example", Limit: 1})
-		if callErr == nil && (len(result.Items) != 1 || result.Items[0].Head != f.current || !result.HasMore || result.NextCursor == "") {
+		if callErr == nil && (len(result.Items) == 0 || result.Items[0].Head != f.current || result.Pagination == nil || result.Pagination.NextCursor == "") {
 			callErr = fmt.Errorf("expected paginated worktree result: %#v", result)
 		}
-		worktreeCursor = result.NextCursor
+		if result.Pagination != nil {
+			worktreeCursor = result.Pagination.NextCursor
+		}
 		return callErr
 	})
 	measure("code/worktree continuation", func() error {
@@ -124,10 +126,12 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 	var treeCursor string
 	measure("code/tree first", func() error {
 		result, callErr := f.service.CodeTree(context.Background(), CodeTreeInput{ProjectID: "example", Worktree: mainSelector, Live: true, Limit: 1})
-		if callErr == nil && (len(result.Paths) != 1 || !result.HasMore || result.NextCursor == "") {
+		if callErr == nil && (len(result.Paths) != 1 || result.Pagination == nil || result.Pagination.NextCursor == "") {
 			callErr = fmt.Errorf("expected paginated tree result: %#v", result)
 		}
-		treeCursor = result.NextCursor
+		if result.Pagination != nil {
+			treeCursor = result.Pagination.NextCursor
+		}
 		return callErr
 	})
 	measure("code/tree continuation", func() error {
@@ -141,10 +145,12 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 	var searchCursor string
 	measure("code/search first", func() error {
 		result, callErr := f.service.CodeSearch(context.Background(), CodeSearchInput{ProjectID: "example", Worktree: mainSelector, Live: true, Query: "needle", Limit: 1})
-		if callErr == nil && (len(result.Matches) != 1 || !result.HasMore || result.NextCursor == "") {
+		if callErr == nil && (len(result.Matches) != 1 || result.Pagination == nil || result.Pagination.NextCursor == "") {
 			callErr = fmt.Errorf("expected paginated search result: %#v", result)
 		}
-		searchCursor = result.NextCursor
+		if result.Pagination != nil {
+			searchCursor = result.Pagination.NextCursor
+		}
 		return callErr
 	})
 	measure("code/search continuation", func() error {
@@ -158,10 +164,12 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 	var readCursor string
 	measure("code/read first", func() error {
 		result, callErr := f.service.CodeRead(context.Background(), CodeReadInput{ProjectID: "example", Worktree: mainSelector, Live: true, Path: "tracked.txt", LineCount: 1})
-		if callErr == nil && (!result.HasMore || result.NextCursor == "") {
+		if callErr == nil && (result.Pagination == nil || result.Pagination.NextCursor == "") {
 			callErr = fmt.Errorf("expected paginated read result: %#v", result)
 		}
-		readCursor = result.NextCursor
+		if result.Pagination != nil {
+			readCursor = result.Pagination.NextCursor
+		}
 		return callErr
 	})
 	measure("code/read continuation", func() error {
@@ -175,10 +183,12 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 	var diffCursor string
 	measure("code/diff first", func() error {
 		result, callErr := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: mainSelector, Live: true, Paths: []string{"tracked.txt"}, LineCount: 8})
-		if callErr == nil && (!result.HasMore || result.NextCursor == "") {
+		if callErr == nil && (result.Pagination == nil || result.Pagination.NextCursor == "") {
 			callErr = fmt.Errorf("expected paginated diff result: %#v", result)
 		}
-		diffCursor = result.NextCursor
+		if result.Pagination != nil {
+			diffCursor = result.Pagination.NextCursor
+		}
 		return callErr
 	})
 	measure("code/diff continuation", func() error {

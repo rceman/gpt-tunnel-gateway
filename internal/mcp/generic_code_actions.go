@@ -157,7 +157,7 @@ func codeSelectorSchema() map[string]any {
 func codeWorktreeInputSchema() map[string]any {
 	query := str("Optional bounded selector or label filter.")
 	query["maxLength"] = service.LocalCodeMaxQueryBytes
-	return obj(map[string]any{"query": query, "cursor": codeCursorSchema(), "limit": integer("Maximum worktrees.", 1, service.LocalCodeMaxMatches)})
+	return obj(map[string]any{"query": query, "cursor": codeCursorSchema()})
 }
 
 func codeTreeInputSchema() map[string]any {
@@ -165,13 +165,14 @@ func codeTreeInputSchema() map[string]any {
 	pathValue["maxLength"] = 4096
 	query := str("Optional bounded path filter.")
 	query["maxLength"] = service.LocalCodeMaxQueryBytes
-	return obj(map[string]any{"worktree": codeSelectorSchema(), "path": pathValue, "query": query, "cursor": codeCursorSchema(), "limit": integer("Maximum paths.", 1, service.LocalCodeMaxMatches), "live": codeLiveSchema()}, "worktree")
+	return obj(map[string]any{"worktree": codeSelectorSchema(), "path": pathValue, "query": query, "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree")
 }
 
 func codeReadInputSchema() map[string]any {
 	pathValue := str("Repository-relative regular-file path.")
 	pathValue["maxLength"] = 4096
-	return obj(map[string]any{"worktree": codeSelectorSchema(), "path": pathValue, "start_line": integer("One-based first line.", 1, service.LocalCodeMaxLines), "line_count": integer("Maximum lines.", 1, service.LocalCodeMaxLines), "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree", "path")
+	startLine := integer("Optional one-based semantic line target.", 1, int(^uint(0)>>1))
+	return obj(map[string]any{"worktree": codeSelectorSchema(), "path": pathValue, "start_line": startLine, "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree", "path")
 }
 
 func codeSearchInputSchema() map[string]any {
@@ -181,18 +182,22 @@ func codeSearchInputSchema() map[string]any {
 	paths["maxItems"] = service.LocalCodeMaxPaths
 	patterns := array(str("Optional repository-relative path glob."))
 	patterns["maxItems"] = service.LocalCodeMaxPatterns
-	return obj(map[string]any{"worktree": codeSelectorSchema(), "query": query, "paths": paths, "include": patterns, "exclude": patterns, "limit": integer("Maximum matches.", 1, service.LocalCodeMaxMatches), "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree", "query")
+	return obj(map[string]any{"worktree": codeSelectorSchema(), "query": query, "paths": paths, "include": patterns, "exclude": patterns, "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree", "query")
 }
 
 func codeDiffInputSchema() map[string]any {
 	paths := array(str("Optional repository-relative diff path."))
 	paths["maxItems"] = service.LocalCodeMaxPaths
-	return obj(map[string]any{"worktree": codeSelectorSchema(), "paths": paths, "line_count": integer("Maximum diff lines.", 1, service.LocalCodeMaxLines), "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree")
+	return obj(map[string]any{"worktree": codeSelectorSchema(), "paths": paths, "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree")
+}
+
+func codePaginationOutputSchema() map[string]any {
+	return closedOutput(map[string]any{"next_cursor": outputString()})
 }
 
 func codeWorktreeOutputSchema() map[string]any {
 	item := closedOutput(map[string]any{"selector": outputString(), "kind": outputString(), "dirty": outputBoolean(), "head": outputString(), "label": outputString(), "train_id": outputString()}, "selector", "kind", "dirty", "head")
-	return closedOutput(map[string]any{"items": outputArray(item), "next_cursor": outputString(), "has_more": outputBoolean()}, "items", "has_more")
+	return closedOutput(map[string]any{"items": outputArray(item), "_pagination": codePaginationOutputSchema()}, "items")
 }
 
 func codeIdentityOutputSchema() map[string]any {
@@ -202,9 +207,8 @@ func codeIdentityOutputSchema() map[string]any {
 func codeTreeOutputSchema() map[string]any {
 	properties := codeIdentityOutputSchema()
 	properties["paths"] = outputArray(outputString())
-	properties["next_cursor"] = outputString()
-	properties["has_more"] = outputBoolean()
-	return closedOutput(properties, "worktree", "dirty", "live", "head", "paths", "has_more")
+	properties["_pagination"] = codePaginationOutputSchema()
+	return closedOutput(properties, "worktree", "dirty", "live", "head", "paths")
 }
 
 func codeReadOutputSchema() map[string]any {
@@ -214,10 +218,8 @@ func codeReadOutputSchema() map[string]any {
 	properties["end_line"] = outputInteger()
 	properties["total_lines"] = outputInteger()
 	properties["content"] = outputString()
-	properties["truncated"] = outputBoolean()
-	properties["next_cursor"] = outputString()
-	properties["has_more"] = outputBoolean()
-	return closedOutput(properties, "worktree", "dirty", "live", "head", "path", "start_line", "end_line", "total_lines", "content", "truncated", "has_more")
+	properties["_pagination"] = codePaginationOutputSchema()
+	return closedOutput(properties, "worktree", "dirty", "live", "head", "path", "start_line", "end_line", "total_lines", "content")
 }
 
 func codeSearchOutputSchema() map[string]any {
@@ -225,18 +227,14 @@ func codeSearchOutputSchema() map[string]any {
 	properties := codeIdentityOutputSchema()
 	properties["paths_scanned"] = outputInteger()
 	properties["matches"] = outputArray(match)
-	properties["truncated"] = outputBoolean()
-	properties["next_cursor"] = outputString()
-	properties["has_more"] = outputBoolean()
-	return closedOutput(properties, "worktree", "dirty", "live", "head", "paths_scanned", "matches", "truncated", "has_more")
+	properties["_pagination"] = codePaginationOutputSchema()
+	return closedOutput(properties, "worktree", "dirty", "live", "head", "paths_scanned", "matches")
 }
 
 func codeDiffOutputSchema() map[string]any {
 	properties := codeIdentityOutputSchema()
 	properties["paths"] = outputArray(outputString())
 	properties["diff"] = outputString()
-	properties["truncated"] = outputBoolean()
-	properties["next_cursor"] = outputString()
-	properties["has_more"] = outputBoolean()
-	return closedOutput(properties, "worktree", "dirty", "live", "head", "paths", "diff", "truncated", "has_more")
+	properties["_pagination"] = codePaginationOutputSchema()
+	return closedOutput(properties, "worktree", "dirty", "live", "head", "paths", "diff")
 }

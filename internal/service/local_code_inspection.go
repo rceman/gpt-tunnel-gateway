@@ -52,10 +52,10 @@ func (e *CodeSelectorError) Error() string {
 }
 
 type CodeWorktreeInput struct {
-	ProjectID string `json:"project_id"`
+	ProjectID string `json:"-"`
 	Query     string `json:"query"`
 	Cursor    string `json:"cursor"`
-	Limit     int    `json:"limit"`
+	Limit     int    `json:"-"` // internal test/adapter bound; public pagination is token-based.
 }
 
 type CodeWorktreeItem struct {
@@ -69,54 +69,52 @@ type CodeWorktreeItem struct {
 
 type CodeWorktreeResult struct {
 	Items      []CodeWorktreeItem `json:"items"`
-	NextCursor string             `json:"next_cursor,omitempty"`
-	HasMore    bool               `json:"has_more"`
+	Pagination *CodePagination    `json:"_pagination,omitempty"`
 }
 
 type CodeTreeInput struct {
-	ProjectID string `json:"project_id"`
+	ProjectID string `json:"-"`
 	Worktree  string `json:"worktree"`
 	Path      string `json:"path"`
 	Query     string `json:"query"`
 	Cursor    string `json:"cursor"`
-	Limit     int    `json:"limit"`
+	Limit     int    `json:"-"` // internal test/adapter bound; public pagination is token-based.
 	Live      bool   `json:"live"`
 }
 
 type CodeTreeResult struct {
 	CodeIdentity
-	Paths      []string `json:"paths"`
-	NextCursor string   `json:"next_cursor,omitempty"`
-	HasMore    bool     `json:"has_more"`
+	Paths      []string        `json:"paths"`
+	Pagination *CodePagination `json:"_pagination,omitempty"`
 }
 
 type CodeReadInput struct {
-	ProjectID string `json:"project_id"`
+	ProjectID string `json:"-"`
 	Worktree  string `json:"worktree"`
 	Path      string `json:"path"`
-	StartLine int    `json:"start_line"`
-	LineCount int    `json:"line_count"`
+	StartLine int    `json:"start_line"` // semantic target, not a page-size control.
+	LineCount int    `json:"-"`          // internal test/adapter bound; public pagination is token-based.
 	Cursor    string `json:"cursor"`
 	Live      bool   `json:"live"`
 }
 
 type CodeSearchInput struct {
-	ProjectID string   `json:"project_id"`
+	ProjectID string   `json:"-"`
 	Worktree  string   `json:"worktree"`
 	Query     string   `json:"query"`
 	Paths     []string `json:"paths"`
 	Include   []string `json:"include"`
 	Exclude   []string `json:"exclude"`
-	Limit     int      `json:"limit"`
+	Limit     int      `json:"-"` // internal test/adapter bound; public pagination is token-based.
 	Cursor    string   `json:"cursor"`
 	Live      bool     `json:"live"`
 }
 
 type CodeDiffInput struct {
-	ProjectID string   `json:"project_id"`
+	ProjectID string   `json:"-"`
 	Worktree  string   `json:"worktree"`
 	Paths     []string `json:"paths"`
-	LineCount int      `json:"line_count"`
+	LineCount int      `json:"-"` // internal test/adapter bound; public pagination is token-based.
 	Cursor    string   `json:"cursor"`
 	Live      bool     `json:"live"`
 }
@@ -132,14 +130,12 @@ type CodeIdentity struct {
 
 type CodeReadResult struct {
 	CodeIdentity
-	Path       string `json:"path"`
-	StartLine  int    `json:"start_line"`
-	EndLine    int    `json:"end_line"`
-	TotalLines int    `json:"total_lines"`
-	Content    string `json:"content"`
-	Truncated  bool   `json:"truncated"`
-	NextCursor string `json:"next_cursor,omitempty"`
-	HasMore    bool   `json:"has_more"`
+	Path       string          `json:"path"`
+	StartLine  int             `json:"start_line"`
+	EndLine    int             `json:"end_line"`
+	TotalLines int             `json:"total_lines"`
+	Content    string          `json:"content"`
+	Pagination *CodePagination `json:"_pagination,omitempty"`
 }
 
 type CodeSearchMatch struct {
@@ -152,18 +148,25 @@ type CodeSearchResult struct {
 	CodeIdentity
 	PathsScanned int               `json:"paths_scanned"`
 	Matches      []CodeSearchMatch `json:"matches"`
-	Truncated    bool              `json:"truncated"`
-	NextCursor   string            `json:"next_cursor,omitempty"`
-	HasMore      bool              `json:"has_more"`
+	Pagination   *CodePagination   `json:"_pagination,omitempty"`
 }
 
 type CodeDiffResult struct {
 	CodeIdentity
-	Paths      []string `json:"paths"`
-	Diff       string   `json:"diff"`
-	Truncated  bool     `json:"truncated"`
-	NextCursor string   `json:"next_cursor,omitempty"`
-	HasMore    bool     `json:"has_more"`
+	Paths      []string        `json:"paths"`
+	Diff       string          `json:"diff"`
+	Pagination *CodePagination `json:"_pagination,omitempty"`
+}
+
+type CodePagination struct {
+	NextCursor string `json:"next_cursor"`
+}
+
+func codePagination(nextCursor string) *CodePagination {
+	if nextCursor == "" {
+		return nil
+	}
+	return &CodePagination{NextCursor: nextCursor}
 }
 
 type localCodeTarget struct {
@@ -475,15 +478,41 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 		}
 		items = append(items, CodeWorktreeItem{Selector: candidate.CodeIdentity.Worktree, Kind: candidate.Kind, Dirty: candidate.Dirty, Head: candidate.CurrentHead, Label: candidate.Label, TrainID: candidate.TrainID})
 	}
-	limit, err := PublicCollectionLimit(in.Limit, s.Config.MaxListItems)
+	requestedLimit := pagination.MaxLimit
+	if in.Limit > 0 {
+		requestedLimit = in.Limit
+	}
+	limit, err := PublicCollectionLimit(requestedLimit, s.Config.MaxListItems)
 	if err != nil {
 		return CodeWorktreeResult{}, err
 	}
-	page, info, err := pagination.Page("code-worktree|"+in.ProjectID+"|"+query, items, limit, in.Cursor, func(item CodeWorktreeItem) string { return item.Selector })
-	if err != nil {
-		return CodeWorktreeResult{}, err
+	kind := "code-worktree|" + in.ProjectID + "|" + query
+	if len(items) == 0 {
+		result := CodeWorktreeResult{Items: items}
+		fits, fitErr := codePageFits(result)
+		if fitErr != nil {
+			return CodeWorktreeResult{}, fitErr
+		}
+		if fits {
+			return result, nil
+		}
+		return CodeWorktreeResult{}, fmt.Errorf("code worktree result exceeds %d tokenizer tokens", CodePageTokenBudget)
 	}
-	return CodeWorktreeResult{Items: page, NextCursor: info.NextCursor, HasMore: info.HasMore}, nil
+	for pageLimit := limit; pageLimit >= 1; pageLimit-- {
+		page, info, pageErr := pagination.Page(kind, items, pageLimit, in.Cursor, func(item CodeWorktreeItem) string { return item.Selector })
+		if pageErr != nil {
+			return CodeWorktreeResult{}, pageErr
+		}
+		candidate := CodeWorktreeResult{Items: page, Pagination: codePagination(info.NextCursor)}
+		fits, fitErr := codePageFits(candidate)
+		if fitErr != nil {
+			return CodeWorktreeResult{}, fitErr
+		}
+		if fits {
+			return candidate, nil
+		}
+	}
+	return CodeWorktreeResult{}, fmt.Errorf("code worktree item exceeds %d tokenizer tokens", CodePageTokenBudget)
 }
 
 func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResult, error) {
@@ -497,7 +526,11 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 	if len(in.Query) > LocalCodeMaxQueryBytes || strings.ContainsAny(in.Query, "\x00\r\n") {
 		return CodeTreeResult{}, fmt.Errorf("invalid tree query")
 	}
-	limit, err := PublicCollectionLimit(in.Limit, s.Config.MaxListItems)
+	requestedLimit := pagination.MaxLimit
+	if in.Limit > 0 {
+		requestedLimit = in.Limit
+	}
+	limit, err := PublicCollectionLimit(requestedLimit, s.Config.MaxListItems)
 	if err != nil {
 		return CodeTreeResult{}, err
 	}
@@ -560,14 +593,43 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 		}
 		return CodeTreeResult{}, fmt.Errorf("continuation cursor is no longer valid")
 	}
-	result := CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: paths, HasMore: hasMore}
+	resultCursor := ""
+	resultHasMore := hasMore
 	if scanLimited {
-		result.HasMore = true
-		result.NextCursor = pagination.EncodeFull(kind, lastScannedPath)
+		resultHasMore = true
+		resultCursor = pagination.EncodeFull(kind, lastScannedPath)
 	} else if hasMore {
-		result.NextCursor = pagination.EncodeFull(kind, paths[len(paths)-1])
+		resultCursor = pagination.EncodeFull(kind, paths[len(paths)-1])
 	}
-	return result, nil
+	for pageSize := len(paths); pageSize >= 1; pageSize-- {
+		pageHasMore := resultHasMore || pageSize < len(paths)
+		pageCursor := ""
+		if pageSize < len(paths) || pageHasMore {
+			pageCursor = pagination.EncodeFull(kind, paths[pageSize-1])
+			if pageSize == len(paths) && scanLimited {
+				pageCursor = resultCursor
+			}
+		}
+		candidate := CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: paths[:pageSize], Pagination: codePagination(pageCursor)}
+		fits, fitErr := codePageFits(candidate)
+		if fitErr != nil {
+			return CodeTreeResult{}, fitErr
+		}
+		if fits {
+			return candidate, nil
+		}
+	}
+	if len(paths) == 0 {
+		result := CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: paths, Pagination: codePagination(resultCursor)}
+		fits, fitErr := codePageFits(result)
+		if fitErr != nil {
+			return CodeTreeResult{}, fitErr
+		}
+		if fits {
+			return result, nil
+		}
+	}
+	return CodeTreeResult{}, fmt.Errorf("code tree path exceeds %d tokenizer tokens", CodePageTokenBudget)
 }
 
 func validateCodePatterns(patterns []string) error {
@@ -685,11 +747,11 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 			return CodeReadResult{}, fmt.Errorf("invalid code read cursor")
 		}
 	}
-	count := in.LineCount
-	if count == 0 {
-		count = 200
+	count := len(lines) - start + 1
+	if in.LineCount > 0 && in.LineCount < count {
+		count = in.LineCount
 	}
-	if start < 1 || count < 1 || count > LocalCodeMaxLines {
+	if start < 1 || count < 1 {
 		return CodeReadResult{}, fmt.Errorf("invalid code line range")
 	}
 	if start > len(lines)+1 {
@@ -699,15 +761,37 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	if end > len(lines) {
 		end = len(lines)
 	}
-	result := CodeReadResult{CodeIdentity: target.CodeIdentity, Path: in.Path, StartLine: start, EndLine: end, TotalLines: len(lines)}
-	if start <= len(lines) {
-		result.Content = strings.Join(lines[start-1:end], "\n")
+	pageSize, fitErr := largestCodePageSize(count, func(pageSize int) (bool, error) {
+		pageEnd := start + pageSize - 1
+		pageHasMore := pageEnd < len(lines)
+		pageCursor := ""
+		if pageHasMore {
+			pageCursor = pagination.Encode(kind, strconv.Itoa(pageEnd+1))
+		}
+		candidate := CodeReadResult{
+			CodeIdentity: target.CodeIdentity, Path: in.Path, StartLine: start, EndLine: pageEnd,
+			TotalLines: len(lines), Content: strings.Join(lines[start-1:pageEnd], "\n"),
+			Pagination: codePagination(pageCursor),
+		}
+		return codePageFits(candidate)
+	})
+	if fitErr != nil {
+		return CodeReadResult{}, fitErr
 	}
-	if end < len(lines) {
-		result.Truncated, result.HasMore = true, true
-		result.NextCursor = pagination.Encode(kind, strconv.Itoa(end+1))
+	if pageSize > 0 {
+		pageEnd := start + pageSize - 1
+		pageHasMore := pageEnd < len(lines)
+		pageCursor := ""
+		if pageHasMore {
+			pageCursor = pagination.Encode(kind, strconv.Itoa(pageEnd+1))
+		}
+		return CodeReadResult{
+			CodeIdentity: target.CodeIdentity, Path: in.Path, StartLine: start, EndLine: pageEnd,
+			TotalLines: len(lines), Content: strings.Join(lines[start-1:pageEnd], "\n"),
+			Pagination: codePagination(pageCursor),
+		}, nil
 	}
-	return result, nil
+	return CodeReadResult{}, fmt.Errorf("code read line exceeds %d tokenizer tokens", CodePageTokenBudget)
 }
 
 func validateLocalCodePaths(paths []string, required bool) ([]string, error) {
@@ -741,7 +825,11 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	if in.Query == "" || len(in.Query) > LocalCodeMaxQueryBytes || strings.ContainsAny(in.Query, "\x00\r\n") {
 		return CodeSearchResult{}, fmt.Errorf("invalid search query")
 	}
-	limit, err := PublicCollectionLimit(in.Limit, LocalCodeMaxMatches)
+	requestedLimit := pagination.MaxLimit
+	if in.Limit > 0 {
+		requestedLimit = in.Limit
+	}
+	limit, err := PublicCollectionLimit(requestedLimit, s.Config.MaxListItems)
 	if err != nil {
 		return CodeSearchResult{}, err
 	}
@@ -834,17 +922,42 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		return CodeSearchResult{}, fmt.Errorf("continuation cursor is no longer valid")
 	}
 	result.PathsScanned = pathsScanned
-	result.HasMore = hasMore
-	result.Truncated = hasMore
+	resultCursor := ""
 	if scanLimited {
-		result.HasMore = true
-		result.Truncated = true
-		result.NextCursor = pagination.EncodeSearchCursor(kind, lastScannedPath, 0)
+		resultCursor = pagination.EncodeSearchCursor(kind, lastScannedPath, 0)
 	} else if hasMore {
 		last := result.Matches[len(result.Matches)-1]
-		result.NextCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
+		resultCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
 	}
-	return result, nil
+	for pageSize := len(result.Matches); pageSize >= 1; pageSize-- {
+		pageCursor := resultCursor
+		if pageSize < len(result.Matches) {
+			last := result.Matches[pageSize-1]
+			pageCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
+		}
+		candidate := CodeSearchResult{
+			CodeIdentity: result.CodeIdentity, PathsScanned: result.PathsScanned, Matches: result.Matches[:pageSize],
+			Pagination: codePagination(pageCursor),
+		}
+		fits, fitErr := codePageFits(candidate)
+		if fitErr != nil {
+			return CodeSearchResult{}, fitErr
+		}
+		if fits {
+			return candidate, nil
+		}
+	}
+	if len(result.Matches) == 0 {
+		result.Pagination = codePagination(resultCursor)
+		fits, fitErr := codePageFits(result)
+		if fitErr != nil {
+			return CodeSearchResult{}, fitErr
+		}
+		if fits {
+			return result, nil
+		}
+	}
+	return CodeSearchResult{}, fmt.Errorf("code search match exceeds %d tokenizer tokens", CodePageTokenBudget)
 }
 
 func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResult, error) {
@@ -882,11 +995,44 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 	if err != nil {
 		return CodeDiffResult{}, err
 	}
-	result := CodeDiffResult{CodeIdentity: target.CodeIdentity, Paths: paths, Diff: diff, HasMore: hasMore, Truncated: hasMore}
-	if hasMore {
-		result.NextCursor = pagination.EncodeOffset(kind, offset+diffLineCount(diff))
+	lines := splitDiffLines(diff)
+	for pageSize := len(lines); pageSize >= 1; pageSize-- {
+		pageDiff := strings.Join(lines[:pageSize], "")
+		pageHasMore := hasMore || pageSize < len(lines)
+		pageCursor := ""
+		if pageHasMore {
+			pageCursor = pagination.EncodeOffset(kind, offset+int64(pageSize))
+		}
+		candidate := CodeDiffResult{
+			CodeIdentity: target.CodeIdentity, Paths: paths, Diff: pageDiff,
+			Pagination: codePagination(pageCursor),
+		}
+		fits, fitErr := codePageFits(candidate)
+		if fitErr != nil {
+			return CodeDiffResult{}, fitErr
+		}
+		if fits {
+			return candidate, nil
+		}
 	}
-	return result, nil
+	if len(lines) == 0 {
+		result := CodeDiffResult{CodeIdentity: target.CodeIdentity, Paths: paths, Pagination: codePagination("")}
+		fits, fitErr := codePageFits(result)
+		if fitErr != nil {
+			return CodeDiffResult{}, fitErr
+		}
+		if fits {
+			return result, nil
+		}
+	}
+	return CodeDiffResult{}, fmt.Errorf("code diff line exceeds %d tokenizer tokens", CodePageTokenBudget)
+}
+
+func splitDiffLines(diff string) []string {
+	if diff == "" {
+		return nil
+	}
+	return strings.SplitAfter(diff, "\n")
 }
 
 func diffLineCount(diff string) int64 {

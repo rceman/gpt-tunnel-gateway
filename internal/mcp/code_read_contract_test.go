@@ -60,17 +60,47 @@ func TestCodeOutputSchemasRequireFullHead(t *testing.T) {
 	}
 }
 
-func TestCodeDiffUsesLinePaginationInsteadOfPublicByteLimit(t *testing.T) {
+func TestCodeActionsUseTokenBudgetPaginationWithoutPublicLineOrByteControls(t *testing.T) {
 	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{
 		GatewayID: "code-diff-contract-test", StateDir: t.TempDir(),
 	}, nil)}
-	entry := server.genericActionRegistry(server.tools())["code/diff"]
-	properties := entry.InputSchema["properties"].(map[string]any)
-	if _, ok := properties["max_bytes"]; ok {
-		t.Fatal("code/diff still exposes public max_bytes")
+	entries := server.genericActionRegistry(server.tools())
+	for _, path := range []string{"code/worktree", "code/tree", "code/read", "code/search", "code/diff"} {
+		properties := entries[path].InputSchema["properties"].(map[string]any)
+		for _, field := range []string{"limit", "line_count", "max_bytes"} {
+			if _, ok := properties[field]; ok {
+				t.Fatalf("%s still exposes public pagination control %q", path, field)
+			}
+		}
 	}
-	if _, ok := properties["line_count"]; !ok {
-		t.Fatal("code/diff omits public line_count")
+	for _, path := range []string{"code/worktree", "code/tree", "code/read", "code/search", "code/diff"} {
+		properties := entries[path].OutputSchema["properties"].(map[string]any)
+		pagination, ok := properties["_pagination"].(map[string]any)
+		if !ok || pagination["type"] != "object" {
+			t.Fatalf("%s does not expose _pagination output metadata: %#v", path, entries[path].OutputSchema)
+		}
+		paginationProperties, ok := pagination["properties"].(map[string]any)
+		if !ok || len(paginationProperties) != 1 {
+			t.Fatalf("%s _pagination has unexpected fields: %#v", path, pagination)
+		}
+		if _, ok := paginationProperties["next_cursor"]; !ok {
+			t.Fatalf("%s _pagination omits next_cursor: %#v", path, pagination)
+		}
+		if _, ok := pagination["required"]; ok {
+			t.Fatalf("%s _pagination is required internally: %#v", path, pagination)
+		}
+		if requiredOutputField(entries[path].OutputSchema, "_pagination") {
+			t.Fatalf("%s _pagination is required on terminal output: %#v", path, entries[path].OutputSchema)
+		}
+		if _, ok := properties["has_more"]; ok {
+			t.Fatalf("%s exposes legacy top-level has_more", path)
+		}
+		if _, ok := properties["next_cursor"]; ok {
+			t.Fatalf("%s exposes legacy top-level next_cursor", path)
+		}
+		if _, ok := properties["truncated"]; ok {
+			t.Fatalf("%s exposes legacy top-level truncated", path)
+		}
 	}
 }
 
