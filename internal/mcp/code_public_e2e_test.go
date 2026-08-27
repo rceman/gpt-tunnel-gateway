@@ -132,7 +132,9 @@ func newPublicCodeCallHarness(t *testing.T, fixture publicCodeE2EFixture) public
 func (h publicCodeCallHarness) call(t *testing.T, action string, input map[string]any) map[string]any {
 	t.Helper()
 	response, _, _ := h.callResponse(t, action, input)
-	return genericActionResult(t, response)
+	result := genericActionResult(t, response)
+	assertPublicCodePagination(t, result)
+	return result
 }
 
 func (h publicCodeCallHarness) callResponse(t *testing.T, action string, input map[string]any) (map[string]any, time.Duration, int) {
@@ -178,6 +180,23 @@ func publicPagination(t *testing.T, result map[string]any) map[string]any {
 		return nil
 	}
 	return pagination
+}
+
+func assertPublicCodePagination(t *testing.T, result map[string]any) {
+	t.Helper()
+	for _, field := range []string{"has_more", "next_cursor", "truncated"} {
+		if _, ok := result[field]; ok {
+			t.Fatalf("public code result exposes legacy pagination field %q: %#v", field, result)
+		}
+	}
+	if pagination, ok := result["_pagination"].(map[string]any); ok {
+		if len(pagination) != 1 {
+			t.Fatalf("public code _pagination has unexpected fields: %#v", pagination)
+		}
+		if _, ok := pagination["next_cursor"].(string); !ok {
+			t.Fatalf("public code _pagination lacks next_cursor: %#v", pagination)
+		}
+	}
 }
 
 func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
