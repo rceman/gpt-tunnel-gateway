@@ -249,7 +249,7 @@ func (c *diffLinePageCollector) consume(line []byte) error {
 		c.total++
 		return nil
 	}
-	if c.pageLines >= c.limit {
+	if c.limit > 0 && c.pageLines >= c.limit {
 		c.total++
 		c.hasMore = true
 		return ErrStreamLimit
@@ -307,7 +307,7 @@ func (r Runner) DiffLocalCommitsPage(ctx context.Context, p config.ProjectConfig
 	if err := model.ValidateCommitSHA(to); err != nil {
 		return "", false, err
 	}
-	if offset < 0 || limit < 1 {
+	if offset < 0 || limit < 0 {
 		return "", false, fmt.Errorf("invalid diff page")
 	}
 	args := []string{"diff", "--no-ext-diff", "--no-textconv", from, to, "--"}
@@ -340,7 +340,7 @@ func (r Runner) DiffWorkingFromBasePage(ctx context.Context, p config.ProjectCon
 	if err := model.ValidateCommitSHA(base); err != nil {
 		return "", false, err
 	}
-	if offset < 0 || limit < 1 {
+	if offset < 0 || limit < 0 {
 		return "", false, fmt.Errorf("invalid diff page")
 	}
 	for _, path := range paths {

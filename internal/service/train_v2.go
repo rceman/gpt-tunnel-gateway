@@ -26,16 +26,6 @@ func (s *Service) trainV2Path(projectID, trainID string) string {
 	return s.trainV2Root(projectID) + "/" + trainID + ".json"
 }
 
-func (s *Service) trainV2StartPath(projectID, trainID string) string {
-	if model.ValidateProjectIdentifier(projectID) != nil {
-		return "../invalid-train-v2-start"
-	}
-	if _, _, err := model.ParseTrainV2ID(trainID); err != nil {
-		return "../invalid-train-v2-start"
-	}
-	return s.projectPrefix(projectID) + "/train-v2-starts/" + trainID + ".json"
-}
-
 func (s *Service) TrainV2Read(ctx context.Context, projectID, trainID string) (model.TrainV2, error) {
 	if err := requireTrainV2Authoring(ctx, s, projectID); err != nil {
 		return model.TrainV2{}, err

@@ -273,19 +273,26 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 		t.Fatalf("terminal code/read page exposed _pagination: %#v", readPage)
 	}
 
-	if err := os.WriteFile(filepath.Join(fixture.server.Service.Config.Projects["example"].Root, "tracked.txt"), []byte(strings.Repeat("changed line\n", 512)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(fixture.server.Service.Config.Projects["example"].Root, "diff-large.txt"), []byte(strings.Repeat("x\n", 512)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	diff := harness.call(t, "code/diff", map[string]any{"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "live": true})
+	diff := harness.call(t, "code/diff", map[string]any{"worktree": fixture.mainSelector, "paths": []any{"diff-large.txt"}, "live": true})
 	assertPublicCodeHead(t, diff, fixture.currentHead)
+	diffText, ok := diff["diff"].(string)
+	if !ok {
+		t.Fatalf("code/diff returned no diff text: %#v", diff)
+	}
 	diffPagination := publicPagination(t, diff)
 	if diffPagination == nil || diffPagination["next_cursor"] == "" {
 		t.Fatalf("code/diff first page is not paginated: %#v", diff)
 	}
-	diffPage := harness.call(t, "code/diff", map[string]any{"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "cursor": diffPagination["next_cursor"], "live": true})
+	diffPage := harness.call(t, "code/diff", map[string]any{"worktree": fixture.mainSelector, "paths": []any{"diff-large.txt"}, "cursor": diffPagination["next_cursor"], "live": true})
 	assertPublicCodeHead(t, diffPage, fixture.currentHead)
 	if diffPage["diff"] == "" {
 		t.Fatalf("code/diff continuation was empty: %#v", diffPage)
+	}
+	if strings.Count(diffText, "+x\n") <= 128 {
+		t.Fatalf("code/diff appears to use a hidden 128-line page driver: first_added_lines=%d", strings.Count(diffText, "+x\n"))
 	}
 
 	for action, input := range map[string]map[string]any{
@@ -293,13 +300,13 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 		"code/tree":     {"worktree": fixture.mainSelector, "live": true},
 		"code/search":   {"worktree": fixture.mainSelector, "query": "needle", "live": true},
 		"code/read":     {"worktree": fixture.mainSelector, "path": "tracked.txt", "live": true},
-		"code/diff":     {"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "live": true},
+		"code/diff":     {"worktree": fixture.mainSelector, "paths": []any{"diff-large.txt"}, "live": true},
 	} {
 		harness.call(t, action, input)
 	}
 
 	var oversized strings.Builder
-	for line := 0; line < service.LocalCodeMaxLines; line++ {
+	for line := 0; line < 512; line++ {
 		oversized.WriteString(strings.Repeat("oversized-token ", 40))
 		oversized.WriteByte('\n')
 	}

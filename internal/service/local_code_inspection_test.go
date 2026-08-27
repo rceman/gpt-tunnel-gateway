@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
@@ -112,12 +112,12 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 	selector := "WT-MAIN-" + f.current[:8]
 
 	read, err := f.service.CodeRead(ctx, CodeReadInput{
-		ProjectID: "example", Worktree: selector, Path: "tracked.txt", StartLine: 1, LineCount: 1,
+		ProjectID: "example", Worktree: selector, Path: "tracked.txt", StartLine: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read.CurrentHead != f.current || read.Content != "candidate tracked content with needle" {
+	if read.CurrentHead != f.current || read.Content != "candidate tracked content with needle\n" {
 		t.Fatalf("unexpected committed read: %#v", read)
 	}
 	var readProjection map[string]any
@@ -125,20 +125,20 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 	if err != nil || json.Unmarshal(encoded, &readProjection) != nil || readProjection["head"] != f.current {
 		t.Fatalf("code identity did not expose full head: %s %#v", encoded, readProjection)
 	}
-	worktrees, err := f.service.CodeWorktree(ctx, CodeWorktreeInput{ProjectID: "example", Limit: 1})
-	if err != nil || len(worktrees.Items) != 1 || worktrees.Items[0].Head != f.current {
+	worktrees, err := f.service.CodeWorktree(ctx, CodeWorktreeInput{ProjectID: "example"})
+	if err != nil || len(worktrees.Items) != 1 || worktrees.Items[0].Head != f.current || worktrees.Pagination != nil {
 		t.Fatalf("worktree item did not expose full head: %#v %v", worktrees, err)
 	}
 
 	search, err := f.service.CodeSearch(ctx, CodeSearchInput{
 		ProjectID: "example", Worktree: selector,
-		Query: "needle", Paths: []string{"tracked.txt", "new.txt"}, Limit: 1,
+		Query: "needle", Paths: []string{"tracked.txt", "new.txt"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if search.PathsScanned != 2 || len(search.Matches) != 1 || search.Pagination == nil {
-		t.Fatalf("search pagination did not scan complete scope: %#v", search)
+	if search.PathsScanned != 2 || len(search.Matches) != 2 || search.Pagination != nil {
+		t.Fatalf("search did not pack complete scope: %#v", search)
 	}
 
 	full, err := f.service.CodeDiff(ctx, CodeDiffInput{
@@ -150,18 +150,11 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 	if full.Diff != "" || full.Pagination != nil {
 		t.Fatalf("clean committed selector reported a diff: %#v", full)
 	}
-	tree, err := f.service.CodeTree(ctx, CodeTreeInput{ProjectID: "example", Worktree: selector, Limit: 1})
-	if err != nil || len(tree.Paths) != 1 || tree.Pagination == nil || tree.Pagination.NextCursor == "" {
-		t.Fatalf("expected tree pagination beyond Git helper item cap: %#v %v", tree, err)
+	tree, err := f.service.CodeTree(ctx, CodeTreeInput{ProjectID: "example", Worktree: selector})
+	if err != nil || len(tree.Paths) < 2 || tree.Pagination != nil {
+		t.Fatalf("expected tree to pack complete scope: %#v %v", tree, err)
 	}
-	if len(tree.Pagination.NextCursor) > 256 {
-		t.Fatalf("tree cursor is not bounded: %d", len(tree.Pagination.NextCursor))
-	}
-	secondTree, err := f.service.CodeTree(ctx, CodeTreeInput{ProjectID: "example", Worktree: selector, Limit: 1, Cursor: tree.Pagination.NextCursor})
-	if err != nil || len(secondTree.Paths) == 0 {
-		t.Fatalf("tree cursor did not resume: %#v %v", secondTree, err)
-	}
-	scopedTree, err := f.service.CodeTree(ctx, CodeTreeInput{ProjectID: "example", Worktree: selector, Path: "search-a.txt", Limit: 1})
+	scopedTree, err := f.service.CodeTree(ctx, CodeTreeInput{ProjectID: "example", Worktree: selector, Path: "search-a.txt"})
 	if err != nil || len(scopedTree.Paths) != 1 || scopedTree.Paths[0] != "search-a.txt" || scopedTree.Pagination != nil {
 		t.Fatalf("tree path scope was not applied: %#v %v", scopedTree, err)
 	}
@@ -176,31 +169,37 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 func TestLocalCodeInspectionRequiresSharedDurabilityForWorktreeDiscovery(t *testing.T) {
 	f := newLocalCodeFixture(t)
 	f.service.Durability = nil
-	if _, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example", Limit: 1}); err == nil || !strings.Contains(err.Error(), "Shared durability unavailable") {
+	if _, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"}); err == nil || !strings.Contains(err.Error(), "Shared durability unavailable") {
 		t.Fatalf("missing Shared durability was not fail-closed: %v", err)
 	}
 }
 
 func TestLocalCodeSearchContinuesFromExactScanPosition(t *testing.T) {
 	f := newLocalCodeFixture(t)
+	var content strings.Builder
+	for index := 0; index < 256; index++ {
+		content.WriteString("needle tokenized search line\n")
+	}
+	pathName := filepath.Join(f.root, "many-matches.txt")
+	if err := os.WriteFile(pathName, []byte(content.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(pathName) })
 	selector := "WT-MAIN-" + f.current[:8]
 	first, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
-		ProjectID: "example", Worktree: selector, Query: "needle", Paths: []string{"new.txt", "tracked.txt"}, Limit: 1,
+		ProjectID: "example", Worktree: selector, Query: "needle", Paths: []string{"many-matches.txt"}, Live: true,
 	})
-	if err != nil || len(first.Matches) != 1 || first.Pagination == nil || first.Pagination.NextCursor == "" {
+	if err != nil || len(first.Matches) < 2 || first.Pagination == nil || first.Pagination.NextCursor == "" {
 		t.Fatalf("expected first bounded search page: %#v %v", first, err)
 	}
 	if len(first.Pagination.NextCursor) > 256 {
 		t.Fatalf("search cursor is not bounded: %d", len(first.Pagination.NextCursor))
 	}
 	second, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
-		ProjectID: "example", Worktree: selector, Query: "needle", Paths: []string{"new.txt", "tracked.txt"}, Limit: 1, Cursor: first.Pagination.NextCursor,
+		ProjectID: "example", Worktree: selector, Query: "needle", Paths: []string{"many-matches.txt"}, Live: true, Cursor: first.Pagination.NextCursor,
 	})
-	if err != nil || len(second.Matches) != 1 || second.Matches[0].Path == first.Matches[0].Path {
+	if err != nil || len(second.Matches) == 0 || second.Matches[0].Line <= first.Matches[len(first.Matches)-1].Line {
 		t.Fatalf("expected exact continuation without duplicate: %#v %v", second, err)
-	}
-	if second.Pagination != nil {
-		t.Fatalf("terminal result page exposed an empty continuation: %#v", second)
 	}
 }
 
@@ -226,29 +225,22 @@ func TestLocalCodeSearchSkipsPreCursorFileContents(t *testing.T) {
 		return f.service.Git.ReadWorkingFile(ctx, target.ProjectWorktree, pathName)
 	}
 	selector := "WT-MAIN-" + f.current[:8]
-	first, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
-		ProjectID: "example", Worktree: selector, Live: true,
-		Query: "needle", Paths: []string{"a-before.txt", "b-match.txt", "c-match.txt"}, Limit: 1,
-	})
-	if err != nil || len(first.Matches) != 1 || first.Matches[0].Path != "b-match.txt" || first.Pagination == nil {
-		t.Fatalf("failed to establish live cursor: %#v %v", first, err)
-	}
-	if reads["a-before.txt"] != 1 || reads["b-match.txt"] != 1 || reads["c-match.txt"] != 1 {
-		t.Fatalf("unexpected first-page file reads: %#v", reads)
-	}
-	reads = make(map[string]int)
-	if err := os.WriteFile(filepath.Join(f.root, "a-before.txt"), []byte(strings.Repeat("x", LocalCodeMaxBytes+1)), 0o600); err != nil {
+	paths := []string{"a-before.txt", "b-match.txt", "c-match.txt"}
+	target, err := f.service.resolveLocalCodeTarget(context.Background(), "example", selector, true)
+	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
+	kind := codeCursorKind("code-search", target, "needle|"+strings.Join(paths, "\x00")+"|||true")
+	cursor := pagination.EncodeSearchCursor(kind, "a-before.txt", 0)
+	result, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
 		ProjectID: "example", Worktree: selector, Live: true,
-		Query: "needle", Paths: []string{"a-before.txt", "b-match.txt", "c-match.txt"}, Limit: 1, Cursor: first.Pagination.NextCursor,
+		Query: "needle", Paths: paths, Cursor: cursor,
 	})
-	if err != nil || len(second.Matches) != 1 || second.Matches[0].Path != "c-match.txt" {
-		t.Fatalf("pre-cursor file was reread instead of skipped: %#v %v", second, err)
+	if err != nil || len(result.Matches) != 2 || result.Pagination != nil {
+		t.Fatalf("pre-cursor search result was not complete: %#v %v", result, err)
 	}
 	if reads["a-before.txt"] != 0 || reads["b-match.txt"] != 1 || reads["c-match.txt"] != 1 {
-		t.Fatalf("unexpected resumed-page file reads: %#v", reads)
+		t.Fatalf("pre-cursor file contents were reread: %#v", reads)
 	}
 }
 
@@ -266,8 +258,14 @@ func TestLocalCodeSearchBoundsRareMatchesAndResumes(t *testing.T) {
 	testutil.Git(t, f.root, "add", "scan")
 	testutil.Git(t, f.root, "commit", "-m", "scan bound fixture")
 	selector := "WT-MAIN-" + strings.TrimSpace(testutil.Git(t, f.root, "rev-parse", "HEAD"))[:8]
+	tree, treeErr := f.service.CodeTree(context.Background(), CodeTreeInput{
+		ProjectID: "example", Worktree: selector, Query: "absent-tree",
+	})
+	if treeErr != nil || len(tree.Paths) != 0 || tree.Pagination == nil || tree.Pagination.NextCursor == "" {
+		t.Fatalf("zero-match tree scan was not bounded: %#v %v", tree, treeErr)
+	}
 	first, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
-		ProjectID: "example", Worktree: selector, Query: "absent-query", Limit: 1,
+		ProjectID: "example", Worktree: selector, Query: "absent-query",
 	})
 	if err != nil || len(first.Matches) != 0 || first.PathsScanned != LocalCodeScanLookahead || first.Pagination == nil || first.Pagination.NextCursor == "" {
 		t.Fatalf("rare-match scan was not bounded: %#v %v", first, err)
@@ -278,7 +276,7 @@ func TestLocalCodeSearchBoundsRareMatchesAndResumes(t *testing.T) {
 			t.Fatal("zero-match continuation did not terminate")
 		}
 		next, nextErr := f.service.CodeSearch(context.Background(), CodeSearchInput{
-			ProjectID: "example", Worktree: selector, Query: "absent-query", Limit: 1, Cursor: cursor,
+			ProjectID: "example", Worktree: selector, Query: "absent-query", Cursor: cursor,
 		})
 		if nextErr != nil || len(next.Matches) != 0 || next.PathsScanned > LocalCodeScanLookahead+1 {
 			t.Fatalf("zero-match continuation page %d exceeded its scan bound: %#v %v", page, next, nextErr)
@@ -309,7 +307,6 @@ func TestCodeTrainWorktreePathUsesProjectCodeForCompactLane(t *testing.T) {
 
 func TestCodeTrainBaseUsesCanonicalStartBaseForMultiItemTrain(t *testing.T) {
 	f := newLocalCodeFixture(t)
-	now := time.Unix(1, 0).UTC()
 	train := model.TrainV2{
 		ID: "GTW-TRN63", ProjectID: "example",
 		Items: []model.TrainV2Item{
@@ -318,28 +315,7 @@ func TestCodeTrainBaseUsesCanonicalStartBaseForMultiItemTrain(t *testing.T) {
 		},
 		Status: model.TrainV2ReadyForIntegration,
 	}
-	start := model.TrainV2StartRecord{
-		SchemaVersion: model.TrainV2StartSchemaVersion, ProjectID: train.ProjectID, TrainID: train.ID,
-		Status: model.TrainV2StartActive, IntegrationBranch: "main", BaseRevision: f.base,
-		LaneBranch: "train/GTW-TRN63", CurrentItemPosition: 1, CurrentAttemptNumber: 1,
-		CurrentTaskID: "GTW-TSK2", CurrentTaskRevision: 1, CurrentTaskRevisionSHA256: strings.Repeat("a", 64), StartedAt: now,
-	}
-	if err := model.ValidateTrainV2StartRecord(start); err != nil {
-		t.Fatal(err)
-	}
-	startPath := filepath.Join(f.root, filepath.FromSlash(f.service.trainV2StartPath(train.ProjectID, train.ID)))
-	if err := os.MkdirAll(filepath.Dir(startPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	payload, err := json.Marshal(start)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(startPath, payload, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	base, err := f.service.codeTrainBase(f.root, train, f.current)
+	base, err := codeTrainBase(train, f.current)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +345,7 @@ func TestLocalCodeInspectionRejectsDirtyWorktree(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "dirty") {
 		t.Fatalf("dirty worktree was not rejected: %v", err)
 	}
-	live, err := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true, LineCount: 8})
+	live, err := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +354,7 @@ func TestLocalCodeInspectionRejectsDirtyWorktree(t *testing.T) {
 		if pages > 100 {
 			t.Fatal("live diff pagination did not terminate")
 		}
-		live, err = f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true, LineCount: 8, Cursor: live.Pagination.NextCursor})
+		live, err = f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true, Cursor: live.Pagination.NextCursor})
 		if err != nil {
 			t.Fatal(err)
 		}
