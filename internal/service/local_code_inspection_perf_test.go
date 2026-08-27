@@ -46,11 +46,10 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 	})
 	testutil.Git(t, f.root, "worktree", "add", trainPath, "train/EXM-TRN1")
 
-	db, err := sqlitestore.Open(stateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := f.service.Durability
+	if db == nil {
+		t.Fatal("performance fixture requires Shared durability")
 	}
-	t.Cleanup(func() { _ = db.Close() })
 	f.service.Durability = db
 	now := time.Now().UTC()
 	train := model.TrainV2{
@@ -108,7 +107,7 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 	var worktreeCursor string
 	measure("code/worktree first", func() error {
 		result, callErr := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example", Limit: 1})
-		if callErr == nil && (len(result.Items) != 1 || !result.HasMore || result.NextCursor == "") {
+		if callErr == nil && (len(result.Items) != 1 || result.Items[0].Head != f.current || !result.HasMore || result.NextCursor == "") {
 			callErr = fmt.Errorf("expected paginated worktree result: %#v", result)
 		}
 		worktreeCursor = result.NextCursor
@@ -141,7 +140,7 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 
 	var searchCursor string
 	measure("code/search first", func() error {
-		result, callErr := f.service.CodeSearch(context.Background(), CodeSearchInput{ProjectID: "example", Worktree: mainSelector, Live: true, Query: "needle", Paths: []string{"new.txt", "tracked.txt"}, Limit: 1})
+		result, callErr := f.service.CodeSearch(context.Background(), CodeSearchInput{ProjectID: "example", Worktree: mainSelector, Live: true, Query: "needle", Limit: 1})
 		if callErr == nil && (len(result.Matches) != 1 || !result.HasMore || result.NextCursor == "") {
 			callErr = fmt.Errorf("expected paginated search result: %#v", result)
 		}
@@ -149,7 +148,7 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 		return callErr
 	})
 	measure("code/search continuation", func() error {
-		result, callErr := f.service.CodeSearch(context.Background(), CodeSearchInput{ProjectID: "example", Worktree: mainSelector, Live: true, Query: "needle", Paths: []string{"new.txt", "tracked.txt"}, Limit: 1, Cursor: searchCursor})
+		result, callErr := f.service.CodeSearch(context.Background(), CodeSearchInput{ProjectID: "example", Worktree: mainSelector, Live: true, Query: "needle", Limit: 1, Cursor: searchCursor})
 		if callErr == nil && len(result.Matches) != 1 {
 			callErr = fmt.Errorf("expected search continuation match: %#v", result)
 		}

@@ -63,6 +63,7 @@ type CodeWorktreeItem struct {
 	Selector string `json:"selector"`
 	Kind     string `json:"kind"`
 	Dirty    bool   `json:"dirty"`
+	Head     string `json:"head"`
 	Label    string `json:"label,omitempty"`
 	TrainID  string `json:"train_id,omitempty"`
 }
@@ -127,7 +128,7 @@ type CodeIdentity struct {
 	Live     bool   `json:"live"`
 
 	ProjectID   string `json:"-"`
-	CurrentHead string `json:"-"`
+	CurrentHead string `json:"head"`
 }
 
 type CodeReadResult struct {
@@ -200,10 +201,10 @@ func codeCursorKind(operation string, target localCodeTarget, suffix string) str
 }
 
 func (s *Service) codeTrainRecords(ctx context.Context, projectID string) ([]model.TrainV2, error) {
-	if s.Durability != nil {
-		return s.sharedTrains(ctx, projectID)
+	if s.Durability == nil {
+		return nil, fmt.Errorf("Shared durability unavailable for code worktree discovery")
 	}
-	return nil, nil
+	return s.sharedTrains(ctx, projectID)
 }
 
 func activeCodeTrainStatus(status string) bool {
@@ -473,7 +474,7 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 		if query != "" && !strings.Contains(candidate.CodeIdentity.Worktree, query) && !strings.Contains(candidate.Label, query) && !strings.Contains(candidate.TrainID, query) {
 			continue
 		}
-		items = append(items, CodeWorktreeItem{Selector: candidate.CodeIdentity.Worktree, Kind: candidate.Kind, Dirty: candidate.Dirty, Label: candidate.Label, TrainID: candidate.TrainID})
+		items = append(items, CodeWorktreeItem{Selector: candidate.CodeIdentity.Worktree, Kind: candidate.Kind, Dirty: candidate.Dirty, Head: candidate.CurrentHead, Label: candidate.Label, TrainID: candidate.TrainID})
 	}
 	limit, err := PublicCollectionLimit(in.Limit, s.Config.MaxListItems)
 	if err != nil {

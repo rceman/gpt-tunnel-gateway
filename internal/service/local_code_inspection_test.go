@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
@@ -88,8 +90,13 @@ func newLocalCodeFixture(t *testing.T) localCodeFixture {
 			},
 		},
 	}
+	db, err := sqlitestore.Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
 	return localCodeFixture{
-		service:   NewWithDurabilityDeferredWorkers(c, nil),
+		service:   NewWithDurabilityDeferredWorkers(c, db),
 		root:      root,
 		base:      base,
 		current:   current,
@@ -110,6 +117,15 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 	}
 	if read.CurrentHead != f.current || read.Content != "candidate tracked content with needle" {
 		t.Fatalf("unexpected committed read: %#v", read)
+	}
+	var readProjection map[string]any
+	encoded, err := json.Marshal(read)
+	if err != nil || json.Unmarshal(encoded, &readProjection) != nil || readProjection["head"] != f.current {
+		t.Fatalf("code identity did not expose full head: %s %#v", encoded, readProjection)
+	}
+	worktrees, err := f.service.CodeWorktree(ctx, CodeWorktreeInput{ProjectID: "example", Limit: 1})
+	if err != nil || len(worktrees.Items) != 1 || worktrees.Items[0].Head != f.current {
+		t.Fatalf("worktree item did not expose full head: %#v %v", worktrees, err)
 	}
 
 	search, err := f.service.CodeSearch(ctx, CodeSearchInput{
@@ -152,6 +168,14 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 		ProjectID: "example", Worktree: "WT-MAIN-" + f.unrelated[:8], Path: "tracked.txt",
 	}); err == nil || !strings.Contains(err.Error(), "stale") {
 		t.Fatalf("stale selector was accepted: %v", err)
+	}
+}
+
+func TestLocalCodeInspectionRequiresSharedDurabilityForWorktreeDiscovery(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	f.service.Durability = nil
+	if _, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example", Limit: 1}); err == nil || !strings.Contains(err.Error(), "Shared durability unavailable") {
+		t.Fatalf("missing Shared durability was not fail-closed: %v", err)
 	}
 }
 
