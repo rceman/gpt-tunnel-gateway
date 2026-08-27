@@ -18,12 +18,13 @@ import (
 )
 
 const (
-	LocalCodeDefaultMaxBytes = 64 << 10
+	LocalCodeDefaultMaxBytes = 8 << 10
 	LocalCodeMaxBytes        = 256 << 10
+	LocalCodeMaxDiffBytes    = 4 << 10
 	LocalCodeMaxPaths        = 64
-	LocalCodeMaxMatches      = 100
+	LocalCodeMaxMatches      = 32
 	LocalCodeMaxQueryBytes   = 256
-	LocalCodeMaxLines        = 1000
+	LocalCodeMaxLines        = 128
 	LocalCodeMaxPatterns     = 32
 	LocalCodeMaxScanPaths    = 4096
 	LocalCodeScanLookahead   = LocalCodeMaxScanPaths + 1
@@ -894,7 +895,7 @@ func localCodeMaxBytes(requested int) (int, error) {
 	if requested == 0 {
 		return LocalCodeDefaultMaxBytes, nil
 	}
-	if requested < 1 || requested > LocalCodeMaxBytes {
+	if requested < 1 || requested > LocalCodeMaxDiffBytes {
 		return 0, fmt.Errorf("invalid code byte bound")
 	}
 	return requested, nil

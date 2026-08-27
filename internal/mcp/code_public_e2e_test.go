@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -131,6 +132,12 @@ func newPublicCodeCallHarness(t *testing.T, fixture publicCodeE2EFixture) public
 
 func (h publicCodeCallHarness) call(t *testing.T, action string, input map[string]any) map[string]any {
 	t.Helper()
+	response, _, _ := h.callResponse(t, action, input)
+	return genericActionResult(t, response)
+}
+
+func (h publicCodeCallHarness) callResponse(t *testing.T, action string, input map[string]any) (map[string]any, time.Duration, int) {
+	t.Helper()
 	body := mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{
@@ -155,7 +162,7 @@ func (h publicCodeCallHarness) call(t *testing.T, action string, input map[strin
 		t.Fatalf("%s output exceeded %d tokens: %d", action, tokenizer.MaxTokens, tokens)
 	}
 	t.Logf("%s: elapsed_ms=%d output_tokens=%d", action, elapsed.Milliseconds(), tokens)
-	return genericActionResult(t, response)
+	return response, elapsed, tokens
 }
 
 func assertPublicCodeHead(t *testing.T, result map[string]any, want string) {
@@ -166,6 +173,9 @@ func assertPublicCodeHead(t *testing.T, result map[string]any, want string) {
 }
 
 func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
+	if codeOutputTokenCeiling != 3000 || tokenizer.MaxTokens != 3000 {
+		t.Fatalf("code output token ceiling drifted: runtime=%d tokenizer=%d", codeOutputTokenCeiling, tokenizer.MaxTokens)
+	}
 	fixture := newPublicCodeE2EFixture(t)
 	harness := newPublicCodeCallHarness(t, fixture)
 
@@ -234,5 +244,38 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 	assertPublicCodeHead(t, diffPage, fixture.currentHead)
 	if diffPage["diff"] == "" {
 		t.Fatalf("code/diff continuation was empty: %#v", diffPage)
+	}
+
+	for action, input := range map[string]map[string]any{
+		"code/worktree": {"limit": service.LocalCodeMaxMatches},
+		"code/tree":     {"worktree": fixture.mainSelector, "limit": service.LocalCodeMaxMatches, "live": true},
+		"code/search":   {"worktree": fixture.mainSelector, "query": "needle", "limit": service.LocalCodeMaxMatches, "live": true},
+		"code/read":     {"worktree": fixture.mainSelector, "path": "tracked.txt", "line_count": service.LocalCodeMaxLines, "live": true},
+		"code/diff":     {"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "max_bytes": service.LocalCodeMaxDiffBytes, "live": true},
+	} {
+		harness.call(t, action, input)
+	}
+
+	var oversized strings.Builder
+	for line := 0; line < service.LocalCodeMaxLines; line++ {
+		oversized.WriteString(strings.Repeat("oversized-token ", 40))
+		oversized.WriteByte('\n')
+	}
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(fixture.server.Service.Config.Projects["example"].Root, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("oversized.txt", oversized.String())
+	overflowResponse, _, overflowTokens := harness.callResponse(t, "code/read", map[string]any{
+		"worktree": fixture.mainSelector, "path": "oversized.txt", "line_count": service.LocalCodeMaxLines, "live": true,
+	})
+	overflow := genericStructured(t, overflowResponse)
+	if overflow["is_error"] != true || overflowTokens > tokenizer.MaxTokens {
+		t.Fatalf("oversized code/read was not rejected within token budget: tokens=%d response=%#v", overflowTokens, overflow)
+	}
+	if !strings.Contains(fmt.Sprint(overflow["result"]), "code output exceeds") {
+		t.Fatalf("oversized code/read error lacked token bound: %#v", overflow)
 	}
 }

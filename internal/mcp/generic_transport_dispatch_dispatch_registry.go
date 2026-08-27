@@ -186,6 +186,9 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		return genericActionError(action, err), nil
 	}
 	result = compactActionResult(action, normalizeObject(value), detail)
+	if err := enforceCodeOutputTokenBudget(action, result); err != nil {
+		return genericActionError(action, err), nil
+	}
 	if err := validateOutputValue(entry.OutputSchema, result); err != nil {
 		return genericActionError(action, "action output contract violation: "+err.Error()), nil
 	}
