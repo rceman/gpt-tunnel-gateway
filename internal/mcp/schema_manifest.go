@@ -54,7 +54,7 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	result["session"] = destructiveExternalAnnotations()
 	for _, name := range []string{
 		"system_ping", "gateway_capabilities",
-		"plan_read", "plan_section_read", "plan_render", "plan_history", "adr_list", "adr_read", "task_list", "task_read",
+		"adr_list", "adr_read", "task_list", "task_read",
 		"task_revision_list", "task_revision_read",
 		"git_refs", "git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare",
 		"git_merge_base", "git_worktree_status", "git_worktree_diff",
@@ -71,11 +71,11 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	result["operator_record"] = additiveExternalAnnotations()
 	result["operator_checkpoint"] = additiveExternalAnnotations()
 	result["operator_history"] = readOnlyAnnotations()
-	for _, name := range []string{"adr_create", "task_create", "plan_section_create"} {
+	for _, name := range []string{"adr_create", "task_create"} {
 		result[name] = additiveExternalAnnotations()
 	}
 	result["task_correction_create"] = additiveExternalAnnotations()
-	for _, name := range []string{"plan_cutover", "plan_update", "plan_section_update", "task_supersede"} {
+	for _, name := range []string{"task_supersede"} {
 		result[name] = destructiveExternalAnnotations()
 	}
 	result["git_refresh"] = ToolAnnotations{
