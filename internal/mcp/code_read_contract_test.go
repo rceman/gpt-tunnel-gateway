@@ -32,6 +32,47 @@ func TestCodeActionsAreSessionBoundAndProjectIsNotCallerSelectable(t *testing.T)
 	}
 }
 
+func TestCodeOutputSchemasRequireFullHead(t *testing.T) {
+	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{
+		GatewayID: "code-output-contract-test", StateDir: t.TempDir(),
+	}, nil)}
+	entries := server.genericActionRegistry(server.tools())
+	for _, path := range []string{"code/tree", "code/read", "code/search", "code/diff"} {
+		entry, ok := entries[path]
+		if !ok {
+			t.Fatalf("missing generic code action %q", path)
+		}
+		properties := entry.OutputSchema["properties"].(map[string]any)
+		if _, ok := properties["head"]; !ok {
+			t.Fatalf("code action %q output omits full head: %#v", path, entry.OutputSchema)
+		}
+		if !requiredOutputField(entry.OutputSchema, "head") {
+			t.Fatalf("code action %q output does not require full head: %#v", path, entry.OutputSchema)
+		}
+	}
+	worktree := entries["code/worktree"].OutputSchema["properties"].(map[string]any)
+	item := worktree["items"].(map[string]any)["items"].(map[string]any)
+	if _, ok := item["properties"].(map[string]any)["head"]; !ok {
+		t.Fatalf("code/worktree item omits full head: %#v", item)
+	}
+	if !requiredOutputField(item, "head") {
+		t.Fatalf("code/worktree item does not require full head: %#v", item)
+	}
+}
+
+func requiredOutputField(schema map[string]any, want string) bool {
+	required, ok := schema["required"].([]string)
+	if !ok {
+		return false
+	}
+	for _, field := range required {
+		if field == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestPublicMCPV1ManifestRemainsExactlyFiveTools(t *testing.T) {
 	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{
 		GatewayID: "v1-contract-test", StateDir: t.TempDir(),

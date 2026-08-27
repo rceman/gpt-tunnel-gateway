@@ -191,12 +191,12 @@ func codeDiffInputSchema() map[string]any {
 }
 
 func codeWorktreeOutputSchema() map[string]any {
-	item := closedOutput(map[string]any{"selector": outputString(), "kind": outputString(), "dirty": outputBoolean(), "label": outputString(), "train_id": outputString()}, "selector", "kind", "dirty")
+	item := closedOutput(map[string]any{"selector": outputString(), "kind": outputString(), "dirty": outputBoolean(), "head": outputString(), "label": outputString(), "train_id": outputString()}, "selector", "kind", "dirty", "head")
 	return closedOutput(map[string]any{"items": outputArray(item), "next_cursor": outputString(), "has_more": outputBoolean()}, "items", "has_more")
 }
 
 func codeIdentityOutputSchema() map[string]any {
-	return map[string]any{"worktree": outputString(), "dirty": outputBoolean(), "live": outputBoolean()}
+	return map[string]any{"worktree": outputString(), "dirty": outputBoolean(), "live": outputBoolean(), "head": outputString()}
 }
 
 func codeTreeOutputSchema() map[string]any {
@@ -204,7 +204,7 @@ func codeTreeOutputSchema() map[string]any {
 	properties["paths"] = outputArray(outputString())
 	properties["next_cursor"] = outputString()
 	properties["has_more"] = outputBoolean()
-	return closedOutput(properties, "worktree", "dirty", "live", "paths", "has_more")
+	return closedOutput(properties, "worktree", "dirty", "live", "head", "paths", "has_more")
 }
 
 func codeReadOutputSchema() map[string]any {
@@ -217,7 +217,7 @@ func codeReadOutputSchema() map[string]any {
 	properties["truncated"] = outputBoolean()
 	properties["next_cursor"] = outputString()
 	properties["has_more"] = outputBoolean()
-	return closedOutput(properties, "worktree", "dirty", "live", "path", "start_line", "end_line", "total_lines", "content", "truncated", "has_more")
+	return closedOutput(properties, "worktree", "dirty", "live", "head", "path", "start_line", "end_line", "total_lines", "content", "truncated", "has_more")
 }
 
 func codeSearchOutputSchema() map[string]any {
@@ -228,7 +228,7 @@ func codeSearchOutputSchema() map[string]any {
 	properties["truncated"] = outputBoolean()
 	properties["next_cursor"] = outputString()
 	properties["has_more"] = outputBoolean()
-	return closedOutput(properties, "worktree", "dirty", "live", "paths_scanned", "matches", "truncated", "has_more")
+	return closedOutput(properties, "worktree", "dirty", "live", "head", "paths_scanned", "matches", "truncated", "has_more")
 }
 
 func codeDiffOutputSchema() map[string]any {
@@ -238,5 +238,5 @@ func codeDiffOutputSchema() map[string]any {
 	properties["truncated"] = outputBoolean()
 	properties["next_cursor"] = outputString()
 	properties["has_more"] = outputBoolean()
-	return closedOutput(properties, "worktree", "dirty", "live", "paths", "diff", "truncated", "has_more")
+	return closedOutput(properties, "worktree", "dirty", "live", "head", "paths", "diff", "truncated", "has_more")
 }
