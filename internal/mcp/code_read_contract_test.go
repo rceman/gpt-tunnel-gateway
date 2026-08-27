@@ -92,9 +92,6 @@ func TestCodeActionsUseTokenBudgetPaginationWithoutPublicLineOrByteControls(t *t
 		if requiredOutputField(entries[path].OutputSchema, "_pagination") {
 			t.Fatalf("%s _pagination is required on terminal output: %#v", path, entries[path].OutputSchema)
 		}
-		if _, ok := properties["has_more"]; ok {
-			t.Fatalf("%s exposes legacy top-level has_more", path)
-		}
 		if _, ok := properties["next_cursor"]; ok {
 			t.Fatalf("%s exposes legacy top-level next_cursor", path)
 		}

@@ -542,7 +542,7 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 	}
 	paths := make([]string, 0, limit)
 	hasCursor := in.Cursor != ""
-	hasMore, afterSeen := false, !hasCursor
+	continuation, afterSeen := false, !hasCursor
 	scanPaths := 0
 	lastScannedPath := ""
 	scanLimited := false
@@ -578,7 +578,7 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 			return nil
 		}
 		if len(paths) == limit {
-			hasMore = true
+			continuation = true
 			return errCodePageDone
 		}
 		paths = append(paths, pathName)
@@ -594,17 +594,17 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 		return CodeTreeResult{}, fmt.Errorf("continuation cursor is no longer valid")
 	}
 	resultCursor := ""
-	resultHasMore := hasMore
+	resultContinuation := continuation
 	if scanLimited {
-		resultHasMore = true
+		resultContinuation = true
 		resultCursor = pagination.EncodeFull(kind, lastScannedPath)
-	} else if hasMore {
+	} else if continuation {
 		resultCursor = pagination.EncodeFull(kind, paths[len(paths)-1])
 	}
 	for pageSize := len(paths); pageSize >= 1; pageSize-- {
-		pageHasMore := resultHasMore || pageSize < len(paths)
+		pageContinuation := resultContinuation || pageSize < len(paths)
 		pageCursor := ""
-		if pageSize < len(paths) || pageHasMore {
+		if pageSize < len(paths) || pageContinuation {
 			pageCursor = pagination.EncodeFull(kind, paths[pageSize-1])
 			if pageSize == len(paths) && scanLimited {
 				pageCursor = resultCursor
@@ -763,9 +763,9 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	}
 	pageSize, fitErr := largestCodePageSize(count, func(pageSize int) (bool, error) {
 		pageEnd := start + pageSize - 1
-		pageHasMore := pageEnd < len(lines)
+		pageContinuation := pageEnd < len(lines)
 		pageCursor := ""
-		if pageHasMore {
+		if pageContinuation {
 			pageCursor = pagination.Encode(kind, strconv.Itoa(pageEnd+1))
 		}
 		candidate := CodeReadResult{
@@ -780,9 +780,9 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	}
 	if pageSize > 0 {
 		pageEnd := start + pageSize - 1
-		pageHasMore := pageEnd < len(lines)
+		pageContinuation := pageEnd < len(lines)
 		pageCursor := ""
-		if pageHasMore {
+		if pageContinuation {
 			pageCursor = pagination.Encode(kind, strconv.Itoa(pageEnd+1))
 		}
 		return CodeReadResult{
@@ -844,7 +844,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		}
 	}
 	result := CodeSearchResult{CodeIdentity: target.CodeIdentity, Matches: make([]CodeSearchMatch, 0, limit)}
-	hasMore := false
+	continuation := false
 	pathsScanned := 0
 	lastScannedPath := ""
 	scanLimited := false
@@ -901,7 +901,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 				continue
 			}
 			if len(result.Matches) == limit {
-				hasMore = true
+				continuation = true
 				return errCodePageDone
 			}
 			snippet := line
@@ -925,7 +925,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	resultCursor := ""
 	if scanLimited {
 		resultCursor = pagination.EncodeSearchCursor(kind, lastScannedPath, 0)
-	} else if hasMore {
+	} else if continuation {
 		last := result.Matches[len(result.Matches)-1]
 		resultCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
 	}
@@ -986,11 +986,11 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 		}
 	}
 	var diff string
-	var hasMore bool
+	var continuation bool
 	if target.Live {
-		diff, hasMore, err = s.Git.DiffWorkingFromBasePage(ctx, target.ProjectWorktree, target.DiffBase, paths, offset, lineCount)
+		diff, continuation, err = s.Git.DiffWorkingFromBasePage(ctx, target.ProjectWorktree, target.DiffBase, paths, offset, lineCount)
 	} else {
-		diff, hasMore, err = s.Git.DiffLocalCommitsPage(ctx, target.ProjectWorktree, target.DiffBase, target.CurrentHead, paths, offset, lineCount)
+		diff, continuation, err = s.Git.DiffLocalCommitsPage(ctx, target.ProjectWorktree, target.DiffBase, target.CurrentHead, paths, offset, lineCount)
 	}
 	if err != nil {
 		return CodeDiffResult{}, err
@@ -998,9 +998,9 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 	lines := splitDiffLines(diff)
 	for pageSize := len(lines); pageSize >= 1; pageSize-- {
 		pageDiff := strings.Join(lines[:pageSize], "")
-		pageHasMore := hasMore || pageSize < len(lines)
+		pageContinuation := continuation || pageSize < len(lines)
 		pageCursor := ""
-		if pageHasMore {
+		if pageContinuation {
 			pageCursor = pagination.EncodeOffset(kind, offset+int64(pageSize))
 		}
 		candidate := CodeDiffResult{

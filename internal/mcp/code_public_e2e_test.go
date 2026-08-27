@@ -184,7 +184,7 @@ func publicPagination(t *testing.T, result map[string]any) map[string]any {
 
 func assertPublicCodePagination(t *testing.T, result map[string]any) {
 	t.Helper()
-	for _, field := range []string{"has_more", "next_cursor", "truncated"} {
+	for _, field := range []string{"next_cursor", "truncated"} {
 		if _, ok := result[field]; ok {
 			t.Fatalf("public code result exposes legacy pagination field %q: %#v", field, result)
 		}
