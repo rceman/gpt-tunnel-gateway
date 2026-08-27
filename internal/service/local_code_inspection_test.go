@@ -244,7 +244,7 @@ func TestLocalCodeSearchSkipsPreCursorFileContents(t *testing.T) {
 	}
 }
 
-func TestLocalCodeSearchBoundsRareMatchesAndResumes(t *testing.T) {
+func TestLocalCodeScanSafetyFailsClosedWithoutPagination(t *testing.T) {
 	f := newLocalCodeFixture(t)
 	for index := 0; index < LocalCodeScanLookahead; index++ {
 		name := filepath.Join(f.root, "scan", strconv.Itoa(index)+".txt")
@@ -261,33 +261,14 @@ func TestLocalCodeSearchBoundsRareMatchesAndResumes(t *testing.T) {
 	tree, treeErr := f.service.CodeTree(context.Background(), CodeTreeInput{
 		ProjectID: "example", Worktree: selector, Query: "absent-tree",
 	})
-	if treeErr != nil || len(tree.Paths) != 0 || tree.Pagination == nil || tree.Pagination.NextCursor == "" {
-		t.Fatalf("zero-match tree scan was not bounded: %#v %v", tree, treeErr)
+	if treeErr == nil || !strings.Contains(treeErr.Error(), "scan exceeded bounded work") {
+		t.Fatalf("zero-match tree scan did not fail closed: %#v %v", tree, treeErr)
 	}
-	first, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
+	_, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
 		ProjectID: "example", Worktree: selector, Query: "absent-query",
 	})
-	if err != nil || len(first.Matches) != 0 || first.PathsScanned != LocalCodeScanLookahead || first.Pagination == nil || first.Pagination.NextCursor == "" {
-		t.Fatalf("rare-match scan was not bounded: %#v %v", first, err)
-	}
-	cursor := first.Pagination.NextCursor
-	for page := 0; ; page++ {
-		if page >= 3 {
-			t.Fatal("zero-match continuation did not terminate")
-		}
-		next, nextErr := f.service.CodeSearch(context.Background(), CodeSearchInput{
-			ProjectID: "example", Worktree: selector, Query: "absent-query", Cursor: cursor,
-		})
-		if nextErr != nil || len(next.Matches) != 0 || next.PathsScanned > LocalCodeScanLookahead+1 {
-			t.Fatalf("zero-match continuation page %d exceeded its scan bound: %#v %v", page, next, nextErr)
-		}
-		if next.Pagination == nil {
-			break
-		}
-		if next.Pagination.NextCursor == "" {
-			t.Fatalf("nonterminal zero-match page omitted its cursor: %#v", next)
-		}
-		cursor = next.Pagination.NextCursor
+	if err == nil || !strings.Contains(err.Error(), "scan exceeded bounded work") {
+		t.Fatalf("rare-match scan did not fail closed: %v", err)
 	}
 }
 

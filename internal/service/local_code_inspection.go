@@ -501,17 +501,13 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 	}
 	paths := make([]string, 0, LocalCodeMaxScanPaths)
 	hasCursor := in.Cursor != ""
-	continuation, afterSeen := false, !hasCursor
+	afterSeen := !hasCursor
 	scanPaths := 0
-	lastScannedPath := ""
-	scanLimited := false
 	walkErr := s.walkCodePaths(ctx, target, nil, in.Path, nil, nil, func(pathName string) (visitErr error) {
 		scanPaths++
-		lastScannedPath = pathName
 		cursorFound := false
 		defer func() {
 			if visitErr == nil && scanPaths >= LocalCodeScanLookahead && !cursorFound && (in.Cursor == "" || afterSeen) {
-				scanLimited = true
 				visitErr = errCodeScanLimit
 			}
 		}()
@@ -520,7 +516,6 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 				afterSeen = true
 				cursorFound = true
 				scanPaths = 0
-				scanLimited = false
 				return nil
 			}
 			if !afterSeen {
@@ -539,35 +534,19 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 		paths = append(paths, pathName)
 		return nil
 	})
-	if walkErr != nil && !errors.Is(walkErr, errCodePageDone) && !errors.Is(walkErr, errCodeScanLimit) {
+	if errors.Is(walkErr, errCodeScanLimit) {
+		return CodeTreeResult{}, fmt.Errorf("code tree scan exceeded bounded work; narrow the path or query")
+	}
+	if walkErr != nil && !errors.Is(walkErr, errCodePageDone) {
 		return CodeTreeResult{}, walkErr
 	}
 	if hasCursor && !afterSeen {
-		if scanLimited {
-			return CodeTreeResult{}, fmt.Errorf("continuation cursor requires a narrower scan")
-		}
 		return CodeTreeResult{}, fmt.Errorf("continuation cursor is no longer valid")
-	}
-	resultCursor := ""
-	resultContinuation := continuation
-	if scanLimited {
-		resultContinuation = true
-		resultCursor = pagination.EncodeFull(kind, lastScannedPath)
-	} else if continuation {
-		if len(paths) > 0 {
-			resultCursor = pagination.EncodeFull(kind, paths[len(paths)-1])
-		} else if lastScannedPath != "" {
-			resultCursor = pagination.EncodeFull(kind, lastScannedPath)
-		}
 	}
 	pageSize, fitErr := largestCodePageSize(len(paths), func(size int) (bool, error) {
 		pageCursor := ""
-		if size < len(paths) || resultContinuation {
-			if size == 0 || (size == len(paths) && scanLimited) {
-				pageCursor = resultCursor
-			} else {
-				pageCursor = pagination.EncodeFull(kind, paths[size-1])
-			}
+		if size < len(paths) {
+			pageCursor = pagination.EncodeFull(kind, paths[size-1])
 		}
 		return codePageFits(CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: paths[:size], Pagination: codePagination(pageCursor)})
 	})
@@ -575,12 +554,8 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 		return CodeTreeResult{}, fitErr
 	}
 	pageCursor := ""
-	if pageSize < len(paths) || resultContinuation {
-		if pageSize == 0 || (pageSize == len(paths) && scanLimited) {
-			pageCursor = resultCursor
-		} else {
-			pageCursor = pagination.EncodeFull(kind, paths[pageSize-1])
-		}
+	if pageSize < len(paths) {
+		pageCursor = pagination.EncodeFull(kind, paths[pageSize-1])
 	}
 	return CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: paths[:pageSize], Pagination: codePagination(pageCursor)}, nil
 }
@@ -788,16 +763,12 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	result := CodeSearchResult{CodeIdentity: target.CodeIdentity, Matches: make([]CodeSearchMatch, 0)}
 	continuation := false
 	pathsScanned := 0
-	lastScannedPath := ""
-	scanLimited := false
 	afterSeen := in.Cursor == ""
 	walkErr := s.walkCodePaths(ctx, target, selectedPaths, "", in.Include, in.Exclude, func(pathName string) (visitErr error) {
 		pathsScanned++
-		lastScannedPath = pathName
 		cursorFound := false
 		defer func() {
 			if visitErr == nil && pathsScanned >= LocalCodeScanLookahead && !cursorFound && (in.Cursor == "" || afterSeen) {
-				scanLimited = true
 				visitErr = errCodeScanLimit
 			}
 		}()
@@ -815,7 +786,6 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 				afterSeen = true
 				cursorFound = true
 				pathsScanned = 0
-				scanLimited = false
 				return nil
 			}
 		}
@@ -838,7 +808,6 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 					afterSeen = true
 					cursorFound = true
 					pathsScanned = 0
-					scanLimited = false
 				}
 				continue
 			}
@@ -865,20 +834,18 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		}
 		return nil
 	})
-	if walkErr != nil && !errors.Is(walkErr, errCodePageDone) && !errors.Is(walkErr, errCodeScanLimit) {
+	if errors.Is(walkErr, errCodeScanLimit) {
+		return CodeSearchResult{}, fmt.Errorf("code search scan exceeded bounded work; narrow the paths or patterns")
+	}
+	if walkErr != nil && !errors.Is(walkErr, errCodePageDone) {
 		return CodeSearchResult{}, walkErr
 	}
 	if in.Cursor != "" && !afterSeen {
-		if scanLimited {
-			return CodeSearchResult{}, fmt.Errorf("continuation cursor requires a narrower scan")
-		}
 		return CodeSearchResult{}, fmt.Errorf("continuation cursor is no longer valid")
 	}
 	result.PathsScanned = pathsScanned
 	resultCursor := ""
-	if scanLimited {
-		resultCursor = pagination.EncodeSearchCursor(kind, lastScannedPath, 0)
-	} else if continuation {
+	if continuation {
 		last := result.Matches[len(result.Matches)-1]
 		resultCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
 	}
@@ -949,7 +916,7 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 		return CodeDiffResult{}, err
 	}
 	lines := splitDiffLines(diff)
-	pageLines := boundedDiffCandidateLines(lines)
+	pageLines := lines
 	pageSize, fitErr := largestCodePageSize(len(pageLines), func(size int) (bool, error) {
 		pageContinuation := continuation || size < len(lines)
 		pageCursor := ""
@@ -986,23 +953,6 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 		}
 	}
 	return CodeDiffResult{}, fmt.Errorf("code diff line exceeds %d tokenizer tokens", CodePageTokenBudget)
-}
-
-func boundedDiffCandidateLines(lines []string) []string {
-	const candidateByteBudget = CodePageTokenBudget * 2
-	if len(lines) == 0 {
-		return nil
-	}
-	selected := lines[:0]
-	bytes := 0
-	for index, line := range lines {
-		if index > 0 && bytes+len(line) > candidateByteBudget {
-			break
-		}
-		selected = append(selected, line)
-		bytes += len(line)
-	}
-	return selected
 }
 
 func splitDiffLines(diff string) []string {

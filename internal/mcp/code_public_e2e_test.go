@@ -273,7 +273,8 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 		t.Fatalf("terminal code/read page exposed _pagination: %#v", readPage)
 	}
 
-	if err := os.WriteFile(filepath.Join(fixture.server.Service.Config.Projects["example"].Root, "diff-large.txt"), []byte(strings.Repeat("x\n", 512)), 0o600); err != nil {
+	diffLine := strings.Repeat("x", 200) + "\n"
+	if err := os.WriteFile(filepath.Join(fixture.server.Service.Config.Projects["example"].Root, "diff-large.txt"), []byte(strings.Repeat(diffLine, 512)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	diff := harness.call(t, "code/diff", map[string]any{"worktree": fixture.mainSelector, "paths": []any{"diff-large.txt"}, "live": true})
@@ -281,6 +282,9 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 	diffText, ok := diff["diff"].(string)
 	if !ok {
 		t.Fatalf("code/diff returned no diff text: %#v", diff)
+	}
+	if len(diffText) <= 6000 {
+		t.Fatalf("code/diff page appears driven by the internal 6KB candidate bound: bytes=%d", len(diffText))
 	}
 	diffPagination := publicPagination(t, diff)
 	if diffPagination == nil || diffPagination["next_cursor"] == "" {
@@ -291,10 +295,6 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 	if diffPage["diff"] == "" {
 		t.Fatalf("code/diff continuation was empty: %#v", diffPage)
 	}
-	if strings.Count(diffText, "+x\n") <= 128 {
-		t.Fatalf("code/diff appears to use a hidden 128-line page driver: first_added_lines=%d", strings.Count(diffText, "+x\n"))
-	}
-
 	for action, input := range map[string]map[string]any{
 		"code/worktree": {},
 		"code/tree":     {"worktree": fixture.mainSelector, "live": true},
