@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
@@ -95,26 +96,45 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 		return ProjectOperationalStatus{}, fmt.Errorf("project status session is invalid")
 	}
 	projectID := session.ProjectID
-	project, err := s.ProjectRead(ctx, projectID)
-	if err != nil {
-		return ProjectOperationalStatus{}, err
-	}
-	if project.ID != projectID || project.Status != "active" {
-		return ProjectOperationalStatus{}, fmt.Errorf("project %q is not active", projectID)
-	}
-	identifiers, err := s.ProjectIdentifiersRead(ctx, projectID)
-	if err != nil {
-		return ProjectOperationalStatus{}, err
-	}
-	policy, err := s.ProjectWorkflowPolicyRead(ctx, projectID)
-	if err != nil {
-		return ProjectOperationalStatus{}, err
+	var projectCode string
+	var policy model.ProjectWorkflowPolicy
+	var local config.ProjectConfig
+	if s.Durability != nil {
+		local, err = s.projectConfig(projectID)
+		if err != nil {
+			return ProjectOperationalStatus{}, err
+		}
+		if model.ValidateProjectCode(local.ProjectCode) != nil {
+			return ProjectOperationalStatus{}, fmt.Errorf("project %q has no valid local project code", projectID)
+		}
+		projectCode = local.ProjectCode
+		policy, err = s.ProjectWorkflowPolicyReadFast(ctx, projectID)
+		if err != nil {
+			return ProjectOperationalStatus{}, err
+		}
+	} else {
+		project, projectErr := s.ProjectRead(ctx, projectID)
+		if projectErr != nil {
+			return ProjectOperationalStatus{}, projectErr
+		}
+		if project.ID != projectID || project.Status != "active" {
+			return ProjectOperationalStatus{}, fmt.Errorf("project %q is not active", projectID)
+		}
+		identifiers, identifiersErr := s.ProjectIdentifiersRead(ctx, projectID)
+		if identifiersErr != nil {
+			return ProjectOperationalStatus{}, identifiersErr
+		}
+		projectCode = identifiers.ProjectCode
+		policy, err = s.ProjectWorkflowPolicyRead(ctx, projectID)
+		if err != nil {
+			return ProjectOperationalStatus{}, err
+		}
 	}
 	rulesDigest := projectOperationalDigest(policy)
 	result := ProjectOperationalStatus{
 		Project: ProjectOperationalIdentity{
 			ID:   projectID,
-			Code: identifiers.ProjectCode,
+			Code: projectCode,
 		},
 		State: "idle",
 		Agent: ProjectOperationalAgent{
@@ -154,7 +174,28 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 		result.State = "working"
 		result.RecommendedNextAction = "supervise current operation"
 	}
-	if agents, listErr := s.AgentList(ctx, projectID); listErr == nil {
+	if s.Durability != nil {
+		agentID := local.Watcher.AgentID
+		result.Agent.AgentID = agentID
+		if agentID != "" {
+			result.Agent.Expected = agentID
+		}
+		binding, bound := s.Config.ResolveAgentBinding(projectID, agentID)
+		if !bound {
+			binding, bound = s.Config.ResolveAutoAgentBinding(projectID)
+		}
+		if bound && binding.Validate() == nil {
+			probe, probeErr := s.Airelay.Status(ctx, binding.SessionKey)
+			result.Agent.SessionReady = probeErr == nil && probe.ControllerReachable
+			result.Agent.State = "idle"
+			if probe.State == "busy" || probe.State == "working" {
+				result.Agent.State = "working"
+			}
+			if probeErr != nil || !probe.ControllerReachable {
+				result.Agent.State = "unavailable"
+			}
+		}
+	} else if agents, listErr := s.AgentList(ctx, projectID); listErr == nil {
 		for _, agent := range agents {
 			if agent.Role != model.AgentRoleCoding {
 				continue
@@ -185,7 +226,7 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 			break
 		}
 	}
-	trains, trainsErr := s.readTrainV2Records(ctx, projectID)
+	trains, trainsErr := s.readProjectOperationalTrains(ctx, projectID)
 	if trainsErr == nil {
 		s.populateProjectOperationalTrain(&result, trains)
 	}
@@ -211,6 +252,31 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 		result.RecommendedNextAction = "start Agent"
 	}
 	return result, nil
+}
+
+func (s *Service) readProjectOperationalTrains(ctx context.Context, projectID string) ([]model.TrainV2, error) {
+	if s.Durability == nil {
+		return s.readTrainV2Records(ctx, projectID)
+	}
+	entities, err := s.Durability.ListSharedEntities(ctx, "train", maxSharedBootstrapRecords)
+	if err != nil {
+		return nil, err
+	}
+	trains := make([]model.TrainV2, 0, len(entities))
+	for _, entity := range entities {
+		var train model.TrainV2
+		if err := json.Unmarshal(entity.Payload, &train); err != nil {
+			return nil, fmt.Errorf("decode Shared Train %q: %w", entity.ID, err)
+		}
+		if train.ProjectID != projectID {
+			continue
+		}
+		if err := model.ValidateTrainV2(train); err != nil {
+			return nil, err
+		}
+		trains = append(trains, train)
+	}
+	return trains, nil
 }
 
 func projectOperationalDigest(value any) string {
