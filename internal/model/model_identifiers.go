@@ -122,16 +122,6 @@ func ParseTaskIDForProject(value, expectedProjectCode string) (uint64, error) {
 	return number, nil
 }
 
-func FormatRunID(taskID string, number uint64) (string, error) {
-	if _, _, err := ParseTaskID(taskID); err != nil {
-		return "", fmt.Errorf("task ID: %w", err)
-	}
-	if err := ValidateCompactIDNumber(number); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%s-RUN%d", taskID, number), nil
-}
-
 func ParseRunID(value string) (string, uint64, error) {
 	matches := canonicalRunIDRE.FindStringSubmatch(value)
 	if len(matches) != 4 {
@@ -141,21 +131,6 @@ func ParseRunID(value string) (string, uint64, error) {
 		return "", 0, err
 	}
 	number, err := parseCompactIDNumber(matches[3])
-	if err != nil {
-		return "", 0, err
-	}
-	return matches[1], number, nil
-}
-
-func ParseHistoricalRunID(value string) (string, uint64, error) {
-	matches := legacyRunIDRE.FindStringSubmatch(value)
-	if len(matches) != 3 {
-		return "", 0, fmt.Errorf("invalid historical run ID")
-	}
-	if _, _, err := ParseHistoricalTaskID(matches[1]); err != nil {
-		return "", 0, err
-	}
-	number, err := parseCompactIDNumber(matches[2])
 	if err != nil {
 		return "", 0, err
 	}

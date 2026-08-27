@@ -21,39 +21,6 @@ func ValidateTrainV2AttemptReview(v TrainV2AttemptReview) error {
 	}
 	return nil
 }
-func ValidateRunRetirementRecord(v RunRetirementRecord) error {
-	if v.SchemaVersion != TrainV2AttemptSchemaVersion || ValidateProjectIdentifier(v.ProjectID) != nil || strings.TrimSpace(v.SourcePath) == "" || strings.HasPrefix(v.SourcePath, "/") || strings.Contains(v.SourcePath, "..") || !strings.HasSuffix(v.SourcePath, "/run.json") || !strings.Contains(v.SourcePath, "/runs/") {
-		return fmt.Errorf("invalid Train-v2 Run retirement source")
-	}
-	if !trainV2SHA256RE.MatchString(v.SourceSHA256) || ValidateObjectIdentifier(v.OriginalRunID) != nil || (v.OriginalRunTaskID != "" && ValidateObjectIdentifier(v.OriginalRunTaskID) != nil) || strings.TrimSpace(v.OriginalRunStatus) == "" {
-		return fmt.Errorf("invalid Train-v2 Run retirement identity")
-	}
-	raw, err := base64.StdEncoding.DecodeString(v.OriginalRunJSONB64)
-	if err != nil || len(raw) == 0 {
-		return fmt.Errorf("invalid Train-v2 Run retirement bytes")
-	}
-	digest := sha256.Sum256(raw)
-	if hex.EncodeToString(digest[:]) != v.SourceSHA256 || path.Base(v.SourcePath) != "run.json" {
-		return fmt.Errorf("Train-v2 Run retirement digest/path mismatch")
-	}
-	return nil
-}
-func ValidateRunRetirementReceipt(v RunRetirementReceipt) error {
-	if v.SchemaVersion != TrainV2AttemptSchemaVersion || ValidateProjectIdentifier(v.ProjectID) != nil || v.State != "completed" || !shaRE.MatchString(v.HubBefore) || !shaRE.MatchString(v.HubAfter) || strings.TrimSpace(v.Reason) == "" || v.CreatedAt.IsZero() || v.UpdatedAt.IsZero() || len(v.Records) > 4096 {
-		return fmt.Errorf("invalid Train-v2 Run retirement receipt")
-	}
-	seen := make(map[string]struct{}, len(v.Records))
-	for _, record := range v.Records {
-		if err := ValidateRunRetirementRecord(record); err != nil {
-			return err
-		}
-		if _, ok := seen[record.SourcePath]; ok {
-			return fmt.Errorf("duplicate Train-v2 Run retirement source")
-		}
-		seen[record.SourcePath] = struct{}{}
-	}
-	return nil
-}
 func ValidateTrainV2LegacyStateMigrationRecord(v TrainV2LegacyStateMigrationRecord) error {
 	if ValidateObjectIdentifier(v.TrainID) != nil || strings.TrimSpace(v.TrainPath) == "" || strings.HasPrefix(v.TrainPath, "/") || strings.Contains(v.TrainPath, "..") || !strings.Contains(v.TrainPath, "/trains-v2/") || !strings.HasSuffix(v.TrainPath, ".json") || !trainV2SHA256RE.MatchString(v.TrainSHA256) {
 		return fmt.Errorf("invalid Train-v2 legacy migration Train identity")

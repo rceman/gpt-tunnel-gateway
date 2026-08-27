@@ -22,7 +22,6 @@ var (
 	canonicalRunIDRE     = regexp.MustCompile(`^([A-Z]{3}-TSK(` + OperatorJournalNumberPattern + `))-RUN(` + OperatorJournalNumberPattern + `)$`)
 	canonicalADRIDRE     = regexp.MustCompile(`^([A-Z]{3})-ADR(` + OperatorJournalNumberPattern + `)$`)
 	legacyTaskIDRE       = regexp.MustCompile(`^([A-Z]{3})-T([1-9][0-9]*)$`)
-	legacyRunIDRE        = regexp.MustCompile(`^([A-Z]{3}-T[1-9][0-9]*)-R([1-9][0-9]*)$`)
 	legacyADRIDRE        = regexp.MustCompile(`^([A-Z]{3})-A(` + OperatorJournalNumberPattern + `)$`)
 	shaRE                = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )

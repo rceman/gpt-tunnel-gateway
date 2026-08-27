@@ -108,7 +108,7 @@ func (s *Server) tools() map[string]Tool {
 		}
 	})
 	s.addCoreTools(add)
-	s.addPlanTools(add)
+	s.addADRTools(add)
 	s.addTaskTools(add)
 	s.addTaskTrainTools(add)
 	s.addRunTools(add)

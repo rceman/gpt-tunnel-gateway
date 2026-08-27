@@ -124,32 +124,6 @@ type TrainV2AttemptMigrationReceipt struct {
 	UpdatedAt     time.Time                     `json:"updated_at"`
 }
 
-// RunRetirementRecord is immutable migration evidence for a pre-cutover Run
-// record. It is not a runtime Run representation and is never resolved by
-// task, train, or run ID alone.
-type RunRetirementRecord struct {
-	SchemaVersion      int    `json:"schema_version"`
-	ProjectID          string `json:"project_id"`
-	SourcePath         string `json:"source_path"`
-	SourceSHA256       string `json:"source_sha256"`
-	OriginalRunID      string `json:"original_run_id"`
-	OriginalRunTaskID  string `json:"original_run_task_id"`
-	OriginalRunStatus  string `json:"original_run_status"`
-	OriginalRunJSONB64 string `json:"original_run_json_base64"`
-}
-
-type RunRetirementReceipt struct {
-	SchemaVersion int                   `json:"schema_version"`
-	ProjectID     string                `json:"project_id"`
-	State         string                `json:"state"`
-	HubBefore     string                `json:"hub_before"`
-	HubAfter      string                `json:"hub_after"`
-	Records       []RunRetirementRecord `json:"records"`
-	Reason        string                `json:"reason"`
-	CreatedAt     time.Time             `json:"created_at"`
-	UpdatedAt     time.Time             `json:"updated_at"`
-}
-
 type TrainV2ImplementationProof struct {
 	CheckpointHead    string                 `json:"checkpoint_head"`
 	ImplementationSHA string                 `json:"implementation_sha"`
