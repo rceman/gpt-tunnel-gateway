@@ -119,6 +119,55 @@ func DecodeOffset(raw, kind string) (int64, error) {
 	return int64(offset), nil
 }
 
+func EncodeSearchCursor(kind, path string, line int) string {
+	if line < 0 {
+		return ""
+	}
+	scope := sha256.Sum256([]byte(kind))
+	pathDigest := sha256.Sum256([]byte(kind + "\x00" + path))
+	var raw [37]byte
+	raw[0] = 3
+	copy(raw[1:17], scope[:16])
+	copy(raw[17:33], pathDigest[:16])
+	binary.BigEndian.PutUint32(raw[33:37], uint32(line))
+	return base64.RawURLEncoding.EncodeToString(raw[:])
+}
+
+func ValidateSearchCursor(raw, kind string) error {
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil || len(data) != 37 || data[0] != 3 {
+		return fmt.Errorf("invalid continuation cursor")
+	}
+	scope := sha256.Sum256([]byte(kind))
+	if string(data[1:17]) != string(scope[:16]) {
+		return fmt.Errorf("continuation cursor scope does not match")
+	}
+	return nil
+}
+
+func SearchCursorPathMatches(raw, kind, path string) bool {
+	if ValidateSearchCursor(raw, kind) != nil {
+		return false
+	}
+	data, _ := base64.RawURLEncoding.DecodeString(raw)
+	pathDigest := sha256.Sum256([]byte(kind + "\x00" + path))
+	return string(data[17:33]) == string(pathDigest[:16])
+}
+
+func DecodeSearchCursorLine(raw, kind, path string) (int, error) {
+	if err := ValidateSearchCursor(raw, kind); err != nil {
+		return 0, err
+	}
+	if !SearchCursorPathMatches(raw, kind, path) {
+		return 0, fmt.Errorf("continuation cursor path does not match")
+	}
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid continuation cursor")
+	}
+	return int(binary.BigEndian.Uint32(data[33:37])), nil
+}
+
 func compactEncode(kind, key string) string {
 	digest := sha256.Sum256([]byte(kind + "\x00" + key))
 	value := uint64(0)

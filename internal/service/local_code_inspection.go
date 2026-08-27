@@ -748,7 +748,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	}
 	kind := codeCursorKind("code-search", target, in.Query+"|"+strings.Join(selectedPaths, "\x00")+"|"+strings.Join(in.Include, "\x00")+"|"+strings.Join(in.Exclude, "\x00")+"|"+strconv.FormatBool(target.Live))
 	if in.Cursor != "" {
-		if err := pagination.ValidateOpaqueCursor(in.Cursor, kind); err != nil {
+		if err := pagination.ValidateSearchCursor(in.Cursor, kind); err != nil {
 			return CodeSearchResult{}, err
 		}
 	}
@@ -768,12 +768,23 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 				visitErr = errCodeScanLimit
 			}
 		}()
-		if !afterSeen && pagination.OpaqueCursorMatches(in.Cursor, kind, pathName+"\x00"+strconv.Itoa(0)) {
-			afterSeen = true
-			cursorFound = true
-			pathsScanned = 0
-			scanLimited = false
-			return nil
+		cursorLine := 0
+		if !afterSeen {
+			if !pagination.SearchCursorPathMatches(in.Cursor, kind, pathName) {
+				return nil
+			}
+			var cursorErr error
+			cursorLine, cursorErr = pagination.DecodeSearchCursorLine(in.Cursor, kind, pathName)
+			if cursorErr != nil {
+				return cursorErr
+			}
+			if cursorLine == 0 {
+				afterSeen = true
+				cursorFound = true
+				pathsScanned = 0
+				scanLimited = false
+				return nil
+			}
 		}
 		data, readErr := s.readCodeFile(ctx, target, pathName)
 		if readErr != nil {
@@ -789,18 +800,14 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 			if !strings.Contains(line, in.Query) {
 				continue
 			}
-			key := pathName + "\x00" + strconv.Itoa(lineNumber+1)
 			if !afterSeen {
-				if pagination.OpaqueCursorMatches(in.Cursor, kind, key) {
+				if lineNumber+1 == cursorLine {
 					afterSeen = true
 					cursorFound = true
 					pathsScanned = 0
 					scanLimited = false
 				}
 				continue
-			}
-			if in.Cursor != "" && pagination.OpaqueCursorMatches(in.Cursor, kind, key) {
-				return fmt.Errorf("ambiguous continuation cursor")
 			}
 			if len(result.Matches) == limit {
 				hasMore = true
@@ -829,10 +836,10 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	if scanLimited {
 		result.HasMore = true
 		result.Truncated = true
-		result.NextCursor = pagination.EncodeFull(kind, lastScannedPath+"\x00"+strconv.Itoa(0))
+		result.NextCursor = pagination.EncodeSearchCursor(kind, lastScannedPath, 0)
 	} else if hasMore {
 		last := result.Matches[len(result.Matches)-1]
-		result.NextCursor = pagination.EncodeFull(kind, last.Path+"\x00"+strconv.Itoa(last.Line))
+		result.NextCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
 	}
 	return result, nil
 }

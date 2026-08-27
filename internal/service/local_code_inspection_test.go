@@ -178,6 +178,42 @@ func TestLocalCodeSearchContinuesFromExactScanPosition(t *testing.T) {
 	}
 }
 
+func TestLocalCodeSearchSkipsPreCursorFileContents(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	for name, content := range map[string]string{
+		"a-before.txt": "ordinary content\n",
+		"b-match.txt":  "needle first\n",
+		"c-match.txt":  "needle second\n",
+	} {
+		if err := os.WriteFile(filepath.Join(f.root, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, name := range []string{"a-before.txt", "b-match.txt", "c-match.txt"} {
+			_ = os.Remove(filepath.Join(f.root, name))
+		}
+	})
+	selector := "WT-MAIN-" + f.current[:8]
+	first, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
+		ProjectID: "example", Worktree: selector, Live: true,
+		Query: "needle", Paths: []string{"a-before.txt", "b-match.txt", "c-match.txt"}, Limit: 1,
+	})
+	if err != nil || len(first.Matches) != 1 || first.Matches[0].Path != "b-match.txt" || !first.HasMore {
+		t.Fatalf("failed to establish live cursor: %#v %v", first, err)
+	}
+	if err := os.WriteFile(filepath.Join(f.root, "a-before.txt"), []byte(strings.Repeat("x", LocalCodeMaxBytes+1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
+		ProjectID: "example", Worktree: selector, Live: true,
+		Query: "needle", Paths: []string{"a-before.txt", "b-match.txt", "c-match.txt"}, Limit: 1, Cursor: first.NextCursor,
+	})
+	if err != nil || len(second.Matches) != 1 || second.Matches[0].Path != "c-match.txt" {
+		t.Fatalf("pre-cursor file was reread instead of skipped: %#v %v", second, err)
+	}
+}
+
 func TestLocalCodeSearchBoundsRareMatchesAndResumes(t *testing.T) {
 	f := newLocalCodeFixture(t)
 	for index := 0; index < LocalCodeScanLookahead; index++ {
