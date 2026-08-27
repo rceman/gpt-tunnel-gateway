@@ -27,6 +27,7 @@ var projectionClasses = map[string]projectionClass{
 	"git/compare": projectionIntentionalPayload, "git/diff": projectionIntentionalPayload, "git/log": projectionIntentionalPayload, "git/merge_base": projectionIntentionalPayload,
 	"git/read_file": projectionIntentionalPayload, "git/refresh": projectionClosedDefault, "git/refs": projectionIntentionalPayload, "git/show": projectionIntentionalPayload,
 	"git/tree": projectionIntentionalPayload, "git/worktree_status": projectionClosedDefault, "git/worktree_diff": projectionIntentionalPayload,
+	"hotfix/create": projectionCompactDefault, "hotfix/integrate": projectionCompactDefault,
 	"operation/read": projectionClosedDefault, "operator/checkpoint": projectionCompactDefault, "operator/history": projectionIntentionalPayload, "operator/record": projectionCompactDefault,
 	"project/status": projectionClosedDefault,
 	"query/run":      projectionIntentionalPayload, "rules/read": projectionIntentionalPayload, "runtime/logs": projectionIntentionalPayload, "runtime/restart": projectionCompactDefault,
