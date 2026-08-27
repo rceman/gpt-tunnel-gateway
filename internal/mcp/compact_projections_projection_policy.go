@@ -23,6 +23,7 @@ var projectionClasses = map[string]projectionClass{
 	"agent/recover": projectionCompactDefault,
 	"agent/status":  projectionClosedDefault, "agent/tail": projectionIntentionalPayload, "agent/update": projectionCompactDefault,
 	"code/diff": projectionIntentionalPayload, "code/read": projectionIntentionalPayload, "code/search": projectionIntentionalPayload,
+	"code/tree": projectionIntentionalPayload, "code/worktree": projectionCompactDefault,
 	"gateway/capabilities": projectionClosedDefault, "gateway/status": projectionClosedDefault,
 	"git/compare": projectionIntentionalPayload, "git/diff": projectionIntentionalPayload, "git/log": projectionIntentionalPayload, "git/merge_base": projectionIntentionalPayload,
 	"git/read_file": projectionIntentionalPayload, "git/refresh": projectionClosedDefault, "git/refs": projectionIntentionalPayload, "git/show": projectionIntentionalPayload,

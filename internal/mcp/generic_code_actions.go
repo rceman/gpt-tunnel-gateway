@@ -12,9 +12,7 @@ func (s *Server) ensureCodeActions() {
 	if s.Service == nil {
 		return
 	}
-	s.codeActions.Do(func() {
-		s.codeActionErr = s.registerCodeActions()
-	})
+	s.codeActions.Do(func() { s.codeActionErr = s.registerCodeActions() })
 	if s.codeActionErr != nil {
 		panic(s.codeActionErr)
 	}
@@ -22,23 +20,12 @@ func (s *Server) ensureCodeActions() {
 
 func (s *Server) registerCodeActions() error {
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:            "code/read",
-		Description:     "Read a bounded file from an existing local project worktree.",
-		InputSchema:     codeReadInputSchema(),
-		OutputSchema:    codeReadOutputSchema(),
-		Annotations:     readOnlyAnnotations(),
-		LocalReadOnly:   true,
-		SessionBound:    true,
-		SessionRequired: true,
-		AuthorityRole:   actionRolePlannerOrDelivery,
+		Path: "code/worktree", Description: "List bounded server-owned project worktree selectors.",
+		InputSchema: codeWorktreeInputSchema(), OutputSchema: codeWorktreeOutputSchema(),
+		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
+		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				WorktreeRef string `json:"worktree_ref"`
-				BaseSHA     string `json:"base_sha"`
-				Path        string `json:"path"`
-				Offset      int64  `json:"offset,omitempty"`
-				MaxBytes    int    `json:"max_bytes,omitempty"`
-			}
+			var input service.CodeWorktreeInput
 			if err := decode(raw, &input); err != nil {
 				return nil, err
 			}
@@ -46,29 +33,20 @@ func (s *Server) registerCodeActions() error {
 			if err != nil {
 				return nil, err
 			}
-			return s.Service.CodeRead(ctx, service.CodeReadInput{ProjectID: projectID, WorktreeRef: input.WorktreeRef, BaseSHA: input.BaseSHA, Path: input.Path, Offset: input.Offset, MaxBytes: input.MaxBytes})
+			input.ProjectID = projectID
+			return s.Service.CodeWorktree(ctx, input)
 		},
 	}); err != nil {
 		return err
 	}
+
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:            "code/search",
-		Description:     "Search bounded explicit files in an existing local project worktree.",
-		InputSchema:     codeSearchInputSchema(),
-		OutputSchema:    codeSearchOutputSchema(),
-		Annotations:     readOnlyAnnotations(),
-		LocalReadOnly:   true,
-		SessionBound:    true,
-		SessionRequired: true,
-		AuthorityRole:   actionRolePlannerOrDelivery,
+		Path: "code/tree", Description: "List bounded repository-relative files in a server-owned worktree.",
+		InputSchema: codeTreeInputSchema(), OutputSchema: codeTreeOutputSchema(),
+		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
+		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				WorktreeRef string   `json:"worktree_ref"`
-				BaseSHA     string   `json:"base_sha"`
-				Query       string   `json:"query"`
-				Paths       []string `json:"paths"`
-				Limit       int      `json:"limit,omitempty"`
-			}
+			var input service.CodeTreeInput
 			if err := decode(raw, &input); err != nil {
 				return nil, err
 			}
@@ -76,28 +54,20 @@ func (s *Server) registerCodeActions() error {
 			if err != nil {
 				return nil, err
 			}
-			return s.Service.CodeSearch(ctx, service.CodeSearchInput{ProjectID: projectID, WorktreeRef: input.WorktreeRef, BaseSHA: input.BaseSHA, Query: input.Query, Paths: input.Paths, Limit: input.Limit})
+			input.ProjectID = projectID
+			return s.Service.CodeTree(ctx, input)
 		},
 	}); err != nil {
 		return err
 	}
-	return s.RegisterGenericAction(GenericAction{
-		Path:            "code/diff",
-		Description:     "Read a bounded diff from an exact local base SHA to a local project worktree.",
-		InputSchema:     codeDiffInputSchema(),
-		OutputSchema:    codeDiffOutputSchema(),
-		Annotations:     readOnlyAnnotations(),
-		LocalReadOnly:   true,
-		SessionBound:    true,
-		SessionRequired: true,
-		AuthorityRole:   actionRolePlannerOrDelivery,
+
+	if err := s.RegisterGenericAction(GenericAction{
+		Path: "code/read", Description: "Read a bounded line range from a server-owned worktree.",
+		InputSchema: codeReadInputSchema(), OutputSchema: codeReadOutputSchema(),
+		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
+		AuthorityRole: actionRolePlannerOrDelivery,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				WorktreeRef string   `json:"worktree_ref"`
-				BaseSHA     string   `json:"base_sha"`
-				Paths       []string `json:"paths"`
-				MaxBytes    int      `json:"max_bytes,omitempty"`
-			}
+			var input service.CodeReadInput
 			if err := decode(raw, &input); err != nil {
 				return nil, err
 			}
@@ -105,7 +75,50 @@ func (s *Server) registerCodeActions() error {
 			if err != nil {
 				return nil, err
 			}
-			return s.Service.CodeDiff(ctx, service.CodeDiffInput{ProjectID: projectID, WorktreeRef: input.WorktreeRef, BaseSHA: input.BaseSHA, Paths: input.Paths, MaxBytes: input.MaxBytes})
+			input.ProjectID = projectID
+			return s.Service.CodeRead(ctx, input)
+		},
+	}); err != nil {
+		return err
+	}
+
+	if err := s.RegisterGenericAction(GenericAction{
+		Path: "code/search", Description: "Search bounded repository-relative files in a server-owned worktree.",
+		InputSchema: codeSearchInputSchema(), OutputSchema: codeSearchOutputSchema(),
+		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
+		AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input service.CodeSearchInput
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			projectID, err := s.boundCodeProject(ctx)
+			if err != nil {
+				return nil, err
+			}
+			input.ProjectID = projectID
+			return s.Service.CodeSearch(ctx, input)
+		},
+	}); err != nil {
+		return err
+	}
+
+	return s.RegisterGenericAction(GenericAction{
+		Path: "code/diff", Description: "Read a bounded diff from an authoritative local worktree base.",
+		InputSchema: codeDiffInputSchema(), OutputSchema: codeDiffOutputSchema(),
+		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
+		AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var input service.CodeDiffInput
+			if err := decode(raw, &input); err != nil {
+				return nil, err
+			}
+			projectID, err := s.boundCodeProject(ctx)
+			if err != nil {
+				return nil, err
+			}
+			input.ProjectID = projectID
+			return s.Service.CodeDiff(ctx, input)
 		},
 	})
 }
@@ -125,75 +138,105 @@ func (s *Server) boundCodeProject(ctx context.Context) (string, error) {
 	return record.ProjectID, nil
 }
 
-func codeInputProperties() map[string]any {
-	worktree := str("Exact full local branch ref resolved by the server to an existing worktree.")
-	worktree["minLength"] = 1
-	base := str("Exact 40-character local base commit SHA.")
-	base["minLength"], base["maxLength"] = 40, 40
-	return map[string]any{"worktree_ref": worktree, "base_sha": base}
+func codeCursorSchema() map[string]any {
+	cursor := str("Opaque server-owned continuation cursor.")
+	cursor["maxLength"] = 256
+	return cursor
+}
+
+func codeLiveSchema() map[string]any {
+	return map[string]any{"type": "boolean", "default": false, "description": "Allow bounded observation of current dirty worktree bytes."}
+}
+
+func codeSelectorSchema() map[string]any {
+	selector := str("Project-bound WT-MAIN-<sha8> or WT-TRN<n>-<sha8> selector.")
+	selector["minLength"], selector["maxLength"] = 13, 80
+	return selector
+}
+
+func codeWorktreeInputSchema() map[string]any {
+	query := str("Optional bounded selector or label filter.")
+	query["maxLength"] = service.LocalCodeMaxQueryBytes
+	return obj(map[string]any{"query": query, "cursor": codeCursorSchema(), "limit": integer("Maximum worktrees.", 1, service.LocalCodeMaxMatches)})
+}
+
+func codeTreeInputSchema() map[string]any {
+	pathValue := str("Optional repository-relative path prefix.")
+	pathValue["maxLength"] = 4096
+	query := str("Optional bounded path filter.")
+	query["maxLength"] = service.LocalCodeMaxQueryBytes
+	return obj(map[string]any{"worktree": codeSelectorSchema(), "path": pathValue, "query": query, "cursor": codeCursorSchema(), "limit": integer("Maximum paths.", 1, service.LocalCodeMaxMatches), "live": codeLiveSchema()}, "worktree")
 }
 
 func codeReadInputSchema() map[string]any {
-	properties := codeInputProperties()
-	properties["path"] = str("Repository-relative regular-file path.")
-	properties["offset"] = integer("Byte offset in the file.", 0, 1<<30)
-	properties["max_bytes"] = integer("Maximum response bytes.", 1, service.LocalCodeMaxBytes)
-	return obj(properties, "worktree_ref", "base_sha", "path")
+	pathValue := str("Repository-relative regular-file path.")
+	pathValue["maxLength"] = 4096
+	return obj(map[string]any{"worktree": codeSelectorSchema(), "path": pathValue, "start_line": integer("One-based first line.", 1, service.LocalCodeMaxLines), "line_count": integer("Maximum lines.", 1, service.LocalCodeMaxLines), "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree", "path")
 }
 
 func codeSearchInputSchema() map[string]any {
-	properties := codeInputProperties()
 	query := str("Literal bounded search query.")
-	query["minLength"] = 1
-	query["maxLength"] = service.LocalCodeMaxQueryBytes
-	paths := array(str("Explicit repository-relative regular-file path."))
-	paths["minItems"], paths["maxItems"] = 1, service.LocalCodeMaxPaths
-	properties["query"], properties["paths"] = query, paths
-	properties["limit"] = integer("Maximum compact matches.", 1, service.LocalCodeMaxMatches)
-	return obj(properties, "worktree_ref", "base_sha", "query", "paths")
+	query["minLength"], query["maxLength"] = 1, service.LocalCodeMaxQueryBytes
+	paths := array(str("Optional repository-relative path."))
+	paths["maxItems"] = service.LocalCodeMaxPaths
+	patterns := array(str("Optional repository-relative path glob."))
+	patterns["maxItems"] = service.LocalCodeMaxPatterns
+	return obj(map[string]any{"worktree": codeSelectorSchema(), "query": query, "paths": paths, "include": patterns, "exclude": patterns, "limit": integer("Maximum matches.", 1, service.LocalCodeMaxMatches), "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree", "query")
 }
 
 func codeDiffInputSchema() map[string]any {
-	properties := codeInputProperties()
-	paths := array(str("Explicit repository-relative diff path."))
+	paths := array(str("Optional repository-relative diff path."))
 	paths["maxItems"] = service.LocalCodeMaxPaths
-	properties["paths"] = paths
-	properties["max_bytes"] = integer("Maximum diff response bytes.", 1, service.LocalCodeMaxBytes)
-	return obj(properties, "worktree_ref", "base_sha")
+	return obj(map[string]any{"worktree": codeSelectorSchema(), "paths": paths, "max_bytes": integer("Maximum response bytes.", 1, service.LocalCodeMaxBytes), "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree")
+}
+
+func codeWorktreeOutputSchema() map[string]any {
+	item := closedOutput(map[string]any{"selector": outputString(), "kind": outputString(), "dirty": outputBoolean(), "label": outputString(), "train_id": outputString()}, "selector", "kind", "dirty")
+	return closedOutput(map[string]any{"items": outputArray(item), "next_cursor": outputString(), "has_more": outputBoolean()}, "items", "has_more")
 }
 
 func codeIdentityOutputSchema() map[string]any {
-	return map[string]any{
-		"type": "object", "additionalProperties": false,
-		"properties": map[string]any{
-			"project_id": map[string]any{"type": "string"}, "worktree_ref": map[string]any{"type": "string"},
-			"base_sha": map[string]any{"type": "string"}, "current_head": map[string]any{"type": "string"}, "dirty": map[string]any{"type": "boolean"},
-		},
-	}
+	return map[string]any{"worktree": outputString(), "dirty": outputBoolean(), "live": outputBoolean()}
+}
+
+func codeTreeOutputSchema() map[string]any {
+	properties := codeIdentityOutputSchema()
+	properties["paths"] = outputArray(outputString())
+	properties["next_cursor"] = outputString()
+	properties["has_more"] = outputBoolean()
+	return closedOutput(properties, "worktree", "dirty", "live", "paths", "has_more")
 }
 
 func codeReadOutputSchema() map[string]any {
-	properties := codeIdentityOutputSchema()["properties"].(map[string]any)
-	properties["path"] = map[string]any{"type": "string"}
-	properties["offset"] = map[string]any{"type": "integer"}
-	properties["total_bytes"] = map[string]any{"type": "integer"}
-	properties["content"] = map[string]any{"type": "string"}
-	properties["truncated"] = map[string]any{"type": "boolean"}
-	return closedOutput(properties, "project_id", "worktree_ref", "base_sha", "current_head", "dirty", "path", "offset", "total_bytes", "content", "truncated")
+	properties := codeIdentityOutputSchema()
+	properties["path"] = outputString()
+	properties["start_line"] = outputInteger()
+	properties["end_line"] = outputInteger()
+	properties["total_lines"] = outputInteger()
+	properties["content"] = outputString()
+	properties["truncated"] = outputBoolean()
+	properties["next_cursor"] = outputString()
+	properties["has_more"] = outputBoolean()
+	return closedOutput(properties, "worktree", "dirty", "live", "path", "start_line", "end_line", "total_lines", "content", "truncated", "has_more")
 }
 
 func codeSearchOutputSchema() map[string]any {
-	properties := codeIdentityOutputSchema()["properties"].(map[string]any)
-	properties["paths_scanned"] = map[string]any{"type": "integer"}
-	properties["matches"] = array(closedOutput(map[string]any{"path": map[string]any{"type": "string"}, "line": map[string]any{"type": "integer"}, "snippet": map[string]any{"type": "string"}}, "path", "line", "snippet"))
-	properties["truncated"] = map[string]any{"type": "boolean"}
-	return closedOutput(properties, "project_id", "worktree_ref", "base_sha", "current_head", "dirty", "paths_scanned", "matches", "truncated")
+	match := closedOutput(map[string]any{"path": outputString(), "line": outputInteger(), "snippet": outputString()}, "path", "line", "snippet")
+	properties := codeIdentityOutputSchema()
+	properties["paths_scanned"] = outputInteger()
+	properties["matches"] = outputArray(match)
+	properties["truncated"] = outputBoolean()
+	properties["next_cursor"] = outputString()
+	properties["has_more"] = outputBoolean()
+	return closedOutput(properties, "worktree", "dirty", "live", "paths_scanned", "matches", "truncated", "has_more")
 }
 
 func codeDiffOutputSchema() map[string]any {
-	properties := codeIdentityOutputSchema()["properties"].(map[string]any)
-	properties["paths"] = array(map[string]any{"type": "string"})
-	properties["diff"] = map[string]any{"type": "string"}
-	properties["truncated"] = map[string]any{"type": "boolean"}
-	return closedOutput(properties, "project_id", "worktree_ref", "base_sha", "current_head", "dirty", "paths", "diff", "truncated")
+	properties := codeIdentityOutputSchema()
+	properties["paths"] = outputArray(outputString())
+	properties["diff"] = outputString()
+	properties["truncated"] = outputBoolean()
+	properties["next_cursor"] = outputString()
+	properties["has_more"] = outputBoolean()
+	return closedOutput(properties, "worktree", "dirty", "live", "paths", "diff", "truncated", "has_more")
 }

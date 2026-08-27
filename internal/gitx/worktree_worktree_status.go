@@ -15,6 +15,54 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
+// WorktreeInfo is the server-owned identity of an existing local worktree.
+// The filesystem path is retained for typed service use and is never exposed
+// as caller authority.
+type WorktreeInfo struct {
+	Path   string
+	Head   string
+	Branch string
+}
+
+// ListWorktrees returns the bounded, Git-owned worktree inventory for a
+// configured repository. It performs no network or mirror operation.
+func (r Runner) ListWorktrees(ctx context.Context, p config.ProjectConfig) ([]WorktreeInfo, error) {
+	out, err := r.command(ctx, p.Root, false, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	text, err := bounded(out, r.MaxReadBytes)
+	if err != nil {
+		return nil, err
+	}
+	worktrees := make([]WorktreeInfo, 0)
+	var current *WorktreeInfo
+	flush := func() {
+		if current != nil && current.Path != "" && current.Head != "" {
+			worktrees = append(worktrees, *current)
+		}
+		current = nil
+	}
+	for _, line := range strings.Split(text, "\n") {
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			flush()
+			current = &WorktreeInfo{Path: filepath.Clean(strings.TrimPrefix(line, "worktree "))}
+		case current != nil && strings.HasPrefix(line, "HEAD "):
+			current.Head = strings.TrimSpace(strings.TrimPrefix(line, "HEAD "))
+		case current != nil && strings.HasPrefix(line, "branch "):
+			current.Branch = strings.TrimSpace(strings.TrimPrefix(line, "branch "))
+		case strings.TrimSpace(line) == "":
+			flush()
+		}
+	}
+	flush()
+	if len(worktrees) > r.MaxListItems {
+		return nil, fmt.Errorf("worktree inventory exceeds configured item limit")
+	}
+	return worktrees, nil
+}
+
 // ResolveWorktree resolves an exact server-owned branch ref to an existing
 // worktree of the configured repository. Callers provide a ref, never a path.
 func (r Runner) ResolveWorktree(ctx context.Context, p config.ProjectConfig, ref string) (config.ProjectConfig, error) {
@@ -60,6 +108,115 @@ func (r Runner) ReadLocalFile(ctx context.Context, p config.ProjectConfig, revis
 		return "", err
 	}
 	return bounded(out, r.MaxReadBytes)
+}
+
+// ReadWorkingFile reads the current regular file from an existing worktree.
+// Git validates the path and excludes repository metadata through its normal
+// worktree command boundary.
+func (r Runner) ReadWorkingFile(ctx context.Context, p config.ProjectConfig, path string) (string, error) {
+	if err := model.ValidateRelativePath(path); err != nil {
+		return "", err
+	}
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	root, err := filepath.Abs(p.Root)
+	if err != nil {
+		return "", err
+	}
+	current, err := filepath.Abs(filepath.Join(root, filepath.FromSlash(path)))
+	if err != nil {
+		return "", err
+	}
+	relative, err := filepath.Rel(root, current)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("working file escapes repository root")
+	}
+	for _, component := range strings.Split(relative, string(filepath.Separator)) {
+		if strings.EqualFold(component, ".git") {
+			return "", fmt.Errorf("working file path enters repository metadata")
+		}
+	}
+	parent := root
+	for _, component := range strings.Split(relative, string(filepath.Separator)) {
+		parent = filepath.Join(parent, component)
+		info, statErr := os.Lstat(parent)
+		if statErr != nil {
+			return "", statErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("working file path contains a symlink")
+		}
+		if component != filepath.Base(relative) && !info.IsDir() {
+			return "", fmt.Errorf("working file path has a non-directory ancestor")
+		}
+	}
+	info, err := os.Stat(current)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("working path is not a regular file")
+	}
+	file, err := os.Open(current)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, r.MaxReadBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if int64(len(data)) > r.MaxReadBytes {
+		return "", fmt.Errorf("working file exceeds %d bytes", r.MaxReadBytes)
+	}
+	return string(data), nil
+}
+
+// WorkingTreeFiles returns the current tracked and non-ignored untracked
+// regular-file paths in a worktree.
+func (r Runner) WorkingTreeFiles(ctx context.Context, p config.ProjectConfig, path string) ([]string, error) {
+	if err := validatePath(path); err != nil {
+		return nil, err
+	}
+	args := []string{"ls-files", "--cached", "--others", "--exclude-standard", "--full-name"}
+	if path != "" {
+		args = append(args, "--", path)
+	}
+	out, err := r.command(ctx, p.Root, false, args...)
+	if err != nil {
+		return nil, err
+	}
+	text, err := bounded(out, r.MaxReadBytes)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return []string{}, nil
+	}
+	if len(lines) > r.MaxListItems {
+		return nil, fmt.Errorf("working tree exceeds configured item limit")
+	}
+	return lines, nil
+}
+
+// DiffWorkingFromBase compares the current worktree, including staged and
+// unstaged changes, with one exact local base commit.
+func (r Runner) DiffWorkingFromBase(ctx context.Context, p config.ProjectConfig, base string, paths []string) (string, error) {
+	if err := model.ValidateCommitSHA(base); err != nil {
+		return "", err
+	}
+	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", base}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		args = append(args, paths...)
+	}
+	out, err := r.command(ctx, p.Root, false, args...)
+	if err != nil {
+		return "", err
+	}
+	return bounded(out, r.MaxDiffBytes)
 }
 
 // DiffLocalCommits compares two exact local committed objects. It never
