@@ -4,11 +4,38 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
+
+func TestVisitDiffStopsAtSemanticLineWithoutReadingTail(t *testing.T) {
+	_, work, base := testutil.RepoWithBareRemote(t)
+	content := strings.Repeat("line content that is never fully consumed\n", 4096)
+	if err := os.WriteFile(filepath.Join(work, "large.txt"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, work, "add", "large.txt")
+	testutil.Git(t, work, "commit", "-m", "large diff")
+	head := strings.TrimSpace(testutil.Git(t, work, "rev-parse", "HEAD"))
+	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 64}
+	seen := make([]int64, 0, 3)
+	more, err := r.VisitDiffLocalCommits(context.Background(), config.ProjectConfig{Root: work}, base, head, nil, 0, func(offset int64, line []byte) error {
+		seen = append(seen, offset)
+		if len(seen) == 3 {
+			return ErrStreamLimit
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !more || len(seen) != 3 || seen[0] != 0 || seen[1] != 1 || seen[2] != 2 {
+		t.Fatalf("diff stream did not stop at requested semantic line: more=%v seen=%v", more, seen)
+	}
+}
 
 func TestLogPageRejectsCursorFromDifferentRevisionOrMirror(t *testing.T) {
 	_, work, _ := testutil.RepoWithBareRemote(t)

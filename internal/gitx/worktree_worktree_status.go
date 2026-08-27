@@ -231,143 +231,134 @@ func pathSetContains(paths map[string]struct{}, path string) bool {
 	return false
 }
 
-type diffLinePageCollector struct {
-	offset    int64
-	limit     int64
-	total     int64
-	pageLines int64
-	maxBytes  int64
-	hasMore   bool
-	data      bytes.Buffer
-	pending   []byte
+// DiffLineVisitor receives each semantic diff line and its stable zero-based
+// offset in the complete diff stream. Returning ErrStreamLimit stops Git
+// immediately after the current line without turning it into a page driver.
+type DiffLineVisitor func(offset int64, line []byte) error
+
+type diffLineStream struct {
+	offset  int64
+	total   int64
+	visitor DiffLineVisitor
+	pending []byte
+	stopped bool
 }
 
-func (c *diffLinePageCollector) done() bool { return c.hasMore }
-
-func (c *diffLinePageCollector) consume(line []byte) error {
-	if c.total < c.offset {
-		c.total++
+func (s *diffLineStream) consume(line []byte) error {
+	lineOffset := s.total
+	s.total++
+	if lineOffset < s.offset {
 		return nil
 	}
-	if c.limit > 0 && c.pageLines >= c.limit {
-		c.total++
-		c.hasMore = true
-		return ErrStreamLimit
+	if err := s.visitor(lineOffset, line); err != nil {
+		if errors.Is(err, ErrStreamLimit) {
+			s.stopped = true
+			return ErrStreamLimit
+		}
+		return err
 	}
-	if c.maxBytes > 0 && int64(c.data.Len()+len(line)) > c.maxBytes {
-		return fmt.Errorf("diff page exceeds internal byte limit")
-	}
-	_, _ = c.data.Write(line)
-	c.pageLines++
-	c.total++
 	return nil
 }
 
-func (c *diffLinePageCollector) write(chunk []byte) error {
-	c.pending = append(c.pending, chunk...)
-	if c.maxBytes > 0 && int64(len(c.pending)) > c.maxBytes {
-		return fmt.Errorf("diff line exceeds internal byte limit")
-	}
+func (s *diffLineStream) write(chunk []byte) error {
+	s.pending = append(s.pending, chunk...)
 	for {
-		index := bytes.IndexByte(c.pending, '\n')
+		index := bytes.IndexByte(s.pending, '\n')
 		if index < 0 {
 			return nil
 		}
-		line := c.pending[:index+1]
-		c.pending = c.pending[index+1:]
-		if err := c.consume(line); err != nil {
+		line := s.pending[:index+1]
+		s.pending = s.pending[index+1:]
+		if err := s.consume(line); err != nil {
 			return err
 		}
 	}
 }
 
-func (c *diffLinePageCollector) finish() error {
-	if len(c.pending) == 0 {
+func (s *diffLineStream) finish() error {
+	if len(s.pending) == 0 {
 		return nil
 	}
-	line := c.pending
-	c.pending = nil
-	return c.consume(line)
+	line := s.pending
+	s.pending = nil
+	return s.consume(line)
 }
 
-func (c *diffLinePageCollector) result() (string, bool, error) {
-	if c.offset > c.total {
-		return "", false, fmt.Errorf("diff continuation cursor exceeds diff output")
+func (r Runner) streamDiffCommand(ctx context.Context, dir string, args []string, stream *diffLineStream) error {
+	exitCode, err := r.streamCommand(ctx, dir, false, args, stream.write)
+	if err != nil {
+		return err
 	}
-	return c.data.String(), c.hasMore, nil
+	if exitCode != 0 {
+		return fmt.Errorf("git diff exited with status %d", exitCode)
+	}
+	if stream.stopped {
+		return nil
+	}
+	if err := stream.finish(); err != nil && !errors.Is(err, ErrStreamLimit) {
+		return err
+	}
+	return nil
 }
 
-// DiffLocalCommitsPage streams a committed diff and retains only one response
-// page plus lookahead. Re-running from the immutable commits makes offsets
-// deterministic without materializing the complete diff.
-func (r Runner) DiffLocalCommitsPage(ctx context.Context, p config.ProjectConfig, from, to string, paths []string, offset int64, limit int) (string, bool, error) {
+func (r Runner) finishDiffStream(stream *diffLineStream) (bool, error) {
+	if stream.offset > stream.total {
+		return false, fmt.Errorf("diff continuation cursor exceeds diff output")
+	}
+	return stream.stopped, nil
+}
+
+// VisitDiffLocalCommits streams a committed diff and stops at the visitor's
+// semantic page boundary. It never uses a line or byte limit as pagination.
+func (r Runner) VisitDiffLocalCommits(ctx context.Context, p config.ProjectConfig, from, to string, paths []string, offset int64, visit DiffLineVisitor) (bool, error) {
 	if err := model.ValidateCommitSHA(from); err != nil {
-		return "", false, err
+		return false, err
 	}
 	if err := model.ValidateCommitSHA(to); err != nil {
-		return "", false, err
+		return false, err
 	}
-	if offset < 0 || limit < 0 {
-		return "", false, fmt.Errorf("invalid diff page")
+	if offset < 0 || visit == nil {
+		return false, fmt.Errorf("invalid diff stream")
 	}
 	args := []string{"diff", "--no-ext-diff", "--no-textconv", from, to, "--"}
 	for _, path := range paths {
 		if err := model.ValidateRelativePath(path); err != nil {
-			return "", false, err
+			return false, err
 		}
 		args = append(args, path)
 	}
-	collector := diffLinePageCollector{offset: offset, limit: int64(limit), maxBytes: r.MaxDiffBytes}
-	exitCode, err := r.streamCommand(ctx, p.Root, false, args, collector.write)
-	if err != nil {
-		return "", false, err
+	stream := &diffLineStream{offset: offset, visitor: visit}
+	if err := r.streamDiffCommand(ctx, p.Root, args, stream); err != nil {
+		return false, err
 	}
-	if exitCode != 0 {
-		return "", false, fmt.Errorf("git diff exited with status %d", exitCode)
-	}
-	if !collector.hasMore {
-		if err := collector.finish(); err != nil {
-			return "", false, err
-		}
-	}
-	return collector.result()
+	return r.finishDiffStream(stream)
 }
 
-// DiffWorkingFromBasePage streams tracked changes and regular non-ignored
-// untracked files into one bounded page. The repository lock and worktree
-// semantics remain Git's; only response buffering is paginated.
-func (r Runner) DiffWorkingFromBasePage(ctx context.Context, p config.ProjectConfig, base string, paths []string, offset int64, limit int) (string, bool, error) {
+// VisitDiffWorkingFromBase streams tracked changes and regular non-ignored
+// untracked files, stopping at the visitor's semantic page boundary.
+func (r Runner) VisitDiffWorkingFromBase(ctx context.Context, p config.ProjectConfig, base string, paths []string, offset int64, visit DiffLineVisitor) (bool, error) {
 	if err := model.ValidateCommitSHA(base); err != nil {
-		return "", false, err
+		return false, err
 	}
-	if offset < 0 || limit < 0 {
-		return "", false, fmt.Errorf("invalid diff page")
+	if offset < 0 || visit == nil {
+		return false, fmt.Errorf("invalid diff stream")
 	}
 	for _, path := range paths {
 		if err := model.ValidateRelativePath(path); err != nil {
-			return "", false, err
+			return false, err
 		}
 	}
-	collector := diffLinePageCollector{offset: offset, limit: int64(limit), maxBytes: r.MaxDiffBytes}
+	stream := &diffLineStream{offset: offset, visitor: visit}
 	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", base}
 	if len(paths) > 0 {
 		args = append(args, "--")
 		args = append(args, paths...)
 	}
-	exitCode, err := r.streamCommand(ctx, p.Root, false, args, collector.write)
-	if err != nil {
-		return "", false, err
+	if err := r.streamDiffCommand(ctx, p.Root, args, stream); err != nil {
+		return false, err
 	}
-	if exitCode != 0 {
-		return "", false, fmt.Errorf("git diff exited with status %d", exitCode)
-	}
-	if !collector.hasMore {
-		if err := collector.finish(); err != nil {
-			return "", false, err
-		}
-	}
-	if collector.done() {
-		return collector.result()
+	if stream.stopped {
+		return true, nil
 	}
 	selected := make(map[string]struct{}, len(paths))
 	for _, path := range paths {
@@ -375,10 +366,10 @@ func (r Runner) DiffWorkingFromBasePage(ctx context.Context, p config.ProjectCon
 	}
 	untrackedWalk, err := r.commandRecords(ctx, p.Root, false, 0, "ls-files", "--others", "--exclude-standard", "--full-name", "-z")
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
 	if err := untrackedWalk(func(path string) error {
-		if collector.done() {
+		if stream.stopped {
 			return ErrStreamLimit
 		}
 		if path == "" || (len(selected) > 0 && !pathSetContains(selected, path)) {
@@ -394,26 +385,26 @@ func (r Runner) DiffWorkingFromBasePage(ctx context.Context, p config.ProjectCon
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-		code, err := r.streamCommand(ctx, p.Root, false, []string{"diff", "--no-ext-diff", "--no-textconv", "--no-index", "--", "/dev/null", filepath.ToSlash(path)}, collector.write)
+		code, err := r.streamCommand(ctx, p.Root, false, []string{"diff", "--no-ext-diff", "--no-textconv", "--no-index", "--", "/dev/null", filepath.ToSlash(path)}, stream.write)
 		if err != nil {
 			return err
 		}
 		if code != 0 && code != 1 {
 			return fmt.Errorf("git diff --no-index exited with status %d", code)
 		}
-		if !collector.hasMore {
-			if err := collector.finish(); err != nil {
+		if !stream.stopped {
+			if err := stream.finish(); err != nil && !errors.Is(err, ErrStreamLimit) {
 				return err
 			}
 		}
-		if collector.done() {
+		if stream.stopped {
 			return ErrStreamLimit
 		}
 		return nil
 	}); err != nil && !errors.Is(err, ErrStreamLimit) {
-		return "", false, err
+		return false, err
 	}
-	return collector.result()
+	return r.finishDiffStream(stream)
 }
 
 func (r Runner) WorktreeStatus(ctx context.Context, p config.ProjectConfig) (WorktreeStatus, error) {

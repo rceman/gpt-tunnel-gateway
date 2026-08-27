@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
@@ -905,45 +906,51 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 			return CodeDiffResult{}, fmt.Errorf("invalid code diff cursor")
 		}
 	}
-	var diff string
+	pageLines := make([]string, 0)
+	nextOffset := int64(-1)
+	visit := func(lineOffset int64, line []byte) error {
+		candidateLines := append(append([]string(nil), pageLines...), string(line))
+		candidate := CodeDiffResult{
+			CodeIdentity: target.CodeIdentity,
+			Paths:        paths,
+			Diff:         strings.Join(candidateLines, ""),
+			Pagination:   codePagination(pagination.EncodeOffset(kind, lineOffset+1)),
+		}
+		fits, fitErr := codePageFits(candidate)
+		if fitErr != nil {
+			return fitErr
+		}
+		if !fits {
+			if len(pageLines) == 0 {
+				return fmt.Errorf("code diff line exceeds %d tokenizer tokens", CodePageTokenBudget)
+			}
+			nextOffset = lineOffset
+			return gitx.ErrStreamLimit
+		}
+		pageLines = append(pageLines, string(line))
+		return nil
+	}
 	var continuation bool
 	if target.Live {
-		diff, continuation, err = s.Git.DiffWorkingFromBasePage(ctx, target.ProjectWorktree, target.DiffBase, paths, offset, 0)
+		continuation, err = s.Git.VisitDiffWorkingFromBase(ctx, target.ProjectWorktree, target.DiffBase, paths, offset, visit)
 	} else {
-		diff, continuation, err = s.Git.DiffLocalCommitsPage(ctx, target.ProjectWorktree, target.DiffBase, target.CurrentHead, paths, offset, 0)
+		continuation, err = s.Git.VisitDiffLocalCommits(ctx, target.ProjectWorktree, target.DiffBase, target.CurrentHead, paths, offset, visit)
 	}
 	if err != nil {
 		return CodeDiffResult{}, err
 	}
-	lines := splitDiffLines(diff)
-	pageLines := lines
-	pageSize, fitErr := largestCodePageSize(len(pageLines), func(size int) (bool, error) {
-		pageContinuation := continuation || size < len(lines)
-		pageCursor := ""
-		if pageContinuation {
-			pageCursor = pagination.EncodeOffset(kind, offset+int64(size))
-		}
-		return codePageFits(CodeDiffResult{
-			CodeIdentity: target.CodeIdentity, Paths: paths, Diff: strings.Join(pageLines[:size], ""),
-			Pagination: codePagination(pageCursor),
-		})
-	})
-	if fitErr != nil {
-		return CodeDiffResult{}, fitErr
+	if continuation && nextOffset < 0 {
+		return CodeDiffResult{}, fmt.Errorf("code diff stream stopped without a continuation offset")
 	}
-	if pageSize > 0 {
-		pageContinuation := continuation || pageSize < len(lines)
+	if len(pageLines) > 0 {
 		pageCursor := ""
-		if pageContinuation {
-			pageCursor = pagination.EncodeOffset(kind, offset+int64(pageSize))
+		if continuation {
+			pageCursor = pagination.EncodeOffset(kind, nextOffset)
 		}
-		return CodeDiffResult{
-			CodeIdentity: target.CodeIdentity, Paths: paths, Diff: strings.Join(pageLines[:pageSize], ""),
-			Pagination: codePagination(pageCursor),
-		}, nil
+		return CodeDiffResult{CodeIdentity: target.CodeIdentity, Paths: paths, Diff: strings.Join(pageLines, ""), Pagination: codePagination(pageCursor)}, nil
 	}
-	if len(lines) == 0 {
-		result := CodeDiffResult{CodeIdentity: target.CodeIdentity, Paths: paths, Pagination: codePagination("")}
+	if !continuation {
+		result := CodeDiffResult{CodeIdentity: target.CodeIdentity, Paths: paths}
 		fits, fitErr := codePageFits(result)
 		if fitErr != nil {
 			return CodeDiffResult{}, fitErr
@@ -953,11 +960,4 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 		}
 	}
 	return CodeDiffResult{}, fmt.Errorf("code diff line exceeds %d tokenizer tokens", CodePageTokenBudget)
-}
-
-func splitDiffLines(diff string) []string {
-	if diff == "" {
-		return nil
-	}
-	return strings.SplitAfter(diff, "\n")
 }
