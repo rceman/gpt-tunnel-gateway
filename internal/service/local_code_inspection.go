@@ -53,10 +53,10 @@ func (e *CodeSelectorError) Error() string {
 }
 
 type CodeWorktreeInput struct {
-	ProjectID string
-	Query     string
-	Cursor    string
-	Limit     int
+	ProjectID string `json:"project_id"`
+	Query     string `json:"query"`
+	Cursor    string `json:"cursor"`
+	Limit     int    `json:"limit"`
 }
 
 type CodeWorktreeItem struct {
@@ -75,13 +75,13 @@ type CodeWorktreeResult struct {
 }
 
 type CodeTreeInput struct {
-	ProjectID string
-	Worktree  string
-	Path      string
-	Query     string
-	Cursor    string
-	Limit     int
-	Live      bool
+	ProjectID string `json:"project_id"`
+	Worktree  string `json:"worktree"`
+	Path      string `json:"path"`
+	Query     string `json:"query"`
+	Cursor    string `json:"cursor"`
+	Limit     int    `json:"limit"`
+	Live      bool   `json:"live"`
 }
 
 type CodeTreeResult struct {
@@ -92,34 +92,34 @@ type CodeTreeResult struct {
 }
 
 type CodeReadInput struct {
-	ProjectID string
-	Worktree  string
-	Path      string
-	StartLine int
-	LineCount int
-	Cursor    string
-	Live      bool
+	ProjectID string `json:"project_id"`
+	Worktree  string `json:"worktree"`
+	Path      string `json:"path"`
+	StartLine int    `json:"start_line"`
+	LineCount int    `json:"line_count"`
+	Cursor    string `json:"cursor"`
+	Live      bool   `json:"live"`
 }
 
 type CodeSearchInput struct {
-	ProjectID string
-	Worktree  string
-	Query     string
-	Paths     []string
-	Include   []string
-	Exclude   []string
-	Limit     int
-	Cursor    string
-	Live      bool
+	ProjectID string   `json:"project_id"`
+	Worktree  string   `json:"worktree"`
+	Query     string   `json:"query"`
+	Paths     []string `json:"paths"`
+	Include   []string `json:"include"`
+	Exclude   []string `json:"exclude"`
+	Limit     int      `json:"limit"`
+	Cursor    string   `json:"cursor"`
+	Live      bool     `json:"live"`
 }
 
 type CodeDiffInput struct {
-	ProjectID string
-	Worktree  string
-	Paths     []string
-	MaxBytes  int
-	Cursor    string
-	Live      bool
+	ProjectID string   `json:"project_id"`
+	Worktree  string   `json:"worktree"`
+	Paths     []string `json:"paths"`
+	MaxBytes  int      `json:"max_bytes"`
+	Cursor    string   `json:"cursor"`
+	Live      bool     `json:"live"`
 }
 
 type CodeIdentity struct {
