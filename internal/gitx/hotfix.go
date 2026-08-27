@@ -3,12 +3,24 @@ package gitx
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
+
+const hotfixIdentityMaxBytes = 4 << 10
+
+// HotfixIdentity is the server-owned create record used to authenticate the
+// base of a later integration. Callers cannot supply or replace BaseSHA.
+type HotfixIdentity struct {
+	ProjectID string `json:"project_id"`
+	HotfixRef string `json:"hotfix_ref"`
+	BaseSHA   string `json:"base_sha"`
+}
 
 // RefreshDefaultBranch refreshes the configured managed mirror and returns
 // the exact remote default-branch commit. The mirror is the server-owned
@@ -69,6 +81,54 @@ func (r Runner) ResolveHotfixWorktree(ctx context.Context, p config.ProjectConfi
 	return worktree, nil
 }
 
+// RecordHotfixIdentity persists the exact create identity in Gateway-owned
+// state. It is create-once; an existing identity is never overwritten.
+func (r Runner) RecordHotfixIdentity(stateDir string, identity HotfixIdentity) error {
+	slug, err := hotfixSlugFromRef(identity.HotfixRef)
+	if err != nil {
+		return err
+	}
+	if err := model.ValidateProjectIdentifier(identity.ProjectID); err != nil {
+		return err
+	}
+	if err := model.ValidateCommitSHA(identity.BaseSHA); err != nil {
+		return fmt.Errorf("hotfix base: %w", err)
+	}
+	path, err := hotfixIdentityPath(stateDir, identity.ProjectID, slug)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Lstat(path); err == nil {
+		return fmt.Errorf("hotfix identity already exists")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return fsutil.WriteJSONAtomic(path, identity, 0o600)
+}
+
+// ReadHotfixIdentity reads the immutable server-owned create identity.
+func (r Runner) ReadHotfixIdentity(stateDir, projectID, ref string) (HotfixIdentity, error) {
+	slug, err := hotfixSlugFromRef(ref)
+	if err != nil {
+		return HotfixIdentity{}, err
+	}
+	if err := model.ValidateProjectIdentifier(projectID); err != nil {
+		return HotfixIdentity{}, err
+	}
+	path, err := hotfixIdentityPath(stateDir, projectID, slug)
+	if err != nil {
+		return HotfixIdentity{}, err
+	}
+	var identity HotfixIdentity
+	if err := fsutil.ReadJSONBounded(path, hotfixIdentityMaxBytes, &identity); err != nil {
+		return HotfixIdentity{}, err
+	}
+	if identity.ProjectID != projectID || identity.HotfixRef != ref || model.ValidateCommitSHA(identity.BaseSHA) != nil {
+		return HotfixIdentity{}, fmt.Errorf("hotfix identity is invalid or mismatched")
+	}
+	return identity, nil
+}
+
 func hotfixWorktreePath(stateDir, projectID, slug string) (string, string, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return "", "", err
@@ -84,6 +144,13 @@ func hotfixWorktreePath(stateDir, projectID, slug string) (string, string, error
 		return "", "", err
 	}
 	return filepath.Join(stateDir, "hotfix-worktrees", projectID, slug), branch, nil
+}
+
+func hotfixIdentityPath(stateDir, projectID, slug string) (string, error) {
+	if stateDir == "" || !filepath.IsAbs(stateDir) || strings.ContainsAny(stateDir, "\x00\r\n") {
+		return "", fmt.Errorf("invalid hotfix state directory")
+	}
+	return filepath.Join(stateDir, "hotfix-identities", projectID, slug+".json"), nil
 }
 
 func hotfixSlugFromRef(ref string) (string, error) {

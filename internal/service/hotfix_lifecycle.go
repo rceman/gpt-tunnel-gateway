@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -21,7 +22,6 @@ type HotfixCreateResult struct {
 
 type HotfixIntegrateInput struct {
 	HotfixRef   string `json:"hotfix_ref"`
-	BaseSHA     string `json:"base_sha"`
 	ReviewedSHA string `json:"reviewed_sha"`
 }
 
@@ -62,15 +62,15 @@ func (s *Service) HotfixCreate(ctx context.Context, projectID string, in HotfixC
 	if actualBranch != branch || !clean || head != base {
 		return HotfixCreateResult{}, fmt.Errorf("created hotfix lane is not an exact clean base")
 	}
+	if err := s.Git.RecordHotfixIdentity(s.Config.StateDir, gitx.HotfixIdentity{ProjectID: projectID, HotfixRef: ref, BaseSHA: base}); err != nil {
+		return HotfixCreateResult{}, err
+	}
 	return HotfixCreateResult{ProjectID: projectID, HotfixRef: ref, BaseSHA: base, HeadSHA: head}, nil
 }
 
 func (s *Service) HotfixIntegrate(ctx context.Context, projectID string, in HotfixIntegrateInput) (HotfixIntegrateResult, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return HotfixIntegrateResult{}, err
-	}
-	if err := model.ValidateCommitSHA(in.BaseSHA); err != nil {
-		return HotfixIntegrateResult{}, fmt.Errorf("base_sha: %w", err)
 	}
 	if err := model.ValidateCommitSHA(in.ReviewedSHA); err != nil {
 		return HotfixIntegrateResult{}, fmt.Errorf("reviewed_sha: %w", err)
@@ -79,6 +79,11 @@ func (s *Service) HotfixIntegrate(ctx context.Context, projectID string, in Hotf
 	if err != nil {
 		return HotfixIntegrateResult{}, err
 	}
+	identity, err := s.Git.ReadHotfixIdentity(s.Config.StateDir, projectID, in.HotfixRef)
+	if err != nil {
+		return HotfixIntegrateResult{}, err
+	}
+	base := identity.BaseSHA
 	worktree, err := s.Git.ResolveHotfixWorktree(ctx, p, s.Config.StateDir, projectID, in.HotfixRef)
 	if err != nil {
 		return HotfixIntegrateResult{}, err
@@ -90,7 +95,7 @@ func (s *Service) HotfixIntegrate(ctx context.Context, projectID string, in Hotf
 	if !clean || head != in.ReviewedSHA || branch != strings.TrimPrefix(in.HotfixRef, "refs/heads/") {
 		return HotfixIntegrateResult{}, fmt.Errorf("hotfix lane is not the exact clean reviewed head")
 	}
-	baseAncestor, err := s.Git.IsAncestor(ctx, worktree.Root, in.BaseSHA, in.ReviewedSHA)
+	baseAncestor, err := s.Git.IsAncestor(ctx, worktree.Root, base, in.ReviewedSHA)
 	if err != nil {
 		return HotfixIntegrateResult{}, err
 	}
@@ -109,7 +114,7 @@ func (s *Service) HotfixIntegrate(ctx context.Context, projectID string, in Hotf
 		return HotfixIntegrateResult{}, fmt.Errorf("reviewed hotfix is not a strict descendant of refreshed origin/%s", p.DefaultBranch)
 	}
 	if mainBefore == in.ReviewedSHA {
-		return HotfixIntegrateResult{ProjectID: projectID, HotfixRef: in.HotfixRef, BaseSHA: in.BaseSHA, ReviewedSHA: in.ReviewedSHA, MainBefore: mainBefore, MainAfter: mainBefore}, nil
+		return HotfixIntegrateResult{ProjectID: projectID, HotfixRef: in.HotfixRef, BaseSHA: base, ReviewedSHA: in.ReviewedSHA, MainBefore: mainBefore, MainAfter: mainBefore}, nil
 	}
 	if err := s.Git.PushFastForward(ctx, p, p.DefaultBranch, mainBefore, in.ReviewedSHA); err != nil {
 		return HotfixIntegrateResult{}, err
@@ -121,5 +126,5 @@ func (s *Service) HotfixIntegrate(ctx context.Context, projectID string, in Hotf
 	if mainAfter != in.ReviewedSHA {
 		return HotfixIntegrateResult{}, fmt.Errorf("canonical origin/%s did not reach reviewed hotfix")
 	}
-	return HotfixIntegrateResult{ProjectID: projectID, HotfixRef: in.HotfixRef, BaseSHA: in.BaseSHA, ReviewedSHA: in.ReviewedSHA, MainBefore: mainBefore, MainAfter: mainAfter}, nil
+	return HotfixIntegrateResult{ProjectID: projectID, HotfixRef: in.HotfixRef, BaseSHA: base, ReviewedSHA: in.ReviewedSHA, MainBefore: mainBefore, MainAfter: mainAfter}, nil
 }

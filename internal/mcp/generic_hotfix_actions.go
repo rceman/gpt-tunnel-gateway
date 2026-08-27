@@ -88,9 +88,8 @@ func hotfixIntegrateInputSchema() map[string]any {
 	}
 	return obj(map[string]any{
 		"hotfix_ref":   ref,
-		"base_sha":     sha("Exact base SHA returned by hotfix/create."),
 		"reviewed_sha": sha("Exact reviewed hotfix branch HEAD."),
-	}, "hotfix_ref", "base_sha", "reviewed_sha")
+	}, "hotfix_ref", "reviewed_sha")
 }
 
 func hotfixCreateOutputSchema() map[string]any {
