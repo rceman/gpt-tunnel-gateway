@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -109,5 +110,52 @@ func TestHotfixRollbackLeavesDirtyLaneUntouched(t *testing.T) {
 	}
 	if err := r.RemoveHotfixWorktree(context.Background(), p, stateDir, "example", "repair", base); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHotfixRollbackLeavesUnexpectedHeadUntouched(t *testing.T) {
+	_, work, base := testutil.RepoWithBareRemote(t)
+	stateDir := t.TempDir()
+	p := hotfixTestProject(work, filepath.Join(stateDir, "mirror.git"))
+	r := hotfixTestRunner(stateDir)
+	lane, err := r.CreateHotfixWorktree(context.Background(), p, stateDir, "example", "repair", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lane.Root, "unexpected.txt"), []byte("unexpected\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, lane.Root, "add", "unexpected.txt")
+	testutil.Git(t, lane.Root, "commit", "-m", "unexpected head")
+	unexpectedHead := strings.TrimSpace(testutil.Git(t, lane.Root, "rev-parse", "HEAD"))
+	if err := r.RemoveHotfixWorktree(context.Background(), p, stateDir, "example", "repair", base); err == nil {
+		t.Fatal("unexpected-head hotfix lane was rolled back")
+	}
+	if _, err := os.Stat(lane.Root); err != nil {
+		t.Fatalf("unexpected-head lane was not left untouched: %v", err)
+	}
+	if got, err := r.Resolve(context.Background(), work, "refs/heads/hotfix/repair"); err != nil || got != unexpectedHead {
+		t.Fatalf("unexpected-head branch changed: got=%q err=%v want=%q", got, err, unexpectedHead)
+	}
+	testutil.Git(t, lane.Root, "reset", "--hard", base)
+	if err := r.RemoveHotfixWorktree(context.Background(), p, stateDir, "example", "repair", base); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHotfixRefRuntimeValidationMatchesSchemaBounds(t *testing.T) {
+	valid := "refs/heads/hotfix/" + strings.Repeat("a", 80)
+	if _, err := hotfixSlugFromRef(valid); err != nil {
+		t.Fatalf("80-character hotfix slug rejected: %v", err)
+	}
+	for _, ref := range []string{
+		"refs/heads/hotfix/" + strings.Repeat("a", 81),
+		"refs/heads/hotfix/a_b",
+		"refs/heads/hotfix/a/b",
+		"refs/heads/main/a",
+	} {
+		if _, err := hotfixSlugFromRef(ref); err == nil {
+			t.Fatalf("invalid hotfix_ref accepted: %q", ref)
+		}
 	}
 }
