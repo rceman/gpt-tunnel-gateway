@@ -192,6 +192,10 @@ func codeTrainWorktreePath(stateDir, projectID string, project config.ProjectCon
 	return expected, nil
 }
 
+func isObsoleteLegacyRuntime(err error) bool {
+	return err != nil && strings.Contains(err.Error(), `unknown field "run_id"`)
+}
+
 func codeCursorKind(operation string, target localCodeTarget, suffix string) string {
 	return operation + "|" + target.ProjectID + "|" + target.CodeIdentity.Worktree + "|" + target.CurrentHead + "|" + target.DiffBase + "|" + suffix
 }
@@ -287,10 +291,12 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 			var runtimeBinding *trainv2.RuntimeBinding
 			if runtimeErr == nil {
 				runtimeBinding = &runtime
-			} else if !errors.Is(runtimeErr, os.ErrNotExist) {
+			} else if errors.Is(runtimeErr, os.ErrNotExist) {
+				if train.Status == model.TrainV2Running {
+					return nil, fmt.Errorf("managed running Train %s has no server-owned runtime binding", candidateID)
+				}
+			} else if train.Status == model.TrainV2Running || !isObsoleteLegacyRuntime(runtimeErr) {
 				return nil, fmt.Errorf("read managed Train %s runtime: %w", candidateID, runtimeErr)
-			} else if train.Status == model.TrainV2Running {
-				return nil, fmt.Errorf("managed running Train %s has no server-owned runtime binding", candidateID)
 			}
 			expectedPath, pathErr := codeTrainWorktreePath(s.Config.StateDir, projectID, project, candidateID, runtimeBinding)
 			if pathErr != nil {
