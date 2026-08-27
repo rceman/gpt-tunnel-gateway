@@ -108,6 +108,9 @@ func (s *Service) HotfixIntegrate(ctx context.Context, projectID string, in Hotf
 	if !baseAncestor {
 		return HotfixIntegrateResult{}, fmt.Errorf("reviewed hotfix is not descended from its recorded create base")
 	}
+	if in.ReviewedSHA == base {
+		return HotfixIntegrateResult{}, fmt.Errorf("reviewed hotfix must advance its recorded create base")
+	}
 	mainBefore, err := s.Git.RefreshDefaultBranch(ctx, p)
 	if err != nil {
 		return HotfixIntegrateResult{}, err
