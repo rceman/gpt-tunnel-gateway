@@ -57,6 +57,22 @@ func (r Runner) CreateHotfixWorktree(ctx context.Context, p config.ProjectConfig
 	return result, nil
 }
 
+// RemoveHotfixWorktree rolls back a hotfix lane created by the current
+// invocation only when its branch still points at the expected create head.
+func (r Runner) RemoveHotfixWorktree(ctx context.Context, p config.ProjectConfig, stateDir, projectID, slug, expectedHead string) error {
+	path, branch, err := hotfixWorktreePath(stateDir, projectID, slug)
+	if err != nil {
+		return err
+	}
+	if err := model.ValidateCommitSHA(expectedHead); err != nil {
+		return err
+	}
+	if err := r.removeTrainWorktree(ctx, p, path); err != nil {
+		return err
+	}
+	return r.DeleteTrainBranch(ctx, p, branch, expectedHead)
+}
+
 // ResolveHotfixWorktree accepts only a server-derived hotfix branch and its
 // corresponding state-owned checkout. A same-named arbitrary worktree cannot
 // be used as a hotfix lane.
