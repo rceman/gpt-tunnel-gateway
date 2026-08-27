@@ -66,7 +66,6 @@ func coreToolOutputSchemas() map[string]map[string]any {
 			"runtime_identity": runtimeIdentityOutputSchema(),
 		}, "service", "version", "gateway_id", "status", "recommended_next_action", "registered_projects", "runtime_identity"),
 		"rules":   workflowPolicyOutputSchema(),
-		"project": genericCallOutputSchema(),
 		"session": sessionOutputSchema(),
 		"system_ping": closedOutput(map[string]any{
 			"service": outputString(), "version": outputString(), "gateway_id": outputString(), "time": outputDateTime(),
@@ -76,12 +75,5 @@ func coreToolOutputSchemas() map[string]map[string]any {
 			"hub_protocol_root": outputString(), "hub_repository_url": outputString(), "hub_branch": outputString(), "hub_managed_root": outputString(),
 			"airelay_control_only": outputBoolean(), "generic_shell_available": outputBoolean(),
 		}, "gateway_id", "listen_addr", "projects", "hub_protocol_root", "hub_repository_url", "hub_branch", "hub_managed_root", "airelay_control_only", "generic_shell_available"),
-		"project_list":                   closedOutput(map[string]any{"projects": outputArray(projectOutputSchema()), "next_cursor": outputString(), "has_more": outputBoolean()}, "projects", "next_cursor", "has_more"),
-		"project_read":                   projectOutputSchema(),
-		"project_identifiers_read":       projectIdentifiersOutputSchema(),
-		"project_identifiers_adopt":      closedOutput(map[string]any{"identifiers": projectIdentifiersOutputSchema(), "operation": operationOutputSchema()}, "identifiers", "operation"),
-		"project_workflow_policy_read":   workflowPolicyOutputSchema(),
-		"project_workflow_policy_adopt":  closedOutput(map[string]any{"policy": workflowPolicyOutputSchema(), "operation": operationOutputSchema()}, "policy", "operation"),
-		"project_workflow_policy_update": closedOutput(map[string]any{"policy": workflowPolicyOutputSchema(), "operation": operationOutputSchema()}, "policy", "operation"),
 	}
 }

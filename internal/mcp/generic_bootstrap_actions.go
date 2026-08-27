@@ -113,9 +113,6 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 			return base, nil
 		})
 	}
-	if tool, ok := legacy["project_workflow_policy_read"]; ok {
-		add("workflow/rules", "Read workflow rules for a registered project.", tool.InputSchema, false, tool.Execute)
-	}
 }
 
 func (s *Server) sessionActionForContext(ctx context.Context, action string, input any) (any, error) {

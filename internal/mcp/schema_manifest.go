@@ -51,10 +51,9 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	result["batch"] = destructiveExternalAnnotations()
 	result["status"] = readOnlyAnnotations()
 	result["rules"] = readOnlyAnnotations()
-	result["project"] = destructiveExternalAnnotations()
 	result["session"] = destructiveExternalAnnotations()
 	for _, name := range []string{
-		"system_ping", "gateway_capabilities", "project_list", "project_read", "project_identifiers_read", "project_workflow_policy_read",
+		"system_ping", "gateway_capabilities",
 		"plan_read", "plan_section_read", "plan_render", "plan_history", "adr_list", "adr_read", "task_list", "task_read",
 		"task_revision_list", "task_revision_read",
 		"git_refs", "git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare",
@@ -72,7 +71,7 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	result["operator_record"] = additiveExternalAnnotations()
 	result["operator_checkpoint"] = additiveExternalAnnotations()
 	result["operator_history"] = readOnlyAnnotations()
-	for _, name := range []string{"project_identifiers_adopt", "project_workflow_policy_adopt", "project_workflow_policy_update", "adr_create", "task_create", "plan_section_create"} {
+	for _, name := range []string{"adr_create", "task_create", "plan_section_create"} {
 		result[name] = additiveExternalAnnotations()
 	}
 	result["task_correction_create"] = additiveExternalAnnotations()

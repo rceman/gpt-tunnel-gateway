@@ -73,13 +73,6 @@ func watcherGuideMutationReceiptOutputSchema() map[string]any {
 	}, "operation_id", "status", "created_at", "updated_at")
 }
 
-func projectConfigurationMutationReceiptOutputSchema() map[string]any {
-	return closedOutput(map[string]any{
-		"operation_id": outputString(), "status": outputString(), "configuration": projectConfigurationObjectSchema(), "operation": operationOutputSchema(), "error": outputString(),
-		"created_at": outputDateTime(), "updated_at": outputDateTime(),
-	}, "operation_id", "status", "created_at", "updated_at")
-}
-
 func taskSupersedeReceiptOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"operation_id": outputString(), "status": outputString(), "task": taskOutputSchema(), "operation": operationOutputSchema(), "error": outputString(),

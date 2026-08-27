@@ -18,8 +18,6 @@ type Server struct {
 	watcherActionErr       error
 	agentActions           sync.Once
 	agentActionErr         error
-	projectActions         sync.Once
-	projectActionErr       error
 	taskAuthoringActions   sync.Once
 	taskAuthoringActionErr error
 	trainV2Actions         sync.Once
@@ -88,7 +86,6 @@ func (t Tool) MarshalJSON() ([]byte, error) {
 func (s *Server) tools() map[string]Tool {
 	s.ensureWatcherActions()
 	s.ensureAgentActions()
-	s.ensureProjectActions()
 	s.ensureTaskAuthoringActions()
 	s.ensureTrainV2Actions()
 	s.ensureRuntimeLogActions()

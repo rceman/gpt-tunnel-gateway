@@ -56,6 +56,9 @@ func (s *Server) RegisterGenericAction(action GenericAction) error {
 	if strings.HasSuffix(action.Path, "_status") {
 		return fmt.Errorf("generic action %q uses retired *_status receipt path; use operation/read", action.Path)
 	}
+	if strings.HasPrefix(action.Path, "project/") && action.Path != "project/status" {
+		return fmt.Errorf("generic action %q is not part of the active project action surface", action.Path)
+	}
 	if strings.HasPrefix(action.Path, "plan/") {
 		return fmt.Errorf("plan actions are retired from the canonical action registry")
 	}
@@ -118,6 +121,9 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		if toolName == "git_worktree_status" {
 			path = "git/worktree_status"
 		}
+		if strings.HasPrefix(path, "project/") && path != "project/status" {
+			continue
+		}
 		if strings.HasSuffix(path, "_status") && toolName != "git_worktree_status" {
 			panic(fmt.Sprintf("legacy action %q uses retired *_status receipt path; remove the registration", path))
 		}
@@ -157,6 +163,9 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 	defer s.genericActionMu.RUnlock()
 	for path, action := range s.genericActions {
 		if strings.HasPrefix(path, "plan/") {
+			continue
+		}
+		if strings.HasPrefix(path, "project/") && path != "project/status" {
 			continue
 		}
 		entry := genericActionEntry{GenericAction: action}
