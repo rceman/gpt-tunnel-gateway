@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,11 +26,17 @@ func TestProjectOperationalStatusUsesLocalSharedStateWhenHubUnavailable(t *testi
 		Remote:            "origin",
 		DefaultBranch:     "main",
 		ProjectCode:       "EXM",
-		AirelaySessionKey: "example_master",
+		AirelaySessionKey: "wrong_local_master",
+	}
+	airelay := filepath.Join(t.TempDir(), "airelay")
+	if err := os.WriteFile(airelay, []byte("#!/bin/sh\n[ \"$2\" = gpt-tunnel-gateway_master ] || exit 9\nprintf 'Controller: reachable\\nState: idle\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
 	}
 	c := config.Config{
-		SchemaVersion: 1,
-		StateDir:      stateDir,
+		SchemaVersion:          1,
+		StateDir:               stateDir,
+		DispatchTimeoutSeconds: 1,
+		AirelayCommand:         airelay,
 		Hub: config.HubConfig{
 			RepositoryURL: filepath.Join(t.TempDir(), "unavailable-hub.git"),
 			Branch:        "main",
@@ -55,6 +63,43 @@ func TestProjectOperationalStatusUsesLocalSharedStateWhenHubUnavailable(t *testi
 	}); err != nil {
 		t.Fatal(err)
 	}
+	train := model.TrainV2{
+		SchemaVersion: model.TrainV2SchemaVersion,
+		ID:            "EXM-TRN1",
+		ProjectID:     projectID,
+		Revision:      1,
+		Status:        model.TrainV2Running,
+		CreatedBy:     "planner",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		Items: []model.TrainV2Item{{
+			Position:            0,
+			TaskID:              "EXM-TSK1",
+			TaskRevision:        1,
+			TaskRevisionSHA256:  strings.Repeat("a", 64),
+			Status:              model.TrainV2ItemRunning,
+			AddedAt:             now,
+			ActiveAttemptNumber: 1,
+			Attempts: []model.TrainV2Attempt{{
+				Number:            1,
+				Status:            model.TrainV2AttemptRunning,
+				AgentID:           "gpt-review-planner",
+				AirelaySessionKey: "gpt-tunnel-gateway_master",
+				GatewayID:         "gateway-one",
+				StartHead:         strings.Repeat("b", 40),
+				StartedAt:         now,
+			}},
+		}},
+	}
+	trainPayload, err := json.Marshal(train)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(context.Background(), "train", sqlitestore.SharedEntity{
+		ID: "EXM-TRN1", Revision: 1, Payload: trainPayload, UpdatedAt: now.Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	s := NewWithDurabilityDeferredWorkers(c, db)
 	session, err := durableSession.NewStore(stateDir).Create(durableSession.CreateInput{
@@ -78,5 +123,8 @@ func TestProjectOperationalStatusUsesLocalSharedStateWhenHubUnavailable(t *testi
 	}
 	if result.Rules.Revision != configuration.Revision {
 		t.Fatalf("unexpected rules revision: %#v", result.Rules)
+	}
+	if result.Agent.AgentID != "gpt-review-planner" || result.Agent.Expected != "gpt-review-planner" || !result.Agent.SessionReady {
+		t.Fatalf("Shared active Attempt identity was not projected: %#v", result.Agent)
 	}
 }

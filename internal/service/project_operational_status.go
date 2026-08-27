@@ -174,18 +174,21 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 		result.State = "working"
 		result.RecommendedNextAction = "supervise current operation"
 	}
+	trains, trainsErr := s.readProjectOperationalTrains(ctx, projectID)
 	if s.Durability != nil {
-		agentID := local.Watcher.AgentID
+		agentID, sessionKey := sharedOperationalAgentIdentity(trains)
+		if agentID == "" && local.Watcher.AgentID != "" {
+			agentID = local.Watcher.AgentID
+			if binding, bound := s.Config.ResolveAgentBinding(projectID, agentID); bound && binding.Validate() == nil {
+				sessionKey = binding.SessionKey
+			}
+		}
 		result.Agent.AgentID = agentID
 		if agentID != "" {
 			result.Agent.Expected = agentID
 		}
-		binding, bound := s.Config.ResolveAgentBinding(projectID, agentID)
-		if !bound {
-			binding, bound = s.Config.ResolveAutoAgentBinding(projectID)
-		}
-		if bound && binding.Validate() == nil {
-			probe, probeErr := s.Airelay.Status(ctx, binding.SessionKey)
+		if sessionKey != "" {
+			probe, probeErr := s.Airelay.Status(ctx, sessionKey)
 			result.Agent.SessionReady = probeErr == nil && probe.ControllerReachable
 			result.Agent.State = "idle"
 			if probe.State == "busy" || probe.State == "working" {
@@ -226,7 +229,6 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 			break
 		}
 	}
-	trains, trainsErr := s.readProjectOperationalTrains(ctx, projectID)
 	if trainsErr == nil {
 		s.populateProjectOperationalTrain(&result, trains)
 	}
@@ -252,6 +254,25 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 		result.RecommendedNextAction = "start Agent"
 	}
 	return result, nil
+}
+
+func sharedOperationalAgentIdentity(trains []model.TrainV2) (string, string) {
+	sort.Slice(trains, func(i, j int) bool { return trains[i].UpdatedAt.After(trains[j].UpdatedAt) })
+	for _, train := range trains {
+		if train.Historical != nil || train.Status == model.TrainV2Completed || train.Status == model.TrainV2ReadyForIntegration || train.Status == model.TrainV2Retired {
+			continue
+		}
+		for _, item := range train.Items {
+			if item.ActiveAttemptNumber == 0 || item.ActiveAttemptNumber > uint64(len(item.Attempts)) {
+				continue
+			}
+			attempt := item.Attempts[item.ActiveAttemptNumber-1]
+			if attempt.Status == model.TrainV2AttemptRunning {
+				return attempt.AgentID, attempt.AirelaySessionKey
+			}
+		}
+	}
+	return "", ""
 }
 
 func (s *Service) readProjectOperationalTrains(ctx context.Context, projectID string) ([]model.TrainV2, error) {
