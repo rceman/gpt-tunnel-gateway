@@ -34,6 +34,31 @@ func (r Runner) commandWithEnv(ctx context.Context, dir string, gitDir bool, ext
 	}
 	return stdout.Bytes(), nil
 }
+
+// commandWithExit is the typed Git boundary for commands whose documented
+// non-zero exit status is data. It remains private so callers cannot execute
+// arbitrary processes or bypass the Git runner policy.
+func (r Runner) commandWithExit(ctx context.Context, dir string, gitDir bool, args ...string) ([]byte, int, error) {
+	base := []string{"-c", "core.pager=cat", "-c", "pager.log=false", "-c", "pager.show=false", "-c", "diff.external=", "-c", "color.ui=false"}
+	base = append(base, args...)
+	cmd := exec.CommandContext(ctx, "git", base...)
+	if gitDir {
+		cmd.Env = append(cleanEnv(), "GIT_DIR="+dir)
+	} else {
+		cmd.Dir = dir
+		cmd.Env = cleanEnv()
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return stdout.Bytes(), exitErr.ExitCode(), nil
+		}
+		return nil, -1, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return stdout.Bytes(), 0, nil
+}
 func cleanEnv() []string {
 	allowed := []string{"HOME", "PATH", "SSH_AUTH_SOCK", "USER", "LOGNAME", "TMPDIR"}
 	out := []string{"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C"}

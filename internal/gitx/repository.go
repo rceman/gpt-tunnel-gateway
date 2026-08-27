@@ -46,10 +46,39 @@ func (r Runner) Tree(ctx context.Context, p config.ProjectConfig, rev, path stri
 	if err != nil {
 		return nil, err
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) > r.MaxListItems {
-		return nil, fmt.Errorf("tree exceeds item limit")
+	text, err := bounded(out, r.MaxReadBytes)
+	if err != nil {
+		return nil, err
 	}
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return []string{}, nil
+	}
+	return lines, nil
+}
+
+// TreeLocal reads an exact committed tree from the configured local worktree.
+// It never falls back to a mirror or performs refresh/network work.
+func (r Runner) TreeLocal(ctx context.Context, p config.ProjectConfig, rev, path string) ([]string, error) {
+	if err := model.ValidateCommitSHA(rev); err != nil {
+		return nil, err
+	}
+	if err := validatePath(path); err != nil {
+		return nil, err
+	}
+	args := []string{"ls-tree", "-r", "--name-only", rev}
+	if path != "" {
+		args = append(args, "--", path)
+	}
+	out, err := r.command(ctx, p.Root, false, args...)
+	if err != nil {
+		return nil, err
+	}
+	text, err := bounded(out, r.MaxReadBytes)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimSpace(text), "\n")
 	if len(lines) == 1 && lines[0] == "" {
 		return []string{}, nil
 	}
@@ -78,12 +107,13 @@ func (r Runner) TreePage(ctx context.Context, p config.ProjectConfig, rev, path 
 	if err != nil {
 		return nil, pagination.PageInfo{}, err
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	text, err := bounded(out, r.MaxReadBytes)
+	if err != nil {
+		return nil, pagination.PageInfo{}, err
+	}
+	lines := strings.Split(strings.TrimSpace(text), "\n")
 	if len(lines) == 1 && lines[0] == "" {
 		lines = []string{}
-	}
-	if len(lines) > r.MaxListItems {
-		return nil, pagination.PageInfo{}, fmt.Errorf("tree exceeds configured item limit")
 	}
 	return pagination.Page("git_tree:"+p.Mirror+"|"+rev+"|"+path, lines, limit, cursor, func(item string) string { return item })
 }
@@ -145,9 +175,6 @@ func (r Runner) ChangedFiles(ctx context.Context, root, from, to string) ([]stri
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if len(lines) == 1 && lines[0] == "" {
 		return []string{}, nil
-	}
-	if len(lines) > r.MaxListItems {
-		return nil, fmt.Errorf("changed file list exceeds item limit")
 	}
 	for _, path := range lines {
 		if err := model.ValidateRelativePath(path); err != nil {

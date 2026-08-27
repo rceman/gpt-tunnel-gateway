@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"sort"
@@ -12,6 +14,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 const (
@@ -20,11 +23,29 @@ const (
 	LocalCodeMaxPaths        = 64
 	LocalCodeMaxMatches      = 100
 	LocalCodeMaxQueryBytes   = 256
-	LocalCodeMaxSearchBytes  = 1 << 20
 	LocalCodeMaxLines        = 1000
-	LocalCodeMaxSearchItems  = 4096
 	LocalCodeMaxPatterns     = 32
 )
+
+type CodeSelectorErrorKind string
+
+const (
+	CodeSelectorNotFound CodeSelectorErrorKind = "not_found"
+	CodeSelectorStale    CodeSelectorErrorKind = "stale"
+)
+
+type CodeSelectorError struct {
+	Kind     CodeSelectorErrorKind
+	Selector string
+	Current  string
+}
+
+func (e *CodeSelectorError) Error() string {
+	if e.Kind == CodeSelectorStale && e.Current != "" {
+		return fmt.Sprintf("worktree selector %q is stale; current selector is %q", e.Selector, e.Current)
+	}
+	return fmt.Sprintf("worktree selector %q was not found in this project", e.Selector)
+}
 
 type CodeWorktreeInput struct {
 	ProjectID string
@@ -72,13 +93,6 @@ type CodeReadInput struct {
 	LineCount int
 	Cursor    string
 	Live      bool
-
-	// Internal-only fields retained for old direct service fixtures. Public MCP
-	// decoders do not expose caller authority through these fields.
-	WorktreeRef string
-	BaseSHA     string
-	Offset      int64
-	MaxBytes    int
 }
 
 type CodeSearchInput struct {
@@ -91,9 +105,6 @@ type CodeSearchInput struct {
 	Limit     int
 	Cursor    string
 	Live      bool
-
-	WorktreeRef string
-	BaseSHA     string
 }
 
 type CodeDiffInput struct {
@@ -103,9 +114,6 @@ type CodeDiffInput struct {
 	MaxBytes  int
 	Cursor    string
 	Live      bool
-
-	WorktreeRef string
-	BaseSHA     string
 }
 
 type CodeIdentity struct {
@@ -114,8 +122,6 @@ type CodeIdentity struct {
 	Live     bool   `json:"live"`
 
 	ProjectID   string `json:"-"`
-	WorktreeRef string `json:"-"`
-	BaseSHA     string `json:"-"`
 	CurrentHead string `json:"-"`
 }
 
@@ -129,9 +135,6 @@ type CodeReadResult struct {
 	Truncated  bool   `json:"truncated"`
 	NextCursor string `json:"next_cursor,omitempty"`
 	HasMore    bool   `json:"has_more"`
-
-	Offset     int64 `json:"-"`
-	TotalBytes int64 `json:"-"`
 }
 
 type CodeSearchMatch struct {
@@ -163,6 +166,7 @@ type localCodeTarget struct {
 	ProjectWorktree config.ProjectConfig
 	Kind            string
 	TrainID         string
+	DiffBase        string
 }
 
 type codeWorktreeCandidate struct {
@@ -174,7 +178,7 @@ func (s *Service) codeTrainRecords(ctx context.Context, projectID string) ([]mod
 	if s.Durability != nil {
 		return s.sharedTrains(ctx, projectID)
 	}
-	return nil, fmt.Errorf("Shared Train authority is unavailable for local worktree discovery")
+	return nil, nil
 }
 
 func activeCodeTrainStatus(status string) bool {
@@ -236,10 +240,48 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 			kind, label = "main", "main"
 		} else if strings.HasPrefix(info.Branch, "refs/heads/train/") {
 			candidateID := strings.TrimPrefix(info.Branch, "refs/heads/train/")
-			if _, ok := managed[candidateID]; !ok {
+			train, ok := managed[candidateID]
+			if !ok {
 				continue
 			}
+			expectedPath := trainv2.ExpectedWorktreePath(s.Config.StateDir, projectID, candidateID)
+			if filepath.Clean(info.Path) != filepath.Clean(expectedPath) {
+				return nil, fmt.Errorf("managed Train %s is bound to unexpected worktree path", candidateID)
+			}
+			runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, candidateID)
+			if runtimeErr == nil {
+				if runtime.ProjectID != projectID || runtime.TrainID != candidateID || filepath.Clean(runtime.WorktreePath) != filepath.Clean(expectedPath) {
+					return nil, fmt.Errorf("managed Train %s has an invalid runtime worktree binding", candidateID)
+				}
+			} else if !errors.Is(runtimeErr, os.ErrNotExist) {
+				return nil, fmt.Errorf("read managed Train %s runtime: %w", candidateID, runtimeErr)
+			} else if train.Status == model.TrainV2Running {
+				return nil, fmt.Errorf("managed running Train %s has no server-owned runtime binding", candidateID)
+			}
 			trainID, kind, label = candidateID, "train", candidateID
+			base, baseErr := codeTrainBase(train, status.Head)
+			if baseErr != nil {
+				return nil, baseErr
+			}
+			if base != status.Head {
+				ancestor, ancestorErr := s.Git.IsAncestor(ctx, worktree.Root, base, status.Head)
+				if ancestorErr != nil || !ancestor {
+					return nil, fmt.Errorf("managed Train %s has an invalid authoritative base", candidateID)
+				}
+			}
+			selector, selectorErr := codeSelector(trainID, status.Head)
+			if selectorErr != nil {
+				return nil, selectorErr
+			}
+			if _, exists := seen[selector]; exists {
+				return nil, fmt.Errorf("ambiguous worktree selector %q", selector)
+			}
+			seen[selector] = struct{}{}
+			candidates = append(candidates, codeWorktreeCandidate{
+				localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: selector, Dirty: !status.Clean, CurrentHead: status.Head}, ProjectWorktree: worktree, Kind: kind, TrainID: trainID, DiffBase: base},
+				Label:           label,
+			})
+			continue
 		} else {
 			continue
 		}
@@ -251,25 +293,49 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 			return nil, fmt.Errorf("ambiguous worktree selector %q", selector)
 		}
 		seen[selector] = struct{}{}
-		base := status.Head
-		if trainID != "" {
-			base = ""
-			train := managed[trainID]
-			for _, item := range train.Items {
-				for _, attempt := range item.Attempts {
-					if attempt.Status == model.TrainV2AttemptRunning && model.ValidateCommitSHA(attempt.StartHead) == nil {
-						base = attempt.StartHead
-					}
-				}
-			}
-		}
 		candidates = append(candidates, codeWorktreeCandidate{
-			localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: selector, Dirty: !status.Clean, CurrentHead: status.Head, BaseSHA: base, WorktreeRef: info.Branch}, ProjectWorktree: worktree, Kind: kind, TrainID: trainID},
+			localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: selector, Dirty: !status.Clean, CurrentHead: status.Head}, ProjectWorktree: worktree, Kind: kind, DiffBase: status.Head},
 			Label:           label,
 		})
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].CodeIdentity.Worktree < candidates[j].CodeIdentity.Worktree })
 	return candidates, nil
+}
+
+func codeTrainBase(train model.TrainV2, currentHead string) (string, error) {
+	base := ""
+	setBase := func(value string) error {
+		if model.ValidateCommitSHA(value) != nil {
+			return fmt.Errorf("managed Train %s has an invalid authoritative base", train.ID)
+		}
+		if base != "" && base != value {
+			return fmt.Errorf("managed Train %s has conflicting authoritative bases", train.ID)
+		}
+		base = value
+		return nil
+	}
+	for _, item := range train.Items {
+		if item.ActiveAttemptNumber > 0 && item.ActiveAttemptNumber <= uint64(len(item.Attempts)) {
+			attempt := item.Attempts[item.ActiveAttemptNumber-1]
+			if attempt.Status == model.TrainV2AttemptRunning {
+				if err := setBase(attempt.StartHead); err != nil {
+					return "", err
+				}
+			}
+		}
+		if item.SuccessfulAttemptNumber > 0 {
+			if item.SuccessfulAttemptNumber > uint64(len(item.Attempts)) {
+				return "", fmt.Errorf("managed Train %s has an invalid successful Attempt", train.ID)
+			}
+			if err := setBase(item.Attempts[item.SuccessfulAttemptNumber-1].StartHead); err != nil {
+				return "", err
+			}
+		}
+	}
+	if base == "" {
+		return currentHead, nil
+	}
+	return base, nil
 }
 
 func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selector string, live bool) (localCodeTarget, error) {
@@ -287,12 +353,12 @@ func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selecto
 		if !live && candidate.Dirty {
 			return localCodeTarget{}, fmt.Errorf("worktree selector %q is dirty; set live=true for bounded observation", selector)
 		}
-		if candidate.TrainID != "" && candidate.BaseSHA == "" {
+		if candidate.TrainID != "" && candidate.DiffBase == "" {
 			return localCodeTarget{}, fmt.Errorf("worktree selector %q has no authoritative Train base", selector)
 		}
 		candidate.Live = live
 		if candidate.TrainID != "" {
-			ancestor, ancestorErr := s.Git.IsAncestor(ctx, candidate.ProjectWorktree.Root, candidate.BaseSHA, candidate.CurrentHead)
+			ancestor, ancestorErr := s.Git.IsAncestor(ctx, candidate.ProjectWorktree.Root, candidate.DiffBase, candidate.CurrentHead)
 			if ancestorErr != nil || !ancestor {
 				return localCodeTarget{}, fmt.Errorf("worktree selector %q has an invalid authoritative Train base", selector)
 			}
@@ -304,10 +370,10 @@ func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selecto
 			if candidate.Kind != kind || (kind == "train" && number != candidateTrainNumber(candidate.TrainID)) {
 				continue
 			}
-			return localCodeTarget{}, fmt.Errorf("stale worktree selector %q; current selector is %q", selector, candidate.CodeIdentity.Worktree)
+			return localCodeTarget{}, &CodeSelectorError{Kind: CodeSelectorStale, Selector: selector, Current: candidate.CodeIdentity.Worktree}
 		}
 	}
-	return localCodeTarget{}, fmt.Errorf("worktree selector %q was not found in this project", selector)
+	return localCodeTarget{}, &CodeSelectorError{Kind: CodeSelectorNotFound, Selector: selector}
 }
 
 func candidateTrainNumber(trainID string) uint64 {
@@ -391,7 +457,7 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 	if target.Live {
 		paths, err = s.Git.WorkingTreeFiles(ctx, target.ProjectWorktree, in.Path)
 	} else {
-		paths, err = s.Git.Tree(ctx, target.ProjectWorktree, target.CurrentHead, in.Path)
+		paths, err = s.Git.TreeLocal(ctx, target.ProjectWorktree, target.CurrentHead, in.Path)
 	}
 	if err != nil {
 		return CodeTreeResult{}, err
@@ -412,49 +478,6 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 		return CodeTreeResult{}, err
 	}
 	return CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: page, NextCursor: info.NextCursor, HasMore: info.HasMore}, nil
-}
-
-func (s *Service) resolveLegacyCodeTarget(ctx context.Context, projectID, ref, base string) (localCodeTarget, error) {
-	if model.ValidateCommitSHA(base) != nil {
-		return localCodeTarget{}, fmt.Errorf("base_sha must be an exact commit SHA")
-	}
-	project, err := s.EffectiveProjectConfig(projectID)
-	if err != nil {
-		return localCodeTarget{}, err
-	}
-	project, err = s.Git.ResolveWorktree(ctx, project, ref)
-	if err != nil {
-		return localCodeTarget{}, err
-	}
-	status, err := s.Git.WorktreeStatus(ctx, project)
-	if err != nil {
-		return localCodeTarget{}, err
-	}
-	if !status.Clean {
-		return localCodeTarget{}, fmt.Errorf("local worktree_ref %q is dirty", ref)
-	}
-	resolved, err := s.Git.Resolve(ctx, project.Root, base)
-	if err != nil || resolved != base {
-		return localCodeTarget{}, fmt.Errorf("base_sha is not an exact local commit")
-	}
-	ancestor, err := s.Git.IsAncestor(ctx, project.Root, base, status.Head)
-	if err != nil || !ancestor {
-		return localCodeTarget{}, fmt.Errorf("base_sha %s is not an ancestor of local HEAD %s", base, status.Head)
-	}
-	return localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: ref, WorktreeRef: ref, BaseSHA: base, CurrentHead: status.Head, Dirty: false}, ProjectWorktree: project, Kind: "main"}, nil
-}
-
-func (s *Service) codeTarget(ctx context.Context, projectID, selector, legacyRef, legacyBase string, live bool) (localCodeTarget, error) {
-	if selector != "" {
-		return s.resolveLocalCodeTarget(ctx, projectID, selector, live)
-	}
-	if legacyRef != "" || legacyBase != "" {
-		if live {
-			return localCodeTarget{}, fmt.Errorf("legacy code authority is not valid with live=true")
-		}
-		return s.resolveLegacyCodeTarget(ctx, projectID, legacyRef, legacyBase)
-	}
-	return localCodeTarget{}, fmt.Errorf("worktree selector is required")
 }
 
 func validateCodePatterns(patterns []string) error {
@@ -532,7 +555,7 @@ func (s *Service) readCodeFile(ctx context.Context, target localCodeTarget, path
 }
 
 func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResult, error) {
-	target, err := s.codeTarget(ctx, in.ProjectID, in.Worktree, in.WorktreeRef, in.BaseSHA, in.Live)
+	target, err := s.resolveLocalCodeTarget(ctx, in.ProjectID, in.Worktree, in.Live)
 	if err != nil {
 		return CodeReadResult{}, err
 	}
@@ -542,24 +565,6 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	content, err := s.readCodeFile(ctx, target, in.Path)
 	if err != nil {
 		return CodeReadResult{}, err
-	}
-	if in.Worktree == "" {
-		if in.Offset < 0 {
-			return CodeReadResult{}, fmt.Errorf("offset must not be negative")
-		}
-		maxBytes, err := localCodeMaxBytes(in.MaxBytes)
-		if err != nil {
-			return CodeReadResult{}, err
-		}
-		if in.Offset > int64(len(content)) {
-			return CodeReadResult{}, fmt.Errorf("offset exceeds file size")
-		}
-		data := []byte(content)[in.Offset:]
-		truncated := len(data) > maxBytes
-		if truncated {
-			data = data[:maxBytes]
-		}
-		return CodeReadResult{CodeIdentity: target.CodeIdentity, Path: in.Path, Offset: in.Offset, TotalBytes: int64(len(content)), Content: string(data), Truncated: truncated, HasMore: truncated}, nil
 	}
 	lines := strings.Split(content, "\n")
 	start := in.StartLine
@@ -629,7 +634,7 @@ func validateLocalCodePaths(paths []string, required bool) ([]string, error) {
 }
 
 func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearchResult, error) {
-	target, err := s.codeTarget(ctx, in.ProjectID, in.Worktree, in.WorktreeRef, in.BaseSHA, in.Live)
+	target, err := s.resolveLocalCodeTarget(ctx, in.ProjectID, in.Worktree, in.Live)
 	if err != nil {
 		return CodeSearchResult{}, err
 	}
@@ -645,7 +650,6 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		return CodeSearchResult{}, err
 	}
 	result := CodeSearchResult{CodeIdentity: target.CodeIdentity, Matches: []CodeSearchMatch{}, PathsScanned: len(paths)}
-	var scannedBytes int64
 	for _, pathName := range paths {
 		data, readErr := s.readCodeFile(ctx, target, pathName)
 		if readErr != nil {
@@ -654,19 +658,13 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		if len(data) > LocalCodeMaxBytes {
 			return CodeSearchResult{}, fmt.Errorf("code search file exceeds bounded object limit")
 		}
-		scannedBytes += int64(len(data))
-		if scannedBytes > LocalCodeMaxSearchBytes {
-			return CodeSearchResult{}, fmt.Errorf("code search exceeds scanned-byte bound; narrow paths")
-		}
 		if strings.IndexByte(data, 0) >= 0 {
 			continue
 		}
-		for lineNumber, line := range strings.Split(data, "\n") {
+		lines := strings.Split(data, "\n")
+		for lineNumber, line := range lines {
 			if !strings.Contains(line, in.Query) {
 				continue
-			}
-			if len(result.Matches) >= LocalCodeMaxSearchItems {
-				return CodeSearchResult{}, fmt.Errorf("code search result set exceeds bounded limit; narrow query or paths")
 			}
 			snippet := line
 			if len(snippet) > 240 {
@@ -676,7 +674,9 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		}
 	}
 	kind := "code-search|" + target.CodeIdentity.Worktree + "|" + in.Query + "|" + strings.Join(paths, "\x00") + "|" + strconv.FormatBool(target.Live)
-	page, info, err := pagination.Page(kind, result.Matches, limit, in.Cursor, func(match CodeSearchMatch) string { return match.Path + ":" + strconv.Itoa(match.Line) })
+	page, info, err := pagination.Page(kind, result.Matches, limit, in.Cursor, func(match CodeSearchMatch) string {
+		return match.Path + ":" + strconv.Itoa(match.Line)
+	})
 	if err != nil {
 		return CodeSearchResult{}, err
 	}
@@ -686,7 +686,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 }
 
 func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResult, error) {
-	target, err := s.codeTarget(ctx, in.ProjectID, in.Worktree, in.WorktreeRef, in.BaseSHA, in.Live)
+	target, err := s.resolveLocalCodeTarget(ctx, in.ProjectID, in.Worktree, in.Live)
 	if err != nil {
 		return CodeDiffResult{}, err
 	}
@@ -700,9 +700,9 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 	}
 	var diff string
 	if target.Live {
-		diff, err = s.Git.DiffWorkingFromBase(ctx, target.ProjectWorktree, target.BaseSHA, paths)
+		diff, err = s.Git.DiffWorkingFromBase(ctx, target.ProjectWorktree, target.DiffBase, paths)
 	} else {
-		diff, err = s.Git.DiffLocalCommits(ctx, target.ProjectWorktree, target.BaseSHA, target.CurrentHead, paths)
+		diff, err = s.Git.DiffLocalCommits(ctx, target.ProjectWorktree, target.DiffBase, target.CurrentHead, paths)
 	}
 	if err != nil {
 		return CodeDiffResult{}, err

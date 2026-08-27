@@ -57,9 +57,6 @@ func (r Runner) ListWorktrees(ctx context.Context, p config.ProjectConfig) ([]Wo
 		}
 	}
 	flush()
-	if len(worktrees) > r.MaxListItems {
-		return nil, fmt.Errorf("worktree inventory exceeds configured item limit")
-	}
 	return worktrees, nil
 }
 
@@ -195,28 +192,77 @@ func (r Runner) WorkingTreeFiles(ctx context.Context, p config.ProjectConfig, pa
 	if len(lines) == 1 && lines[0] == "" {
 		return []string{}, nil
 	}
-	if len(lines) > r.MaxListItems {
-		return nil, fmt.Errorf("working tree exceeds configured item limit")
-	}
 	return lines, nil
 }
 
-// DiffWorkingFromBase compares the current worktree, including staged and
-// unstaged changes, with one exact local base commit.
+// DiffWorkingFromBase compares tracked changes with an exact base and then
+// appends Git's no-index patch for each current non-ignored untracked regular
+// file. Exit status 1 from --no-index means differences, not an operation
+// failure; higher statuses remain errors.
 func (r Runner) DiffWorkingFromBase(ctx context.Context, p config.ProjectConfig, base string, paths []string) (string, error) {
 	if err := model.ValidateCommitSHA(base); err != nil {
 		return "", err
+	}
+	for _, path := range paths {
+		if err := model.ValidateRelativePath(path); err != nil {
+			return "", err
+		}
 	}
 	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", base}
 	if len(paths) > 0 {
 		args = append(args, "--")
 		args = append(args, paths...)
 	}
-	out, err := r.command(ctx, p.Root, false, args...)
+	tracked, err := r.command(ctx, p.Root, false, args...)
 	if err != nil {
 		return "", err
 	}
-	return bounded(out, r.MaxDiffBytes)
+	selected := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		selected[path] = struct{}{}
+	}
+	untrackedRaw, err := r.command(ctx, p.Root, false, "ls-files", "--others", "--exclude-standard", "--full-name", "-z")
+	if err != nil {
+		return "", err
+	}
+	var result strings.Builder
+	result.Write(tracked)
+	for _, path := range strings.Split(strings.TrimSuffix(string(untrackedRaw), "\x00"), "\x00") {
+		if path == "" || (len(selected) > 0 && !pathSetContains(selected, path)) {
+			continue
+		}
+		if err := model.ValidateRelativePath(path); err != nil {
+			return "", err
+		}
+		info, statErr := os.Lstat(filepath.Join(p.Root, filepath.FromSlash(path)))
+		if statErr != nil {
+			return "", statErr
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		patch, exitCode, runErr := r.commandWithExit(ctx, p.Root, false, "diff", "--no-ext-diff", "--no-textconv", "--no-index", "--", "/dev/null", filepath.ToSlash(path))
+		if runErr != nil {
+			return "", runErr
+		}
+		if exitCode != 0 && exitCode != 1 {
+			return "", fmt.Errorf("git diff --no-index exited with status %d", exitCode)
+		}
+		result.Write(patch)
+	}
+	return result.String(), nil
+}
+
+func pathSetContains(paths map[string]struct{}, path string) bool {
+	if _, ok := paths[path]; ok {
+		return true
+	}
+	for selected := range paths {
+		if strings.HasPrefix(path, selected+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // DiffLocalCommits compares two exact local committed objects. It never
@@ -239,7 +285,7 @@ func (r Runner) DiffLocalCommits(ctx context.Context, p config.ProjectConfig, fr
 	if err != nil {
 		return "", err
 	}
-	return bounded(out, r.MaxDiffBytes)
+	return string(out), nil
 }
 
 func (r Runner) WorktreeStatus(ctx context.Context, p config.ProjectConfig) (WorktreeStatus, error) {
