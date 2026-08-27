@@ -107,6 +107,13 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 		v, page, e := s.Service.Git.TreePage(ctx, p, args.Revision, args.Path, limit, args.Cursor)
 		return map[string]any{"paths": v, "next_cursor": page.NextCursor, "has_more": page.HasMore}, e
 	})
+	add("git_worktree_status", "Read the local managed worktree status.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		_, p, e := projectConfig(raw)
+		if e != nil {
+			return nil, e
+		}
+		return s.Service.Git.WorktreeStatus(ctx, p)
+	})
 	add("git_read_file", "Read a UTF-8 file at any revision.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref"), "path": str("Relative file path")}, "project_id", "revision", "path"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		_, p, e := projectConfig(raw)
 		if e != nil {
