@@ -49,12 +49,44 @@ func (r Runner) CreateHotfixWorktree(ctx context.Context, p config.ProjectConfig
 	if err != nil {
 		return config.ProjectConfig{}, err
 	}
+	if err := r.MaterializeMirrorCommit(ctx, p, p.DefaultBranch, base); err != nil {
+		return config.ProjectConfig{}, err
+	}
 	if err := r.createTrainWorktree(ctx, p, path, branch, base); err != nil {
 		return config.ProjectConfig{}, err
 	}
 	result := p
 	result.Root = path
 	return result, nil
+}
+
+// MaterializeMirrorCommit makes an exact mirror-authoritative commit
+// available to the configured source repository without moving any local
+// branch. This is required when the source clone has stale object storage.
+func (r Runner) MaterializeMirrorCommit(ctx context.Context, p config.ProjectConfig, branch, commit string) error {
+	if err := model.ValidateBranch(branch); err != nil {
+		return err
+	}
+	if err := model.ValidateCommitSHA(commit); err != nil {
+		return err
+	}
+	if resolved, err := r.Resolve(ctx, p.Root, commit); err == nil && resolved == commit {
+		return nil
+	}
+	if p.Mirror == "" {
+		return fmt.Errorf("managed mirror is required to materialize hotfix base")
+	}
+	if _, err := r.command(ctx, p.Root, false, "fetch", "--no-tags", p.Mirror, "refs/heads/"+branch); err != nil {
+		return fmt.Errorf("materialize mirror commit: %w", err)
+	}
+	resolved, err := r.Resolve(ctx, p.Root, commit)
+	if err != nil {
+		return fmt.Errorf("materialized hotfix base is not available: %w", err)
+	}
+	if resolved != commit {
+		return fmt.Errorf("materialized hotfix base resolved to %s, want %s", resolved, commit)
+	}
+	return nil
 }
 
 // RemoveHotfixWorktree rolls back a hotfix lane created by the current
