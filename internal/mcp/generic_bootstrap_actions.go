@@ -106,7 +106,7 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 			if session.ProjectID == "" {
 				return base, nil
 			}
-			projectStatus, err := s.Service.ProjectStatus(ctx, session.ProjectID)
+			projectStatus, err := s.Service.ProjectOperationalStatus(ctx)
 			if err != nil {
 				return nil, err
 			}
