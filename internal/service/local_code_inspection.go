@@ -226,6 +226,20 @@ func codeSelector(trainID, head string) (string, error) {
 	return fmt.Sprintf("WT-TRN%d-%s", number, strings.ToLower(head[:8])), nil
 }
 
+func (s *Service) validateCodeSelectorIdentity(ctx context.Context, worktree config.ProjectConfig, head string) error {
+	if len(head) < 8 || model.ValidateCommitSHA(head) != nil {
+		return fmt.Errorf("invalid worktree HEAD")
+	}
+	commits, err := s.Git.CommitIDsWithPrefix(ctx, worktree, strings.ToLower(head[:8]))
+	if err != nil {
+		return err
+	}
+	if len(commits) != 1 || commits[0] != head {
+		return fmt.Errorf("worktree HEAD %s does not uniquely match its selector", head)
+	}
+	return nil
+}
+
 func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) ([]codeWorktreeCandidate, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return nil, err
@@ -256,6 +270,9 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 		status, statusErr := s.Git.WorktreeStatus(ctx, worktree)
 		if statusErr != nil {
 			return nil, fmt.Errorf("read worktree status: %w", statusErr)
+		}
+		if err := s.validateCodeSelectorIdentity(ctx, worktree, status.Head); err != nil {
+			return nil, err
 		}
 		trainID, kind, label := "", "", ""
 		if filepath.Clean(info.Path) == filepath.Clean(project.Root) {

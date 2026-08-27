@@ -85,6 +85,56 @@ func (r Runner) TreeLocal(ctx context.Context, p config.ProjectConfig, rev, path
 	return lines, nil
 }
 
+// CommitIDsWithPrefix checks the local object database only. Short selectors
+// are safe only when exactly one commit owns the prefix; callers must fail
+// closed on ambiguity instead of silently choosing a different commit.
+func (r Runner) CommitIDsWithPrefix(ctx context.Context, p config.ProjectConfig, prefix string) ([]string, error) {
+	if len(prefix) != 8 {
+		return nil, fmt.Errorf("invalid commit selector prefix")
+	}
+	for _, char := range prefix {
+		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
+			return nil, fmt.Errorf("invalid commit selector prefix")
+		}
+	}
+	out, err := r.command(ctx, p.Root, false, "rev-parse", "--disambiguate="+prefix)
+	if err != nil {
+		return nil, err
+	}
+	text, err := bounded(out, r.MaxReadBytes)
+	if err != nil {
+		return nil, err
+	}
+	commits := make([]string, 0, 2)
+	for _, line := range strings.Fields(text) {
+		if model.ValidateCommitSHA(line) != nil || !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		typeOut, typeErr := r.command(ctx, p.Root, false, "cat-file", "-t", line)
+		if typeErr != nil {
+			return nil, typeErr
+		}
+		if strings.TrimSpace(string(typeOut)) != "commit" {
+			continue
+		}
+		commits = append(commits, line)
+	}
+	if err := validateCommitPrefixMatches(prefix, commits); err != nil {
+		return commits, err
+	}
+	return commits, nil
+}
+
+func validateCommitPrefixMatches(prefix string, commits []string) error {
+	if len(commits) != 1 {
+		return fmt.Errorf("commit selector prefix %q does not resolve uniquely", prefix)
+	}
+	if !strings.HasPrefix(commits[0], prefix) {
+		return fmt.Errorf("commit selector prefix %q does not match HEAD", prefix)
+	}
+	return nil
+}
+
 // WalkTreeLocal streams exact tree paths without retaining the repository
 // inventory in memory.
 func (r Runner) WalkTreeLocal(ctx context.Context, p config.ProjectConfig, rev, path string, visit func(string) error) error {
