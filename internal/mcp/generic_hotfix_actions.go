@@ -79,7 +79,10 @@ func hotfixCreateInputSchema() map[string]any {
 
 func hotfixIntegrateInputSchema() map[string]any {
 	ref := str("Exact server-owned hotfix branch ref.")
-	ref["minLength"] = 1
+	const hotfixRefPrefix = "refs/heads/hotfix/"
+	ref["minLength"] = len(hotfixRefPrefix) + 1
+	ref["maxLength"] = len(hotfixRefPrefix) + 80
+	ref["pattern"] = "^refs/heads/hotfix/[a-z0-9]+(?:-[a-z0-9]+)*$"
 	sha := func(description string) map[string]any {
 		value := str(description)
 		value["minLength"], value["maxLength"] = 40, 40
