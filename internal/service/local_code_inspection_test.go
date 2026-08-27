@@ -9,6 +9,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 type localCodeFixture struct {
@@ -134,6 +135,13 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 	if err != nil || len(tree.Paths) != 1 || !tree.HasMore || tree.NextCursor == "" {
 		t.Fatalf("expected tree pagination beyond Git helper item cap: %#v %v", tree, err)
 	}
+	if len(tree.NextCursor) > 256 {
+		t.Fatalf("tree cursor is not bounded: %d", len(tree.NextCursor))
+	}
+	secondTree, err := f.service.CodeTree(ctx, CodeTreeInput{ProjectID: "example", Worktree: selector, Limit: 1, Cursor: tree.NextCursor})
+	if err != nil || len(secondTree.Paths) == 0 {
+		t.Fatalf("tree cursor did not resume: %#v %v", secondTree, err)
+	}
 
 	if _, err := f.service.CodeRead(ctx, CodeReadInput{
 		ProjectID: "example", Worktree: "WT-MAIN-" + f.unrelated[:8], Path: "tracked.txt",
@@ -151,6 +159,9 @@ func TestLocalCodeSearchContinuesFromExactScanPosition(t *testing.T) {
 	if err != nil || len(first.Matches) != 1 || !first.HasMore || first.NextCursor == "" {
 		t.Fatalf("expected first bounded search page: %#v %v", first, err)
 	}
+	if len(first.NextCursor) > 256 {
+		t.Fatalf("search cursor is not bounded: %d", len(first.NextCursor))
+	}
 	second, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
 		ProjectID: "example", Worktree: selector, Query: "needle", Paths: []string{"new.txt", "tracked.txt"}, Limit: 1, Cursor: first.NextCursor,
 	})
@@ -159,6 +170,20 @@ func TestLocalCodeSearchContinuesFromExactScanPosition(t *testing.T) {
 	}
 	if second.HasMore || second.NextCursor != "" {
 		t.Fatalf("terminal result page exposed an empty continuation: %#v", second)
+	}
+}
+
+func TestCodeTrainWorktreePathUsesProjectCodeForCompactLane(t *testing.T) {
+	stateDir := t.TempDir()
+	project := config.ProjectConfig{ProjectCode: "GTW"}
+	want := filepath.Join(stateDir, "work", "GTW", "TRN63")
+	path, err := codeTrainWorktreePath(stateDir, "gpt-tunnel-gateway", project, "GTW-TRN63", nil)
+	if err != nil || path != want {
+		t.Fatalf("unexpected compact Train path: %q %v", path, err)
+	}
+	runtime := &trainv2.RuntimeBinding{ProjectID: "gpt-tunnel-gateway", ProjectCode: "GTW", TrainID: "GTW-TRN63", WorktreePath: want}
+	if path, err := codeTrainWorktreePath(stateDir, "gpt-tunnel-gateway", project, "GTW-TRN63", runtime); err != nil || path != want {
+		t.Fatalf("runtime compact Train path was rejected: %q %v", path, err)
 	}
 }
 

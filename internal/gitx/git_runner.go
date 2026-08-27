@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
+
+var ErrStreamLimit = errors.New("git stream page limit reached")
 
 func (r Runner) command(ctx context.Context, dir string, gitDir bool, args ...string) ([]byte, error) {
 	return r.commandWithEnv(ctx, dir, gitDir, nil, args...)
@@ -110,6 +113,9 @@ func (r Runner) streamCommand(ctx context.Context, dir string, gitDir bool, args
 			if err := visit(buf[:n]); err != nil {
 				_ = cmd.Process.Kill()
 				_ = cmd.Wait()
+				if errors.Is(err, ErrStreamLimit) {
+					return 0, nil
+				}
 				return -1, err
 			}
 		}

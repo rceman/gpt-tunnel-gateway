@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -237,6 +238,10 @@ type diffPageCollector struct {
 	data   bytes.Buffer
 }
 
+func (c *diffPageCollector) done() bool {
+	return c.total >= c.offset+c.limit+1
+}
+
 func (c *diffPageCollector) write(chunk []byte) error {
 	start := c.total
 	c.total += int64(len(chunk))
@@ -251,6 +256,9 @@ func (c *diffPageCollector) write(chunk []byte) error {
 		chunk = chunk[:remaining]
 	}
 	_, _ = c.data.Write(chunk)
+	if c.done() {
+		return ErrStreamLimit
+	}
 	return nil
 }
 
@@ -320,6 +328,9 @@ func (r Runner) DiffWorkingFromBasePage(ctx context.Context, p config.ProjectCon
 	if exitCode != 0 {
 		return "", false, fmt.Errorf("git diff exited with status %d", exitCode)
 	}
+	if collector.done() {
+		return collector.result()
+	}
 	selected := make(map[string]struct{}, len(paths))
 	for _, path := range paths {
 		selected[path] = struct{}{}
@@ -329,6 +340,9 @@ func (r Runner) DiffWorkingFromBasePage(ctx context.Context, p config.ProjectCon
 		return "", false, err
 	}
 	if err := untrackedWalk(func(path string) error {
+		if collector.done() {
+			return ErrStreamLimit
+		}
 		if path == "" || (len(selected) > 0 && !pathSetContains(selected, path)) {
 			return nil
 		}
@@ -349,8 +363,11 @@ func (r Runner) DiffWorkingFromBasePage(ctx context.Context, p config.ProjectCon
 		if code != 0 && code != 1 {
 			return fmt.Errorf("git diff --no-index exited with status %d", code)
 		}
+		if collector.done() {
+			return ErrStreamLimit
+		}
 		return nil
-	}); err != nil {
+	}); err != nil && !errors.Is(err, ErrStreamLimit) {
 		return "", false, err
 	}
 	return collector.result()

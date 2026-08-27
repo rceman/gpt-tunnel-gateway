@@ -39,6 +39,24 @@ func TestPageAcceptsLegacyCursorAndRejectsStaleCompactCursor(t *testing.T) {
 	}
 }
 
+func TestOpaqueCursorsAreBoundedAndScopeBound(t *testing.T) {
+	kind := "code-diff|gpt-tunnel-gateway|WT-TRN63-abcdef12|" + strings.Repeat("a", 40) + "|" + strings.Repeat("b", 40) + "|query"
+	cursor := EncodeFull(kind, strings.Repeat("nested/path/", 40))
+	if len(cursor) > 256 || !OpaqueCursorMatches(cursor, kind, strings.Repeat("nested/path/", 40)) {
+		t.Fatalf("opaque cursor is not bounded or does not resolve: %d", len(cursor))
+	}
+	if err := ValidateOpaqueCursor(cursor, kind+"-changed-head"); err == nil {
+		t.Fatal("cursor accepted a different full scope")
+	}
+	offset := EncodeOffset(kind, 123456)
+	if len(offset) > 256 {
+		t.Fatalf("offset cursor is not bounded: %d", len(offset))
+	}
+	if got, err := DecodeOffset(offset, kind); err != nil || got != 123456 {
+		t.Fatalf("offset cursor did not round-trip: %d %v", got, err)
+	}
+}
+
 func jsonLegacyCursor(kind, key string) (string, error) {
 	data, err := json.Marshal(cursor{
 		Kind: kind,

@@ -176,6 +176,26 @@ type codeWorktreeCandidate struct {
 	Label string
 }
 
+func codeTrainWorktreePath(stateDir, projectID string, project config.ProjectConfig, trainID string, runtime *trainv2.RuntimeBinding) (string, error) {
+	if err := model.ValidateProjectCode(project.ProjectCode); err != nil {
+		return "", fmt.Errorf("project %q has no valid managed project code: %w", projectID, err)
+	}
+	expected, err := trainv2.CompactWorktreePath(stateDir, project.ProjectCode, trainID)
+	if err != nil {
+		return "", err
+	}
+	if runtime != nil {
+		if runtime.ProjectID != projectID || runtime.TrainID != trainID || runtime.ProjectCode != project.ProjectCode || filepath.Clean(runtime.WorktreePath) != filepath.Clean(expected) {
+			return "", fmt.Errorf("managed Train %s has an invalid runtime worktree binding", trainID)
+		}
+	}
+	return expected, nil
+}
+
+func codeCursorKind(operation string, target localCodeTarget, suffix string) string {
+	return operation + "|" + target.ProjectID + "|" + target.CodeIdentity.Worktree + "|" + target.CurrentHead + "|" + target.DiffBase + "|" + suffix
+}
+
 func (s *Service) codeTrainRecords(ctx context.Context, projectID string) ([]model.TrainV2, error) {
 	if s.Durability != nil {
 		return s.sharedTrains(ctx, projectID)
@@ -246,19 +266,21 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 			if !ok {
 				continue
 			}
-			expectedPath := trainv2.ExpectedWorktreePath(s.Config.StateDir, projectID, candidateID)
-			if filepath.Clean(info.Path) != filepath.Clean(expectedPath) {
-				return nil, fmt.Errorf("managed Train %s is bound to unexpected worktree path", candidateID)
-			}
 			runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, candidateID)
+			var runtimeBinding *trainv2.RuntimeBinding
 			if runtimeErr == nil {
-				if runtime.ProjectID != projectID || runtime.TrainID != candidateID || filepath.Clean(runtime.WorktreePath) != filepath.Clean(expectedPath) {
-					return nil, fmt.Errorf("managed Train %s has an invalid runtime worktree binding", candidateID)
-				}
+				runtimeBinding = &runtime
 			} else if !errors.Is(runtimeErr, os.ErrNotExist) {
 				return nil, fmt.Errorf("read managed Train %s runtime: %w", candidateID, runtimeErr)
 			} else if train.Status == model.TrainV2Running {
 				return nil, fmt.Errorf("managed running Train %s has no server-owned runtime binding", candidateID)
+			}
+			expectedPath, pathErr := codeTrainWorktreePath(s.Config.StateDir, projectID, project, candidateID, runtimeBinding)
+			if pathErr != nil {
+				return nil, pathErr
+			}
+			if filepath.Clean(info.Path) != filepath.Clean(expectedPath) {
+				return nil, fmt.Errorf("managed Train %s is bound to unexpected worktree path", candidateID)
 			}
 			trainID, kind, label = candidateID, "train", candidateID
 			base, baseErr := codeTrainBase(train, status.Head)
@@ -459,24 +481,26 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 	if err != nil {
 		return CodeTreeResult{}, err
 	}
-	kind := "code-tree|" + target.CodeIdentity.Worktree + "|" + in.Path + "|" + in.Query + "|" + strconv.FormatBool(target.Live)
-	after := ""
+	kind := codeCursorKind("code-tree", target, in.Path+"|"+in.Query+"|"+strconv.FormatBool(target.Live))
 	if in.Cursor != "" {
-		after, err = pagination.Decode(in.Cursor, kind)
-		if err != nil {
+		if err = pagination.ValidateOpaqueCursor(in.Cursor, kind); err != nil {
 			return CodeTreeResult{}, err
 		}
 	}
 	paths := make([]string, 0, limit)
-	hasMore, afterSeen := false, after == ""
+	hasCursor := in.Cursor != ""
+	hasMore, afterSeen := false, !hasCursor
 	walkErr := s.walkCodePaths(ctx, target, nil, nil, nil, func(pathName string) error {
-		if after != "" {
-			if pathName == after {
+		if hasCursor {
+			if !afterSeen && pagination.OpaqueCursorMatches(in.Cursor, kind, pathName) {
 				afterSeen = true
 				return nil
 			}
 			if !afterSeen {
 				return nil
+			}
+			if pagination.OpaqueCursorMatches(in.Cursor, kind, pathName) {
+				return fmt.Errorf("ambiguous continuation cursor")
 			}
 		}
 		if in.Path != "" && pathName != in.Path && !strings.HasPrefix(pathName, strings.TrimSuffix(in.Path, "/")+"/") {
@@ -495,7 +519,7 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 	if walkErr != nil && !errors.Is(walkErr, errCodePageDone) {
 		return CodeTreeResult{}, walkErr
 	}
-	if after != "" && !afterSeen {
+	if hasCursor && !afterSeen {
 		return CodeTreeResult{}, fmt.Errorf("continuation cursor is no longer valid")
 	}
 	result := CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: paths, HasMore: hasMore}
@@ -602,12 +626,13 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	if start == 0 {
 		start = 1
 	}
+	kind := codeCursorKind("code-read", target, in.Path+"|"+strconv.FormatBool(target.Live))
 	if in.Cursor != "" {
 		keys := make([]string, len(lines)+1)
 		for index := range keys {
 			keys[index] = strconv.Itoa(index + 1)
 		}
-		resolved, resolveErr := pagination.Resolve(in.Cursor, "code-read|"+target.CodeIdentity.Worktree+"|"+in.Path+"|"+strconv.FormatBool(target.Live), keys)
+		resolved, resolveErr := pagination.Resolve(in.Cursor, kind, keys)
 		if resolveErr != nil {
 			return CodeReadResult{}, resolveErr
 		}
@@ -636,7 +661,7 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	}
 	if end < len(lines) {
 		result.Truncated, result.HasMore = true, true
-		result.NextCursor = pagination.Encode("code-read|"+target.CodeIdentity.Worktree+"|"+in.Path+"|"+strconv.FormatBool(target.Live), strconv.Itoa(end+1))
+		result.NextCursor = pagination.Encode(kind, strconv.Itoa(end+1))
 	}
 	return result, nil
 }
@@ -680,18 +705,17 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	if err != nil {
 		return CodeSearchResult{}, err
 	}
-	kind := "code-search|" + target.CodeIdentity.Worktree + "|" + in.Query + "|" + strings.Join(selectedPaths, "\x00") + "|" + strings.Join(in.Include, "\x00") + "|" + strings.Join(in.Exclude, "\x00") + "|" + strconv.FormatBool(target.Live)
-	afterPath, afterLine, err := codeSearchCursor(in.Cursor, kind)
-	if err != nil {
-		return CodeSearchResult{}, err
+	kind := codeCursorKind("code-search", target, in.Query+"|"+strings.Join(selectedPaths, "\x00")+"|"+strings.Join(in.Include, "\x00")+"|"+strings.Join(in.Exclude, "\x00")+"|"+strconv.FormatBool(target.Live))
+	if in.Cursor != "" {
+		if err := pagination.ValidateOpaqueCursor(in.Cursor, kind); err != nil {
+			return CodeSearchResult{}, err
+		}
 	}
 	result := CodeSearchResult{CodeIdentity: target.CodeIdentity, Matches: make([]CodeSearchMatch, 0, limit)}
 	hasMore := false
 	pathsScanned := 0
+	afterSeen := in.Cursor == ""
 	walkErr := s.walkCodePaths(ctx, target, selectedPaths, in.Include, in.Exclude, func(pathName string) error {
-		if afterPath != "" && pathName < afterPath {
-			return nil
-		}
 		pathsScanned++
 		data, readErr := s.readCodeFile(ctx, target, pathName)
 		if readErr != nil {
@@ -704,8 +728,18 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 			return nil
 		}
 		for lineNumber, line := range strings.Split(data, "\n") {
-			if (pathName == afterPath && lineNumber+1 <= afterLine) || !strings.Contains(line, in.Query) {
+			if !strings.Contains(line, in.Query) {
 				continue
+			}
+			key := pathName + "\x00" + strconv.Itoa(lineNumber+1)
+			if !afterSeen {
+				if pagination.OpaqueCursorMatches(in.Cursor, kind, key) {
+					afterSeen = true
+				}
+				continue
+			}
+			if in.Cursor != "" && pagination.OpaqueCursorMatches(in.Cursor, kind, key) {
+				return fmt.Errorf("ambiguous continuation cursor")
 			}
 			if len(result.Matches) == limit {
 				hasMore = true
@@ -722,6 +756,9 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	if walkErr != nil && !errors.Is(walkErr, errCodePageDone) {
 		return CodeSearchResult{}, walkErr
 	}
+	if in.Cursor != "" && !afterSeen {
+		return CodeSearchResult{}, fmt.Errorf("continuation cursor is no longer valid")
+	}
 	result.PathsScanned = pathsScanned
 	result.HasMore = hasMore
 	result.Truncated = hasMore
@@ -730,25 +767,6 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		result.NextCursor = pagination.EncodeFull(kind, last.Path+"\x00"+strconv.Itoa(last.Line))
 	}
 	return result, nil
-}
-
-func codeSearchCursor(raw, kind string) (string, int, error) {
-	if raw == "" {
-		return "", 0, nil
-	}
-	key, err := pagination.Decode(raw, kind)
-	if err != nil {
-		return "", 0, err
-	}
-	separator := strings.LastIndexByte(key, 0)
-	if separator < 1 {
-		return "", 0, fmt.Errorf("invalid code search cursor")
-	}
-	line, err := strconv.Atoi(key[separator+1:])
-	if err != nil || line < 1 {
-		return "", 0, fmt.Errorf("invalid code search cursor")
-	}
-	return key[:separator], line, nil
 }
 
 func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResult, error) {
@@ -764,15 +782,15 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 	if err != nil {
 		return CodeDiffResult{}, err
 	}
-	kind := "code-diff|" + target.CodeIdentity.Worktree + "|" + strings.Join(paths, "\x00") + "|" + strconv.FormatBool(target.Live)
 	offset := int64(0)
+	kind := codeCursorKind("code-diff", target, strings.Join(paths, "\x00")+"|"+strconv.FormatBool(target.Live))
 	if in.Cursor != "" {
-		key, decodeErr := pagination.Decode(in.Cursor, kind)
+		var decodeErr error
+		offset, decodeErr = pagination.DecodeOffset(in.Cursor, kind)
 		if decodeErr != nil {
 			return CodeDiffResult{}, decodeErr
 		}
-		offset, err = strconv.ParseInt(key, 10, 64)
-		if err != nil || offset < 0 {
+		if offset < 0 {
 			return CodeDiffResult{}, fmt.Errorf("invalid code diff cursor")
 		}
 	}
@@ -788,7 +806,7 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 	}
 	result := CodeDiffResult{CodeIdentity: target.CodeIdentity, Paths: paths, Diff: diff, HasMore: hasMore, Truncated: hasMore}
 	if hasMore {
-		result.NextCursor = pagination.EncodeFull(kind, strconv.FormatInt(offset+int64(len(diff)), 10))
+		result.NextCursor = pagination.EncodeOffset(kind, offset+int64(len(diff)))
 	}
 	return result, nil
 }

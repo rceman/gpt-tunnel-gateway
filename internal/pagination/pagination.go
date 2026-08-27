@@ -3,6 +3,7 @@ package pagination
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 )
@@ -47,11 +48,75 @@ func Encode(kind, key string) string {
 	return compactEncode(kind, key)
 }
 
-// EncodeFull preserves a continuation key that is not present in the current
-// response page, such as a streamed tree path or search match.
+// EncodeFull returns a bounded opaque cursor. The scope and key digests bind
+// it to the complete server-owned query without putting that query in the
+// caller-visible token.
 func EncodeFull(kind, key string) string {
-	data, _ := json.Marshal(cursor{Kind: kind, Key: key})
+	scope := sha256.Sum256([]byte(kind))
+	value := sha256.Sum256([]byte(kind + "\x00" + key))
+	data := make([]byte, 0, 33)
+	data = append(data, 1)
+	data = append(data, scope[:16]...)
+	data = append(data, value[:16]...)
 	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+// OpaqueCursorMatches resolves a streamed cursor by comparing the candidate
+// key while the bounded source walk is in progress.
+func OpaqueCursorMatches(raw, kind, key string) bool {
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil || len(data) != 33 || data[0] != 1 {
+		return false
+	}
+	scope := sha256.Sum256([]byte(kind))
+	value := sha256.Sum256([]byte(kind + "\x00" + key))
+	return string(data[1:17]) == string(scope[:16]) && string(data[17:]) == string(value[:16])
+}
+
+func ValidateOpaqueCursor(raw, kind string) error {
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil || len(data) != 33 || data[0] != 1 {
+		return fmt.Errorf("invalid continuation cursor")
+	}
+	scope := sha256.Sum256([]byte(kind))
+	if string(data[1:17]) != string(scope[:16]) {
+		return fmt.Errorf("continuation cursor scope does not match")
+	}
+	return nil
+}
+
+func EncodeOffset(kind string, offset int64) string {
+	if offset < 0 {
+		return ""
+	}
+	scope := sha256.Sum256([]byte(kind))
+	var raw [41]byte
+	raw[0] = 2
+	copy(raw[1:17], scope[:16])
+	binary.BigEndian.PutUint64(raw[17:25], uint64(offset))
+	digest := sha256.Sum256(append([]byte(kind+"\x00"), raw[17:25]...))
+	copy(raw[25:], digest[:16])
+	return base64.RawURLEncoding.EncodeToString(raw[:])
+}
+
+func DecodeOffset(raw, kind string) (int64, error) {
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil || len(data) != 41 || data[0] != 2 {
+		return 0, fmt.Errorf("invalid continuation cursor")
+	}
+	scope := sha256.Sum256([]byte(kind))
+	if string(data[1:17]) != string(scope[:16]) {
+		return 0, fmt.Errorf("continuation cursor scope does not match")
+	}
+	digest := sha256.Sum256(append([]byte(kind+"\x00"), data[17:25]...))
+	if string(data[25:]) != string(digest[:16]) {
+		return 0, fmt.Errorf("invalid continuation cursor")
+	}
+	offset := binary.BigEndian.Uint64(data[17:25])
+	if offset > uint64(^uint64(0)>>1) {
+		return 0, fmt.Errorf("invalid continuation cursor")
+	}
+	return int64(offset), nil
 }
 
 func compactEncode(kind, key string) string {
