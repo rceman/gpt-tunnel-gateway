@@ -194,6 +194,11 @@ func TestLocalCodeSearchSkipsPreCursorFileContents(t *testing.T) {
 			_ = os.Remove(filepath.Join(f.root, name))
 		}
 	})
+	reads := make(map[string]int)
+	f.service.codeFileReader = func(ctx context.Context, target localCodeTarget, pathName string) (string, error) {
+		reads[pathName]++
+		return f.service.Git.ReadWorkingFile(ctx, target.ProjectWorktree, pathName)
+	}
 	selector := "WT-MAIN-" + f.current[:8]
 	first, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
 		ProjectID: "example", Worktree: selector, Live: true,
@@ -202,6 +207,10 @@ func TestLocalCodeSearchSkipsPreCursorFileContents(t *testing.T) {
 	if err != nil || len(first.Matches) != 1 || first.Matches[0].Path != "b-match.txt" || !first.HasMore {
 		t.Fatalf("failed to establish live cursor: %#v %v", first, err)
 	}
+	if reads["a-before.txt"] != 1 || reads["b-match.txt"] != 1 || reads["c-match.txt"] != 1 {
+		t.Fatalf("unexpected first-page file reads: %#v", reads)
+	}
+	reads = make(map[string]int)
 	if err := os.WriteFile(filepath.Join(f.root, "a-before.txt"), []byte(strings.Repeat("x", LocalCodeMaxBytes+1)), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -211,6 +220,9 @@ func TestLocalCodeSearchSkipsPreCursorFileContents(t *testing.T) {
 	})
 	if err != nil || len(second.Matches) != 1 || second.Matches[0].Path != "c-match.txt" {
 		t.Fatalf("pre-cursor file was reread instead of skipped: %#v %v", second, err)
+	}
+	if reads["a-before.txt"] != 0 || reads["b-match.txt"] != 1 || reads["c-match.txt"] != 1 {
+		t.Fatalf("unexpected resumed-page file reads: %#v", reads)
 	}
 }
 

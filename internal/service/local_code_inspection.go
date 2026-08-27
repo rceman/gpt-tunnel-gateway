@@ -644,6 +644,9 @@ func (s *Service) walkCodePaths(ctx context.Context, target localCodeTarget, pat
 }
 
 func (s *Service) readCodeFile(ctx context.Context, target localCodeTarget, pathName string) (string, error) {
+	if s.codeFileReader != nil {
+		return s.codeFileReader(ctx, target, pathName)
+	}
 	if target.Live {
 		return s.Git.ReadWorkingFile(ctx, target.ProjectWorktree, pathName)
 	}

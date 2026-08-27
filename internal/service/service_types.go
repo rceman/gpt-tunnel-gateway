@@ -45,6 +45,7 @@ type Service struct {
 	workCheckpointExecutor                  func(context.Context, string, string, []string, []string) ([]model.CompletionGateResult, error)
 	taskActivator                           func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
 	runtimeSourceProver                     func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
+	codeFileReader                          func(context.Context, localCodeTarget, string) (string, error)
 	taskCreateWorkerOnce                    sync.Once
 	taskCreateMu                            sync.Mutex
 	taskCreateWake                          chan string
