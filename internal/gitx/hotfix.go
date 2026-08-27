@@ -67,6 +67,22 @@ func (r Runner) RemoveHotfixWorktree(ctx context.Context, p config.ProjectConfig
 	if err := model.ValidateCommitSHA(expectedHead); err != nil {
 		return err
 	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("hotfix rollback left lane untouched: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("hotfix rollback left lane untouched: invalid owned worktree")
+	}
+	lane := p
+	lane.Root = path
+	head, actualBranch, clean, err := r.CurrentHead(ctx, lane)
+	if err != nil {
+		return fmt.Errorf("hotfix rollback left lane untouched: inspect lane: %w", err)
+	}
+	if !clean || actualBranch != branch || head != expectedHead {
+		return fmt.Errorf("hotfix rollback left lane untouched: lane is not clean at its create head")
+	}
 	if err := r.removeTrainWorktree(ctx, p, path); err != nil {
 		return err
 	}
