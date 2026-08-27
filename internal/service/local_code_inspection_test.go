@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -142,6 +143,10 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 	if err != nil || len(secondTree.Paths) == 0 {
 		t.Fatalf("tree cursor did not resume: %#v %v", secondTree, err)
 	}
+	scopedTree, err := f.service.CodeTree(ctx, CodeTreeInput{ProjectID: "example", Worktree: selector, Path: "search-a.txt", Limit: 1})
+	if err != nil || len(scopedTree.Paths) != 1 || scopedTree.Paths[0] != "search-a.txt" || scopedTree.HasMore {
+		t.Fatalf("tree path scope was not applied: %#v %v", scopedTree, err)
+	}
 
 	if _, err := f.service.CodeRead(ctx, CodeReadInput{
 		ProjectID: "example", Worktree: "WT-MAIN-" + f.unrelated[:8], Path: "tracked.txt",
@@ -170,6 +175,50 @@ func TestLocalCodeSearchContinuesFromExactScanPosition(t *testing.T) {
 	}
 	if second.HasMore || second.NextCursor != "" {
 		t.Fatalf("terminal result page exposed an empty continuation: %#v", second)
+	}
+}
+
+func TestLocalCodeSearchBoundsRareMatchesAndResumes(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	for index := 0; index < LocalCodeScanLookahead; index++ {
+		name := filepath.Join(f.root, "scan", strconv.Itoa(index)+".txt")
+		if err := os.MkdirAll(filepath.Dir(name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(name, []byte("ordinary content\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	testutil.Git(t, f.root, "add", "scan")
+	testutil.Git(t, f.root, "commit", "-m", "scan bound fixture")
+	selector := "WT-MAIN-" + strings.TrimSpace(testutil.Git(t, f.root, "rev-parse", "HEAD"))[:8]
+	first, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
+		ProjectID: "example", Worktree: selector, Query: "absent-query", Limit: 1,
+	})
+	if err != nil || len(first.Matches) != 0 || first.PathsScanned != LocalCodeScanLookahead || !first.HasMore || first.NextCursor == "" {
+		t.Fatalf("rare-match scan was not bounded: %#v %v", first, err)
+	}
+	cursor := first.NextCursor
+	for page := 0; ; page++ {
+		if page >= 3 {
+			t.Fatal("zero-match continuation did not terminate")
+		}
+		next, nextErr := f.service.CodeSearch(context.Background(), CodeSearchInput{
+			ProjectID: "example", Worktree: selector, Query: "absent-query", Limit: 1, Cursor: cursor,
+		})
+		if nextErr != nil || len(next.Matches) != 0 || next.PathsScanned > LocalCodeScanLookahead+1 {
+			t.Fatalf("zero-match continuation page %d exceeded its scan bound: %#v %v", page, next, nextErr)
+		}
+		if !next.HasMore {
+			if next.NextCursor != "" {
+				t.Fatalf("terminal zero-match page exposed a cursor: %#v", next)
+			}
+			break
+		}
+		if next.NextCursor == "" {
+			t.Fatalf("nonterminal zero-match page omitted its cursor: %#v", next)
+		}
+		cursor = next.NextCursor
 	}
 }
 

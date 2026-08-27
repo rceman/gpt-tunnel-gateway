@@ -25,6 +25,8 @@ const (
 	LocalCodeMaxQueryBytes   = 256
 	LocalCodeMaxLines        = 1000
 	LocalCodeMaxPatterns     = 32
+	LocalCodeMaxScanPaths    = 4096
+	LocalCodeScanLookahead   = LocalCodeMaxScanPaths + 1
 )
 
 type CodeSelectorErrorKind string
@@ -41,6 +43,7 @@ type CodeSelectorError struct {
 }
 
 var errCodePageDone = errors.New("code page complete")
+var errCodeScanLimit = errors.New("code scan budget reached")
 
 func (e *CodeSelectorError) Error() string {
 	if e.Kind == CodeSelectorStale && e.Current != "" {
@@ -507,10 +510,25 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 	paths := make([]string, 0, limit)
 	hasCursor := in.Cursor != ""
 	hasMore, afterSeen := false, !hasCursor
-	walkErr := s.walkCodePaths(ctx, target, nil, nil, nil, func(pathName string) error {
+	scanPaths := 0
+	lastScannedPath := ""
+	scanLimited := false
+	walkErr := s.walkCodePaths(ctx, target, nil, in.Path, nil, nil, func(pathName string) (visitErr error) {
+		scanPaths++
+		lastScannedPath = pathName
+		cursorFound := false
+		defer func() {
+			if visitErr == nil && scanPaths >= LocalCodeScanLookahead && !cursorFound && (in.Cursor == "" || afterSeen) {
+				scanLimited = true
+				visitErr = errCodeScanLimit
+			}
+		}()
 		if hasCursor {
 			if !afterSeen && pagination.OpaqueCursorMatches(in.Cursor, kind, pathName) {
 				afterSeen = true
+				cursorFound = true
+				scanPaths = 0
+				scanLimited = false
 				return nil
 			}
 			if !afterSeen {
@@ -533,14 +551,20 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 		paths = append(paths, pathName)
 		return nil
 	})
-	if walkErr != nil && !errors.Is(walkErr, errCodePageDone) {
+	if walkErr != nil && !errors.Is(walkErr, errCodePageDone) && !errors.Is(walkErr, errCodeScanLimit) {
 		return CodeTreeResult{}, walkErr
 	}
 	if hasCursor && !afterSeen {
+		if scanLimited {
+			return CodeTreeResult{}, fmt.Errorf("continuation cursor requires a narrower scan")
+		}
 		return CodeTreeResult{}, fmt.Errorf("continuation cursor is no longer valid")
 	}
 	result := CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: paths, HasMore: hasMore}
-	if hasMore {
+	if scanLimited {
+		result.HasMore = true
+		result.NextCursor = pagination.EncodeFull(kind, lastScannedPath)
+	} else if hasMore {
 		result.NextCursor = pagination.EncodeFull(kind, paths[len(paths)-1])
 	}
 	return result, nil
@@ -582,7 +606,7 @@ func codePathMatches(pathName string, include, exclude []string) bool {
 	return true
 }
 
-func (s *Service) walkCodePaths(ctx context.Context, target localCodeTarget, paths, include, exclude []string, visit func(string) error) error {
+func (s *Service) walkCodePaths(ctx context.Context, target localCodeTarget, paths []string, rootPath string, include, exclude []string, visit func(string) error) error {
 	selected, err := validateLocalCodePaths(paths, false)
 	if err != nil {
 		return err
@@ -604,14 +628,14 @@ func (s *Service) walkCodePaths(ctx context.Context, target localCodeTarget, pat
 		return nil
 	}
 	if target.Live {
-		return s.Git.WalkWorkingTreeFiles(ctx, target.ProjectWorktree, "", func(pathName string) error {
+		return s.Git.WalkWorkingTreeFiles(ctx, target.ProjectWorktree, rootPath, func(pathName string) error {
 			if codePathMatches(pathName, include, exclude) {
 				return visit(pathName)
 			}
 			return nil
 		})
 	}
-	return s.Git.WalkTreeLocal(ctx, target.ProjectWorktree, target.CurrentHead, "", func(pathName string) error {
+	return s.Git.WalkTreeLocal(ctx, target.ProjectWorktree, target.CurrentHead, rootPath, func(pathName string) error {
 		if codePathMatches(pathName, include, exclude) {
 			return visit(pathName)
 		}
@@ -731,9 +755,26 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	result := CodeSearchResult{CodeIdentity: target.CodeIdentity, Matches: make([]CodeSearchMatch, 0, limit)}
 	hasMore := false
 	pathsScanned := 0
+	lastScannedPath := ""
+	scanLimited := false
 	afterSeen := in.Cursor == ""
-	walkErr := s.walkCodePaths(ctx, target, selectedPaths, in.Include, in.Exclude, func(pathName string) error {
+	walkErr := s.walkCodePaths(ctx, target, selectedPaths, "", in.Include, in.Exclude, func(pathName string) (visitErr error) {
 		pathsScanned++
+		lastScannedPath = pathName
+		cursorFound := false
+		defer func() {
+			if visitErr == nil && pathsScanned >= LocalCodeScanLookahead && !cursorFound && (in.Cursor == "" || afterSeen) {
+				scanLimited = true
+				visitErr = errCodeScanLimit
+			}
+		}()
+		if !afterSeen && pagination.OpaqueCursorMatches(in.Cursor, kind, pathName+"\x00"+strconv.Itoa(0)) {
+			afterSeen = true
+			cursorFound = true
+			pathsScanned = 0
+			scanLimited = false
+			return nil
+		}
 		data, readErr := s.readCodeFile(ctx, target, pathName)
 		if readErr != nil {
 			return readErr
@@ -752,6 +793,9 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 			if !afterSeen {
 				if pagination.OpaqueCursorMatches(in.Cursor, kind, key) {
 					afterSeen = true
+					cursorFound = true
+					pathsScanned = 0
+					scanLimited = false
 				}
 				continue
 			}
@@ -770,16 +814,23 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		}
 		return nil
 	})
-	if walkErr != nil && !errors.Is(walkErr, errCodePageDone) {
+	if walkErr != nil && !errors.Is(walkErr, errCodePageDone) && !errors.Is(walkErr, errCodeScanLimit) {
 		return CodeSearchResult{}, walkErr
 	}
 	if in.Cursor != "" && !afterSeen {
+		if scanLimited {
+			return CodeSearchResult{}, fmt.Errorf("continuation cursor requires a narrower scan")
+		}
 		return CodeSearchResult{}, fmt.Errorf("continuation cursor is no longer valid")
 	}
 	result.PathsScanned = pathsScanned
 	result.HasMore = hasMore
 	result.Truncated = hasMore
-	if hasMore {
+	if scanLimited {
+		result.HasMore = true
+		result.Truncated = true
+		result.NextCursor = pagination.EncodeFull(kind, lastScannedPath+"\x00"+strconv.Itoa(0))
+	} else if hasMore {
 		last := result.Matches[len(result.Matches)-1]
 		result.NextCursor = pagination.EncodeFull(kind, last.Path+"\x00"+strconv.Itoa(last.Line))
 	}
