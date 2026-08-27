@@ -59,7 +59,7 @@ func newPublicCodeE2EFixture(t *testing.T) publicCodeE2EFixture {
 	project := config.ProjectConfig{Root: root, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", ProjectCode: "EXM", AirelaySessionKey: "code-e2e-agent"}
 	c := config.Config{
 		SchemaVersion: 1, GatewayID: "code-e2e-gateway", StateDir: stateDir,
-		MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100,
+		MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1,
 		Hub:      config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"},
 		Projects: map[string]config.ProjectConfig{"example": project},
 	}
@@ -208,7 +208,7 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 
 	worktree := harness.call(t, "code/worktree", map[string]any{})
 	items, ok := worktree["items"].([]any)
-	if !ok || len(items) == 0 {
+	if !ok || len(items) != 2 {
 		t.Fatalf("code/worktree first page=%#v", worktree)
 	}
 	firstItem := items[0].(map[string]any)
@@ -217,16 +217,14 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 		t.Fatalf("code/worktree first page lacks exact head: %#v", worktree)
 	}
 	if worktreePagination != nil {
-		worktreeNext := worktreePagination["next_cursor"].(string)
-		worktreePage := harness.call(t, "code/worktree", map[string]any{"cursor": worktreeNext})
-		worktreeItems := worktreePage["items"].([]any)
-		if len(worktreeItems) == 0 || worktreeItems[0].(map[string]any)["head"] != fixture.currentHead {
-			t.Fatalf("code/worktree continuation=%#v", worktreePage)
-		}
+		t.Fatalf("code/worktree was item-capped instead of token-packed: %#v", worktree)
 	}
 
 	tree := harness.call(t, "code/tree", map[string]any{"worktree": fixture.mainSelector, "live": true})
 	assertPublicCodeHead(t, tree, fixture.currentHead)
+	if paths, ok := tree["paths"].([]any); !ok || len(paths) < 2 {
+		t.Fatalf("code/tree was item-capped instead of token-packed: %#v", tree)
+	}
 	treePagination := publicPagination(t, tree)
 	if treePagination != nil {
 		if treePagination["next_cursor"] == "" {
@@ -238,6 +236,9 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 
 	search := harness.call(t, "code/search", map[string]any{"worktree": fixture.mainSelector, "query": "needle", "live": true})
 	assertPublicCodeHead(t, search, fixture.currentHead)
+	if matches, ok := search["matches"].([]any); !ok || len(matches) < 2 {
+		t.Fatalf("code/search was item-capped instead of token-packed: %#v", search)
+	}
 	searchPagination := publicPagination(t, search)
 	if searchPagination != nil {
 		if searchPagination["next_cursor"] == "" {

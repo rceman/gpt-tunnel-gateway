@@ -8,8 +8,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
@@ -302,6 +304,47 @@ func TestCodeTrainWorktreePathUsesProjectCodeForCompactLane(t *testing.T) {
 	runtime := &trainv2.RuntimeBinding{ProjectID: "gpt-tunnel-gateway", ProjectCode: "GTW", TrainID: "GTW-TRN63", WorktreePath: want}
 	if path, err := codeTrainWorktreePath(stateDir, "gpt-tunnel-gateway", project, "GTW-TRN63", runtime); err != nil || path != want {
 		t.Fatalf("runtime compact Train path was rejected: %q %v", path, err)
+	}
+}
+
+func TestCodeTrainBaseUsesCanonicalStartBaseForMultiItemTrain(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	now := time.Unix(1, 0).UTC()
+	train := model.TrainV2{
+		ID: "GTW-TRN63", ProjectID: "example",
+		Items: []model.TrainV2Item{
+			{TaskID: "GTW-TSK1", SuccessfulAttemptNumber: 1, Attempts: []model.TrainV2Attempt{{StartHead: f.base, Status: model.TrainV2AttemptSucceeded}}},
+			{TaskID: "GTW-TSK2", SuccessfulAttemptNumber: 1, Attempts: []model.TrainV2Attempt{{StartHead: f.current, Status: model.TrainV2AttemptSucceeded}}},
+		},
+		Status: model.TrainV2ReadyForIntegration,
+	}
+	start := model.TrainV2StartRecord{
+		SchemaVersion: model.TrainV2StartSchemaVersion, ProjectID: train.ProjectID, TrainID: train.ID,
+		Status: model.TrainV2StartActive, IntegrationBranch: "main", BaseRevision: f.base,
+		LaneBranch: "train/GTW-TRN63", CurrentItemPosition: 1, CurrentAttemptNumber: 1,
+		CurrentTaskID: "GTW-TSK2", CurrentTaskRevision: 1, CurrentTaskRevisionSHA256: strings.Repeat("a", 64), StartedAt: now,
+	}
+	if err := model.ValidateTrainV2StartRecord(start); err != nil {
+		t.Fatal(err)
+	}
+	startPath := filepath.Join(f.root, filepath.FromSlash(f.service.trainV2StartPath(train.ProjectID, train.ID)))
+	if err := os.MkdirAll(filepath.Dir(startPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(startPath, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	base, err := f.service.codeTrainBase(f.root, train, f.current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base != f.base {
+		t.Fatalf("multi-item Train base=%q want canonical start base %q", base, f.base)
 	}
 }
 

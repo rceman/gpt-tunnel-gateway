@@ -306,7 +306,7 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 				return nil, fmt.Errorf("managed Train %s is bound to unexpected worktree path", candidateID)
 			}
 			trainID, kind, label = candidateID, "train", candidateID
-			base, baseErr := codeTrainBase(train, status.Head)
+			base, baseErr := s.codeTrainBase(worktree.Root, train, status.Head)
 			if baseErr != nil {
 				return nil, baseErr
 			}
@@ -349,40 +349,25 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 	return candidates, nil
 }
 
-func codeTrainBase(train model.TrainV2, currentHead string) (string, error) {
-	base := ""
-	setBase := func(value string) error {
-		if model.ValidateCommitSHA(value) != nil {
-			return fmt.Errorf("managed Train %s has an invalid authoritative base", train.ID)
+func (s *Service) codeTrainBase(worktree string, train model.TrainV2, currentHead string) (string, error) {
+	var start model.TrainV2StartRecord
+	startPath := s.trainV2StartPath(train.ProjectID, train.ID)
+	if err := readWorktreeJSON(worktree, startPath, &start); err != nil {
+		if errors.Is(err, os.ErrNotExist) && train.Status == model.TrainV2Planned {
+			return currentHead, nil
 		}
-		if base != "" && base != value {
-			return fmt.Errorf("managed Train %s has conflicting authoritative bases", train.ID)
-		}
-		base = value
-		return nil
+		return "", fmt.Errorf("managed Train %s has no canonical start/base record: %w", train.ID, err)
 	}
-	for _, item := range train.Items {
-		if item.ActiveAttemptNumber > 0 && item.ActiveAttemptNumber <= uint64(len(item.Attempts)) {
-			attempt := item.Attempts[item.ActiveAttemptNumber-1]
-			if attempt.Status == model.TrainV2AttemptRunning {
-				if err := setBase(attempt.StartHead); err != nil {
-					return "", err
-				}
-			}
-		}
-		if item.SuccessfulAttemptNumber > 0 {
-			if item.SuccessfulAttemptNumber > uint64(len(item.Attempts)) {
-				return "", fmt.Errorf("managed Train %s has an invalid successful Attempt", train.ID)
-			}
-			if err := setBase(item.Attempts[item.SuccessfulAttemptNumber-1].StartHead); err != nil {
-				return "", err
-			}
-		}
+	if err := model.ValidateTrainV2StartRecord(start); err != nil {
+		return "", fmt.Errorf("managed Train %s has invalid canonical start/base record: %w", train.ID, err)
 	}
-	if base == "" {
-		return currentHead, nil
+	if start.ProjectID != train.ProjectID || start.TrainID != train.ID {
+		return "", fmt.Errorf("managed Train %s has mismatched canonical start/base identity", train.ID)
 	}
-	return base, nil
+	if start.CurrentItemPosition >= len(train.Items) || start.CurrentTaskID != train.Items[start.CurrentItemPosition].TaskID {
+		return "", fmt.Errorf("managed Train %s has mismatched canonical current item", train.ID)
+	}
+	return start.BaseRevision, nil
 }
 
 func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selector string, live bool) (localCodeTarget, error) {
@@ -478,13 +463,9 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 		}
 		items = append(items, CodeWorktreeItem{Selector: candidate.CodeIdentity.Worktree, Kind: candidate.Kind, Dirty: candidate.Dirty, Head: candidate.CurrentHead, Label: candidate.Label, TrainID: candidate.TrainID})
 	}
-	requestedLimit := pagination.MaxLimit
-	if in.Limit > 0 {
-		requestedLimit = in.Limit
-	}
-	limit, err := PublicCollectionLimit(requestedLimit, s.Config.MaxListItems)
-	if err != nil {
-		return CodeWorktreeResult{}, err
+	pageLimit := len(items)
+	if in.Limit > 0 && in.Limit < pageLimit {
+		pageLimit = in.Limit
 	}
 	kind := "code-worktree|" + in.ProjectID + "|" + query
 	if len(items) == 0 {
@@ -498,21 +479,22 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 		}
 		return CodeWorktreeResult{}, fmt.Errorf("code worktree result exceeds %d tokenizer tokens", CodePageTokenBudget)
 	}
-	for pageLimit := limit; pageLimit >= 1; pageLimit-- {
-		page, info, pageErr := pagination.Page(kind, items, pageLimit, in.Cursor, func(item CodeWorktreeItem) string { return item.Selector })
+	pageSize, fitErr := largestCodePageSize(pageLimit, func(size int) (bool, error) {
+		page, info, pageErr := pagination.Page(kind, items, size, in.Cursor, func(item CodeWorktreeItem) string { return item.Selector })
 		if pageErr != nil {
-			return CodeWorktreeResult{}, pageErr
+			return false, pageErr
 		}
 		candidate := CodeWorktreeResult{Items: page, Pagination: codePagination(info.NextCursor)}
-		fits, fitErr := codePageFits(candidate)
-		if fitErr != nil {
-			return CodeWorktreeResult{}, fitErr
-		}
-		if fits {
-			return candidate, nil
-		}
+		return codePageFits(candidate)
+	})
+	if fitErr != nil {
+		return CodeWorktreeResult{}, fitErr
 	}
-	return CodeWorktreeResult{}, fmt.Errorf("code worktree item exceeds %d tokenizer tokens", CodePageTokenBudget)
+	page, info, pageErr := pagination.Page(kind, items, pageSize, in.Cursor, func(item CodeWorktreeItem) string { return item.Selector })
+	if pageErr != nil {
+		return CodeWorktreeResult{}, pageErr
+	}
+	return CodeWorktreeResult{Items: page, Pagination: codePagination(info.NextCursor)}, nil
 }
 
 func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResult, error) {
@@ -526,21 +508,13 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 	if len(in.Query) > LocalCodeMaxQueryBytes || strings.ContainsAny(in.Query, "\x00\r\n") {
 		return CodeTreeResult{}, fmt.Errorf("invalid tree query")
 	}
-	requestedLimit := pagination.MaxLimit
-	if in.Limit > 0 {
-		requestedLimit = in.Limit
-	}
-	limit, err := PublicCollectionLimit(requestedLimit, s.Config.MaxListItems)
-	if err != nil {
-		return CodeTreeResult{}, err
-	}
 	kind := codeCursorKind("code-tree", target, in.Path+"|"+in.Query+"|"+strconv.FormatBool(target.Live))
 	if in.Cursor != "" {
 		if err = pagination.ValidateOpaqueCursor(in.Cursor, kind); err != nil {
 			return CodeTreeResult{}, err
 		}
 	}
-	paths := make([]string, 0, limit)
+	paths := make([]string, 0, LocalCodeMaxScanPaths)
 	hasCursor := in.Cursor != ""
 	continuation, afterSeen := false, !hasCursor
 	scanPaths := 0
@@ -577,7 +551,7 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 		if in.Query != "" && !strings.Contains(pathName, in.Query) {
 			return nil
 		}
-		if len(paths) == limit {
+		if in.Limit > 0 && len(paths) == in.Limit {
 			continuation = true
 			return errCodePageDone
 		}
@@ -601,35 +575,27 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 	} else if continuation {
 		resultCursor = pagination.EncodeFull(kind, paths[len(paths)-1])
 	}
-	for pageSize := len(paths); pageSize >= 1; pageSize-- {
-		pageContinuation := resultContinuation || pageSize < len(paths)
+	pageSize, fitErr := largestCodePageSize(len(paths), func(size int) (bool, error) {
 		pageCursor := ""
-		if pageSize < len(paths) || pageContinuation {
-			pageCursor = pagination.EncodeFull(kind, paths[pageSize-1])
-			if pageSize == len(paths) && scanLimited {
+		if size < len(paths) || resultContinuation {
+			pageCursor = pagination.EncodeFull(kind, paths[size-1])
+			if size == len(paths) && scanLimited {
 				pageCursor = resultCursor
 			}
 		}
-		candidate := CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: paths[:pageSize], Pagination: codePagination(pageCursor)}
-		fits, fitErr := codePageFits(candidate)
-		if fitErr != nil {
-			return CodeTreeResult{}, fitErr
-		}
-		if fits {
-			return candidate, nil
+		return codePageFits(CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: paths[:size], Pagination: codePagination(pageCursor)})
+	})
+	if fitErr != nil {
+		return CodeTreeResult{}, fitErr
+	}
+	pageCursor := ""
+	if pageSize < len(paths) || resultContinuation {
+		pageCursor = pagination.EncodeFull(kind, paths[pageSize-1])
+		if pageSize == len(paths) && scanLimited {
+			pageCursor = resultCursor
 		}
 	}
-	if len(paths) == 0 {
-		result := CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: paths, Pagination: codePagination(resultCursor)}
-		fits, fitErr := codePageFits(result)
-		if fitErr != nil {
-			return CodeTreeResult{}, fitErr
-		}
-		if fits {
-			return result, nil
-		}
-	}
-	return CodeTreeResult{}, fmt.Errorf("code tree path exceeds %d tokenizer tokens", CodePageTokenBudget)
+	return CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: paths[:pageSize], Pagination: codePagination(pageCursor)}, nil
 }
 
 func validateCodePatterns(patterns []string) error {
@@ -825,14 +791,6 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	if in.Query == "" || len(in.Query) > LocalCodeMaxQueryBytes || strings.ContainsAny(in.Query, "\x00\r\n") {
 		return CodeSearchResult{}, fmt.Errorf("invalid search query")
 	}
-	requestedLimit := pagination.MaxLimit
-	if in.Limit > 0 {
-		requestedLimit = in.Limit
-	}
-	limit, err := PublicCollectionLimit(requestedLimit, s.Config.MaxListItems)
-	if err != nil {
-		return CodeSearchResult{}, err
-	}
 	selectedPaths, err := validateLocalCodePaths(in.Paths, false)
 	if err != nil {
 		return CodeSearchResult{}, err
@@ -843,7 +801,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 			return CodeSearchResult{}, err
 		}
 	}
-	result := CodeSearchResult{CodeIdentity: target.CodeIdentity, Matches: make([]CodeSearchMatch, 0, limit)}
+	result := CodeSearchResult{CodeIdentity: target.CodeIdentity, Matches: make([]CodeSearchMatch, 0)}
 	continuation := false
 	pathsScanned := 0
 	lastScannedPath := ""
@@ -900,13 +858,28 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 				}
 				continue
 			}
-			if len(result.Matches) == limit {
+			if in.Limit > 0 && len(result.Matches) == in.Limit {
 				continuation = true
 				return errCodePageDone
 			}
 			snippet := line
 			if len(snippet) > 240 {
 				snippet = snippet[:240]
+			}
+			candidate := CodeSearchResult{
+				CodeIdentity: result.CodeIdentity, PathsScanned: pathsScanned,
+				Matches: append(append([]CodeSearchMatch(nil), result.Matches...), CodeSearchMatch{Path: pathName, Line: lineNumber + 1, Snippet: snippet}),
+			}
+			fits, fitErr := codePageFits(candidate)
+			if fitErr != nil {
+				return fitErr
+			}
+			if !fits {
+				continuation = len(result.Matches) > 0
+				if !continuation {
+					return fmt.Errorf("code search match exceeds %d tokenizer tokens", CodePageTokenBudget)
+				}
+				return errCodePageDone
 			}
 			result.Matches = append(result.Matches, CodeSearchMatch{Path: pathName, Line: lineNumber + 1, Snippet: snippet})
 		}
@@ -929,23 +902,27 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		last := result.Matches[len(result.Matches)-1]
 		resultCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
 	}
-	for pageSize := len(result.Matches); pageSize >= 1; pageSize-- {
+	pageSize, fitErr := largestCodePageSize(len(result.Matches), func(size int) (bool, error) {
+		pageCursor := resultCursor
+		if size < len(result.Matches) {
+			last := result.Matches[size-1]
+			pageCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
+		}
+		return codePageFits(CodeSearchResult{
+			CodeIdentity: result.CodeIdentity, PathsScanned: result.PathsScanned, Matches: result.Matches[:size],
+			Pagination: codePagination(pageCursor),
+		})
+	})
+	if fitErr != nil {
+		return CodeSearchResult{}, fitErr
+	}
+	if pageSize > 0 {
 		pageCursor := resultCursor
 		if pageSize < len(result.Matches) {
 			last := result.Matches[pageSize-1]
 			pageCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
 		}
-		candidate := CodeSearchResult{
-			CodeIdentity: result.CodeIdentity, PathsScanned: result.PathsScanned, Matches: result.Matches[:pageSize],
-			Pagination: codePagination(pageCursor),
-		}
-		fits, fitErr := codePageFits(candidate)
-		if fitErr != nil {
-			return CodeSearchResult{}, fitErr
-		}
-		if fits {
-			return candidate, nil
-		}
+		return CodeSearchResult{CodeIdentity: result.CodeIdentity, PathsScanned: result.PathsScanned, Matches: result.Matches[:pageSize], Pagination: codePagination(pageCursor)}, nil
 	}
 	if len(result.Matches) == 0 {
 		result.Pagination = codePagination(resultCursor)
