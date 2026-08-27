@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -195,62 +196,26 @@ func (r Runner) WorkingTreeFiles(ctx context.Context, p config.ProjectConfig, pa
 	return lines, nil
 }
 
-// DiffWorkingFromBase compares tracked changes with an exact base and then
-// appends Git's no-index patch for each current non-ignored untracked regular
-// file. Exit status 1 from --no-index means differences, not an operation
-// failure; higher statuses remain errors.
-func (r Runner) DiffWorkingFromBase(ctx context.Context, p config.ProjectConfig, base string, paths []string) (string, error) {
-	if err := model.ValidateCommitSHA(base); err != nil {
-		return "", err
+// WalkWorkingTreeFiles streams tracked and non-ignored untracked regular-file
+// candidates without retaining the complete inventory in memory.
+func (r Runner) WalkWorkingTreeFiles(ctx context.Context, p config.ProjectConfig, path string, visit func(string) error) error {
+	if err := validatePath(path); err != nil {
+		return err
 	}
-	for _, path := range paths {
-		if err := model.ValidateRelativePath(path); err != nil {
-			return "", err
-		}
+	args := []string{"ls-files", "--cached", "--others", "--exclude-standard", "--full-name", "-z"}
+	if path != "" {
+		args = append(args, "--", path)
 	}
-	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", base}
-	if len(paths) > 0 {
-		args = append(args, "--")
-		args = append(args, paths...)
-	}
-	tracked, err := r.command(ctx, p.Root, false, args...)
+	walk, err := r.commandRecords(ctx, p.Root, false, 0, args...)
 	if err != nil {
-		return "", err
+		return err
 	}
-	selected := make(map[string]struct{}, len(paths))
-	for _, path := range paths {
-		selected[path] = struct{}{}
-	}
-	untrackedRaw, err := r.command(ctx, p.Root, false, "ls-files", "--others", "--exclude-standard", "--full-name", "-z")
-	if err != nil {
-		return "", err
-	}
-	var result strings.Builder
-	result.Write(tracked)
-	for _, path := range strings.Split(strings.TrimSuffix(string(untrackedRaw), "\x00"), "\x00") {
-		if path == "" || (len(selected) > 0 && !pathSetContains(selected, path)) {
-			continue
+	return walk(func(pathName string) error {
+		if err := model.ValidateRelativePath(pathName); err != nil {
+			return err
 		}
-		if err := model.ValidateRelativePath(path); err != nil {
-			return "", err
-		}
-		info, statErr := os.Lstat(filepath.Join(p.Root, filepath.FromSlash(path)))
-		if statErr != nil {
-			return "", statErr
-		}
-		if !info.Mode().IsRegular() {
-			continue
-		}
-		patch, exitCode, runErr := r.commandWithExit(ctx, p.Root, false, "diff", "--no-ext-diff", "--no-textconv", "--no-index", "--", "/dev/null", filepath.ToSlash(path))
-		if runErr != nil {
-			return "", runErr
-		}
-		if exitCode != 0 && exitCode != 1 {
-			return "", fmt.Errorf("git diff --no-index exited with status %d", exitCode)
-		}
-		result.Write(patch)
-	}
-	return result.String(), nil
+		return visit(pathName)
+	})
 }
 
 func pathSetContains(paths map[string]struct{}, path string) bool {
@@ -265,27 +230,130 @@ func pathSetContains(paths map[string]struct{}, path string) bool {
 	return false
 }
 
-// DiffLocalCommits compares two exact local committed objects. It never
-// resolves revisions through a mirror or performs network I/O.
-func (r Runner) DiffLocalCommits(ctx context.Context, p config.ProjectConfig, from, to string, paths []string) (string, error) {
+type diffPageCollector struct {
+	offset int64
+	limit  int64
+	total  int64
+	data   bytes.Buffer
+}
+
+func (c *diffPageCollector) write(chunk []byte) error {
+	start := c.total
+	c.total += int64(len(chunk))
+	if c.total <= c.offset || int64(c.data.Len()) >= c.limit {
+		return nil
+	}
+	if start < c.offset {
+		chunk = chunk[c.offset-start:]
+	}
+	remaining := c.limit - int64(c.data.Len())
+	if int64(len(chunk)) > remaining {
+		chunk = chunk[:remaining]
+	}
+	_, _ = c.data.Write(chunk)
+	return nil
+}
+
+func (c *diffPageCollector) result() (string, bool, error) {
+	if c.offset > c.total {
+		return "", false, fmt.Errorf("diff continuation cursor exceeds diff output")
+	}
+	return c.data.String(), c.total > c.offset+int64(c.data.Len()), nil
+}
+
+// DiffLocalCommitsPage streams a committed diff and retains only one response
+// page plus lookahead. Re-running from the immutable commits makes offsets
+// deterministic without materializing the complete diff.
+func (r Runner) DiffLocalCommitsPage(ctx context.Context, p config.ProjectConfig, from, to string, paths []string, offset int64, limit int) (string, bool, error) {
 	if err := model.ValidateCommitSHA(from); err != nil {
-		return "", err
+		return "", false, err
 	}
 	if err := model.ValidateCommitSHA(to); err != nil {
-		return "", err
+		return "", false, err
+	}
+	if offset < 0 || limit < 1 {
+		return "", false, fmt.Errorf("invalid diff page")
 	}
 	args := []string{"diff", "--no-ext-diff", "--no-textconv", from, to, "--"}
 	for _, path := range paths {
 		if err := model.ValidateRelativePath(path); err != nil {
-			return "", err
+			return "", false, err
 		}
 		args = append(args, path)
 	}
-	out, err := r.command(ctx, p.Root, false, args...)
+	collector := diffPageCollector{offset: offset, limit: int64(limit)}
+	exitCode, err := r.streamCommand(ctx, p.Root, false, args, collector.write)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return string(out), nil
+	if exitCode != 0 {
+		return "", false, fmt.Errorf("git diff exited with status %d", exitCode)
+	}
+	return collector.result()
+}
+
+// DiffWorkingFromBasePage streams tracked changes and regular non-ignored
+// untracked files into one bounded page. The repository lock and worktree
+// semantics remain Git's; only response buffering is paginated.
+func (r Runner) DiffWorkingFromBasePage(ctx context.Context, p config.ProjectConfig, base string, paths []string, offset int64, limit int) (string, bool, error) {
+	if err := model.ValidateCommitSHA(base); err != nil {
+		return "", false, err
+	}
+	if offset < 0 || limit < 1 {
+		return "", false, fmt.Errorf("invalid diff page")
+	}
+	for _, path := range paths {
+		if err := model.ValidateRelativePath(path); err != nil {
+			return "", false, err
+		}
+	}
+	collector := diffPageCollector{offset: offset, limit: int64(limit)}
+	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", base}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		args = append(args, paths...)
+	}
+	exitCode, err := r.streamCommand(ctx, p.Root, false, args, collector.write)
+	if err != nil {
+		return "", false, err
+	}
+	if exitCode != 0 {
+		return "", false, fmt.Errorf("git diff exited with status %d", exitCode)
+	}
+	selected := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		selected[path] = struct{}{}
+	}
+	untrackedWalk, err := r.commandRecords(ctx, p.Root, false, 0, "ls-files", "--others", "--exclude-standard", "--full-name", "-z")
+	if err != nil {
+		return "", false, err
+	}
+	if err := untrackedWalk(func(path string) error {
+		if path == "" || (len(selected) > 0 && !pathSetContains(selected, path)) {
+			return nil
+		}
+		if err := model.ValidateRelativePath(path); err != nil {
+			return err
+		}
+		info, err := os.Lstat(filepath.Join(p.Root, filepath.FromSlash(path)))
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		code, err := r.streamCommand(ctx, p.Root, false, []string{"diff", "--no-ext-diff", "--no-textconv", "--no-index", "--", "/dev/null", filepath.ToSlash(path)}, collector.write)
+		if err != nil {
+			return err
+		}
+		if code != 0 && code != 1 {
+			return fmt.Errorf("git diff --no-index exited with status %d", code)
+		}
+		return nil
+	}); err != nil {
+		return "", false, err
+	}
+	return collector.result()
 }
 
 func (r Runner) WorktreeStatus(ctx context.Context, p config.ProjectConfig) (WorktreeStatus, error) {

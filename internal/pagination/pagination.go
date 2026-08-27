@@ -47,6 +47,13 @@ func Encode(kind, key string) string {
 	return compactEncode(kind, key)
 }
 
+// EncodeFull preserves a continuation key that is not present in the current
+// response page, such as a streamed tree path or search match.
+func EncodeFull(kind, key string) string {
+	data, _ := json.Marshal(cursor{Kind: kind, Key: key})
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
 func compactEncode(kind, key string) string {
 	digest := sha256.Sum256([]byte(kind + "\x00" + key))
 	value := uint64(0)

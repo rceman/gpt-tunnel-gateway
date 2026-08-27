@@ -183,13 +183,27 @@ func TestLocalCodeInspectionRejectsDirtyWorktree(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "dirty") {
 		t.Fatalf("dirty worktree was not rejected: %v", err)
 	}
-	live, err := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true})
+	live, err := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true, MaxBytes: 8})
 	if err != nil {
 		t.Fatal(err)
 	}
+	allDiff := live.Diff
+	for pages := 0; live.HasMore; pages++ {
+		if pages > 100 {
+			t.Fatal("live diff pagination did not terminate")
+		}
+		live, err = f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true, MaxBytes: 8, Cursor: live.NextCursor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if live.Diff == "" {
+			t.Fatal("live diff continuation returned an empty page")
+		}
+		allDiff += live.Diff
+	}
 	for _, want := range []string{"uncommitted content", "live-untracked.txt", "untracked needle"} {
-		if !strings.Contains(live.Diff, want) {
-			t.Fatalf("live diff omitted %q: %s", want, live.Diff)
+		if !strings.Contains(allDiff, want) {
+			t.Fatalf("live diff omitted %q: %s", want, allDiff)
 		}
 	}
 }

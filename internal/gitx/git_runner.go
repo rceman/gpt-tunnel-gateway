@@ -1,9 +1,11 @@
 package gitx
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -35,10 +37,54 @@ func (r Runner) commandWithEnv(ctx context.Context, dir string, gitDir bool, ext
 	return stdout.Bytes(), nil
 }
 
-// commandWithExit is the typed Git boundary for commands whose documented
-// non-zero exit status is data. It remains private so callers cannot execute
-// arbitrary processes or bypass the Git runner policy.
-func (r Runner) commandWithExit(ctx context.Context, dir string, gitDir bool, args ...string) ([]byte, int, error) {
+func (r Runner) commandRecords(ctx context.Context, dir string, gitDir bool, delimiter byte, args ...string) (func(func(string) error) error, error) {
+	return func(visit func(string) error) error {
+		base := []string{"-c", "core.pager=cat", "-c", "pager.log=false", "-c", "pager.show=false", "-c", "diff.external=", "-c", "color.ui=false"}
+		base = append(base, args...)
+		cmd := exec.CommandContext(ctx, "git", base...)
+		if gitDir {
+			cmd.Env = append(cleanEnv(), "GIT_DIR="+dir)
+		} else {
+			cmd.Dir = dir
+			cmd.Env = cleanEnv()
+		}
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return err
+		}
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		reader := bufio.NewReader(stdout)
+		for {
+			record, readErr := reader.ReadString(delimiter)
+			if len(record) > 0 {
+				record = strings.TrimSuffix(record, string(delimiter))
+				if err := visit(record); err != nil {
+					_ = cmd.Process.Kill()
+					_ = cmd.Wait()
+					return err
+				}
+			}
+			if readErr != nil {
+				if readErr == io.EOF {
+					break
+				}
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+				return readErr
+			}
+		}
+		if err := cmd.Wait(); err != nil {
+			return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		}
+		return nil
+	}, nil
+}
+
+func (r Runner) streamCommand(ctx context.Context, dir string, gitDir bool, args []string, visit func([]byte) error) (int, error) {
 	base := []string{"-c", "core.pager=cat", "-c", "pager.log=false", "-c", "pager.show=false", "-c", "diff.external=", "-c", "color.ui=false"}
 	base = append(base, args...)
 	cmd := exec.CommandContext(ctx, "git", base...)
@@ -48,16 +94,41 @@ func (r Runner) commandWithExit(ctx context.Context, dir string, gitDir bool, ar
 		cmd.Dir = dir
 		cmd.Env = cleanEnv()
 	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return stdout.Bytes(), exitErr.ExitCode(), nil
-		}
-		return nil, -1, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return -1, err
 	}
-	return stdout.Bytes(), 0, nil
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return -1, err
+	}
+	buf := make([]byte, 32<<10)
+	for {
+		n, readErr := stdout.Read(buf)
+		if n > 0 {
+			if err := visit(buf[:n]); err != nil {
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+				return -1, err
+			}
+		}
+		if readErr != nil {
+			if readErr != io.EOF {
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+				return -1, readErr
+			}
+			break
+		}
+	}
+	if err := cmd.Wait(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return exitErr.ExitCode(), nil
+		}
+		return -1, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return 0, nil
 }
 func cleanEnv() []string {
 	allowed := []string{"HOME", "PATH", "SSH_AUTH_SOCK", "USER", "LOGNAME", "TMPDIR"}

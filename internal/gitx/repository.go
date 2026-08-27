@@ -85,6 +85,31 @@ func (r Runner) TreeLocal(ctx context.Context, p config.ProjectConfig, rev, path
 	return lines, nil
 }
 
+// WalkTreeLocal streams exact tree paths without retaining the repository
+// inventory in memory.
+func (r Runner) WalkTreeLocal(ctx context.Context, p config.ProjectConfig, rev, path string, visit func(string) error) error {
+	if err := model.ValidateCommitSHA(rev); err != nil {
+		return err
+	}
+	if err := validatePath(path); err != nil {
+		return err
+	}
+	args := []string{"ls-tree", "-r", "-z", "--name-only", rev}
+	if path != "" {
+		args = append(args, "--", path)
+	}
+	walk, err := r.commandRecords(ctx, p.Root, false, 0, args...)
+	if err != nil {
+		return err
+	}
+	return walk(func(pathName string) error {
+		if err := model.ValidateRelativePath(pathName); err != nil {
+			return err
+		}
+		return visit(pathName)
+	})
+}
+
 func (r Runner) TreePage(ctx context.Context, p config.ProjectConfig, rev, path string, limit int, cursor string) ([]string, pagination.PageInfo, error) {
 	if limit < 1 || limit > r.MaxListItems {
 		return nil, pagination.PageInfo{}, fmt.Errorf("invalid tree limit")
