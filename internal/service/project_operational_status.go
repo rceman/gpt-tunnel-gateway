@@ -177,12 +177,6 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 	trains, trainsErr := s.readProjectOperationalTrains(ctx, projectID)
 	if s.Durability != nil {
 		agentID, sessionKey := sharedOperationalAgentIdentity(trains)
-		if agentID == "" && local.Watcher.AgentID != "" {
-			agentID = local.Watcher.AgentID
-			if binding, bound := s.Config.ResolveAgentBinding(projectID, agentID); bound && binding.Validate() == nil {
-				sessionKey = binding.SessionKey
-			}
-		}
 		result.Agent.AgentID = agentID
 		if agentID != "" {
 			result.Agent.Expected = agentID

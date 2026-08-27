@@ -27,6 +27,7 @@ func TestProjectOperationalStatusUsesLocalSharedStateWhenHubUnavailable(t *testi
 		DefaultBranch:     "main",
 		ProjectCode:       "EXM",
 		AirelaySessionKey: "wrong_local_master",
+		Watcher:           config.WatcherSettings{AgentID: "wrong-local-agent"},
 	}
 	airelay := filepath.Join(t.TempDir(), "airelay")
 	if err := os.WriteFile(airelay, []byte("#!/bin/sh\n[ \"$2\" = gpt-tunnel-gateway_master ] || exit 9\nprintf 'Controller: reachable\\nState: idle\\n'\n"), 0o700); err != nil {
@@ -126,5 +127,26 @@ func TestProjectOperationalStatusUsesLocalSharedStateWhenHubUnavailable(t *testi
 	}
 	if result.Agent.AgentID != "gpt-review-planner" || result.Agent.Expected != "gpt-review-planner" || !result.Agent.SessionReady {
 		t.Fatalf("Shared active Attempt identity was not projected: %#v", result.Agent)
+	}
+	finished := now.Add(time.Minute)
+	train.Status = model.TrainV2Completed
+	train.Items[0].Status = model.TrainV2ItemFinalized
+	train.Items[0].Attempts[0].Status = model.TrainV2AttemptSucceeded
+	train.Items[0].Attempts[0].FinishedAt = &finished
+	trainPayload, err = json.Marshal(train)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(context.Background(), "train", sqlitestore.SharedEntity{
+		ID: "EXM-TRN1", Revision: 2, Payload: trainPayload, UpdatedAt: finished.Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	result, err = s.ProjectOperationalStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Agent.AgentID != "" || result.Agent.Expected != "coding" || result.Agent.SessionReady {
+		t.Fatalf("local watcher identity leaked without active Shared Attempt: %#v", result.Agent)
 	}
 }
