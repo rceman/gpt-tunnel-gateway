@@ -130,7 +130,7 @@ func (s *Service) HotfixIntegrate(ctx context.Context, projectID string, in Hotf
 		return HotfixIntegrateResult{}, err
 	}
 	if mainAfter != in.ReviewedSHA {
-		return HotfixIntegrateResult{}, fmt.Errorf("canonical origin/%s did not reach reviewed hotfix")
+		return HotfixIntegrateResult{}, fmt.Errorf("canonical origin/%s did not reach reviewed hotfix", p.DefaultBranch)
 	}
 	return HotfixIntegrateResult{ProjectID: projectID, HotfixRef: in.HotfixRef, BaseSHA: base, ReviewedSHA: in.ReviewedSHA, MainBefore: mainBefore, MainAfter: mainAfter}, nil
 }
