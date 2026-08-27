@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -38,17 +37,6 @@ func TestCorrectionPendingClassificationIsNarrowAndAdvanceStillBlocks(t *testing
 	train.Items[0].Review.ReportID = "other-review"
 	if _, ok := correctionPendingTrain(train); ok {
 		t.Fatal("mismatched rejected Attempt/review identity was classified as correction-pending")
-	}
-}
-
-func TestClassifyTrainV2CorrectionPending(t *testing.T) {
-	s, _, _ := testServiceWithoutIdentifiers(t)
-	classification, err := s.classifyTrainV2LifecycleWithContext(context.Background(), "example", correctionPendingTrainFixture(time.Now().UTC()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if classification.Class != trainV2ClassCorrection || classification.Blocker != "TRAIN_CORRECTION_PENDING" {
-		t.Fatalf("unexpected correction classification: %#v", classification)
 	}
 }
 

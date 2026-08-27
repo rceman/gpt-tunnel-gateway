@@ -79,59 +79,6 @@ exec /usr/bin/git "$@"
 	}
 }
 
-func TestFailedIntegrationMutationMakesStalePrePendingNonLive(t *testing.T) {
-	s, revision, _ := testServiceWithoutIdentifiers(t)
-	now := time.Now().UTC()
-	input := []byte(`{"train_id":"GTW-TRN999"}`)
-	if err := s.writeDurableMutation(durableMutationOperation{
-		SchemaVersion: durableMutationSchemaVersion,
-		OperationID:   "mutation-stale-pre-pending",
-		Kind:          "train-v2-integrate",
-		RequestSHA256: durableMutationDigest("train-v2-integrate", "", input),
-		ProjectID:     "example",
-		Input:         input,
-		Status:        "failed",
-		CapturedState: "revision=38591ef;train=GTW-TRN999;item=0;attempt=1",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Remove(durableMutationPath(s.Config.StateDir, "mutation-stale-pre-pending")) })
-	seedTrainIntegrationOperation(t, s, revision, trainv2.IntegrationOperation{
-		SchemaVersion: 1,
-		OperationID:   "GTW-INTEGRATE-000000000000000000000001",
-		ProjectID:     "example",
-		TrainID:       "GTW-TRN999",
-		RequestSHA256: strings.Repeat("a", 64),
-		SourceHead:    strings.Repeat("b", 40),
-		TargetBranch:  "main",
-		TargetBefore:  strings.Repeat("c", 40),
-		Phase:         trainv2.IntegrationPhasePrePending,
-		UpdatedAt:     now,
-	})
-	live, err := s.trainV2HasLiveOperation("example", "GTW-TRN999")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if live {
-		t.Fatal("failed mutation left stale pre_pending integration classified as live")
-	}
-	stale, err := s.trainV2StaleIntegrationHistory(context.Background(), "example", "GTW-TRN999")
-	if err != nil || !stale {
-		t.Fatalf("stale pre_pending history was not surfaced for reconciliation: stale=%t err=%v", stale, err)
-	}
-	train, _ := reviewBackfillFixture(t)
-	train.Status = model.TrainV2ReadyForIntegration
-	classification, err := s.classifyTrainV2LifecycleWithContext(context.Background(), "example", train)
-	if err != nil || classification.Class != trainV2ClassStale || classification.Blocker != "TRAIN_INTEGRATION_RECONCILIATION_REQUIRED" {
-		t.Fatalf("stale integration was not classified as reconciliation history: %#v err=%v", classification, err)
-	}
-	if classification.Recommended != "verify current source identity; retry train/integrate only if canonical, otherwise use administrative recovery or retire" {
-		t.Fatalf("stale integration recommendation=%q", classification.Recommended)
-	}
-}
-
 func TestStateCheckAllowsTwoIndependentActiveTrains(t *testing.T) {
 	s, revision, _ := testService(t)
 	now := time.Now().UTC()

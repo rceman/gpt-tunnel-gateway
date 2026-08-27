@@ -119,7 +119,7 @@ func TestProjectBoundSessionFlowUsesCodeAndSessionDerivedProject(t *testing.T) {
 	}
 	badEnvelope := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "project_id": "other", "action": "project/read", "input": map[string]any{}}},
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "project_id": "other", "action": "project/status", "input": map[string]any{}}},
 	}))
 	if badEnvelope["error"] == nil {
 		t.Fatalf("call accepted project_id as alternate authority: %#v", badEnvelope)
@@ -131,7 +131,7 @@ func TestCallAndBatchRequireSessionEnvelopeWithoutProjectAuthority(t *testing.T)
 	for _, name := range []string{"call", "batch"} {
 		response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-			"params": map[string]any{"name": name, "arguments": map[string]any{"action": "project/read", "input": map[string]any{}, "project_id": "example"}},
+			"params": map[string]any{"name": name, "arguments": map[string]any{"action": "project/status", "input": map[string]any{}, "project_id": "example"}},
 		}))
 		if response["error"] == nil {
 			t.Fatalf("%s accepted a project-bearing/unbound envelope: %#v", name, response)
@@ -149,7 +149,7 @@ func TestCorruptProjectCodeInSessionIDFailsClosed(t *testing.T) {
 	corrupt := strings.Replace(id, "EXM", "BAD", 1)
 	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": corrupt, "action": "project/read", "input": map[string]any{}}},
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": corrupt, "action": "project/status", "input": map[string]any{}}},
 	}))
 	if response["error"] == nil && response["result"].(map[string]any)["isError"] != true {
 		t.Fatalf("corrupt project code session was accepted: %#v", response)

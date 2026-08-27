@@ -80,7 +80,7 @@ func TestRulesReadUsesSeededPolicyCacheWithoutHubRead(t *testing.T) {
 func TestGenericRegistryAndTypedAuthorityUseSameContract(t *testing.T) {
 	server := &Server{}
 	legacy := map[string]Tool{}
-	for _, name := range []string{"task_correction_create", "delivery_handoff_publish", "planner_report_publish", "project_workflow_policy_update"} {
+	for _, name := range []string{"task_correction_create", "delivery_handoff_publish", "planner_report_publish"} {
 		legacy[name] = Tool{
 			Description:  name,
 			InputSchema:  obj(map[string]any{}, ""),
@@ -89,7 +89,7 @@ func TestGenericRegistryAndTypedAuthorityUseSameContract(t *testing.T) {
 		}
 	}
 	entries := server.genericActionRegistry(legacy)
-	for _, name := range []string{"task_correction_create", "delivery_handoff_publish", "planner_report_publish", "project_workflow_policy_update"} {
+	for _, name := range []string{"task_correction_create", "delivery_handoff_publish", "planner_report_publish"} {
 		entry := entries[legacyActionPath(name)]
 		contract := actionAuthorityContractFor(name)
 		if entry.AuthorityRole != contract.Role || entry.RequiresWorkflowPolicy != contract.RequiresWorkflowPolicy {

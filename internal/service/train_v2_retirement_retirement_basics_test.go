@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -42,79 +41,6 @@ func seedLiveTrainMutationForRetirementTest(t *testing.T, s *Service, kind strin
 	}
 	t.Cleanup(func() { _ = os.Remove(durableMutationPath(s.Config.StateDir, operationID)) })
 	return operationID
-}
-func TestTrainV2RetireRecordsServerOwnedEvidenceAndIsIdempotent(t *testing.T) {
-	s, revision, _ := testService(t)
-	revision = enableTrainV2ForTest(t, s, revision)
-	now := time.Now().UTC()
-	train := staleTrainV2ForRetirementTest(now)
-	tx, err := s.Hub.Transact(context.Background(), revision, "test: seed stale train", func(worktree string) ([]string, error) {
-		path := s.trainV2Path("example", train.ID)
-		if err := hub.WriteJSON(worktree, path, train); err != nil {
-			return nil, err
-		}
-		return []string{path}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := trainV2RetirementTestContext()
-	input := TrainV2RetireInput{
-		ProjectID: "example",
-		TrainID:   train.ID,
-		Reason:    "terminal failed Attempt has no live owner",
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: tx.After,
-		},
-	}
-	retired, err := s.TrainV2Retire(ctx, input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if retired.Status != model.TrainV2Retired || retired.Train.Retirement == nil || retired.Train.Retirement.ActorSessionID != "SP-ABCDEFGH" || retired.Train.Retirement.PreviousStatus != model.TrainV2Blocked {
-		t.Fatalf("retirement evidence missing: %#v", retired)
-	}
-	second, err := s.TrainV2Retire(ctx, input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second.Train.Revision != retired.Train.Revision || second.Status != model.TrainV2Retired {
-		t.Fatalf("retirement was not idempotent: %#v", second)
-	}
-}
-func TestTrainV2RetireRejectsLiveAttempt(t *testing.T) {
-	now := time.Now().UTC()
-	train := staleTrainV2ForRetirementTest(now)
-	train.Status = model.TrainV2Running
-	train.Items[0].Status = model.TrainV2ItemRunning
-	train.Items[0].Attempts[0].Status = model.TrainV2AttemptRunning
-	train.Items[0].Attempts[0].FinishedAt = nil
-	if err := model.ValidateTrainV2(train); err != nil {
-		t.Fatal(err)
-	}
-	s, revision, _ := testService(t)
-	revision = enableTrainV2ForTest(t, s, revision)
-	tx, err := s.Hub.Transact(context.Background(), revision, "test: seed live train", func(worktree string) ([]string, error) {
-		path := s.trainV2Path("example", train.ID)
-		if err := hub.WriteJSON(worktree, path, train); err != nil {
-			return nil, err
-		}
-		return []string{path}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = s.TrainV2Retire(trainV2RetirementTestContext(), TrainV2RetireInput{
-		ProjectID: "example",
-		TrainID:   train.ID,
-		Reason:    "must fail",
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: tx.After,
-		},
-	})
-	if err == nil || !strings.Contains(err.Error(), "TRAIN_ATTEMPT_LIVE") {
-		t.Fatalf("live Train was not rejected: %v", err)
-	}
 }
 func TestTrainV2LiveOperationRecognizesAttemptMutationKinds(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)

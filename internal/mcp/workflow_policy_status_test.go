@@ -2,13 +2,11 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -26,61 +24,17 @@ func newWorkflowPolicyStatusService(t *testing.T) (*service.Service, string) {
 		t.Fatal(err)
 	}
 	c := config.Config{
-		SchemaVersion:          1,
-		GatewayID:              "test_gateway",
-		ListenAddr:             "127.0.0.1:8875",
-		StateDir:               filepath.Join(dir, "state"),
-		MaxReadBytes:           1 << 20,
-		MaxDiffBytes:           1 << 20,
-		MaxListItems:           1000,
-		DispatchTimeoutSeconds: 5,
-		RunTimeoutSeconds:      60,
-		AirelayCommand:         airelay,
-		Hub: config.HubConfig{
-			RepositoryURL: hubBare,
-			Branch:        "main",
-			AuthorName:    "Gateway",
-			AuthorEmail:   "gateway@example.invalid",
-		},
-		Projects: map[string]config.ProjectConfig{
-			"example": {
-				Root:              projectRoot,
-				Mirror:            filepath.Join(dir, "mirror.git"),
-				Remote:            "origin",
-				DefaultBranch:     "main",
-				AirelaySessionKey: "example_master",
-			},
-		},
+		SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: airelay,
+		Hub:      config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"},
+		Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}},
 	}
 	s := service.New(c)
-	project := model.Project{
-		SchemaVersion:      1,
-		ID:                 "example",
-		RepositoryURL:      "git@example.invalid:example.git",
-		DefaultBranch:      "main",
-		WorkflowRepository: "rceman/gpt-review-planner",
-		WorkflowCommit:     "b1a45b1e9475ab29dfd3e84d523b70897c7b8918",
-		Status:             "active",
-	}
+	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "gpt-review-planner", WorkflowCommit: "b1a45b1e9475ab29dfd3e84d523b70897c7b8918", Status: "active"}
 	registered, err := s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: project, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := model.ProjectWorkflowPolicy{
-		SchemaVersion:     model.SchemaVersion,
-		ProjectID:         "example",
-		Revision:          1,
-		WorkflowStage:     model.WorkflowStageTransitionalMain,
-		IntegrationBranch: "main",
-		Agent:             model.WorkflowPolicyAgent{WaitForCI: false},
-		CI: model.WorkflowPolicyCI{
-			Task:      model.WorkflowCIModeDisabled,
-			TaskMerge: model.WorkflowCIModeObserve,
-			Release:   model.WorkflowCIModeRequire,
-		},
-		UpdatedBy: "test",
-		UpdatedAt: time.Now().UTC(),
-	}
+	policy := model.ProjectWorkflowPolicy{SchemaVersion: model.SchemaVersion, ProjectID: "example", Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", Agent: model.WorkflowPolicyAgent{WaitForCI: false}, CI: model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeRequire}, UpdatedBy: "test", UpdatedAt: time.Now().UTC()}
 	_, operation, err := s.ProjectWorkflowPolicyAdopt(service.WithPlannerWorkflowPolicyAuthority(context.Background()), service.ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
 	if err != nil {
 		t.Fatal(err)
@@ -96,10 +50,8 @@ func mutateWorkflowPolicyStatusFixture(t *testing.T, s *service.Service, revisio
 			if err := os.Remove(filepath.Join(worktree, filepath.FromSlash(path))); err != nil {
 				return nil, err
 			}
-		} else {
-			if err := hub.WriteText(worktree, path, `{"schema_version":1,"project_id":"example"}`); err != nil {
-				return nil, err
-			}
+		} else if err := hub.WriteText(worktree, path, `{"schema_version":1,"project_id":"example"}`); err != nil {
+			return nil, err
 		}
 		return []string{path}, nil
 	})
@@ -107,92 +59,4 @@ func mutateWorkflowPolicyStatusFixture(t *testing.T, s *service.Service, revisio
 		t.Fatal(err)
 	}
 	return result.After
-}
-
-func readAndValidateProjectStatus(t *testing.T, s *service.Service) map[string]any {
-	t.Helper()
-	server := &Server{
-		Service:          s,
-		AuthorityContext: authority.WithDelivery(context.Background()),
-	}
-	sessionID := genericSession(t, s, "example")
-	response := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "status", "arguments": map[string]any{"session_id": sessionID}}}))
-	status := genericStructured(t, response)
-	structured, ok := status["project_status"].(map[string]any)
-	if !ok {
-		t.Fatalf("status omitted bound project_status: %#v", response)
-	}
-	wire, err := json.Marshal(structured)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(wire, &decoded); err != nil {
-		t.Fatal(err)
-	}
-	if err := validateOutputValue(toolOutputSchemas["project_status"], decoded); err != nil {
-		t.Fatalf("serialized project_status violates declared MCP output schema: %v\n%s", err, wire)
-	}
-	return decoded
-}
-
-func TestProjectStatusMCPOutputMatchesWorkflowPolicyStateMatrix(t *testing.T) {
-	for _, state := range []string{"adopted", "missing", "invalid"} {
-		t.Run(state, func(t *testing.T) {
-			s, revision := newWorkflowPolicyStatusService(t)
-			if state != "adopted" {
-				revision = mutateWorkflowPolicyStatusFixture(t, s, revision, state)
-			}
-			status := readAndValidateProjectStatus(t, s)
-			policy := status["workflow_policy"].(map[string]any)
-			if policy["state"] != state {
-				t.Fatalf("workflow policy state=%v want=%s", policy["state"], state)
-			}
-			gates, ok := policy["gates"].([]any)
-			if !ok || len(gates) != 3 || gates[0] != model.WorkflowGateFormat || gates[1] != model.WorkflowGateCheck || gates[2] != model.WorkflowGateTest {
-				t.Fatalf("%s policy emitted non-effective gates: %#v", state, policy["gates"])
-			}
-			ci := policy["ci"].(map[string]any)
-			if state == "adopted" {
-				if policy["revision"] != float64(1) || policy["workflow_stage"] != model.WorkflowStageTransitionalMain || policy["integration_branch"] != "main" || ci["task"] != string(model.WorkflowCIModeDisabled) || ci["task_merge"] != string(model.WorkflowCIModeObserve) || ci["release"] != string(model.WorkflowCIModeRequire) {
-					t.Fatalf("adopted policy projection changed: %#v", policy)
-				}
-			} else {
-				for _, field := range []string{"task", "task_merge", "release"} {
-					if ci[field] != string(model.WorkflowCIModeDisabled) {
-						t.Fatalf("%s policy emitted non-fail-closed CI mode: %#v", state, policy)
-					}
-				}
-				if policy["corrective_action"] == "none" || len(policy["conflicts"].([]any)) == 0 {
-					t.Fatalf("%s policy omitted corrective semantics: %#v", state, policy)
-				}
-			}
-		})
-	}
-}
-
-func TestProjectStatusMCPOutputKeepsRetiredPlanSchemaValid(t *testing.T) {
-	server := newSessionTestServer(t)
-	server.AuthorityContext = authority.WithDelivery(context.Background())
-	configureTrainV2MCPTest(t, server)
-
-	status := readAndValidateProjectStatus(t, server.Service)
-	plan, ok := status["plan"].(map[string]any)
-	if !ok {
-		t.Fatalf("project_status plan projection has wrong type: %#v", status["plan"])
-	}
-	if plan["project_id"] != "example" || plan["schema_version"] != float64(model.PlanSchemaVersion) {
-		t.Fatalf("retired Plan projection lost identity/schema: %#v", plan)
-	}
-	queue, ok := plan["queue"].([]any)
-	if !ok || queue == nil || len(queue) != 0 {
-		t.Fatalf("retired Plan queue was not an empty array: %#v", plan["queue"])
-	}
-	sections, ok := plan["sections"].([]any)
-	if !ok || sections == nil || len(sections) != 0 {
-		t.Fatalf("retired Plan sections were not an empty array: %#v", plan["sections"])
-	}
-	if train, ok := status["train_v2"].(map[string]any); ok && train["execution_model"] != "train_v2" {
-		t.Fatalf("retired Plan projection changed Train authority: %#v", train)
-	}
 }

@@ -24,25 +24,3 @@ func adoptTestWorkflowPolicyCLI(t *testing.T, s *service.Service, projectID, rev
 	}
 	return result.Hub.After
 }
-
-func registerTestCodingAgentCLI(t *testing.T, s *service.Service, revision string) string {
-	t.Helper()
-	registered, result, err := s.AgentRegister(service.WithPlannerWorkflowPolicyAuthority(context.Background()), service.AgentRegisterInput{
-		Agent: model.Agent{
-			SchemaVersion:        model.AgentSchemaVersion,
-			ProjectID:            "example",
-			AgentID:              "coding-example",
-			Role:                 model.AgentRoleCoding,
-			Enabled:              true,
-			RecommendedReasoning: model.ReasoningHigh,
-		},
-		WriteOptions: service.WriteOptions{ExpectedHubRevision: revision},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if registered.AgentID != "coding-example" || result.Status != "registered" {
-		t.Fatalf("unexpected test coding agent registration: %#v %#v", registered, result)
-	}
-	return result.Hub.After
-}

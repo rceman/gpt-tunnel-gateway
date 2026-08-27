@@ -35,7 +35,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatal(err)
 	}
 	adoptedPolicyRevision := adoptTestWorkflowPolicy(t, s, "example", registered.Hub.After)
-	registeredAgentRevision := registerMCPTestCodingAgent(t, s, adoptedPolicyRevision)
+	registeredAgentRevision := seedMCPTestCodingAgent(t, s, adoptedPolicyRevision)
 	srv := &Server{
 		Service:          s,
 		AuthorityContext: authority.WithDelivery(context.Background()),
@@ -58,7 +58,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		status := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/prompt_status", "input": map[string]any{"operation_id": operationID}}}}))
+		status := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "operation/read", "input": map[string]any{"operation_id": operationID}}}}))
 		statusResult := genericStructured(t, status)
 		if statusResult["is_error"] == true {
 			t.Fatalf("agent/prompt status failed: %#v", status)

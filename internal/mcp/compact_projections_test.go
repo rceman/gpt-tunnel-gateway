@@ -38,7 +38,7 @@ func TestControlAndReceiptActionsDoNotAdvertiseDetailProjection(t *testing.T) {
 		AuthorityContext: authority.WithDelivery(context.Background()),
 	}
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"task/create_status", "train/start_status", "agent/prompt", "project/update", "watcher/nudge", "runtime/restart"} {
+	for _, path := range []string{"operation/read", "agent/prompt", "watcher/nudge", "runtime/restart"} {
 		entry, ok := entries[path]
 		if !ok {
 			t.Fatalf("missing action %s", path)
@@ -151,7 +151,7 @@ func TestCompactMutationDoesNotLeakNestedDurablePayloads(t *testing.T) {
 		"identifiers":   map[string]any{"project_id": "example", "project_code": "EXM", "next_task_number": float64(2), "secret": "counter-detail"},
 		"adr":           map[string]any{"id": "GTW-ADR1", "title": "ADR", "context": "full context"},
 	}
-	compact := compactActionResult("project/workflow_policy_update", value, false)
+	compact := compactActionResult("task/update", value, false)
 	for key, forbidden := range map[string]string{
 		"agent": "secret", "guide": "content", "configuration": "gate_commands", "policy": "secret", "identifiers": "secret", "adr": "context",
 	} {

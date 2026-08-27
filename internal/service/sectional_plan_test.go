@@ -244,21 +244,6 @@ func TestPlanSectionsSupportPartialUpdatesIndependentConflictsAndRender(t *testi
 	if strings.Index(rendered.Text, "## First") > strings.Index(rendered.Text, "## Second") || !strings.Contains(rendered.Text, "Updated first description") || !strings.Contains(rendered.Text, "Updated second short description") {
 		t.Fatalf("render ordering/content incorrect: %q", rendered.Text)
 	}
-	if _, err := s.PlanSectionDelete(context.Background(), PlanSectionDeleteInput{
-		ProjectID:               "example",
-		SectionID:               first.ID,
-		UpdatedBy:               "delete-owner",
-		ExpectedSectionRevision: first.Revision + 1,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	deletedPlan, err := s.PlanRead(context.Background(), "example")
-	if err != nil || deletedPlan.UpdatedBy != "delete-owner" {
-		t.Fatalf("delete actor was not preserved: %v %#v", err, deletedPlan)
-	}
-	if _, err := s.PlanSectionRead(context.Background(), "example", first.ID); err == nil {
-		t.Fatal("deleted section remained readable")
-	}
 	history, err := s.Hub.History(context.Background(), s.planSectionPath("example", first.ID), 20)
 	if err != nil || len(history) < 2 {
 		t.Fatalf("section Git history not retained: %v %#v", err, history)

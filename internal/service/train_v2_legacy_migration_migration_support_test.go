@@ -81,18 +81,15 @@ exec %q "$@"
 	reset("")
 	return reset, read
 }
-func TestTrainV2LegacyMigrationSevenActionsReuseOneSnapshot(t *testing.T) {
+func TestTrainV2LegacyMigrationSixActionsReuseOneSnapshot(t *testing.T) {
 	s, revision, _ := testService(t)
 	revision = enableTrainV2ForTest(t, s, revision)
 	now := nowUTC()
-	trains := make([]model.TrainV2, 0, 7)
+	trains := make([]model.TrainV2, 0, 6)
 	historical, _ := reviewBackfillFixture(t)
 	historical.ID = "EXM-TRN301"
 	historical.Status = model.TrainV2RecoveryQuarantined
 	trains = append(trains, historical)
-	stale := staleTrainV2ForRetirementTest(now)
-	stale.ID = "EXM-TRN302"
-	trains = append(trains, stale)
 
 	operations := make([]trainv2.IntegrationOperation, 0, 5)
 	mutations := make([]durableMutationOperation, 0, 5)
@@ -114,7 +111,7 @@ func TestTrainV2LegacyMigrationSevenActionsReuseOneSnapshot(t *testing.T) {
 			UpdatedAt:     now,
 		}
 		operations = append(operations, operation)
-		mutationID := fmt.Sprintf("mutation-legacy-integration-%d", i+1)
+		mutationID := fmt.Sprintf("mutation-legacy-integration-%d", i)
 		mutationInput := []byte(fmt.Sprintf(`{"project_id":"example","train_id":"%s"}`, train.ID))
 		mutations = append(mutations, durableMutationOperation{
 			SchemaVersion: durableMutationSchemaVersion,
@@ -171,8 +168,6 @@ func TestTrainV2LegacyMigrationSevenActionsReuseOneSnapshot(t *testing.T) {
 		switch train.ID {
 		case historical.ID:
 			action.Action = TrainV2LegacyActionMarkHistorical
-		case stale.ID:
-			action.Action = TrainV2LegacyActionRetireStale
 		default:
 			action.Action = TrainV2LegacyActionRecoverIntegrate
 			opRaw, err := s.Hub.ReadFile(context.Background(), trainV2IntegrationOperationPath("example", train.ID))
@@ -203,12 +198,12 @@ func TestTrainV2LegacyMigrationSevenActionsReuseOneSnapshot(t *testing.T) {
 	dryCtx, cancel := context.WithTimeout(trainV2RetirementTestContext(), 15*time.Second)
 	dry, err := s.TrainV2MigrateLegacyState(dryCtx, TrainV2LegacyStateMigrationInput{
 		ProjectID: "example",
-		Reason:    "seven-action snapshot regression",
+		Reason:    "six-action snapshot regression",
 		Actions:   actions,
 	})
 	cancel()
-	if err != nil || !dry.DryRun || len(dry.Records) != 7 {
-		t.Fatalf("seven-action dry-run failed: %#v err=%v", dry, err)
+	if err != nil || !dry.DryRun || len(dry.Records) != 6 {
+		t.Fatalf("six-action dry-run failed: %#v err=%v", dry, err)
 	}
 	if got := fetches(); got != 1 {
 		t.Fatalf("dry-run used %d fetches, want exactly one", got)
@@ -227,7 +222,7 @@ func TestTrainV2LegacyMigrationSevenActionsReuseOneSnapshot(t *testing.T) {
 		ProjectID:           "example",
 		Apply:               true,
 		ExpectedHubRevision: dry.HubBefore,
-		Reason:              "seven-action snapshot regression",
+		Reason:              "six-action snapshot regression",
 		Actions:             actions,
 	})
 	applyCancel()

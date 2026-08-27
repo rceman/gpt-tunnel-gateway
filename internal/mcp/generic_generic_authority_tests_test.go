@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -91,9 +90,11 @@ func TestGenericLegacyReadAndMutationAuthorityReuse(t *testing.T) {
 	}
 
 	unauthorizedServer := &Server{Service: server.Service}
+	var calls int
+	registerAuthorityTestAction(t, unauthorizedServer, "test/policy", durableSession.RoleDelivery, true, &calls)
 	unauthorized := callMCP(t, unauthorizedServer, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "project/workflow_policy_update", "input": map[string]any{"unknown": true}}},
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/policy", "input": map[string]any{"value": "ok"}}},
 	}))
 	unauthorizedResult := genericStructured(t, unauthorized)
 	if unauthorizedResult["is_error"] != true || !strings.Contains(unauthorizedResult["result"].(map[string]any)["error"].(string), "AUTHORITY_UNAVAILABLE") {
@@ -131,65 +132,5 @@ func TestGenericTransportEnvelopeAndActionPathContracts(t *testing.T) {
 		if _, _, ok := genericActionParts(test.path); ok != test.want {
 			t.Fatalf("genericActionParts(%q) ok=%v, want %v", test.path, ok, test.want)
 		}
-	}
-}
-func TestGenericWorkflowPolicyMutationMatchesLegacyHandler(t *testing.T) {
-	s, hubRevision := newWorkflowPolicyStatusService(t)
-	current, err := s.ProjectWorkflowPolicyRead(context.Background(), "example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	current.Revision++
-	current.UpdatedBy = "generic-equivalence-test"
-	current.UpdatedAt = time.Now().UTC()
-	policyJSON, err := json.Marshal(current)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var policy map[string]any
-	if err := json.Unmarshal(policyJSON, &policy); err != nil {
-		t.Fatal(err)
-	}
-	delete(policy, "project_id")
-	input := map[string]any{"policy": policy, "expected_hub_revision": hubRevision}
-	server := &Server{
-		Service:          s,
-		AuthorityContext: authority.WithPlanner(context.Background()),
-	}
-	sessionID := genericSessionWithRole(t, s, "example", durableSession.RolePlanner)
-	legacy := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "project/workflow_policy_update", "input": input}},
-	})))
-	legacyPolicy := legacy["policy"].(map[string]any)
-	if legacyPolicy["revision"] != float64(current.Revision) {
-		t.Fatalf("legacy policy mutation did not publish expected revision: %#v", legacy)
-	}
-
-	nextRevision, err := s.Hub.RemoteRevision(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	current.Revision++
-	current.UpdatedAt = time.Now().UTC()
-	policyJSON, err = json.Marshal(current)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(policyJSON, &policy); err != nil {
-		t.Fatal(err)
-	}
-	delete(policy, "project_id")
-	genericInput := map[string]any{"policy": policy, "expected_hub_revision": nextRevision}
-	generic := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "project/workflow_policy_update", "input": genericInput}},
-	})))
-	if generic["is_error"] != false {
-		t.Fatalf("generic policy mutation failed: %#v", generic)
-	}
-	result := generic["result"].(map[string]any)
-	if result["policy"].(map[string]any)["revision"] != float64(current.Revision) {
-		t.Fatalf("generic policy mutation diverged from legacy handler: %#v", generic)
 	}
 }

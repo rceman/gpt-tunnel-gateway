@@ -122,6 +122,10 @@ func TestManagedProjectResolutionMCPFailsClosedAndDoesNotWriteAbsentRegistry(t *
 	if _, err := executeMCPTool(t, server, "git_worktree_status", map[string]any{"project_id": "managed"}); err == nil {
 		t.Fatal("malformed registry fell back to static Git resolution")
 	}
+	entries := server.genericActionRegistry(server.tools())
+	if _, ok := entries["git/worktree_status"]; !ok {
+		t.Fatal("semantic git/worktree_status action is not registered")
+	}
 	for _, name := range []string{
 		"git_refresh", "git_refs", "git_log", "git_show", "git_tree", "git_read_file",
 		"git_diff", "git_compare", "git_merge_base", "git_worktree_status", "git_worktree_diff",

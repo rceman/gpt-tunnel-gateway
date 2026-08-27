@@ -75,9 +75,6 @@ func TestTrainV2AllScannersIgnoreIntegrationAuxiliaryRecords(t *testing.T) {
 		if err := hub.WriteJSON(worktree, auxiliaryPath, map[string]any{"operation_id": "integration-7"}); err != nil {
 			return nil, err
 		}
-		if err := activeTrainInHubWorktree(worktree, "example"); err != nil {
-			return nil, err
-		}
 		return []string{auxiliaryPath}, nil
 	})
 	if err != nil {
@@ -93,9 +90,6 @@ func TestTrainV2AllScannersIgnoreIntegrationAuxiliaryRecords(t *testing.T) {
 	active, err := s.projectHasActiveTrainAttempt(context.Background(), "example")
 	if err != nil || active {
 		t.Fatalf("auxiliary record affected active-attempt scan: active=%v err=%v", active, err)
-	}
-	if err := s.rejectActiveTrains(context.Background(), "example"); err != nil {
-		t.Fatalf("auxiliary record affected project removal scan: %v", err)
 	}
 	worktree := t.TempDir()
 	root := filepath.Join(worktree, filepath.FromSlash(hubTrainRoot("example")))

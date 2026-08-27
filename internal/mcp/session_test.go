@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
@@ -38,19 +40,21 @@ func newSessionTestServer(t *testing.T) *Server {
 	}
 }
 
-func registerMCPTestCodingAgent(t *testing.T, s *service.Service, revision string) string {
+func seedMCPTestCodingAgent(t *testing.T, s *service.Service, revision string) string {
 	t.Helper()
-	registered, result, err := s.AgentRegister(service.WithPlannerWorkflowPolicyAuthority(context.Background()), service.AgentRegisterInput{
-		Agent:        model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coding-example", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh},
-		WriteOptions: service.WriteOptions{ExpectedHubRevision: revision},
+	now := time.Now().UTC()
+	agent := model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coding-example", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now}
+	tx, err := s.Hub.Transact(context.Background(), revision, "test: seed coding Agent", func(worktree string) ([]string, error) {
+		path := filepath.ToSlash(filepath.Join(hub.ProtocolRoot, "projects", "example", "agents", "coding-example.json"))
+		if err := hub.WriteJSON(worktree, path, agent); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if registered.AgentID != "coding-example" || result.Status != "registered" {
-		t.Fatalf("unexpected test coding agent registration: %#v %#v", registered, result)
-	}
-	return result.Hub.After
+	return tx.After
 }
 
 func sessionCall(t *testing.T, server *Server, args map[string]any) map[string]any {

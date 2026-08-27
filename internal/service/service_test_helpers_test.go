@@ -87,27 +87,25 @@ func testService(t *testing.T) (*Service, string, string) {
 		t.Fatal(err)
 	}
 	s.Config.AgentBindings[config.ProjectAgentBindingKey("example", "coder-example")] = config.AgentBinding{SessionKey: "example_master"}
-	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
 	now := time.Now().UTC()
-	coder, registered, err := s.AgentRegister(ctx, AgentRegisterInput{
-		Agent: model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coder-example", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now},
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: result.Hub.After,
-		},
-	})
-	if err != nil || coder.AgentID != "coder-example" {
-		t.Fatalf("register test coding agent: %#v err=%v", coder, err)
+	revision = result.Hub.After
+	for _, agent := range []model.Agent{
+		{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coder-example", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now},
+		{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "watcher-example", Role: model.AgentRoleWatcher, Enabled: true, RecommendedReasoning: model.ReasoningBestAvailable, CreatedAt: now, UpdatedAt: now},
+	} {
+		path := s.agentPath("example", agent.AgentID)
+		tx, err := s.Hub.Transact(context.Background(), revision, "test: seed agent "+agent.AgentID, func(worktree string) ([]string, error) {
+			if err := hub.WriteJSON(worktree, path, agent); err != nil {
+				return nil, err
+			}
+			return []string{path}, nil
+		})
+		if err != nil {
+			t.Fatalf("seed test agent %s: %v", agent.AgentID, err)
+		}
+		revision = tx.After
 	}
-	watcher, registered, err := s.AgentRegister(ctx, AgentRegisterInput{
-		Agent: model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "watcher-example", Role: model.AgentRoleWatcher, Enabled: true, RecommendedReasoning: model.ReasoningBestAvailable, CreatedAt: now, UpdatedAt: now},
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: registered.Hub.After,
-		},
-	})
-	if err != nil || watcher.AgentID != "watcher-example" {
-		t.Fatalf("register test watcher agent: %#v err=%v", watcher, err)
-	}
-	return s, registered.Hub.After, projectHead
+	return s, revision, projectHead
 }
 
 func TestValidateConfiguredProjectRecordsRejectsMissingDurableRecord(t *testing.T) {

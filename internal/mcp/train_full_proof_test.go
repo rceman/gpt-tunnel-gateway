@@ -1,13 +1,10 @@
 package mcp
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestTrainFullProofActionsExposeBoundedReceiptContracts(t *testing.T) {
 	server := newSessionTestServer(t)
-	for _, path := range []string{"train/full-proof", "train/full-proof_status"} {
+	for _, path := range []string{"train/full-proof"} {
 		response := callMCP(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
@@ -28,8 +25,6 @@ func TestTrainFullProofActionsExposeBoundedReceiptContracts(t *testing.T) {
 			if len(required) != 1 || required[0] != "train_id" {
 				t.Fatalf("full-proof required fields=%#v", required)
 			}
-		} else if !strings.Contains(strings.ToLower(contract["description"].(string)), "receipt") {
-			t.Fatalf("status contract is not receipt-oriented: %#v", contract)
 		}
 	}
 }

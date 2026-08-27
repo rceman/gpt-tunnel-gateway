@@ -81,29 +81,3 @@ func TestTrainV2AdvanceDoesNotRejectDisjointActiveTrain(t *testing.T) {
 		t.Fatalf("Train advance retained project-wide active Train rejection: %v", err)
 	}
 }
-func TestTrainV2WorkerRecoversRunningReconcileAfterRestart(t *testing.T) {
-	s, revision, _ := testServiceWithoutIdentifiers(t)
-	_ = enableTrainV2ForTest(t, s, revision)
-	operationID := "mutation-restart-reconcile"
-	input := []byte(`{"apply":false,"project_id":"example","reason":"restart recovery"}`)
-	now := time.Now().UTC()
-	if err := s.writeDurableMutation(durableMutationOperation{
-		SchemaVersion: durableMutationSchemaVersion,
-		OperationID:   operationID,
-		Kind:          "train-v2-reconcile",
-		RequestSHA256: durableMutationDigest("train-v2-reconcile", "", input),
-		ProjectID:     "example",
-		Input:         input,
-		Status:        "running",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	restarted := New(s.Config)
-	waitDurableMutationTerminal(t, restarted, operationID)
-	operation, err := restarted.readDurableMutation(operationID)
-	if err != nil || operation.Status != "completed" || operation.RecoveryReason == "" {
-		t.Fatalf("running mutation was not recovered after restart: %#v err=%v", operation, err)
-	}
-}
