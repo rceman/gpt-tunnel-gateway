@@ -115,7 +115,10 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 			continue
 		}
 		path := legacyActionPath(toolName)
-		if strings.HasSuffix(path, "_status") {
+		if toolName == "git_worktree_status" {
+			path = "git/worktree_status"
+		}
+		if strings.HasSuffix(path, "_status") && toolName != "git_worktree_status" {
 			panic(fmt.Sprintf("legacy action %q uses retired *_status receipt path; remove the registration", path))
 		}
 		toolName, tool := toolName, tool
