@@ -350,7 +350,7 @@ func seedCodeTrainWithLegacyRuntime(t *testing.T, f localCodeFixture, status str
 	return trainID
 }
 
-func TestCodeWorktreeIgnoresObsoleteRuntimeForNonRunningTrain(t *testing.T) {
+func TestCodeWorktreeSkipsInactiveTrainBeforeRuntimeDecode(t *testing.T) {
 	f := newLocalCodeFixture(t)
 	trainID := seedCodeTrainWithLegacyRuntime(t, f, model.TrainV2Planned)
 	result, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"})
@@ -359,10 +359,12 @@ func TestCodeWorktreeIgnoresObsoleteRuntimeForNonRunningTrain(t *testing.T) {
 	}
 	for _, item := range result.Items {
 		if item.TrainID == trainID {
-			return
+			t.Fatalf("inactive Train with obsolete runtime was exposed: %#v", result)
 		}
 	}
-	t.Fatalf("non-running Train with obsolete runtime was not discoverable: %#v", result)
+	if len(result.Items) != 1 || result.Items[0].Kind != "main" {
+		t.Fatalf("inactive Train changed the code/worktree result: %#v", result)
+	}
 }
 
 func TestCodeWorktreeFailsClosedForRunningTrainWithObsoleteRuntime(t *testing.T) {

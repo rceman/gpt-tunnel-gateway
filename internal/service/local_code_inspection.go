@@ -209,7 +209,7 @@ func (s *Service) codeTrainRecords(ctx context.Context, projectID string) ([]mod
 
 func activeCodeTrainStatus(status string) bool {
 	switch status {
-	case model.TrainV2Planned, model.TrainV2Running, model.TrainV2Paused, model.TrainV2Blocked, model.TrainV2ReadyForIntegration:
+	case model.TrainV2Running, model.TrainV2Paused, model.TrainV2Blocked, model.TrainV2ReadyForIntegration:
 		return true
 	default:
 		return false
