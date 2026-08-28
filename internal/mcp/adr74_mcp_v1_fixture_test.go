@@ -13,7 +13,7 @@ var adr74MCPV1Fixture = map[string]struct {
 	properties map[string]string
 }{
 	"status":        {required: []string{}, properties: map[string]string{}},
-	"session_start": {required: []string{"project_id"}, properties: map[string]string{"project_id": "string"}},
+	"session_start": {required: []string{"role"}, properties: map[string]string{"role": "string", "label": "string"}},
 	"schema":        {required: []string{}, properties: map[string]string{"path": "string"}},
 	"call": {required: []string{"session", "action", "input"}, properties: map[string]string{
 		"session": "string", "action": "string", "input": "object",

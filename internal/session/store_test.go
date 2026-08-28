@@ -6,8 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 )
 
 func TestStoreCreateReloadUpdateAndEnd(t *testing.T) {
@@ -51,6 +54,71 @@ func TestStoreCreateReloadUpdateAndEnd(t *testing.T) {
 	mode, err := os.Stat(filepath.Join(state, "sessions", record.ID+".json"))
 	if err != nil || mode.Mode().Perm() != 0o600 {
 		t.Fatalf("session mode=%v err=%v", mode.Mode(), err)
+	}
+}
+
+func TestStoreCreateUnboundSurvivesTerminationAndConcurrentIDs(t *testing.T) {
+	state := t.TempDir()
+	store := NewStore(state)
+	ended, err := store.CreateUnbound(RolePlanner, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ended.ProjectID != "" || ended.ProjectCode != "" || ended.Status != StatusActive {
+		t.Fatalf("unbound record=%#v", ended)
+	}
+	if _, err := store.End(ended.ID); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := NewStore(state).CreateUnbound(RolePlanner, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.ID == ended.ID || fresh.Status != StatusActive {
+		t.Fatalf("fresh record=%#v ended=%#v", fresh, ended)
+	}
+	if got, err := NewStore(state).Get(ended.ID); err != nil || got.Status != StatusEnded {
+		t.Fatalf("ended record changed after fresh creation: %#v err=%v", got, err)
+	}
+
+	const count = 16
+	ids := make(chan string, count)
+	errs := make(chan error, count)
+	var group sync.WaitGroup
+	for i := 0; i < count; i++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			for attempt := 0; attempt < 100; attempt++ {
+				record, createErr := NewStore(state).CreateUnbound(RolePlanner, nil)
+				if createErr == nil {
+					ids <- record.ID
+					return
+				}
+				if !lockfile.IsBusy(createErr) {
+					errs <- createErr
+					return
+				}
+				time.Sleep(time.Millisecond)
+			}
+			errs <- errors.New("concurrent unbound session creation remained lock-busy")
+		}()
+	}
+	group.Wait()
+	close(ids)
+	close(errs)
+	for createErr := range errs {
+		t.Fatal(createErr)
+	}
+	seen := map[string]bool{}
+	for id := range ids {
+		if seen[id] {
+			t.Fatalf("concurrent creation reused session ID %q", id)
+		}
+		seen[id] = true
+	}
+	if len(seen) != count {
+		t.Fatalf("created %d concurrent sessions, want %d", len(seen), count)
 	}
 }
 

@@ -135,7 +135,7 @@ func TestADR74FrozenConnectorContract(t *testing.T) {
 		t.Fatalf("status omitted registered-project has_more: %#v", status)
 	}
 	started := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "session_start", "arguments": map[string]any{"project_id": "example"},
+		"name": "session_start", "arguments": map[string]any{"role": durableSession.RolePlanner, "label": "connector"},
 	}))
 	sessionID := started["session"].(string)
 	if _, ok := started["recommended_next_action"].(string); !ok {
@@ -145,8 +145,15 @@ func TestADR74FrozenConnectorContract(t *testing.T) {
 		t.Fatal("session_start returned deprecated next_steps")
 	}
 	record, err := durableSession.NewStore(server.Service.Config.StateDir).Get(sessionID)
-	if err != nil || record.ProjectID != "example" || record.Role != durableSession.RolePlanner || record.Status != durableSession.StatusActive {
-		t.Fatalf("session_start did not create bound Planner session: %#v err=%v", record, err)
+	if err != nil || record.ProjectID != "" || record.Role != durableSession.RolePlanner || record.Status != durableSession.StatusActive || record.Label == nil || *record.Label != "connector" {
+		t.Fatalf("session_start did not create an unbound Planner session: %#v err=%v", record, err)
+	}
+	frozenResult(t, client.request(t, "tools/call", map[string]any{
+		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "session/update", "input": map[string]any{"project_id": "example"}},
+	}))
+	record, err = durableSession.NewStore(server.Service.Config.StateDir).Get(sessionID)
+	if err != nil || record.ProjectID != "example" {
+		t.Fatalf("session/bind did not bind session: %#v err=%v", record, err)
 	}
 	for _, path := range []string{"", "project", "project/status"} {
 		contract := frozenResult(t, client.request(t, "tools/call", map[string]any{
@@ -225,7 +232,7 @@ func TestADR74V1RuntimeActionDoesNotRefreshConnector(t *testing.T) {
 	}
 	client.notify(t, "notifications/initialized")
 	client.request(t, "tools/list", map[string]any{})
-	started := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "session_start", "arguments": map[string]any{"project_id": "example"}}))
+	started := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "session_start", "arguments": map[string]any{"role": durableSession.RolePlanner}}))
 	sessionID := started["session"].(string)
 	connectionsBefore := connections.Load()
 	if err := server.RegisterGenericAction(GenericAction{
@@ -235,6 +242,7 @@ func TestADR74V1RuntimeActionDoesNotRefreshConnector(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "session/update", "input": map[string]any{"project_id": "example"}}}))
 	contract := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "schema", "arguments": map[string]any{"path": "frozen/runtime_probe"}}))
 	if contract["path"] != "frozen/runtime_probe" {
 		t.Fatalf("runtime action was not discovered: %#v", contract)

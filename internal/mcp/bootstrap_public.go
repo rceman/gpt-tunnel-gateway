@@ -40,7 +40,7 @@ func (s *Server) bootstrapPublic(ctx context.Context, raw []byte) (any, error) {
 	}
 	rules := globalWorkflowRules()
 	rules["digest"] = globalWorkflowDigest()
-	rules["guidance"] = "Use session_start with a project code, then read project/status before project work."
+	rules["guidance"] = "Use session_start with a role, bind the returned session to a project, then read project/status before project work."
 	return map[string]any{
 		"runtime": map[string]any{
 			"gateway_ready":      identity.GatewayReady,

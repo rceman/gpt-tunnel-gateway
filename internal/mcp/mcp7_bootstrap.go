@@ -67,6 +67,6 @@ func mcpStatusProjection(runtime controller.RuntimeIdentity) (string, string) {
 	case !runtime.TunnelReady:
 		return "degraded", "Restore Tunnel readiness before remote control-plane use."
 	default:
-		return "ready", "Call session_start with project_id to create a project-bound Planner session."
+		return "ready", "Call session_start with role, then bind the returned session before project work."
 	}
 }

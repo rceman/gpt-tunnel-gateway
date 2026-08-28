@@ -23,7 +23,7 @@ func sessionlessActionPath(path string) bool {
 }
 func unboundActionAllowed(path string) bool {
 	switch path {
-	case "gateway/status", "project/list", "session/list", "session/bind", "session/info", "session/end":
+	case "gateway/status", "project/list", "session/list", "session/bind", "session/info", "session/end", "session/update":
 		return true
 	default:
 		return false

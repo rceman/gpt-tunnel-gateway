@@ -83,7 +83,11 @@ func (s Store) Create(input CreateInput) (Record, error) {
 }
 
 func (s Store) CreateUnbound(role string, label *string) (Record, error) {
-	return Record{}, fmt.Errorf("%w: unbound sessions are not supported", ErrInvalidSession)
+	return s.create(CreateInput{
+		Role:        role,
+		SessionType: SessionTypeChatGPT,
+		Label:       label,
+	}, false)
 }
 
 func (s Store) create(input CreateInput, requireProject bool) (Record, error) {

@@ -15,7 +15,7 @@ import (
 )
 
 func addGenericTransportTools(add func(string, string, map[string]any, func(context.Context, json.RawMessage) (any, error)), s *Server, legacy map[string]Tool) {
-	add("session_start", "Create an immutable Planner session bound to a canonical project.", sessionStartPublicInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("session_start", "Create a fresh unbound durable session for an authorized role.", sessionStartPublicInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.sessionStartPublic(ctx, raw)
 	})
 	add("call", "Dispatch one server-owned action through its authoritative schema and handler.", genericCallInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -100,7 +100,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		}
 		ctx = resolved
 		ctx = service.WithAgentSessionID(ctx, record.ID)
-		if entry.SessionBound && action != "session/bind" {
+		if entry.SessionBound && action != "session/bind" && action != "session/update" {
 			if err := validateGenericActionInput(entry.InputSchema, raw); err != nil {
 				return genericActionError(action, err.Error()+"; inspect schema with path=\""+action+"\""), nil
 			}
@@ -117,7 +117,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	}
 	if entry.SessionBound {
 		validationSchema := entry.InputSchema
-		if action != "session/bind" && entry.ExecutionInputSchema != nil {
+		if action != "session/bind" && action != "session/update" && entry.ExecutionInputSchema != nil {
 			validationSchema = entry.ExecutionInputSchema
 		}
 		if err := validateGenericActionInput(validationSchema, raw); err != nil {

@@ -10,8 +10,9 @@ import (
 )
 
 type sessionUpdateActionInput struct {
-	Label *string `json:"label"`
-	Ref   *string `json:"ref"`
+	ProjectID *string `json:"project_id"`
+	Label     *string `json:"label"`
+	Ref       *string `json:"ref"`
 }
 
 func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, legacy map[string]Tool) {
@@ -69,8 +70,9 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		return s.Service.OperationRead(ctx, input.OperationID)
 	})
 	add("session/update", "Update the label or caller reference of the durable session bound to the public session.", obj(map[string]any{
-		"label": str("Optional bounded session label."),
-		"ref":   str("Optional caller reference."),
+		"project_id": str("Optional canonical project identifier to bind the session."),
+		"label":      str("Optional bounded session label."),
+		"ref":        str("Optional caller reference."),
 	}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var input sessionUpdateActionInput
 		if err := decode(raw, &input); err != nil {
@@ -136,6 +138,12 @@ func (s *Server) sessionActionForContext(ctx context.Context, action string, inp
 		return s.Service.SessionEnd(roleCtx, id)
 	case "update":
 		v := input.(*sessionUpdateActionInput)
+		if v.ProjectID != nil {
+			if *v.ProjectID == "" {
+				return nil, fmt.Errorf("project_id is required when provided")
+			}
+			return s.Service.SessionBind(roleCtx, service.SessionBindInput{SessionID: id, ProjectID: *v.ProjectID, SessionRef: v.Ref})
+		}
 		return s.Service.SessionUpdate(roleCtx, service.SessionUpdateInput{SessionID: id, Label: v.Label, SessionRef: v.Ref})
 	default:
 		return nil, fmt.Errorf("unsupported session action %q", action)

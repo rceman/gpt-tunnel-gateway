@@ -14,7 +14,7 @@ func TestSessionBoundActionSchemasDoNotExposeProjectID(t *testing.T) {
 		if !entry.SessionBound {
 			continue
 		}
-		if path == "session/bind" {
+		if path == "session/bind" || path == "session/update" {
 			continue
 		}
 		if entry.ExecutionInputSchema == nil {

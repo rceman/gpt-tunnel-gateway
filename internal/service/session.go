@@ -130,7 +130,14 @@ func (s *Service) SessionStartByCode(ctx context.Context, projectCode, role stri
 }
 
 func (s *Service) SessionStartUnbound(ctx context.Context, role string, label *string) (SessionResult, error) {
-	return SessionResult{}, fmt.Errorf("unbound sessions are not supported")
+	if err := authority.RequireRole(ctx, role); err != nil {
+		return SessionResult{}, err
+	}
+	record, err := durableSession.NewStore(s.Config.StateDir).CreateUnbound(role, label)
+	if err != nil {
+		return SessionResult{}, err
+	}
+	return SessionResult{Action: "start", Session: record}, nil
 }
 
 func (s *Service) SessionBind(ctx context.Context, input SessionBindInput) (SessionResult, error) {
