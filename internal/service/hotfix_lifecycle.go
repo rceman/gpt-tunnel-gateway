@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -68,7 +69,7 @@ func (s *Service) HotfixCreate(ctx context.Context, projectID string, in HotfixC
 	if actualBranch != branch || !clean || head != base {
 		return rollback(fmt.Errorf("created hotfix lane is not an exact clean base"))
 	}
-	if err := s.Git.RecordHotfixIdentity(s.Config.StateDir, gitx.HotfixIdentity{ProjectID: projectID, HotfixRef: ref, BaseSHA: base}); err != nil {
+	if err := s.Git.RecordHotfixIdentity(s.Config.StateDir, gitx.HotfixIdentity{ProjectID: projectID, HotfixRef: ref, BaseSHA: base, CreatedAt: time.Now().UTC()}); err != nil {
 		return rollback(err)
 	}
 	return HotfixCreateResult{ProjectID: projectID, HotfixRef: ref, BaseSHA: base, HeadSHA: head}, nil

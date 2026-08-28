@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
@@ -173,7 +174,9 @@ type localCodeTarget struct {
 
 type codeWorktreeCandidate struct {
 	localCodeTarget
-	Label string
+	Label     string
+	CreatedAt time.Time
+	SortID    string
 }
 
 func codeTrainWorktreePath(stateDir, projectID string, project config.ProjectConfig, trainID string, runtime *trainv2.RuntimeBinding) (string, error) {
@@ -216,6 +219,35 @@ func activeCodeTrainStatus(status string) bool {
 	}
 }
 
+func codeWorktreeKindRank(kind string) int {
+	switch kind {
+	case "main":
+		return 0
+	case "hotfix":
+		return 1
+	case "train":
+		return 2
+	default:
+		return 3
+	}
+}
+
+func sortCodeWorktreeCandidates(candidates []codeWorktreeCandidate) {
+	sort.SliceStable(candidates, func(i, j int) bool {
+		leftRank, rightRank := codeWorktreeKindRank(candidates[i].Kind), codeWorktreeKindRank(candidates[j].Kind)
+		if leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		if !candidates[i].CreatedAt.Equal(candidates[j].CreatedAt) {
+			return candidates[i].CreatedAt.After(candidates[j].CreatedAt)
+		}
+		if candidates[i].SortID != candidates[j].SortID {
+			return candidates[i].SortID < candidates[j].SortID
+		}
+		return candidates[i].CodeIdentity.Worktree < candidates[j].CodeIdentity.Worktree
+	})
+}
+
 func codeSelector(trainID, head string) (string, error) {
 	if len(head) < 8 || model.ValidateCommitSHA(head) != nil {
 		return "", fmt.Errorf("invalid worktree HEAD")
@@ -228,6 +260,16 @@ func codeSelector(trainID, head string) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("WT-TRN%d-%s", number, strings.ToLower(head[:8])), nil
+}
+
+func codeHotfixSelector(slug, head string) (string, error) {
+	if err := model.ValidateTaskSlug(slug); err != nil {
+		return "", err
+	}
+	if len(head) < 8 || model.ValidateCommitSHA(head) != nil {
+		return "", fmt.Errorf("invalid worktree HEAD")
+	}
+	return "WT-FIX-" + slug + "-" + strings.ToLower(head[:8]), nil
 }
 
 func (s *Service) validateCodeSelectorIdentity(ctx context.Context, worktree config.ProjectConfig, head string) error {
@@ -260,6 +302,11 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 	if err != nil && !IsNotFound(err) {
 		return nil, fmt.Errorf("read managed Train worktrees: %w", err)
 	}
+	mainStatus, err := s.Git.WorktreeStatus(ctx, project)
+	if err != nil {
+		return nil, fmt.Errorf("read main worktree status: %w", err)
+	}
+	mainHead := mainStatus.Head
 	managed := make(map[string]model.TrainV2, len(trains))
 	for _, train := range trains {
 		if train.ProjectID == projectID && activeCodeTrainStatus(train.Status) && train.Historical == nil {
@@ -281,10 +328,60 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 		trainID, kind, label := "", "", ""
 		if filepath.Clean(info.Path) == filepath.Clean(project.Root) {
 			kind, label = "main", "main"
+			selector, selectorErr := codeSelector("", status.Head)
+			if selectorErr != nil {
+				return nil, selectorErr
+			}
+			if _, exists := seen[selector]; exists {
+				return nil, fmt.Errorf("ambiguous worktree selector %q", selector)
+			}
+			seen[selector] = struct{}{}
+			candidates = append(candidates, codeWorktreeCandidate{
+				localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: selector, Dirty: !status.Clean, CurrentHead: status.Head}, ProjectWorktree: worktree, Kind: kind, DiffBase: status.Head},
+				Label:           "main", SortID: "main",
+			})
+			continue
+		} else if strings.HasPrefix(info.Branch, "refs/heads/hotfix/") {
+			identity, identityErr := s.Git.ReadHotfixIdentity(s.Config.StateDir, projectID, info.Branch)
+			if identityErr != nil || identity.CreatedAt.IsZero() {
+				continue
+			}
+			managedWorktree, resolveErr := s.Git.ResolveHotfixWorktree(ctx, project, s.Config.StateDir, projectID, info.Branch)
+			if resolveErr != nil || filepath.Clean(managedWorktree.Root) != filepath.Clean(info.Path) {
+				continue
+			}
+			merged, ancestorErr := s.Git.IsAncestor(ctx, project.Root, status.Head, mainHead)
+			if ancestorErr != nil {
+				return nil, fmt.Errorf("check hotfix %s merge state: %w", info.Branch, ancestorErr)
+			}
+			if merged {
+				continue
+			}
+			slug := strings.TrimPrefix(info.Branch, "refs/heads/hotfix/")
+			selector, selectorErr := codeHotfixSelector(slug, status.Head)
+			if selectorErr != nil {
+				return nil, selectorErr
+			}
+			if _, exists := seen[selector]; exists {
+				return nil, fmt.Errorf("ambiguous worktree selector %q", selector)
+			}
+			seen[selector] = struct{}{}
+			candidates = append(candidates, codeWorktreeCandidate{
+				localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: selector, Dirty: !status.Clean, CurrentHead: status.Head}, ProjectWorktree: worktree, Kind: "hotfix", DiffBase: identity.BaseSHA},
+				Label:           slug, CreatedAt: identity.CreatedAt, SortID: slug,
+			})
+			continue
 		} else if strings.HasPrefix(info.Branch, "refs/heads/train/") {
 			candidateID := strings.TrimPrefix(info.Branch, "refs/heads/train/")
 			train, ok := managed[candidateID]
 			if !ok {
+				continue
+			}
+			merged, ancestorErr := s.Git.IsAncestor(ctx, project.Root, status.Head, mainHead)
+			if ancestorErr != nil {
+				return nil, fmt.Errorf("check Train %s merge state: %w", candidateID, ancestorErr)
+			}
+			if merged {
 				continue
 			}
 			runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, candidateID)
@@ -326,26 +423,14 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 			seen[selector] = struct{}{}
 			candidates = append(candidates, codeWorktreeCandidate{
 				localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: selector, Dirty: !status.Clean, CurrentHead: status.Head}, ProjectWorktree: worktree, Kind: kind, TrainID: trainID, DiffBase: base},
-				Label:           label,
+				Label:           label, CreatedAt: train.CreatedAt, SortID: candidateID,
 			})
 			continue
 		} else {
 			continue
 		}
-		selector, selectorErr := codeSelector(trainID, status.Head)
-		if selectorErr != nil {
-			return nil, selectorErr
-		}
-		if _, exists := seen[selector]; exists {
-			return nil, fmt.Errorf("ambiguous worktree selector %q", selector)
-		}
-		seen[selector] = struct{}{}
-		candidates = append(candidates, codeWorktreeCandidate{
-			localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: selector, Dirty: !status.Clean, CurrentHead: status.Head}, ProjectWorktree: worktree, Kind: kind, DiffBase: status.Head},
-			Label:           label,
-		})
 	}
-	sort.Slice(candidates, func(i, j int) bool { return candidates[i].CodeIdentity.Worktree < candidates[j].CodeIdentity.Worktree })
+	sortCodeWorktreeCandidates(candidates)
 	return candidates, nil
 }
 
@@ -381,11 +466,11 @@ func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selecto
 		if !live && candidate.Dirty {
 			return localCodeTarget{}, fmt.Errorf("worktree selector %q is dirty; set live=true for bounded observation", selector)
 		}
-		if candidate.TrainID != "" && candidate.DiffBase == "" {
+		if (candidate.Kind == "train" || candidate.Kind == "hotfix") && candidate.DiffBase == "" {
 			return localCodeTarget{}, fmt.Errorf("worktree selector %q has no authoritative Train base", selector)
 		}
 		candidate.Live = live
-		if candidate.TrainID != "" {
+		if candidate.Kind == "train" || candidate.Kind == "hotfix" {
 			ancestor, ancestorErr := s.Git.IsAncestor(ctx, candidate.ProjectWorktree.Root, candidate.DiffBase, candidate.CurrentHead)
 			if ancestorErr != nil || !ancestor {
 				return localCodeTarget{}, fmt.Errorf("worktree selector %q has an invalid authoritative Train base", selector)
@@ -393,9 +478,9 @@ func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selecto
 		}
 		return candidate.localCodeTarget, nil
 	}
-	if kind, number, _, parseErr := parseCodeSelector(selector); parseErr == nil {
+	if kind, number, prefix, parseErr := parseCodeSelector(selector); parseErr == nil {
 		for _, candidate := range candidates {
-			if candidate.Kind != kind || (kind == "train" && number != candidateTrainNumber(candidate.TrainID)) {
+			if candidate.Kind != kind || (kind == "train" && number != candidateTrainNumber(candidate.TrainID)) || (kind == "hotfix" && candidate.SortID != prefix) {
 				continue
 			}
 			return localCodeTarget{}, &CodeSelectorError{Kind: CodeSelectorStale, Selector: selector, Current: candidate.CodeIdentity.Worktree}
@@ -416,6 +501,18 @@ func parseCodeSelector(selector string) (string, uint64, string, error) {
 			return "", 0, "", fmt.Errorf("invalid worktree selector")
 		}
 		return "main", 0, prefix, nil
+	}
+	if strings.HasPrefix(selector, "WT-FIX-") {
+		rest := strings.TrimPrefix(selector, "WT-FIX-")
+		separator := strings.LastIndexByte(rest, '-')
+		if separator < 1 || separator == len(rest)-1 {
+			return "", 0, "", fmt.Errorf("invalid worktree selector")
+		}
+		slug, prefix := rest[:separator], rest[separator+1:]
+		if model.ValidateTaskSlug(slug) != nil || !validSelectorPrefix(prefix) {
+			return "", 0, "", fmt.Errorf("invalid worktree selector")
+		}
+		return "hotfix", 0, slug, nil
 	}
 	if !strings.HasPrefix(selector, "WT-TRN") {
 		return "", 0, "", fmt.Errorf("invalid worktree selector")
@@ -471,22 +568,54 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 		}
 		return CodeWorktreeResult{}, fmt.Errorf("code worktree result exceeds %d tokenizer tokens", CodePageTokenBudget)
 	}
-	pageSize, fitErr := largestCodePageSize(len(items), func(size int) (bool, error) {
-		page, info, pageErr := pagination.Page(kind, items, size, in.Cursor, func(item CodeWorktreeItem) string { return item.Selector })
-		if pageErr != nil {
-			return false, pageErr
-		}
-		candidate := CodeWorktreeResult{Items: page, Pagination: codePagination(info.NextCursor)}
-		return codePageFits(candidate)
-	})
-	if fitErr != nil {
-		return CodeWorktreeResult{}, fitErr
-	}
-	page, info, pageErr := pagination.Page(kind, items, pageSize, in.Cursor, func(item CodeWorktreeItem) string { return item.Selector })
+	page, nextCursor, pageErr := codeWorktreePage(kind, items, in.Cursor)
 	if pageErr != nil {
 		return CodeWorktreeResult{}, pageErr
 	}
-	return CodeWorktreeResult{Items: page, Pagination: codePagination(info.NextCursor)}, nil
+	return CodeWorktreeResult{Items: page, Pagination: codePagination(nextCursor)}, nil
+}
+
+func codeWorktreePage(kind string, items []CodeWorktreeItem, rawCursor string) ([]CodeWorktreeItem, string, error) {
+	keys := make([]string, 0, len(items))
+	for _, item := range items {
+		keys = append(keys, item.Selector)
+	}
+	after, err := pagination.Resolve(rawCursor, kind, keys)
+	if err != nil {
+		return nil, "", err
+	}
+	start := 0
+	if after != "" {
+		for index, item := range items {
+			if item.Selector == after {
+				start = index + 1
+				break
+			}
+		}
+		if start == 0 {
+			return nil, "", fmt.Errorf("continuation cursor is no longer valid")
+		}
+	}
+	page := make([]CodeWorktreeItem, 0, len(items)-start)
+	for index := start; index < len(items); index++ {
+		candidate := append(append([]CodeWorktreeItem{}, page...), items[index])
+		nextCursor := ""
+		if index+1 < len(items) {
+			nextCursor = pagination.Encode(kind, items[index].Selector)
+		}
+		fits, fitErr := codePageFits(CodeWorktreeResult{Items: candidate, Pagination: codePagination(nextCursor)})
+		if fitErr != nil {
+			return nil, "", fitErr
+		}
+		if !fits {
+			if len(page) == 0 {
+				return nil, "", fmt.Errorf("code worktree item exceeds %d tokenizer tokens", CodePageTokenBudget)
+			}
+			return page, pagination.Encode(kind, page[len(page)-1].Selector), nil
+		}
+		page = candidate
+	}
+	return page, "", nil
 }
 
 func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResult, error) {

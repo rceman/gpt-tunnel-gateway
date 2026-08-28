@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
@@ -17,9 +18,10 @@ const hotfixIdentityMaxBytes = 4 << 10
 // HotfixIdentity is the server-owned create record used to authenticate the
 // base of a later integration. Callers cannot supply or replace BaseSHA.
 type HotfixIdentity struct {
-	ProjectID string `json:"project_id"`
-	HotfixRef string `json:"hotfix_ref"`
-	BaseSHA   string `json:"base_sha"`
+	ProjectID string    `json:"project_id"`
+	HotfixRef string    `json:"hotfix_ref"`
+	BaseSHA   string    `json:"base_sha"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
 }
 
 // RefreshDefaultBranch refreshes the configured managed mirror and returns

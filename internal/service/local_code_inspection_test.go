@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
@@ -287,6 +289,112 @@ func TestCodeTrainWorktreePathUsesProjectCodeForCompactLane(t *testing.T) {
 	}
 }
 
+func TestSortCodeWorktreeCandidatesUsesKindThenNewestCreation(t *testing.T) {
+	now := time.Now().UTC()
+	candidates := []codeWorktreeCandidate{
+		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "train-old"}, Kind: "train"}, CreatedAt: now.Add(-time.Hour), SortID: "GTW-TRN2"},
+		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "hotfix-tie-b"}, Kind: "hotfix"}, CreatedAt: now, SortID: "b-fix"},
+		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "main"}, Kind: "main"}, SortID: "main"},
+		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "train-new"}, Kind: "train"}, CreatedAt: now, SortID: "GTW-TRN3"},
+		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "hotfix-new"}, Kind: "hotfix"}, CreatedAt: now.Add(time.Minute), SortID: "new-fix"},
+		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "hotfix-tie-a"}, Kind: "hotfix"}, CreatedAt: now, SortID: "a-fix"},
+	}
+	sortCodeWorktreeCandidates(candidates)
+	want := []string{"main", "hotfix-new", "hotfix-tie-a", "hotfix-tie-b", "train-new", "train-old"}
+	got := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		got = append(got, candidate.CodeIdentity.Worktree)
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("candidate order=%v want=%v", got, want)
+	}
+}
+
+func TestCodeWorktreePagePacksByTokensAndPreservesOrder(t *testing.T) {
+	items := make([]CodeWorktreeItem, 40)
+	for index := range items {
+		items[index] = CodeWorktreeItem{Selector: fmt.Sprintf("WT-MAIN-%08x", index+1), Kind: "main", Label: strings.Repeat(fmt.Sprintf("item-%02d ", index), 40)}
+	}
+	kind := "code-worktree|example|"
+	cursor := ""
+	got := make([]string, 0, len(items))
+	for pageNumber := 0; ; pageNumber++ {
+		if pageNumber > len(items) {
+			t.Fatal("worktree pagination did not terminate")
+		}
+		page, nextCursor, err := codeWorktreePage(kind, items, cursor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range page {
+			got = append(got, item.Selector)
+		}
+		if nextCursor == "" {
+			break
+		}
+		cursor = nextCursor
+	}
+	if len(got) != len(items) {
+		t.Fatalf("paged %d items, want %d", len(got), len(items))
+	}
+	for index, item := range items {
+		if got[index] != item.Selector {
+			t.Fatalf("item %d=%q want %q", index, got[index], item.Selector)
+		}
+	}
+}
+
+func TestCodeWorktreeOrdersMainThenUnmergedHotfixesAndSkipsLegacy(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	runner := gitx.Runner{StateDir: f.service.Config.StateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	now := time.Now().UTC()
+	addHotfix := func(slug, content string, createdAt time.Time) {
+		t.Helper()
+		lane := filepath.Join(f.service.Config.StateDir, "hotfix-worktrees", "example", slug)
+		if err := os.MkdirAll(filepath.Dir(lane), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		branch := "hotfix/" + slug
+		testutil.Git(t, f.root, "branch", branch, f.current)
+		testutil.Git(t, f.root, "worktree", "add", lane, branch)
+		if err := os.WriteFile(filepath.Join(lane, slug+".txt"), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		testutil.Git(t, lane, "add", slug+".txt")
+		testutil.Git(t, lane, "commit", "-m", slug+" fixture")
+		if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{ProjectID: "example", HotfixRef: "refs/heads/" + branch, BaseSHA: f.current, CreatedAt: createdAt}); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			testutil.Git(t, f.root, "worktree", "remove", "--force", lane)
+			testutil.Git(t, f.root, "branch", "-D", branch)
+		})
+	}
+	addHotfix("new", "new\n", now.Add(time.Minute))
+	addHotfix("old", "old\n", now)
+	legacyLane := filepath.Join(f.service.Config.StateDir, "hotfix-worktrees", "example", "legacy")
+	testutil.Git(t, f.root, "branch", "hotfix/legacy", f.current)
+	testutil.Git(t, f.root, "worktree", "add", legacyLane, "hotfix/legacy")
+	if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{ProjectID: "example", HotfixRef: "refs/heads/hotfix/legacy", BaseSHA: f.current}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		testutil.Git(t, f.root, "worktree", "remove", "--force", legacyLane)
+		testutil.Git(t, f.root, "branch", "-D", "hotfix/legacy")
+	})
+
+	result, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 3 || result.Items[0].Kind != "main" || result.Items[1].Label != "new" || result.Items[2].Label != "old" {
+		t.Fatalf("unexpected ordered worktrees: %#v", result.Items)
+	}
+	if strings.Contains(fmt.Sprint(result.Items), "legacy") {
+		t.Fatalf("legacy hotfix was exposed: %#v", result.Items)
+	}
+}
+
 func seedCodeTrainWithLegacyRuntime(t *testing.T, f localCodeFixture, status string) string {
 	t.Helper()
 	project := f.service.Config.Projects["example"]
@@ -302,6 +410,11 @@ func seedCodeTrainWithLegacyRuntime(t *testing.T, f localCodeFixture, status str
 	}
 	testutil.Git(t, f.root, "branch", "train/"+trainID, f.current)
 	testutil.Git(t, f.root, "worktree", "add", trainPath, "train/"+trainID)
+	if err := os.WriteFile(filepath.Join(trainPath, "train-only.txt"), []byte("train lane\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, trainPath, "add", "train-only.txt")
+	testutil.Git(t, trainPath, "commit", "-m", "train lane fixture")
 	t.Cleanup(func() {
 		testutil.Git(t, f.root, "worktree", "remove", "--force", trainPath)
 		testutil.Git(t, f.root, "branch", "-D", "train/"+trainID)
