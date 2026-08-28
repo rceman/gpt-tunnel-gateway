@@ -341,11 +341,11 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 		}
 		worktree, resolveErr := s.Git.ResolveHotfixWorktreeFromInventory(worktreeInventory, s.Config.StateDir, projectID, identity.HotfixRef)
 		if resolveErr != nil {
-			continue
+			return nil, fmt.Errorf("resolve managed hotfix %s worktree: %w", identity.HotfixRef, resolveErr)
 		}
 		status, statusErr := s.Git.WorktreeStatus(ctx, worktree)
 		if statusErr != nil {
-			continue
+			return nil, fmt.Errorf("read managed hotfix %s worktree status: %w", identity.HotfixRef, statusErr)
 		}
 		merged, ancestorErr := s.Git.IsAncestor(ctx, project.Root, status.Head, mainHead)
 		if ancestorErr != nil {
@@ -376,12 +376,15 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 			return nil, pathErr
 		}
 		worktree, resolveErr := worktreeInventory.Resolve("refs/heads/train/" + candidateID)
-		if resolveErr != nil || filepath.Clean(worktree.Root) != filepath.Clean(expectedPath) {
-			continue
+		if resolveErr != nil {
+			return nil, fmt.Errorf("resolve managed Train %s worktree: %w", candidateID, resolveErr)
+		}
+		if filepath.Clean(worktree.Root) != filepath.Clean(expectedPath) {
+			return nil, fmt.Errorf("managed Train %s is bound to unexpected worktree path", candidateID)
 		}
 		status, statusErr := s.Git.WorktreeStatus(ctx, worktree)
 		if statusErr != nil {
-			continue
+			return nil, fmt.Errorf("read managed Train %s worktree status: %w", candidateID, statusErr)
 		}
 		merged, ancestorErr := s.Git.IsAncestor(ctx, project.Root, status.Head, mainHead)
 		if ancestorErr != nil {

@@ -422,6 +422,40 @@ func TestCodeWorktreeIgnoresStaleTrainAndOrphanHotfixRegistrations(t *testing.T)
 	}
 }
 
+func TestCodeWorktreeFailsClosedForAuthoritativeHotfixWithoutManagedBinding(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	runner := gitx.Runner{StateDir: f.service.Config.StateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{
+		ProjectID: "example", HotfixRef: "refs/heads/hotfix/missing", BaseSHA: f.current, CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"}); err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("authoritative hotfix without a managed binding was not rejected: %v", err)
+	}
+}
+
+func TestCodeWorktreeFailsClosedForAuthoritativeHotfixWithUnexpectedBinding(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	runner := gitx.Runner{StateDir: f.service.Config.StateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	branch := "hotfix/unexpected"
+	lane := filepath.Join(t.TempDir(), "unexpected-hotfix")
+	testutil.Git(t, f.root, "branch", branch, f.current)
+	testutil.Git(t, f.root, "worktree", "add", lane, branch)
+	t.Cleanup(func() {
+		testutil.Git(t, f.root, "worktree", "remove", "--force", lane)
+		testutil.Git(t, f.root, "branch", "-D", branch)
+	})
+	if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{
+		ProjectID: "example", HotfixRef: "refs/heads/" + branch, BaseSHA: f.current, CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"}); err == nil || !strings.Contains(err.Error(), "server-owned") {
+		t.Fatalf("authoritative hotfix with an unexpected binding was not rejected: %v", err)
+	}
+}
+
 func TestCodeWorktreeEnumeratesGitWorktreesOnceForMultipleAuthoritativeLanes(t *testing.T) {
 	f := newLocalCodeFixture(t)
 	runner := gitx.Runner{StateDir: f.service.Config.StateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
@@ -432,7 +466,12 @@ func TestCodeWorktreeEnumeratesGitWorktreesOnceForMultipleAuthoritativeLanes(t *
 	addLane := func(kind, id string) string {
 		t.Helper()
 		branch := kind + "/" + id
-		lane := filepath.Join(t.TempDir(), id)
+		lane := filepath.Join(f.service.Config.StateDir, "hotfix-worktrees", "example", id)
+		if kind == "hotfix" {
+			if err := os.MkdirAll(filepath.Dir(lane), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
 		testutil.Git(t, f.root, "branch", branch, f.current)
 		testutil.Git(t, f.root, "worktree", "add", lane, branch)
 		name := id + ".txt"
