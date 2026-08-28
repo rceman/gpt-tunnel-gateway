@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -193,6 +194,47 @@ func (r Runner) ReadHotfixIdentity(stateDir, projectID, ref string) (HotfixIdent
 		return HotfixIdentity{}, fmt.Errorf("hotfix identity is invalid or mismatched")
 	}
 	return identity, nil
+}
+
+// ListHotfixIdentities returns the server-owned hotfix create records for a
+// project. Git worktree registrations are deliberately not consulted here;
+// callers use these identities as the candidate authority and resolve each
+// identity to a live managed worktree separately.
+func (r Runner) ListHotfixIdentities(stateDir, projectID string) ([]HotfixIdentity, error) {
+	if err := model.ValidateProjectIdentifier(projectID); err != nil {
+		return nil, err
+	}
+	if _, err := hotfixIdentityPath(stateDir, projectID, "placeholder"); err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(stateDir, "hotfix-identities", projectID)
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	identities := make([]HotfixIdentity, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		slug := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+		ref := "refs/heads/hotfix/" + slug
+		identity, err := r.ReadHotfixIdentity(stateDir, projectID, ref)
+		if err != nil {
+			return nil, fmt.Errorf("read hotfix identity %s: %w", ref, err)
+		}
+		identities = append(identities, identity)
+	}
+	sort.SliceStable(identities, func(i, j int) bool {
+		if !identities[i].CreatedAt.Equal(identities[j].CreatedAt) {
+			return identities[i].CreatedAt.Before(identities[j].CreatedAt)
+		}
+		return identities[i].HotfixRef < identities[j].HotfixRef
+	})
+	return identities, nil
 }
 
 func hotfixWorktreePath(stateDir, projectID, slug string) (string, string, error) {

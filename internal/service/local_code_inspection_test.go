@@ -395,6 +395,32 @@ func TestCodeWorktreeOrdersMainThenUnmergedHotfixesAndSkipsLegacy(t *testing.T) 
 	}
 }
 
+func TestCodeWorktreeIgnoresStaleTrainAndOrphanHotfixRegistrations(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	staleTrain := filepath.Join(t.TempDir(), "GTW-TRN7")
+	testutil.Git(t, f.root, "branch", "train/GTW-TRN7", f.current)
+	testutil.Git(t, f.root, "worktree", "add", staleTrain, "train/GTW-TRN7")
+	t.Cleanup(func() {
+		testutil.Git(t, f.root, "worktree", "remove", "--force", staleTrain)
+		testutil.Git(t, f.root, "branch", "-D", "train/GTW-TRN7")
+	})
+	orphanHotfix := filepath.Join(t.TempDir(), "orphan-hotfix")
+	testutil.Git(t, f.root, "branch", "hotfix/orphan", f.current)
+	testutil.Git(t, f.root, "worktree", "add", orphanHotfix, "hotfix/orphan")
+	t.Cleanup(func() {
+		testutil.Git(t, f.root, "worktree", "remove", "--force", orphanHotfix)
+		testutil.Git(t, f.root, "branch", "-D", "hotfix/orphan")
+	})
+
+	result, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 || result.Items[0].Kind != "main" {
+		t.Fatalf("stale/orphan Git registrations were exposed: %#v", result.Items)
+	}
+}
+
 func seedCodeTrainWithLegacyRuntime(t *testing.T, f localCodeFixture, status string) string {
 	t.Helper()
 	project := f.service.Config.Projects["example"]

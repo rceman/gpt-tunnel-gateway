@@ -289,10 +289,6 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 	if err != nil {
 		return nil, err
 	}
-	worktrees, err := s.Git.ListWorktrees(ctx, project)
-	if err != nil {
-		return nil, fmt.Errorf("list local worktrees: %w", err)
-	}
 	trains, err := s.codeTrainRecords(ctx, projectID)
 	if err != nil && !IsNotFound(err) {
 		return nil, fmt.Errorf("read managed Train worktrees: %w", err)
@@ -308,115 +304,100 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 			managed[train.ID] = train
 		}
 	}
-	candidates := make([]codeWorktreeCandidate, 0, len(worktrees))
+	candidates := make([]codeWorktreeCandidate, 0, len(managed)+1)
 	seen := make(map[string]struct{})
-	for _, info := range worktrees {
-		worktree := project
-		worktree.Root = info.Path
+	addCandidate := func(worktree config.ProjectConfig, status gitx.WorktreeStatus, kind, label, trainID, diffBase string, createdAt time.Time, sortID string) error {
+		if err := s.validateCodeSelectorIdentity(ctx, worktree, status.Head); err != nil {
+			return err
+		}
+		selector, selectorErr := codeSelector(trainID, status.Head)
+		if selectorErr != nil {
+			return selectorErr
+		}
+		if _, exists := seen[selector]; exists {
+			return fmt.Errorf("ambiguous worktree selector %q", selector)
+		}
+		seen[selector] = struct{}{}
+		candidates = append(candidates, codeWorktreeCandidate{
+			localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: selector, Dirty: !status.Clean, CurrentHead: status.Head}, ProjectWorktree: worktree, Kind: kind, TrainID: trainID, DiffBase: diffBase},
+			Label:           label, CreatedAt: createdAt, SortID: sortID,
+		})
+		return nil
+	}
+	if err := addCandidate(project, mainStatus, "main", "main", "", mainStatus.Head, time.Time{}, "main"); err != nil {
+		return nil, err
+	}
+	hotfixes, err := s.Git.ListHotfixIdentities(s.Config.StateDir, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("read managed hotfix identities: %w", err)
+	}
+	for _, identity := range hotfixes {
+		if identity.CreatedAt.IsZero() {
+			continue
+		}
+		worktree, resolveErr := s.Git.ResolveHotfixWorktree(ctx, project, s.Config.StateDir, projectID, identity.HotfixRef)
+		if resolveErr != nil {
+			continue
+		}
 		status, statusErr := s.Git.WorktreeStatus(ctx, worktree)
 		if statusErr != nil {
-			return nil, fmt.Errorf("read worktree status: %w", statusErr)
+			continue
 		}
-		if err := s.validateCodeSelectorIdentity(ctx, worktree, status.Head); err != nil {
+		merged, ancestorErr := s.Git.IsAncestor(ctx, project.Root, status.Head, mainHead)
+		if ancestorErr != nil {
+			return nil, fmt.Errorf("check hotfix %s merge state: %w", identity.HotfixRef, ancestorErr)
+		}
+		if merged {
+			continue
+		}
+		slug := strings.TrimPrefix(identity.HotfixRef, "refs/heads/hotfix/")
+		if err := addCandidate(worktree, status, "hotfix", slug, "", identity.BaseSHA, identity.CreatedAt, slug); err != nil {
 			return nil, err
 		}
-		trainID, kind, label := "", "", ""
-		if filepath.Clean(info.Path) == filepath.Clean(project.Root) {
-			kind, label = "main", "main"
-			selector, selectorErr := codeSelector("", status.Head)
-			if selectorErr != nil {
-				return nil, selectorErr
-			}
-			if _, exists := seen[selector]; exists {
-				return nil, fmt.Errorf("ambiguous worktree selector %q", selector)
-			}
-			seen[selector] = struct{}{}
-			candidates = append(candidates, codeWorktreeCandidate{
-				localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: selector, Dirty: !status.Clean, CurrentHead: status.Head}, ProjectWorktree: worktree, Kind: kind, DiffBase: status.Head},
-				Label:           "main", SortID: "main",
-			})
+	}
+	trainIDs := make([]string, 0, len(managed))
+	for candidateID := range managed {
+		trainIDs = append(trainIDs, candidateID)
+	}
+	sort.Strings(trainIDs)
+	for _, candidateID := range trainIDs {
+		train := managed[candidateID]
+		runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, candidateID)
+		if runtimeErr != nil {
+			return nil, fmt.Errorf("read managed Train %s runtime: %w", candidateID, runtimeErr)
+		}
+		runtimeBinding := &runtime
+		expectedPath, pathErr := codeTrainWorktreePath(s.Config.StateDir, projectID, project, candidateID, runtimeBinding)
+		if pathErr != nil {
+			return nil, pathErr
+		}
+		worktree, resolveErr := s.Git.ResolveWorktree(ctx, project, "refs/heads/train/"+candidateID)
+		if resolveErr != nil || filepath.Clean(worktree.Root) != filepath.Clean(expectedPath) {
 			continue
-		} else if strings.HasPrefix(info.Branch, "refs/heads/hotfix/") {
-			identity, identityErr := s.Git.ReadHotfixIdentity(s.Config.StateDir, projectID, info.Branch)
-			if identityErr != nil || identity.CreatedAt.IsZero() {
-				continue
-			}
-			managedWorktree, resolveErr := s.Git.ResolveHotfixWorktree(ctx, project, s.Config.StateDir, projectID, info.Branch)
-			if resolveErr != nil || filepath.Clean(managedWorktree.Root) != filepath.Clean(info.Path) {
-				continue
-			}
-			merged, ancestorErr := s.Git.IsAncestor(ctx, project.Root, status.Head, mainHead)
-			if ancestorErr != nil {
-				return nil, fmt.Errorf("check hotfix %s merge state: %w", info.Branch, ancestorErr)
-			}
-			if merged {
-				continue
-			}
-			slug := strings.TrimPrefix(info.Branch, "refs/heads/hotfix/")
-			selector, selectorErr := codeHotfixSelector(slug, status.Head)
-			if selectorErr != nil {
-				return nil, selectorErr
-			}
-			if _, exists := seen[selector]; exists {
-				return nil, fmt.Errorf("ambiguous worktree selector %q", selector)
-			}
-			seen[selector] = struct{}{}
-			candidates = append(candidates, codeWorktreeCandidate{
-				localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: selector, Dirty: !status.Clean, CurrentHead: status.Head}, ProjectWorktree: worktree, Kind: "hotfix", DiffBase: identity.BaseSHA},
-				Label:           slug, CreatedAt: identity.CreatedAt, SortID: slug,
-			})
+		}
+		status, statusErr := s.Git.WorktreeStatus(ctx, worktree)
+		if statusErr != nil {
 			continue
-		} else if strings.HasPrefix(info.Branch, "refs/heads/train/") {
-			candidateID := strings.TrimPrefix(info.Branch, "refs/heads/train/")
-			train, ok := managed[candidateID]
-			if !ok {
-				continue
-			}
-			merged, ancestorErr := s.Git.IsAncestor(ctx, project.Root, status.Head, mainHead)
-			if ancestorErr != nil {
-				return nil, fmt.Errorf("check Train %s merge state: %w", candidateID, ancestorErr)
-			}
-			if merged {
-				continue
-			}
-			runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, candidateID)
-			if runtimeErr != nil {
-				return nil, fmt.Errorf("read managed Train %s runtime: %w", candidateID, runtimeErr)
-			}
-			runtimeBinding := &runtime
-			expectedPath, pathErr := codeTrainWorktreePath(s.Config.StateDir, projectID, project, candidateID, runtimeBinding)
-			if pathErr != nil {
-				return nil, pathErr
-			}
-			if filepath.Clean(info.Path) != filepath.Clean(expectedPath) {
-				return nil, fmt.Errorf("managed Train %s is bound to unexpected worktree path", candidateID)
-			}
-			trainID, kind, label = candidateID, "train", candidateID
-			base, baseErr := codeTrainBase(train, status.Head)
-			if baseErr != nil {
-				return nil, baseErr
-			}
-			if base != status.Head {
-				ancestor, ancestorErr := s.Git.IsAncestor(ctx, worktree.Root, base, status.Head)
-				if ancestorErr != nil || !ancestor {
-					return nil, fmt.Errorf("managed Train %s has an invalid authoritative base", candidateID)
-				}
-			}
-			selector, selectorErr := codeSelector(trainID, status.Head)
-			if selectorErr != nil {
-				return nil, selectorErr
-			}
-			if _, exists := seen[selector]; exists {
-				return nil, fmt.Errorf("ambiguous worktree selector %q", selector)
-			}
-			seen[selector] = struct{}{}
-			candidates = append(candidates, codeWorktreeCandidate{
-				localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: selector, Dirty: !status.Clean, CurrentHead: status.Head}, ProjectWorktree: worktree, Kind: kind, TrainID: trainID, DiffBase: base},
-				Label:           label, CreatedAt: train.CreatedAt, SortID: candidateID,
-			})
+		}
+		merged, ancestorErr := s.Git.IsAncestor(ctx, project.Root, status.Head, mainHead)
+		if ancestorErr != nil {
+			return nil, fmt.Errorf("check Train %s merge state: %w", candidateID, ancestorErr)
+		}
+		if merged {
 			continue
-		} else {
-			continue
+		}
+		base, baseErr := codeTrainBase(train, status.Head)
+		if baseErr != nil {
+			return nil, baseErr
+		}
+		if base != status.Head {
+			ancestor, ancestorErr := s.Git.IsAncestor(ctx, worktree.Root, base, status.Head)
+			if ancestorErr != nil || !ancestor {
+				return nil, fmt.Errorf("managed Train %s has an invalid authoritative base", candidateID)
+			}
+		}
+		if err := addCandidate(worktree, status, "train", candidateID, candidateID, base, train.CreatedAt, candidateID); err != nil {
+			return nil, err
 		}
 	}
 	sortCodeWorktreeCandidates(candidates)
