@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"sort"
@@ -195,10 +194,6 @@ func codeTrainWorktreePath(stateDir, projectID string, project config.ProjectCon
 	return expected, nil
 }
 
-func isObsoleteLegacyRuntime(err error) bool {
-	return err != nil && strings.Contains(err.Error(), `unknown field "run_id"`)
-}
-
 func codeCursorKind(operation string, target localCodeTarget, suffix string) string {
 	return operation + "|" + target.ProjectID + "|" + target.CodeIdentity.Worktree + "|" + target.CurrentHead + "|" + target.DiffBase + "|" + suffix
 }
@@ -242,7 +237,7 @@ func sortCodeWorktreeCandidates(candidates []codeWorktreeCandidate) {
 			return candidates[i].CreatedAt.After(candidates[j].CreatedAt)
 		}
 		if candidates[i].SortID != candidates[j].SortID {
-			return candidates[i].SortID < candidates[j].SortID
+			return candidates[i].SortID > candidates[j].SortID
 		}
 		return candidates[i].CodeIdentity.Worktree < candidates[j].CodeIdentity.Worktree
 	})
@@ -337,8 +332,19 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 			}
 			seen[selector] = struct{}{}
 			candidates = append(candidates, codeWorktreeCandidate{
-				localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: selector, Dirty: !status.Clean, CurrentHead: status.Head}, ProjectWorktree: worktree, Kind: kind, DiffBase: status.Head},
-				Label:           "main", SortID: "main",
+				localCodeTarget: localCodeTarget{
+					CodeIdentity: CodeIdentity{
+						ProjectID:   projectID,
+						Worktree:    selector,
+						Dirty:       !status.Clean,
+						CurrentHead: status.Head,
+					},
+					ProjectWorktree: worktree,
+					Kind:            kind,
+					DiffBase:        status.Head,
+				},
+				Label:  "main",
+				SortID: "main",
 			})
 			continue
 		} else if strings.HasPrefix(info.Branch, "refs/heads/hotfix/") {
@@ -367,8 +373,20 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 			}
 			seen[selector] = struct{}{}
 			candidates = append(candidates, codeWorktreeCandidate{
-				localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: selector, Dirty: !status.Clean, CurrentHead: status.Head}, ProjectWorktree: worktree, Kind: "hotfix", DiffBase: identity.BaseSHA},
-				Label:           slug, CreatedAt: identity.CreatedAt, SortID: slug,
+				localCodeTarget: localCodeTarget{
+					CodeIdentity: CodeIdentity{
+						ProjectID:   projectID,
+						Worktree:    selector,
+						Dirty:       !status.Clean,
+						CurrentHead: status.Head,
+					},
+					ProjectWorktree: worktree,
+					Kind:            "hotfix",
+					DiffBase:        identity.BaseSHA,
+				},
+				Label:     slug,
+				CreatedAt: identity.CreatedAt,
+				SortID:    slug,
 			})
 			continue
 		} else if strings.HasPrefix(info.Branch, "refs/heads/train/") {
@@ -385,16 +403,10 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 				continue
 			}
 			runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, candidateID)
-			var runtimeBinding *trainv2.RuntimeBinding
-			if runtimeErr == nil {
-				runtimeBinding = &runtime
-			} else if errors.Is(runtimeErr, os.ErrNotExist) {
-				if train.Status == model.TrainV2Running {
-					return nil, fmt.Errorf("managed running Train %s has no server-owned runtime binding", candidateID)
-				}
-			} else if train.Status == model.TrainV2Running || !isObsoleteLegacyRuntime(runtimeErr) {
+			if runtimeErr != nil {
 				return nil, fmt.Errorf("read managed Train %s runtime: %w", candidateID, runtimeErr)
 			}
+			runtimeBinding := &runtime
 			expectedPath, pathErr := codeTrainWorktreePath(s.Config.StateDir, projectID, project, candidateID, runtimeBinding)
 			if pathErr != nil {
 				return nil, pathErr
@@ -422,8 +434,21 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 			}
 			seen[selector] = struct{}{}
 			candidates = append(candidates, codeWorktreeCandidate{
-				localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: selector, Dirty: !status.Clean, CurrentHead: status.Head}, ProjectWorktree: worktree, Kind: kind, TrainID: trainID, DiffBase: base},
-				Label:           label, CreatedAt: train.CreatedAt, SortID: candidateID,
+				localCodeTarget: localCodeTarget{
+					CodeIdentity: CodeIdentity{
+						ProjectID:   projectID,
+						Worktree:    selector,
+						Dirty:       !status.Clean,
+						CurrentHead: status.Head,
+					},
+					ProjectWorktree: worktree,
+					Kind:            kind,
+					TrainID:         trainID,
+					DiffBase:        base,
+				},
+				Label:     label,
+				CreatedAt: train.CreatedAt,
+				SortID:    candidateID,
 			})
 			continue
 		} else {
@@ -483,10 +508,17 @@ func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selecto
 			if candidate.Kind != kind || (kind == "train" && number != candidateTrainNumber(candidate.TrainID)) || (kind == "hotfix" && candidate.SortID != prefix) {
 				continue
 			}
-			return localCodeTarget{}, &CodeSelectorError{Kind: CodeSelectorStale, Selector: selector, Current: candidate.CodeIdentity.Worktree}
+			return localCodeTarget{}, &CodeSelectorError{
+				Kind:     CodeSelectorStale,
+				Selector: selector,
+				Current:  candidate.CodeIdentity.Worktree,
+			}
 		}
 	}
-	return localCodeTarget{}, &CodeSelectorError{Kind: CodeSelectorNotFound, Selector: selector}
+	return localCodeTarget{}, &CodeSelectorError{
+		Kind:     CodeSelectorNotFound,
+		Selector: selector,
+	}
 }
 
 func candidateTrainNumber(trainID string) uint64 {
@@ -554,7 +586,14 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 		if query != "" && !strings.Contains(candidate.CodeIdentity.Worktree, query) && !strings.Contains(candidate.Label, query) && !strings.Contains(candidate.TrainID, query) {
 			continue
 		}
-		items = append(items, CodeWorktreeItem{Selector: candidate.CodeIdentity.Worktree, Kind: candidate.Kind, Dirty: candidate.Dirty, Head: candidate.CurrentHead, Label: candidate.Label, TrainID: candidate.TrainID})
+		items = append(items, CodeWorktreeItem{
+			Selector: candidate.CodeIdentity.Worktree,
+			Kind:     candidate.Kind,
+			Dirty:    candidate.Dirty,
+			Head:     candidate.CurrentHead,
+			Label:    candidate.Label,
+			TrainID:  candidate.TrainID,
+		})
 	}
 	kind := "code-worktree|" + in.ProjectID + "|" + query
 	if len(items) == 0 {
@@ -572,7 +611,10 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 	if pageErr != nil {
 		return CodeWorktreeResult{}, pageErr
 	}
-	return CodeWorktreeResult{Items: page, Pagination: codePagination(nextCursor)}, nil
+	return CodeWorktreeResult{
+		Items:      page,
+		Pagination: codePagination(nextCursor),
+	}, nil
 }
 
 func codeWorktreePage(kind string, items []CodeWorktreeItem, rawCursor string) ([]CodeWorktreeItem, string, error) {
@@ -603,7 +645,10 @@ func codeWorktreePage(kind string, items []CodeWorktreeItem, rawCursor string) (
 		if index+1 < len(items) {
 			nextCursor = pagination.Encode(kind, items[index].Selector)
 		}
-		fits, fitErr := codePageFits(CodeWorktreeResult{Items: candidate, Pagination: codePagination(nextCursor)})
+		fits, fitErr := codePageFits(CodeWorktreeResult{
+			Items:      candidate,
+			Pagination: codePagination(nextCursor),
+		})
 		if fitErr != nil {
 			return nil, "", fitErr
 		}
@@ -684,7 +729,11 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 		if size < len(paths) {
 			pageCursor = pagination.EncodeFull(kind, paths[size-1])
 		}
-		return codePageFits(CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: paths[:size], Pagination: codePagination(pageCursor)})
+		return codePageFits(CodeTreeResult{
+			CodeIdentity: target.CodeIdentity,
+			Paths:        paths[:size],
+			Pagination:   codePagination(pageCursor),
+		})
 	})
 	if fitErr != nil {
 		return CodeTreeResult{}, fitErr
@@ -693,7 +742,11 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 	if pageSize < len(paths) {
 		pageCursor = pagination.EncodeFull(kind, paths[pageSize-1])
 	}
-	return CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: paths[:pageSize], Pagination: codePagination(pageCursor)}, nil
+	return CodeTreeResult{
+		CodeIdentity: target.CodeIdentity,
+		Paths:        paths[:pageSize],
+		Pagination:   codePagination(pageCursor),
+	}, nil
 }
 
 func validateCodePatterns(patterns []string) error {
@@ -830,9 +883,13 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 			pageCursor = pagination.Encode(kind, strconv.Itoa(pageEnd+1))
 		}
 		candidate := CodeReadResult{
-			CodeIdentity: target.CodeIdentity, Path: in.Path, StartLine: start, EndLine: pageEnd,
-			TotalLines: len(lines), Content: strings.Join(lines[start-1:pageEnd], "\n"),
-			Pagination: codePagination(pageCursor),
+			CodeIdentity: target.CodeIdentity,
+			Path:         in.Path,
+			StartLine:    start,
+			EndLine:      pageEnd,
+			TotalLines:   len(lines),
+			Content:      strings.Join(lines[start-1:pageEnd], "\n"),
+			Pagination:   codePagination(pageCursor),
 		}
 		return codePageFits(candidate)
 	})
@@ -847,9 +904,13 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 			pageCursor = pagination.Encode(kind, strconv.Itoa(pageEnd+1))
 		}
 		return CodeReadResult{
-			CodeIdentity: target.CodeIdentity, Path: in.Path, StartLine: start, EndLine: pageEnd,
-			TotalLines: len(lines), Content: strings.Join(lines[start-1:pageEnd], "\n"),
-			Pagination: codePagination(pageCursor),
+			CodeIdentity: target.CodeIdentity,
+			Path:         in.Path,
+			StartLine:    start,
+			EndLine:      pageEnd,
+			TotalLines:   len(lines),
+			Content:      strings.Join(lines[start-1:pageEnd], "\n"),
+			Pagination:   codePagination(pageCursor),
 		}, nil
 	}
 	return CodeReadResult{}, fmt.Errorf("code read line exceeds %d tokenizer tokens", CodePageTokenBudget)
@@ -896,7 +957,10 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 			return CodeSearchResult{}, err
 		}
 	}
-	result := CodeSearchResult{CodeIdentity: target.CodeIdentity, Matches: make([]CodeSearchMatch, 0)}
+	result := CodeSearchResult{
+		CodeIdentity: target.CodeIdentity,
+		Matches:      make([]CodeSearchMatch, 0),
+	}
 	continuation := false
 	pathsScanned := 0
 	afterSeen := in.Cursor == ""
@@ -952,8 +1016,13 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 				snippet = snippet[:240]
 			}
 			candidate := CodeSearchResult{
-				CodeIdentity: result.CodeIdentity, PathsScanned: pathsScanned,
-				Matches: append(append([]CodeSearchMatch(nil), result.Matches...), CodeSearchMatch{Path: pathName, Line: lineNumber + 1, Snippet: snippet}),
+				CodeIdentity: result.CodeIdentity,
+				PathsScanned: pathsScanned,
+				Matches: append(append([]CodeSearchMatch(nil), result.Matches...), CodeSearchMatch{
+					Path:    pathName,
+					Line:    lineNumber + 1,
+					Snippet: snippet,
+				}),
 			}
 			fits, fitErr := codePageFits(candidate)
 			if fitErr != nil {
@@ -966,7 +1035,11 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 				}
 				return errCodePageDone
 			}
-			result.Matches = append(result.Matches, CodeSearchMatch{Path: pathName, Line: lineNumber + 1, Snippet: snippet})
+			result.Matches = append(result.Matches, CodeSearchMatch{
+				Path:    pathName,
+				Line:    lineNumber + 1,
+				Snippet: snippet,
+			})
 		}
 		return nil
 	})
@@ -992,8 +1065,10 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 			pageCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
 		}
 		return codePageFits(CodeSearchResult{
-			CodeIdentity: result.CodeIdentity, PathsScanned: result.PathsScanned, Matches: result.Matches[:size],
-			Pagination: codePagination(pageCursor),
+			CodeIdentity: result.CodeIdentity,
+			PathsScanned: result.PathsScanned,
+			Matches:      result.Matches[:size],
+			Pagination:   codePagination(pageCursor),
 		})
 	})
 	if fitErr != nil {
@@ -1005,7 +1080,12 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 			last := result.Matches[pageSize-1]
 			pageCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
 		}
-		return CodeSearchResult{CodeIdentity: result.CodeIdentity, PathsScanned: result.PathsScanned, Matches: result.Matches[:pageSize], Pagination: codePagination(pageCursor)}, nil
+		return CodeSearchResult{
+			CodeIdentity: result.CodeIdentity,
+			PathsScanned: result.PathsScanned,
+			Matches:      result.Matches[:pageSize],
+			Pagination:   codePagination(pageCursor),
+		}, nil
 	}
 	if len(result.Matches) == 0 {
 		result.Pagination = codePagination(resultCursor)
@@ -1082,10 +1162,18 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 		if continuation {
 			pageCursor = pagination.EncodeOffset(kind, nextOffset)
 		}
-		return CodeDiffResult{CodeIdentity: target.CodeIdentity, Paths: paths, Diff: strings.Join(pageLines, ""), Pagination: codePagination(pageCursor)}, nil
+		return CodeDiffResult{
+			CodeIdentity: target.CodeIdentity,
+			Paths:        paths,
+			Diff:         strings.Join(pageLines, ""),
+			Pagination:   codePagination(pageCursor),
+		}, nil
 	}
 	if !continuation {
-		result := CodeDiffResult{CodeIdentity: target.CodeIdentity, Paths: paths}
+		result := CodeDiffResult{
+			CodeIdentity: target.CodeIdentity,
+			Paths:        paths,
+		}
 		fits, fitErr := codePageFits(result)
 		if fitErr != nil {
 			return CodeDiffResult{}, fitErr
