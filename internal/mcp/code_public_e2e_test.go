@@ -11,6 +11,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
@@ -79,30 +80,24 @@ func newPublicCodeE2EFixture(t *testing.T) publicCodeE2EFixture {
 		t.Fatal(err)
 	}
 
-	trainPath := filepath.Join(stateDir, "work", "EXM", "TRN1")
-	if err := os.MkdirAll(filepath.Dir(trainPath), 0o700); err != nil {
+	hotfixPath := filepath.Join(stateDir, "hotfix-worktrees", "example", "fixture")
+	if err := os.MkdirAll(filepath.Dir(hotfixPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	testutil.Git(t, root, "branch", "train/EXM-TRN1", currentHead)
+	branch := "hotfix/fixture"
+	testutil.Git(t, root, "branch", branch, currentHead)
 	t.Cleanup(func() {
-		testutil.Git(t, root, "worktree", "remove", "--force", trainPath)
-		testutil.Git(t, root, "branch", "-D", "train/EXM-TRN1")
+		testutil.Git(t, root, "worktree", "remove", "--force", hotfixPath)
+		testutil.Git(t, root, "branch", "-D", branch)
 	})
-	testutil.Git(t, root, "worktree", "add", trainPath, "train/EXM-TRN1")
-
-	now := time.Now().UTC()
-	train := model.TrainV2{
-		SchemaVersion: model.TrainV2SchemaVersion, ID: "EXM-TRN1", ProjectID: "example", Revision: 1,
-		Status: model.TrainV2Planned, CreatedBy: "performance-test", CreatedAt: now, UpdatedAt: now,
-		Items: []model.TrainV2Item{{Position: 0, TaskID: "EXM-TSK1", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("a", 64), Status: model.TrainV2ItemQueued, AddedAt: now}},
-	}
-	payload, err := json.Marshal(train)
-	if err != nil {
+	testutil.Git(t, root, "worktree", "add", hotfixPath, branch)
+	if err := os.WriteFile(filepath.Join(hotfixPath, "fixture-hotfix.txt"), []byte("fixture hotfix\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.CommitSharedMutation(context.Background(), sqlitestore.SharedMutation{
-		OperationID: "OPR-EXM-CODE-E2E", EntityType: "train", EntityID: train.ID, Revision: 1,
-		Kind: "code-e2e-fixture", Payload: payload, Create: true,
+	testutil.Git(t, hotfixPath, "add", "fixture-hotfix.txt")
+	testutil.Git(t, hotfixPath, "commit", "-m", "code inspection hotfix fixture")
+	if err := s.Git.RecordHotfixIdentity(stateDir, gitx.HotfixIdentity{
+		ProjectID: "example", HotfixRef: "refs/heads/" + branch, BaseSHA: currentHead, CreatedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
 	}
