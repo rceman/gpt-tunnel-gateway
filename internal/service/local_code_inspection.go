@@ -297,6 +297,10 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 	if err != nil {
 		return nil, fmt.Errorf("read main worktree status: %w", err)
 	}
+	worktreeInventory, err := s.Git.LoadWorktreeInventory(ctx, project)
+	if err != nil {
+		return nil, fmt.Errorf("read Git worktree inventory: %w", err)
+	}
 	mainHead := mainStatus.Head
 	managed := make(map[string]model.TrainV2, len(trains))
 	for _, train := range trains {
@@ -335,7 +339,7 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 		if identity.CreatedAt.IsZero() {
 			continue
 		}
-		worktree, resolveErr := s.Git.ResolveHotfixWorktree(ctx, project, s.Config.StateDir, projectID, identity.HotfixRef)
+		worktree, resolveErr := s.Git.ResolveHotfixWorktreeFromInventory(worktreeInventory, s.Config.StateDir, projectID, identity.HotfixRef)
 		if resolveErr != nil {
 			continue
 		}
@@ -371,7 +375,7 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 		if pathErr != nil {
 			return nil, pathErr
 		}
-		worktree, resolveErr := s.Git.ResolveWorktree(ctx, project, "refs/heads/train/"+candidateID)
+		worktree, resolveErr := worktreeInventory.Resolve("refs/heads/train/" + candidateID)
 		if resolveErr != nil || filepath.Clean(worktree.Root) != filepath.Clean(expectedPath) {
 			continue
 		}

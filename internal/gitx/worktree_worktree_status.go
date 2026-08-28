@@ -26,6 +26,73 @@ type WorktreeInfo struct {
 	Branch string
 }
 
+// WorktreeInventory is one bounded snapshot of Git's worktree registry. The
+// registry is only used to resolve server-owned branch identities; it is not
+// an inventory authority.
+type WorktreeInventory struct {
+	byBranch map[string]config.ProjectConfig
+}
+
+// LoadWorktreeInventory enumerates Git worktrees exactly once.
+func (r Runner) LoadWorktreeInventory(ctx context.Context, p config.ProjectConfig) (WorktreeInventory, error) {
+	worktrees, err := r.ListWorktrees(ctx, p)
+	if err != nil {
+		return WorktreeInventory{}, err
+	}
+	byBranch := make(map[string]config.ProjectConfig, len(worktrees))
+	for _, worktree := range worktrees {
+		if worktree.Branch == "" {
+			continue
+		}
+		if _, exists := byBranch[worktree.Branch]; exists {
+			return WorktreeInventory{}, fmt.Errorf("ambiguous Git worktree branch %q", worktree.Branch)
+		}
+		resolved := p
+		resolved.Root = filepath.Clean(worktree.Path)
+		byBranch[worktree.Branch] = resolved
+	}
+	return WorktreeInventory{byBranch: byBranch}, nil
+}
+
+// Resolve validates and resolves a server-owned full local branch ref from
+// the already-loaded inventory without invoking Git again.
+func (i WorktreeInventory) Resolve(ref string) (config.ProjectConfig, error) {
+	if !strings.HasPrefix(ref, "refs/heads/") || len(ref) == len("refs/heads/") {
+		return config.ProjectConfig{}, fmt.Errorf("worktree_ref must be a full local branch ref")
+	}
+	if err := model.ValidateBranch(ref); err != nil {
+		return config.ProjectConfig{}, fmt.Errorf("invalid worktree_ref: %w", err)
+	}
+	worktree, ok := i.byBranch[ref]
+	if !ok {
+		return config.ProjectConfig{}, fmt.Errorf("local worktree_ref %q was not found", ref)
+	}
+	return worktree, nil
+}
+
+// ResolveHotfixWorktreeFromInventory applies the server-owned hotfix path
+// check to an already-loaded Git inventory.
+func (r Runner) ResolveHotfixWorktreeFromInventory(inventory WorktreeInventory, stateDir, projectID, ref string) (config.ProjectConfig, error) {
+	slug, err := hotfixSlugFromRef(ref)
+	if err != nil {
+		return config.ProjectConfig{}, err
+	}
+	expected, _, err := hotfixWorktreePath(stateDir, projectID, slug)
+	if err != nil {
+		return config.ProjectConfig{}, err
+	}
+	worktree, err := inventory.Resolve(ref)
+	if err != nil {
+		return config.ProjectConfig{}, err
+	}
+	actual, err := filepath.Abs(worktree.Root)
+	if err != nil || filepath.Clean(actual) != filepath.Clean(expected) {
+		return config.ProjectConfig{}, fmt.Errorf("hotfix worktree is not server-owned")
+	}
+	worktree.Root = actual
+	return worktree, nil
+}
+
 // ListWorktrees returns the bounded, Git-owned worktree inventory for a
 // configured repository. It performs no network or mirror operation.
 func (r Runner) ListWorktrees(ctx context.Context, p config.ProjectConfig) ([]WorktreeInfo, error) {
