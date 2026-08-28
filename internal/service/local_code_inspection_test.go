@@ -115,10 +115,7 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 	selector := "WT-MAIN-" + f.current[:8]
 
 	read, err := f.service.CodeRead(ctx, CodeReadInput{
-		ProjectID: "example",
-		Worktree:  selector,
-		Path:      "tracked.txt",
-		StartLine: 1,
+		ProjectID: "example", Worktree: selector, Path: "tracked.txt", StartLine: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -137,10 +134,8 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 	}
 
 	search, err := f.service.CodeSearch(ctx, CodeSearchInput{
-		ProjectID: "example",
-		Worktree:  selector,
-		Query:     "needle",
-		Paths:     []string{"tracked.txt", "new.txt"},
+		ProjectID: "example", Worktree: selector,
+		Query: "needle", Paths: []string{"tracked.txt", "new.txt"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -150,8 +145,7 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 	}
 
 	full, err := f.service.CodeDiff(ctx, CodeDiffInput{
-		ProjectID: "example",
-		Worktree:  selector,
+		ProjectID: "example", Worktree: selector,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -159,26 +153,17 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 	if full.Diff != "" || full.Pagination != nil {
 		t.Fatalf("clean committed selector reported a diff: %#v", full)
 	}
-	tree, err := f.service.CodeTree(ctx, CodeTreeInput{
-		ProjectID: "example",
-		Worktree:  selector,
-	})
+	tree, err := f.service.CodeTree(ctx, CodeTreeInput{ProjectID: "example", Worktree: selector})
 	if err != nil || len(tree.Paths) < 2 || tree.Pagination != nil {
 		t.Fatalf("expected tree to pack complete scope: %#v %v", tree, err)
 	}
-	scopedTree, err := f.service.CodeTree(ctx, CodeTreeInput{
-		ProjectID: "example",
-		Worktree:  selector,
-		Path:      "search-a.txt",
-	})
+	scopedTree, err := f.service.CodeTree(ctx, CodeTreeInput{ProjectID: "example", Worktree: selector, Path: "search-a.txt"})
 	if err != nil || len(scopedTree.Paths) != 1 || scopedTree.Paths[0] != "search-a.txt" || scopedTree.Pagination != nil {
 		t.Fatalf("tree path scope was not applied: %#v %v", scopedTree, err)
 	}
 
 	if _, err := f.service.CodeRead(ctx, CodeReadInput{
-		ProjectID: "example",
-		Worktree:  "WT-MAIN-" + f.unrelated[:8],
-		Path:      "tracked.txt",
+		ProjectID: "example", Worktree: "WT-MAIN-" + f.unrelated[:8], Path: "tracked.txt",
 	}); err == nil || !strings.Contains(err.Error(), "stale") {
 		t.Fatalf("stale selector was accepted: %v", err)
 	}
@@ -205,11 +190,7 @@ func TestLocalCodeSearchContinuesFromExactScanPosition(t *testing.T) {
 	t.Cleanup(func() { _ = os.Remove(pathName) })
 	selector := "WT-MAIN-" + f.current[:8]
 	first, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
-		ProjectID: "example",
-		Worktree:  selector,
-		Query:     "needle",
-		Paths:     []string{"many-matches.txt"},
-		Live:      true,
+		ProjectID: "example", Worktree: selector, Query: "needle", Paths: []string{"many-matches.txt"}, Live: true,
 	})
 	if err != nil || len(first.Matches) < 2 || first.Pagination == nil || first.Pagination.NextCursor == "" {
 		t.Fatalf("expected first bounded search page: %#v %v", first, err)
@@ -218,12 +199,7 @@ func TestLocalCodeSearchContinuesFromExactScanPosition(t *testing.T) {
 		t.Fatalf("search cursor is not bounded: %d", len(first.Pagination.NextCursor))
 	}
 	second, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
-		ProjectID: "example",
-		Worktree:  selector,
-		Query:     "needle",
-		Paths:     []string{"many-matches.txt"},
-		Live:      true,
-		Cursor:    first.Pagination.NextCursor,
+		ProjectID: "example", Worktree: selector, Query: "needle", Paths: []string{"many-matches.txt"}, Live: true, Cursor: first.Pagination.NextCursor,
 	})
 	if err != nil || len(second.Matches) == 0 || second.Matches[0].Line <= first.Matches[len(first.Matches)-1].Line {
 		t.Fatalf("expected exact continuation without duplicate: %#v %v", second, err)
@@ -260,12 +236,8 @@ func TestLocalCodeSearchSkipsPreCursorFileContents(t *testing.T) {
 	kind := codeCursorKind("code-search", target, "needle|"+strings.Join(paths, "\x00")+"|||true")
 	cursor := pagination.EncodeSearchCursor(kind, "a-before.txt", 0)
 	result, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
-		ProjectID: "example",
-		Worktree:  selector,
-		Live:      true,
-		Query:     "needle",
-		Paths:     paths,
-		Cursor:    cursor,
+		ProjectID: "example", Worktree: selector, Live: true,
+		Query: "needle", Paths: paths, Cursor: cursor,
 	})
 	if err != nil || len(result.Matches) != 2 || result.Pagination != nil {
 		t.Fatalf("pre-cursor search result was not complete: %#v %v", result, err)
@@ -290,17 +262,13 @@ func TestLocalCodeScanSafetyFailsClosedWithoutPagination(t *testing.T) {
 	testutil.Git(t, f.root, "commit", "-m", "scan bound fixture")
 	selector := "WT-MAIN-" + strings.TrimSpace(testutil.Git(t, f.root, "rev-parse", "HEAD"))[:8]
 	tree, treeErr := f.service.CodeTree(context.Background(), CodeTreeInput{
-		ProjectID: "example",
-		Worktree:  selector,
-		Query:     "absent-tree",
+		ProjectID: "example", Worktree: selector, Query: "absent-tree",
 	})
 	if treeErr == nil || !strings.Contains(treeErr.Error(), "scan exceeded bounded work") {
 		t.Fatalf("zero-match tree scan did not fail closed: %#v %v", tree, treeErr)
 	}
 	_, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
-		ProjectID: "example",
-		Worktree:  selector,
-		Query:     "absent-query",
+		ProjectID: "example", Worktree: selector, Query: "absent-query",
 	})
 	if err == nil || !strings.Contains(err.Error(), "scan exceeded bounded work") {
 		t.Fatalf("rare-match scan did not fail closed: %v", err)
@@ -324,42 +292,12 @@ func TestCodeTrainWorktreePathUsesProjectCodeForCompactLane(t *testing.T) {
 func TestSortCodeWorktreeCandidatesUsesKindThenNewestCreationAndCanonicalIDDescending(t *testing.T) {
 	now := time.Now().UTC()
 	candidates := []codeWorktreeCandidate{
-		{localCodeTarget: localCodeTarget{
-			CodeIdentity: CodeIdentity{
-				Worktree: "train-old",
-			},
-			Kind: "train",
-		}, CreatedAt: now.Add(-time.Hour), SortID: "GTW-TRN2"},
-		{localCodeTarget: localCodeTarget{
-			CodeIdentity: CodeIdentity{
-				Worktree: "hotfix-tie-b",
-			},
-			Kind: "hotfix",
-		}, CreatedAt: now, SortID: "b-fix"},
-		{localCodeTarget: localCodeTarget{
-			CodeIdentity: CodeIdentity{
-				Worktree: "main",
-			},
-			Kind: "main",
-		}, SortID: "main"},
-		{localCodeTarget: localCodeTarget{
-			CodeIdentity: CodeIdentity{
-				Worktree: "train-new",
-			},
-			Kind: "train",
-		}, CreatedAt: now, SortID: "GTW-TRN3"},
-		{localCodeTarget: localCodeTarget{
-			CodeIdentity: CodeIdentity{
-				Worktree: "hotfix-new",
-			},
-			Kind: "hotfix",
-		}, CreatedAt: now.Add(time.Minute), SortID: "new-fix"},
-		{localCodeTarget: localCodeTarget{
-			CodeIdentity: CodeIdentity{
-				Worktree: "hotfix-tie-a",
-			},
-			Kind: "hotfix",
-		}, CreatedAt: now, SortID: "a-fix"},
+		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "train-old"}, Kind: "train"}, CreatedAt: now.Add(-time.Hour), SortID: "GTW-TRN2"},
+		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "hotfix-tie-b"}, Kind: "hotfix"}, CreatedAt: now, SortID: "b-fix"},
+		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "main"}, Kind: "main"}, SortID: "main"},
+		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "train-new"}, Kind: "train"}, CreatedAt: now, SortID: "GTW-TRN3"},
+		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "hotfix-new"}, Kind: "hotfix"}, CreatedAt: now.Add(time.Minute), SortID: "new-fix"},
+		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "hotfix-tie-a"}, Kind: "hotfix"}, CreatedAt: now, SortID: "a-fix"},
 	}
 	sortCodeWorktreeCandidates(candidates)
 	want := []string{"main", "hotfix-new", "hotfix-tie-b", "hotfix-tie-a", "train-new", "train-old"}
@@ -375,11 +313,7 @@ func TestSortCodeWorktreeCandidatesUsesKindThenNewestCreationAndCanonicalIDDesce
 func TestCodeWorktreePagePacksByTokensAndPreservesOrder(t *testing.T) {
 	items := make([]CodeWorktreeItem, 40)
 	for index := range items {
-		items[index] = CodeWorktreeItem{
-			Selector: fmt.Sprintf("WT-MAIN-%08x", index+1),
-			Kind:     "main",
-			Label:    strings.Repeat(fmt.Sprintf("item-%02d ", index), 40),
-		}
+		items[index] = CodeWorktreeItem{Selector: fmt.Sprintf("WT-MAIN-%08x", index+1), Kind: "main", Label: strings.Repeat(fmt.Sprintf("item-%02d ", index), 40)}
 	}
 	kind := "code-worktree|example|"
 	cursor := ""
@@ -589,18 +523,12 @@ func TestLocalCodeInspectionRejectsDirtyWorktree(t *testing.T) {
 	})
 
 	_, err := f.service.CodeRead(context.Background(), CodeReadInput{
-		ProjectID: "example",
-		Worktree:  selector,
-		Path:      "tracked.txt",
+		ProjectID: "example", Worktree: selector, Path: "tracked.txt",
 	})
 	if err == nil || !strings.Contains(err.Error(), "dirty") {
 		t.Fatalf("dirty worktree was not rejected: %v", err)
 	}
-	live, err := f.service.CodeDiff(context.Background(), CodeDiffInput{
-		ProjectID: "example",
-		Worktree:  selector,
-		Live:      true,
-	})
+	live, err := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -609,12 +537,7 @@ func TestLocalCodeInspectionRejectsDirtyWorktree(t *testing.T) {
 		if pages > 100 {
 			t.Fatal("live diff pagination did not terminate")
 		}
-		live, err = f.service.CodeDiff(context.Background(), CodeDiffInput{
-			ProjectID: "example",
-			Worktree:  selector,
-			Live:      true,
-			Cursor:    live.Pagination.NextCursor,
-		})
+		live, err = f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true, Cursor: live.Pagination.NextCursor})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -638,10 +561,7 @@ func TestCodeDiffRejectsOversizedSemanticLineWithoutPagination(t *testing.T) {
 	}
 	selector := "WT-MAIN-" + f.current[:8]
 	_, err := f.service.CodeDiff(context.Background(), CodeDiffInput{
-		ProjectID: "example",
-		Worktree:  selector,
-		Live:      true,
-		Paths:     []string{"oversized.txt"},
+		ProjectID: "example", Worktree: selector, Live: true, Paths: []string{"oversized.txt"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "internal byte safety limit") {
 		t.Fatalf("oversized semantic line was not rejected without pagination: %v", err)
