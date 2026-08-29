@@ -2,8 +2,15 @@ package controller
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
@@ -92,5 +99,94 @@ func TestRestartGatewayRecoveryReusesTerminalFailureWithoutRestart(t *testing.T)
 	var typed GatewayRecoveryFailure
 	if !errors.As(err, &typed) || typed.OperationID != operationID || result.Outcome != "failed" {
 		t.Fatalf("terminal failure retry result=%#v err=%T %v", result, err, err)
+	}
+}
+
+func TestGatewayRecoveryDuplicateOperationRestartsOnceAndPreservesTunnel(t *testing.T) {
+	oldLaunch, oldStop, oldStart, oldWait := gatewayRecoveryWorkerLaunchFn, gatewayRecoveryStopFn, gatewayRecoveryStartFn, gatewayRecoveryWaitFn
+	defer func() {
+		gatewayRecoveryWorkerLaunchFn, gatewayRecoveryStopFn, gatewayRecoveryStartFn, gatewayRecoveryWaitFn = oldLaunch, oldStop, oldStart, oldWait
+	}()
+
+	ready := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/readyz" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ready.Close()
+
+	root := t.TempDir()
+	c := Controller{Config: config.Config{
+		ListenAddr: strings.TrimPrefix(ready.URL, "http://"),
+		StateDir:   filepath.Join(root, "state"),
+		Controller: config.ControllerConfig{
+			GatewayBinary:      "/bin/false",
+			TunnelClientBinary: "/bin/false",
+			PIDDir:             filepath.Join(root, "pid"),
+			LogDir:             filepath.Join(root, "logs"),
+		},
+	}}
+	if err := fsutil.WriteJSONAtomic(filepath.Join(c.Config.Controller.PIDDir, "tunnel.pid"), pidRecord{PID: os.Getpid()}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stops, starts, launches atomic.Int32
+	firstStart := make(chan struct{})
+	allowStart := make(chan struct{})
+	secondLaunch := make(chan struct{})
+	var workers sync.WaitGroup
+	gatewayRecoveryStopFn = func(Controller) error {
+		stops.Add(1)
+		return nil
+	}
+	gatewayRecoveryStartFn = func(Controller) error {
+		if starts.Add(1) == 1 {
+			close(firstStart)
+			<-allowStart
+		}
+		return nil
+	}
+	gatewayRecoveryWaitFn = func(string, bool, time.Duration) error { return nil }
+	gatewayRecoveryWorkerLaunchFn = func(workerController Controller, operationID string) error {
+		workers.Add(1)
+		defer workers.Done()
+		if launches.Add(1) == 2 {
+			close(secondLaunch)
+		}
+		_, err := workerController.RestartGatewayRecovery(operationID)
+		return err
+	}
+	release := func(work func()) { go work() }
+	if _, err := c.AcceptGatewayRecovery("restart-once", release); err != nil {
+		t.Fatal(err)
+	}
+	<-firstStart
+	if _, err := c.AcceptGatewayRecovery("restart-once", release); err != nil {
+		t.Fatal(err)
+	}
+	<-secondLaunch
+	close(allowStart)
+	workers.Wait()
+
+	if got := stops.Load(); got != 1 {
+		t.Fatalf("gateway stop calls=%d, want 1", got)
+	}
+	if got := starts.Load(); got != 1 {
+		t.Fatalf("gateway start calls=%d, want 1", got)
+	}
+	receipt, exists, err := readGatewayRecoveryReceipt(gatewayRecoveryPath(c.Config.StateDir, "restart-once"), "restart-once")
+	if err != nil || !exists || receipt.Outcome != "succeeded" || !receipt.GatewayReady {
+		t.Fatalf("recovery receipt=%#v exists=%v err=%v", receipt, exists, err)
+	}
+	if receipt.TunnelPID != os.Getpid() {
+		t.Fatalf("receipt TunnelPID=%d, want %d", receipt.TunnelPID, os.Getpid())
+	}
+	if tunnel := c.process("tunnel", mustEval(c.Config.Controller.TunnelClientBinary)); tunnel.PID != os.Getpid() {
+		t.Fatalf("Tunnel PID changed to %d", tunnel.PID)
+	}
+	if launches.Load() != 2 {
+		t.Fatalf("worker launches=%d, want two serialized attempts for one restart", launches.Load())
 	}
 }

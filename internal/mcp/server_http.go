@@ -23,7 +23,7 @@ func (s *Server) Router() http.Handler {
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write([]byte("ready\n"))
 	})
-	mux.HandleFunc("/mcp", s.handle)
+	mux.Handle("/mcp", s.responseBoundary(http.HandlerFunc(s.handle)))
 	return s.security(mux)
 }
 
@@ -65,6 +65,7 @@ type responseReleaseKey struct{}
 type responseReleaseQueue struct {
 	mu        sync.Mutex
 	released  bool
+	releasing bool
 	callbacks []func()
 }
 
@@ -88,25 +89,40 @@ func (q *responseReleaseQueue) add(callback func()) {
 		return
 	}
 	q.mu.Unlock()
-	go callback()
+	callback()
 }
 
 func (q *responseReleaseQueue) release(w http.ResponseWriter) {
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
-	}
 	q.mu.Lock()
-	if q.released {
+	if q.released || q.releasing {
 		q.mu.Unlock()
 		return
 	}
-	q.released = true
+	q.releasing = true
 	callbacks := append([]func(){}, q.callbacks...)
 	q.callbacks = nil
 	q.mu.Unlock()
-	for _, callback := range callbacks {
-		go callback()
+	if len(callbacks) > 0 {
+		_ = http.NewResponseController(w).Flush()
 	}
+	q.mu.Lock()
+	callbacks = append(callbacks, q.callbacks...)
+	q.callbacks = nil
+	q.released = true
+	q.releasing = false
+	q.mu.Unlock()
+	for _, callback := range callbacks {
+		callback()
+	}
+}
+
+func (s *Server) responseBoundary(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		release := &responseReleaseQueue{}
+		r = r.WithContext(withResponseRelease(r.Context(), release.add))
+		next.ServeHTTP(w, r)
+		release.release(w)
+	})
 }
 
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
@@ -115,9 +131,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r = r.WithContext(runtime_log.WithRequestID(r.Context(), runtime_log.NewRequestID()))
-	release := &responseReleaseQueue{}
-	r = r.WithContext(withResponseRelease(r.Context(), release.add))
-	defer release.release(w)
 	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var req request
 	dec := json.NewDecoder(r.Body)

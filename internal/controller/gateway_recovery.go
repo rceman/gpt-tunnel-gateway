@@ -323,12 +323,12 @@ func (c Controller) RestartGatewayRecovery(operationID string) (GatewayRecoveryR
 		}
 		defer os.Remove(backup)
 	}
-	if err := c.stopProcess("gateway", c.Config.Controller.GatewayBinary); err != nil {
+	if err := gatewayRecoveryStopFn(c); err != nil {
 		return finish("failed", err)
 	}
-	startErr := c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath})
+	startErr := gatewayRecoveryStartFn(c)
 	if startErr == nil {
-		startErr = waitURL(c.gatewayReadyURL(), true, 30*time.Second)
+		startErr = gatewayRecoveryWaitFn(c.gatewayReadyURL(), true, 30*time.Second)
 	}
 	if startErr == nil && c.process("tunnel", mustEval(c.Config.Controller.TunnelClientBinary)).PID != tunnel.PID {
 		startErr = fmt.Errorf("gateway recovery changed the Tunnel process")
@@ -337,11 +337,11 @@ func (c Controller) RestartGatewayRecovery(operationID string) (GatewayRecoveryR
 		_ = workingDir
 		return finish("succeeded", nil)
 	}
-	_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
+	_ = gatewayRecoveryStopFn(c)
 	if old.Running {
 		if err := copyExecutable(backup, c.Config.Controller.GatewayBinary); err == nil {
-			if err = c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath}); err == nil {
-				_ = waitURL(c.gatewayReadyURL(), true, 30*time.Second)
+			if err = gatewayRecoveryStartFn(c); err == nil {
+				_ = gatewayRecoveryWaitFn(c.gatewayReadyURL(), true, 30*time.Second)
 			}
 		}
 	}

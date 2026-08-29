@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -38,20 +38,20 @@ func TestRuntimeLogsIsBoundedReadOnlyGenericAction(t *testing.T) {
 	}
 }
 
-func TestRuntimeRestartPublicCallReturnsBeforeDeferredWorker(t *testing.T) {
+func TestRuntimeRestartResponseBoundaryFlushesBeforeWorker(t *testing.T) {
 	server := newSessionTestServer(t)
 	server.AuthorityContext = authority.WithDelivery(context.Background())
 	sessionID := genericSessionWithRole(t, server.Service, "example", durableSession.RoleDelivery)
 	oldAccept := gatewayRecoveryAcceptFn
 	defer func() { gatewayRecoveryAcceptFn = oldAccept }()
-	var responseReturned atomic.Bool
-	workerAfterResponse := make(chan struct{}, 1)
+	record := &responseBoundaryRecorder{ResponseRecorder: httptest.NewRecorder()}
+	var workerAfterFlush atomic.Bool
 	gatewayRecoveryAcceptFn = func(_ controller.Controller, operationID string, release func(func())) (controller.GatewayRecoveryResult, error) {
 		release(func() {
-			if !responseReturned.Load() {
-				t.Error("recovery worker ran before the HTTP response was returned")
+			if record.flushes != 1 {
+				t.Errorf("recovery worker ran before the response was flushed: flushes=%d", record.flushes)
 			}
-			workerAfterResponse <- struct{}{}
+			workerAfterFlush.Store(true)
 		})
 		return controller.GatewayRecoveryResult{OperationID: operationID, Outcome: "accepted"}, nil
 	}
@@ -61,12 +61,10 @@ func TestRuntimeRestartPublicCallReturnsBeforeDeferredWorker(t *testing.T) {
 			"session": sessionID, "action": "runtime/restart", "input": map[string]any{"operation_id": "restart-http"},
 		}},
 	})
-	record := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:1/mcp", bytes.NewReader(body))
 	request.Host = "127.0.0.1:1"
 	request.RemoteAddr = "127.0.0.1:1234"
 	server.Router().ServeHTTP(record, request)
-	responseReturned.Store(true)
 	if record.Code != http.StatusOK {
 		t.Fatalf("runtime/restart HTTP status=%d body=%s", record.Code, record.Body.String())
 	}
@@ -82,9 +80,44 @@ func TestRuntimeRestartPublicCallReturnsBeforeDeferredWorker(t *testing.T) {
 	if !ok || structured["result"].(map[string]any)["outcome"] != "accepted" {
 		t.Fatalf("runtime/restart did not return accepted receipt: %#v", response)
 	}
-	select {
-	case <-workerAfterResponse:
-	case <-time.After(time.Second):
+	if !workerAfterFlush.Load() {
 		t.Fatal("deferred recovery worker was not released")
+	}
+}
+
+func TestRuntimeRestartNetworkReturnsStableReceipt(t *testing.T) {
+	server := newSessionTestServer(t)
+	server.AuthorityContext = authority.WithDelivery(context.Background())
+	sessionID := genericSessionWithRole(t, server.Service, "example", durableSession.RoleDelivery)
+	oldAccept := gatewayRecoveryAcceptFn
+	defer func() { gatewayRecoveryAcceptFn = oldAccept }()
+	var workerRuns atomic.Int32
+	var schedule sync.Once
+	gatewayRecoveryAcceptFn = func(_ controller.Controller, operationID string, release func(func())) (controller.GatewayRecoveryResult, error) {
+		schedule.Do(func() { release(func() { workerRuns.Add(1) }) })
+		return controller.GatewayRecoveryResult{OperationID: operationID, Outcome: "accepted", TunnelPID: 9123}, nil
+	}
+	httpServer := httptest.NewServer(server.Router())
+	defer httpServer.Close()
+	client := &frozenConnectorClient{http: httpServer.Client(), endpoint: httpServer.URL + "/mcp", methods: map[string]int{}}
+	response := frozenResult(t, client.request(t, "tools/call", map[string]any{
+		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "runtime/restart", "input": map[string]any{"operation_id": "restart-network"}},
+	}))
+	result, ok := response["result"].(map[string]any)
+	if !ok || result["outcome"] != "accepted" || result["tunnel_pid"] != float64(9123) {
+		t.Fatalf("network runtime/restart result=%#v", response)
+	}
+	if workerRuns.Load() != 1 {
+		t.Fatalf("network runtime/restart worker runs=%d, want 1", workerRuns.Load())
+	}
+	second := frozenResult(t, client.request(t, "tools/call", map[string]any{
+		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "runtime/restart", "input": map[string]any{"operation_id": "restart-network"}},
+	}))
+	secondResult, ok := second["result"].(map[string]any)
+	if !ok || secondResult["outcome"] != "accepted" {
+		t.Fatalf("duplicate network runtime/restart result=%#v", second)
+	}
+	if workerRuns.Load() != 1 {
+		t.Fatalf("duplicate network runtime/restart worker runs=%d, want 1", workerRuns.Load())
 	}
 }
