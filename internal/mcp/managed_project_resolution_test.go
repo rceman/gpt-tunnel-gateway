@@ -138,3 +138,62 @@ func TestManagedProjectResolutionMCPFailsClosedAndDoesNotWriteAbsentRegistry(t *
 		}
 	}
 }
+
+func TestGitMCPIsAbsentFromGenericSurfaceAndCodeRemainsCallable(t *testing.T) {
+	fixture := newPublicCodeE2EFixture(t)
+	entries := fixture.server.genericActionRegistry(fixture.server.tools())
+	for path := range entries {
+		if strings.HasPrefix(path, "git/") {
+			t.Fatalf("Git action leaked into generic registry: %s", path)
+		}
+	}
+	root, err := fixture.server.genericSchema(fixture.server.tools(), json.RawMessage(`{"path":""}`))
+	if err != nil {
+		t.Fatalf("generic root schema failed: %v", err)
+	}
+	rootMap, ok := root.(map[string]any)
+	if !ok {
+		t.Fatalf("generic root schema has unexpected type: %#v", root)
+	}
+	for _, domain := range rootMap["domains"].([]string) {
+		if domain == "git" {
+			t.Fatal("Git domain leaked into generic schema")
+		}
+	}
+	if _, err := fixture.server.genericSchema(fixture.server.tools(), json.RawMessage(`{"path":"git/show"}`)); err == nil {
+		t.Fatal("retired Git action remained discoverable")
+	}
+
+	gitCall := callMCPRaw(t, fixture.server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session": fixture.sessionID, "action": "git/show", "input": map[string]any{},
+		}},
+	}))
+	gitStructured := genericStructured(t, gitCall)
+	if gitStructured["is_error"] != true {
+		t.Fatalf("retired Git action was callable: %#v", gitStructured)
+	}
+
+	codeSchema, err := fixture.server.genericSchema(fixture.server.tools(), json.RawMessage(`{"path":"code"}`))
+	if err != nil {
+		t.Fatalf("code schema failed: %v", err)
+	}
+	codeMap, ok := codeSchema.(map[string]any)
+	if !ok {
+		t.Fatalf("code schema has unexpected type: %#v", codeSchema)
+	}
+	if len(codeMap["actions"].([]map[string]any)) == 0 {
+		t.Fatal("code actions were removed from schema")
+	}
+	codeCall := callMCPRaw(t, fixture.server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session": fixture.sessionID, "action": "code/worktree", "input": map[string]any{},
+		}},
+	}))
+	codeStructured := genericStructured(t, codeCall)
+	if codeStructured["is_error"] == true {
+		t.Fatalf("code/worktree became uncallable: %#v", codeStructured)
+	}
+}
