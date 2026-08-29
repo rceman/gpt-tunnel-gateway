@@ -123,8 +123,11 @@ func TestManagedProjectResolutionMCPFailsClosedAndDoesNotWriteAbsentRegistry(t *
 		t.Fatal("malformed registry fell back to static Git resolution")
 	}
 	entries := server.genericActionRegistry(server.tools())
-	if _, ok := entries["git/worktree_status"]; !ok {
-		t.Fatal("semantic git/worktree_status action is not registered")
+	if _, ok := entries["git/worktree_status"]; ok {
+		t.Fatal("Git MCP action leaked into the public generic registry")
+	}
+	if _, ok := entries["code/worktree"]; !ok {
+		t.Fatal("code/worktree action was removed with Git MCP actions")
 	}
 	for _, name := range []string{
 		"git_refresh", "git_refs", "git_log", "git_show", "git_tree", "git_read_file",

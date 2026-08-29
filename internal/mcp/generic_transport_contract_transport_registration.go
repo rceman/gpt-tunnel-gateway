@@ -121,6 +121,9 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		if toolName == "git_worktree_status" {
 			path = "git/worktree_status"
 		}
+		if strings.HasPrefix(path, "git/") {
+			continue
+		}
 		if strings.HasPrefix(path, "project/") && path != "project/status" {
 			continue
 		}
