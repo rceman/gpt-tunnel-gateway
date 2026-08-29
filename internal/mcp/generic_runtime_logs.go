@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
@@ -10,6 +11,10 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
+
+var gatewayRecoveryAcceptFn = func(c controller.Controller, operationID string, release func(func())) (controller.GatewayRecoveryResult, error) {
+	return c.AcceptGatewayRecovery(operationID, release)
+}
 
 func (s *Server) ensureRuntimeLogActions() {
 	if s.Service == nil {
@@ -76,7 +81,11 @@ func (s *Server) ensureRuntimeLogActions() {
 					if err := decode(raw, &input); err != nil {
 						return nil, err
 					}
-					return controller.Controller{Config: s.Service.Config, ConfigPath: s.Service.ConfigPath}.RestartGatewayRecovery(input.OperationID)
+					release, ok := responseReleaseFromContext(ctx)
+					if !ok {
+						return nil, fmt.Errorf("gateway recovery requires an HTTP response release boundary")
+					}
+					return gatewayRecoveryAcceptFn(controller.Controller{Config: s.Service.Config, ConfigPath: s.Service.ConfigPath}, input.OperationID, release)
 				},
 			})
 		}

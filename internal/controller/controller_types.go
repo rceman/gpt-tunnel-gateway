@@ -91,5 +91,8 @@ var (
 	restartGatewayStartFn = func(c Controller) error {
 		return c.startProcess("gateway", c.Config.Controller.GatewayBinary, []string{"--config", c.ConfigPath}, []string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath})
 	}
-	restartGatewayWaitFn = waitURL
+	restartGatewayWaitFn          = waitURL
+	gatewayRecoveryWorkerLaunchFn = func(c Controller, operationID string) error {
+		return c.launchGatewayRecoveryWorker(operationID)
+	}
 )

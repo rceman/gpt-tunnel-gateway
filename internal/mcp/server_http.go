@@ -1,11 +1,13 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
@@ -58,12 +60,64 @@ func isLoopbackOrigin(v string) bool {
 	return strings.HasPrefix(v, "http://127.0.0.1:") || strings.HasPrefix(v, "http://localhost:") || strings.HasPrefix(v, "https://127.0.0.1:") || strings.HasPrefix(v, "https://localhost:")
 }
 
+type responseReleaseKey struct{}
+
+type responseReleaseQueue struct {
+	mu        sync.Mutex
+	released  bool
+	callbacks []func()
+}
+
+func withResponseRelease(ctx context.Context, release func(func())) context.Context {
+	return context.WithValue(ctx, responseReleaseKey{}, release)
+}
+
+func responseReleaseFromContext(ctx context.Context) (func(func()), bool) {
+	release, ok := ctx.Value(responseReleaseKey{}).(func(func()))
+	return release, ok && release != nil
+}
+
+func (q *responseReleaseQueue) add(callback func()) {
+	if callback == nil {
+		return
+	}
+	q.mu.Lock()
+	if !q.released {
+		q.callbacks = append(q.callbacks, callback)
+		q.mu.Unlock()
+		return
+	}
+	q.mu.Unlock()
+	go callback()
+}
+
+func (q *responseReleaseQueue) release(w http.ResponseWriter) {
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	q.mu.Lock()
+	if q.released {
+		q.mu.Unlock()
+		return
+	}
+	q.released = true
+	callbacks := append([]func(){}, q.callbacks...)
+	q.callbacks = nil
+	q.mu.Unlock()
+	for _, callback := range callbacks {
+		go callback()
+	}
+}
+
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	r = r.WithContext(runtime_log.WithRequestID(r.Context(), runtime_log.NewRequestID()))
+	release := &responseReleaseQueue{}
+	r = r.WithContext(withResponseRelease(r.Context(), release.add))
+	defer release.release(w)
 	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var req request
 	dec := json.NewDecoder(r.Body)
