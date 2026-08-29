@@ -197,3 +197,22 @@ func TestGitMCPIsAbsentFromGenericSurfaceAndCodeRemainsCallable(t *testing.T) {
 		t.Fatalf("code/worktree became uncallable: %#v", codeStructured)
 	}
 }
+
+func TestRegisterGenericActionRejectsGitSurfaceAndRegistryFiltersInjectedEntry(t *testing.T) {
+	server := &Server{Service: service.New(config.Config{GatewayID: "git-surface-test", StateDir: t.TempDir()})}
+	action := GenericAction{
+		Path:         "git/probe",
+		Description:  "test action",
+		InputSchema:  map[string]any{"type": "object"},
+		OutputSchema: map[string]any{"type": "object"},
+		Execute:      func(context.Context, json.RawMessage) (any, error) { return map[string]any{}, nil },
+	}
+	if err := server.RegisterGenericAction(action); err == nil {
+		t.Fatal("direct git generic registration was accepted")
+	}
+	server.genericActions = map[string]GenericAction{"git/injected": action}
+	entries := server.genericActionRegistry(map[string]Tool{})
+	if _, ok := entries["git/injected"]; ok {
+		t.Fatal("injected git action leaked into generic registry")
+	}
+}

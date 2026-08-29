@@ -53,6 +53,9 @@ func (s *Server) RegisterGenericAction(action GenericAction) error {
 	if !validGenericActionPath(action.Path) {
 		return fmt.Errorf("invalid generic action path %q", action.Path)
 	}
+	if strings.HasPrefix(action.Path, "git/") {
+		return fmt.Errorf("generic action %q is not part of the active MCP action surface", action.Path)
+	}
 	if strings.HasSuffix(action.Path, "_status") {
 		return fmt.Errorf("generic action %q uses retired *_status receipt path; use operation/read", action.Path)
 	}
@@ -165,6 +168,9 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 	s.genericActionMu.RLock()
 	defer s.genericActionMu.RUnlock()
 	for path, action := range s.genericActions {
+		if strings.HasPrefix(path, "git/") {
+			continue
+		}
 		if strings.HasPrefix(path, "plan/") {
 			continue
 		}
