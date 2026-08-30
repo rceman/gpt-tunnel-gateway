@@ -1,0 +1,290 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
+)
+
+func TestCandidateGatewayRestartMCPNetworkE2E(t *testing.T) {
+	candidate := os.Getenv("GTW_CANDIDATE_GATEWAY_BINARY")
+	wantSource := os.Getenv("GTW_CANDIDATE_SOURCE_SHA")
+	if candidate == "" || wantSource == "" {
+		t.Skip("set GTW_CANDIDATE_GATEWAY_BINARY and GTW_CANDIDATE_SOURCE_SHA for candidate E2E")
+	}
+	resolvedCandidate, err := filepath.EvalSymlinks(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotSource, err := exec.Command(resolvedCandidate, "--source-sha").Output()
+	if err != nil {
+		t.Fatalf("candidate source identity: %v", err)
+	}
+	if strings.TrimSpace(string(gotSource)) != wantSource {
+		t.Fatalf("candidate source=%q want %q", strings.TrimSpace(string(gotSource)), wantSource)
+	}
+
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	pidDir := filepath.Join(stateDir, "pids")
+	logDir := filepath.Join(stateDir, "logs")
+	if err := os.MkdirAll(pidDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	listenAddr := reserveCandidateListenAddr(t)
+	configPath := filepath.Join(root, "config.json")
+	c := config.Config{
+		SchemaVersion: 1, GatewayID: "r2-candidate", ListenAddr: listenAddr, StateDir: stateDir,
+		MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100,
+		DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: "true",
+		Hub: config.HubConfig{RepositoryURL: filepath.Join(root, "missing-hub.git"), Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"},
+		Controller: config.ControllerConfig{
+			GatewayBinary: resolvedCandidate, TunnelClientBinary: "/usr/bin/sleep", PIDDir: pidDir,
+			LogDir: logDir, TunnelHealthListenAddr: "127.0.0.1:18766",
+		},
+		Projects: map[string]config.ProjectConfig{},
+	}
+	encoded, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tunnel := exec.Command("/bin/sleep", "60")
+	if err := tunnel.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = tunnel.Process.Kill()
+		_ = tunnel.Wait()
+	})
+	if err := os.WriteFile(filepath.Join(pidDir, "tunnel.pid"), []byte(strconv.Itoa(tunnel.Process.Pid)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tunnelPID := tunnel.Process.Pid
+
+	gateway := exec.Command(resolvedCandidate, "--config", configPath)
+	gateway.Env = append(os.Environ(), "GPT_TUNNEL_CONFIG="+configPath)
+	if err := gateway.Start(); err != nil {
+		t.Fatal(err)
+	}
+	initialPID := gateway.Process.Pid
+	t.Cleanup(func() {
+		killCandidatePID(t, initialPID)
+		if pid := readCandidatePID(filepath.Join(pidDir, "gateway.pid")); pid > 0 && pid != initialPID {
+			killCandidatePID(t, pid)
+		}
+	})
+	if err := waitCandidateHTTP(listenAddr, "/readyz", 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pidDir, "gateway.pid"), []byte(strconv.Itoa(initialPID)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := durableSession.NewStore(stateDir).CreateUnbound(durableSession.RoleDelivery, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &candidateMCPClient{client: &http.Client{Timeout: 10 * time.Second}, endpoint: "http://" + listenAddr + "/mcp"}
+	first, err := client.call(session.ID, "runtime/restart", map[string]any{"operation_id": "candidate-restart-once"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.StatusCode != http.StatusOK {
+		t.Fatalf("runtime/restart status=%d body=%s", first.StatusCode, first.Body)
+	}
+	if first.ContentLength != int64(len(first.Body)) {
+		t.Fatalf("runtime/restart Content-Length=%d body_bytes=%d", first.ContentLength, len(first.Body))
+	}
+	if outcome := candidateMCPOutcome(t, first.Body); outcome != "accepted" {
+		t.Fatalf("runtime/restart outcome=%q body=%s", outcome, first.Body)
+	}
+
+	newPID := waitCandidatePIDChange(filepath.Join(pidDir, "gateway.pid"), initialPID, 10*time.Second)
+	if newPID < 1 {
+		t.Fatalf("replacement Gateway PID did not appear; initial=%d", initialPID)
+	}
+	if err := waitCandidateHTTP(listenAddr, "/readyz", 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if newPID == initialPID {
+		t.Fatalf("Gateway PID did not change: %d", newPID)
+	}
+	if got := readCandidatePID(filepath.Join(pidDir, "tunnel.pid")); got != tunnelPID {
+		t.Fatalf("Tunnel PID=%d want unchanged %d", got, tunnelPID)
+	}
+	postRestart, err := client.request("ping", map[string]any{})
+	if err != nil || postRestart.StatusCode != http.StatusOK {
+		t.Fatalf("post-restart MCP ping status=%d err=%v body=%s", postRestart.StatusCode, err, postRestart.Body)
+	}
+
+	second, err := client.call(session.ID, "runtime/restart", map[string]any{"operation_id": "candidate-restart-once"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.StatusCode != http.StatusOK || candidateMCPOutcome(t, second.Body) != "succeeded" {
+		t.Fatalf("duplicate runtime/restart status=%d body=%s", second.StatusCode, second.Body)
+	}
+	if got := readCandidatePID(filepath.Join(pidDir, "gateway.pid")); got != newPID {
+		t.Fatalf("duplicate operation changed Gateway PID from %d to %d", newPID, got)
+	}
+	if got := readCandidatePID(filepath.Join(pidDir, "tunnel.pid")); got != tunnelPID {
+		t.Fatalf("duplicate operation changed Tunnel PID from %d to %d", tunnelPID, got)
+	}
+}
+
+type candidateMCPResponse struct {
+	StatusCode    int
+	ContentLength int64
+	Body          []byte
+}
+
+type candidateMCPClient struct {
+	client   *http.Client
+	endpoint string
+	nextID   int
+}
+
+func (c *candidateMCPClient) request(method string, params any) (candidateMCPResponse, error) {
+	c.nextID++
+	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": c.nextID, "method": method, "params": params})
+	if err != nil {
+		return candidateMCPResponse{}, err
+	}
+	req, err := http.NewRequest(http.MethodPost, c.endpoint, bytes.NewReader(body))
+	if err != nil {
+		return candidateMCPResponse{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return candidateMCPResponse{}, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	return candidateMCPResponse{StatusCode: resp.StatusCode, ContentLength: resp.ContentLength, Body: data}, err
+}
+
+func (c *candidateMCPClient) call(sessionID, action string, input map[string]any) (candidateMCPResponse, error) {
+	return c.request("tools/call", map[string]any{
+		"name": "call", "arguments": map[string]any{"session": sessionID, "action": action, "input": input},
+	})
+}
+
+func candidateMCPOutcome(t *testing.T, body []byte) string {
+	t.Helper()
+	var response map[string]any
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatalf("MCP response JSON: %v: %s", err, body)
+	}
+	result, ok := response["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("MCP response result=%#v", response)
+	}
+	structured, ok := result["structuredContent"].(map[string]any)
+	if !ok {
+		t.Fatalf("MCP structuredContent=%#v", response)
+	}
+	value, ok := structured["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("MCP structured result=%#v", response)
+	}
+	outcome, _ := value["outcome"].(string)
+	return outcome
+}
+
+func reserveCandidateListenAddr(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	return listener.Addr().String()
+}
+
+func waitCandidateHTTP(listenAddr, path string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	for time.Now().Before(deadline) {
+		resp, err := client.Get("http://" + listenAddr + path)
+		if err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("candidate HTTP %s did not become ready within %s", path, timeout)
+}
+
+func waitCandidatePIDChange(path string, oldPID int, timeout time.Duration) int {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if pid := readCandidatePID(path); pid > 0 && pid != oldPID && processExists(pid) {
+			return pid
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return 0
+}
+
+func readCandidatePID(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	trimmed := strings.TrimSpace(string(data))
+	if strings.HasPrefix(trimmed, "{") {
+		var record struct {
+			PID int `json:"pid"`
+		}
+		if json.Unmarshal(data, &record) == nil {
+			return record.PID
+		}
+		return 0
+	}
+	pid, _ := strconv.Atoi(trimmed)
+	return pid
+}
+
+func processExists(pid int) bool {
+	return syscall.Kill(pid, 0) == nil
+}
+
+func killCandidatePID(t *testing.T, pid int) {
+	t.Helper()
+	if pid < 1 || !processExists(pid) {
+		return
+	}
+	_ = syscall.Kill(pid, syscall.SIGTERM)
+	deadline := time.Now().Add(2 * time.Second)
+	for processExists(pid) && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if processExists(pid) {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+	}
+}
