@@ -142,7 +142,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 }
 
 func TestTailToolSchemaIsSessionBoundAndCursorFree(t *testing.T) {
-	server := &Server{}
+	server := &Server{Service: service.New(config.Config{GatewayID: "test_gateway", StateDir: t.TempDir()})}
 	entries := server.genericActionRegistry(server.tools())
 	entry, ok := entries["agent/tail"]
 	if !ok || !entry.SessionBound {

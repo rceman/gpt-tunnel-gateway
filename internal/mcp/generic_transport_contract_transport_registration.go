@@ -117,7 +117,7 @@ func legacyActionPath(toolName string) string {
 func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]genericActionEntry {
 	entries := make(map[string]genericActionEntry, len(legacy))
 	for toolName, tool := range legacy {
-		if toolName == "system_ping" || toolName == "session" || toolName == "status" || toolName == "rules" || toolName == "project" || toolName == "project_list" || toolName == "project_status" || toolName == "agent_send" || isRetiredPlanAction(toolName) {
+		if toolName == "system_ping" || toolName == "session" || toolName == "status" || toolName == "rules" || toolName == "project" || toolName == "project_list" || toolName == "project_status" || isRetiredPlanAction(toolName) {
 			continue
 		}
 		path := legacyActionPath(toolName)
@@ -144,7 +144,7 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 				Annotations:            tool.Annotations,
 				AuthorityRole:          contract.Role,
 				RequiresWorkflowPolicy: contract.RequiresWorkflowPolicy,
-				LocalReadOnly:          toolName == "agent_tail" || strings.HasPrefix(path, "git/"),
+				LocalReadOnly:          strings.HasPrefix(path, "git/"),
 				Authority: func(ctx context.Context) error {
 					return requireToolAuthority(ctx, toolName)
 				},
@@ -152,17 +152,6 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 				ExecutionInputSchema: tool.InputSchema,
 			},
 			LegacyTool: toolName,
-		}
-		// The project-level tail keeps skip for typed compatibility, while the
-		// canonical registry exposes only the cursor contract. Both paths call
-		// the same service AgentTailPage implementation.
-		if toolName == "agent_tail" {
-			entry.InputSchema = canonicalAgentTailInputSchema()
-			entry.ExecutionInputSchema = canonicalAgentTailInputSchema()
-			entry.OutputSchema = canonicalAgentTailOutputSchema()
-			entry.Execute = func(ctx context.Context, raw json.RawMessage) (any, error) {
-				return s.agentTailAction(ctx, raw)
-			}
 		}
 		entries[path] = entry
 	}

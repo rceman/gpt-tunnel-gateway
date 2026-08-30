@@ -114,7 +114,6 @@ func (s *Server) tools() map[string]Tool {
 	s.addADRTools(add)
 	s.addTaskTools(add)
 	s.addTaskTrainTools(add)
-	s.addRunTools(add)
 	addOperatorJournalTools(add, s)
 	addGitTools(add, s)
 	addMCP7BootstrapTools(add, s)

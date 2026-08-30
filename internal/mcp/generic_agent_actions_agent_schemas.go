@@ -90,12 +90,3 @@ func canonicalAgentInterruptInputSchema() map[string]any {
 func canonicalAgentOperationOutputSchema() map[string]any {
 	return closedOutput(map[string]any{"operation": outputString(), "status": outputString()}, "operation", "status")
 }
-
-func agentInterruptOutputSchema() map[string]any {
-	return obj(map[string]any{
-		"operation_id": str("Durable interrupt operation identity."), "project_id": str("Project identity."),
-		"agent_id": str("Agent identity."), "outcome": outputEnum("interrupt_acknowledged", "already_idle", "timed_out", "failed", "turn_changed", "unsupported", "stale_execution", "in_flight"),
-		"interrupt_outcome": outputString(), "prompt_outcome": outputString(), "requested": map[string]any{"type": "boolean"}, "prompt_delivered": map[string]any{"type": "boolean"},
-		"elapsed_ms": outputInteger(), "error": outputString(), "reason": outputString(), "started_at": outputDateTime(), "finished_at": outputDateTime(),
-	}, "operation_id", "project_id", "agent_id", "outcome", "requested", "started_at", "finished_at")
-}

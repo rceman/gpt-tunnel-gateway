@@ -56,6 +56,20 @@ func (s *Server) agent_action_set4() error {
 	}); err != nil {
 		return err
 	}
+	if err := register(GenericAction{
+		Path:          "agent/tail",
+		Description:   "Read a bounded incremental transcript window from the server-selected Agent.",
+		InputSchema:   canonicalAgentTailInputSchema(),
+		OutputSchema:  canonicalAgentTailOutputSchema(),
+		Annotations:   ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole: actionRolePlannerOrDelivery,
+		LocalReadOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			return s.canonicalAgentTailAction(ctx, raw)
+		},
+	}); err != nil {
+		return err
+	}
 	return register(GenericAction{
 		Path:          "agent/await",
 		Description:   "Wait for a bounded Agent supervision transition.",
@@ -68,15 +82,6 @@ func (s *Server) agent_action_set4() error {
 			return s.canonicalAgentAwaitAction(ctx, raw)
 		},
 	})
-}
-
-// agentStatusAction keeps the durable registry projection at the top level
-// for existing callers, while adding the runtime snapshot needed by bounded
-// supervision heartbeats. The tail is read through AgentTailPage so its
-// observation state is scoped by the durable Gateway session, project, and
-// resolved Airelay session.
-func (s *Server) agentStatusAction(ctx context.Context, raw json.RawMessage) (any, error) {
-	return s.agentStatusActionWithTail(ctx, raw, agentStatusTailLines, false)
 }
 
 func (s *Server) agentStatusActionWithTail(ctx context.Context, raw json.RawMessage, tailLines int, preserveBacklog bool) (any, error) {
@@ -110,10 +115,6 @@ func (s *Server) agentStatusActionWithTail(ctx context.Context, raw json.RawMess
 		in.AgentID = resolved.AgentID
 	}
 	return s.agentStatusProjectionWithTail(ctx, in.ProjectID, in.AgentID, tailLines, preserveBacklog)
-}
-
-func (s *Server) agentStatusProjection(ctx context.Context, projectID, agentID string) (map[string]any, error) {
-	return s.agentStatusProjectionWithTail(ctx, projectID, agentID, agentStatusTailLines, false)
 }
 
 func (s *Server) agentStatusProjectionWithTail(ctx context.Context, projectID, agentID string, tailLines int, preserveBacklog bool) (map[string]any, error) {

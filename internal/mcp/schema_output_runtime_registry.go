@@ -2,9 +2,6 @@ package mcp
 
 func runtimeToolOutputSchemas() map[string]map[string]any {
 	return map[string]map[string]any{
-		"agent_send":          agentSendOutputSchema(),
-		"agent_tail":          canonicalAgentTailOutputSchema(),
-		"agent_status":        canonicalAgentStatusOutputSchema(),
 		"operator_record":     operatorJournalWriteOutputSchema(),
 		"operator_history":    operatorJournalHistoryOutputSchema(),
 		"operator_checkpoint": operatorJournalWriteOutputSchema(),

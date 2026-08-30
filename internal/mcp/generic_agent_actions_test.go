@@ -49,6 +49,14 @@ func TestCanonicalAgentActionsHaveExactADR85Surface(t *testing.T) {
 			t.Fatalf("retired Agent action remains registered: %s", path)
 		}
 	}
+	for _, name := range []string{"agent_send", "agent_tail", "agent_status"} {
+		if _, ok := server.tools()[name]; ok {
+			t.Fatalf("legacy Agent route remains registered: %s", name)
+		}
+		if _, ok := toolOutputSchemas[name]; ok {
+			t.Fatalf("legacy Agent output schema remains registered: %s", name)
+		}
+	}
 }
 
 func TestCanonicalAgentSchemasAreClosedAndBounded(t *testing.T) {

@@ -22,9 +22,25 @@ type frozenConnectorClient struct {
 }
 
 func (c *frozenConnectorClient) request(t *testing.T, method string, params any) map[string]any {
+	return c.requestWithMeta(t, method, params, nil)
+}
+
+func (c *frozenConnectorClient) requestWithMeta(t *testing.T, method string, params any, meta map[string]any) map[string]any {
 	t.Helper()
 	c.nextID++
 	c.methods[method]++
+	if meta != nil {
+		object, ok := params.(map[string]any)
+		if !ok {
+			t.Fatalf("MCP %s params are not an object: %#v", method, params)
+		}
+		copied := make(map[string]any, len(object)+1)
+		for key, value := range object {
+			copied[key] = value
+		}
+		copied["_meta"] = meta
+		params = copied
+	}
 	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": c.nextID, "method": method, "params": params})
 	if err != nil {
 		t.Fatal(err)

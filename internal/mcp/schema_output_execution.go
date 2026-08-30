@@ -134,24 +134,3 @@ func projectIdentifiersOutputSchema() map[string]any {
 		"next_task_number": number, "next_adr_number": number,
 	}, "schema_version", "project_id", "project_code", "next_task_number", "next_adr_number")
 }
-
-func agentSendOutputSchema() map[string]any {
-	return closedOutput(map[string]any{
-		"project_id": outputString(), "delivered": outputBoolean(), "exit_code": outputInteger(),
-		"stdout": outputString(), "stderr": outputString(), "started_at": outputDateTime(), "finished_at": outputDateTime(), "error": outputString(),
-	}, "project_id", "delivered", "exit_code", "stdout", "stderr", "started_at", "finished_at")
-}
-
-func agentTailOutputSchema() map[string]any {
-	return closedOutput(map[string]any{
-		"lines": outputArray(outputString()), "count": outputInteger(), "has_new_info": outputBoolean(), "overflow": outputBoolean(), "history_truncated": outputBoolean(),
-	}, "lines", "count", "has_new_info", "overflow", "history_truncated")
-}
-
-func agentStatusOutputSchema() map[string]any {
-	return closedOutput(map[string]any{
-		"project_id": outputString(), "state": outputEnum("idle", "running", "waiting_for_input", "compacting", "compacted_resuming", "compacted_idle", "capacity_blocked", "rate_limited", "completion_pending", "finalization_pending", "stalled", "error", "unknown"), "controller_reachable": outputBoolean(),
-		"airelay_version": outputString(), "protocol_version": outputString(), "capacity_warnings": outputArray(outputString()),
-		"exit_code": outputInteger(), "error": outputString(),
-	}, "project_id", "state", "controller_reachable", "capacity_warnings", "exit_code")
-}
