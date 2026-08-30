@@ -9,6 +9,7 @@ import (
 
 type AgentPromptInput struct {
 	ProjectID string `json:"project_id"`
+	AgentID   string `json:"agent"`
 	Message   string `json:"message"`
 }
 

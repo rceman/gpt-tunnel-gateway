@@ -141,7 +141,7 @@ func (s *Service) completeAgentInterruptPrompt(ctx context.Context, in AgentInte
 		}
 		return s.finishAgentInterrupt(receiptPath, requestDigest, result, result.Outcome, result.Error)
 	}
-	prompt, promptErr := s.AgentPrompt(ctx, in.ProjectID, in.Message)
+	prompt, promptErr := s.AgentPromptForAgent(ctx, in.ProjectID, in.AgentID, in.Message)
 	result.PromptDelivered = prompt.Delivered && promptErr == nil
 	if result.PromptDelivered {
 		result.PromptOutcome = "delivered"

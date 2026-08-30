@@ -7,91 +7,65 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
-	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 func (s *Server) agent_action_set4() error {
 	register := func(action GenericAction) error { return s.RegisterGenericAction(action) }
 	if err := register(GenericAction{
-		Path:        "agent/disable",
-		Description: "Disable one registered Agent without deleting its history.",
-		InputSchema: obj(map[string]any{
-			"project_id": str("Registered project identifier."), "agent_id": str("Stable agent identifier."),
-			"updated_by": str("Trusted mutation author."), "expected_hub_revision": str("Optional exact Hub revision guard."),
-		}, "project_id", "agent_id", "updated_by"),
-		OutputSchema: agentMutationReceiptOutputSchema(),
-		Annotations: ToolAnnotations{
-			DestructiveHint: true,
-		},
+		Path:          "agent/list",
+		Description:   "List the project-bound Agents in deterministic key order.",
+		InputSchema:   obj(map[string]any{}),
+		OutputSchema:  canonicalAgentListOutputSchema(),
+		Annotations:   ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
 		AuthorityRole: actionRolePlannerOrDelivery,
+		LocalReadOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in service.AgentDisableInput
+			var in struct{}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			receipt, err := s.Service.AgentDisableAsync(ctx, in)
+			projectID, err := s.boundAgentProject(ctx)
 			if err != nil {
 				return nil, err
 			}
-			return receipt, nil
+			agents, err := s.Service.AgentList(ctx, projectID)
+			if err != nil {
+				return nil, err
+			}
+			result := make([]map[string]any, 0, len(agents))
+			for _, agent := range agents {
+				result = append(result, map[string]any{"key": agent.AgentID, "role": agent.Role, "enabled": agent.Enabled})
+			}
+			return map[string]any{"agents": result}, nil
 		},
 	}); err != nil {
 		return err
 	}
 	if err := register(GenericAction{
-		Path:         "agent/read",
-		Description:  "Read one portable project-scoped Agent identity.",
-		InputSchema:  obj(map[string]any{"project_id": str("Registered project identifier."), "agent_id": str("Stable agent identifier.")}, "project_id", "agent_id"),
-		OutputSchema: agentObjectOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
+		Path:                "agent/status",
+		Description:         "Read the compact current status of one server-selected Agent.",
+		InputSchema:         canonicalAgentStatusInputSchema(),
+		OutputSchema:        canonicalAgentStatusOutputSchema(),
+		Annotations:         ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole:       actionRolePlannerOrDelivery,
+		LocalReadOnly:       true,
+		AllowLegacyOverride: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in struct {
-				ProjectID string `json:"project_id"`
-				AgentID   string `json:"agent_id"`
-			}
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			return s.Service.AgentRead(ctx, in.ProjectID, in.AgentID)
-		},
-	}); err != nil {
-		return err
-	}
-	if err := register(GenericAction{
-		Path:         "agent/list",
-		Description:  "List project Agents in deterministic agent_id order.",
-		InputSchema:  obj(map[string]any{"project_id": str("Registered project identifier.")}, "project_id"),
-		OutputSchema: agentObjectOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in struct {
-				ProjectID string `json:"project_id"`
-			}
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			agents, err := s.Service.AgentList(ctx, in.ProjectID)
-			return map[string]any{"agents": agents}, err
+			return s.canonicalAgentStatusAction(ctx, raw)
 		},
 	}); err != nil {
 		return err
 	}
 	return register(GenericAction{
-		Path:                "agent/status",
-		Description:         "Read bounded registered, bound, and usable Agent status.",
-		InputSchema:         obj(map[string]any{"project_id": str("Registered project identifier."), "agent_id": str("Stable agent identifier.")}, "project_id", "agent_id"),
-		OutputSchema:        agentObjectOutputSchema(),
-		Annotations:         ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
-		AuthorityRole:       durableSession.RoleDelivery,
-		AllowLegacyOverride: true,
+		Path:          "agent/await",
+		Description:   "Wait for a bounded Agent supervision transition.",
+		InputSchema:   canonicalAgentAwaitInputSchema(),
+		OutputSchema:  canonicalAgentAwaitOutputSchema(),
+		Annotations:   ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole: actionRolePlannerOrDelivery,
+		LocalReadOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			return s.agentStatusAction(ctx, raw)
+			return s.canonicalAgentAwaitAction(ctx, raw)
 		},
 	})
 }

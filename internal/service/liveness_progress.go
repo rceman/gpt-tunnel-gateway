@@ -56,7 +56,7 @@ func (s *Service) projectProgress(ctx context.Context, projectID string) (Projec
 		return ProjectProgress{}, err
 	}
 	session := local.AirelaySessionKey
-	if resolved, resolveErr := s.resolveAgentSession(ctx, projectID); resolveErr == nil {
+	if resolved, resolveErr := s.resolveAgentSession(ctx, projectID, ""); resolveErr == nil {
 		session = resolved
 	}
 	status, statusErr := s.Airelay.Status(ctx, session)

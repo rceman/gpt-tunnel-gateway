@@ -52,7 +52,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatalf("send failed: %#v", send)
 	}
 	sendPayload := sendResult["result"].(map[string]any)
-	operationID, ok := sendPayload["operation_id"].(string)
+	operationID, ok := sendPayload["operation"].(string)
 	if !ok || operationID == "" || sendPayload["status"] != "accepted" {
 		t.Fatalf("agent/prompt did not return an accepted receipt: %#v", send)
 	}
@@ -96,20 +96,14 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatalf("tail failed: %#v", tail)
 	}
 
-	status := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/status", "input": map[string]any{"agent_id": "coding-example"}}}}))
+	status := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/status", "input": map[string]any{"agent": "coding-example"}}}}))
 	statusResult := genericStructured(t, status)
 	statusContent := statusResult["result"].(map[string]any)
-	if statusResult["is_error"] != false || statusContent["agent_id"] != "coding-example" || statusContent["registered"] != true {
+	if statusResult["is_error"] != false || statusContent["agent"] != "coding-example" {
 		t.Fatalf("status failed: %#v", status)
 	}
-	if _, ok := statusContent["runtime_state"].(string); !ok {
-		t.Fatalf("status omitted runtime state: %#v", statusContent)
-	}
-	if _, ok := statusContent["tail"].([]any); !ok {
-		t.Fatalf("status omitted compact tail: %#v", statusContent)
-	}
-	if _, ok := statusContent["tail_has_new_info"].(bool); !ok {
-		t.Fatalf("status omitted tail dedupe state: %#v", statusContent)
+	if _, ok := statusContent["status"].(string); !ok {
+		t.Fatalf("status omitted compact state: %#v", statusContent)
 	}
 	secondHeartbeat, err := srv.awaitWithContinuation(
 		service.WithAgentSessionID(context.Background(), sessionID),
@@ -168,9 +162,14 @@ func TestTailToolSchemaIsSessionBoundAndCursorFree(t *testing.T) {
 		t.Fatal("agent/tail exposes a caller-controlled dedupe override")
 	}
 	outputProperties := entry.OutputSchema["properties"].(map[string]any)
-	for _, field := range []string{"lines", "count", "has_new_info", "overflow", "history_truncated"} {
+	for _, field := range []string{"agent", "lines"} {
 		if _, ok := outputProperties[field]; !ok {
 			t.Fatalf("agent/tail output omits %s: %#v", field, entry.OutputSchema)
+		}
+	}
+	for _, field := range []string{"count", "has_new_info", "overflow", "history_truncated"} {
+		if _, ok := outputProperties[field]; ok {
+			t.Fatalf("agent/tail output retained legacy field %s: %#v", field, entry.OutputSchema)
 		}
 	}
 }

@@ -49,7 +49,7 @@ type AgentStatusResult struct {
 	Error               string   `json:"error,omitempty"`
 }
 
-func (s *Service) resolveAgentSession(ctx context.Context, projectID string) (string, error) {
+func (s *Service) resolveAgentSession(ctx context.Context, projectID, agentID string) (string, error) {
 	local, err := s.projectConfig(projectID)
 	if err != nil {
 		return "", err
@@ -60,6 +60,21 @@ func (s *Service) resolveAgentSession(ctx context.Context, projectID string) (st
 	}
 	if project.ID != projectID || project.Status != "active" {
 		return "", fmt.Errorf("project %q is not active", projectID)
+	}
+	if agentID != "" {
+		agent, readErr := s.AgentRead(ctx, projectID, agentID)
+		if readErr != nil {
+			return "", readErr
+		}
+		resolved, resolveErr := s.ResolveAgent(ctx, AgentResolveInput{
+			ProjectID: projectID,
+			Role:      agent.Role,
+			AgentID:   agentID,
+		})
+		if resolveErr != nil {
+			return "", resolveErr
+		}
+		return resolved.SessionKey, nil
 	}
 	if agents, listErr := s.AgentList(ctx, projectID); listErr == nil && len(agents) > 0 {
 		resolved, resolveErr := s.ResolveAgent(ctx, AgentResolveInput{
@@ -91,7 +106,11 @@ func (s *Service) resolveAgentTailSession(projectID string) (string, error) {
 }
 
 func (s *Service) AgentSend(ctx context.Context, projectID, message string) (AgentSendResult, error) {
-	session, err := s.resolveAgentSession(ctx, projectID)
+	return s.AgentSendForAgent(ctx, projectID, "", message)
+}
+
+func (s *Service) AgentSendForAgent(ctx context.Context, projectID, agentID, message string) (AgentSendResult, error) {
+	session, err := s.resolveAgentSession(ctx, projectID, agentID)
 	if err != nil {
 		return AgentSendResult{}, err
 	}
@@ -123,7 +142,11 @@ func (s *Service) AgentSend(ctx context.Context, projectID, message string) (Age
 // the normal Airelay prompt primitive for both idle and working sessions; no
 // interrupt, PTY input, or process-control operation is reachable here.
 func (s *Service) AgentPrompt(ctx context.Context, projectID, message string) (AgentPromptResult, error) {
-	receipt, sendErr := s.AgentSend(ctx, projectID, message)
+	return s.AgentPromptForAgent(ctx, projectID, "", message)
+}
+
+func (s *Service) AgentPromptForAgent(ctx context.Context, projectID, agentID, message string) (AgentPromptResult, error) {
+	receipt, sendErr := s.AgentSendForAgent(ctx, projectID, agentID, message)
 	if receipt.Delivered && receipt.Stderr != "" {
 		s.recordAgentPromptWarning(ctx, projectID, receipt.Stderr)
 	}

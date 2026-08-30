@@ -68,8 +68,10 @@ func withoutProjectID(schema map[string]any) map[string]any {
 			}
 		}
 		result["properties"] = filtered
+		if _, hasRequired := result["required"]; hasRequired {
+			result["required"] = removeRequiredKey(result["required"], "project_id")
+		}
 	}
-	result["required"] = removeRequiredKey(result["required"], "project_id")
 	return result
 }
 func removeRequiredKey(value any, remove string) []string {

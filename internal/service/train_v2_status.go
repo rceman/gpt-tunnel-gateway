@@ -22,7 +22,7 @@ func (s *Service) projectStatusTrainV2(ctx context.Context, id string, local con
 	trains, trainErr := s.readTrainV2Records(componentCtx, id)
 	hubRevision, hubErr := s.hubRevision(componentCtx)
 	agentSession := local.AirelaySessionKey
-	if resolved, resolveErr := s.resolveAgentSession(componentCtx, id); resolveErr == nil {
+	if resolved, resolveErr := s.resolveAgentSession(componentCtx, id, ""); resolveErr == nil {
 		agentSession = resolved
 	}
 	agentStatus, agentStatusErr := s.Airelay.Status(componentCtx, agentSession)

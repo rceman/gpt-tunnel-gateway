@@ -25,7 +25,7 @@ func (s *Service) durableMutationExecutionSet2(ctx context.Context, operation du
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return nil, err
 		}
-		result, err := s.AgentPrompt(authority.WithPlannerOrDelivery(ctx), input.ProjectID, input.Message)
+		result, err := s.AgentPromptForAgent(authority.WithPlannerOrDelivery(ctx), input.ProjectID, input.AgentID, input.Message)
 		if err != nil {
 			return nil, err
 		}

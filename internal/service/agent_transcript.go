@@ -29,6 +29,7 @@ type AgentTailResult struct {
 type AgentTailInput struct {
 	Lines           int
 	SessionID       string
+	SessionKey      string
 	PreserveBacklog bool
 }
 
@@ -74,9 +75,13 @@ func (s *Service) AgentTailPage(ctx context.Context, projectID string, input Age
 	if lines < 1 || lines > agentMaxTailLines {
 		return AgentTailResult{}, fmt.Errorf("invalid agent tail bounds")
 	}
-	session, err := s.resolveAgentTailSession(projectID)
-	if err != nil {
-		return AgentTailResult{}, err
+	session := input.SessionKey
+	if session == "" {
+		var err error
+		session, err = s.resolveAgentTailSession(projectID)
+		if err != nil {
+			return AgentTailResult{}, err
+		}
 	}
 	statePath, lockName := s.agentTailStateLocation(input.SessionID, projectID, session)
 	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), lockName)

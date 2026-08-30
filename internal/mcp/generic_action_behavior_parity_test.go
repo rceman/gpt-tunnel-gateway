@@ -151,8 +151,9 @@ func TestRetiredProjectListIsNotPubliclyCallable(t *testing.T) {
 }
 
 func TestGenericAgentTailTranscriptDedupe(t *testing.T) {
-	s, _ := newWorkflowPolicyStatusService(t)
+	s, revision := newWorkflowPolicyStatusService(t)
 	ctx := context.Background()
+	seedMCPTestCodingAgent(t, s, revision)
 	script := filepath.Join(t.TempDir(), "airelay")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf 'two\\nthree\\n'\n"), 0o700); err != nil {
 		t.Fatal(err)
@@ -164,16 +165,19 @@ func TestGenericAgentTailTranscriptDedupe(t *testing.T) {
 	}
 	sessionID := genericSession(t, s, "example")
 	first := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"lines": 2}}}})))
-	if first["count"] != float64(2) || first["has_new_info"] != true {
+	lines, ok := first["lines"].([]any)
+	if !ok || len(lines) != 2 {
 		t.Fatalf("initial transcript read=%#v", first)
 	}
 	repeat := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"lines": 2}}}})))
-	if repeat["count"] != float64(0) || repeat["has_new_info"] != false {
+	repeatLines, ok := repeat["lines"].([]any)
+	if !ok || len(repeatLines) != 0 {
 		t.Fatalf("unchanged transcript was not deduped=%#v", repeat)
 	}
 	secondSessionID := genericSession(t, s, "example")
 	independent := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": secondSessionID, "action": "agent/tail", "input": map[string]any{"lines": 2}}}})))
-	if independent["count"] != float64(2) || independent["has_new_info"] != true {
+	independentLines, ok := independent["lines"].([]any)
+	if !ok || len(independentLines) != 2 {
 		t.Fatalf("different durable session did not receive an independent first window=%#v", independent)
 	}
 	unknownOverride := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"lines": 2, "dedupe": false}}}})))

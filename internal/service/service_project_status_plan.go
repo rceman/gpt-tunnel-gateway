@@ -25,7 +25,7 @@ func (s *Service) ProjectStatus(ctx context.Context, id string) (ProjectStatus, 
 	componentCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	agentSession := local.AirelaySessionKey
-	if resolved, resolveErr := s.resolveAgentSession(componentCtx, id); resolveErr == nil {
+	if resolved, resolveErr := s.resolveAgentSession(componentCtx, id, ""); resolveErr == nil {
 		agentSession = resolved
 	}
 	var (

@@ -18,10 +18,9 @@ const (
 // choose a bounded default or be deliberately documented as a payload action.
 var projectionClasses = map[string]projectionClass{
 	"adr/create": projectionCompactDefault, "adr/list": projectionClosedDefault, "adr/read": projectionIntentionalPayload,
-	"agent/disable": projectionCompactDefault, "agent/interrupt": projectionCompactDefault,
-	"agent/list": projectionClosedDefault, "agent/prompt": projectionCompactDefault, "agent/read": projectionClosedDefault,
-	"agent/recover": projectionCompactDefault,
-	"agent/status":  projectionClosedDefault, "agent/tail": projectionIntentionalPayload, "agent/update": projectionCompactDefault,
+	"agent/await": projectionClosedDefault, "agent/interrupt": projectionCompactDefault,
+	"agent/list": projectionClosedDefault, "agent/prompt": projectionCompactDefault,
+	"agent/status": projectionClosedDefault, "agent/tail": projectionIntentionalPayload,
 	"code/diff": projectionIntentionalPayload, "code/read": projectionIntentionalPayload, "code/search": projectionIntentionalPayload,
 	"code/tree": projectionIntentionalPayload, "code/worktree": projectionCompactDefault,
 	"gateway/capabilities": projectionClosedDefault, "gateway/status": projectionClosedDefault,

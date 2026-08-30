@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
-	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
 // addRunTools retains only non-Run Agent supervision tools. Train-v2
@@ -39,24 +38,18 @@ func agentTailInputSchema(legacySkip bool) map[string]any {
 }
 
 func agentTailSessionInputSchema() map[string]any {
-	lines := integer("Maximum number of transcript lines to return.", 1, 200)
-	lines["default"] = 30
-	return obj(map[string]any{"lines": lines})
+	return canonicalAgentTailInputSchema()
 }
 
 func agentTailExecutionInputSchema() map[string]any {
 	lines := integer("Maximum number of transcript lines to return.", 1, 200)
-	return obj(map[string]any{"project_id": str("Server-injected registered project identifier."), "lines": lines}, "project_id")
+	return obj(map[string]any{
+		"project_id": str("Server-injected registered project identifier."),
+		"agent":      canonicalAgentSelectorSchema(),
+		"lines":      lines,
+	}, "project_id")
 }
 
 func (s *Server) agentTailAction(ctx context.Context, raw json.RawMessage) (any, error) {
-	projectID, err := getString(raw, "project_id")
-	if err != nil {
-		return nil, err
-	}
-	lines, _, err := optionalInteger(raw, "lines")
-	if err != nil {
-		return nil, err
-	}
-	return s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{Lines: lines, SessionID: service.AgentSessionID(ctx)})
+	return s.canonicalAgentTailAction(ctx, raw)
 }
