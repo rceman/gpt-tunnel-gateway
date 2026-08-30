@@ -166,6 +166,7 @@ func TestCandidateGatewayRestartMCPNetworkE2E(t *testing.T) {
 	if err != nil || postRestart.StatusCode != http.StatusOK {
 		t.Fatalf("post-restart MCP ping status=%d err=%v body=%s", postRestart.StatusCode, err, postRestart.Body)
 	}
+	waitCandidateRecoverySuccess(t, client, session.ID, "candidate-restart-once", 10*time.Second)
 
 	second, err := client.call(session.ID, "runtime/restart", map[string]any{"operation_id": "candidate-restart-once"})
 	if err != nil {
@@ -222,6 +223,13 @@ func (c *candidateMCPClient) call(sessionID, action string, input map[string]any
 
 func candidateMCPOutcome(t *testing.T, body []byte) string {
 	t.Helper()
+	value := candidateMCPStructured(t, body)
+	outcome, _ := value["outcome"].(string)
+	return outcome
+}
+
+func candidateMCPStructured(t *testing.T, body []byte) map[string]any {
+	t.Helper()
 	var response map[string]any
 	if err := json.Unmarshal(body, &response); err != nil {
 		t.Fatalf("MCP response JSON: %v: %s", err, body)
@@ -238,8 +246,28 @@ func candidateMCPOutcome(t *testing.T, body []byte) string {
 	if !ok {
 		t.Fatalf("MCP structured result=%#v", response)
 	}
-	outcome, _ := value["outcome"].(string)
-	return outcome
+	return value
+}
+
+func waitCandidateRecoverySuccess(t *testing.T, client *candidateMCPClient, sessionID, operationID string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		response, err := client.call(sessionID, "runtime/logs", map[string]any{"limit": 100, "operation_id": operationID})
+		if err == nil && response.StatusCode == http.StatusOK {
+			result := candidateMCPStructured(t, response.Body)
+			if events, ok := result["events"].([]any); ok {
+				for _, raw := range events {
+					event, ok := raw.(map[string]any)
+					if ok && event["event"] == "recovery_finish" && event["operation_id"] == operationID && event["message"] == "succeeded" {
+						return
+					}
+				}
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("recovery operation %q did not reach succeeded terminal event", operationID)
 }
 
 func reserveCandidateListenAddr(t *testing.T) string {
