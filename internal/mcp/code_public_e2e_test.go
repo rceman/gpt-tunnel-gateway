@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,9 +31,9 @@ type publicCodeE2EFixture struct {
 }
 
 type publicCodeCallHarness struct {
-	server    *Server
 	sessionID string
 	counter   *tokenizer.Counter
+	client    *frozenConnectorClient
 }
 
 func newPublicCodeE2EFixture(t *testing.T) publicCodeE2EFixture {
@@ -117,11 +118,16 @@ func newPublicCodeE2EFixture(t *testing.T) publicCodeE2EFixture {
 
 func newPublicCodeCallHarness(t *testing.T, fixture publicCodeE2EFixture) publicCodeCallHarness {
 	t.Helper()
+	httpServer := httptest.NewServer(fixture.server.Router())
+	t.Cleanup(httpServer.Close)
 	counter := tokenizer.NewCounter()
 	if _, err := counter.CountText([]byte("{}")); err != nil {
 		t.Fatal(err)
 	}
-	return publicCodeCallHarness{server: fixture.server, sessionID: fixture.sessionID, counter: counter}
+	return publicCodeCallHarness{
+		sessionID: fixture.sessionID, counter: counter,
+		client: &frozenConnectorClient{http: httpServer.Client(), endpoint: httpServer.URL + "/mcp", methods: map[string]int{}},
+	}
 }
 
 func (h publicCodeCallHarness) call(t *testing.T, action string, input map[string]any) map[string]any {
@@ -134,14 +140,12 @@ func (h publicCodeCallHarness) call(t *testing.T, action string, input map[strin
 
 func (h publicCodeCallHarness) callResponse(t *testing.T, action string, input map[string]any) (map[string]any, time.Duration, int) {
 	t.Helper()
-	body := mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{
-			"session": h.sessionID, "action": action, "input": input,
-		}},
-	})
 	started := time.Now()
-	response := callMCPRaw(t, h.server, body)
+	response := h.client.request(t, "tools/call", map[string]any{
+		"name": "call", "arguments": map[string]any{
+			"session": h.sessionID, "action": action, "input": input,
+		},
+	})
 	elapsed := time.Since(started)
 	if elapsed >= publicCodeCallLimit {
 		t.Fatalf("%s exceeded %s: %s", action, publicCodeCallLimit, elapsed)

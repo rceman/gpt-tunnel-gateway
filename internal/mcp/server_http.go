@@ -1,11 +1,15 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -93,16 +97,30 @@ func (q *responseReleaseQueue) add(callback func()) {
 }
 
 func (q *responseReleaseQueue) release(w http.ResponseWriter) {
+	_ = q.releaseAfter(w, nil)
+}
+
+func (q *responseReleaseQueue) releaseAfter(w http.ResponseWriter, complete func(bool) error) error {
 	q.mu.Lock()
 	if q.released || q.releasing {
 		q.mu.Unlock()
-		return
+		return nil
 	}
 	q.releasing = true
 	callbacks := append([]func(){}, q.callbacks...)
 	q.callbacks = nil
 	q.mu.Unlock()
-	if len(callbacks) > 0 {
+	deferred := len(callbacks) > 0
+	if complete != nil {
+		if err := complete(deferred); err != nil {
+			q.mu.Lock()
+			q.callbacks = append(callbacks, q.callbacks...)
+			q.releasing = false
+			q.mu.Unlock()
+			return err
+		}
+	}
+	if deferred {
 		_ = http.NewResponseController(w).Flush()
 	}
 	q.mu.Lock()
@@ -114,15 +132,92 @@ func (q *responseReleaseQueue) release(w http.ResponseWriter) {
 	for _, callback := range callbacks {
 		callback()
 	}
+	return nil
 }
 
 func (s *Server) responseBoundary(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		release := &responseReleaseQueue{}
 		r = r.WithContext(withResponseRelease(r.Context(), release.add))
-		next.ServeHTTP(w, r)
-		release.release(w)
+		buffered := newBufferedResponseWriter(w)
+		next.ServeHTTP(buffered, r)
+		if err := release.releaseAfter(w, func(deferred bool) error {
+			return buffered.commit(w, deferred)
+		}); err != nil {
+			http.Error(w, "MCP response could not be completed", http.StatusInternalServerError)
+		}
 	})
+}
+
+// bufferedResponseWriter makes the response-completion boundary explicit for
+// the rare MCP response that schedules work capable of stopping this process.
+// The complete response is written with Content-Length and flushed before the
+// deferred worker is released, so process termination cannot leave an
+// unterminated chunked response behind.
+type bufferedResponseWriter struct {
+	destination http.ResponseWriter
+	header      http.Header
+	body        bytes.Buffer
+	status      int
+	wroteHeader bool
+	overflow    bool
+}
+
+const maxBufferedMCPResponseBytes = 2 << 20
+
+var errMCPResponseTooLarge = errors.New("MCP response exceeds bounded response buffer")
+
+func newBufferedResponseWriter(destination http.ResponseWriter) *bufferedResponseWriter {
+	return &bufferedResponseWriter{destination: destination, header: destination.Header().Clone()}
+}
+
+func (w *bufferedResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *bufferedResponseWriter) WriteHeader(status int) {
+	if w.wroteHeader {
+		return
+	}
+	w.wroteHeader = true
+	w.status = status
+}
+
+func (w *bufferedResponseWriter) Write(p []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	if len(p) > maxBufferedMCPResponseBytes-w.body.Len() {
+		w.overflow = true
+		return 0, errMCPResponseTooLarge
+	}
+	return w.body.Write(p)
+}
+
+func (w *bufferedResponseWriter) commit(destination http.ResponseWriter, deferred bool) error {
+	if w.overflow {
+		return errMCPResponseTooLarge
+	}
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	for key := range destination.Header() {
+		destination.Header().Del(key)
+	}
+	for key, values := range w.header {
+		for _, value := range values {
+			destination.Header().Add(key, value)
+		}
+	}
+	if deferred && destination.Header().Get("Content-Length") == "" {
+		destination.Header().Set("Content-Length", strconv.Itoa(w.body.Len()))
+	}
+	destination.WriteHeader(w.status)
+	if w.body.Len() == 0 {
+		return nil
+	}
+	_, err := io.Copy(destination, bytes.NewReader(w.body.Bytes()))
+	return err
 }
 
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
