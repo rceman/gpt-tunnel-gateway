@@ -40,8 +40,12 @@ func TestCandidateGatewayRestartMCPNetworkE2E(t *testing.T) {
 
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
+	projectRoot := filepath.Join(root, "project")
 	pidDir := filepath.Join(stateDir, "pids")
 	logDir := filepath.Join(stateDir, "logs")
+	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(pidDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +63,9 @@ func TestCandidateGatewayRestartMCPNetworkE2E(t *testing.T) {
 			GatewayBinary: resolvedCandidate, TunnelClientBinary: "/usr/bin/sleep", PIDDir: pidDir,
 			LogDir: logDir, TunnelHealthListenAddr: "127.0.0.1:18766",
 		},
-		Projects: map[string]config.ProjectConfig{},
+		Projects: map[string]config.ProjectConfig{
+			"example": {Root: projectRoot, Mirror: filepath.Join(root, "mirror.git"), Remote: "origin", DefaultBranch: "main", ProjectCode: "EXM", AirelaySessionKey: "candidate-agent"},
+		},
 	}
 	encoded, err := json.Marshal(c)
 	if err != nil {
@@ -101,7 +107,9 @@ func TestCandidateGatewayRestartMCPNetworkE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	session, err := durableSession.NewStore(stateDir).CreateUnbound(durableSession.RoleDelivery, nil)
+	session, err := durableSession.NewStore(stateDir).Create(durableSession.CreateInput{
+		ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleDelivery, SessionType: durableSession.SessionTypeChatGPT,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
