@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,7 +18,11 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
+	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
 func TestCandidateGatewayRestartMCPNetworkE2E(t *testing.T) {
@@ -40,12 +45,10 @@ func TestCandidateGatewayRestartMCPNetworkE2E(t *testing.T) {
 
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
-	projectRoot := filepath.Join(root, "project")
+	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
+	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	pidDir := filepath.Join(stateDir, "pids")
 	logDir := filepath.Join(stateDir, "logs")
-	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.MkdirAll(pidDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +61,7 @@ func TestCandidateGatewayRestartMCPNetworkE2E(t *testing.T) {
 		SchemaVersion: 1, GatewayID: "r2-candidate", ListenAddr: listenAddr, StateDir: stateDir,
 		MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100,
 		DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: "true",
-		Hub: config.HubConfig{RepositoryURL: filepath.Join(root, "missing-hub.git"), Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"},
+		Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"},
 		Controller: config.ControllerConfig{
 			GatewayBinary: resolvedCandidate, TunnelClientBinary: "/usr/bin/sleep", PIDDir: pidDir,
 			LogDir: logDir, TunnelHealthListenAddr: "127.0.0.1:18766",
@@ -72,6 +75,24 @@ func TestCandidateGatewayRestartMCPNetworkE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(configPath, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlitestore.Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrapService := service.NewWithDurability(c, db)
+	if _, err := bootstrapService.ProjectRegister(context.Background(), service.ProjectRegisterInput{
+		Project: model.Project{
+			SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git",
+			DefaultBranch: "main", WorkflowRepository: "planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active",
+		},
+		WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead},
+	}); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 
