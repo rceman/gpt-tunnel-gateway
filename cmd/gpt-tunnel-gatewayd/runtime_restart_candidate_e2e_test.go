@@ -181,6 +181,7 @@ func TestCandidateGatewayRestartMCPNetworkE2E(t *testing.T) {
 	if got := readCandidatePID(filepath.Join(pidDir, "tunnel.pid")); got != tunnelPID {
 		t.Fatalf("duplicate operation changed Tunnel PID from %d to %d", tunnelPID, got)
 	}
+	t.Logf("candidate_source=%s gateway_pid_before=%d gateway_pid_after=%d tunnel_pid=%d", wantSource, initialPID, newPID, tunnelPID)
 }
 
 type candidateMCPResponse struct {
