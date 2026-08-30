@@ -157,7 +157,7 @@ func (s *Server) responseBoundary(next http.Handler) http.Handler {
 type bufferedResponseWriter struct {
 	destination http.ResponseWriter
 	header      http.Header
-	body        bytes.Buffer
+	body        []byte
 	status      int
 	wroteHeader bool
 	overflow    bool
@@ -187,11 +187,12 @@ func (w *bufferedResponseWriter) Write(p []byte) (int, error) {
 	if !w.wroteHeader {
 		w.WriteHeader(http.StatusOK)
 	}
-	if len(p) > maxBufferedMCPResponseBytes-w.body.Len() {
+	if len(p) > maxBufferedMCPResponseBytes-len(w.body) {
 		w.overflow = true
 		return 0, errMCPResponseTooLarge
 	}
-	return w.body.Write(p)
+	w.body = append(w.body, p...)
+	return len(p), nil
 }
 
 func (w *bufferedResponseWriter) commit(destination http.ResponseWriter, deferred bool) error {
@@ -210,13 +211,13 @@ func (w *bufferedResponseWriter) commit(destination http.ResponseWriter, deferre
 		}
 	}
 	if deferred && destination.Header().Get("Content-Length") == "" {
-		destination.Header().Set("Content-Length", strconv.Itoa(w.body.Len()))
+		destination.Header().Set("Content-Length", strconv.Itoa(len(w.body)))
 	}
 	destination.WriteHeader(w.status)
-	if w.body.Len() == 0 {
+	if len(w.body) == 0 {
 		return nil
 	}
-	_, err := io.Copy(destination, bytes.NewReader(w.body.Bytes()))
+	_, err := io.Copy(destination, bytes.NewReader(w.body))
 	return err
 }
 
