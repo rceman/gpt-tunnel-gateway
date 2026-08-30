@@ -327,6 +327,21 @@ var localMigrations = []migrate.Migration{{
 		{SQL: `CREATE TABLE IF NOT EXISTS local_logs (id TEXT PRIMARY KEY, level TEXT NOT NULL, component TEXT NOT NULL, event TEXT NOT NULL, payload BLOB NOT NULL, recorded_at TEXT NOT NULL)`},
 		{SQL: `CREATE TABLE IF NOT EXISTS local_retention (name TEXT PRIMARY KEY, cutoff_at TEXT NOT NULL)`},
 	},
+}, {
+	Version: 2, Name: "gpt_tunnel_local_callback_epochs_v2",
+	Statements: []store.Statement{
+		{SQL: `CREATE TABLE IF NOT EXISTS local_callback_epochs (
+			epoch_id TEXT PRIMARY KEY,
+			project_id TEXT NOT NULL,
+			agent_id TEXT NOT NULL DEFAULT '',
+			session_key TEXT NOT NULL,
+			armed_at TEXT NOT NULL,
+			busy_seen INTEGER NOT NULL DEFAULT 0,
+			idle_observations INTEGER NOT NULL DEFAULT 0,
+			emitted_at TEXT
+		)`},
+		{SQL: `CREATE INDEX IF NOT EXISTS local_callback_epochs_pending_idx ON local_callback_epochs(emitted_at, armed_at, epoch_id)`},
+	},
 }}
 
 func (d *Databases) SharedPath() string { return d.sharedPath }

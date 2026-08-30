@@ -79,6 +79,7 @@ type ProjectConfiguration struct {
 	Workflow             ProjectConfigurationWorkflow    `json:"workflow"`
 	Checkpoint           ProjectCheckpointProfile        `json:"checkpoint"`
 	Integration          ProjectIntegrationConfiguration `json:"integration"`
+	Callbacks            []ProjectCallback               `json:"callbacks,omitempty"`
 	ActivationProfileRef string                          `json:"activation_profile_ref,omitempty"`
 	UpdatedBy            string                          `json:"updated_by"`
 	UpdatedAt            time.Time                       `json:"updated_at"`
@@ -252,6 +253,9 @@ func ValidateProjectConfiguration(v ProjectConfiguration) error {
 	}
 	if err := v.Integration.Validate(); err != nil {
 		return fmt.Errorf("integration configuration: %w", err)
+	}
+	if err := ValidateProjectCallbacks(v.Callbacks); err != nil {
+		return fmt.Errorf("callback configuration: %w", err)
 	}
 	return nil
 }

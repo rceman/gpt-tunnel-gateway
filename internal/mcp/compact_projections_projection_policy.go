@@ -21,6 +21,7 @@ var projectionClasses = map[string]projectionClass{
 	"agent/await": projectionClosedDefault, "agent/interrupt": projectionCompactDefault,
 	"agent/list": projectionClosedDefault, "agent/prompt": projectionCompactDefault,
 	"agent/status": projectionClosedDefault, "agent/tail": projectionIntentionalPayload,
+	"callback/events": projectionClosedDefault, "callback/list": projectionClosedDefault, "callback/register": projectionCompactDefault, "callback/remove": projectionCompactDefault,
 	"code/diff": projectionIntentionalPayload, "code/read": projectionIntentionalPayload, "code/search": projectionIntentionalPayload,
 	"code/tree": projectionIntentionalPayload, "code/worktree": projectionCompactDefault,
 	"gateway/capabilities": projectionClosedDefault, "gateway/status": projectionClosedDefault,

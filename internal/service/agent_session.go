@@ -135,6 +135,9 @@ func (s *Service) AgentSendForAgent(ctx context.Context, projectID, agentID, mes
 		}
 		receipt.Error = sendErr.Error()
 	}
+	if sendErr == nil {
+		s.armAgentWorkFinished(ctx, projectID, agentID, session)
+	}
 	return receipt, nil
 }
 

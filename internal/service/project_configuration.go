@@ -171,6 +171,9 @@ func applyProjectConfigurationPatch(configuration *model.ProjectConfiguration, p
 	if patch.Integration != nil {
 		configuration.Integration = *patch.Integration
 	}
+	if patch.Callbacks != nil {
+		configuration.Callbacks = append([]model.ProjectCallback(nil), (*patch.Callbacks)...)
+	}
 	if patch.ActivationProfileRef != nil {
 		configuration.ActivationProfileRef = *patch.ActivationProfileRef
 	}

@@ -52,6 +52,7 @@ type Service struct {
 	taskCreateActive                        map[string]struct{}
 	durableMutationWorkerOnce               sync.Once
 	sharedOutboxWorkerOnce                  sync.Once
+	callbackWorkerOnce                      sync.Once
 	durableMutationMu                       sync.Mutex
 	durableMutationWake                     chan string
 	durableMutationActive                   map[string]struct{}
@@ -136,6 +137,7 @@ func (s *Service) StartBackgroundWorkers() {
 	s.startTaskCreateWorker()
 	s.startDurableMutationWorker()
 	s.startSharedOutboxWorker()
+	s.startCallbackWorker()
 }
 
 type TaskActivationResult struct {
@@ -254,6 +256,7 @@ type ProjectConfigurationPatch struct {
 	GateCommands         *model.ProjectGateCommands             `json:"gate_commands,omitempty"`
 	Checkpoint           *model.ProjectCheckpointProfile        `json:"checkpoint,omitempty"`
 	Integration          *model.ProjectIntegrationConfiguration `json:"integration,omitempty"`
+	Callbacks            *[]model.ProjectCallback               `json:"callbacks,omitempty"`
 	ActivationProfileRef *string                                `json:"activation_profile_ref,omitempty"`
 }
 
