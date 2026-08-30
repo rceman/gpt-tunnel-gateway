@@ -35,16 +35,12 @@ func (s *Service) AgentInterrupt(ctx context.Context, in AgentInterruptInput) (A
 		}
 		now := time.Now().UTC()
 		return AgentInterruptResult{
-			OperationID:   in.OperationID,
-			ProjectID:     in.ProjectID,
-			TrainID:       in.TrainID,
-			ItemPosition:  in.ItemPosition,
-			TaskID:        in.TaskID,
-			AttemptNumber: in.AttemptNumber,
-			AgentID:       in.AgentID,
-			Outcome:       "in_flight",
-			StartedAt:     now,
-			FinishedAt:    now,
+			OperationID: in.OperationID,
+			ProjectID:   in.ProjectID,
+			AgentID:     in.AgentID,
+			Outcome:     "in_flight",
+			StartedAt:   now,
+			FinishedAt:  now,
 		}, nil
 	}
 	defer func() { _ = lock.Release() }()
@@ -58,16 +54,12 @@ func (s *Service) AgentInterrupt(ctx context.Context, in AgentInterruptInput) (A
 	}
 
 	result := AgentInterruptResult{
-		OperationID:   in.OperationID,
-		ProjectID:     in.ProjectID,
-		TrainID:       in.TrainID,
-		ItemPosition:  in.ItemPosition,
-		TaskID:        in.TaskID,
-		AttemptNumber: in.AttemptNumber,
-		AgentID:       in.AgentID,
-		StartedAt:     time.Now().UTC(),
+		OperationID: in.OperationID,
+		ProjectID:   in.ProjectID,
+		AgentID:     in.AgentID,
+		StartedAt:   time.Now().UTC(),
 	}
-	target, stale, targetErr := s.resolveAgentInterruptTarget(ctx, in)
+	target, stale, targetErr := s.resolveCurrentAgentInterruptTarget(ctx, in)
 	if targetErr != nil {
 		result.Outcome, result.Error = "stale_execution", targetErr.Error()
 		result.FinishedAt = time.Now().UTC()
@@ -77,7 +69,7 @@ func (s *Service) AgentInterrupt(ctx context.Context, in AgentInterruptInput) (A
 		})
 	}
 	if stale {
-		result.Outcome, result.Error = "stale_execution", "Train Attempt execution identity is no longer current"
+		result.Outcome, result.Error = "stale_execution", "Agent session identity is no longer current"
 		result.FinishedAt = time.Now().UTC()
 		return result, s.persistAgentInterruptReceipt(receiptPath, requestDigest, agentInterruptReceipt{
 			Phase:  "completed",
@@ -132,13 +124,6 @@ func (s *Service) AgentInterrupt(ctx context.Context, in AgentInterruptInput) (A
 }
 func (s *Service) completeAgentInterruptPrompt(ctx context.Context, in AgentInterruptInput, receiptPath, requestDigest string, result AgentInterruptResult) (AgentInterruptResult, error) {
 	if in.Message == "" {
-		return s.finishAgentInterrupt(receiptPath, requestDigest, result, result.Outcome, result.Error)
-	}
-	if _, stale, err := s.resolveAgentInterruptTarget(ctx, in); err != nil || stale {
-		result.Outcome, result.PromptOutcome, result.Error = "turn_changed", "not_submitted", "Train Attempt changed before replacement prompt"
-		if err != nil {
-			result.Error = err.Error()
-		}
 		return s.finishAgentInterrupt(receiptPath, requestDigest, result, result.Outcome, result.Error)
 	}
 	prompt, promptErr := s.AgentPromptForAgent(ctx, in.ProjectID, in.AgentID, in.Message)

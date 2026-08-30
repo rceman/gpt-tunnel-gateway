@@ -5,22 +5,15 @@ import (
 )
 
 type AgentInterruptInput struct {
-	OperationID   string `json:"operation_id"`
-	ProjectID     string `json:"project_id"`
-	TrainID       string `json:"train_id"`
-	ItemPosition  int    `json:"item_position"`
-	TaskID        string `json:"task_id"`
-	AttemptNumber uint64 `json:"attempt_number"`
-	AgentID       string `json:"agent_id"`
-	Message       string `json:"message,omitempty"`
+	OperationID string `json:"operation_id"`
+	ProjectID   string `json:"project_id"`
+	SessionKey  string `json:"session_key,omitempty"`
+	AgentID     string `json:"agent_id"`
+	Message     string `json:"message,omitempty"`
 }
 type AgentInterruptResult struct {
 	OperationID      string    `json:"operation_id"`
 	ProjectID        string    `json:"project_id"`
-	TrainID          string    `json:"train_id"`
-	ItemPosition     int       `json:"item_position"`
-	TaskID           string    `json:"task_id"`
-	AttemptNumber    uint64    `json:"attempt_number"`
 	AgentID          string    `json:"agent_id"`
 	Outcome          string    `json:"outcome"`
 	InterruptOutcome string    `json:"interrupt_outcome,omitempty"`

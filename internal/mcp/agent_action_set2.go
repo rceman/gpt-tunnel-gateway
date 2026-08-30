@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
@@ -35,30 +34,20 @@ func (s *Server) agent_action_set2() error {
 			if err != nil {
 				return nil, err
 			}
-			target, err := s.resolveCanonicalAgent(ctx, projectID, in.Agent, true)
+			target, err := s.resolveCanonicalInterruptAgent(ctx, projectID, in.Agent)
 			if err != nil {
 				return nil, err
-			}
-			operational, err := s.Service.ProjectOperationalStatus(ctx)
-			if err != nil {
-				return nil, err
-			}
-			if operational.TrainID == "" || operational.TaskID == "" || operational.AttemptNumber == 0 || operational.Agent.AgentID != target.Agent.AgentID {
-				return nil, fmt.Errorf("no active execution for Agent %q", target.Agent.AgentID)
 			}
 			operationID, err := newCanonicalAgentOperationID()
 			if err != nil {
 				return nil, err
 			}
 			receipt, err := s.Service.AgentInterruptAsync(ctx, service.AgentInterruptInput{
-				OperationID:   operationID,
-				ProjectID:     projectID,
-				TrainID:       operational.TrainID,
-				ItemPosition:  operational.ItemPosition,
-				TaskID:        operational.TaskID,
-				AttemptNumber: operational.AttemptNumber,
-				AgentID:       target.Agent.AgentID,
-				Message:       in.Message,
+				OperationID: operationID,
+				ProjectID:   projectID,
+				AgentID:     target.Agent.AgentID,
+				SessionKey:  target.Resolved.SessionKey,
+				Message:     in.Message,
 			})
 			if err != nil {
 				return nil, err

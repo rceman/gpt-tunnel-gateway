@@ -40,12 +40,10 @@ func TestAgentIPCMutationsReturnBoundedReceipts(t *testing.T) {
 		}},
 		{kind: "agent-interrupt", call: func() (string, error) {
 			receipt, err := s.AgentInterruptAsync(ctx, AgentInterruptInput{
-				OperationID:   "interrupt-test",
-				ProjectID:     "example",
-				TrainID:       "invalid",
-				TaskID:        "EXM-TSK1",
-				AgentID:       "EXM-AGT1",
-				AttemptNumber: 1,
+				OperationID: "interrupt-test",
+				ProjectID:   "example",
+				SessionKey:  "example_master",
+				AgentID:     "EXM-AGT1",
 			})
 			return receipt.OperationID, err
 		}},

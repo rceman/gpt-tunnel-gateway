@@ -72,7 +72,7 @@ func (s *Server) resolveCanonicalAgent(ctx context.Context, projectID, requested
 				if statusErr != nil {
 					return canonicalAgentTarget{}, fmt.Errorf("Agent selection is unavailable: %w", statusErr)
 				}
-				if status.AttemptState == model.TrainV2AttemptRunning {
+				if status.SessionState == "running" || status.SessionState == "waiting" {
 					active = append(active, agent)
 				}
 			}
@@ -102,6 +102,42 @@ func (s *Server) resolveCanonicalAgent(ctx context.Context, projectID, requested
 	return target, nil
 }
 
+func (s *Server) resolveCanonicalInterruptAgent(ctx context.Context, projectID, requested string) (canonicalAgentTarget, error) {
+	if requested != "" {
+		if model.ValidateObjectIdentifier(requested) != nil {
+			return canonicalAgentTarget{}, fmt.Errorf("invalid Agent selector")
+		}
+		agent, err := s.Service.AgentRead(ctx, projectID, requested)
+		if err != nil {
+			return canonicalAgentTarget{}, err
+		}
+		if !agent.Enabled {
+			return canonicalAgentTarget{}, fmt.Errorf("Agent %q is disabled", agent.AgentID)
+		}
+		resolved, err := s.Service.ResolveAgent(ctx, service.AgentResolveInput{
+			ProjectID: projectID,
+			Role:      agent.Role,
+			AgentID:   agent.AgentID,
+		})
+		if err != nil {
+			return canonicalAgentTarget{}, err
+		}
+		return canonicalAgentTarget{Agent: agent, Resolved: resolved}, nil
+	}
+	resolved, err := s.Service.ResolveAgent(ctx, service.AgentResolveInput{ProjectID: projectID, Role: model.AgentRoleCoding})
+	if err != nil {
+		return canonicalAgentTarget{}, err
+	}
+	agent, err := s.Service.AgentRead(ctx, projectID, resolved.AgentID)
+	if err != nil {
+		return canonicalAgentTarget{}, err
+	}
+	if !agent.Enabled {
+		return canonicalAgentTarget{}, fmt.Errorf("Agent %q is disabled", agent.AgentID)
+	}
+	return canonicalAgentTarget{Agent: agent, Resolved: resolved}, nil
+}
+
 func validateCanonicalAgentMessage(message string) error {
 	if !utf8.ValidString(message) || len(message) < 1 || len([]byte(message)) > canonicalAgentMessageMaxBytes || strings.ContainsRune(message, 0) {
 		return fmt.Errorf("Agent message must be valid UTF-8, 1-%d bytes, and contain no NUL", canonicalAgentMessageMaxBytes)
@@ -121,15 +157,7 @@ func canonicalAgentStatus(ctx context.Context, s *Server, projectID string, targ
 	if err != nil {
 		return nil, err
 	}
-	state := "idle"
-	switch {
-	case !availability.Enabled || availability.State == "disabled":
-		state = "disabled"
-	case availability.AttemptState == model.TrainV2AttemptRunning || availability.SessionState == "running" || availability.SessionState == "waiting":
-		state = "busy"
-	case availability.State == "unavailable" || availability.State == "unbound":
-		state = "unavailable"
-	}
+	state := canonicalAgentAvailabilityState(availability)
 	result := map[string]any{"agent": availability.AgentID, "status": state}
 	if availability.TaskID != "" {
 		result["task"] = availability.TaskID
@@ -138,6 +166,19 @@ func canonicalAgentStatus(ctx context.Context, s *Server, projectID string, targ
 		result["train"] = availability.TrainID
 	}
 	return result, nil
+}
+
+func canonicalAgentAvailabilityState(availability model.AgentAvailabilityStatus) string {
+	switch {
+	case !availability.Enabled || availability.State == "disabled":
+		return "disabled"
+	case availability.SessionState == "running" || availability.SessionState == "waiting":
+		return "busy"
+	case availability.State == "unavailable" || availability.State == "unbound":
+		return "unavailable"
+	default:
+		return "idle"
+	}
 }
 
 func (s *Server) canonicalAgentStatusAction(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -160,20 +201,15 @@ func (s *Server) canonicalAgentStatusAction(ctx context.Context, raw json.RawMes
 
 func (s *Server) canonicalAgentTailAction(ctx context.Context, raw json.RawMessage) (any, error) {
 	var in struct {
-		ProjectID string `json:"project_id"`
-		Agent     string `json:"agent"`
-		Lines     int    `json:"lines"`
+		Agent string `json:"agent"`
+		Lines int    `json:"lines"`
 	}
 	if err := decode(raw, &in); err != nil {
 		return nil, err
 	}
-	projectID := in.ProjectID
-	if projectID == "" {
-		var err error
-		projectID, err = s.boundAgentProject(ctx)
-		if err != nil {
-			return nil, err
-		}
+	projectID, err := s.boundAgentProject(ctx)
+	if err != nil {
+		return nil, err
 	}
 	target, err := s.resolveCanonicalAgent(ctx, projectID, in.Agent, true)
 	if err != nil {
@@ -225,6 +261,11 @@ func (s *Server) canonicalAgentAwaitAction(ctx context.Context, raw json.RawMess
 	if err != nil {
 		return nil, err
 	}
+	if _, err := s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{
+		Lines: 30, SessionID: service.AgentSessionID(ctx), SessionKey: target.Resolved.SessionKey,
+	}); err != nil {
+		return nil, err
+	}
 	previous, err := canonicalAgentStatus(ctx, s, projectID, target)
 	if err != nil {
 		return nil, err
@@ -242,7 +283,11 @@ func (s *Server) canonicalAgentAwaitAction(ctx context.Context, raw json.RawMess
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-deadline.C:
-			return previous, nil
+			current, statusErr := canonicalAgentStatus(ctx, s, projectID, target)
+			if statusErr != nil {
+				return nil, statusErr
+			}
+			return s.canonicalAgentAwaitResult(ctx, projectID, target, current)
 		case <-ticker.C:
 			current, statusErr := canonicalAgentStatus(ctx, s, projectID, target)
 			if statusErr != nil {
@@ -255,19 +300,23 @@ func (s *Server) canonicalAgentAwaitAction(ctx context.Context, raw json.RawMess
 			if string(currentDigest) == string(previousDigest) {
 				continue
 			}
-			tail, tailErr := s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{
-				Lines: 30, SessionID: service.AgentSessionID(ctx), SessionKey: target.Resolved.SessionKey,
-			})
-			if tailErr != nil {
-				return nil, tailErr
-			}
-			if len(tail.Lines) > 0 {
-				current["tail"] = tail.Lines
-			}
-			if tail.HistoryTruncated || tail.Overflow {
-				current["tail_truncated"] = true
-			}
-			return current, nil
+			return s.canonicalAgentAwaitResult(ctx, projectID, target, current)
 		}
 	}
+}
+
+func (s *Server) canonicalAgentAwaitResult(ctx context.Context, projectID string, target canonicalAgentTarget, current map[string]any) (map[string]any, error) {
+	tail, err := s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{
+		Lines: 30, SessionID: service.AgentSessionID(ctx), SessionKey: target.Resolved.SessionKey,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(tail.Lines) > 0 {
+		current["tail"] = tail.Lines
+	}
+	if tail.HistoryTruncated || tail.Overflow {
+		current["tail_truncated"] = true
+	}
+	return current, nil
 }

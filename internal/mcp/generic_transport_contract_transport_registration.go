@@ -157,8 +157,8 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		// canonical registry exposes only the cursor contract. Both paths call
 		// the same service AgentTailPage implementation.
 		if toolName == "agent_tail" {
-			entry.InputSchema = agentTailSessionInputSchema()
-			entry.ExecutionInputSchema = agentTailExecutionInputSchema()
+			entry.InputSchema = canonicalAgentTailInputSchema()
+			entry.ExecutionInputSchema = canonicalAgentTailInputSchema()
 			entry.OutputSchema = canonicalAgentTailOutputSchema()
 			entry.Execute = func(ctx context.Context, raw json.RawMessage) (any, error) {
 				return s.agentTailAction(ctx, raw)
