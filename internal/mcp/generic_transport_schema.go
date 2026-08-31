@@ -85,7 +85,17 @@ func (s *Server) genericSchemaPublic(ctx context.Context, legacy map[string]Tool
 	if _, err := existingSessionRoleContext(ctx, record.Role); err != nil {
 		return nil, fmt.Errorf("schema session authority is invalid: %w", err)
 	}
-	return genericSchemaV2(s.genericActionRegistry(legacy), input.Path)
+	return genericSchemaV2(schemaEntriesForSessionRole(s.genericActionRegistry(legacy), record.Role), input.Path)
+}
+
+func schemaEntriesForSessionRole(entries map[string]genericActionEntry, role string) map[string]genericActionEntry {
+	filtered := make(map[string]genericActionEntry, len(entries))
+	for path, entry := range entries {
+		if actionAuthorityAllowsSessionRole(entry.AuthorityRole, role) {
+			filtered[path] = entry
+		}
+	}
+	return filtered
 }
 
 func genericSchemaV2(entries map[string]genericActionEntry, path string) (map[string]any, error) {

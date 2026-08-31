@@ -185,10 +185,7 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 			entry.InputSchema = withProjectionDetail(entry.InputSchema)
 			entry.ExecutionInputSchema = withProjectionDetail(entry.ExecutionInputSchema)
 		}
-		if path == "session/bind" {
-			entry.SessionBound = true
-			entry.SessionRequired = true
-		} else if !sessionlessActionPath(path) && !strings.HasPrefix(path, "runtime/") && (sessionBoundActionPath(path) || schemaHasProperty(entry.InputSchema, "project_id")) {
+		if !sessionlessActionPath(path) && !strings.HasPrefix(path, "runtime/") && (sessionBoundActionPath(path) || schemaHasProperty(entry.InputSchema, "project_id")) {
 			entry.SessionBound = true
 			entry.InputSchema = withoutProjectID(entry.InputSchema)
 			if entry.LegacyInputSchema != nil {

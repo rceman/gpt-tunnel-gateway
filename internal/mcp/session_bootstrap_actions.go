@@ -159,17 +159,6 @@ func workflowWithDigest(workflow map[string]any, digest string) map[string]any {
 	return result
 }
 
-func (s *Server) sessionBindAction(ctx context.Context, raw json.RawMessage) (any, error) {
-	var in struct {
-		ProjectID string  `json:"project_id"`
-		Ref       *string `json:"ref"`
-	}
-	if err := decode(raw, &in); err != nil {
-		return nil, err
-	}
-	return s.Service.SessionBind(ctx, service.SessionBindInput{SessionID: service.AgentSessionID(ctx), ProjectID: in.ProjectID, SessionRef: in.Ref})
-}
-
 func (s *Server) rulesReadAction(ctx context.Context, raw json.RawMessage) (any, error) {
 	id := service.AgentSessionID(ctx)
 	if id == "" {
@@ -201,7 +190,7 @@ func digestJSON(value any) string {
 }
 
 func (s *Server) validateSessionRules(ctx context.Context, record durableSession.Record, action string) error {
-	if record.ProjectID == "" || record.GlobalRulesRevision == "" || action == "rules/read" || action == "session/bind" || action == "session/info" || action == "session/end" || action == "session/update" || action == "project/list" {
+	if record.ProjectID == "" || record.GlobalRulesRevision == "" || action == "rules/read" || action == "session/info" || action == "session/end" || action == "project/list" {
 		return nil
 	}
 	if record.GlobalRulesRevision != globalWorkflowRevision || record.GlobalRulesDigest != globalWorkflowDigest() {

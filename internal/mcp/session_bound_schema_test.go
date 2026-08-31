@@ -14,14 +14,16 @@ func TestSessionBoundActionSchemasDoNotExposeProjectID(t *testing.T) {
 		if !entry.SessionBound {
 			continue
 		}
-		if path == "session/bind" || path == "session/update" {
-			continue
-		}
 		if entry.ExecutionInputSchema == nil {
 			t.Fatalf("session-bound action %s has no internal execution schema", path)
 		}
 		if schemaContainsPropertyForTest(entry.InputSchema, "project_id") {
 			t.Fatalf("session-bound action %s exposes project_id in its public schema: %#v", path, entry.InputSchema)
+		}
+	}
+	for _, path := range []string{"session/bind", "session/update"} {
+		if _, ok := entries[path]; ok {
+			t.Fatalf("removed session action %s remained registered", path)
 		}
 	}
 	for _, path := range []string{"project/list", "runtime/logs"} {

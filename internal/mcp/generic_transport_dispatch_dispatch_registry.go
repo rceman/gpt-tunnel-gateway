@@ -97,7 +97,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		}
 		ctx = resolved
 		ctx = service.WithAgentSessionID(ctx, record.ID)
-		if entry.SessionBound && action != "session/bind" && action != "session/update" {
+		if entry.SessionBound {
 			if err := validateGenericActionInput(entry.InputSchema, raw); err != nil {
 				return genericActionError(action, err.Error()+"; inspect schema with path=\""+action+"\""), nil
 			}
@@ -114,7 +114,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	}
 	if entry.SessionBound {
 		validationSchema := entry.InputSchema
-		if action != "session/bind" && action != "session/update" && entry.ExecutionInputSchema != nil {
+		if entry.ExecutionInputSchema != nil {
 			validationSchema = entry.ExecutionInputSchema
 		}
 		if err := validateGenericActionInput(validationSchema, raw); err != nil {

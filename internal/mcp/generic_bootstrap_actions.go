@@ -9,12 +9,6 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-type sessionUpdateActionInput struct {
-	ProjectID *string `json:"project_id"`
-	Label     *string `json:"label"`
-	Ref       *string `json:"ref"`
-}
-
 func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, legacy map[string]Tool) {
 	add := func(path, description string, schema map[string]any, required bool, execute func(context.Context, json.RawMessage) (any, error)) {
 		if _, exists := entries[path]; exists {
@@ -53,10 +47,10 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		return s.Service.SessionList()
 	})
 	add("session/info", "Read the durable session bound to the public session.", obj(map[string]any{}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
-		return s.sessionActionForContext(ctx, "info", nil)
+		return s.sessionActionForContext(ctx, "info")
 	})
 	add("session/end", "End the durable session bound to the public session.", obj(map[string]any{}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
-		return s.sessionActionForContext(ctx, "end", nil)
+		return s.sessionActionForContext(ctx, "end")
 	})
 	add("operation/read", "Read one authorized durable asynchronous mutation receipt.", obj(map[string]any{
 		"operation_id": str("Durable operation identifier."),
@@ -68,17 +62,6 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 			return nil, err
 		}
 		return s.Service.OperationRead(ctx, input.OperationID)
-	})
-	add("session/update", "Update the label or caller reference of the durable session bound to the public session.", obj(map[string]any{
-		"project_id": str("Optional canonical project identifier to bind the session."),
-		"label":      str("Optional bounded session label."),
-		"ref":        str("Optional caller reference."),
-	}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var input sessionUpdateActionInput
-		if err := decode(raw, &input); err != nil {
-			return nil, err
-		}
-		return s.sessionActionForContext(ctx, "update", &input)
 	})
 	if tool, ok := legacy["system_ping"]; ok {
 		add("gateway/status", "Read Gateway health and runtime status.", obj(map[string]any{}), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -118,7 +101,7 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 	}
 }
 
-func (s *Server) sessionActionForContext(ctx context.Context, action string, input any) (any, error) {
+func (s *Server) sessionActionForContext(ctx context.Context, action string) (any, error) {
 	id := service.AgentSessionID(ctx)
 	if id == "" {
 		return nil, fmt.Errorf("session is unavailable")
@@ -136,15 +119,6 @@ func (s *Server) sessionActionForContext(ctx context.Context, action string, inp
 		return info, nil
 	case "end":
 		return s.Service.SessionEnd(roleCtx, id)
-	case "update":
-		v := input.(*sessionUpdateActionInput)
-		if v.ProjectID != nil {
-			if *v.ProjectID == "" {
-				return nil, fmt.Errorf("project_id is required when provided")
-			}
-			return s.Service.SessionBind(roleCtx, service.SessionBindInput{SessionID: id, ProjectID: *v.ProjectID, SessionRef: v.Ref})
-		}
-		return s.Service.SessionUpdate(roleCtx, service.SessionUpdateInput{SessionID: id, Label: v.Label, SessionRef: v.Ref})
 	default:
 		return nil, fmt.Errorf("unsupported session action %q", action)
 	}

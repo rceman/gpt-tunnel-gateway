@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,27 +109,19 @@ func TestPublicSessionStartAfterTerminationIsFreshAndBoundCallWorks(t *testing.T
 	a := start(durableSession.RolePlanner, "terminated")
 	end(a)
 	for i := 0; i < 2; i++ {
-		legacy := genericStructured(t, sessionCall(t, server, map[string]any{
-			"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT,
-		}))
-		terminated := legacy["session"].(map[string]any)["session_id"].(string)
-		genericStructured(t, sessionCall(t, server, map[string]any{"action": "end", "session_id": terminated}))
+		terminated := start(durableSession.RolePlanner, fmt.Sprintf("terminated-%d", i))
+		end(terminated)
 	}
 	b := start(durableSession.RolePlanner, "fresh")
 	if b == a {
 		t.Fatalf("fresh session reused terminated ID %q", b)
 	}
-	bound := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": b, "action": "session/update", "input": map[string]any{"project_id": "example"}}},
-	})))
-	boundRecord, _ := bound["result"].(map[string]any)
-	boundSession, _ := boundRecord["session"].(map[string]any)
-	if boundSession["project_id"] != "example" {
-		t.Fatalf("fresh session did not bind: %#v", bound)
+	bound, err := durableSession.NewStore(server.Service.Config.StateDir).Get(b)
+	if err != nil || bound.ProjectID != "example" {
+		t.Fatalf("fresh session did not bind at creation: %#v err=%v", bound, err)
 	}
 	status := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": b, "action": "project/status", "input": map[string]any{}}},
 	})))
 	if status["is_error"] == true {
@@ -149,6 +142,97 @@ func TestPublicSessionStartAfterTerminationIsFreshAndBoundCallWorks(t *testing.T
 	oldStructured := genericStructured(t, old)
 	if oldStructured["is_error"] != true {
 		t.Fatalf("terminated session was accepted: %#v", old)
+	}
+}
+
+func TestPublicSchemaFiltersActionsByImmutableSessionRole(t *testing.T) {
+	server := newSessionTestServer(t)
+	plannerID := genericSessionWithRole(t, server.Service, "example", durableSession.RolePlanner)
+	deliveryID := genericSessionWithRole(t, server.Service, "example", durableSession.RoleDelivery)
+
+	schema := func(sessionID, path string) map[string]any {
+		t.Helper()
+		return genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+			"params": map[string]any{"name": "schema", "arguments": map[string]any{"session": sessionID, "path": path}},
+		})))
+	}
+	actions := func(sessionID, domain string) map[string]bool {
+		t.Helper()
+		result := schema(sessionID, domain)
+		values, ok := result["actions"].([]any)
+		if !ok {
+			t.Fatalf("schema(%q) actions=%#v", domain, result)
+		}
+		got := make(map[string]bool, len(values))
+		for _, value := range values {
+			path, ok := value.(map[string]any)["path"].(string)
+			if !ok {
+				t.Fatalf("schema(%q) action=%#v", domain, value)
+			}
+			got[path] = true
+		}
+		return got
+	}
+	for _, role := range []struct {
+		name      string
+		sessionID string
+	}{
+		{name: durableSession.RolePlanner, sessionID: plannerID},
+		{name: durableSession.RoleDelivery, sessionID: deliveryID},
+	} {
+		sessionActions := actions(role.sessionID, "session")
+		for _, path := range []string{"session/info", "session/list", "session/end"} {
+			if !sessionActions[path] {
+				t.Fatalf("%s schema omitted %s: %#v", role.name, path, sessionActions)
+			}
+		}
+		if sessionActions["session/update"] || sessionActions["session/bind"] {
+			t.Fatalf("%s schema exposed rebinding action: %#v", role.name, sessionActions)
+		}
+	}
+
+	plannerRuntime := actions(plannerID, "runtime")
+	if !plannerRuntime["runtime/logs"] || plannerRuntime["runtime/restart"] {
+		t.Fatalf("planner runtime schema=%#v", plannerRuntime)
+	}
+	deliveryRuntime := actions(deliveryID, "runtime")
+	if !deliveryRuntime["runtime/logs"] || !deliveryRuntime["runtime/restart"] {
+		t.Fatalf("delivery runtime schema=%#v", deliveryRuntime)
+	}
+	plannerTrain := actions(plannerID, "train")
+	if !plannerTrain["train/review-resolve"] {
+		t.Fatalf("planner train schema omitted planner action: %#v", plannerTrain)
+	}
+	deliveryTrain := actions(deliveryID, "train")
+	if deliveryTrain["train/review-resolve"] {
+		t.Fatalf("delivery train schema exposed planner action: %#v", deliveryTrain)
+	}
+
+	root := schema(plannerID, "")
+	rootDomains, ok := root["domains"].([]any)
+	if !ok {
+		t.Fatalf("planner root schema=%#v", root)
+	}
+	for _, raw := range rootDomains {
+		if raw.(map[string]any)["key"] == "" {
+			t.Fatalf("planner root contained empty domain: %#v", root)
+		}
+	}
+	unauthorized := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+		"params": map[string]any{"name": "schema", "arguments": map[string]any{"session": deliveryID, "path": "train/review-resolve"}},
+	}))
+	result, ok := unauthorized["result"].(map[string]any)
+	if !ok || result["isError"] != true {
+		t.Fatalf("unauthorized exact schema action was exposed: %#v", unauthorized)
+	}
+	removed := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": plannerID, "action": "session/update", "input": map[string]any{"label": "not-allowed"}}},
+	})))
+	if removed["is_error"] != true {
+		t.Fatalf("removed session/update remained callable: %#v", removed)
 	}
 }
 

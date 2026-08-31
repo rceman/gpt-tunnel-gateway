@@ -12,6 +12,21 @@ import (
 
 const actionRolePlannerOrDelivery = "planner_or_delivery"
 
+func actionAuthorityAllowsSessionRole(actionRole, sessionRole string) bool {
+	switch actionRole {
+	case "":
+		return true
+	case durableSession.RolePlanner:
+		return sessionRole == durableSession.RolePlanner
+	case durableSession.RoleDelivery:
+		return sessionRole == durableSession.RoleDelivery
+	case actionRolePlannerOrDelivery:
+		return sessionRole == durableSession.RolePlanner || sessionRole == durableSession.RoleDelivery
+	default:
+		return false
+	}
+}
+
 type actionAuthorityContract struct {
 	Role                   string
 	RequiresWorkflowPolicy bool
