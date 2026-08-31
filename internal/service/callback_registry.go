@@ -34,10 +34,10 @@ type CallbackScriptSummary struct {
 }
 
 type CallbackSummary struct {
-	Callback string                 `json:"callback"`
-	Event    string                 `json:"event"`
-	URL      *CallbackURLSummary    `json:"url,omitempty"`
-	Script   *CallbackScriptSummary `json:"script,omitempty"`
+	Key    string                 `json:"key"`
+	Event  string                 `json:"event"`
+	URL    *CallbackURLSummary    `json:"url,omitempty"`
+	Script *CallbackScriptSummary `json:"script,omitempty"`
 }
 
 type CallbackListResult struct {
@@ -136,7 +136,7 @@ func (s *Service) CallbackList(ctx context.Context, projectID string) (CallbackL
 	sortProjectCallbacks(callbacks)
 	result := CallbackListResult{Callbacks: make([]CallbackSummary, 0, len(callbacks))}
 	for _, callback := range callbacks {
-		summary := CallbackSummary{Callback: callback.Callback, Event: callback.Event}
+		summary := CallbackSummary{Key: callback.Callback, Event: callback.Event}
 		if callback.URL != nil {
 			summary.URL = &CallbackURLSummary{Method: callback.URL.Method, URL: callback.URL.URL}
 		}
@@ -175,9 +175,9 @@ func sortProjectCallbacks(callbacks []model.ProjectCallback) {
 }
 
 func callbackEventPayload(epochID, projectID, agentID string) ([]byte, error) {
-	value := map[string]any{"event": model.ProjectCallbackWorkFinishedEvent, "epoch_id": epochID, "project_id": projectID}
+	value := map[string]any{"event": model.ProjectCallbackWorkFinishedEvent, "epoch": epochID, "project": projectID}
 	if agentID != "" {
-		value["agent_id"] = agentID
+		value["agent"] = agentID
 	}
 	return json.Marshal(value)
 }

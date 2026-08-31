@@ -75,7 +75,6 @@ func deliverHTTP(ctx context.Context, definition model.ProjectCallbackURL) error
 	if err != nil {
 		return err
 	}
-	request.Header.Set("Content-Type", "application/json")
 	response, err := (&http.Client{}).Do(request)
 	if err != nil {
 		return err

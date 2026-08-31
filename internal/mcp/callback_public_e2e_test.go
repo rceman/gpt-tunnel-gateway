@@ -53,8 +53,16 @@ func publicCallbackEnvelope(t *testing.T, server *Server, session, action string
 	t.Helper()
 	return callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": time.Now().UnixNano(), "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": session, "action": action, "input": input}},
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": session, "action": action, "input": input}, "_meta": callbackADR81Metadata(t, "ADR81 traces the public callback schema, decoder and dispatch path for the ADR87 callback registry using ADR83 typed projection naming.")},
 	}))
+}
+
+func callbackADR81Metadata(t *testing.T, why string) map[string]any {
+	t.Helper()
+	if strings.TrimSpace(why) == "" {
+		t.Fatal("callback ADR81 metadata requires why")
+	}
+	return map[string]any{"adr": "GTW-ADR81", "references": []string{"GTW-ADR87", "GTW-ADR83"}, "why": why}
 }
 
 func TestCallbackActionsPublicSchemasAndLifecycle(t *testing.T) {
@@ -145,7 +153,7 @@ func TestCallbackActionsUsePublicCallAndSharedRegistry(t *testing.T) {
 		}
 	}
 	combined := callbacks[0].(map[string]any)
-	if combined["callback"] != "combined-hook" || combined["url"] == nil || combined["script"] == nil {
+	if combined["key"] != "combined-hook" || combined["url"] == nil || combined["script"] == nil {
 		t.Fatalf("combined callback summary=%#v", combined)
 	}
 	removed := publicCallbackCall(t, server, session, "callback/remove", map[string]any{"callback": "http-hook"})

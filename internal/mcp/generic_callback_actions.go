@@ -64,7 +64,7 @@ func callbackListInputSchema() map[string]any { return obj(map[string]any{}) }
 func callbackSummaryOutputSchema() map[string]any {
 	url := closedOutput(map[string]any{"method": outputEnum("POST", "PUT"), "url": outputString()}, "method", "url")
 	script := closedOutput(map[string]any{"path": outputString()}, "path")
-	return closedOutput(map[string]any{"callback": outputString(), "event": outputString(), "url": url, "script": script}, "callback", "event")
+	return closedOutput(map[string]any{"key": outputString(), "event": outputString(), "url": url, "script": script}, "key", "event")
 }
 
 func callbackRegistrationOutputSchema() map[string]any {

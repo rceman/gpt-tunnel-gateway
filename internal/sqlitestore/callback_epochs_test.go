@@ -40,6 +40,10 @@ func TestCallbackEpochRequiresRealWorkAndSurvivesRestart(t *testing.T) {
 	if err != nil || !claimed {
 		t.Fatalf("claim=%v err=%v", claimed, err)
 	}
+	claimed, err = db.ClaimCallbackEpoch(context.Background(), epoch.ID, time.Now().UTC())
+	if err != nil || claimed {
+		t.Fatalf("duplicate claim=%v err=%v", claimed, err)
+	}
 	pending, err := db.PendingCallbackEpochs(context.Background(), 10)
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("pending=%#v err=%v", pending, err)

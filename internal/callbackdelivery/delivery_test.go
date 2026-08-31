@@ -59,10 +59,12 @@ func TestDeliverCombinedTargetsRunsBothIndependently(t *testing.T) {
 	testutil.Git(t, root, "commit", "-m", "combined callback")
 	var requests atomic.Int32
 	var body string
+	var contentType string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		data, _ := io.ReadAll(r.Body)
 		body = string(data)
+		contentType = r.Header.Get("Content-Type")
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
@@ -76,8 +78,8 @@ func TestDeliverCombinedTargetsRunsBothIndependently(t *testing.T) {
 	if err := Deliver(context.Background(), callback, project, gitx.Runner{MaxReadBytes: 1 << 20}, event); err != nil {
 		t.Fatal(err)
 	}
-	if requests.Load() != 1 || body != `{"configured":true}` {
-		t.Fatalf("HTTP delivery requests=%d body=%q", requests.Load(), body)
+	if requests.Load() != 1 || body != `{"configured":true}` || contentType != "" {
+		t.Fatalf("HTTP delivery requests=%d body=%q content_type=%q", requests.Load(), body, contentType)
 	}
 	data, err := os.ReadFile(resultPath)
 	if err != nil || string(data) != string(event) {

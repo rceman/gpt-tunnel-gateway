@@ -74,7 +74,7 @@ func TestCallbackRegistrySharedCASAndCompactedList(t *testing.T) {
 		t.Fatal(err)
 	}
 	list, err := s.CallbackList(ctx, "example")
-	if err != nil || len(list.Callbacks) != 2 || list.Callbacks[0].Callback != "a-first" || list.Callbacks[1].Callback != "z-last" {
+	if err != nil || len(list.Callbacks) != 2 || list.Callbacks[0].Key != "a-first" || list.Callbacks[1].Key != "z-last" {
 		t.Fatalf("list=%#v err=%v", list, err)
 	}
 	if list.Callbacks[0].Script == nil || list.Callbacks[0].URL != nil || list.Callbacks[1].URL == nil || list.Callbacks[1].URL.Method != "POST" {
@@ -148,6 +148,25 @@ func TestAgentWorkFinishedCallbackDeliversOnceAfterStableIdle(t *testing.T) {
 	case duplicate := <-bodies:
 		t.Fatalf("callback delivered twice: %q", duplicate)
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestCallbackEventPayloadUsesADR83EntityReferences(t *testing.T) {
+	payload, err := callbackEventPayload("agent-work-1", "gpt-tunnel-gateway", "coding")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value map[string]any
+	if err := json.Unmarshal(payload, &value); err != nil {
+		t.Fatal(err)
+	}
+	if value["project"] != "gpt-tunnel-gateway" || value["agent"] != "coding" || value["epoch"] != "agent-work-1" {
+		t.Fatalf("payload=%#v", value)
+	}
+	for _, legacy := range []string{"project_id", "agent_id", "epoch_id"} {
+		if _, ok := value[legacy]; ok {
+			t.Fatalf("payload leaked legacy reference %q: %#v", legacy, value)
+		}
 	}
 }
 

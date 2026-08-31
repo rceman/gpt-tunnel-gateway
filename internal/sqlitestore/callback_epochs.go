@@ -124,16 +124,9 @@ func (d *Databases) ClaimCallbackEpoch(ctx context.Context, epochID string, emit
 	if epochID == "" || emittedAt.IsZero() {
 		return false, fmt.Errorf("callback epoch claim is incomplete")
 	}
-	if _, err := d.Local.Exec(ctx, `UPDATE local_callback_epochs SET emitted_at=? WHERE epoch_id=? AND emitted_at IS NULL`, emittedAt.UTC().Format(time.RFC3339Nano), epochID); err != nil {
-		return false, err
-	}
-	rows, err := d.Local.Query(ctx, `SELECT emitted_at FROM local_callback_epochs WHERE epoch_id=?`, epochID)
+	result, err := d.Local.Exec(ctx, `UPDATE local_callback_epochs SET emitted_at=? WHERE epoch_id=? AND emitted_at IS NULL`, emittedAt.UTC().Format(time.RFC3339Nano), epochID)
 	if err != nil {
 		return false, err
 	}
-	if len(rows.Rows) != 1 || len(rows.Rows[0]) != 1 {
-		return false, fmt.Errorf("callback epoch disappeared during claim")
-	}
-	value, ok := rows.Rows[0][0].(string)
-	return ok && value != "", nil
+	return result.RowsAffected == 1, nil
 }
