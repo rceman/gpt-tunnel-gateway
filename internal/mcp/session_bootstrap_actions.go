@@ -38,7 +38,7 @@ func sessionStartPublicInputSchema() map[string]any {
 	project["minLength"] = 1
 	role := str("Server-authorized durable session role.")
 	role["minLength"] = 1
-	role["enum"] = []any{durableSession.RolePlanner, durableSession.RoleAgent}
+	role["maxLength"] = 256
 	return obj(map[string]any{
 		"gateway": gateway,
 		"project": project,

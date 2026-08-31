@@ -51,9 +51,11 @@ func TestStatusReturnsCompactRuntimeProjects(t *testing.T) {
 func TestPublicSessionStartRejectsDeliveryRole(t *testing.T) {
 	server := newSessionTestServer(t)
 	roleSchema := sessionStartPublicInputSchema()["properties"].(map[string]any)["role"].(map[string]any)
-	roles, ok := roleSchema["enum"].([]any)
-	if !ok || len(roles) != 2 || roles[0] != durableSession.RolePlanner || roles[1] != durableSession.RoleAgent {
+	if roleSchema["type"] != "string" || roleSchema["minLength"] != 1 || roleSchema["maxLength"] != 256 {
 		t.Fatalf("public session_start role schema=%#v", roleSchema)
+	}
+	if _, ok := roleSchema["enum"]; ok {
+		t.Fatalf("public session_start role schema must not enumerate roles: %#v", roleSchema)
 	}
 	sessionsDir := filepath.Join(server.Service.Config.StateDir, "sessions")
 	countSessions := func() int {
