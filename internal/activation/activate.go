@@ -289,19 +289,25 @@ func liveMCPSmoke(ctx context.Context, c config.Config, expectedVersion string) 
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		return fmt.Errorf("MCP public tool manifest mismatch")
 	}
-	actionSchema, err := call(3, "tools/call", map[string]any{
-		"name": "schema", "arguments": map[string]any{"path": "train/review-resolve"},
+	statusCall, err := call(3, "tools/call", map[string]any{
+		"name": "status", "arguments": map[string]any{},
 	})
 	if err != nil {
-		return fmt.Errorf("review-resolve schema smoke: %w", err)
+		return fmt.Errorf("status smoke: %w", err)
 	}
-	actionResult, ok := actionSchema["result"].(map[string]any)
+	statusResult, ok := statusCall["result"].(map[string]any)
 	if !ok {
-		return fmt.Errorf("review-resolve schema result missing")
+		return fmt.Errorf("status result missing")
 	}
-	structured, ok := actionResult["structuredContent"].(map[string]any)
-	if !ok || structured["kind"] != "action" || structured["path"] != "train/review-resolve" {
-		return fmt.Errorf("review-resolve schema/registry parity mismatch")
+	structured, ok := statusResult["structuredContent"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("status structured result missing")
+	}
+	if _, ok := structured["ready"].(bool); !ok {
+		return fmt.Errorf("status readiness field missing")
+	}
+	if _, ok := structured["gateways"].([]any); !ok {
+		return fmt.Errorf("status gateways field missing")
 	}
 	return nil
 }

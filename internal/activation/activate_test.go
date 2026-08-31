@@ -71,7 +71,7 @@ func manifestSmokeServer(t *testing.T, manifest []string) *httptest.Server {
 			}
 			response["result"] = map[string]any{"tools": tools}
 		} else if request.Method == "tools/call" {
-			response["result"] = map[string]any{"structuredContent": map[string]any{"kind": "action", "path": "train/review-resolve"}}
+			response["result"] = map[string]any{"structuredContent": map[string]any{"ready": true, "gateways": []any{map[string]any{"key": "test", "ready": true}}, "captured_at": "2026-08-30T00:00:00Z"}}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(response)
