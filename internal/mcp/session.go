@@ -48,6 +48,8 @@ func existingSessionRoleContext(ctx context.Context, role string) (context.Conte
 		return authority.WithPlanner(bootstrapContext), nil
 	case durableSession.RoleDelivery:
 		return authority.WithDelivery(bootstrapContext), nil
+	case durableSession.RoleAgent:
+		return authority.WithAgent(bootstrapContext), nil
 	default:
 		return nil, fmt.Errorf("unsupported persisted session role %q", role)
 	}

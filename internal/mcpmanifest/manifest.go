@@ -2,10 +2,11 @@ package mcpmanifest
 
 var canonicalTools = []string{
 	"status",
+	"guide",
+	"projects",
 	"session_start",
 	"schema",
 	"call",
-	"batch",
 }
 
 // CanonicalToolNames returns the stable public MCP transport inventory.

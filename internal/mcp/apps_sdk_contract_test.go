@@ -77,7 +77,6 @@ func TestToolAnnotationsMatchActualSideEffects(t *testing.T) {
 			t.Errorf("%s annotations=%+v want %+v", name, got, want)
 		}
 	}
-	assert("call", destructiveExternalAnnotations())
-	assert("batch", destructiveExternalAnnotations())
+	assert("call", additiveExternalAnnotations())
 	assert("schema", readOnlyAnnotations())
 }

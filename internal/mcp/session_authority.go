@@ -199,6 +199,8 @@ func (s *Server) resolveSessionAuthority(ctx context.Context, record durableSess
 			roleContext = authority.WithPlanner(roleContext)
 		case durableSession.RoleDelivery:
 			roleContext = authority.WithDelivery(roleContext)
+		case durableSession.RoleAgent:
+			roleContext = authority.WithAgent(roleContext)
 		default:
 			return nil, fmt.Errorf("session role %q is invalid", record.Role)
 		}
@@ -231,6 +233,8 @@ func (s *Server) resolveSessionAuthority(ctx context.Context, record durableSess
 		roleContext = authority.WithPlanner(roleContext)
 	case durableSession.RoleDelivery:
 		roleContext = authority.WithDelivery(roleContext)
+	case durableSession.RoleAgent:
+		roleContext = authority.WithAgent(roleContext)
 	default:
 		return nil, fmt.Errorf("session role %q is invalid", record.Role)
 	}

@@ -164,7 +164,7 @@ func TestStatusRemainsStandaloneAndRetiredSystemToolsStayHidden(t *testing.T) {
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "status", "arguments": map[string]any{}},
 	})))
-	if status["runtime_identity"] == nil || status["registered_projects"] == nil {
+	if status["ready"] == nil || status["gateways"] == nil || status["captured_at"] == nil {
 		t.Fatalf("standalone status failed: %#v", status)
 	}
 	for _, retired := range []string{"system_ping", "bootstrap"} {
@@ -178,7 +178,7 @@ func TestStatusRemainsStandaloneAndRetiredSystemToolsStayHidden(t *testing.T) {
 	}
 	root := callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "system"}},
+		"params": map[string]any{"name": "schema", "arguments": map[string]any{"session": genericSession(t, server.Service, "example"), "path": "system"}},
 	}))
 	result, ok := root["result"].(map[string]any)
 	if !ok || result["isError"] == true {

@@ -84,9 +84,13 @@ func removeRequiredKey(value any, remove string) []string {
 	return result
 }
 func genericCallInputSchema() map[string]any {
+	session := str("Existing durable project-bound session identifier.")
+	session["minLength"] = 1
+	action := str("Server-owned application action path.")
+	action["minLength"] = 1
 	schema := obj(map[string]any{
-		"session": str("Existing durable project-bound session identifier."),
-		"action":  str("Server-owned action path; inspect schema for available actions."),
+		"session": session,
+		"action":  action,
 		"input":   map[string]any{"type": "object", "additionalProperties": true, "description": "Generic action input validated by the server-owned action contract."},
 	}, "session", "action", "input")
 	return schema

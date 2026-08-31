@@ -40,7 +40,8 @@ func TestToolsListAndToolResultsUseObjects(t *testing.T) {
 	if _, ok := result["tools"].([]any); !ok {
 		t.Fatalf("tools missing: %#v", result)
 	}
-	call := []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"schema","arguments":{"path":""}}}`)
+	sessionID := genericSession(t, srv.Service, "example")
+	call := mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"session": sessionID, "path": ""}}})
 	req = httptest.NewRequest(http.MethodPost, "http://127.0.0.1:1/mcp", bytes.NewReader(call))
 	req.Host = "127.0.0.1:1"
 	req.RemoteAddr = "127.0.0.1:1234"

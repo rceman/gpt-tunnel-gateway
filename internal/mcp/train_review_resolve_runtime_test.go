@@ -15,7 +15,7 @@ func TestTrainReviewResolveSchemaAndDispatchParity(t *testing.T) {
 
 	schema := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "train/review-resolve"}},
+		"params": map[string]any{"name": "schema", "arguments": map[string]any{"session": sessionID, "path": "train/review-resolve"}},
 	})))
 	if schema["kind"] != "action" || schema["path"] != "train/review-resolve" {
 		t.Fatalf("review-resolve schema was not discoverable: %#v", schema)

@@ -41,7 +41,7 @@ func TestGenericRegisteredActionDiscoveryCallAndBatchFailureContinuation(t *test
 
 	contract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "test/echo"}},
+		"params": map[string]any{"name": "schema", "arguments": map[string]any{"session": sessionID, "path": "test/echo"}},
 	})))
 	if contract["kind"] != "action" || contract["path"] != "test/echo" {
 		t.Fatalf("unexpected action contract: %#v", contract)
@@ -58,21 +58,18 @@ func TestGenericRegisteredActionDiscoveryCallAndBatchFailureContinuation(t *test
 		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/echo", "input": map[string]any{"wrong": true}}},
 	})))
-	if _, ok := invalid["action"]; ok || invalid["is_error"] != true || !strings.Contains(invalid["result"].(map[string]any)["error"].(string), `schema with path="test/echo"`) {
+	errorValue, _ := invalid["result"].(map[string]any)["error"].(map[string]any)
+	if _, ok := invalid["action"]; ok || invalid["is_error"] != true || !strings.Contains(errorValue["message"].(string), `schema with path="test/echo"`) {
 		t.Fatalf("generic validation error was not actionable: %#v", invalid)
 	}
 
-	batch := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+	unknown := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]any{"name": "batch", "arguments": map[string]any{"session_id": sessionID, "calls": []any{
-			map[string]any{"action": "test/echo", "input": map[string]any{"value": "first"}},
-			map[string]any{"action": "missing/action", "input": map[string]any{}},
-			map[string]any{"action": "test/echo", "input": map[string]any{"value": "last"}},
-		}}},
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "missing/action", "input": map[string]any{}}},
 	})))
-	results := batch["results"].([]any)
-	if len(results) != 3 || results[0].(map[string]any)["action"] != "test/echo" || results[1].(map[string]any)["action"] != "missing/action" || results[1].(map[string]any)["is_error"] != true || results[2].(map[string]any)["action"] != "test/echo" || results[2].(map[string]any)["is_error"] != false {
-		t.Fatalf("batch did not preserve ordered continuation: %#v", batch)
+	unknownError, _ := unknown["result"].(map[string]any)["error"].(map[string]any)
+	if unknown["is_error"] != true || !strings.Contains(unknownError["message"].(string), "unknown action") {
+		t.Fatalf("unknown action did not fail closed: %#v", unknown)
 	}
 }
 func TestGenericLegacyReadAndMutationAuthorityReuse(t *testing.T) {
@@ -85,7 +82,8 @@ func TestGenericLegacyReadAndMutationAuthorityReuse(t *testing.T) {
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "system/ping", "input": map[string]any{}}},
 	})))
-	if generic["is_error"] != true || !strings.Contains(generic["result"].(map[string]any)["error"].(string), "unknown action") {
+	genericError, _ := generic["result"].(map[string]any)["error"].(map[string]any)
+	if generic["is_error"] != true || !strings.Contains(genericError["message"].(string), "unknown action") {
 		t.Fatalf("system/ping remained routable through generic registry: %#v", generic)
 	}
 
@@ -97,18 +95,18 @@ func TestGenericLegacyReadAndMutationAuthorityReuse(t *testing.T) {
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/policy", "input": map[string]any{"value": "ok"}}},
 	}))
 	unauthorizedResult := genericStructured(t, unauthorized)
-	if unauthorizedResult["is_error"] != true || !strings.Contains(unauthorizedResult["result"].(map[string]any)["error"].(string), "AUTHORITY_UNAVAILABLE") {
+	unauthorizedError, _ := unauthorizedResult["result"].(map[string]any)["error"].(map[string]any)
+	if unauthorizedResult["is_error"] != true || !strings.Contains(unauthorizedError["message"].(string), "AUTHORITY_UNAVAILABLE") {
 		t.Fatalf("generic mutation did not reuse authority enforcement: %#v", unauthorizedResult)
 	}
 }
 func TestGenericTransportEnvelopeAndActionPathContracts(t *testing.T) {
 	callSchema := genericCallOutputSchema()
-	callProperties := callSchema["properties"].(map[string]any)
-	if len(callProperties) != 2 {
-		t.Fatalf("single-call schema has unexpected properties: %#v", callProperties)
+	if callSchema["type"] != "object" {
+		t.Fatalf("single-call schema has unexpected type: %#v", callSchema)
 	}
-	if _, ok := callProperties["action"]; ok {
-		t.Fatal("single-call schema still exposes action")
+	if _, ok := callSchema["oneOf"]; !ok {
+		t.Fatalf("single-call schema is missing success/failure alternatives: %#v", callSchema)
 	}
 	batchSchema := genericBatchOutputSchema()
 	items := batchSchema["properties"].(map[string]any)["results"].(map[string]any)["items"].(map[string]any)

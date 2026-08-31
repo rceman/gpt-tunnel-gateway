@@ -6,45 +6,44 @@ import (
 	"testing"
 )
 
-// adr74MCPV1Fixture is the protected transport contract. Application actions
+// adr84MCPV1Fixture is the protected transport contract. Application actions
 // remain discoverable through schema and are intentionally absent here.
-var adr74MCPV1Fixture = map[string]struct {
+var adr84MCPV1Fixture = map[string]struct {
 	required   []string
 	properties map[string]string
 }{
 	"status":        {required: []string{}, properties: map[string]string{}},
-	"session_start": {required: []string{"role"}, properties: map[string]string{"role": "string", "label": "string"}},
-	"schema":        {required: []string{}, properties: map[string]string{"path": "string"}},
+	"guide":         {required: []string{}, properties: map[string]string{}},
+	"projects":      {required: []string{"gateway"}, properties: map[string]string{"gateway": "string"}},
+	"session_start": {required: []string{"gateway", "project", "role"}, properties: map[string]string{"gateway": "string", "project": "string", "role": "string", "ref": "string"}},
+	"schema":        {required: []string{"session"}, properties: map[string]string{"session": "string", "path": "string"}},
 	"call": {required: []string{"session", "action", "input"}, properties: map[string]string{
 		"session": "string", "action": "string", "input": "object",
 	}},
-	"batch": {required: []string{"session", "calls"}, properties: map[string]string{
-		"session": "string", "calls": "array",
-	}},
 }
 
-func TestADR74MCPV1ProtectedInputFixture(t *testing.T) {
+func TestADR84MCPV1ProtectedInputFixture(t *testing.T) {
 	server := newSessionTestServer(t)
 	httpServer := httptest.NewServer(server.Router())
 	defer httpServer.Close()
 	client := &frozenConnectorClient{http: httpServer.Client(), endpoint: httpServer.URL + "/mcp", methods: map[string]int{}}
 	tools := client.request(t, "tools/list", map[string]any{})["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != len(adr74MCPV1Fixture) {
-		t.Fatalf("protected tool count=%d want=%d", len(tools), len(adr74MCPV1Fixture))
+	if len(tools) != len(adr84MCPV1Fixture) {
+		t.Fatalf("protected tool count=%d want=%d", len(tools), len(adr84MCPV1Fixture))
 	}
 	seen := make([]string, 0, len(tools))
 	for _, raw := range tools {
 		tool := raw.(map[string]any)
 		name := tool["name"].(string)
-		fixture, ok := adr74MCPV1Fixture[name]
+		fixture, ok := adr84MCPV1Fixture[name]
 		if !ok {
 			t.Fatalf("unexpected protected tool %q", name)
 		}
 		seen = append(seen, name)
-		assertADR74InputSchema(t, name, tool["inputSchema"].(map[string]any), fixture)
+		assertADR84InputSchema(t, name, tool["inputSchema"].(map[string]any), fixture)
 	}
 	sort.Strings(seen)
-	want := []string{"batch", "call", "schema", "session_start", "status"}
+	want := []string{"call", "guide", "projects", "schema", "session_start", "status"}
 	if len(seen) != len(want) {
 		t.Fatalf("protected tools=%v want=%v", seen, want)
 	}
@@ -55,7 +54,7 @@ func TestADR74MCPV1ProtectedInputFixture(t *testing.T) {
 	}
 }
 
-func assertADR74InputSchema(t *testing.T, name string, schema map[string]any, fixture struct {
+func assertADR84InputSchema(t *testing.T, name string, schema map[string]any, fixture struct {
 	required   []string
 	properties map[string]string
 }) {
@@ -93,16 +92,5 @@ func assertADR74InputSchema(t *testing.T, name string, schema map[string]any, fi
 		if got[i] != property {
 			t.Fatalf("%s required=%#v want=%v", name, got, fixture.required)
 		}
-	}
-	if name == "batch" {
-		calls := properties["calls"].(map[string]any)
-		if calls["maxItems"] != float64(genericBatchMaxItems) {
-			t.Fatalf("batch maxItems=%#v", calls["maxItems"])
-		}
-		item := calls["items"].(map[string]any)
-		assertADR74InputSchema(t, "batch item", item, struct {
-			required   []string
-			properties map[string]string
-		}{required: []string{"action", "input"}, properties: map[string]string{"action": "string", "input": "object"}})
 	}
 }

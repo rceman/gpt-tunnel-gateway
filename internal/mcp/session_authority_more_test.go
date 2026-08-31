@@ -33,7 +33,7 @@ func TestGenericAuthorityRequiresDurableWorkflowPolicy(t *testing.T) {
 	var calls int
 	registerAuthorityTestAction(t, server, "test/policy", durableSession.RoleDelivery, true, &calls)
 	result := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/policy", "input": map[string]any{"value": "ok"}}}})))
-	message := result["result"].(map[string]any)["error"].(string)
+	message := result["result"].(map[string]any)["error"].(map[string]any)["message"].(string)
 	if result["is_error"] != true || !strings.Contains(message, "workflow policy") || calls != 0 {
 		t.Fatalf("missing policy did not fail closed: result=%#v calls=%d", result, calls)
 	}
@@ -103,16 +103,16 @@ func TestGenericSessionRejectsInvalidAndEndedAuthority(t *testing.T) {
 	var calls int
 	registerAuthorityTestAction(t, server, "test/delivery", durableSession.RoleDelivery, false, &calls)
 	invalidResponse := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": "S-0000000", "action": "test/delivery", "input": map[string]any{"value": "x"}}}}))
-	invalid, ok := invalidResponse["result"].(map[string]any)
-	if !ok || invalid["isError"] != true {
+	invalid := genericStructured(t, invalidResponse)
+	if invalid["is_error"] != true {
 		t.Fatalf("invalid session was accepted: %#v", invalid)
 	}
 	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT}))
 	sessionID := started["session"].(map[string]any)["session_id"].(string)
 	_ = genericStructured(t, sessionCall(t, server, map[string]any{"action": "end", "session_id": sessionID}))
 	endedResponse := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/delivery", "input": map[string]any{"value": "x"}}}}))
-	ended, ok := endedResponse["result"].(map[string]any)
-	if !ok || ended["isError"] != true || calls != 0 {
+	ended := genericStructured(t, endedResponse)
+	if ended["is_error"] != true || calls != 0 {
 		t.Fatalf("ended session was accepted: result=%#v calls=%d", ended, calls)
 	}
 }

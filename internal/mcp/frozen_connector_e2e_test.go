@@ -105,7 +105,7 @@ func frozenResult(t *testing.T, response map[string]any) map[string]any {
 	return structured
 }
 
-func TestADR74FrozenConnectorContract(t *testing.T) {
+func TestADR84FrozenConnectorContract(t *testing.T) {
 	server := newSessionTestServer(t)
 	httpServer := httptest.NewUnstartedServer(server.Router())
 	httpServer.Start()
@@ -116,14 +116,14 @@ func TestADR74FrozenConnectorContract(t *testing.T) {
 		endpoint: httpServer.URL + "/mcp",
 		methods:  map[string]int{},
 	}
-	initialized := client.request(t, "initialize", map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "adr74-test", "version": "1"}})
+	initialized := client.request(t, "initialize", map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "adr84-test", "version": "1"}})
 	if initialized["error"] != nil {
 		t.Fatalf("initialize failed: %#v", initialized)
 	}
 	client.notify(t, "notifications/initialized")
 	tools := client.request(t, "tools/list", map[string]any{})
 	rawTools := tools["result"].(map[string]any)["tools"].([]any)
-	wantTools := map[string]bool{"status": true, "session_start": true, "schema": true, "call": true, "batch": true}
+	wantTools := map[string]bool{"status": true, "guide": true, "projects": true, "session_start": true, "schema": true, "call": true}
 	if len(rawTools) != len(wantTools) {
 		t.Fatalf("tools/list=%#v", rawTools)
 	}
@@ -140,47 +140,27 @@ func TestADR74FrozenConnectorContract(t *testing.T) {
 	status := frozenResult(t, client.request(t, "tools/call", map[string]any{
 		"name": "status", "arguments": map[string]any{},
 	}))
-	if status["status"] == "" || status["recommended_next_action"] == "" {
+	if _, ok := status["ready"].(bool); !ok || len(status["gateways"].([]any)) != 1 || status["captured_at"] == "" {
 		t.Fatalf("status is incomplete: %#v", status)
 	}
-	if _, ok := status["time"]; ok {
-		t.Fatal("status exposed non-canonical time")
-	}
-	registered := status["registered_projects"].(map[string]any)
-	if _, ok := registered["has_more"].(bool); !ok {
-		t.Fatalf("status omitted registered-project has_more: %#v", status)
-	}
 	started := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "session_start", "arguments": map[string]any{"role": durableSession.RolePlanner, "label": "connector"},
+		"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "example", "role": durableSession.RolePlanner, "ref": "connector"},
 	}))
 	sessionID := started["session"].(string)
-	if _, ok := started["recommended_next_action"].(string); !ok {
-		t.Fatalf("session_start omitted recommended_next_action: %#v", started)
-	}
-	if _, ok := started["next_steps"]; ok {
-		t.Fatal("session_start returned deprecated next_steps")
-	}
 	record, err := durableSession.NewStore(server.Service.Config.StateDir).Get(sessionID)
-	if err != nil || record.ProjectID != "" || record.Role != durableSession.RolePlanner || record.Status != durableSession.StatusActive || record.Label == nil || *record.Label != "connector" {
-		t.Fatalf("session_start did not create an unbound Planner session: %#v err=%v", record, err)
-	}
-	frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "session/update", "input": map[string]any{"project_id": "example"}},
-	}))
-	record, err = durableSession.NewStore(server.Service.Config.StateDir).Get(sessionID)
-	if err != nil || record.ProjectID != "example" {
-		t.Fatalf("session/bind did not bind session: %#v err=%v", record, err)
+	if err != nil || record.ProjectID != "example" || record.Role != durableSession.RolePlanner || record.Status != durableSession.StatusActive || record.SessionRef == nil || *record.SessionRef != "connector" {
+		t.Fatalf("session_start did not create the bound Planner session: %#v err=%v", record, err)
 	}
 	for _, path := range []string{"", "project", "project/status"} {
 		contract := frozenResult(t, client.request(t, "tools/call", map[string]any{
-			"name": "schema", "arguments": map[string]any{"path": path},
+			"name": "schema", "arguments": map[string]any{"session": sessionID, "path": path},
 		}))
 		if contract["path"] != path {
 			t.Fatalf("schema(%q) returned %#v", path, contract)
 		}
 	}
 	updateContract := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "schema", "arguments": map[string]any{"path": "session/update"},
+		"name": "schema", "arguments": map[string]any{"session": sessionID, "path": "session/update"},
 	}))
 	if updateContract["path"] != "session/update" {
 		t.Fatalf("session/update was not discoverable as an application action: %#v", updateContract)
@@ -195,7 +175,7 @@ func TestADR74FrozenConnectorContract(t *testing.T) {
 	call := frozenResult(t, client.request(t, "tools/call", map[string]any{
 		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}},
 	}))
-	if call["is_error"] == true {
+	if call["ok"] != true {
 		t.Fatalf("call failed: %#v", call)
 	}
 	missing := client.request(t, "tools/call", map[string]any{
@@ -207,8 +187,8 @@ func TestADR74FrozenConnectorContract(t *testing.T) {
 	unknownResponse := client.request(t, "tools/call", map[string]any{
 		"name": "call", "arguments": map[string]any{"session": "SP-INVALID1", "action": "rules/read", "input": map[string]any{}},
 	})
-	unknownResult := unknownResponse["result"].(map[string]any)
-	if unknownResult["isError"] != true {
+	unknownResult := frozenResult(t, unknownResponse)
+	if unknownResult["ok"] != false {
 		t.Fatalf("unknown session was accepted: %#v", unknownResponse)
 	}
 	retired := client.request(t, "tools/call", map[string]any{
@@ -217,20 +197,15 @@ func TestADR74FrozenConnectorContract(t *testing.T) {
 	if retired["error"] == nil {
 		t.Fatalf("session_update remained callable: %#v", retired)
 	}
-	batch := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "batch",
-		"arguments": map[string]any{"session": sessionID, "calls": []any{
-			map[string]any{"action": "rules/read", "input": map[string]any{}},
-			map[string]any{"action": "rules/read", "input": map[string]any{}},
-		}},
-	}))
-	results := batch["results"].([]any)
-	if len(results) != 2 || results[0].(map[string]any)["action"] != "rules/read" || results[1].(map[string]any)["action"] != "rules/read" {
-		t.Fatalf("deployed action batch failed: %#v", batch)
+	retiredBatch := client.request(t, "tools/call", map[string]any{
+		"name": "batch", "arguments": map[string]any{},
+	})
+	if retiredBatch["error"] == nil {
+		t.Fatalf("retired batch tool remained callable: %#v", retiredBatch)
 	}
 }
 
-func TestADR74V1RuntimeActionDoesNotRefreshConnector(t *testing.T) {
+func TestADR84RuntimeActionDoesNotRefreshConnector(t *testing.T) {
 	server := newSessionTestServer(t)
 	var connections atomic.Int32
 	httpServer := httptest.NewUnstartedServer(server.Router())
@@ -242,13 +217,13 @@ func TestADR74V1RuntimeActionDoesNotRefreshConnector(t *testing.T) {
 	httpServer.Start()
 	defer httpServer.Close()
 	client := &frozenConnectorClient{http: httpServer.Client(), endpoint: httpServer.URL + "/mcp", methods: map[string]int{}}
-	initialized := client.request(t, "initialize", map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "adr74-no-refresh", "version": "1"}})
+	initialized := client.request(t, "initialize", map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "adr84-no-refresh", "version": "1"}})
 	if initialized["error"] != nil {
 		t.Fatalf("initialize failed: %#v", initialized)
 	}
 	client.notify(t, "notifications/initialized")
 	client.request(t, "tools/list", map[string]any{})
-	started := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "session_start", "arguments": map[string]any{"role": durableSession.RolePlanner}}))
+	started := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "example", "role": durableSession.RolePlanner}}))
 	sessionID := started["session"].(string)
 	connectionsBefore := connections.Load()
 	if err := server.RegisterGenericAction(GenericAction{
@@ -258,13 +233,12 @@ func TestADR74V1RuntimeActionDoesNotRefreshConnector(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "session/update", "input": map[string]any{"project_id": "example"}}}))
-	contract := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "schema", "arguments": map[string]any{"path": "frozen/runtime_probe"}}))
+	contract := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "schema", "arguments": map[string]any{"session": sessionID, "path": "frozen/runtime_probe"}}))
 	if contract["path"] != "frozen/runtime_probe" {
 		t.Fatalf("runtime action was not discovered: %#v", contract)
 	}
 	call := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "frozen/runtime_probe", "input": map[string]any{}}}))
-	if call["is_error"] != false || call["result"].(map[string]any)["ok"] != true {
+	if call["ok"] != true || call["result"].(map[string]any)["ok"] != true {
 		t.Fatalf("runtime action call failed: %#v", call)
 	}
 	if client.methods["initialize"] != 1 || client.methods["tools/list"] != 1 || connections.Load() != connectionsBefore {

@@ -24,6 +24,13 @@ func WithDelivery(ctx context.Context) context.Context {
 	return context.WithValue(ctx, contextKey{}, delivery)
 }
 
+// WithAgent marks the server-authorized Agent role used by a durable session.
+// Agent sessions may be created only through the trusted bootstrap boundary;
+// ordinary action authority remains distinct from Planner/Delivery control.
+func WithAgent(ctx context.Context) context.Context {
+	return context.WithValue(ctx, contextKey{}, role("agent"))
+}
+
 // WithPlannerOrDelivery is the daemon's narrowly scoped bootstrap authority.
 // It can authorize creation of either durable project session role, but it is
 // intentionally not accepted by role-specific RequirePlanner/RequireDelivery
@@ -85,8 +92,15 @@ func RequireDelivery(ctx context.Context) error {
 	return nil
 }
 
+func RequireAgent(ctx context.Context) error {
+	if v, ok := ctx.Value(contextKey{}).(role); !ok || v != role("agent") {
+		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
+	}
+	return nil
+}
+
 func RequireRole(ctx context.Context, wanted string) error {
-	if v, ok := ctx.Value(contextKey{}).(role); ok && v == plannerOrDelivery && (wanted == "planner" || wanted == "delivery") {
+	if v, ok := ctx.Value(contextKey{}).(role); ok && v == plannerOrDelivery && (wanted == "planner" || wanted == "delivery" || wanted == "agent") {
 		return nil
 	}
 	switch wanted {
@@ -94,6 +108,8 @@ func RequireRole(ctx context.Context, wanted string) error {
 		return RequirePlanner(ctx)
 	case "delivery":
 		return RequireDelivery(ctx)
+	case "agent":
+		return RequireAgent(ctx)
 	default:
 		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
 	}

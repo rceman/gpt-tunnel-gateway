@@ -20,7 +20,7 @@ type agentADR81Trace struct {
 
 func agentADR81Metadata(t *testing.T, trace agentADR81Trace) map[string]any {
 	t.Helper()
-	if !reflect.DeepEqual(trace.References, []string{"GTW-ADR85", "GTW-ADR83"}) {
+	if !reflect.DeepEqual(trace.References, []string{"GTW-ADR84", "GTW-ADR83"}) {
 		t.Fatalf("ADR81 references=%v", trace.References)
 	}
 	if trace.Why == "" {
@@ -35,7 +35,8 @@ func agentADR81Metadata(t *testing.T, trace agentADR81Trace) map[string]any {
 
 func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 	s, revision := newWorkflowPolicyStatusService(t)
-	seedMCPTestCodingAgent(t, s, revision)
+	revision = seedMCPTestCodingAgent(t, s, revision)
+	_ = ensureMCPTestProjectIdentifiers(t, s)
 	command := filepath.Join(t.TempDir(), "airelay")
 	if err := os.WriteFile(command, []byte("#!/bin/sh\ncase \"$1\" in\nsession-status) printf 'Controller: reachable\\nState: idle\\n' ;;\ntail) printf 'public e2e\\n' ;;\nprompt) printf 'sent\\n' ;;\nesac\nexit 0\n"), 0o700); err != nil {
 		t.Fatal(err)
@@ -65,17 +66,30 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 	if !ok {
 		t.Fatalf("tools/list tools=%#v", toolResult["tools"])
 	}
-	if len(toolList) != 5 {
-		t.Fatalf("top-level tool count=%d, want 5", len(toolList))
+	if len(toolList) != 6 {
+		t.Fatalf("top-level tool count=%d, want 6", len(toolList))
+	}
+
+	started := frozenResult(t, client.request(t, "tools/call", map[string]any{
+		"name": "session_start",
+		"arguments": map[string]any{
+			"gateway": "test_gateway",
+			"project": "example",
+			"role":    "delivery",
+		},
+	}))
+	sessionID, ok := started["session"].(string)
+	if !ok || sessionID == "" {
+		t.Fatalf("session_start did not return a session: %#v", started)
 	}
 
 	schemaMeta := agentADR81Metadata(t, agentADR81Trace{
-		References: []string{"GTW-ADR85", "GTW-ADR83"},
-		Why:        "ADR81 records the public Agent action inventory and ADR85/ADR83 define its canonical Agent naming and contract.",
+		References: []string{"GTW-ADR84", "GTW-ADR83"},
+		Why:        "ADR81 records the public Agent action inventory and ADR84/ADR83 define its canonical Agent naming and contract.",
 	})
 	schema := frozenResult(t, client.requestWithMeta(t, "tools/call", map[string]any{
 		"name":      "schema",
-		"arguments": map[string]any{"path": "agent"},
+		"arguments": map[string]any{"session": sessionID, "path": "agent"},
 	}, schemaMeta))
 	actions, ok := schema["actions"].([]any)
 	if !ok || len(actions) != 6 {
@@ -103,10 +117,10 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 	for _, action := range wantActions {
 		contract := frozenResult(t, client.requestWithMeta(t, "tools/call", map[string]any{
 			"name":      "schema",
-			"arguments": map[string]any{"path": action},
+			"arguments": map[string]any{"session": sessionID, "path": action},
 		}, agentADR81Metadata(t, agentADR81Trace{
-			References: []string{"GTW-ADR85", "GTW-ADR83"},
-			Why:        "ADR81 ties each public Agent action schema to the canonical ADR85/ADR83 naming and routing contract.",
+			References: []string{"GTW-ADR84", "GTW-ADR83"},
+			Why:        "ADR81 ties each public Agent action schema to the canonical ADR84/ADR83 naming and routing contract.",
 		})))
 		if contract["path"] != action {
 			t.Fatalf("schema(%s) returned %#v", action, contract)
@@ -115,29 +129,6 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 			t.Fatalf("schema(%s) omitted input_schema: %#v", action, contract)
 		}
 		contracts[action] = contract["contract"].(map[string]any)
-	}
-
-	started := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "session_start",
-		"arguments": map[string]any{
-			"role":  "delivery",
-			"label": "tsk443-agent-e2e",
-		},
-	}))
-	sessionID, ok := started["session"].(string)
-	if !ok || sessionID == "" {
-		t.Fatalf("session_start did not return a session: %#v", started)
-	}
-	bound := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "call",
-		"arguments": map[string]any{
-			"session": sessionID,
-			"action":  "session/update",
-			"input":   map[string]any{"project_id": "example"},
-		},
-	}))
-	if bound["is_error"] == true {
-		t.Fatalf("session binding failed: %#v", bound)
 	}
 
 	call := func(action string, input map[string]any, why string) map[string]any {
@@ -161,10 +152,10 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 				"input":   input,
 			},
 		}, agentADR81Metadata(t, agentADR81Trace{
-			References: []string{"GTW-ADR85", "GTW-ADR83"},
+			References: []string{"GTW-ADR84", "GTW-ADR83"},
 			Why:        why,
 		})))
-		if structured["is_error"] == true {
+		if structured["ok"] != true {
 			t.Fatalf("%s failed: %#v", action, structured)
 		}
 		result, ok := structured["result"].(map[string]any)
@@ -174,11 +165,11 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 		return result
 	}
 
-	list := call("agent/list", map[string]any{}, "ADR81 traces the canonical list action under the ADR85/ADR83 Agent surface.")
+	list := call("agent/list", map[string]any{}, "ADR81 traces the canonical list action under the ADR84/ADR83 Agent surface.")
 	if agents, ok := list["agents"].([]any); !ok || len(agents) != 1 {
 		t.Fatalf("agent/list result=%#v", list)
 	}
-	status := call("agent/status", map[string]any{"agent": "coding-example"}, "ADR81 traces compact status naming under the ADR85/ADR83 Agent surface.")
+	status := call("agent/status", map[string]any{"agent": "coding-example"}, "ADR81 traces compact status naming under the ADR84/ADR83 Agent surface.")
 	if status["agent"] != "coding-example" {
 		t.Fatalf("agent/status result=%#v", status)
 	}
@@ -186,17 +177,17 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 	if awaited["agent"] != "coding-example" {
 		t.Fatalf("agent/await result=%#v", awaited)
 	}
-	tail := call("agent/tail", map[string]any{"agent": "coding-example", "lines": 1}, "ADR81 traces the canonical tail action and ADR85/ADR83 Agent naming.")
+	tail := call("agent/tail", map[string]any{"agent": "coding-example", "lines": 1}, "ADR81 traces the canonical tail action and ADR84/ADR83 Agent naming.")
 	if tail["agent"] != "coding-example" {
 		t.Fatalf("agent/tail result=%#v", tail)
 	}
-	prompt := call("agent/prompt", map[string]any{"agent": "coding-example", "message": "tsk443 public E2E"}, "ADR81 traces prompt dispatch through the ADR85/ADR83 Agent contract.")
+	prompt := call("agent/prompt", map[string]any{"agent": "coding-example", "message": "tsk443 public E2E"}, "ADR81 traces prompt dispatch through the ADR84/ADR83 Agent contract.")
 	promptOperation, ok := prompt["operation"].(string)
 	if !ok || promptOperation == "" || prompt["status"] != "accepted" {
 		t.Fatalf("agent/prompt result=%#v", prompt)
 	}
 	waitAgentOperationTerminal(t, s, sessionID, promptOperation, "agent-prompt")
-	interrupt := call("agent/interrupt", map[string]any{"agent": "coding-example"}, "ADR81 traces interrupt dispatch through the ADR85/ADR83 Agent contract.")
+	interrupt := call("agent/interrupt", map[string]any{"agent": "coding-example"}, "ADR81 traces interrupt dispatch through the ADR84/ADR83 Agent contract.")
 	interruptOperation, ok := interrupt["operation"].(string)
 	if !ok || interruptOperation == "" || interrupt["status"] != "accepted" {
 		t.Fatalf("agent/interrupt result=%#v", interrupt)

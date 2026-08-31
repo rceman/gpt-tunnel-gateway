@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
@@ -42,6 +43,15 @@ func genericStructured(t *testing.T, response map[string]any) map[string]any {
 	if !ok {
 		t.Fatalf("missing structured content: %#v", response)
 	}
+	// Older application-behavior tests consume the dispatcher projection. The
+	// public transport is ADR84-shaped; keep this test helper focused on the
+	// application result while the boundary tests assert the public envelope.
+	if okValue, present := structured["ok"]; present {
+		if okValue == true {
+			return map[string]any{"result": structured["result"], "is_error": false}
+		}
+		return map[string]any{"result": map[string]any{"error": structured["error"]}, "is_error": true}
+	}
 	return structured
 }
 func TestGenericSessionStartIsDiscoverableAndCreatesPlannerSession(t *testing.T) {
@@ -75,23 +85,26 @@ func TestQueryRunUsesSharedReadOnlyDSLAndSchemaDiscovery(t *testing.T) {
 	if _, ok := result["action"]; ok || result["is_error"] == true || queryResult["entity"] != "task" {
 		t.Fatalf("query/run failed: %#v", result)
 	}
-	runContract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "query/run"}}})))
+	runContract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"session": sessionID, "path": "query/run"}}})))
 	if runContract["kind"] != "action" || runContract["path"] != "query/run" {
 		t.Fatalf("query/run action was not discoverable: %#v", runContract)
 	}
 	runDefinition := runContract["contract"].(map[string]any)
-	if runDefinition["path"] != "query/run" || runDefinition["annotations"].(map[string]any)["readOnlyHint"] != true {
+	if runDefinition["annotations"].(map[string]any)["read_only"] != true {
 		t.Fatalf("query/run contract is not read-only: %#v", runDefinition)
 	}
-	contract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "query/task"}}})))
+	legacyContract, err := server.genericSchema(server.tools(), json.RawMessage(`{"path":"query/task"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := legacyContract.(map[string]any)
 	if contract["kind"] != "query_entity" || contract["contract"].(map[string]any)["entity"] != "task" {
 		t.Fatalf("query schema=%#v", contract)
 	}
-	invalidSchema := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "query/missing"}}}))
-	if !strings.Contains(string(mustJSON(t, invalidSchema)), "query schema path") || !strings.Contains(string(mustJSON(t, invalidSchema)), "query/missing") {
-		t.Fatalf("invalid query entity was accepted: %#v", invalidSchema)
+	if _, err := server.genericSchema(server.tools(), json.RawMessage(`{"path":"query/missing"}`)); err == nil || !strings.Contains(err.Error(), "query schema path") || !strings.Contains(err.Error(), "query/missing") {
+		t.Fatalf("invalid query entity was accepted: %v", err)
 	}
-	ordinary := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "task/read"}}})))
+	ordinary := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": map[string]any{"name": "schema", "arguments": map[string]any{"session": sessionID, "path": "task/read"}}})))
 	if ordinary["kind"] != "action" || ordinary["path"] != "task/read" {
 		t.Fatalf("ordinary action schema lookup failed: %#v", ordinary)
 	}
@@ -101,10 +114,11 @@ func TestQueryRunUsesSharedReadOnlyDSLAndSchemaDiscovery(t *testing.T) {
 	}
 }
 func TestGenericTransportSchemasAreCompactAndApplicationIndependent(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
+	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"}), AuthorityContext: authority.WithDelivery(context.Background())}
 	tools := server.tools()
+	sessionID := genericSession(t, server.Service, "example")
 	staticBytes := 0
-	for _, name := range []string{"call", "schema", "batch"} {
+	for _, name := range []string{"call", "schema", "session_start"} {
 		tool, ok := tools[name]
 		if !ok {
 			t.Fatalf("generic tool %q is not registered", name)
@@ -122,7 +136,7 @@ func TestGenericTransportSchemasAreCompactAndApplicationIndependent(t *testing.T
 	t.Logf("generic static input-schema bytes=%d", staticBytes)
 	root := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "schema", "arguments": map[string]any{"path": ""}},
+		"params": map[string]any{"name": "schema", "arguments": map[string]any{"session": sessionID, "path": ""}},
 	})))
 	if root["revision"] != genericSchemaRevision || root["kind"] != "root" {
 		t.Fatalf("unexpected generic schema root: %#v", root)
@@ -130,12 +144,12 @@ func TestGenericTransportSchemasAreCompactAndApplicationIndependent(t *testing.T
 	if len(root["domains"].([]any)) == 0 {
 		t.Fatal("generic schema root has no domains")
 	}
-	before := make([]Tool, 0, len(tools)-3)
+	before := make([]Tool, 0, len(tools)-2)
 	after := make([]Tool, 0, len(tools))
 	for name, tool := range tools {
 		tool.Execute = nil
 		after = append(after, tool)
-		if name != "call" && name != "schema" && name != "batch" {
+		if name != "call" && name != "schema" {
 			before = append(before, tool)
 		}
 	}

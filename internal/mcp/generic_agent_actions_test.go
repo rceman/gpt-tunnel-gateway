@@ -191,7 +191,7 @@ func TestCanonicalAgentPublicMCPContractE2E(t *testing.T) {
 
 	schema := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "schema", "arguments": map[string]any{"path": "agent"}},
+		"params": map[string]any{"name": "schema", "arguments": map[string]any{"session": sessionID, "path": "agent"}},
 	})))
 	actions := schema["actions"].([]any)
 	paths := make([]string, 0, len(actions))

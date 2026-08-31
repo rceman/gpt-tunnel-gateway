@@ -29,12 +29,21 @@ func globalWorkflowDigest() string {
 }
 
 func sessionStartPublicInputSchema() map[string]any {
-	label := str("Optional bounded session label.")
-	label["maxLength"] = 256
+	ref := str("Optional bounded caller reference; Agent sessions require the exact Airelay session key.")
+	ref["minLength"] = 1
+	ref["maxLength"] = 256
+	gateway := str("Canonical registered Gateway key.")
+	gateway["minLength"] = 1
+	project := str("Canonical registered project key.")
+	project["minLength"] = 1
+	role := str("Server-authorized durable session role.")
+	role["minLength"] = 1
 	return obj(map[string]any{
-		"role":  str("Server-authorized durable session role."),
-		"label": label,
-	}, "role")
+		"gateway": gateway,
+		"project": project,
+		"role":    role,
+		"ref":     ref,
+	}, "gateway", "project", "role")
 }
 
 func sessionUpdatePublicInputSchema() map[string]any {
@@ -48,13 +57,30 @@ func sessionUpdatePublicInputSchema() map[string]any {
 }
 
 func sessionStartPublicOutputSchema() map[string]any {
+	gateway := closedOutput(map[string]any{
+		"key":   outputString(),
+		"label": outputString(),
+	}, "key")
+	project := closedOutput(map[string]any{
+		"key":  outputString(),
+		"name": outputString(),
+	}, "key", "name")
+	rule := closedOutput(map[string]any{
+		"key":      outputString(),
+		"revision": outputInteger(),
+		"text":     outputString(),
+	}, "key", "revision", "text")
 	return closedOutput(map[string]any{
-		"session":                 sessionIDOutputSchema(),
-		"role":                    outputString(),
-		"status":                  outputString(),
-		"label":                   outputString(),
-		"recommended_next_action": outputString(),
-	}, "session", "role", "status", "recommended_next_action")
+		"session": sessionIDOutputSchema(),
+		"gateway": gateway,
+		"project": project,
+		"role":    outputString(),
+		"ref":     outputString(),
+		"rules": closedOutput(map[string]any{
+			"digest": outputString(),
+			"items":  outputArray(rule),
+		}, "digest", "items"),
+	}, "session", "gateway", "project", "role", "rules")
 }
 
 func sessionUpdatePublicOutputSchema() map[string]any {
@@ -71,30 +97,80 @@ func sessionUpdatePublicOutputSchema() map[string]any {
 
 func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (any, error) {
 	var in struct {
-		Role  string  `json:"role"`
-		Label *string `json:"label"`
+		Gateway string  `json:"gateway"`
+		Project string  `json:"project"`
+		Role    string  `json:"role"`
+		Ref     *string `json:"ref"`
 	}
 	if err := decode(raw, &in); err != nil {
 		return nil, err
+	}
+	if in.Gateway == "" || in.Gateway != s.Service.Config.GatewayID {
+		return nil, fmt.Errorf("unknown gateway %q", in.Gateway)
+	}
+	if in.Project == "" || in.Role == "" {
+		return nil, fmt.Errorf("gateway, project, and role are required")
+	}
+	resolution, err := s.Service.EffectiveProjectSnapshot()
+	if err != nil {
+		return nil, fmt.Errorf("project registry unavailable: %w", err)
+	}
+	project, ok := resolution.Projects[in.Project]
+	if !ok {
+		return nil, fmt.Errorf("unknown project %q", in.Project)
+	}
+	if in.Role == durableSession.RoleAgent && (in.Ref == nil || *in.Ref == "") {
+		return nil, fmt.Errorf("Agent session ref is required")
 	}
 	bootstrapContext, err := authority.BootstrapSessionAuthority(ctx)
 	if err != nil {
 		return nil, err
 	}
-	started, err := s.Service.SessionStartUnbound(bootstrapContext, in.Role, in.Label)
+	var sessionContext context.Context
+	switch in.Role {
+	case durableSession.RolePlanner:
+		sessionContext = authority.WithPlanner(bootstrapContext)
+	case durableSession.RoleDelivery:
+		sessionContext = authority.WithDelivery(bootstrapContext)
+	case durableSession.RoleAgent:
+		sessionContext = authority.WithAgent(bootstrapContext)
+	default:
+		return nil, fmt.Errorf("unsupported session role %q", in.Role)
+	}
+	started, err := s.Service.SessionStart(sessionContext, service.SessionStartInput{
+		ProjectID:   in.Project,
+		ProjectCode: project.ProjectCode,
+		Role:        in.Role,
+		SessionType: durableSession.SessionTypeChatGPT,
+		SessionRef:  in.Ref,
+	})
 	if err != nil {
 		return nil, err
 	}
+	rules := publicSessionRules()
 	result := map[string]any{
-		"session":                 started.Session.ID,
-		"role":                    started.Session.Role,
-		"status":                  started.Session.Status,
-		"recommended_next_action": "Call session/update through call with the returned session and project_id before project work.",
+		"session": started.Session.ID,
+		"gateway": map[string]any{"key": in.Gateway},
+		"project": map[string]any{"key": in.Project, "name": in.Project},
+		"role":    started.Session.Role,
+		"rules":   rules,
 	}
-	if started.Session.Label != nil {
-		result["label"] = *started.Session.Label
+	if started.Session.SessionRef != nil {
+		result["ref"] = *started.Session.SessionRef
 	}
 	return result, nil
+}
+
+func publicSessionRules() map[string]any {
+	content, _ := globalWorkflowRules()["content"].(string)
+	return map[string]any{
+		"digest": globalWorkflowDigest(),
+		"items": []map[string]any{{
+			"key":      "workflow",
+			"revision": 1,
+			"text":     content,
+		}},
+	}
 }
 
 func (s *Server) sessionUpdatePublic(ctx context.Context, raw json.RawMessage) (any, error) {

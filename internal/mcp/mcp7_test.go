@@ -19,7 +19,7 @@ func TestBootstrapFirstPublicSurfaceIsExact(t *testing.T) {
 	}))
 	result := response["result"].(map[string]any)
 	tools := result["tools"].([]any)
-	want := []string{"batch", "call", "schema", "session_start", "status"}
+	want := []string{"call", "guide", "projects", "schema", "session_start", "status"}
 	got := make([]string, 0, len(tools))
 	for _, raw := range tools {
 		got = append(got, raw.(map[string]any)["name"].(string))
@@ -44,18 +44,8 @@ func TestStatusReturnsCompactRuntimeProjects(t *testing.T) {
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "status", "arguments": map[string]any{}},
 	})))
-	runtime := structured["runtime_identity"].(map[string]any)
-	for _, field := range []string{"gateway_ready", "tunnel_ready", "version_match", "exact_source_match"} {
-		if _, ok := runtime[field]; !ok {
-			t.Fatalf("bootstrap runtime omitted %q: %#v", field, runtime)
-		}
-	}
-	projects := structured["registered_projects"].(map[string]any)["projects"].([]any)
-	if len(projects) != 1 || projects[0].(map[string]any)["project_id"] != "example" {
-		t.Fatalf("bootstrap project discovery=%#v", projects)
-	}
-	if structured["status"] == "" || structured["recommended_next_action"] == "" {
-		t.Fatalf("status omitted control-plane guidance: %#v", structured)
+	if _, ok := structured["ready"].(bool); !ok || len(structured["gateways"].([]any)) != 1 || structured["captured_at"] == "" {
+		t.Fatalf("status omitted canonical readiness identity: %#v", structured)
 	}
 }
 
@@ -76,10 +66,10 @@ func TestDeliverySessionStartCreatesUnboundSession(t *testing.T) {
 	before := countSessions()
 	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"role": durableSession.RoleDelivery, "label": "delivery"}},
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "example", "role": durableSession.RoleDelivery, "ref": "delivery"}},
 	}))
 	result := genericStructured(t, response)
-	if result["role"] != durableSession.RoleDelivery || result["status"] != durableSession.StatusActive || result["label"] != "delivery" {
+	if result["role"] != durableSession.RoleDelivery || result["session"] == "" || result["project"].(map[string]any)["key"] != "example" {
 		t.Fatalf("Delivery session_start result=%#v", result)
 	}
 	after := countSessions()
@@ -93,9 +83,9 @@ func TestPublicSessionStartAfterTerminationIsFreshAndBoundCallWorks(t *testing.T
 	start := func(role, label string) string {
 		result := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-			"params": map[string]any{"name": "session_start", "arguments": map[string]any{"role": role, "label": label}},
+			"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "example", "role": role, "ref": label}},
 		})))
-		if result["role"] != role || result["status"] != durableSession.StatusActive {
+		if result["role"] != role || result["session"] == "" || result["project"].(map[string]any)["key"] != "example" {
 			t.Fatalf("session_start(%q) result=%#v", role, result)
 		}
 		return result["session"].(string)
@@ -148,7 +138,8 @@ func TestPublicSessionStartAfterTerminationIsFreshAndBoundCallWorks(t *testing.T
 		"jsonrpc": "2.0", "id": 5, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": a, "action": "project/status", "input": map[string]any{}}},
 	}))
-	if result, ok := old["result"].(map[string]any); !ok || result["isError"] != true {
+	oldStructured := genericStructured(t, old)
+	if oldStructured["is_error"] != true {
 		t.Fatalf("terminated session was accepted: %#v", old)
 	}
 }
@@ -157,23 +148,14 @@ func TestProjectBoundSessionFlowUsesCodeAndSessionDerivedProject(t *testing.T) {
 	server := newSessionTestServer(t)
 	started := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"role": durableSession.RolePlanner}},
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "example", "role": durableSession.RolePlanner}},
 	})))
 	sessionID := started["session"].(string)
 	if !strings.HasPrefix(sessionID, "SP-") {
 		t.Fatalf("session ID did not embed Planner role: %q", sessionID)
 	}
-	if record, err := durableSession.NewStore(server.Service.Config.StateDir).Get(sessionID); err != nil || record.ProjectID != "" {
-		t.Fatalf("session_start was not unbound: %#v err=%v", record, err)
-	}
-	bound := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "session/update", "input": map[string]any{"project_id": "example"}}},
-	})))
-	boundRecord, _ := bound["result"].(map[string]any)
-	boundSession, _ := boundRecord["session"].(map[string]any)
-	if boundSession["project_id"] != "example" {
-		t.Fatalf("session/bind failed: %#v", bound)
+	if record, err := durableSession.NewStore(server.Service.Config.StateDir).Get(sessionID); err != nil || record.ProjectID != "example" {
+		t.Fatalf("session_start was not project-bound: %#v err=%v", record, err)
 	}
 	status := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
@@ -184,7 +166,7 @@ func TestProjectBoundSessionFlowUsesCodeAndSessionDerivedProject(t *testing.T) {
 	}
 	bad := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"role": "invalid"}},
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "example", "role": "invalid"}},
 	}))
 	if bad["error"] == nil && bad["result"].(map[string]any)["isError"] != true {
 		t.Fatalf("invalid role was accepted: %#v", bad)
@@ -198,16 +180,14 @@ func TestProjectBoundSessionFlowUsesCodeAndSessionDerivedProject(t *testing.T) {
 	}
 }
 
-func TestCallAndBatchRequireSessionEnvelopeWithoutProjectAuthority(t *testing.T) {
+func TestCallRequiresSessionEnvelopeWithoutProjectAuthority(t *testing.T) {
 	server := newSessionTestServer(t)
-	for _, name := range []string{"call", "batch"} {
-		response := callMCPRaw(t, server, mustJSON(t, map[string]any{
-			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-			"params": map[string]any{"name": name, "arguments": map[string]any{"action": "project/status", "input": map[string]any{}, "project_id": "example"}},
-		}))
-		if response["error"] == nil {
-			t.Fatalf("%s accepted a project-bearing/unbound envelope: %#v", name, response)
-		}
+	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"action": "project/status", "input": map[string]any{}, "project_id": "example"}},
+	}))
+	if response["error"] == nil {
+		t.Fatalf("call accepted a project-bearing/unbound envelope: %#v", response)
 	}
 }
 
@@ -219,8 +199,8 @@ func TestCorruptProjectCodeInSessionIDFailsClosed(t *testing.T) {
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": corrupt, "action": "project/status", "input": map[string]any{}}},
 	}))
-	result, ok := response["result"].(map[string]any)
-	if !ok || result["isError"] != true {
+	structured := genericStructured(t, response)
+	if structured["is_error"] != true {
 		t.Fatalf("corrupt project code session was accepted: %#v", response)
 	}
 }

@@ -121,22 +121,13 @@ func TestTypedAndGenericTaskListSearchStatusLimitCursorParity(t *testing.T) {
 		"limit": 2, "cursor": cursor,
 	})
 
-	batch := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]any{"name": "batch", "arguments": map[string]any{
-			"session_id": sessionID,
-			"calls":      []any{map[string]any{"action": "task/list", "input": map[string]any{"limit": 2}}},
-		}},
-	})))
-	results := batch["results"].([]any)
-	if len(results) != 1 || results[0].(map[string]any)["is_error"] != false {
-		t.Fatalf("task/list batch failed: %#v", batch)
-	}
 	direct, _ := callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{
 		"limit": 2,
 	})
-	batchResult := results[0].(map[string]any)["result"].(map[string]any)
-	assertJSONEqual(t, direct, batchResult)
+	repeat, _ := callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{
+		"limit": 2,
+	})
+	assertJSONEqual(t, direct, repeat)
 }
 
 func TestRetiredProjectListIsNotPubliclyCallable(t *testing.T) {

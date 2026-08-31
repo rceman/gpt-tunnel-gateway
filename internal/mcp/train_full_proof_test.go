@@ -4,19 +4,20 @@ import "testing"
 
 func TestTrainFullProofActionsExposeBoundedReceiptContracts(t *testing.T) {
 	server := newSessionTestServer(t)
+	sessionID := genericSession(t, server.Service, "example")
 	for _, path := range []string{"train/full-proof"} {
 		response := callMCP(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
 			"method":  "tools/call",
-			"params":  map[string]any{"name": "schema", "arguments": map[string]any{"path": path}},
+			"params":  map[string]any{"name": "schema", "arguments": map[string]any{"session": sessionID, "path": path}},
 		}))
 		structured := genericStructured(t, response)
 		contract, ok := structured["contract"].(map[string]any)
 		if !ok {
 			t.Fatalf("missing %s contract: %#v", path, structured)
 		}
-		if contract["path"] != path || contract["domain"] != "train" {
+		if structured["path"] != path || structured["kind"] != "action" {
 			t.Fatalf("unexpected %s contract: %#v", path, contract)
 		}
 		if path == "train/full-proof" {

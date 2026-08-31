@@ -114,7 +114,7 @@ func requiredOutputField(schema map[string]any, want string) bool {
 	return false
 }
 
-func TestPublicMCPV1ManifestRemainsExactlyFiveTools(t *testing.T) {
+func TestPublicMCPV1ManifestRemainsExactlySixTools(t *testing.T) {
 	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{
 		GatewayID: "v1-contract-test", StateDir: t.TempDir(),
 	}, nil)}
@@ -130,7 +130,7 @@ func TestPublicMCPV1ManifestRemainsExactlyFiveTools(t *testing.T) {
 	if _, ok := public["session_update"]; ok {
 		t.Fatal("session_update leaked into public MCP V1")
 	}
-	for _, name := range []string{"status", "session_start", "schema", "call", "batch"} {
+	for _, name := range []string{"status", "guide", "projects", "session_start", "schema", "call"} {
 		if public[name].Execute == nil {
 			t.Fatalf("public MCP V1 tool %q has no dispatch handler", name)
 		}
