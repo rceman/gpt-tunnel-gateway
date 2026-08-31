@@ -104,6 +104,9 @@ func TestCallbackActionsUsePublicCallAndSharedRegistry(t *testing.T) {
 	if registered["status"] != "registered" {
 		t.Fatalf("register=%#v", registered)
 	}
+	if registered["key"] != "http-hook" || registered["callback"] != nil {
+		t.Fatalf("register response=%#v", registered)
+	}
 	repeated := publicCallbackCall(t, server, session, "callback/register", map[string]any{
 		"callback": "http-hook", "event": model.ProjectCallbackWorkFinishedEvent,
 		"url": map[string]any{"method": "POST", "url": "https://example.invalid/hook", "body": "{}"},
@@ -159,6 +162,9 @@ func TestCallbackActionsUsePublicCallAndSharedRegistry(t *testing.T) {
 	removed := publicCallbackCall(t, server, session, "callback/remove", map[string]any{"callback": "http-hook"})
 	if removed["status"] != "removed" {
 		t.Fatalf("remove=%#v", removed)
+	}
+	if removed["key"] != "http-hook" || removed["callback"] != nil {
+		t.Fatalf("remove response=%#v", removed)
 	}
 	missing := genericStructured(t, publicCallbackEnvelope(t, server, session, "callback/remove", map[string]any{"callback": "http-hook"}))
 	if missing["is_error"] != true {

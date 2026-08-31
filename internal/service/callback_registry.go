@@ -19,9 +19,9 @@ type CallbackRemoveInput struct {
 }
 
 type CallbackRegistrationResult struct {
-	Callback string `json:"callback"`
-	Event    string `json:"event"`
-	Status   string `json:"status"`
+	Key    string `json:"key"`
+	Event  string `json:"event"`
+	Status string `json:"status"`
 }
 
 type CallbackURLSummary struct {
@@ -88,14 +88,14 @@ func (s *Service) CallbackRegister(ctx context.Context, projectID string, in Cal
 		if !reflect.DeepEqual(existing, in.Callback) {
 			return CallbackRegistrationResult{}, &CallbackConflictError{Callback: in.Callback.Callback}
 		}
-		return CallbackRegistrationResult{Callback: existing.Callback, Event: existing.Event, Status: "already_registered"}, nil
+		return CallbackRegistrationResult{Key: existing.Callback, Event: existing.Event, Status: "already_registered"}, nil
 	}
 	configuration.Callbacks = append(configuration.Callbacks, in.Callback)
 	sortProjectCallbacks(configuration.Callbacks)
 	if _, _, err := s.updateCallbackConfiguration(ctx, projectID, configuration); err != nil {
 		return CallbackRegistrationResult{}, err
 	}
-	return CallbackRegistrationResult{Callback: in.Callback.Callback, Event: in.Callback.Event, Status: "registered"}, nil
+	return CallbackRegistrationResult{Key: in.Callback.Callback, Event: in.Callback.Event, Status: "registered"}, nil
 }
 
 func (s *Service) CallbackRemove(ctx context.Context, projectID string, in CallbackRemoveInput) (CallbackRegistrationResult, error) {
@@ -124,7 +124,7 @@ func (s *Service) CallbackRemove(ctx context.Context, projectID string, in Callb
 	if _, _, err := s.updateCallbackConfiguration(ctx, projectID, configuration); err != nil {
 		return CallbackRegistrationResult{}, err
 	}
-	return CallbackRegistrationResult{Callback: in.Callback, Event: event, Status: "removed"}, nil
+	return CallbackRegistrationResult{Key: in.Callback, Event: event, Status: "removed"}, nil
 }
 
 func (s *Service) CallbackList(ctx context.Context, projectID string) (CallbackListResult, error) {

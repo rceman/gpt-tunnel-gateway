@@ -68,7 +68,7 @@ func callbackSummaryOutputSchema() map[string]any {
 }
 
 func callbackRegistrationOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"callback": outputString(), "event": outputString(), "status": outputEnum("registered", "already_registered", "removed")}, "callback", "event", "status")
+	return closedOutput(map[string]any{"key": outputString(), "event": outputString(), "status": outputEnum("registered", "already_registered", "removed")}, "key", "event", "status")
 }
 
 func callbackListOutputSchema() map[string]any {
