@@ -174,6 +174,9 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 }
 
 const (
+	localOperationalMigrationName    = "gpt_tunnel_local_operational_v1"
+	localCallbackEpochsMigrationName = "gpt_tunnel_local_callback_epochs_v3"
+
 	sharedReplicationMigrationName          = "gpt_tunnel_shared_replication_v1"
 	sharedCutoverMigrationName              = "gpt_tunnel_shared_cutover_v1"
 	sharedTaskSequenceMigrationName         = "gpt_tunnel_shared_task_sequences_v7"
@@ -320,7 +323,7 @@ var sharedMigrations = []migrate.Migration{{
 }}
 
 var localMigrations = []migrate.Migration{{
-	Version: 1, Name: "gpt_tunnel_local_operational_v1",
+	Version: 1, Name: localOperationalMigrationName,
 	Statements: []store.Statement{
 		{SQL: `CREATE TABLE IF NOT EXISTS local_events (id TEXT PRIMARY KEY, kind TEXT NOT NULL, payload BLOB NOT NULL, recorded_at TEXT NOT NULL)`},
 		{SQL: `CREATE TABLE IF NOT EXISTS local_messages (id TEXT PRIMARY KEY, session_id TEXT, payload BLOB NOT NULL, recorded_at TEXT NOT NULL)`},
@@ -328,7 +331,9 @@ var localMigrations = []migrate.Migration{{
 		{SQL: `CREATE TABLE IF NOT EXISTS local_retention (name TEXT PRIMARY KEY, cutoff_at TEXT NOT NULL)`},
 	},
 }, {
-	Version: 2, Name: "gpt_tunnel_local_callback_epochs_v2",
+	// Version 2 is already owned by the released inter-session migration.
+	// Keep that applied identity intact and append callback epochs at v3.
+	Version: 3, Name: localCallbackEpochsMigrationName,
 	Statements: []store.Statement{
 		{SQL: `CREATE TABLE IF NOT EXISTS local_callback_epochs (
 			epoch_id TEXT PRIMARY KEY,

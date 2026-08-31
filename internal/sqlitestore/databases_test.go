@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/go-sqlite-store/migrate"
 	upstream "github.com/rceman/go-sqlite-store/store"
 )
 
@@ -126,6 +127,130 @@ func TestOpenObserverReportsSQLiteStartupPhases(t *testing.T) {
 		if phases[i] != want[i] {
 			t.Fatalf("startup phases=%v, want=%v", phases, want)
 		}
+	}
+}
+
+func TestOpenUpgradesHistoricalLocalVersionTwoWithoutRewritingHistory(t *testing.T) {
+	stateDir := t.TempDir()
+	_, localPath := Paths(stateDir)
+	if err := os.MkdirAll(filepath.Dir(localPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	historical, err := upstream.Open(upstream.Config{Path: localPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	historicalMigrations := []migrate.Migration{
+		{
+			Version: 1,
+			Name:    localOperationalMigrationName,
+			Statements: []upstream.Statement{
+				{SQL: `CREATE TABLE IF NOT EXISTS local_events (id TEXT PRIMARY KEY, kind TEXT NOT NULL, payload BLOB NOT NULL, recorded_at TEXT NOT NULL)`},
+				{SQL: `CREATE TABLE IF NOT EXISTS local_messages (id TEXT PRIMARY KEY, session_id TEXT, payload BLOB NOT NULL, recorded_at TEXT NOT NULL)`},
+				{SQL: `CREATE TABLE IF NOT EXISTS local_logs (id TEXT PRIMARY KEY, level TEXT NOT NULL, component TEXT NOT NULL, event TEXT NOT NULL, payload BLOB NOT NULL, recorded_at TEXT NOT NULL)`},
+				{SQL: `CREATE TABLE IF NOT EXISTS local_retention (name TEXT PRIMARY KEY, cutoff_at TEXT NOT NULL)`},
+			},
+		},
+		{
+			Version: 2,
+			Name:    "gpt_tunnel_local_inter_session_messages_v1",
+			Statements: []upstream.Statement{{SQL: `CREATE TABLE IF NOT EXISTS local_inter_session_messages (
+				id TEXT PRIMARY KEY,
+				project_id TEXT NOT NULL,
+				source_session_id TEXT NOT NULL,
+				target_session_id TEXT NOT NULL,
+				topic TEXT NOT NULL,
+				body TEXT NOT NULL,
+				tags BLOB NOT NULL,
+				created_at TEXT NOT NULL,
+				expires_at TEXT NOT NULL
+			)`}},
+		},
+	}
+	if err := migrate.Apply(context.Background(), historical, historicalMigrations, migrate.Options{}); err != nil {
+		historical.Close()
+		t.Fatal(err)
+	}
+	if err := historical.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := db.Local.Query(context.Background(), `SELECT version,name FROM schema_migrations ORDER BY version`)
+	if err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	want := [][]any{
+		{int64(1), localOperationalMigrationName},
+		{int64(2), "gpt_tunnel_local_inter_session_messages_v1"},
+		{int64(3), localCallbackEpochsMigrationName},
+	}
+	if len(rows.Rows) != len(want) {
+		db.Close()
+		t.Fatalf("migration history=%#v, want=%#v", rows.Rows, want)
+	}
+	for i := range want {
+		if rows.Rows[i][0] != want[i][0] || rows.Rows[i][1] != want[i][1] {
+			db.Close()
+			t.Fatalf("migration history[%d]=%#v, want=%#v", i, rows.Rows[i], want[i])
+		}
+	}
+	objects, err := db.Local.Query(context.Background(), `SELECT type,name FROM sqlite_master WHERE name IN ('local_callback_epochs','local_callback_epochs_pending_idx') ORDER BY type,name`)
+	if err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if len(objects.Rows) != 2 || objects.Rows[0][0] != "index" || objects.Rows[0][1] != "local_callback_epochs_pending_idx" || objects.Rows[1][0] != "table" || objects.Rows[1][1] != "local_callback_epochs" {
+		db.Close()
+		t.Fatalf("callback schema=%#v", objects.Rows)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	rows, err = reopened.Local.Query(context.Background(), `SELECT version,name FROM schema_migrations ORDER BY version`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows.Rows) != len(want) || rows.Rows[1][0] != int64(2) || rows.Rows[1][1] != "gpt_tunnel_local_inter_session_messages_v1" || rows.Rows[2][0] != int64(3) || rows.Rows[2][1] != localCallbackEpochsMigrationName {
+		t.Fatalf("reopened migration history=%#v", rows.Rows)
+	}
+}
+
+func TestOpenFreshLocalAppliesCallbackEpochMigrationAtVersionThree(t *testing.T) {
+	db, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Local.Query(context.Background(), `SELECT version,name FROM schema_migrations ORDER BY version`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]any{{int64(1), localOperationalMigrationName}, {int64(3), localCallbackEpochsMigrationName}}
+	if len(rows.Rows) != len(want) {
+		t.Fatalf("fresh migration history=%#v, want=%#v", rows.Rows, want)
+	}
+	for i := range want {
+		if rows.Rows[i][0] != want[i][0] || rows.Rows[i][1] != want[i][1] {
+			t.Fatalf("fresh migration history[%d]=%#v, want=%#v", i, rows.Rows[i], want[i])
+		}
+	}
+	rows, err = db.Local.Query(context.Background(), `SELECT type,name FROM sqlite_master WHERE name IN ('local_callback_epochs','local_callback_epochs_pending_idx') ORDER BY type,name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows.Rows) != 2 || rows.Rows[0][0] != "index" || rows.Rows[0][1] != "local_callback_epochs_pending_idx" || rows.Rows[1][0] != "table" || rows.Rows[1][1] != "local_callback_epochs" {
+		t.Fatalf("fresh callback schema=%#v", rows.Rows)
 	}
 }
 
