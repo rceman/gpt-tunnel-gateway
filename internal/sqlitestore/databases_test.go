@@ -13,6 +13,13 @@ import (
 	upstream "github.com/rceman/go-sqlite-store/store"
 )
 
+const (
+	historicalLocalInterSessionMessagesMigrationName   = "gpt_tunnel_local_inter_session_messages_v1"
+	historicalLocalHistoryIndexesMigrationName         = "gpt_tunnel_local_history_indexes_v1"
+	historicalLocalHistoryProjectIndexesMigrationName  = "gpt_tunnel_local_history_project_indexes_v1"
+	historicalLocalHistoryProjectBackfillMigrationName = "gpt_tunnel_local_history_project_backfill_v1"
+)
+
 func TestOpenMigratesTwoIndependentStoresAndSharedCASIsAtomic(t *testing.T) {
 	stateDir := t.TempDir()
 	db, err := Open(stateDir)
@@ -130,7 +137,7 @@ func TestOpenObserverReportsSQLiteStartupPhases(t *testing.T) {
 	}
 }
 
-func TestOpenUpgradesHistoricalLocalVersionTwoWithoutRewritingHistory(t *testing.T) {
+func TestOpenUpgradesFullHistoricalLocalLineageWithoutRewritingHistory(t *testing.T) {
 	stateDir := t.TempDir()
 	_, localPath := Paths(stateDir)
 	if err := os.MkdirAll(filepath.Dir(localPath), 0o700); err != nil {
@@ -153,7 +160,7 @@ func TestOpenUpgradesHistoricalLocalVersionTwoWithoutRewritingHistory(t *testing
 		},
 		{
 			Version: 2,
-			Name:    "gpt_tunnel_local_inter_session_messages_v1",
+			Name:    historicalLocalInterSessionMessagesMigrationName,
 			Statements: []upstream.Statement{{SQL: `CREATE TABLE IF NOT EXISTS local_inter_session_messages (
 				id TEXT PRIMARY KEY,
 				project_id TEXT NOT NULL,
@@ -165,6 +172,35 @@ func TestOpenUpgradesHistoricalLocalVersionTwoWithoutRewritingHistory(t *testing
 				created_at TEXT NOT NULL,
 				expires_at TEXT NOT NULL
 			)`}},
+		},
+		{
+			Version: 3,
+			Name:    historicalLocalHistoryIndexesMigrationName,
+			Statements: []upstream.Statement{
+				{SQL: `CREATE INDEX IF NOT EXISTS local_events_kind_idx ON local_events(kind,recorded_at DESC,id DESC)`},
+				{SQL: `CREATE INDEX IF NOT EXISTS local_events_recorded_idx ON local_events(recorded_at DESC,id DESC)`},
+				{SQL: `CREATE INDEX IF NOT EXISTS local_logs_filter_idx ON local_logs(level,component,recorded_at DESC,id DESC)`},
+				{SQL: `CREATE INDEX IF NOT EXISTS local_logs_recorded_idx ON local_logs(recorded_at DESC,id DESC)`},
+				{SQL: `CREATE INDEX IF NOT EXISTS local_inter_session_messages_expiry_idx ON local_inter_session_messages(expires_at)`},
+			},
+		},
+		{
+			Version: 4,
+			Name:    historicalLocalHistoryProjectIndexesMigrationName,
+			Statements: []upstream.Statement{
+				{SQL: `ALTER TABLE local_events ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`},
+				{SQL: `ALTER TABLE local_logs ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`},
+				{SQL: `CREATE INDEX IF NOT EXISTS local_events_project_idx ON local_events(project_id,recorded_at DESC,id DESC)`},
+				{SQL: `CREATE INDEX IF NOT EXISTS local_logs_project_idx ON local_logs(project_id,recorded_at DESC,id DESC)`},
+			},
+		},
+		{
+			Version: 5,
+			Name:    historicalLocalHistoryProjectBackfillMigrationName,
+			Statements: []upstream.Statement{
+				{SQL: `UPDATE local_events SET project_id='' WHERE project_id IS NULL`},
+				{SQL: `UPDATE local_logs SET project_id='' WHERE project_id IS NULL`},
+			},
 		},
 	}
 	if err := migrate.Apply(context.Background(), historical, historicalMigrations, migrate.Options{}); err != nil {
@@ -186,8 +222,11 @@ func TestOpenUpgradesHistoricalLocalVersionTwoWithoutRewritingHistory(t *testing
 	}
 	want := [][]any{
 		{int64(1), localOperationalMigrationName},
-		{int64(2), "gpt_tunnel_local_inter_session_messages_v1"},
-		{int64(3), localCallbackEpochsMigrationName},
+		{int64(2), historicalLocalInterSessionMessagesMigrationName},
+		{int64(3), historicalLocalHistoryIndexesMigrationName},
+		{int64(4), historicalLocalHistoryProjectIndexesMigrationName},
+		{int64(5), historicalLocalHistoryProjectBackfillMigrationName},
+		{int64(6), localCallbackEpochsMigrationName},
 	}
 	if len(rows.Rows) != len(want) {
 		db.Close()
@@ -221,12 +260,17 @@ func TestOpenUpgradesHistoricalLocalVersionTwoWithoutRewritingHistory(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows.Rows) != len(want) || rows.Rows[1][0] != int64(2) || rows.Rows[1][1] != "gpt_tunnel_local_inter_session_messages_v1" || rows.Rows[2][0] != int64(3) || rows.Rows[2][1] != localCallbackEpochsMigrationName {
+	if len(rows.Rows) != len(want) {
 		t.Fatalf("reopened migration history=%#v", rows.Rows)
+	}
+	for i := range want {
+		if rows.Rows[i][0] != want[i][0] || rows.Rows[i][1] != want[i][1] {
+			t.Fatalf("reopened migration history[%d]=%#v, want=%#v", i, rows.Rows[i], want[i])
+		}
 	}
 }
 
-func TestOpenFreshLocalAppliesCallbackEpochMigrationAtVersionThree(t *testing.T) {
+func TestOpenFreshLocalAppliesCallbackEpochMigrationAtVersionSix(t *testing.T) {
 	db, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -236,7 +280,7 @@ func TestOpenFreshLocalAppliesCallbackEpochMigrationAtVersionThree(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := [][]any{{int64(1), localOperationalMigrationName}, {int64(3), localCallbackEpochsMigrationName}}
+	want := [][]any{{int64(1), localOperationalMigrationName}, {int64(6), localCallbackEpochsMigrationName}}
 	if len(rows.Rows) != len(want) {
 		t.Fatalf("fresh migration history=%#v, want=%#v", rows.Rows, want)
 	}
