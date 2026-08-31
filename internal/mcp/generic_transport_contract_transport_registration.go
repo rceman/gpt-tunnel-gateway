@@ -8,7 +8,6 @@ import (
 )
 
 const genericSchemaRevision = "generic-mcp-v2"
-const genericBatchMaxItems = 100
 
 // GenericAction is a server-owned action registration. It is intentionally
 // not exposed through MCP; the stable MCP transport discovers registrations
@@ -43,10 +42,6 @@ type genericCallInput struct {
 	SessionID string          `json:"session"`
 	Action    string          `json:"action"`
 	Input     json.RawMessage `json:"input"`
-}
-type genericBatchInput struct {
-	SessionID string            `json:"session"`
-	Calls     []json.RawMessage `json:"calls"`
 }
 
 func (s *Server) RegisterGenericAction(action GenericAction) error {

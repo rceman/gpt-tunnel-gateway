@@ -31,13 +31,6 @@ func genericActionError(_ string, message any) map[string]any {
 func genericActionSuccess(result map[string]any) map[string]any {
 	return map[string]any{"result": result, "is_error": false}
 }
-func genericBatchResult(action string, result map[string]any) map[string]any {
-	item := map[string]any{"action": action}
-	for key, value := range result {
-		item[key] = value
-	}
-	return item
-}
 func validateGenericActionInput(schema map[string]any, raw json.RawMessage) error {
 	if len(raw) == 0 || string(raw) == "null" {
 		return fmt.Errorf("input must be an object")

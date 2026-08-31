@@ -10,11 +10,66 @@ import (
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
-func genericBatchInputSchema() map[string]any {
-	calls := array(genericBatchCallInputSchema())
-	calls["maxItems"] = genericBatchMaxItems
-	return obj(map[string]any{"session": str("Existing durable project-bound session shared by every batch item."), "calls": calls}, "session", "calls")
+func inheritSessionProject(schema map[string]any, projectID string, raw json.RawMessage) (json.RawMessage, error) {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, fmt.Errorf("input must be an object")
+	}
+	bound, err := bindProjectValue(schema, value, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(bound)
 }
+
+func bindProjectValue(schema map[string]any, value any, projectID string) (any, error) {
+	properties, _ := schema["properties"].(map[string]any)
+	switch current := value.(type) {
+	case map[string]any:
+		result := make(map[string]any, len(current)+1)
+		for key, child := range current {
+			childSchema, _ := properties[key].(map[string]any)
+			bound, err := bindProjectValue(childSchema, child, projectID)
+			if err != nil {
+				return nil, err
+			}
+			result[key] = bound
+		}
+		if _, ok := properties["project_id"]; ok {
+			if supplied, exists := current["project_id"]; exists {
+				if suppliedString, ok := supplied.(string); !ok || suppliedString != projectID {
+					return nil, fmt.Errorf("project_id does not match session project")
+				}
+			} else if containsRequired(stringList(schema["required"]), "project_id") {
+				result["project_id"] = projectID
+			}
+		}
+		return result, nil
+	case []any:
+		items, _ := schema["items"].(map[string]any)
+		result := make([]any, len(current))
+		for i, child := range current {
+			bound, err := bindProjectValue(items, child, projectID)
+			if err != nil {
+				return nil, err
+			}
+			result[i] = bound
+		}
+		return result, nil
+	default:
+		return value, nil
+	}
+}
+
+func containsRequired(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func sessionlessActionPath(path string) bool {
 	switch path {
 	case "gateway/status", "project/list", "session/list", "session/info", "session/end":
@@ -30,12 +85,6 @@ func unboundActionAllowed(path string) bool {
 	default:
 		return false
 	}
-}
-func genericBatchCallInputSchema() map[string]any {
-	return obj(map[string]any{
-		"action": str("Server-owned action path; inspect schema for available actions."),
-		"input":  map[string]any{"type": "object", "additionalProperties": true, "description": "Generic action input validated by the server-owned action contract."},
-	}, "action", "input")
 }
 func genericSchemaInputSchema() map[string]any {
 	return obj(map[string]any{
@@ -72,16 +121,6 @@ func genericCallOutputSchema() map[string]any {
 		"metrics": metrics,
 	}, "ok", "error", "metrics")
 	return map[string]any{"type": "object", "oneOf": []any{success, failure}}
-}
-func genericBatchItemOutputSchema() map[string]any {
-	return closedOutput(map[string]any{
-		"action":   outputString(),
-		"result":   map[string]any{"type": "object", "additionalProperties": true},
-		"is_error": outputBoolean(),
-	}, "action", "result", "is_error")
-}
-func genericBatchOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"results": outputArray(genericBatchItemOutputSchema())}, "results")
 }
 func genericSchemaOutputSchema() map[string]any {
 	action := closedOutput(map[string]any{

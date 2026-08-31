@@ -95,14 +95,6 @@ func genericCallInputSchema() map[string]any {
 	}, "session", "action", "input")
 	return schema
 }
-func sessionStartInputSchema() map[string]any {
-	return obj(map[string]any{
-		"project_id": str("Registered project identifier."),
-		"role":       str("Server-authorized session role."),
-		"label":      str("Optional bounded session label."),
-		"ref":        str("Optional caller reference."),
-	}, "project_id", "role")
-}
 func genericActionParts(path string) (string, string, bool) {
 	if parts := strings.Split(path, "/"); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
 		return parts[0], parts[1], true

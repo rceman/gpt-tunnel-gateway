@@ -13,7 +13,7 @@ import (
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
-func TestGenericRegisteredActionDiscoveryCallAndBatchFailureContinuation(t *testing.T) {
+func TestGenericRegisteredActionDiscoveryAndCall(t *testing.T) {
 	server := &Server{
 		Service:          service.New(config.Config{GatewayID: "home_pc", StateDir: filepath.Join(t.TempDir(), "state")}),
 		AuthorityContext: authority.WithDelivery(context.Background()),
@@ -108,16 +108,6 @@ func TestGenericTransportEnvelopeAndActionPathContracts(t *testing.T) {
 	if _, ok := callSchema["oneOf"]; !ok {
 		t.Fatalf("single-call schema is missing success/failure alternatives: %#v", callSchema)
 	}
-	batchSchema := genericBatchOutputSchema()
-	items := batchSchema["properties"].(map[string]any)["results"].(map[string]any)["items"].(map[string]any)
-	itemProperties := items["properties"].(map[string]any)
-	if len(itemProperties) != 3 {
-		t.Fatalf("batch item schema has unexpected properties: %#v", itemProperties)
-	}
-	if _, ok := itemProperties["action"]; !ok {
-		t.Fatal("batch item schema lost action correlation")
-	}
-
 	for _, test := range []struct {
 		path string
 		want bool

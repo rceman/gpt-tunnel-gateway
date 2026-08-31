@@ -38,22 +38,13 @@ func sessionStartPublicInputSchema() map[string]any {
 	project["minLength"] = 1
 	role := str("Server-authorized durable session role.")
 	role["minLength"] = 1
+	role["enum"] = []any{durableSession.RolePlanner, durableSession.RoleAgent}
 	return obj(map[string]any{
 		"gateway": gateway,
 		"project": project,
 		"role":    role,
 		"ref":     ref,
 	}, "gateway", "project", "role")
-}
-
-func sessionUpdatePublicInputSchema() map[string]any {
-	sessionID := str("Existing durable session identifier.")
-	sessionID["pattern"] = sessionIDPattern
-	return obj(map[string]any{
-		"session":    sessionID,
-		"project_id": str("Canonical registered project identifier."),
-		"ref":        str("Optional caller reference."),
-	}, "session", "project_id")
 }
 
 func sessionStartPublicOutputSchema() map[string]any {
@@ -81,18 +72,6 @@ func sessionStartPublicOutputSchema() map[string]any {
 			"items":  outputArray(rule),
 		}, "digest", "items"),
 	}, "session", "gateway", "project", "role", "rules")
-}
-
-func sessionUpdatePublicOutputSchema() map[string]any {
-	return closedOutput(map[string]any{
-		"session":                        sessionIDOutputSchema(),
-		"project_id":                     outputString(),
-		"rules":                          workflowPolicyOutputSchema(),
-		"project_rules_revision":         outputInteger(),
-		"project_rules_digest":           outputString(),
-		"rules_acknowledgement_required": outputBoolean(),
-		"project_rules_acknowledged":     outputBoolean(),
-	}, "session", "project_id", "rules", "project_rules_revision", "project_rules_digest", "rules_acknowledgement_required", "project_rules_acknowledged")
 }
 
 func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -130,8 +109,6 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	switch in.Role {
 	case durableSession.RolePlanner:
 		sessionContext = authority.WithPlanner(bootstrapContext)
-	case durableSession.RoleDelivery:
-		sessionContext = authority.WithDelivery(bootstrapContext)
 	case durableSession.RoleAgent:
 		sessionContext = authority.WithAgent(bootstrapContext)
 	default:
@@ -171,52 +148,6 @@ func publicSessionRules() map[string]any {
 			"text":     content,
 		}},
 	}
-}
-
-func (s *Server) sessionUpdatePublic(ctx context.Context, raw json.RawMessage) (any, error) {
-	var in struct {
-		Session   string  `json:"session"`
-		ProjectID string  `json:"project_id"`
-		Ref       *string `json:"ref"`
-	}
-	if err := decode(raw, &in); err != nil {
-		return nil, err
-	}
-	record, err := s.activeSession(in.Session)
-	if err != nil {
-		return nil, err
-	}
-	roleContext, err := existingSessionRoleContext(ctx, record.Role)
-	if err != nil {
-		return nil, err
-	}
-	var bound service.SessionResult
-	if record.ProjectID == in.ProjectID {
-		bound, err = s.Service.SessionUpdate(roleContext, service.SessionUpdateInput{SessionID: in.Session, SessionRef: in.Ref})
-	} else {
-		bound, err = s.Service.SessionBind(roleContext, service.SessionBindInput{SessionID: in.Session, ProjectID: in.ProjectID, SessionRef: in.Ref})
-	}
-	if err != nil {
-		return nil, err
-	}
-	policy, err := s.Service.ProjectWorkflowPolicyReadFast(ctx, bound.Session.ProjectID)
-	if err != nil {
-		return nil, fmt.Errorf("session project rules unavailable: %w", err)
-	}
-	digest := digestJSON(policy)
-	updated, err := durableSession.NewStore(s.Service.Config.StateDir).AcknowledgeRules(in.Session, globalWorkflowRevision, globalWorkflowDigest(), policy.Revision, digest)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{
-		"session":                        updated.ID,
-		"project_id":                     updated.ProjectID,
-		"rules":                          policy,
-		"project_rules_revision":         updated.ProjectRulesRevision,
-		"project_rules_digest":           updated.ProjectRulesDigest,
-		"rules_acknowledgement_required": false,
-		"project_rules_acknowledged":     updated.ProjectRulesRevision > 0 && updated.ProjectRulesDigest != "",
-	}, nil
 }
 
 func workflowWithDigest(workflow map[string]any, digest string) map[string]any {

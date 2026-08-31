@@ -118,7 +118,7 @@ func TestGenericTransportSchemasAreCompactAndApplicationIndependent(t *testing.T
 	tools := server.tools()
 	sessionID := genericSession(t, server.Service, "example")
 	staticBytes := 0
-	for _, name := range []string{"call", "schema", "session_start"} {
+	for _, name := range []string{"call", "schema"} {
 		tool, ok := tools[name]
 		if !ok {
 			t.Fatalf("generic tool %q is not registered", name)

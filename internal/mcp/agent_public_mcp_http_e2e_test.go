@@ -11,6 +11,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 type agentADR81Trace struct {
@@ -75,12 +76,16 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 		"arguments": map[string]any{
 			"gateway": "test_gateway",
 			"project": "example",
-			"role":    "delivery",
+			"role":    "agent",
+			"ref":     "example_master",
 		},
 	}))
-	sessionID, ok := started["session"].(string)
-	if !ok || sessionID == "" {
-		t.Fatalf("session_start did not return a session: %#v", started)
+	if started["role"] != durableSession.RoleAgent {
+		t.Fatalf("Agent session_start returned %#v", started)
+	}
+	sessionID := genericSessionWithRole(t, s, "example", durableSession.RoleDelivery)
+	if sessionID == "" {
+		t.Fatalf("test Delivery session did not return a session: %#v", sessionID)
 	}
 
 	schemaMeta := agentADR81Metadata(t, agentADR81Trace{

@@ -43,7 +43,6 @@ func destructiveExternalAnnotations() ToolAnnotations {
 
 var toolAnnotations = func() map[string]ToolAnnotations {
 	result := map[string]ToolAnnotations{}
-	result["bootstrap"] = readOnlyAnnotations()
 	result["schema"] = readOnlyAnnotations()
 	result["guide"] = readOnlyAnnotations()
 	result["projects"] = readOnlyAnnotations()

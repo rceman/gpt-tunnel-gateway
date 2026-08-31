@@ -9,9 +9,6 @@ import (
 )
 
 func (s *Server) addCoreTools(add toolAdder) {
-	add("bootstrap", "Return compact Gateway readiness, project-code discovery, and bootstrap workflow guidance.", bootstrapInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
-		return s.bootstrapPublic(ctx, raw)
-	})
 	add("system_ping", "Return gateway identity and time.", obj(map[string]any{}), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return map[string]any{"service": "gpt-tunnel-gatewayd", "version": "0.6.11", "gateway_id": s.Service.Config.GatewayID, "time": time.Now().UTC()}, nil
 	})

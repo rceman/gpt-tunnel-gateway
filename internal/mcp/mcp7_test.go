@@ -1,14 +1,12 @@
 package mcp
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
@@ -49,9 +47,13 @@ func TestStatusReturnsCompactRuntimeProjects(t *testing.T) {
 	}
 }
 
-func TestDeliverySessionStartCreatesUnboundSession(t *testing.T) {
+func TestPublicSessionStartRejectsDeliveryRole(t *testing.T) {
 	server := newSessionTestServer(t)
-	server.AuthorityContext = authority.WithDelivery(context.Background())
+	roleSchema := sessionStartPublicInputSchema()["properties"].(map[string]any)["role"].(map[string]any)
+	roles, ok := roleSchema["enum"].([]any)
+	if !ok || len(roles) != 2 || roles[0] != durableSession.RolePlanner || roles[1] != durableSession.RoleAgent {
+		t.Fatalf("public session_start role schema=%#v", roleSchema)
+	}
 	sessionsDir := filepath.Join(server.Service.Config.StateDir, "sessions")
 	countSessions := func() int {
 		entries, err := os.ReadDir(sessionsDir)
@@ -68,13 +70,15 @@ func TestDeliverySessionStartCreatesUnboundSession(t *testing.T) {
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "example", "role": durableSession.RoleDelivery, "ref": "delivery"}},
 	}))
-	result := genericStructured(t, response)
-	if result["role"] != durableSession.RoleDelivery || result["session"] == "" || result["project"].(map[string]any)["key"] != "example" {
-		t.Fatalf("Delivery session_start result=%#v", result)
+	if response["error"] == nil {
+		result, _ := response["result"].(map[string]any)
+		if result["isError"] != true {
+			t.Fatalf("Delivery session_start was accepted: %#v", response)
+		}
 	}
 	after := countSessions()
-	if after != before+1 {
-		t.Fatalf("Delivery session_start did not create exactly one session: before=%d after=%d", before, after)
+	if after != before {
+		t.Fatalf("rejected Delivery session_start created a session: before=%d after=%d", before, after)
 	}
 }
 
@@ -103,8 +107,11 @@ func TestPublicSessionStartAfterTerminationIsFreshAndBoundCallWorks(t *testing.T
 	a := start(durableSession.RolePlanner, "terminated")
 	end(a)
 	for i := 0; i < 2; i++ {
-		terminated := start(durableSession.RoleDelivery, "old")
-		end(terminated)
+		legacy := genericStructured(t, sessionCall(t, server, map[string]any{
+			"action": "start", "project_id": "example", "role": durableSession.RoleDelivery, "session_type": durableSession.SessionTypeChatGPT,
+		}))
+		terminated := legacy["session"].(map[string]any)["session_id"].(string)
+		genericStructured(t, sessionCall(t, server, map[string]any{"action": "end", "session_id": terminated}))
 	}
 	b := start(durableSession.RolePlanner, "fresh")
 	if b == a {
