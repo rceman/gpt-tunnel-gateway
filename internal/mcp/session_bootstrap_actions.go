@@ -34,7 +34,7 @@ func sessionStartPublicInputSchema() map[string]any {
 	ref["maxLength"] = 256
 	gateway := str("Canonical registered Gateway key.")
 	gateway["minLength"] = 1
-	project := str("Canonical registered project key.")
+	project := str("Canonical registered project code.")
 	project["minLength"] = 1
 	role := str("Server-authorized durable session role.")
 	role["minLength"] = 1
@@ -94,9 +94,9 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	if err != nil {
 		return nil, fmt.Errorf("project registry unavailable: %w", err)
 	}
-	project, ok := resolution.Projects[in.Project]
-	if !ok {
-		return nil, fmt.Errorf("unknown project %q", in.Project)
+	projectID, project, err := resolvePublicProject(resolution, in.Project)
+	if err != nil {
+		return nil, err
 	}
 	if in.Role == durableSession.RoleAgent && (in.Ref == nil || *in.Ref == "") {
 		return nil, fmt.Errorf("Agent session ref is required")
@@ -115,7 +115,7 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 		return nil, fmt.Errorf("unsupported session role %q", in.Role)
 	}
 	started, err := s.Service.SessionStart(sessionContext, service.SessionStartInput{
-		ProjectID:   in.Project,
+		ProjectID:   projectID,
 		ProjectCode: project.ProjectCode,
 		Role:        in.Role,
 		SessionType: durableSession.SessionTypeChatGPT,
@@ -128,7 +128,7 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	result := map[string]any{
 		"session": started.Session.ID,
 		"gateway": map[string]any{"key": in.Gateway},
-		"project": map[string]any{"key": in.Project, "name": in.Project},
+		"project": map[string]any{"key": project.ProjectCode, "name": projectID},
 		"role":    started.Session.Role,
 		"rules":   rules,
 	}

@@ -64,18 +64,30 @@ func TestADR84PublicBootstrapAndBoundCallUseExactEnvelopes(t *testing.T) {
 		t.Fatalf("status is not ADR84-shaped: %#v", status)
 	}
 	guide := call(2, "guide", map[string]any{})
-	if _, ok := guide["roles"].([]any); !ok {
+	roles, ok := guide["roles"].([]any)
+	if !ok || len(roles) != 2 {
 		t.Fatalf("guide omitted roles: %#v", guide)
+	}
+	if roles[0].(map[string]any)["key"] != "planner" || roles[0].(map[string]any)["ref_required"] != false || roles[1].(map[string]any)["key"] != "agent" || roles[1].(map[string]any)["ref_required"] != true || roles[1].(map[string]any)["ref_semantics"] != "airelay_session_key" {
+		t.Fatalf("guide role contract=%#v", roles)
 	}
 	projects := call(3, "projects", map[string]any{"gateway": "test_gateway"})
 	if projects["gateway"].(map[string]any)["key"] != "test_gateway" {
 		t.Fatalf("projects gateway=%#v", projects["gateway"])
 	}
+	listedProjects := projects["projects"].([]any)
+	if len(listedProjects) != 1 || listedProjects[0].(map[string]any)["key"] != "EXM" || listedProjects[0].(map[string]any)["name"] != "example" {
+		t.Fatalf("projects did not expose compact identity: %#v", projects)
+	}
 	started := call(4, "session_start", map[string]any{
-		"gateway": "test_gateway", "project": "example", "role": durableSession.RolePlanner, "ref": "planner-e2e",
+		"gateway": "test_gateway", "project": "EXM", "role": durableSession.RolePlanner, "ref": "planner-e2e",
 	})
 	if len(started) != 6 || started["session"] == nil || started["gateway"] == nil || started["project"] == nil || started["rules"] == nil {
 		t.Fatalf("session_start is not ADR84-shaped: %#v", started)
+	}
+	startedProject := started["project"].(map[string]any)
+	if startedProject["key"] != "EXM" || startedProject["name"] != "example" {
+		t.Fatalf("session_start did not expose compact project identity: %#v", startedProject)
 	}
 	sessionID := started["session"].(string)
 	record, err := durableSession.NewStore(server.Service.Config.StateDir).Get(sessionID)
@@ -115,7 +127,7 @@ func TestADR84ApplicationDomainsRemainBehindSchemaAndCall(t *testing.T) {
 		response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": path, "method": "tools/call",
 			"params": map[string]any{"name": "session_start", "arguments": map[string]any{
-				"gateway": server.Service.Config.GatewayID, "project": "example", "role": durableSession.RolePlanner,
+				"gateway": server.Service.Config.GatewayID, "project": "EXM", "role": durableSession.RolePlanner,
 			}},
 		}))
 		return response["result"].(map[string]any)["structuredContent"].(map[string]any)

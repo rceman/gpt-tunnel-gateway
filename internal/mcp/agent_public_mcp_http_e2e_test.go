@@ -75,7 +75,7 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 		"name": "session_start",
 		"arguments": map[string]any{
 			"gateway": "test_gateway",
-			"project": "example",
+			"project": "EXM",
 			"role":    "agent",
 			"ref":     "example_master",
 		},

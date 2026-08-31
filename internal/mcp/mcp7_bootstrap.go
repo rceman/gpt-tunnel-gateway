@@ -7,7 +7,10 @@ import (
 	"sort"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
 func addMCP7BootstrapTools(add func(string, string, map[string]any, func(context.Context, json.RawMessage) (any, error)), s *Server) {
@@ -18,7 +21,7 @@ func addMCP7BootstrapTools(add func(string, string, map[string]any, func(context
 		return map[string]any{
 			"roles": []map[string]any{
 				{"key": "planner", "ref_required": false},
-				{"key": "agent", "ref_required": true, "ref_semantics": "Exact Airelay session key."},
+				{"key": "agent", "ref_required": true, "ref_semantics": "airelay_session_key"},
 			},
 			"steps": []string{
 				"Use status to confirm Gateway ingress and readiness.",
@@ -102,6 +105,44 @@ func projectsPublicOutputSchema() map[string]any {
 	}, "gateway", "projects")
 }
 
+func publicProjectCode(projectID string, project config.ProjectConfig) (string, error) {
+	if err := model.ValidateProjectCode(project.ProjectCode); err != nil {
+		return "", fmt.Errorf("project %q has invalid project code: %w", projectID, err)
+	}
+	return project.ProjectCode, nil
+}
+
+func resolvePublicProject(resolution service.ProjectResolution, projectCode string) (string, config.ProjectConfig, error) {
+	if err := model.ValidateProjectCode(projectCode); err != nil {
+		return "", config.ProjectConfig{}, fmt.Errorf("invalid project key %q: %w", projectCode, err)
+	}
+	ids := make([]string, 0, len(resolution.Projects))
+	for id := range resolution.Projects {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	foundID := ""
+	var found config.ProjectConfig
+	for _, id := range ids {
+		project := resolution.Projects[id]
+		code, err := publicProjectCode(id, project)
+		if err != nil {
+			return "", config.ProjectConfig{}, err
+		}
+		if code != projectCode {
+			continue
+		}
+		if foundID != "" {
+			return "", config.ProjectConfig{}, fmt.Errorf("project key %q is ambiguous", projectCode)
+		}
+		foundID, found = id, project
+	}
+	if foundID == "" {
+		return "", config.ProjectConfig{}, fmt.Errorf("unknown project key %q", projectCode)
+	}
+	return foundID, found, nil
+}
+
 func (s *Server) statusPublic(ctx context.Context) (any, error) {
 	runtime := controller.Controller{Config: s.Service.Config, ConfigPath: s.Service.ConfigPath}.RuntimeIdentity(ctx)
 	ready := runtime.GatewayReady
@@ -143,7 +184,11 @@ func (s *Server) projectsPublic(_ context.Context, raw json.RawMessage) (any, er
 	sort.Strings(ids)
 	projects := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
-		projects = append(projects, map[string]any{"key": id, "name": id})
+		code, err := publicProjectCode(id, resolution.Projects[id])
+		if err != nil {
+			return nil, fmt.Errorf("projects unavailable: %w", err)
+		}
+		projects = append(projects, map[string]any{"key": code, "name": id})
 	}
 	return map[string]any{
 		"gateway":  map[string]any{"key": input.Gateway},
