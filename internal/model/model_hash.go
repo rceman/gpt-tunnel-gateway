@@ -20,6 +20,9 @@ func NewID() (string, error) {
 }
 
 func HashTask(t Task) (string, error) {
+	if t.Type == TaskTypeTask {
+		t.Type = ""
+	}
 	t.SHA256 = ""
 	data, err := json.Marshal(t)
 	if err != nil {

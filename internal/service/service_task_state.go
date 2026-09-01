@@ -17,7 +17,11 @@ func (s *Service) taskCreateOnce(ctx context.Context, in TaskCreateInput) (model
 	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
 		return model.Task{}, OperationResult{}, err
 	}
-	_, effectivePolicy, err := s.deriveTaskWorkflowPolicy(ctx, in.ProjectID, in.OperationClass, in.RequiredGates)
+	operationClass := in.OperationClass
+	if operationClass == "" {
+		operationClass = "implementation"
+	}
+	_, effectivePolicy, err := s.deriveTaskWorkflowPolicy(ctx, in.ProjectID, operationClass, in.RequiredGates)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err
 	}
@@ -41,7 +45,11 @@ func (s *Service) taskCreateOnce(ctx context.Context, in TaskCreateInput) (model
 		}
 	}
 	branch = "task/" + id + "-" + in.Slug
-	task := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Title: in.Title, Objective: in.Objective, Branch: branch, AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), WorkflowPolicyRevision: effectivePolicy.WorkflowPolicyRevision, OperationClass: effectivePolicy.OperationClass, EffectiveCIField: effectivePolicy.EffectiveCIField, EffectiveCIMode: effectivePolicy.EffectiveCIMode, WaitForCI: effectivePolicy.WaitForCI, CIBlocking: effectivePolicy.CIBlocking, AgentMayWait: effectivePolicy.AgentMayWait, Status: "created", Supersedes: in.Supersedes, CreatedBy: in.CreatedBy, CreatedAt: s.durableNow()}
+	typ, err := model.NormalizeTaskType(in.Type)
+	if err != nil {
+		return model.Task{}, OperationResult{}, err
+	}
+	task := model.Task{SchemaVersion: model.SchemaVersion, ID: id, ProjectID: in.ProjectID, Type: typ, Title: in.Title, Objective: in.Objective, Branch: branch, AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), Constraints: append([]string{}, in.Constraints...), RequiredGates: append([]string{}, in.RequiredGates...), WorkflowPolicyRevision: effectivePolicy.WorkflowPolicyRevision, OperationClass: effectivePolicy.OperationClass, EffectiveCIField: effectivePolicy.EffectiveCIField, EffectiveCIMode: effectivePolicy.EffectiveCIMode, WaitForCI: effectivePolicy.WaitForCI, CIBlocking: effectivePolicy.CIBlocking, AgentMayWait: effectivePolicy.AgentMayWait, Status: "created", Supersedes: in.Supersedes, CreatedBy: in.CreatedBy, CreatedAt: s.durableNow()}
 	hash, err := model.HashTask(task)
 	if err != nil {
 		return model.Task{}, OperationResult{}, err

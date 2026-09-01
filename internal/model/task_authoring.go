@@ -10,6 +10,11 @@ import (
 )
 
 func HashTaskAuthoring(v TaskAuthoring) (string, error) {
+	// Omit the default so records written before Task.Type existed retain
+	// their semantic revision identity.
+	if v.Type == TaskTypeTask {
+		v.Type = ""
+	}
 	v.RevisionSHA256 = ""
 	v.Status = TaskAuthoringPlanned
 	v.ReadySeal = nil
@@ -32,6 +37,9 @@ func ValidateTaskAuthoring(v TaskAuthoring) error {
 	}
 	if len(v.Title) < 3 || len(v.Title) > 300 || len(v.Objective) < 3 || len(v.Objective) > 200000 {
 		return fmt.Errorf("invalid task authoring content")
+	}
+	if _, err := NormalizeTaskType(v.Type); err != nil {
+		return err
 	}
 	if len(v.AcceptanceCriteria) > 200 || len(v.Constraints) > 200 || len(v.Dependencies) > 64 || len(v.PreparationReferences) > 64 || len(v.Metadata) > 64 {
 		return fmt.Errorf("task authoring bounds exceeded")

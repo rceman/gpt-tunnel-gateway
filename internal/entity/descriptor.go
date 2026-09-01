@@ -40,9 +40,9 @@ var descriptorTable = map[Family]Descriptor{
 		Suffix:       ".json",
 		ProjectScope: true,
 		Order:        "id_asc",
-		Fields:       []string{"id", "project_id", "title", "status", "operation_class", "created_at", "updated_at"},
-		Default:      []string{"id", "title", "status"}, Searchable: []string{"id", "title", "status", "operation_class"},
-		Filterable: []string{"id", "status", "operation_class"}, Sortable: []string{"id", "created_at", "updated_at", "status"}, Operators: []string{"=", "in", "contains"},
+		Fields:       []string{"id", "project_id", "title", "type", "status", "created_at", "updated_at"},
+		Default:      []string{"id", "title", "type", "status"}, Searchable: []string{"id", "title", "type", "status"},
+		Filterable: []string{"id", "status", "type"}, Sortable: []string{"id", "created_at", "updated_at", "status"}, Operators: []string{"=", "in", "contains"},
 	},
 	ADRFamily: {
 		Family:       ADRFamily,

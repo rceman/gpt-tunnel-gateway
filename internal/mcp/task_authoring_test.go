@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -80,7 +81,7 @@ func TestTrainV2TaskAuthoringMCPWiringAndSchemaParity(t *testing.T) {
 		}
 	}
 	started := time.Now()
-	created := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "task/create", "input": map[string]any{"title": "Generic planned task", "objective": "Exercise generic authoring wiring.", "adr_relation": model.TaskADRNoRequired, "created_by": "planner"}}}})))
+	created := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "task/create", "input": map[string]any{"type": "bug", "title": "Generic planned task", "objective": "Exercise generic authoring wiring.", "adr_relation": model.TaskADRNoRequired, "created_by": "planner"}}}})))
 	if elapsed := time.Since(started); elapsed >= time.Second {
 		t.Fatalf("public task/create receipt exceeded one second: %s", elapsed)
 	} else {
@@ -98,39 +99,45 @@ func TestTrainV2TaskAuthoringMCPWiringAndSchemaParity(t *testing.T) {
 	if !ok || result["status"] != "completed" || result["task"] == nil {
 		t.Fatalf("generic task/create result=%#v", completed)
 	}
+	if result["task"].(map[string]any)["type"] != "bug" {
+		t.Fatalf("generic task/create lost type: %#v", result["task"])
+	}
 	withProject := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "task/create", "input": map[string]any{"project_id": "example", "title": "Rejected project field", "objective": "The session owns project authority.", "adr_relation": model.TaskADRNoRequired, "created_by": "planner"}}}})))
 	if withProject["is_error"] != true {
 		t.Fatalf("session-bound task/create accepted caller project_id: %#v", withProject)
 	}
 }
 
-func TestTaskCreateSchemaDescribesLegacyAndTrainV2Branches(t *testing.T) {
+func TestTaskCreateSchemaUsesTaskTypeAndRejectsLegacyOperationClass(t *testing.T) {
 	schema := taskAuthoringCreateSchema()
 	if schema["additionalProperties"] != false {
 		t.Fatalf("task/create root is not closed: %#v", schema)
 	}
-	branches, ok := schema["oneOf"].([]any)
-	if !ok || len(branches) != 2 {
-		t.Fatalf("task/create does not expose exactly two mode branches: %#v", schema["oneOf"])
+	if _, ok := schema["oneOf"]; ok {
+		t.Fatalf("task/create still exposes legacy mode branches: %#v", schema)
 	}
-	legacy := mustJSON(t, map[string]any{
-		"project_id": "example", "slug": "legacy-task", "title": "Legacy task",
-		"objective": "Use the pre-cutover authoring contract.", "operation_class": "implementation", "created_by": "planner",
-	})
-	v2 := mustJSON(t, map[string]any{
-		"project_id": "example", "title": "Train task", "objective": "Use the Train v2 authoring contract.",
+	properties := schema["properties"].(map[string]any)
+	if _, ok := properties["operation_class"]; ok {
+		t.Fatal("task/create still exposes operation_class")
+	}
+	typ := properties["type"].(map[string]any)
+	if got := typ["enum"]; !reflect.DeepEqual(got, []string{"task", "bug", "perf", "chore"}) {
+		t.Fatalf("task type enum=%#v", got)
+	}
+	if typ["default"] != "task" {
+		t.Fatalf("task type default=%#v", typ["default"])
+	}
+	valid := mustJSON(t, map[string]any{
+		"project_id": "example", "type": "bug", "title": "Bug task", "objective": "Use the canonical Task type.",
 		"adr_relation": model.TaskADRNoRequired, "created_by": "planner",
 	})
-	if err := validateGenericActionInput(schema, legacy); err != nil {
-		t.Fatalf("valid legacy task/create input rejected: %v", err)
-	}
-	if err := validateGenericActionInput(schema, v2); err != nil {
-		t.Fatalf("valid Train v2 task/create input rejected: %v", err)
+	if err := validateGenericActionInput(schema, valid); err != nil {
+		t.Fatalf("valid typed task/create input rejected: %v", err)
 	}
 	for name, raw := range map[string][]byte{
-		"legacy missing slug":     mustJSON(t, map[string]any{"project_id": "example", "title": "x", "objective": "y", "operation_class": "implementation", "created_by": "planner"}),
-		"v2 missing adr relation": mustJSON(t, map[string]any{"project_id": "example", "title": "x", "objective": "y", "created_by": "planner"}),
-		"unknown field":           mustJSON(t, map[string]any{"project_id": "example", "title": "x", "objective": "y", "adr_relation": model.TaskADRNoRequired, "created_by": "planner", "unexpected": true}),
+		"legacy operation class": mustJSON(t, map[string]any{"project_id": "example", "title": "Task", "objective": "objective", "operation_class": "implementation", "adr_relation": model.TaskADRNoRequired, "created_by": "planner"}),
+		"missing adr relation":   mustJSON(t, map[string]any{"project_id": "example", "title": "Task", "objective": "objective", "created_by": "planner"}),
+		"unknown field":          mustJSON(t, map[string]any{"project_id": "example", "title": "x", "objective": "y", "adr_relation": model.TaskADRNoRequired, "created_by": "planner", "unexpected": true}),
 	} {
 		if err := validateGenericActionInput(schema, raw); err == nil {
 			t.Fatalf("invalid %s input was accepted", name)

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 )
 
 func (s *Server) genericSchema(legacy map[string]Tool, raw json.RawMessage) (any, error) {
@@ -22,17 +21,6 @@ func (s *Server) genericSchema(legacy map[string]Tool, raw json.RawMessage) (any
 			"revision": genericSchemaRevision, "path": input.Path, "kind": "action",
 			"domains": []string{}, "actions": []map[string]any{}, "contract": genericActionContract(entry),
 		}, nil
-	}
-	if input.Path == "query" || strings.HasPrefix(input.Path, "query/") {
-		contract, err := querySchema(input.Path)
-		if err != nil {
-			return nil, err
-		}
-		kind := "query"
-		if input.Path != "query" {
-			kind = "query_entity"
-		}
-		return map[string]any{"revision": genericSchemaRevision, "path": input.Path, "kind": kind, "domains": []string{}, "actions": []map[string]any{}, "contract": contract}, nil
 	}
 	result := map[string]any{
 		"revision": genericSchemaRevision, "path": input.Path, "kind": "root",

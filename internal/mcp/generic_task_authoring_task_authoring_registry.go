@@ -20,6 +20,7 @@ func taskAuthoringProperties() map[string]any {
 	relation["enum"] = []any{model.TaskADRNoRequired, model.TaskADRImplementsExisting, model.TaskADRRequiresNew, model.TaskADRSupersedesExisting}
 	return map[string]any{
 		"project_id": str("Registered project identifier."), "task_id": str("Stable Task identifier."),
+		"type":  taskTypeSchema(),
 		"title": str("Task title."), "objective": str("Task objective."),
 		"acceptance_criteria": array(str("Acceptance criterion.")), "constraints": array(str("Task constraint.")),
 		"priority": priority, "dependencies": array(str("Bounded Task dependency.")),
@@ -33,34 +34,17 @@ func taskAuthoringProperties() map[string]any {
 }
 func taskAuthoringCreateSchema() map[string]any {
 	all := taskAuthoringProperties()
-	all["slug"] = str("Legacy pre-cutover task slug.")
-	operationClass := str("Legacy pre-cutover operation class.")
-	operationClass["enum"] = model.WorkflowOperationClasses()
-	all["operation_class"] = operationClass
-	all["required_gates"] = array(str("Legacy pre-cutover required gate."))
 	for _, key := range []string{"task_id", "updated_by", "ready_by", "expected_revision", "expected_revision_sha256"} {
 		delete(all, key)
 	}
+	return obj(all, "project_id", "title", "objective", "adr_relation", "created_by")
+}
 
-	legacy := make(map[string]any, len(all))
-	for _, key := range []string{"project_id", "slug", "title", "objective", "acceptance_criteria", "constraints", "required_gates", "operation_class", "created_by", "expected_hub_revision"} {
-		legacy[key] = all[key]
-	}
-	v2 := make(map[string]any, len(all))
-	for key, value := range all {
-		if key != "slug" && key != "operation_class" && key != "required_gates" {
-			v2[key] = value
-		}
-	}
-	// task/create is intentionally a mode-dispatched boundary. Discovery must
-	// describe both valid inputs, while oneOf makes the selected mode's required
-	// fields explicit instead of advertising a misleading hybrid contract.
-	schema := obj(all, "project_id")
-	schema["oneOf"] = []any{
-		obj(legacy, "project_id", "slug", "title", "objective", "operation_class", "created_by"),
-		obj(v2, "project_id", "title", "objective", "adr_relation", "created_by"),
-	}
-	return schema
+func taskTypeSchema() map[string]any {
+	typ := str("Task classification.")
+	typ["enum"] = model.TaskTypes()
+	typ["default"] = string(model.TaskTypeTask)
+	return typ
 }
 func taskAuthoringUpdateSchema() map[string]any {
 	properties := taskAuthoringProperties()

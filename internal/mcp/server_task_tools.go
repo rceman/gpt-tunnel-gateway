@@ -4,14 +4,11 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
 func (s *Server) addTaskTools(add toolAdder) {
-	operationClass := str("Closed workflow operation class")
-	operationClass["enum"] = model.WorkflowOperationClasses()
-	taskInputSchema := obj(map[string]any{"project_id": str("Project identifier"), "slug": str("Lowercase task slug"), "title": str("Task title"), "objective": str("Full objective"), "acceptance_criteria": array(str("Criterion")), "constraints": array(str("Constraint")), "required_gates": array(str("Gate")), "operation_class": operationClass, "created_by": str("Creator identity"), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "slug", "title", "objective", "operation_class", "created_by")
+	taskInputSchema := obj(map[string]any{"project_id": str("Project identifier"), "slug": str("Lowercase task slug"), "type": taskTypeSchema(), "title": str("Task title"), "objective": str("Full objective"), "acceptance_criteria": array(str("Criterion")), "constraints": array(str("Constraint")), "required_gates": array(str("Gate")), "created_by": str("Creator identity"), "expected_hub_revision": str("Optimistic hub revision")}, "project_id", "slug", "title", "objective", "created_by")
 	add("task_create", "Create immutable hashed task from a normalized slug and the refreshed project default branch; CI behavior is derived from durable project policy.", taskInputSchema, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.TaskCreateInput
 		if e := decode(raw, &in); e != nil {
@@ -52,13 +49,13 @@ func (s *Server) addTaskTools(add toolAdder) {
 		return map[string]any{"revision": revision, "operation": operation}, nil
 	})
 	status := outputEnum("created", "ready", "dispatched", "cancelled", "superseded", "completed", "merge_ready", "deferred", "merged")
-	query := str("Case-insensitive search over task ID, slug, title, objective, branch, status, and task metadata")
+	query := str("Case-insensitive search over task ID, slug, title, objective, branch, type, status, and task metadata")
 	query["maxLength"] = 256
 	cursor := str("Compact server cursor (<=8 chars); legacy accepted")
 	limit := integer("Maximum tasks to return; defaults to the safe server limit", 1, service.MaxTaskListLimit)
 	limit["default"] = service.DefaultTaskListLimit
 	add("task_list", "List bounded project tasks with optional text search, workflow status filtering, and deterministic continuation.", obj(map[string]any{
-		"project_id": str("Project identifier"), "query": query, "status": status,
+		"project_id": str("Project identifier"), "query": query, "type": taskTypeSchema(), "status": status,
 		"limit": limit, "cursor": cursor,
 	}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.TaskListInput

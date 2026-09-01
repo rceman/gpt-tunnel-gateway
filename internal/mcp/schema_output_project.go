@@ -79,9 +79,9 @@ func taskOutputSchema() map[string]any {
 	strings := outputArray(outputString())
 	return closedOutput(map[string]any{
 		"schema_version": outputInteger(), "id": outputString(), "sha256": outputString(), "project_id": outputString(),
-		"title": outputString(), "objective": outputString(), "branch": outputString(), "base_revision": outputString(),
+		"title": outputString(), "type": outputEnum("task", "bug", "perf", "chore"), "objective": outputString(), "branch": outputString(), "base_revision": outputString(),
 		"acceptance_criteria": strings, "constraints": strings, "required_gates": strings,
-		"workflow_policy_revision": outputInteger(), "operation_class": outputString(), "effective_ci_field": outputString(), "effective_ci_mode": outputString(), "wait_for_ci": outputBoolean(), "ci_blocking": outputBoolean(), "agent_may_wait": outputBoolean(),
+		"workflow_policy_revision": outputInteger(), "effective_ci_field": outputString(), "effective_ci_mode": outputString(), "wait_for_ci": outputBoolean(), "ci_blocking": outputBoolean(), "agent_may_wait": outputBoolean(),
 		"status": outputString(), "supersedes": outputString(), "created_by": outputString(), "created_at": outputDateTime(),
 	}, "schema_version", "id", "sha256", "project_id", "title", "objective", "branch", "acceptance_criteria", "constraints", "status", "created_by", "created_at")
 }

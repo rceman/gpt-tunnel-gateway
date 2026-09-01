@@ -25,6 +25,7 @@ func (s *Service) taskStatusList(ctx context.Context, project string) ([]TaskRec
 		if err := decodeStrict(record.Bytes, &task); err != nil {
 			return nil, err
 		}
+		task.Type = model.DefaultTaskType(task.Type)
 		tasks = append(tasks, task)
 	}
 	states, err := s.taskStatesBatch(ctx, tasks)
@@ -58,6 +59,7 @@ func (s *Service) findTask(ctx context.Context, id string) (model.Task, error) {
 		var t model.Task
 		_, err := s.entityRegistry(p.ID).ReadInto(ctx, entity.TaskFamily, id, &t)
 		if err == nil {
+			t.Type = model.DefaultTaskType(t.Type)
 			return t, nil
 		}
 		if !IsNotFound(err) {

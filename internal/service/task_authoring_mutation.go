@@ -30,7 +30,7 @@ func (s *Service) TaskAuthoringUpdate(ctx context.Context, in TaskAuthoringUpdat
 	} else if admitted {
 		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("ready Task %q is admitted to a nonterminal Train and cannot be edited", in.TaskID)
 	}
-	updated, changed, err := trainv2.UpdateTask(current, trainv2.AuthoringPatch{Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}, in.UpdatedBy, s.durableNow())
+	updated, changed, err := trainv2.UpdateTask(current, trainv2.AuthoringPatch{Type: in.Type, Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}, in.UpdatedBy, s.durableNow())
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
@@ -137,20 +137,26 @@ func (s *Service) TaskAuthoringList(ctx context.Context, in TaskAuthoringListInp
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return TaskAuthoringListResult{}, err
 	}
+	if len(in.Query) > 256 {
+		return TaskAuthoringListResult{}, fmt.Errorf("task query exceeds 256 characters")
+	}
+	if in.Type != "" {
+		if _, err := model.NormalizeTaskType(in.Type); err != nil {
+			return TaskAuthoringListResult{}, err
+		}
+	}
 	if s.Durability != nil {
 		tasks, err := s.sharedTaskAuthoringAll(ctx, in.ProjectID)
 		if err != nil {
 			return TaskAuthoringListResult{}, err
 		}
-		if in.Status != "" {
-			filtered := tasks[:0]
-			for _, task := range tasks {
-				if task.Status == in.Status {
-					filtered = append(filtered, task)
-				}
+		filtered := tasks[:0]
+		for _, task := range tasks {
+			if (in.Status == "" || task.Status == in.Status) && taskAuthoringMatches(task, in.Query, in.Type) {
+				filtered = append(filtered, task)
 			}
-			tasks = filtered
 		}
+		tasks = filtered
 		limit := in.Limit
 		if limit == 0 {
 			limit = DefaultTaskListLimit
@@ -176,12 +182,13 @@ func (s *Service) TaskAuthoringList(ctx context.Context, in TaskAuthoringListInp
 		if err := s.Hub.ReadJSON(ctx, path, &task); err != nil {
 			return TaskAuthoringListResult{}, err
 		}
-		if task.ProjectID != in.ProjectID || (in.Status != "" && task.Status != in.Status) {
+		if task.ProjectID != in.ProjectID || (in.Status != "" && task.Status != in.Status) || !taskAuthoringMatches(task, in.Query, in.Type) {
 			continue
 		}
 		if err := model.ValidateTaskAuthoring(task); err != nil {
 			return TaskAuthoringListResult{}, err
 		}
+		task.Type = model.DefaultTaskType(task.Type)
 		tasks = append(tasks, task)
 	}
 	sort.Slice(tasks, func(i, j int) bool { return tasks[i].UpdatedAt.After(tasks[j].UpdatedAt) })
@@ -196,6 +203,22 @@ func (s *Service) TaskAuthoringList(ctx context.Context, in TaskAuthoringListInp
 		tasks = tasks[:limit]
 	}
 	return TaskAuthoringListResult{Tasks: tasks}, nil
+}
+
+func taskAuthoringMatches(task model.TaskAuthoring, query string, typ model.TaskType) bool {
+	actualType := model.DefaultTaskType(task.Type)
+	if typ != "" && actualType != typ {
+		return false
+	}
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return true
+	}
+	text := strings.ToLower(strings.Join([]string{task.ID, string(actualType), task.Title, task.Objective, task.Status, task.CreatedBy, task.Priority, task.ADRRelation}, "\n"))
+	for _, value := range append(append(append([]string{}, task.AcceptanceCriteria...), task.Constraints...), append(task.Dependencies, task.PreparationReferences...)...) {
+		text += "\n" + strings.ToLower(value)
+	}
+	return strings.Contains(text, query)
 }
 
 func (s *Service) taskAuthoringAll(ctx context.Context, projectID string) ([]model.TaskAuthoring, error) {
@@ -224,6 +247,7 @@ func (s *Service) taskAuthoringAll(ctx context.Context, projectID string) ([]mod
 		if err := model.ValidateTaskAuthoring(task); err != nil {
 			return nil, err
 		}
+		task.Type = model.DefaultTaskType(task.Type)
 		tasks = append(tasks, task)
 	}
 	sort.Slice(tasks, func(i, j int) bool { return tasks[i].UpdatedAt.After(tasks[j].UpdatedAt) })

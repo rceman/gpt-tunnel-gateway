@@ -13,6 +13,7 @@ import (
 // task. The service adapter owns Hub allocation and persistence; this package
 // owns the transition rules.
 type AuthoringDraft struct {
+	Type                  model.TaskType
 	Title                 string
 	Objective             string
 	AcceptanceCriteria    []string
@@ -28,6 +29,7 @@ type AuthoringDraft struct {
 // AuthoringPatch contains only mutable semantic fields. Identity, revision,
 // hash and ready-seal fields are always derived here.
 type AuthoringPatch struct {
+	Type                  *model.TaskType
 	Title                 *string
 	Objective             *string
 	AcceptanceCriteria    *[]string
@@ -49,6 +51,7 @@ func ValidateDraft(draft AuthoringDraft) error {
 		ID:                    "AAA-TSK1",
 		ProjectID:             "example",
 		Revision:              1,
+		Type:                  model.DefaultTaskType(draft.Type),
 		RevisionSHA256:        strings.Repeat("a", 64),
 		Title:                 draft.Title,
 		Objective:             draft.Objective,
@@ -85,6 +88,11 @@ func NewTask(projectID, taskID string, draft AuthoringDraft, createdBy string, n
 	if draft.ADRRelation == "" {
 		draft.ADRRelation = model.TaskADRNoRequired
 	}
+	typ, err := model.NormalizeTaskType(draft.Type)
+	if err != nil {
+		return model.TaskAuthoring{}, err
+	}
+	draft.Type = typ
 	if err := ValidateDraft(draft); err != nil {
 		return model.TaskAuthoring{}, err
 	}
@@ -94,6 +102,7 @@ func NewTask(projectID, taskID string, draft AuthoringDraft, createdBy string, n
 		ID:                    taskID,
 		ProjectID:             projectID,
 		Revision:              1,
+		Type:                  draft.Type,
 		Title:                 draft.Title,
 		Objective:             draft.Objective,
 		AcceptanceCriteria:    cloneStrings(draft.AcceptanceCriteria),
@@ -109,7 +118,6 @@ func NewTask(projectID, taskID string, draft AuthoringDraft, createdBy string, n
 		CreatedAt:             now,
 		UpdatedAt:             now,
 	}
-	var err error
 	task.RevisionSHA256, err = model.HashTaskAuthoring(task)
 	if err != nil {
 		return model.TaskAuthoring{}, err
@@ -133,7 +141,17 @@ func UpdateTask(current model.TaskAuthoring, patch AuthoringPatch, updatedBy str
 		return model.TaskAuthoring{}, false, fmt.Errorf("updated_by is required")
 	}
 	updated := current
+	updated.Type = model.DefaultTaskType(updated.Type)
 	changed := false
+	if patch.Type != nil {
+		typ, err := model.NormalizeTaskType(*patch.Type)
+		if err != nil {
+			return model.TaskAuthoring{}, false, err
+		}
+		if typ != updated.Type {
+			updated.Type, changed = typ, true
+		}
+	}
 	if patch.Title != nil && *patch.Title != updated.Title {
 		updated.Title, changed = *patch.Title, true
 	}
@@ -168,6 +186,7 @@ func UpdateTask(current model.TaskAuthoring, patch AuthoringPatch, updatedBy str
 		return current, false, nil
 	}
 	draft := AuthoringDraft{
+		Type:                  updated.Type,
 		Title:                 updated.Title,
 		Objective:             updated.Objective,
 		AcceptanceCriteria:    updated.AcceptanceCriteria,

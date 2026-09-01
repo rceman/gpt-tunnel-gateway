@@ -77,10 +77,16 @@ func normalizeTaskCreateInput(in TaskAuthoringCreateInput) (TaskAuthoringCreateI
 	if in.CreatedBy == "" || strings.ContainsAny(in.CreatedBy, "\x00\r\n") {
 		return TaskAuthoringCreateInput{}, fmt.Errorf("created_by is required")
 	}
+	typ, err := model.NormalizeTaskType(in.Type)
+	if err != nil {
+		return TaskAuthoringCreateInput{}, err
+	}
+	in.Type = typ
 	if in.ADRRelation == "" {
 		in.ADRRelation = model.TaskADRNoRequired
 	}
 	draft := trainv2.AuthoringDraft{
+		Type:  in.Type,
 		Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria,
 		Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies,
 		PreparationReferences: in.PreparationReferences, Metadata: in.Metadata,

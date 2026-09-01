@@ -177,9 +177,6 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		}
 		entries[path] = entry
 	}
-	if _, exists := entries["query/run"]; !exists {
-		entries["query/run"] = queryGenericAction(s)
-	}
 	for path, entry := range entries {
 		if projectionDetailAction(path) {
 			entry.InputSchema = withProjectionDetail(entry.InputSchema)

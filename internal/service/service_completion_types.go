@@ -62,11 +62,12 @@ const (
 )
 
 type TaskListInput struct {
-	ProjectID string `json:"project_id"`
-	Query     string `json:"query,omitempty"`
-	Status    string `json:"status,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
-	Cursor    string `json:"cursor,omitempty"`
+	ProjectID string         `json:"project_id"`
+	Query     string         `json:"query,omitempty"`
+	Status    string         `json:"status,omitempty"`
+	Type      model.TaskType `json:"type,omitempty"`
+	Limit     int            `json:"limit,omitempty"`
+	Cursor    string         `json:"cursor,omitempty"`
 }
 
 type TaskListResult struct {

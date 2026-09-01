@@ -28,6 +28,7 @@ type TaskRevision struct {
 	ParentTaskSHA256       string    `json:"parent_task_sha256,omitempty"`
 	ProjectID              string    `json:"project_id"`
 	Title                  string    `json:"title"`
+	Type                   TaskType  `json:"type,omitempty"`
 	Objective              string    `json:"objective"`
 	Branch                 string    `json:"branch"`
 	BaseRevision           string    `json:"base_revision,omitempty"`
@@ -92,6 +93,7 @@ func TaskRevisionFromTask(task Task) TaskRevision {
 		RevisionSHA256:         task.SHA256,
 		ProjectID:              task.ProjectID,
 		Title:                  task.Title,
+		Type:                   task.Type,
 		Objective:              task.Objective,
 		Branch:                 task.Branch,
 		BaseRevision:           task.BaseRevision,
@@ -118,6 +120,7 @@ func (r TaskRevision) Task() Task {
 		SHA256:                 r.RevisionSHA256,
 		ProjectID:              r.ProjectID,
 		Title:                  r.Title,
+		Type:                   r.Type,
 		Objective:              r.Objective,
 		Branch:                 r.Branch,
 		BaseRevision:           r.BaseRevision,

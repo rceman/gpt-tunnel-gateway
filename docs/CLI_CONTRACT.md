@@ -30,7 +30,7 @@ gpt-tunnel adr create --file <input.json>
 ## Task and run
 
 ```text
-gpt-tunnel task create --file <input.json> # input includes operation_class
+gpt-tunnel task create --file <input.json> # input includes type (task, bug, perf, or chore)
 gpt-tunnel task list <project-id>
 gpt-tunnel task read <task-id>
 gpt-tunnel task dispatch <task-id> [--expected-hub-revision <sha>]

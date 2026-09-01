@@ -44,6 +44,11 @@ func (s *Service) taskListQuery(ctx context.Context, in TaskListInput, unbounded
 	if status != "" && !validTaskListStatus(status) {
 		return TaskListResult{}, fmt.Errorf("invalid task status %q", status)
 	}
+	if in.Type != "" {
+		if _, err := model.NormalizeTaskType(in.Type); err != nil {
+			return TaskListResult{}, err
+		}
+	}
 	query := strings.TrimSpace(in.Query)
 	if len(query) > 256 {
 		return TaskListResult{}, fmt.Errorf("task query exceeds 256 characters")
@@ -66,6 +71,7 @@ func (s *Service) taskListQuery(ctx context.Context, in TaskListInput, unbounded
 		if err := decodeStrict(record.Bytes, &task); err != nil {
 			return TaskListResult{}, err
 		}
+		task.Type = model.DefaultTaskType(task.Type)
 		tasks = append(tasks, task)
 	}
 	states, err := s.taskStatesBatch(ctx, tasks)
@@ -76,6 +82,9 @@ func (s *Service) taskListQuery(ctx context.Context, in TaskListInput, unbounded
 	for _, task := range tasks {
 		state := states[task.ID]
 		if status != "" && state.Status != status {
+			continue
+		}
+		if in.Type != "" && task.Type != model.DefaultTaskType(in.Type) {
 			continue
 		}
 		if query != "" && !taskMatchesQuery(task, state, query) {
@@ -206,7 +215,7 @@ func validTaskListStatus(status string) bool {
 
 func taskMatchesQuery(task model.Task, state model.TaskState, query string) bool {
 	slug := strings.TrimPrefix(task.Branch, "task/"+task.ID+"-")
-	text := strings.ToLower(strings.Join([]string{task.ID, slug, task.Branch, task.Title, task.Objective, task.CreatedBy, task.OperationClass, task.Status, state.Status, task.Supersedes}, "\n"))
+	text := strings.ToLower(strings.Join([]string{task.ID, slug, task.Branch, string(task.Type), task.Title, task.Objective, task.CreatedBy, task.Status, state.Status, task.Supersedes}, "\n"))
 	for _, criterion := range append(append([]string{}, task.AcceptanceCriteria...), task.Constraints...) {
 		text += "\n" + strings.ToLower(criterion)
 	}
@@ -222,7 +231,7 @@ func taskCursorKey(task model.Task) string {
 }
 
 func taskListCursorKind(in TaskListInput) string {
-	return "task_list:" + in.ProjectID + "|" + strings.TrimSpace(in.Status) + "|" + strings.TrimSpace(in.Query)
+	return "task_list:" + in.ProjectID + "|" + strings.TrimSpace(in.Status) + "|" + string(in.Type) + "|" + strings.TrimSpace(in.Query)
 }
 
 func resolveTaskListCursor(value, kind string, keys []string) (string, error) {

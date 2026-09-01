@@ -12,6 +12,9 @@ func ValidateTask(v Task) error {
 	if len(v.Title) < 3 || len(v.Title) > 300 || len(v.Objective) < 3 || len(v.Objective) > 200000 {
 		return fmt.Errorf("invalid task content")
 	}
+	if _, err := NormalizeTaskType(v.Type); err != nil {
+		return err
+	}
 	if err := ValidateBranch(v.Branch); err != nil {
 		return err
 	}

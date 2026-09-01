@@ -123,6 +123,7 @@ type Task struct {
 	SHA256                 string    `json:"sha256"`
 	ProjectID              string    `json:"project_id"`
 	Title                  string    `json:"title"`
+	Type                   TaskType  `json:"type,omitempty"`
 	Objective              string    `json:"objective"`
 	Branch                 string    `json:"branch"`
 	BaseRevision           string    `json:"base_revision,omitempty"`
@@ -162,6 +163,7 @@ type TaskAuthoring struct {
 	Revision              int               `json:"revision"`
 	RevisionSHA256        string            `json:"revision_sha256"`
 	Title                 string            `json:"title"`
+	Type                  TaskType          `json:"type,omitempty"`
 	Objective             string            `json:"objective"`
 	AcceptanceCriteria    []string          `json:"acceptance_criteria"`
 	Constraints           []string          `json:"constraints"`

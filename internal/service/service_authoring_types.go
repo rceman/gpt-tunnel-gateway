@@ -40,21 +40,25 @@ type ADRCreateInput struct {
 }
 
 type TaskCreateInput struct {
-	ProjectID          string   `json:"project_id"`
-	Slug               string   `json:"slug"`
-	Title              string   `json:"title"`
-	Objective          string   `json:"objective"`
-	AcceptanceCriteria []string `json:"acceptance_criteria"`
-	Constraints        []string `json:"constraints"`
-	RequiredGates      []string `json:"required_gates,omitempty"`
-	OperationClass     string   `json:"operation_class"`
-	CreatedBy          string   `json:"created_by"`
-	Supersedes         string   `json:"supersedes,omitempty"`
+	ProjectID          string         `json:"project_id"`
+	Slug               string         `json:"slug"`
+	Type               model.TaskType `json:"type,omitempty"`
+	Title              string         `json:"title"`
+	Objective          string         `json:"objective"`
+	AcceptanceCriteria []string       `json:"acceptance_criteria"`
+	Constraints        []string       `json:"constraints"`
+	RequiredGates      []string       `json:"required_gates,omitempty"`
+	// OperationClass is retained only for decoding historical in-process
+	// fixtures; it is intentionally absent from every public contract.
+	OperationClass string `json:"-"`
+	CreatedBy      string `json:"created_by"`
+	Supersedes     string `json:"supersedes,omitempty"`
 	WriteOptions
 }
 
 type TaskAuthoringCreateInput struct {
 	ProjectID             string            `json:"project_id"`
+	Type                  model.TaskType    `json:"type,omitempty"`
 	Title                 string            `json:"title"`
 	Objective             string            `json:"objective"`
 	AcceptanceCriteria    []string          `json:"acceptance_criteria"`
@@ -74,6 +78,7 @@ type TaskAuthoringUpdateInput struct {
 	TaskID                 string             `json:"task_id"`
 	ExpectedRevision       int                `json:"expected_revision"`
 	ExpectedRevisionSHA256 string             `json:"expected_revision_sha256,omitempty"`
+	Type                   *model.TaskType    `json:"type,omitempty"`
 	Title                  *string            `json:"title,omitempty"`
 	Objective              *string            `json:"objective,omitempty"`
 	AcceptanceCriteria     *[]string          `json:"acceptance_criteria,omitempty"`
@@ -98,9 +103,11 @@ type TaskAuthoringReadyInput struct {
 }
 
 type TaskAuthoringListInput struct {
-	ProjectID string `json:"project_id"`
-	Status    string `json:"status,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
+	ProjectID string         `json:"project_id"`
+	Query     string         `json:"query,omitempty"`
+	Status    string         `json:"status,omitempty"`
+	Type      model.TaskType `json:"type,omitempty"`
+	Limit     int            `json:"limit,omitempty"`
 }
 
 type TaskAuthoringListResult struct {

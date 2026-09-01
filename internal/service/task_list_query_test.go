@@ -27,14 +27,16 @@ func TestTaskListQuerySearchStatusLimitAndCursor(t *testing.T) {
 	created := make([]createdTask, 0, 3)
 	for _, spec := range []struct {
 		slug, title, objective string
+		typ                    model.TaskType
 	}{
-		{"alpha-search", "Alpha planner task", "Find the durable alpha objective."},
-		{"beta-search", "Beta release task", "Find the durable beta objective."},
-		{"gamma-search", "Gamma review task", "Find the durable gamma objective."},
+		{"alpha-search", "Alpha planner task", "Find the durable alpha objective.", model.TaskTypeTask},
+		{"beta-search", "Beta release task", "Find the durable beta objective.", model.TaskTypeBug},
+		{"gamma-search", "Gamma review task", "Find the durable gamma objective.", model.TaskTypeChore},
 	} {
 		task, operation, err := s.TaskCreate(ctx, TaskCreateInput{
 			ProjectID:          "example",
 			Slug:               spec.slug,
+			Type:               spec.typ,
 			Title:              spec.title,
 			Objective:          spec.objective,
 			AcceptanceCriteria: []string{"bounded"},
@@ -65,7 +67,7 @@ func TestTaskListQuerySearchStatusLimitAndCursor(t *testing.T) {
 		t.Fatalf("newest-first order=%v", []string{all.Tasks[0].Task.ID, all.Tasks[1].Task.ID, all.Tasks[2].Task.ID})
 	}
 
-	for _, query := range []string{"BETA-SEARCH", "release task", "durable beta objective", created[1].task.ID} {
+	for _, query := range []string{"BETA-SEARCH", "release task", "durable beta objective", "bug", created[1].task.ID} {
 		result, queryErr := s.TaskListQuery(ctx, TaskListInput{
 			ProjectID: "example",
 			Query:     query,
@@ -73,6 +75,10 @@ func TestTaskListQuerySearchStatusLimitAndCursor(t *testing.T) {
 		if queryErr != nil || len(result.Tasks) != 1 || result.Tasks[0].Task.ID != created[1].task.ID {
 			t.Fatalf("query=%q result=%#v err=%v", query, result, queryErr)
 		}
+	}
+	typed, err := s.TaskListQuery(ctx, TaskListInput{ProjectID: "example", Type: model.TaskTypeBug})
+	if err != nil || len(typed.Tasks) != 1 || typed.Tasks[0].Task.ID != created[1].task.ID {
+		t.Fatalf("type filter result=%#v err=%v", typed, err)
 	}
 	empty, err := s.TaskListQuery(ctx, TaskListInput{
 		ProjectID: "example",

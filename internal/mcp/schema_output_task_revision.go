@@ -8,9 +8,9 @@ func taskRevisionOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"schema_version": outputInteger(), "id": outputString(), "task_id": outputString(), "task_revision": outputInteger(),
 		"revision_sha256": sha, "parent_task_revision": outputInteger(), "parent_task_sha256": sha,
-		"project_id": outputString(), "title": outputString(), "objective": outputString(), "branch": outputString(), "base_revision": commit,
+		"project_id": outputString(), "title": outputString(), "type": outputEnum("task", "bug", "perf", "chore"), "objective": outputString(), "branch": outputString(), "base_revision": commit,
 		"acceptance_criteria": outputArray(outputString()), "constraints": outputArray(outputString()), "required_gates": outputArray(outputString()),
-		"workflow_policy_revision": outputInteger(), "operation_class": outputString(), "effective_ci_field": outputString(), "effective_ci_mode": outputString(),
+		"workflow_policy_revision": outputInteger(), "effective_ci_field": outputString(), "effective_ci_mode": outputString(),
 		"wait_for_ci": outputBoolean(), "ci_blocking": outputBoolean(), "agent_may_wait": outputBoolean(), "status": outputString(),
 		"source_train_id": outputString(), "source_item_position": outputInteger(), "source_attempt_number": outputInteger(), "created_by": outputString(), "created_at": outputDateTime(),
 	}, "schema_version", "id", "task_id", "task_revision", "revision_sha256", "project_id", "title", "objective", "branch", "acceptance_criteria", "constraints", "status", "created_by", "created_at")

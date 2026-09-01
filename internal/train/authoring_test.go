@@ -33,7 +33,7 @@ func TestAuthoringLifecycleUsesPureStateTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task.Status != model.TaskAuthoringPlanned || task.ReadySeal != nil || task.Revision != 1 {
+	if task.Status != model.TaskAuthoringPlanned || task.ReadySeal != nil || task.Revision != 1 || task.Type != model.TaskTypeTask {
 		t.Fatalf("unexpected planned task: %#v", task)
 	}
 	memory := &taskMemory{task: task}

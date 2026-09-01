@@ -115,10 +115,12 @@ func TestGenericTransportEnvelopeAndActionPathContracts(t *testing.T) {
 		{path: "task/read", want: true},
 		{path: "task.create", want: false},
 		{path: "task/read/extra", want: false},
-		{path: "query/run", want: true},
 	} {
 		if _, _, ok := genericActionParts(test.path); ok != test.want {
 			t.Fatalf("genericActionParts(%q) ok=%v, want %v", test.path, ok, test.want)
 		}
+	}
+	if _, err := (&Server{}).genericSchema(nil, json.RawMessage(`{"path":"query/run"}`)); err == nil {
+		t.Fatal("retired query/run action remains publicly discoverable")
 	}
 }

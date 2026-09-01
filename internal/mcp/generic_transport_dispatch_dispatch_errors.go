@@ -44,10 +44,8 @@ func validateGenericActionInput(schema map[string]any, raw json.RawMessage) erro
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return fmt.Errorf("input has trailing JSON content")
 	}
-	// Preserve the established generic-action diagnostics for ordinary
-	// contracts. Mode-dispatched contracts such as task/create use oneOf and
-	// must go through the recursive schema validator so each branch is checked
-	// truthfully.
+	// Preserve the established generic-action diagnostics for ordinary closed
+	// contracts while allowing recursive validation for composed contracts.
 	if _, hasOneOf := schema["oneOf"]; !hasOneOf && schema["additionalProperties"] == false {
 		if err := validateToolArguments(schema, raw); err != nil {
 			return err

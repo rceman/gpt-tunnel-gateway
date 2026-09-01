@@ -2,9 +2,9 @@ package mcp
 
 func compactReceiptTask(value map[string]any) map[string]any {
 	return selectProjectionFields(value,
-		"schema_version", "id", "sha256", "project_id", "title", "objective", "branch",
+		"schema_version", "id", "sha256", "project_id", "title", "type", "objective", "branch",
 		"acceptance_criteria", "constraints", "status", "created_by", "created_at",
-		"revision", "revision_sha256", "operation_class", "updated_at",
+		"revision", "revision_sha256", "updated_at",
 	)
 }
 func compactTaskRecord(value map[string]any) map[string]any {
@@ -53,7 +53,7 @@ func compactNestedRecord(key string, value map[string]any) map[string]any {
 	}
 }
 func compactTask(value map[string]any) map[string]any {
-	return selectProjectionFields(value, "id", "project_id", "revision", "revision_sha256", "title", "status", "operation_class", "created_at", "updated_at")
+	return selectProjectionFields(value, "id", "project_id", "revision", "revision_sha256", "title", "type", "status", "created_at", "updated_at")
 }
 func compactTrain(value map[string]any) map[string]any {
 	result := selectProjectionFields(value, "id", "project_id", "revision", "status", "created_by", "created_at", "updated_at")

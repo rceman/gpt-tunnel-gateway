@@ -49,6 +49,7 @@ func (s *Service) TaskAuthoringRead(ctx context.Context, projectID, taskID strin
 	if err := model.ValidateTaskAuthoring(task); err != nil {
 		return model.TaskAuthoring{}, err
 	}
+	task.Type = model.DefaultTaskType(task.Type)
 	return task, nil
 }
 
@@ -74,6 +75,7 @@ func (s *Service) TaskAuthoringFind(ctx context.Context, taskID string) (model.T
 			if err := model.ValidateTaskAuthoring(task); err != nil {
 				return model.TaskAuthoring{}, fmt.Errorf("task %s is malformed in project %q: %w", taskID, project.ID, err)
 			}
+			task.Type = model.DefaultTaskType(task.Type)
 			matches = append(matches, task)
 			continue
 		}
@@ -109,7 +111,7 @@ func (s *Service) taskAuthoringCreateOnce(ctx context.Context, in TaskAuthoringC
 	if in.ADRRelation == "" {
 		in.ADRRelation = model.TaskADRNoRequired
 	}
-	draft := trainv2.AuthoringDraft{Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}
+	draft := trainv2.AuthoringDraft{Type: in.Type, Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}
 	if err := trainv2.ValidateDraft(draft); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
