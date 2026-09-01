@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
@@ -73,5 +75,39 @@ func TestHotfixCreateRequiresExistingTaskBinding(t *testing.T) {
 	}
 	if _, err := s.HotfixCreate(context.Background(), "example", HotfixCreateInput{Slug: "unknown", TaskID: "EXM-TSK999"}); err == nil {
 		t.Fatal("hotfix/create accepted a non-existent Task binding")
+	}
+}
+
+func TestHotfixCreateRollsBackTaskBindingWhenIdentityWriteFails(t *testing.T) {
+	s, hubRevision, base := testService(t)
+	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
+	task, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
+		ProjectID: "example", Title: "Hotfix rollback Task", Objective: "Verify failed identity persistence does not bind the Task.",
+		ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
+		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := gitx.HotfixIdentity{
+		ProjectID: "example", HotfixRef: "refs/heads/hotfix/repair", TaskID: task.ID,
+		BaseSHA: base, CreatedAt: time.Now().UTC(),
+	}
+	if err := s.Git.RecordHotfixIdentity(s.Config.StateDir, identity); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.HotfixCreate(context.Background(), "example", HotfixCreateInput{Slug: "repair", TaskID: task.ID}); err == nil {
+		t.Fatal("hotfix/create unexpectedly succeeded with an existing identity")
+	}
+	restored, err := s.TaskAuthoringRead(context.Background(), "example", task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Execution != "" {
+		t.Fatalf("failed hotfix/create left Task bound: %#v", restored)
+	}
+	laneRoot := filepath.Join(s.Config.StateDir, "hotfix-worktrees", "example", "repair")
+	if _, err := os.Stat(laneRoot); !os.IsNotExist(err) {
+		t.Fatalf("failed hotfix/create left lane at %s: %v", laneRoot, err)
 	}
 }

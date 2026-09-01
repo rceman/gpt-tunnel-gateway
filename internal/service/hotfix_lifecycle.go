@@ -76,9 +76,21 @@ func (s *Service) HotfixCreate(ctx context.Context, projectID string, in HotfixC
 	if err != nil {
 		return HotfixCreateResult{}, err
 	}
+	var boundTask *model.TaskAuthoring
 	rollback := func(cause error) (HotfixCreateResult, error) {
-		if rollbackErr := s.Git.RemoveHotfixWorktree(ctx, p, s.Config.StateDir, projectID, in.Slug, base); rollbackErr != nil {
-			return HotfixCreateResult{}, fmt.Errorf("%w; hotfix rollback failed: %v", cause, rollbackErr)
+		var taskRollbackErr error
+		if boundTask != nil {
+			taskRollbackErr = s.unbindTaskFromHotfix(ctx, *boundTask)
+		}
+		laneRollbackErr := s.Git.RemoveHotfixWorktree(ctx, p, s.Config.StateDir, projectID, in.Slug, base)
+		if taskRollbackErr != nil && laneRollbackErr != nil {
+			return HotfixCreateResult{}, fmt.Errorf("%w; Task binding rollback failed: %v; hotfix rollback failed: %v", cause, taskRollbackErr, laneRollbackErr)
+		}
+		if taskRollbackErr != nil {
+			return HotfixCreateResult{}, fmt.Errorf("%w; Task binding rollback failed: %v", cause, taskRollbackErr)
+		}
+		if laneRollbackErr != nil {
+			return HotfixCreateResult{}, fmt.Errorf("%w; hotfix rollback failed: %v", cause, laneRollbackErr)
 		}
 		return HotfixCreateResult{}, cause
 	}
@@ -94,6 +106,7 @@ func (s *Service) HotfixCreate(ctx context.Context, projectID string, in HotfixC
 	if err != nil {
 		return rollback(err)
 	}
+	boundTask = &bound
 	if err := s.Git.RecordHotfixIdentity(s.Config.StateDir, gitx.HotfixIdentity{ProjectID: projectID, HotfixRef: ref, TaskID: bound.ID, BaseSHA: base, CreatedAt: time.Now().UTC()}); err != nil {
 		return rollback(err)
 	}
@@ -132,6 +145,44 @@ func (s *Service) bindTaskToHotfix(ctx context.Context, task model.TaskAuthoring
 		return model.TaskAuthoring{}, err
 	}
 	return updated, nil
+}
+
+func (s *Service) unbindTaskFromHotfix(ctx context.Context, task model.TaskAuthoring) error {
+	if task.Execution != model.TaskExecutionHotfix {
+		return fmt.Errorf("Task %q is not bound to hotfix execution", task.ID)
+	}
+	empty := model.TaskExecution("")
+	if s.Durability == nil {
+		expected, err := s.Hub.RemoteRevision(ctx)
+		if err != nil {
+			return err
+		}
+		_, _, err = s.TaskAuthoringUpdate(ctx, TaskAuthoringUpdateInput{
+			ProjectID: task.ProjectID, TaskID: task.ID, ExpectedRevision: task.Revision,
+			ExpectedRevisionSHA256: task.RevisionSHA256, Execution: &empty, UpdatedBy: "hotfix/create-rollback",
+			WriteOptions: WriteOptions{ExpectedHubRevision: expected},
+		})
+		return err
+	}
+	updated, changed, err := trainv2.UpdateTask(task, trainv2.AuthoringPatch{Execution: &empty}, "hotfix/create-rollback", s.durableNow())
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return fmt.Errorf("Task %q was not changed during hotfix binding rollback", task.ID)
+	}
+	payload, err := json.Marshal(updated)
+	if err != nil {
+		return err
+	}
+	digest := sha256.Sum256([]byte("hotfix-unbind:" + task.ID + ":" + fmt.Sprint(task.Revision)))
+	operationID := "hotfix-unbind-" + hex.EncodeToString(digest[:])
+	_, err = s.Durability.CommitSharedMutation(ctx, sqlitestore.SharedMutation{
+		OperationID: operationID, EntityType: "task", EntityID: updated.ID,
+		ExpectedRevision: int64(task.Revision), Revision: int64(updated.Revision),
+		Kind: "task-hotfix-bind-rollback", Payload: payload, CreatedAt: s.durableNow(),
+	})
+	return err
 }
 
 func (s *Service) HotfixIntegrate(ctx context.Context, projectID string, in HotfixIntegrateInput) (HotfixIntegrateResult, error) {
