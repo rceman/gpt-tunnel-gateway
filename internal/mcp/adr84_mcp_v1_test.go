@@ -148,17 +148,32 @@ func TestADR84ApplicationDomainsRemainBehindSchemaAndCall(t *testing.T) {
 	}
 }
 
-func TestADR84PublicSchemaRequiresBoundSessionAndRejectsBatch(t *testing.T) {
+func TestADR84PublicSchemaAllowsOptionalSessionAndRejectsBatch(t *testing.T) {
 	server := newSessionTestServer(t)
-	missing := callMCPRaw(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "schema", "arguments": map[string]any{}},
+	for id, path := range map[int]string{1: "", 2: "task", 3: "task/create"} {
+		response := callMCPRaw(t, server, mustJSON(t, map[string]any{
+			"jsonrpc": "2.0", "id": id, "method": "tools/call",
+			"params": map[string]any{"name": "schema", "arguments": map[string]any{"path": path}},
+		}))
+		result, ok := response["result"].(map[string]any)
+		if !ok || result["isError"] == true {
+			t.Fatalf("schema without session path=%q failed: %#v", path, response)
+		}
+		structured, ok := result["structuredContent"].(map[string]any)
+		if !ok || structured["path"] != path {
+			t.Fatalf("schema without session path=%q response=%#v", path, response)
+		}
+	}
+	sessionID := genericSession(t, server.Service, "example")
+	withSession := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+		"params": map[string]any{"name": "schema", "arguments": map[string]any{"session": sessionID, "path": "task/create"}},
 	}))
-	if missing["error"] == nil {
-		t.Fatalf("schema without session was accepted: %#v", missing)
+	if result, ok := withSession["result"].(map[string]any); !ok || result["isError"] == true {
+		t.Fatalf("schema with valid session failed: %#v", withSession)
 	}
 	batch := callMCPRaw(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+		"jsonrpc": "2.0", "id": 5, "method": "tools/call",
 		"params": map[string]any{"name": "batch", "arguments": map[string]any{}},
 	}))
 	if batch["error"] == nil {

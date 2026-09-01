@@ -98,7 +98,7 @@ func genericSchemaPublicInputSchema() map[string]any {
 	return obj(map[string]any{
 		"session": session,
 		"path":    str("Optional root, domain, or exact action path."),
-	}, "session")
+	})
 }
 func genericCallOutputSchema() map[string]any {
 	metrics := closedOutput(map[string]any{
