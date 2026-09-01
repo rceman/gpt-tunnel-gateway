@@ -246,6 +246,7 @@ func TestOpenUpgradesFullHistoricalLocalLineageWithoutRewritingHistory(t *testin
 		{int64(4), historicalLocalHistoryProjectIndexesMigrationName},
 		{int64(5), historicalLocalHistoryProjectBackfillMigrationName},
 		{localCallbackEpochsMigrationVersion, localCallbackEpochsMigrationDescription},
+		{localAgentRegistryMigrationVersion, localAgentRegistryMigrationDescription},
 	}
 	if len(rows.Rows) != len(want) {
 		db.Close()
@@ -257,12 +258,12 @@ func TestOpenUpgradesFullHistoricalLocalLineageWithoutRewritingHistory(t *testin
 			t.Fatalf("migration history[%d]=%#v, want=%#v", i, rows.Rows[i], want[i])
 		}
 	}
-	objects, err := db.Local.Query(context.Background(), `SELECT type,name FROM sqlite_master WHERE name IN ('local_callback_epochs','local_callback_epochs_pending_idx') ORDER BY type,name`)
+	objects, err := db.Local.Query(context.Background(), `SELECT type,name FROM sqlite_master WHERE name IN ('local_agents','local_agents_project_idx','local_callback_epochs','local_callback_epochs_pending_idx') ORDER BY type,name`)
 	if err != nil {
 		db.Close()
 		t.Fatal(err)
 	}
-	if len(objects.Rows) != 2 || objects.Rows[0][0] != "index" || objects.Rows[0][1] != "local_callback_epochs_pending_idx" || objects.Rows[1][0] != "table" || objects.Rows[1][1] != "local_callback_epochs" {
+	if len(objects.Rows) != 4 || objects.Rows[0][0] != "index" || objects.Rows[0][1] != "local_agents_project_idx" || objects.Rows[1][0] != "index" || objects.Rows[1][1] != "local_callback_epochs_pending_idx" || objects.Rows[2][0] != "table" || objects.Rows[2][1] != "local_agents" || objects.Rows[3][0] != "table" || objects.Rows[3][1] != "local_callback_epochs" {
 		db.Close()
 		t.Fatalf("callback schema=%#v", objects.Rows)
 	}
@@ -289,7 +290,7 @@ func TestOpenUpgradesFullHistoricalLocalLineageWithoutRewritingHistory(t *testin
 	}
 }
 
-func TestOpenFreshLocalAppliesCallbackEpochMigrationAtTimestampID(t *testing.T) {
+func TestOpenFreshLocalAppliesTimestampedLocalMigrations(t *testing.T) {
 	db, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -299,7 +300,7 @@ func TestOpenFreshLocalAppliesCallbackEpochMigrationAtTimestampID(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := [][]any{{int64(1), localOperationalMigrationName}, {localCallbackEpochsMigrationVersion, localCallbackEpochsMigrationDescription}}
+	want := [][]any{{int64(1), localOperationalMigrationName}, {localCallbackEpochsMigrationVersion, localCallbackEpochsMigrationDescription}, {localAgentRegistryMigrationVersion, localAgentRegistryMigrationDescription}}
 	if len(rows.Rows) != len(want) {
 		t.Fatalf("fresh migration history=%#v, want=%#v", rows.Rows, want)
 	}
@@ -308,11 +309,11 @@ func TestOpenFreshLocalAppliesCallbackEpochMigrationAtTimestampID(t *testing.T) 
 			t.Fatalf("fresh migration history[%d]=%#v, want=%#v", i, rows.Rows[i], want[i])
 		}
 	}
-	rows, err = db.Local.Query(context.Background(), `SELECT type,name FROM sqlite_master WHERE name IN ('local_callback_epochs','local_callback_epochs_pending_idx') ORDER BY type,name`)
+	rows, err = db.Local.Query(context.Background(), `SELECT type,name FROM sqlite_master WHERE name IN ('local_agents','local_agents_project_idx','local_callback_epochs','local_callback_epochs_pending_idx') ORDER BY type,name`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows.Rows) != 2 || rows.Rows[0][0] != "index" || rows.Rows[0][1] != "local_callback_epochs_pending_idx" || rows.Rows[1][0] != "table" || rows.Rows[1][1] != "local_callback_epochs" {
+	if len(rows.Rows) != 4 || rows.Rows[0][0] != "index" || rows.Rows[0][1] != "local_agents_project_idx" || rows.Rows[1][0] != "index" || rows.Rows[1][1] != "local_callback_epochs_pending_idx" || rows.Rows[2][0] != "table" || rows.Rows[2][1] != "local_agents" || rows.Rows[3][0] != "table" || rows.Rows[3][1] != "local_callback_epochs" {
 		t.Fatalf("fresh callback schema=%#v", rows.Rows)
 	}
 }

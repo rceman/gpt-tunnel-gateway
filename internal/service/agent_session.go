@@ -54,12 +54,14 @@ func (s *Service) resolveAgentSession(ctx context.Context, projectID, agentID st
 	if err != nil {
 		return "", err
 	}
-	project, err := s.ProjectRead(ctx, projectID)
-	if err != nil {
-		return "", fmt.Errorf("registered project %q is unavailable", projectID)
-	}
-	if project.ID != projectID || project.Status != "active" {
-		return "", fmt.Errorf("project %q is not active", projectID)
+	if s.Durability == nil {
+		project, projectErr := s.ProjectRead(ctx, projectID)
+		if projectErr != nil {
+			return "", fmt.Errorf("registered project %q is unavailable", projectID)
+		}
+		if project.ID != projectID || project.Status != "active" {
+			return "", fmt.Errorf("project %q is not active", projectID)
+		}
 	}
 	if agentID != "" {
 		agent, readErr := s.AgentRead(ctx, projectID, agentID)

@@ -63,6 +63,9 @@ type activeTrainAttempt struct {
 }
 
 func (s *Service) trainV2ActiveAttempt(ctx context.Context, projectID string) (activeTrainAttempt, bool, error) {
+	if s.Durability != nil {
+		return s.trainV2ActiveAttemptLocal(ctx, projectID)
+	}
 	trains, err := s.TrainV2List(ctx, TrainV2ListInput{
 		ProjectID: projectID,
 		Limit:     model.MaxTrainV2Items,
@@ -104,6 +107,65 @@ func (s *Service) trainV2ActiveAttempt(ctx context.Context, projectID string) (a
 			Item:    item,
 			Attempt: attempt,
 		}, true, nil
+	}
+	return activeTrainAttempt{}, false, nil
+}
+
+// trainV2ActiveAttemptLocal derives the supervision binding from the local
+// Shared Train projection and Gateway-local runtime binding. The portable
+// start checkpoint is reconstructed from those two authorities; no Hub read,
+// refresh, or repository lock is part of Agent supervision.
+func (s *Service) trainV2ActiveAttemptLocal(ctx context.Context, projectID string) (activeTrainAttempt, bool, error) {
+	trains, err := s.sharedTrains(ctx, projectID)
+	if err != nil {
+		return activeTrainAttempt{}, false, err
+	}
+	local, err := s.projectConfig(projectID)
+	if err != nil {
+		return activeTrainAttempt{}, false, err
+	}
+	integrationBranch := local.DefaultBranch
+	if configuration, configurationErr := s.ProjectConfigurationRead(ctx, projectID); configurationErr == nil && configuration.Workflow.IntegrationBranch != "" {
+		integrationBranch = configuration.Workflow.IntegrationBranch
+	}
+	for _, train := range trains {
+		if train.Status != model.TrainV2Running && train.Status != model.TrainV2Paused && train.Status != model.TrainV2Blocked {
+			continue
+		}
+		runtime, runtimeErr := trainv2.ReadRuntime(s.Config.StateDir, projectID, train.ID)
+		if runtimeErr != nil || runtime.RestartRequired || runtime.ItemPosition < 0 || runtime.ItemPosition >= len(train.Items) {
+			continue
+		}
+		item := train.Items[runtime.ItemPosition]
+		if item.TaskID != runtime.TaskID || item.Status != model.TrainV2ItemRunning || item.ActiveAttemptNumber != runtime.AttemptNumber || runtime.AttemptNumber == 0 || runtime.AttemptNumber > uint64(len(item.Attempts)) {
+			continue
+		}
+		attempt := item.Attempts[runtime.AttemptNumber-1]
+		if attempt.Status != model.TrainV2AttemptRunning || attempt.AgentID != runtime.AgentID || attempt.AirelaySessionKey != runtime.SessionKey {
+			continue
+		}
+		start := model.TrainV2StartRecord{
+			SchemaVersion:             model.TrainV2StartSchemaVersion,
+			ProjectID:                 projectID,
+			TrainID:                   train.ID,
+			Status:                    model.TrainV2StartActive,
+			IntegrationBranch:         integrationBranch,
+			BaseRevision:              attempt.StartHead,
+			LaneBranch:                "train/" + train.ID,
+			CurrentItemPosition:       item.Position,
+			CurrentAttemptNumber:      attempt.Number,
+			CurrentTaskID:             item.TaskID,
+			CurrentTaskRevision:       item.TaskRevision,
+			CurrentTaskRevisionSHA256: item.TaskRevisionSHA256,
+			StartedAt:                 attempt.StartedAt,
+		}
+		if err := model.ValidateTrainV2StartRecord(start); err != nil {
+			return activeTrainAttempt{}, false, err
+		}
+		if _, err := watcher.BindTrainAttempt(train, start, runtime); err != nil {
+			return activeTrainAttempt{}, false, err
+		}
+		return activeTrainAttempt{Train: train, Start: start, Runtime: runtime, Item: item, Attempt: attempt}, true, nil
 	}
 	return activeTrainAttempt{}, false, nil
 }

@@ -177,6 +177,8 @@ const (
 	localOperationalMigrationName                 = "gpt_tunnel_local_operational_v1"
 	localCallbackEpochsMigrationVersion     int64 = 202609011412
 	localCallbackEpochsMigrationDescription       = "create local callback epochs"
+	localAgentRegistryMigrationVersion      int64 = 202609011900
+	localAgentRegistryMigrationDescription        = "create local agent registry"
 
 	sharedReplicationMigrationName          = "gpt_tunnel_shared_replication_v1"
 	sharedCutoverMigrationName              = "gpt_tunnel_shared_cutover_v1"
@@ -348,6 +350,18 @@ var localMigrations = []migrate.Migration{{
 			emitted_at TEXT
 		)`},
 		{SQL: `CREATE INDEX IF NOT EXISTS local_callback_epochs_pending_idx ON local_callback_epochs(emitted_at, armed_at, epoch_id)`},
+	},
+}, {
+	Version: localAgentRegistryMigrationVersion, Name: localAgentRegistryMigrationDescription,
+	Statements: []store.Statement{
+		{SQL: `CREATE TABLE IF NOT EXISTS local_agents (
+			project_id TEXT NOT NULL,
+			agent_id TEXT NOT NULL,
+			payload BLOB NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY(project_id,agent_id)
+		)`},
+		{SQL: `CREATE INDEX IF NOT EXISTS local_agents_project_idx ON local_agents(project_id,agent_id)`},
 	},
 }}
 

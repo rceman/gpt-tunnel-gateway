@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -26,62 +25,56 @@ func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
 		return result, nil
 	}
 	result.ConfiguredProjectIDs = append(result.ConfiguredProjectIDs, configuredIDs...)
-	snapshot, err := s.Hub.FreshReadSnapshot(ctx)
-	if err != nil {
-		result.Issues = append(result.Issues, stateIssue("HUB_UNAVAILABLE", "", "", "", err.Error()))
-		result.Valid = false
-		return result, nil
+	if s.Durability != nil {
+		return s.stateCheckLocal(ctx, configuredIDs)
 	}
-	defer snapshot.Close()
-	ctx = hub.WithReadSnapshot(ctx, snapshot)
-	revision, err := s.Hub.RemoteRevision(ctx)
-	if err != nil {
-		result.Issues = append(result.Issues, stateIssue("HUB_UNAVAILABLE", "", "", "", err.Error()))
-		result.Valid = false
-		return result, nil
-	}
-	result.HubRevision = revision
-	projects, err := s.ProjectList(ctx)
-	if err != nil {
-		result.Issues = append(result.Issues, stateIssue("DURABLE_PROJECTS_UNAVAILABLE", "", "", "", err.Error()))
-		result.Valid = false
-		return result, nil
-	}
-	durable := map[string]model.Project{}
-	for _, project := range projects {
-		if err := model.ValidateProject(project); err != nil {
-			result.Issues = append(result.Issues, stateIssue("INVALID_DURABLE_PROJECT", project.ID, "", s.projectPath(project.ID), err.Error()))
+	return s.stateCheckLocalWithoutDurability(result, configuredIDs, resolution)
+}
+
+func (s *Service) stateCheckLocalWithoutDurability(result StateCheckResult, configuredIDs []string, resolution ProjectResolution) (StateCheckResult, error) {
+	for _, projectID := range configuredIDs {
+		project, ok := resolution.Projects[projectID]
+		if !ok || project.Root == "" || project.Mirror == "" || project.DefaultBranch == "" || project.AirelaySessionKey == "" {
+			result.Issues = append(result.Issues, stateIssue("CONFIGURED_PROJECT_INVALID", projectID, "", "", "local project configuration is incomplete"))
 			continue
 		}
-		if _, exists := durable[project.ID]; exists {
-			result.Issues = append(result.Issues, stateIssue("DUPLICATE_DURABLE_PROJECT", project.ID, "", s.projectPath(project.ID), "duplicate project ID"))
-			continue
-		}
-		durable[project.ID] = project
-		result.DurableProjectIDs = append(result.DurableProjectIDs, project.ID)
+		result.DurableProjectIDs = append(result.DurableProjectIDs, projectID)
 	}
 	sort.Strings(result.DurableProjectIDs)
-	for _, project := range projects {
-		if project.Status == "active" {
-			if _, configured := resolution.Projects[project.ID]; !configured {
-				result.Issues = append(result.Issues, stateIssue("DURABLE_PROJECT_NOT_CONFIGURED", project.ID, "", s.projectPath(project.ID), "active durable project is not configured"))
-			}
-		}
+	// Plan files remain immutable history and are intentionally not part of
+	// current-state validation after the Train-v2 cutover. A controller-side
+	// check has no SQLite owner, so live graph validation is performed by the
+	// daemon's Local/Shared path above.
+	result.Valid = len(result.Issues) == 0
+	return result, nil
+}
+
+// stateCheckLocal validates the live durable graph from Local/Shared SQLite.
+// Shared projections are replicated Hub state, but this read path never asks
+// Hub to refresh, acquire its repository lock, or resolve a remote revision.
+func (s *Service) stateCheckLocal(ctx context.Context, configuredIDs []string) (StateCheckResult, error) {
+	result := StateCheckResult{
+		ConfiguredProjectIDs:    append([]string(nil), configuredIDs...),
+		DurableProjectIDs:       []string{},
+		ValidCurrentPlans:       []string{},
+		Plans:                   []StatePlan{},
+		Issues:                  []StateIssue{},
+		OperationalTaskRunGraph: false,
 	}
-	for _, id := range result.ConfiguredProjectIDs {
-		project, exists := durable[id]
-		if !exists {
-			result.Issues = append(result.Issues, stateIssue("CONFIGURED_PROJECT_MISSING", id, "", s.projectPath(id), "configured project has no durable project record"))
+	for _, projectID := range configuredIDs {
+		configuration, err := s.ProjectConfigurationRead(ctx, projectID)
+		if err != nil {
+			result.Issues = append(result.Issues, stateIssue("DURABLE_PROJECTS_UNAVAILABLE", projectID, "", s.projectConfigurationPath(projectID), err.Error()))
 			continue
 		}
-		if project.Status != "active" {
-			result.Issues = append(result.Issues, stateIssue("CONFIGURED_PROJECT_NOT_ACTIVE", id, "", s.projectPath(id), "configured project is not active"))
+		if configuration.ProjectID != projectID {
+			result.Issues = append(result.Issues, stateIssue("INVALID_DURABLE_PROJECT", projectID, "", s.projectConfigurationPath(projectID), "project configuration identity mismatch"))
+			continue
 		}
-		trains, trainErr := s.readTrainV2Records(ctx, id)
+		result.DurableProjectIDs = append(result.DurableProjectIDs, projectID)
+		trains, trainErr := s.sharedTrains(ctx, projectID)
 		if trainErr != nil {
-			if !IsNotFound(trainErr) {
-				result.Issues = append(result.Issues, stateIssue("TRAIN_V2_UNAVAILABLE", id, "", s.trainV2Root(id), trainErr.Error()))
-			}
+			result.Issues = append(result.Issues, stateIssue("TRAIN_V2_UNAVAILABLE", projectID, "", s.trainV2Root(projectID), trainErr.Error()))
 			continue
 		}
 		owners := make(map[string]string)
@@ -90,20 +83,23 @@ func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
 			if train.Historical != nil {
 				continue
 			}
+			trainPath := s.trainV2Path(projectID, train.ID)
 			for _, item := range train.Items {
 				if owner, exists := owners[item.TaskID]; exists {
 					if !reported[item.TaskID] {
-						result.Issues = append(result.Issues, stateIssue("DUPLICATE_TRAIN_TASK_MEMBERSHIP", id, item.TaskID, s.trainV2Path(id, train.ID), fmt.Sprintf("Task %q belongs to Trains %q and %q", item.TaskID, owner, train.ID)))
+						result.Issues = append(result.Issues, stateIssue("DUPLICATE_TRAIN_TASK_MEMBERSHIP", projectID, item.TaskID, trainPath, fmt.Sprintf("Task %q belongs to Trains %q and %q", item.TaskID, owner, train.ID)))
 						reported[item.TaskID] = true
 					}
 					continue
 				}
 				owners[item.TaskID] = train.ID
+				if item.Status != model.TrainV2ItemQueued && len(item.Attempts) == 0 {
+					result.Issues = append(result.Issues, stateIssue("TRAIN_V2_ATTEMPT_MISSING", projectID, item.TaskID, trainPath, fmt.Sprintf("Train item %s has no item-local attempt", item.TaskID)))
+				}
 			}
 		}
 	}
-	// Plan files remain immutable history and are intentionally not part of
-	// current-state validation after the Train-v2 cutover.
+	sort.Strings(result.DurableProjectIDs)
 	result.Valid = len(result.Issues) == 0
 	return result, nil
 }

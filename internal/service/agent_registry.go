@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func (s *Service) agentPath(projectID, agentID string) string {
@@ -29,6 +31,12 @@ func (s *Service) AgentRead(ctx context.Context, projectID, agentID string) (mod
 	if err := model.ValidateObjectIdentifier(agentID); err != nil {
 		return model.Agent{}, err
 	}
+	if s.Durability != nil {
+		if _, err := s.projectConfig(projectID); err != nil {
+			return model.Agent{}, err
+		}
+		return s.readLocalAgent(ctx, projectID, agentID)
+	}
 	if _, err := s.ProjectRead(ctx, projectID); err != nil {
 		return model.Agent{}, err
 	}
@@ -46,6 +54,12 @@ func (s *Service) AgentList(ctx context.Context, projectID string) ([]model.Agen
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return nil, err
 	}
+	if s.Durability != nil {
+		if _, err := s.projectConfig(projectID); err != nil {
+			return nil, err
+		}
+		return s.listLocalAgents(ctx, projectID)
+	}
 	if _, err := s.ProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
@@ -61,6 +75,45 @@ func (s *Service) AgentList(ctx context.Context, projectID string) ([]model.Agen
 		}
 		if err := model.ValidateAgent(agent); err != nil || agent.ProjectID != projectID {
 			return nil, fmt.Errorf("invalid project agent record %q", path)
+		}
+		result = append(result, agent)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].AgentID < result[j].AgentID })
+	return result, nil
+}
+
+func (s *Service) readLocalAgent(ctx context.Context, projectID, agentID string) (model.Agent, error) {
+	record, err := s.Durability.ReadLocalAgent(ctx, projectID, agentID)
+	if err != nil {
+		return model.Agent{}, err
+	}
+	var agent model.Agent
+	if err := json.Unmarshal(record.Payload, &agent); err != nil {
+		return model.Agent{}, fmt.Errorf("decode local agent %q/%q: %w", projectID, agentID, err)
+	}
+	if err := model.ValidateAgent(agent); err != nil || agent.ProjectID != projectID || agent.AgentID != agentID {
+		return model.Agent{}, fmt.Errorf("invalid local agent %q/%q", projectID, agentID)
+	}
+	return agent, nil
+}
+
+func (s *Service) listLocalAgents(ctx context.Context, projectID string) ([]model.Agent, error) {
+	limit := s.Config.MaxListItems
+	if limit < 1 {
+		limit = 1000
+	}
+	records, err := s.Durability.ListLocalAgents(ctx, projectID, limit)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]model.Agent, 0, len(records))
+	for _, record := range records {
+		var agent model.Agent
+		if err := json.Unmarshal(record.Payload, &agent); err != nil {
+			return nil, fmt.Errorf("decode local agent %q/%q: %w", projectID, record.AgentID, err)
+		}
+		if err := model.ValidateAgent(agent); err != nil || agent.ProjectID != projectID || agent.AgentID != record.AgentID {
+			return nil, fmt.Errorf("invalid local agent %q/%q", projectID, record.AgentID)
 		}
 		result = append(result, agent)
 	}
@@ -120,6 +173,20 @@ func (s *Service) AgentUpdate(ctx context.Context, in AgentUpdateInput) (model.A
 	})
 	if err != nil {
 		return model.Agent{}, OperationResult{}, err
+	}
+	if s.Durability != nil {
+		payload, marshalErr := json.Marshal(updated)
+		if marshalErr != nil {
+			return model.Agent{}, OperationResult{}, fmt.Errorf("encode local Agent projection: %w", marshalErr)
+		}
+		if localErr := s.Durability.UpsertLocalAgent(ctx, sqlitestore.LocalAgent{
+			ProjectID: in.ProjectID,
+			AgentID:   updated.AgentID,
+			Payload:   payload,
+			UpdatedAt: updated.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		}); localErr != nil {
+			return model.Agent{}, OperationResult{}, fmt.Errorf("update local Agent projection: %w", localErr)
+		}
 	}
 	return updated, OperationResult{
 		Hub:       tx,

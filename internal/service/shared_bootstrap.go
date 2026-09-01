@@ -38,6 +38,9 @@ func (s *Service) BootstrapSharedFromHub(ctx context.Context) error {
 		if err := s.bootstrapSharedProjectConfiguration(ctx, snapshot, projectID); err != nil {
 			return err
 		}
+		if err := s.bootstrapLocalAgents(ctx, snapshot, projectID); err != nil {
+			return err
+		}
 		if err := s.bootstrapSharedTasks(ctx, snapshot, projectID); err != nil {
 			return err
 		}
@@ -73,6 +76,40 @@ func (s *Service) bootstrapSharedProjectConfiguration(ctx context.Context, snaps
 	return s.Durability.PutSharedProjection(ctx, "project_configuration", sqlitestore.SharedEntity{
 		ID: configuration.ProjectID, Revision: int64(configuration.Revision), Payload: files[path], UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	})
+}
+
+func (s *Service) bootstrapLocalAgents(ctx context.Context, snapshot *hub.ReadSnapshot, projectID string) error {
+	paths, err := snapshot.List(ctx, s.projectPrefix(projectID)+"/agents", ".json")
+	if err != nil {
+		return fmt.Errorf("list Agent bootstrap records: %w", err)
+	}
+	if len(paths) > maxSharedBootstrapRecords {
+		return fmt.Errorf("local Agent bootstrap exceeds bounded record limit")
+	}
+	files, err := snapshot.ReadFiles(ctx, paths)
+	if err != nil {
+		return fmt.Errorf("read Agent bootstrap records: %w", err)
+	}
+	agents := make([]sqlitestore.LocalAgent, 0, len(paths))
+	for _, filePath := range paths {
+		var agent model.Agent
+		if err := decodeStrict(files[filePath], &agent); err != nil {
+			return fmt.Errorf("decode Agent bootstrap %s: %w", filePath, err)
+		}
+		if agent.ProjectID != projectID {
+			return fmt.Errorf("Agent bootstrap project mismatch %s", filePath)
+		}
+		if err := model.ValidateAgent(agent); err != nil {
+			return fmt.Errorf("invalid Agent bootstrap %s: %w", filePath, err)
+		}
+		agents = append(agents, sqlitestore.LocalAgent{
+			ProjectID: projectID,
+			AgentID:   agent.AgentID,
+			Payload:   append([]byte(nil), files[filePath]...),
+			UpdatedAt: agent.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		})
+	}
+	return s.Durability.ReplaceLocalAgents(ctx, projectID, agents)
 }
 
 func (s *Service) bootstrapSharedTasks(ctx context.Context, snapshot *hub.ReadSnapshot, projectID string) error {

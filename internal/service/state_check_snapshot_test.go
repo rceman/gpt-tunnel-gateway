@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,11 +10,13 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
+	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
-func TestStateCheckUsesOneHubSnapshotForCompleteValidation(t *testing.T) {
+func TestStateCheckWithoutDurabilityUsesLocalConfigurationWithoutHub(t *testing.T) {
 	s, revision, _ := testService(t)
 	train, _ := reviewBackfillFixture(t)
 	operation := trainv2.IntegrationOperation{
@@ -70,12 +73,42 @@ exec /usr/bin/git "$@"
 	if !result.Valid {
 		t.Fatalf("StateCheck invalid: %#v", result.Issues)
 	}
-	data, err := os.ReadFile(logPath)
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatalf("StateCheck touched Hub git fetch path: stat=%v", err)
+	}
+}
+
+func TestStateCheckUsesLocalSQLiteWhenHubUnavailableAndLocked(t *testing.T) {
+	s, _, _ := testService(t)
+	db, err := sqlitestore.Open(s.Config.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Count(string(data), "\n"); got != 1 {
-		t.Fatalf("Hub fetch count = %d, want one pinned snapshot fetch; log=%q", got, data)
+	defer db.Close()
+	s.Durability = db
+	configuration := model.DefaultProjectConfiguration("example", time.Now().UTC())
+	payload, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(context.Background(), "project_configuration", sqlitestore.SharedEntity{
+		ID: configuration.ProjectID, Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
+	hubLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "hub-repository")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hubLock.Release()
+
+	result, err := s.StateCheck(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Valid || len(result.Issues) != 0 {
+		t.Fatalf("local StateCheck failed with Hub unavailable/locked: %#v", result)
 	}
 }
 
@@ -117,7 +150,21 @@ func TestStateCheckAllowsTwoIndependentActiveTrains(t *testing.T) {
 }
 
 func TestStateCheckReportsDuplicateTrainTaskOwnership(t *testing.T) {
-	s, revision, _ := testService(t)
+	s, _, _ := testService(t)
+	db, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s.Durability = db
+	configuration := model.DefaultProjectConfiguration("example", time.Now().UTC())
+	payload, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(context.Background(), "project_configuration", sqlitestore.SharedEntity{ID: "example", Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC()
 	first := staleTrainV2ForRetirementTest(now)
 	second := staleTrainV2ForRetirementTest(now.Add(time.Second))
@@ -125,17 +172,24 @@ func TestStateCheckReportsDuplicateTrainTaskOwnership(t *testing.T) {
 	first.Status, second.Status = model.TrainV2Planned, model.TrainV2Planned
 	first.Items[0].Status, second.Items[0].Status = model.TrainV2ItemQueued, model.TrainV2ItemQueued
 	first.Items[0].Attempts, second.Items[0].Attempts = nil, nil
-	if _, err := s.Hub.Transact(context.Background(), revision, "test: seed duplicate Train Task ownership", func(worktree string) ([]string, error) {
-		firstPath, secondPath := s.trainV2Path("example", first.ID), s.trainV2Path("example", second.ID)
-		if err := hub.WriteJSON(worktree, firstPath, first); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(worktree, secondPath, second); err != nil {
-			return nil, err
-		}
-		return []string{firstPath, secondPath}, nil
-	}); err != nil {
+	firstPayload, err := json.Marshal(first)
+	if err != nil {
 		t.Fatal(err)
+	}
+	secondPayload, err := json.Marshal(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []struct {
+		train   model.TrainV2
+		payload []byte
+	}{
+		{train: first, payload: firstPayload},
+		{train: second, payload: secondPayload},
+	} {
+		if err := db.PutSharedProjection(context.Background(), "train", sqlitestore.SharedEntity{ID: value.train.ID, Revision: int64(value.train.Revision), Payload: value.payload, UpdatedAt: value.train.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	result, err := s.StateCheck(context.Background())
 	if err != nil {
