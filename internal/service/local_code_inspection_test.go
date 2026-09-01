@@ -363,7 +363,7 @@ func TestCodeWorktreeOrdersMainThenUnmergedHotfixesAndSkipsLegacy(t *testing.T) 
 		}
 		testutil.Git(t, lane, "add", slug+".txt")
 		testutil.Git(t, lane, "commit", "-m", slug+" fixture")
-		if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{ProjectID: "example", HotfixRef: "refs/heads/" + branch, BaseSHA: f.current, CreatedAt: createdAt}); err != nil {
+		if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{ProjectID: "example", HotfixRef: "refs/heads/" + branch, TaskID: "EXM-TSK1", BaseSHA: f.current, CreatedAt: createdAt}); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() {
@@ -376,7 +376,7 @@ func TestCodeWorktreeOrdersMainThenUnmergedHotfixesAndSkipsLegacy(t *testing.T) 
 	legacyLane := filepath.Join(f.service.Config.StateDir, "hotfix-worktrees", "example", "legacy")
 	testutil.Git(t, f.root, "branch", "hotfix/legacy", f.current)
 	testutil.Git(t, f.root, "worktree", "add", legacyLane, "hotfix/legacy")
-	if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{ProjectID: "example", HotfixRef: "refs/heads/hotfix/legacy", BaseSHA: f.current}); err != nil {
+	if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{ProjectID: "example", HotfixRef: "refs/heads/hotfix/legacy", TaskID: "EXM-TSK1", BaseSHA: f.current}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -426,7 +426,7 @@ func TestCodeWorktreeFailsClosedForAuthoritativeHotfixWithoutManagedBinding(t *t
 	f := newLocalCodeFixture(t)
 	runner := gitx.Runner{StateDir: f.service.Config.StateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
 	if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{
-		ProjectID: "example", HotfixRef: "refs/heads/hotfix/missing", BaseSHA: f.current, CreatedAt: time.Now().UTC(),
+		ProjectID: "example", HotfixRef: "refs/heads/hotfix/missing", TaskID: "EXM-TSK1", BaseSHA: f.current, CreatedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +447,7 @@ func TestCodeWorktreeFailsClosedForAuthoritativeHotfixWithUnexpectedBinding(t *t
 		testutil.Git(t, f.root, "branch", "-D", branch)
 	})
 	if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{
-		ProjectID: "example", HotfixRef: "refs/heads/" + branch, BaseSHA: f.current, CreatedAt: time.Now().UTC(),
+		ProjectID: "example", HotfixRef: "refs/heads/" + branch, TaskID: "EXM-TSK1", BaseSHA: f.current, CreatedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -488,7 +488,7 @@ func TestCodeWorktreeEnumeratesGitWorktreesOnceForMultipleAuthoritativeLanes(t *
 	}
 	for _, id := range []string{"fix-a", "fix-b"} {
 		head := addLane("hotfix", id)
-		if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{ProjectID: "example", HotfixRef: "refs/heads/hotfix/" + id, BaseSHA: f.current, CreatedAt: now}); err != nil {
+		if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{ProjectID: "example", HotfixRef: "refs/heads/hotfix/" + id, TaskID: "EXM-TSK1", BaseSHA: f.current, CreatedAt: now}); err != nil {
 			t.Fatal(err)
 		}
 		if head == "" {

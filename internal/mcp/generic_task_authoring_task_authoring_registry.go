@@ -15,12 +15,16 @@ func (s *Server) ensureTaskAuthoringActions() {
 func taskAuthoringProperties() map[string]any {
 	priority := str("Bounded authoring priority.")
 	priority["maxLength"] = 32
+	scopeItem := str("Task-scoped file or module identifier.")
+	scope := obj(map[string]any{
+		"files": array(scopeItem), "modules": array(scopeItem),
+	})
 	metadata := map[string]any{"type": "object", "additionalProperties": str("Bounded preparation metadata value.")}
 	relation := str("Closed ADR relation.")
 	relation["enum"] = []any{model.TaskADRNoRequired, model.TaskADRImplementsExisting, model.TaskADRRequiresNew, model.TaskADRSupersedesExisting}
 	return map[string]any{
 		"project_id": str("Registered project identifier."), "task_id": str("Stable Task identifier."),
-		"type":  taskTypeSchema(),
+		"type": taskTypeSchema(), "execution": taskExecutionSchema(), "scope": scope,
 		"title": str("Task title."), "objective": str("Task objective."),
 		"acceptance_criteria": array(str("Acceptance criterion.")), "constraints": array(str("Task constraint.")),
 		"priority": priority, "dependencies": array(str("Bounded Task dependency.")),
@@ -31,6 +35,13 @@ func taskAuthoringProperties() map[string]any {
 		"expected_revision_sha256": str("Optional exact authoring revision hash."),
 		"expected_hub_revision":    str("Optimistic Hub revision."),
 	}
+}
+
+func taskExecutionSchema() map[string]any {
+	execution := str("Task execution axis.")
+	execution["enum"] = []string{string(model.TaskExecutionTrain), string(model.TaskExecutionHotfix)}
+	execution["default"] = string(model.TaskExecutionTrain)
+	return execution
 }
 func taskAuthoringCreateSchema() map[string]any {
 	all := taskAuthoringProperties()

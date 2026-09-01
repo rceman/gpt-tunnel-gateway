@@ -53,7 +53,7 @@ func compactNestedRecord(key string, value map[string]any) map[string]any {
 	}
 }
 func compactTask(value map[string]any) map[string]any {
-	return selectProjectionFields(value, "id", "project_id", "revision", "revision_sha256", "title", "type", "status", "created_at", "updated_at")
+	return selectProjectionFields(value, "id", "project_id", "revision", "revision_sha256", "title", "type", "execution", "scope", "status", "created_at", "updated_at")
 }
 func compactTrain(value map[string]any) map[string]any {
 	result := selectProjectionFields(value, "id", "project_id", "revision", "status", "created_by", "created_at", "updated_at")

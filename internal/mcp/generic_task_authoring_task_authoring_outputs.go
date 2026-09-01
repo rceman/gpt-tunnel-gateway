@@ -11,7 +11,7 @@ import (
 
 func taskAuthoringReadySchema() map[string]any {
 	properties := taskAuthoringProperties()
-	for _, key := range []string{"type", "title", "objective", "acceptance_criteria", "constraints", "priority", "dependencies", "preparation_references", "metadata", "adr_relation", "adr_references", "created_by", "updated_by"} {
+	for _, key := range []string{"type", "execution", "scope", "title", "objective", "acceptance_criteria", "constraints", "priority", "dependencies", "preparation_references", "metadata", "adr_relation", "adr_references", "created_by", "updated_by"} {
 		delete(properties, key)
 	}
 	return obj(properties, "project_id", "task_id", "expected_revision", "ready_by")
@@ -93,7 +93,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 		Description: "List bounded train_v2 Task specifications or historical Tasks.",
 		InputSchema: obj(map[string]any{
 			"project_id": str("Registered project identifier."), "query": str("Case-insensitive Task search text."),
-			"type": taskTypeSchema(), "status": str("Optional Task status."), "limit": integer("Maximum Tasks.", 1, service.MaxTaskListLimit), "cursor": str("Legacy continuation cursor."),
+			"type": taskTypeSchema(), "execution": taskExecutionSchema(), "status": str("Optional Task status."), "limit": integer("Maximum Tasks.", 1, service.MaxTaskListLimit), "cursor": str("Legacy continuation cursor."),
 		}, "project_id"),
 		OutputSchema: taskAuthoringOutputSchema(),
 		Annotations: ToolAnnotations{
@@ -104,12 +104,13 @@ func (s *Server) registerTaskAuthoringActions() error {
 		AllowLegacyOverride: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input struct {
-				ProjectID string         `json:"project_id"`
-				Query     string         `json:"query,omitempty"`
-				Type      model.TaskType `json:"type,omitempty"`
-				Status    string         `json:"status,omitempty"`
-				Limit     int            `json:"limit,omitempty"`
-				Cursor    string         `json:"cursor,omitempty"`
+				ProjectID string              `json:"project_id"`
+				Query     string              `json:"query,omitempty"`
+				Type      model.TaskType      `json:"type,omitempty"`
+				Execution model.TaskExecution `json:"execution,omitempty"`
+				Status    string              `json:"status,omitempty"`
+				Limit     int                 `json:"limit,omitempty"`
+				Cursor    string              `json:"cursor,omitempty"`
 			}
 			if err := decode(raw, &input); err != nil {
 				return nil, err
@@ -119,7 +120,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 				return nil, err
 			}
 			if enabled {
-				return s.Service.TaskAuthoringList(ctx, service.TaskAuthoringListInput{ProjectID: input.ProjectID, Query: input.Query, Type: input.Type, Status: input.Status, Limit: input.Limit})
+				return s.Service.TaskAuthoringList(ctx, service.TaskAuthoringListInput{ProjectID: input.ProjectID, Query: input.Query, Type: input.Type, Execution: input.Execution, Status: input.Status, Limit: input.Limit})
 			}
 			return s.Service.TaskListQuery(ctx, service.TaskListInput{ProjectID: input.ProjectID, Query: input.Query, Type: input.Type, Status: input.Status, Limit: input.Limit, Cursor: input.Cursor})
 		},

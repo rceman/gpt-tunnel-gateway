@@ -21,6 +21,7 @@ const hotfixIdentityMaxBytes = 4 << 10
 type HotfixIdentity struct {
 	ProjectID string    `json:"project_id"`
 	HotfixRef string    `json:"hotfix_ref"`
+	TaskID    string    `json:"task_id"`
 	BaseSHA   string    `json:"base_sha"`
 	CreatedAt time.Time `json:"created_at,omitempty"`
 }
@@ -158,6 +159,9 @@ func (r Runner) RecordHotfixIdentity(stateDir string, identity HotfixIdentity) e
 	if err := model.ValidateProjectIdentifier(identity.ProjectID); err != nil {
 		return err
 	}
+	if err := model.ValidateCanonicalTaskID(identity.TaskID); err != nil {
+		return fmt.Errorf("hotfix task: %w", err)
+	}
 	if err := model.ValidateCommitSHA(identity.BaseSHA); err != nil {
 		return fmt.Errorf("hotfix base: %w", err)
 	}
@@ -190,7 +194,7 @@ func (r Runner) ReadHotfixIdentity(stateDir, projectID, ref string) (HotfixIdent
 	if err := fsutil.ReadJSONBounded(path, hotfixIdentityMaxBytes, &identity); err != nil {
 		return HotfixIdentity{}, err
 	}
-	if identity.ProjectID != projectID || identity.HotfixRef != ref || model.ValidateCommitSHA(identity.BaseSHA) != nil {
+	if identity.ProjectID != projectID || identity.HotfixRef != ref || model.ValidateCanonicalTaskID(identity.TaskID) != nil || model.ValidateCommitSHA(identity.BaseSHA) != nil {
 		return HotfixIdentity{}, fmt.Errorf("hotfix identity is invalid or mismatched")
 	}
 	return identity, nil

@@ -15,6 +15,9 @@ func HashTaskAuthoring(v TaskAuthoring) (string, error) {
 	if v.Type == TaskTypeTask {
 		v.Type = ""
 	}
+	if v.Execution == TaskExecutionTrain {
+		v.Execution = ""
+	}
 	v.RevisionSHA256 = ""
 	v.Status = TaskAuthoringPlanned
 	v.ReadySeal = nil
@@ -39,6 +42,12 @@ func ValidateTaskAuthoring(v TaskAuthoring) error {
 		return fmt.Errorf("invalid task authoring content")
 	}
 	if _, err := NormalizeTaskType(v.Type); err != nil {
+		return err
+	}
+	if _, err := NormalizeTaskExecution(v.Execution); err != nil {
+		return err
+	}
+	if err := ValidateTaskScope(v.Scope); err != nil {
 		return err
 	}
 	if len(v.AcceptanceCriteria) > 200 || len(v.Constraints) > 200 || len(v.Dependencies) > 64 || len(v.PreparationReferences) > 64 || len(v.Metadata) > 64 {

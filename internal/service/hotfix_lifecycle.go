@@ -2,21 +2,28 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 type HotfixCreateInput struct {
-	Slug string `json:"slug"`
+	Slug   string `json:"slug"`
+	TaskID string `json:"task"`
 }
 
 type HotfixCreateResult struct {
 	ProjectID string `json:"project_id"`
 	HotfixRef string `json:"hotfix_ref"`
+	TaskID    string `json:"task_id"`
 	BaseSHA   string `json:"base_sha"`
 	HeadSHA   string `json:"head_sha"`
 }
@@ -29,6 +36,7 @@ type HotfixIntegrateInput struct {
 type HotfixIntegrateResult struct {
 	ProjectID   string `json:"project_id"`
 	HotfixRef   string `json:"hotfix_ref"`
+	TaskID      string `json:"task_id"`
 	BaseSHA     string `json:"base_sha"`
 	ReviewedSHA string `json:"reviewed_sha"`
 	MainBefore  string `json:"main_before"`
@@ -41,6 +49,19 @@ func (s *Service) HotfixCreate(ctx context.Context, projectID string, in HotfixC
 	}
 	if err := model.ValidateTaskSlug(in.Slug); err != nil {
 		return HotfixCreateResult{}, err
+	}
+	if err := model.ValidateCanonicalTaskID(in.TaskID); err != nil {
+		return HotfixCreateResult{}, fmt.Errorf("task: %w", err)
+	}
+	task, err := s.TaskAuthoringFind(ctx, in.TaskID)
+	if err != nil {
+		return HotfixCreateResult{}, fmt.Errorf("read hotfix Task: %w", err)
+	}
+	if task.ProjectID != projectID {
+		return HotfixCreateResult{}, fmt.Errorf("hotfix Task belongs to another project")
+	}
+	if model.DefaultTaskExecution(task.Execution) != model.TaskExecutionTrain {
+		return HotfixCreateResult{}, fmt.Errorf("Task %q is already bound to %s execution", task.ID, task.Execution)
 	}
 	p, err := s.EffectiveProjectConfig(projectID)
 	if err != nil {
@@ -69,10 +90,48 @@ func (s *Service) HotfixCreate(ctx context.Context, projectID string, in HotfixC
 	if actualBranch != branch || !clean || head != base {
 		return rollback(fmt.Errorf("created hotfix lane is not an exact clean base"))
 	}
-	if err := s.Git.RecordHotfixIdentity(s.Config.StateDir, gitx.HotfixIdentity{ProjectID: projectID, HotfixRef: ref, BaseSHA: base, CreatedAt: time.Now().UTC()}); err != nil {
+	bound, err := s.bindTaskToHotfix(ctx, task)
+	if err != nil {
 		return rollback(err)
 	}
-	return HotfixCreateResult{ProjectID: projectID, HotfixRef: ref, BaseSHA: base, HeadSHA: head}, nil
+	if err := s.Git.RecordHotfixIdentity(s.Config.StateDir, gitx.HotfixIdentity{ProjectID: projectID, HotfixRef: ref, TaskID: bound.ID, BaseSHA: base, CreatedAt: time.Now().UTC()}); err != nil {
+		return rollback(err)
+	}
+	return HotfixCreateResult{ProjectID: projectID, HotfixRef: ref, TaskID: bound.ID, BaseSHA: base, HeadSHA: head}, nil
+}
+
+func (s *Service) bindTaskToHotfix(ctx context.Context, task model.TaskAuthoring) (model.TaskAuthoring, error) {
+	execution := model.TaskExecutionHotfix
+	if s.Durability == nil {
+		expected, err := s.Hub.RemoteRevision(ctx)
+		if err != nil {
+			return model.TaskAuthoring{}, err
+		}
+		updated, _, err := s.TaskAuthoringUpdate(ctx, TaskAuthoringUpdateInput{
+			ProjectID: task.ProjectID, TaskID: task.ID, ExpectedRevision: task.Revision,
+			ExpectedRevisionSHA256: task.RevisionSHA256, Execution: &execution, UpdatedBy: "hotfix/create",
+			WriteOptions: WriteOptions{ExpectedHubRevision: expected},
+		})
+		return updated, err
+	}
+	updated, _, err := trainv2.UpdateTask(task, trainv2.AuthoringPatch{Execution: &execution}, "hotfix/create", s.durableNow())
+	if err != nil {
+		return model.TaskAuthoring{}, err
+	}
+	payload, err := json.Marshal(updated)
+	if err != nil {
+		return model.TaskAuthoring{}, err
+	}
+	digest := sha256.Sum256([]byte(task.ID + ":" + fmt.Sprint(task.Revision)))
+	operationID := "hotfix-bind-" + hex.EncodeToString(digest[:])
+	if _, err := s.Durability.CommitSharedMutation(ctx, sqlitestore.SharedMutation{
+		OperationID: operationID, EntityType: "task", EntityID: updated.ID,
+		ExpectedRevision: int64(task.Revision), Revision: int64(updated.Revision),
+		Kind: "task-hotfix-bind", Payload: payload, CreatedAt: s.durableNow(),
+	}); err != nil {
+		return model.TaskAuthoring{}, err
+	}
+	return updated, nil
 }
 
 func (s *Service) HotfixIntegrate(ctx context.Context, projectID string, in HotfixIntegrateInput) (HotfixIntegrateResult, error) {
@@ -124,7 +183,7 @@ func (s *Service) HotfixIntegrate(ctx context.Context, projectID string, in Hotf
 		return HotfixIntegrateResult{}, fmt.Errorf("reviewed hotfix is not a strict descendant of refreshed origin/%s", p.DefaultBranch)
 	}
 	if mainBefore == in.ReviewedSHA {
-		return HotfixIntegrateResult{ProjectID: projectID, HotfixRef: in.HotfixRef, BaseSHA: base, ReviewedSHA: in.ReviewedSHA, MainBefore: mainBefore, MainAfter: mainBefore}, nil
+		return HotfixIntegrateResult{ProjectID: projectID, HotfixRef: in.HotfixRef, TaskID: identity.TaskID, BaseSHA: base, ReviewedSHA: in.ReviewedSHA, MainBefore: mainBefore, MainAfter: mainBefore}, nil
 	}
 	if err := s.Git.PushFastForward(ctx, p, p.DefaultBranch, mainBefore, in.ReviewedSHA); err != nil {
 		return HotfixIntegrateResult{}, err
@@ -136,5 +195,5 @@ func (s *Service) HotfixIntegrate(ctx context.Context, projectID string, in Hotf
 	if mainAfter != in.ReviewedSHA {
 		return HotfixIntegrateResult{}, fmt.Errorf("canonical origin/%s did not reach reviewed hotfix", p.DefaultBranch)
 	}
-	return HotfixIntegrateResult{ProjectID: projectID, HotfixRef: in.HotfixRef, BaseSHA: base, ReviewedSHA: in.ReviewedSHA, MainBefore: mainBefore, MainAfter: mainAfter}, nil
+	return HotfixIntegrateResult{ProjectID: projectID, HotfixRef: in.HotfixRef, TaskID: identity.TaskID, BaseSHA: base, ReviewedSHA: in.ReviewedSHA, MainBefore: mainBefore, MainAfter: mainAfter}, nil
 }

@@ -89,3 +89,26 @@ func TestAuthoringValidationAndRevisionGuardsAreRepositoryIndependent(t *testing
 		t.Fatalf("empty patch was not a no-op: %#v %v %v", unchanged, changed, err)
 	}
 }
+
+func TestAuthoringScopeAndExecutionUpdateRevision(t *testing.T) {
+	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	draft := authoringDraft()
+	draft.Execution = model.TaskExecutionHotfix
+	draft.Scope = &model.TaskScope{Files: []string{"internal/service/task_authoring.go"}, Modules: []string{"gateway"}}
+	task, err := NewTask("gateway", "GTW-TSK181", draft, "planner", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Execution != model.TaskExecutionHotfix || task.Scope == nil || len(task.Scope.Files) != 1 {
+		t.Fatalf("created task lost scope/execution: %#v", task)
+	}
+	newScope := &model.TaskScope{Files: []string{"internal/service/hotfix_lifecycle.go"}, Modules: []string{"gateway"}}
+	newExecution := model.TaskExecutionTrain
+	updated, changed, err := UpdateTask(task, AuthoringPatch{Execution: &newExecution, Scope: newScope}, "planner", now.Add(time.Minute))
+	if err != nil || !changed {
+		t.Fatalf("scope/execution update failed: %#v %v %v", updated, changed, err)
+	}
+	if updated.Revision != 2 || updated.Execution != model.TaskExecutionTrain || updated.Scope == nil || updated.Scope.Files[0] != newScope.Files[0] {
+		t.Fatalf("updated task lost scope/execution: %#v", updated)
+	}
+}

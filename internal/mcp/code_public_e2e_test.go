@@ -98,7 +98,7 @@ func newPublicCodeE2EFixture(t *testing.T) publicCodeE2EFixture {
 	testutil.Git(t, hotfixPath, "add", "fixture-hotfix.txt")
 	testutil.Git(t, hotfixPath, "commit", "-m", "code inspection hotfix fixture")
 	if err := s.Git.RecordHotfixIdentity(stateDir, gitx.HotfixIdentity{
-		ProjectID: "example", HotfixRef: "refs/heads/" + branch, BaseSHA: currentHead, CreatedAt: time.Now().UTC(),
+		ProjectID: "example", HotfixRef: "refs/heads/" + branch, TaskID: "EXM-TSK1", BaseSHA: currentHead, CreatedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
 	}

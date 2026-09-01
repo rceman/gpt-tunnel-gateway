@@ -30,7 +30,7 @@ func (s *Service) TaskAuthoringUpdate(ctx context.Context, in TaskAuthoringUpdat
 	} else if admitted {
 		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("ready Task %q is admitted to a nonterminal Train and cannot be edited", in.TaskID)
 	}
-	updated, changed, err := trainv2.UpdateTask(current, trainv2.AuthoringPatch{Type: in.Type, Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}, in.UpdatedBy, s.durableNow())
+	updated, changed, err := trainv2.UpdateTask(current, trainv2.AuthoringPatch{Type: in.Type, Execution: in.Execution, Scope: in.Scope, Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}, in.UpdatedBy, s.durableNow())
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
@@ -145,6 +145,11 @@ func (s *Service) TaskAuthoringList(ctx context.Context, in TaskAuthoringListInp
 			return TaskAuthoringListResult{}, err
 		}
 	}
+	if in.Execution != "" {
+		if _, err := model.NormalizeTaskExecution(in.Execution); err != nil {
+			return TaskAuthoringListResult{}, err
+		}
+	}
 	if s.Durability != nil {
 		tasks, err := s.sharedTaskAuthoringAll(ctx, in.ProjectID)
 		if err != nil {
@@ -152,7 +157,7 @@ func (s *Service) TaskAuthoringList(ctx context.Context, in TaskAuthoringListInp
 		}
 		filtered := tasks[:0]
 		for _, task := range tasks {
-			if (in.Status == "" || task.Status == in.Status) && taskAuthoringMatches(task, in.Query, in.Type) {
+			if (in.Status == "" || task.Status == in.Status) && taskAuthoringMatches(task, in.Query, in.Type, in.Execution) {
 				filtered = append(filtered, task)
 			}
 		}
@@ -182,13 +187,14 @@ func (s *Service) TaskAuthoringList(ctx context.Context, in TaskAuthoringListInp
 		if err := s.Hub.ReadJSON(ctx, path, &task); err != nil {
 			return TaskAuthoringListResult{}, err
 		}
-		if task.ProjectID != in.ProjectID || (in.Status != "" && task.Status != in.Status) || !taskAuthoringMatches(task, in.Query, in.Type) {
+		if task.ProjectID != in.ProjectID || (in.Status != "" && task.Status != in.Status) || !taskAuthoringMatches(task, in.Query, in.Type, in.Execution) {
 			continue
 		}
 		if err := model.ValidateTaskAuthoring(task); err != nil {
 			return TaskAuthoringListResult{}, err
 		}
 		task.Type = model.DefaultTaskType(task.Type)
+		task.Execution = model.DefaultTaskExecution(task.Execution)
 		tasks = append(tasks, task)
 	}
 	sort.Slice(tasks, func(i, j int) bool { return tasks[i].UpdatedAt.After(tasks[j].UpdatedAt) })
@@ -205,9 +211,13 @@ func (s *Service) TaskAuthoringList(ctx context.Context, in TaskAuthoringListInp
 	return TaskAuthoringListResult{Tasks: tasks}, nil
 }
 
-func taskAuthoringMatches(task model.TaskAuthoring, query string, typ model.TaskType) bool {
+func taskAuthoringMatches(task model.TaskAuthoring, query string, typ model.TaskType, execution model.TaskExecution) bool {
 	actualType := model.DefaultTaskType(task.Type)
 	if typ != "" && actualType != typ {
+		return false
+	}
+	actualExecution := model.DefaultTaskExecution(task.Execution)
+	if execution != "" && actualExecution != execution {
 		return false
 	}
 	query = strings.ToLower(strings.TrimSpace(query))

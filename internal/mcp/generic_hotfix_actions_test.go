@@ -32,4 +32,12 @@ func TestHotfixActionsAreSessionBoundAndIntegrateRefIsExact(t *testing.T) {
 	if got := entry.InputSchema["required"]; !reflect.DeepEqual(got, []string{"hotfix_ref", "reviewed_sha"}) {
 		t.Fatalf("required=%#v", got)
 	}
+	create := entries["hotfix/create"]
+	createProperties := create.InputSchema["properties"].(map[string]any)
+	if _, ok := createProperties["task"]; !ok {
+		t.Fatal("hotfix/create does not expose its required Task binding")
+	}
+	if got := create.InputSchema["required"]; !reflect.DeepEqual(got, []string{"slug", "task"}) {
+		t.Fatalf("hotfix/create required=%#v", got)
+	}
 }

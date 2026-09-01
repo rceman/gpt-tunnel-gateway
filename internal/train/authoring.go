@@ -14,6 +14,8 @@ import (
 // owns the transition rules.
 type AuthoringDraft struct {
 	Type                  model.TaskType
+	Execution             model.TaskExecution
+	Scope                 *model.TaskScope
 	Title                 string
 	Objective             string
 	AcceptanceCriteria    []string
@@ -30,6 +32,8 @@ type AuthoringDraft struct {
 // hash and ready-seal fields are always derived here.
 type AuthoringPatch struct {
 	Type                  *model.TaskType
+	Execution             *model.TaskExecution
+	Scope                 *model.TaskScope
 	Title                 *string
 	Objective             *string
 	AcceptanceCriteria    *[]string
@@ -52,6 +56,8 @@ func ValidateDraft(draft AuthoringDraft) error {
 		ProjectID:             "example",
 		Revision:              1,
 		Type:                  model.DefaultTaskType(draft.Type),
+		Execution:             model.DefaultTaskExecution(draft.Execution),
+		Scope:                 draft.Scope,
 		RevisionSHA256:        strings.Repeat("a", 64),
 		Title:                 draft.Title,
 		Objective:             draft.Objective,
@@ -93,6 +99,15 @@ func NewTask(projectID, taskID string, draft AuthoringDraft, createdBy string, n
 		return model.TaskAuthoring{}, err
 	}
 	draft.Type = typ
+	execution, err := model.NormalizeTaskExecution(draft.Execution)
+	if err != nil {
+		return model.TaskAuthoring{}, err
+	}
+	draft.Execution = execution
+	draft.Scope, err = model.NormalizeTaskScope(draft.Scope)
+	if err != nil {
+		return model.TaskAuthoring{}, err
+	}
 	if err := ValidateDraft(draft); err != nil {
 		return model.TaskAuthoring{}, err
 	}
@@ -103,6 +118,8 @@ func NewTask(projectID, taskID string, draft AuthoringDraft, createdBy string, n
 		ProjectID:             projectID,
 		Revision:              1,
 		Type:                  draft.Type,
+		Execution:             draft.Execution,
+		Scope:                 draft.Scope,
 		Title:                 draft.Title,
 		Objective:             draft.Objective,
 		AcceptanceCriteria:    cloneStrings(draft.AcceptanceCriteria),
@@ -142,6 +159,7 @@ func UpdateTask(current model.TaskAuthoring, patch AuthoringPatch, updatedBy str
 	}
 	updated := current
 	updated.Type = model.DefaultTaskType(updated.Type)
+	updated.Execution = model.DefaultTaskExecution(updated.Execution)
 	changed := false
 	if patch.Type != nil {
 		typ, err := model.NormalizeTaskType(*patch.Type)
@@ -150,6 +168,24 @@ func UpdateTask(current model.TaskAuthoring, patch AuthoringPatch, updatedBy str
 		}
 		if typ != updated.Type {
 			updated.Type, changed = typ, true
+		}
+	}
+	if patch.Execution != nil {
+		execution, err := model.NormalizeTaskExecution(*patch.Execution)
+		if err != nil {
+			return model.TaskAuthoring{}, false, err
+		}
+		if execution != updated.Execution {
+			updated.Execution, changed = execution, true
+		}
+	}
+	if patch.Scope != nil {
+		scope, err := model.NormalizeTaskScope(patch.Scope)
+		if err != nil {
+			return model.TaskAuthoring{}, false, err
+		}
+		if !reflect.DeepEqual(scope, updated.Scope) {
+			updated.Scope, changed = scope, true
 		}
 	}
 	if patch.Title != nil && *patch.Title != updated.Title {
@@ -187,6 +223,8 @@ func UpdateTask(current model.TaskAuthoring, patch AuthoringPatch, updatedBy str
 	}
 	draft := AuthoringDraft{
 		Type:                  updated.Type,
+		Execution:             updated.Execution,
+		Scope:                 updated.Scope,
 		Title:                 updated.Title,
 		Objective:             updated.Objective,
 		AcceptanceCriteria:    updated.AcceptanceCriteria,

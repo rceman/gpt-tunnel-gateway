@@ -164,6 +164,8 @@ type TaskAuthoring struct {
 	RevisionSHA256        string            `json:"revision_sha256"`
 	Title                 string            `json:"title"`
 	Type                  TaskType          `json:"type,omitempty"`
+	Execution             TaskExecution     `json:"execution,omitempty"`
+	Scope                 *TaskScope        `json:"scope,omitempty"`
 	Objective             string            `json:"objective"`
 	AcceptanceCriteria    []string          `json:"acceptance_criteria"`
 	Constraints           []string          `json:"constraints"`

@@ -22,7 +22,7 @@ func hotfixTestProject(work, mirror string) config.ProjectConfig {
 func TestHotfixIdentityIsCreateOnceAndServerOwned(t *testing.T) {
 	stateDir := t.TempDir()
 	r := hotfixTestRunner(stateDir)
-	identity := HotfixIdentity{ProjectID: "example", HotfixRef: "refs/heads/hotfix/repair", BaseSHA: "0123456789012345678901234567890123456789"}
+	identity := HotfixIdentity{ProjectID: "example", HotfixRef: "refs/heads/hotfix/repair", TaskID: "EXM-TSK1", BaseSHA: "0123456789012345678901234567890123456789"}
 	if err := r.RecordHotfixIdentity(stateDir, identity); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestHotfixIdentityIsCreateOnceAndServerOwned(t *testing.T) {
 	if got != identity {
 		t.Fatalf("identity=%#v want %#v", got, identity)
 	}
-	if err := r.RecordHotfixIdentity(stateDir, HotfixIdentity{ProjectID: identity.ProjectID, HotfixRef: identity.HotfixRef, BaseSHA: "abcdefabcdefabcdefabcdefabcdefabcdefabcd"}); err == nil {
+	if err := r.RecordHotfixIdentity(stateDir, HotfixIdentity{ProjectID: identity.ProjectID, HotfixRef: identity.HotfixRef, TaskID: identity.TaskID, BaseSHA: "abcdefabcdefabcdefabcdefabcdefabcdefabcd"}); err == nil {
 		t.Fatal("existing hotfix identity was overwritten")
 	}
 }

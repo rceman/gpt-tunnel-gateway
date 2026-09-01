@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
@@ -81,7 +82,7 @@ func TestTrainV2TaskAuthoringMCPWiringAndSchemaParity(t *testing.T) {
 		}
 	}
 	started := time.Now()
-	created := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "task/create", "input": map[string]any{"type": "bug", "title": "Generic planned task", "objective": "Exercise generic authoring wiring.", "adr_relation": model.TaskADRNoRequired, "created_by": "planner"}}}})))
+	created := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "task/create", "input": map[string]any{"type": "bug", "execution": "hotfix", "scope": map[string]any{"files": []string{"internal/service/task_authoring.go"}, "modules": []string{"gateway"}}, "title": "Generic planned task", "objective": "Exercise generic authoring wiring.", "adr_relation": model.TaskADRNoRequired, "created_by": "planner"}}}})))
 	if elapsed := time.Since(started); elapsed >= time.Second {
 		t.Fatalf("public task/create receipt exceeded one second: %s", elapsed)
 	} else {
@@ -101,6 +102,10 @@ func TestTrainV2TaskAuthoringMCPWiringAndSchemaParity(t *testing.T) {
 	}
 	if result["task"].(map[string]any)["type"] != "bug" {
 		t.Fatalf("generic task/create lost type: %#v", result["task"])
+	}
+	createdTask := result["task"].(map[string]any)
+	if createdTask["execution"] != "hotfix" || createdTask["scope"].(map[string]any)["files"].([]any)[0] != "internal/service/task_authoring.go" {
+		t.Fatalf("generic task/create lost scope or execution: %#v", createdTask)
 	}
 	withProject := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "task/create", "input": map[string]any{"project_id": "example", "title": "Rejected project field", "objective": "The session owns project authority.", "adr_relation": model.TaskADRNoRequired, "created_by": "planner"}}}})))
 	if withProject["is_error"] != true {
@@ -126,6 +131,28 @@ func TestTaskCreateSchemaUsesTaskTypeAndRejectsLegacyOperationClass(t *testing.T
 	}
 	if typ["default"] != "task" {
 		t.Fatalf("task type default=%#v", typ["default"])
+	}
+	for name, schema := range map[string]map[string]any{"create": taskAuthoringCreateSchema(), "update": taskAuthoringUpdateSchema()} {
+		properties := schema["properties"].(map[string]any)
+		execution := properties["execution"].(map[string]any)
+		if !reflect.DeepEqual(execution["enum"], []string{"train", "hotfix"}) || execution["default"] != "train" {
+			t.Fatalf("%s execution schema=%#v", name, execution)
+		}
+		scope := properties["scope"].(map[string]any)
+		if scope["additionalProperties"] != false {
+			t.Fatalf("%s scope is not closed: %#v", name, scope)
+		}
+		scopeProperties := scope["properties"].(map[string]any)
+		for _, field := range []string{"files", "modules"} {
+			if scopeProperties[field].(map[string]any)["type"] != "array" {
+				t.Fatalf("%s scope.%s is not an array: %#v", name, field, scopeProperties[field])
+			}
+		}
+	}
+	server := &Server{Service: service.New(config.Config{StateDir: t.TempDir()})}
+	listProperties := server.genericActionRegistry(server.tools())["task/list"].InputSchema["properties"].(map[string]any)
+	if _, ok := listProperties["execution"]; !ok {
+		t.Fatal("task/list does not advertise execution filter")
 	}
 	valid := mustJSON(t, map[string]any{
 		"project_id": "example", "type": "bug", "title": "Bug task", "objective": "Use the canonical Task type.",

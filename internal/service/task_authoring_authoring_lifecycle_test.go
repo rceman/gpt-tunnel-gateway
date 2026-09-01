@@ -49,6 +49,8 @@ func TestTaskAuthoringServiceWiresCanonicalLifecycle(t *testing.T) {
 		Title:              "Bounded train task",
 		Objective:          "Create a branchless planned specification.",
 		AcceptanceCriteria: []string{"planned is durable"},
+		Execution:          model.TaskExecutionTrain,
+		Scope:              &model.TaskScope{Files: []string{"internal/service/task_authoring.go"}, Modules: []string{"gateway"}},
 		ADRRelation:        model.TaskADRNoRequired,
 		CreatedBy:          "planner",
 		WriteOptions: WriteOptions{
@@ -59,23 +61,31 @@ func TestTaskAuthoringServiceWiresCanonicalLifecycle(t *testing.T) {
 		t.Fatalf("create wiring failed: %#v %#v %v", task, operation, err)
 	}
 	read, err := s.TaskAuthoringRead(ctx, "example", task.ID)
-	if err != nil || read.RevisionSHA256 != task.RevisionSHA256 {
+	if err != nil || read.RevisionSHA256 != task.RevisionSHA256 || read.Execution != model.TaskExecutionTrain || read.Scope == nil || read.Scope.Files[0] != "internal/service/task_authoring.go" {
 		t.Fatalf("read wiring failed: %#v %v", read, err)
 	}
 	newTitle := "Updated bounded train task"
+	newExecution := model.TaskExecutionHotfix
+	newScope := &model.TaskScope{Files: []string{"internal/service/hotfix_lifecycle.go"}, Modules: []string{"gateway"}}
 	updated, updateOperation, err := s.TaskAuthoringUpdate(ctx, TaskAuthoringUpdateInput{
 		ProjectID:              "example",
 		TaskID:                 task.ID,
 		ExpectedRevision:       task.Revision,
 		ExpectedRevisionSHA256: task.RevisionSHA256,
 		Title:                  &newTitle,
+		Execution:              &newExecution,
+		Scope:                  newScope,
 		UpdatedBy:              "planner",
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: operation.Hub.After,
 		},
 	})
-	if err != nil || updated.Revision != 2 || updateOperation.Status != model.TaskAuthoringPlanned {
+	if err != nil || updated.Revision != 2 || updated.Execution != model.TaskExecutionHotfix || updated.Scope == nil || updated.Scope.Files[0] != newScope.Files[0] || updateOperation.Status != model.TaskAuthoringPlanned {
 		t.Fatalf("update wiring failed: %#v %#v %v", updated, updateOperation, err)
+	}
+	filtered, err := s.TaskAuthoringList(ctx, TaskAuthoringListInput{ProjectID: "example", Execution: model.TaskExecutionHotfix, Limit: MaxTaskListLimit})
+	if err != nil || len(filtered.Tasks) != 1 || filtered.Tasks[0].ID != task.ID || filtered.Tasks[0].Scope == nil || filtered.Tasks[0].Scope.Files[0] != newScope.Files[0] {
+		t.Fatalf("execution-filtered list failed: %#v %v", filtered, err)
 	}
 	ready, readyOperation, err := s.TaskAuthoringReady(ctx, TaskAuthoringReadyInput{
 		ProjectID:              "example",

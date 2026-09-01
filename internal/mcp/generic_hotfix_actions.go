@@ -74,7 +74,8 @@ func hotfixCreateInputSchema() map[string]any {
 	slug := str("Bounded lowercase hotfix slug.")
 	slug["minLength"], slug["maxLength"] = 1, 80
 	slug["pattern"] = "^[a-z0-9]+(?:-[a-z0-9]+)*$"
-	return obj(map[string]any{"slug": slug}, "slug")
+	task := str("Existing durable Task to bind as the sole hotfix execution.")
+	return obj(map[string]any{"slug": slug, "task": task}, "slug", "task")
 }
 
 func hotfixIntegrateInputSchema() map[string]any {
@@ -97,13 +98,13 @@ func hotfixIntegrateInputSchema() map[string]any {
 
 func hotfixCreateOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"project_id": outputString(), "hotfix_ref": outputString(), "base_sha": outputString(), "head_sha": outputString(),
-	}, "project_id", "hotfix_ref", "base_sha", "head_sha")
+		"project_id": outputString(), "hotfix_ref": outputString(), "task_id": outputString(), "base_sha": outputString(), "head_sha": outputString(),
+	}, "project_id", "hotfix_ref", "task_id", "base_sha", "head_sha")
 }
 
 func hotfixIntegrateOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"project_id": outputString(), "hotfix_ref": outputString(), "base_sha": outputString(), "reviewed_sha": outputString(),
+		"project_id": outputString(), "hotfix_ref": outputString(), "task_id": outputString(), "base_sha": outputString(), "reviewed_sha": outputString(),
 		"main_before": outputString(), "main_after": outputString(),
-	}, "project_id", "hotfix_ref", "base_sha", "reviewed_sha", "main_before", "main_after")
+	}, "project_id", "hotfix_ref", "task_id", "base_sha", "reviewed_sha", "main_before", "main_after")
 }
