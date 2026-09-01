@@ -174,8 +174,9 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 }
 
 const (
-	localOperationalMigrationName    = "gpt_tunnel_local_operational_v1"
-	localCallbackEpochsMigrationName = "gpt_tunnel_local_callback_epochs_v6"
+	localOperationalMigrationName                 = "gpt_tunnel_local_operational_v1"
+	localCallbackEpochsMigrationVersion     int64 = 202609011412
+	localCallbackEpochsMigrationDescription       = "create local callback epochs"
 
 	sharedReplicationMigrationName          = "gpt_tunnel_shared_replication_v1"
 	sharedCutoverMigrationName              = "gpt_tunnel_shared_cutover_v1"
@@ -332,8 +333,9 @@ var localMigrations = []migrate.Migration{{
 	},
 }, {
 	// Versions 2 through 5 are owned by released Local history migrations.
-	// Keep those applied identities intact and append callback epochs at v6.
-	Version: 6, Name: localCallbackEpochsMigrationName,
+	// Keep those applied identities intact and use a UTC timestamp ID for the
+	// callback migration instead of allocating another sequence number.
+	Version: localCallbackEpochsMigrationVersion, Name: localCallbackEpochsMigrationDescription,
 	Statements: []store.Statement{
 		{SQL: `CREATE TABLE IF NOT EXISTS local_callback_epochs (
 			epoch_id TEXT PRIMARY KEY,

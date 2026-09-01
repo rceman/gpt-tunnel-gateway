@@ -6,12 +6,31 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/rceman/go-sqlite-store/migrate"
 	upstream "github.com/rceman/go-sqlite-store/store"
 )
+
+func TestLocalCallbackMigrationUsesUTCTimestampIdentityAndDescription(t *testing.T) {
+	version := strconv.FormatInt(localCallbackEpochsMigrationVersion, 10)
+	if len(version) != len("200601021504") {
+		t.Fatalf("callback migration version=%q, want UTC YYYYMMDDHHMM", version)
+	}
+	if _, err := time.ParseInLocation("200601021504", version, time.UTC); err != nil {
+		t.Fatalf("callback migration version=%q is not a UTC timestamp ID: %v", version, err)
+	}
+	if localCallbackEpochsMigrationDescription == "" || strings.Contains(localCallbackEpochsMigrationDescription, "_v") {
+		t.Fatalf("callback migration description=%q must be separate from a version suffix", localCallbackEpochsMigrationDescription)
+	}
+	for _, migration := range localMigrations {
+		if migration.Version == localCallbackEpochsMigrationVersion && migration.Name != localCallbackEpochsMigrationDescription {
+			t.Fatalf("timestamp migration identity=%d/%q, want description %q", migration.Version, migration.Name, localCallbackEpochsMigrationDescription)
+		}
+	}
+}
 
 const (
 	historicalLocalInterSessionMessagesMigrationName   = "gpt_tunnel_local_inter_session_messages_v1"
@@ -226,7 +245,7 @@ func TestOpenUpgradesFullHistoricalLocalLineageWithoutRewritingHistory(t *testin
 		{int64(3), historicalLocalHistoryIndexesMigrationName},
 		{int64(4), historicalLocalHistoryProjectIndexesMigrationName},
 		{int64(5), historicalLocalHistoryProjectBackfillMigrationName},
-		{int64(6), localCallbackEpochsMigrationName},
+		{localCallbackEpochsMigrationVersion, localCallbackEpochsMigrationDescription},
 	}
 	if len(rows.Rows) != len(want) {
 		db.Close()
@@ -270,7 +289,7 @@ func TestOpenUpgradesFullHistoricalLocalLineageWithoutRewritingHistory(t *testin
 	}
 }
 
-func TestOpenFreshLocalAppliesCallbackEpochMigrationAtVersionSix(t *testing.T) {
+func TestOpenFreshLocalAppliesCallbackEpochMigrationAtTimestampID(t *testing.T) {
 	db, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -280,7 +299,7 @@ func TestOpenFreshLocalAppliesCallbackEpochMigrationAtVersionSix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := [][]any{{int64(1), localOperationalMigrationName}, {int64(6), localCallbackEpochsMigrationName}}
+	want := [][]any{{int64(1), localOperationalMigrationName}, {localCallbackEpochsMigrationVersion, localCallbackEpochsMigrationDescription}}
 	if len(rows.Rows) != len(want) {
 		t.Fatalf("fresh migration history=%#v, want=%#v", rows.Rows, want)
 	}
