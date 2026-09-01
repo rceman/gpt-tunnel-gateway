@@ -178,6 +178,122 @@ func TestLocalCodeInspectionRequiresSharedDurabilityForWorktreeDiscovery(t *test
 	}
 }
 
+func TestCodeWorktreeUsesCurrentMainWorktreeFromInventory(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	staleRoot := filepath.Join(t.TempDir(), "stale-main")
+	testutil.Git(t, f.root, "worktree", "add", "--detach", staleRoot, f.base)
+	t.Cleanup(func() {
+		testutil.Git(t, f.root, "worktree", "remove", "--force", staleRoot)
+	})
+
+	project := f.service.Config.Projects["example"]
+	project.Root = staleRoot
+	f.service.Config.Projects["example"] = project
+
+	result, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"})
+	if err != nil {
+		t.Fatalf("CodeWorktree() error = %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("CodeWorktree() items = %d, want 1", len(result.Items))
+	}
+	if result.Items[0].Head != f.current {
+		t.Fatalf("main head = %q, want current %q", result.Items[0].Head, f.current)
+	}
+	wantSelector := "WT-MAIN-" + f.current[:8]
+	if result.Items[0].Selector != wantSelector {
+		t.Fatalf("main selector = %q, want %q", result.Items[0].Selector, wantSelector)
+	}
+}
+
+func TestCodeActionsResolveDirtyManagedHotfixLive(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	runner := gitx.Runner{StateDir: f.service.Config.StateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	slug := "agent-live"
+	branch := "hotfix/" + slug
+	lane := filepath.Join(f.service.Config.StateDir, "hotfix-worktrees", "example", slug)
+	if err := os.MkdirAll(filepath.Dir(lane), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, f.root, "branch", branch, f.current)
+	testutil.Git(t, f.root, "worktree", "add", lane, branch)
+	t.Cleanup(func() {
+		testutil.Git(t, f.root, "worktree", "remove", "--force", lane)
+		testutil.Git(t, f.root, "branch", "-D", branch)
+	})
+	if err := os.WriteFile(filepath.Join(lane, "committed.txt"), []byte("managed hotfix\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, lane, "add", "committed.txt")
+	testutil.Git(t, lane, "commit", "-m", "managed hotfix")
+	if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{
+		ProjectID: "example", HotfixRef: "refs/heads/" + branch, TaskID: "EXM-TSK1", BaseSHA: f.current, CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lane, "dirty.txt"), []byte("live-hotfix-marker\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lane, "untracked.txt"), []byte("live-untracked-marker\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	worktrees, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var selector, head string
+	for _, item := range worktrees.Items {
+		if item.Kind == "hotfix" && item.Label == slug {
+			selector, head = item.Selector, item.Head
+			if !item.Dirty {
+				t.Fatal("managed hotfix was not reported dirty")
+			}
+		}
+	}
+	if selector == "" {
+		t.Fatalf("managed hotfix %q not present in CodeWorktree result: %#v", slug, worktrees.Items)
+	}
+
+	read, err := f.service.CodeRead(context.Background(), CodeReadInput{ProjectID: "example", Worktree: selector, Path: "dirty.txt", Live: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.CurrentHead != head || read.Content != "live-hotfix-marker\n" {
+		t.Fatalf("CodeRead resolved a different live target: %#v", read)
+	}
+	search, err := f.service.CodeSearch(context.Background(), CodeSearchInput{ProjectID: "example", Worktree: selector, Query: "live-hotfix-marker", Paths: []string{"dirty.txt"}, Live: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if search.CurrentHead != head || len(search.Matches) != 1 || search.Matches[0].Path != "dirty.txt" {
+		t.Fatalf("CodeSearch resolved a different live target: %#v", search)
+	}
+	tree, err := f.service.CodeTree(context.Background(), CodeTreeInput{ProjectID: "example", Worktree: selector, Live: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundUntracked := false
+	for _, pathName := range tree.Paths {
+		if pathName == "untracked.txt" {
+			foundUntracked = true
+		}
+	}
+	if tree.CurrentHead != head || !foundUntracked {
+		t.Fatalf("CodeTree did not expose the same live target: %#v", tree)
+	}
+	diff, err := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Paths: []string{"dirty.txt", "untracked.txt"}, Live: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.CurrentHead != head || !strings.Contains(diff.Diff, "live-hotfix-marker") || !strings.Contains(diff.Diff, "live-untracked-marker") {
+		t.Fatalf("CodeDiff did not expose the same live target: %#v", diff)
+	}
+	if _, err := f.service.CodeRead(context.Background(), CodeReadInput{ProjectID: "example", Worktree: selector, Path: "dirty.txt"}); err == nil {
+		t.Fatal("CodeRead live=false unexpectedly accepted dirty managed hotfix")
+	}
+}
+
 func TestLocalCodeSearchContinuesFromExactScanPosition(t *testing.T) {
 	f := newLocalCodeFixture(t)
 	var content strings.Builder

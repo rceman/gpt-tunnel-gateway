@@ -293,13 +293,22 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 	if err != nil && !IsNotFound(err) {
 		return nil, fmt.Errorf("read managed Train worktrees: %w", err)
 	}
-	mainStatus, err := s.Git.WorktreeStatus(ctx, project)
-	if err != nil {
-		return nil, fmt.Errorf("read main worktree status: %w", err)
-	}
 	worktreeInventory, err := s.Git.LoadWorktreeInventory(ctx, project)
 	if err != nil {
 		return nil, fmt.Errorf("read Git worktree inventory: %w", err)
+	}
+	mainBranch := strings.TrimPrefix(project.DefaultBranch, "refs/heads/")
+	if mainBranch == "" {
+		mainBranch = "main"
+	}
+	mainWorktree, err := worktreeInventory.Resolve("refs/heads/" + mainBranch)
+	if err != nil {
+		return nil, fmt.Errorf("resolve canonical main worktree: %w", err)
+	}
+	project = mainWorktree
+	mainStatus, err := s.Git.WorktreeStatus(ctx, project)
+	if err != nil {
+		return nil, fmt.Errorf("read main worktree status: %w", err)
 	}
 	mainHead := mainStatus.Head
 	managed := make(map[string]model.TrainV2, len(trains))
