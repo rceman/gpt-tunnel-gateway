@@ -66,7 +66,6 @@ func (s *Service) readSharedTask(ctx context.Context, projectID, taskID string) 
 		return model.TaskAuthoring{}, err
 	}
 	task.Type = model.DefaultTaskType(task.Type)
-	task.Execution = model.DefaultTaskExecution(task.Execution)
 	return task, nil
 }
 
@@ -89,7 +88,6 @@ func (s *Service) readAnySharedTask(ctx context.Context, taskID string) (model.T
 		return model.TaskAuthoring{}, err
 	}
 	task.Type = model.DefaultTaskType(task.Type)
-	task.Execution = model.DefaultTaskExecution(task.Execution)
 	return task, nil
 }
 
@@ -160,7 +158,6 @@ func (s *Service) sharedTaskAuthoringAll(ctx context.Context, projectID string) 
 			return nil, err
 		}
 		task.Type = model.DefaultTaskType(task.Type)
-		task.Execution = model.DefaultTaskExecution(task.Execution)
 		tasks = append(tasks, task)
 	}
 	sort.Slice(tasks, func(i, j int) bool { return tasks[i].UpdatedAt.After(tasks[j].UpdatedAt) })

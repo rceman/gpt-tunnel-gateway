@@ -56,7 +56,7 @@ func ValidateDraft(draft AuthoringDraft) error {
 		ProjectID:             "example",
 		Revision:              1,
 		Type:                  model.DefaultTaskType(draft.Type),
-		Execution:             model.DefaultTaskExecution(draft.Execution),
+		Execution:             draft.Execution,
 		Scope:                 draft.Scope,
 		RevisionSHA256:        strings.Repeat("a", 64),
 		Title:                 draft.Title,
@@ -159,7 +159,7 @@ func UpdateTask(current model.TaskAuthoring, patch AuthoringPatch, updatedBy str
 	}
 	updated := current
 	updated.Type = model.DefaultTaskType(updated.Type)
-	updated.Execution = model.DefaultTaskExecution(updated.Execution)
+	updated.Execution = current.Execution
 	changed := false
 	if patch.Type != nil {
 		typ, err := model.NormalizeTaskType(*patch.Type)

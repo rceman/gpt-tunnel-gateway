@@ -60,7 +60,7 @@ func (s *Service) HotfixCreate(ctx context.Context, projectID string, in HotfixC
 	if task.ProjectID != projectID {
 		return HotfixCreateResult{}, fmt.Errorf("hotfix Task belongs to another project")
 	}
-	if model.DefaultTaskExecution(task.Execution) != model.TaskExecutionTrain {
+	if task.Execution != "" {
 		return HotfixCreateResult{}, fmt.Errorf("Task %q is already bound to %s execution", task.ID, task.Execution)
 	}
 	p, err := s.EffectiveProjectConfig(projectID)

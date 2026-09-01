@@ -49,7 +49,6 @@ func TestTaskAuthoringServiceWiresCanonicalLifecycle(t *testing.T) {
 		Title:              "Bounded train task",
 		Objective:          "Create a branchless planned specification.",
 		AcceptanceCriteria: []string{"planned is durable"},
-		Execution:          model.TaskExecutionTrain,
 		Scope:              &model.TaskScope{Files: []string{"internal/service/task_authoring.go"}, Modules: []string{"gateway"}},
 		ADRRelation:        model.TaskADRNoRequired,
 		CreatedBy:          "planner",
@@ -61,8 +60,12 @@ func TestTaskAuthoringServiceWiresCanonicalLifecycle(t *testing.T) {
 		t.Fatalf("create wiring failed: %#v %#v %v", task, operation, err)
 	}
 	read, err := s.TaskAuthoringRead(ctx, "example", task.ID)
-	if err != nil || read.RevisionSHA256 != task.RevisionSHA256 || read.Execution != model.TaskExecutionTrain || read.Scope == nil || read.Scope.Files[0] != "internal/service/task_authoring.go" {
+	if err != nil || read.RevisionSHA256 != task.RevisionSHA256 || read.Execution != "" || read.Scope == nil || read.Scope.Files[0] != "internal/service/task_authoring.go" {
 		t.Fatalf("read wiring failed: %#v %v", read, err)
+	}
+	trainTasks, err := s.TaskAuthoringList(ctx, TaskAuthoringListInput{ProjectID: "example", Execution: model.TaskExecutionTrain, Limit: MaxTaskListLimit})
+	if err != nil || len(trainTasks.Tasks) != 0 {
+		t.Fatalf("unassigned Task matched train execution filter: %#v %v", trainTasks, err)
 	}
 	newTitle := "Updated bounded train task"
 	newExecution := model.TaskExecutionHotfix

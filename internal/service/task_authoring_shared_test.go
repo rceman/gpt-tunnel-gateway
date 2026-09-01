@@ -31,9 +31,9 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 
 	created, err := s.TaskAuthoringCreateAsync(context.Background(), TaskAuthoringCreateInput{
 		ProjectID: "example", Title: "Shared task", Objective: "Commit task state locally first.",
-		AcceptanceCriteria: []string{"one shared task"}, Execution: model.TaskExecutionTrain,
-		Scope: &model.TaskScope{Files: []string{"internal/service/task_authoring_shared.go"}, Modules: []string{"gateway"}},
-		ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
+		AcceptanceCriteria: []string{"one shared task"},
+		Scope:              &model.TaskScope{Files: []string{"internal/service/task_authoring_shared.go"}, Modules: []string{"gateway"}},
+		ADRRelation:        model.TaskADRNoRequired, CreatedBy: "planner",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -41,6 +41,10 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 	createReceipt := waitTaskCreateReceipt(t, s, created.OperationID)
 	if createReceipt.Task == nil || createReceipt.Operation.Status != "planned" {
 		t.Fatalf("create receipt=%#v", createReceipt)
+	}
+	trainTasks, err := s.TaskAuthoringList(context.Background(), TaskAuthoringListInput{ProjectID: "example", Execution: model.TaskExecutionTrain, Limit: MaxTaskListLimit})
+	if err != nil || len(trainTasks.Tasks) != 0 {
+		t.Fatalf("unassigned Shared Task matched train execution filter: %#v err=%v", trainTasks, err)
 	}
 
 	updatedTitle := "Updated shared task"

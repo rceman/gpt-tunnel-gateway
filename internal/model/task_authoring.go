@@ -15,9 +15,6 @@ func HashTaskAuthoring(v TaskAuthoring) (string, error) {
 	if v.Type == TaskTypeTask {
 		v.Type = ""
 	}
-	if v.Execution == TaskExecutionTrain {
-		v.Execution = ""
-	}
 	v.RevisionSHA256 = ""
 	v.Status = TaskAuthoringPlanned
 	v.ReadySeal = nil

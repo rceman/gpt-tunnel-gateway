@@ -194,7 +194,6 @@ func (s *Service) TaskAuthoringList(ctx context.Context, in TaskAuthoringListInp
 			return TaskAuthoringListResult{}, err
 		}
 		task.Type = model.DefaultTaskType(task.Type)
-		task.Execution = model.DefaultTaskExecution(task.Execution)
 		tasks = append(tasks, task)
 	}
 	sort.Slice(tasks, func(i, j int) bool { return tasks[i].UpdatedAt.After(tasks[j].UpdatedAt) })
@@ -216,7 +215,7 @@ func taskAuthoringMatches(task model.TaskAuthoring, query string, typ model.Task
 	if typ != "" && actualType != typ {
 		return false
 	}
-	actualExecution := model.DefaultTaskExecution(task.Execution)
+	actualExecution := task.Execution
 	if execution != "" && actualExecution != execution {
 		return false
 	}

@@ -26,11 +26,22 @@ func TestTaskScopeNormalizesAndBoundsFields(t *testing.T) {
 }
 
 func TestTaskExecutionDefaultsAndRejectsUnknownValues(t *testing.T) {
-	if got, err := NormalizeTaskExecution(""); err != nil || got != TaskExecutionTrain {
-		t.Fatalf("default execution=%q err=%v", got, err)
+	if got, err := NormalizeTaskExecution(""); err != nil || got != "" {
+		t.Fatalf("unassigned execution=%q err=%v", got, err)
 	}
-	if got := DefaultTaskExecution(""); got != TaskExecutionTrain {
-		t.Fatalf("default execution=%q", got)
+	unassigned := validTaskAuthoringForTest()
+	unassignedHash, err := HashTaskAuthoring(unassigned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound := unassigned
+	bound.Execution = TaskExecutionTrain
+	boundHash, err := HashTaskAuthoring(bound)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unassignedHash == boundHash {
+		t.Fatal("binding a Task to train did not change its revision hash")
 	}
 	if _, err := NormalizeTaskExecution("other"); err == nil {
 		t.Fatal("unknown execution was accepted")

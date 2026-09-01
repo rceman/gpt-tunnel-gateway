@@ -16,7 +16,7 @@ type TaskExecution string
 
 func NormalizeTaskExecution(value TaskExecution) (TaskExecution, error) {
 	if value == "" {
-		return TaskExecutionTrain, nil
+		return "", nil
 	}
 	switch value {
 	case TaskExecutionTrain, TaskExecutionHotfix:
@@ -24,13 +24,6 @@ func NormalizeTaskExecution(value TaskExecution) (TaskExecution, error) {
 	default:
 		return "", fmt.Errorf("invalid task execution %q", value)
 	}
-}
-
-func DefaultTaskExecution(value TaskExecution) TaskExecution {
-	if value == "" {
-		return TaskExecutionTrain
-	}
-	return value
 }
 
 type TaskScope struct {

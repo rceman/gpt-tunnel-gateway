@@ -135,7 +135,7 @@ func TestTaskCreateSchemaUsesTaskTypeAndRejectsLegacyOperationClass(t *testing.T
 	for name, schema := range map[string]map[string]any{"create": taskAuthoringCreateSchema(), "update": taskAuthoringUpdateSchema()} {
 		properties := schema["properties"].(map[string]any)
 		execution := properties["execution"].(map[string]any)
-		if !reflect.DeepEqual(execution["enum"], []string{"train", "hotfix"}) || execution["default"] != "train" {
+		if !reflect.DeepEqual(execution["enum"], []string{"train", "hotfix"}) {
 			t.Fatalf("%s execution schema=%#v", name, execution)
 		}
 		scope := properties["scope"].(map[string]any)

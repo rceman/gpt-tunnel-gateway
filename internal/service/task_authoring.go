@@ -50,7 +50,6 @@ func (s *Service) TaskAuthoringRead(ctx context.Context, projectID, taskID strin
 		return model.TaskAuthoring{}, err
 	}
 	task.Type = model.DefaultTaskType(task.Type)
-	task.Execution = model.DefaultTaskExecution(task.Execution)
 	return task, nil
 }
 
@@ -77,7 +76,6 @@ func (s *Service) TaskAuthoringFind(ctx context.Context, taskID string) (model.T
 				return model.TaskAuthoring{}, fmt.Errorf("task %s is malformed in project %q: %w", taskID, project.ID, err)
 			}
 			task.Type = model.DefaultTaskType(task.Type)
-			task.Execution = model.DefaultTaskExecution(task.Execution)
 			matches = append(matches, task)
 			continue
 		}
