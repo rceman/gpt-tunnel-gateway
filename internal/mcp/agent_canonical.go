@@ -19,6 +19,11 @@ type canonicalAgentTarget struct {
 	Resolved service.ResolvedAgent
 }
 
+const (
+	canonicalAgentAwaitDefaultSeconds  = 50
+	canonicalAgentAwaitFinalReadBudget = time.Second
+)
+
 func (s *Server) boundAgentProject(ctx context.Context) (string, error) {
 	sessionID := service.AgentSessionID(ctx)
 	if sessionID == "" {
@@ -246,27 +251,36 @@ func (s *Server) canonicalAgentAwaitAction(ctx context.Context, raw json.RawMess
 	if err := decode(raw, &in); err != nil {
 		return nil, err
 	}
-	seconds := 60
+	seconds := canonicalAgentAwaitDefaultSeconds
 	if in.Seconds != nil {
 		seconds = *in.Seconds
 	}
 	if seconds < 1 || seconds > 600 {
 		return nil, fmt.Errorf("seconds must be between 1 and 600")
 	}
-	projectID, err := s.boundAgentProject(ctx)
+	awaitDuration := time.Duration(seconds) * time.Second
+	awaitCtx, cancel := context.WithTimeout(ctx, awaitDuration)
+	defer cancel()
+	finalReadBudget := canonicalAgentAwaitFinalReadBudget
+	if half := awaitDuration / 2; half < finalReadBudget {
+		finalReadBudget = half
+	}
+	finalReadTimer := time.NewTimer(awaitDuration - finalReadBudget)
+	defer finalReadTimer.Stop()
+	projectID, err := s.boundAgentProject(awaitCtx)
 	if err != nil {
 		return nil, err
 	}
-	target, err := s.resolveCanonicalAgent(ctx, projectID, in.Agent, true)
+	target, err := s.resolveCanonicalAgent(awaitCtx, projectID, in.Agent, true)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{
+	if _, err := s.Service.AgentTailPage(awaitCtx, projectID, service.AgentTailInput{
 		Lines: 30, SessionID: service.AgentSessionID(ctx), SessionKey: target.Resolved.SessionKey,
 	}); err != nil {
 		return nil, err
 	}
-	previous, err := canonicalAgentStatus(ctx, s, projectID, target)
+	previous, err := canonicalAgentStatus(awaitCtx, s, projectID, target)
 	if err != nil {
 		return nil, err
 	}
@@ -274,22 +288,29 @@ func (s *Server) canonicalAgentAwaitAction(ctx context.Context, raw json.RawMess
 	if err != nil {
 		return nil, err
 	}
-	deadline := time.NewTimer(time.Duration(seconds) * time.Second)
-	defer deadline.Stop()
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-deadline.C:
-			current, statusErr := canonicalAgentStatus(ctx, s, projectID, target)
+		case <-awaitCtx.Done():
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return previous, nil
+		case <-finalReadTimer.C:
+			finalCtx, finalCancel := context.WithTimeout(awaitCtx, finalReadBudget)
+			current, statusErr := canonicalAgentStatus(finalCtx, s, projectID, target)
 			if statusErr != nil {
+				finalCancel()
 				return nil, statusErr
 			}
-			return s.canonicalAgentAwaitResult(ctx, projectID, target, current)
+			result, resultErr := s.canonicalAgentAwaitResult(finalCtx, projectID, target, current)
+			finalCancel()
+			return result, resultErr
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		case <-ticker.C:
-			current, statusErr := canonicalAgentStatus(ctx, s, projectID, target)
+			current, statusErr := canonicalAgentStatus(awaitCtx, s, projectID, target)
 			if statusErr != nil {
 				return nil, statusErr
 			}
@@ -300,7 +321,7 @@ func (s *Server) canonicalAgentAwaitAction(ctx context.Context, raw json.RawMess
 			if string(currentDigest) == string(previousDigest) {
 				continue
 			}
-			return s.canonicalAgentAwaitResult(ctx, projectID, target, current)
+			return s.canonicalAgentAwaitResult(awaitCtx, projectID, target, current)
 		}
 	}
 }

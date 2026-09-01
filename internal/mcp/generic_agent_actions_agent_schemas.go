@@ -48,7 +48,7 @@ func canonicalAgentStatusOutputSchema() map[string]any {
 
 func canonicalAgentAwaitInputSchema() map[string]any {
 	seconds := integer("Maximum seconds to await a meaningful Agent supervision transition.", 1, 600)
-	seconds["default"] = 60
+	seconds["default"] = canonicalAgentAwaitDefaultSeconds
 	return obj(map[string]any{"agent": canonicalAgentSelectorSchema(), "seconds": seconds})
 }
 

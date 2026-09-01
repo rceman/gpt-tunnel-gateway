@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -100,13 +101,37 @@ func TestCanonicalAgentSchemasAreClosedAndBounded(t *testing.T) {
 		t.Fatalf("prompt message maxLength=%v, want=%d", message["maxLength"], canonicalAgentMessageMaxBytes)
 	}
 	seconds := schemaProperties(entries["agent/await"].InputSchema)["seconds"].(map[string]any)
-	if seconds["minimum"] != 1 || seconds["maximum"] != 600 || seconds["default"] != 60 {
+	if seconds["minimum"] != 1 || seconds["maximum"] != 600 || seconds["default"] != canonicalAgentAwaitDefaultSeconds {
 		t.Fatalf("await seconds contract=%#v", seconds)
 	}
 	for _, path := range []string{"agent/list", "agent/status", "agent/await", "agent/tail", "agent/prompt", "agent/interrupt"} {
 		if entries[path].OutputSchema["additionalProperties"] != false {
 			t.Fatalf("%s output is not closed", path)
 		}
+	}
+}
+
+func TestCanonicalAgentAwaitNoArgUsesOneTotalTimeoutBudget(t *testing.T) {
+	s, revision := newWorkflowPolicyStatusService(t)
+	seedMCPTestCodingAgent(t, s, revision)
+	dir := t.TempDir()
+	command := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(command, []byte("#!/bin/sh\nsleep 5\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s.Config.AirelayCommand = command
+	s.Airelay.Command = command
+	server := &Server{Service: s}
+	sessionID := genericSession(t, s, "example")
+	ctx, cancel := context.WithTimeout(service.WithAgentSessionID(context.Background(), sessionID), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := server.canonicalAgentAwaitAction(ctx, mustJSON(t, map[string]any{"agent": "coding-example"}))
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("no-arg await error=%v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed >= 500*time.Millisecond {
+		t.Fatalf("no-arg await exceeded one total context budget: %s", elapsed)
 	}
 }
 
