@@ -2,7 +2,9 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -180,6 +182,28 @@ func TestTaskCreateSchemaUsesTaskTypeAndRejectsLegacyOperationClass(t *testing.T
 		if err := validateGenericActionInput(schema, raw); err == nil {
 			t.Fatalf("invalid %s input was accepted", name)
 		}
+	}
+}
+
+func TestTaskListLegacyExecutionFilterFailsClosed(t *testing.T) {
+	server := newSessionTestServer(t)
+	sessionID := genericSession(t, server.Service, "example")
+	response := callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session_id": sessionID,
+			"action":     "task/list",
+			"input":      map[string]any{"execution": "train"},
+		}},
+	}))
+	structured := genericStructured(t, response)
+	if structured["is_error"] != true {
+		t.Fatalf("legacy task/list silently ignored execution filter: %#v", structured)
+	}
+	errorResult, ok := structured["result"].(map[string]any)
+	errorJSON, _ := json.Marshal(errorResult["error"])
+	if !ok || !strings.Contains(string(errorJSON), "execution filter is unavailable") {
+		t.Fatalf("legacy task/list returned unexpected error: %#v", structured)
 	}
 }
 

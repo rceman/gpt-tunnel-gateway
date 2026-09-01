@@ -49,6 +49,12 @@ func (s *Service) taskListQuery(ctx context.Context, in TaskListInput, unbounded
 			return TaskListResult{}, err
 		}
 	}
+	if in.Execution != "" {
+		if _, err := model.NormalizeTaskExecution(in.Execution); err != nil {
+			return TaskListResult{}, err
+		}
+		return TaskListResult{}, fmt.Errorf("task execution filter is unavailable for legacy TaskListQuery")
+	}
 	query := strings.TrimSpace(in.Query)
 	if len(query) > 256 {
 		return TaskListResult{}, fmt.Errorf("task query exceeds 256 characters")

@@ -122,7 +122,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 			if enabled {
 				return s.Service.TaskAuthoringList(ctx, service.TaskAuthoringListInput{ProjectID: input.ProjectID, Query: input.Query, Type: input.Type, Execution: input.Execution, Status: input.Status, Limit: input.Limit})
 			}
-			return s.Service.TaskListQuery(ctx, service.TaskListInput{ProjectID: input.ProjectID, Query: input.Query, Type: input.Type, Status: input.Status, Limit: input.Limit, Cursor: input.Cursor})
+			return s.Service.TaskListQuery(ctx, service.TaskListInput{ProjectID: input.ProjectID, Query: input.Query, Type: input.Type, Execution: input.Execution, Status: input.Status, Limit: input.Limit, Cursor: input.Cursor})
 		},
 	}); err != nil {
 		return err
