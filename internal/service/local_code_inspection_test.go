@@ -376,7 +376,9 @@ func TestCodeWorktreeOrdersMainThenUnmergedHotfixesAndSkipsLegacy(t *testing.T) 
 	legacyLane := filepath.Join(f.service.Config.StateDir, "hotfix-worktrees", "example", "legacy")
 	testutil.Git(t, f.root, "branch", "hotfix/legacy", f.current)
 	testutil.Git(t, f.root, "worktree", "add", legacyLane, "hotfix/legacy")
-	if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{ProjectID: "example", HotfixRef: "refs/heads/hotfix/legacy", TaskID: "EXM-TSK1", BaseSHA: f.current}); err != nil {
+	legacyIdentity := filepath.Join(f.service.Config.StateDir, "hotfix-identities", "example", "legacy.json")
+	legacyPayload := fmt.Sprintf(`{"project_id":"example","hotfix_ref":"refs/heads/hotfix/legacy","base_sha":%q,"created_at":"%s"}`, f.current, now.Add(2*time.Minute).Format(time.RFC3339))
+	if err := os.WriteFile(legacyIdentity, []byte(legacyPayload), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {

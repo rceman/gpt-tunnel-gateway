@@ -226,6 +226,17 @@ func (r Runner) ListHotfixIdentities(stateDir, projectID string) ([]HotfixIdenti
 		}
 		slug := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
 		ref := "refs/heads/hotfix/" + slug
+		var raw HotfixIdentity
+		identityPath := filepath.Join(dir, entry.Name())
+		if err := fsutil.ReadJSONBounded(identityPath, hotfixIdentityMaxBytes, &raw); err != nil {
+			return nil, fmt.Errorf("read hotfix identity %s: %w", ref, err)
+		}
+		// Hotfix identities created before Task binding was introduced are
+		// historical inventory residue. They cannot authenticate a current
+		// managed lane, but must not hide valid identities from code/worktree.
+		if raw.TaskID == "" {
+			continue
+		}
 		identity, err := r.ReadHotfixIdentity(stateDir, projectID, ref)
 		if err != nil {
 			return nil, fmt.Errorf("read hotfix identity %s: %w", ref, err)

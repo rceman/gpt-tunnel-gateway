@@ -38,6 +38,31 @@ func TestHotfixIdentityIsCreateOnceAndServerOwned(t *testing.T) {
 	}
 }
 
+func TestLegacyHotfixIdentityWithoutTaskBindingIsSkippedByInventory(t *testing.T) {
+	stateDir := t.TempDir()
+	r := hotfixTestRunner(stateDir)
+	dir := filepath.Join(stateDir, "hotfix-identities", "example")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"project_id":"example","hotfix_ref":"refs/heads/hotfix/legacy","base_sha":"0123456789012345678901234567890123456789","created_at":"2026-09-01T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(dir, "legacy.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	identities, err := r.ListHotfixIdentities(stateDir, "example")
+	if err != nil {
+		t.Fatalf("ListHotfixIdentities() error = %v", err)
+	}
+	if len(identities) != 0 {
+		t.Fatalf("legacy identity was returned: %#v", identities)
+	}
+	if err := r.RecordHotfixIdentity(stateDir, HotfixIdentity{
+		ProjectID: "example", HotfixRef: "refs/heads/hotfix/new", BaseSHA: "0123456789012345678901234567890123456789",
+	}); err == nil {
+		t.Fatal("new hotfix identity without TaskID was accepted")
+	}
+}
+
 func TestMaterializeMirrorCommitWhenSourceLacksCanonicalHead(t *testing.T) {
 	bare, work, oldHead := testutil.RepoWithBareRemote(t)
 	writer := filepath.Join(t.TempDir(), "writer")
