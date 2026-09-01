@@ -44,7 +44,7 @@ func taskExecutionSchema() map[string]any {
 }
 func taskAuthoringCreateSchema() map[string]any {
 	all := taskAuthoringProperties()
-	for _, key := range []string{"task_id", "updated_by", "ready_by", "expected_revision", "expected_revision_sha256"} {
+	for _, key := range []string{"task_id", "execution", "updated_by", "ready_by", "expected_revision", "expected_revision_sha256"} {
 		delete(all, key)
 	}
 	return obj(all, "project_id", "title", "objective", "adr_relation", "created_by")
@@ -58,7 +58,9 @@ func taskTypeSchema() map[string]any {
 }
 func taskAuthoringUpdateSchema() map[string]any {
 	properties := taskAuthoringProperties()
-	delete(properties, "created_by")
+	for _, key := range []string{"created_by", "execution"} {
+		delete(properties, key)
+	}
 	delete(properties, "ready_by")
 	return obj(properties, "project_id", "task_id", "expected_revision", "updated_by")
 }

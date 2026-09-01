@@ -40,6 +40,10 @@ func TestTrainV2CorrectionStartRequiresExactRejectedReviewAndQueuedTask(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	boundCorrectionTask, err := s.TaskAuthoringRead(context.Background(), "example", correctionTask.ID)
+	if err != nil || boundCorrectionTask.Execution != model.TaskExecutionTrain {
+		t.Fatalf("Train admission did not bind correction Task execution: %#v %v", boundCorrectionTask, err)
+	}
 	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
 		ProjectID: "example",
 		TrainID:   train.ID,
@@ -97,8 +101,8 @@ func TestTrainV2CorrectionStartRequiresExactRejectedReviewAndQueuedTask(t *testi
 		RejectedReviewID:             "wrong-review",
 		CorrectionItemPosition:       1,
 		CorrectionTaskID:             correctionTask.ID,
-		CorrectionTaskRevision:       correctionTask.Revision,
-		CorrectionTaskRevisionSHA256: correctionTask.RevisionSHA256,
+		CorrectionTaskRevision:       boundCorrectionTask.Revision,
+		CorrectionTaskRevisionSHA256: boundCorrectionTask.RevisionSHA256,
 		StartedBy:                    "planner",
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: updated.After,
@@ -124,7 +128,7 @@ func TestTrainV2CorrectionStartRequiresExactRejectedReviewAndQueuedTask(t *testi
 		t.Fatal("wrong queued Task identity was accepted")
 	}
 	wrongRevision := bad
-	wrongRevision.RejectedReviewID, wrongRevision.CorrectionTaskRevision = reviewID, correctionTask.Revision+1
+	wrongRevision.RejectedReviewID, wrongRevision.CorrectionTaskRevision = reviewID, boundCorrectionTask.Revision+1
 	if _, err := s.TrainV2CorrectionStart(context.Background(), wrongRevision); err == nil {
 		t.Fatal("wrong queued Task revision was accepted")
 	}

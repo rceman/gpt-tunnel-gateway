@@ -57,43 +57,41 @@ type TaskCreateInput struct {
 }
 
 type TaskAuthoringCreateInput struct {
-	ProjectID             string              `json:"project_id"`
-	Type                  model.TaskType      `json:"type,omitempty"`
-	Execution             model.TaskExecution `json:"execution,omitempty"`
-	Scope                 *model.TaskScope    `json:"scope,omitempty"`
-	Title                 string              `json:"title"`
-	Objective             string              `json:"objective"`
-	AcceptanceCriteria    []string            `json:"acceptance_criteria"`
-	Constraints           []string            `json:"constraints"`
-	Priority              string              `json:"priority,omitempty"`
-	Dependencies          []string            `json:"dependencies,omitempty"`
-	PreparationReferences []string            `json:"preparation_references,omitempty"`
-	Metadata              map[string]string   `json:"metadata,omitempty"`
-	ADRRelation           string              `json:"adr_relation"`
-	ADRReferences         []string            `json:"adr_references,omitempty"`
-	CreatedBy             string              `json:"created_by"`
+	ProjectID             string            `json:"project_id"`
+	Type                  model.TaskType    `json:"type,omitempty"`
+	Scope                 *model.TaskScope  `json:"scope,omitempty"`
+	Title                 string            `json:"title"`
+	Objective             string            `json:"objective"`
+	AcceptanceCriteria    []string          `json:"acceptance_criteria"`
+	Constraints           []string          `json:"constraints"`
+	Priority              string            `json:"priority,omitempty"`
+	Dependencies          []string          `json:"dependencies,omitempty"`
+	PreparationReferences []string          `json:"preparation_references,omitempty"`
+	Metadata              map[string]string `json:"metadata,omitempty"`
+	ADRRelation           string            `json:"adr_relation"`
+	ADRReferences         []string          `json:"adr_references,omitempty"`
+	CreatedBy             string            `json:"created_by"`
 	WriteOptions
 }
 
 type TaskAuthoringUpdateInput struct {
-	ProjectID              string               `json:"project_id"`
-	TaskID                 string               `json:"task_id"`
-	ExpectedRevision       int                  `json:"expected_revision"`
-	ExpectedRevisionSHA256 string               `json:"expected_revision_sha256,omitempty"`
-	Type                   *model.TaskType      `json:"type,omitempty"`
-	Execution              *model.TaskExecution `json:"execution,omitempty"`
-	Scope                  *model.TaskScope     `json:"scope,omitempty"`
-	Title                  *string              `json:"title,omitempty"`
-	Objective              *string              `json:"objective,omitempty"`
-	AcceptanceCriteria     *[]string            `json:"acceptance_criteria,omitempty"`
-	Constraints            *[]string            `json:"constraints,omitempty"`
-	Priority               *string              `json:"priority,omitempty"`
-	Dependencies           *[]string            `json:"dependencies,omitempty"`
-	PreparationReferences  *[]string            `json:"preparation_references,omitempty"`
-	Metadata               *map[string]string   `json:"metadata,omitempty"`
-	ADRRelation            *string              `json:"adr_relation,omitempty"`
-	ADRReferences          *[]string            `json:"adr_references,omitempty"`
-	UpdatedBy              string               `json:"updated_by"`
+	ProjectID              string             `json:"project_id"`
+	TaskID                 string             `json:"task_id"`
+	ExpectedRevision       int                `json:"expected_revision"`
+	ExpectedRevisionSHA256 string             `json:"expected_revision_sha256,omitempty"`
+	Type                   *model.TaskType    `json:"type,omitempty"`
+	Scope                  *model.TaskScope   `json:"scope,omitempty"`
+	Title                  *string            `json:"title,omitempty"`
+	Objective              *string            `json:"objective,omitempty"`
+	AcceptanceCriteria     *[]string          `json:"acceptance_criteria,omitempty"`
+	Constraints            *[]string          `json:"constraints,omitempty"`
+	Priority               *string            `json:"priority,omitempty"`
+	Dependencies           *[]string          `json:"dependencies,omitempty"`
+	PreparationReferences  *[]string          `json:"preparation_references,omitempty"`
+	Metadata               *map[string]string `json:"metadata,omitempty"`
+	ADRRelation            *string            `json:"adr_relation,omitempty"`
+	ADRReferences          *[]string          `json:"adr_references,omitempty"`
+	UpdatedBy              string             `json:"updated_by"`
 	WriteOptions
 }
 

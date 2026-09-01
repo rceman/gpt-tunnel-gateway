@@ -48,22 +48,21 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 	}
 
 	updatedTitle := "Updated shared task"
-	updatedExecution := model.TaskExecutionHotfix
 	updatedScope := &model.TaskScope{Files: []string{"internal/service/task_authoring_mutation.go"}, Modules: []string{"gateway"}}
 	updated, err := s.TaskAuthoringUpdateAsync(context.Background(), TaskAuthoringUpdateInput{
 		ProjectID: "example", TaskID: createReceipt.Task.ID, ExpectedRevision: createReceipt.Task.Revision,
 		ExpectedRevisionSHA256: createReceipt.Task.RevisionSHA256, Title: &updatedTitle,
-		Execution: &updatedExecution, Scope: updatedScope, UpdatedBy: "planner",
+		Scope: updatedScope, UpdatedBy: "planner",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	updateReceipt := waitTaskUpdateReceipt(t, s, updated.OperationID)
-	if updateReceipt.Task == nil || updateReceipt.Task.Title != updatedTitle || updateReceipt.Task.Execution != model.TaskExecutionHotfix || updateReceipt.Task.Scope == nil || updateReceipt.Task.Scope.Files[0] != updatedScope.Files[0] {
+	if updateReceipt.Task == nil || updateReceipt.Task.Title != updatedTitle || updateReceipt.Task.Execution != "" || updateReceipt.Task.Scope == nil || updateReceipt.Task.Scope.Files[0] != updatedScope.Files[0] {
 		t.Fatalf("update receipt=%#v", updateReceipt)
 	}
 	filtered, err := s.TaskAuthoringList(context.Background(), TaskAuthoringListInput{ProjectID: "example", Execution: model.TaskExecutionHotfix, Limit: MaxTaskListLimit})
-	if err != nil || len(filtered.Tasks) != 1 || filtered.Tasks[0].ID != updateReceipt.Task.ID {
+	if err != nil || len(filtered.Tasks) != 0 {
 		t.Fatalf("Shared execution filter=%#v err=%v", filtered, err)
 	}
 
@@ -94,7 +93,7 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 	if err := json.Unmarshal(shared.Payload, &stored); err != nil {
 		t.Fatal(err)
 	}
-	if stored.Status != model.TaskAuthoringReady || stored.Revision != readyReceipt.Task.Revision || stored.Execution != model.TaskExecutionHotfix || stored.Scope == nil || stored.Scope.Files[0] != updatedScope.Files[0] {
+	if stored.Status != model.TaskAuthoringReady || stored.Revision != readyReceipt.Task.Revision || stored.Execution != "" || stored.Scope == nil || stored.Scope.Files[0] != updatedScope.Files[0] {
 		t.Fatalf("shared task=%#v", stored)
 	}
 	sharedRead, err := s.TaskAuthoringRead(context.Background(), "example", readyReceipt.Task.ID)

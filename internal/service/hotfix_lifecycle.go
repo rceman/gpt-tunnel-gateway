@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
@@ -120,12 +121,7 @@ func (s *Service) bindTaskToHotfix(ctx context.Context, task model.TaskAuthoring
 		if err != nil {
 			return model.TaskAuthoring{}, err
 		}
-		updated, _, err := s.TaskAuthoringUpdate(ctx, TaskAuthoringUpdateInput{
-			ProjectID: task.ProjectID, TaskID: task.ID, ExpectedRevision: task.Revision,
-			ExpectedRevisionSHA256: task.RevisionSHA256, Execution: &execution, UpdatedBy: "hotfix/create",
-			WriteOptions: WriteOptions{ExpectedHubRevision: expected},
-		})
-		return updated, err
+		return s.updateTaskExecutionHub(ctx, task, execution, "hotfix/create", expected)
 	}
 	updated, _, err := trainv2.UpdateTask(task, trainv2.AuthoringPatch{Execution: &execution}, "hotfix/create", s.durableNow())
 	if err != nil {
@@ -157,11 +153,7 @@ func (s *Service) unbindTaskFromHotfix(ctx context.Context, task model.TaskAutho
 		if err != nil {
 			return err
 		}
-		_, _, err = s.TaskAuthoringUpdate(ctx, TaskAuthoringUpdateInput{
-			ProjectID: task.ProjectID, TaskID: task.ID, ExpectedRevision: task.Revision,
-			ExpectedRevisionSHA256: task.RevisionSHA256, Execution: &empty, UpdatedBy: "hotfix/create-rollback",
-			WriteOptions: WriteOptions{ExpectedHubRevision: expected},
-		})
+		_, err = s.updateTaskExecutionHub(ctx, task, empty, "hotfix/create-rollback", expected)
 		return err
 	}
 	updated, changed, err := trainv2.UpdateTask(task, trainv2.AuthoringPatch{Execution: &empty}, "hotfix/create-rollback", s.durableNow())
@@ -183,6 +175,41 @@ func (s *Service) unbindTaskFromHotfix(ctx context.Context, task model.TaskAutho
 		Kind: "task-hotfix-bind-rollback", Payload: payload, CreatedAt: s.durableNow(),
 	})
 	return err
+}
+
+func (s *Service) updateTaskExecutionHub(ctx context.Context, task model.TaskAuthoring, execution model.TaskExecution, updatedBy, expectedHubRevision string) (model.TaskAuthoring, error) {
+	updated, changed, err := trainv2.UpdateTask(task, trainv2.AuthoringPatch{Execution: &execution}, updatedBy, s.durableNow())
+	if err != nil {
+		return model.TaskAuthoring{}, err
+	}
+	if !changed {
+		return task, nil
+	}
+	path := s.taskAuthoringPath(task.ProjectID, task.ID)
+	_, err = s.Hub.Transact(ctx, expectedHubRevision, "gateway: update Task execution "+task.ID, func(worktree string) ([]string, error) {
+		var latest model.TaskAuthoring
+		if err := readWorktreeJSON(worktree, path, &latest); err != nil {
+			return nil, err
+		}
+		if err := trainv2.CheckRevision(latest, task.Revision, task.RevisionSHA256); err != nil {
+			return nil, err
+		}
+		admitted, err := taskAdmittedToNonterminalTrainInWorktree(worktree, s.trainV2Root(task.ProjectID), task.ID)
+		if err != nil {
+			return nil, err
+		}
+		if admitted {
+			return nil, fmt.Errorf("ready Task %q is admitted to a nonterminal Train and cannot change execution", task.ID)
+		}
+		if err := hub.WriteJSON(worktree, path, updated); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	if err != nil {
+		return model.TaskAuthoring{}, err
+	}
+	return updated, nil
 }
 
 func (s *Service) HotfixIntegrate(ctx context.Context, projectID string, in HotfixIntegrateInput) (HotfixIntegrateResult, error) {

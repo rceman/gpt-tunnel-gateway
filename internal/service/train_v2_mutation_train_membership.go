@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
@@ -48,12 +49,41 @@ func (s *Service) trainV2AdmissionTasks(worktree, projectID string, taskIDs []st
 		if task.ProjectID != projectID || model.ValidateTaskAuthoring(task) != nil || task.Status != model.TaskAuthoringReady || task.ReadySeal == nil || task.ReadySeal.Revision != task.Revision || task.ReadySeal.RevisionSHA256 != task.RevisionSHA256 {
 			return nil, fmt.Errorf("task %q is not an exact ready train_v2 Task", taskID)
 		}
+		if task.Execution != "" {
+			return nil, fmt.Errorf("Task %q is already bound to %s execution", task.ID, task.Execution)
+		}
 		tasks = append(tasks, task)
 	}
 	if err := s.validateTaskDependenciesInWorktree(worktree, projectID, tasks); err != nil {
 		return nil, err
 	}
 	return tasks, nil
+}
+
+func bindTrainV2AdmissionTasks(tasks []model.TaskAuthoring, now time.Time) ([]model.TaskAuthoring, error) {
+	execution := model.TaskExecutionTrain
+	bound := make([]model.TaskAuthoring, len(tasks))
+	for i, task := range tasks {
+		updated, changed, err := trainv2.UpdateTask(task, trainv2.AuthoringPatch{Execution: &execution}, "train/admission", now)
+		if err != nil {
+			return nil, fmt.Errorf("bind Task %q to train execution: %w", task.ID, err)
+		}
+		if !changed {
+			return nil, fmt.Errorf("Task %q was not changed during train admission", task.ID)
+		}
+		if task.Status == model.TaskAuthoringReady {
+			updated, err = trainv2.ReadyTask(updated, task.ReadySeal.ReadyBy, task.ReadySeal.ReadyAt)
+			if err != nil {
+				return nil, fmt.Errorf("re-seal Task %q after train binding: %w", task.ID, err)
+			}
+			updated.UpdatedAt = now.UTC()
+			if err := model.ValidateTaskAuthoring(updated); err != nil {
+				return nil, fmt.Errorf("validate Task %q after train binding: %w", task.ID, err)
+			}
+		}
+		bound[i] = updated
+	}
+	return bound, nil
 }
 
 // validateTrainV2TaskMembershipInWorktree is called inside the start

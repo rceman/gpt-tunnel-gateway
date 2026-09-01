@@ -47,6 +47,10 @@ func (s *Service) TrainV2Create(ctx context.Context, in TrainV2CreateInput) (mod
 		if err != nil {
 			return nil, err
 		}
+		tasks, err = bindTrainV2AdmissionTasks(tasks, now)
+		if err != nil {
+			return nil, err
+		}
 		created, err = trainv2.New(in.ProjectID, trainID, in.CreatedBy, tasks, now)
 		if err != nil {
 			return nil, err
@@ -60,7 +64,15 @@ func (s *Service) TrainV2Create(ctx context.Context, in TrainV2CreateInput) (mod
 		if err := hub.WriteJSON(worktree, path, created); err != nil {
 			return nil, err
 		}
-		return []string{path}, nil
+		changed := []string{path}
+		for _, task := range tasks {
+			taskPath := s.taskAuthoringPath(in.ProjectID, task.ID)
+			if err := hub.WriteJSON(worktree, taskPath, task); err != nil {
+				return nil, err
+			}
+			changed = append(changed, taskPath)
+		}
+		return changed, nil
 	})
 	if err != nil {
 		return model.TrainV2{}, OperationResult{}, err
@@ -133,6 +145,10 @@ func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.Tra
 		if err != nil {
 			return nil, err
 		}
+		tasks, err = bindTrainV2AdmissionTasks(tasks, now)
+		if err != nil {
+			return nil, err
+		}
 		updated, err = trainv2.Append(latest, tasks, now)
 		if err != nil {
 			return nil, err
@@ -141,7 +157,15 @@ func (s *Service) TrainV2Add(ctx context.Context, in TrainV2AddInput) (model.Tra
 		if err := hub.WriteJSON(worktree, path, updated); err != nil {
 			return nil, err
 		}
-		return []string{path}, nil
+		changed := []string{path}
+		for _, task := range tasks {
+			taskPath := s.taskAuthoringPath(in.ProjectID, task.ID)
+			if err := hub.WriteJSON(worktree, taskPath, task); err != nil {
+				return nil, err
+			}
+			changed = append(changed, taskPath)
+		}
+		return changed, nil
 	})
 	if err != nil {
 		return model.TrainV2{}, OperationResult{}, err

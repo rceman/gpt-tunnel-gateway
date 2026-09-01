@@ -174,7 +174,7 @@ func (s *Service) taskAuthoringCreateShared(ctx context.Context, operationID str
 	if in.ADRRelation == "" {
 		in.ADRRelation = model.TaskADRNoRequired
 	}
-	draft := trainv2.AuthoringDraft{Type: in.Type, Execution: in.Execution, Scope: in.Scope, Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}
+	draft := trainv2.AuthoringDraft{Type: in.Type, Scope: in.Scope, Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}
 	if err := trainv2.ValidateDraft(draft); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
@@ -223,7 +223,7 @@ func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID str
 	} else if admitted {
 		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("ready Task %q is admitted to a nonterminal Train and cannot be edited", in.TaskID)
 	}
-	updated, changed, err := trainv2.UpdateTask(current, trainv2.AuthoringPatch{Type: in.Type, Execution: in.Execution, Scope: in.Scope, Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}, in.UpdatedBy, s.durableNow())
+	updated, changed, err := trainv2.UpdateTask(current, trainv2.AuthoringPatch{Type: in.Type, Scope: in.Scope, Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}, in.UpdatedBy, s.durableNow())
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}

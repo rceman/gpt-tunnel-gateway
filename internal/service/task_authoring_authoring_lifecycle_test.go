@@ -68,7 +68,6 @@ func TestTaskAuthoringServiceWiresCanonicalLifecycle(t *testing.T) {
 		t.Fatalf("unassigned Task matched train execution filter: %#v %v", trainTasks, err)
 	}
 	newTitle := "Updated bounded train task"
-	newExecution := model.TaskExecutionHotfix
 	newScope := &model.TaskScope{Files: []string{"internal/service/hotfix_lifecycle.go"}, Modules: []string{"gateway"}}
 	updated, updateOperation, err := s.TaskAuthoringUpdate(ctx, TaskAuthoringUpdateInput{
 		ProjectID:              "example",
@@ -76,18 +75,17 @@ func TestTaskAuthoringServiceWiresCanonicalLifecycle(t *testing.T) {
 		ExpectedRevision:       task.Revision,
 		ExpectedRevisionSHA256: task.RevisionSHA256,
 		Title:                  &newTitle,
-		Execution:              &newExecution,
 		Scope:                  newScope,
 		UpdatedBy:              "planner",
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: operation.Hub.After,
 		},
 	})
-	if err != nil || updated.Revision != 2 || updated.Execution != model.TaskExecutionHotfix || updated.Scope == nil || updated.Scope.Files[0] != newScope.Files[0] || updateOperation.Status != model.TaskAuthoringPlanned {
+	if err != nil || updated.Revision != 2 || updated.Execution != "" || updated.Scope == nil || updated.Scope.Files[0] != newScope.Files[0] || updateOperation.Status != model.TaskAuthoringPlanned {
 		t.Fatalf("update wiring failed: %#v %#v %v", updated, updateOperation, err)
 	}
 	filtered, err := s.TaskAuthoringList(ctx, TaskAuthoringListInput{ProjectID: "example", Execution: model.TaskExecutionHotfix, Limit: MaxTaskListLimit})
-	if err != nil || len(filtered.Tasks) != 1 || filtered.Tasks[0].ID != task.ID || filtered.Tasks[0].Scope == nil || filtered.Tasks[0].Scope.Files[0] != newScope.Files[0] {
+	if err != nil || len(filtered.Tasks) != 0 {
 		t.Fatalf("execution-filtered list failed: %#v %v", filtered, err)
 	}
 	ready, readyOperation, err := s.TaskAuthoringReady(ctx, TaskAuthoringReadyInput{
@@ -128,12 +126,16 @@ func TestTaskAuthoringQueuedTrainItemCanBeUpdatedUntilAttemptStarts(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	boundTask, err := s.TaskAuthoringRead(context.Background(), "example", task.ID)
+	if err != nil || boundTask.Execution != model.TaskExecutionTrain {
+		t.Fatalf("Train admission did not bind Task execution: %#v %v", boundTask, err)
+	}
 	newTitle := "Queued task edited before execution"
 	updated, updateOperation, err := s.TaskAuthoringUpdate(context.Background(), TaskAuthoringUpdateInput{
 		ProjectID:              "example",
 		TaskID:                 task.ID,
-		ExpectedRevision:       task.Revision,
-		ExpectedRevisionSHA256: task.RevisionSHA256,
+		ExpectedRevision:       boundTask.Revision,
+		ExpectedRevisionSHA256: boundTask.RevisionSHA256,
 		Title:                  &newTitle,
 		UpdatedBy:              "planner",
 		WriteOptions: WriteOptions{

@@ -62,6 +62,10 @@ func TestTrainV2ServicePersistsPureAdmissionResults(t *testing.T) {
 	if train.ID != "EXM-TRN1" || train.Status != model.TrainV2Planned || len(train.Items) != 1 || operation.Status != model.TrainV2Planned {
 		t.Fatalf("unexpected persisted Train: %#v %#v", train, operation)
 	}
+	boundFirst, err := s.TaskAuthoringRead(context.Background(), "example", first.ID)
+	if err != nil || boundFirst.Execution != model.TaskExecutionTrain || train.Items[0].TaskRevision != boundFirst.Revision || train.Items[0].TaskRevisionSHA256 != boundFirst.RevisionSHA256 {
+		t.Fatalf("Train create did not atomically bind first Task: task=%#v train=%#v err=%v", boundFirst, train, err)
+	}
 	added, addOperation, err := s.TrainV2Add(context.Background(), TrainV2AddInput{
 		ProjectID:        "example",
 		TrainID:          train.ID,
@@ -77,6 +81,10 @@ func TestTrainV2ServicePersistsPureAdmissionResults(t *testing.T) {
 	}
 	if added.Revision != 2 || len(added.Items) != 2 || addOperation.Status != model.TrainV2Planned {
 		t.Fatalf("unexpected persisted append: %#v %#v", added, addOperation)
+	}
+	boundSecond, err := s.TaskAuthoringRead(context.Background(), "example", second.ID)
+	if err != nil || boundSecond.Execution != model.TaskExecutionTrain || added.Items[1].TaskRevision != boundSecond.Revision || added.Items[1].TaskRevisionSHA256 != boundSecond.RevisionSHA256 {
+		t.Fatalf("Train add did not atomically bind second Task: task=%#v train=%#v err=%v", boundSecond, added, err)
 	}
 	read, err := s.TrainV2Read(context.Background(), "example", train.ID)
 	if err != nil || read.Revision != added.Revision {
