@@ -21,7 +21,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
-var version = "0.6.11"
+var version = "0.6.12"
 
 func main() {
 	configPath := flag.String("config", config.DefaultPath(), "configuration file")

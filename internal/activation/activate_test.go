@@ -32,7 +32,7 @@ func TestLiveMCPSmokeUsesCanonicalToolManifest(t *testing.T) {
 	server := manifestSmokeServer(t, canonicalRuntimeTools)
 	defer server.Close()
 	c := config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://")}
-	if err := liveMCPSmoke(context.Background(), c, "0.6.11"); err != nil {
+	if err := liveMCPSmoke(context.Background(), c, "0.6.12"); err != nil {
 		t.Fatalf("live MCP smoke failed: %v", err)
 	}
 }
@@ -44,7 +44,7 @@ func TestLiveMCPSmokeRejectsManifestDrift(t *testing.T) {
 	} {
 		server := manifestSmokeServer(t, manifest)
 		c := config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://")}
-		if err := liveMCPSmoke(context.Background(), c, "0.6.11"); err == nil {
+		if err := liveMCPSmoke(context.Background(), c, "0.6.12"); err == nil {
 			t.Fatalf("manifest %v was accepted", manifest)
 		}
 		server.Close()
@@ -63,7 +63,7 @@ func manifestSmokeServer(t *testing.T, manifest []string) *httptest.Server {
 		}
 		response := map[string]any{"jsonrpc": "2.0", "id": 1, "result": map[string]any{}}
 		if request.Method == "initialize" {
-			response["result"] = map[string]any{"serverInfo": map[string]any{"version": "0.6.11"}}
+			response["result"] = map[string]any{"serverInfo": map[string]any{"version": "0.6.12"}}
 		} else if request.Method == "tools/list" {
 			tools := make([]any, 0, len(manifest))
 			for _, name := range manifest {
