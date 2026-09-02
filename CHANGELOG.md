@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.12 — 2026-09-02
+
 - Prepare v0.6.12 with GTW-TSK460 direct AgentRead resolution for explicit Agent selectors and removal of the independent hard-coded 1000 Local Agent list ceiling.
 
 ## 0.6.11 — 2026-08-09
