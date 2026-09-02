@@ -13,9 +13,14 @@ var (
 	validateSourceFn           = validateSource
 	validateInstalledRuntimeFn = validateInstalledRuntime
 	validateTunnelEnvFn        = controller.ValidateTunnelEnv
-	buildReleaseFn             = buildRelease
-	validateReleaseFn          = validateRelease
-	preflightFn                = func(ctx context.Context, c config.Config, path string) (InspectResult, error) {
+	inspectStatusFn            = func(ctx context.Context, c config.Config, path string) (controller.Status, error) {
+		return (controller.Controller{Config: c, ConfigPath: path}).Status(ctx)
+	}
+	installedVersionFn   = installedVersion
+	serviceHubRevisionFn = serviceHubRevision
+	buildReleaseFn       = buildRelease
+	validateReleaseFn    = validateRelease
+	preflightFn          = func(ctx context.Context, c config.Config, path string) (InspectResult, error) {
 		return Inspect(ctx, c, path)
 	}
 	newUpgradeControllerFn = func(c config.Config, path string) upgradeController {

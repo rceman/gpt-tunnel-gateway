@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
@@ -105,11 +104,10 @@ func Inspect(ctx context.Context, c config.Config, configPath string) (InspectRe
 			}
 		}
 	}
-	if err := controller.ValidateTunnelEnv(c.Controller.TunnelEnvFile); err != nil {
+	if err := validateTunnelEnvFn(c.Controller.TunnelEnvFile); err != nil {
 		add("TUNNEL_ENV_INVALID", "", "", "", c.Controller.TunnelEnvFile, err.Error())
 	}
-	ctl := controller.Controller{Config: c, ConfigPath: configPath}
-	status, statusErr := ctl.Status(ctx)
+	status, statusErr := inspectStatusFn(ctx, c, configPath)
 	if statusErr != nil {
 		add("PROCESS_STATUS_FAILED", "", "", "", "", statusErr.Error())
 	} else {
@@ -146,12 +144,20 @@ func Inspect(ctx context.Context, c config.Config, configPath string) (InspectRe
 	if stateErr != nil {
 		add("STATE_CHECK_FAILED", "", "", "", "", stateErr.Error())
 	} else {
-		result.HubRevision = state.HubRevision
 		result.ConfiguredProjects = append(result.ConfiguredProjects, state.ConfiguredProjectIDs...)
 		result.DurableProjects = append(result.DurableProjects, state.DurableProjectIDs...)
 		result.ValidCurrentPlans = append(result.ValidCurrentPlans, state.ValidCurrentPlans...)
 		for _, issue := range state.Issues {
 			add(issue.Code, issue.ProjectID, issue.TaskID, "", issue.Path, issue.Detail)
+		}
+	}
+	hubRevision, hubRevisionErr := serviceHubRevisionFn(ctx, c)
+	if hubRevisionErr != nil {
+		add("HUB_REVISION_UNAVAILABLE", "", "", "", "", "authoritative hub revision unavailable")
+	} else {
+		result.HubRevision = strings.TrimSpace(hubRevision)
+		if result.HubRevision == "" {
+			add("HUB_REVISION_UNAVAILABLE", "", "", "", "", "authoritative hub revision unavailable")
 		}
 	}
 	if sourceErr == nil && result.TargetVersion != "" {
@@ -160,9 +166,6 @@ func Inspect(ctx context.Context, c config.Config, configPath string) (InspectRe
 		} else if len(result.InstalledVersions) > 0 && compareVersion(parsed, result.InstalledVersions["gpt-tunnelctl"]) <= 0 {
 			add("TARGET_NOT_NEWER", "", "", "", "", "target version is not newer than installed version")
 		}
-	}
-	if result.HubRevision == "" {
-		add("HUB_REVISION_UNAVAILABLE", "", "", "", "", "authoritative hub revision unavailable")
 	}
 	result.RollbackReady = result.TunnelPID > 0 && result.HubRevision != ""
 	sort.Strings(result.ConfiguredProjects)
