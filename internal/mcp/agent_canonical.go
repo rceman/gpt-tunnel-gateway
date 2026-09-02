@@ -45,50 +45,59 @@ func (s *Server) resolveCanonicalAgent(ctx context.Context, projectID, requested
 			return canonicalAgentTarget{}, fmt.Errorf("invalid Agent selector")
 		}
 	}
+	if requested != "" {
+		selected, err := s.Service.AgentRead(ctx, projectID, requested)
+		if err != nil {
+			return canonicalAgentTarget{}, err
+		}
+		if requireEnabled && !selected.Enabled {
+			return canonicalAgentTarget{}, fmt.Errorf("Agent %q is disabled", selected.AgentID)
+		}
+		target := canonicalAgentTarget{Agent: selected}
+		if requireEnabled {
+			target.Resolved, err = s.Service.ResolveAgent(ctx, service.AgentResolveInput{
+				ProjectID: projectID,
+				Role:      selected.Role,
+				AgentID:   selected.AgentID,
+			})
+			if err != nil {
+				return canonicalAgentTarget{}, err
+			}
+		}
+		return target, nil
+	}
 	agents, err := s.Service.AgentList(ctx, projectID)
 	if err != nil {
 		return canonicalAgentTarget{}, err
 	}
 	var selected *model.Agent
-	if requested != "" {
-		for i := range agents {
-			if agents[i].AgentID == requested {
-				selected = &agents[i]
-				break
+	candidates := make([]model.Agent, 0, len(agents))
+	for _, agent := range agents {
+		if agent.Role == model.AgentRoleCoding && agent.Enabled {
+			candidates = append(candidates, agent)
+		}
+	}
+	if len(candidates) == 0 {
+		return canonicalAgentTarget{}, fmt.Errorf("AGENT_NOT_AVAILABLE: no enabled coding Agent for project %q", projectID)
+	}
+	if len(candidates) > 1 {
+		active := make([]model.Agent, 0)
+		for _, agent := range candidates {
+			status, statusErr := s.Service.AgentRegistryStatus(ctx, projectID, agent.AgentID)
+			if statusErr != nil {
+				return canonicalAgentTarget{}, fmt.Errorf("Agent selection is unavailable: %w", statusErr)
+			}
+			if status.SessionState == "running" || status.SessionState == "waiting" {
+				active = append(active, agent)
 			}
 		}
-		if selected == nil {
-			return canonicalAgentTarget{}, fmt.Errorf("Agent %q is not registered for project %q", requested, projectID)
+		if len(active) == 1 {
+			selected = &active[0]
+		} else {
+			return canonicalAgentTarget{}, fmt.Errorf("AGENT_SELECTION_REQUIRED: multiple enabled coding Agents are applicable")
 		}
 	} else {
-		candidates := make([]model.Agent, 0, len(agents))
-		for _, agent := range agents {
-			if agent.Role == model.AgentRoleCoding && agent.Enabled {
-				candidates = append(candidates, agent)
-			}
-		}
-		if len(candidates) == 0 {
-			return canonicalAgentTarget{}, fmt.Errorf("AGENT_NOT_AVAILABLE: no enabled coding Agent for project %q", projectID)
-		}
-		if len(candidates) > 1 {
-			active := make([]model.Agent, 0, len(candidates))
-			for _, agent := range candidates {
-				status, statusErr := s.Service.AgentRegistryStatus(ctx, projectID, agent.AgentID)
-				if statusErr != nil {
-					return canonicalAgentTarget{}, fmt.Errorf("Agent selection is unavailable: %w", statusErr)
-				}
-				if status.SessionState == "running" || status.SessionState == "waiting" {
-					active = append(active, agent)
-				}
-			}
-			if len(active) == 1 {
-				selected = &active[0]
-			} else {
-				return canonicalAgentTarget{}, fmt.Errorf("AGENT_SELECTION_REQUIRED: multiple enabled coding Agents are applicable")
-			}
-		} else {
-			selected = &candidates[0]
-		}
+		selected = &candidates[0]
 	}
 	if requireEnabled && !selected.Enabled {
 		return canonicalAgentTarget{}, fmt.Errorf("Agent %q is disabled", selected.AgentID)

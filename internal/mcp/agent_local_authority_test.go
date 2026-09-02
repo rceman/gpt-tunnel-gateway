@@ -28,7 +28,7 @@ func TestCanonicalAgentAwaitUsesLocalAuthorityWhenHubUnavailableAndLocked(t *tes
 		StateDir:               stateDir,
 		MaxReadBytes:           1 << 20,
 		MaxDiffBytes:           1 << 20,
-		MaxListItems:           1000,
+		MaxListItems:           2000,
 		DispatchTimeoutSeconds: 1,
 		AirelayCommand:         airelay,
 		Hub: config.HubConfig{
@@ -112,9 +112,72 @@ func TestCanonicalAgentAwaitUsesLocalAuthorityWhenHubUnavailableAndLocked(t *tes
 	if err != nil || len(agents) != 1 || agents[0].AgentID != agent.AgentID {
 		t.Fatalf("local Agent list failed with Hub unavailable/locked: agents=%#v err=%v", agents, err)
 	}
+	// The fixture is seeded before making the list policy unusable. Every
+	// operation below has an explicit selector; a hidden AgentList call must
+	// therefore fail rather than silently passing through the registry.
+	s.Config.MaxListItems = 0
 	status, err := s.AgentRegistryStatus(bound, "example", agent.AgentID)
 	if err != nil || !status.Usable || status.State != "usable" {
 		t.Fatalf("local Agent status failed with Hub unavailable/locked: status=%#v err=%v", status, err)
+	}
+	canonicalStatus, err := server.canonicalAgentStatusAction(bound, mustJSON(t, map[string]any{
+		"agent": agent.AgentID,
+	}))
+	if err != nil {
+		t.Fatalf("canonical agent/status failed with Hub unavailable/locked: %v", err)
+	}
+	statusResult, ok := canonicalStatus.(map[string]any)
+	if !ok || statusResult["agent"] != agent.AgentID {
+		t.Fatalf("unexpected local agent/status result: %#v", canonicalStatus)
+	}
+	canonicalTail, err := server.canonicalAgentTailAction(bound, mustJSON(t, map[string]any{
+		"agent": agent.AgentID,
+		"lines": 30,
+	}))
+	if err != nil {
+		t.Fatalf("canonical agent/tail failed with Hub unavailable/locked: %v", err)
+	}
+	tailResult, ok := canonicalTail.(map[string]any)
+	if !ok || tailResult["agent"] != agent.AgentID {
+		t.Fatalf("unexpected local agent/tail result: %#v", canonicalTail)
+	}
+	entries := server.genericActionRegistry(server.tools())
+	promptTool, ok := entries["agent/prompt"]
+	if !ok {
+		t.Fatal("canonical agent/prompt tool is not registered")
+	}
+	promptValue, err := promptTool.Execute(bound, mustJSON(t, map[string]any{
+		"agent":   agent.AgentID,
+		"message": "TSK460 explicit selector",
+	}))
+	if err != nil {
+		t.Fatalf("canonical agent/prompt failed to enqueue with Hub unavailable/locked: %v", err)
+	}
+	promptResult, ok := promptValue.(map[string]any)
+	if !ok || promptResult["operation"] == "" || promptResult["status"] != "accepted" {
+		t.Fatalf("unexpected local agent/prompt result: %#v", promptValue)
+	}
+	operationID, ok := promptResult["operation"].(string)
+	if !ok {
+		t.Fatalf("agent/prompt returned invalid operation identity: %#v", promptValue)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		value, statusErr := s.AgentIPCOperationStatus(bound, operationID, "agent-prompt")
+		if statusErr != nil {
+			t.Fatal(statusErr)
+		}
+		receipt, receiptOK := value.(service.AgentPromptReceipt)
+		if receiptOK && (receipt.Status == "completed" || receipt.Status == "failed") {
+			if receipt.Status != "completed" {
+				t.Fatalf("agent/prompt operation failed with Hub unavailable/locked: %#v", receipt)
+			}
+			break
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatalf("agent/prompt operation did not reach a terminal receipt: %#v", value)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	started := time.Now()

@@ -46,7 +46,7 @@ func (d *Databases) ListLocalAgents(ctx context.Context, projectID string, limit
 	if d == nil || d.Local == nil {
 		return nil, fmt.Errorf("local store is unavailable")
 	}
-	if limit < 1 || limit > 1000 {
+	if limit < 1 {
 		return nil, fmt.Errorf("invalid local agent limit")
 	}
 	rows, err := d.Local.Query(ctx, `SELECT project_id,agent_id,payload,updated_at FROM local_agents WHERE project_id=? ORDER BY agent_id LIMIT ?`, projectID, limit)
@@ -75,9 +75,6 @@ func (d *Databases) ListLocalAgents(ctx context.Context, projectID string, limit
 func (d *Databases) ReplaceLocalAgents(ctx context.Context, projectID string, agents []LocalAgent) error {
 	if d == nil || d.Local == nil {
 		return fmt.Errorf("local store is unavailable")
-	}
-	if len(agents) > 1000 {
-		return fmt.Errorf("local agent projection exceeds configured maximum")
 	}
 	statements := make([]upstream.Statement, 0, len(agents)+1)
 	statements = append(statements, upstream.Statement{SQL: `DELETE FROM local_agents WHERE project_id=?`, Args: []any{projectID}})

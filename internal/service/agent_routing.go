@@ -38,6 +38,31 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 			recommended = configuration.AgentRouting.SingletonRecommendedReasoning
 		}
 	}
+	if in.AgentID != "" {
+		agent, readErr := s.AgentRead(ctx, in.ProjectID, in.AgentID)
+		if readErr != nil || agent.Role != in.Role || !agent.Enabled {
+			return ResolvedAgent{}, fmt.Errorf("agent %q is not currently usable", in.AgentID)
+		}
+		binding, ok := s.resolveExplicitLocalAgentBinding(in.ProjectID, agent)
+		if !ok || binding.Validate() != nil {
+			return ResolvedAgent{}, fmt.Errorf("agent %q is not currently usable", in.AgentID)
+		}
+		if in.RequireUsable {
+			status, statusErr := s.Airelay.Status(ctx, binding.SessionKey)
+			if statusErr != nil || !status.ControllerReachable || status.State != "idle" {
+				return ResolvedAgent{}, fmt.Errorf("agent %q is not currently usable", in.AgentID)
+			}
+		}
+		return ResolvedAgent{
+			ProjectID:          in.ProjectID,
+			AgentID:            agent.AgentID,
+			Role:               agent.Role,
+			RequestedReasoning: recommended,
+			ResolvedReasoning:  agent.RecommendedReasoning,
+			SessionKey:         binding.SessionKey,
+			Profile:            binding.Profile,
+		}, nil
+	}
 	agents, err := s.AgentList(ctx, in.ProjectID)
 	if err != nil {
 		return ResolvedAgent{}, err
@@ -50,7 +75,7 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 	}
 	candidates := make([]candidate, 0, len(agents))
 	for _, agent := range agents {
-		if agent.Role != in.Role || !agent.Enabled || (in.AgentID != "" && agent.AgentID != in.AgentID) {
+		if agent.Role != in.Role || !agent.Enabled {
 			continue
 		}
 		binding, ok := s.resolveLocalAgentBinding(in.ProjectID, agent, agents)

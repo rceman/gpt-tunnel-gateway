@@ -27,3 +27,16 @@ func (s *Service) resolveLocalAgentBinding(projectID string, agent model.Agent, 
 	}
 	return s.Config.ResolveAutoAgentBinding(projectID)
 }
+
+// resolveExplicitLocalAgentBinding resolves one known Agent without
+// enumerating the registry. Explicit selectors must not depend on collection
+// limits or on unrelated Agent records.
+func (s *Service) resolveExplicitLocalAgentBinding(projectID string, agent model.Agent) (config.AgentBinding, bool) {
+	if binding, ok := s.Config.ResolveAgentBinding(projectID, agent.AgentID); ok {
+		return binding, true
+	}
+	if agent.Role != model.AgentRoleCoding {
+		return config.AgentBinding{}, false
+	}
+	return s.Config.ResolveAutoAgentBinding(projectID)
+}

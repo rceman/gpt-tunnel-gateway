@@ -100,7 +100,7 @@ func (s *Service) readLocalAgent(ctx context.Context, projectID, agentID string)
 func (s *Service) listLocalAgents(ctx context.Context, projectID string) ([]model.Agent, error) {
 	limit := s.Config.MaxListItems
 	if limit < 1 {
-		limit = 1000
+		return nil, fmt.Errorf("invalid configured Agent list limit")
 	}
 	records, err := s.Durability.ListLocalAgents(ctx, projectID, limit)
 	if err != nil {
@@ -234,16 +234,7 @@ func (s *Service) AgentRegistryStatus(ctx context.Context, projectID, agentID st
 		status.State, status.Reason = "disabled", "agent is disabled"
 		return status, nil
 	}
-	agents := []model.Agent{agent}
-	if _, explicit := s.Config.ResolveAgentBinding(projectID, agentID); !explicit && agent.Role == model.AgentRoleCoding {
-		listed, listErr := s.AgentList(ctx, projectID)
-		if listErr != nil {
-			status.State, status.Reason = "unavailable", "agent registry could not resolve host-local binding"
-			return status, nil
-		}
-		agents = listed
-	}
-	binding, ok := s.resolveLocalAgentBinding(projectID, agent, agents)
+	binding, ok := s.resolveExplicitLocalAgentBinding(projectID, agent)
 	if !ok {
 		status.State, status.Reason = "unbound", "no host-local binding"
 		return status, nil
