@@ -33,6 +33,7 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 	testutil.Git(t, f.root, "add", "large.txt")
 	testutil.Git(t, f.root, "commit", "-m", "performance fixture")
 	f.current = strings.TrimSpace(testutil.Git(t, f.root, "rev-parse", "HEAD"))
+	testutil.Git(t, f.root, "push", "origin", "main")
 
 	stateDir := f.service.Config.StateDir
 	trainPath := filepath.Join(stateDir, "work", "EXM", "TRN1")

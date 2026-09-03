@@ -297,6 +297,10 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 	if err != nil {
 		return nil, fmt.Errorf("read Git worktree inventory: %w", err)
 	}
+	canonicalMainHead, err := s.Git.RefreshDefaultBranch(ctx, project)
+	if err != nil {
+		return nil, fmt.Errorf("refresh canonical main: %w", err)
+	}
 	mainBranch := strings.TrimPrefix(project.DefaultBranch, "refs/heads/")
 	if mainBranch == "" {
 		mainBranch = "main"
@@ -310,7 +314,8 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 	if err != nil {
 		return nil, fmt.Errorf("read main worktree status: %w", err)
 	}
-	mainHead := mainStatus.Head
+	mainStatus.Head = canonicalMainHead
+	mainHead := canonicalMainHead
 	managed := make(map[string]model.TrainV2, len(trains))
 	for _, train := range trains {
 		if train.ProjectID == projectID && activeCodeTrainStatus(train.Status) && train.Historical == nil {
@@ -323,7 +328,13 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 		if err := s.validateCodeSelectorIdentity(ctx, worktree, status.Head); err != nil {
 			return err
 		}
-		selector, selectorErr := codeSelector(trainID, status.Head)
+		var selector string
+		var selectorErr error
+		if kind == "hotfix" {
+			selector, selectorErr = codeHotfixSelector(label, status.Head)
+		} else {
+			selector, selectorErr = codeSelector(trainID, status.Head)
+		}
 		if selectorErr != nil {
 			return selectorErr
 		}

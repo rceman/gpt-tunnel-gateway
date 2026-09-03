@@ -53,6 +53,7 @@ func newLocalCodeFixture(t *testing.T) localCodeFixture {
 	testutil.Git(t, root, "add", "-A")
 	testutil.Git(t, root, "commit", "-m", "fixture candidate")
 	current := strings.TrimSpace(testutil.Git(t, root, "rev-parse", "HEAD"))
+	testutil.Git(t, root, "push", "origin", "main")
 
 	// Create a genuinely unrelated commit, then return the configured main
 	// worktree to the candidate. This is used only as a negative ancestry base.
@@ -203,6 +204,94 @@ func TestCodeWorktreeUsesCurrentMainWorktreeFromInventory(t *testing.T) {
 	wantSelector := "WT-MAIN-" + f.current[:8]
 	if result.Items[0].Selector != wantSelector {
 		t.Fatalf("main selector = %q, want %q", result.Items[0].Selector, wantSelector)
+	}
+}
+
+func TestCodeWorktreeRefreshesCanonicalMainWhenConfiguredWorktreeIsStale(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	remoteWorktree := filepath.Join(t.TempDir(), "remote-main")
+	testutil.Git(t, f.root, "worktree", "add", "--detach", remoteWorktree, f.current)
+	t.Cleanup(func() {
+		testutil.Git(t, f.root, "worktree", "remove", "--force", remoteWorktree)
+	})
+	if err := os.WriteFile(filepath.Join(remoteWorktree, "canonical-main.txt"), []byte("canonical main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, remoteWorktree, "add", "canonical-main.txt")
+	testutil.Git(t, remoteWorktree, "commit", "-m", "advance canonical main")
+	canonical := strings.TrimSpace(testutil.Git(t, remoteWorktree, "rev-parse", "HEAD"))
+	testutil.Git(t, remoteWorktree, "push", "origin", "HEAD:refs/heads/main")
+
+	result, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"})
+	if err != nil {
+		t.Fatalf("CodeWorktree() error = %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("CodeWorktree() items = %d, want 1", len(result.Items))
+	}
+	if result.Items[0].Head != canonical {
+		t.Fatalf("main head = %q, want refreshed canonical %q", result.Items[0].Head, canonical)
+	}
+	if result.Items[0].Selector != "WT-MAIN-"+canonical[:8] {
+		t.Fatalf("main selector = %q, want refreshed canonical selector", result.Items[0].Selector)
+	}
+}
+
+func TestCodeWorktreeUsesDistinctHotfixSelectorWhenHeadMatchesMain(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	runner := gitx.Runner{StateDir: f.service.Config.StateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	slug := "same-head"
+	branch := "hotfix/" + slug
+	lane := filepath.Join(f.service.Config.StateDir, "hotfix-worktrees", "example", slug)
+	if err := os.MkdirAll(filepath.Dir(lane), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, f.root, "branch", branch, f.base)
+	testutil.Git(t, f.root, "worktree", "add", lane, branch)
+	t.Cleanup(func() {
+		testutil.Git(t, f.root, "worktree", "remove", "--force", lane)
+		testutil.Git(t, f.root, "branch", "-D", branch)
+	})
+	if err := os.WriteFile(filepath.Join(lane, "same-head.txt"), []byte("unmerged hotfix\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, lane, "add", "same-head.txt")
+	testutil.Git(t, lane, "commit", "-m", "unmerged same-head fixture")
+	hotfixHead := strings.TrimSpace(testutil.Git(t, lane, "rev-parse", "HEAD"))
+	if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{
+		ProjectID: "example", HotfixRef: "refs/heads/" + branch, TaskID: "EXM-TSK1", BaseSHA: f.base, CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"})
+	if err != nil {
+		t.Fatalf("CodeWorktree() error = %v", err)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("CodeWorktree() items = %d, want 2: %#v", len(result.Items), result.Items)
+	}
+	if result.Items[0].Selector != "WT-MAIN-"+f.current[:8] {
+		t.Fatalf("main selector = %q", result.Items[0].Selector)
+	}
+	wantHotfix := "WT-FIX-" + slug + "-" + hotfixHead[:8]
+	if result.Items[1].Selector != wantHotfix {
+		t.Fatalf("hotfix selector = %q, want %q", result.Items[1].Selector, wantHotfix)
+	}
+}
+
+func TestCodeSelectorsRemainDistinctWhenHeadsMatch(t *testing.T) {
+	head := strings.Repeat("a", 40)
+	mainSelector, err := codeSelector("", head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hotfixSelector, err := codeHotfixSelector("same-head", head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mainSelector == hotfixSelector {
+		t.Fatalf("main and hotfix selectors collided: %q", mainSelector)
 	}
 }
 
