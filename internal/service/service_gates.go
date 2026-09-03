@@ -220,10 +220,10 @@ func (s *Service) executeTrainGatesWithScopedFormat(ctx context.Context, project
 	return merged, nil
 }
 
-func (s *Service) executeTaskFinalizeGatesWithSnapshot(ctx context.Context, projectID string, project config.ProjectConfig, names, changed []string, scope gates.TestScope) ([]model.CompletionGateResult, error) {
+func (s *Service) executeTaskFinalizeGatesWithSnapshot(ctx context.Context, projectID string, project config.ProjectConfig, names, changed []string, scope gates.TestScope) ([]model.CompletionGateResult, verificationGateSnapshot, error) {
 	before, err := s.captureVerificationSnapshot(ctx, project)
 	if err != nil {
-		return nil, err
+		return nil, verificationGateSnapshot{}, err
 	}
 	started := time.Now()
 	formatResults := make([]model.CompletionGateResult, 0, 1)
@@ -247,22 +247,22 @@ func (s *Service) executeTaskFinalizeGatesWithSnapshot(ctx context.Context, proj
 	}
 	after, snapshotErr := s.captureVerificationSnapshot(ctx, project)
 	if snapshotErr != nil {
-		return nil, snapshotErr
+		return nil, verificationGateSnapshot{}, snapshotErr
 	}
 	if err := validateVerificationSnapshot(before, after); err != nil {
-		return nil, err
+		return nil, verificationGateSnapshot{}, err
 	}
 	if gateErr != nil {
-		return nil, gateErr
+		return nil, verificationGateSnapshot{}, gateErr
 	}
 	merged, err := mergeGateResults(names, formatResults, remaining, time.Since(started).Milliseconds())
 	if err != nil {
-		return nil, err
+		return nil, verificationGateSnapshot{}, err
 	}
 	if err := validateProjectGateEvidence(merged, names); err != nil {
-		return nil, err
+		return nil, verificationGateSnapshot{}, err
 	}
-	return merged, nil
+	return merged, after, nil
 }
 
 func (s *Service) executeProjectTrainGatesWithReceiptReuse(ctx context.Context, projectID, root string, names []string, commands model.ProjectGateCommands, scope gates.TestScope) ([]model.CompletionGateResult, error) {

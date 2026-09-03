@@ -78,10 +78,6 @@ func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInp
 	if s.formatExecutor == nil {
 		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("canonical formatter is not configured")
 	}
-	_, _, clean, err = s.Git.CurrentHead(ctx, project)
-	if err != nil {
-		return TrainV2AttemptFinalizeResult{}, err
-	}
 	orphan := startHead != current.Attempt.StartHead
 	if orphan {
 		if !clean {
@@ -100,7 +96,7 @@ func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInp
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
-	serverGates, err := s.executeTaskFinalizeGatesWithSnapshot(ctx, in.ProjectID, project, gates, changedBeforeGates, testScope)
+	serverGates, postGate, err := s.executeTaskFinalizeGatesWithSnapshot(ctx, in.ProjectID, project, gates, changedBeforeGates, testScope)
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("Task finalize gates failed; repair the candidate worktree and retry: %w", err)
 	}
@@ -109,17 +105,10 @@ func (s *Service) finalizeTaskByIdentity(ctx context.Context, in TaskFinalizeInp
 			return TrainV2AttemptFinalizeResult{}, fmt.Errorf("Task finalize gate %s failed; repair the candidate worktree and retry", gate.ID)
 		}
 	}
-	postGateHead, postGateBranch, _, err := s.Git.CurrentHead(ctx, project)
-	if err != nil {
-		return TrainV2AttemptFinalizeResult{}, err
-	}
-	if postGateHead != startHead || postGateBranch != branch {
+	if postGate.head != startHead || postGate.branch != branch {
 		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("Task worktree/head drifted during finalization gates")
 	}
-	candidateTree, err := s.Git.WorktreeContentID(ctx, project)
-	if err != nil {
-		return TrainV2AttemptFinalizeResult{}, err
-	}
+	candidateTree := postGate.contentID
 	checkpoint := startHead
 	if !orphan {
 		checkpoint, err = s.Git.CommitCandidate(ctx, project, "Task checkpoint "+in.TaskID)

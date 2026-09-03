@@ -67,7 +67,7 @@ func TestTaskFinalizeGatesFailClosedOnCheckAndTestMutation(t *testing.T) {
 				}
 				return fakeReceiptResults(names), nil
 			}
-			_, err := s.executeTaskFinalizeGatesWithSnapshot(context.Background(), "example", s.Config.Projects["example"], []string{"format", "check", "test"}, []string{"changed.go"}, gates.FullTestScope())
+			_, _, err := s.executeTaskFinalizeGatesWithSnapshot(context.Background(), "example", s.Config.Projects["example"], []string{"format", "check", "test"}, []string{"changed.go"}, gates.FullTestScope())
 			if err == nil || !strings.Contains(err.Error(), "verification gate mutated repository state") {
 				t.Fatalf("mutation error=%v", err)
 			}
@@ -82,7 +82,7 @@ func TestTaskFinalizeFormatOnlyDoesNotExpandDefaultGates(t *testing.T) {
 		t.Fatal("format-only policy expanded to non-format gates")
 		return nil, nil
 	}
-	results, err := s.executeTaskFinalizeGatesWithSnapshot(context.Background(), "example", s.Config.Projects["example"], []string{model.WorkflowGateFormat}, nil, gates.FullTestScope())
+	results, _, err := s.executeTaskFinalizeGatesWithSnapshot(context.Background(), "example", s.Config.Projects["example"], []string{model.WorkflowGateFormat}, nil, gates.FullTestScope())
 	if err != nil || len(results) != 1 || results[0].ID != model.WorkflowGateFormat || results[0].ExitCode != 0 {
 		t.Fatalf("format-only results=%#v err=%v", results, err)
 	}

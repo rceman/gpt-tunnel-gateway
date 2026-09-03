@@ -129,17 +129,14 @@ func (s *Service) TrainV2AttemptFinalize(ctx context.Context, in TrainV2AttemptF
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
-	serverGates, err := s.executeTaskFinalizeGatesWithSnapshot(ctx, in.ProjectID, local, gates, changed, testScope)
+	serverGates, postGate, err := s.executeTaskFinalizeGatesWithSnapshot(ctx, in.ProjectID, local, gates, changed, testScope)
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
 	if err := validateProjectGateEvidence(serverGates, gates); err != nil {
 		return TrainV2AttemptFinalizeResult{}, err
 	}
-	finalHead, finalBranch, finalClean, err := s.Git.CurrentHead(ctx, local)
-	if err != nil || finalHead != head || finalBranch != branch || !finalClean {
-		return TrainV2AttemptFinalizeResult{}, fmt.Errorf("Train lane changed during Attempt gates")
-	}
+	finalHead, finalBranch, finalClean := postGate.head, postGate.branch, postGate.clean
 	completion, err := s.readTrainV2AttemptCompletion(ctx, in, task, item, attempt, serverGates)
 	if err != nil {
 		return TrainV2AttemptFinalizeResult{}, err

@@ -128,10 +128,6 @@ func (s *Service) closeoutTrain(ctx context.Context, projectID string, train mod
 			return model.TrainV2{}, fmt.Errorf("Train closeout requires the final item proof to compose the exact lane head")
 		}
 	}
-	treeBefore, err := s.Git.TreeID(ctx, project)
-	if err != nil {
-		return model.TrainV2{}, err
-	}
 	results, err := s.executeTrainGatesWithScopedFormat(ctx, projectID, project, start.BaseRevision, head)
 	if err != nil {
 		return model.TrainV2{}, fmt.Errorf("Train closeout gates failed; repair the Train lane and retry: %w", err)
@@ -141,17 +137,8 @@ func (s *Service) closeoutTrain(ctx context.Context, projectID string, train mod
 			return model.TrainV2{}, fmt.Errorf("Train closeout gate %s failed; repair the Train lane and retry", gate.ID)
 		}
 	}
-	postHead, postBranch, postClean, err := s.Git.CurrentHead(ctx, project)
-	if err != nil {
-		return model.TrainV2{}, err
-	}
-	treeAfter, err := s.Git.TreeID(ctx, project)
-	if err != nil {
-		return model.TrainV2{}, err
-	}
-	if postHead != head || postBranch != branch || !postClean || treeAfter != treeBefore {
-		return model.TrainV2{}, fmt.Errorf("Train closeout head or tree drifted during gates")
-	}
+	// executeTrainGatesWithScopedFormat already validates the complete before/after
+	// repository snapshot, so no second post-gate Git scan is needed here.
 	now := time.Now().UTC()
 	expected, err := s.hubRevision(ctx)
 	if err != nil {
