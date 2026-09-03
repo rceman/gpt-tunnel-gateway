@@ -68,7 +68,7 @@ func (r Runner) rollback(ctx context.Context, root, sha, target, previous string
 			Error:  "rollback identity or protected-file proof failed",
 		}, err
 	}
-	if err := smokeFn(ctx, r.Config, previous, target); err != nil {
+	if err := smokeFn(ctx, r.Config, previous); err != nil {
 		return Result{
 			Status: "UPGRADE_ROLLBACK_FAILED",
 			Error:  "rollback MCP proof failed",

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/activation"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
@@ -107,9 +108,9 @@ func TestRunnerPersistsTargetDiagnosticsBeforeRollback(t *testing.T) {
 		return originalPersist(c, tx)
 	}
 	defer func() { persistStartupDiagnosticsFn = originalPersist }()
-	smokeFn = func(ctx context.Context, c config.Config, target, previous string) error {
+	smokeFn = func(ctx context.Context, c config.Config, target string) error {
 		*version = target
-		return smoke(ctx, c, target, previous)
+		return activation.LiveMCPSmoke(ctx, c, target)
 	}
 	result, err := (Runner{
 		Config:     c,
@@ -156,9 +157,9 @@ func TestRunnerRollsBackWhenTargetDiagnosticPersistenceFails(t *testing.T) {
 		return fmt.Errorf("diagnostic transaction write failed")
 	}
 	defer func() { persistStartupDiagnosticsFn = original }()
-	smokeFn = func(ctx context.Context, c config.Config, target, previous string) error {
+	smokeFn = func(ctx context.Context, c config.Config, target string) error {
 		*version = target
-		return smoke(ctx, c, target, previous)
+		return activation.LiveMCPSmoke(ctx, c, target)
 	}
 	result, err := (Runner{
 		Config:     c,

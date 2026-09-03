@@ -89,7 +89,7 @@ func ProveSource(ctx context.Context, c config.Config, configPath string, projec
 	if err := ctl.Doctor(ctx); err != nil {
 		return Result{}, err
 	}
-	if err := liveMCPSmoke(ctx, c, targetVersion); err != nil {
+	if err := LiveMCPSmoke(ctx, c, targetVersion); err != nil {
 		return Result{}, err
 	}
 	return Result{
@@ -189,7 +189,7 @@ func SelfActivate(ctx context.Context, c config.Config, configPath string, proje
 			if err := ctl.Doctor(ctx); err != nil {
 				return err
 			}
-			return liveMCPSmoke(ctx, c, targetVersion)
+			return LiveMCPSmoke(ctx, c, targetVersion)
 		},
 	})
 	if err != nil {
@@ -222,28 +222,40 @@ func BoundedOutput(data []byte) string {
 	return strings.TrimSpace(string(data))
 }
 
-func liveMCPSmoke(ctx context.Context, c config.Config, expectedVersion string) error {
+// LiveMCPSmoke proves the canonical public MCP runtime contract used by both
+// activation and transactional upgrade/rollback verification.
+func LiveMCPSmoke(ctx context.Context, c config.Config, expectedVersion string) error {
 	call := func(id int, method string, params map[string]any) (map[string]any, error) {
 		payload, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
 		request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+c.ListenAddr+"/mcp", bytes.NewReader(payload))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("MCP %s request construction failed: %w", method, err)
 		}
 		request.Header.Set("Content-Type", "application/json")
 		response, err := (&http.Client{Timeout: 10 * time.Second}).Do(request)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("MCP %s request failed: %w", method, err)
 		}
 		defer response.Body.Close()
 		if response.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("MCP status %d", response.StatusCode)
+			return nil, fmt.Errorf("MCP %s HTTP status %d", method, response.StatusCode)
 		}
 		var value map[string]any
 		if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&value); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("MCP %s invalid JSON-RPC response: %w", method, err)
 		}
-		if value["error"] != nil {
-			return nil, fmt.Errorf("MCP %s returned an error", method)
+		if value["jsonrpc"] != "2.0" {
+			return nil, fmt.Errorf("MCP %s JSON-RPC version mismatch", method)
+		}
+		gotID, ok := value["id"].(float64)
+		if !ok || gotID != float64(id) {
+			return nil, fmt.Errorf("MCP %s response id mismatch", method)
+		}
+		if rawError, exists := value["error"]; exists && rawError != nil {
+			return nil, fmt.Errorf("MCP %s JSON-RPC error: %s", method, boundedMCPError(rawError))
+		}
+		if _, ok := value["result"].(map[string]any); !ok {
+			return nil, fmt.Errorf("MCP %s result missing", method)
 		}
 		return value, nil
 	}
@@ -258,6 +270,9 @@ func liveMCPSmoke(ctx context.Context, c config.Config, expectedVersion string) 
 	serverInfo, ok := result["serverInfo"].(map[string]any)
 	if !ok || serverInfo["version"] != expectedVersion {
 		return fmt.Errorf("MCP source/version proof failed")
+	}
+	if protocolVersion, ok := result["protocolVersion"].(string); !ok || protocolVersion == "" {
+		return fmt.Errorf("MCP initialize protocol version missing")
 	}
 	list, err := call(2, "tools/list", map[string]any{})
 	if err != nil {
@@ -299,6 +314,9 @@ func liveMCPSmoke(ctx context.Context, c config.Config, expectedVersion string) 
 	if !ok {
 		return fmt.Errorf("status result missing")
 	}
+	if isError, ok := statusResult["isError"].(bool); ok && isError {
+		return fmt.Errorf("status smoke returned an MCP tool error")
+	}
 	structured, ok := statusResult["structuredContent"].(map[string]any)
 	if !ok {
 		return fmt.Errorf("status structured result missing")
@@ -310,4 +328,16 @@ func liveMCPSmoke(ctx context.Context, c config.Config, expectedVersion string) 
 		return fmt.Errorf("status gateways field missing")
 	}
 	return nil
+}
+
+func boundedMCPError(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return "unserializable JSON-RPC error"
+	}
+	const maxMCPErrorBytes = 4096
+	if len(data) > maxMCPErrorBytes {
+		data = data[:maxMCPErrorBytes]
+	}
+	return string(data)
 }

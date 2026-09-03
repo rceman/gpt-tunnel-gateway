@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/activation"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 )
@@ -26,7 +27,7 @@ var (
 	newUpgradeControllerFn = func(c config.Config, path string) upgradeController {
 		return liveUpgradeController{controller.Controller{Config: c, ConfigPath: path}}
 	}
-	smokeFn                     = smoke
+	smokeFn                     = activation.LiveMCPSmoke
 	persistStartupDiagnosticsFn = writeTransaction
 )
 

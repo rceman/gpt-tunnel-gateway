@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/activation"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 )
 
@@ -21,7 +22,7 @@ func TestRunnerRunSuccessfulRollbackProofClosure(t *testing.T) {
 		protected[path], _ = fileHash(path)
 	}
 	calls := 0
-	smokeFn = func(ctx context.Context, c config.Config, target, previous string) error {
+	smokeFn = func(ctx context.Context, c config.Config, target string) error {
 		calls++
 		if calls == 1 {
 			if target != "0.2.3" {
@@ -29,11 +30,11 @@ func TestRunnerRunSuccessfulRollbackProofClosure(t *testing.T) {
 			}
 			return fmt.Errorf("target smoke failure")
 		}
-		if target != "0.2.2" || previous != "0.2.3" {
-			t.Fatalf("unexpected rollback versions: %s/%s", target, previous)
+		if target != "0.2.2" {
+			t.Fatalf("unexpected rollback version: %s", target)
 		}
 		*version = target
-		return smoke(ctx, c, target, previous)
+		return activation.LiveMCPSmoke(ctx, c, target)
 	}
 	r := Runner{
 		Config:     c,
@@ -72,13 +73,13 @@ func TestRunnerRunRollbackCleanupFailureRetainsBackup(t *testing.T) {
 	server, version := integrationMCPServer(t, &c)
 	defer server.Close()
 	calls := 0
-	smokeFn = func(ctx context.Context, c config.Config, target, previous string) error {
+	smokeFn = func(ctx context.Context, c config.Config, target string) error {
 		calls++
 		if calls == 1 {
 			return fmt.Errorf("target smoke failure")
 		}
 		*version = target
-		return smoke(ctx, c, target, previous)
+		return activation.LiveMCPSmoke(ctx, c, target)
 	}
 	originalRemove := removeUpgradeBackup
 	removeUpgradeBackup = func(string) error { return os.ErrPermission }

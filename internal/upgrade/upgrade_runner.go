@@ -232,7 +232,7 @@ func (r Runner) Run(ctx context.Context) (result Result, runErr error) {
 	if err := verifyInstalledProof(paths, target, targetHashes, protectedPaths, protectedHashes, before.Tunnel.PID, after); err != nil {
 		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
 	}
-	if err := smokeFn(ctx, r.Config, target, installed); err != nil {
+	if err := smokeFn(ctx, r.Config, target); err != nil {
 		return r.rollback(ctx, root, sha, target, installed, before, protectedPaths, protectedHashes, paths, old, oldHashes, oldVersions, backupDir, err)
 	}
 	if err := removeUpgradeBackup(backupDir); err != nil {

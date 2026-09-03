@@ -12,6 +12,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
+	"github.com/rceman/gpt-tunnel-gateway/internal/mcpmanifest"
 )
 
 type fakeUpgradeController struct {
@@ -109,7 +110,7 @@ func upgradeIntegrationFixture(t *testing.T) (config.Config, string, string, *fa
 		build          func(context.Context, string, string) error
 		release        func(string, string) error
 		factory        func(config.Config, string) upgradeController
-		smoke          func(context.Context, config.Config, string, string) error
+		smoke          func(context.Context, config.Config, string) error
 		preflight      func(context.Context, config.Config, string) (InspectResult, error)
 		remove         func(string) error
 	}{sourceRootFn, validateSourceFn, validateInstalledRuntimeFn, validateTunnelEnvFn, buildReleaseFn, validateReleaseFn, newUpgradeControllerFn, smokeFn, preflightFn, removeUpgradeBackup}
@@ -149,15 +150,18 @@ func integrationMCPServer(t *testing.T, c *config.Config) (*httptest.Server, *st
 		case "initialize":
 			result = map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]any{"version": version}}
 		case "tools/list":
-			result = map[string]any{"tools": []any{map[string]any{"name": "system_ping", "inputSchema": map[string]any{"type": "object"}, "outputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}}}}
-		case "tools/call":
-			params, _ := request["params"].(map[string]any)
-			name, _ := params["name"].(string)
-			if name == "system_ping" {
-				result = map[string]any{"isError": false, "structuredContent": map[string]any{"service": "gpt-tunnel-gatewayd", "version": version, "gateway_id": c.GatewayID}}
-			} else {
-				result = map[string]any{"isError": false, "structuredContent": map[string]any{"gateway_id": c.GatewayID, "hub_protocol_root": "gpt-tunnel/v1", "hub_branch": c.Hub.Branch, "hub_managed_root": filepath.Join(c.StateDir, "hub", "repository")}}
+			tools := make([]any, 0, len(mcpmanifest.CanonicalToolNames()))
+			for _, name := range mcpmanifest.CanonicalToolNames() {
+				tools = append(tools, map[string]any{
+					"name":         name,
+					"inputSchema":  map[string]any{"type": "object"},
+					"outputSchema": map[string]any{"type": "object"},
+					"annotations":  map[string]any{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
+				})
 			}
+			result = map[string]any{"tools": tools}
+		case "tools/call":
+			result = map[string]any{"isError": false, "structuredContent": map[string]any{"ready": true, "gateways": []any{map[string]any{"key": c.GatewayID, "ready": true}}}}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
 	}))

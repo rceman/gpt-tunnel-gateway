@@ -84,7 +84,7 @@ func SmokeCandidate(ctx context.Context, c config.Config, gatewayPath, expectedV
 				_ = response.Body.Close()
 				if response.StatusCode == http.StatusOK {
 					candidate.ListenAddr = addr
-					if err := liveMCPSmoke(probeCtx, candidate, expectedVersion); err != nil {
+					if err := LiveMCPSmoke(probeCtx, candidate, expectedVersion); err != nil {
 						return fmt.Errorf("candidate MCP smoke: %w", err)
 					}
 					return nil

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/activation"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 )
 
@@ -20,12 +21,12 @@ func TestRunnerRunSuccessProofClosure(t *testing.T) {
 	for _, path := range []string{configPath, c.Controller.TunnelEnvFile, c.Controller.TunnelClientBinary} {
 		protected[path], _ = fileHash(path)
 	}
-	smokeFn = func(ctx context.Context, c config.Config, target, previous string) error {
-		if target != "0.2.3" || previous != "0.2.2" {
-			t.Fatalf("unexpected success versions: %s/%s", target, previous)
+	smokeFn = func(ctx context.Context, c config.Config, target string) error {
+		if target != "0.2.3" {
+			t.Fatalf("unexpected success version: %s", target)
 		}
 		*version = target
-		return smoke(ctx, c, target, previous)
+		return activation.LiveMCPSmoke(ctx, c, target)
 	}
 	r := Runner{
 		Config:     c,
