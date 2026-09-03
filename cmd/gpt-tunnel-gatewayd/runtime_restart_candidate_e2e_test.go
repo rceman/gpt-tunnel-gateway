@@ -340,7 +340,6 @@ func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
 	if firstResult["source_head"] != wantSource || firstResult["activation"] != "accepted" || firstResult["outcome"] != "accepted" {
 		t.Fatalf("debug/activate success result=%#v", firstResult)
 	}
-	waitCandidateDebugActivationSuccess(t, client, session.ID, wantSource, activationTimeout)
 	newPID := waitCandidatePIDChange(filepath.Join(pidDir, "gateway.pid"), initialPID, activationTimeout)
 	if newPID < 1 || newPID == initialPID {
 		t.Fatalf("successful debug activation did not replace Gateway: old=%d new=%d", initialPID, newPID)
@@ -355,6 +354,7 @@ func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
 	if !processExists(tunnelPID) {
 		t.Fatal("Tunnel process exited during successful Gateway-only activation")
 	}
+	waitCandidateDebugActivationSuccess(t, client, session.ID, wantSource, activationTimeout)
 
 	artifactBefore := make(map[string]string, len(releaseartifacts.BinaryNames))
 	for _, name := range releaseartifacts.BinaryNames {
@@ -543,7 +543,11 @@ func waitCandidateDebugActivationFailure(t *testing.T, client *candidateMCPClien
 	for time.Now().Before(deadline) {
 		response, err := client.call(sessionID, "debug/activate", map[string]any{"main_sha": sourceHead})
 		if err != nil {
-			t.Fatalf("debug/activate terminal failure probe returned EOF/transport error: %v", err)
+			// The failed activation is expected to replace the Gateway and
+			// immediately roll back. A bounded probe may cross that restart
+			// window, but EOF/transport loss is never treated as terminal success.
+			time.Sleep(20 * time.Millisecond)
+			continue
 		}
 		if response.StatusCode != http.StatusOK {
 			t.Fatalf("debug/activate terminal failure status=%d body=%s", response.StatusCode, response.Body)
