@@ -1,12 +1,15 @@
 package releaseartifacts
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 const testBinary = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo %s; fi\n"
@@ -26,6 +29,28 @@ func TestBinarySourceRevisionRejectsMissingMarker(t *testing.T) {
 	writeExecutable(t, path, []byte("#!/bin/sh\nexit 0\n"))
 	if _, _, err := BinarySourceRevision(path); err == nil {
 		t.Fatal("missing source marker was accepted")
+	}
+}
+
+func TestBinaryProbeBoundsChildOutput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "binary")
+	writeExecutable(t, path, []byte("#!/bin/sh\nhead -c 20000 /dev/zero\n"))
+	if _, err := BinaryVersion(path); err == nil || !strings.Contains(err.Error(), "output exceeds") {
+		t.Fatalf("unbounded probe output was accepted: %v", err)
+	}
+}
+
+func TestBinaryProbeHonorsCallerDeadline(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "binary")
+	writeExecutable(t, path, []byte("#!/bin/sh\nexec sleep 2\n"))
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if _, err := BinaryVersionContext(ctx, path); err == nil || !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatalf("caller deadline was not propagated: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("probe exceeded caller deadline by too much: %s", elapsed)
 	}
 }
 

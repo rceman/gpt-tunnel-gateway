@@ -39,6 +39,37 @@ func TestPromptUsesFixedArgumentVector(t *testing.T) {
 	}
 }
 
+func TestPromptBoundsChildOutput(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec head -c 20000 /dev/zero\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: 256}
+	result, err := c.Prompt(context.Background(), "project_master", "message")
+	if err == nil || !strings.Contains(err.Error(), "output exceeds limit") {
+		t.Fatalf("unbounded prompt output was accepted: err=%v stdout=%d stderr=%d", err, len(result.Stdout), len(result.Stderr))
+	}
+}
+
+func TestPromptHonorsCallerDeadline(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 2\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := Client{Command: script, Timeout: time.Second}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if _, err := c.Prompt(ctx, "project_master", "message"); err == nil || !strings.Contains(err.Error(), "prompt timeout") {
+		t.Fatalf("caller deadline was not propagated: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("prompt exceeded caller deadline by too much: %s", elapsed)
+	}
+}
+
 func TestPromptWithProvenancePrefixesExactlyAtTransportBoundary(t *testing.T) {
 	dir := t.TempDir()
 	log := filepath.Join(dir, "message")

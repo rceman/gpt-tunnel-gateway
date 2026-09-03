@@ -1,10 +1,10 @@
 package airelay
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"time"
@@ -21,6 +21,28 @@ func (b *tailBuffer) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 	return b.Buffer.Write(p)
+}
+
+// ReadFrom prevents io.Copy, used internally by os/exec, from selecting the
+// promoted bytes.Buffer fast path and bypassing the bounded Write method.
+func (b *tailBuffer) ReadFrom(r io.Reader) (int64, error) {
+	var buffer [32 << 10]byte
+	var total int64
+	for {
+		n, err := r.Read(buffer[:])
+		if n > 0 {
+			total += int64(n)
+			if _, writeErr := b.Write(buffer[:n]); writeErr != nil {
+				return total, writeErr
+			}
+		}
+		if err == io.EOF {
+			return total, nil
+		}
+		if err != nil {
+			return total, err
+		}
+	}
 }
 func (c Client) Prompt(ctx context.Context, session, message string) (Result, error) {
 	return c.PromptWithProvenance(ctx, session, "", message)
@@ -65,7 +87,8 @@ func (c Client) PromptWithProvenance(ctx context.Context, session, origin, messa
 	result := Result{StartedAt: time.Now().UTC()}
 	cmd := exec.CommandContext(ctx, c.Command, "prompt", session, message)
 	cmd.Env = cleanEnv()
-	var stdout, stderr bytes.Buffer
+	var stdout, stderr tailBuffer
+	stdout.max, stderr.max = 8192, 8192
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
@@ -79,6 +102,9 @@ func (c Client) PromptWithProvenance(ctx context.Context, session, origin, messa
 	}
 	if ctx.Err() != nil {
 		return result, fmt.Errorf("Airelay prompt timeout: %w", ctx.Err())
+	}
+	if stdout.exceeded || stderr.exceeded {
+		return result, fmt.Errorf("Airelay prompt output exceeds limit")
 	}
 	if err != nil {
 		return result, fmt.Errorf("Airelay prompt failed: %w", err)

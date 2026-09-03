@@ -1,6 +1,7 @@
 package releaseartifacts
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 var BinaryNames = []string{"gpt-tunnel-gatewayd", "gpt-tunnel", "gpt-tunnelctl"}
@@ -21,6 +23,11 @@ var BinaryNames = []string{"gpt-tunnel-gatewayd", "gpt-tunnel", "gpt-tunnelctl"}
 var BuildSourceRevision = "unknown"
 
 var sourceRevisionRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+const (
+	binaryProbeOutputLimit = 16 << 10
+	binaryProbeTimeout     = 2 * time.Second
+)
 
 func Paths(gateway string) map[string]string {
 	dir := filepath.Dir(gateway)
@@ -178,12 +185,20 @@ func HashFile(path string) (string, error) {
 }
 
 func BinaryVersion(path string) (string, error) {
-	out, err := exec.Command(path, "--version").Output()
+	return BinaryVersionContext(context.Background(), path)
+}
+
+func BinaryVersionContext(ctx context.Context, path string) (string, error) {
+	out, err := runBinaryProbe(ctx, path, "--version")
 	return strings.TrimSpace(string(out)), err
 }
 
 func BinarySourceRevision(path string) (string, bool, error) {
-	out, err := exec.Command(path, "--source-sha").Output()
+	return BinarySourceRevisionContext(context.Background(), path)
+}
+
+func BinarySourceRevisionContext(ctx context.Context, path string) (string, bool, error) {
+	out, err := runBinaryProbe(ctx, path, "--source-sha")
 	if err != nil {
 		return "", false, err
 	}
@@ -192,6 +207,49 @@ func BinarySourceRevision(path string) (string, bool, error) {
 		return "", false, fmt.Errorf("invalid embedded source revision")
 	}
 	return revision, false, nil
+}
+
+func runBinaryProbe(ctx context.Context, path, arg string) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, binaryProbeTimeout)
+	defer cancel()
+	command := exec.CommandContext(probeCtx, path, arg)
+	var stdout, stderr boundedProbeOutput
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	err := command.Run()
+	if probeCtx.Err() != nil {
+		return stdout.data, probeCtx.Err()
+	}
+	if stdout.exceeded || stderr.exceeded {
+		return stdout.data, fmt.Errorf("binary probe output exceeds %d bytes", binaryProbeOutputLimit)
+	}
+	if err != nil {
+		return stdout.data, err
+	}
+	return stdout.data, nil
+}
+
+type boundedProbeOutput struct {
+	data     []byte
+	exceeded bool
+}
+
+func (b *boundedProbeOutput) Write(p []byte) (int, error) {
+	n := len(p)
+	remaining := binaryProbeOutputLimit - len(b.data)
+	if remaining > 0 {
+		if n > remaining {
+			p = p[:remaining]
+		}
+		b.data = append(b.data, p...)
+	}
+	if n > remaining {
+		b.exceeded = true
+	}
+	return n, nil
 }
 
 func stage(src, dst string) (string, error) {

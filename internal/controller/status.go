@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 )
 
 func (c Controller) gatewayReadyURL() string { return "http://" + c.Config.ListenAddr + "/readyz" }
@@ -35,12 +36,12 @@ func mustEval(path string) string {
 	resolved, _ := filepath.EvalSymlinks(path)
 	return resolved
 }
-func installedVersion(path string) string {
-	out, err := exec.Command(path, "--version").Output()
+func installedVersion(ctx context.Context, path string) string {
+	out, err := releaseartifacts.BinaryVersionContext(ctx, path)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	return out
 }
 func runningVersion(ctx context.Context, readyURL, gatewayID string) string {
 	return runningVersionProbe(ctx, readyURL, gatewayID)

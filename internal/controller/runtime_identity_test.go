@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
@@ -14,11 +15,11 @@ func TestCollectRuntimeIdentityMatchesRunningAndInstalledArtifacts(t *testing.T)
 		}
 		return "shared-hash-" + path, nil
 	}
-	runtimeBinaryVersion = func(string) (string, error) { return "0.6.11", nil }
-	runtimeSourceRevision = func(string) (string, bool, error) { return "source-sha", false, nil }
+	runtimeBinaryVersion = func(context.Context, string) (string, error) { return "0.6.11", nil }
+	runtimeSourceRevision = func(context.Context, string) (string, bool, error) { return "source-sha", false, nil }
 
 	var identity RuntimeIdentity
-	identity.collectArtifacts(ProcessStatus{
+	identity.collectArtifacts(context.Background(), ProcessStatus{
 		Running:    true,
 		Executable: "/tmp/running-gateway",
 	}, "/tmp/gateway")
@@ -46,16 +47,18 @@ func TestCollectRuntimeIdentityRejectsStaleOrIncompleteArtifacts(t *testing.T) {
 		}
 		return "other-hash", nil
 	}
-	runtimeBinaryVersion = func(path string) (string, error) {
+	runtimeBinaryVersion = func(_ context.Context, path string) (string, error) {
 		if path == "/tmp/gpt-tunnelctl" {
 			return "", errors.New("artifact missing")
 		}
 		return "0.6.11", nil
 	}
-	runtimeSourceRevision = func(string) (string, bool, error) { return "", false, errors.New("build provenance unavailable") }
+	runtimeSourceRevision = func(context.Context, string) (string, bool, error) {
+		return "", false, errors.New("build provenance unavailable")
+	}
 
 	var identity RuntimeIdentity
-	identity.collectArtifacts(ProcessStatus{
+	identity.collectArtifacts(context.Background(), ProcessStatus{
 		Running:    true,
 		Executable: "/tmp/running-gateway",
 	}, "/tmp/gateway")

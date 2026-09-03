@@ -9,8 +9,8 @@ import (
 
 var (
 	runtimeHashFile       = releaseartifacts.HashFile
-	runtimeBinaryVersion  = releaseartifacts.BinaryVersion
-	runtimeSourceRevision = releaseartifacts.BinarySourceRevision
+	runtimeBinaryVersion  = releaseartifacts.BinaryVersionContext
+	runtimeSourceRevision = releaseartifacts.BinarySourceRevisionContext
 )
 
 func (c Controller) RuntimeIdentity(ctx context.Context) RuntimeIdentity {
@@ -24,18 +24,18 @@ func (c Controller) RuntimeIdentity(ctx context.Context) RuntimeIdentity {
 		RunningExecutablePath:     gateway.Executable,
 		GatewayReady:              checkURL(ctx, c.gatewayReadyURL()),
 		TunnelReady:               checkURL(ctx, c.tunnelReadyURL()),
-		InstalledVersion:          installedVersion(c.Config.Controller.GatewayBinary),
+		InstalledVersion:          installedVersion(ctx, c.Config.Controller.GatewayBinary),
 		InstalledArtifactVersions: map[string]string{},
 	}
 	if identity.GatewayReady {
 		identity.RunningVersion = runningVersion(ctx, c.gatewayReadyURL(), c.Config.GatewayID)
 	}
 	identity.VersionMatch = identity.InstalledVersion != "" && identity.RunningVersion != "" && identity.InstalledVersion == identity.RunningVersion
-	identity.collectArtifacts(gateway, c.Config.Controller.GatewayBinary)
+	identity.collectArtifacts(ctx, gateway, c.Config.Controller.GatewayBinary)
 	return identity
 }
 
-func (i *RuntimeIdentity) collectArtifacts(gateway ProcessStatus, gatewayBinary string) {
+func (i *RuntimeIdentity) collectArtifacts(ctx context.Context, gateway ProcessStatus, gatewayBinary string) {
 	paths := releaseartifacts.Paths(gatewayBinary)
 	if gateway.Executable != "" {
 		if hash, err := runtimeHashFile(gateway.Executable); err == nil {
@@ -49,14 +49,14 @@ func (i *RuntimeIdentity) collectArtifacts(gateway ProcessStatus, gatewayBinary 
 	for _, name := range releaseartifacts.BinaryNames {
 		path := paths[name]
 		hash, hashErr := runtimeHashFile(path)
-		version, versionErr := runtimeBinaryVersion(path)
+		version, versionErr := runtimeBinaryVersion(ctx, path)
 		if hashErr == nil {
 			hashes[name] = hash
 		}
 		if versionErr == nil && version != "" {
 			versions[name] = version
 		}
-		source, dirty, sourceErr := runtimeSourceRevision(path)
+		source, dirty, sourceErr := runtimeSourceRevision(ctx, path)
 		if sourceErr == nil && source != "" {
 			sources[name] = source
 			modified = modified || dirty

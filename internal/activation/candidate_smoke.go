@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -159,7 +160,7 @@ func runCandidateGit(ctx context.Context, dir string, args ...string) error {
 	command := exec.CommandContext(ctx, "git", args...)
 	command.Dir = dir
 	command.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0")
-	output, err := command.CombinedOutput()
+	output, err := runBoundedCommand(command)
 	if err != nil {
 		return fmt.Errorf("candidate Hub fixture git %s: %w (%s)", strings.Join(args, " "), err, BoundedOutput(output))
 	}
@@ -168,17 +169,42 @@ func runCandidateGit(ctx context.Context, dir string, args ...string) error {
 
 type boundedBuffer struct {
 	bytes.Buffer
+	exceeded bool
 }
 
 func (b *boundedBuffer) Write(p []byte) (int, error) {
-	const maxBytes = 16 << 10
+	const maxBytes = activationSubprocessOutputLimit
 	n := len(p)
 	if b.Len() < maxBytes {
 		remaining := maxBytes - b.Len()
 		if len(p) > remaining {
 			p = p[:remaining]
+			b.exceeded = true
 		}
 		_, _ = b.Buffer.Write(p)
+	} else if n > 0 {
+		b.exceeded = true
 	}
 	return n, nil
+}
+
+// ReadFrom keeps os/exec's io.Copy fast path behind the bounded writer.
+func (b *boundedBuffer) ReadFrom(r io.Reader) (int64, error) {
+	var buffer [32 << 10]byte
+	var total int64
+	for {
+		n, err := r.Read(buffer[:])
+		if n > 0 {
+			total += int64(n)
+			if _, writeErr := b.Write(buffer[:n]); writeErr != nil {
+				return total, writeErr
+			}
+		}
+		if err == io.EOF {
+			return total, nil
+		}
+		if err != nil {
+			return total, err
+		}
+	}
 }

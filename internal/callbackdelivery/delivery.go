@@ -175,3 +175,25 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	}
 	return b.Buffer.Write(p)
 }
+
+// ReadFrom prevents os/exec's io.Copy fast path from bypassing the bounded
+// Write method promoted by bytes.Buffer.
+func (b *boundedBuffer) ReadFrom(r io.Reader) (int64, error) {
+	var buffer [32 << 10]byte
+	var total int64
+	for {
+		n, err := r.Read(buffer[:])
+		if n > 0 {
+			total += int64(n)
+			if _, writeErr := b.Write(buffer[:n]); writeErr != nil {
+				return total, writeErr
+			}
+		}
+		if err == io.EOF {
+			return total, nil
+		}
+		if err != nil {
+			return total, err
+		}
+	}
+}

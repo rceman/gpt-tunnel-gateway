@@ -4,13 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
+	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
@@ -38,11 +37,10 @@ func compareVersion(a, b string) int {
 	return 0
 }
 func installedVersion(path string) (string, error) {
-	out, err := exec.Command(path, "--version").Output()
+	v, err := releaseartifacts.BinaryVersion(path)
 	if err != nil {
 		return "", err
 	}
-	v := strings.TrimSpace(string(out))
 	if !semverRE.MatchString(v) {
 		return "", fmt.Errorf("invalid installed version")
 	}

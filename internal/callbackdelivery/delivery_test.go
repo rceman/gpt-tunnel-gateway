@@ -149,3 +149,22 @@ func TestDeliverCombinedTimeoutDoesNotSkipOtherTarget(t *testing.T) {
 		t.Fatalf("script delivery after HTTP timeout=%q err=%v", data, err)
 	}
 }
+
+func TestDeliverScriptBoundsChildOutputDuringCapture(t *testing.T) {
+	_, root, _ := testutil.RepoWithBareRemote(t)
+	scriptPath := filepath.Join(root, "large-output.sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexec head -c 20000 /dev/zero\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, root, "add", "large-output.sh")
+	testutil.Git(t, root, "commit", "-m", "large output callback")
+	project := config.ProjectConfig{Root: root, DefaultBranch: "main"}
+	callback := model.ProjectCallback{
+		Callback: "large-output", Event: model.ProjectCallbackWorkFinishedEvent,
+		Script: &model.ProjectCallbackScript{Path: "large-output.sh"},
+	}
+	err := Deliver(context.Background(), callback, project, gitx.Runner{MaxReadBytes: 1 << 20}, nil)
+	if err == nil || !strings.Contains(err.Error(), "script output exceeds") {
+		t.Fatalf("unbounded script output was accepted: %v", err)
+	}
+}

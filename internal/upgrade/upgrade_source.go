@@ -11,11 +11,19 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
+)
+
+const (
+	upgradeSubprocessOutputLimit = 16 << 10
+	upgradeSubprocessTimeout     = 10 * time.Second
 )
 
 func runGit(root string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
-	out, err := cmd.Output()
+	ctx, cancel := context.WithTimeout(context.Background(), upgradeSubprocessTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
+	out, err := runBoundedCommand(cmd)
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
@@ -89,7 +97,7 @@ func validateSource(root, sha string) error {
 func buildRelease(ctx context.Context, root, dir string) error {
 	cmd := exec.CommandContext(ctx, filepath.Join(root, "scripts", "build-release.sh"), dir)
 	cmd.Dir = root
-	out, err := cmd.CombinedOutput()
+	out, err := runBoundedCommand(cmd)
 	if err != nil {
 		message := strings.TrimSpace(string(out))
 		if len(message) > 240 {
@@ -98,6 +106,37 @@ func buildRelease(ctx context.Context, root, dir string) error {
 		return fmt.Errorf("release build failed: %s", message)
 	}
 	return nil
+}
+
+type boundedCommandOutput struct {
+	data     []byte
+	exceeded bool
+}
+
+func (b *boundedCommandOutput) Write(p []byte) (int, error) {
+	n := len(p)
+	remaining := upgradeSubprocessOutputLimit - len(b.data)
+	if remaining > 0 {
+		if n > remaining {
+			p = p[:remaining]
+			b.exceeded = true
+		}
+		b.data = append(b.data, p...)
+	} else if n > 0 {
+		b.exceeded = true
+	}
+	return n, nil
+}
+
+func runBoundedCommand(cmd *exec.Cmd) ([]byte, error) {
+	var output boundedCommandOutput
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	err := cmd.Run()
+	if output.exceeded {
+		return output.data, fmt.Errorf("subprocess output exceeds %d bytes", upgradeSubprocessOutputLimit)
+	}
+	return output.data, err
 }
 func validateRelease(dir, target string) error {
 	entries, err := os.ReadDir(dir)

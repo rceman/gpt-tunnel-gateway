@@ -2,7 +2,6 @@ package gitx
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -31,13 +30,20 @@ func (r Runner) commandWithEnv(ctx context.Context, dir string, gitDir bool, ext
 		cmd.Env = cleanEnv()
 	}
 	cmd.Env = append(cmd.Env, extraEnv...)
-	var stdout, stderr bytes.Buffer
+	stdout := boundedCommandBuffer{limit: r.MaxReadBytes}
+	stderr := boundedCommandBuffer{limit: r.MaxReadBytes}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		if stdout.exceeded || stderr.exceeded {
+			return nil, fmt.Errorf("git output exceeds %d bytes", r.MaxReadBytes)
+		}
 		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
-	return stdout.Bytes(), nil
+	if stdout.exceeded || stderr.exceeded {
+		return nil, fmt.Errorf("git output exceeds %d bytes", r.MaxReadBytes)
+	}
+	return stdout.data, nil
 }
 
 func (r Runner) commandRecords(ctx context.Context, dir string, gitDir bool, delimiter byte, args ...string) (func(func(string) error) error, error) {
@@ -55,7 +61,7 @@ func (r Runner) commandRecords(ctx context.Context, dir string, gitDir bool, del
 		if err != nil {
 			return err
 		}
-		var stderr bytes.Buffer
+		stderr := boundedCommandBuffer{limit: r.MaxReadBytes}
 		cmd.Stderr = &stderr
 		if err := cmd.Start(); err != nil {
 			return err
@@ -81,6 +87,9 @@ func (r Runner) commandRecords(ctx context.Context, dir string, gitDir bool, del
 			}
 		}
 		if err := cmd.Wait(); err != nil {
+			if stderr.exceeded {
+				return fmt.Errorf("git output exceeds %d bytes", r.MaxReadBytes)
+			}
 			return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 		}
 		return nil
@@ -101,7 +110,7 @@ func (r Runner) streamCommand(ctx context.Context, dir string, gitDir bool, args
 	if err != nil {
 		return -1, err
 	}
-	var stderr bytes.Buffer
+	stderr := boundedCommandBuffer{limit: r.MaxReadBytes}
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return -1, err
@@ -129,6 +138,9 @@ func (r Runner) streamCommand(ctx context.Context, dir string, gitDir bool, args
 		}
 	}
 	if err := cmd.Wait(); err != nil {
+		if stderr.exceeded {
+			return -1, fmt.Errorf("git output exceeds %d bytes", r.MaxReadBytes)
+		}
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return exitErr.ExitCode(), nil
 		}
@@ -136,6 +148,29 @@ func (r Runner) streamCommand(ctx context.Context, dir string, gitDir bool, args
 	}
 	return 0, nil
 }
+
+type boundedCommandBuffer struct {
+	data     []byte
+	limit    int64
+	exceeded bool
+}
+
+func (b *boundedCommandBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	remaining := b.limit - int64(len(b.data))
+	if remaining > 0 {
+		if int64(n) > remaining {
+			p = p[:remaining]
+			b.exceeded = true
+		}
+		b.data = append(b.data, p...)
+	} else if n > 0 {
+		b.exceeded = true
+	}
+	return n, nil
+}
+
+func (b *boundedCommandBuffer) String() string { return string(b.data) }
 func cleanEnv() []string {
 	allowed := []string{"HOME", "PATH", "SSH_AUTH_SOCK", "USER", "LOGNAME", "TMPDIR"}
 	out := []string{"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C"}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,17 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 )
+
+func TestRunBoundedCommandCapsCombinedOutput(t *testing.T) {
+	command := exec.CommandContext(context.Background(), "sh", "-c", "head -c 20000 /dev/zero")
+	output, err := runBoundedCommand(command)
+	if err == nil || !strings.Contains(err.Error(), "output exceeds") {
+		t.Fatalf("expected bounded-output error, got %v", err)
+	}
+	if len(output) != activationSubprocessOutputLimit {
+		t.Fatalf("captured output length = %d, want %d", len(output), activationSubprocessOutputLimit)
+	}
+}
 
 func TestBoundedOutputIsDeterministicAndLimited(t *testing.T) {
 	if got := BoundedOutput([]byte("  activation ok  \n")); got != "activation ok" {
@@ -65,7 +77,7 @@ func manifestSmokeServer(t *testing.T, manifest []string) *httptest.Server {
 		}
 		response := map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": map[string]any{}}
 		if request.Method == "initialize" {
-		response["result"] = map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]any{"version": "0.6.14"}}
+			response["result"] = map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]any{"version": "0.6.14"}}
 		} else if request.Method == "tools/list" {
 			tools := make([]any, 0, len(manifest))
 			for _, name := range manifest {

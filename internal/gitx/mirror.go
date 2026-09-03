@@ -1,7 +1,6 @@
 package gitx
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -29,10 +28,16 @@ func (r Runner) EnsureMirror(ctx context.Context, p config.ProjectConfig) error 
 	}
 	cmd := exec.CommandContext(ctx, "git", "clone", "--mirror", "--", url, p.Mirror)
 	cmd.Env = cleanEnv()
-	var stderr bytes.Buffer
+	stderr := boundedCommandBuffer{limit: r.MaxReadBytes}
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		if stderr.exceeded {
+			return fmt.Errorf("create mirror output exceeds %d bytes", r.MaxReadBytes)
+		}
 		return fmt.Errorf("create mirror: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	if stderr.exceeded {
+		return fmt.Errorf("create mirror output exceeds %d bytes", r.MaxReadBytes)
 	}
 	return nil
 }

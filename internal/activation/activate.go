@@ -21,7 +21,10 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 )
 
-const OutputLimit = 1 << 20
+const (
+	OutputLimit                     = 1 << 20
+	activationSubprocessOutputLimit = 16 << 10
+)
 
 var canonicalRuntimeTools = mcpmanifest.CanonicalToolNames()
 
@@ -62,7 +65,7 @@ func ProveSource(ctx context.Context, c config.Config, configPath string, projec
 	defer os.RemoveAll(release)
 	build := exec.CommandContext(ctx, filepath.Join(project.Root, "scripts", "build-release.sh"), release)
 	build.Dir = project.Root
-	if output, err := build.CombinedOutput(); err != nil {
+	if output, err := runBoundedCommand(build); err != nil {
 		return Result{}, fmt.Errorf("source proof build failed: %s", BoundedOutput(output))
 	}
 	builtGateway := filepath.Join(release, "gpt-tunnel-gatewayd")
@@ -151,7 +154,7 @@ func SelfActivate(ctx context.Context, c config.Config, configPath string, proje
 	defer os.RemoveAll(release)
 	build := exec.CommandContext(ctx, filepath.Join(project.Root, "scripts", "build-release.sh"), release)
 	build.Dir = project.Root
-	output, err := build.CombinedOutput()
+	output, err := runBoundedCommand(build)
 	if err != nil {
 		return Result{}, fmt.Errorf("release build failed: %s", BoundedOutput(output))
 	}
@@ -206,13 +209,23 @@ func SelfActivate(ctx context.Context, c config.Config, configPath string, proje
 
 func gitOutput(ctx context.Context, root string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
-	out, err := cmd.Output()
+	out, err := runBoundedCommand(cmd)
 	return strings.TrimSpace(string(out)), err
 }
 
 func binaryVersion(path string) (string, error) {
-	out, err := exec.Command(path, "--version").Output()
-	return strings.TrimSpace(string(out)), err
+	return releaseartifacts.BinaryVersion(path)
+}
+
+func runBoundedCommand(command *exec.Cmd) ([]byte, error) {
+	var output boundedBuffer
+	command.Stdout = &output
+	command.Stderr = &output
+	err := command.Run()
+	if output.exceeded {
+		return output.Bytes(), fmt.Errorf("subprocess output exceeds %d bytes", activationSubprocessOutputLimit)
+	}
+	return output.Bytes(), err
 }
 
 func BoundedOutput(data []byte) string {
