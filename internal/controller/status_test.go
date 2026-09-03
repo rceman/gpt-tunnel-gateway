@@ -29,15 +29,15 @@ func TestRunningVersionUsesServerOwnedInitialize(t *testing.T) {
 			"jsonrpc": "2.0",
 			"id":      1,
 			"result": map[string]any{
-				"serverInfo": map[string]any{"version": "0.6.13", "gateway_id": "gateway"},
+				"serverInfo": map[string]any{"version": "0.6.14", "gateway_id": "gateway"},
 			},
 		})
 	}))
 	defer server.Close()
 
 	got := runningVersion(context.Background(), server.URL+"/readyz", "gateway")
-	if got != "0.6.13" {
-		t.Fatalf("runningVersion = %q, want 0.6.13", got)
+	if got != "0.6.14" {
+		t.Fatalf("runningVersion = %q, want 0.6.14", got)
 	}
 	if method != "initialize" {
 		t.Fatalf("runningVersion used %q, want server-owned initialize", method)

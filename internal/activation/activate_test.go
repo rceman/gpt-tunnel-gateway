@@ -33,7 +33,7 @@ func TestLiveMCPSmokeUsesCanonicalToolManifest(t *testing.T) {
 	server := manifestSmokeServer(t, canonicalRuntimeTools)
 	defer server.Close()
 	c := config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://")}
-	if err := LiveMCPSmoke(context.Background(), c, "0.6.13"); err != nil {
+	if err := LiveMCPSmoke(context.Background(), c, "0.6.14"); err != nil {
 		t.Fatalf("live MCP smoke failed: %v", err)
 	}
 }
@@ -45,7 +45,7 @@ func TestLiveMCPSmokeRejectsManifestDrift(t *testing.T) {
 	} {
 		server := manifestSmokeServer(t, manifest)
 		c := config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://")}
-		if err := LiveMCPSmoke(context.Background(), c, "0.6.13"); err == nil {
+		if err := LiveMCPSmoke(context.Background(), c, "0.6.14"); err == nil {
 			t.Fatalf("manifest %v was accepted", manifest)
 		}
 		server.Close()
@@ -65,7 +65,7 @@ func manifestSmokeServer(t *testing.T, manifest []string) *httptest.Server {
 		}
 		response := map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": map[string]any{}}
 		if request.Method == "initialize" {
-			response["result"] = map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]any{"version": "0.6.13"}}
+		response["result"] = map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]any{"version": "0.6.14"}}
 		} else if request.Method == "tools/list" {
 			tools := make([]any, 0, len(manifest))
 			for _, name := range manifest {
@@ -93,7 +93,7 @@ func TestLiveMCPSmokeRetainsJSONRPCErrorContext(t *testing.T) {
 		response := map[string]any{"jsonrpc": "2.0", "id": request.ID}
 		switch request.Method {
 		case "initialize":
-			response["result"] = map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]any{"version": "0.6.13"}}
+			response["result"] = map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]any{"version": "0.6.14"}}
 		case "tools/list":
 			response["result"] = map[string]any{"tools": []any{
 				map[string]any{"name": "status"}, map[string]any{"name": "guide"}, map[string]any{"name": "projects"},
@@ -107,7 +107,7 @@ func TestLiveMCPSmokeRetainsJSONRPCErrorContext(t *testing.T) {
 	}))
 	defer server.Close()
 	c := config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://")}
-	err := LiveMCPSmoke(context.Background(), c, "0.6.13")
+	err := LiveMCPSmoke(context.Background(), c, "0.6.14")
 	if err == nil || !strings.Contains(err.Error(), "tools/call") || !strings.Contains(err.Error(), "-32601") || !strings.Contains(err.Error(), "status unavailable") {
 		t.Fatalf("MCP error context = %v", err)
 	}
@@ -123,7 +123,7 @@ func TestLiveMCPSmokeHonorsBoundedContext(t *testing.T) {
 	defer cancel()
 	c := config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://")}
 	started := time.Now()
-	if err := LiveMCPSmoke(ctx, c, "0.6.13"); err == nil {
+	if err := LiveMCPSmoke(ctx, c, "0.6.14"); err == nil {
 		t.Fatal("slow MCP server was accepted")
 	}
 	if time.Since(started) > 2*time.Second {

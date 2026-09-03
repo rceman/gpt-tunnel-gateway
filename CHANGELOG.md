@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Prepare v0.6.14 with the GTW-TSK472 canonical MCP smoke fix for upgrade and rollback verification.
+
 ## 0.6.13 — 2026-09-03
 
 - Prepare v0.6.13 with the GTW-TSK470 upgrade preflight fix: resolve the authoritative Hub revision explicitly instead of relying on local-first StateCheck output.
