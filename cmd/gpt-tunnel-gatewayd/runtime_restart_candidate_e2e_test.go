@@ -379,11 +379,13 @@ func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
 	if rollback.StatusCode != http.StatusOK {
 		t.Fatalf("debug/activate rollback status=%d body=%s", rollback.StatusCode, rollback.Body)
 	}
+	if rollback.ContentLength != int64(len(rollback.Body)) {
+		t.Fatalf("debug/activate rollback Content-Length=%d body_bytes=%d", rollback.ContentLength, len(rollback.Body))
+	}
 	rollbackResult := candidateMCPStructured(t, rollback.Body)
 	if rollbackResult["source_head"] != failureSource || rollbackResult["activation"] != "accepted" || rollbackResult["outcome"] != "accepted" {
 		t.Fatalf("debug/activate rollback result=%#v", rollbackResult)
 	}
-	waitCandidateDebugActivationFailure(t, client, session.ID, failureSource, activationTimeout)
 	rolledBackPID := waitCandidateArtifactRestore(t, installDir, artifactBefore, filepath.Join(pidDir, "gateway.pid"), beforeRollbackPID, activationTimeout)
 	if rolledBackPID < 1 || rolledBackPID == beforeRollbackPID {
 		t.Fatalf("rollback did not restart the restored Gateway: before=%d after=%d", beforeRollbackPID, rolledBackPID)
@@ -391,6 +393,7 @@ func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
 	if err := waitCandidateHTTP(listenAddr, "/readyz", activationTimeout); err != nil {
 		t.Fatal(err)
 	}
+	waitCandidateDebugActivationFailure(t, client, session.ID, failureSource, activationTimeout)
 	for _, name := range releaseartifacts.BinaryNames {
 		got, hashErr := releaseartifacts.HashFile(filepath.Join(installDir, name))
 		if hashErr != nil {
@@ -543,11 +546,7 @@ func waitCandidateDebugActivationFailure(t *testing.T, client *candidateMCPClien
 	for time.Now().Before(deadline) {
 		response, err := client.call(sessionID, "debug/activate", map[string]any{"main_sha": sourceHead})
 		if err != nil {
-			// The failed activation is expected to replace the Gateway and
-			// immediately roll back. A bounded probe may cross that restart
-			// window, but EOF/transport loss is never treated as terminal success.
-			time.Sleep(20 * time.Millisecond)
-			continue
+			t.Fatalf("debug/activate terminal failure probe returned EOF/transport error: %v", err)
 		}
 		if response.StatusCode != http.StatusOK {
 			t.Fatalf("debug/activate terminal failure status=%d body=%s", response.StatusCode, response.Body)
