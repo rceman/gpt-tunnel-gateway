@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.13 — 2026-09-03
+
 - Prepare v0.6.13 with the GTW-TSK470 upgrade preflight fix: resolve the authoritative Hub revision explicitly instead of relying on local-first StateCheck output.
 
 ## 0.6.12 — 2026-09-02
