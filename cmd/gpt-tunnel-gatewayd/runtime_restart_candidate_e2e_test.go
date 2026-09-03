@@ -333,10 +333,14 @@ func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
 	if first.StatusCode != http.StatusOK {
 		t.Fatalf("debug/activate success status=%d body=%s", first.StatusCode, first.Body)
 	}
+	if first.ContentLength != int64(len(first.Body)) {
+		t.Fatalf("debug/activate success Content-Length=%d body_bytes=%d", first.ContentLength, len(first.Body))
+	}
 	firstResult := candidateMCPStructured(t, first.Body)
-	if firstResult["source_head"] != wantSource || firstResult["activation"] != "accepted" {
+	if firstResult["source_head"] != wantSource || firstResult["activation"] != "accepted" || firstResult["outcome"] != "accepted" {
 		t.Fatalf("debug/activate success result=%#v", firstResult)
 	}
+	waitCandidateDebugActivationSuccess(t, client, session.ID, wantSource, activationTimeout)
 	newPID := waitCandidatePIDChange(filepath.Join(pidDir, "gateway.pid"), initialPID, activationTimeout)
 	if newPID < 1 || newPID == initialPID {
 		t.Fatalf("successful debug activation did not replace Gateway: old=%d new=%d", initialPID, newPID)
@@ -360,10 +364,15 @@ func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
 		}
 		artifactBefore[name] = hash
 	}
+	testutil.Git(t, sourceFixture, "-c", "user.name=debug-e2e", "-c", "user.email=debug-e2e@example.invalid", "commit", "--allow-empty", "-m", "debug-activation-failure")
+	failureSource := strings.TrimSpace(testutil.Git(t, sourceFixture, "rev-parse", "HEAD"))
+	if failureSource == wantSource || len(failureSource) != 40 {
+		t.Fatalf("failure source=%q want a distinct exact commit", failureSource)
+	}
 	failSecondHealth.Store(true)
 	tunnelRequests.Store(0)
 	beforeRollbackPID := readCandidatePID(filepath.Join(pidDir, "gateway.pid"))
-	rollback, err := client.call(session.ID, "debug/activate", map[string]any{"main_sha": wantSource})
+	rollback, err := client.call(session.ID, "debug/activate", map[string]any{"main_sha": failureSource})
 	if err != nil {
 		t.Fatalf("debug/activate rollback response failed: %v", err)
 	}
@@ -371,9 +380,10 @@ func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
 		t.Fatalf("debug/activate rollback status=%d body=%s", rollback.StatusCode, rollback.Body)
 	}
 	rollbackResult := candidateMCPStructured(t, rollback.Body)
-	if rollbackResult["source_head"] != wantSource || rollbackResult["activation"] != "accepted" {
+	if rollbackResult["source_head"] != failureSource || rollbackResult["activation"] != "accepted" || rollbackResult["outcome"] != "accepted" {
 		t.Fatalf("debug/activate rollback result=%#v", rollbackResult)
 	}
+	waitCandidateDebugActivationFailure(t, client, session.ID, failureSource, activationTimeout)
 	rolledBackPID := waitCandidateArtifactRestore(t, installDir, artifactBefore, filepath.Join(pidDir, "gateway.pid"), beforeRollbackPID, activationTimeout)
 	if rolledBackPID < 1 || rolledBackPID == beforeRollbackPID {
 		t.Fatalf("rollback did not restart the restored Gateway: before=%d after=%d", beforeRollbackPID, rolledBackPID)
@@ -502,6 +512,58 @@ func candidateMCPStructured(t *testing.T, body []byte) map[string]any {
 		t.Fatalf("MCP structured result=%#v", response)
 	}
 	return value
+}
+
+func waitCandidateDebugActivationSuccess(t *testing.T, client *candidateMCPClient, sessionID, sourceHead string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		response, err := client.call(sessionID, "debug/activate", map[string]any{"main_sha": sourceHead})
+		if err != nil {
+			t.Fatalf("debug/activate terminal success probe returned EOF/transport error: %v", err)
+		}
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("debug/activate terminal success status=%d body=%s", response.StatusCode, response.Body)
+		}
+		value := candidateMCPStructured(t, response.Body)
+		if value["source_head"] != sourceHead {
+			t.Fatalf("debug/activate terminal success source=%#v want %s", value["source_head"], sourceHead)
+		}
+		if value["outcome"] == "succeeded" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("debug activation %s did not reach terminal success", sourceHead)
+}
+
+func waitCandidateDebugActivationFailure(t *testing.T, client *candidateMCPClient, sessionID, sourceHead string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		response, err := client.call(sessionID, "debug/activate", map[string]any{"main_sha": sourceHead})
+		if err != nil {
+			t.Fatalf("debug/activate terminal failure probe returned EOF/transport error: %v", err)
+		}
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("debug/activate terminal failure status=%d body=%s", response.StatusCode, response.Body)
+		}
+		var envelope map[string]any
+		if err := json.Unmarshal(response.Body, &envelope); err != nil {
+			t.Fatalf("debug/activate terminal failure JSON: %v: %s", err, response.Body)
+		}
+		result, _ := envelope["result"].(map[string]any)
+		structured, _ := result["structuredContent"].(map[string]any)
+		if structured["ok"] == false {
+			errorObject, _ := structured["error"].(map[string]any)
+			if errorObject["code"] == "GATEWAY_DEBUG_ACTIVATION_FAILED" {
+				return
+			}
+			t.Fatalf("unexpected debug/activate terminal error=%#v", envelope)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("debug activation %s did not reach terminal failure", sourceHead)
 }
 
 func waitCandidateRecoverySuccess(t *testing.T, client *candidateMCPClient, sessionID, operationID string, timeout time.Duration) {

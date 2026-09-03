@@ -9,7 +9,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
+	debugdomain "github.com/rceman/gpt-tunnel-gateway/internal/debug"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
@@ -135,17 +135,20 @@ func TestDebugStatusUsesOnlyConfiguredHostLocalState(t *testing.T) {
 }
 
 func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t *testing.T) {
-	old := debugActivationWorkerLaunchFn
-	defer func() { debugActivationWorkerLaunchFn = old }()
+	old := debugActivationAcceptFn
+	defer func() { debugActivationAcceptFn = old }()
 	_, sourceRoot, _ := testutil.RepoWithBareRemote(t)
 	wantHead := strings.Repeat("a", 40)
 	var gotHead string
-	debugActivationWorkerLaunchFn = func(c controller.Controller, sourceHead string) error {
+	debugActivationAcceptFn = func(c config.Config, _ string, sourceHead string, _ func(func())) (debugdomain.ActivationResult, error) {
 		gotHead = sourceHead
-		if c.Config.GatewayID != "debug-test" {
-			t.Fatalf("activation gateway_id=%q", c.Config.GatewayID)
+		if c.GatewayID != "debug-test" {
+			t.Fatalf("activation gateway_id=%q", c.GatewayID)
 		}
-		return nil
+		return debugdomain.ActivationResult{
+			OperationID: "debug-test-operation", SourceHead: sourceHead,
+			Activation: "accepted", Smoke: "pending", Outcome: "accepted",
+		}, nil
 	}
 	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{
 		Debug:     config.DebugConfig{Enabled: true},
@@ -168,7 +171,7 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 		t.Fatalf("debug/activate failed: %#v", response)
 	}
 	result := structured["result"].(map[string]any)
-	if result["source_head"] != wantHead || result["activation"] != "accepted" || result["smoke"] != "pending" {
+	if result["source_head"] != wantHead || result["activation"] != "accepted" || result["smoke"] != "pending" || result["outcome"] != "accepted" {
 		t.Fatalf("unexpected debug/activate result: %#v", result)
 	}
 	if gotHead != wantHead {

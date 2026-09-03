@@ -154,3 +154,16 @@ func (c Controller) process(name, expected string) ProcessStatus {
 	p.IdentityValid = true
 	return p
 }
+
+// ProcessStatus exposes the configured process identity primitive to local
+// recovery domains without exposing PID/path storage or lifecycle ownership.
+func (c Controller) ProcessStatus(name string) ProcessStatus {
+	var expected string
+	switch name {
+	case "gateway":
+		expected = c.Config.Controller.GatewayBinary
+	case "tunnel":
+		expected = c.Config.Controller.TunnelClientBinary
+	}
+	return c.process(name, expected)
+}

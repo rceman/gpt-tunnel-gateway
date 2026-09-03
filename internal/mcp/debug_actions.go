@@ -5,16 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/activation"
 	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
+	debugdomain "github.com/rceman/gpt-tunnel-gateway/internal/debug"
 )
 
 const gatewaySourceProjectID = "gpt-tunnel-gateway"
 
-var debugActivationWorkerLaunchFn = func(c controller.Controller, sourceHead string) error {
-	return c.LaunchGatewayDebugActivationWorker(sourceHead)
+var debugActivationAcceptFn = func(c config.Config, configPath, sourceHead string, release func(func())) (debugdomain.ActivationResult, error) {
+	return debugdomain.AcceptActivation(c, configPath, sourceHead, release)
 }
 
 func (s *Server) ensureDebugActions() {
@@ -46,7 +45,7 @@ func (s *Server) registerDebugActions() error {
 			if err != nil {
 				return nil, err
 			}
-			return activation.DebugStatus(ctx, s.Service.Config, s.Service.ConfigPath, project), nil
+			return debugdomain.Status(ctx, s.Service.Config, s.Service.ConfigPath, project), nil
 		},
 	}); err != nil {
 		return err
@@ -101,10 +100,7 @@ func (s *Server) registerDebugActions() error {
 			if !ok {
 				return nil, fmt.Errorf("debug activation requires an HTTP response release boundary")
 			}
-			release(func() {
-				_ = debugActivationWorkerLaunchFn(controller.Controller{Config: s.Service.Config, ConfigPath: s.Service.ConfigPath}, in.MainSHA)
-			})
-			return activation.Result{SourceHead: in.MainSHA, Activation: "accepted", Smoke: "pending"}, nil
+			return debugActivationAcceptFn(s.Service.Config, s.Service.ConfigPath, in.MainSHA, release)
 		},
 	})
 }
@@ -190,6 +186,6 @@ func debugPromptOutputSchema() map[string]any {
 
 func debugActivateOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"source_head": outputString(), "activation": outputString(), "smoke": outputString(), "tunnel_pid": integer("Preserved Tunnel PID.", 0, 1<<31-1), "gateway_pid": integer("Activated Gateway PID.", 0, 1<<31-1),
-	}, "source_head", "activation", "smoke")
+		"operation_id": outputString(), "source_head": outputString(), "activation": outputString(), "smoke": outputString(), "tunnel_pid": integer("Preserved Tunnel PID.", 0, 1<<31-1), "gateway_pid": integer("Activated Gateway PID.", 0, 1<<31-1), "outcome": outputString(),
+	}, "operation_id", "source_head", "activation", "smoke", "outcome")
 }
