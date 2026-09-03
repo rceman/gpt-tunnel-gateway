@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Prepare v0.6.13 with the GTW-TSK470 upgrade preflight fix: resolve the authoritative Hub revision explicitly instead of relying on local-first StateCheck output.
+
 ## 0.6.12 — 2026-09-02
 
 - Prepare v0.6.12 with GTW-TSK460 direct AgentRead resolution for explicit Agent selectors and removal of the independent hard-coded 1000 Local Agent list ceiling.
