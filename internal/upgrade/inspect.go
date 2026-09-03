@@ -89,7 +89,7 @@ func Inspect(ctx context.Context, c config.Config, configPath string) (InspectRe
 	installedPaths["gpt-tunnelctl"] = filepath.Join(home, ".local", "bin", "gpt-tunnelctl")
 	for _, name := range binaryOrder {
 		path := installedPaths[name]
-		v, err := installedVersion(path)
+		v, err := installedVersionFn(path)
 		if err != nil {
 			add("INSTALLED_BINARY_INVALID", "", "", "", path, err.Error())
 		} else {
