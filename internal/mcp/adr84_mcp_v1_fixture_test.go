@@ -15,7 +15,7 @@ var adr84MCPV1Fixture = map[string]struct {
 	"status":        {required: []string{}, properties: map[string]string{}},
 	"guide":         {required: []string{}, properties: map[string]string{}},
 	"projects":      {required: []string{"gateway"}, properties: map[string]string{"gateway": "string"}},
-	"session_start": {required: []string{"gateway", "project", "role"}, properties: map[string]string{"gateway": "string", "project": "string", "role": "string", "ref": "string"}},
+	"session_start": {required: []string{"project", "role"}, properties: map[string]string{"gateway": "string", "project": "string", "role": "string", "ref": "string"}},
 	"schema":        {required: []string{}, properties: map[string]string{"session": "string", "path": "string"}},
 	"call": {required: []string{"session", "action", "input"}, properties: map[string]string{
 		"session": "string", "action": "string", "input": "object",

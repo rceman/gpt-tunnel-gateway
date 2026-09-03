@@ -26,7 +26,7 @@ func addMCP7BootstrapTools(add func(string, string, map[string]any, func(context
 			"steps": []string{
 				"Use status to confirm Gateway ingress and readiness.",
 				"Use projects with the Gateway key to discover registered projects.",
-				"Start a session with Gateway, project, and role.",
+				"Start a session with an optional Gateway, project, and role.",
 				"Use schema with the bound session to discover an action contract.",
 				"Use call with the same session to execute a server-owned action.",
 			},
@@ -170,8 +170,8 @@ func (s *Server) projectsPublic(_ context.Context, raw json.RawMessage) (any, er
 	if err := decode(raw, &input); err != nil {
 		return nil, err
 	}
-	if input.Gateway == "" || input.Gateway != s.Service.Config.GatewayID {
-		return nil, fmt.Errorf("unknown gateway %q", input.Gateway)
+	if err := s.validatePublicGateway(input.Gateway); err != nil {
+		return nil, err
 	}
 	resolution, err := s.Service.EffectiveProjectSnapshot()
 	if err != nil {

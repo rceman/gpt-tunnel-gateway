@@ -48,6 +48,70 @@ func TestStatusReturnsCompactRuntimeProjects(t *testing.T) {
 	}
 }
 
+func TestPublicSessionStartGatewaySelectionContract(t *testing.T) {
+	server := newSessionTestServer(t)
+	server.Service.Config.MaxListItems = 2000
+
+	call := func(arguments map[string]any) map[string]any {
+		t.Helper()
+		return callMCPRaw(t, server, mustJSON(t, map[string]any{
+			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+			"params": map[string]any{"name": "session_start", "arguments": arguments},
+		}))
+	}
+	assertStarted := func(response map[string]any, wantGateway string) {
+		t.Helper()
+		result, ok := response["result"].(map[string]any)
+		if !ok || result["isError"] == true {
+			t.Fatalf("session_start failed: %#v", response)
+		}
+		structured, ok := result["structuredContent"].(map[string]any)
+		if !ok {
+			t.Fatalf("session_start omitted structured content: %#v", response)
+		}
+		gateway, ok := structured["gateway"].(map[string]any)
+		if !ok || gateway["key"] != wantGateway {
+			t.Fatalf("session_start gateway=%#v want=%q", structured["gateway"], wantGateway)
+		}
+	}
+
+	assertStarted(call(map[string]any{
+		"project": "EXM", "role": durableSession.RolePlanner,
+	}), "test_gateway")
+	assertStarted(call(map[string]any{
+		"gateway": "test_gateway", "project": "EXM", "role": durableSession.RolePlanner,
+	}), "test_gateway")
+
+	unknown := call(map[string]any{
+		"gateway": "not-registered", "project": "EXM", "role": durableSession.RolePlanner,
+	})
+	unknownResult, ok := unknown["result"].(map[string]any)
+	if !ok || unknownResult["isError"] != true {
+		t.Fatalf("unknown explicit gateway was not rejected: %#v", unknown)
+	}
+	unknownContent, ok := unknownResult["content"].([]any)
+	if !ok || len(unknownContent) != 1 {
+		t.Fatalf("unknown explicit gateway omitted error content: %#v", unknown)
+	}
+	unknownText, ok := unknownContent[0].(map[string]any)["text"].(string)
+	if !ok || !strings.Contains(unknownText, "unknown gateway") || !strings.Contains(unknownText, "not-registered") {
+		t.Fatalf("unknown explicit gateway error=%q", unknownText)
+	}
+
+	server.gatewayInventoryFn = func() []string { return []string{"other_gateway", "test_gateway"} }
+	ambiguous := call(map[string]any{
+		"project": "EXM", "role": durableSession.RolePlanner,
+	})
+	ambiguousResult, ok := ambiguous["result"].(map[string]any)
+	if !ok || ambiguousResult["isError"] != true {
+		t.Fatalf("omitted gateway was accepted for ambiguous inventory: %#v", ambiguous)
+	}
+	ambiguousText := ambiguousResult["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(ambiguousText, "gateway selection required") || !strings.Contains(ambiguousText, "other_gateway, test_gateway") {
+		t.Fatalf("ambiguous gateway error was not deterministic/bounded: %q", ambiguousText)
+	}
+}
+
 func TestPublicSessionStartRejectsDeliveryRole(t *testing.T) {
 	server := newSessionTestServer(t)
 	roleSchema := sessionStartPublicInputSchema()["properties"].(map[string]any)["role"].(map[string]any)

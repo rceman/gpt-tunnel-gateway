@@ -44,7 +44,7 @@ func sessionStartPublicInputSchema() map[string]any {
 		"project": project,
 		"role":    role,
 		"ref":     ref,
-	}, "gateway", "project", "role")
+	}, "project", "role")
 }
 
 func sessionStartPublicOutputSchema() map[string]any {
@@ -84,12 +84,14 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	if err := decode(raw, &in); err != nil {
 		return nil, err
 	}
-	if in.Gateway == "" || in.Gateway != s.Service.Config.GatewayID {
-		return nil, fmt.Errorf("unknown gateway %q", in.Gateway)
-	}
 	if in.Project == "" || in.Role == "" {
-		return nil, fmt.Errorf("gateway, project, and role are required")
+		return nil, fmt.Errorf("project and role are required")
 	}
+	resolvedGateway, err := s.resolvePublicGateway(in.Gateway)
+	if err != nil {
+		return nil, err
+	}
+	in.Gateway = resolvedGateway
 	resolution, err := s.Service.EffectiveProjectSnapshot()
 	if err != nil {
 		return nil, fmt.Errorf("project registry unavailable: %w", err)

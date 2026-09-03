@@ -10,8 +10,13 @@ import (
 )
 
 type Server struct {
-	Service                *service.Service
-	AuthorityContext       context.Context
+	Service          *service.Service
+	AuthorityContext context.Context
+	// gatewayInventoryFn is the server-owned applicable-Gateway registry seam.
+	// Production derives the current sole Gateway from Service.Config; the
+	// seam keeps future multi-Gateway selection testable without making routing
+	// input caller-controlled.
+	gatewayInventoryFn     func() []string
 	genericActionMu        sync.RWMutex
 	genericActions         map[string]GenericAction
 	watcherActions         sync.Once
