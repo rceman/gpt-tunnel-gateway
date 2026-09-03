@@ -168,7 +168,7 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 		t.Fatalf("debug/activate failed: %#v", response)
 	}
 	result := structured["result"].(map[string]any)
-	if result["source_head"] != wantHead || result["activation"] != "passed" || result["tunnel_pid"] != float64(71) || result["gateway_pid"] != float64(83) {
+	if result["source_head"] != wantHead || result["activation"] != "accepted" || result["smoke"] != "pending" {
 		t.Fatalf("unexpected debug/activate result: %#v", result)
 	}
 	if gotRoot != sourceRoot || gotHead != wantHead {

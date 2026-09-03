@@ -8,17 +8,20 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
@@ -182,6 +185,256 @@ func TestCandidateGatewayRestartMCPNetworkE2E(t *testing.T) {
 		t.Fatalf("duplicate operation changed Tunnel PID from %d to %d", tunnelPID, got)
 	}
 	t.Logf("candidate_source=%s gateway_pid_before=%d gateway_pid_after=%d tunnel_pid=%d", wantSource, initialPID, newPID, tunnelPID)
+}
+
+func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
+	candidate := os.Getenv("GTW_CANDIDATE_GATEWAY_BINARY")
+	wantSource := os.Getenv("GTW_CANDIDATE_SOURCE_SHA")
+	sourceRoot := os.Getenv("GTW_CANDIDATE_SOURCE_ROOT")
+	if candidate == "" || wantSource == "" || sourceRoot == "" {
+		t.Skip("set GTW_CANDIDATE_GATEWAY_BINARY, GTW_CANDIDATE_SOURCE_SHA, and GTW_CANDIDATE_SOURCE_ROOT for debug activation E2E")
+	}
+	resolvedCandidate, err := filepath.EvalSymlinks(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotSource, err := exec.Command(resolvedCandidate, "--source-sha").Output()
+	if err != nil {
+		t.Fatalf("candidate source identity: %v", err)
+	}
+	if strings.TrimSpace(string(gotSource)) != wantSource {
+		t.Fatalf("candidate source=%q want %q", strings.TrimSpace(string(gotSource)), wantSource)
+	}
+	if len(wantSource) != 40 {
+		t.Fatalf("candidate source is not an exact commit: %q", wantSource)
+	}
+
+	root := t.TempDir()
+	sourceFixture := filepath.Join(root, "source")
+	testutil.Git(t, root, "clone", "--local", sourceRoot, sourceFixture)
+	testutil.Git(t, sourceFixture, "checkout", "-b", "main", wantSource)
+	if got := strings.TrimSpace(testutil.Git(t, sourceFixture, "rev-parse", "HEAD")); got != wantSource {
+		t.Fatalf("source fixture HEAD=%q want %q", got, wantSource)
+	}
+	if status := strings.TrimSpace(testutil.Git(t, sourceFixture, "status", "--porcelain", "--untracked-files=all")); status != "" {
+		t.Fatalf("source fixture is dirty: %q", status)
+	}
+
+	hubBare, _, _ := testutil.RepoWithBareRemote(t)
+	stateDir := filepath.Join(root, "state")
+	pidDir := filepath.Join(stateDir, "pids")
+	logDir := filepath.Join(stateDir, "logs")
+	if err := os.MkdirAll(pidDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	installDir := filepath.Join(root, "installed")
+	if err := os.MkdirAll(installDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range releaseartifacts.BinaryNames {
+		from := filepath.Join(filepath.Dir(resolvedCandidate), name)
+		data, readErr := os.ReadFile(from)
+		if readErr != nil {
+			t.Fatalf("read candidate artifact %s: %v", name, readErr)
+		}
+		to := filepath.Join(installDir, name)
+		if err := os.WriteFile(to, data, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tunnelScript := filepath.Join(root, "tunnel")
+	if err := os.WriteFile(tunnelScript, []byte("#!/bin/sh\ntrap 'exit 0' TERM INT\nwhile :; do sleep 1; done\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tunnel := exec.Command(tunnelScript, "run")
+	if err := tunnel.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { killCandidatePID(t, tunnel.Process.Pid) })
+	tunnelPID := tunnel.Process.Pid
+	if err := os.WriteFile(filepath.Join(pidDir, "tunnel.pid"), []byte(strconv.Itoa(tunnelPID)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var tunnelRequests atomic.Int64
+	var failSecondHealth atomic.Bool
+	tunnelHealth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/readyz" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		request := tunnelRequests.Add(1)
+		if failSecondHealth.Load() && request == 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(tunnelHealth.Close)
+	tunnelHealthAddr := strings.TrimPrefix(tunnelHealth.URL, "http://")
+
+	listenAddr := reserveCandidateListenAddr(t)
+	configPath := filepath.Join(root, "config.json")
+	c := config.Config{
+		SchemaVersion: 1, GatewayID: "debug-e2e", ListenAddr: listenAddr, StateDir: stateDir,
+		MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100,
+		DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: "true",
+		Debug: config.DebugConfig{Enabled: true},
+		Hub:   config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"},
+		Controller: config.ControllerConfig{
+			GatewayBinary: filepath.Join(installDir, "gpt-tunnel-gatewayd"), TunnelClientBinary: tunnelScript,
+			PIDDir: pidDir, LogDir: logDir, TunnelHealthListenAddr: tunnelHealthAddr,
+		},
+		Projects: map[string]config.ProjectConfig{
+			"gpt-tunnel-gateway": {Root: sourceFixture, Mirror: filepath.Join(root, "mirror.git"), Remote: "origin", DefaultBranch: "main", ProjectCode: "GTW", AirelaySessionKey: "debug-e2e"},
+		},
+	}
+	encoded, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	gateway := exec.Command(filepath.Join(installDir, "gpt-tunnel-gatewayd"), "--config", configPath)
+	gateway.Env = append(os.Environ(), "GPT_TUNNEL_CONFIG="+configPath)
+	if err := gateway.Start(); err != nil {
+		t.Fatal(err)
+	}
+	initialPID := gateway.Process.Pid
+	t.Cleanup(func() {
+		killCandidatePID(t, initialPID)
+		if pid := readCandidatePID(filepath.Join(pidDir, "gateway.pid")); pid > 0 {
+			killCandidatePID(t, pid)
+		}
+	})
+	if err := waitCandidateHTTP(listenAddr, "/readyz", 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pidDir, "gateway.pid"), []byte(strconv.Itoa(initialPID)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := durableSession.NewStore(stateDir).CreateUnbound(durableSession.RolePlanner, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &candidateMCPClient{client: &http.Client{Timeout: 20 * time.Second}, endpoint: "http://" + listenAddr + "/mcp"}
+	first, err := client.call(session.ID, "debug/activate", map[string]any{"main_sha": wantSource})
+	if err != nil {
+		t.Fatalf("debug/activate response failed: %v", err)
+	}
+	if first.StatusCode != http.StatusOK {
+		t.Fatalf("debug/activate success status=%d body=%s", first.StatusCode, first.Body)
+	}
+	firstResult := candidateMCPStructured(t, first.Body)
+	if firstResult["source_head"] != wantSource || firstResult["activation"] != "accepted" {
+		t.Fatalf("debug/activate success result=%#v", firstResult)
+	}
+	newPID := waitCandidatePIDChange(filepath.Join(pidDir, "gateway.pid"), initialPID, 10*time.Second)
+	if newPID < 1 || newPID == initialPID {
+		t.Fatalf("successful debug activation did not replace Gateway: old=%d new=%d", initialPID, newPID)
+	}
+	if err := waitCandidateHTTP(listenAddr, "/readyz", 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	assertInstalledCandidate(t, installDir, wantSource, "0.6.14")
+	if got := readCandidatePID(filepath.Join(pidDir, "tunnel.pid")); got != tunnelPID {
+		t.Fatalf("debug activation changed Tunnel PID record: got=%d want=%d", got, tunnelPID)
+	}
+	if !processExists(tunnelPID) {
+		t.Fatal("Tunnel process exited during successful Gateway-only activation")
+	}
+
+	artifactBefore := make(map[string]string, len(releaseartifacts.BinaryNames))
+	for _, name := range releaseartifacts.BinaryNames {
+		hash, hashErr := releaseartifacts.HashFile(filepath.Join(installDir, name))
+		if hashErr != nil {
+			t.Fatal(hashErr)
+		}
+		artifactBefore[name] = hash
+	}
+	failSecondHealth.Store(true)
+	tunnelRequests.Store(0)
+	beforeRollbackPID := readCandidatePID(filepath.Join(pidDir, "gateway.pid"))
+	rollback, err := client.call(session.ID, "debug/activate", map[string]any{"main_sha": wantSource})
+	if err != nil {
+		t.Fatalf("debug/activate rollback response failed: %v", err)
+	}
+	if rollback.StatusCode != http.StatusOK {
+		t.Fatalf("debug/activate rollback status=%d body=%s", rollback.StatusCode, rollback.Body)
+	}
+	rollbackResult := candidateMCPStructured(t, rollback.Body)
+	if rollbackResult["source_head"] != wantSource || rollbackResult["activation"] != "accepted" {
+		t.Fatalf("debug/activate rollback result=%#v", rollbackResult)
+	}
+	rolledBackPID := waitCandidateArtifactRestore(t, installDir, artifactBefore, filepath.Join(pidDir, "gateway.pid"), beforeRollbackPID, 10*time.Second)
+	if rolledBackPID < 1 || rolledBackPID == beforeRollbackPID {
+		t.Fatalf("rollback did not restart the restored Gateway: before=%d after=%d", beforeRollbackPID, rolledBackPID)
+	}
+	if err := waitCandidateHTTP(listenAddr, "/readyz", 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range releaseartifacts.BinaryNames {
+		got, hashErr := releaseartifacts.HashFile(filepath.Join(installDir, name))
+		if hashErr != nil {
+			t.Fatal(hashErr)
+		}
+		if got != artifactBefore[name] {
+			t.Fatalf("rollback artifact %s hash=%s want restored %s", name, got, artifactBefore[name])
+		}
+	}
+	if !processExists(tunnelPID) {
+		t.Fatal("Tunnel process exited during Gateway rollback")
+	}
+	postRollback, err := client.request("initialize", map[string]any{})
+	if err != nil || postRollback.StatusCode != http.StatusOK {
+		t.Fatalf("post-rollback MCP status=%d err=%v body=%s", postRollback.StatusCode, err, postRollback.Body)
+	}
+	t.Logf("debug_activation_source=%s gateway_pid_initial=%d gateway_pid_success=%d gateway_pid_rollback=%d tunnel_pid=%d tunnel_health_requests=%d", wantSource, initialPID, newPID, rolledBackPID, tunnelPID, tunnelRequests.Load())
+}
+
+func assertInstalledCandidate(t *testing.T, installDir, source, version string) {
+	t.Helper()
+	for _, name := range releaseartifacts.BinaryNames {
+		path := filepath.Join(installDir, name)
+		gotSource, _, err := releaseartifacts.BinarySourceRevision(path)
+		if err != nil || gotSource != source {
+			t.Fatalf("installed %s source=%q err=%v want %q", name, gotSource, err, source)
+		}
+		gotVersion, err := releaseartifacts.BinaryVersion(path)
+		if err != nil || gotVersion != version {
+			t.Fatalf("installed %s version=%q err=%v want %q", name, gotVersion, err, version)
+		}
+	}
+}
+
+func waitCandidateArtifactRestore(t *testing.T, installDir string, want map[string]string, pidPath string, oldPID int, timeout time.Duration) int {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		pid := readCandidatePID(pidPath)
+		if pid > 0 && pid != oldPID && processExists(pid) {
+			matches := true
+			for name, expected := range want {
+				got, err := releaseartifacts.HashFile(filepath.Join(installDir, name))
+				if err != nil || got != expected {
+					matches = false
+					break
+				}
+			}
+			if matches {
+				return pid
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return 0
 }
 
 type candidateMCPResponse struct {

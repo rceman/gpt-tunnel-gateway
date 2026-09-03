@@ -94,7 +94,14 @@ func (s *Server) registerDebugActions() error {
 			if err != nil {
 				return nil, err
 			}
-			return debugActivateFn(ctx, s.Service.Config, s.Service.ConfigPath, project, in.MainSHA)
+			release, ok := responseReleaseFromContext(ctx)
+			if !ok {
+				return nil, fmt.Errorf("debug activation requires an HTTP response release boundary")
+			}
+			release(func() {
+				_, _ = debugActivateFn(context.Background(), s.Service.Config, s.Service.ConfigPath, project, in.MainSHA)
+			})
+			return activation.Result{SourceHead: in.MainSHA, Activation: "accepted", Smoke: "pending"}, nil
 		},
 	})
 }
