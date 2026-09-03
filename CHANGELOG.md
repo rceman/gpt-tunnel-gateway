@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.14 — 2026-09-03
+
 - Prepare v0.6.14 with the GTW-TSK472 canonical MCP smoke fix for upgrade and rollback verification.
 
 ## 0.6.13 — 2026-09-03
