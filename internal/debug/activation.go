@@ -62,6 +62,10 @@ var workerLaunchFn = func(c controller.Controller, operationID, sourceHead strin
 	return c.LaunchDetachedGatewayWorker([]string{"--config", c.ConfigPath, "--gateway-debug-activation-worker", operationID, sourceHead}, "gateway-debug-activation-worker.log")
 }
 
+var writeReceiptAtomicFn = fsutil.WriteJSONAtomic
+
+const receiptWriteAttempts = 2
+
 func operationID(sourceHead string) string {
 	return "gateway-debug-activation-" + sourceHead
 }
@@ -225,16 +229,12 @@ func RunActivation(c config.Config, configPath, id, sourceHead string, execute f
 		receipt.ActivationResult = terminal
 		receipt.Error = boundedError(executeErr)
 	}
-	if writeErr := fsutil.WriteJSONAtomic(path, receipt, 0o600); writeErr != nil {
-		if executeErr == nil {
-			executeErr = fmt.Errorf("persist debug activation result: %w", writeErr)
-			terminal.Activation = "failed"
-			terminal.Smoke = "failed"
-			terminal.Outcome = "failed"
-			receipt.ActivationResult = terminal
-			receipt.Error = boundedError(executeErr)
-			_ = fsutil.WriteJSONAtomic(path, receipt, 0o600)
+	if writeErr := writeReceiptWithRetry(path, receipt); writeErr != nil {
+		persistenceErr := fmt.Errorf("persist debug activation result: %w", writeErr)
+		if executeErr != nil {
+			return terminal, fmt.Errorf("%w; %w", failure(receipt), persistenceErr)
 		}
+		return terminal, persistenceErr
 	}
 	if executeErr != nil {
 		return terminal, failure(receipt)
@@ -257,7 +257,18 @@ func recordLaunchFailure(c config.Config, id, sourceHead string, cause error) {
 	receipt.Activation = "failed"
 	receipt.Smoke = "failed"
 	receipt.Error = boundedError(cause)
-	_ = fsutil.WriteJSONAtomic(path, receipt, 0o600)
+	_ = writeReceiptWithRetry(path, receipt)
+}
+
+func writeReceiptWithRetry(path string, receipt activationReceipt) error {
+	var err error
+	for attempt := 0; attempt < receiptWriteAttempts; attempt++ {
+		err = writeReceiptAtomicFn(path, receipt, 0o600)
+		if err == nil {
+			return nil
+		}
+	}
+	return err
 }
 
 func boundedError(err error) string {

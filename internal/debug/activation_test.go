@@ -3,6 +3,7 @@ package debug
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -183,5 +184,120 @@ func TestAcceptActivationDoesNotRescheduleExistingReceipt(t *testing.T) {
 	firstCallbacks[0]()
 	if launches.Load() != 1 {
 		t.Fatalf("worker launches=%d want 1", launches.Load())
+	}
+}
+
+func TestRunActivationRetriesTransientSuccessReceiptWriteWithoutFalseFailure(t *testing.T) {
+	oldWorker := workerLaunchFn
+	oldWriter := writeReceiptAtomicFn
+	defer func() {
+		workerLaunchFn = oldWorker
+		writeReceiptAtomicFn = oldWriter
+	}()
+	workerLaunchFn = func(controller.Controller, string, string) error { return nil }
+	c := testActivationConfig(t)
+	source := strings.Repeat("f", 40)
+	var callback func()
+	accepted, err := AcceptActivation(c, "config.json", source, func(work func()) { callback = work })
+	if err != nil {
+		t.Fatal(err)
+	}
+	callback()
+
+	var writes atomic.Int32
+	writeReceiptAtomicFn = func(path string, value any, mode fs.FileMode) error {
+		if writes.Add(1) == 1 {
+			return errors.New("transient receipt write")
+		}
+		return fsutil.WriteJSONAtomic(path, value, mode)
+	}
+	result, err := RunActivation(c, "config.json", accepted.OperationID, source, func(context.Context) (ActivationResult, error) {
+		return ActivationResult{SourceHead: source, Activation: "passed", Smoke: "passed", TunnelPID: 42, GatewayPID: 43}, nil
+	})
+	if err != nil || result.Outcome != "succeeded" {
+		t.Fatalf("successful activation result=%#v err=%v", result, err)
+	}
+	if writes.Load() != receiptWriteAttempts {
+		t.Fatalf("receipt writes=%d want %d", writes.Load(), receiptWriteAttempts)
+	}
+	receipt, exists, err := readReceipt(receiptPath(c.StateDir, accepted.OperationID), accepted.OperationID)
+	if err != nil || !exists || receipt.Outcome != "succeeded" || receipt.Error != "" {
+		t.Fatalf("success receipt=%#v exists=%v err=%v", receipt, exists, err)
+	}
+}
+
+func TestRunActivationRetriesTransientFailureReceiptWriteAndPreservesFailure(t *testing.T) {
+	oldWorker := workerLaunchFn
+	oldWriter := writeReceiptAtomicFn
+	defer func() {
+		workerLaunchFn = oldWorker
+		writeReceiptAtomicFn = oldWriter
+	}()
+	workerLaunchFn = func(controller.Controller, string, string) error { return nil }
+	c := testActivationConfig(t)
+	source := strings.Repeat("1", 40)
+	var callback func()
+	accepted, err := AcceptActivation(c, "config.json", source, func(work func()) { callback = work })
+	if err != nil {
+		t.Fatal(err)
+	}
+	callback()
+
+	var writes atomic.Int32
+	writeReceiptAtomicFn = func(path string, value any, mode fs.FileMode) error {
+		if writes.Add(1) == 1 {
+			return errors.New("transient receipt write")
+		}
+		return fsutil.WriteJSONAtomic(path, value, mode)
+	}
+	failureCause := errors.New("rollback completed")
+	result, err := RunActivation(c, "config.json", accepted.OperationID, source, func(context.Context) (ActivationResult, error) {
+		return ActivationResult{}, failureCause
+	})
+	var typed ActivationFailure
+	if !errors.As(err, &typed) || typed.Cause != failureCause.Error() || result.Outcome != "failed" {
+		t.Fatalf("failure result=%#v err=%T %v", result, err, err)
+	}
+	if writes.Load() != receiptWriteAttempts {
+		t.Fatalf("receipt writes=%d want %d", writes.Load(), receiptWriteAttempts)
+	}
+	receipt, exists, err := readReceipt(receiptPath(c.StateDir, accepted.OperationID), accepted.OperationID)
+	if err != nil || !exists || receipt.Outcome != "failed" || receipt.Error != failureCause.Error() {
+		t.Fatalf("failure receipt=%#v exists=%v err=%v", receipt, exists, err)
+	}
+}
+
+func TestRecordLaunchFailureRetriesTransientReceiptWrite(t *testing.T) {
+	oldWorker := workerLaunchFn
+	oldWriter := writeReceiptAtomicFn
+	defer func() {
+		workerLaunchFn = oldWorker
+		writeReceiptAtomicFn = oldWriter
+	}()
+	c := testActivationConfig(t)
+	source := strings.Repeat("2", 40)
+	var callbacks []func()
+	accepted, err := AcceptActivation(c, "config.json", source, func(work func()) { callbacks = append(callbacks, work) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerLaunchFn = func(controller.Controller, string, string) error { return errors.New("worker unavailable") }
+	var writes atomic.Int32
+	writeReceiptAtomicFn = func(path string, value any, mode fs.FileMode) error {
+		if writes.Add(1) == 1 {
+			return errors.New("transient receipt write")
+		}
+		return fsutil.WriteJSONAtomic(path, value, mode)
+	}
+	if len(callbacks) != 1 {
+		t.Fatalf("callbacks=%d want 1", len(callbacks))
+	}
+	callbacks[0]()
+	receipt, exists, err := readReceipt(receiptPath(c.StateDir, accepted.OperationID), accepted.OperationID)
+	if err != nil || !exists || receipt.Outcome != "failed" || receipt.Error != "worker unavailable" {
+		t.Fatalf("launch failure receipt=%#v exists=%v err=%v", receipt, exists, err)
+	}
+	if writes.Load() != receiptWriteAttempts {
+		t.Fatalf("receipt writes=%d want %d", writes.Load(), receiptWriteAttempts)
 	}
 }
