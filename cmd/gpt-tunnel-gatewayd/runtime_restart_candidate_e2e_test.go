@@ -188,6 +188,7 @@ func TestCandidateGatewayRestartMCPNetworkE2E(t *testing.T) {
 }
 
 func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
+	const activationTimeout = 90 * time.Second
 	candidate := os.Getenv("GTW_CANDIDATE_GATEWAY_BINARY")
 	wantSource := os.Getenv("GTW_CANDIDATE_SOURCE_SHA")
 	sourceRoot := os.Getenv("GTW_CANDIDATE_SOURCE_ROOT")
@@ -336,11 +337,11 @@ func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
 	if firstResult["source_head"] != wantSource || firstResult["activation"] != "accepted" {
 		t.Fatalf("debug/activate success result=%#v", firstResult)
 	}
-	newPID := waitCandidatePIDChange(filepath.Join(pidDir, "gateway.pid"), initialPID, 10*time.Second)
+	newPID := waitCandidatePIDChange(filepath.Join(pidDir, "gateway.pid"), initialPID, activationTimeout)
 	if newPID < 1 || newPID == initialPID {
 		t.Fatalf("successful debug activation did not replace Gateway: old=%d new=%d", initialPID, newPID)
 	}
-	if err := waitCandidateHTTP(listenAddr, "/readyz", 10*time.Second); err != nil {
+	if err := waitCandidateHTTP(listenAddr, "/readyz", activationTimeout); err != nil {
 		t.Fatal(err)
 	}
 	assertInstalledCandidate(t, installDir, wantSource, "0.6.14")
@@ -373,11 +374,11 @@ func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
 	if rollbackResult["source_head"] != wantSource || rollbackResult["activation"] != "accepted" {
 		t.Fatalf("debug/activate rollback result=%#v", rollbackResult)
 	}
-	rolledBackPID := waitCandidateArtifactRestore(t, installDir, artifactBefore, filepath.Join(pidDir, "gateway.pid"), beforeRollbackPID, 10*time.Second)
+	rolledBackPID := waitCandidateArtifactRestore(t, installDir, artifactBefore, filepath.Join(pidDir, "gateway.pid"), beforeRollbackPID, activationTimeout)
 	if rolledBackPID < 1 || rolledBackPID == beforeRollbackPID {
 		t.Fatalf("rollback did not restart the restored Gateway: before=%d after=%d", beforeRollbackPID, rolledBackPID)
 	}
-	if err := waitCandidateHTTP(listenAddr, "/readyz", 10*time.Second); err != nil {
+	if err := waitCandidateHTTP(listenAddr, "/readyz", activationTimeout); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range releaseartifacts.BinaryNames {

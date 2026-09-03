@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/activation"
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
@@ -28,6 +29,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version")
 	showSourceSHA := flag.Bool("source-sha", false, "print the exact source revision embedded by the release builder")
 	recoveryOperation := flag.String("gateway-recovery-worker", "", "run one detached Gateway-only recovery operation")
+	debugActivationSource := flag.String("gateway-debug-activation-worker", "", "run one detached Gateway-only debug activation")
 	flag.Parse()
 	if *showSourceSHA {
 		fmt.Println(releaseartifacts.BuildSourceRevision)
@@ -43,6 +45,16 @@ func main() {
 	}
 	if *recoveryOperation != "" {
 		if _, err := (controller.Controller{Config: c, ConfigPath: *configPath}).RestartGatewayRecovery(*recoveryOperation); err != nil {
+			fatal(err)
+		}
+		return
+	}
+	if *debugActivationSource != "" {
+		project, ok := c.Projects["gpt-tunnel-gateway"]
+		if !ok || project.Root == "" {
+			fatal(fmt.Errorf("configured Gateway source project %q is unavailable", "gpt-tunnel-gateway"))
+		}
+		if _, err := activation.DebugActivate(context.Background(), c, *configPath, project, *debugActivationSource); err != nil {
 			fatal(err)
 		}
 		return

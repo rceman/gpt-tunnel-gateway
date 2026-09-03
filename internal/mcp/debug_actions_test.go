@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/activation"
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
@@ -135,17 +135,17 @@ func TestDebugStatusUsesOnlyConfiguredHostLocalState(t *testing.T) {
 }
 
 func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t *testing.T) {
-	old := debugActivateFn
-	defer func() { debugActivateFn = old }()
+	old := debugActivationWorkerLaunchFn
+	defer func() { debugActivationWorkerLaunchFn = old }()
 	_, sourceRoot, _ := testutil.RepoWithBareRemote(t)
 	wantHead := strings.Repeat("a", 40)
-	var gotRoot, gotHead string
-	debugActivateFn = func(_ context.Context, c config.Config, _ string, project config.ProjectConfig, sourceHead string) (activation.Result, error) {
-		gotRoot, gotHead = project.Root, sourceHead
-		if c.GatewayID != "debug-test" {
-			t.Fatalf("activation gateway_id=%q", c.GatewayID)
+	var gotHead string
+	debugActivationWorkerLaunchFn = func(c controller.Controller, sourceHead string) error {
+		gotHead = sourceHead
+		if c.Config.GatewayID != "debug-test" {
+			t.Fatalf("activation gateway_id=%q", c.Config.GatewayID)
 		}
-		return activation.Result{SourceHead: sourceHead, Activation: "passed", Smoke: "passed", TunnelPID: 71, GatewayPID: 83}, nil
+		return nil
 	}
 	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{
 		Debug:     config.DebugConfig{Enabled: true},
@@ -171,8 +171,8 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 	if result["source_head"] != wantHead || result["activation"] != "accepted" || result["smoke"] != "pending" {
 		t.Fatalf("unexpected debug/activate result: %#v", result)
 	}
-	if gotRoot != sourceRoot || gotHead != wantHead {
-		t.Fatalf("activation received root=%q head=%q, want root=%q head=%q", gotRoot, gotHead, sourceRoot, wantHead)
+	if gotHead != wantHead {
+		t.Fatalf("activation worker received head=%q, want %q", gotHead, wantHead)
 	}
 }
 

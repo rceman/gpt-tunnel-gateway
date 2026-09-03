@@ -176,6 +176,21 @@ func (c Controller) AcceptGatewayRecovery(operationID string, release func(func(
 }
 
 func (c Controller) launchGatewayRecoveryWorker(operationID string) error {
+	return c.launchGatewayWorker([]string{"--config", c.ConfigPath, "--gateway-recovery-worker", operationID}, "gateway-recovery-worker.log")
+}
+
+// LaunchGatewayDebugActivationWorker starts the detached owner of a
+// Gateway-only debug activation. The serving Gateway must not execute its own
+// stop step; the worker performs the existing atomic activation pipeline after
+// the MCP response-release boundary.
+func (c Controller) LaunchGatewayDebugActivationWorker(sourceHead string) error {
+	if sourceHead == "" {
+		return fmt.Errorf("debug activation source is empty")
+	}
+	return c.launchGatewayWorker([]string{"--config", c.ConfigPath, "--gateway-debug-activation-worker", sourceHead}, "gateway-debug-activation-worker.log")
+}
+
+func (c Controller) launchGatewayWorker(args []string, logName string) error {
 	binary := c.Config.Controller.GatewayBinary
 	if binary == "" {
 		return fmt.Errorf("gateway binary is not configured")
@@ -190,12 +205,12 @@ func (c Controller) launchGatewayRecoveryWorker(operationID string) error {
 	if err := fsutil.EnsureDir(c.Config.Controller.LogDir, 0o700); err != nil {
 		return err
 	}
-	log, err := os.OpenFile(filepath.Join(c.Config.Controller.LogDir, "gateway-recovery-worker.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	log, err := os.OpenFile(filepath.Join(c.Config.Controller.LogDir, logName), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
 	defer log.Close()
-	cmd := exec.Command(binary, "--config", c.ConfigPath, "--gateway-recovery-worker", operationID)
+	cmd := exec.Command(binary, args...)
 	cmd.Dir = workingDir
 	cmd.Env = processEnv([]string{"GPT_TUNNEL_CONFIG=" + c.ConfigPath})
 	cmd.Stdin = nil

@@ -8,11 +8,14 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/activation"
 	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 )
 
 const gatewaySourceProjectID = "gpt-tunnel-gateway"
 
-var debugActivateFn = activation.DebugActivate
+var debugActivationWorkerLaunchFn = func(c controller.Controller, sourceHead string) error {
+	return c.LaunchGatewayDebugActivationWorker(sourceHead)
+}
 
 func (s *Server) ensureDebugActions() {
 	if s.Service == nil || !s.Service.Config.Debug.Enabled {
@@ -90,7 +93,7 @@ func (s *Server) registerDebugActions() error {
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			project, err := configuredGatewaySourceProject(s.Service.Config)
+			_, err := configuredGatewaySourceProject(s.Service.Config)
 			if err != nil {
 				return nil, err
 			}
@@ -99,7 +102,7 @@ func (s *Server) registerDebugActions() error {
 				return nil, fmt.Errorf("debug activation requires an HTTP response release boundary")
 			}
 			release(func() {
-				_, _ = debugActivateFn(context.Background(), s.Service.Config, s.Service.ConfigPath, project, in.MainSHA)
+				_ = debugActivationWorkerLaunchFn(controller.Controller{Config: s.Service.Config, ConfigPath: s.Service.ConfigPath}, in.MainSHA)
 			})
 			return activation.Result{SourceHead: in.MainSHA, Activation: "accepted", Smoke: "pending"}, nil
 		},
