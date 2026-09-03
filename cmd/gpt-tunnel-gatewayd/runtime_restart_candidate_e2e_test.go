@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -393,7 +395,24 @@ func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
 	if err := waitCandidateHTTP(listenAddr, "/readyz", activationTimeout); err != nil {
 		t.Fatal(err)
 	}
-	waitCandidateDebugActivationFailure(t, client, session.ID, failureSource, activationTimeout)
+	waitCandidateDebugActivationFailureReceipt(t, stateDir, failureSource)
+	terminalFailure, err := client.call(session.ID, "debug/activate", map[string]any{"main_sha": failureSource})
+	if err != nil {
+		t.Fatalf("debug/activate terminal failure response returned EOF/transport error: %v", err)
+	}
+	if terminalFailure.StatusCode != http.StatusOK {
+		t.Fatalf("debug/activate terminal failure status=%d body=%s", terminalFailure.StatusCode, terminalFailure.Body)
+	}
+	var terminalEnvelope map[string]any
+	if err := json.Unmarshal(terminalFailure.Body, &terminalEnvelope); err != nil {
+		t.Fatalf("debug/activate terminal failure JSON: %v: %s", err, terminalFailure.Body)
+	}
+	terminalResult, _ := terminalEnvelope["result"].(map[string]any)
+	terminalStructured, _ := terminalResult["structuredContent"].(map[string]any)
+	terminalError, _ := terminalStructured["error"].(map[string]any)
+	if terminalStructured["ok"] != false || terminalError["code"] != "GATEWAY_DEBUG_ACTIVATION_FAILED" {
+		t.Fatalf("debug/activate terminal failure=%#v", terminalEnvelope)
+	}
 	for _, name := range releaseartifacts.BinaryNames {
 		got, hashErr := releaseartifacts.HashFile(filepath.Join(installDir, name))
 		if hashErr != nil {
@@ -540,33 +559,27 @@ func waitCandidateDebugActivationSuccess(t *testing.T, client *candidateMCPClien
 	t.Fatalf("debug activation %s did not reach terminal success", sourceHead)
 }
 
-func waitCandidateDebugActivationFailure(t *testing.T, client *candidateMCPClient, sessionID, sourceHead string, timeout time.Duration) {
+func waitCandidateDebugActivationFailureReceipt(t *testing.T, stateDir, sourceHead string) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		response, err := client.call(sessionID, "debug/activate", map[string]any{"main_sha": sourceHead})
-		if err != nil {
-			t.Fatalf("debug/activate terminal failure probe returned EOF/transport error: %v", err)
-		}
-		if response.StatusCode != http.StatusOK {
-			t.Fatalf("debug/activate terminal failure status=%d body=%s", response.StatusCode, response.Body)
-		}
-		var envelope map[string]any
-		if err := json.Unmarshal(response.Body, &envelope); err != nil {
-			t.Fatalf("debug/activate terminal failure JSON: %v: %s", err, response.Body)
-		}
-		result, _ := envelope["result"].(map[string]any)
-		structured, _ := result["structuredContent"].(map[string]any)
-		if structured["ok"] == false {
-			errorObject, _ := structured["error"].(map[string]any)
-			if errorObject["code"] == "GATEWAY_DEBUG_ACTIVATION_FAILED" {
-				return
-			}
-			t.Fatalf("unexpected debug/activate terminal error=%#v", envelope)
-		}
-		time.Sleep(20 * time.Millisecond)
+	id := "gateway-debug-activation-" + sourceHead
+	digest := sha256.Sum256([]byte(id))
+	path := filepath.Join(stateDir, "gateway-debug-activation", hex.EncodeToString(digest[:])+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("debug activation terminal receipt: %v", err)
 	}
-	t.Fatalf("debug activation %s did not reach terminal failure", sourceHead)
+	var receipt struct {
+		OperationID string `json:"operation_id"`
+		SourceHead  string `json:"source_head"`
+		Outcome     string `json:"outcome"`
+		Error       string `json:"error"`
+	}
+	if err := json.Unmarshal(data, &receipt); err != nil {
+		t.Fatalf("debug activation terminal receipt JSON: %v", err)
+	}
+	if receipt.OperationID != id || receipt.SourceHead != sourceHead || receipt.Outcome != "failed" || receipt.Error == "" || len(receipt.Error) > 2048 {
+		t.Fatalf("unexpected debug activation terminal receipt=%#v", receipt)
+	}
 }
 
 func waitCandidateRecoverySuccess(t *testing.T, client *candidateMCPClient, sessionID, operationID string, timeout time.Duration) {
