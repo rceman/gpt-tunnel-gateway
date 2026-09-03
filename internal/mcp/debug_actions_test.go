@@ -69,6 +69,10 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 		if !got[path] {
 			t.Fatalf("enabled debug actions omitted %q: %v", path, got)
 		}
+		entry := entries[path]
+		if entry.AuthorityRole != durableSession.RolePlanner {
+			t.Fatalf("debug action %q authority role=%q want %q", path, entry.AuthorityRole, durableSession.RolePlanner)
+		}
 	}
 	root, err := server.genericSchema(nil, []byte(`{"path":""}`))
 	if err != nil {
@@ -108,7 +112,12 @@ func TestDebugStatusUsesOnlyConfiguredHostLocalState(t *testing.T) {
 		GatewayID:  "debug-test",
 		ListenAddr: "127.0.0.1:1",
 	}, nil), AuthorityContext: authority.WithPlanner(context.Background())}
-	record, err := durableSession.NewStore(server.Service.Config.StateDir).CreateUnbound(durableSession.RolePlanner, nil)
+	store := durableSession.NewStore(server.Service.Config.StateDir)
+	record, err := store.CreateUnbound(durableSession.RolePlanner, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err = store.Bind(record.ID, gatewaySourceProjectID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +165,12 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 		GatewayID: "debug-test",
 		Projects:  map[string]config.ProjectConfig{gatewaySourceProjectID: {Root: sourceRoot}},
 	}, nil), AuthorityContext: authority.WithPlanner(context.Background())}
-	record, err := durableSession.NewStore(server.Service.Config.StateDir).CreateUnbound(durableSession.RolePlanner, nil)
+	store := durableSession.NewStore(server.Service.Config.StateDir)
+	record, err := store.CreateUnbound(durableSession.RolePlanner, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err = store.Bind(record.ID, gatewaySourceProjectID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,6 +209,11 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	store := durableSession.NewStore(server.Service.Config.StateDir)
+	record, err = store.Bind(record.ID, gatewaySourceProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{
@@ -214,5 +233,35 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 	entry := server.genericActionRegistry(server.tools())["debug/prompt"]
 	if entry.Authority != nil || !entry.LocalReceiptOnly || entry.SessionBound {
 		t.Fatalf("debug/prompt retained normal authority routing: %#v", entry)
+	}
+	if entry.AuthorityRole != durableSession.RolePlanner {
+		t.Fatalf("debug/prompt authority role=%q want %q", entry.AuthorityRole, durableSession.RolePlanner)
+	}
+}
+
+func TestDebugActionsRejectNonPlannerSessions(t *testing.T) {
+	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{
+		Debug:    config.DebugConfig{Enabled: true},
+		StateDir: t.TempDir(),
+	}, nil), AuthorityContext: authority.WithPlanner(context.Background())}
+	store := durableSession.NewStore(server.Service.Config.StateDir)
+	for _, role := range []string{durableSession.RoleDelivery, durableSession.RoleAgent} {
+		record, err := store.CreateUnbound(role, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Bind(record.ID, gatewaySourceProjectID); err != nil {
+			t.Fatal(err)
+		}
+		response := callMCPRaw(t, server, mustJSON(t, map[string]any{
+			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+			"params": map[string]any{"name": "call", "arguments": map[string]any{
+				"session": record.ID, "action": "debug/status", "input": map[string]any{},
+			}},
+		}))
+		structured := typedStructured(t, response)
+		if structured["ok"] != false {
+			t.Fatalf("debug/status accepted %s session: %#v", role, response)
+		}
 	}
 }

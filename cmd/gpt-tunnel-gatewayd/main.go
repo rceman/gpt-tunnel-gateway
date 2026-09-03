@@ -58,8 +58,8 @@ func main() {
 		if !ok || project.Root == "" {
 			fatal(fmt.Errorf("configured Gateway source project %q is unavailable", "gpt-tunnel-gateway"))
 		}
-		_, err := debugdomain.RunActivation(c, *configPath, *debugActivationOperation, debugActivationSource, func() (debugdomain.ActivationResult, error) {
-			return debugdomain.Activate(context.Background(), c, *configPath, project, debugActivationSource)
+		_, err := debugdomain.RunActivation(c, *configPath, *debugActivationOperation, debugActivationSource, func(ctx context.Context) (debugdomain.ActivationResult, error) {
+			return debugdomain.Activate(ctx, c, *configPath, project, debugActivationSource)
 		})
 		if err != nil {
 			fatal(err)

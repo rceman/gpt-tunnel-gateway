@@ -1,10 +1,12 @@
 package debug
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
@@ -13,7 +15,7 @@ import (
 func testActivationConfig(t *testing.T) config.Config {
 	t.Helper()
 	root := t.TempDir()
-	return config.Config{StateDir: root, Controller: config.ControllerConfig{PIDDir: root, LogDir: root}}
+	return config.Config{StateDir: root, RunTimeoutSeconds: 60, Controller: config.ControllerConfig{PIDDir: root, LogDir: root}}
 }
 
 func TestAcceptActivationPersistsBoundedReceiptBeforeWorkerRelease(t *testing.T) {
@@ -60,7 +62,7 @@ func TestRunActivationTerminalReceiptIsIdempotent(t *testing.T) {
 	}
 	callback()
 	var executions atomic.Int32
-	execute := func() (ActivationResult, error) {
+	execute := func(context.Context) (ActivationResult, error) {
 		executions.Add(1)
 		return ActivationResult{SourceHead: source, Activation: "passed", Smoke: "passed", TunnelPID: 42, GatewayPID: 43}, nil
 	}
@@ -90,14 +92,14 @@ func TestRunActivationPersistsTerminalFailure(t *testing.T) {
 	}
 	callback()
 	failureCause := errors.New("rollback completed")
-	_, err = RunActivation(c, "config.json", accepted.OperationID, source, func() (ActivationResult, error) {
+	_, err = RunActivation(c, "config.json", accepted.OperationID, source, func(context.Context) (ActivationResult, error) {
 		return ActivationResult{}, failureCause
 	})
 	var typed ActivationFailure
 	if !errors.As(err, &typed) || typed.OperationID != accepted.OperationID || typed.Cause != failureCause.Error() {
 		t.Fatalf("terminal failure=%T %v", err, err)
 	}
-	_, err = RunActivation(c, "config.json", accepted.OperationID, source, func() (ActivationResult, error) {
+	_, err = RunActivation(c, "config.json", accepted.OperationID, source, func(context.Context) (ActivationResult, error) {
 		t.Fatal("terminal retry executed activation")
 		return ActivationResult{}, nil
 	})
@@ -107,5 +109,35 @@ func TestRunActivationPersistsTerminalFailure(t *testing.T) {
 	receipt, exists, readErr := readReceipt(receiptPath(c.StateDir, accepted.OperationID), accepted.OperationID)
 	if readErr != nil || !exists || receipt.Outcome != "failed" || receipt.Error != failureCause.Error() {
 		t.Fatalf("failure receipt=%#v exists=%v err=%v", receipt, exists, readErr)
+	}
+}
+
+func TestRunActivationUsesConfiguredBoundedContext(t *testing.T) {
+	oldWorker := workerLaunchFn
+	defer func() { workerLaunchFn = oldWorker }()
+	workerLaunchFn = func(controller.Controller, string, string) error { return nil }
+	c := testActivationConfig(t)
+	c.RunTimeoutSeconds = 60
+	source := strings.Repeat("d", 40)
+	var callback func()
+	accepted, err := AcceptActivation(c, "config.json", source, func(work func()) { callback = work })
+	if err != nil {
+		t.Fatal(err)
+	}
+	callback()
+	var deadline time.Time
+	_, err = RunActivation(c, "config.json", accepted.OperationID, source, func(ctx context.Context) (ActivationResult, error) {
+		var ok bool
+		deadline, ok = ctx.Deadline()
+		if !ok {
+			t.Fatal("activation context has no deadline")
+		}
+		return ActivationResult{SourceHead: source}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remaining := time.Until(deadline); remaining <= 0 || remaining > time.Minute {
+		t.Fatalf("activation deadline remaining=%s, want a bounded 60s context", remaining)
 	}
 }

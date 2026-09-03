@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/activation"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -180,7 +181,7 @@ func scheduleWorker(c controller.Controller, id, sourceHead string, release func
 
 // RunActivation serializes the whole detached operation under the debug
 // operation lock, so duplicate workers cannot stop, replace, or start twice.
-func RunActivation(c config.Config, configPath, id, sourceHead string, execute func() (ActivationResult, error)) (ActivationResult, error) {
+func RunActivation(c config.Config, configPath, id, sourceHead string, execute func(context.Context) (ActivationResult, error)) (ActivationResult, error) {
 	lock, err := lockfile.Acquire(c.Controller.PIDDir, "debug-activation")
 	if err != nil {
 		if lockfile.IsBusy(err) {
@@ -210,7 +211,9 @@ func RunActivation(c config.Config, configPath, id, sourceHead string, execute f
 	default:
 		return ActivationResult{}, fmt.Errorf("gateway debug activation receipt has invalid outcome")
 	}
-	executed, executeErr := execute()
+	operationContext, cancel := context.WithTimeout(context.Background(), time.Duration(c.RunTimeoutSeconds)*time.Second)
+	defer cancel()
+	executed, executeErr := execute(operationContext)
 	terminal := prior.ActivationResult
 	terminal.Activation = executed.Activation
 	terminal.Smoke = executed.Smoke

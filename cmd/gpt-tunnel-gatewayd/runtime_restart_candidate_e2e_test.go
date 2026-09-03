@@ -323,7 +323,12 @@ func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	session, err := durableSession.NewStore(stateDir).CreateUnbound(durableSession.RolePlanner, nil)
+	store := durableSession.NewStore(stateDir)
+	session, err := store.CreateUnbound(durableSession.RolePlanner, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err = store.Bind(session.ID, "gpt-tunnel-gateway")
 	if err != nil {
 		t.Fatal(err)
 	}

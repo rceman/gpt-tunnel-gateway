@@ -8,6 +8,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	debugdomain "github.com/rceman/gpt-tunnel-gateway/internal/debug"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 const gatewaySourceProjectID = "gpt-tunnel-gateway"
@@ -35,6 +36,7 @@ func (s *Server) registerDebugActions() error {
 		InputSchema:      debugStatusInputSchema(),
 		OutputSchema:     debugStatusOutputSchema(),
 		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		AuthorityRole:    durableSession.RolePlanner,
 		LocalReadOnly:    true,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -56,6 +58,7 @@ func (s *Server) registerDebugActions() error {
 		InputSchema:      debugPromptInputSchema(),
 		OutputSchema:     debugPromptOutputSchema(),
 		Annotations:      ToolAnnotations{DestructiveHint: true, IdempotentHint: false},
+		AuthorityRole:    durableSession.RolePlanner,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
@@ -84,6 +87,7 @@ func (s *Server) registerDebugActions() error {
 		InputSchema:      debugActivateInputSchema(),
 		OutputSchema:     debugActivateOutputSchema(),
 		Annotations:      ToolAnnotations{DestructiveHint: true, IdempotentHint: false},
+		AuthorityRole:    durableSession.RolePlanner,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
