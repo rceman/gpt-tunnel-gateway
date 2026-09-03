@@ -73,6 +73,9 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 		if entry.AuthorityRole != durableSession.RolePlanner {
 			t.Fatalf("debug action %q authority role=%q want %q", path, entry.AuthorityRole, durableSession.RolePlanner)
 		}
+		if path == "debug/activate" && !entry.Annotations.IdempotentHint {
+			t.Fatal("debug/activate must advertise idempotent source-keyed ensure semantics")
+		}
 	}
 	root, err := server.genericSchema(nil, []byte(`{"path":""}`))
 	if err != nil {

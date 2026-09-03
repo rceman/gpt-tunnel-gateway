@@ -10,6 +10,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
+	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 )
 
 func testActivationConfig(t *testing.T) config.Config {
@@ -139,5 +140,48 @@ func TestRunActivationUsesConfiguredBoundedContext(t *testing.T) {
 	}
 	if remaining := time.Until(deadline); remaining <= 0 || remaining > time.Minute {
 		t.Fatalf("activation deadline remaining=%s, want a bounded 60s context", remaining)
+	}
+}
+
+func TestAcceptActivationDoesNotRescheduleExistingReceipt(t *testing.T) {
+	oldWorker := workerLaunchFn
+	defer func() { workerLaunchFn = oldWorker }()
+	var launches atomic.Int32
+	workerLaunchFn = func(controller.Controller, string, string) error {
+		launches.Add(1)
+		return nil
+	}
+	c := testActivationConfig(t)
+	source := strings.Repeat("e", 40)
+	var firstCallbacks []func()
+	accepted, err := AcceptActivation(c, "config.json", source, func(work func()) { firstCallbacks = append(firstCallbacks, work) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(firstCallbacks) != 1 {
+		t.Fatalf("initial callbacks=%d want 1", len(firstCallbacks))
+	}
+	var repeatCallbacks int
+	if _, err := AcceptActivation(c, "config.json", source, func(func()) { repeatCallbacks++ }); err != nil {
+		t.Fatal(err)
+	}
+	receiptPath := receiptPath(c.StateDir, accepted.OperationID)
+	receipt, exists, err := readReceipt(receiptPath, accepted.OperationID)
+	if err != nil || !exists {
+		t.Fatalf("accepted receipt=%#v exists=%v err=%v", receipt, exists, err)
+	}
+	receipt.Outcome = "in_progress"
+	if err := fsutil.WriteJSONAtomic(receiptPath, receipt, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AcceptActivation(c, "config.json", source, func(func()) { repeatCallbacks++ }); err != nil {
+		t.Fatal(err)
+	}
+	if repeatCallbacks != 0 {
+		t.Fatalf("repeat callbacks=%d want 0", repeatCallbacks)
+	}
+	firstCallbacks[0]()
+	if launches.Load() != 1 {
+		t.Fatalf("worker launches=%d want 1", launches.Load())
 	}
 }

@@ -86,7 +86,7 @@ func (s *Server) registerDebugActions() error {
 		Description:      "Activate one exact clean main source revision through the Gateway-only recovery pipeline.",
 		InputSchema:      debugActivateInputSchema(),
 		OutputSchema:     debugActivateOutputSchema(),
-		Annotations:      ToolAnnotations{DestructiveHint: true, IdempotentHint: false},
+		Annotations:      ToolAnnotations{DestructiveHint: true, IdempotentHint: true},
 		AuthorityRole:    durableSession.RolePlanner,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {

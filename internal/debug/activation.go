@@ -115,7 +115,6 @@ func AcceptActivation(c config.Config, configPath, sourceHead string, release fu
 		case "failed":
 			return prior.ActivationResult, failure(prior)
 		case "accepted", "in_progress":
-			scheduleWorker(ctl, id, sourceHead, release)
 			return prior.ActivationResult, nil
 		default:
 			return ActivationResult{}, fmt.Errorf("gateway debug activation receipt has invalid outcome")
@@ -134,7 +133,6 @@ func AcceptActivation(c config.Config, configPath, sourceHead string, release fu
 			case "failed":
 				return prior.ActivationResult, failure(prior)
 			case "accepted", "in_progress":
-				scheduleWorker(ctl, id, sourceHead, release)
 				return prior.ActivationResult, nil
 			}
 		}
@@ -153,7 +151,6 @@ func AcceptActivation(c config.Config, configPath, sourceHead string, release fu
 		case "failed":
 			return prior.ActivationResult, failure(prior)
 		case "accepted", "in_progress":
-			scheduleWorker(ctl, id, sourceHead, release)
 			return prior.ActivationResult, nil
 		default:
 			return ActivationResult{}, fmt.Errorf("gateway debug activation receipt has invalid outcome")
