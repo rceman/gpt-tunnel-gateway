@@ -390,6 +390,14 @@ func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
 	}
 	rolledBackPID := waitCandidateArtifactRestore(t, installDir, artifactBefore, filepath.Join(pidDir, "gateway.pid"), beforeRollbackPID, activationTimeout)
 	if rolledBackPID < 1 || rolledBackPID == beforeRollbackPID {
+		if entries, walkErr := os.ReadDir(logDir); walkErr == nil {
+			for _, entry := range entries {
+				data, readErr := os.ReadFile(filepath.Join(logDir, entry.Name()))
+				if readErr == nil {
+					t.Logf("debug activation log %s: %s", entry.Name(), data)
+				}
+			}
+		}
 		t.Fatalf("rollback did not restart the restored Gateway: before=%d after=%d", beforeRollbackPID, rolledBackPID)
 	}
 	if err := waitCandidateHTTP(listenAddr, "/readyz", activationTimeout); err != nil {
