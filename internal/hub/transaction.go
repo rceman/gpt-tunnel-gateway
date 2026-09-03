@@ -107,7 +107,7 @@ func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mu
 	stderr := boundedCommandBuffer{limit: hubCommandOutputLimit}
 	commitCmd.Stderr = &stderr
 	if err := commitCmd.Run(); err != nil {
-		return TransactionResult{}, fmt.Errorf("git commit: %w: %s", err, stderr.String())
+		return TransactionResult{}, commitCommandError(err, &stderr)
 	}
 	afterOut, err := command(ctx, worktree, "rev-parse", "HEAD")
 	if err != nil {
@@ -132,6 +132,13 @@ func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mu
 		Branch: s.Config.Hub.Branch,
 		Paths:  append([]string{}, paths...),
 	}, nil
+}
+
+func commitCommandError(err error, stderr *boundedCommandBuffer) error {
+	if stderr != nil && stderr.exceeded {
+		return fmt.Errorf("git commit output exceeds %d bytes", hubCommandOutputLimit)
+	}
+	return fmt.Errorf("git commit: %w: %s", err, stderr.String())
 }
 
 func boundedCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {

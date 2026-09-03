@@ -236,6 +236,20 @@ func TestTransactionPushesThroughManagedClone(t *testing.T) {
 	}
 }
 
+func TestTransactionCommitClassifiesStderrOverflow(t *testing.T) {
+	stderr := boundedCommandBuffer{limit: 4}
+	if _, err := stderr.Write([]byte("error output")); err != nil {
+		t.Fatal(err)
+	}
+	if !stderr.exceeded {
+		t.Fatal("test fixture did not exceed stderr bound")
+	}
+	err := commitCommandError(errors.New("exit status 1"), &stderr)
+	if !strings.Contains(err.Error(), "git commit output exceeds") {
+		t.Fatalf("commit overflow was classified as ordinary failure: %v", err)
+	}
+}
+
 func TestTransactionDeadlineReleasesRepositoryLock(t *testing.T) {
 	bare, _, base := testutil.RepoWithBareRemote(t)
 	c := testConfig(t, bare, "gpt-tunnel/home_pc")
