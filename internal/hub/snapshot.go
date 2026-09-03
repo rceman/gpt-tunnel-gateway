@@ -206,13 +206,20 @@ func (r *ReadSnapshot) ReadFiles(ctx context.Context, paths []string) (map[strin
 	cmd.Dir = r.root
 	cmd.Env = cleanEnv()
 	cmd.Stdin = input
-	var stdout, stderr bytes.Buffer
+	stdout := boundedCommandBuffer{limit: maxSnapshotAggregateReadBytes}
+	stderr := boundedCommandBuffer{limit: maxSnapshotAggregateReadBytes}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		if stdout.exceeded || stderr.exceeded {
+			return nil, fmt.Errorf("git cat-file --batch output exceeds %d bytes", maxSnapshotAggregateReadBytes)
+		}
 		return nil, fmt.Errorf("git cat-file --batch: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	reader := bufio.NewReader(bytes.NewReader(stdout.Bytes()))
+	if stdout.exceeded || stderr.exceeded {
+		return nil, fmt.Errorf("git cat-file --batch output exceeds %d bytes", maxSnapshotAggregateReadBytes)
+	}
+	reader := bufio.NewReader(bytes.NewReader(stdout.data))
 	result := make(map[string][]byte, len(paths))
 	for _, path := range paths {
 		header, err := reader.ReadString('\n')

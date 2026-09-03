@@ -1,7 +1,6 @@
 package hub
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,6 +13,8 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 )
+
+const hubCommandOutputLimit int64 = 64 << 20
 
 func cleanEnv(extra ...string) []string {
 	keys := []string{"HOME", "PATH", "SSH_AUTH_SOCK", "USER", "LOGNAME", "TMPDIR"}
@@ -29,29 +30,43 @@ func command(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	cmd.Env = cleanEnv()
-	var stdout, stderr bytes.Buffer
+	stdout := boundedCommandBuffer{limit: hubCommandOutputLimit}
+	stderr := boundedCommandBuffer{limit: hubCommandOutputLimit}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), ctxErr)
 		}
+		if stdout.exceeded || stderr.exceeded {
+			return nil, fmt.Errorf("git %s output exceeds %d bytes", strings.Join(args, " "), hubCommandOutputLimit)
+		}
 		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
-	return stdout.Bytes(), nil
+	if stdout.exceeded || stderr.exceeded {
+		return nil, fmt.Errorf("git %s output exceeds %d bytes", strings.Join(args, " "), hubCommandOutputLimit)
+	}
+	return stdout.data, nil
 }
 func cloneRepository(ctx context.Context, parent, repositoryURL, target string) error {
 	cmd := exec.CommandContext(ctx, "git", "clone", "--origin", RemoteName, "--", repositoryURL, target)
 	cmd.Dir = parent
 	cmd.Env = cleanEnv()
-	var stdout, stderr bytes.Buffer
+	stdout := boundedCommandBuffer{limit: hubCommandOutputLimit}
+	stderr := boundedCommandBuffer{limit: hubCommandOutputLimit}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("clone managed hub repository: %w", ctxErr)
 		}
+		if stdout.exceeded || stderr.exceeded {
+			return fmt.Errorf("clone managed hub repository output exceeds %d bytes", hubCommandOutputLimit)
+		}
 		return fmt.Errorf("clone managed hub repository: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	if stdout.exceeded || stderr.exceeded {
+		return fmt.Errorf("clone managed hub repository output exceeds %d bytes", hubCommandOutputLimit)
 	}
 	return nil
 }
@@ -67,6 +82,29 @@ func refExists(ctx context.Context, root, ref string) (bool, error) {
 	}
 	return true, nil
 }
+
+type boundedCommandBuffer struct {
+	data     []byte
+	limit    int64
+	exceeded bool
+}
+
+func (b *boundedCommandBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	remaining := b.limit - int64(len(b.data))
+	if remaining > 0 {
+		if int64(n) > remaining {
+			p = p[:remaining]
+			b.exceeded = true
+		}
+		b.data = append(b.data, p...)
+	} else if n > 0 {
+		b.exceeded = true
+	}
+	return n, nil
+}
+
+func (b *boundedCommandBuffer) String() string { return string(b.data) }
 func acquireRepositoryLock(ctx context.Context, stateDir string) (*lockfile.Lock, error) {
 	return acquireRepositoryLockWithObserver(ctx, stateDir, nil)
 }

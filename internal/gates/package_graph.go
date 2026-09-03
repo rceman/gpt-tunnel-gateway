@@ -13,6 +13,8 @@ import (
 
 type packageGraphLoader func(context.Context, string) (packageGraph, error)
 
+const packageGraphOutputLimit int64 = 64 << 20
+
 type packageGraphNode struct {
 	Target     string
 	ImportPath string
@@ -42,14 +44,24 @@ type goListPackage struct {
 func loadPackageGraph(ctx context.Context, root string) (packageGraph, error) {
 	cmd := exec.CommandContext(ctx, "go", "list", "-json", "-test", "-deps", "./...")
 	cmd.Dir = root
-	output, err := cmd.Output()
+	outputBuffer := boundedCommandOutput{limit: packageGraphOutputLimit}
+	stderrBuffer := boundedCommandOutput{limit: packageGraphOutputLimit}
+	cmd.Stdout = &outputBuffer
+	cmd.Stderr = &stderrBuffer
+	err := cmd.Run()
 	if err != nil {
+		if outputBuffer.exceeded || stderrBuffer.exceeded {
+			return packageGraph{}, fmt.Errorf("go list output exceeds %d bytes", packageGraphOutputLimit)
+		}
 		if exit, ok := err.(*exec.ExitError); ok {
-			return packageGraph{}, fmt.Errorf("go list exited %d: %s", exit.ExitCode(), strings.TrimSpace(string(exit.Stderr)))
+			return packageGraph{}, fmt.Errorf("go list exited %d: %s", exit.ExitCode(), strings.TrimSpace(stderrBuffer.String()))
 		}
 		return packageGraph{}, err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(output))
+	if outputBuffer.exceeded || stderrBuffer.exceeded {
+		return packageGraph{}, fmt.Errorf("go list output exceeds %d bytes", packageGraphOutputLimit)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(outputBuffer.data))
 	all := map[string]goListPackage{}
 	for {
 		var item goListPackage
@@ -128,3 +140,26 @@ func loadPackageGraph(ctx context.Context, root string) (packageGraph, error) {
 	}
 	return graph, nil
 }
+
+type boundedCommandOutput struct {
+	data     []byte
+	limit    int64
+	exceeded bool
+}
+
+func (b *boundedCommandOutput) Write(p []byte) (int, error) {
+	n := len(p)
+	remaining := b.limit - int64(len(b.data))
+	if remaining > 0 {
+		if int64(n) > remaining {
+			p = p[:remaining]
+			b.exceeded = true
+		}
+		b.data = append(b.data, p...)
+	} else if n > 0 {
+		b.exceeded = true
+	}
+	return n, nil
+}
+
+func (b *boundedCommandOutput) String() string { return string(b.data) }

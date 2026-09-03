@@ -1,10 +1,12 @@
 package activation
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -15,7 +17,12 @@ import (
 )
 
 func TestRunBoundedCommandCapsCombinedOutput(t *testing.T) {
-	command := exec.CommandContext(context.Background(), "sh", "-c", "head -c 20000 /dev/zero")
+	if os.Getenv("GTW_ACTIVATION_OUTPUT_HELPER") == "1" {
+		_, _ = os.Stdout.Write(bytes.Repeat([]byte{'x'}, 20000))
+		return
+	}
+	command := exec.CommandContext(context.Background(), os.Args[0], "-test.run=^TestRunBoundedCommandCapsCombinedOutput$", "-test.v=false")
+	command.Env = append(os.Environ(), "GTW_ACTIVATION_OUTPUT_HELPER=1")
 	output, err := runBoundedCommand(command)
 	if err == nil || !strings.Contains(err.Error(), "output exceeds") {
 		t.Fatalf("expected bounded-output error, got %v", err)

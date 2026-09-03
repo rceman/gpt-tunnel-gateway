@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	EncodingName = "o200k_base"
-	MaxTokens    = 3000
+	EncodingName                     = "o200k_base"
+	MaxTokens                        = 3000
+	repositoryFilesOutputLimit int64 = 64 << 20
 )
 
 var installLoaderOnce sync.Once
@@ -132,11 +133,21 @@ func CountRepository(ctx context.Context, root string, counter *Counter) (Report
 func repositoryFiles(ctx context.Context, root string) ([]string, error) {
 	cmd := exec.CommandContext(ctx, "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
 	cmd.Dir = root
-	output, err := cmd.Output()
+	outputBuffer := boundedCommandOutput{limit: repositoryFilesOutputLimit}
+	stderrBuffer := boundedCommandOutput{limit: repositoryFilesOutputLimit}
+	cmd.Stdout = &outputBuffer
+	cmd.Stderr = &stderrBuffer
+	err := cmd.Run()
 	if err != nil {
+		if outputBuffer.exceeded || stderrBuffer.exceeded {
+			return nil, fmt.Errorf("list repository files output exceeds %d bytes", repositoryFilesOutputLimit)
+		}
 		return nil, fmt.Errorf("list repository files: %w", err)
 	}
-	parts := bytes.Split(output, []byte{0})
+	if outputBuffer.exceeded || stderrBuffer.exceeded {
+		return nil, fmt.Errorf("list repository files output exceeds %d bytes", repositoryFilesOutputLimit)
+	}
+	parts := bytes.Split(outputBuffer.data, []byte{0})
 	paths := make([]string, 0, len(parts))
 	seen := make(map[string]struct{}, len(parts))
 	for _, part := range parts {
@@ -155,6 +166,27 @@ func repositoryFiles(ctx context.Context, root string) ([]string, error) {
 	}
 	sort.Strings(paths)
 	return paths, nil
+}
+
+type boundedCommandOutput struct {
+	data     []byte
+	limit    int64
+	exceeded bool
+}
+
+func (b *boundedCommandOutput) Write(p []byte) (int, error) {
+	n := len(p)
+	remaining := b.limit - int64(len(b.data))
+	if remaining > 0 {
+		if int64(n) > remaining {
+			p = p[:remaining]
+			b.exceeded = true
+		}
+		b.data = append(b.data, p...)
+	} else if n > 0 {
+		b.exceeded = true
+	}
+	return n, nil
 }
 
 // Applicable is the single repository-wide source/test/tooling eligibility rule.

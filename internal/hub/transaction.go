@@ -1,7 +1,6 @@
 package hub
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -105,7 +104,7 @@ func (s Store) Transact(ctx context.Context, expected, subject string, mutate Mu
 	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", subject)
 	commitCmd.Dir = worktree
 	commitCmd.Env = cleanEnv("GIT_AUTHOR_NAME="+s.Config.Hub.AuthorName, "GIT_AUTHOR_EMAIL="+s.Config.Hub.AuthorEmail, "GIT_COMMITTER_NAME="+s.Config.Hub.AuthorName, "GIT_COMMITTER_EMAIL="+s.Config.Hub.AuthorEmail)
-	var stderr bytes.Buffer
+	stderr := boundedCommandBuffer{limit: hubCommandOutputLimit}
 	commitCmd.Stderr = &stderr
 	if err := commitCmd.Run(); err != nil {
 		return TransactionResult{}, fmt.Errorf("git commit: %w: %s", err, stderr.String())
