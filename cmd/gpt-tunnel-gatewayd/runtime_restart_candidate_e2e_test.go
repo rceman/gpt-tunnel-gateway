@@ -271,7 +271,7 @@ func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
 			return
 		}
 		request := tunnelRequests.Add(1)
-		if failSecondHealth.Load() && request == 2 {
+		if failSecondHealth.Load() && request >= 2 {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
@@ -403,7 +403,7 @@ func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
 	if err := waitCandidateHTTP(listenAddr, "/readyz", activationTimeout); err != nil {
 		t.Fatal(err)
 	}
-	waitCandidateDebugActivationFailureReceipt(t, stateDir, failureSource)
+	waitCandidateDebugActivationFailureReceipt(t, stateDir, failureSource, activationTimeout)
 	terminalFailure, err := client.call(session.ID, "debug/activate", map[string]any{"main_sha": failureSource})
 	if err != nil {
 		t.Fatalf("debug/activate terminal failure response returned EOF/transport error: %v", err)
@@ -567,27 +567,37 @@ func waitCandidateDebugActivationSuccess(t *testing.T, client *candidateMCPClien
 	t.Fatalf("debug activation %s did not reach terminal success", sourceHead)
 }
 
-func waitCandidateDebugActivationFailureReceipt(t *testing.T, stateDir, sourceHead string) {
+func waitCandidateDebugActivationFailureReceipt(t *testing.T, stateDir, sourceHead string, timeout time.Duration) {
 	t.Helper()
 	id := "gateway-debug-activation-" + sourceHead
 	digest := sha256.Sum256([]byte(id))
 	path := filepath.Join(stateDir, "gateway-debug-activation", hex.EncodeToString(digest[:])+".json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("debug activation terminal receipt: %v", err)
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			var receipt struct {
+				OperationID string `json:"operation_id"`
+				SourceHead  string `json:"source_head"`
+				Outcome     string `json:"outcome"`
+				Error       string `json:"error"`
+			}
+			if err := json.Unmarshal(data, &receipt); err != nil {
+				t.Fatalf("debug activation terminal receipt JSON: %v", err)
+			}
+			if receipt.OperationID != id || receipt.SourceHead != sourceHead {
+				t.Fatalf("unexpected debug activation terminal receipt=%#v", receipt)
+			}
+			if receipt.Outcome == "failed" {
+				if receipt.Error == "" || len(receipt.Error) > 2048 {
+					t.Fatalf("unexpected debug activation terminal receipt=%#v", receipt)
+				}
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	var receipt struct {
-		OperationID string `json:"operation_id"`
-		SourceHead  string `json:"source_head"`
-		Outcome     string `json:"outcome"`
-		Error       string `json:"error"`
-	}
-	if err := json.Unmarshal(data, &receipt); err != nil {
-		t.Fatalf("debug activation terminal receipt JSON: %v", err)
-	}
-	if receipt.OperationID != id || receipt.SourceHead != sourceHead || receipt.Outcome != "failed" || receipt.Error == "" || len(receipt.Error) > 2048 {
-		t.Fatalf("unexpected debug activation terminal receipt=%#v", receipt)
-	}
+	t.Fatalf("debug activation terminal failure receipt did not settle within %s", timeout)
 }
 
 func waitCandidateRecoverySuccess(t *testing.T, client *candidateMCPClient, sessionID, operationID string, timeout time.Duration) {
