@@ -23,6 +23,9 @@
     "log_dir": "~/.local/state/gpt-tunnel-gateway/logs",
     "tunnel_health_listen_addr": "127.0.0.1:8766"
   },
+  "debug": {
+    "enabled": false
+  },
   "projects": {
     "gpt-tunnel-gateway": {
       "root": "~/git/gpt-tunnel-gateway",

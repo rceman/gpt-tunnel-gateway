@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -65,6 +66,60 @@ func TestValidateAcceptsManagedHubWithoutLocalCheckout(t *testing.T) {
 	c := baseConfig(t.TempDir())
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLoadDefaultsDebugRecoveryDisabledWhenOmitted(t *testing.T) {
+	dir := t.TempDir()
+	c := baseConfig(dir)
+	data, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	delete(document, "debug")
+	data, err = json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Debug.Enabled {
+		t.Fatal("debug recovery was enabled by an omitted config section")
+	}
+}
+
+func TestLoadRejectsNonBooleanDebugEnabled(t *testing.T) {
+	dir := t.TempDir()
+	c := baseConfig(dir)
+	data, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	document["debug"] = map[string]any{"enabled": "yes"}
+	data, err = json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("non-boolean debug.enabled was accepted")
 	}
 }
 

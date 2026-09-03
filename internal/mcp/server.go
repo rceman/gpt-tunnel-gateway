@@ -37,6 +37,8 @@ type Server struct {
 	hotfixActionErr        error
 	callbackActions        sync.Once
 	callbackActionErr      error
+	debugActions           sync.Once
+	debugActionErr         error
 }
 type request struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -102,6 +104,7 @@ func (s *Server) tools() map[string]Tool {
 	s.ensureCodeActions()
 	s.ensureHotfixActions()
 	s.ensureCallbackActions()
+	s.ensureDebugActions()
 	t := map[string]Tool{}
 	add := toolAdder(func(name, description string, schema map[string]any, fn func(context.Context, json.RawMessage) (any, error)) {
 		output, outputOK := toolOutputSchemas[name]

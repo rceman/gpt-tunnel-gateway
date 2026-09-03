@@ -122,8 +122,26 @@ func sha256File(path string) (string, error) {
 // holds the controller handoff lock across Gateway stop, atomic replacement,
 // start, readiness/provenance proof, and rollback. Tunnel is never touched.
 func SelfActivate(ctx context.Context, c config.Config, configPath string, project config.ProjectConfig, sourceHead string) (Result, error) {
+	return selfActivate(ctx, c, configPath, project, sourceHead, false, true)
+}
+
+// DebugActivate is the explicit host-local break-glass activation path. It
+// keeps the canonical artifact/smoke/atomic Gateway handoff but requires the
+// configured Gateway source to be exactly on main. A broken Gateway may be
+// repaired; the existing Tunnel must remain running and ready.
+func DebugActivate(ctx context.Context, c config.Config, configPath string, project config.ProjectConfig, sourceHead string) (Result, error) {
+	return selfActivate(ctx, c, configPath, project, sourceHead, true, false)
+}
+
+func selfActivate(ctx context.Context, c config.Config, configPath string, project config.ProjectConfig, sourceHead string, requireMainBranch, requireGatewayHealthy bool) (Result, error) {
 	if project.Root == "" || sourceHead == "" {
 		return Result{}, fmt.Errorf("activation source is incomplete")
+	}
+	if requireMainBranch {
+		branch, err := gitOutput(ctx, project.Root, "symbolic-ref", "--quiet", "--short", "HEAD")
+		if err != nil || branch != "main" {
+			return Result{}, fmt.Errorf("debug activation requires the configured source branch to be main")
+		}
 	}
 	if got, err := gitOutput(ctx, project.Root, "rev-parse", "--verify", "HEAD^{commit}"); err != nil || got != sourceHead {
 		return Result{}, fmt.Errorf("project source head is not the reviewed head")
@@ -144,7 +162,10 @@ func SelfActivate(ctx context.Context, c config.Config, configPath string, proje
 	if err != nil {
 		return Result{}, err
 	}
-	if !before.Gateway.Running || !before.Tunnel.Running || !before.GatewayReady || !before.TunnelReady {
+	if !before.Tunnel.Running || !before.TunnelReady {
+		return Result{}, fmt.Errorf("tunnel is not healthy before activation")
+	}
+	if requireGatewayHealthy && (!before.Gateway.Running || !before.GatewayReady) {
 		return Result{}, fmt.Errorf("runtime is not healthy before activation")
 	}
 	release, err := os.MkdirTemp("", "gpt-tunnel-activation-")
@@ -160,6 +181,11 @@ func SelfActivate(ctx context.Context, c config.Config, configPath string, proje
 	}
 	if err := releaseartifacts.ValidateRelease(release, targetVersion); err != nil {
 		return Result{}, err
+	}
+	if requireMainBranch {
+		if err := validateReleaseSource(release, sourceHead); err != nil {
+			return Result{}, err
+		}
 	}
 	if err := SmokeCandidate(ctx, c, filepath.Join(release, "gpt-tunnel-gatewayd"), targetVersion); err != nil {
 		return Result{}, err
@@ -205,6 +231,19 @@ func SelfActivate(ctx context.Context, c config.Config, configPath string, proje
 		TunnelPID:  after.Tunnel.PID,
 		GatewayPID: after.Gateway.PID,
 	}, nil
+}
+
+func validateReleaseSource(dir, sourceHead string) error {
+	for _, name := range releaseartifacts.BinaryNames {
+		got, modified, err := releaseartifacts.BinarySourceRevision(filepath.Join(dir, name))
+		if err != nil {
+			return fmt.Errorf("release artifact %s has no exact source provenance: %w", name, err)
+		}
+		if modified || got != sourceHead {
+			return fmt.Errorf("release artifact %s source=%q want %q", name, got, sourceHead)
+		}
+	}
+	return nil
 }
 
 func gitOutput(ctx context.Context, root string, args ...string) (string, error) {

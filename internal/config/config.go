@@ -23,9 +23,16 @@ type Config struct {
 	AirelayCommand         string                             `json:"airelay_command"`
 	Hub                    HubConfig                          `json:"hub"`
 	Controller             ControllerConfig                   `json:"controller"`
+	Debug                  DebugConfig                        `json:"debug"`
 	AgentBindings          map[string]AgentBinding            `json:"agent_bindings,omitempty"`
 	ProjectAgentBindings   map[string]map[string]AgentBinding `json:"project_agent_bindings,omitempty"`
 	Projects               map[string]ProjectConfig           `json:"projects"`
+}
+
+// DebugConfig is host-local break-glass configuration. Its zero value keeps
+// the recovery domain disabled for existing configurations.
+type DebugConfig struct {
+	Enabled bool `json:"enabled"`
 }
 
 type HubConfig struct {
