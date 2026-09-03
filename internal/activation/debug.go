@@ -17,6 +17,7 @@ type DebugSourceStatus struct {
 }
 
 type DebugStatusResult struct {
+	GatewayID    string                     `json:"gateway_id"`
 	DebugEnabled bool                       `json:"debug_enabled"`
 	Source       DebugSourceStatus          `json:"source"`
 	Runtime      controller.RuntimeIdentity `json:"runtime"`
@@ -43,5 +44,5 @@ func DebugStatus(ctx context.Context, c config.Config, configPath string, projec
 		source.Error = "source worktree is dirty"
 	}
 	runtime := (controller.Controller{Config: c, ConfigPath: configPath}).RuntimeIdentity(ctx)
-	return DebugStatusResult{DebugEnabled: c.Debug.Enabled, Source: source, Runtime: runtime}
+	return DebugStatusResult{GatewayID: c.GatewayID, DebugEnabled: c.Debug.Enabled, Source: source, Runtime: runtime}
 }

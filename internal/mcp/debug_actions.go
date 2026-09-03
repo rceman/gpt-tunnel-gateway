@@ -12,6 +12,8 @@ import (
 
 const gatewaySourceProjectID = "gpt-tunnel-gateway"
 
+var debugActivateFn = activation.DebugActivate
+
 func (s *Server) ensureDebugActions() {
 	if s.Service == nil || !s.Service.Config.Debug.Enabled {
 		return
@@ -92,7 +94,7 @@ func (s *Server) registerDebugActions() error {
 			if err != nil {
 				return nil, err
 			}
-			return activation.DebugActivate(ctx, s.Service.Config, s.Service.ConfigPath, project, in.MainSHA)
+			return debugActivateFn(ctx, s.Service.Config, s.Service.ConfigPath, project, in.MainSHA)
 		},
 	})
 }
@@ -139,10 +141,11 @@ func debugStatusOutputSchema() map[string]any {
 		"root": outputString(), "branch": outputString(), "head": outputString(), "clean": outputBoolean(), "error": outputString(),
 	}, "root", "branch", "head", "clean")
 	return closedOutput(map[string]any{
+		"gateway_id":    outputString(),
 		"debug_enabled": outputBoolean(),
 		"source":        source,
 		"runtime":       debugRuntimeOutputSchema(),
-	}, "debug_enabled", "source", "runtime")
+	}, "gateway_id", "debug_enabled", "source", "runtime")
 }
 
 func debugRuntimeOutputSchema() map[string]any {

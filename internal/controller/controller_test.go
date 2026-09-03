@@ -141,6 +141,36 @@ func TestActivateGatewayRestoresPreviousArtifactsAfterReadinessFailure(t *testin
 	}
 }
 
+func TestDebugActivationRollbackPreservesGatewayOnlyHandoffIdentity(t *testing.T) {
+	oldStop, oldStart, oldWait := restartGatewayStopFn, restartGatewayStartFn, restartGatewayWaitFn
+	defer func() { restartGatewayStopFn, restartGatewayStartFn, restartGatewayWaitFn = oldStop, oldStart, oldWait }()
+	const candidateSource = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	tunnelPID := 7123
+	var steps []string
+	restartGatewayStopFn = func(Controller) error { steps = append(steps, "gateway-stop"); return nil }
+	restartGatewayStartFn = func(Controller) error { steps = append(steps, "gateway-start"); return nil }
+	restartGatewayWaitFn = func(string, bool, time.Duration) error { steps = append(steps, "gateway-ready"); return nil }
+	c := Controller{Config: config.Config{Controller: config.ControllerConfig{PIDDir: t.TempDir()}}}
+	restored := false
+	err := c.ActivateGateway(GatewayActivation{
+		Replace: func() error {
+			steps = append(steps, "replace:"+candidateSource)
+			return nil
+		},
+		Restore: func() error { restored = true; steps = append(steps, "restore"); return nil },
+		Verify:  func() error { return fmt.Errorf("candidate source proof failed") },
+	})
+	if err == nil || !strings.Contains(err.Error(), "candidate source proof failed") {
+		t.Fatalf("debug activation error=%v", err)
+	}
+	if !restored || tunnelPID != 7123 {
+		t.Fatalf("rollback restored=%v tunnelPID=%d", restored, tunnelPID)
+	}
+	if got, want := strings.Join(steps, ","), "gateway-stop,replace:"+candidateSource+",gateway-start,gateway-ready,gateway-stop,restore,gateway-start,gateway-ready"; got != want {
+		t.Fatalf("gateway-only rollback order=%q want=%q", got, want)
+	}
+}
+
 func TestReadGatewayLogDeltaRejectsSymlink(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target.log")

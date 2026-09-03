@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/activation"
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
@@ -125,8 +126,53 @@ func TestDebugStatusUsesOnlyConfiguredHostLocalState(t *testing.T) {
 	if result["debug_enabled"] != true || result["source"].(map[string]any)["root"] != sourceRoot {
 		t.Fatalf("debug/status omitted host-local source identity: %#v", result)
 	}
+	if result["gateway_id"] != "debug-test" {
+		t.Fatalf("debug/status gateway_id=%#v want debug-test", result["gateway_id"])
+	}
 	if result["source"].(map[string]any)["clean"] != true {
 		t.Fatalf("debug/status reported clean fixture as dirty: %#v", result["source"])
+	}
+}
+
+func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t *testing.T) {
+	old := debugActivateFn
+	defer func() { debugActivateFn = old }()
+	_, sourceRoot, _ := testutil.RepoWithBareRemote(t)
+	wantHead := strings.Repeat("a", 40)
+	var gotRoot, gotHead string
+	debugActivateFn = func(_ context.Context, c config.Config, _ string, project config.ProjectConfig, sourceHead string) (activation.Result, error) {
+		gotRoot, gotHead = project.Root, sourceHead
+		if c.GatewayID != "debug-test" {
+			t.Fatalf("activation gateway_id=%q", c.GatewayID)
+		}
+		return activation.Result{SourceHead: sourceHead, Activation: "passed", Smoke: "passed", TunnelPID: 71, GatewayPID: 83}, nil
+	}
+	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{
+		Debug:     config.DebugConfig{Enabled: true},
+		StateDir:  t.TempDir(),
+		GatewayID: "debug-test",
+		Projects:  map[string]config.ProjectConfig{gatewaySourceProjectID: {Root: sourceRoot}},
+	}, nil), AuthorityContext: authority.WithPlanner(context.Background())}
+	record, err := durableSession.NewStore(server.Service.Config.StateDir).CreateUnbound(durableSession.RolePlanner, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session": record.ID, "action": "debug/activate", "input": map[string]any{"main_sha": wantHead},
+		}},
+	}))
+	structured := typedStructured(t, response)
+	if structured["ok"] != true {
+		t.Fatalf("debug/activate failed: %#v", response)
+	}
+	result := structured["result"].(map[string]any)
+	if result["source_head"] != wantHead || result["activation"] != "passed" || result["tunnel_pid"] != float64(71) || result["gateway_pid"] != float64(83) {
+		t.Fatalf("unexpected debug/activate result: %#v", result)
+	}
+	if gotRoot != sourceRoot || gotHead != wantHead {
+		t.Fatalf("activation received root=%q head=%q, want root=%q head=%q", gotRoot, gotHead, sourceRoot, wantHead)
 	}
 }
 
