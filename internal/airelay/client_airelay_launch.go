@@ -270,7 +270,10 @@ func (c Client) ResolveSessionAuthority(ctx context.Context, key string, require
 	if err != nil {
 		return SessionAuthority{}, err
 	}
-	if !status.ControllerReachable || status.State == "error" || requireUsable && status.State != "idle" {
+	if strings.TrimSpace(status.State) == "" {
+		return SessionAuthority{}, fmt.Errorf("Airelay session %q has no state", key)
+	}
+	if requireUsable && (!status.ControllerReachable || status.State != "idle") {
 		return SessionAuthority{}, fmt.Errorf("Airelay session %q is not usable", key)
 	}
 	return status, nil
