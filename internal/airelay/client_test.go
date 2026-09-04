@@ -103,6 +103,10 @@ func TestPromptUsesUTF8ByteBoundAndPreservesProvenanceMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := Client{Command: script, Timeout: time.Second, MaxMessageBytes: MaxTransportMessageBytes}
+	ascii := strings.Repeat("a", MaxPromptBytes)
+	if _, err := c.PromptWithProvenance(context.Background(), "project_master", "SP-ABCDEFGH", ascii); err != nil {
+		t.Fatalf("ASCII message at byte bound rejected: %v", err)
+	}
 	message := strings.Repeat("é", MaxPromptBytes/2)
 	if got := len([]byte(message)); got != MaxPromptBytes {
 		t.Fatalf("UTF-8 fixture bytes=%d want %d", got, MaxPromptBytes)

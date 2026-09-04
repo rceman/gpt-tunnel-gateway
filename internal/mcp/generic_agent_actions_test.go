@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -96,9 +97,11 @@ func TestCanonicalAgentSchemasAreClosedAndBounded(t *testing.T) {
 	assertFields("agent/prompt", []string{"agent", "message"}, []string{"message"})
 	assertFields("agent/interrupt", []string{"agent", "message"}, []string{})
 
-	message := schemaProperties(entries["agent/prompt"].InputSchema)["message"].(map[string]any)
-	if message["maxLength"] != canonicalAgentMessageMaxBytes {
-		t.Fatalf("prompt message maxLength=%v, want=%d", message["maxLength"], canonicalAgentMessageMaxBytes)
+	for _, path := range []string{"agent/prompt", "agent/interrupt"} {
+		message := schemaProperties(entries[path].InputSchema)["message"].(map[string]any)
+		if message["maxLength"] != airelay.MaxPromptBytes {
+			t.Fatalf("%s message maxLength=%v, want=%d", path, message["maxLength"], airelay.MaxPromptBytes)
+		}
 	}
 	seconds := schemaProperties(entries["agent/await"].InputSchema)["seconds"].(map[string]any)
 	if seconds["minimum"] != 1 || seconds["maximum"] != 600 || seconds["default"] != canonicalAgentAwaitDefaultSeconds {
@@ -149,7 +152,16 @@ func TestCanonicalAgentMessageValidationUsesUTF8ByteBound(t *testing.T) {
 	if err := validateCanonicalAgentMessage("ok"); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateCanonicalAgentMessage(string(make([]byte, canonicalAgentMessageMaxBytes+1))); err == nil {
+	if err := validateCanonicalAgentMessage(strings.Repeat("a", 241)); err != nil {
+		t.Fatalf("message over old bound rejected: %v", err)
+	}
+	if err := validateCanonicalAgentMessage(strings.Repeat("a", airelay.MaxPromptBytes)); err != nil {
+		t.Fatalf("message at ASCII byte bound rejected: %v", err)
+	}
+	if err := validateCanonicalAgentMessage(strings.Repeat("é", airelay.MaxPromptBytes/2)); err != nil {
+		t.Fatalf("message at UTF-8 byte bound rejected: %v", err)
+	}
+	if err := validateCanonicalAgentMessage(string(make([]byte, airelay.MaxPromptBytes+1))); err == nil {
 		t.Fatal("oversized message accepted")
 	}
 	if err := validateCanonicalAgentMessage("\x00"); err == nil {
