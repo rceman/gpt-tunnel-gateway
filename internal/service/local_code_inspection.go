@@ -423,13 +423,6 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 		if statusErr != nil {
 			return nil, fmt.Errorf("read managed hotfix %s worktree status: %w", identity.HotfixRef, statusErr)
 		}
-		merged, ancestorErr := s.Git.IsAncestor(ctx, project.Root, status.Head, mainHead)
-		if ancestorErr != nil {
-			return nil, fmt.Errorf("check hotfix %s merge state: %w", identity.HotfixRef, ancestorErr)
-		}
-		if merged {
-			continue
-		}
 		slug := strings.TrimPrefix(identity.HotfixRef, "refs/heads/hotfix/")
 		if err := addCandidate(worktree, status, "hotfix", slug, "", identity.BaseSHA, identity.CreatedAt, slug); err != nil {
 			return nil, err
