@@ -285,6 +285,45 @@ func TestResolveSessionAuthoritySeparatesIdentityFromUsability(t *testing.T) {
 	}
 }
 
+func TestResolveSessionAuthorityUsesCanonicalSemanticStates(t *testing.T) {
+	for _, test := range []struct {
+		raw    string
+		normal string
+		usable bool
+	}{
+		{raw: "free", normal: "idle", usable: true},
+		{raw: "idle", normal: "idle", usable: true},
+		{raw: "ready", normal: "idle", usable: true},
+		{raw: "busy", normal: "running", usable: false},
+		{raw: "waiting", normal: "waiting", usable: false},
+		{raw: "failed", normal: "error", usable: false},
+	} {
+		t.Run(test.raw, func(t *testing.T) {
+			client := executionSessionTestClient(t, `[]`, `[]`, fmt.Sprintf(`{"sessionKey":"KEY","profile":"coding","controllerReachable":true,"state":"%s"}`, test.raw))
+			_, key, _ := executionSessionTestInput(t, client)
+			contents, err := os.ReadFile(client.Command)
+			if err != nil {
+				t.Fatal(err)
+			}
+			contents = []byte(strings.ReplaceAll(string(contents), "KEY", key))
+			if err := os.WriteFile(client.Command, contents, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			authority, err := client.ResolveSessionAuthority(context.Background(), key, false)
+			if err != nil || authority.State != test.raw {
+				t.Fatalf("identity authority=%#v err=%v", authority, err)
+			}
+			_, err = client.ResolveSessionAuthority(context.Background(), key, true)
+			if (err == nil) != test.usable {
+				t.Fatalf("usable state %q normalized as %q, err=%v; want usable=%v", test.raw, test.normal, err, test.usable)
+			}
+			if got := normalizeSessionState(test.raw); got != test.normal {
+				t.Fatalf("normalizeSessionState(%q)=%q, want %q", test.raw, got, test.normal)
+			}
+		})
+	}
+}
+
 func TestValidateExecutionSessionRejectsRecordedSessionMismatchWithoutLaunch(t *testing.T) {
 	client := executionSessionTestClient(t, `[ {"sessionKey":"KEY","profile":"coding","cwd":"WRONG"} ]`, `[ {"sessionKey":"KEY","profile":"coding","invocationCwd":"WORKTREE"} ]`, `{"sessionKey":"KEY","profile":"coding","controllerReachable":true,"state":"idle"}`)
 	in, key, worktree := executionSessionTestInput(t, client)

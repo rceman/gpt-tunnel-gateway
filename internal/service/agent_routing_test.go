@@ -51,3 +51,25 @@ func TestTaskWorkBootstrapsLegacyAutoBindingProfile(t *testing.T) {
 		t.Fatalf("TaskWork persisted discovered profile: %#v, %v", binding, ok)
 	}
 }
+
+func TestTaskWorkBootstrapsLegacyAutoBindingWithReadySessionState(t *testing.T) {
+	s, revision, _ := testService(t)
+	delete(s.Config.AgentBindings, config.ProjectAgentBindingKey("example", "coder-example"))
+	installServiceExecutionSessionFixtureState(t, s, t.TempDir()+"/prompts", "ready")
+	revision = enableTrainV2ForTest(t, s, revision)
+	task, revision := readyTrainTaskForTest(t, s, revision, "Legacy auto Agent ready state")
+	train, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
+		ProjectID: "example", TaskIDs: []string{task.ID}, CreatedBy: "planner",
+		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	work, err := s.TaskWork(context.Background(), TaskWorkInput{TaskID: task.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if work.TrainID != train.ID || work.TaskID != task.ID || work.Text == "" {
+		t.Fatalf("ready-state legacy auto TaskWork=%#v", work)
+	}
+}

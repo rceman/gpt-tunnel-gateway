@@ -47,6 +47,28 @@ esac
 	}
 }
 
+func installServiceExecutionSessionFixtureState(t *testing.T, s *Service, promptLog, state string) {
+	t.Helper()
+	dir := filepath.Dir(s.Config.AirelayCommand)
+	active := filepath.Join(dir, "state-execution-active.json")
+	history := filepath.Join(dir, "state-execution-history.json")
+	script := fmt.Sprintf(`#!/bin/sh
+active='%s'
+history='%s'
+case "$1" in
+sessions) if [ -f "$active" ]; then cat "$active"; else printf '[]'; fi ;;
+history) if [ -f "$history" ]; then cat "$history"; else printf '[]'; fi ;;
+session-status) if [ "$3" = --json ]; then printf '{"sessionKey":"%%s","profile":"coding","controllerReachable":true,"state":"%s"}' "$2"; else printf 'Controller: reachable\nState: idle\n'; fi ;;
+start) key="$4"; cwd="$(pwd)"; printf '[{"sessionKey":"%%s","profile":"%%s","cwd":"%%s"}]' "$key" "$2" "$cwd" > "$active"; printf '[{"sessionKey":"%%s","profile":"%%s","invocationCwd":"%%s"}]' "$key" "$2" "$cwd" > "$history" ;;
+prompt) printf 'prompt\n' >> '%s' ;;
+*) exit 0 ;;
+esac
+`, active, history, state, promptLog)
+	if err := os.WriteFile(s.Config.AirelayCommand, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func planString(value string) *string { return &value }
 
 func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
