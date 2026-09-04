@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -133,9 +134,23 @@ func (s *Service) hotfixListItem(ctx context.Context, projectID string, identity
 	}
 	commits, err := s.Git.Log(ctx, p, head, 1)
 	if err == nil && len(commits) == 1 {
-		item.Subject = commits[0].Subject
+		item.Subject = boundedHotfixSubject(commits[0].Subject)
 	}
 	return item, nil
+}
+
+func boundedHotfixSubject(subject string) string {
+	if !utf8.ValidString(subject) {
+		subject = strings.ToValidUTF8(subject, "\uFFFD")
+	}
+	if len(subject) <= 160 {
+		return subject
+	}
+	cut := subject[:160]
+	for !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return cut
 }
 
 func (s *Service) hotfixReadResult(ctx context.Context, projectID string, identity gitx.HotfixIdentity) (HotfixReadResult, error) {
