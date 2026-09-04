@@ -324,3 +324,31 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 		t.Fatalf("oversized code/read did not auto-pack into continuation pages: %#v", overflow)
 	}
 }
+
+func TestPublicCodeSearchAndDiffOverflowE2ELocalSetup(t *testing.T) {
+	fixture := newPublicCodeE2EFixture(t)
+	testutil.Git(t, fixture.server.Service.Config.Projects["example"].Root, "push", "origin", "main")
+	harness := newPublicCodeCallHarness(t, fixture)
+
+	search := harness.call(t, "code/search", map[string]any{
+		"worktree": fixture.mainSelector, "query": "needle", "live": true,
+	})
+	assertPublicCodeHead(t, search, fixture.currentHead)
+	if len(search["matches"].([]any)) == 0 || publicPagination(t, search) == nil {
+		t.Fatalf("overflow search did not paginate: %#v", search)
+	}
+
+	diffLine := strings.Repeat("overflow-diff ", 160) + "\n"
+	diffPath := filepath.Join(fixture.server.Service.Config.Projects["example"].Root, "diff-overflow.txt")
+	if err := os.WriteFile(diffPath, []byte(strings.Repeat(diffLine, 120)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(diffPath) })
+	diff := harness.call(t, "code/diff", map[string]any{
+		"worktree": fixture.mainSelector, "paths": []any{"diff-overflow.txt"}, "live": true,
+	})
+	assertPublicCodeHead(t, diff, fixture.currentHead)
+	if diff["diff"] == "" || publicPagination(t, diff) == nil {
+		t.Fatalf("overflow diff did not paginate: %#v", diff)
+	}
+}

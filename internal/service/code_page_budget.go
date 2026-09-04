@@ -32,12 +32,20 @@ func largestCodePageSize(max int, fits func(int) (bool, error)) (int, error) {
 }
 
 func codePageFits(value any) (bool, error) {
+	encodedValue, err := json.Marshal(value)
+	if err != nil {
+		return false, fmt.Errorf("serialize code page result: %w", err)
+	}
+	var normalized map[string]any
+	if err := json.Unmarshal(encodedValue, &normalized); err != nil {
+		return false, fmt.Errorf("normalize code page result: %w", err)
+	}
 	public := map[string]any{
 		"ok":      true,
-		"result":  value,
+		"result":  normalized,
 		"metrics": map[string]any{"time": 0, "tokens": 0},
 	}
-	if result, ok := value.(map[string]any); ok {
+	if result := normalized; result != nil {
 		if pagination, ok := result["_pagination"].(map[string]any); ok {
 			if cursor, ok := pagination["next_cursor"].(string); ok && cursor != "" {
 				public["pagination"] = map[string]any{"next_cursor": cursor}
