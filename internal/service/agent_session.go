@@ -116,6 +116,13 @@ func (s *Service) AgentSendForAgent(ctx context.Context, projectID, agentID, mes
 	if err != nil {
 		return AgentSendResult{}, err
 	}
+	return s.agentSendOnSession(ctx, projectID, agentID, session, message)
+}
+
+func (s *Service) agentSendOnSession(ctx context.Context, projectID, agentID, session, message string) (AgentSendResult, error) {
+	if strings.TrimSpace(session) == "" {
+		return AgentSendResult{}, fmt.Errorf("execution Airelay session is unavailable")
+	}
 	lock, err := s.acquireSessionSendLock(session)
 	if err != nil {
 		return AgentSendResult{}, fmt.Errorf("agent session send is already in progress")

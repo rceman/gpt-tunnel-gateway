@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -124,7 +125,16 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 			_ = deps.Git.DeleteTrainBranch(context.Background(), deps.ProjectConfig, laneBranch, base)
 		}
 	}()
-	attempt := model.TrainV2Attempt{Number: 1, Status: model.TrainV2AttemptRunning, AgentID: in.ResolvedAgentID, AirelaySessionKey: in.SessionKey, GatewayID: deps.GatewayID, StartHead: base, StartedAt: now}
+	executionSession, err := deps.Airelay.EnsureExecutionSession(ctx, airelay.ExecutionSessionRequest{
+		BaseSessionKey: in.SessionKey,
+		Profile:        in.Profile,
+		WorktreePath:   worktreePath,
+		Identity:       "train:" + in.ProjectID + ":" + in.TrainID,
+	})
+	if err != nil {
+		return StartResult{}, err
+	}
+	attempt := model.TrainV2Attempt{Number: 1, Status: model.TrainV2AttemptRunning, AgentID: in.ResolvedAgentID, AirelaySessionKey: executionSession, GatewayID: deps.GatewayID, StartHead: base, StartedAt: now}
 	runtime := RuntimeBinding{
 		SchemaVersion: runtimeSchemaVersion,
 		ProjectID:     in.ProjectID,
@@ -132,7 +142,7 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 		TrainID:       in.TrainID,
 		WorktreePath:  worktreePath,
 		AgentID:       in.ResolvedAgentID,
-		SessionKey:    in.SessionKey,
+		SessionKey:    executionSession,
 		ItemPosition:  item.Position,
 		TaskID:        item.TaskID,
 		AttemptNumber: attempt.Number,

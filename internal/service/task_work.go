@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
+	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
@@ -101,6 +104,13 @@ func (s *Service) TaskWork(ctx context.Context, in TaskWorkInput) (TaskWorkResul
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return TaskWorkResult{}, err
 	}
+	task, err := s.TaskAuthoringRead(ctx, in.ProjectID, in.TaskID)
+	if err != nil {
+		return TaskWorkResult{}, err
+	}
+	if task.Execution == model.TaskExecutionHotfix {
+		return s.taskHotfixWork(ctx, in, task)
+	}
 	current, err := s.taskAttempt(ctx, in.ProjectID, in.TaskID)
 	if err != nil {
 		if !errors.Is(err, errTaskHasNoCurrentAttempt) {
@@ -147,6 +157,66 @@ func (s *Service) TaskWork(ctx context.Context, in TaskWorkInput) (TaskWorkResul
 		WorktreePath:  filepath.Clean(packet.WorktreePath),
 		Text:          string(text),
 	}, nil
+}
+
+func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task model.TaskAuthoring) (TaskWorkResult, error) {
+	identities, err := s.Git.ListHotfixIdentities(s.Config.StateDir, in.ProjectID)
+	if err != nil {
+		return TaskWorkResult{}, err
+	}
+	var identity *gitx.HotfixIdentity
+	for i := range identities {
+		if identities[i].TaskID != task.ID {
+			continue
+		}
+		if identity != nil {
+			return TaskWorkResult{}, fmt.Errorf("Task %q has ambiguous hotfix lane binding", task.ID)
+		}
+		candidate := identities[i]
+		identity = &candidate
+	}
+	if identity == nil {
+		return TaskWorkResult{}, fmt.Errorf("Task %q has no server-owned hotfix lane", task.ID)
+	}
+	project, err := s.EffectiveProjectConfig(in.ProjectID)
+	if err != nil {
+		return TaskWorkResult{}, err
+	}
+	worktree, err := s.Git.ResolveHotfixWorktree(ctx, project, s.Config.StateDir, in.ProjectID, identity.HotfixRef)
+	if err != nil {
+		return TaskWorkResult{}, fmt.Errorf("resolve Task hotfix worktree: %w", err)
+	}
+	head, branch, _, err := s.Git.CurrentHead(ctx, worktree)
+	if err != nil {
+		return TaskWorkResult{}, err
+	}
+	wantBranch := strings.TrimPrefix(identity.HotfixRef, "refs/heads/")
+	if branch != wantBranch || model.ValidateCommitSHA(head) != nil {
+		return TaskWorkResult{}, fmt.Errorf("Task hotfix worktree identity is invalid")
+	}
+	resolved, err := s.ResolveAgent(ctx, AgentResolveInput{
+		ProjectID:            in.ProjectID,
+		Role:                 model.AgentRoleCoding,
+		AgentID:              in.AgentID,
+		RecommendedReasoning: in.RecommendedReasoning,
+		RequireUsable:        true,
+	})
+	if err != nil {
+		return TaskWorkResult{}, err
+	}
+	session, err := s.Airelay.EnsureExecutionSession(ctx, airelay.ExecutionSessionRequest{
+		BaseSessionKey: resolved.SessionKey,
+		Profile:        resolved.Profile,
+		WorktreePath:   worktree.Root,
+		Identity:       "hotfix:" + identity.HotfixRef + ":" + task.ID,
+	})
+	if err != nil {
+		return TaskWorkResult{}, err
+	}
+	if _, err := s.agentSendOnSession(ctx, in.ProjectID, resolved.AgentID, session, "Read Task "+task.ID+" and execute it in the assigned hotfix worktree."); err != nil {
+		return TaskWorkResult{}, err
+	}
+	return TaskWorkResult{TaskID: task.ID, WorktreePath: filepath.Clean(worktree.Root), Text: task.Objective}, nil
 }
 
 func (s *Service) TaskFinalize(ctx context.Context, in TaskFinalizeInput) (TrainV2AttemptFinalizeResult, error) {

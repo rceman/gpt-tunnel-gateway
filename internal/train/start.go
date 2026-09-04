@@ -20,6 +20,7 @@ type StartInput struct {
 	ResolvedReasoning   string
 	ResolvedAgentID     string
 	SessionKey          string
+	Profile             string
 	AgentFallback       bool
 	AgentFallbackReason string
 	ExpectedHubRevision string

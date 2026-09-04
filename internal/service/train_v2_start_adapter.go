@@ -78,6 +78,7 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 		ResolvedReasoning:   resolved.ResolvedReasoning,
 		ResolvedAgentID:     resolved.AgentID,
 		SessionKey:          resolved.SessionKey,
+		Profile:             resolved.Profile,
 		AgentFallback:       resolved.Fallback,
 		AgentFallbackReason: resolved.FallbackReason,
 		ExpectedHubRevision: in.ExpectedHubRevision,
