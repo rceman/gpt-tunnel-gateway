@@ -68,22 +68,22 @@ func (s *Service) HotfixList(ctx context.Context, in HotfixListInput) (HotfixLis
 		return HotfixListResult{}, err
 	}
 	mainHead, exists, err := s.Git.MirrorBranchHead(ctx, p, p.DefaultBranch)
-	if err != nil || !exists {
+	if err != nil || !exists || model.ValidateCommitSHA(mainHead) != nil {
 		return HotfixListResult{}, fmt.Errorf("canonical main head is unavailable")
 	}
-	items := make([]HotfixListItem, 0, len(identities))
-	for _, identity := range identities {
+	identityPage, pageInfo, err := pagination.Page("hotfix_list:"+in.ProjectID, identities, limit, in.Cursor, func(identity gitx.HotfixIdentity) string { return identity.HotfixRef })
+	if err != nil {
+		return HotfixListResult{}, err
+	}
+	items := make([]HotfixListItem, 0, len(identityPage))
+	for _, identity := range identityPage {
 		item, itemErr := s.hotfixListItem(ctx, in.ProjectID, identity)
 		if itemErr != nil {
 			return HotfixListResult{}, itemErr
 		}
 		items = append(items, item)
 	}
-	page, pageInfo, err := pagination.Page("hotfix_list:"+in.ProjectID, items, limit, in.Cursor, func(item HotfixListItem) string { return item.Hotfix })
-	if err != nil {
-		return HotfixListResult{}, err
-	}
-	return HotfixListResult{MainHead: mainHead, Hotfixes: page, NextCursor: pageInfo.NextCursor, HasMore: pageInfo.HasMore}, nil
+	return HotfixListResult{MainHead: mainHead[:8], Hotfixes: items, NextCursor: pageInfo.NextCursor, HasMore: pageInfo.HasMore}, nil
 }
 
 func (s *Service) HotfixRead(ctx context.Context, in HotfixReadInput) (HotfixReadResult, error) {
@@ -119,9 +119,12 @@ func (s *Service) resolveHotfixHead(ctx context.Context, projectID string, ident
 
 func (s *Service) hotfixListItem(ctx context.Context, projectID string, identity gitx.HotfixIdentity) (HotfixListItem, error) {
 	head, materialized := s.resolveHotfixHead(ctx, projectID, identity)
-	item := HotfixListItem{Task: identity.TaskID, Hotfix: identity.HotfixRef}
+	item := HotfixListItem{Task: identity.TaskID, Hotfix: strings.TrimPrefix(identity.HotfixRef, "refs/heads/")}
 	if !materialized {
 		return item, nil
+	}
+	if model.ValidateCommitSHA(head) != nil {
+		return HotfixListItem{}, fmt.Errorf("hotfix head is not an exact commit SHA")
 	}
 	item.Head = head[:8]
 	p, err := s.EffectiveProjectConfig(projectID)
