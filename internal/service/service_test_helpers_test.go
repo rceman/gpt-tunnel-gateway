@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +13,39 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
+
+func installExecutionSessionFixture(t *testing.T, s *Service, promptLog string) {
+	t.Helper()
+	dir := filepath.Dir(s.Config.AirelayCommand)
+	active := filepath.Join(dir, "execution-active.json")
+	history := filepath.Join(dir, "execution-history.json")
+	script := fmt.Sprintf("#!/bin/sh\nactive='%s'\nhistory='%s'\ncase \"$1\" in\nsessions) if [ -f \"$active\" ]; then cat \"$active\"; else printf '[]'; fi ;;\nhistory) if [ -f \"$history\" ]; then cat \"$history\"; else printf '[]'; fi ;;\nsession-status) printf '{\"sessionKey\":\"%%s\",\"profile\":\"coding\",\"controllerReachable\":true,\"state\":\"idle\"}' \"$2\" ;;\nstatus) printf 'Controller: reachable\\nState: idle\\n' ;;\nstart) key=\"$4\"; cwd=\"$(pwd)\"; printf '[{\"sessionKey\":\"%%s\",\"profile\":\"%%s\",\"cwd\":\"%%s\"}]' \"$key\" \"$2\" \"$cwd\" > \"$active\"; printf '[{\"sessionKey\":\"%%s\",\"profile\":\"%%s\",\"invocationCwd\":\"%%s\"}]' \"$key\" \"$2\" \"$cwd\" > \"$history\" ;;\nprompt) printf 'prompt\\n' >> '%s' ;;\n*) exit 0 ;;\nesac\n", active, history, promptLog)
+	if err := os.WriteFile(s.Config.AirelayCommand, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func installServiceExecutionSessionFixture(t *testing.T, s *Service, promptLog string) {
+	t.Helper()
+	dir := filepath.Dir(s.Config.AirelayCommand)
+	active := filepath.Join(dir, "service-execution-active.json")
+	history := filepath.Join(dir, "service-execution-history.json")
+	script := fmt.Sprintf(`#!/bin/sh
+active='%s'
+history='%s'
+case "$1" in
+sessions) if [ -f "$active" ]; then cat "$active"; else printf '[]'; fi ;;
+history) if [ -f "$history" ]; then cat "$history"; else printf '[]'; fi ;;
+session-status) if [ "$3" = --json ]; then printf '{"sessionKey":"%%s","profile":"coding","controllerReachable":true,"state":"idle"}' "$2"; else printf 'Controller: reachable\nState: idle\n'; fi ;;
+start) key="$4"; cwd="$(pwd)"; printf '[{"sessionKey":"%%s","profile":"%%s","cwd":"%%s"}]' "$key" "$2" "$cwd" > "$active"; printf '[{"sessionKey":"%%s","profile":"%%s","invocationCwd":"%%s"}]' "$key" "$2" "$cwd" > "$history" ;;
+prompt) printf 'prompt\n' >> '%s' ;;
+*) exit 0 ;;
+esac
+`, active, history, promptLog)
+	if err := os.WriteFile(s.Config.AirelayCommand, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func planString(value string) *string { return &value }
 

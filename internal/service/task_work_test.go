@@ -2,11 +2,14 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func TestTaskWorkStartsAndResumesByTaskIdentity(t *testing.T) {
@@ -124,5 +127,39 @@ func TestTaskWorkRejectsTaskOutsideCurrentTrain(t *testing.T) {
 	}
 	if train.ID == "" || operation.Hub.After == "" {
 		t.Fatal("test Train was not persisted")
+	}
+}
+
+func TestTaskWorkRejectsTrainRuntimeSessionMismatchWithoutLaunch(t *testing.T) {
+	s, revision, _ := testService(t)
+	s.Config.AgentBindings["example/coder-example"] = config.AgentBinding{SessionKey: "example_master", Profile: "coding"}
+	installServiceExecutionSessionFixture(t, s, filepath.Join(t.TempDir(), "prompts"))
+	revision = enableTrainV2ForTest(t, s, revision)
+	task, revision := readyTrainTaskForTest(t, s, revision, "Train session mismatch")
+	train, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
+		ProjectID: "example", TaskIDs: []string{task.ID}, CreatedBy: "planner",
+		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.TaskWork(context.Background(), TaskWorkInput{TaskID: task.ID}); err != nil {
+		t.Fatal(err)
+	}
+	runtimePath := trainv2.RuntimePath(s.Config.StateDir, "example", train.ID)
+	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, "example", train.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.SessionKey = "gtw_lane_wrong_recorded_session"
+	payload, err := json.Marshal(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(runtimePath, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.TaskWork(context.Background(), TaskWorkInput{TaskID: task.ID}); err == nil {
+		t.Fatal("TaskWork accepted a Train runtime session mismatch")
 	}
 }
