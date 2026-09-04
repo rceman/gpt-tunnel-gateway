@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -122,13 +124,13 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read.CurrentHead != f.current || read.Content != "candidate tracked content with needle\n" {
+	if read.CurrentHead != f.current[:8] || read.Content != "candidate tracked content with needle\n" {
 		t.Fatalf("unexpected committed read: %#v", read)
 	}
 	var readProjection map[string]any
 	encoded, err := json.Marshal(read)
-	if err != nil || json.Unmarshal(encoded, &readProjection) != nil || readProjection["head"] != f.current {
-		t.Fatalf("code identity did not expose full head: %s %#v", encoded, readProjection)
+	if err != nil || json.Unmarshal(encoded, &readProjection) != nil || readProjection["head"] != f.current[:8] {
+		t.Fatalf("code read did not expose the public 8-character head: %s %#v", encoded, readProjection)
 	}
 	worktrees, err := f.service.CodeWorktree(ctx, CodeWorktreeInput{ProjectID: "example"})
 	if err != nil || len(worktrees.Items) != 1 || worktrees.Items[0].Head != f.current || worktrees.Pagination != nil {
@@ -178,7 +180,7 @@ func TestLocalCodeReadSupportsExactBoundedRangesAndContinuation(t *testing.T) {
 	immutable, err := f.service.CodeRead(context.Background(), CodeReadInput{
 		ProjectID: "example", Worktree: selector, Path: "tracked.txt", StartLine: 1, LineCount: &immutableCount,
 	})
-	if err != nil || immutable.CurrentHead != f.current || immutable.StartLine != 1 || immutable.EndLine != 1 || immutable.Content != "candidate tracked content with needle" || immutable.Pagination != nil {
+	if err != nil || immutable.CurrentHead != f.current[:8] || immutable.StartLine != 1 || immutable.EndLine != 1 || immutable.Content != "candidate tracked content with needle" || immutable.Pagination != nil {
 		t.Fatalf("live=false bounded read was not an immutable exact range: %#v %v", immutable, err)
 	}
 	write := func(name, content string) {
@@ -203,7 +205,7 @@ func TestLocalCodeReadSupportsExactBoundedRangesAndContinuation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if short.CurrentHead != f.current || short.StartLine != 3 || short.EndLine != 4 || short.TotalLines != 8 || short.Content != "line-03\nline-04" || short.Pagination != nil {
+	if short.CurrentHead != f.current[:8] || short.StartLine != 3 || short.EndLine != 4 || short.TotalLines != 8 || short.Content != "line-03\nline-04" || short.Pagination != nil {
 		t.Fatalf("unexpected exact short range: %#v", short)
 	}
 
@@ -256,7 +258,7 @@ func TestLocalCodeReadSupportsExactBoundedRangesAndContinuation(t *testing.T) {
 	}
 	wantStart, pages := 10, 0
 	for {
-		if page.CurrentHead != f.current || page.StartLine != wantStart || page.EndLine < page.StartLine || page.EndLine > 109 || !strings.HasPrefix(page.Content, fmt.Sprintf("%03d ", wantStart)) {
+		if page.CurrentHead != f.current[:8] || page.StartLine != wantStart || page.EndLine < page.StartLine || page.EndLine > 109 || !strings.HasPrefix(page.Content, fmt.Sprintf("%03d ", wantStart)) {
 			t.Fatalf("range continuation was not exact: %#v", page)
 		}
 		pages++
@@ -285,6 +287,53 @@ func TestLocalCodeReadSupportsExactBoundedRangesAndContinuation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestLocalCodeReadFileHashIsWholeFileAndStableAcrossPages(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	var content strings.Builder
+	for line := 0; line < 100; line++ {
+		content.WriteString(strings.Repeat("hash-token ", 40))
+		content.WriteByte('\n')
+	}
+	pathName := filepath.Join(f.root, "hash.txt")
+	if err := os.WriteFile(pathName, []byte(content.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(pathName) })
+	digest := sha256.Sum256([]byte(content.String()))
+	wantHash := hex.EncodeToString(digest[:])[:8]
+	selector := "WT-MAIN-" + f.current[:8]
+	first, err := f.service.CodeRead(context.Background(), CodeReadInput{
+		ProjectID: "example", Worktree: selector, Path: "hash.txt", Live: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeat, err := f.service.CodeRead(context.Background(), CodeReadInput{
+		ProjectID: "example", Worktree: selector, Path: "hash.txt", Live: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.FileHash != wantHash || repeat.FileHash != wantHash || first.FileHash != repeat.FileHash {
+		t.Fatalf("file hash was not stable whole-file SHA256/8: first=%q repeat=%q want=%q", first.FileHash, repeat.FileHash, wantHash)
+	}
+	if first.CurrentHead != f.current[:8] || repeat.CurrentHead != f.current[:8] || first.Content != repeat.Content || first.StartLine != repeat.StartLine || first.EndLine != repeat.EndLine {
+		t.Fatalf("repeated page was not stable: first=%#v repeat=%#v", first, repeat)
+	}
+	if first.Pagination == nil {
+		t.Fatal("large read did not produce a continuation page")
+	}
+	continuation, err := f.service.CodeRead(context.Background(), CodeReadInput{
+		ProjectID: "example", Worktree: selector, Path: "hash.txt", Cursor: first.Pagination.NextCursor, Live: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if continuation.FileHash != wantHash || continuation.CurrentHead != f.current[:8] {
+		t.Fatalf("continuation changed file identity: %#v", continuation)
 	}
 }
 
@@ -511,7 +560,7 @@ func TestCodeActionsResolveDirtyManagedHotfixLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read.CurrentHead != head || read.Content != "live-hotfix-marker\n" {
+	if read.CurrentHead != head[:8] || read.Content != "live-hotfix-marker\n" {
 		t.Fatalf("CodeRead resolved a different live target: %#v", read)
 	}
 	search, err := f.service.CodeSearch(context.Background(), CodeSearchInput{ProjectID: "example", Worktree: selector, Query: "live-hotfix-marker", Paths: []string{"dirty.txt"}, Live: true})

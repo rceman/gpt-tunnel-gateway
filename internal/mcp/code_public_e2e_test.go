@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http/httptest"
 	"os"
@@ -173,6 +175,13 @@ func assertPublicCodeHead(t *testing.T, result map[string]any, want string) {
 	}
 }
 
+func assertPublicCodeReadHead(t *testing.T, result map[string]any, want string) {
+	t.Helper()
+	if result["head"] != want[:8] {
+		t.Fatalf("public code/read head=%#v want %q: %#v", result["head"], want[:8], result)
+	}
+}
+
 func publicPagination(t *testing.T, result map[string]any) map[string]any {
 	t.Helper()
 	pagination, ok := result["_pagination"].(map[string]any)
@@ -259,13 +268,13 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 	}
 
 	read := harness.call(t, "code/read", map[string]any{"worktree": fixture.mainSelector, "path": "tracked.txt", "live": true})
-	assertPublicCodeHead(t, read, fixture.currentHead)
+	assertPublicCodeReadHead(t, read, fixture.currentHead)
 	readPagination := publicPagination(t, read)
 	if readPagination == nil || readPagination["next_cursor"] == "" {
 		t.Fatalf("code/read first page is not paginated: %#v", read)
 	}
 	readPage := harness.call(t, "code/read", map[string]any{"worktree": fixture.mainSelector, "path": "tracked.txt", "cursor": readPagination["next_cursor"], "live": true})
-	assertPublicCodeHead(t, readPage, fixture.currentHead)
+	assertPublicCodeReadHead(t, readPage, fixture.currentHead)
 	if readPage["start_line"].(float64) <= read["start_line"].(float64) {
 		t.Fatalf("code/read continuation did not advance: %#v", readPage)
 	}
@@ -445,7 +454,9 @@ func TestPublicCodeActionsFitPublicEnvelopeE2ELocalSetup(t *testing.T) {
 	}
 	for _, action := range []string{"code/worktree", "code/tree", "code/search", "code/read"} {
 		result := harness.call(t, action, inputs[action])
-		if action != "code/worktree" {
+		if action == "code/read" {
+			assertPublicCodeReadHead(t, result, fixture.currentHead)
+		} else if action != "code/worktree" {
 			assertPublicCodeHead(t, result, fixture.currentHead)
 		}
 	}
@@ -466,7 +477,13 @@ func TestPublicCodeReadExactBoundedRangeE2E(t *testing.T) {
 	immutable := harness.call(t, "code/read", map[string]any{
 		"worktree": fixture.mainSelector, "path": "tracked.txt", "start_line": 2, "line_count": 1,
 	})
-	assertPublicCodeHead(t, immutable, fixture.currentHead)
+	assertPublicCodeReadHead(t, immutable, fixture.currentHead)
+	content := strings.Repeat("needle tracked line\n", 512)
+	digest := sha256.Sum256([]byte(content))
+	wantHash := hex.EncodeToString(digest[:])[:8]
+	if immutable["file_hash"] != wantHash {
+		t.Fatalf("public code/read file_hash=%#v want SHA256/8 %q", immutable["file_hash"], wantHash)
+	}
 	if immutable["start_line"] != float64(2) || immutable["end_line"] != float64(2) || immutable["content"] != "needle tracked line" || publicPagination(t, immutable) != nil {
 		t.Fatalf("public live=false bounded read was not immutable and exact: %#v", immutable)
 	}
@@ -481,7 +498,7 @@ func TestPublicCodeReadExactBoundedRangeE2E(t *testing.T) {
 	short := harness.call(t, "code/read", map[string]any{
 		"worktree": fixture.mainSelector, "path": "range-e2e.txt", "start_line": 3, "line_count": 2, "live": true,
 	})
-	assertPublicCodeHead(t, short, fixture.currentHead)
+	assertPublicCodeReadHead(t, short, fixture.currentHead)
 	if short["start_line"] != float64(3) || short["end_line"] != float64(4) || short["total_lines"] != float64(8) || short["content"] != "range-03\nrange-04" || publicPagination(t, short) != nil {
 		t.Fatalf("public exact range was not bounded: %#v", short)
 	}
