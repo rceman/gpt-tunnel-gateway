@@ -3,6 +3,7 @@ package gitx
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,6 +16,8 @@ import (
 )
 
 const hotfixIdentityMaxBytes = 4 << 10
+
+const hotfixIdentityMaxEntries = 100
 
 // HotfixIdentity is the server-owned create record used to authenticate the
 // base of a later integration. Callers cannot supply or replace BaseSHA.
@@ -212,12 +215,20 @@ func (r Runner) ListHotfixIdentities(stateDir, projectID string) ([]HotfixIdenti
 		return nil, err
 	}
 	dir := filepath.Join(stateDir, "hotfix-identities", projectID)
-	entries, err := os.ReadDir(dir)
+	directory, err := os.Open(dir)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	defer directory.Close()
+	entries, readErr := directory.Readdir(hotfixIdentityMaxEntries + 1)
+	if readErr != nil && readErr != io.EOF {
+		return nil, readErr
+	}
+	if len(entries) > hotfixIdentityMaxEntries {
+		return nil, fmt.Errorf("hotfix identity inventory exceeds %d entries", hotfixIdentityMaxEntries)
 	}
 	identities := make([]HotfixIdentity, 0, len(entries))
 	for _, entry := range entries {
