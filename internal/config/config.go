@@ -94,7 +94,7 @@ func (c Config) ResolveAutoAgentBinding(projectID string) (AgentBinding, bool) {
 	if !ok || strings.TrimSpace(project.AirelaySessionKey) == "" {
 		return AgentBinding{}, false
 	}
-	return AgentBinding{SessionKey: project.AirelaySessionKey, Profile: "coding"}, true
+	return AgentBinding{SessionKey: project.AirelaySessionKey}, true
 }
 
 func (b AgentBinding) Validate() error {

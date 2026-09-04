@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -47,7 +48,11 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 		if !ok || binding.Validate() != nil {
 			return ResolvedAgent{}, fmt.Errorf("agent %q is not currently usable", in.AgentID)
 		}
-		if in.RequireUsable {
+		binding, err = s.resolveExactAgentBinding(ctx, binding, in.RequireUsable)
+		if err != nil {
+			return ResolvedAgent{}, fmt.Errorf("agent %q is not currently usable: %w", in.AgentID, err)
+		}
+		if in.RequireUsable && binding.Profile != "" {
 			status, statusErr := s.Airelay.Status(ctx, binding.SessionKey)
 			if statusErr != nil || !status.ControllerReachable || status.State != "idle" {
 				return ResolvedAgent{}, fmt.Errorf("agent %q is not currently usable", in.AgentID)
@@ -82,7 +87,11 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 		if !ok || binding.Validate() != nil {
 			continue
 		}
-		if in.RequireUsable {
+		binding, bindingErr := s.resolveExactAgentBinding(ctx, binding, in.RequireUsable)
+		if bindingErr != nil {
+			continue
+		}
+		if in.RequireUsable && binding.Profile != "" {
 			status, statusErr := s.Airelay.Status(ctx, binding.SessionKey)
 			if statusErr != nil || !status.ControllerReachable || status.State != "idle" {
 				continue
@@ -135,6 +144,17 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 		Fallback:           fallback,
 		FallbackReason:     fallbackReason,
 	}, nil
+}
+
+func (s *Service) resolveExactAgentBinding(ctx context.Context, binding config.AgentBinding, requireUsable bool) (config.AgentBinding, error) {
+	if binding.Profile == "" {
+		profile, err := s.Airelay.ResolveSessionProfile(ctx, binding.SessionKey, requireUsable)
+		if err != nil {
+			return config.AgentBinding{}, err
+		}
+		binding.Profile = profile
+	}
+	return binding, nil
 }
 
 func validRoutingReasoning(value string) bool {

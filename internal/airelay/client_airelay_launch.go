@@ -263,6 +263,19 @@ func (c Client) executionStatus(ctx context.Context, key string) (executionSessi
 	return status, nil
 }
 
+// ResolveSessionProfile resolves the profile for one exact server-owned base
+// session key. It never scans or infers from the active-session inventory.
+func (c Client) ResolveSessionProfile(ctx context.Context, key string, requireUsable bool) (string, error) {
+	status, err := c.executionStatus(ctx, key)
+	if err != nil {
+		return "", err
+	}
+	if !status.ControllerReachable || status.State == "error" || requireUsable && status.State != "idle" {
+		return "", fmt.Errorf("Airelay session %q is not usable", key)
+	}
+	return status.Profile, nil
+}
+
 func normalizeCWD(value string) string {
 	if value == "" {
 		return ""
