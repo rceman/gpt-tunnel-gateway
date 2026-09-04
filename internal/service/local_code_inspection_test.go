@@ -337,6 +337,43 @@ func TestLocalCodeReadFileHashIsWholeFileAndStableAcrossPages(t *testing.T) {
 	}
 }
 
+func TestLocalCodeReadCommittedAndLiveHashesDifferWithSameHead(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	selector := "WT-MAIN-" + f.current[:8]
+	committed, err := f.service.CodeRead(context.Background(), CodeReadInput{
+		ProjectID: "example", Worktree: selector, Path: "tracked.txt",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	committedBytes := []byte("candidate tracked content with needle\n")
+	committedDigest := sha256.Sum256(committedBytes)
+	wantCommittedHash := hex.EncodeToString(committedDigest[:])[:8]
+	if committed.FileHash != wantCommittedHash || committed.CurrentHead != f.current[:8] {
+		t.Fatalf("committed read identity mismatch: got hash=%q head=%q want hash=%q head=%q", committed.FileHash, committed.CurrentHead, wantCommittedHash, f.current[:8])
+	}
+
+	liveBytes := []byte("dirty live content with needle\n")
+	if err := os.WriteFile(filepath.Join(f.root, "tracked.txt"), liveBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.WriteFile(filepath.Join(f.root, "tracked.txt"), committedBytes, 0o600) })
+	live, err := f.service.CodeRead(context.Background(), CodeReadInput{
+		ProjectID: "example", Worktree: selector, Path: "tracked.txt", Live: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveDigest := sha256.Sum256(liveBytes)
+	wantLiveHash := hex.EncodeToString(liveDigest[:])[:8]
+	if live.FileHash != wantLiveHash || live.CurrentHead != f.current[:8] {
+		t.Fatalf("live read identity mismatch: got hash=%q head=%q want hash=%q head=%q", live.FileHash, live.CurrentHead, wantLiveHash, f.current[:8])
+	}
+	if committed.FileHash == live.FileHash {
+		t.Fatalf("committed and live hashes unexpectedly match: %q", committed.FileHash)
+	}
+}
+
 func TestLocalCodeInspectionRequiresSharedDurabilityForWorktreeDiscovery(t *testing.T) {
 	f := newLocalCodeFixture(t)
 	f.service.Durability = nil
