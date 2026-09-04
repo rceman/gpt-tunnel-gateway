@@ -32,17 +32,29 @@ func largestCodePageSize(max int, fits func(int) (bool, error)) (int, error) {
 }
 
 func codePageFits(value any) (bool, error) {
-	compact, err := json.Marshal(value)
+	public := map[string]any{
+		"ok":      true,
+		"result":  value,
+		"metrics": map[string]any{"time": 0, "tokens": 0},
+	}
+	if result, ok := value.(map[string]any); ok {
+		if pagination, ok := result["_pagination"].(map[string]any); ok {
+			if cursor, ok := pagination["next_cursor"].(string); ok && cursor != "" {
+				public["pagination"] = map[string]any{"next_cursor": cursor}
+			}
+		}
+	}
+	compact, err := json.Marshal(public)
 	if err != nil {
 		return false, fmt.Errorf("serialize code page: %w", err)
 	}
-	pretty, err := json.MarshalIndent(value, "", "  ")
+	pretty, err := json.MarshalIndent(public, "", "  ")
 	if err != nil {
 		return false, fmt.Errorf("pretty-serialize code page: %w", err)
 	}
 	// The public transport carries both structuredContent and its text
-	// projection. Pack against that envelope so the actual MCP page, not only
-	// the internal result object, remains within the public budget.
+	// projection. Pack against the same public call envelope produced by
+	// genericCallPublic so all code actions share one budget calculation.
 	probe := map[string]any{
 		"result": map[string]any{
 			"content":           []map[string]any{{"type": "text", "text": string(pretty)}},
