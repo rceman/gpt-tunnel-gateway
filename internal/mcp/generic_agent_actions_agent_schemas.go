@@ -2,8 +2,6 @@ package mcp
 
 import "github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 
-const canonicalAgentMessageMaxBytes = 240
-
 func boundedAgentMessageSchema() map[string]any {
 	message := str("Bounded non-interrupting Agent prompt.")
 	message["minLength"], message["maxLength"] = 1, airelay.MaxPromptBytes
@@ -18,7 +16,7 @@ func canonicalAgentSelectorSchema() map[string]any {
 
 func canonicalAgentMessageSchema() map[string]any {
 	message := str("Bounded Agent message.")
-	message["minLength"], message["maxLength"] = 1, canonicalAgentMessageMaxBytes
+	message["minLength"], message["maxLength"] = 1, airelay.MaxPromptBytes
 	return message
 }
 

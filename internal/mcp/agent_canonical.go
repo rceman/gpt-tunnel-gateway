@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
@@ -153,8 +154,8 @@ func (s *Server) resolveCanonicalInterruptAgent(ctx context.Context, projectID, 
 }
 
 func validateCanonicalAgentMessage(message string) error {
-	if !utf8.ValidString(message) || len(message) < 1 || len([]byte(message)) > canonicalAgentMessageMaxBytes || strings.ContainsRune(message, 0) {
-		return fmt.Errorf("Agent message must be valid UTF-8, 1-%d bytes, and contain no NUL", canonicalAgentMessageMaxBytes)
+	if !utf8.ValidString(message) || len(message) < 1 || len([]byte(message)) > airelay.MaxPromptBytes || strings.ContainsRune(message, 0) {
+		return fmt.Errorf("Agent message must be valid UTF-8, 1-%d bytes, and contain no NUL", airelay.MaxPromptBytes)
 	}
 	return nil
 }

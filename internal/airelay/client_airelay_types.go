@@ -8,10 +8,11 @@ import (
 )
 
 const (
-	// MaxTransportMessageBytes is the Airelay wire limit. Prompt content is
-	// kept below this so the server-owned provenance marker always fits.
-	MaxTransportMessageBytes = 256
-	MaxPromptBytes           = 240
+	// MaxTransportMessageBytes is the bounded Gateway transport envelope. It
+	// includes the server-owned provenance prefix around prompt content.
+	MaxTransportMessageBytes = 8192
+	// MaxPromptBytes is the shared Gateway prompt-content bound in UTF-8 bytes.
+	MaxPromptBytes = 4096
 )
 
 var sessionRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
