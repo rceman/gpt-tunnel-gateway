@@ -12,6 +12,13 @@ from unittest import mock
 from release_tooling_test_support import CONFORMANCE, RELEASE, ROOT, ReleaseToolingTestCase, git
 
 class ReleaseConformanceTests(ReleaseToolingTestCase):
+    def test_ci_workflow_runs_on_main_push_before_release_tag(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            '  push:\n    branches:\n      - main\n    tags:\n      - "v*"\n',
+            workflow,
+        )
+
     def test_release_config_declares_all_runtime_version_surfaces(self) -> None:
         config = json.loads((ROOT / "release-config.json").read_text(encoding="utf-8"))
         entries = {entry["path"]: entry for entry in config["version_files"]}

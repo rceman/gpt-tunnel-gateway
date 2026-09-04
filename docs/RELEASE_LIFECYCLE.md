@@ -69,6 +69,10 @@ release_publication
 → separately authorized publication
 ```
 
+The CI workflow runs for pushes to `main` as well as `v*` tags. Therefore the
+exact release commit is discoverable by the required SHA gate before the tag
+is created; tag-triggered CI remains supported for post-tag verification.
+
 `check-source` requires synchronized semantic versions, one non-empty
 `Unreleased` section, no dated heading for the current version, no target tag,
 and a clean worktree. `prepare` fully validates before changing bytes and
