@@ -4,7 +4,12 @@
   "tag_prefix": "v",
   "release_commit_message": "chore(release): v{version}",
   "version_files": [
-    {"path": "VERSION", "kind": "plain"}
+    {"path": "VERSION", "kind": "plain"},
+    {"path": "cmd/gpt-tunnel/main.go", "kind": "regex", "pattern": "(?m)^var version = \\\"(?P<version>[0-9A-Za-z.+-]+)\\\"$"},
+    {"path": "cmd/gpt-tunnel-gatewayd/main.go", "kind": "regex", "pattern": "(?m)^var version = \\\"(?P<version>[0-9A-Za-z.+-]+)\\\"$"},
+    {"path": "cmd/gpt-tunnelctl/main.go", "kind": "regex", "pattern": "(?m)^var version = \\\"(?P<version>[0-9A-Za-z.+-]+)\\\"$"},
+    {"path": "internal/mcp/server_core_tools.go", "kind": "regex", "pattern": "\\\"version\\\": \\\"(?P<version>[0-9A-Za-z.+-]+)\\\""},
+    {"path": "internal/mcp/server_http.go", "kind": "regex", "pattern": "\\\"version\\\": \\\"(?P<version>[0-9A-Za-z.+-]+)\\\""}
   ],
   "changelog": {
     "path": "CHANGELOG.md",

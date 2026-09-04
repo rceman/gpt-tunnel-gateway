@@ -12,6 +12,65 @@ from unittest import mock
 from release_tooling_test_support import CONFORMANCE, RELEASE, ROOT, ReleaseToolingTestCase, git
 
 class ReleasePrepareTests(ReleaseToolingTestCase):
+    def test_prepare_propagates_regex_version_surfaces(self) -> None:
+        repo = self.make_repo("2.1.0")
+        surfaces = {
+            "runtime.go": 'package runtime\n\nvar version = "2.1.0"\n',
+            "protocol.go": 'package protocol\n\nvar response = map[string]string{"version": "2.1.0"}\n',
+        }
+        for path, contents in surfaces.items():
+            (repo / path).write_text(contents, encoding="utf-8")
+        config_path = repo / "release-config.json"
+        config_data = json.loads(config_path.read_text(encoding="utf-8"))
+        config_data["version_files"].extend(
+            [
+                {
+                    "path": "runtime.go",
+                    "kind": "regex",
+                    "pattern": r"(?m)^var version = \"(?P<version>[0-9A-Za-z.+-]+)\"$",
+                },
+                {
+                    "path": "protocol.go",
+                    "kind": "regex",
+                    "pattern": r'\"version\": \"(?P<version>[0-9A-Za-z.+-]+)\"',
+                },
+            ]
+        )
+        config_path.write_text(json.dumps(config_data, indent=2) + "\n", encoding="utf-8")
+        git(repo, "add", ".")
+        git(repo, "commit", "-qm", "configure runtime version surfaces")
+        config = self.config(repo)
+
+        self.release.command_check_source(repo, config)
+        self.release.command_prepare(repo, config, "2.2.0", "2026-08-03")
+        self.release.command_release_ready(repo, config)
+
+        self.assertEqual((repo / "VERSION").read_text(encoding="utf-8"), "2.2.0\n")
+        self.assertIn('var version = "2.2.0"', (repo / "runtime.go").read_text(encoding="utf-8"))
+        self.assertIn('"version": "2.2.0"', (repo / "protocol.go").read_text(encoding="utf-8"))
+
+    def test_regex_version_surface_fails_closed_on_missing_or_duplicate_match(self) -> None:
+        for contents, message in (
+            ('package runtime\nvar other = "2.1.0"\n', "not found"),
+            ('var version = "2.1.0"\nvar version = "2.1.0"\n', "duplicated"),
+        ):
+            repo = self.make_repo("2.1.0")
+            (repo / "runtime.go").write_text(contents, encoding="utf-8")
+            config_path = repo / "release-config.json"
+            config_data = json.loads(config_path.read_text(encoding="utf-8"))
+            config_data["version_files"].append(
+                {
+                    "path": "runtime.go",
+                    "kind": "regex",
+                    "pattern": r"(?m)^var version = \"(?P<version>[0-9A-Za-z.+-]+)\"$",
+                }
+            )
+            config_path.write_text(json.dumps(config_data, indent=2) + "\n", encoding="utf-8")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "configure runtime version surface")
+            with self.assertRaisesRegex(self.release.ReleaseError, message):
+                self.release.command_check(repo, self.config(repo))
+
     def test_source_state_is_distinct_from_release_ready(self) -> None:
         repo = self.make_repo()
         config = self.config(repo)

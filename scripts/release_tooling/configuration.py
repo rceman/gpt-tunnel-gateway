@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -53,7 +54,7 @@ def parse_version_files(config: dict[str, Any]) -> list[VersionFile]:
             raise ReleaseError(f"version_files[{index}] must be an object")
         path = normalized_relative_path(raw.get("path"), f"version_files[{index}].path")
         kind = raw.get("kind")
-        if kind not in {"plain", "json", "toml"}:
+        if kind not in {"plain", "json", "toml", "regex"}:
             raise ReleaseError(f"unsupported version file kind for {path}: {kind!r}")
         optional = raw.get("optional", False)
         if not isinstance(optional, bool):
@@ -61,11 +62,21 @@ def parse_version_files(config: dict[str, Any]) -> list[VersionFile]:
         pointer = raw.get("pointer")
         table = raw.get("table")
         key = raw.get("key")
+        pattern = raw.get("pattern")
         if kind == "json" and (not isinstance(pointer, str) or not pointer.startswith("/")):
             raise ReleaseError(f"JSON version file {path} requires an absolute pointer")
         if kind == "toml" and (not isinstance(table, str) or not table or not isinstance(key, str) or not key):
             raise ReleaseError(f"TOML version file {path} requires table and key")
-        result.append(VersionFile(path, kind, optional, pointer, table, key))
+        if kind == "regex":
+            if not isinstance(pattern, str) or not pattern:
+                raise ReleaseError(f"regex version file {path} requires a pattern")
+            try:
+                compiled = re.compile(pattern)
+            except re.error as exc:
+                raise ReleaseError(f"invalid regex version pattern for {path}: {exc}") from exc
+            if compiled.groups != 1 or compiled.groupindex != {"version": 1}:
+                raise ReleaseError(f"regex version file {path} requires exactly one named version capture")
+        result.append(VersionFile(path, kind, optional, pointer, table, key, pattern))
     paths = [entry.path for entry in result]
     if len(paths) != len(set(paths)):
         raise ReleaseError("release config contains duplicate version file paths")

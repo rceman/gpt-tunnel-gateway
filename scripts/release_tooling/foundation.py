@@ -42,6 +42,7 @@ class VersionFile:
     pointer: str | None = None
     table: str | None = None
     key: str | None = None
+    pattern: str | None = None
 
 
 @dataclass(frozen=True)

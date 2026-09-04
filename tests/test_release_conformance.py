@@ -12,6 +12,23 @@ from unittest import mock
 from release_tooling_test_support import CONFORMANCE, RELEASE, ROOT, ReleaseToolingTestCase, git
 
 class ReleaseConformanceTests(ReleaseToolingTestCase):
+    def test_release_config_declares_all_runtime_version_surfaces(self) -> None:
+        config = json.loads((ROOT / "release-config.json").read_text(encoding="utf-8"))
+        entries = {entry["path"]: entry for entry in config["version_files"]}
+        expected = {
+            "VERSION": "plain",
+            "cmd/gpt-tunnel/main.go": "regex",
+            "cmd/gpt-tunnel-gatewayd/main.go": "regex",
+            "cmd/gpt-tunnelctl/main.go": "regex",
+            "internal/mcp/server_core_tools.go": "regex",
+            "internal/mcp/server_http.go": "regex",
+        }
+        self.assertEqual({path: entries[path]["kind"] for path in expected}, expected)
+        self.assertEqual(set(entries), set(expected))
+        for path in expected:
+            if expected[path] == "regex":
+                self.assertIn("(?P<version>", entries[path]["pattern"])
+
     def test_tool_conformance_and_exact_cli_names(self) -> None:
         result = subprocess.run(
             [
@@ -34,7 +51,12 @@ class ReleaseConformanceTests(ReleaseToolingTestCase):
 
     def test_gateway_source_state_uses_actual_release_config_without_mutation(self) -> None:
         repo = Path(tempfile.mkdtemp())
-        for path in ("VERSION", "CHANGELOG.md", "release-config.json"):
+        version_paths = [
+            entry["path"]
+            for entry in json.loads((ROOT / "release-config.json").read_text(encoding="utf-8"))["version_files"]
+        ]
+        for path in {"VERSION", "CHANGELOG.md", "release-config.json", *version_paths}:
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
             (repo / path).write_bytes((ROOT / path).read_bytes())
         (repo / "CHANGELOG.md").write_text("# Changelog\n\n## Unreleased\n\n- tooling source-state fixture.\n\n## 0.6.2 — 2026-08-06\n\n- Prior.\n", encoding="utf-8")
         target_version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
@@ -44,7 +66,10 @@ class ReleaseConformanceTests(ReleaseToolingTestCase):
         git(repo, "add", ".")
         git(repo, "commit", "-qm", "source state")
         config = self.release.load_config(repo, "release-config.json")
-        before = {path: (repo / path).read_bytes() for path in ("VERSION", "CHANGELOG.md", "release-config.json")}
+        before = {
+            path: (repo / path).read_bytes()
+            for path in {"VERSION", "CHANGELOG.md", "release-config.json", *version_paths}
+        }
         self.release.command_check_source(repo, config)
         self.release.command_check(repo, config)
         self.assertEqual(before, {path: (repo / path).read_bytes() for path in before})
@@ -54,7 +79,12 @@ class ReleaseConformanceTests(ReleaseToolingTestCase):
 
     def test_gateway_preset_target_prepare_preserves_version_bytes(self) -> None:
         repo = Path(tempfile.mkdtemp())
-        for path in ("VERSION", "CHANGELOG.md", "release-config.json"):
+        version_paths = [
+            entry["path"]
+            for entry in json.loads((ROOT / "release-config.json").read_text(encoding="utf-8"))["version_files"]
+        ]
+        for path in {"VERSION", "CHANGELOG.md", "release-config.json", *version_paths}:
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
             (repo / path).write_bytes((ROOT / path).read_bytes())
         (repo / "CHANGELOG.md").write_text("# Changelog\n\n## Unreleased\n\n- tooling release fixture.\n\n## 0.6.2 — 2026-08-06\n\n- Prior.\n", encoding="utf-8")
         target_version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()

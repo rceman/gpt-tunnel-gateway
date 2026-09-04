@@ -90,6 +90,18 @@ def toml_version_location(text: str, entry: VersionFile) -> tuple[list[str], int
     return lines, index, match
 
 
+def regex_version_location(text: str, entry: VersionFile) -> re.Match[str] | None:
+    assert entry.pattern is not None
+    matches = list(re.finditer(entry.pattern, text))
+    if len(matches) > 1:
+        raise ReleaseError(f"regex version pattern is duplicated in {entry.path}")
+    if not matches:
+        if entry.optional:
+            return None
+        raise ReleaseError(f"regex version pattern not found in {entry.path}")
+    return matches[0]
+
+
 def file_bytes(repo: Path, entry: VersionFile) -> bytes | None:
     path = repo / entry.path
     if path.is_symlink():
@@ -128,6 +140,9 @@ def read_version(repo: Path, entry: VersionFile) -> str | None:
         if not isinstance(value, str):
             raise ReleaseError(f"version at {entry.path}{entry.pointer} must be a string")
         return value
+    if entry.kind == "regex":
+        match = regex_version_location(text, entry)
+        return None if match is None else match.group("version")
     _, _, match = toml_version_location(text, entry)
     return match.group(2)
 
@@ -146,6 +161,12 @@ def render_version(original: bytes, entry: VersionFile, version: str) -> bytes:
             raise ReleaseError(f"invalid JSON in {entry.path}: {exc}") from exc
         write_json_pointer(data, json_pointer_parts(entry.pointer, entry.path), version, entry.path)
         return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    if entry.kind == "regex":
+        match = regex_version_location(text, entry)
+        if match is None:
+            return original
+        start, end = match.span("version")
+        return (text[:start] + version + text[end:]).encode("utf-8")
     lines, index, match = toml_version_location(text, entry)
     newline = match.group(4) or ""
     lines[index] = match.group(1) + version + match.group(3) + newline
