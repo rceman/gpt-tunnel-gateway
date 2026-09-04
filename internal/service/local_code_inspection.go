@@ -89,7 +89,8 @@ type CodeReadInput struct {
 	ProjectID string `json:"-"`
 	Worktree  string `json:"worktree"`
 	Path      string `json:"path"`
-	StartLine int    `json:"start_line"` // semantic target, not a page-size control.
+	StartLine int    `json:"start_line"` // semantic one-based range start.
+	LineCount *int   `json:"line_count,omitempty"`
 	Cursor    string `json:"cursor"`
 	Live      bool   `json:"live"`
 }
@@ -793,38 +794,66 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	if start == 0 {
 		start = 1
 	}
-	kind := codeCursorKind("code-read", target, in.Path+"|"+strconv.FormatBool(target.Live))
-	if in.Cursor != "" {
-		keys := make([]string, len(lines)+1)
-		for index := range keys {
-			keys[index] = strconv.Itoa(index + 1)
-		}
-		resolved, resolveErr := pagination.Resolve(in.Cursor, kind, keys)
-		if resolveErr != nil {
-			return CodeReadResult{}, resolveErr
-		}
-		start, err = strconv.Atoi(resolved)
-		if err != nil {
-			return CodeReadResult{}, fmt.Errorf("invalid code read cursor")
-		}
-	}
-	count := len(lines) - start + 1
-	if start < 1 || count < 1 {
+	if start < 1 {
 		return CodeReadResult{}, fmt.Errorf("invalid code line range")
 	}
-	if start > len(lines)+1 {
-		return CodeReadResult{}, fmt.Errorf("code read start_line exceeds file")
+	kind := codeCursorKind("code-read", target, in.Path+"|"+strconv.FormatBool(target.Live))
+	boundedRange := in.LineCount != nil
+	end := len(lines)
+	if boundedRange {
+		if *in.LineCount < 1 {
+			return CodeReadResult{}, fmt.Errorf("code read line_count must be positive")
+		}
+		if start > len(lines) {
+			return CodeReadResult{}, fmt.Errorf("code read start_line exceeds file")
+		}
+		remaining := len(lines) - start + 1
+		if *in.LineCount < remaining {
+			end = start + *in.LineCount - 1
+		}
 	}
-	end := start + count - 1
+	if in.Cursor != "" {
+		var rangeErr error
+		start, end, rangeErr = pagination.DecodeRangeCursor(in.Cursor, kind)
+		if rangeErr == nil {
+			boundedRange = true
+		} else {
+			keys := make([]string, len(lines)+1)
+			for index := range keys {
+				keys[index] = strconv.Itoa(index + 1)
+			}
+			resolved, resolveErr := pagination.Resolve(in.Cursor, kind, keys)
+			if resolveErr != nil {
+				return CodeReadResult{}, resolveErr
+			}
+			start, err = strconv.Atoi(resolved)
+			if err != nil {
+				return CodeReadResult{}, fmt.Errorf("invalid code read cursor")
+			}
+			if !boundedRange {
+				end = len(lines)
+			}
+		}
+	}
+	if start < 1 || start > len(lines) || end < start {
+		return CodeReadResult{}, fmt.Errorf("invalid code line range")
+	}
 	if end > len(lines) {
 		end = len(lines)
 	}
+	count := end - start + 1
+	encodeCursor := func(next int) string {
+		if boundedRange {
+			return pagination.EncodeRangeCursor(kind, next, end)
+		}
+		return pagination.Encode(kind, strconv.Itoa(next))
+	}
 	pageSize, fitErr := largestCodePageSize(count, func(pageSize int) (bool, error) {
 		pageEnd := start + pageSize - 1
-		pageContinuation := pageEnd < len(lines)
+		pageContinuation := pageEnd < end
 		pageCursor := ""
 		if pageContinuation {
-			pageCursor = pagination.Encode(kind, strconv.Itoa(pageEnd+1))
+			pageCursor = encodeCursor(pageEnd + 1)
 		}
 		candidate := CodeReadResult{
 			CodeIdentity: target.CodeIdentity, Path: in.Path, StartLine: start, EndLine: pageEnd,
@@ -838,10 +867,10 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	}
 	if pageSize > 0 {
 		pageEnd := start + pageSize - 1
-		pageContinuation := pageEnd < len(lines)
+		pageContinuation := pageEnd < end
 		pageCursor := ""
 		if pageContinuation {
-			pageCursor = pagination.Encode(kind, strconv.Itoa(pageEnd+1))
+			pageCursor = encodeCursor(pageEnd + 1)
 		}
 		return CodeReadResult{
 			CodeIdentity: target.CodeIdentity, Path: in.Path, StartLine: start, EndLine: pageEnd,

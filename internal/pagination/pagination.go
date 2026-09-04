@@ -119,6 +119,49 @@ func DecodeOffset(raw, kind string) (int64, error) {
 	return int64(offset), nil
 }
 
+// EncodeRangeCursor returns a bounded, authenticated cursor for a line range.
+// The scope remains tied to the complete server-owned query while the cursor
+// carries the next line and the requested range end for continuation.
+func EncodeRangeCursor(kind string, offset, end int) string {
+	if offset < 0 || end < offset {
+		return ""
+	}
+	scope := sha256.Sum256([]byte(kind))
+	var raw [49]byte
+	raw[0] = 4
+	copy(raw[1:17], scope[:16])
+	binary.BigEndian.PutUint64(raw[17:25], uint64(offset))
+	binary.BigEndian.PutUint64(raw[25:33], uint64(end))
+	digest := sha256.Sum256(append([]byte(kind+"\x00"), raw[17:33]...))
+	copy(raw[33:], digest[:16])
+	return base64.RawURLEncoding.EncodeToString(raw[:])
+}
+
+// DecodeRangeCursor validates and decodes a cursor created by
+// EncodeRangeCursor. It deliberately binds only to kind; the caller remains
+// responsible for validating the decoded line positions against its object.
+func DecodeRangeCursor(raw, kind string) (int, int, error) {
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil || len(data) != 49 || data[0] != 4 {
+		return 0, 0, fmt.Errorf("invalid continuation cursor")
+	}
+	scope := sha256.Sum256([]byte(kind))
+	if string(data[1:17]) != string(scope[:16]) {
+		return 0, 0, fmt.Errorf("continuation cursor scope does not match")
+	}
+	digest := sha256.Sum256(append([]byte(kind+"\x00"), data[17:33]...))
+	if string(data[33:]) != string(digest[:16]) {
+		return 0, 0, fmt.Errorf("invalid continuation cursor")
+	}
+	offset := binary.BigEndian.Uint64(data[17:25])
+	end := binary.BigEndian.Uint64(data[25:33])
+	maxInt := uint64(^uint(0) >> 1)
+	if offset > maxInt || end > maxInt || end < offset {
+		return 0, 0, fmt.Errorf("invalid continuation cursor")
+	}
+	return int(offset), int(end), nil
+}
+
 func EncodeSearchCursor(kind, path string, line int) string {
 	if line < 0 {
 		return ""

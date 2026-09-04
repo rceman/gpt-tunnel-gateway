@@ -55,6 +55,16 @@ func TestOpaqueCursorsAreBoundedAndScopeBound(t *testing.T) {
 	if got, err := DecodeOffset(offset, kind); err != nil || got != 123456 {
 		t.Fatalf("offset cursor did not round-trip: %d %v", got, err)
 	}
+	rangeCursor := EncodeRangeCursor(kind, 17, 33)
+	if len(rangeCursor) > 256 {
+		t.Fatalf("range cursor is not bounded: %d", len(rangeCursor))
+	}
+	if got, end, err := DecodeRangeCursor(rangeCursor, kind); err != nil || got != 17 || end != 33 {
+		t.Fatalf("range cursor did not round-trip: %d %d %v", got, end, err)
+	}
+	if _, _, err := DecodeRangeCursor(rangeCursor, kind+"-changed-head"); err == nil {
+		t.Fatal("range cursor accepted a different full scope")
+	}
 }
 
 func jsonLegacyCursor(kind, key string) (string, error) {

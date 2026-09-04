@@ -379,4 +379,80 @@ func TestPublicCodeActionsFitPublicEnvelopeE2ELocalSetup(t *testing.T) {
 		"worktree": fixture.mainSelector, "paths": []any{"all-actions-diff.txt"}, "live": true,
 	})
 	assertPublicCodeHead(t, diff, fixture.currentHead)
+func TestPublicCodeReadExactBoundedRangeE2E(t *testing.T) {
+	fixture := newPublicCodeE2EFixture(t)
+	harness := newPublicCodeCallHarness(t, fixture)
+	rangePath := filepath.Join(fixture.server.Service.Config.Projects["example"].Root, "range-e2e.txt")
+	if err := os.WriteFile(rangePath, []byte(strings.Join([]string{
+		"range-01", "range-02", "range-03", "range-04", "range-05", "range-06", "range-07", "range-08",
+	}, "\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(rangePath) })
+
+	short := harness.call(t, "code/read", map[string]any{
+		"worktree": fixture.mainSelector, "path": "range-e2e.txt", "start_line": 3, "line_count": 2, "live": true,
+	})
+	assertPublicCodeHead(t, short, fixture.currentHead)
+	if short["start_line"] != float64(3) || short["end_line"] != float64(4) || short["total_lines"] != float64(8) || short["content"] != "range-03\nrange-04" || publicPagination(t, short) != nil {
+		t.Fatalf("public exact range was not bounded: %#v", short)
+	}
+
+	nearEOF := harness.call(t, "code/read", map[string]any{
+		"worktree": fixture.mainSelector, "path": "range-e2e.txt", "start_line": 7, "line_count": 5, "live": true,
+	})
+	if nearEOF["start_line"] != float64(7) || nearEOF["end_line"] != float64(8) || nearEOF["content"] != "range-07\nrange-08" || publicPagination(t, nearEOF) != nil {
+		t.Fatalf("public near-EOF range was not clamped: %#v", nearEOF)
+	}
+
+	var wide strings.Builder
+	for line := 1; line <= 120; line++ {
+		wide.WriteString(strings.Repeat("range-token ", 40))
+		wide.WriteByte('\n')
+	}
+	widePath := filepath.Join(fixture.server.Service.Config.Projects["example"].Root, "wide-range-e2e.txt")
+	if err := os.WriteFile(widePath, []byte(wide.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(widePath) })
+	page := harness.call(t, "code/read", map[string]any{
+		"worktree": fixture.mainSelector, "path": "wide-range-e2e.txt", "start_line": 10, "line_count": 100, "live": true,
+	})
+	if page["start_line"] != float64(10) || publicPagination(t, page) == nil {
+		t.Fatalf("public oversized range did not return a continuation: %#v", page)
+	}
+	wantStart := 10
+	for pages := 0; ; pages++ {
+		if page["start_line"] != float64(wantStart) || page["end_line"].(float64) > 109 {
+			t.Fatalf("public range continuation was not exact: %#v", page)
+		}
+		pagination := publicPagination(t, page)
+		if pagination == nil {
+			if page["end_line"] != float64(109) {
+				t.Fatalf("public range continuation ended at %#v, want 109", page["end_line"])
+			}
+			break
+		}
+		if pages > 100 || pagination["next_cursor"] == "" {
+			t.Fatalf("public range continuation did not remain bounded: %#v", page)
+		}
+		wantStart = int(page["end_line"].(float64)) + 1
+		page = harness.call(t, "code/read", map[string]any{
+			"worktree": fixture.mainSelector, "path": "wide-range-e2e.txt", "cursor": pagination["next_cursor"], "live": true,
+		})
+	}
+
+	for _, lineCount := range []int{0, -1} {
+		response := harness.client.request(t, "tools/call", map[string]any{
+			"name": "call", "arguments": map[string]any{
+				"session": harness.sessionID, "action": "code/read", "input": map[string]any{
+					"worktree": fixture.mainSelector, "path": "range-e2e.txt", "line_count": lineCount, "live": true,
+				},
+			},
+		})
+		structured := genericStructured(t, response)
+		if structured["is_error"] != true {
+			t.Fatalf("public invalid line_count %d was accepted: %#v", lineCount, structured)
+		}
+	}
 }

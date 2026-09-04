@@ -65,11 +65,23 @@ func TestCodeActionsUseTokenBudgetPaginationWithoutPublicLineOrByteControls(t *t
 		GatewayID: "code-diff-contract-test", StateDir: t.TempDir(),
 	}, nil)}
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"code/worktree", "code/tree", "code/read", "code/search", "code/diff"} {
+	for _, path := range []string{"code/worktree", "code/tree", "code/search", "code/diff"} {
 		properties := entries[path].InputSchema["properties"].(map[string]any)
-		for _, field := range []string{"limit", "line_count", "max_bytes"} {
+		for _, field := range []string{"limit", "max_bytes"} {
 			if _, ok := properties[field]; ok {
 				t.Fatalf("%s still exposes public pagination control %q", path, field)
+			}
+		}
+	}
+	readProperties := entries["code/read"].InputSchema["properties"].(map[string]any)
+	lineCount, ok := readProperties["line_count"].(map[string]any)
+	if !ok || lineCount["type"] != "integer" || lineCount["minimum"] != 1 {
+		t.Fatalf("code/read does not expose an optional positive line_count range: %#v", readProperties)
+	}
+	if required, ok := entries["code/read"].InputSchema["required"].([]string); ok {
+		for _, field := range required {
+			if field == "line_count" {
+				t.Fatal("code/read line_count must remain optional")
 			}
 		}
 	}

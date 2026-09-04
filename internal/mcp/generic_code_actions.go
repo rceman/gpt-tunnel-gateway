@@ -171,8 +171,9 @@ func codeTreeInputSchema() map[string]any {
 func codeReadInputSchema() map[string]any {
 	pathValue := str("Repository-relative regular-file path.")
 	pathValue["maxLength"] = 4096
-	startLine := integer("Optional one-based semantic line target.", 1, int(^uint(0)>>1))
-	return obj(map[string]any{"worktree": codeSelectorSchema(), "path": pathValue, "start_line": startLine, "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree", "path")
+	startLine := integer("Optional one-based semantic range start.", 1, int(^uint(0)>>1))
+	lineCount := integer("Optional bounded number of semantic lines to request.", 1, int(^uint(0)>>1))
+	return obj(map[string]any{"worktree": codeSelectorSchema(), "path": pathValue, "start_line": startLine, "line_count": lineCount, "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree", "path")
 }
 
 func codeSearchInputSchema() map[string]any {
