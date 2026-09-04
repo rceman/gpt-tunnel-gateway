@@ -218,6 +218,11 @@ func TestLocalCodeReadSupportsExactBoundedRangesAndContinuation(t *testing.T) {
 		t.Fatalf("near-EOF range was not clamped: %#v", nearEOF)
 	}
 
+	fileReads := 0
+	f.service.codeFileReader = func(context.Context, localCodeTarget, string) (string, error) {
+		fileReads++
+		return "", nil
+	}
 	for _, invalidCount := range []int{0, -1} {
 		_, err := f.service.CodeRead(context.Background(), CodeReadInput{
 			ProjectID: "example", Worktree: selector, Path: "range.txt", LineCount: &invalidCount, Live: true,
@@ -226,6 +231,10 @@ func TestLocalCodeReadSupportsExactBoundedRangesAndContinuation(t *testing.T) {
 			t.Fatalf("invalid line_count %d was accepted: %v", invalidCount, err)
 		}
 	}
+	if fileReads != 0 {
+		t.Fatalf("invalid line_count triggered %d file reads", fileReads)
+	}
+	f.service.codeFileReader = nil
 	outOfRangeCount := 1
 	if _, err := f.service.CodeRead(context.Background(), CodeReadInput{
 		ProjectID: "example", Worktree: selector, Path: "range.txt", StartLine: 9, LineCount: &outOfRangeCount, Live: true,
@@ -239,6 +248,11 @@ func TestLocalCodeReadSupportsExactBoundedRangesAndContinuation(t *testing.T) {
 	})
 	if err != nil || page.Pagination == nil {
 		t.Fatalf("oversized range did not continue: %#v %v", page, err)
+	}
+	if _, err := f.service.CodeRead(context.Background(), CodeReadInput{
+		ProjectID: "example", Worktree: selector, Path: "range.txt", Cursor: page.Pagination.NextCursor, LineCount: &requestedCount, Live: true,
+	}); err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+		t.Fatalf("cursor plus line_count was not rejected: %v", err)
 	}
 	wantStart, pages := 10, 0
 	for {

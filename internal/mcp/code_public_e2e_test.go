@@ -382,6 +382,13 @@ func TestPublicCodeReadExactBoundedRangeE2E(t *testing.T) {
 	fixture := newPublicCodeE2EFixture(t)
 	harness := newPublicCodeCallHarness(t, fixture)
 	testutil.Git(t, fixture.server.Service.Config.Projects["example"].Root, "push", "origin", "main")
+	immutable := harness.call(t, "code/read", map[string]any{
+		"worktree": fixture.mainSelector, "path": "tracked.txt", "start_line": 2, "line_count": 1,
+	})
+	assertPublicCodeHead(t, immutable, fixture.currentHead)
+	if immutable["start_line"] != float64(2) || immutable["end_line"] != float64(2) || immutable["content"] != "needle tracked line" || publicPagination(t, immutable) != nil {
+		t.Fatalf("public live=false bounded read was not immutable and exact: %#v", immutable)
+	}
 	rangePath := filepath.Join(fixture.server.Service.Config.Projects["example"].Root, "range-e2e.txt")
 	if err := os.WriteFile(rangePath, []byte(strings.Join([]string{
 		"range-01", "range-02", "range-03", "range-04", "range-05", "range-06", "range-07", "range-08",

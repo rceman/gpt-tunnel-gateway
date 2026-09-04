@@ -785,6 +785,12 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	if err := model.ValidateRelativePath(in.Path); err != nil {
 		return CodeReadResult{}, err
 	}
+	if in.Cursor != "" && in.LineCount != nil {
+		return CodeReadResult{}, fmt.Errorf("code read cursor cannot be combined with line_count")
+	}
+	if in.LineCount != nil && *in.LineCount < 1 {
+		return CodeReadResult{}, fmt.Errorf("code read line_count must be positive")
+	}
 	content, err := s.readCodeFile(ctx, target, in.Path)
 	if err != nil {
 		return CodeReadResult{}, err
@@ -797,16 +803,10 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	if start < 1 {
 		return CodeReadResult{}, fmt.Errorf("invalid code line range")
 	}
-	if in.Cursor != "" && in.LineCount != nil {
-		return CodeReadResult{}, fmt.Errorf("code read cursor cannot be combined with line_count")
-	}
 	kind := codeCursorKind("code-read", target, in.Path+"|"+strconv.FormatBool(target.Live))
 	boundedRange := in.LineCount != nil
 	end := len(lines)
 	if boundedRange {
-		if *in.LineCount < 1 {
-			return CodeReadResult{}, fmt.Errorf("code read line_count must be positive")
-		}
 		if start > len(lines) {
 			return CodeReadResult{}, fmt.Errorf("code read start_line exceeds file")
 		}
