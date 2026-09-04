@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
@@ -34,8 +35,9 @@ func TestHotfixListAndReadUseBoundedIdentityAuthority(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(lane, "marker.txt"), []byte("materialized\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	longSubject := strings.Repeat("Ж", 100)
 	testutil.Git(t, lane, "add", "marker.txt")
-	testutil.Git(t, lane, "commit", "-m", "materialized hotfix subject")
+	testutil.Git(t, lane, "commit", "-m", longSubject)
 	hotfixHead := strings.TrimSpace(testutil.Git(t, lane, "rev-parse", "HEAD"))
 	testutil.Git(t, lane, "push", "origin", branch)
 	if err := s.Git.Refresh(context.Background(), s.Config.Projects["example"]); err != nil {
@@ -54,7 +56,7 @@ func TestHotfixListAndReadUseBoundedIdentityAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.MainHead != base[:8] || len(first.Hotfixes) != 1 || first.Hotfixes[0].Hotfix != "hotfix/newer" || first.Hotfixes[0].Head != hotfixHead[:8] || first.Hotfixes[0].Subject != "materialized hotfix subject" || !first.HasMore || first.NextCursor == "" {
+	if first.MainHead != base[:8] || len(first.Hotfixes) != 1 || first.Hotfixes[0].Hotfix != "hotfix/newer" || first.Hotfixes[0].Head != hotfixHead[:8] || len(first.Hotfixes[0].Subject) > 160 || !utf8.ValidString(first.Hotfixes[0].Subject) || first.Hotfixes[0].Subject != strings.Repeat("Ж", 80) || !first.HasMore || first.NextCursor == "" {
 		t.Fatalf("first page=%#v", first)
 	}
 	second, err := s.HotfixList(context.Background(), HotfixListInput{ProjectID: "example", Limit: 1, Cursor: first.NextCursor})
