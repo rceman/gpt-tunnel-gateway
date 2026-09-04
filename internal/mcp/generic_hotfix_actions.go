@@ -21,6 +21,46 @@ func (s *Server) ensureHotfixActions() {
 
 func (s *Server) registerHotfixActions() error {
 	if err := s.RegisterGenericAction(GenericAction{
+		Path: "hotfix/list", Description: "List bounded server-owned hotfix lanes and execution identity.",
+		InputSchema: hotfixListInputSchema(), OutputSchema: hotfixListOutputSchema(),
+		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
+		AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.HotfixListInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			projectID, err := boundHotfixProject(s, ctx)
+			if err != nil {
+				return nil, err
+			}
+			in.ProjectID = projectID
+			return s.Service.HotfixList(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path: "hotfix/read", Description: "Read one server-owned hotfix lane and execution identity.",
+		InputSchema: hotfixReadInputSchema(), OutputSchema: hotfixReadOutputSchema(),
+		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
+		AuthorityRole: actionRolePlannerOrDelivery,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in service.HotfixReadInput
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			projectID, err := boundHotfixProject(s, ctx)
+			if err != nil {
+				return nil, err
+			}
+			in.ProjectID = projectID
+			return s.Service.HotfixRead(ctx, in)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
 		Path:            "hotfix/create",
 		Description:     "Create one isolated hotfix lane from the exact refreshed canonical main.",
 		InputSchema:     hotfixCreateInputSchema(),
@@ -64,6 +104,25 @@ func (s *Server) registerHotfixActions() error {
 			return s.Service.HotfixIntegrate(ctx, projectID, in)
 		},
 	})
+}
+
+func hotfixListInputSchema() map[string]any {
+	limit := integer("Maximum hotfix lanes.", 1, service.MaxPublicCollectionLimit)
+	limit["default"] = service.DefaultPublicCollectionLimit
+	return obj(map[string]any{"limit": limit, "cursor": str("Server-owned continuation cursor.")})
+}
+
+func hotfixReadInputSchema() map[string]any {
+	ref := str("Canonical hotfix/<slug> or refs/heads/hotfix/<slug>.")
+	return obj(map[string]any{"hotfix": ref}, "hotfix")
+}
+
+func hotfixListOutputSchema() map[string]any {
+	return closedOutput(map[string]any{"hotfixes": outputArray(hotfixReadOutputSchema()), "next_cursor": outputString(), "has_more": outputBoolean()}, "hotfixes")
+}
+
+func hotfixReadOutputSchema() map[string]any {
+	return closedOutput(map[string]any{"project_id": outputString(), "hotfix_ref": outputString(), "task_id": outputString(), "base_sha": outputString(), "head_sha": outputString(), "state": outputString()}, "project_id", "hotfix_ref", "task_id", "base_sha", "state")
 }
 
 func boundHotfixProject(s *Server, ctx context.Context) (string, error) {

@@ -25,7 +25,7 @@ var projectionClasses = map[string]projectionClass{
 	"code/diff": projectionIntentionalPayload, "code/read": projectionIntentionalPayload, "code/search": projectionIntentionalPayload,
 	"code/tree": projectionIntentionalPayload, "code/worktree": projectionCompactDefault,
 	"gateway/capabilities": projectionClosedDefault, "gateway/status": projectionClosedDefault,
-	"hotfix/create": projectionCompactDefault, "hotfix/integrate": projectionCompactDefault,
+	"hotfix/create": projectionCompactDefault, "hotfix/integrate": projectionCompactDefault, "hotfix/list": projectionClosedDefault, "hotfix/read": projectionClosedDefault,
 	"operation/read": projectionClosedDefault, "operator/checkpoint": projectionCompactDefault, "operator/history": projectionIntentionalPayload, "operator/record": projectionCompactDefault,
 	"project/status": projectionClosedDefault,
 	"rules/read":     projectionIntentionalPayload, "runtime/logs": projectionIntentionalPayload, "runtime/restart": projectionCompactDefault,
