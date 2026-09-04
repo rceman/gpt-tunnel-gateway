@@ -96,14 +96,15 @@ type CodeReadInput struct {
 }
 
 type CodeSearchInput struct {
-	ProjectID string   `json:"-"`
-	Worktree  string   `json:"worktree"`
-	Query     string   `json:"query"`
-	Paths     []string `json:"paths"`
-	Include   []string `json:"include"`
-	Exclude   []string `json:"exclude"`
-	Cursor    string   `json:"cursor"`
-	Live      bool     `json:"live"`
+	ProjectID    string   `json:"-"`
+	Worktree     string   `json:"worktree"`
+	Query        string   `json:"query"`
+	Paths        []string `json:"paths"`
+	Include      []string `json:"include"`
+	Exclude      []string `json:"exclude"`
+	ContextLines int      `json:"context_lines"`
+	Cursor       string   `json:"cursor"`
+	Live         bool     `json:"live"`
 }
 
 type CodeDiffInput struct {
@@ -144,6 +145,41 @@ type CodeSearchResult struct {
 	PathsScanned int               `json:"paths_scanned"`
 	Matches      []CodeSearchMatch `json:"matches"`
 	Pagination   *CodePagination   `json:"_pagination,omitempty"`
+}
+
+func boundedSearchSnippet(lines []string, matchLine, contextLines int) string {
+	start := matchLine - contextLines
+	if start < 0 {
+		start = 0
+	}
+	end := matchLine + contextLines + 1
+	if end > len(lines) {
+		end = len(lines)
+	}
+	matched := lines[matchLine]
+	if len(matched) >= 240 {
+		return matched[:240]
+	}
+	remaining := 240 - len(matched)
+	before := strings.Join(lines[start:matchLine], "\n")
+	after := strings.Join(lines[matchLine+1:end], "\n")
+	beforeTake := len(before)
+	if beforeTake > remaining/2 {
+		beforeTake = remaining / 2
+	}
+	afterTake := len(after)
+	if afterTake > remaining-beforeTake {
+		afterTake = remaining - beforeTake
+	}
+	parts := make([]string, 0, 3)
+	if beforeTake > 0 {
+		parts = append(parts, before[len(before)-beforeTake:])
+	}
+	parts = append(parts, matched)
+	if afterTake > 0 {
+		parts = append(parts, after[:afterTake])
+	}
+	return strings.Join(parts, "\n")
 }
 
 type CodeDiffResult struct {
@@ -915,11 +951,14 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	if in.Query == "" || len(in.Query) > LocalCodeMaxQueryBytes || strings.ContainsAny(in.Query, "\x00\r\n") {
 		return CodeSearchResult{}, fmt.Errorf("invalid search query")
 	}
+	if in.ContextLines < 0 || in.ContextLines > 3 {
+		return CodeSearchResult{}, fmt.Errorf("context_lines must be between 0 and 3")
+	}
 	selectedPaths, err := validateLocalCodePaths(in.Paths, false)
 	if err != nil {
 		return CodeSearchResult{}, err
 	}
-	kind := codeCursorKind("code-search", target, in.Query+"|"+strings.Join(selectedPaths, "\x00")+"|"+strings.Join(in.Include, "\x00")+"|"+strings.Join(in.Exclude, "\x00")+"|"+strconv.FormatBool(target.Live))
+	kind := codeCursorKind("code-search", target, in.Query+"|"+strings.Join(selectedPaths, "\x00")+"|"+strings.Join(in.Include, "\x00")+"|"+strings.Join(in.Exclude, "\x00")+"|"+strconv.Itoa(in.ContextLines)+"|"+strconv.FormatBool(target.Live))
 	if in.Cursor != "" {
 		if err := pagination.ValidateSearchCursor(in.Cursor, kind); err != nil {
 			return CodeSearchResult{}, err
@@ -964,6 +1003,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		if strings.IndexByte(data, 0) >= 0 {
 			return nil
 		}
+		lines := strings.Split(data, "\n")
 		for lineNumber, line := range strings.Split(data, "\n") {
 			if !strings.Contains(line, in.Query) {
 				continue
@@ -976,10 +1016,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 				}
 				continue
 			}
-			snippet := line
-			if len(snippet) > 240 {
-				snippet = snippet[:240]
-			}
+			snippet := boundedSearchSnippet(lines, lineNumber, in.ContextLines)
 			candidate := CodeSearchResult{
 				CodeIdentity: result.CodeIdentity, PathsScanned: pathsScanned,
 				Matches: append(append([]CodeSearchMatch(nil), result.Matches...), CodeSearchMatch{Path: pathName, Line: lineNumber + 1, Snippet: snippet}),

@@ -326,6 +326,23 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 	}
 }
 
+func TestPublicCodeSearchContextLinesE2E(t *testing.T) {
+	fixture := newPublicCodeE2EFixture(t)
+	harness := newPublicCodeCallHarness(t, fixture)
+	result := harness.call(t, "code/search", map[string]any{
+		"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "query": "needle", "context_lines": 1, "live": true,
+	})
+	assertPublicCodeHead(t, result, fixture.currentHead)
+	matches, ok := result["matches"].([]any)
+	if !ok || len(matches) == 0 {
+		t.Fatalf("context search returned no matches: %#v", result)
+	}
+	first, ok := matches[0].(map[string]any)
+	if !ok || !strings.Contains(first["snippet"].(string), "\n") {
+		t.Fatalf("context search did not include surrounding lines: %#v", first)
+	}
+}
+
 func TestPublicCodeSearchAndDiffOverflowE2ELocalSetup(t *testing.T) {
 	fixture := newPublicCodeE2EFixture(t)
 	harness := newPublicCodeCallHarness(t, fixture)

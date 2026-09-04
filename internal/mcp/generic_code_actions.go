@@ -183,7 +183,8 @@ func codeSearchInputSchema() map[string]any {
 	paths["maxItems"] = service.LocalCodeMaxPaths
 	patterns := array(str("Optional repository-relative path glob."))
 	patterns["maxItems"] = service.LocalCodeMaxPatterns
-	return obj(map[string]any{"worktree": codeSelectorSchema(), "query": query, "paths": paths, "include": patterns, "exclude": patterns, "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree", "query")
+	contextLines := integer("Optional number of surrounding lines per match.", 0, 3)
+	return obj(map[string]any{"worktree": codeSelectorSchema(), "query": query, "paths": paths, "include": patterns, "exclude": patterns, "context_lines": contextLines, "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree", "query")
 }
 
 func codeDiffInputSchema() map[string]any {
