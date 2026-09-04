@@ -48,11 +48,12 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 		if !ok || binding.Validate() != nil {
 			return ResolvedAgent{}, fmt.Errorf("agent %q is not currently usable", in.AgentID)
 		}
-		binding, err = s.resolveExactAgentBinding(ctx, binding, in.RequireUsable)
+		var exactAuthority bool
+		binding, exactAuthority, err = s.resolveExactAgentBinding(ctx, binding, in.RequireUsable)
 		if err != nil {
 			return ResolvedAgent{}, fmt.Errorf("agent %q is not currently usable: %w", in.AgentID, err)
 		}
-		if in.RequireUsable && binding.Profile != "" {
+		if in.RequireUsable && !exactAuthority {
 			status, statusErr := s.Airelay.Status(ctx, binding.SessionKey)
 			if statusErr != nil || !status.ControllerReachable || status.State != "idle" {
 				return ResolvedAgent{}, fmt.Errorf("agent %q is not currently usable", in.AgentID)
@@ -87,11 +88,12 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 		if !ok || binding.Validate() != nil {
 			continue
 		}
-		binding, bindingErr := s.resolveExactAgentBinding(ctx, binding, in.RequireUsable)
+		var exactAuthority bool
+		binding, exactAuthority, bindingErr := s.resolveExactAgentBinding(ctx, binding, in.RequireUsable)
 		if bindingErr != nil {
 			continue
 		}
-		if in.RequireUsable && binding.Profile != "" {
+		if in.RequireUsable && !exactAuthority {
 			status, statusErr := s.Airelay.Status(ctx, binding.SessionKey)
 			if statusErr != nil || !status.ControllerReachable || status.State != "idle" {
 				continue
@@ -146,15 +148,16 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 	}, nil
 }
 
-func (s *Service) resolveExactAgentBinding(ctx context.Context, binding config.AgentBinding, requireUsable bool) (config.AgentBinding, error) {
+func (s *Service) resolveExactAgentBinding(ctx context.Context, binding config.AgentBinding, requireUsable bool) (config.AgentBinding, bool, error) {
 	if binding.Profile == "" {
-		profile, err := s.Airelay.ResolveSessionProfile(ctx, binding.SessionKey, requireUsable)
+		authority, err := s.Airelay.ResolveSessionAuthority(ctx, binding.SessionKey, requireUsable)
 		if err != nil {
-			return config.AgentBinding{}, err
+			return config.AgentBinding{}, false, err
 		}
-		binding.Profile = profile
+		binding.Profile = authority.Profile
+		return binding, true, nil
 	}
-	return binding, nil
+	return binding, false, nil
 }
 
 func validRoutingReasoning(value string) bool {

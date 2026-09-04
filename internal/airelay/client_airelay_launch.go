@@ -41,7 +41,7 @@ type launchHistoryEntry struct {
 
 var profileRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
-type executionSessionStatus struct {
+type SessionAuthority struct {
 	SessionKey          string `json:"sessionKey"`
 	Profile             string `json:"profile"`
 	ControllerReachable bool   `json:"controllerReachable"`
@@ -252,28 +252,28 @@ func (c Client) executionHistory(ctx context.Context) ([]launchHistoryEntry, err
 	return entries, nil
 }
 
-func (c Client) executionStatus(ctx context.Context, key string) (executionSessionStatus, error) {
-	var status executionSessionStatus
+func (c Client) executionStatus(ctx context.Context, key string) (SessionAuthority, error) {
+	var status SessionAuthority
 	if err := c.runJSON(ctx, []string{"session-status", key, "--json", "--no-warn"}, &status); err != nil {
-		return executionSessionStatus{}, err
+		return SessionAuthority{}, err
 	}
-	if status.SessionKey != key || status.Profile == "" {
-		return executionSessionStatus{}, fmt.Errorf("Airelay session-status key mismatch")
+	if status.SessionKey != key || !profileRE.MatchString(status.Profile) {
+		return SessionAuthority{}, fmt.Errorf("Airelay session-status key or profile mismatch")
 	}
 	return status, nil
 }
 
-// ResolveSessionProfile resolves the profile for one exact server-owned base
-// session key. It never scans or infers from the active-session inventory.
-func (c Client) ResolveSessionProfile(ctx context.Context, key string, requireUsable bool) (string, error) {
+// ResolveSessionAuthority resolves one exact server-owned base session key.
+// It never scans or infers from the active-session inventory.
+func (c Client) ResolveSessionAuthority(ctx context.Context, key string, requireUsable bool) (SessionAuthority, error) {
 	status, err := c.executionStatus(ctx, key)
 	if err != nil {
-		return "", err
+		return SessionAuthority{}, err
 	}
 	if !status.ControllerReachable || status.State == "error" || requireUsable && status.State != "idle" {
-		return "", fmt.Errorf("Airelay session %q is not usable", key)
+		return SessionAuthority{}, fmt.Errorf("Airelay session %q is not usable", key)
 	}
-	return status.Profile, nil
+	return status, nil
 }
 
 func normalizeCWD(value string) string {
