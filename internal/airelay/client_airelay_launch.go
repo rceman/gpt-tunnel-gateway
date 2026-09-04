@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -22,7 +23,7 @@ type ExecutionSessionRequest struct {
 }
 
 type executionSessionEntry struct {
-	ID         string `json:"id"`
+	ID         string `json:"sessionId"`
 	Profile    string `json:"profile"`
 	SessionKey string `json:"sessionKey"`
 	CWD        string `json:"cwd"`
@@ -36,6 +37,13 @@ type launchHistoryEntry struct {
 }
 
 var profileRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
+
+type executionSessionStatus struct {
+	SessionKey          string `json:"sessionKey"`
+	Profile             string `json:"profile"`
+	ControllerReachable bool   `json:"controllerReachable"`
+	State               string `json:"state"`
+}
 
 // EnsureExecutionSession returns a deterministic lane-specific session key.
 // Existing sessions are reused only after exact machine-readable authority
@@ -76,7 +84,7 @@ func (c Client) EnsureExecutionSession(ctx context.Context, in ExecutionSessionR
 		if entry.SessionKey != key {
 			continue
 		}
-		if entry.Profile != profile || filepath.Clean(entry.CWD) != worktree {
+		if entry.Profile != profile || normalizeCWD(entry.CWD) != worktree {
 			return "", fmt.Errorf("execution Airelay session %q has mismatched authority", key)
 		}
 		matched = true
@@ -90,7 +98,7 @@ func (c Client) EnsureExecutionSession(ctx context.Context, in ExecutionSessionR
 		if entry.SessionKey != key {
 			continue
 		}
-		if entry.Profile != profile || filepath.Clean(entry.InvocationCWD) != worktree {
+		if entry.Profile != profile || normalizeCWD(entry.InvocationCWD) != worktree {
 			return "", fmt.Errorf("execution Airelay launch history %q has mismatched authority", key)
 		}
 		historyMatch = true
@@ -122,7 +130,7 @@ func (c Client) EnsureExecutionSession(ctx context.Context, in ExecutionSessionR
 		matched, historyMatch = false, false
 		for _, entry := range sessions {
 			if entry.SessionKey == key {
-				if entry.Profile != profile || filepath.Clean(entry.CWD) != worktree {
+				if entry.Profile != profile || normalizeCWD(entry.CWD) != worktree {
 					return "", fmt.Errorf("new execution Airelay session %q has mismatched authority", key)
 				}
 				matched = true
@@ -130,7 +138,7 @@ func (c Client) EnsureExecutionSession(ctx context.Context, in ExecutionSessionR
 		}
 		for _, entry := range history {
 			if entry.SessionKey == key {
-				if entry.Profile != profile || filepath.Clean(entry.InvocationCWD) != worktree {
+				if entry.Profile != profile || normalizeCWD(entry.InvocationCWD) != worktree {
 					return "", fmt.Errorf("new execution Airelay history %q has mismatched authority", key)
 				}
 				historyMatch = true
@@ -140,7 +148,7 @@ func (c Client) EnsureExecutionSession(ctx context.Context, in ExecutionSessionR
 			return "", fmt.Errorf("execution Airelay launch %q was not durably recorded", key)
 		}
 	}
-	status, err := c.Status(ctx, key)
+	status, err := c.executionStatus(ctx, key)
 	if err != nil || !status.ControllerReachable || status.State == "error" {
 		if err != nil {
 			return "", fmt.Errorf("execution Airelay session is not reachable: %w", err)
@@ -151,15 +159,11 @@ func (c Client) EnsureExecutionSession(ctx context.Context, in ExecutionSessionR
 }
 
 func (c Client) executionSessions(ctx context.Context) ([]executionSessionEntry, error) {
-	var raw map[string][]executionSessionEntry
-	if err := c.runJSON(ctx, []string{"sessions", "--json"}, &raw); err != nil {
+	var rows []executionSessionEntry
+	if err := c.runJSON(ctx, []string{"sessions", "--active", "--json"}, &rows); err != nil {
 		return nil, fmt.Errorf("read Airelay sessions: %w", err)
 	}
-	var entries []executionSessionEntry
-	for _, profileEntries := range raw {
-		entries = append(entries, profileEntries...)
-	}
-	return entries, nil
+	return rows, nil
 }
 
 func (c Client) executionHistory(ctx context.Context) ([]launchHistoryEntry, error) {
@@ -168,6 +172,39 @@ func (c Client) executionHistory(ctx context.Context) ([]launchHistoryEntry, err
 		return nil, fmt.Errorf("read Airelay launch history: %w", err)
 	}
 	return entries, nil
+}
+
+func (c Client) executionStatus(ctx context.Context, key string) (executionSessionStatus, error) {
+	var status executionSessionStatus
+	if err := c.runJSON(ctx, []string{"session-status", key, "--json", "--no-warn"}, &status); err != nil {
+		return executionSessionStatus{}, err
+	}
+	if status.SessionKey != "" && status.SessionKey != key {
+		return executionSessionStatus{}, fmt.Errorf("Airelay session-status key mismatch")
+	}
+	return status, nil
+}
+
+func normalizeCWD(value string) string {
+	if value == "" {
+		return ""
+	}
+	if value == "~" || strings.HasPrefix(value, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		if value == "~" {
+			value = home
+		} else {
+			value = filepath.Join(home, strings.TrimPrefix(value, "~/"))
+		}
+	}
+	resolved, err := filepath.Abs(value)
+	if err != nil {
+		return ""
+	}
+	return filepath.Clean(resolved)
 }
 
 func (c Client) runJSON(ctx context.Context, args []string, target any) error {

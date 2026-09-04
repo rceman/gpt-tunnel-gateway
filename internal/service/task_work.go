@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -139,6 +140,9 @@ func (s *Service) TaskWork(ctx context.Context, in TaskWorkInput) (TaskWorkResul
 			return TaskWorkResult{}, err
 		}
 	}
+	if err := s.validateTrainExecutionSession(ctx, current); err != nil {
+		return TaskWorkResult{}, err
+	}
 	packet, err := s.materializeTrainV2Packet(ctx, current.Train, current.Item, current.Attempt, current.Runtime)
 	if err != nil {
 		return TaskWorkResult{}, err
@@ -157,6 +161,30 @@ func (s *Service) TaskWork(ctx context.Context, in TaskWorkInput) (TaskWorkResul
 		WorktreePath:  filepath.Clean(packet.WorktreePath),
 		Text:          string(text),
 	}, nil
+}
+
+func (s *Service) validateTrainExecutionSession(ctx context.Context, current currentTaskAttempt) error {
+	resolved, err := s.ResolveAgent(ctx, AgentResolveInput{
+		ProjectID: current.Train.ProjectID,
+		Role:      model.AgentRoleCoding,
+		AgentID:   current.Attempt.AgentID,
+	})
+	if err != nil {
+		return err
+	}
+	key, err := s.Airelay.EnsureExecutionSession(ctx, airelay.ExecutionSessionRequest{
+		BaseSessionKey: resolved.SessionKey,
+		Profile:        resolved.Profile,
+		WorktreePath:   current.Runtime.WorktreePath,
+		Identity:       "train:" + current.Train.ProjectID + ":" + current.Train.ID,
+	})
+	if err != nil {
+		return err
+	}
+	if key != current.Runtime.SessionKey {
+		return fmt.Errorf("Train runtime execution session does not match current lane authority")
+	}
+	return nil
 }
 
 func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task model.TaskAuthoring) (TaskWorkResult, error) {
@@ -194,6 +222,13 @@ func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task mod
 	if branch != wantBranch || model.ValidateCommitSHA(head) != nil {
 		return TaskWorkResult{}, fmt.Errorf("Task hotfix worktree identity is invalid")
 	}
+	ancestor, err := s.Git.IsAncestor(ctx, worktree.Root, identity.BaseSHA, head)
+	if err != nil {
+		return TaskWorkResult{}, err
+	}
+	if !ancestor {
+		return TaskWorkResult{}, fmt.Errorf("Task hotfix head is not descended from its recorded base")
+	}
 	resolved, err := s.ResolveAgent(ctx, AgentResolveInput{
 		ProjectID:            in.ProjectID,
 		Role:                 model.AgentRoleCoding,
@@ -213,7 +248,23 @@ func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task mod
 	if err != nil {
 		return TaskWorkResult{}, err
 	}
-	if _, err := s.agentSendOnSession(ctx, in.ProjectID, resolved.AgentID, session, "Read Task "+task.ID+" and execute it in the assigned hotfix worktree."); err != nil {
+	message := "Read Task " + task.ID + " and execute it in the assigned hotfix worktree."
+	generation := hotfixExecutionGeneration(in.ProjectID, identity.HotfixRef, task.ID, task.Revision, head, resolved.AgentID, session, resolved.Profile, worktree.Root, message)
+	receiptPath := hotfixExecutionReceiptPath(s.Config.StateDir, in.ProjectID, task.ID, generation)
+	if receipt, readErr := readHotfixExecutionReceipt(receiptPath); readErr == nil {
+		return TaskWorkResult{TaskID: task.ID, WorktreePath: filepath.Clean(receipt.WorktreePath), Text: task.Objective}, nil
+	} else if !os.IsNotExist(readErr) {
+		return TaskWorkResult{}, readErr
+	}
+	if _, err := s.agentSendOnSession(ctx, in.ProjectID, resolved.AgentID, session, message); err != nil {
+		return TaskWorkResult{}, err
+	}
+	if err := writeHotfixExecutionReceipt(receiptPath, hotfixExecutionReceipt{
+		ProjectID: in.ProjectID, HotfixRef: identity.HotfixRef, TaskID: task.ID,
+		TaskRevision: task.Revision, Head: head, AgentID: resolved.AgentID,
+		SessionKey: session, Profile: resolved.Profile, WorktreePath: filepath.Clean(worktree.Root),
+		Message: message, Delivered: true, CreatedAt: s.durableNow(),
+	}); err != nil {
 		return TaskWorkResult{}, err
 	}
 	return TaskWorkResult{TaskID: task.ID, WorktreePath: filepath.Clean(worktree.Root), Text: task.Objective}, nil
