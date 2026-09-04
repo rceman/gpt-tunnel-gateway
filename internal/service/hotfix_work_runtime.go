@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
+	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -26,6 +27,7 @@ type hotfixExecutionReceipt struct {
 	Profile      string    `json:"profile,omitempty"`
 	WorktreePath string    `json:"worktree_path"`
 	Message      string    `json:"message"`
+	State        string    `json:"state"`
 	Delivered    bool      `json:"delivered"`
 	CreatedAt    time.Time `json:"created_at"`
 }
@@ -44,10 +46,18 @@ func readHotfixExecutionReceipt(path string) (hotfixExecutionReceipt, error) {
 	if err := fsutil.ReadJSONBounded(path, hotfixExecutionReceiptMaxBytes, &receipt); err != nil {
 		return hotfixExecutionReceipt{}, err
 	}
-	if !receipt.Delivered || model.ValidateProjectIdentifier(receipt.ProjectID) != nil || model.ValidateCanonicalTaskID(receipt.TaskID) != nil || model.ValidateCommitSHA(receipt.Head) != nil || receipt.HotfixRef == "" || receipt.SessionKey == "" || receipt.WorktreePath == "" || receipt.Message == "" || receipt.CreatedAt.IsZero() {
+	if (receipt.State != "prepared" && receipt.State != "delivered" && !(receipt.State == "" && receipt.Delivered)) || receipt.State == "delivered" && !receipt.Delivered || receipt.State == "prepared" && receipt.Delivered || model.ValidateProjectIdentifier(receipt.ProjectID) != nil || model.ValidateCanonicalTaskID(receipt.TaskID) != nil || model.ValidateCommitSHA(receipt.Head) != nil || receipt.HotfixRef == "" || receipt.SessionKey == "" || receipt.WorktreePath == "" || receipt.Message == "" || receipt.CreatedAt.IsZero() {
 		return hotfixExecutionReceipt{}, fmt.Errorf("invalid hotfix execution receipt")
 	}
 	return receipt, nil
+}
+
+func (receipt hotfixExecutionReceipt) matches(expected hotfixExecutionReceipt) bool {
+	return receipt.ProjectID == expected.ProjectID && receipt.HotfixRef == expected.HotfixRef && receipt.TaskID == expected.TaskID && receipt.TaskRevision == expected.TaskRevision && receipt.Head == expected.Head && receipt.AgentID == expected.AgentID && receipt.SessionKey == expected.SessionKey && receipt.Profile == expected.Profile && receipt.WorktreePath == expected.WorktreePath && receipt.Message == expected.Message
+}
+
+func acquireHotfixExecutionLock(stateDir, generation string) (*lockfile.Lock, error) {
+	return lockfile.Acquire(filepath.Join(stateDir, "locks"), "hotfix-execution-"+generation)
 }
 
 func writeHotfixExecutionReceipt(path string, receipt hotfixExecutionReceipt) error {

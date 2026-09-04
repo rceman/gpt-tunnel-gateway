@@ -172,13 +172,16 @@ func (s *Service) validateTrainExecutionSession(ctx context.Context, current cur
 	if err != nil {
 		return err
 	}
-	key, err := s.Airelay.EnsureExecutionSession(ctx, airelay.ExecutionSessionRequest{
+	key, err := airelay.DeriveExecutionSessionKey(resolved.SessionKey, resolved.Profile, "train:"+current.Train.ProjectID+":"+current.Train.ID)
+	if err != nil {
+		return err
+	}
+	if err := s.Airelay.ValidateExecutionSession(ctx, airelay.ExecutionSessionRequest{
 		BaseSessionKey: resolved.SessionKey,
 		Profile:        resolved.Profile,
 		WorktreePath:   current.Runtime.WorktreePath,
 		Identity:       "train:" + current.Train.ProjectID + ":" + current.Train.ID,
-	})
-	if err != nil {
+	}); err != nil {
 		return err
 	}
 	if key != current.Runtime.SessionKey {
@@ -239,32 +242,57 @@ func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task mod
 	if err != nil {
 		return TaskWorkResult{}, err
 	}
-	session, err := s.Airelay.EnsureExecutionSession(ctx, airelay.ExecutionSessionRequest{
-		BaseSessionKey: resolved.SessionKey,
-		Profile:        resolved.Profile,
-		WorktreePath:   worktree.Root,
-		Identity:       "hotfix:" + identity.HotfixRef + ":" + task.ID,
-	})
+	message := "Read Task " + task.ID + " and execute it in the assigned hotfix worktree."
+	session, err := airelay.DeriveExecutionSessionKey(resolved.SessionKey, resolved.Profile, "hotfix:"+identity.HotfixRef+":"+task.ID)
 	if err != nil {
 		return TaskWorkResult{}, err
 	}
-	message := "Read Task " + task.ID + " and execute it in the assigned hotfix worktree."
 	generation := hotfixExecutionGeneration(in.ProjectID, identity.HotfixRef, task.ID, task.Revision, head, resolved.AgentID, session, resolved.Profile, worktree.Root, message)
 	receiptPath := hotfixExecutionReceiptPath(s.Config.StateDir, in.ProjectID, task.ID, generation)
+	lock, err := acquireHotfixExecutionLock(s.Config.StateDir, generation)
+	if err != nil {
+		return TaskWorkResult{}, err
+	}
+	defer func() { _ = lock.Release() }()
+	expectedReceipt := hotfixExecutionReceipt{
+		ProjectID: in.ProjectID, HotfixRef: identity.HotfixRef, TaskID: task.ID,
+		TaskRevision: task.Revision, Head: head, AgentID: resolved.AgentID,
+		SessionKey: session, Profile: resolved.Profile, WorktreePath: filepath.Clean(worktree.Root),
+		Message: message,
+	}
 	if receipt, readErr := readHotfixExecutionReceipt(receiptPath); readErr == nil {
+		if !receipt.matches(expectedReceipt) {
+			return TaskWorkResult{}, fmt.Errorf("hotfix execution receipt does not match current dispatch binding")
+		}
+		if receipt.State == "prepared" {
+			return TaskWorkResult{}, fmt.Errorf("hotfix execution dispatch is ambiguous and requires recovery")
+		}
 		return TaskWorkResult{TaskID: task.ID, WorktreePath: filepath.Clean(receipt.WorktreePath), Text: task.Objective}, nil
 	} else if !os.IsNotExist(readErr) {
 		return TaskWorkResult{}, readErr
 	}
+	if _, err := s.Airelay.EnsureExecutionSession(ctx, airelay.ExecutionSessionRequest{
+		BaseSessionKey: resolved.SessionKey,
+		Profile:        resolved.Profile,
+		WorktreePath:   worktree.Root,
+		Identity:       "hotfix:" + identity.HotfixRef + ":" + task.ID,
+		LockDir:        filepath.Join(s.Config.StateDir, "locks"),
+	}); err != nil {
+		return TaskWorkResult{}, err
+	}
+	createdAt := s.durableNow()
+	prepared := expectedReceipt
+	prepared.State = "prepared"
+	prepared.CreatedAt = createdAt
+	if err := writeHotfixExecutionReceipt(receiptPath, prepared); err != nil {
+		return TaskWorkResult{}, err
+	}
 	if _, err := s.agentSendOnSession(ctx, in.ProjectID, resolved.AgentID, session, message); err != nil {
 		return TaskWorkResult{}, err
 	}
-	if err := writeHotfixExecutionReceipt(receiptPath, hotfixExecutionReceipt{
-		ProjectID: in.ProjectID, HotfixRef: identity.HotfixRef, TaskID: task.ID,
-		TaskRevision: task.Revision, Head: head, AgentID: resolved.AgentID,
-		SessionKey: session, Profile: resolved.Profile, WorktreePath: filepath.Clean(worktree.Root),
-		Message: message, Delivered: true, CreatedAt: s.durableNow(),
-	}); err != nil {
+	delivered := prepared
+	delivered.State, delivered.Delivered = "delivered", true
+	if err := writeHotfixExecutionReceipt(receiptPath, delivered); err != nil {
 		return TaskWorkResult{}, err
 	}
 	return TaskWorkResult{TaskID: task.ID, WorktreePath: filepath.Clean(worktree.Root), Text: task.Objective}, nil

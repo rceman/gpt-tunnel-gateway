@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -130,6 +131,7 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 		Profile:        in.Profile,
 		WorktreePath:   worktreePath,
 		Identity:       "train:" + in.ProjectID + ":" + in.TrainID,
+		LockDir:        filepath.Join(deps.StateDir, "locks"),
 	})
 	if err != nil {
 		return StartResult{}, err
