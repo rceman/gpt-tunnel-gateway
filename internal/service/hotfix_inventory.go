@@ -17,19 +17,27 @@ type HotfixListInput struct {
 	Cursor    string `json:"cursor,omitempty"`
 }
 
-type HotfixInventoryItem struct {
-	ProjectID string `json:"project_id"`
-	HotfixRef string `json:"hotfix_ref"`
-	TaskID    string `json:"task_id"`
-	BaseSHA   string `json:"base_sha"`
-	HeadSHA   string `json:"head_sha,omitempty"`
-	State     string `json:"state"`
+type HotfixListItem struct {
+	Task    string `json:"task"`
+	Hotfix  string `json:"hotfix"`
+	Head    string `json:"head"`
+	Subject string `json:"subject"`
+}
+
+type HotfixReadResult struct {
+	ProjectID    string `json:"project_id"`
+	HotfixRef    string `json:"hotfix_ref"`
+	TaskID       string `json:"task_id"`
+	BaseSHA      string `json:"base_sha"`
+	HeadSHA      string `json:"head_sha"`
+	Materialized bool   `json:"materialized"`
 }
 
 type HotfixListResult struct {
-	Hotfixes   []HotfixInventoryItem `json:"hotfixes"`
-	NextCursor string                `json:"next_cursor,omitempty"`
-	HasMore    bool                  `json:"has_more,omitempty"`
+	MainHead   string           `json:"main_head"`
+	Hotfixes   []HotfixListItem `json:"hotfixes"`
+	NextCursor string           `json:"next_cursor,omitempty"`
+	HasMore    bool             `json:"has_more,omitempty"`
 }
 
 type HotfixReadInput struct {
@@ -55,56 +63,81 @@ func (s *Service) HotfixList(ctx context.Context, in HotfixListInput) (HotfixLis
 		}
 		return identities[i].HotfixRef > identities[j].HotfixRef
 	})
-	items := make([]HotfixInventoryItem, 0, len(identities))
+	p, err := s.EffectiveProjectConfig(in.ProjectID)
+	if err != nil {
+		return HotfixListResult{}, err
+	}
+	mainHead, exists, err := s.Git.MirrorBranchHead(ctx, p, p.DefaultBranch)
+	if err != nil || !exists {
+		return HotfixListResult{}, fmt.Errorf("canonical main head is unavailable")
+	}
+	items := make([]HotfixListItem, 0, len(identities))
 	for _, identity := range identities {
-		item, itemErr := s.hotfixInventoryItem(ctx, in.ProjectID, identity)
+		item, itemErr := s.hotfixListItem(ctx, in.ProjectID, identity)
 		if itemErr != nil {
 			return HotfixListResult{}, itemErr
 		}
 		items = append(items, item)
 	}
-	page, pageInfo, err := pagination.Page("hotfix_list:"+in.ProjectID, items, limit, in.Cursor, func(item HotfixInventoryItem) string { return item.HotfixRef })
+	page, pageInfo, err := pagination.Page("hotfix_list:"+in.ProjectID, items, limit, in.Cursor, func(item HotfixListItem) string { return item.Hotfix })
 	if err != nil {
 		return HotfixListResult{}, err
 	}
-	return HotfixListResult{Hotfixes: page, NextCursor: pageInfo.NextCursor, HasMore: pageInfo.HasMore}, nil
+	return HotfixListResult{MainHead: mainHead, Hotfixes: page, NextCursor: pageInfo.NextCursor, HasMore: pageInfo.HasMore}, nil
 }
 
-func (s *Service) HotfixRead(ctx context.Context, in HotfixReadInput) (HotfixInventoryItem, error) {
+func (s *Service) HotfixRead(ctx context.Context, in HotfixReadInput) (HotfixReadResult, error) {
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
-		return HotfixInventoryItem{}, err
+		return HotfixReadResult{}, err
 	}
 	ref, err := canonicalHotfixReadRef(in.Hotfix)
 	if err != nil {
-		return HotfixInventoryItem{}, err
+		return HotfixReadResult{}, err
 	}
 	identity, err := s.Git.ReadHotfixIdentity(s.Config.StateDir, in.ProjectID, ref)
 	if err != nil {
-		return HotfixInventoryItem{}, fmt.Errorf("hotfix %q: %w", in.Hotfix, err)
+		return HotfixReadResult{}, fmt.Errorf("hotfix %q: %w", in.Hotfix, err)
 	}
-	return s.hotfixInventoryItem(ctx, in.ProjectID, identity)
+	return s.hotfixReadResult(ctx, in.ProjectID, identity)
 }
 
-func (s *Service) hotfixInventoryItem(ctx context.Context, projectID string, identity gitx.HotfixIdentity) (HotfixInventoryItem, error) {
-	item := HotfixInventoryItem{ProjectID: projectID, HotfixRef: identity.HotfixRef, TaskID: identity.TaskID, BaseSHA: identity.BaseSHA, State: "unmaterialized"}
+func (s *Service) resolveHotfixHead(ctx context.Context, projectID string, identity gitx.HotfixIdentity) (string, bool) {
 	p, err := s.EffectiveProjectConfig(projectID)
 	if err != nil {
-		return HotfixInventoryItem{}, err
+		return "", false
 	}
 	worktree, err := s.Git.ResolveHotfixWorktree(ctx, p, s.Config.StateDir, projectID, identity.HotfixRef)
 	if err != nil {
-		return item, nil
+		return "", false
 	}
-	head, branch, clean, err := s.Git.CurrentHead(ctx, worktree)
+	head, branch, _, err := s.Git.CurrentHead(ctx, worktree)
 	if err != nil || branch != strings.TrimPrefix(identity.HotfixRef, "refs/heads/") {
+		return "", false
+	}
+	return head, true
+}
+
+func (s *Service) hotfixListItem(ctx context.Context, projectID string, identity gitx.HotfixIdentity) (HotfixListItem, error) {
+	head, materialized := s.resolveHotfixHead(ctx, projectID, identity)
+	item := HotfixListItem{Task: identity.TaskID, Hotfix: identity.HotfixRef}
+	if !materialized {
 		return item, nil
 	}
-	item.HeadSHA = head
-	item.State = "clean"
-	if !clean {
-		item.State = "dirty"
+	item.Head = head[:8]
+	p, err := s.EffectiveProjectConfig(projectID)
+	if err != nil {
+		return HotfixListItem{}, err
+	}
+	commits, err := s.Git.Log(ctx, p, head, 1)
+	if err == nil && len(commits) == 1 {
+		item.Subject = commits[0].Subject
 	}
 	return item, nil
+}
+
+func (s *Service) hotfixReadResult(ctx context.Context, projectID string, identity gitx.HotfixIdentity) (HotfixReadResult, error) {
+	head, materialized := s.resolveHotfixHead(ctx, projectID, identity)
+	return HotfixReadResult{ProjectID: projectID, HotfixRef: identity.HotfixRef, TaskID: identity.TaskID, BaseSHA: identity.BaseSHA, HeadSHA: head, Materialized: materialized}, nil
 }
 
 func canonicalHotfixReadRef(value string) (string, error) {

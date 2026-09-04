@@ -118,11 +118,12 @@ func hotfixReadInputSchema() map[string]any {
 }
 
 func hotfixListOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"hotfixes": outputArray(hotfixReadOutputSchema()), "next_cursor": outputString(), "has_more": outputBoolean()}, "hotfixes")
+	item := closedOutput(map[string]any{"task": outputString(), "hotfix": outputString(), "head": outputString(), "subject": outputString()}, "task", "hotfix", "head", "subject")
+	return closedOutput(map[string]any{"main_head": outputString(), "hotfixes": outputArray(item), "next_cursor": outputString(), "has_more": outputBoolean()}, "main_head", "hotfixes")
 }
 
 func hotfixReadOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"project_id": outputString(), "hotfix_ref": outputString(), "task_id": outputString(), "base_sha": outputString(), "head_sha": outputString(), "state": outputString()}, "project_id", "hotfix_ref", "task_id", "base_sha", "state")
+	return closedOutput(map[string]any{"project_id": outputString(), "hotfix_ref": outputString(), "task_id": outputString(), "base_sha": outputString(), "head_sha": outputString(), "materialized": outputBoolean()}, "project_id", "hotfix_ref", "task_id", "base_sha", "head_sha", "materialized")
 }
 
 func boundHotfixProject(s *Server, ctx context.Context) (string, error) {
