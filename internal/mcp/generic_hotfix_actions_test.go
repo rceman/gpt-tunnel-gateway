@@ -41,3 +41,29 @@ func TestHotfixActionsAreSessionBoundAndIntegrateRefIsExact(t *testing.T) {
 		t.Fatalf("hotfix/create required=%#v", got)
 	}
 }
+
+func TestHotfixInventoryReadsAreBoundedAndProjectBound(t *testing.T) {
+	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{StateDir: t.TempDir()}, nil)}
+	entries := server.genericActionRegistry(server.tools())
+	list := entries["hotfix/list"]
+	read := entries["hotfix/read"]
+	if !list.SessionBound || !list.SessionRequired || !list.LocalReadOnly {
+		t.Fatalf("hotfix/list contract=%#v", list)
+	}
+	if !read.SessionBound || !read.SessionRequired || !read.LocalReadOnly {
+		t.Fatalf("hotfix/read contract=%#v", read)
+	}
+	for name, entry := range map[string]genericActionEntry{"hotfix/list": list, "hotfix/read": read} {
+		properties := entry.InputSchema["properties"].(map[string]any)
+		if _, ok := properties["project_id"]; ok {
+			t.Fatalf("%s exposes caller project_id", name)
+		}
+	}
+	if _, ok := list.OutputSchema["properties"].(map[string]any)["main_head"]; !ok {
+		t.Fatal("hotfix/list output omits main_head")
+	}
+	readRequired := read.OutputSchema["required"]
+	if !reflect.DeepEqual(readRequired, []string{"project_id", "hotfix_ref", "task_id", "base_sha", "head_sha", "materialized"}) {
+		t.Fatalf("hotfix/read required=%#v", readRequired)
+	}
+}

@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,6 +61,25 @@ func TestLegacyHotfixIdentityWithoutTaskBindingIsSkippedByInventory(t *testing.T
 		ProjectID: "example", HotfixRef: "refs/heads/hotfix/new", BaseSHA: "0123456789012345678901234567890123456789",
 	}); err == nil {
 		t.Fatal("new hotfix identity without TaskID was accepted")
+	}
+}
+
+func TestHotfixIdentityInventoryFailsClosedOnOverflow(t *testing.T) {
+	stateDir := t.TempDir()
+	dir := filepath.Join(stateDir, "hotfix-identities", "example")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	base := "0123456789012345678901234567890123456789"
+	for i := 0; i < hotfixIdentityMaxEntries+1; i++ {
+		name := fmt.Sprintf("lane-%03d.json", i)
+		identity := fmt.Sprintf(`{"project_id":"example","hotfix_ref":"refs/heads/hotfix/lane-%03d","task_id":"EXM-TSK1","base_sha":"%s"}`, i, base)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(identity), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := (Runner{}).ListHotfixIdentities(stateDir, "example"); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("ListHotfixIdentities() error = %v, want bounded overflow failure", err)
 	}
 }
 
