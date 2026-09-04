@@ -13,7 +13,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-var version = "0.6.14"
+var version = "0.6.15"
 
 func main() {
 	if len(os.Args) < 2 {

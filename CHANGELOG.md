@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.15 — 2026-09-04
+
 - Propagate the canonical release version across VERSION, runtime binaries, and MCP metadata.
 
 ## 0.6.14 — 2026-09-03
