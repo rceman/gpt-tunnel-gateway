@@ -352,3 +352,32 @@ func TestPublicCodeSearchAndDiffOverflowE2ELocalSetup(t *testing.T) {
 		t.Fatalf("overflow diff did not paginate: %#v", diff)
 	}
 }
+
+func TestPublicCodeActionsFitPublicEnvelopeE2ELocalSetup(t *testing.T) {
+	fixture := newPublicCodeE2EFixture(t)
+	testutil.Git(t, fixture.server.Service.Config.Projects["example"].Root, "push", "origin", "main")
+	harness := newPublicCodeCallHarness(t, fixture)
+
+	inputs := map[string]map[string]any{
+		"code/worktree": {},
+		"code/tree":     {"worktree": fixture.mainSelector, "live": true},
+		"code/search":   {"worktree": fixture.mainSelector, "query": "needle", "live": true},
+		"code/read":     {"worktree": fixture.mainSelector, "path": "tracked.txt", "live": true},
+	}
+	for _, action := range []string{"code/worktree", "code/tree", "code/search", "code/read"} {
+		result := harness.call(t, action, inputs[action])
+		if action != "code/worktree" {
+			assertPublicCodeHead(t, result, fixture.currentHead)
+		}
+	}
+
+	diffPath := filepath.Join(fixture.server.Service.Config.Projects["example"].Root, "all-actions-diff.txt")
+	if err := os.WriteFile(diffPath, []byte(strings.Repeat(strings.Repeat("envelope-diff ", 160)+"\n", 120)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(diffPath) })
+	diff := harness.call(t, "code/diff", map[string]any{
+		"worktree": fixture.mainSelector, "paths": []any{"all-actions-diff.txt"}, "live": true,
+	})
+	assertPublicCodeHead(t, diff, fixture.currentHead)
+}
