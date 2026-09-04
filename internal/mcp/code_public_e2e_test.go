@@ -328,7 +328,6 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 
 func TestPublicCodeSearchAndDiffOverflowE2ELocalSetup(t *testing.T) {
 	fixture := newPublicCodeE2EFixture(t)
-	testutil.Git(t, fixture.server.Service.Config.Projects["example"].Root, "push", "origin", "main")
 	harness := newPublicCodeCallHarness(t, fixture)
 
 	search := harness.call(t, "code/search", map[string]any{
@@ -356,7 +355,6 @@ func TestPublicCodeSearchAndDiffOverflowE2ELocalSetup(t *testing.T) {
 
 func TestPublicCodeActionsFitPublicEnvelopeE2ELocalSetup(t *testing.T) {
 	fixture := newPublicCodeE2EFixture(t)
-	testutil.Git(t, fixture.server.Service.Config.Projects["example"].Root, "push", "origin", "main")
 	harness := newPublicCodeCallHarness(t, fixture)
 
 	inputs := map[string]map[string]any{
