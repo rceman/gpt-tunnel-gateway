@@ -360,13 +360,50 @@ func TestPublicCodeSearchContextLinesE2E(t *testing.T) {
 	wide := harness.call(t, "code/search", map[string]any{
 		"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "query": "needle", "context_lines": 1, "live": true,
 	})
-	if publicPagination(t, wide) == nil {
+	firstPagination := publicPagination(t, wide)
+	if firstPagination == nil || firstPagination["next_cursor"] == "" {
 		t.Fatalf("context search did not paginate: %#v", wide)
 	}
-	next := harness.call(t, "code/search", map[string]any{
-		"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "query": "needle", "context_lines": 1, "cursor": publicPagination(t, wide)["next_cursor"], "live": true,
+	seen := make(map[int]bool)
+	page := wide
+	for pageNumber := 0; ; pageNumber++ {
+		assertPublicCodeHead(t, page, fixture.currentHead)
+		matches, ok := page["matches"].([]any)
+		if !ok || len(matches) == 0 {
+			t.Fatalf("context pagination page %d has no matches: %#v", pageNumber, page)
+		}
+		for _, raw := range matches {
+			match := raw.(map[string]any)
+			line := int(match["line"].(float64))
+			if line < 1 || line > 512 || seen[line] {
+				t.Fatalf("context pagination duplicate/invalid line %d on page %d: %#v", line, pageNumber, page)
+			}
+			seen[line] = true
+		}
+		pagination := publicPagination(t, page)
+		if pagination == nil {
+			break
+		}
+		if pageNumber > 100 || pagination["next_cursor"] == "" {
+			t.Fatalf("context pagination did not terminate safely: %#v", page)
+		}
+		page = harness.call(t, "code/search", map[string]any{
+			"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "query": "needle", "context_lines": 1, "cursor": pagination["next_cursor"], "live": true,
+		})
+	}
+	if len(seen) != 512 {
+		t.Fatalf("context pagination skipped matches: got %d want 512", len(seen))
+	}
+	wrongScope := harness.client.request(t, "tools/call", map[string]any{
+		"name": "call", "arguments": map[string]any{
+			"session": harness.sessionID, "action": "code/search", "input": map[string]any{
+				"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "query": "needle", "context_lines": 2, "cursor": firstPagination["next_cursor"], "live": true,
+			},
+		},
 	})
-	assertPublicCodeHead(t, next, fixture.currentHead)
+	if genericStructured(t, wrongScope)["is_error"] != true {
+		t.Fatalf("context cursor with different context_lines was accepted: %#v", wrongScope)
+	}
 }
 
 func TestPublicCodeSearchAndDiffOverflowE2ELocalSetup(t *testing.T) {
