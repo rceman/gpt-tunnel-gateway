@@ -901,6 +901,8 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 		end = len(lines)
 	}
 	fileHash := codeFileHash(content)
+	readIdentity := target.CodeIdentity
+	readIdentity.CurrentHead = target.CurrentHead[:8]
 	count := end - start + 1
 	encodeCursor := func(next int) string {
 		if boundedRange {
@@ -916,7 +918,7 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 			pageCursor = encodeCursor(pageEnd + 1)
 		}
 		candidate := CodeReadResult{
-			CodeIdentity: target.CodeIdentity, Path: in.Path, StartLine: start, EndLine: pageEnd,
+			CodeIdentity: readIdentity, Path: in.Path, StartLine: start, EndLine: pageEnd,
 			TotalLines: len(lines), Content: strings.Join(lines[start-1:pageEnd], "\n"), FileHash: fileHash,
 			Pagination: codePagination(pageCursor),
 		}
@@ -933,7 +935,7 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 			pageCursor = encodeCursor(pageEnd + 1)
 		}
 		return CodeReadResult{
-			CodeIdentity: target.CodeIdentity, Path: in.Path, StartLine: start, EndLine: pageEnd,
+			CodeIdentity: readIdentity, Path: in.Path, StartLine: start, EndLine: pageEnd,
 			TotalLines: len(lines), Content: strings.Join(lines[start-1:pageEnd], "\n"), FileHash: fileHash,
 			Pagination: codePagination(pageCursor),
 		}, nil
