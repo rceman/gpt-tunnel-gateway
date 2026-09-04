@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path"
@@ -131,6 +133,7 @@ type CodeReadResult struct {
 	EndLine    int             `json:"end_line"`
 	TotalLines int             `json:"total_lines"`
 	Content    string          `json:"content"`
+	FileHash   string          `json:"file_hash"`
 	Pagination *CodePagination `json:"_pagination,omitempty"`
 }
 
@@ -825,6 +828,11 @@ func (s *Service) readCodeFile(ctx context.Context, target localCodeTarget, path
 	return s.Git.ReadLocalFile(ctx, target.ProjectWorktree, target.CurrentHead, pathName)
 }
 
+func codeFileHash(content string) string {
+	digest := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(digest[:])[:8]
+}
+
 func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResult, error) {
 	target, err := s.resolveLocalCodeTarget(ctx, in.ProjectID, in.Worktree, in.Live)
 	if err != nil {
@@ -892,6 +900,7 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	if end > len(lines) {
 		end = len(lines)
 	}
+	fileHash := codeFileHash(content)
 	count := end - start + 1
 	encodeCursor := func(next int) string {
 		if boundedRange {
@@ -908,7 +917,7 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 		}
 		candidate := CodeReadResult{
 			CodeIdentity: target.CodeIdentity, Path: in.Path, StartLine: start, EndLine: pageEnd,
-			TotalLines: len(lines), Content: strings.Join(lines[start-1:pageEnd], "\n"),
+			TotalLines: len(lines), Content: strings.Join(lines[start-1:pageEnd], "\n"), FileHash: fileHash,
 			Pagination: codePagination(pageCursor),
 		}
 		return codePageFits(candidate)
@@ -925,7 +934,7 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 		}
 		return CodeReadResult{
 			CodeIdentity: target.CodeIdentity, Path: in.Path, StartLine: start, EndLine: pageEnd,
-			TotalLines: len(lines), Content: strings.Join(lines[start-1:pageEnd], "\n"),
+			TotalLines: len(lines), Content: strings.Join(lines[start-1:pageEnd], "\n"), FileHash: fileHash,
 			Pagination: codePagination(pageCursor),
 		}, nil
 	}

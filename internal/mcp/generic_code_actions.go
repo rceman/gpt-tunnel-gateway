@@ -221,7 +221,8 @@ func codeReadOutputSchema() map[string]any {
 	properties["total_lines"] = outputInteger()
 	properties["content"] = outputString()
 	properties["_pagination"] = codePaginationOutputSchema()
-	return closedOutput(properties, "worktree", "dirty", "live", "head", "path", "start_line", "end_line", "total_lines", "content")
+	properties["file_hash"] = outputString()
+	return closedOutput(properties, "worktree", "dirty", "live", "head", "path", "start_line", "end_line", "total_lines", "content", "file_hash")
 }
 
 func codeSearchOutputSchema() map[string]any {
