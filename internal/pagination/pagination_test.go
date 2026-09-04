@@ -65,6 +65,14 @@ func TestOpaqueCursorsAreBoundedAndScopeBound(t *testing.T) {
 	if _, _, err := DecodeRangeCursor(rangeCursor, kind+"-changed-head"); err == nil {
 		t.Fatal("range cursor accepted a different full scope")
 	}
+	tampered, err := base64.RawURLEncoding.DecodeString(rangeCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered[24]++
+	if _, _, err := DecodeRangeCursor(base64.RawURLEncoding.EncodeToString(tampered), kind); err == nil {
+		t.Fatal("range cursor accepted tampered integrity bytes")
+	}
 }
 
 func jsonLegacyCursor(kind, key string) (string, error) {
