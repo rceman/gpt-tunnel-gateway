@@ -173,6 +173,14 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 
 func TestLocalCodeReadSupportsExactBoundedRangesAndContinuation(t *testing.T) {
 	f := newLocalCodeFixture(t)
+	selector := "WT-MAIN-" + f.current[:8]
+	immutableCount := 1
+	immutable, err := f.service.CodeRead(context.Background(), CodeReadInput{
+		ProjectID: "example", Worktree: selector, Path: "tracked.txt", StartLine: 1, LineCount: &immutableCount,
+	})
+	if err != nil || immutable.CurrentHead != f.current || immutable.StartLine != 1 || immutable.EndLine != 1 || immutable.Content != "candidate tracked content with needle" || immutable.Pagination != nil {
+		t.Fatalf("live=false bounded read was not an immutable exact range: %#v %v", immutable, err)
+	}
 	write := func(name, content string) {
 		t.Helper()
 		if err := os.WriteFile(filepath.Join(f.root, name), []byte(content), 0o600); err != nil {
@@ -188,7 +196,6 @@ func TestLocalCodeReadSupportsExactBoundedRangesAndContinuation(t *testing.T) {
 		fmt.Fprintf(&wide, "%03d %s\n", line, strings.Repeat("range-token ", 48))
 	}
 	write("wide.txt", wide.String())
-	selector := "WT-MAIN-" + f.current[:8]
 	shortCount := 2
 	short, err := f.service.CodeRead(context.Background(), CodeReadInput{
 		ProjectID: "example", Worktree: selector, Path: "range.txt", StartLine: 3, LineCount: &shortCount, Live: true,
@@ -247,6 +254,12 @@ func TestLocalCodeReadSupportsExactBoundedRangesAndContinuation(t *testing.T) {
 		}
 		if page.Pagination.NextCursor == "" {
 			t.Fatal("range continuation omitted cursor")
+		}
+		conflictingCount := 1
+		if _, err := f.service.CodeRead(context.Background(), CodeReadInput{
+			ProjectID: "example", Worktree: selector, Path: "wide.txt", Cursor: page.Pagination.NextCursor, LineCount: &conflictingCount, Live: true,
+		}); err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+			t.Fatalf("cursor plus line_count was not rejected: %v", err)
 		}
 		if pages > 100 {
 			t.Fatal("range continuation did not terminate")

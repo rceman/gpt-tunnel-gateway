@@ -797,6 +797,9 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	if start < 1 {
 		return CodeReadResult{}, fmt.Errorf("invalid code line range")
 	}
+	if in.Cursor != "" && in.LineCount != nil {
+		return CodeReadResult{}, fmt.Errorf("code read cursor cannot be combined with line_count")
+	}
 	kind := codeCursorKind("code-read", target, in.Path+"|"+strconv.FormatBool(target.Live))
 	boundedRange := in.LineCount != nil
 	end := len(lines)
