@@ -5,6 +5,9 @@
 ## 0.6.15 — 2026-09-04
 
 - Propagate the canonical release version across VERSION, runtime binaries, and MCP metadata.
+- Run required exact-SHA CI from the main push before creating the release tag while retaining tag verification (GTW-TSK488).
+- Remove the two pre-existing unreachable-code findings from the Go vet gate without changing behavior (GTW-TSK486).
+- Make the CI format gate resolve the parent commit in shallow checkouts and fail closed when the revision is unavailable (GTW-TSK489).
 
 ## 0.6.14 — 2026-09-03
 
