@@ -397,6 +397,52 @@ func TestCodeWorktreeUsesDistinctHotfixSelectorWhenHeadMatchesMain(t *testing.T)
 	}
 }
 
+func TestCodeWorktreeKeepsOldBaseHotfixVisibleAndCodeReadResolvesIt(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	runner := gitx.Runner{StateDir: f.service.Config.StateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
+	slug := "old-base"
+	branch := "hotfix/" + slug
+	lane := filepath.Join(f.service.Config.StateDir, "hotfix-worktrees", "example", slug)
+	if err := os.MkdirAll(filepath.Dir(lane), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, f.root, "branch", branch, f.base)
+	testutil.Git(t, f.root, "worktree", "add", lane, branch)
+	t.Cleanup(func() {
+		testutil.Git(t, f.root, "worktree", "remove", "--force", lane)
+		testutil.Git(t, f.root, "branch", "-D", branch)
+	})
+	if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{
+		ProjectID: "example", HotfixRef: "refs/heads/" + branch, TaskID: "EXM-TSK1", BaseSHA: f.base, CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	worktrees, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var selector string
+	for _, item := range worktrees.Items {
+		if item.Kind == "hotfix" && item.Label == slug {
+			selector = item.Selector
+			if item.Head != f.base {
+				t.Fatalf("old-base hotfix head=%q, want %q", item.Head, f.base)
+			}
+		}
+	}
+	if selector == "" {
+		t.Fatalf("old-base hotfix was omitted: %#v", worktrees.Items)
+	}
+	read, err := f.service.CodeRead(context.Background(), CodeReadInput{ProjectID: "example", Worktree: selector, Path: "tracked.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.CurrentHead != f.base || read.Content != "base tracked content\n" {
+		t.Fatalf("old-base code/read=%#v", read)
+	}
+}
+
 func TestCodeSelectorsRemainDistinctWhenHeadsMatch(t *testing.T) {
 	head := strings.Repeat("a", 40)
 	mainSelector, err := codeSelector("", head)
