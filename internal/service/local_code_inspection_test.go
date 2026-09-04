@@ -543,6 +543,12 @@ func TestLocalCodeSearchReturnsBoundedContextLines(t *testing.T) {
 	if err != nil || len(result.Matches) != 1 || result.Matches[0].Snippet != "before\nneedle\nafter" {
 		t.Fatalf("context search result = %#v, err=%v", result, err)
 	}
+	zero, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
+		ProjectID: "example", Worktree: selector, Query: "needle", Paths: []string{"context.txt"}, Live: true,
+	})
+	if err != nil || len(zero.Matches) != 1 || zero.Matches[0].Snippet != "needle" || len(zero.Matches[0].Snippet) > 240 {
+		t.Fatalf("context_lines=0 result = %#v, err=%v", zero, err)
+	}
 	longBefore := strings.Repeat("before-context ", 30)
 	if err := os.WriteFile(pathName, []byte(longBefore+"\nneedle\nafter\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -550,7 +556,7 @@ func TestLocalCodeSearchReturnsBoundedContextLines(t *testing.T) {
 	result, err = f.service.CodeSearch(context.Background(), CodeSearchInput{
 		ProjectID: "example", Worktree: selector, Query: "needle", Paths: []string{"context.txt"}, ContextLines: 1, Live: true,
 	})
-	if err != nil || len(result.Matches) != 1 || !strings.Contains(result.Matches[0].Snippet, "needle") {
+	if err != nil || len(result.Matches) != 1 || !strings.Contains(result.Matches[0].Snippet, "needle") || len(result.Matches[0].Snippet) > 240 {
 		t.Fatalf("long preceding context removed matched line: %#v, err=%v", result, err)
 	}
 	for _, contextLines := range []int{-1, 4} {

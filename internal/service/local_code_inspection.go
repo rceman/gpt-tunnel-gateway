@@ -147,7 +147,7 @@ type CodeSearchResult struct {
 	Pagination   *CodePagination   `json:"_pagination,omitempty"`
 }
 
-func boundedSearchSnippet(lines []string, matchLine, contextLines int) string {
+func boundedSearchSnippet(lines []string, matchLine, contextLines int, query string) string {
 	start := matchLine - contextLines
 	if start < 0 {
 		start = 0
@@ -158,11 +158,30 @@ func boundedSearchSnippet(lines []string, matchLine, contextLines int) string {
 	}
 	matched := lines[matchLine]
 	if len(matched) >= 240 {
-		return matched[:240]
+		matchAt := strings.Index(matched, query)
+		if matchAt < 0 || len(query) >= 240 {
+			return matched[:240]
+		}
+		matchStart := matchAt
+		if matchStart+240 > len(matched) {
+			matchStart = len(matched) - 240
+		}
+		return matched[matchStart : matchStart+240]
 	}
 	remaining := 240 - len(matched)
 	before := strings.Join(lines[start:matchLine], "\n")
 	after := strings.Join(lines[matchLine+1:end], "\n")
+	separatorCount := 0
+	if before != "" {
+		separatorCount++
+	}
+	if after != "" {
+		separatorCount++
+	}
+	remaining -= separatorCount
+	if remaining < 0 {
+		remaining = 0
+	}
 	beforeTake := len(before)
 	if beforeTake > remaining/2 {
 		beforeTake = remaining / 2
@@ -1004,7 +1023,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 			return nil
 		}
 		lines := strings.Split(data, "\n")
-		for lineNumber, line := range strings.Split(data, "\n") {
+		for lineNumber, line := range lines {
 			if !strings.Contains(line, in.Query) {
 				continue
 			}
@@ -1016,7 +1035,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 				}
 				continue
 			}
-			snippet := boundedSearchSnippet(lines, lineNumber, in.ContextLines)
+			snippet := boundedSearchSnippet(lines, lineNumber, in.ContextLines, in.Query)
 			candidate := CodeSearchResult{
 				CodeIdentity: result.CodeIdentity, PathsScanned: pathsScanned,
 				Matches: append(append([]CodeSearchMatch(nil), result.Matches...), CodeSearchMatch{Path: pathName, Line: lineNumber + 1, Snippet: snippet}),

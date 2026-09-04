@@ -329,8 +329,20 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 func TestPublicCodeSearchContextLinesE2E(t *testing.T) {
 	fixture := newPublicCodeE2EFixture(t)
 	harness := newPublicCodeCallHarness(t, fixture)
+	contextPath := filepath.Join(fixture.server.Service.Config.Projects["example"].Root, "context-e2e.txt")
+	if err := os.WriteFile(contextPath, []byte("needle-first\nneedle-adjacent\nmiddle\nneedle-last\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(contextPath) })
+	zero := harness.call(t, "code/search", map[string]any{
+		"worktree": fixture.mainSelector, "paths": []any{"context-e2e.txt"}, "query": "needle", "context_lines": 0, "live": true,
+	})
+	assertPublicCodeHead(t, zero, fixture.currentHead)
+	if len(zero["matches"].([]any)) != 3 || zero["matches"].([]any)[0].(map[string]any)["snippet"] != "needle-first" {
+		t.Fatalf("public context_lines=0/boundary result: %#v", zero)
+	}
 	result := harness.call(t, "code/search", map[string]any{
-		"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "query": "needle", "context_lines": 1, "live": true,
+		"worktree": fixture.mainSelector, "paths": []any{"context-e2e.txt"}, "query": "needle", "context_lines": 1, "live": true,
 	})
 	assertPublicCodeHead(t, result, fixture.currentHead)
 	matches, ok := result["matches"].([]any)
@@ -338,9 +350,23 @@ func TestPublicCodeSearchContextLinesE2E(t *testing.T) {
 		t.Fatalf("context search returned no matches: %#v", result)
 	}
 	first, ok := matches[0].(map[string]any)
-	if !ok || !strings.Contains(first["snippet"].(string), "\n") {
+	if !ok || first["snippet"] != "needle-first\nneedle-adjacent" || len(first["snippet"].(string)) > 240 {
 		t.Fatalf("context search did not include surrounding lines: %#v", first)
 	}
+	last, ok := matches[2].(map[string]any)
+	if !ok || last["snippet"] != "middle\nneedle-last" || len(last["snippet"].(string)) > 240 {
+		t.Fatalf("context search did not preserve ending boundary: %#v", last)
+	}
+	wide := harness.call(t, "code/search", map[string]any{
+		"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "query": "needle", "context_lines": 1, "live": true,
+	})
+	if publicPagination(t, wide) == nil {
+		t.Fatalf("context search did not paginate: %#v", wide)
+	}
+	next := harness.call(t, "code/search", map[string]any{
+		"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "query": "needle", "context_lines": 1, "cursor": publicPagination(t, wide)["next_cursor"], "live": true,
+	})
+	assertPublicCodeHead(t, next, fixture.currentHead)
 }
 
 func TestPublicCodeSearchAndDiffOverflowE2ELocalSetup(t *testing.T) {
