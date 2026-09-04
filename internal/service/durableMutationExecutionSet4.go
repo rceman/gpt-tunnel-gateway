@@ -63,5 +63,4 @@ func (s *Service) durableMutationExecutionSet4(ctx context.Context, operation du
 	default:
 		return nil, fmt.Errorf("unsupported durable mutation kind %q", operation.Kind)
 	}
-	return nil, nil
 }

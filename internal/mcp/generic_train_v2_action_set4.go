@@ -72,5 +72,4 @@ func (s *Server) registerTrainV2ActionSet4() error {
 			return s.Service.TrainV2CutoverAsync(ctx, in)
 		},
 	})
-	return nil
 }
