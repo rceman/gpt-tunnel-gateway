@@ -103,6 +103,29 @@ func TestOperatorRecordHistoryCheckpointAndNumericPagination(t *testing.T) {
 	}
 }
 
+func TestOperatorHistoryKeepsCollidingJournalFamiliesAndPaginatesByExactID(t *testing.T) {
+	s, revision := operatorService(t)
+	ctx := context.Background()
+	revision = installOperatorEventFixture(t, s, revision, s.operatorEventPath("example", "EXM-JRN1"), operatorTestEvent("EXM-JRN1", "example"), 2)
+	revision = installOperatorEventFixture(t, s, revision, s.operatorEventPath("example", "EXM-OPR1"), operatorTestEvent("EXM-OPR1", "example"), 2)
+
+	first, err := s.OperatorHistory(ctx, OperatorHistoryInput{ProjectID: "example", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Events) != 1 || first.Events[0].ID != "EXM-JRN1" || !first.HasMore || first.NextAfterEventID != "EXM-JRN1" {
+		t.Fatalf("unexpected first colliding-family page: %#v", first)
+	}
+
+	second, err := s.OperatorHistory(ctx, OperatorHistoryInput{ProjectID: "example", AfterEventID: first.NextAfterEventID, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Events) != 1 || second.Events[0].ID != "EXM-OPR1" || second.HasMore || second.NextAfterEventID != "" {
+		t.Fatalf("unexpected second colliding-family page: %#v", second)
+	}
+}
+
 func TestOperatorRecordReservedKindsMissingIdentifiersAndNoOpFailClosed(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
 	ctx := context.Background()
