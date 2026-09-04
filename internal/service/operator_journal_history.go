@@ -23,7 +23,6 @@ func rejectAlreadySuperseded(worktree, eventsPrefix, projectID, projectCode, tar
 		return err
 	}
 	seenIDs := map[string]bool{}
-	seenNumbers := map[uint64]bool{}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
@@ -33,15 +32,14 @@ func rejectAlreadySuperseded(worktree, eventsPrefix, projectID, projectCode, tar
 		if err := readWorktreeJSON(worktree, eventPath, &event); err != nil {
 			return fmt.Errorf("read operator journal event %q: %w", entry.Name(), err)
 		}
-		number, err := validateOperatorEventPathIdentity(eventPath, eventsPrefix, event, projectID, projectCode)
+		_, err := validateOperatorEventPathIdentity(eventPath, eventsPrefix, event, projectID, projectCode)
 		if err != nil {
 			return fmt.Errorf("invalid operator journal event %q: %w", entry.Name(), err)
 		}
-		if seenIDs[event.ID] || seenNumbers[number] {
+		if seenIDs[event.ID] {
 			return fmt.Errorf("duplicate operator journal event identity %q", event.ID)
 		}
 		seenIDs[event.ID] = true
-		seenNumbers[number] = true
 		if event.SupersedesEventID == targetID {
 			return fmt.Errorf("operator journal event %q is already superseded", targetID)
 		}
@@ -82,7 +80,6 @@ func (s *Service) OperatorHistory(ctx context.Context, in OperatorHistoryInput) 
 	}
 	items := make([]model.OperatorJournalEvent, 0, len(records))
 	seenIDs := map[string]bool{}
-	seenNumbers := map[uint64]bool{}
 	for _, record := range records {
 		var event model.OperatorJournalEvent
 		if err := decodeStrict(record.Bytes, &event); err != nil {
@@ -92,12 +89,11 @@ func (s *Service) OperatorHistory(ctx context.Context, in OperatorHistoryInput) 
 		if err != nil {
 			return OperatorHistoryResult{}, fmt.Errorf("invalid operator event %s: %w", record.Path, err)
 		}
-		if seenIDs[event.ID] || seenNumbers[number] {
+		if seenIDs[event.ID] {
 			return OperatorHistoryResult{}, fmt.Errorf("duplicate operator journal event identity %q", event.ID)
 		}
 		seenIDs[event.ID] = true
-		seenNumbers[number] = true
-		if number <= afterNumber || (in.Kind != "" && event.Kind != in.Kind) {
+		if (number < afterNumber || (number == afterNumber && event.ID <= in.AfterEventID)) || (in.Kind != "" && event.Kind != in.Kind) {
 			continue
 		}
 		items = append(items, event)
@@ -105,7 +101,10 @@ func (s *Service) OperatorHistory(ctx context.Context, in OperatorHistoryInput) 
 	sort.Slice(items, func(i, j int) bool {
 		_, left, _ := parseAnyOperatorEventIDForProject(items[i].ID, identifiers.ProjectCode)
 		_, right, _ := parseAnyOperatorEventIDForProject(items[j].ID, identifiers.ProjectCode)
-		return left < right
+		if left != right {
+			return left < right
+		}
+		return items[i].ID < items[j].ID
 	})
 	hasMore := len(items) > in.Limit
 	if hasMore {
