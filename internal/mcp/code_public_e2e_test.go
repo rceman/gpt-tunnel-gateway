@@ -56,6 +56,7 @@ func newPublicCodeE2EFixture(t *testing.T) publicCodeE2EFixture {
 	testutil.Git(t, root, "add", ".")
 	testutil.Git(t, root, "commit", "-m", "code inspection public fixture")
 	currentHead := strings.TrimSpace(testutil.Git(t, root, "rev-parse", "HEAD"))
+	testutil.Git(t, root, "push", "origin", "main")
 
 	stateDir := t.TempDir()
 	project := config.ProjectConfig{Root: root, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", ProjectCode: "EXM", AirelaySessionKey: "code-e2e-agent"}
@@ -378,10 +379,10 @@ func TestPublicCodeActionsFitPublicEnvelopeE2ELocalSetup(t *testing.T) {
 		"worktree": fixture.mainSelector, "paths": []any{"all-actions-diff.txt"}, "live": true,
 	})
 	assertPublicCodeHead(t, diff, fixture.currentHead)
+}
 func TestPublicCodeReadExactBoundedRangeE2E(t *testing.T) {
 	fixture := newPublicCodeE2EFixture(t)
 	harness := newPublicCodeCallHarness(t, fixture)
-	testutil.Git(t, fixture.server.Service.Config.Projects["example"].Root, "push", "origin", "main")
 	immutable := harness.call(t, "code/read", map[string]any{
 		"worktree": fixture.mainSelector, "path": "tracked.txt", "start_line": 2, "line_count": 1,
 	})
