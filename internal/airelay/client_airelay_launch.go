@@ -89,7 +89,7 @@ func (c Client) EnsureExecutionSession(ctx context.Context, in ExecutionSessionR
 		return "", err
 	}
 
-	matched := false
+	matched := 0
 	for _, entry := range sessions {
 		if entry.SessionKey != key {
 			continue
@@ -97,13 +97,16 @@ func (c Client) EnsureExecutionSession(ctx context.Context, in ExecutionSessionR
 		if entry.Profile != profile || normalizeCWD(entry.CWD) != worktree {
 			return "", fmt.Errorf("execution Airelay session %q has mismatched authority", key)
 		}
-		matched = true
+		matched++
+	}
+	if matched > 1 {
+		return "", fmt.Errorf("execution Airelay session %q is ambiguous", key)
 	}
 	history, err := c.executionHistory(ctx)
 	if err != nil {
 		return "", err
 	}
-	historyMatch := false
+	historyMatch := 0
 	for _, entry := range history {
 		if entry.SessionKey != key {
 			continue
@@ -111,13 +114,15 @@ func (c Client) EnsureExecutionSession(ctx context.Context, in ExecutionSessionR
 		if entry.Profile != profile || normalizeCWD(entry.InvocationCWD) != worktree {
 			return "", fmt.Errorf("execution Airelay launch history %q has mismatched authority", key)
 		}
-		historyMatch = true
+		historyMatch++
 	}
-	if matched != historyMatch {
+	if matched == 1 && historyMatch == 0 {
 		return "", fmt.Errorf("execution Airelay session %q has incomplete launch authority", key)
 	}
-	if !matched {
-		cmd := exec.CommandContext(ctx, c.Command, "start", profile, "--key", key, "--detached")
+	if matched == 0 {
+		launchCtx, cancel := context.WithTimeout(ctx, c.Timeout)
+		defer cancel()
+		cmd := exec.CommandContext(launchCtx, c.Command, "start", profile, "--key", key, "--detached")
 		cmd.Dir = worktree
 		cmd.Env = cleanEnv()
 		var stdout, stderr tailBuffer
@@ -137,13 +142,13 @@ func (c Client) EnsureExecutionSession(ctx context.Context, in ExecutionSessionR
 		if err != nil {
 			return "", err
 		}
-		matched, historyMatch = false, false
+		matched, historyMatch = 0, 0
 		for _, entry := range sessions {
 			if entry.SessionKey == key {
 				if entry.Profile != profile || normalizeCWD(entry.CWD) != worktree {
 					return "", fmt.Errorf("new execution Airelay session %q has mismatched authority", key)
 				}
-				matched = true
+				matched++
 			}
 		}
 		for _, entry := range history {
@@ -151,15 +156,15 @@ func (c Client) EnsureExecutionSession(ctx context.Context, in ExecutionSessionR
 				if entry.Profile != profile || normalizeCWD(entry.InvocationCWD) != worktree {
 					return "", fmt.Errorf("new execution Airelay history %q has mismatched authority", key)
 				}
-				historyMatch = true
+				historyMatch++
 			}
 		}
-		if !matched || !historyMatch {
+		if matched != 1 || historyMatch == 0 {
 			return "", fmt.Errorf("execution Airelay launch %q was not durably recorded", key)
 		}
 	}
 	status, err := c.executionStatus(ctx, key)
-	if err != nil || !status.ControllerReachable || status.State == "error" {
+	if err != nil || status.Profile != profile || !status.ControllerReachable || status.State == "error" {
 		if err != nil {
 			return "", fmt.Errorf("execution Airelay session is not reachable: %w", err)
 		}
@@ -218,11 +223,11 @@ func (c Client) ValidateExecutionSession(ctx context.Context, in ExecutionSessio
 		}
 		historyMatch++
 	}
-	if historyMatch != 1 {
+	if historyMatch == 0 {
 		return fmt.Errorf("execution Airelay launch history %q is not exactly recorded", key)
 	}
 	status, err := c.executionStatus(ctx, key)
-	if err != nil || !status.ControllerReachable || status.State == "error" {
+	if err != nil || status.Profile != profile || !status.ControllerReachable || status.State == "error" {
 		if err != nil {
 			return fmt.Errorf("execution Airelay session is not reachable: %w", err)
 		}
@@ -252,7 +257,7 @@ func (c Client) executionStatus(ctx context.Context, key string) (executionSessi
 	if err := c.runJSON(ctx, []string{"session-status", key, "--json", "--no-warn"}, &status); err != nil {
 		return executionSessionStatus{}, err
 	}
-	if status.SessionKey != "" && status.SessionKey != key {
+	if status.SessionKey != key || status.Profile == "" {
 		return executionSessionStatus{}, fmt.Errorf("Airelay session-status key mismatch")
 	}
 	return status, nil

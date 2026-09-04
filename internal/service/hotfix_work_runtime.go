@@ -46,7 +46,7 @@ func readHotfixExecutionReceipt(path string) (hotfixExecutionReceipt, error) {
 	if err := fsutil.ReadJSONBounded(path, hotfixExecutionReceiptMaxBytes, &receipt); err != nil {
 		return hotfixExecutionReceipt{}, err
 	}
-	if (receipt.State != "prepared" && receipt.State != "delivered" && !(receipt.State == "" && receipt.Delivered)) || receipt.State == "delivered" && !receipt.Delivered || receipt.State == "prepared" && receipt.Delivered || model.ValidateProjectIdentifier(receipt.ProjectID) != nil || model.ValidateCanonicalTaskID(receipt.TaskID) != nil || model.ValidateCommitSHA(receipt.Head) != nil || receipt.HotfixRef == "" || receipt.SessionKey == "" || receipt.WorktreePath == "" || receipt.Message == "" || receipt.CreatedAt.IsZero() {
+	if (receipt.State != "prepared" && receipt.State != "delivered") || receipt.State == "delivered" && !receipt.Delivered || receipt.State == "prepared" && receipt.Delivered || model.ValidateProjectIdentifier(receipt.ProjectID) != nil || model.ValidateCanonicalTaskID(receipt.TaskID) != nil || model.ValidateCommitSHA(receipt.Head) != nil || receipt.HotfixRef == "" || receipt.SessionKey == "" || receipt.WorktreePath == "" || receipt.Message == "" || receipt.CreatedAt.IsZero() {
 		return hotfixExecutionReceipt{}, fmt.Errorf("invalid hotfix execution receipt")
 	}
 	return receipt, nil
