@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Propagate the canonical release version across VERSION, runtime binaries, and MCP metadata.
+
 ## 0.6.14 — 2026-09-03
 
 - Prepare v0.6.14 with the GTW-TSK472 canonical MCP smoke fix for upgrade and rollback verification.
