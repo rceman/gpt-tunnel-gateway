@@ -241,6 +241,50 @@ func TestEnsureExecutionSessionRejectsConflictingHistory(t *testing.T) {
 	}
 }
 
+func TestResolveSessionAuthorityRejectsMismatchedKeyAndProfile(t *testing.T) {
+	for _, mode := range []string{"key"} {
+		client, _, _ := dynamicExecutionSessionTestClient(t, mode)
+		_, key, _ := executionSessionTestInput(t, client)
+		if _, err := client.ResolveSessionAuthority(context.Background(), key, false); err == nil {
+			t.Fatalf("ResolveSessionAuthority accepted %s mismatch", mode)
+		}
+	}
+	client := executionSessionTestClient(t, `[]`, `[]`, `{"sessionKey":"KEY","profile":"bad profile","controllerReachable":true,"state":"idle"}`)
+	_, key, _ := executionSessionTestInput(t, client)
+	contents, err := os.ReadFile(client.Command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents = []byte(strings.ReplaceAll(string(contents), "KEY", key))
+	if err := os.WriteFile(client.Command, contents, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ResolveSessionAuthority(context.Background(), key, false); err == nil {
+		t.Fatal("ResolveSessionAuthority accepted invalid profile")
+	}
+}
+
+func TestResolveSessionAuthoritySeparatesIdentityFromUsability(t *testing.T) {
+	client := executionSessionTestClient(t, `[]`, `[]`, `{"sessionKey":"KEY","profile":"coding","controllerReachable":false,"state":"error"}`)
+	_, key, _ := executionSessionTestInput(t, client)
+	contents, err := os.ReadFile(client.Command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents = []byte(strings.ReplaceAll(string(contents), "KEY", key))
+	if err := os.WriteFile(client.Command, contents, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if authority, err := client.ResolveSessionAuthority(context.Background(), key, false); err != nil {
+		t.Fatalf("identity resolution rejected unavailable session: %v", err)
+	} else if authority.SessionKey != key || authority.Profile != "coding" || authority.State != "error" {
+		t.Fatalf("unexpected unavailable identity authority: %#v", authority)
+	}
+	if _, err := client.ResolveSessionAuthority(context.Background(), key, true); err == nil {
+		t.Fatal("usable resolution accepted unavailable session")
+	}
+}
+
 func TestValidateExecutionSessionRejectsRecordedSessionMismatchWithoutLaunch(t *testing.T) {
 	client := executionSessionTestClient(t, `[ {"sessionKey":"KEY","profile":"coding","cwd":"WRONG"} ]`, `[ {"sessionKey":"KEY","profile":"coding","invocationCwd":"WORKTREE"} ]`, `{"sessionKey":"KEY","profile":"coding","controllerReachable":true,"state":"idle"}`)
 	in, key, worktree := executionSessionTestInput(t, client)
