@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
@@ -38,7 +39,7 @@ func CutoverLegacyJSON(ctx context.Context, stateDir string, db *sqlitestore.Dat
 	for _, entry := range entries {
 		id := strings.TrimSuffix(entry.Name(), ".json")
 		if filepath.Ext(entry.Name()) != ".json" || !sessionIDRE.MatchString(id) {
-			continue
+			return fmt.Errorf("unexpected legacy session entry %q", entry.Name())
 		}
 		paths = append(paths, entry.Name())
 	}
@@ -49,6 +50,7 @@ func CutoverLegacyJSON(ctx context.Context, stateDir string, db *sqlitestore.Dat
 		payload []byte
 	}
 	imports := make([]imported, 0, len(paths))
+	validatedLegacyFiles := make([]string, 0, len(paths))
 	for _, name := range paths {
 		id := strings.TrimSuffix(name, ".json")
 		path := filepath.Join(filepath.Clean(stateDir), "sessions", name)
@@ -69,13 +71,15 @@ func CutoverLegacyJSON(ctx context.Context, stateDir string, db *sqlitestore.Dat
 		if err := record.Validate(); err != nil {
 			return err
 		}
+		validatedLegacyFiles = append(validatedLegacyFiles, name)
 		payload, err := json.Marshal(record)
 		if err != nil {
 			return err
 		}
 		existing, readErr := db.ReadLocalSession(ctx, id)
 		if readErr == nil {
-			if !bytes.Equal(existing.Payload, payload) || existing.ID != id {
+			expectedUpdatedAt := record.UpdatedAt.UTC().Format(time.RFC3339Nano)
+			if !bytes.Equal(existing.Payload, payload) || existing.ID != id || existing.Status != record.Status || existing.UpdatedAt != expectedUpdatedAt {
 				return fmt.Errorf("legacy session %s conflicts with Local record", id)
 			}
 			continue
@@ -87,13 +91,13 @@ func CutoverLegacyJSON(ctx context.Context, stateDir string, db *sqlitestore.Dat
 	}
 	rows := make([]sqlitestore.LocalSession, 0, len(imports))
 	for _, item := range imports {
-		rows = append(rows, sqlitestore.LocalSession{ID: item.record.ID, Payload: item.payload, UpdatedAt: item.record.UpdatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"), Status: item.record.Status})
+		rows = append(rows, sqlitestore.LocalSession{ID: item.record.ID, Payload: item.payload, UpdatedAt: item.record.UpdatedAt.UTC().Format(time.RFC3339Nano), Status: item.record.Status})
 	}
 	if err := db.CreateLocalSessions(ctx, rows); err != nil {
 		return fmt.Errorf("import legacy sessions: %w", err)
 	}
-	for _, item := range imports {
-		if err := os.Remove(filepath.Join(filepath.Clean(stateDir), "sessions", item.name)); err != nil && !os.IsNotExist(err) {
+	for _, name := range validatedLegacyFiles {
+		if err := os.Remove(filepath.Join(filepath.Clean(stateDir), "sessions", name)); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}
