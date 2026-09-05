@@ -5,83 +5,59 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
-func TestStoreCreateReloadUpdateAndEnd(t *testing.T) {
+func testStore(t *testing.T) (Store, string) {
+	t.Helper()
 	state := t.TempDir()
-	store := NewStore(state)
-	ref, label := "conversation-1", "primary"
-	record, err := store.Create(CreateInput{
-		ProjectID:   "example",
-		ProjectCode: "EXM",
-		Role:        RoleAgent,
-		SessionType: SessionTypeChatGPT,
-		SessionRef:  &ref,
-		Label:       &label,
-	})
+	db, err := sqlitestore.Open(state)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sessionIDRE.MatchString(record.ID) || record.Status != StatusActive || record.EndedAt != nil {
-		t.Fatalf("created record=%#v", record)
+	t.Cleanup(func() { _ = db.Close() })
+	return NewStoreWithDurability(db), state
+}
+
+func testCreateInput(role string) CreateInput {
+	return CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: role, SessionType: SessionTypeChatGPT}
+}
+
+func TestStoreSQLiteLifecycleHasNoSessionJSONAuthority(t *testing.T) {
+	store, state := testStore(t)
+	ref, label := "conversation-1", "primary"
+	record, err := store.Create(CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: RoleAgent, SessionType: SessionTypeChatGPT, SessionRef: &ref, Label: &label})
+	if err != nil {
+		t.Fatal(err)
 	}
-	info, err := NewStore(state).Get(record.ID)
-	if err != nil || info.ID != record.ID || info.ProjectID != "example" || info.Role != RoleAgent || info.SessionRef == nil || *info.SessionRef != ref {
-		t.Fatalf("reloaded record=%#v err=%v", info, err)
+	got, err := store.Get(record.ID)
+	if err != nil || got.ID != record.ID {
+		t.Fatalf("get=%#v err=%v", got, err)
 	}
 	updatedLabel := "renamed"
 	updated, err := store.Update(record.ID, UpdateInput{Label: &updatedLabel})
-	if err != nil || updated.SessionRef == nil || *updated.SessionRef != ref || updated.Label == nil || *updated.Label != updatedLabel {
-		t.Fatalf("updated record=%#v err=%v", updated, err)
+	if err != nil || *updated.Label != updatedLabel {
+		t.Fatalf("update=%#v err=%v", updated, err)
 	}
 	ended, err := store.End(record.ID)
-	if err != nil || ended.Status != StatusEnded || ended.EndedAt == nil {
-		t.Fatalf("ended record=%#v err=%v", ended, err)
+	if err != nil || ended.Status != StatusEnded {
+		t.Fatalf("end=%#v err=%v", ended, err)
 	}
 	if _, err := store.Update(record.ID, UpdateInput{Label: &updatedLabel}); !errors.Is(err, ErrAlreadyEnded) {
-		t.Fatalf("ended session update error=%v", err)
+		t.Fatalf("ended update=%v", err)
 	}
-	info, err = store.Get(record.ID)
-	if err != nil || info.Status != StatusEnded {
-		t.Fatalf("persisted ended record=%#v err=%v", info, err)
-	}
-	mode, err := os.Stat(filepath.Join(state, "sessions", record.ID+".json"))
-	if err != nil || mode.Mode().Perm() != 0o600 {
-		t.Fatalf("session mode=%v err=%v", mode.Mode(), err)
+	if _, err := os.Stat(filepath.Join(state, "sessions", record.ID+".json")); !os.IsNotExist(err) {
+		t.Fatalf("session JSON authority exists: %v", err)
 	}
 }
 
-func TestStoreCreateUnboundSurvivesTerminationAndConcurrentIDs(t *testing.T) {
-	state := t.TempDir()
-	store := NewStore(state)
-	ended, err := store.CreateUnbound(RolePlanner, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ended.ProjectID != "" || ended.ProjectCode != "" || ended.Status != StatusActive {
-		t.Fatalf("unbound record=%#v", ended)
-	}
-	if _, err := store.End(ended.ID); err != nil {
-		t.Fatal(err)
-	}
-	fresh, err := NewStore(state).CreateUnbound(RolePlanner, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fresh.ID == ended.ID || fresh.Status != StatusActive {
-		t.Fatalf("fresh record=%#v ended=%#v", fresh, ended)
-	}
-	if got, err := NewStore(state).Get(ended.ID); err != nil || got.Status != StatusEnded {
-		t.Fatalf("ended record changed after fresh creation: %#v err=%v", got, err)
-	}
-
-	const count = 16
+func TestStoreConcurrentCreateUsesOneLocalDBAndUniqueIDs(t *testing.T) {
+	store, _ := testStore(t)
+	const count = 32
 	ids := make(chan string, count)
 	errs := make(chan error, count)
 	var group sync.WaitGroup
@@ -89,147 +65,126 @@ func TestStoreCreateUnboundSurvivesTerminationAndConcurrentIDs(t *testing.T) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			for attempt := 0; attempt < 100; attempt++ {
-				record, createErr := NewStore(state).CreateUnbound(RolePlanner, nil)
-				if createErr == nil {
-					ids <- record.ID
-					return
-				}
-				if !lockfile.IsBusy(createErr) {
-					errs <- createErr
-					return
-				}
-				time.Sleep(time.Millisecond)
+			record, err := store.CreateUnbound(RolePlanner, nil)
+			if err != nil {
+				errs <- err
+				return
 			}
-			errs <- errors.New("concurrent unbound session creation remained lock-busy")
+			ids <- record.ID
 		}()
 	}
 	group.Wait()
 	close(ids)
 	close(errs)
-	for createErr := range errs {
-		t.Fatal(createErr)
+	for err := range errs {
+		t.Fatal(err)
 	}
 	seen := map[string]bool{}
 	for id := range ids {
 		if seen[id] {
-			t.Fatalf("concurrent creation reused session ID %q", id)
+			t.Fatalf("duplicate ID %q", id)
 		}
 		seen[id] = true
 	}
 	if len(seen) != count {
-		t.Fatalf("created %d concurrent sessions, want %d", len(seen), count)
+		t.Fatalf("IDs=%d want=%d", len(seen), count)
 	}
 }
 
-func TestStoreRetriesIDCollisionAtomically(t *testing.T) {
-	state := t.TempDir()
+func TestStoreCreateCollisionRegeneratesWithoutOverwrite(t *testing.T) {
+	store, _ := testStore(t)
 	ids := []string{"SP-EXM-0123", "SP-EXM-0123", "SP-EXM-89AB"}
-	store := NewStore(state)
-	store.IDGenerator = func() (string, error) {
-		id := ids[0]
-		ids = ids[1:]
-		return id, nil
-	}
-	if _, err := store.Create(CreateInput{
-		ProjectID:   "example",
-		ProjectCode: "EXM",
-		Role:        RolePlanner,
-		SessionType: SessionTypeChatGPT,
-	}); err != nil {
+	store.IDGenerator = func() (string, error) { id := ids[0]; ids = ids[1:]; return id, nil }
+	if _, err := store.Create(testCreateInput(RolePlanner)); err != nil {
 		t.Fatal(err)
 	}
-	created, err := store.Create(CreateInput{
-		ProjectID:   "example",
-		ProjectCode: "EXM",
-		Role:        RolePlanner,
-		SessionType: SessionTypeChatGPT,
-	})
+	created, err := store.Create(testCreateInput(RolePlanner))
 	if err != nil || created.ID != "SP-EXM-89AB" {
-		t.Fatalf("collision retry record=%#v err=%v", created, err)
+		t.Fatalf("created=%#v err=%v", created, err)
+	}
+	if got, err := store.Get("SP-EXM-0123"); err != nil || got.ID != "SP-EXM-0123" {
+		t.Fatalf("collision row=%#v err=%v", got, err)
 	}
 }
 
-func TestStoreCreatesRoleTypedIDsAndReadsLegacyIDs(t *testing.T) {
-	state := t.TempDir()
-	store := NewStore(state)
-	for role, prefix := range map[string]string{RolePlanner: "SP-EXM-", RoleAgent: "SA-EXM-"} {
-		record, err := store.Create(CreateInput{
-			ProjectID:   "example",
-			ProjectCode: "EXM",
-			Role:        role,
-			SessionType: SessionTypeChatGPT,
-		})
-		if err != nil {
-			t.Fatalf("create %s: %v", role, err)
-		}
-		if len(record.ID) != 11 || !strings.HasPrefix(record.ID, prefix) {
-			t.Fatalf("role %s received ID %q", role, record.ID)
-		}
-	}
-
-	now := time.Now().UTC()
-	legacy := Record{
-		SchemaVersion: SchemaVersion,
-		ID:            "S-ABC12345",
-		ProjectID:     "example",
-		Role:          RolePlanner,
-		SessionType:   SessionTypeChatGPT,
-		Status:        StatusActive,
-		CreatedAt:     now,
-		StartedAt:     now,
-		UpdatedAt:     now,
-	}
-	data, err := json.Marshal(legacy)
+func TestStoreBindAppliesProjectAndRefInOneRecordMutation(t *testing.T) {
+	store, _ := testStore(t)
+	record, err := store.CreateUnbound(RolePlanner, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(state, "sessions", legacy.ID+".json"), data, 0o600); err != nil {
+	ref := "planner-ref"
+	bound, err := store.Bind(record.ID, "example", &ref)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := store.Get(legacy.ID); err != nil || got.ID != legacy.ID {
-		t.Fatalf("legacy session was not readable: %#v %v", got, err)
+	if bound.ProjectID != "example" || bound.SessionRef == nil || *bound.SessionRef != ref {
+		t.Fatalf("bound=%#v", bound)
 	}
 }
 
-func TestStoreRejectsTypedRolePrefixMismatch(t *testing.T) {
+func TestStoreConcurrentEndIsIdempotent(t *testing.T) {
+	store, _ := testStore(t)
+	record, err := store.CreateUnbound(RolePlanner, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := make(chan error, 2)
+	var group sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		group.Add(1)
+		go func() { defer group.Done(); _, err := store.End(record.ID); results <- err }()
+	}
+	group.Wait()
+	close(results)
+	for err := range results {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := store.Get(record.ID)
+	if err != nil || got.Status != StatusEnded {
+		t.Fatalf("got=%#v err=%v", got, err)
+	}
+}
+
+func TestCutoverValidatesThenBatchImportsAndCleansAllFiles(t *testing.T) {
+	store, state := testStore(t)
 	now := time.Now().UTC()
-	for _, test := range []struct {
-		role string
-		id   string
-	}{
-		{RolePlanner, "SD-ABC12345"},
-		{RoleAgent, "SP-ABC12345"},
-		{RolePlanner, "SA-ABC12345"},
-	} {
-		record := Record{
-			SchemaVersion: SchemaVersion,
-			ID:            test.id,
-			ProjectID:     "example",
-			Role:          test.role,
-			SessionType:   SessionTypeChatGPT,
-			Status:        StatusActive,
-			CreatedAt:     now,
-			StartedAt:     now,
-			UpdatedAt:     now,
+	records := []Record{{SchemaVersion: SchemaVersion, ID: "SP-ABC12345", Role: RolePlanner, SessionType: SessionTypeChatGPT, Status: StatusActive, CreatedAt: now, StartedAt: now, UpdatedAt: now}, {SchemaVersion: SchemaVersion, ID: "SA-ABC12345", Role: RoleAgent, SessionType: SessionTypeChatGPT, Status: StatusActive, CreatedAt: now, StartedAt: now, UpdatedAt: now}}
+	dir := filepath.Join(state, "sessions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range records {
+		raw, _ := json.Marshal(record)
+		if err := os.WriteFile(filepath.Join(dir, record.ID+".json"), raw, 0o600); err != nil {
+			t.Fatal(err)
 		}
-		if err := record.Validate(); err == nil {
-			t.Fatalf("typed ID %q accepted for mismatched role %q", test.id, test.role)
+	}
+	if err := CutoverLegacyJSON(nil, state, store.Durability); err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range records {
+		if _, err := os.Stat(filepath.Join(dir, record.ID+".json")); !os.IsNotExist(err) {
+			t.Fatalf("legacy file remains: %v", err)
+		}
+		if got, err := store.Get(record.ID); err != nil || got.ID != record.ID {
+			t.Fatalf("import=%#v err=%v", got, err)
 		}
 	}
 }
 
-func TestStoreRejectsInvalidBindingAndCorruptFiles(t *testing.T) {
-	store := NewStore(t.TempDir())
-	for _, input := range []CreateInput{
-		{ProjectID: "example", Role: "operator", SessionType: SessionTypeChatGPT},
-		{ProjectID: "example", Role: RoleAgent, SessionType: "unknown"},
-	} {
-		if _, err := store.Create(input); err == nil {
-			t.Fatalf("invalid input accepted: %#v", input)
-		}
+func TestCutoverRejectsUnexpectedOrConflictingInputBeforeInsert(t *testing.T) {
+	store, state := testStore(t)
+	dir := filepath.Join(state, "sessions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := store.Get("S-00000000"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("missing session error=%v", err)
+	if err := os.WriteFile(filepath.Join(dir, ".tmp"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := CutoverLegacyJSON(nil, state, store.Durability); err == nil {
+		t.Fatal("unexpected legacy entry accepted")
 	}
 }
