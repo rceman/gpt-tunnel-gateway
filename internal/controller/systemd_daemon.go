@@ -312,7 +312,14 @@ func daemonControlBinary() (string, error) {
 	return filepath.Abs(path)
 }
 
-func systemdQuote(value string) string { return strconv.Quote(value) }
+func systemdEscape(value string) string {
+	return strings.NewReplacer(
+		`\`, `\\`,
+		"\t", `\x09`,
+		"\n", `\x0a`,
+		" ", `\x20`,
+	).Replace(value)
+}
 
 func (c Controller) daemonUnitText(identity daemonRuntimeIdentity) (string, error) {
 	if c.Config.Controller.TunnelEnvFile == "" || c.Config.Controller.TunnelHealthListenAddr == "" || c.Config.ListenAddr == "" {
@@ -336,12 +343,12 @@ func (c Controller) daemonUnitText(identity daemonRuntimeIdentity) (string, erro
 		"[Service]\n" +
 		"Type=oneshot\n" +
 		"RemainAfterExit=yes\n" +
-		"User=" + systemdQuote(identity.User) + "\n" +
-		"Group=" + systemdQuote(identity.Group) + "\n" +
-		"WorkingDirectory=" + systemdQuote(workingDir) + "\n" +
-		"Environment=GPT_TUNNEL_CONFIG=" + systemdQuote(c.ConfigPath) + "\n" +
-		"ExecStart=" + systemdQuote(controlBinary) + " daemon-start\n" +
-		"ExecStop=" + systemdQuote(controlBinary) + " daemon-stop\n" +
+		"User=" + systemdEscape(identity.User) + "\n" +
+		"Group=" + systemdEscape(identity.Group) + "\n" +
+		"WorkingDirectory=" + systemdEscape(workingDir) + "\n" +
+		"Environment=GPT_TUNNEL_CONFIG=" + systemdEscape(c.ConfigPath) + "\n" +
+		"ExecStart=" + systemdEscape(controlBinary) + " daemon-start\n" +
+		"ExecStop=" + systemdEscape(controlBinary) + " daemon-stop\n" +
 		"KillMode=control-group\n" +
 		"Restart=no\n" +
 		"TimeoutStartSec=90s\n\n" +
