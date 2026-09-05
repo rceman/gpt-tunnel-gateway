@@ -193,10 +193,14 @@ func (c Client) runJSON(ctx context.Context, args []string, target any) error {
 	var stdout, stderr tailBuffer
 	stdout.max, stderr.max = 1<<20, 8192
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	if ctx.Err() != nil {
+		return fmt.Errorf("bounded Airelay query failed: %w", ctx.Err())
+	}
+	if err != nil {
 		return err
 	}
-	if ctx.Err() != nil || stdout.exceeded || stderr.exceeded {
+	if stdout.exceeded || stderr.exceeded {
 		return fmt.Errorf("bounded Airelay query failed")
 	}
 	return json.Unmarshal([]byte(stdout.String()), target)
