@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -67,6 +68,53 @@ func TestPromptHonorsCallerDeadline(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("prompt exceeded caller deadline by too much: %s", elapsed)
+	}
+}
+
+func TestRunJSONPreservesCallerDeadline(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 2\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	client := Client{Command: script, Timeout: time.Second}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	var output any
+	err := client.runJSON(ctx, []string{"sessions", "--active", "--json"}, &output)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("runJSON error=%v, want context.DeadlineExceeded", err)
+	}
+}
+
+func TestRunJSONPreservesCallerCancellation(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 2\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	client := Client{Command: script, Timeout: time.Second}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var output any
+	err := client.runJSON(ctx, []string{"history", "--all", "--json"}, &output)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("runJSON error=%v, want context.Canceled", err)
+	}
+}
+
+func TestRunJSONPreservesIndependentCommandError(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 17\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	client := Client{Command: script, Timeout: time.Second}
+	var output any
+	err := client.runJSON(context.Background(), []string{"session-status", "key", "--json"}, &output)
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 17 {
+		t.Fatalf("runJSON error=%v, want exit code 17", err)
 	}
 }
 
