@@ -194,7 +194,13 @@ func TestCanonicalAgentAwaitTimeoutReturnsIncrementalTail(t *testing.T) {
 	seedMCPTestCodingAgent(t, s, revision)
 	dir := t.TempDir()
 	counter := filepath.Join(dir, "tail-called")
-	script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\nsession-status) printf 'Controller: reachable\\nState: idle\\n' ;;\ntail) if [ -f %s ]; then printf 'old\\nnew\\n'; else printf 'old\\n'; touch %s; fi ;;\n*) exit 0 ;;\nesac\n", counter, counter)
+	script := fmt.Sprintf(`#!/bin/sh
+case "$1" in
+session-status) if [ "$3" = --json ]; then printf '{"sessionKey":"%%s","profile":"coding","controllerReachable":true,"state":"idle"}' "$2"; else printf 'Controller: reachable\nState: idle\n'; fi ;;
+tail) if [ -f %s ]; then printf 'old\nnew\n'; else printf 'old\n'; touch %s; fi ;;
+*) exit 99 ;;
+esac
+`, counter, counter)
 	command := filepath.Join(dir, "airelay")
 	if err := os.WriteFile(command, []byte(script), 0o700); err != nil {
 		t.Fatal(err)

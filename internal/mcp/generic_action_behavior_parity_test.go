@@ -146,7 +146,7 @@ func TestGenericAgentTailTranscriptDedupe(t *testing.T) {
 	ctx := context.Background()
 	seedMCPTestCodingAgent(t, s, revision)
 	script := filepath.Join(t.TempDir(), "airelay")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf 'two\\nthree\\n'\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ncase \"$1\" in\nsession-status) if [ \"$3\" = --json ]; then printf '{\"sessionKey\":\"%s\",\"profile\":\"coding\",\"controllerReachable\":true,\"state\":\"idle\"}' \"$2\"; else printf 'Controller: reachable\\nState: idle\\n'; fi ;;\ntail) printf 'two\\nthree\\n' ;;\n*) exit 99 ;;\nesac\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	s.Airelay.Command = script

@@ -20,7 +20,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
 	script := filepath.Join(dir, "airelay")
-	body := "#!/bin/sh\ncase \"$1\" in\nprompt) printf 'sent\\n' ;;&\ntranscript) printf '{\"lines\":[{\"timestamp\":1,\"text\":\"one\"},{\"timestamp\":2,\"text\":\"two\"},{\"timestamp\":3,\"text\":\"three\"},{\"timestamp\":4,\"text\":\"four\"}]}\\n' ;;&\ntail) printf 'one\\ntwo\\nthree\\nfour\\nfive\\nsix\\n' ;;&\nsession-status) printf 'Controller: reachable (5ms)\\nAirelay version: 0.1.54\\nProtocol version: 1\\nState: busy\\n⚠ Selected model is at capacity.\\n' ;;&\nesac\n"
+	body := "#!/bin/sh\ncase \"$1\" in\nprompt) printf 'sent\\n' ;;&\ntranscript) printf '{\"lines\":[{\"timestamp\":1,\"text\":\"one\"},{\"timestamp\":2,\"text\":\"two\"},{\"timestamp\":3,\"text\":\"three\"},{\"timestamp\":4,\"text\":\"four\"}]}\\n' ;;&\ntail) printf 'one\\ntwo\\nthree\\nfour\\nfive\\nsix\\n' ;;&\nsession-status) if [ \"$3\" = --json ]; then printf '{\"sessionKey\":\"%s\",\"profile\":\"coding\",\"controllerReachable\":true,\"state\":\"idle\"}' \"$2\"; else printf 'Controller: reachable (5ms)\\nAirelay version: 0.1.54\\nProtocol version: 1\\nState: busy\\n⚠ Selected model is at capacity.\\n'; fi ;;&\n*) exit 99 ;;&\nesac\n"
 	// The fixture shell is intentionally POSIX-compatible; replace the case
 	// fall-through markers for shells that do not support ;;&.
 	body = strings.ReplaceAll(body, ";;&", ";;")

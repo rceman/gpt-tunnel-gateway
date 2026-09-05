@@ -39,7 +39,7 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 	revision = seedMCPTestCodingAgent(t, s, revision)
 	_ = ensureMCPTestProjectIdentifiers(t, s)
 	command := filepath.Join(t.TempDir(), "airelay")
-	if err := os.WriteFile(command, []byte("#!/bin/sh\ncase \"$1\" in\nsession-status) printf 'Controller: reachable\\nState: idle\\n' ;;\ntail) printf 'public e2e\\n' ;;\nprompt) printf 'sent\\n' ;;\nesac\nexit 0\n"), 0o700); err != nil {
+	if err := os.WriteFile(command, []byte("#!/bin/sh\ncase \"$1\" in\nsession-status) if [ \"$3\" = --json ]; then printf '{\"sessionKey\":\"%s\",\"profile\":\"coding\",\"controllerReachable\":true,\"state\":\"idle\"}' \"$2\"; else printf 'Controller: reachable\\nState: idle\\n'; fi ;;\ntail) printf 'public e2e\\n' ;;\nprompt) printf 'sent\\n' ;;\n*) exit 99 ;;\nesac\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	s.Config.AirelayCommand = command

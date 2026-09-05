@@ -77,7 +77,7 @@ func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
 	_, projectRoot, projectHead := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
 	airelay := filepath.Join(dir, "airelay")
-	if err := os.WriteFile(airelay, []byte("#!/bin/sh\ncase \"$1\" in\nsession-status) printf 'Controller: reachable\\nState: idle\\n' ;;\ntail) printf 'idle\\n' ;;\n*) exit 0 ;;\nesac\n"), 0o700); err != nil {
+	if err := os.WriteFile(airelay, []byte("#!/bin/sh\ncase \"$1\" in\nsession-status) if [ \"$3\" = --json ]; then printf '{\"sessionKey\":\"%s\",\"profile\":\"coding\",\"controllerReachable\":true,\"state\":\"idle\"}' \"$2\"; else printf 'Controller: reachable\\nState: idle\\n'; fi ;;\ntail) printf 'idle\\n' ;;\n*) exit 99 ;;\nesac\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	c := config.Config{
@@ -139,9 +139,7 @@ func testService(t *testing.T) (*Service, string, string) {
 	if adopted.NextTaskNumber != 1 || result.Status != "adopted" {
 		t.Fatalf("unexpected adopted identifiers: %#v %#v", adopted, result)
 	}
-	if err := os.WriteFile(s.Config.AirelayCommand, []byte("#!/bin/sh\ncase \"$1\" in\nsession-status) printf 'Controller: reachable\\nState: idle\\n' ;;\ntail) printf 'idle\\n' ;;\nprompt) exit 0 ;;\n*) exit 0 ;;\nesac\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	installServiceExecutionSessionFixture(t, s, filepath.Join(t.TempDir(), "prompts"))
 	s.Config.AgentBindings[config.ProjectAgentBindingKey("example", "coder-example")] = config.AgentBinding{SessionKey: "example_master"}
 	now := time.Now().UTC()
 	revision = result.Hub.After

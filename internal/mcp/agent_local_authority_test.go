@@ -19,7 +19,7 @@ import (
 func TestCanonicalAgentAwaitUsesLocalAuthorityWhenHubUnavailableAndLocked(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	airelay := filepath.Join(t.TempDir(), "airelay")
-	if err := os.WriteFile(airelay, []byte("#!/bin/sh\nprintf 'Controller: reachable\\nState: idle\\n'\n"), 0o700); err != nil {
+	if err := os.WriteFile(airelay, []byte("#!/bin/sh\ncase \"$1\" in\nsession-status) if [ \"$3\" = --json ]; then printf '{\"sessionKey\":\"%s\",\"profile\":\"coding\",\"controllerReachable\":true,\"state\":\"idle\"}' \"$2\"; else printf 'Controller: reachable\\nState: idle\\n'; fi ;;\ntail) printf 'local authority tail\\n' ;;\n*) exit 99 ;;\nesac\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	c := config.Config{

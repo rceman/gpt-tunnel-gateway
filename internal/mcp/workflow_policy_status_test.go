@@ -20,7 +20,7 @@ func newWorkflowPolicyStatusService(t *testing.T) (*service.Service, string) {
 	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
 	airelay := filepath.Join(dir, "airelay")
-	if err := os.WriteFile(airelay, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+	if err := os.WriteFile(airelay, []byte("#!/bin/sh\ncase \"$1\" in\nsession-status) if [ \"$3\" = --json ]; then printf '{\"sessionKey\":\"%s\",\"profile\":\"coding\",\"controllerReachable\":true,\"state\":\"idle\"}' \"$2\"; else printf 'Controller: reachable\\nState: idle\\n'; fi ;;\ntail) printf 'idle\\n' ;;\nprompt) printf 'sent\\n' ;;\n*) exit 99 ;;\nesac\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	c := config.Config{
