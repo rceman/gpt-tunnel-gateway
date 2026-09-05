@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 import re
@@ -95,20 +94,17 @@ def activate(phase: str) -> None:
     if run(["git", "status", "--porcelain"], root).strip():
         raise RuntimeError("integration activation requires a clean source worktree")
 
-    ctl = shutil.which("gpt-tunnelctl")
-    if not ctl:
-        raise RuntimeError("gpt-tunnelctl is unavailable")
-    before = status(ctl, root)
-    tunnel = before.get("tunnel", {})
-    tunnel_pid = tunnel.get("pid")
-    if not tunnel.get("running") or not tunnel.get("identity_valid") or not isinstance(tunnel_pid, int):
-        raise RuntimeError("Tunnel is not a valid running process")
-
     with tempfile.TemporaryDirectory(prefix="gpt-tunnel-integration-") as directory:
         dist = Path(directory) / "dist"
         run(["bash", "scripts/build-release.sh", str(dist)], root, phase="release_build")
         artifact_hashes = {name: sha256(dist / name) for name in ARTIFACTS}
         run(["sha256sum", "-c", "SHA256SUMS"], dist, phase="artifact_checksum")
+        ctl = str(dist / "gpt-tunnelctl")
+        before = status(ctl, root)
+        tunnel = before.get("tunnel", {})
+        tunnel_pid = tunnel.get("pid")
+        if not tunnel.get("running") or not tunnel.get("identity_valid") or not isinstance(tunnel_pid, int):
+            raise RuntimeError("Tunnel is not a valid running process")
         after = healthy_exact_runtime(ctl, root, artifact_hashes)
         restarted = False
         if after is None:
