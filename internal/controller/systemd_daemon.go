@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -47,7 +48,22 @@ func sudoCommand(ctx context.Context, args ...string) (string, error) {
 	if err := requireLinux(); err != nil {
 		return "", err
 	}
-	command := exec.CommandContext(ctx, "sudo", append([]string{"-n"}, args...)...)
+	commandArgs := append([]string{"-n"}, args...)
+	interactive := false
+	if info, statErr := os.Stdin.Stat(); statErr == nil && info.Mode()&os.ModeCharDevice != 0 {
+		interactive = true
+		commandArgs = args
+	}
+	command := exec.CommandContext(ctx, "sudo", commandArgs...)
+	if interactive {
+		command.Stdin = os.Stdin
+		command.Stdout = os.Stdout
+		command.Stderr = os.Stderr
+		if err := command.Run(); err != nil {
+			return "", fmt.Errorf("sudo %s: %w", strings.Join(args, " "), err)
+		}
+		return "", nil
+	}
 	output, err := command.CombinedOutput()
 	if err != nil {
 		message := strings.TrimSpace(string(output))
@@ -57,6 +73,28 @@ func sudoCommand(ctx context.Context, args ...string) (string, error) {
 		return "", fmt.Errorf("sudo %s: %s", strings.Join(args, " "), message)
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+func sudoCommandWithInput(ctx context.Context, input []byte, args ...string) error {
+	if err := requireLinux(); err != nil {
+		return err
+	}
+	commandArgs := append([]string{"-n"}, args...)
+	interactive := false
+	if info, statErr := os.Stdin.Stat(); statErr == nil && info.Mode()&os.ModeCharDevice != 0 {
+		interactive = true
+		commandArgs = args
+	}
+	command := exec.CommandContext(ctx, "sudo", commandArgs...)
+	command.Stdin = bytes.NewReader(input)
+	if interactive {
+		command.Stdout = os.Stdout
+		command.Stderr = os.Stderr
+	}
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("sudo %s: %w", strings.Join(args, " "), err)
+	}
+	return nil
 }
 
 func systemctl(ctx context.Context, args ...string) (string, error) {
@@ -213,32 +251,25 @@ func (c Controller) DaemonRemove(ctx context.Context) error {
 }
 
 func writeSystemUnit(ctx context.Context, path string, data []byte) error {
-	tmp, err := os.CreateTemp("", "gpt-tunnel.service.*")
-	if err != nil {
+	tmpPath := filepath.Join(filepath.Dir(path), fmt.Sprintf(".%s.tmp-%d-%d", daemonUnitName, os.Getpid(), time.Now().UnixNano()))
+	cleanup := func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_, _ = sudoCommand(cleanupCtx, "rm", "-f", "--", tmpPath)
+	}
+	if err := sudoCommandWithInput(ctx, data, "install", "-m", "0600", "/dev/stdin", tmpPath); err != nil {
+		cleanup()
 		return err
 	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
+	if _, err := sudoCommand(ctx, "chmod", "0644", "--", tmpPath); err != nil {
+		cleanup()
 		return err
 	}
 	if _, err := sudoCommand(ctx, "mv", "--", tmpPath, path); err != nil {
+		cleanup()
 		return err
 	}
-	_, err = sudoCommand(ctx, "chmod", "0644", "--", path)
-	return err
+	return nil
 }
 
 type daemonRuntimeIdentity struct {
@@ -309,7 +340,6 @@ func (c Controller) daemonUnitText(identity daemonRuntimeIdentity) (string, erro
 		"Group=" + systemdQuote(identity.Group) + "\n" +
 		"WorkingDirectory=" + systemdQuote(workingDir) + "\n" +
 		"Environment=GPT_TUNNEL_CONFIG=" + systemdQuote(c.ConfigPath) + "\n" +
-		"EnvironmentFile=-" + systemdQuote(c.Config.Controller.TunnelEnvFile) + "\n" +
 		"ExecStart=" + systemdQuote(controlBinary) + " daemon-start\n" +
 		"ExecStop=" + systemdQuote(controlBinary) + " daemon-stop\n" +
 		"KillMode=control-group\n" +

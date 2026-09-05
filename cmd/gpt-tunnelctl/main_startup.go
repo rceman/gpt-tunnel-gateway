@@ -60,7 +60,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	switch os.Args[1] {
-	case "status":
+	case "runtime-status":
 		var st controller.Status
 		st, err = ctl.Status(ctx)
 		if err == nil {

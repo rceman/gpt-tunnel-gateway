@@ -57,7 +57,7 @@ def sha256(path: Path) -> str:
 
 
 def status(ctl: str, root: Path) -> dict:
-    return json.loads(run([ctl, "status"], root))
+    return json.loads(run([ctl, "runtime-status"], root))
 
 
 def healthy_exact_runtime(ctl: str, root: Path, artifact_hashes: dict[str, str]) -> dict | None:
