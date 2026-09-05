@@ -39,6 +39,7 @@ func TestTrainV2AdvanceStartsNextItemAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedTrainExecutionSession(t, s, train.ID)
 	_, err = s.TrainV2Start(context.Background(), TrainV2StartInput{
 		ProjectID: "example",
 		TrainID:   train.ID,

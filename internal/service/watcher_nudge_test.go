@@ -25,6 +25,7 @@ func TestWatcherNudgeUsesExactTrainAttemptSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedTrainExecutionSession(t, s, train.ID)
 	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
 		ProjectID: "example",
 		TrainID:   train.ID,

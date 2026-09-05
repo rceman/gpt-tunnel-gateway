@@ -9,11 +9,31 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
+
+func seedTrainExecutionSession(t *testing.T, s *Service, trainID string) {
+	t.Helper()
+	identifiers, err := s.ProjectIdentifiersRead(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := s.Config.Projects["example"].AirelaySessionKey
+	key, err := airelay.DeriveExecutionSessionKey(base, "coding", "train:example:"+trainID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktree, err := trainv2.CompactWorktreePath(s.Config.StateDir, identifiers.ProjectCode, trainID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedExistingServiceExecutionSession(t, s, key, "coding", worktree)
+}
 
 func seedExistingServiceExecutionSession(t *testing.T, s *Service, key, profile, worktree string) {
 	t.Helper()
@@ -26,7 +46,10 @@ func seedExistingServiceExecutionSession(t *testing.T, s *Service, key, profile,
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, payload := range map[string][]byte{"service-execution-active.json": sessions, "service-execution-history.json": history} {
+	for name, payload := range map[string][]byte{
+		"service-execution-active.json": sessions, "service-execution-history.json": history,
+		"state-execution-active.json": sessions, "state-execution-history.json": history,
+	} {
 		if err := os.WriteFile(filepath.Join(dir, name), payload, 0o600); err != nil {
 			t.Fatal(err)
 		}

@@ -129,6 +129,7 @@ func TestTrainV2StartHistoricalDuplicateIsNotLiveOwner(t *testing.T) {
 	}); err == nil {
 		t.Fatal("historical Task was re-admitted")
 	}
+	seedTrainExecutionSession(t, s, canonical.ID)
 	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
 		ProjectID: "example",
 		TrainID:   canonical.ID,

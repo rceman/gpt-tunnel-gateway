@@ -44,6 +44,7 @@ func TestTrainV2CorrectionStartRequiresExactRejectedReviewAndQueuedTask(t *testi
 	if err != nil || boundCorrectionTask.Execution != model.TaskExecutionTrain {
 		t.Fatalf("Train admission did not bind correction Task execution: %#v %v", boundCorrectionTask, err)
 	}
+	seedTrainExecutionSession(t, s, train.ID)
 	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
 		ProjectID: "example",
 		TrainID:   train.ID,

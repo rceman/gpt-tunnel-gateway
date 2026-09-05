@@ -173,6 +173,7 @@ func TestTaskAuthoringQueuedTrainItemCanBeUpdatedUntilAttemptStarts(t *testing.T
 	if err != nil || ready.Status != model.TaskAuthoringReady {
 		t.Fatalf("edited queued Task was not re-readied: task=%#v err=%v", ready, err)
 	}
+	seedTrainExecutionSession(t, s, train.ID)
 	started, err := s.TaskWork(context.Background(), TaskWorkInput{TaskID: task.ID})
 	if err != nil || started.AttemptNumber != 1 {
 		t.Fatalf("re-readied queued Task did not start: result=%#v err=%v", started, err)

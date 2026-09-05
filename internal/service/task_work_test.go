@@ -30,6 +30,7 @@ func TestTaskWorkStartsAndResumesByTaskIdentity(t *testing.T) {
 	if train.ID == "" || operation.Hub.After == "" {
 		t.Fatalf("invalid Train creation: %#v %#v", train, operation)
 	}
+	seedTrainExecutionSession(t, s, train.ID)
 
 	first, err := s.TaskWork(context.Background(), TaskWorkInput{TaskID: task.ID})
 	if err != nil {
@@ -73,6 +74,7 @@ func TestTaskFinalizeOwnsCheckpointByTaskIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedTrainExecutionSession(t, s, train.ID)
 	work, err := s.TaskWork(context.Background(), TaskWorkInput{TaskID: task.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -143,6 +145,7 @@ func TestTaskWorkRejectsTrainRuntimeSessionMismatchWithoutLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedTrainExecutionSession(t, s, train.ID)
 	if _, err := s.TaskWork(context.Background(), TaskWorkInput{TaskID: task.ID}); err != nil {
 		t.Fatal(err)
 	}

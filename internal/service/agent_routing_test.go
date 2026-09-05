@@ -40,6 +40,7 @@ func TestTaskWorkBootstrapsLegacyAutoBindingProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedTrainExecutionSession(t, s, train.ID)
 	work, err := s.TaskWork(context.Background(), TaskWorkInput{TaskID: task.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -65,6 +66,7 @@ func TestTaskWorkBootstrapsLegacyAutoBindingWithReadySessionState(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedTrainExecutionSession(t, s, train.ID)
 	work, err := s.TaskWork(context.Background(), TaskWorkInput{TaskID: task.ID})
 	if err != nil {
 		t.Fatal(err)
