@@ -58,7 +58,7 @@ func TestServiceSessionLifecycleUsesRegisteredProject(t *testing.T) {
 	}
 	if _, err := s.SessionStart(authority.WithPlanner(context.Background()), SessionStartInput{
 		ProjectID:   "missing",
-		Role:        "delivery",
+		Role:        durableSession.RolePlanner,
 		SessionType: "chatgpt",
 	}); err == nil {
 		t.Fatal("unknown project session start accepted")

@@ -51,11 +51,9 @@ func TestProjectGateCommandsRoundTripAndRejectShellCommands(t *testing.T) {
 	}
 }
 
-func TestProjectConfigurationRejectsExecutionAndWatcherContractViolations(t *testing.T) {
+func TestProjectConfigurationRejectsExecutionContractViolations(t *testing.T) {
 	base := DefaultProjectConfiguration("example", time.Unix(10, 0).UTC())
 	tests := map[string]func(*ProjectConfiguration){
-		"invalid watcher mode":         func(v *ProjectConfiguration) { v.Watcher.Mode = "retry" },
-		"invalid watcher bounds":       func(v *ProjectConfiguration) { v.Watcher.TailLines = WatcherMaxTailLines + 1 },
 		"invalid fallback":             func(v *ProjectConfiguration) { v.AgentRouting.Fallback = ReasoningHigh },
 		"invalid activation reference": func(v *ProjectConfiguration) { v.ActivationProfileRef = "../default" },
 		"unsafe updater":               func(v *ProjectConfiguration) { v.UpdatedBy = strings.Repeat("x", 1) + "\n" },

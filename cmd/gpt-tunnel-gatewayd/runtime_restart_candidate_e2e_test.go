@@ -134,7 +134,7 @@ func TestCandidateGatewayRestartMCPNetworkE2E(t *testing.T) {
 	}
 
 	session, err := durableSession.NewStore(stateDir).Create(durableSession.CreateInput{
-		ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleDelivery, SessionType: durableSession.SessionTypeChatGPT,
+		ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RolePlanner, SessionType: durableSession.SessionTypeChatGPT,
 	})
 	if err != nil {
 		t.Fatal(err)
