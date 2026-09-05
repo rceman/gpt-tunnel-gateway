@@ -133,19 +133,21 @@ func TestPublicSessionStartRejectsDeliveryRole(t *testing.T) {
 		return len(entries)
 	}
 	before := countSessions()
-	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "EXM", "role": durableSession.RoleDelivery, "ref": "delivery"}},
-	}))
-	if response["error"] == nil {
-		result, _ := response["result"].(map[string]any)
-		if result["isError"] != true {
-			t.Fatalf("Delivery session_start was accepted: %#v", response)
+	for _, role := range []string{"delivery", "watcher"} {
+		response := callMCPRaw(t, server, mustJSON(t, map[string]any{
+			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+			"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "EXM", "role": role, "ref": role}},
+		}))
+		if response["error"] == nil {
+			result, _ := response["result"].(map[string]any)
+			if result["isError"] != true {
+				t.Fatalf("%s session_start was accepted: %#v", role, response)
+			}
 		}
-	}
-	after := countSessions()
-	if after != before {
-		t.Fatalf("rejected Delivery session_start created a session: before=%d after=%d", before, after)
+		after := countSessions()
+		if after != before {
+			t.Fatalf("rejected %s session_start created a session: before=%d after=%d", role, before, after)
+		}
 	}
 }
 
@@ -214,7 +216,7 @@ func TestPublicSessionStartAfterTerminationIsFreshAndBoundCallWorks(t *testing.T
 func TestPublicSchemaFiltersActionsByImmutableSessionRole(t *testing.T) {
 	server := newSessionTestServer(t)
 	plannerID := genericSessionWithRole(t, server.Service, "example", durableSession.RolePlanner)
-	deliveryID := genericSessionWithRole(t, server.Service, "example", durableSession.RoleDelivery)
+	agentID := genericSessionWithRole(t, server.Service, "example", durableSession.RoleAgent)
 
 	schema := func(sessionID, path string) map[string]any {
 		t.Helper()
@@ -245,7 +247,7 @@ func TestPublicSchemaFiltersActionsByImmutableSessionRole(t *testing.T) {
 		sessionID string
 	}{
 		{name: durableSession.RolePlanner, sessionID: plannerID},
-		{name: durableSession.RoleDelivery, sessionID: deliveryID},
+		{name: durableSession.RoleAgent, sessionID: agentID},
 	} {
 		sessionActions := actions(role.sessionID, "session")
 		for _, path := range []string{"session/info", "session/list", "session/end"} {
@@ -259,20 +261,16 @@ func TestPublicSchemaFiltersActionsByImmutableSessionRole(t *testing.T) {
 	}
 
 	plannerRuntime := actions(plannerID, "runtime")
-	if !plannerRuntime["runtime/logs"] || plannerRuntime["runtime/restart"] {
+	if !plannerRuntime["runtime/logs"] || !plannerRuntime["runtime/restart"] {
 		t.Fatalf("planner runtime schema=%#v", plannerRuntime)
 	}
-	deliveryRuntime := actions(deliveryID, "runtime")
-	if !deliveryRuntime["runtime/logs"] || !deliveryRuntime["runtime/restart"] {
-		t.Fatalf("delivery runtime schema=%#v", deliveryRuntime)
+	agentRuntime := actions(agentID, "runtime")
+	if !agentRuntime["runtime/logs"] || agentRuntime["runtime/restart"] {
+		t.Fatalf("agent runtime schema=%#v", agentRuntime)
 	}
 	plannerTrain := actions(plannerID, "train")
 	if !plannerTrain["train/review-resolve"] {
 		t.Fatalf("planner train schema omitted planner action: %#v", plannerTrain)
-	}
-	deliveryTrain := actions(deliveryID, "train")
-	if deliveryTrain["train/review-resolve"] {
-		t.Fatalf("delivery train schema exposed planner action: %#v", deliveryTrain)
 	}
 
 	root := schema(plannerID, "")
@@ -287,7 +285,7 @@ func TestPublicSchemaFiltersActionsByImmutableSessionRole(t *testing.T) {
 	}
 	unauthorized := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "schema", "arguments": map[string]any{"session": deliveryID, "path": "train/review-resolve"}},
+		"params": map[string]any{"name": "schema", "arguments": map[string]any{"session": agentID, "path": "train/review-resolve"}},
 	}))
 	result, ok := unauthorized["result"].(map[string]any)
 	if !ok || result["isError"] != true {

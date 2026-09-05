@@ -38,7 +38,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	registeredAgentRevision := seedMCPTestCodingAgent(t, s, adoptedPolicyRevision)
 	srv := &Server{
 		Service:          s,
-		AuthorityContext: authority.WithDelivery(context.Background()),
+		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	before, err := s.Hub.RemoteRevision(context.Background())
 	if err != nil {

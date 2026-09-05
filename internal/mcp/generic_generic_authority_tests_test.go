@@ -16,7 +16,7 @@ import (
 func TestGenericRegisteredActionDiscoveryAndCall(t *testing.T) {
 	server := &Server{
 		Service:          service.New(config.Config{GatewayID: "home_pc", StateDir: filepath.Join(t.TempDir(), "state")}),
-		AuthorityContext: authority.WithDelivery(context.Background()),
+		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	sessionID := genericSession(t, server.Service, "example")
 	if err := server.RegisterGenericAction(GenericAction{
@@ -75,7 +75,7 @@ func TestGenericRegisteredActionDiscoveryAndCall(t *testing.T) {
 func TestGenericLegacyReadAndMutationAuthorityReuse(t *testing.T) {
 	server := &Server{
 		Service:          service.New(config.Config{GatewayID: "home_pc", StateDir: filepath.Join(t.TempDir(), "state")}),
-		AuthorityContext: authority.WithDelivery(context.Background()),
+		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	sessionID := genericSession(t, server.Service, "example")
 	generic := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
@@ -89,7 +89,7 @@ func TestGenericLegacyReadAndMutationAuthorityReuse(t *testing.T) {
 
 	unauthorizedServer := &Server{Service: server.Service}
 	var calls int
-	registerAuthorityTestAction(t, unauthorizedServer, "test/policy", durableSession.RoleDelivery, true, &calls)
+	registerAuthorityTestAction(t, unauthorizedServer, "test/policy", durableSession.RolePlanner, true, &calls)
 	unauthorized := callMCP(t, unauthorizedServer, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/policy", "input": map[string]any{"value": "ok"}}},

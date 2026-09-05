@@ -26,11 +26,11 @@ func TestTrainV2CutoverUsesProofOnlyCallbackInsteadOfActivator(t *testing.T) {
 		}, nil
 	}
 
-	_, _, err := s.TrainV2Cutover(trustedWorkflowPolicyContext(context.Background(), "delivery"), TrainV2CutoverInput{
+	_, _, err := s.TrainV2Cutover(trustedWorkflowPolicyContext(context.Background(), "planner"), TrainV2CutoverInput{
 		ProjectID:                   "example",
 		MaterializationAcknowledged: true,
 		PlanRetirementAcknowledged:  true,
-		UpdatedBy:                   "delivery",
+		UpdatedBy:                   "planner",
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: hubRevision,
 		},

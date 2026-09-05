@@ -179,7 +179,7 @@ func TestCallbackActionsRejectDeliveryMutationAndRequireBoundSession(t *testing.
 	if response["error"] == nil && !strings.Contains(string(mustJSON(t, response)), "session") {
 		t.Fatalf("unbound callback action was not rejected: %#v", response)
 	}
-	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "delivery", "session_type": "chatgpt"}))
+	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "agent", "session_type": "chatgpt"}))
 	session := started["session"].(map[string]any)["session_id"].(string)
 	result := genericStructured(t, publicCallbackEnvelope(t, server, session, "callback/register", map[string]any{"callback": "delivery", "event": model.ProjectCallbackWorkFinishedEvent, "url": map[string]any{"method": "POST", "url": "https://example.invalid", "body": "{}"}}))
 	if result["is_error"] != true {

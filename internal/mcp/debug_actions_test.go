@@ -248,7 +248,7 @@ func TestDebugActionsRejectNonPlannerSessions(t *testing.T) {
 		StateDir: t.TempDir(),
 	}, nil), AuthorityContext: authority.WithPlanner(context.Background())}
 	store := durableSession.NewStore(server.Service.Config.StateDir)
-	for _, role := range []string{durableSession.RoleDelivery, durableSession.RoleAgent} {
+	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleAgent} {
 		record, err := store.CreateUnbound(role, nil)
 		if err != nil {
 			t.Fatal(err)

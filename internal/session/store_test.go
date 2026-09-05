@@ -20,7 +20,7 @@ func TestStoreCreateReloadUpdateAndEnd(t *testing.T) {
 	record, err := store.Create(CreateInput{
 		ProjectID:   "example",
 		ProjectCode: "EXM",
-		Role:        RoleDelivery,
+		Role:        RoleAgent,
 		SessionType: SessionTypeChatGPT,
 		SessionRef:  &ref,
 		Label:       &label,
@@ -32,7 +32,7 @@ func TestStoreCreateReloadUpdateAndEnd(t *testing.T) {
 		t.Fatalf("created record=%#v", record)
 	}
 	info, err := NewStore(state).Get(record.ID)
-	if err != nil || info.ID != record.ID || info.ProjectID != "example" || info.Role != RoleDelivery || info.SessionRef == nil || *info.SessionRef != ref {
+	if err != nil || info.ID != record.ID || info.ProjectID != "example" || info.Role != RoleAgent || info.SessionRef == nil || *info.SessionRef != ref {
 		t.Fatalf("reloaded record=%#v err=%v", info, err)
 	}
 	updatedLabel := "renamed"
@@ -153,7 +153,7 @@ func TestStoreRetriesIDCollisionAtomically(t *testing.T) {
 func TestStoreCreatesRoleTypedIDsAndReadsLegacyIDs(t *testing.T) {
 	state := t.TempDir()
 	store := NewStore(state)
-	for role, prefix := range map[string]string{RolePlanner: "SP-EXM-", RoleDelivery: "SD-EXM-", RoleAgent: "SA-EXM-", RoleWatcher: "SW-EXM-"} {
+	for role, prefix := range map[string]string{RolePlanner: "SP-EXM-", RoleAgent: "SA-EXM-"} {
 		record, err := store.Create(CreateInput{
 			ProjectID:   "example",
 			ProjectCode: "EXM",
@@ -199,9 +199,8 @@ func TestStoreRejectsTypedRolePrefixMismatch(t *testing.T) {
 		id   string
 	}{
 		{RolePlanner, "SD-ABC12345"},
-		{RoleDelivery, "SP-ABC12345"},
-		{RoleAgent, "SW-ABC12345"},
-		{RoleWatcher, "SA-ABC12345"},
+		{RoleAgent, "SP-ABC12345"},
+		{RolePlanner, "SA-ABC12345"},
 	} {
 		record := Record{
 			SchemaVersion: SchemaVersion,
@@ -224,7 +223,7 @@ func TestStoreRejectsInvalidBindingAndCorruptFiles(t *testing.T) {
 	store := NewStore(t.TempDir())
 	for _, input := range []CreateInput{
 		{ProjectID: "example", Role: "operator", SessionType: SessionTypeChatGPT},
-		{ProjectID: "example", Role: RoleDelivery, SessionType: "unknown"},
+		{ProjectID: "example", Role: RoleAgent, SessionType: "unknown"},
 	} {
 		if _, err := store.Create(input); err == nil {
 			t.Fatalf("invalid input accepted: %#v", input)

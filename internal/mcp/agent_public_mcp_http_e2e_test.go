@@ -44,7 +44,7 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 	}
 	s.Config.AirelayCommand = command
 	s.Airelay.Command = command
-	server := &Server{Service: s, AuthorityContext: authority.WithDelivery(context.Background())}
+	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
 	httpServer := httptest.NewServer(server.Router())
 	defer httpServer.Close()
 	client := &frozenConnectorClient{http: httpServer.Client(), endpoint: httpServer.URL + "/mcp", methods: map[string]int{}}
@@ -83,7 +83,7 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 	if started["role"] != durableSession.RoleAgent {
 		t.Fatalf("Agent session_start returned %#v", started)
 	}
-	sessionID := genericSessionWithRole(t, s, "example", durableSession.RoleDelivery)
+	sessionID := genericSessionWithRole(t, s, "example", durableSession.RolePlanner)
 	if sessionID == "" {
 		t.Fatalf("test Delivery session did not return a session: %#v", sessionID)
 	}

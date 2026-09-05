@@ -68,7 +68,7 @@ func ensureMCPTestProjectIdentifiers(t *testing.T, s *service.Service) string {
 
 func TestTrainV2TaskAuthoringMCPWiringAndSchemaParity(t *testing.T) {
 	server := newSessionTestServer(t)
-	server.AuthorityContext = authority.WithDelivery(context.Background())
+	server.AuthorityContext = authority.WithPlanner(context.Background())
 	configureTrainV2MCPTest(t, server)
 	sessionID := genericSession(t, server.Service, "example")
 	for _, path := range []string{"task/create", "task/update", "task/ready", "task/list", "task/read"} {

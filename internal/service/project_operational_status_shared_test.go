@@ -27,7 +27,6 @@ func TestProjectOperationalStatusUsesLocalSharedStateWhenHubUnavailable(t *testi
 		DefaultBranch:     "main",
 		ProjectCode:       "EXM",
 		AirelaySessionKey: "wrong_local_master",
-		Watcher:           config.WatcherSettings{AgentID: "wrong-local-agent"},
 	}
 	airelay := filepath.Join(t.TempDir(), "airelay")
 	if err := os.WriteFile(airelay, []byte("#!/bin/sh\n[ \"$2\" = gpt-tunnel-gateway_master ] || exit 9\nprintf 'Controller: reachable\\nState: idle\\n'\n"), 0o700); err != nil {

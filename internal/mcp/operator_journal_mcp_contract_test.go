@@ -67,7 +67,7 @@ func TestOperatorJournalMCPContractsAndHappyPath(t *testing.T) {
 	}
 	server = &Server{
 		Service:          s,
-		AuthorityContext: authority.WithDelivery(context.Background()),
+		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	sessionID := genericSession(t, s, "example")
 	request := func(id int, action string, input map[string]any) []byte {

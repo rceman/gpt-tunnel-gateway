@@ -103,7 +103,7 @@ func TestTypedAndGenericTaskListSearchStatusLimitCursorParity(t *testing.T) {
 	}
 	server := &Server{
 		Service:          s,
-		AuthorityContext: authority.WithDelivery(ctx),
+		AuthorityContext: authority.WithPlanner(ctx),
 	}
 	sessionID := genericSession(t, s, "example")
 
@@ -152,7 +152,7 @@ func TestGenericAgentTailTranscriptDedupe(t *testing.T) {
 	s.Airelay.Command = script
 	server := &Server{
 		Service:          s,
-		AuthorityContext: authority.WithDelivery(ctx),
+		AuthorityContext: authority.WithPlanner(ctx),
 	}
 	sessionID := genericSession(t, s, "example")
 	first := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"lines": 2}}}})))

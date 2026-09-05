@@ -14,7 +14,7 @@ func TestProjectStatusIsSessionBoundCompactOperationalRead(t *testing.T) {
 		t.Fatalf("project/status exposes caller project authority: %#v", entry.InputSchema)
 	}
 	started := genericStructured(t, sessionCall(t, server, map[string]any{
-		"action": "start", "project_id": "example", "role": "delivery", "session_type": "chatgpt",
+		"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt",
 	}))
 	sessionID := started["session"].(map[string]any)["session_id"].(string)
 	status := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{

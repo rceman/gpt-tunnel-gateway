@@ -21,7 +21,7 @@ func TestToolsListAndToolResultsUseObjects(t *testing.T) {
 	c := config.Config{GatewayID: "test", ListenAddr: "127.0.0.1:1", MaxReadBytes: 1, MaxDiffBytes: 1, MaxListItems: 1}
 	srv := &Server{
 		Service:          service.New(c),
-		AuthorityContext: authority.WithDelivery(context.Background()),
+		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:1/mcp", bytes.NewReader(body))
@@ -65,9 +65,9 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 	if err := server.RegisterGenericAction(GenericAction{
 		Path: "test/authority", Description: "authority boundary test", InputSchema: obj(map[string]any{}),
 		OutputSchema:  closedOutput(map[string]any{"ok": outputBoolean()}, "ok"),
-		AuthorityRole: durableSession.RoleDelivery, Authority: authority.RequireDelivery,
+		AuthorityRole: durableSession.RolePlanner, Authority: authority.RequirePlanner,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			if err := authority.RequireDelivery(ctx); err != nil {
+			if err := authority.RequirePlanner(ctx); err != nil {
 				return nil, err
 			}
 			return map[string]any{"ok": true}, nil
@@ -75,7 +75,7 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	record, err := durableSession.NewStore(state).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleDelivery, SessionType: durableSession.SessionTypeChatGPT})
+	record, err := durableSession.NewStore(state).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RolePlanner, SessionType: durableSession.SessionTypeChatGPT})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 	if len(afterState) != len(beforeState) {
 		t.Fatalf("unauthorized MCP call changed local state: before=%v after=%v", beforeState, afterState)
 	}
-	server.AuthorityContext = authority.WithDelivery(context.Background())
+	server.AuthorityContext = authority.WithPlanner(context.Background())
 	with := callMCP(t, server, body)
 	withText, _ := json.Marshal(with)
 	if strings.Contains(string(withText), "AUTHORITY_UNAVAILABLE") {

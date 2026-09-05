@@ -14,7 +14,7 @@ import (
 func TestTaskTrainActionsAdvertiseOptionalDetailProjection(t *testing.T) {
 	server := &Server{
 		Service:          service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}),
-		AuthorityContext: authority.WithDelivery(context.Background()),
+		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	entries := server.genericActionRegistry(server.tools())
 	for _, path := range []string{"task/list", "task/read", "train/list", "train/read"} {
@@ -35,10 +35,10 @@ func TestTaskTrainActionsAdvertiseOptionalDetailProjection(t *testing.T) {
 func TestControlAndReceiptActionsDoNotAdvertiseDetailProjection(t *testing.T) {
 	server := &Server{
 		Service:          service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}),
-		AuthorityContext: authority.WithDelivery(context.Background()),
+		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"operation/read", "agent/prompt", "watcher/nudge", "runtime/restart"} {
+	for _, path := range []string{"operation/read", "agent/prompt", "runtime/restart"} {
 		entry, ok := entries[path]
 		if !ok {
 			t.Fatalf("missing action %s", path)
@@ -55,7 +55,7 @@ func TestControlAndReceiptActionsDoNotAdvertiseDetailProjection(t *testing.T) {
 func TestSchemaDomainDiscoveryIsCompactUnlessDetailRequested(t *testing.T) {
 	server := &Server{
 		Service:          service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}),
-		AuthorityContext: authority.WithDelivery(context.Background()),
+		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	entries := server.genericActionRegistry(server.tools())
 	compact, err := server.genericSchema(server.tools(), json.RawMessage(`{"path":"task"}`))

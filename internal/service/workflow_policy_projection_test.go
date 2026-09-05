@@ -81,8 +81,8 @@ func trustedWorkflowPolicyContext(ctx context.Context, role string) context.Cont
 	switch role {
 	case "planner":
 		return authority.WithPlanner(ctx)
-	case "delivery":
-		return authority.WithDelivery(ctx)
+	case "agent":
+		return authority.WithAgent(ctx)
 	default:
 		return ctx
 	}

@@ -95,10 +95,10 @@ func TestSessionInputSchemaAdvertisesCanonicalActionsAndIDs(t *testing.T) {
 
 func TestSessionLifecyclePersistsAndBindsProjectRole(t *testing.T) {
 	server := newSessionTestServer(t)
-	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "delivery", "session_type": "chatgpt", "label": "main"}))
+	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt", "label": "main"}))
 	record := started["session"].(map[string]any)
 	id := record["session_id"].(string)
-	if !strings.HasPrefix(id, "SD-") || len(id) != 11 || record["project_id"] != "example" || record["role"] != "delivery" || record["status"] != "active" {
+	if !strings.HasPrefix(id, "SP-") || len(id) != 11 || record["project_id"] != "example" || record["role"] != "planner" || record["status"] != "active" {
 		t.Fatalf("bad session projection: %#v", record)
 	}
 	info := genericStructured(t, sessionCall(t, server, map[string]any{"action": "info", "session_id": id}))
@@ -118,19 +118,19 @@ func TestSessionLifecyclePersistsAndBindsProjectRole(t *testing.T) {
 	}
 }
 
-func TestSessionBootstrapCreatesIndependentPlannerAndDeliveryTypedSessions(t *testing.T) {
+func TestSessionBootstrapCreatesIndependentPlannerAndAgentTypedSessions(t *testing.T) {
 	server := newSessionTestServer(t)
 	planner := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt"}))
-	delivery := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "delivery", "session_type": "chatgpt"}))
+	agent := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "agent", "session_type": "chatgpt"}))
 	plannerID := planner["session"].(map[string]any)["session_id"].(string)
-	deliveryID := delivery["session"].(map[string]any)["session_id"].(string)
-	if !strings.HasPrefix(plannerID, "SP-") || !strings.HasPrefix(deliveryID, "SD-") || plannerID == deliveryID {
-		t.Fatalf("bootstrap did not create independent typed sessions: planner=%q delivery=%q", plannerID, deliveryID)
+	agentID := agent["session"].(map[string]any)["session_id"].(string)
+	if !strings.HasPrefix(plannerID, "SP-") || !strings.HasPrefix(agentID, "SA-") || plannerID == agentID {
+		t.Fatalf("bootstrap did not create independent typed sessions: planner=%q agent=%q", plannerID, agentID)
 	}
 	if err := authority.RequirePlanner(context.Background()); err == nil {
 		t.Fatal("untrusted context acquired planner authority")
 	}
-	if err := authority.RequirePlannerOrDelivery(authority.WithPlannerOrDelivery(context.Background())); err != nil {
+	if err := authority.RequirePlannerOrAgent(authority.WithPlannerOrAgent(context.Background())); err != nil {
 		t.Fatalf("combined bootstrap authority rejected: %v", err)
 	}
 }
@@ -142,10 +142,10 @@ func TestSessionListIsSessionlessAndPreservesUpdatedReference(t *testing.T) {
 	}))
 	plannerRecord := planner["session"].(map[string]any)
 	plannerID := plannerRecord["session_id"].(string)
-	delivery := genericStructured(t, sessionCall(t, server, map[string]any{
-		"action": "start", "project_id": "example", "role": "delivery", "session_type": "chatgpt",
+	agent := genericStructured(t, sessionCall(t, server, map[string]any{
+		"action": "start", "project_id": "example", "role": "agent", "session_type": "chatgpt",
 	}))
-	deliveryID := delivery["session"].(map[string]any)["session_id"].(string)
+	agentID := agent["session"].(map[string]any)["session_id"].(string)
 
 	listed := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": plannerID, "action": "session/list", "input": map[string]any{}}}})))
 	sessions, ok := listed["sessions"].([]any)
@@ -170,7 +170,7 @@ func TestSessionListIsSessionlessAndPreservesUpdatedReference(t *testing.T) {
 		t.Fatalf("session.info did not preserve the new reference: %#v", info)
 	}
 
-	if _, ok := genericStructured(t, sessionCall(t, server, map[string]any{"action": "end", "session_id": deliveryID}))["session"]; !ok {
+	if _, ok := genericStructured(t, sessionCall(t, server, map[string]any{"action": "end", "session_id": agentID}))["session"]; !ok {
 		t.Fatal("session.end did not return the ended session")
 	}
 	listed = genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": plannerID, "action": "session/list", "input": map[string]any{}}}})))

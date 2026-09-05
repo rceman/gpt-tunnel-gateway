@@ -13,7 +13,7 @@ import (
 )
 
 func genericSession(t *testing.T, s *service.Service, projectID string) string {
-	return genericSessionWithRole(t, s, projectID, durableSession.RoleDelivery)
+	return genericSessionWithRole(t, s, projectID, durableSession.RolePlanner)
 }
 func genericSessionWithRole(t *testing.T, s *service.Service, projectID, role string) string {
 	t.Helper()
@@ -68,7 +68,7 @@ func TestGenericSessionStartIsDiscoverableAndCreatesPlannerSession(t *testing.T)
 	}
 }
 func TestGenericTransportSchemasAreCompactAndApplicationIndependent(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"}), AuthorityContext: authority.WithDelivery(context.Background())}
+	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"}), AuthorityContext: authority.WithPlanner(context.Background())}
 	tools := server.tools()
 	sessionID := genericSession(t, server.Service, "example")
 	staticBytes := 0

@@ -126,9 +126,8 @@ func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
 		SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875",
 		StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20,
 		MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: airelay,
-		Hub:           config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"},
-		AgentBindings: map[string]config.AgentBinding{"watcher-example": {SessionKey: "watcher_master"}},
-		Projects:      map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master", Watcher: config.WatcherSettings{AgentID: "watcher-example"}}},
+		Hub:      config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"},
+		Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}},
 	}
 	s := New(c)
 	s.gateExecutor = func(_ context.Context, _ string, names []string) ([]model.CompletionGateResult, error) {
@@ -168,6 +167,9 @@ func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
 
 func testService(t *testing.T) (*Service, string, string) {
 	s, revision, projectHead := testServiceWithoutIdentifiers(t)
+	if s.Config.AgentBindings == nil {
+		s.Config.AgentBindings = map[string]config.AgentBinding{}
+	}
 	adopted, result, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
 		ProjectID:   "example",
 		ProjectCode: "EXM",
@@ -187,7 +189,6 @@ func testService(t *testing.T) (*Service, string, string) {
 	revision = result.Hub.After
 	for _, agent := range []model.Agent{
 		{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coder-example", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now},
-		{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "watcher-example", Role: model.AgentRoleWatcher, Enabled: true, RecommendedReasoning: model.ReasoningBestAvailable, CreatedAt: now, UpdatedAt: now},
 	} {
 		path := s.agentPath("example", agent.AgentID)
 		tx, err := s.Hub.Transact(context.Background(), revision, "test: seed agent "+agent.AgentID, func(worktree string) ([]string, error) {

@@ -9,6 +9,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
@@ -39,23 +40,23 @@ func TestServiceSessionLifecycleUsesRegisteredProject(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	started, err := s.SessionStart(authority.WithDelivery(context.Background()), SessionStartInput{
+	started, err := s.SessionStart(authority.WithPlanner(context.Background()), SessionStartInput{
 		ProjectID:   "example",
 		ProjectCode: "EXM",
-		Role:        "delivery",
+		Role:        durableSession.RolePlanner,
 		SessionType: "chatgpt",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if started.Session.ProjectID != "example" || started.Session.Role != "delivery" || started.Session.Status != "active" {
+	if started.Session.ProjectID != "example" || started.Session.Role != durableSession.RolePlanner || started.Session.Status != "active" {
 		t.Fatalf("start result=%#v", started)
 	}
 	info, err := s.SessionInfo(context.Background(), started.Session.ID)
 	if err != nil || info.Session.ID != started.Session.ID {
 		t.Fatalf("info result=%#v err=%v", info, err)
 	}
-	if _, err := s.SessionStart(authority.WithDelivery(context.Background()), SessionStartInput{
+	if _, err := s.SessionStart(authority.WithPlanner(context.Background()), SessionStartInput{
 		ProjectID:   "missing",
 		Role:        "delivery",
 		SessionType: "chatgpt",

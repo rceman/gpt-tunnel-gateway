@@ -84,7 +84,7 @@ func prepareLegacyTransportSession(t *testing.T, srv *Server, originalName strin
 	}
 	var record durableSession.Record
 	projectCode := "EXM"
-	record, err := durableSession.NewStore(srv.Service.Config.StateDir).Create(durableSession.CreateInput{ProjectID: projectID, ProjectCode: projectCode, Role: durableSession.RoleDelivery, SessionType: durableSession.SessionTypeChatGPT})
+	record, err := durableSession.NewStore(srv.Service.Config.StateDir).Create(durableSession.CreateInput{ProjectID: projectID, ProjectCode: projectCode, Role: durableSession.RolePlanner, SessionType: durableSession.SessionTypeChatGPT})
 	if err != nil {
 		t.Fatalf("create legacy transport test session: %v", err)
 	}

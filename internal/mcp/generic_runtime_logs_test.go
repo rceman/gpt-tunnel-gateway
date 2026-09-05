@@ -40,8 +40,8 @@ func TestRuntimeLogsIsBoundedReadOnlyGenericAction(t *testing.T) {
 
 func TestRuntimeRestartResponseBoundaryFlushesBeforeWorker(t *testing.T) {
 	server := newSessionTestServer(t)
-	server.AuthorityContext = authority.WithDelivery(context.Background())
-	sessionID := genericSessionWithRole(t, server.Service, "example", durableSession.RoleDelivery)
+	server.AuthorityContext = authority.WithPlanner(context.Background())
+	sessionID := genericSessionWithRole(t, server.Service, "example", durableSession.RolePlanner)
 	oldAccept := gatewayRecoveryAcceptFn
 	defer func() { gatewayRecoveryAcceptFn = oldAccept }()
 	record := &responseBoundaryRecorder{ResponseRecorder: httptest.NewRecorder()}
@@ -87,8 +87,8 @@ func TestRuntimeRestartResponseBoundaryFlushesBeforeWorker(t *testing.T) {
 
 func TestRuntimeRestartNetworkReturnsStableReceipt(t *testing.T) {
 	server := newSessionTestServer(t)
-	server.AuthorityContext = authority.WithDelivery(context.Background())
-	sessionID := genericSessionWithRole(t, server.Service, "example", durableSession.RoleDelivery)
+	server.AuthorityContext = authority.WithPlanner(context.Background())
+	sessionID := genericSessionWithRole(t, server.Service, "example", durableSession.RolePlanner)
 	oldAccept := gatewayRecoveryAcceptFn
 	defer func() { gatewayRecoveryAcceptFn = oldAccept }()
 	var workerRuns atomic.Int32

@@ -229,7 +229,7 @@ esac
 func TestCanonicalAgentPublicMCPContractE2E(t *testing.T) {
 	s, revision := newWorkflowPolicyStatusService(t)
 	seedMCPTestCodingAgent(t, s, revision)
-	server := &Server{Service: s, AuthorityContext: authority.WithDelivery(context.Background())}
+	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
 	sessionID := genericSession(t, s, "example")
 
 	schema := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
