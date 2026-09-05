@@ -10,7 +10,8 @@ import (
 )
 
 // activeTrainAttempt is the generic Train/Attempt projection used by active
-// Agent and Train paths. It is preserved independently of watcher runtime.
+// Agent and Train paths. It is preserved independently of the removed
+// supervision subsystem.
 type activeTrainAttempt struct {
 	Train   model.TrainV2
 	Start   model.TrainV2StartRecord
