@@ -220,7 +220,7 @@ func (c Controller) DaemonRestart(ctx context.Context) (DaemonStatus, error) {
 	if !unit.Installed {
 		return DaemonStatus{}, fmt.Errorf("DAEMON_NOT_INSTALLED: %s", daemonUnitName)
 	}
-	if _, err := privilegedSystemctl(ctx, "restart", "--no-block", daemonUnitName); err != nil {
+	if _, err := privilegedSystemctl(ctx, "restart", daemonUnitName); err != nil {
 		return DaemonStatus{}, err
 	}
 	if err := c.waitDaemonReadiness(ctx); err != nil {
