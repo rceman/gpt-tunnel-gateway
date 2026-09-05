@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
@@ -29,18 +32,27 @@ type DaemonStatus struct {
 }
 
 func daemonUnitPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return "", fmt.Errorf("home directory unavailable")
+	if runtime.GOOS != "linux" {
+		return "", fmt.Errorf("daemon lifecycle is Linux/systemd-only")
 	}
-	return filepath.Join(home, ".config", "systemd", "user", daemonUnitName), nil
+	return filepath.Join(string(filepath.Separator), "etc", "systemd", "system", daemonUnitName), nil
+}
+
+func requireSystemInstallPrivileges() error {
+	if runtime.GOOS != "linux" {
+		return fmt.Errorf("daemon lifecycle is Linux/systemd-only")
+	}
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("system daemon installation requires root privileges")
+	}
+	return nil
 }
 
 func systemctl(ctx context.Context, args ...string) (string, error) {
 	if runtime.GOOS != "linux" {
 		return "", fmt.Errorf("daemon lifecycle is Linux/systemd-only")
 	}
-	command := exec.CommandContext(ctx, "systemctl", append([]string{"--user"}, args...)...)
+	command := exec.CommandContext(ctx, "systemctl", args...)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		message := strings.TrimSpace(string(output))
@@ -68,10 +80,10 @@ func (c Controller) daemonUnitStatus(ctx context.Context) (DaemonUnitStatus, err
 	}
 	enabled, enabledErr := systemctl(ctx, "is-enabled", daemonUnitName)
 	status.Enabled = enabledErr == nil && enabled == "enabled"
-	active, activeErr := systemctl(ctx, "is-active", daemonUnitName)
-	if activeErr == nil {
-		status.State = active
-		status.Active = active == "active"
+	state, stateErr := systemctl(ctx, "show", "--property=ActiveState", "--value", daemonUnitName)
+	if stateErr == nil {
+		status.State = state
+		status.Active = state == "active" || state == "activating"
 	}
 	return status, nil
 }
@@ -89,23 +101,34 @@ func (c Controller) DaemonStatus(ctx context.Context) (DaemonStatus, error) {
 }
 
 func (c Controller) DaemonInstall(ctx context.Context) (DaemonStatus, error) {
+	if err := requireSystemInstallPrivileges(); err != nil {
+		return DaemonStatus{}, err
+	}
 	path, err := daemonUnitPath()
 	if err != nil {
 		return DaemonStatus{}, err
 	}
-	if c.Config.Controller.GatewayBinary == "" || c.ConfigPath == "" {
-		return DaemonStatus{}, fmt.Errorf("gateway binary and config path are required")
+	if c.Config.Controller.GatewayBinary == "" || c.Config.Controller.TunnelClientBinary == "" || c.ConfigPath == "" {
+		return DaemonStatus{}, fmt.Errorf("gateway binary, tunnel client binary, and config path are required")
 	}
-	if err := fsutil.EnsureDir(filepath.Dir(path), 0o700); err != nil {
+	identity, err := daemonRuntimeUser(c.ConfigPath)
+	if err != nil {
 		return DaemonStatus{}, err
 	}
-	if err := os.WriteFile(path, []byte(daemonUnitText(c)), 0o600); err != nil {
+	if err := fsutil.EnsureDir(filepath.Dir(path), 0o755); err != nil {
+		return DaemonStatus{}, err
+	}
+	text, err := c.daemonUnitText(identity)
+	if err != nil {
+		return DaemonStatus{}, err
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		return DaemonStatus{}, err
 	}
 	if _, err := systemctl(ctx, "daemon-reload"); err != nil {
 		return DaemonStatus{}, err
 	}
-	if _, err := systemctl(ctx, "enable", "--now", daemonUnitName); err != nil {
+	if _, err := systemctl(ctx, "enable", "--now", "--no-block", daemonUnitName); err != nil {
 		return DaemonStatus{}, err
 	}
 	if err := c.waitDaemonReadiness(ctx); err != nil {
@@ -122,7 +145,7 @@ func (c Controller) DaemonRestart(ctx context.Context) (DaemonStatus, error) {
 	if !unit.Installed {
 		return DaemonStatus{}, fmt.Errorf("DAEMON_NOT_INSTALLED: %s", daemonUnitName)
 	}
-	if _, err := systemctl(ctx, "restart", daemonUnitName); err != nil {
+	if _, err := systemctl(ctx, "restart", "--no-block", daemonUnitName); err != nil {
 		return DaemonStatus{}, err
 	}
 	if err := c.waitDaemonReadiness(ctx); err != nil {
@@ -132,6 +155,9 @@ func (c Controller) DaemonRestart(ctx context.Context) (DaemonStatus, error) {
 }
 
 func (c Controller) DaemonRemove(ctx context.Context) error {
+	if err := requireSystemInstallPrivileges(); err != nil {
+		return err
+	}
 	unit, err := c.daemonUnitStatus(ctx)
 	if err != nil {
 		return err
@@ -149,8 +175,64 @@ func (c Controller) DaemonRemove(ctx context.Context) error {
 	return err
 }
 
-func daemonUnitText(c Controller) string {
-	return "[Unit]\nDescription=GPT Tunnel Gateway\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=" + c.Config.Controller.GatewayBinary + " --config " + c.ConfigPath + "\nRestart=no\n\n[Install]\nWantedBy=default.target\n"
+type daemonRuntimeIdentity struct {
+	User  string
+	Group string
+}
+
+func daemonRuntimeUser(configPath string) (daemonRuntimeIdentity, error) {
+	info, err := os.Stat(configPath)
+	if err != nil {
+		return daemonRuntimeIdentity{}, fmt.Errorf("stat config for daemon owner: %w", err)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return daemonRuntimeIdentity{}, fmt.Errorf("config owner metadata unavailable")
+	}
+	owner, err := user.LookupId(strconv.FormatUint(uint64(stat.Uid), 10))
+	if err != nil || owner.Username == "" || owner.Gid == "0" {
+		return daemonRuntimeIdentity{}, fmt.Errorf("config must be owned by a non-root runtime user")
+	}
+	group, err := user.LookupGroupId(owner.Gid)
+	if err != nil || group.Name == "" {
+		return daemonRuntimeIdentity{}, fmt.Errorf("config primary group unavailable")
+	}
+	return daemonRuntimeIdentity{User: owner.Username, Group: group.Name}, nil
+}
+
+func systemdQuote(value string) string { return strconv.Quote(value) }
+
+func (c Controller) daemonUnitText(identity daemonRuntimeIdentity) (string, error) {
+	if c.Config.Controller.TunnelEnvFile == "" || c.Config.Controller.TunnelHealthListenAddr == "" || c.Config.ListenAddr == "" {
+		return "", fmt.Errorf("tunnel env file, gateway listen address, and tunnel health address are required")
+	}
+	if _, err := os.Stat(c.Config.Controller.TunnelEnvFile); err != nil {
+		return "", fmt.Errorf("tunnel env file unavailable: %w", err)
+	}
+	workingDir, err := c.gatewayWorkingDir()
+	if err != nil {
+		return "", err
+	}
+	return "[Unit]\n" +
+		"Description=GPT Tunnel Gateway and Tunnel\n" +
+		"After=network-online.target\n" +
+		"Wants=network-online.target\n\n" +
+		"[Service]\n" +
+		"Type=simple\n" +
+		"User=" + systemdQuote(identity.User) + "\n" +
+		"Group=" + systemdQuote(identity.Group) + "\n" +
+		"WorkingDirectory=" + systemdQuote(workingDir) + "\n" +
+		"EnvironmentFile=-" + systemdQuote(c.Config.Controller.TunnelEnvFile) + "\n" +
+		"Environment=GPT_TUNNEL_CONFIG=" + systemdQuote(c.ConfigPath) + "\n" +
+		"Environment=MCP_SERVER_URL=" + systemdQuote("http://"+c.Config.ListenAddr+"/mcp") + "\n" +
+		"Environment=HEALTH_LISTEN_ADDR=" + systemdQuote(c.Config.Controller.TunnelHealthListenAddr) + "\n" +
+		"ExecStart=" + systemdQuote(c.Config.Controller.GatewayBinary) + " --config " + systemdQuote(c.ConfigPath) + "\n" +
+		"ExecStartPost=" + systemdQuote(c.Config.Controller.TunnelClientBinary) + " run\n" +
+		"KillMode=control-group\n" +
+		"Restart=no\n" +
+		"TimeoutStartSec=infinity\n\n" +
+		"[Install]\n" +
+		"WantedBy=multi-user.target\n", nil
 }
 
 func (c Controller) waitDaemonReadiness(ctx context.Context) error {
