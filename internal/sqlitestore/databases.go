@@ -179,8 +179,8 @@ const (
 	localCallbackEpochsMigrationDescription       = "create local callback epochs"
 	localAgentRegistryMigrationVersion      int64 = 202609011900
 	localAgentRegistryMigrationDescription        = "create local agent registry"
-	localSessionStoreMigrationVersion       int64 = 202609051200
-	localSessionStoreMigrationDescription         = "create local session store"
+	localSessionStoreMigrationVersion       int64 = 202609051747
+	localSessionStoreMigrationDescription         = "create local sessions"
 
 	sharedReplicationMigrationName          = "gpt_tunnel_shared_replication_v1"
 	sharedCutoverMigrationName              = "gpt_tunnel_shared_cutover_v1"
