@@ -101,9 +101,12 @@ func (s Store) create(input CreateInput, requireProject bool) (Record, error) {
 	}
 	return Record{}, fmt.Errorf("session ID allocation exhausted after %d attempts", maxCreateAttempts)
 }
-func (s Store) Bind(id, projectID string) (Record, error) {
+func (s Store) Bind(id, projectID string, sessionRef *string) (Record, error) {
 	if projectID == "" {
 		return Record{}, fmt.Errorf("%w: project_id is required", ErrInvalidSession)
+	}
+	if err := validateOptionalText(sessionRef, "session_ref"); err != nil {
+		return Record{}, err
 	}
 	if err := s.requireLocal(); err != nil {
 		return Record{}, err
@@ -123,6 +126,9 @@ func (s Store) Bind(id, projectID string) (Record, error) {
 		record.ProjectID = projectID
 		record.ProjectRulesRevision = 0
 		record.ProjectRulesDigest = ""
+	}
+	if sessionRef != nil {
+		record.SessionRef = cloneString(sessionRef)
 	}
 	record.UpdatedAt = time.Now().UTC()
 	if err := record.Validate(); err != nil {
@@ -213,7 +219,16 @@ func (s Store) End(id string) (Record, error) {
 	if err := record.Validate(); err != nil {
 		return Record{}, err
 	}
-	return record, s.updateLocal(old, record)
+	if err := s.updateLocal(old, record); err != nil {
+		if errors.Is(err, sqlitestore.ErrLocalSessionChanged) {
+			current, readErr := s.Get(id)
+			if readErr == nil && current.Status == StatusEnded {
+				return current, nil
+			}
+		}
+		return Record{}, err
+	}
+	return record, nil
 }
 func (s Store) List() ([]Record, error) {
 	if err := s.requireLocal(); err != nil {

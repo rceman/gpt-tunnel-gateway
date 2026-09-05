@@ -156,15 +156,9 @@ func (s *Service) SessionBind(ctx context.Context, input SessionBindInput) (Sess
 	if project.Status != "active" {
 		return SessionResult{}, fmt.Errorf("session project is not active")
 	}
-	record, err := durableSession.NewStoreWithDurability(s.Durability).Bind(input.SessionID, input.ProjectID)
+	record, err := durableSession.NewStoreWithDurability(s.Durability).Bind(input.SessionID, input.ProjectID, input.SessionRef)
 	if err != nil {
 		return SessionResult{}, err
-	}
-	if input.SessionRef != nil {
-		record, err = durableSession.NewStoreWithDurability(s.Durability).Update(record.ID, durableSession.UpdateInput{SessionRef: input.SessionRef})
-		if err != nil {
-			return SessionResult{}, err
-		}
 	}
 	return SessionResult{
 		Action:  "bind",
