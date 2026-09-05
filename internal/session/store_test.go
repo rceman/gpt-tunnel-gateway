@@ -25,13 +25,25 @@ func testStore(t *testing.T) (Store, string) {
 }
 
 func testCreateInput(role string) CreateInput {
-	return CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: role, SessionType: SessionTypeChatGPT}
+	return CreateInput{
+		ProjectID:   "example",
+		ProjectCode: "EXM",
+		Role:        role,
+		SessionType: SessionTypeChatGPT,
+	}
 }
 
 func TestStoreSQLiteLifecycleHasNoSessionJSONAuthority(t *testing.T) {
 	store, state := testStore(t)
 	ref, label := "conversation-1", "primary"
-	record, err := store.Create(CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: RoleAgent, SessionType: SessionTypeChatGPT, SessionRef: &ref, Label: &label})
+	record, err := store.Create(CreateInput{
+		ProjectID:   "example",
+		ProjectCode: "EXM",
+		Role:        RoleAgent,
+		SessionType: SessionTypeChatGPT,
+		SessionRef:  &ref,
+		Label:       &label,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +243,16 @@ func TestStoreCASRejectsSecondMutationFromSameObservedGeneration(t *testing.T) {
 func TestCutoverMatchingExistingRowIsIdempotentAndCleansFile(t *testing.T) {
 	store, state := testStore(t)
 	now := time.Now().UTC()
-	record := Record{SchemaVersion: SchemaVersion, ID: "SP-ABC12345", Role: RolePlanner, SessionType: SessionTypeChatGPT, Status: StatusActive, CreatedAt: now, StartedAt: now, UpdatedAt: now}
+	record := Record{
+		SchemaVersion: SchemaVersion,
+		ID:            "SP-ABC12345",
+		Role:          RolePlanner,
+		SessionType:   SessionTypeChatGPT,
+		Status:        StatusActive,
+		CreatedAt:     now,
+		StartedAt:     now,
+		UpdatedAt:     now,
+	}
 	raw, _ := json.Marshal(record)
 	dir := filepath.Join(state, "sessions")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -255,7 +276,16 @@ func TestCutoverMatchingExistingRowIsIdempotentAndCleansFile(t *testing.T) {
 func TestCutoverMalformedLaterRecordInsertsNothing(t *testing.T) {
 	store, state := testStore(t)
 	now := time.Now().UTC()
-	valid := Record{SchemaVersion: SchemaVersion, ID: "SP-ABC12345", Role: RolePlanner, SessionType: SessionTypeChatGPT, Status: StatusActive, CreatedAt: now, StartedAt: now, UpdatedAt: now}
+	valid := Record{
+		SchemaVersion: SchemaVersion,
+		ID:            "SP-ABC12345",
+		Role:          RolePlanner,
+		SessionType:   SessionTypeChatGPT,
+		Status:        StatusActive,
+		CreatedAt:     now,
+		StartedAt:     now,
+		UpdatedAt:     now,
+	}
 	dir := filepath.Join(state, "sessions")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -278,8 +308,27 @@ func TestCutoverMalformedLaterRecordInsertsNothing(t *testing.T) {
 func TestCutoverConflictInsertsNothingAndPreservesEvidence(t *testing.T) {
 	store, state := testStore(t)
 	now := time.Now().UTC()
-	missing := Record{SchemaVersion: SchemaVersion, ID: "SP-ABC12345", Role: RolePlanner, SessionType: SessionTypeChatGPT, Status: StatusActive, CreatedAt: now, StartedAt: now, UpdatedAt: now}
-	conflict := Record{SchemaVersion: SchemaVersion, ID: "SA-ABC12345", Role: RoleAgent, SessionType: SessionTypeChatGPT, Status: StatusActive, CreatedAt: now, StartedAt: now, UpdatedAt: now, Label: stringPtr("legacy")}
+	missing := Record{
+		SchemaVersion: SchemaVersion,
+		ID:            "SP-ABC12345",
+		Role:          RolePlanner,
+		SessionType:   SessionTypeChatGPT,
+		Status:        StatusActive,
+		CreatedAt:     now,
+		StartedAt:     now,
+		UpdatedAt:     now,
+	}
+	conflict := Record{
+		SchemaVersion: SchemaVersion,
+		ID:            "SA-ABC12345",
+		Role:          RoleAgent,
+		SessionType:   SessionTypeChatGPT,
+		Status:        StatusActive,
+		CreatedAt:     now,
+		StartedAt:     now,
+		UpdatedAt:     now,
+		Label:         stringPtr("legacy"),
+	}
 	rawMissing, _ := json.Marshal(missing)
 	rawConflict, _ := json.Marshal(conflict)
 	dir := filepath.Join(state, "sessions")

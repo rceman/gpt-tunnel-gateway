@@ -2,23 +2,32 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
 func TestServiceSessionLifecycleUsesRegisteredProject(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "state")
 	hubBare, root, hubHead := testutil.RepoWithBareRemote(t)
-	s := New(config.Config{StateDir: state, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"}, Projects: map[string]config.ProjectConfig{
-		"example": {Root: root, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"},
-	}})
+	c := config.Config{StateDir: state, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"}, Projects: map[string]config.ProjectConfig{
+		"example": {Root: root, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", ProjectCode: "EXM", AirelaySessionKey: "example_master"},
+	}}
+	db, err := sqlitestore.Open(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	s := NewWithDurabilityDeferredWorkers(c, db)
 	if _, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{
 		Project: model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"},
 		WriteOptions: WriteOptions{
@@ -37,6 +46,17 @@ func TestServiceSessionLifecycleUsesRegisteredProject(t *testing.T) {
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: revision,
 		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	configuration := model.DefaultProjectConfiguration("example", time.Now().UTC())
+	payload, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(context.Background(), "project_configuration", sqlitestore.SharedEntity{
+		ID: configuration.ProjectID, Revision: int64(configuration.Revision), Payload: payload,
+		UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}); err != nil {
 		t.Fatal(err)
 	}

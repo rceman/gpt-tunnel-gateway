@@ -247,6 +247,7 @@ func TestOpenUpgradesFullHistoricalLocalLineageWithoutRewritingHistory(t *testin
 		{int64(5), historicalLocalHistoryProjectBackfillMigrationName},
 		{localCallbackEpochsMigrationVersion, localCallbackEpochsMigrationDescription},
 		{localAgentRegistryMigrationVersion, localAgentRegistryMigrationDescription},
+		{localSessionStoreMigrationVersion, localSessionStoreMigrationDescription},
 	}
 	if len(rows.Rows) != len(want) {
 		db.Close()
@@ -300,7 +301,7 @@ func TestOpenFreshLocalAppliesTimestampedLocalMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := [][]any{{int64(1), localOperationalMigrationName}, {localCallbackEpochsMigrationVersion, localCallbackEpochsMigrationDescription}, {localAgentRegistryMigrationVersion, localAgentRegistryMigrationDescription}}
+	want := [][]any{{int64(1), localOperationalMigrationName}, {localCallbackEpochsMigrationVersion, localCallbackEpochsMigrationDescription}, {localAgentRegistryMigrationVersion, localAgentRegistryMigrationDescription}, {localSessionStoreMigrationVersion, localSessionStoreMigrationDescription}}
 	if len(rows.Rows) != len(want) {
 		t.Fatalf("fresh migration history=%#v, want=%#v", rows.Rows, want)
 	}
