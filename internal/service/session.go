@@ -51,48 +51,23 @@ func (s *Service) SessionStart(ctx context.Context, input SessionStartInput) (Se
 	if err := authority.RequireRole(ctx, input.Role); err != nil {
 		return SessionResult{}, err
 	}
-	if s.Durability != nil {
-		project, err := s.EffectiveProjectConfig(input.ProjectID)
-		if err != nil {
-			return SessionResult{}, fmt.Errorf("session project is not locally registered: %w", err)
-		}
-		if err := model.ValidateProjectCode(project.ProjectCode); err != nil {
-			return SessionResult{}, fmt.Errorf("session project code is invalid: %w", err)
-		}
-		if input.ProjectCode != "" && input.ProjectCode != project.ProjectCode {
-			return SessionResult{}, fmt.Errorf("session project code %q does not match local project code %q", input.ProjectCode, project.ProjectCode)
-		}
-		if _, err := s.ProjectConfigurationRead(ctx, input.ProjectID); err != nil {
-			return SessionResult{}, fmt.Errorf("session project Shared configuration is unavailable: %w", err)
-		}
-		record, err := durableSession.NewStoreWithDurability(s.Durability).Create(durableSession.CreateInput{ProjectID: input.ProjectID, ProjectCode: project.ProjectCode, Role: input.Role, SessionType: input.SessionType, SessionRef: input.SessionRef, Label: input.Label})
-		if err != nil {
-			return SessionResult{}, err
-		}
-		return SessionResult{Action: "start", Session: record}, nil
+	if s.Durability == nil || s.Durability.Local == nil {
+		return SessionResult{}, fmt.Errorf("local session store is unavailable")
 	}
-	project, err := s.ProjectRead(ctx, input.ProjectID)
+	project, err := s.EffectiveProjectConfig(input.ProjectID)
 	if err != nil {
-		return SessionResult{}, fmt.Errorf("session project is not durably registered: %w", err)
+		return SessionResult{}, fmt.Errorf("session project is not locally registered: %w", err)
 	}
-	if err := model.ValidateProject(project); err != nil {
-		return SessionResult{}, fmt.Errorf("session project is invalid: %w", err)
+	if err := model.ValidateProjectCode(project.ProjectCode); err != nil {
+		return SessionResult{}, fmt.Errorf("session project code is invalid: %w", err)
 	}
-	if project.ID != input.ProjectID || project.Status != "active" {
-		return SessionResult{}, fmt.Errorf("session project is not active")
+	if input.ProjectCode != "" && input.ProjectCode != project.ProjectCode {
+		return SessionResult{}, fmt.Errorf("session project code %q does not match local project code %q", input.ProjectCode, project.ProjectCode)
 	}
-	identifiers, identifiersErr := s.ProjectIdentifiersRead(ctx, input.ProjectID)
-	if identifiersErr != nil {
-		return SessionResult{}, fmt.Errorf("session project identifiers unavailable: %w", identifiersErr)
+	if _, err := s.ProjectConfigurationRead(ctx, input.ProjectID); err != nil {
+		return SessionResult{}, fmt.Errorf("session project Shared configuration is unavailable: %w", err)
 	}
-	projectCode := identifiers.ProjectCode
-	if input.ProjectCode != "" && input.ProjectCode != projectCode {
-		return SessionResult{}, fmt.Errorf("session project code %q does not match durable project code %q", input.ProjectCode, projectCode)
-	}
-	if _, err := s.EffectiveProjectConfig(input.ProjectID); err != nil {
-		return SessionResult{}, err
-	}
-	record, err := durableSession.NewStoreWithDurability(s.Durability).Create(durableSession.CreateInput{ProjectID: input.ProjectID, ProjectCode: projectCode, Role: input.Role, SessionType: input.SessionType, SessionRef: input.SessionRef, Label: input.Label})
+	record, err := durableSession.NewStoreWithDurability(s.Durability).Create(durableSession.CreateInput{ProjectID: input.ProjectID, ProjectCode: project.ProjectCode, Role: input.Role, SessionType: input.SessionType, SessionRef: input.SessionRef, Label: input.Label})
 	if err != nil {
 		return SessionResult{}, err
 	}
