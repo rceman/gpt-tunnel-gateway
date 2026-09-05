@@ -13,21 +13,17 @@ import (
 )
 
 const (
-	SchemaVersion           = 1
-	RolePlanner             = "planner"
-	RoleDelivery            = "delivery"
-	RoleAgent               = "agent"
-	RoleWatcher             = "watcher"
-	SessionIDPrefixLegacy   = "S"
-	SessionIDPrefixPlanner  = "SP"
-	SessionIDPrefixDelivery = "SD"
-	SessionIDPrefixAgent    = "SA"
-	SessionIDPrefixWatcher  = "SW"
-	SessionTypeChatGPT      = "chatgpt"
-	StatusActive            = "active"
-	StatusEnded             = "ended"
-	maxRecordBytes          = 64 << 10
-	maxCreateAttempts       = 16
+	SchemaVersion          = 1
+	RolePlanner            = "planner"
+	RoleAgent              = "agent"
+	SessionIDPrefixLegacy  = "S"
+	SessionIDPrefixPlanner = "SP"
+	SessionIDPrefixAgent   = "SA"
+	SessionTypeChatGPT     = "chatgpt"
+	StatusActive           = "active"
+	StatusEnded            = "ended"
+	maxRecordBytes         = 64 << 10
+	maxCreateAttempts      = 16
 )
 
 type Record struct {

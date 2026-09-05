@@ -16,7 +16,7 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return ResolvedAgent{}, err
 	}
-	if in.Role != model.AgentRoleCoding && in.Role != model.AgentRoleWatcher {
+	if in.Role != model.AgentRoleCoding {
 		return ResolvedAgent{}, fmt.Errorf("invalid agent role")
 	}
 	if in.AgentID != "" {
@@ -33,11 +33,7 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 	}
 	recommended := in.RecommendedReasoning
 	if recommended == "" {
-		if in.Role == model.AgentRoleWatcher {
-			recommended = model.ReasoningBestAvailable
-		} else {
-			recommended = configuration.AgentRouting.SingletonRecommendedReasoning
-		}
+		recommended = configuration.AgentRouting.SingletonRecommendedReasoning
 	}
 	if in.AgentID != "" {
 		agent, readErr := s.AgentRead(ctx, in.ProjectID, in.AgentID)

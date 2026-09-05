@@ -29,7 +29,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 			DestructiveHint: true,
 			IdempotentHint:  false,
 		},
-		AuthorityRole:       actionRolePlannerOrDelivery,
+		AuthorityRole:       "planner",
 		LocalReceiptOnly:    true,
 		AllowLegacyOverride: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -55,7 +55,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
+		AuthorityRole:    "planner",
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TaskAuthoringUpdateInput
@@ -76,7 +76,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
+		AuthorityRole:    "planner",
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TaskAuthoringReadyInput
@@ -100,7 +100,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 			ReadOnlyHint:   true,
 			IdempotentHint: true,
 		},
-		AuthorityRole:       actionRolePlannerOrDelivery,
+		AuthorityRole:       "planner",
 		AllowLegacyOverride: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input struct {
@@ -136,7 +136,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 			ReadOnlyHint:   true,
 			IdempotentHint: true,
 		},
-		AuthorityRole:       actionRolePlannerOrDelivery,
+		AuthorityRole:       "planner",
 		AllowLegacyOverride: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input struct {

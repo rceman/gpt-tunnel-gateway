@@ -71,14 +71,6 @@ func (c Config) Validate() error {
 		if p.ProjectCode != "" && !regexp.MustCompile(`^[A-Z]{3}$`).MatchString(p.ProjectCode) {
 			return fmt.Errorf("invalid project code %q", id)
 		}
-		if err := p.Watcher.Validate(); err != nil {
-			return fmt.Errorf("invalid project watcher config %q: %w", id, err)
-		}
-		if p.Watcher.AgentID != "" {
-			if _, ok := c.AgentBindings[p.Watcher.AgentID]; !ok {
-				return fmt.Errorf("project %q references unbound watcher agent %q", id, p.Watcher.AgentID)
-			}
-		}
 		if _, err := canonicalDir(p.Root); err != nil {
 			return fmt.Errorf("invalid project root %q: %w", id, err)
 		}

@@ -46,8 +46,6 @@ func existingSessionRoleContext(ctx context.Context, role string) (context.Conte
 	switch role {
 	case durableSession.RolePlanner:
 		return authority.WithPlanner(bootstrapContext), nil
-	case durableSession.RoleDelivery:
-		return authority.WithDelivery(bootstrapContext), nil
 	case durableSession.RoleAgent:
 		return authority.WithAgent(bootstrapContext), nil
 	default:

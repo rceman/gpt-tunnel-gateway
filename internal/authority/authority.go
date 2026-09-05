@@ -8,10 +8,9 @@ import (
 type role string
 
 const (
-	planner           role = "planner"
-	delivery          role = "delivery"
-	plannerOrDelivery role = "planner_or_delivery"
-	operator          role = "operator"
+	planner        role = "planner"
+	plannerOrAgent role = "planner_or_agent"
+	operator       role = "operator"
 )
 
 type contextKey struct{}
@@ -20,33 +19,27 @@ func WithPlanner(ctx context.Context) context.Context {
 	return context.WithValue(ctx, contextKey{}, planner)
 }
 
-func WithDelivery(ctx context.Context) context.Context {
-	return context.WithValue(ctx, contextKey{}, delivery)
-}
-
 // WithAgent marks the server-authorized Agent role used by a durable session.
-// Agent sessions may be created only through the trusted bootstrap boundary;
-// ordinary action authority remains distinct from Planner/Delivery control.
+// Agent sessions may be created only through the trusted bootstrap boundary.
 func WithAgent(ctx context.Context) context.Context {
 	return context.WithValue(ctx, contextKey{}, role("agent"))
 }
 
-// WithPlannerOrDelivery is the daemon's narrowly scoped bootstrap authority.
+// WithPlannerOrAgent is the daemon's narrowly scoped bootstrap authority.
 // It can authorize creation of either durable project session role, but it is
-// intentionally not accepted by role-specific RequirePlanner/RequireDelivery
-// checks.
-func WithPlannerOrDelivery(ctx context.Context) context.Context {
-	return context.WithValue(ctx, contextKey{}, plannerOrDelivery)
+// intentionally not accepted by role-specific checks.
+func WithPlannerOrAgent(ctx context.Context) context.Context {
+	return context.WithValue(ctx, contextKey{}, plannerOrAgent)
 }
 
-// BootstrapSessionAuthority upgrades an already trusted planner/delivery
+// BootstrapSessionAuthority upgrades an already trusted planner/agent
 // server context only for session.start. It does not grant the combined
 // marker to an untrusted request context.
 func BootstrapSessionAuthority(ctx context.Context) (context.Context, error) {
-	if err := RequirePlannerOrDelivery(ctx); err != nil {
+	if err := RequirePlannerOrAgent(ctx); err != nil {
 		return nil, err
 	}
-	return WithPlannerOrDelivery(ctx), nil
+	return WithPlannerOrAgent(ctx), nil
 }
 
 func WithOperator(ctx context.Context) context.Context {
@@ -70,9 +63,9 @@ func Attach(request, trusted context.Context) context.Context {
 	return context.WithValue(request, contextKey{}, v)
 }
 
-func RequirePlannerOrDelivery(ctx context.Context) error {
+func RequirePlannerOrAgent(ctx context.Context) error {
 	v, ok := ctx.Value(contextKey{}).(role)
-	if !ok || (v != planner && v != delivery && v != plannerOrDelivery) {
+	if !ok || (v != planner && v != role("agent") && v != plannerOrAgent) {
 		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
 	}
 	return nil
@@ -80,13 +73,6 @@ func RequirePlannerOrDelivery(ctx context.Context) error {
 
 func RequirePlanner(ctx context.Context) error {
 	if v, ok := ctx.Value(contextKey{}).(role); !ok || v != planner {
-		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
-	}
-	return nil
-}
-
-func RequireDelivery(ctx context.Context) error {
-	if v, ok := ctx.Value(contextKey{}).(role); !ok || v != delivery {
 		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
 	}
 	return nil
@@ -100,14 +86,12 @@ func RequireAgent(ctx context.Context) error {
 }
 
 func RequireRole(ctx context.Context, wanted string) error {
-	if v, ok := ctx.Value(contextKey{}).(role); ok && v == plannerOrDelivery && (wanted == "planner" || wanted == "delivery" || wanted == "agent") {
+	if v, ok := ctx.Value(contextKey{}).(role); ok && v == plannerOrAgent && (wanted == "planner" || wanted == "agent") {
 		return nil
 	}
 	switch wanted {
 	case "planner":
 		return RequirePlanner(ctx)
-	case "delivery":
-		return RequireDelivery(ctx)
 	case "agent":
 		return RequireAgent(ctx)
 	default:

@@ -80,5 +80,5 @@ func (s *Service) ProjectConfigurationUpdateOperationStatus(ctx context.Context,
 }
 
 func projectConfigurationMutationContext(ctx context.Context) context.Context {
-	return authority.WithPlannerOrDelivery(ctx)
+	return authority.WithPlanner(ctx)
 }

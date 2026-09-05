@@ -147,7 +147,7 @@ func validateProjectConfigurationUpdateInput(in ProjectConfigurationUpdateInput)
 	if in.UpdatedBy == "" || containsControl(in.UpdatedBy) {
 		return fmt.Errorf("updated_by is required")
 	}
-	if in.Patch.AgentRouting == nil && in.Patch.Watcher == nil && in.Patch.Workflow == nil && in.Patch.GateCommands == nil && in.Patch.Checkpoint == nil && in.Patch.Integration == nil && in.Patch.Callbacks == nil && in.Patch.ActivationProfileRef == nil {
+	if in.Patch.AgentRouting == nil && in.Patch.Workflow == nil && in.Patch.GateCommands == nil && in.Patch.Checkpoint == nil && in.Patch.Integration == nil && in.Patch.Callbacks == nil && in.Patch.ActivationProfileRef == nil {
 		return fmt.Errorf("project configuration patch is empty")
 	}
 	return nil

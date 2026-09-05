@@ -214,7 +214,7 @@ func (e *ManagedProjectEntry) UnmarshalJSON(data []byte) error {
 	}
 	for key := range fields {
 		switch key {
-		case "root", "repository_url", "remote", "default_branch", "airelay_session_key", "watcher":
+		case "root", "repository_url", "remote", "default_branch", "airelay_session_key":
 		default:
 			return fmt.Errorf("unknown managed project field %q", key)
 		}
@@ -230,86 +230,22 @@ func (e *ManagedProjectEntry) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("%s: %w", key, err)
 		}
 	}
-	if raw, ok := fields["watcher"]; ok {
-		if err := json.Unmarshal(raw, &entry.Watcher); err != nil {
-			return fmt.Errorf("watcher: %w", err)
-		}
-	}
 	*e = entry
 	return nil
 }
 
 func (e ManagedProjectEntry) MarshalJSON() ([]byte, error) {
-	var watcher *WatcherSettings
-	if e.Watcher != (WatcherSettings{}) {
-		value := e.Watcher
-		watcher = &value
-	}
 	return json.Marshal(struct {
-		Root              string           `json:"root"`
-		RepositoryURL     string           `json:"repository_url"`
-		Remote            string           `json:"remote"`
-		DefaultBranch     string           `json:"default_branch"`
-		AirelaySessionKey string           `json:"airelay_session_key"`
-		Watcher           *WatcherSettings `json:"watcher,omitempty"`
+		Root              string `json:"root"`
+		RepositoryURL     string `json:"repository_url"`
+		Remote            string `json:"remote"`
+		DefaultBranch     string `json:"default_branch"`
+		AirelaySessionKey string `json:"airelay_session_key"`
 	}{
 		Root:              e.Root,
 		RepositoryURL:     e.RepositoryURL,
 		Remote:            e.Remote,
 		DefaultBranch:     e.DefaultBranch,
 		AirelaySessionKey: e.AirelaySessionKey,
-		Watcher:           watcher,
 	})
-}
-
-func (w *WatcherSettings) UnmarshalJSON(data []byte) error {
-	fields, err := decodeManagedObject(data)
-	if err != nil {
-		return err
-	}
-	for key := range fields {
-		switch key {
-		case "agent_id", "mode", "cadence_seconds", "tail_lines", "seen_retention", "nudge_enabled", "restart_enabled":
-		default:
-			return fmt.Errorf("unknown watcher field %q", key)
-		}
-	}
-	var value WatcherSettings
-	if raw, ok := fields["agent_id"]; ok {
-		if err := json.Unmarshal(raw, &value.AgentID); err != nil {
-			return fmt.Errorf("agent_id: %w", err)
-		}
-	}
-	if raw, ok := fields["mode"]; ok {
-		if err := json.Unmarshal(raw, &value.Mode); err != nil {
-			return fmt.Errorf("mode: %w", err)
-		}
-	}
-	if raw, ok := fields["cadence_seconds"]; ok {
-		if err := json.Unmarshal(raw, &value.CadenceSeconds); err != nil {
-			return fmt.Errorf("cadence_seconds: %w", err)
-		}
-	}
-	if raw, ok := fields["tail_lines"]; ok {
-		if err := json.Unmarshal(raw, &value.TailLines); err != nil {
-			return fmt.Errorf("tail_lines: %w", err)
-		}
-	}
-	if raw, ok := fields["seen_retention"]; ok {
-		if err := json.Unmarshal(raw, &value.SeenRetention); err != nil {
-			return fmt.Errorf("seen_retention: %w", err)
-		}
-	}
-	if raw, ok := fields["nudge_enabled"]; ok {
-		if err := json.Unmarshal(raw, &value.NudgeEnabled); err != nil {
-			return fmt.Errorf("nudge_enabled: %w", err)
-		}
-	}
-	if raw, ok := fields["restart_enabled"]; ok {
-		if err := json.Unmarshal(raw, &value.RestartEnabled); err != nil {
-			return fmt.Errorf("restart_enabled: %w", err)
-		}
-	}
-	*w = value
-	return nil
 }

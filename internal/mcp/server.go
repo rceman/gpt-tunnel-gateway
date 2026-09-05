@@ -19,8 +19,6 @@ type Server struct {
 	gatewayInventoryFn     func() []string
 	genericActionMu        sync.RWMutex
 	genericActions         map[string]GenericAction
-	watcherActions         sync.Once
-	watcherActionErr       error
 	agentActions           sync.Once
 	agentActionErr         error
 	taskAuthoringActions   sync.Once
@@ -95,7 +93,6 @@ func (t Tool) MarshalJSON() ([]byte, error) {
 }
 
 func (s *Server) tools() map[string]Tool {
-	s.ensureWatcherActions()
 	s.ensureAgentActions()
 	s.ensureTaskAuthoringActions()
 	s.ensureTrainV2Actions()

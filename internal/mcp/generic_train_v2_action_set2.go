@@ -17,7 +17,7 @@ func (s *Server) registerTrainV2ActionSet2() error {
 			ReadOnlyHint:   true,
 			IdempotentHint: true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole: "planner",
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				ProjectID string `json:"project_id"`
@@ -40,7 +40,7 @@ func (s *Server) registerTrainV2ActionSet2() error {
 			ReadOnlyHint:   true,
 			IdempotentHint: true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole: "planner",
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2ListInput
 			if err := decode(raw, &in); err != nil {
@@ -60,7 +60,7 @@ func (s *Server) registerTrainV2ActionSet2() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
+		AuthorityRole:    "planner",
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2StartInput
@@ -81,7 +81,7 @@ func (s *Server) registerTrainV2ActionSet2() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
+		AuthorityRole:    "planner",
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2AdvanceInput

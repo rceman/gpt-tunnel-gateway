@@ -16,7 +16,7 @@ func (s *Server) agent_action_set2() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
+		AuthorityRole:    "planner",
 		OutputSchema:     canonicalAgentOperationOutputSchema(),
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {

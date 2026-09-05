@@ -23,7 +23,7 @@ func (s *Server) registerCodeActions() error {
 		Path: "code/worktree", Description: "List bounded server-owned project worktree selectors.",
 		InputSchema: codeWorktreeInputSchema(), OutputSchema: codeWorktreeOutputSchema(),
 		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole: actionRolePlannerOrAgent,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input service.CodeWorktreeInput
 			if err := decode(raw, &input); err != nil {
@@ -44,7 +44,7 @@ func (s *Server) registerCodeActions() error {
 		Path: "code/tree", Description: "List bounded repository-relative files in a server-owned worktree.",
 		InputSchema: codeTreeInputSchema(), OutputSchema: codeTreeOutputSchema(),
 		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole: actionRolePlannerOrAgent,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input service.CodeTreeInput
 			if err := decode(raw, &input); err != nil {
@@ -65,7 +65,7 @@ func (s *Server) registerCodeActions() error {
 		Path: "code/read", Description: "Read a bounded line range from a server-owned worktree.",
 		InputSchema: codeReadInputSchema(), OutputSchema: codeReadOutputSchema(),
 		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole: actionRolePlannerOrAgent,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input service.CodeReadInput
 			if err := decode(raw, &input); err != nil {
@@ -86,7 +86,7 @@ func (s *Server) registerCodeActions() error {
 		Path: "code/search", Description: "Search bounded repository-relative files in a server-owned worktree.",
 		InputSchema: codeSearchInputSchema(), OutputSchema: codeSearchOutputSchema(),
 		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole: actionRolePlannerOrAgent,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input service.CodeSearchInput
 			if err := decode(raw, &input); err != nil {
@@ -107,7 +107,7 @@ func (s *Server) registerCodeActions() error {
 		Path: "code/diff", Description: "Read a bounded diff from an authoritative local worktree base.",
 		InputSchema: codeDiffInputSchema(), OutputSchema: codeDiffOutputSchema(),
 		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole: actionRolePlannerOrAgent,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input service.CodeDiffInput
 			if err := decode(raw, &input); err != nil {

@@ -39,9 +39,7 @@ var projectionClasses = map[string]projectionClass{
 	"train/attempt-finalize": projectionCompactDefault, "train/attempt-proof-recover": projectionCompactDefault, "train/attempt-review": projectionCompactDefault, "train/review-resolve": projectionCompactDefault,
 	"train/create": projectionCompactDefault, "train/cutover": projectionCompactDefault, "train/full-proof": projectionCompactDefault, "train/review-backfill": projectionCompactDefault,
 	"train/integrate": projectionCompactDefault, "train/list": projectionCompactDefault, "train/read": projectionCompactDefault,
-	"train/start":   projectionCompactDefault,
-	"watcher/guide": projectionIntentionalPayload, "watcher/guide_update": projectionCompactDefault,
-	"watcher/nudge": projectionCompactDefault, "watcher/status": projectionClosedDefault, "watcher/watch": projectionClosedDefault,
+	"train/start":    projectionCompactDefault,
 	"workflow/rules": projectionIntentionalPayload,
 }
 

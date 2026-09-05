@@ -16,7 +16,7 @@ func agentInputSchema() map[string]any {
 		"schema_version":        integer("Agent schema version.", 1, 1),
 		"project_id":            str("Registered project identifier."),
 		"agent_id":              str("Stable project-scoped agent identifier."),
-		"role":                  str("Agent role: coding or watcher."),
+		"role":                  str("Agent role: coding."),
 		"enabled":               map[string]any{"type": "boolean"},
 		"recommended_reasoning": str("Routing preference: low, medium, high, max, or best_available."),
 		"capabilities":          array(str("Bounded capability identifier.")),

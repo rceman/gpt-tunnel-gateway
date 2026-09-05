@@ -17,7 +17,7 @@ func (s *Server) registerTrainV2ActionSet4() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
+		AuthorityRole:    "planner",
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2FullProofInput
@@ -38,7 +38,7 @@ func (s *Server) registerTrainV2ActionSet4() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
+		AuthorityRole:    "planner",
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2IntegrateInput
@@ -59,7 +59,7 @@ func (s *Server) registerTrainV2ActionSet4() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
+		AuthorityRole:    "planner",
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			if err := s.validateTrainV2ActionRegistry(); err != nil {

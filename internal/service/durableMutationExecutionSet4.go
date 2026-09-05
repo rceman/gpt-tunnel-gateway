@@ -25,7 +25,7 @@ func (s *Service) durableMutationExecutionSet4(ctx context.Context, operation du
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return nil, err
 		}
-		train, result, err := s.TrainV2Create(authority.WithPlannerOrDelivery(ctx), input)
+		train, result, err := s.TrainV2Create(authority.WithPlanner(ctx), input)
 		if err != nil {
 			return nil, err
 		}
@@ -35,7 +35,7 @@ func (s *Service) durableMutationExecutionSet4(ctx context.Context, operation du
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return nil, err
 		}
-		train, result, err := s.TrainV2Add(authority.WithPlannerOrDelivery(ctx), input)
+		train, result, err := s.TrainV2Add(authority.WithPlanner(ctx), input)
 		if err != nil {
 			return nil, err
 		}
@@ -45,7 +45,7 @@ func (s *Service) durableMutationExecutionSet4(ctx context.Context, operation du
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return nil, err
 		}
-		receipt, result, err := s.TrainV2Cutover(authority.WithPlannerOrDelivery(ctx), input)
+		receipt, result, err := s.TrainV2Cutover(authority.WithPlanner(ctx), input)
 		if err != nil {
 			return nil, err
 		}

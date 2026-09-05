@@ -15,16 +15,6 @@ type ProjectAgentRouting struct {
 	Fallback                      string `json:"fallback"`
 }
 
-type ProjectConfigurationWatcher struct {
-	AgentID        string `json:"agent_id,omitempty"`
-	Mode           string `json:"mode"`
-	CadenceSeconds int    `json:"cadence_seconds"`
-	TailLines      int    `json:"tail_lines"`
-	SeenRetention  int    `json:"seen_retention"`
-	NudgeEnabled   bool   `json:"nudge_enabled"`
-	RestartEnabled bool   `json:"restart_enabled"`
-}
-
 // ProjectGateCommand is a repository-owned executable plus its fixed argv.
 // It is deliberately an argv vector rather than a shell command so project
 // configuration cannot introduce shell expansion or pipelines.
@@ -75,7 +65,6 @@ type ProjectConfiguration struct {
 	Revision             int                             `json:"revision"`
 	ExecutionModel       string                          `json:"execution_model,omitempty"`
 	AgentRouting         ProjectAgentRouting             `json:"agent_routing"`
-	Watcher              ProjectConfigurationWatcher     `json:"watcher"`
 	Workflow             ProjectConfigurationWorkflow    `json:"workflow"`
 	Checkpoint           ProjectCheckpointProfile        `json:"checkpoint"`
 	Integration          ProjectIntegrationConfiguration `json:"integration"`
@@ -95,12 +84,6 @@ func DefaultProjectConfiguration(projectID string, now time.Time) ProjectConfigu
 			SingletonRecommendedReasoning: ReasoningHigh,
 			GroupRecommendedReasoning:     ReasoningMax,
 			Fallback:                      ReasoningBestAvailable,
-		},
-		Watcher: ProjectConfigurationWatcher{
-			Mode:           "disabled",
-			CadenceSeconds: WatcherDefaultCadenceSeconds,
-			TailLines:      WatcherDefaultTailLines,
-			SeenRetention:  WatcherMaxSeenDigests,
 		},
 		Workflow: ProjectConfigurationWorkflow{
 			WorkflowStage:     WorkflowStageTransitionalMain,
@@ -214,15 +197,6 @@ func ValidateProjectConfiguration(v ProjectConfiguration) error {
 	}
 	if v.AgentRouting.Fallback != ReasoningBestAvailable {
 		return fmt.Errorf("project agent fallback must be best_available")
-	}
-	if v.Watcher.AgentID != "" && ValidateObjectIdentifier(v.Watcher.AgentID) != nil {
-		return fmt.Errorf("invalid project configuration watcher agent_id")
-	}
-	if v.Watcher.Mode != "disabled" && v.Watcher.Mode != "observe" && v.Watcher.Mode != "require" {
-		return fmt.Errorf("invalid project configuration watcher mode")
-	}
-	if v.Watcher.CadenceSeconds < 1 || v.Watcher.CadenceSeconds > 3600 || v.Watcher.TailLines < 1 || v.Watcher.TailLines > WatcherMaxTailLines || v.Watcher.SeenRetention < 1 || v.Watcher.SeenRetention > WatcherMaxSeenDigests {
-		return fmt.Errorf("invalid project configuration watcher bounds")
 	}
 	gateCommands := v.Workflow.GateCommands
 	if gateCommands.IsZero() {

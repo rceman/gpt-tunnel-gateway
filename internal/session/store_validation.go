@@ -65,7 +65,7 @@ func sessionIDProjectCode(id string) string {
 }
 
 func validRole(role string) bool {
-	return role == RolePlanner || role == RoleDelivery || role == RoleAgent || role == RoleWatcher
+	return role == RolePlanner || role == RoleAgent
 }
 
 func sessionIDMatchesRole(id, role string) bool {
@@ -76,7 +76,7 @@ func sessionIDMatchesRole(id, role string) bool {
 	if !ok {
 		return false
 	}
-	want := map[string]string{RolePlanner: SessionIDPrefixPlanner, RoleDelivery: SessionIDPrefixDelivery, RoleAgent: SessionIDPrefixAgent, RoleWatcher: SessionIDPrefixWatcher}[role]
+	want := map[string]string{RolePlanner: SessionIDPrefixPlanner, RoleAgent: SessionIDPrefixAgent}[role]
 	return want != "" && prefix == want
 }
 

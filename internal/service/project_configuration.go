@@ -156,9 +156,6 @@ func applyProjectConfigurationPatch(configuration *model.ProjectConfiguration, p
 	if patch.AgentRouting != nil {
 		configuration.AgentRouting = *patch.AgentRouting
 	}
-	if patch.Watcher != nil {
-		configuration.Watcher = *patch.Watcher
-	}
 	if patch.Workflow != nil {
 		configuration.Workflow = *patch.Workflow
 	}

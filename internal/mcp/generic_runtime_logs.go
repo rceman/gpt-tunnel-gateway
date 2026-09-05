@@ -72,8 +72,8 @@ func (s *Server) ensureRuntimeLogActions() {
 					DestructiveHint: true,
 					IdempotentHint:  true,
 				},
-				Authority:     authority.RequireDelivery,
-				AuthorityRole: durableSession.RoleDelivery,
+				Authority:     authority.RequirePlanner,
+				AuthorityRole: durableSession.RolePlanner,
 				Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 					var input struct {
 						OperationID string `json:"operation_id"`

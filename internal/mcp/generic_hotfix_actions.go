@@ -24,7 +24,7 @@ func (s *Server) registerHotfixActions() error {
 		Path: "hotfix/list", Description: "List bounded server-owned hotfix lanes and execution identity.",
 		InputSchema: hotfixListInputSchema(), OutputSchema: hotfixListOutputSchema(),
 		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole: "planner",
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.HotfixListInput
 			if err := decode(raw, &in); err != nil {
@@ -44,7 +44,7 @@ func (s *Server) registerHotfixActions() error {
 		Path: "hotfix/read", Description: "Read one server-owned hotfix lane and execution identity.",
 		InputSchema: hotfixReadInputSchema(), OutputSchema: hotfixReadOutputSchema(),
 		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole: "planner",
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.HotfixReadInput
 			if err := decode(raw, &in); err != nil {
@@ -66,7 +66,7 @@ func (s *Server) registerHotfixActions() error {
 		InputSchema:     hotfixCreateInputSchema(),
 		OutputSchema:    hotfixCreateOutputSchema(),
 		Annotations:     ToolAnnotations{DestructiveHint: true, IdempotentHint: false},
-		AuthorityRole:   actionRolePlannerOrDelivery,
+		AuthorityRole:   "planner",
 		SessionBound:    true,
 		SessionRequired: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -89,7 +89,7 @@ func (s *Server) registerHotfixActions() error {
 		InputSchema:     hotfixIntegrateInputSchema(),
 		OutputSchema:    hotfixIntegrateOutputSchema(),
 		Annotations:     ToolAnnotations{DestructiveHint: true, IdempotentHint: true},
-		AuthorityRole:   actionRolePlannerOrDelivery,
+		AuthorityRole:   "planner",
 		SessionBound:    true,
 		SessionRequired: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {

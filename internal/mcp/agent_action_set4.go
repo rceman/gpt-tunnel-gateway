@@ -17,7 +17,7 @@ func (s *Server) agent_action_set4() error {
 		InputSchema:   obj(map[string]any{}),
 		OutputSchema:  canonicalAgentListOutputSchema(),
 		Annotations:   ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole: "planner",
 		LocalReadOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct{}
@@ -47,7 +47,7 @@ func (s *Server) agent_action_set4() error {
 		InputSchema:         canonicalAgentStatusInputSchema(),
 		OutputSchema:        canonicalAgentStatusOutputSchema(),
 		Annotations:         ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
-		AuthorityRole:       actionRolePlannerOrDelivery,
+		AuthorityRole:       "planner",
 		LocalReadOnly:       true,
 		AllowLegacyOverride: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -62,7 +62,7 @@ func (s *Server) agent_action_set4() error {
 		InputSchema:   canonicalAgentTailInputSchema(),
 		OutputSchema:  canonicalAgentTailOutputSchema(),
 		Annotations:   ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole: "planner",
 		LocalReadOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			return s.canonicalAgentTailAction(ctx, raw)
@@ -76,7 +76,7 @@ func (s *Server) agent_action_set4() error {
 		InputSchema:   canonicalAgentAwaitInputSchema(),
 		OutputSchema:  canonicalAgentAwaitOutputSchema(),
 		Annotations:   ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole: "planner",
 		LocalReadOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			return s.canonicalAgentAwaitAction(ctx, raw)

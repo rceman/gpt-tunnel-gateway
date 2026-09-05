@@ -71,7 +71,7 @@ func (s *Service) executeDurableMutation(ctx context.Context, operation durableM
 		return s.durableMutationExecutionSet1(ctx, operation)
 	case "adr-create", "agent-prompt", "agent-recover", "agent-interrupt", "agent-update":
 		return s.durableMutationExecutionSet2(ctx, operation)
-	case "agent-disable", "watcher-guide-update", "watcher-nudge", "project-configuration-update", "task-supersede", "task-work", "task-finalize":
+	case "agent-disable", "project-configuration-update", "task-supersede", "task-work", "task-finalize":
 		return s.durableMutationExecutionSet3(ctx, operation)
 	case "train-attempt-finalize", "train-v2-create", "train-v2-add", "train-v2-cutover", "train-attempt-review":
 		return s.durableMutationExecutionSet4(ctx, operation)

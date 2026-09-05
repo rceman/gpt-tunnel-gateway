@@ -74,9 +74,6 @@ func validateManagedProjectEntry(id string, entry ManagedProjectEntry) error {
 	if entry.ProjectCode != "" && !managedProjectCodeRE.MatchString(entry.ProjectCode) {
 		return fmt.Errorf("invalid managed project code %q", id)
 	}
-	if err := entry.Watcher.Validate(); err != nil {
-		return fmt.Errorf("invalid managed project watcher %q: %w", id, err)
-	}
 	return nil
 }
 

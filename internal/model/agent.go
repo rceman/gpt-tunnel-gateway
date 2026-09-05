@@ -14,8 +14,7 @@ const (
 )
 
 const (
-	AgentRoleCoding  = "coding"
-	AgentRoleWatcher = "watcher"
+	AgentRoleCoding = "coding"
 )
 
 const (
@@ -73,7 +72,7 @@ func ValidateAgent(v Agent) error {
 	if err := ValidateObjectIdentifier(v.AgentID); err != nil {
 		return fmt.Errorf("invalid agent agent_id: %w", err)
 	}
-	if v.Role != AgentRoleCoding && v.Role != AgentRoleWatcher {
+	if v.Role != AgentRoleCoding {
 		return fmt.Errorf("invalid agent role")
 	}
 	switch v.RecommendedReasoning {
@@ -125,7 +124,7 @@ func ValidateAgentAvailabilityStatus(v AgentAvailabilityStatus) error {
 	if v.SchemaVersion != AgentSchemaVersion || ValidateProjectIdentifier(v.ProjectID) != nil || ValidateObjectIdentifier(v.AgentID) != nil {
 		return fmt.Errorf("invalid agent availability identity")
 	}
-	if v.Role != AgentRoleCoding && v.Role != AgentRoleWatcher {
+	if v.Role != AgentRoleCoding {
 		return fmt.Errorf("invalid agent availability role")
 	}
 	if v.State != "registered" && v.State != "disabled" && v.State != "unbound" && v.State != "unavailable" && v.State != "usable" {

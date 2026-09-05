@@ -25,7 +25,7 @@ func (s *Service) durableMutationExecutionSet2(ctx context.Context, operation du
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return nil, err
 		}
-		result, err := s.AgentPromptForAgent(authority.WithPlannerOrDelivery(ctx), input.ProjectID, input.AgentID, input.Message)
+		result, err := s.AgentPromptForAgent(authority.WithPlanner(ctx), input.ProjectID, input.AgentID, input.Message)
 		if err != nil {
 			return nil, err
 		}
@@ -35,7 +35,7 @@ func (s *Service) durableMutationExecutionSet2(ctx context.Context, operation du
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return nil, err
 		}
-		result, err := s.AgentRecover(authority.WithPlannerOrDelivery(ctx), input)
+		result, err := s.AgentRecover(authority.WithPlanner(ctx), input)
 		if err != nil {
 			return nil, err
 		}
@@ -45,7 +45,7 @@ func (s *Service) durableMutationExecutionSet2(ctx context.Context, operation du
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return nil, err
 		}
-		result, err := s.AgentInterrupt(authority.WithPlannerOrDelivery(ctx), input)
+		result, err := s.AgentInterrupt(authority.WithPlanner(ctx), input)
 		if err != nil {
 			return nil, err
 		}
@@ -55,7 +55,7 @@ func (s *Service) durableMutationExecutionSet2(ctx context.Context, operation du
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return nil, err
 		}
-		agent, result, err := s.AgentUpdate(authority.WithPlannerOrDelivery(ctx), input)
+		agent, result, err := s.AgentUpdate(authority.WithPlanner(ctx), input)
 		if err != nil {
 			return nil, err
 		}

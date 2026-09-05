@@ -18,7 +18,7 @@ func (s *Server) registerTrainV2ActionSet3() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole: "planner",
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2AttemptFinalizeInput
 			if err := decode(raw, &in); err != nil {
@@ -38,7 +38,7 @@ func (s *Server) registerTrainV2ActionSet3() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
+		AuthorityRole:    "planner",
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2CorrectionStartInput
@@ -59,7 +59,7 @@ func (s *Server) registerTrainV2ActionSet3() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole: "planner",
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2AttemptReviewInput
 			if err := decode(raw, &in); err != nil {
@@ -104,7 +104,7 @@ func (s *Server) registerTrainV2ActionSet3() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
+		AuthorityRole:    "planner",
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2ReviewBackfillInput

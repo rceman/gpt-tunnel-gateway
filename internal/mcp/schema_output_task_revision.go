@@ -34,7 +34,7 @@ func taskCorrectionInputSchema() map[string]any {
 		"source_train_id": str("Exact source Train"), "source_item_position": integer("Exact source item position", 1, 1000000), "source_attempt_number": integer("Exact source attempt", 1, 1000000),
 		"title": str("Optional bounded corrected title"), "objective": str("Optional bounded corrected objective"),
 		"acceptance_criteria": array(str("Acceptance criterion")), "constraints": array(str("Task constraint")),
-		"required_gates": array(str("Required gate")), "created_by": str("Delivery identity"),
+		"required_gates": array(str("Required gate")), "created_by": str("Planner identity"),
 		"expected_hub_revision": str("Optimistic Hub revision"),
 	}, "task_id", "source_revision_id", "source_train_id", "source_item_position", "source_attempt_number", "created_by")
 }

@@ -87,7 +87,7 @@ func (s *Service) durableMutationExecutionSet1(ctx context.Context, operation du
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return nil, err
 		}
-		result, err := s.TrainV2FullProof(authority.WithPlannerOrDelivery(ctx), input)
+		result, err := s.TrainV2FullProof(authority.WithPlanner(ctx), input)
 		if err != nil {
 			return nil, err
 		}
@@ -97,7 +97,7 @@ func (s *Service) durableMutationExecutionSet1(ctx context.Context, operation du
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return nil, err
 		}
-		result, err := s.TrainV2ReviewBackfill(authority.WithPlannerOrDelivery(ctx), input)
+		result, err := s.TrainV2ReviewBackfill(authority.WithPlanner(ctx), input)
 		if err != nil {
 			return nil, err
 		}

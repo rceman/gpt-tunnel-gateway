@@ -37,7 +37,7 @@ func (s *Server) addTaskTools(add toolAdder) {
 		}
 		return s.Service.TaskRevisionRead(ctx, id)
 	})
-	add("task_correction_create", "Delivery-authorized creation of one immutable bounded post-finalization Task revision.", taskCorrectionInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("task_correction_create", "Planner-authorized creation of one immutable bounded post-finalization Task revision.", taskCorrectionInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in service.TaskCorrectionCreateInput
 		if err := decode(raw, &in); err != nil {
 			return nil, err

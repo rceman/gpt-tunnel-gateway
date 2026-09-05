@@ -26,7 +26,7 @@ func (s Store) nextID(role, projectCode string) (string, error) {
 		encoded[i] = alphabet[value&31]
 		value >>= 5
 	}
-	prefix := map[string]string{RolePlanner: SessionIDPrefixPlanner, RoleDelivery: SessionIDPrefixDelivery, RoleAgent: SessionIDPrefixAgent, RoleWatcher: SessionIDPrefixWatcher}[role]
+	prefix := map[string]string{RolePlanner: SessionIDPrefixPlanner, RoleAgent: SessionIDPrefixAgent}[role]
 	if prefix == "" {
 		return "", fmt.Errorf("%w: unsupported session role", ErrInvalidSession)
 	}

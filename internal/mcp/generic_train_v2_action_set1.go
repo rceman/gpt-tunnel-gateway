@@ -17,7 +17,7 @@ func (s *Server) registerTrainV2ActionSet1() error {
 			DestructiveHint: true,
 			IdempotentHint:  false,
 		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
+		AuthorityRole:    "planner",
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2CreateInput
@@ -42,7 +42,7 @@ func (s *Server) registerTrainV2ActionSet1() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole: actionRolePlannerOrDelivery,
+		AuthorityRole: "planner",
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2AttemptProofRecoveryInput
 			if err := decode(raw, &in); err != nil {
@@ -62,7 +62,7 @@ func (s *Server) registerTrainV2ActionSet1() error {
 			DestructiveHint: true,
 			IdempotentHint:  false,
 		},
-		AuthorityRole:    actionRolePlannerOrDelivery,
+		AuthorityRole:    "planner",
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TrainV2AddInput

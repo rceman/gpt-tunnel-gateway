@@ -81,7 +81,6 @@ func main() {
 	syncCtx, cancelSync := context.WithCancel(context.Background())
 	defer cancelSync()
 	go postReadyHubSync(syncCtx, svc)
-	go svc.RunWatcherSupervisors(context.Background())
 	serveErr := <-runtime.serveErr
 	cancelSync()
 	if err := serveErr; err != nil && err != http.ErrServerClosed {

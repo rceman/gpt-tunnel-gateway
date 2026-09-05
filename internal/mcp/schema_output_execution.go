@@ -59,20 +59,6 @@ func agentIPCReceiptOutputSchema() map[string]any {
 	}, "operation_id", "status", "created_at", "updated_at")
 }
 
-func watcherNudgeReceiptOutputSchema() map[string]any {
-	return closedOutput(map[string]any{
-		"operation_id": outputString(), "status": outputString(), "result": map[string]any{"type": "object", "additionalProperties": true}, "error": outputString(),
-		"created_at": outputDateTime(), "updated_at": outputDateTime(),
-	}, "operation_id", "status", "created_at", "updated_at")
-}
-
-func watcherGuideMutationReceiptOutputSchema() map[string]any {
-	return closedOutput(map[string]any{
-		"operation_id": outputString(), "status": outputString(), "guide": watcherObjectOutputSchema(), "operation": operationOutputSchema(), "error": outputString(),
-		"created_at": outputDateTime(), "updated_at": outputDateTime(),
-	}, "operation_id", "status", "created_at", "updated_at")
-}
-
 func taskSupersedeReceiptOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"operation_id": outputString(), "status": outputString(), "task": taskOutputSchema(), "operation": operationOutputSchema(), "error": outputString(),

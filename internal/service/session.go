@@ -142,7 +142,7 @@ func (s *Service) SessionStartUnbound(ctx context.Context, role string, label *s
 
 func (s *Service) SessionBind(ctx context.Context, input SessionBindInput) (SessionResult, error) {
 	if err := authority.RequireRole(ctx, durableSession.RolePlanner); err != nil {
-		if err := authority.RequireRole(ctx, durableSession.RoleDelivery); err != nil {
+		if err := authority.RequireRole(ctx, durableSession.RoleAgent); err != nil {
 			return SessionResult{}, err
 		}
 	}

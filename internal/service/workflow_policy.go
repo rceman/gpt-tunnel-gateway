@@ -8,17 +8,10 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-// WithPlannerWorkflowPolicyAuthority and WithDeliveryWorkflowPolicyAuthority
-// are server-owned authority constructors. Callers cannot select an arbitrary
-// role string; transport adapters must obtain the appropriate context from
-// the trusted Planner or Delivery boundary before invoking a mutating
-// service.
+// WithPlannerWorkflowPolicyAuthority is a server-owned authority constructor.
+// Callers cannot select an arbitrary role string.
 func WithPlannerWorkflowPolicyAuthority(ctx context.Context) context.Context {
 	return authority.WithPlanner(ctx)
-}
-
-func WithDeliveryWorkflowPolicyAuthority(ctx context.Context) context.Context {
-	return authority.WithDelivery(ctx)
 }
 
 // WithOperatorWorkflowPolicyAuthority is only for the local dispatcher. It
@@ -28,7 +21,7 @@ func WithOperatorWorkflowPolicyAuthority(ctx context.Context) context.Context {
 }
 
 func RequireWorkflowPolicyAuthority(ctx context.Context) error {
-	return authority.RequirePlannerOrDelivery(ctx)
+	return authority.RequirePlanner(ctx)
 }
 
 func (s *Service) workflowPolicyPath(projectID string) string {
