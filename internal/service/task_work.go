@@ -172,10 +172,6 @@ func (s *Service) validateTrainExecutionSession(ctx context.Context, current cur
 	if err != nil {
 		return err
 	}
-	key, err := airelay.DeriveExecutionSessionKey(resolved.SessionKey, resolved.Profile, "train:"+current.Train.ProjectID+":"+current.Train.ID)
-	if err != nil {
-		return err
-	}
 	if err := s.Airelay.ValidateExecutionSession(ctx, airelay.ExecutionSessionRequest{
 		BaseSessionKey: resolved.SessionKey,
 		Profile:        resolved.Profile,
@@ -184,7 +180,11 @@ func (s *Service) validateTrainExecutionSession(ctx context.Context, current cur
 	}); err != nil {
 		return err
 	}
-	if key != current.Runtime.SessionKey {
+	expectedKey, err := airelay.DeriveExecutionSessionKey(resolved.SessionKey, resolved.Profile, "train:"+current.Train.ProjectID+":"+current.Train.ID)
+	if err != nil {
+		return err
+	}
+	if expectedKey != current.Runtime.SessionKey {
 		return fmt.Errorf("Train runtime execution session does not match current lane authority")
 	}
 	return nil
@@ -243,10 +243,7 @@ func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task mod
 		return TaskWorkResult{}, err
 	}
 	message := "Read Task " + task.ID + " and execute it in the assigned hotfix worktree."
-	session, err := airelay.DeriveExecutionSessionKey(resolved.SessionKey, resolved.Profile, "hotfix:"+identity.HotfixRef+":"+task.ID)
-	if err != nil {
-		return TaskWorkResult{}, err
-	}
+	session := resolved.SessionKey
 	generation := hotfixExecutionGeneration(in.ProjectID, identity.HotfixRef, task.ID, task.Revision, head, resolved.AgentID, session, resolved.Profile, worktree.Root, message)
 	receiptPath := hotfixExecutionReceiptPath(s.Config.StateDir, in.ProjectID, task.ID, generation)
 	lock, err := acquireHotfixExecutionLock(s.Config.StateDir, generation)
@@ -270,15 +267,6 @@ func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task mod
 		return TaskWorkResult{TaskID: task.ID, WorktreePath: filepath.Clean(receipt.WorktreePath), Text: task.Objective}, nil
 	} else if !os.IsNotExist(readErr) {
 		return TaskWorkResult{}, readErr
-	}
-	if _, err := s.Airelay.EnsureExecutionSession(ctx, airelay.ExecutionSessionRequest{
-		BaseSessionKey: resolved.SessionKey,
-		Profile:        resolved.Profile,
-		WorktreePath:   worktree.Root,
-		Identity:       "hotfix:" + identity.HotfixRef + ":" + task.ID,
-		LockDir:        filepath.Join(s.Config.StateDir, "locks"),
-	}); err != nil {
-		return TaskWorkResult{}, err
 	}
 	createdAt := s.durableNow()
 	prepared := expectedReceipt

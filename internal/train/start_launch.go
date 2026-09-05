@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -126,15 +125,17 @@ func Start(ctx context.Context, in StartInput, deps StartDependencies) (StartRes
 			_ = deps.Git.DeleteTrainBranch(context.Background(), deps.ProjectConfig, laneBranch, base)
 		}
 	}()
-	executionSession, err := deps.Airelay.EnsureExecutionSession(ctx, airelay.ExecutionSessionRequest{
+	executionSession, err := airelay.DeriveExecutionSessionKey(in.SessionKey, in.Profile, "train:"+in.ProjectID+":"+in.TrainID)
+	if err != nil {
+		return StartResult{}, err
+	}
+	if err := deps.Airelay.ValidateExecutionSession(ctx, airelay.ExecutionSessionRequest{
 		BaseSessionKey: in.SessionKey,
 		Profile:        in.Profile,
 		WorktreePath:   worktreePath,
 		Identity:       "train:" + in.ProjectID + ":" + in.TrainID,
-		LockDir:        filepath.Join(deps.StateDir, "locks"),
-	})
-	if err != nil {
-		return StartResult{}, err
+	}); err != nil {
+		return StartResult{}, fmt.Errorf("legacy Train execution session is unavailable: %w", err)
 	}
 	attempt := model.TrainV2Attempt{Number: 1, Status: model.TrainV2AttemptRunning, AgentID: in.ResolvedAgentID, AirelaySessionKey: executionSession, GatewayID: deps.GatewayID, StartHead: base, StartedAt: now}
 	runtime := RuntimeBinding{

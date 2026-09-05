@@ -11,18 +11,16 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 )
 
-// ExecutionSessionRequest identifies one server-owned execution lane. The
-// caller supplies no user-controlled path; WorktreePath is resolved by GTW.
+// ExecutionSessionRequest identifies one server-owned legacy execution lane.
+// The request is used only to validate an already-existing session; Gateway
+// never creates an execution session implicitly.
 type ExecutionSessionRequest struct {
 	BaseSessionKey string
 	Profile        string
 	WorktreePath   string
 	Identity       string
-	LockDir        string
 }
 
 type executionSessionEntry struct {
@@ -48,9 +46,8 @@ type SessionAuthority struct {
 	State               string `json:"state"`
 }
 
-// DeriveExecutionSessionKey is the pure, server-owned lane key derivation.
-// Callers must resolve the profile from canonical Agent authority; this
-// function never infers it from an arbitrary active session.
+// DeriveExecutionSessionKey is pure legacy compatibility validation. It does
+// not create, launch, or recover a session.
 func DeriveExecutionSessionKey(baseSessionKey, profile, identity string) (string, error) {
 	if !sessionRE.MatchString(baseSessionKey) || !profileRE.MatchString(profile) || identity == "" || strings.ContainsAny(identity, "\x00\r\n") {
 		return "", fmt.Errorf("invalid execution session authority")
@@ -59,123 +56,9 @@ func DeriveExecutionSessionKey(baseSessionKey, profile, identity string) (string
 	return "gtw_lane_" + hex.EncodeToString(digest[:])[:32], nil
 }
 
-// EnsureExecutionSession returns a deterministic lane-specific session key.
-// Existing sessions are reused only after exact machine-readable authority
-// checks. A mismatched session is never retargeted or restarted.
-func (c Client) EnsureExecutionSession(ctx context.Context, in ExecutionSessionRequest) (string, error) {
-	if !sessionRE.MatchString(in.BaseSessionKey) || in.WorktreePath == "" || filepath.Clean(in.WorktreePath) != in.WorktreePath || !filepath.IsAbs(in.WorktreePath) || in.LockDir == "" || !filepath.IsAbs(in.LockDir) {
-		return "", fmt.Errorf("invalid execution session authority")
-	}
-	worktree, err := filepath.Abs(in.WorktreePath)
-	if err != nil {
-		return "", fmt.Errorf("resolve execution worktree: %w", err)
-	}
-	profile := strings.TrimSpace(in.Profile)
-	if profile == "" || !profileRE.MatchString(profile) {
-		return "", fmt.Errorf("execution session profile is unavailable")
-	}
-	key, err := DeriveExecutionSessionKey(in.BaseSessionKey, profile, in.Identity)
-	if err != nil {
-		return "", err
-	}
-	lockName := "airelay-execution-" + key
-	lock, err := lockfile.Acquire(in.LockDir, lockName)
-	if err != nil {
-		return "", fmt.Errorf("serialize execution Airelay session %q: %w", key, err)
-	}
-	defer func() { _ = lock.Release() }()
-	sessions, err := c.executionSessions(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	matched := 0
-	for _, entry := range sessions {
-		if entry.SessionKey != key {
-			continue
-		}
-		if entry.Profile != profile || normalizeCWD(entry.CWD) != worktree {
-			return "", fmt.Errorf("execution Airelay session %q has mismatched authority", key)
-		}
-		matched++
-	}
-	if matched > 1 {
-		return "", fmt.Errorf("execution Airelay session %q is ambiguous", key)
-	}
-	history, err := c.executionHistory(ctx)
-	if err != nil {
-		return "", err
-	}
-	historyMatch := 0
-	for _, entry := range history {
-		if entry.SessionKey != key {
-			continue
-		}
-		if entry.Profile != profile || normalizeCWD(entry.InvocationCWD) != worktree {
-			return "", fmt.Errorf("execution Airelay launch history %q has mismatched authority", key)
-		}
-		historyMatch++
-	}
-	if matched == 1 && historyMatch == 0 {
-		return "", fmt.Errorf("execution Airelay session %q has incomplete launch authority", key)
-	}
-	if matched == 0 {
-		launchCtx, cancel := context.WithTimeout(ctx, c.Timeout)
-		defer cancel()
-		cmd := exec.CommandContext(launchCtx, c.Command, "start", profile, "--key", key, "--detached")
-		cmd.Dir = worktree
-		cmd.Env = cleanEnv()
-		var stdout, stderr tailBuffer
-		stdout.max, stderr.max = 8192, 8192
-		cmd.Stdout, cmd.Stderr = &stdout, &stderr
-		if err := cmd.Run(); err != nil {
-			return "", fmt.Errorf("start execution Airelay session: %w", err)
-		}
-		if stdout.exceeded || stderr.exceeded {
-			return "", fmt.Errorf("execution Airelay launch output exceeds limit")
-		}
-		sessions, err = c.executionSessions(ctx)
-		if err != nil {
-			return "", err
-		}
-		history, err = c.executionHistory(ctx)
-		if err != nil {
-			return "", err
-		}
-		matched, historyMatch = 0, 0
-		for _, entry := range sessions {
-			if entry.SessionKey == key {
-				if entry.Profile != profile || normalizeCWD(entry.CWD) != worktree {
-					return "", fmt.Errorf("new execution Airelay session %q has mismatched authority", key)
-				}
-				matched++
-			}
-		}
-		for _, entry := range history {
-			if entry.SessionKey == key {
-				if entry.Profile != profile || normalizeCWD(entry.InvocationCWD) != worktree {
-					return "", fmt.Errorf("new execution Airelay history %q has mismatched authority", key)
-				}
-				historyMatch++
-			}
-		}
-		if matched != 1 || historyMatch == 0 {
-			return "", fmt.Errorf("execution Airelay launch %q was not durably recorded", key)
-		}
-	}
-	status, err := c.executionStatus(ctx, key)
-	if err != nil || status.Profile != profile || !status.ControllerReachable || status.State == "error" {
-		if err != nil {
-			return "", fmt.Errorf("execution Airelay session is not reachable: %w", err)
-		}
-		return "", fmt.Errorf("execution Airelay session is not reachable")
-	}
-	return key, nil
-}
-
 // ValidateExecutionSession verifies an existing lane session without
 // launching, relaunching, or retargeting anything. It is required for an
-// already-running Train Attempt.
+// already-running legacy Train Attempt.
 func (c Client) ValidateExecutionSession(ctx context.Context, in ExecutionSessionRequest) error {
 	if !sessionRE.MatchString(in.BaseSessionKey) || in.WorktreePath == "" || filepath.Clean(in.WorktreePath) != in.WorktreePath || !filepath.IsAbs(in.WorktreePath) {
 		return fmt.Errorf("invalid execution session authority")
