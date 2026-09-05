@@ -56,18 +56,6 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	switch os.Args[1] {
-	case "start":
-		err = ctl.Start()
-	case "stop":
-		err = ctl.Stop()
-	case "restart":
-		err = ctl.Restart()
-	case "restart-gateway":
-		var result controller.GatewayRecoveryResult
-		result, err = ctl.RestartGatewayRecovery("")
-		if err == nil {
-			output(result)
-		}
 	case "status":
 		var st controller.Status
 		st, err = ctl.Status(ctx)
