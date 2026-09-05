@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
@@ -38,7 +39,11 @@ func TestTrainV2StartBindsExactItemLocalAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if started.Attempt.Number != 1 || started.Attempt.AgentID != "coder-example" || started.Attempt.AirelaySessionKey != "example_master" || started.Record.CurrentItemPosition != 0 || started.Record.CurrentAttemptNumber != 1 {
+	wantSession, err := airelay.DeriveExecutionSessionKey("example_master", "coding", "train:example:"+train.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.Attempt.Number != 1 || started.Attempt.AgentID != "coder-example" || started.Attempt.AirelaySessionKey != wantSession || started.Runtime.SessionKey != wantSession || started.Record.CurrentItemPosition != 0 || started.Record.CurrentAttemptNumber != 1 {
 		t.Fatalf("unexpected Attempt start: %#v", started)
 	}
 	if _, err := os.Stat(filepath.Join(s.Config.StateDir, "runs")); !os.IsNotExist(err) {

@@ -59,17 +59,18 @@ func TestCheckSessionAvailableRejectsActiveTrainSessionCollision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
+	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
 		ProjectID: "example",
 		TrainID:   train.ID,
 		StartedBy: "planner",
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: operation.Hub.After,
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	err = s.checkSessionAvailableForTrainAttempt(context.Background(), "example_master", "GTW-TRN999")
+	err = s.checkSessionAvailableForTrainAttempt(context.Background(), started.Attempt.AirelaySessionKey, "GTW-TRN999")
 	if err == nil || !strings.Contains(err.Error(), "already owns the project session") {
 		t.Fatalf("active Train session collision was not rejected: %v", err)
 	}

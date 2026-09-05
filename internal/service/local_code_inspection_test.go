@@ -524,7 +524,7 @@ func TestCodeWorktreeKeepsOldBaseHotfixVisibleAndCodeReadResolvesIt(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read.CurrentHead != f.base || read.Content != "base tracked content\n" {
+	if read.CurrentHead != strings.ToLower(f.base[:8]) || read.Content != "base tracked content\n" {
 		t.Fatalf("old-base code/read=%#v", read)
 	}
 }
@@ -755,14 +755,30 @@ func TestLocalCodeScanSafetyFailsClosedWithoutPagination(t *testing.T) {
 	}
 	testutil.Git(t, f.root, "add", "scan")
 	testutil.Git(t, f.root, "commit", "-m", "scan bound fixture")
-	selector := "WT-MAIN-" + strings.TrimSpace(testutil.Git(t, f.root, "rev-parse", "HEAD"))[:8]
+	// RefreshDefaultBranch is the production authority for canonical main;
+	// publish the fixture commit before asking the service for its selector.
+	testutil.Git(t, f.root, "push", "origin", "HEAD:refs/heads/main")
+	worktrees, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := ""
+	for _, item := range worktrees.Items {
+		if item.Kind == "main" {
+			selector = item.Selector
+			break
+		}
+	}
+	if selector == "" {
+		t.Fatalf("CodeWorktree returned no canonical main selector: %#v", worktrees.Items)
+	}
 	tree, treeErr := f.service.CodeTree(context.Background(), CodeTreeInput{
 		ProjectID: "example", Worktree: selector, Query: "absent-tree",
 	})
 	if treeErr == nil || !strings.Contains(treeErr.Error(), "scan exceeded bounded work") {
 		t.Fatalf("zero-match tree scan did not fail closed: %#v %v", tree, treeErr)
 	}
-	_, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
+	_, err = f.service.CodeSearch(context.Background(), CodeSearchInput{
 		ProjectID: "example", Worktree: selector, Query: "absent-query",
 	})
 	if err == nil || !strings.Contains(err.Error(), "scan exceeded bounded work") {
