@@ -178,7 +178,7 @@ func (s *Server) rulesReadAction(ctx context.Context, raw json.RawMessage) (any,
 		return nil, err
 	}
 	digest := digestJSON(policy)
-	updated, err := durableSession.NewStoreWithDurability(s.Service.Config.StateDir, s.Service.Durability).AcknowledgeRules(id, globalWorkflowRevision, globalWorkflowDigest(), policy.Revision, digest)
+	updated, err := durableSession.NewStoreWithDurability(s.Service.Durability).AcknowledgeRules(id, globalWorkflowRevision, globalWorkflowDigest(), policy.Revision, digest)
 	if err != nil {
 		return nil, err
 	}
