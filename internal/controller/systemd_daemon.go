@@ -12,8 +12,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 )
 
 const daemonUnitName = "gpt-tunnel.service"
@@ -38,19 +36,32 @@ func daemonUnitPath() (string, error) {
 	return filepath.Join(string(filepath.Separator), "etc", "systemd", "system", daemonUnitName), nil
 }
 
-func requireSystemInstallPrivileges() error {
+func requireLinux() error {
 	if runtime.GOOS != "linux" {
 		return fmt.Errorf("daemon lifecycle is Linux/systemd-only")
-	}
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("system daemon installation requires root privileges")
 	}
 	return nil
 }
 
+func sudoCommand(ctx context.Context, args ...string) (string, error) {
+	if err := requireLinux(); err != nil {
+		return "", err
+	}
+	command := exec.CommandContext(ctx, "sudo", append([]string{"-n"}, args...)...)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = err.Error()
+		}
+		return "", fmt.Errorf("sudo %s: %s", strings.Join(args, " "), message)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 func systemctl(ctx context.Context, args ...string) (string, error) {
-	if runtime.GOOS != "linux" {
-		return "", fmt.Errorf("daemon lifecycle is Linux/systemd-only")
+	if err := requireLinux(); err != nil {
+		return "", err
 	}
 	command := exec.CommandContext(ctx, "systemctl", args...)
 	output, err := command.CombinedOutput()
@@ -62,6 +73,10 @@ func systemctl(ctx context.Context, args ...string) (string, error) {
 		return "", fmt.Errorf("systemctl %s: %s", strings.Join(args, " "), message)
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+func privilegedSystemctl(ctx context.Context, args ...string) (string, error) {
+	return sudoCommand(ctx, append([]string{"systemctl"}, args...)...)
 }
 
 func (c Controller) daemonUnitStatus(ctx context.Context) (DaemonUnitStatus, error) {
@@ -101,7 +116,7 @@ func (c Controller) DaemonStatus(ctx context.Context) (DaemonStatus, error) {
 }
 
 func (c Controller) DaemonInstall(ctx context.Context) (DaemonStatus, error) {
-	if err := requireSystemInstallPrivileges(); err != nil {
+	if err := requireLinux(); err != nil {
 		return DaemonStatus{}, err
 	}
 	path, err := daemonUnitPath()
@@ -115,21 +130,43 @@ func (c Controller) DaemonInstall(ctx context.Context) (DaemonStatus, error) {
 	if err != nil {
 		return DaemonStatus{}, err
 	}
-	if err := fsutil.EnsureDir(filepath.Dir(path), 0o755); err != nil {
-		return DaemonStatus{}, err
-	}
 	text, err := c.daemonUnitText(identity)
 	if err != nil {
 		return DaemonStatus{}, err
 	}
-	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+	previous, err := c.daemonUnitStatus(ctx)
+	if err != nil {
 		return DaemonStatus{}, err
 	}
-	if _, err := systemctl(ctx, "daemon-reload"); err != nil {
+	old, readErr := os.ReadFile(path)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return DaemonStatus{}, readErr
+	}
+	changed := !previous.Installed || string(old) != text
+	if changed {
+		if err := writeSystemUnit(ctx, path, []byte(text)); err != nil {
+			return DaemonStatus{}, err
+		}
+	}
+	if _, err := privilegedSystemctl(ctx, "daemon-reload"); err != nil {
 		return DaemonStatus{}, err
 	}
-	if _, err := systemctl(ctx, "enable", "--now", "--no-block", daemonUnitName); err != nil {
+	if !previous.Active {
+		if err := c.Stop(); err != nil {
+			return DaemonStatus{}, fmt.Errorf("stop legacy runtime before daemon start: %w", err)
+		}
+	}
+	if _, err := privilegedSystemctl(ctx, "enable", daemonUnitName); err != nil {
 		return DaemonStatus{}, err
+	}
+	if previous.Active && changed {
+		if _, err := privilegedSystemctl(ctx, "restart", "--no-block", daemonUnitName); err != nil {
+			return DaemonStatus{}, err
+		}
+	} else if !previous.Active {
+		if _, err := privilegedSystemctl(ctx, "start", "--no-block", daemonUnitName); err != nil {
+			return DaemonStatus{}, err
+		}
 	}
 	if err := c.waitDaemonReadiness(ctx); err != nil {
 		return DaemonStatus{}, err
@@ -145,7 +182,7 @@ func (c Controller) DaemonRestart(ctx context.Context) (DaemonStatus, error) {
 	if !unit.Installed {
 		return DaemonStatus{}, fmt.Errorf("DAEMON_NOT_INSTALLED: %s", daemonUnitName)
 	}
-	if _, err := systemctl(ctx, "restart", "--no-block", daemonUnitName); err != nil {
+	if _, err := privilegedSystemctl(ctx, "restart", "--no-block", daemonUnitName); err != nil {
 		return DaemonStatus{}, err
 	}
 	if err := c.waitDaemonReadiness(ctx); err != nil {
@@ -155,7 +192,7 @@ func (c Controller) DaemonRestart(ctx context.Context) (DaemonStatus, error) {
 }
 
 func (c Controller) DaemonRemove(ctx context.Context) error {
-	if err := requireSystemInstallPrivileges(); err != nil {
+	if err := requireLinux(); err != nil {
 		return err
 	}
 	unit, err := c.daemonUnitStatus(ctx)
@@ -165,13 +202,42 @@ func (c Controller) DaemonRemove(ctx context.Context) error {
 	if !unit.Installed {
 		return nil
 	}
-	if _, err := systemctl(ctx, "disable", "--now", daemonUnitName); err != nil {
+	if _, err := privilegedSystemctl(ctx, "disable", "--now", daemonUnitName); err != nil {
 		return err
 	}
-	if err := os.Remove(unit.UnitPath); err != nil && !os.IsNotExist(err) {
+	if _, err := sudoCommand(ctx, "rm", "--", unit.UnitPath); err != nil {
 		return err
 	}
-	_, err = systemctl(ctx, "daemon-reload")
+	_, err = privilegedSystemctl(ctx, "daemon-reload")
+	return err
+}
+
+func writeSystemUnit(ctx context.Context, path string, data []byte) error {
+	tmp, err := os.CreateTemp("", "gpt-tunnel.service.*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if _, err := sudoCommand(ctx, "mv", "--", tmpPath, path); err != nil {
+		return err
+	}
+	_, err = sudoCommand(ctx, "chmod", "0644", "--", path)
 	return err
 }
 
@@ -200,6 +266,21 @@ func daemonRuntimeUser(configPath string) (daemonRuntimeIdentity, error) {
 	return daemonRuntimeIdentity{User: owner.Username, Group: group.Name}, nil
 }
 
+func daemonControlBinary() (string, error) {
+	executable, err := os.Executable()
+	if err == nil {
+		candidate := filepath.Join(filepath.Dir(executable), "gpt-tunnelctl")
+		if info, statErr := os.Stat(candidate); statErr == nil && info.Mode().IsRegular() {
+			return candidate, nil
+		}
+	}
+	path, err := exec.LookPath("gpt-tunnelctl")
+	if err != nil {
+		return "", fmt.Errorf("gpt-tunnelctl is not installed beside the CLI or on PATH")
+	}
+	return filepath.Abs(path)
+}
+
 func systemdQuote(value string) string { return strconv.Quote(value) }
 
 func (c Controller) daemonUnitText(identity daemonRuntimeIdentity) (string, error) {
@@ -213,24 +294,27 @@ func (c Controller) daemonUnitText(identity daemonRuntimeIdentity) (string, erro
 	if err != nil {
 		return "", err
 	}
+	controlBinary, err := daemonControlBinary()
+	if err != nil {
+		return "", err
+	}
 	return "[Unit]\n" +
 		"Description=GPT Tunnel Gateway and Tunnel\n" +
 		"After=network-online.target\n" +
 		"Wants=network-online.target\n\n" +
 		"[Service]\n" +
-		"Type=simple\n" +
+		"Type=oneshot\n" +
+		"RemainAfterExit=yes\n" +
 		"User=" + systemdQuote(identity.User) + "\n" +
 		"Group=" + systemdQuote(identity.Group) + "\n" +
 		"WorkingDirectory=" + systemdQuote(workingDir) + "\n" +
-		"EnvironmentFile=-" + systemdQuote(c.Config.Controller.TunnelEnvFile) + "\n" +
 		"Environment=GPT_TUNNEL_CONFIG=" + systemdQuote(c.ConfigPath) + "\n" +
-		"Environment=MCP_SERVER_URL=" + systemdQuote("http://"+c.Config.ListenAddr+"/mcp") + "\n" +
-		"Environment=HEALTH_LISTEN_ADDR=" + systemdQuote(c.Config.Controller.TunnelHealthListenAddr) + "\n" +
-		"ExecStart=" + systemdQuote(c.Config.Controller.GatewayBinary) + " --config " + systemdQuote(c.ConfigPath) + "\n" +
-		"ExecStartPost=" + systemdQuote(c.Config.Controller.TunnelClientBinary) + " run\n" +
+		"EnvironmentFile=-" + systemdQuote(c.Config.Controller.TunnelEnvFile) + "\n" +
+		"ExecStart=" + systemdQuote(controlBinary) + " daemon-start\n" +
+		"ExecStop=" + systemdQuote(controlBinary) + " daemon-stop\n" +
 		"KillMode=control-group\n" +
 		"Restart=no\n" +
-		"TimeoutStartSec=infinity\n\n" +
+		"TimeoutStartSec=90s\n\n" +
 		"[Install]\n" +
 		"WantedBy=multi-user.target\n", nil
 }

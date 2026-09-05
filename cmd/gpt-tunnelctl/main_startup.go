@@ -29,6 +29,10 @@ func main() {
 		fmt.Println(releaseartifacts.BuildSourceRevision)
 		return
 	}
+	if os.Args[1] == "daemon-start" || os.Args[1] == "daemon-stop" {
+		daemonLifecycle(os.Args[1])
+		return
+	}
 	if os.Args[1] == "install" {
 		install(os.Args[2:])
 		return
@@ -95,6 +99,34 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+}
+
+// daemonLifecycle is intentionally hidden from the public CLI usage. It is
+// invoked only by the canonical systemd unit with its exact config path in
+// GPT_TUNNEL_CONFIG, and delegates process ownership to Controller.Start/Stop.
+func daemonLifecycle(action string) {
+	path := os.Getenv("GPT_TUNNEL_CONFIG")
+	if path == "" {
+		fatal(fmt.Errorf("GPT_TUNNEL_CONFIG is required for %s", action))
+	}
+	c, err := config.Load(path)
+	if err != nil {
+		fatal(err)
+	}
+	ctl := controller.Controller{Config: c, ConfigPath: path}
+	if action == "daemon-start" {
+		if err := ctl.Start(); err != nil {
+			fatal(err)
+		}
+		return
+	}
+	if action == "daemon-stop" {
+		if err := ctl.Stop(); err != nil {
+			fatal(err)
+		}
+		return
+	}
+	fatal(fmt.Errorf("unsupported hidden daemon action %q", action))
 }
 func install(args []string) {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
