@@ -89,7 +89,7 @@ func (s *Service) OperationRead(ctx context.Context, operationID string) (Operat
 	if sessionID == "" {
 		return OperationReadResult{}, fmt.Errorf("durable mutation session is required")
 	}
-	session, err := durableSession.NewStore(s.Config.StateDir).Get(sessionID)
+	session, err := durableSession.NewStoreWithDurability(s.Config.StateDir, s.Durability).Get(sessionID)
 	if err != nil {
 		return OperationReadResult{}, fmt.Errorf("read bound durable session: %w", err)
 	}

@@ -91,7 +91,7 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 	if sessionID == "" {
 		return ProjectOperationalStatus{}, fmt.Errorf("project status requires a bound session")
 	}
-	session, err := durableSession.NewStore(s.Config.StateDir).Get(sessionID)
+	session, err := durableSession.NewStoreWithDurability(s.Config.StateDir, s.Durability).Get(sessionID)
 	if err != nil || session.ProjectID == "" {
 		return ProjectOperationalStatus{}, fmt.Errorf("project status session is invalid")
 	}

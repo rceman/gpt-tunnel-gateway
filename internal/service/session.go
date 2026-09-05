@@ -65,7 +65,7 @@ func (s *Service) SessionStart(ctx context.Context, input SessionStartInput) (Se
 		if _, err := s.ProjectConfigurationRead(ctx, input.ProjectID); err != nil {
 			return SessionResult{}, fmt.Errorf("session project Shared configuration is unavailable: %w", err)
 		}
-		record, err := durableSession.NewStore(s.Config.StateDir).Create(durableSession.CreateInput{ProjectID: input.ProjectID, ProjectCode: project.ProjectCode, Role: input.Role, SessionType: input.SessionType, SessionRef: input.SessionRef, Label: input.Label})
+		record, err := durableSession.NewStoreWithDurability(s.Config.StateDir, s.Durability).Create(durableSession.CreateInput{ProjectID: input.ProjectID, ProjectCode: project.ProjectCode, Role: input.Role, SessionType: input.SessionType, SessionRef: input.SessionRef, Label: input.Label})
 		if err != nil {
 			return SessionResult{}, err
 		}
@@ -92,7 +92,7 @@ func (s *Service) SessionStart(ctx context.Context, input SessionStartInput) (Se
 	if _, err := s.EffectiveProjectConfig(input.ProjectID); err != nil {
 		return SessionResult{}, err
 	}
-	record, err := durableSession.NewStore(s.Config.StateDir).Create(durableSession.CreateInput{ProjectID: input.ProjectID, ProjectCode: projectCode, Role: input.Role, SessionType: input.SessionType, SessionRef: input.SessionRef, Label: input.Label})
+	record, err := durableSession.NewStoreWithDurability(s.Config.StateDir, s.Durability).Create(durableSession.CreateInput{ProjectID: input.ProjectID, ProjectCode: projectCode, Role: input.Role, SessionType: input.SessionType, SessionRef: input.SessionRef, Label: input.Label})
 	if err != nil {
 		return SessionResult{}, err
 	}
@@ -133,7 +133,7 @@ func (s *Service) SessionStartUnbound(ctx context.Context, role string, label *s
 	if err := authority.RequireRole(ctx, role); err != nil {
 		return SessionResult{}, err
 	}
-	record, err := durableSession.NewStore(s.Config.StateDir).CreateUnbound(role, label)
+	record, err := durableSession.NewStoreWithDurability(s.Config.StateDir, s.Durability).CreateUnbound(role, label)
 	if err != nil {
 		return SessionResult{}, err
 	}
@@ -156,12 +156,12 @@ func (s *Service) SessionBind(ctx context.Context, input SessionBindInput) (Sess
 	if project.Status != "active" {
 		return SessionResult{}, fmt.Errorf("session project is not active")
 	}
-	record, err := durableSession.NewStore(s.Config.StateDir).Bind(input.SessionID, input.ProjectID)
+	record, err := durableSession.NewStoreWithDurability(s.Config.StateDir, s.Durability).Bind(input.SessionID, input.ProjectID)
 	if err != nil {
 		return SessionResult{}, err
 	}
 	if input.SessionRef != nil {
-		record, err = durableSession.NewStore(s.Config.StateDir).Update(record.ID, durableSession.UpdateInput{SessionRef: input.SessionRef})
+		record, err = durableSession.NewStoreWithDurability(s.Config.StateDir, s.Durability).Update(record.ID, durableSession.UpdateInput{SessionRef: input.SessionRef})
 		if err != nil {
 			return SessionResult{}, err
 		}
@@ -173,7 +173,7 @@ func (s *Service) SessionBind(ctx context.Context, input SessionBindInput) (Sess
 }
 
 func (s *Service) SessionInfo(ctx context.Context, sessionID string) (SessionResult, error) {
-	record, err := durableSession.NewStore(s.Config.StateDir).Get(sessionID)
+	record, err := durableSession.NewStoreWithDurability(s.Config.StateDir, s.Durability).Get(sessionID)
 	if err != nil {
 		return SessionResult{}, err
 	}
@@ -184,7 +184,7 @@ func (s *Service) SessionInfo(ctx context.Context, sessionID string) (SessionRes
 }
 
 func (s *Service) SessionList() (SessionListResult, error) {
-	records, err := durableSession.NewStore(s.Config.StateDir).List()
+	records, err := durableSession.NewStoreWithDurability(s.Config.StateDir, s.Durability).List()
 	if err != nil {
 		return SessionListResult{}, err
 	}
@@ -216,7 +216,7 @@ func cloneSessionString(value *string) *string {
 }
 
 func (s *Service) SessionUpdate(ctx context.Context, input SessionUpdateInput) (SessionResult, error) {
-	record, err := durableSession.NewStore(s.Config.StateDir).Update(input.SessionID, durableSession.UpdateInput{SessionRef: input.SessionRef, Label: input.Label})
+	record, err := durableSession.NewStoreWithDurability(s.Config.StateDir, s.Durability).Update(input.SessionID, durableSession.UpdateInput{SessionRef: input.SessionRef, Label: input.Label})
 	if err != nil {
 		return SessionResult{}, err
 	}
@@ -227,7 +227,7 @@ func (s *Service) SessionUpdate(ctx context.Context, input SessionUpdateInput) (
 }
 
 func (s *Service) SessionEnd(ctx context.Context, sessionID string) (SessionResult, error) {
-	record, err := durableSession.NewStore(s.Config.StateDir).End(sessionID)
+	record, err := durableSession.NewStoreWithDurability(s.Config.StateDir, s.Durability).End(sessionID)
 	if err != nil {
 		return SessionResult{}, err
 	}

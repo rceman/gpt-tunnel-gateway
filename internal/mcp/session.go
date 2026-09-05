@@ -17,7 +17,7 @@ func withSession(ctx context.Context, record durableSession.Record) context.Cont
 }
 
 func (s *Server) activeSession(id string) (durableSession.Record, error) {
-	record, err := durableSession.NewStore(s.Service.Config.StateDir).Get(id)
+	record, err := durableSession.NewStoreWithDurability(s.Service.Config.StateDir, s.Service.Durability).Get(id)
 	if err != nil {
 		return durableSession.Record{}, err
 	}

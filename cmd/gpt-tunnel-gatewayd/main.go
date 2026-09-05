@@ -19,6 +19,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/mcp"
 	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
@@ -106,6 +107,10 @@ func bootstrapGateway(c config.Config, observe func(string)) (*gatewayRuntime, e
 	durability, err := sqlitestore.OpenWithObserver(c.StateDir, startup)
 	if err != nil {
 		return nil, err
+	}
+	if err := durableSession.CutoverLegacyJSON(context.Background(), c.StateDir, durability); err != nil {
+		_ = durability.Close()
+		return nil, fmt.Errorf("legacy session cutover: %w", err)
 	}
 	svc := service.NewWithDurabilityDeferredWorkers(c, durability)
 	startup("LOCAL_STATE_READY")
