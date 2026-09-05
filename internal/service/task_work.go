@@ -242,7 +242,8 @@ func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task mod
 	if err != nil {
 		return TaskWorkResult{}, err
 	}
-	message := "Read Task " + task.ID + " and execute it in the assigned hotfix worktree."
+	worktreePath := filepath.Clean(worktree.Root)
+	message := "Read Task " + task.ID + " and execute it only in the server-owned hotfix worktree " + worktreePath + "."
 	session := resolved.SessionKey
 	generation := hotfixExecutionGeneration(in.ProjectID, identity.HotfixRef, task.ID, task.Revision, head, resolved.AgentID, session, resolved.Profile, worktree.Root, message)
 	receiptPath := hotfixExecutionReceiptPath(s.Config.StateDir, in.ProjectID, task.ID, generation)
@@ -254,7 +255,7 @@ func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task mod
 	expectedReceipt := hotfixExecutionReceipt{
 		ProjectID: in.ProjectID, HotfixRef: identity.HotfixRef, TaskID: task.ID,
 		TaskRevision: task.Revision, Head: head, AgentID: resolved.AgentID,
-		SessionKey: session, Profile: resolved.Profile, WorktreePath: filepath.Clean(worktree.Root),
+		SessionKey: session, Profile: resolved.Profile, WorktreePath: worktreePath,
 		Message: message,
 	}
 	if receipt, readErr := readHotfixExecutionReceipt(receiptPath); readErr == nil {
@@ -264,7 +265,7 @@ func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task mod
 		if receipt.State == "prepared" {
 			return TaskWorkResult{}, fmt.Errorf("hotfix execution dispatch is ambiguous and requires recovery")
 		}
-		return TaskWorkResult{TaskID: task.ID, WorktreePath: filepath.Clean(receipt.WorktreePath), Text: task.Objective}, nil
+		return TaskWorkResult{TaskID: task.ID, WorktreePath: worktreePath, Text: task.Objective}, nil
 	} else if !os.IsNotExist(readErr) {
 		return TaskWorkResult{}, readErr
 	}
@@ -283,7 +284,7 @@ func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task mod
 	if err := writeHotfixExecutionReceipt(receiptPath, delivered); err != nil {
 		return TaskWorkResult{}, err
 	}
-	return TaskWorkResult{TaskID: task.ID, WorktreePath: filepath.Clean(worktree.Root), Text: task.Objective}, nil
+	return TaskWorkResult{TaskID: task.ID, WorktreePath: worktreePath, Text: task.Objective}, nil
 }
 
 func (s *Service) TaskFinalize(ctx context.Context, in TaskFinalizeInput) (TrainV2AttemptFinalizeResult, error) {
