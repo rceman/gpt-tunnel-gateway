@@ -6,9 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func TestCheckSessionAvailableSkipsLegacyProjectBeforeTrainScan(t *testing.T) {
@@ -59,6 +61,15 @@ func TestCheckSessionAvailableRejectsActiveTrainSessionCollision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	executionKey, err := airelay.DeriveExecutionSessionKey("example_master", "coding", "train:example:"+train.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktreePath, err := trainv2.CompactWorktreePath(s.Config.StateDir, "EXM", train.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedExistingServiceExecutionSession(t, s, executionKey, "coding", worktreePath)
 	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
 		ProjectID: "example",
 		TrainID:   train.ID,

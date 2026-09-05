@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,24 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
+
+func seedExistingServiceExecutionSession(t *testing.T, s *Service, key, profile, worktree string) {
+	t.Helper()
+	dir := filepath.Dir(s.Config.AirelayCommand)
+	sessions, err := json.Marshal([]map[string]string{{"sessionKey": key, "profile": profile, "cwd": worktree}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := json.Marshal([]map[string]string{{"sessionKey": key, "profile": profile, "invocationCwd": worktree}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, payload := range map[string][]byte{"service-execution-active.json": sessions, "service-execution-history.json": history} {
+		if err := os.WriteFile(filepath.Join(dir, name), payload, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
 
 func installExecutionSessionFixture(t *testing.T, s *Service, promptLog string) {
 	t.Helper()

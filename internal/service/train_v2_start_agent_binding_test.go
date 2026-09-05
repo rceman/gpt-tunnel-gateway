@@ -28,6 +28,15 @@ func TestTrainV2StartBindsExactItemLocalAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	wantSession, err := airelay.DeriveExecutionSessionKey("example_master", "coding", "train:example:"+train.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktreePath, err := trainv2.CompactWorktreePath(s.Config.StateDir, "EXM", train.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedExistingServiceExecutionSession(t, s, wantSession, "coding", worktreePath)
 	started, err := s.TrainV2Start(context.Background(), TrainV2StartInput{
 		ProjectID: "example",
 		TrainID:   train.ID,
@@ -36,10 +45,6 @@ func TestTrainV2StartBindsExactItemLocalAttempt(t *testing.T) {
 			ExpectedHubRevision: operation.Hub.After,
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantSession, err := airelay.DeriveExecutionSessionKey("example_master", "coding", "train:example:"+train.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
