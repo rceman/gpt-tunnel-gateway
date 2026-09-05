@@ -184,7 +184,7 @@ func TestPublicSessionStartAfterTerminationIsFreshAndBoundCallWorks(t *testing.T
 	if b == a {
 		t.Fatalf("fresh session reused terminated ID %q", b)
 	}
-	bound, err := mcpSQLiteSessionStore(t, server.Service.Config.StateDir).Get(b)
+	bound, err := mcpSQLiteSessionStore(t, server.Service).Get(b)
 	if err != nil || bound.ProjectID != "example" {
 		t.Fatalf("fresh session did not bind at creation: %#v err=%v", bound, err)
 	}
@@ -199,7 +199,7 @@ func TestPublicSessionStartAfterTerminationIsFreshAndBoundCallWorks(t *testing.T
 	if c == a || c == b {
 		t.Fatalf("new session reused ID: a=%q b=%q c=%q", a, b, c)
 	}
-	ended, err := mcpSQLiteSessionStore(t, server.Service.Config.StateDir).Get(a)
+	ended, err := mcpSQLiteSessionStore(t, server.Service).Get(a)
 	if err != nil || ended.Status != durableSession.StatusEnded {
 		t.Fatalf("terminated session changed: %#v err=%v", ended, err)
 	}
@@ -310,7 +310,7 @@ func TestProjectBoundSessionFlowUsesCodeAndSessionDerivedProject(t *testing.T) {
 	if !strings.HasPrefix(sessionID, "SP-") {
 		t.Fatalf("session ID did not embed Planner role: %q", sessionID)
 	}
-	if record, err := mcpSQLiteSessionStore(t, server.Service.Config.StateDir).Get(sessionID); err != nil || record.ProjectID != "example" {
+	if record, err := mcpSQLiteSessionStore(t, server.Service).Get(sessionID); err != nil || record.ProjectID != "example" {
 		t.Fatalf("session_start was not project-bound: %#v err=%v", record, err)
 	}
 	status := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{

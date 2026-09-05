@@ -24,7 +24,7 @@ func genericSessionWithRole(t *testing.T, s *service.Service, projectID, role st
 	if projectID != "example" {
 		projectCode = "OTH"
 	}
-	record, err := mcpSQLiteSessionStore(t, s.Config.StateDir).Create(durableSession.CreateInput{ProjectID: projectID, ProjectCode: projectCode, Role: role, SessionType: durableSession.SessionTypeChatGPT})
+	record, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{ProjectID: projectID, ProjectCode: projectCode, Role: role, SessionType: durableSession.SessionTypeChatGPT})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,8 @@ func TestGenericSessionStartIsDiscoverableAndCreatesPlannerSession(t *testing.T)
 	}
 }
 func TestGenericTransportSchemasAreCompactAndApplicationIndependent(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc"}), AuthorityContext: authority.WithPlanner(context.Background())}
+	s, _ := mcpServiceWithSQLite(t, config.Config{GatewayID: "home_pc"})
+	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
 	tools := server.tools()
 	sessionID := genericSession(t, server.Service, "example")
 	staticBytes := 0

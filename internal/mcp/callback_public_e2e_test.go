@@ -16,23 +16,12 @@ import (
 func newCallbackPublicServer(t *testing.T) (*Server, *sqlitestore.Databases) {
 	t.Helper()
 	server := newSessionTestServer(t)
-	db, err := sqlitestore.Open(server.Service.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := server.Service.Durability
+	if db == nil {
+		t.Fatal("session test server has no Local durability")
 	}
 	now := time.Now().UTC()
-	configuration := model.DefaultProjectConfiguration("example", now)
-	payload, err := json.Marshal(configuration)
-	if err != nil {
-		db.Close()
-		t.Fatal(err)
-	}
-	if _, err := db.CommitSharedMutation(context.Background(), sqlitestore.SharedMutation{OperationID: "seed-public-callback-config", EntityType: "project_configuration", EntityID: "example", ExpectedRevision: 0, Revision: 1, Kind: "seed", Payload: payload, CreatedAt: now, Create: true}); err != nil {
-		db.Close()
-		t.Fatal(err)
-	}
 	if err := db.MarkSharedBootstrapComplete(context.Background(), sqlitestore.SharedBootstrapMarker{ProjectID: "example", HubRevision: "fixture", CompletedAt: now.Format(time.RFC3339Nano)}); err != nil {
-		db.Close()
 		t.Fatal(err)
 	}
 	c := server.Service.Config
@@ -85,8 +74,7 @@ func TestCallbackActionsPublicSchemasAndLifecycle(t *testing.T) {
 }
 
 func TestCallbackActionsUsePublicCallAndSharedRegistry(t *testing.T) {
-	server, db := newCallbackPublicServer(t)
-	defer db.Close()
+	server, _ := newCallbackPublicServer(t)
 	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt"}))
 	session := started["session"].(map[string]any)["session_id"].(string)
 	events := publicCallbackCall(t, server, session, "callback/events", map[string]any{})
@@ -173,8 +161,7 @@ func TestCallbackActionsUsePublicCallAndSharedRegistry(t *testing.T) {
 }
 
 func TestCallbackActionsRejectDeliveryMutationAndRequireBoundSession(t *testing.T) {
-	server, db := newCallbackPublicServer(t)
-	defer db.Close()
+	server, _ := newCallbackPublicServer(t)
 	response := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"action": "callback/list", "input": map[string]any{}}}}))
 	if response["error"] == nil && !strings.Contains(string(mustJSON(t, response)), "session") {
 		t.Fatalf("unbound callback action was not rejected: %#v", response)

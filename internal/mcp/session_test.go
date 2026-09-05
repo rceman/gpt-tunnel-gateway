@@ -30,9 +30,7 @@ func newSessionTestServer(t *testing.T) *Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	testSessionStores.Store(state, durableSession.NewStoreWithDurability(db))
-	t.Cleanup(func() { testSessionStores.LoadAndDelete(state) })
-	s := service.NewWithDurability(c, db)
+	s := service.NewWithDurabilityDeferredWorkers(c, db)
 	if _, err := s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"}, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead}}); err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +68,18 @@ func seedMCPTestCodingAgent(t *testing.T, s *service.Service, revision string) s
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if s.Durability != nil && s.Durability.Local != nil {
+		payload, err := json.Marshal(agent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Durability.UpsertLocalAgent(context.Background(), sqlitestore.LocalAgent{
+			ProjectID: "example", AgentID: agent.AgentID, Payload: payload,
+			UpdatedAt: now.Format(time.RFC3339Nano),
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return tx.After
 }
@@ -130,7 +140,7 @@ func TestSessionLifecyclePersistsAndBindsProjectRole(t *testing.T) {
 	if ended["session"].(map[string]any)["status"] != "ended" {
 		t.Fatalf("end projection=%#v", ended)
 	}
-	if got, err := mcpSQLiteSessionStore(t, server.Service.Config.StateDir).Get(id); err != nil || got.Status != durableSession.StatusEnded {
+	if got, err := mcpSQLiteSessionStore(t, server.Service).Get(id); err != nil || got.Status != durableSession.StatusEnded {
 		t.Fatalf("Local ended session=%#v err=%v", got, err)
 	}
 }

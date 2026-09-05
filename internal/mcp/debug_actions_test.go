@@ -10,13 +10,13 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	debugdomain "github.com/rceman/gpt-tunnel-gateway/internal/debug"
-	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
 func TestDebugDomainIsAbsentWhenDisabled(t *testing.T) {
-	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{StateDir: t.TempDir()}, nil)}
+	s, _ := mcpServiceWithSQLite(t, config.Config{StateDir: t.TempDir()})
+	server := &Server{Service: s}
 	entries := server.genericActionRegistry(server.tools())
 	for _, path := range []string{"debug/status", "debug/prompt", "debug/activate"} {
 		if _, ok := entries[path]; ok {
@@ -33,7 +33,7 @@ func TestDebugDomainIsAbsentWhenDisabled(t *testing.T) {
 			t.Fatal("disabled debug domain was discoverable")
 		}
 	}
-	record, err := mcpSQLiteSessionStore(t, server.Service.Config.StateDir).CreateUnbound(durableSession.RolePlanner, nil)
+	record, err := mcpSQLiteSessionStore(t, server.Service).CreateUnbound(durableSession.RolePlanner, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,10 +50,11 @@ func TestDebugDomainIsAbsentWhenDisabled(t *testing.T) {
 }
 
 func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
-	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{
+	s, _ := mcpServiceWithSQLite(t, config.Config{
 		Debug:    config.DebugConfig{Enabled: true},
 		StateDir: t.TempDir(),
-	}, nil)}
+	})
+	server := &Server{Service: s}
 	entries := server.genericActionRegistry(server.tools())
 	want := map[string]bool{"debug/status": true, "debug/prompt": true, "debug/activate": true}
 	got := map[string]bool{}
@@ -108,14 +109,15 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 
 func TestDebugStatusUsesOnlyConfiguredHostLocalState(t *testing.T) {
 	_, sourceRoot, _ := testutil.RepoWithBareRemote(t)
-	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{
+	s, _ := mcpServiceWithSQLite(t, config.Config{
 		Debug:      config.DebugConfig{Enabled: true},
 		StateDir:   t.TempDir(),
 		Projects:   map[string]config.ProjectConfig{gatewaySourceProjectID: {Root: sourceRoot}},
 		GatewayID:  "debug-test",
 		ListenAddr: "127.0.0.1:1",
-	}, nil), AuthorityContext: authority.WithPlanner(context.Background())}
-	store := mcpSQLiteSessionStore(t, server.Service.Config.StateDir)
+	})
+	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
+	store := mcpSQLiteSessionStore(t, server.Service)
 	record, err := store.CreateUnbound(durableSession.RolePlanner, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -162,13 +164,14 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 			Activation: "accepted", Smoke: "pending", Outcome: "accepted",
 		}, nil
 	}
-	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{
+	s, _ := mcpServiceWithSQLite(t, config.Config{
 		Debug:     config.DebugConfig{Enabled: true},
 		StateDir:  t.TempDir(),
 		GatewayID: "debug-test",
 		Projects:  map[string]config.ProjectConfig{gatewaySourceProjectID: {Root: sourceRoot}},
-	}, nil), AuthorityContext: authority.WithPlanner(context.Background())}
-	store := mcpSQLiteSessionStore(t, server.Service.Config.StateDir)
+	})
+	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
+	store := mcpSQLiteSessionStore(t, server.Service)
 	record, err := store.CreateUnbound(durableSession.RolePlanner, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -202,17 +205,18 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 	if err := os.WriteFile(script, []byte(contents), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{
+	s, _ := mcpServiceWithSQLite(t, config.Config{
 		Debug:                  config.DebugConfig{Enabled: true},
 		StateDir:               t.TempDir(),
 		AirelayCommand:         script,
 		DispatchTimeoutSeconds: 5,
-	}, nil), AuthorityContext: authority.WithPlanner(context.Background())}
-	record, err := mcpSQLiteSessionStore(t, server.Service.Config.StateDir).CreateUnbound(durableSession.RolePlanner, nil)
+	})
+	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
+	record, err := mcpSQLiteSessionStore(t, server.Service).CreateUnbound(durableSession.RolePlanner, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := mcpSQLiteSessionStore(t, server.Service.Config.StateDir)
+	store := mcpSQLiteSessionStore(t, server.Service)
 	record, err = store.Bind(record.ID, gatewaySourceProjectID, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -243,11 +247,12 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 }
 
 func TestDebugActionsRejectNonPlannerSessions(t *testing.T) {
-	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{
+	s, _ := mcpServiceWithSQLite(t, config.Config{
 		Debug:    config.DebugConfig{Enabled: true},
 		StateDir: t.TempDir(),
-	}, nil), AuthorityContext: authority.WithPlanner(context.Background())}
-	store := mcpSQLiteSessionStore(t, server.Service.Config.StateDir)
+	})
+	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
+	store := mcpSQLiteSessionStore(t, server.Service)
 	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleAgent} {
 		record, err := store.CreateUnbound(role, nil)
 		if err != nil {

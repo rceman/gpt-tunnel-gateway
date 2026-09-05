@@ -19,8 +19,9 @@ import (
 
 func TestToolsListAndToolResultsUseObjects(t *testing.T) {
 	c := config.Config{GatewayID: "test", ListenAddr: "127.0.0.1:1", MaxReadBytes: 1, MaxDiffBytes: 1, MaxListItems: 1}
+	s, _ := mcpServiceWithSQLite(t, c)
 	srv := &Server{
-		Service:          service.New(c),
+		Service:          s,
 		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
@@ -60,7 +61,7 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 	state := t.TempDir()
 	bare, _, _ := testutil.RepoWithBareRemote(t)
 	serviceConfig := config.Config{StateDir: state, Hub: config.HubConfig{RepositoryURL: bare, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"}}
-	svc := service.New(serviceConfig)
+	svc, _ := mcpServiceWithSQLite(t, serviceConfig)
 	server := &Server{Service: svc}
 	if err := server.RegisterGenericAction(GenericAction{
 		Path: "test/authority", Description: "authority boundary test", InputSchema: obj(map[string]any{}),
@@ -75,7 +76,7 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	record, err := mcpSQLiteSessionStore(t, state).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RolePlanner, SessionType: durableSession.SessionTypeChatGPT})
+	record, err := mcpSQLiteSessionStore(t, svc).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RolePlanner, SessionType: durableSession.SessionTypeChatGPT})
 	if err != nil {
 		t.Fatal(err)
 	}

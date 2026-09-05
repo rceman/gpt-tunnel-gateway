@@ -15,7 +15,10 @@ import (
 
 func TestGenericRegisteredActionDiscoveryAndCall(t *testing.T) {
 	server := &Server{
-		Service:          service.New(config.Config{GatewayID: "home_pc", StateDir: filepath.Join(t.TempDir(), "state")}),
+		Service: func() *service.Service {
+			s, _ := mcpServiceWithSQLite(t, config.Config{GatewayID: "home_pc", StateDir: filepath.Join(t.TempDir(), "state")})
+			return s
+		}(),
 		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	sessionID := genericSession(t, server.Service, "example")
@@ -74,7 +77,10 @@ func TestGenericRegisteredActionDiscoveryAndCall(t *testing.T) {
 }
 func TestGenericLegacyReadAndMutationAuthorityReuse(t *testing.T) {
 	server := &Server{
-		Service:          service.New(config.Config{GatewayID: "home_pc", StateDir: filepath.Join(t.TempDir(), "state")}),
+		Service: func() *service.Service {
+			s, _ := mcpServiceWithSQLite(t, config.Config{GatewayID: "home_pc", StateDir: filepath.Join(t.TempDir(), "state")})
+			return s
+		}(),
 		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	sessionID := genericSession(t, server.Service, "example")

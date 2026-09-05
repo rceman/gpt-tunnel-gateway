@@ -90,7 +90,7 @@ func TestADR84PublicBootstrapAndBoundCallUseExactEnvelopes(t *testing.T) {
 		t.Fatalf("session_start did not expose compact project identity: %#v", startedProject)
 	}
 	sessionID := started["session"].(string)
-	record, err := mcpSQLiteSessionStore(t, server.Service.Config.StateDir).Get(sessionID)
+	record, err := mcpSQLiteSessionStore(t, server.Service).Get(sessionID)
 	if err != nil || record.Status != durableSession.StatusActive || record.ProjectID != "example" || record.Role != durableSession.RolePlanner {
 		t.Fatalf("session_start did not create the bound session: %#v err=%v", record, err)
 	}

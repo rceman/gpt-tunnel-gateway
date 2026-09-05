@@ -56,7 +56,7 @@ func TestOperatorJournalMCPContractsAndHappyPath(t *testing.T) {
 	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	dir := t.TempDir()
 	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
-	s := service.New(c)
+	s, _ := mcpServiceWithSQLite(t, c)
 	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"}
 	registered, err := s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: project, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead}})
 	if err != nil {
@@ -65,6 +65,7 @@ func TestOperatorJournalMCPContractsAndHappyPath(t *testing.T) {
 	if _, _, err := s.ProjectIdentifiersAdopt(context.Background(), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}}); err != nil {
 		t.Fatal(err)
 	}
+	mcpSeedProjectConfiguration(t, s, "example")
 	server = &Server{
 		Service:          s,
 		AuthorityContext: authority.WithPlanner(context.Background()),
