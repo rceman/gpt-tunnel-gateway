@@ -2,7 +2,7 @@ package mcp
 
 import (
 	"context"
-	"os"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +13,8 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
@@ -23,8 +25,23 @@ func newSessionTestServer(t *testing.T) *Server {
 	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", StateDir: state, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"}, Projects: map[string]config.ProjectConfig{
 		"example": {Root: root, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", ProjectCode: "EXM", AirelaySessionKey: "example_master"},
 	}}
-	s := service.New(c)
+	db, err := sqlitestore.Open(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	testSessionStores.Store(state, durableSession.NewStoreWithDurability(db))
+	t.Cleanup(func() { testSessionStores.LoadAndDelete(state) })
+	s := service.NewWithDurability(c, db)
 	if _, err := s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"}, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead}}); err != nil {
+		t.Fatal(err)
+	}
+	configuration := model.DefaultProjectConfiguration("example", time.Now().UTC())
+	payload, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(context.Background(), "project_configuration", sqlitestore.SharedEntity{ID: configuration.ProjectID, Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.Format(time.RFC3339Nano)}); err != nil {
 		t.Fatal(err)
 	}
 	revision, err := s.Hub.RemoteRevision(context.Background())
@@ -113,8 +130,8 @@ func TestSessionLifecyclePersistsAndBindsProjectRole(t *testing.T) {
 	if ended["session"].(map[string]any)["status"] != "ended" {
 		t.Fatalf("end projection=%#v", ended)
 	}
-	if _, err := os.Stat(filepath.Join(server.Service.Config.StateDir, "sessions", id+".json")); err != nil {
-		t.Fatal(err)
+	if got, err := mcpSQLiteSessionStore(t, server.Service.Config.StateDir).Get(id); err != nil || got.Status != durableSession.StatusEnded {
+		t.Fatalf("Local ended session=%#v err=%v", got, err)
 	}
 }
 

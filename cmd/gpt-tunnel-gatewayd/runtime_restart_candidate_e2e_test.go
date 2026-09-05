@@ -133,7 +133,12 @@ func TestCandidateGatewayRestartMCPNetworkE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	session, err := durableSession.NewStore(stateDir).Create(durableSession.CreateInput{
+	db, err = sqlitestore.Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	session, err := durableSession.NewStoreWithDurability(db).Create(durableSession.CreateInput{
 		ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RolePlanner, SessionType: durableSession.SessionTypeChatGPT,
 	})
 	if err != nil {
@@ -323,12 +328,17 @@ func TestCandidateDebugActivateMCPNetworkE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store := durableSession.NewStore(stateDir)
+	db, err := sqlitestore.Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	store := durableSession.NewStoreWithDurability(db)
 	session, err := store.CreateUnbound(durableSession.RolePlanner, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err = store.Bind(session.ID, "gpt-tunnel-gateway")
+	session, err = store.Bind(session.ID, "gpt-tunnel-gateway", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

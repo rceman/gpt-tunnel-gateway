@@ -147,7 +147,7 @@ func TestADR84FrozenConnectorContract(t *testing.T) {
 		"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "EXM", "role": durableSession.RolePlanner, "ref": "connector"},
 	}))
 	sessionID := started["session"].(string)
-	record, err := durableSession.NewStore(server.Service.Config.StateDir).Get(sessionID)
+	record, err := mcpSQLiteSessionStore(t, server.Service.Config.StateDir).Get(sessionID)
 	if err != nil || record.ProjectID != "example" || record.Role != durableSession.RolePlanner || record.Status != durableSession.StatusActive || record.SessionRef == nil || *record.SessionRef != "connector" {
 		t.Fatalf("session_start did not create the bound Planner session: %#v err=%v", record, err)
 	}

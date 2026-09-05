@@ -91,7 +91,7 @@ func TestCanonicalAgentAwaitUsesLocalAuthorityWhenHubUnavailableAndLocked(t *tes
 	}
 
 	s := service.NewWithDurabilityDeferredWorkers(c, db)
-	session, err := durableSession.NewStore(stateDir).Create(durableSession.CreateInput{
+	session, err := mcpSQLiteSessionStore(t, stateDir).Create(durableSession.CreateInput{
 		ProjectID:   "example",
 		ProjectCode: "EXM",
 		Role:        durableSession.RolePlanner,

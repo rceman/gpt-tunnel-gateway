@@ -102,7 +102,7 @@ func TestProjectOperationalStatusUsesLocalSharedStateWhenHubUnavailable(t *testi
 	}
 
 	s := NewWithDurabilityDeferredWorkers(c, db)
-	session, err := durableSession.NewStore(stateDir).Create(durableSession.CreateInput{
+	session, err := durableSession.NewStoreWithDurability(db).Create(durableSession.CreateInput{
 		ProjectID:   projectID,
 		ProjectCode: configProject.ProjectCode,
 		Role:        durableSession.RolePlanner,

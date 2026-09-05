@@ -106,7 +106,7 @@ func newPublicCodeE2EFixture(t *testing.T) publicCodeE2EFixture {
 		t.Fatal(err)
 	}
 
-	store := durableSession.NewStore(stateDir)
+	store := mcpSQLiteSessionStore(t, stateDir)
 	session, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RolePlanner, SessionType: durableSession.SessionTypeChatGPT})
 	if err != nil {
 		t.Fatal(err)

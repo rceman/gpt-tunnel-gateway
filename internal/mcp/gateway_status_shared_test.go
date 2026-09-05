@@ -57,7 +57,7 @@ func TestGatewayStatusUsesSharedProjectProjectionWithoutHub(t *testing.T) {
 		},
 	}
 	s := service.NewWithDurabilityDeferredWorkers(c, db)
-	session, err := durableSession.NewStore(stateDir).Create(durableSession.CreateInput{
+	session, err := mcpSQLiteSessionStore(t, stateDir).Create(durableSession.CreateInput{
 		ProjectID:   projectID,
 		ProjectCode: "EXM",
 		Role:        durableSession.RolePlanner,

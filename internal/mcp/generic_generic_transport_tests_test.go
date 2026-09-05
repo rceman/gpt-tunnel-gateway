@@ -24,7 +24,7 @@ func genericSessionWithRole(t *testing.T, s *service.Service, projectID, role st
 	if projectID != "example" {
 		projectCode = "OTH"
 	}
-	record, err := durableSession.NewStore(s.Config.StateDir).Create(durableSession.CreateInput{ProjectID: projectID, ProjectCode: projectCode, Role: role, SessionType: durableSession.SessionTypeChatGPT})
+	record, err := mcpSQLiteSessionStore(t, s.Config.StateDir).Create(durableSession.CreateInput{ProjectID: projectID, ProjectCode: projectCode, Role: role, SessionType: durableSession.SessionTypeChatGPT})
 	if err != nil {
 		t.Fatal(err)
 	}

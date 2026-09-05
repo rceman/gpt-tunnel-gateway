@@ -33,7 +33,7 @@ func TestDebugDomainIsAbsentWhenDisabled(t *testing.T) {
 			t.Fatal("disabled debug domain was discoverable")
 		}
 	}
-	record, err := durableSession.NewStore(server.Service.Config.StateDir).CreateUnbound(durableSession.RolePlanner, nil)
+	record, err := mcpSQLiteSessionStore(t, server.Service.Config.StateDir).CreateUnbound(durableSession.RolePlanner, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,12 +115,12 @@ func TestDebugStatusUsesOnlyConfiguredHostLocalState(t *testing.T) {
 		GatewayID:  "debug-test",
 		ListenAddr: "127.0.0.1:1",
 	}, nil), AuthorityContext: authority.WithPlanner(context.Background())}
-	store := durableSession.NewStore(server.Service.Config.StateDir)
+	store := mcpSQLiteSessionStore(t, server.Service.Config.StateDir)
 	record, err := store.CreateUnbound(durableSession.RolePlanner, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err = store.Bind(record.ID, gatewaySourceProjectID)
+	record, err = store.Bind(record.ID, gatewaySourceProjectID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,12 +168,12 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 		GatewayID: "debug-test",
 		Projects:  map[string]config.ProjectConfig{gatewaySourceProjectID: {Root: sourceRoot}},
 	}, nil), AuthorityContext: authority.WithPlanner(context.Background())}
-	store := durableSession.NewStore(server.Service.Config.StateDir)
+	store := mcpSQLiteSessionStore(t, server.Service.Config.StateDir)
 	record, err := store.CreateUnbound(durableSession.RolePlanner, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err = store.Bind(record.ID, gatewaySourceProjectID)
+	record, err = store.Bind(record.ID, gatewaySourceProjectID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,12 +208,12 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 		AirelayCommand:         script,
 		DispatchTimeoutSeconds: 5,
 	}, nil), AuthorityContext: authority.WithPlanner(context.Background())}
-	record, err := durableSession.NewStore(server.Service.Config.StateDir).CreateUnbound(durableSession.RolePlanner, nil)
+	record, err := mcpSQLiteSessionStore(t, server.Service.Config.StateDir).CreateUnbound(durableSession.RolePlanner, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := durableSession.NewStore(server.Service.Config.StateDir)
-	record, err = store.Bind(record.ID, gatewaySourceProjectID)
+	store := mcpSQLiteSessionStore(t, server.Service.Config.StateDir)
+	record, err = store.Bind(record.ID, gatewaySourceProjectID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,13 +247,13 @@ func TestDebugActionsRejectNonPlannerSessions(t *testing.T) {
 		Debug:    config.DebugConfig{Enabled: true},
 		StateDir: t.TempDir(),
 	}, nil), AuthorityContext: authority.WithPlanner(context.Background())}
-	store := durableSession.NewStore(server.Service.Config.StateDir)
+	store := mcpSQLiteSessionStore(t, server.Service.Config.StateDir)
 	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleAgent} {
 		record, err := store.CreateUnbound(role, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.Bind(record.ID, gatewaySourceProjectID); err != nil {
+		if _, err := store.Bind(record.ID, gatewaySourceProjectID, nil); err != nil {
 			t.Fatal(err)
 		}
 		response := callMCPRaw(t, server, mustJSON(t, map[string]any{

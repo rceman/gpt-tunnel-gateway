@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -162,7 +163,7 @@ func TestCutoverValidatesThenBatchImportsAndCleansAllFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := CutoverLegacyJSON(nil, state, store.Durability); err != nil {
+	if err := CutoverLegacyJSON(context.Background(), state, store.Durability); err != nil {
 		t.Fatal(err)
 	}
 	for _, record := range records {
@@ -175,6 +176,153 @@ func TestCutoverValidatesThenBatchImportsAndCleansAllFiles(t *testing.T) {
 	}
 }
 
+func TestStoreCreateCollisionExhaustionPreservesExistingRow(t *testing.T) {
+	store, _ := testStore(t)
+	existing, err := store.Create(testCreateInput(RolePlanner))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.IDGenerator = func() (string, error) { return existing.ID, nil }
+	if _, err := store.Create(testCreateInput(RolePlanner)); err == nil {
+		t.Fatal("collision exhaustion unexpectedly succeeded")
+	}
+	got, err := store.Get(existing.ID)
+	if err != nil || got.CreatedAt != existing.CreatedAt || got.Status != StatusActive {
+		t.Fatalf("existing row changed: %#v err=%v", got, err)
+	}
+}
+
+func TestStoreCASRejectsSecondMutationFromSameObservedGeneration(t *testing.T) {
+	store, _ := testStore(t)
+	record, err := store.CreateUnbound(RolePlanner, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.Get(record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := first, first
+	a.Label, b.Label = stringPtr("one"), stringPtr("two")
+	a.UpdatedAt, b.UpdatedAt = time.Now().UTC(), time.Now().UTC()
+	results := make(chan error, 2)
+	var group sync.WaitGroup
+	for _, candidate := range []Record{a, b} {
+		group.Add(1)
+		go func(value Record) { defer group.Done(); results <- store.updateLocal(first, value) }(candidate)
+	}
+	group.Wait()
+	close(results)
+	successes, conflicts := 0, 0
+	for err := range results {
+		if err == nil {
+			successes++
+		} else if errors.Is(err, sqlitestore.ErrLocalSessionChanged) {
+			conflicts++
+		} else {
+			t.Fatal(err)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("CAS results success=%d conflicts=%d", successes, conflicts)
+	}
+}
+
+func TestCutoverMatchingExistingRowIsIdempotentAndCleansFile(t *testing.T) {
+	store, state := testStore(t)
+	now := time.Now().UTC()
+	record := Record{SchemaVersion: SchemaVersion, ID: "SP-ABC12345", Role: RolePlanner, SessionType: SessionTypeChatGPT, Status: StatusActive, CreatedAt: now, StartedAt: now, UpdatedAt: now}
+	raw, _ := json.Marshal(record)
+	dir := filepath.Join(state, "sessions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, record.ID+".json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Durability.CreateLocalSession(context.Background(), sqlitestore.LocalSession{ID: record.ID, Payload: raw, UpdatedAt: record.UpdatedAt.Format(time.RFC3339Nano), Status: record.Status}); err != nil {
+		t.Fatal(err)
+	}
+	if err := CutoverLegacyJSON(context.Background(), state, store.Durability); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("matching legacy file remains: %v", err)
+	}
+}
+
+func TestCutoverMalformedLaterRecordInsertsNothing(t *testing.T) {
+	store, state := testStore(t)
+	now := time.Now().UTC()
+	valid := Record{SchemaVersion: SchemaVersion, ID: "SP-ABC12345", Role: RolePlanner, SessionType: SessionTypeChatGPT, Status: StatusActive, CreatedAt: now, StartedAt: now, UpdatedAt: now}
+	dir := filepath.Join(state, "sessions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(valid)
+	if err := os.WriteFile(filepath.Join(dir, valid.ID+".json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SA-ABC12345.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := CutoverLegacyJSON(context.Background(), state, store.Durability); err == nil {
+		t.Fatal("malformed later record accepted")
+	}
+	if _, err := store.Get(valid.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("partial import occurred: %v", err)
+	}
+}
+
+func TestCutoverConflictInsertsNothingAndPreservesEvidence(t *testing.T) {
+	store, state := testStore(t)
+	now := time.Now().UTC()
+	missing := Record{SchemaVersion: SchemaVersion, ID: "SP-ABC12345", Role: RolePlanner, SessionType: SessionTypeChatGPT, Status: StatusActive, CreatedAt: now, StartedAt: now, UpdatedAt: now}
+	conflict := Record{SchemaVersion: SchemaVersion, ID: "SA-ABC12345", Role: RoleAgent, SessionType: SessionTypeChatGPT, Status: StatusActive, CreatedAt: now, StartedAt: now, UpdatedAt: now, Label: stringPtr("legacy")}
+	rawMissing, _ := json.Marshal(missing)
+	rawConflict, _ := json.Marshal(conflict)
+	dir := filepath.Join(state, "sessions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, missing.ID+".json"), rawMissing, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	conflictPath := filepath.Join(dir, conflict.ID+".json")
+	if err := os.WriteFile(conflictPath, rawConflict, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	altered := conflict
+	altered.Label = stringPtr("database")
+	altered.Status = StatusEnded
+	endedAt := now.Add(time.Second)
+	altered.EndedAt = &endedAt
+	altered.UpdatedAt = now.Add(2 * time.Second)
+	alteredRaw, _ := json.Marshal(altered)
+	if err := store.Durability.CreateLocalSession(context.Background(), sqlitestore.LocalSession{ID: conflict.ID, Payload: alteredRaw, UpdatedAt: altered.UpdatedAt.Format(time.RFC3339Nano), Status: altered.Status}); err != nil {
+		t.Fatal(err)
+	}
+	if err := CutoverLegacyJSON(context.Background(), state, store.Durability); err == nil {
+		t.Fatal("conflict accepted")
+	}
+	if _, err := store.Get(missing.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("partial import occurred: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, missing.ID+".json")); err != nil {
+		t.Fatalf("missing-row evidence missing: %v", err)
+	}
+	if _, err := os.Stat(conflictPath); err != nil {
+		t.Fatalf("conflict evidence missing: %v", err)
+	}
+	got, err := store.Durability.ReadLocalSession(context.Background(), conflict.ID)
+	if err != nil || string(got.Payload) != string(alteredRaw) || got.Status != altered.Status || got.UpdatedAt != altered.UpdatedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("preexisting row changed: %#v err=%v", got, err)
+	}
+}
+
+func stringPtr(value string) *string { return &value }
+
 func TestCutoverRejectsUnexpectedOrConflictingInputBeforeInsert(t *testing.T) {
 	store, state := testStore(t)
 	dir := filepath.Join(state, "sessions")
@@ -184,7 +332,7 @@ func TestCutoverRejectsUnexpectedOrConflictingInputBeforeInsert(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".tmp"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := CutoverLegacyJSON(nil, state, store.Durability); err == nil {
+	if err := CutoverLegacyJSON(context.Background(), state, store.Durability); err == nil {
 		t.Fatal("unexpected legacy entry accepted")
 	}
 }
