@@ -373,8 +373,8 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 	if err != nil {
 		return nil, fmt.Errorf("read main worktree status: %w", err)
 	}
-	if mainStatus.Branch != mainBranch || !mainStatus.Clean {
-		return nil, fmt.Errorf("canonical main worktree is stale or not clean")
+	if mainStatus.Branch != mainBranch {
+		return nil, fmt.Errorf("canonical main worktree is on branch %q, want %q", mainStatus.Branch, mainBranch)
 	}
 	if mainStatus.Head != canonicalMainHead {
 		return nil, fmt.Errorf("canonical main worktree is stale: physical head %s, canonical head %s", mainStatus.Head, canonicalMainHead)
