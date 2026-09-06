@@ -212,8 +212,20 @@ func TestTSK514RealLegacySnapshotCutover(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := make([]string, 0, len(rows))
+	deliveryRows := 0
 	for _, row := range rows {
 		got = append(got, row.ID)
+		var imported Record
+		if err := json.Unmarshal(row.Payload, &imported); err != nil {
+			t.Fatalf("decode imported session %s: %v", row.ID, err)
+		}
+		switch imported.Role {
+		case RolePlanner, RoleAgent:
+		case retiredLegacyDeliveryRole:
+			deliveryRows++
+		default:
+			t.Fatalf("imported session %s has non-current role %q", row.ID, imported.Role)
+		}
 	}
 	sort.Strings(expected)
 	sort.Strings(got)
@@ -223,8 +235,8 @@ func TestTSK514RealLegacySnapshotCutover(t *testing.T) {
 	if len(got) > 0 && (got[0] == "" || !containsString(got, "SP-GTW-120E") || !containsString(got, "SA-GTW-BEYB")) {
 		t.Fatalf("snapshot imported IDs omit required records")
 	}
-	if len(rows) == 0 || containsPrefix(got, "S-") || containsPrefix(got, "SD-") {
-		t.Fatalf("snapshot imported retired delivery record")
+	if deliveryRows != 0 {
+		t.Fatalf("snapshot imported delivery rows=%d", deliveryRows)
 	}
 	entries, err := os.ReadDir(dest)
 	if err != nil && !os.IsNotExist(err) {
@@ -239,15 +251,6 @@ func TestTSK514RealLegacySnapshotCutover(t *testing.T) {
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
-			return true
-		}
-	}
-	return false
-}
-
-func containsPrefix(values []string, prefix string) bool {
-	for _, value := range values {
-		if len(value) >= len(prefix) && value[:len(prefix)] == prefix {
 			return true
 		}
 	}
