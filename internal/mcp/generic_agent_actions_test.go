@@ -318,6 +318,47 @@ esac
 	}
 }
 
+func TestCanonicalAgentAwaitPreservesTailTruncatedProjection(t *testing.T) {
+	s, revision := newWorkflowPolicyStatusService(t)
+	seedMCPTestCodingAgent(t, s, revision)
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "tail-called")
+	command := filepath.Join(dir, "airelay")
+	script := fmt.Sprintf(`#!/bin/sh
+case "$1" in
+tail)
+if [ -f %q ]; then printf 'fresh\n'; else
+i=1
+while [ "$i" -le 30 ]; do printf 'old%%s\n' "$i"; i=$((i+1)); done
+touch %q
+fi ;;
+*) exit 99 ;;
+esac
+`, marker, marker)
+	if err := os.WriteFile(command, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s.Config.AirelayCommand = command
+	s.Airelay.Command = command
+	sessionID := genericSession(t, s, "example")
+	if _, err := s.AgentTailPage(context.Background(), "example", service.AgentTailInput{
+		Lines: 30, SessionID: sessionID, SessionKey: "example_master",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{Service: s}
+	value, err := server.canonicalAgentAwaitResult(service.WithAgentSessionID(context.Background(), sessionID), "example", canonicalAgentTarget{
+		Agent:    model.Agent{AgentID: "coding-example"},
+		Resolved: service.ResolvedAgent{SessionKey: "example_master"},
+	}, map[string]any{"agent": "coding-example", "status": "idle"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value["tail_truncated"] != true {
+		t.Fatalf("await omitted tail_truncated projection: %#v", value)
+	}
+}
+
 func TestCanonicalAgentPublicMCPContractE2E(t *testing.T) {
 	s, revision := newWorkflowPolicyStatusService(t)
 	seedMCPTestCodingAgent(t, s, revision)
