@@ -117,30 +117,6 @@ func (s *Server) resolveCanonicalAgent(ctx context.Context, projectID, requested
 	return target, nil
 }
 
-func (s *Server) resolveCanonicalAwaitAgent(ctx context.Context, projectID, requested string) (canonicalAgentTarget, error) {
-	if requested != "" {
-		return s.resolveCanonicalAgent(ctx, projectID, requested, false)
-	}
-	agents, err := s.Service.AgentList(ctx, projectID)
-	if err != nil {
-		return canonicalAgentTarget{}, err
-	}
-	var selected *model.Agent
-	for i := range agents {
-		if agents[i].Role != model.AgentRoleCoding || !agents[i].Enabled {
-			continue
-		}
-		if selected != nil {
-			return canonicalAgentTarget{}, fmt.Errorf("AGENT_SELECTION_REQUIRED: multiple enabled coding Agents are applicable")
-		}
-		selected = &agents[i]
-	}
-	if selected == nil {
-		return canonicalAgentTarget{}, fmt.Errorf("AGENT_NOT_AVAILABLE: no enabled coding Agent for project %q", projectID)
-	}
-	return canonicalAgentTarget{Agent: *selected}, nil
-}
-
 func (s *Server) resolveCanonicalInterruptAgent(ctx context.Context, projectID, requested string) (canonicalAgentTarget, error) {
 	if requested != "" {
 		if model.ValidateObjectIdentifier(requested) != nil {
@@ -301,10 +277,6 @@ func (s *Server) canonicalAgentAwaitAction(ctx context.Context, raw json.RawMess
 	if err != nil {
 		return nil, err
 	}
-	target, err := s.resolveCanonicalAwaitAgent(awaitCtx, projectID, in.Agent)
-	if err != nil {
-		return nil, err
-	}
 	deferUntil := awaitDeadline.Add(-canonicalAgentAwaitFinalReadBudget)
 	if wait := time.Until(deferUntil); wait > 0 {
 		deferTimer := time.NewTimer(wait)
@@ -321,7 +293,7 @@ func (s *Server) canonicalAgentAwaitAction(ctx context.Context, raw json.RawMess
 	}
 	probeCtx, probeCancel := context.WithDeadline(ctx, awaitDeadline)
 	defer probeCancel()
-	resolved, probeErr := s.resolveCanonicalAgent(probeCtx, projectID, target.Agent.AgentID, true)
+	resolved, probeErr := s.resolveCanonicalAgent(probeCtx, projectID, in.Agent, true)
 	if probeErr != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
