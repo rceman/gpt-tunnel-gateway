@@ -369,12 +369,11 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 		return nil, fmt.Errorf("resolve canonical main worktree: %w", err)
 	}
 	project = mainWorktree
-	mainStatus, err := s.Git.WorktreeStatus(ctx, project)
+	mainStatus, err := s.Git.SynchronizeDefaultBranchWorktree(ctx, project, canonicalMainHead)
 	if err != nil {
-		return nil, fmt.Errorf("read main worktree status: %w", err)
+		return nil, fmt.Errorf("synchronize main worktree: %w", err)
 	}
-	mainStatus.Head = canonicalMainHead
-	mainHead := canonicalMainHead
+	mainHead := mainStatus.Head
 	managed := make(map[string]model.TrainV2, len(trains))
 	for _, train := range trains {
 		if train.ProjectID == projectID && activeCodeTrainStatus(train.Status) && train.Historical == nil {
