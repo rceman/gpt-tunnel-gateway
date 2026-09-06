@@ -56,7 +56,7 @@ func TestPromptBoundsChildOutput(t *testing.T) {
 func TestPromptHonorsCallerDeadline(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "airelay")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 2\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 2\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	c := Client{Command: script, Timeout: time.Second}
@@ -74,7 +74,7 @@ func TestPromptHonorsCallerDeadline(t *testing.T) {
 func TestRunJSONPreservesCallerDeadline(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "airelay")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 2\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 2\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	client := Client{Command: script, Timeout: time.Second}
@@ -90,7 +90,7 @@ func TestRunJSONPreservesCallerDeadline(t *testing.T) {
 func TestRunJSONPreservesCallerCancellation(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "airelay")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 2\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 2\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	client := Client{Command: script, Timeout: time.Second}
@@ -346,6 +346,23 @@ func TestStatusPreservesNonZeroExitAsErrorState(t *testing.T) {
 	status, err := c.Status(context.Background(), "project_master")
 	if err != nil || status.State != "error" || status.ExitCode != 7 || status.Error == "" {
 		t.Fatalf("status=%#v err=%v", status, err)
+	}
+}
+
+func TestStatusTimeoutClosesOrphanedChildPipe(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 2\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := Client{Command: script, Timeout: 10 * time.Millisecond}
+	started := time.Now()
+	_, err := c.Status(context.Background(), "project_master")
+	if err == nil || !strings.Contains(err.Error(), "timeout") {
+		t.Fatalf("status timeout error=%v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("status waited on orphaned child pipe: %s", elapsed)
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -82,11 +81,9 @@ func (c Client) PromptWithProvenance(ctx context.Context, session, origin, messa
 	if transportBytes > transportLimit {
 		return Result{}, &MessageValidationError{Code: "TRANSPORT_TOO_LARGE", Reason: "provenance-prefixed message exceeds Airelay transport limit", LimitBytes: transportLimit, ActualBytes: transportBytes}
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	ctx, cancel, cmd := c.commandContext(ctx, "prompt", session, message)
 	defer cancel()
 	result := Result{StartedAt: time.Now().UTC()}
-	cmd := exec.CommandContext(ctx, c.Command, "prompt", session, message)
-	cmd.Env = cleanEnv()
 	var stdout, stderr tailBuffer
 	stdout.max, stderr.max = 8192, 8192
 	cmd.Stdout = &stdout
@@ -118,12 +115,10 @@ func (c Client) Interrupt(ctx context.Context, session string) (InterruptResult,
 	if !sessionRE.MatchString(session) {
 		return InterruptResult{}, fmt.Errorf("invalid Airelay session key")
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	ctx, cancel, cmd := c.commandContext(ctx, "interrupt", session, "--json", "--no-warn")
 	defer cancel()
 	var stdout, stderr tailBuffer
 	stdout.max, stderr.max = 8192, 8192
-	cmd := exec.CommandContext(ctx, c.Command, "interrupt", session, "--json", "--no-warn")
-	cmd.Env = cleanEnv()
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
@@ -173,11 +168,9 @@ func (c Client) tail(ctx context.Context, session string, lines int, allowEmpty 
 	if lines < 1 || lines > 200 {
 		return Result{}, fmt.Errorf("invalid Airelay tail line count")
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	ctx, cancel, cmd := c.commandContext(ctx, "tail", session, "--lines", fmt.Sprintf("%d", lines))
 	defer cancel()
 	result := Result{StartedAt: time.Now().UTC()}
-	cmd := exec.CommandContext(ctx, c.Command, "tail", session, "--lines", fmt.Sprintf("%d", lines))
-	cmd.Env = cleanEnv()
 	var stdout, stderr tailBuffer
 	stdout.max, stderr.max = 8192, 8192
 	cmd.Stdout = &stdout
@@ -235,11 +228,9 @@ func (c Client) Transcript(ctx context.Context, session string, lines int) (Tran
 	if lines < 1 || lines > 200 {
 		return TranscriptResult{}, fmt.Errorf("invalid Airelay transcript line count")
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	ctx, cancel, cmd := c.commandContext(ctx, "transcript", session, "--lines", fmt.Sprintf("%d", lines), "--order", "asc", "--json")
 	defer cancel()
 	result := TranscriptResult{StartedAt: time.Now().UTC()}
-	cmd := exec.CommandContext(ctx, c.Command, "transcript", session, "--lines", fmt.Sprintf("%d", lines), "--order", "asc", "--json")
-	cmd.Env = cleanEnv()
 	var stdout, stderr tailBuffer
 	stdout.max, stderr.max = 64*1024, 8192
 	cmd.Stdout = &stdout

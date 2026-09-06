@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func schemaProperties(schema map[string]any) map[string]any {
@@ -117,9 +119,49 @@ func TestCanonicalAgentSchemasAreClosedAndBounded(t *testing.T) {
 func TestCanonicalAgentAwaitNoArgUsesOneTotalTimeoutBudget(t *testing.T) {
 	s, revision := newWorkflowPolicyStatusService(t)
 	seedMCPTestCodingAgent(t, s, revision)
+	stateDir := s.Config.StateDir
+	db, err := sqlitestore.Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	now := time.Now().UTC()
+	configuration := model.DefaultProjectConfiguration("example", now)
+	configurationPayload, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(context.Background(), "project_configuration", sqlitestore.SharedEntity{
+		ID:        configuration.ProjectID,
+		Revision:  int64(configuration.Revision),
+		Payload:   configurationPayload,
+		UpdatedAt: configuration.UpdatedAt.Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	agent := model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coding-example", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now}
+	agentPayload, err := json.Marshal(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceLocalAgents(context.Background(), "example", []sqlitestore.LocalAgent{{
+		ProjectID: "example",
+		AgentID:   agent.AgentID,
+		Payload:   agentPayload,
+		UpdatedAt: now.Format(time.RFC3339Nano),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	s.Durability = db
+	if s.Config.ProjectAgentBindings == nil {
+		s.Config.ProjectAgentBindings = make(map[string]map[string]config.AgentBinding)
+	}
+	s.Config.ProjectAgentBindings["example"] = map[string]config.AgentBinding{
+		"coding-example": {SessionKey: "example_master", Profile: "coding"},
+	}
 	dir := t.TempDir()
 	command := filepath.Join(dir, "airelay")
-	if err := os.WriteFile(command, []byte("#!/bin/sh\nsleep 5\n"), 0o700); err != nil {
+	if err = os.WriteFile(command, []byte("#!/bin/sh\nsleep 5\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	s.Config.AirelayCommand = command
@@ -129,7 +171,7 @@ func TestCanonicalAgentAwaitNoArgUsesOneTotalTimeoutBudget(t *testing.T) {
 	ctx, cancel := context.WithTimeout(service.WithAgentSessionID(context.Background(), sessionID), 50*time.Millisecond)
 	defer cancel()
 	started := time.Now()
-	_, err := server.canonicalAgentAwaitAction(ctx, mustJSON(t, map[string]any{"agent": "coding-example"}))
+	_, err = server.canonicalAgentAwaitAction(ctx, mustJSON(t, map[string]any{"agent": "coding-example"}))
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("no-arg await error=%v, want deadline exceeded", err)
 	}
