@@ -67,7 +67,11 @@ func (s Store) requireLocal() error {
 }
 func (s Store) Create(input CreateInput) (Record, error) { return s.create(input, true) }
 func (s Store) CreateUnbound(role string, label *string) (Record, error) {
-	return s.create(CreateInput{Role: role, SessionType: SessionTypeChatGPT, Label: label}, false)
+	return s.create(CreateInput{
+		Role:        role,
+		SessionType: SessionTypeChatGPT,
+		Label:       label,
+	}, false)
 }
 func (s Store) create(input CreateInput, requireProject bool) (Record, error) {
 	if err := validateCreateInput(input, requireProject); err != nil {
@@ -82,7 +86,20 @@ func (s Store) create(input CreateInput, requireProject bool) (Record, error) {
 			return Record{}, err
 		}
 		now := time.Now().UTC()
-		record := Record{SchemaVersion: SchemaVersion, ID: id, ProjectID: input.ProjectID, ProjectCode: input.ProjectCode, Role: input.Role, SessionType: input.SessionType, SessionRef: cloneString(input.SessionRef), Label: cloneString(input.Label), Status: StatusActive, CreatedAt: now, StartedAt: now, UpdatedAt: now}
+		record := Record{
+			SchemaVersion: SchemaVersion,
+			ID:            id,
+			ProjectID:     input.ProjectID,
+			ProjectCode:   input.ProjectCode,
+			Role:          input.Role,
+			SessionType:   input.SessionType,
+			SessionRef:    cloneString(input.SessionRef),
+			Label:         cloneString(input.Label),
+			Status:        StatusActive,
+			CreatedAt:     now,
+			StartedAt:     now,
+			UpdatedAt:     now,
+		}
 		if err := record.Validate(); err != nil {
 			return Record{}, err
 		}

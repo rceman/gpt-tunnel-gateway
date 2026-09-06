@@ -47,7 +47,12 @@ func (d *Databases) ReadLocalSession(ctx context.Context, id string) (LocalSessi
 	if !okID || !okUpdated || !okStatus {
 		return LocalSession{}, fmt.Errorf("invalid local session row")
 	}
-	return LocalSession{ID: idValue, Payload: append([]byte(nil), payload...), UpdatedAt: updated, Status: status}, nil
+	return LocalSession{
+		ID:        idValue,
+		Payload:   append([]byte(nil), payload...),
+		UpdatedAt: updated,
+		Status:    status,
+	}, nil
 }
 
 func (d *Databases) ListLocalSessions(ctx context.Context) ([]LocalSession, error) {
@@ -70,7 +75,12 @@ func (d *Databases) ListLocalSessions(ctx context.Context) ([]LocalSession, erro
 		if !okID || !okPayload || !okUpdated || !okStatus {
 			return nil, fmt.Errorf("invalid local session row")
 		}
-		result = append(result, LocalSession{ID: id, Payload: append([]byte(nil), payload...), UpdatedAt: updated, Status: status})
+		result = append(result, LocalSession{
+			ID:        id,
+			Payload:   append([]byte(nil), payload...),
+			UpdatedAt: updated,
+			Status:    status,
+		})
 	}
 	return result, nil
 }

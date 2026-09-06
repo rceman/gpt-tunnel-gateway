@@ -87,7 +87,11 @@ func CutoverLegacyJSON(ctx context.Context, stateDir string, db *sqlitestore.Dat
 		if !errors.Is(readErr, sqlitestore.ErrLocalSessionNotFound) {
 			return fmt.Errorf("read Local session %s: %w", id, readErr)
 		}
-		imports = append(imports, imported{name: name, record: record, payload: payload})
+		imports = append(imports, imported{
+			name:    name,
+			record:  record,
+			payload: payload,
+		})
 	}
 	rows := make([]sqlitestore.LocalSession, 0, len(imports))
 	for _, item := range imports {
