@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
@@ -23,6 +24,67 @@ func TestMigratedRecoveryCompletesThroughTrainV2IntegrateAndReceipt(t *testing.T
 	train, err := s.TrainV2Read(context.Background(), input.ProjectID, input.TrainID)
 	if err != nil || train.Status != model.TrainV2Completed {
 		t.Fatalf("Train was not marked integrated: %#v err=%v", train, err)
+	}
+	physicalHead := strings.TrimSpace(testutil.Git(t, s.Config.Projects[input.ProjectID].Root, "rev-parse", "HEAD"))
+	if physicalHead != head {
+		t.Fatalf("physical default branch HEAD=%s, want integrated head=%s", physicalHead, head)
+	}
+}
+
+func TestTrainV2IntegrateResumedIntegrateCompleteSynchronizesStalePhysicalDefaultBranch(t *testing.T) {
+	s, input, baseHead := prepareCanonicalRecoveryIntegration(t, "GTW-TRN309")
+	runtime, err := trainv2.ReadRuntime(s.Config.StateDir, input.ProjectID, input.TrainID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, runtime.WorktreePath, "commit", "--allow-empty", "-m", "advance Train integration head")
+	laneHead := strings.TrimSpace(testutil.Git(t, runtime.WorktreePath, "rev-parse", "HEAD"))
+	testutil.Git(t, runtime.WorktreePath, "push", "origin", "HEAD:refs/heads/main")
+	train, err := s.TrainV2Read(context.Background(), input.ProjectID, input.TrainID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	train.Items[0].Proof.ImplementationSHA = laneHead
+	updatedTrain, err := trainv2.RecordFullProof(train, laneHead, []model.CompletionGateResult{
+		{ID: model.WorkflowGateFormat, ExitCode: 0},
+		{ID: model.WorkflowGateCheck, ExitCode: 0},
+		{ID: model.WorkflowGateTest, ExitCode: 0},
+	}, nowUTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.persistTrainV2(context.Background(), input.ProjectID, input.TrainID, train.Revision, updatedTrain); err != nil {
+		t.Fatal(err)
+	}
+	operation, err := s.readIntegrationOperation(context.Background(), input.ProjectID, input.TrainID)
+	if err != nil {
+		t.Fatalf("read seeded integration operation: %v", err)
+	}
+	if got := strings.TrimSpace(testutil.Git(t, s.Config.Projects[input.ProjectID].Root, "rev-parse", "HEAD")); got != baseHead {
+		t.Fatalf("physical default branch unexpectedly moved: got=%s want=%s", got, baseHead)
+	}
+	digest, operationID, err := integrationRequestDigest(input, laneHead, "main", laneHead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation.OperationID = operationID
+	operation.RequestSHA256 = digest
+	operation.SourceHead = laneHead
+	operation.TargetBefore = laneHead
+	operation.SupersedesOperationID = ""
+	operation.RecoveryReason = ""
+	operation.PreResult = "not_configured"
+	operation.PostResult = "not_configured"
+	operation.Phase = trainv2.IntegrationPhaseIntegrateComplete
+	operation.UpdatedAt = nowUTC()
+	if err := s.persistIntegrationOperation(context.Background(), operation); err != nil {
+		t.Fatalf("seed IntegrateComplete operation: %v", err)
+	}
+	if _, _, err := s.TrainV2Integrate(context.Background(), input); err != nil {
+		t.Fatalf("resumed IntegrateComplete integration: %v", err)
+	}
+	if got := strings.TrimSpace(testutil.Git(t, s.Config.Projects[input.ProjectID].Root, "rev-parse", "HEAD")); got != laneHead {
+		t.Fatalf("resumed integration left physical main at %s, want %s", got, laneHead)
 	}
 }
 func TestMigratedRecoveryCompetingOwnerIsBlockedByTrainV2Integrate(t *testing.T) {
