@@ -34,6 +34,9 @@ func (s *Server) agent_action_set4() error {
 			}
 			result := make([]map[string]any, 0, len(agents))
 			for _, agent := range agents {
+				if agent.Role != model.AgentRoleCoding || !agent.Enabled {
+					continue
+				}
 				result = append(result, map[string]any{"key": agent.AgentID, "role": agent.Role, "enabled": agent.Enabled})
 			}
 			return map[string]any{"agents": result}, nil
