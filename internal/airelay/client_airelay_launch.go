@@ -11,10 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 )
-
-const airelayWaitDelay = 100 * time.Millisecond
 
 // ExecutionSessionRequest identifies one server-owned legacy execution lane.
 // The request is used only to validate an already-existing session; Gateway
@@ -189,28 +186,18 @@ func normalizeCWD(value string) string {
 }
 
 func (c Client) runJSON(ctx context.Context, args []string, target any) error {
-	ctx, cancel, cmd := c.commandContext(ctx, args...)
+	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
+	cmd := exec.CommandContext(ctx, c.Command, args...)
+	cmd.Env = cleanEnv()
 	var stdout, stderr tailBuffer
 	stdout.max, stderr.max = 1<<20, 8192
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
-	if ctx.Err() != nil {
-		return fmt.Errorf("bounded Airelay query failed: %w", ctx.Err())
-	}
-	if err != nil {
+	if err := cmd.Run(); err != nil {
 		return err
 	}
-	if stdout.exceeded || stderr.exceeded {
+	if ctx.Err() != nil || stdout.exceeded || stderr.exceeded {
 		return fmt.Errorf("bounded Airelay query failed")
 	}
 	return json.Unmarshal([]byte(stdout.String()), target)
-}
-
-func (c Client) commandContext(ctx context.Context, args ...string) (context.Context, context.CancelFunc, *exec.Cmd) {
-	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
-	cmd := exec.CommandContext(ctx, c.Command, args...)
-	cmd.WaitDelay = airelayWaitDelay
-	cmd.Env = cleanEnv()
-	return ctx, cancel, cmd
 }

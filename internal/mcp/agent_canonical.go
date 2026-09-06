@@ -271,12 +271,6 @@ func (s *Server) canonicalAgentAwaitAction(ctx context.Context, raw json.RawMess
 	awaitDuration := time.Duration(seconds) * time.Second
 	awaitCtx, cancel := context.WithTimeout(ctx, awaitDuration)
 	defer cancel()
-	finalReadBudget := canonicalAgentAwaitFinalReadBudget
-	if half := awaitDuration / 2; half < finalReadBudget {
-		finalReadBudget = half
-	}
-	finalReadTimer := time.NewTimer(awaitDuration - finalReadBudget)
-	defer finalReadTimer.Stop()
 	projectID, err := s.boundAgentProject(awaitCtx)
 	if err != nil {
 		return nil, err
@@ -285,55 +279,29 @@ func (s *Server) canonicalAgentAwaitAction(ctx context.Context, raw json.RawMess
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.Service.AgentTailPage(awaitCtx, projectID, service.AgentTailInput{
-		Lines: 30, SessionID: service.AgentSessionID(ctx), SessionKey: target.Resolved.SessionKey,
-	}); err != nil {
-		return nil, err
+	deferDuration := awaitDuration - canonicalAgentAwaitFinalReadBudget
+	if deferDuration < 0 {
+		deferDuration = 0
 	}
-	previous, err := canonicalAgentStatus(awaitCtx, s, projectID, target)
-	if err != nil {
-		return nil, err
+	deferTimer := time.NewTimer(deferDuration)
+	defer deferTimer.Stop()
+	select {
+	case <-deferTimer.C:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-awaitCtx.Done():
+		return nil, awaitCtx.Err()
 	}
-	previousDigest, err := json.Marshal(previous)
-	if err != nil {
-		return nil, err
-	}
-	ticker := time.NewTicker(250 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-awaitCtx.Done():
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			return previous, nil
-		case <-finalReadTimer.C:
-			finalCtx, finalCancel := context.WithTimeout(awaitCtx, finalReadBudget)
-			current, statusErr := canonicalAgentStatus(finalCtx, s, projectID, target)
-			if statusErr != nil {
-				finalCancel()
-				return nil, statusErr
-			}
-			result, resultErr := s.canonicalAgentAwaitResult(finalCtx, projectID, target, current)
-			finalCancel()
-			return result, resultErr
-		case <-ctx.Done():
+	probeCtx, probeCancel := context.WithTimeout(ctx, canonicalAgentAwaitFinalReadBudget)
+	defer probeCancel()
+	current, probeErr := canonicalAgentStatus(probeCtx, s, projectID, target)
+	if probeErr != nil {
+		if ctx.Err() != nil {
 			return nil, ctx.Err()
-		case <-ticker.C:
-			current, statusErr := canonicalAgentStatus(awaitCtx, s, projectID, target)
-			if statusErr != nil {
-				return nil, statusErr
-			}
-			currentDigest, marshalErr := json.Marshal(current)
-			if marshalErr != nil {
-				return nil, marshalErr
-			}
-			if string(currentDigest) == string(previousDigest) {
-				continue
-			}
-			return s.canonicalAgentAwaitResult(awaitCtx, projectID, target, current)
 		}
+		return nil, probeErr
 	}
+	return current, nil
 }
 
 func (s *Server) canonicalAgentAwaitResult(ctx context.Context, projectID string, target canonicalAgentTarget, current map[string]any) (map[string]any, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"unicode"
@@ -13,10 +14,12 @@ func (c Client) Status(ctx context.Context, session string) (SessionStatus, erro
 	if !sessionRE.MatchString(session) {
 		return SessionStatus{}, fmt.Errorf("invalid Airelay session key")
 	}
-	ctx, cancel, cmd := c.commandContext(ctx, "session-status", session)
+	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
 	var stdout, stderr tailBuffer
 	stdout.max, stderr.max = 8192, 8192
+	cmd := exec.CommandContext(ctx, c.Command, "session-status", session)
+	cmd.Env = cleanEnv()
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
