@@ -17,7 +17,17 @@ var (
 )
 
 func (r Record) Validate() error {
-	if r.SchemaVersion != SchemaVersion || !sessionIDRE.MatchString(r.ID) || !sessionIDMatchesRole(r.ID, r.Role) || !validRole(r.Role) || !validSessionType(r.SessionType) {
+	if err := validateRecordShape(r); err != nil {
+		return err
+	}
+	if !sessionIDMatchesRole(r.ID, r.Role) || !validRole(r.Role) {
+		return fmt.Errorf("%w: invalid session record", ErrInvalidSession)
+	}
+	return nil
+}
+
+func validateRecordShape(r Record) error {
+	if r.SchemaVersion != SchemaVersion || !sessionIDRE.MatchString(r.ID) || !validSessionType(r.SessionType) {
 		return fmt.Errorf("%w: invalid session record", ErrInvalidSession)
 	}
 	if r.ProjectCode != "" {

@@ -21,40 +21,14 @@ const maxLegacySessionFiles = 4096
 const retiredLegacyDeliveryRole = "delivery"
 
 func validateRetiredLegacyDelivery(record Record, id string) error {
-	if record.SchemaVersion != SchemaVersion || record.ID != id || !sessionIDRE.MatchString(id) || record.Role != retiredLegacyDeliveryRole || record.SessionType != SessionTypeChatGPT {
+	if record.ID != id || record.Role != retiredLegacyDeliveryRole {
 		return fmt.Errorf("%w: invalid retired delivery session record", ErrInvalidSession)
 	}
 	prefix, _, ok := strings.Cut(id, "-")
 	if !ok || (prefix != SessionIDPrefixLegacy && prefix != "SD") {
 		return fmt.Errorf("%w: invalid retired delivery session identity", ErrInvalidSession)
 	}
-	if record.ProjectCode != "" {
-		if err := validateProjectCode(record.ProjectCode); err != nil {
-			return err
-		}
-		if sessionIDProjectCode(record.ID) != record.ProjectCode {
-			return fmt.Errorf("%w: session project code does not match session ID", ErrInvalidSession)
-		}
-	}
-	if strings.TrimSpace(record.ProjectID) == "" && record.ProjectRulesRevision != 0 {
-		return fmt.Errorf("%w: unbound session has project rules acknowledgement", ErrInvalidSession)
-	}
-	if record.Status != StatusActive && record.Status != StatusEnded {
-		return fmt.Errorf("%w: invalid session status", ErrInvalidSession)
-	}
-	if record.CreatedAt.IsZero() || record.StartedAt.IsZero() || record.UpdatedAt.IsZero() || record.StartedAt.Before(record.CreatedAt) || record.UpdatedAt.Before(record.CreatedAt) {
-		return fmt.Errorf("%w: invalid session timestamps", ErrInvalidSession)
-	}
-	if record.Status == StatusActive && record.EndedAt != nil {
-		return fmt.Errorf("%w: active session has ended_at", ErrInvalidSession)
-	}
-	if record.Status == StatusEnded && (record.EndedAt == nil || record.EndedAt.Before(record.StartedAt)) {
-		return fmt.Errorf("%w: ended session has invalid ended_at", ErrInvalidSession)
-	}
-	if err := validateOptionalText(record.SessionRef, "session_ref"); err != nil {
-		return err
-	}
-	return validateOptionalText(record.Label, "label")
+	return nil
 }
 
 // CutoverLegacyJSON imports the bounded legacy session directory after Local
@@ -107,6 +81,9 @@ func CutoverLegacyJSON(ctx context.Context, stateDir string, db *sqlitestore.Dat
 		if record.ID != id {
 			return fmt.Errorf("legacy session identity mismatch")
 		}
+		if err := validateRecordShape(record); err != nil {
+			return err
+		}
 		if record.Role == retiredLegacyDeliveryRole {
 			if err := validateRetiredLegacyDelivery(record, id); err != nil {
 				return err
@@ -114,8 +91,8 @@ func CutoverLegacyJSON(ctx context.Context, stateDir string, db *sqlitestore.Dat
 			validatedLegacyFiles = append(validatedLegacyFiles, name)
 			continue
 		}
-		if err := record.Validate(); err != nil {
-			return err
+		if !validRole(record.Role) || !sessionIDMatchesRole(record.ID, record.Role) {
+			return fmt.Errorf("%w: invalid session record", ErrInvalidSession)
 		}
 		validatedLegacyFiles = append(validatedLegacyFiles, name)
 		payload, err := json.Marshal(record)

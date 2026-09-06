@@ -73,6 +73,9 @@ func (s *Service) AgentList(ctx context.Context, projectID string) ([]model.Agen
 		if err := s.Hub.ReadJSON(ctx, path, &agent); err != nil {
 			return nil, err
 		}
+		if agent.Role != model.AgentRoleCoding {
+			continue
+		}
 		if err := model.ValidateAgent(agent); err != nil || agent.ProjectID != projectID {
 			return nil, fmt.Errorf("invalid project agent record %q", path)
 		}
@@ -111,6 +114,9 @@ func (s *Service) listLocalAgents(ctx context.Context, projectID string) ([]mode
 		var agent model.Agent
 		if err := json.Unmarshal(record.Payload, &agent); err != nil {
 			return nil, fmt.Errorf("decode local agent %q/%q: %w", projectID, record.AgentID, err)
+		}
+		if agent.Role != model.AgentRoleCoding {
+			continue
 		}
 		if err := model.ValidateAgent(agent); err != nil || agent.ProjectID != projectID || agent.AgentID != record.AgentID {
 			return nil, fmt.Errorf("invalid local agent %q/%q", projectID, record.AgentID)
