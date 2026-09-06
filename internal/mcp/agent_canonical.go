@@ -278,6 +278,7 @@ func newCanonicalAgentOperationID() (string, error) {
 }
 
 func (s *Server) canonicalAgentAwaitAction(ctx context.Context, raw json.RawMessage) (any, error) {
+	actionStarted := time.Now()
 	var in struct {
 		Agent   string `json:"agent"`
 		Seconds *int   `json:"seconds"`
@@ -293,7 +294,8 @@ func (s *Server) canonicalAgentAwaitAction(ctx context.Context, raw json.RawMess
 		return nil, fmt.Errorf("seconds must be between 1 and 600")
 	}
 	awaitDuration := time.Duration(seconds) * time.Second
-	awaitCtx, cancel := context.WithTimeout(ctx, awaitDuration)
+	awaitDeadline := actionStarted.Add(awaitDuration)
+	awaitCtx, cancel := context.WithDeadline(ctx, awaitDeadline)
 	defer cancel()
 	projectID, err := s.boundAgentProject(awaitCtx)
 	if err != nil {
@@ -303,29 +305,37 @@ func (s *Server) canonicalAgentAwaitAction(ctx context.Context, raw json.RawMess
 	if err != nil {
 		return nil, err
 	}
-	deferDuration := awaitDuration - canonicalAgentAwaitFinalReadBudget
-	if deferDuration < 0 {
-		deferDuration = 0
+	deferUntil := awaitDeadline.Add(-canonicalAgentAwaitFinalReadBudget)
+	if wait := time.Until(deferUntil); wait > 0 {
+		deferTimer := time.NewTimer(wait)
+		defer deferTimer.Stop()
+		select {
+		case <-deferTimer.C:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-awaitCtx.Done():
+			return nil, awaitCtx.Err()
+		}
+	} else if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	deferTimer := time.NewTimer(deferDuration)
-	defer deferTimer.Stop()
-	select {
-	case <-deferTimer.C:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-awaitCtx.Done():
-		return nil, awaitCtx.Err()
-	}
-	probeCtx, probeCancel := context.WithTimeout(ctx, canonicalAgentAwaitFinalReadBudget)
+	probeCtx, probeCancel := context.WithDeadline(ctx, awaitDeadline)
 	defer probeCancel()
-	current, probeErr := canonicalAgentStatus(probeCtx, s, projectID, target)
+	resolved, probeErr := s.resolveCanonicalAgent(probeCtx, projectID, target.Agent.AgentID, true)
 	if probeErr != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 		return nil, probeErr
 	}
-	return current, nil
+	current, probeErr := canonicalAgentStatus(probeCtx, s, projectID, resolved)
+	if probeErr != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, probeErr
+	}
+	return s.canonicalAgentAwaitResult(probeCtx, projectID, resolved, current)
 }
 
 func (s *Server) canonicalAgentAwaitResult(ctx context.Context, projectID string, target canonicalAgentTarget, current map[string]any) (map[string]any, error) {
