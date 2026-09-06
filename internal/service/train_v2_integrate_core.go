@@ -143,6 +143,7 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 			return trainv2.IntegrationReceipt{}, OperationResult{}, err
 		}
 	}
+	syncedDefaultBranch := false
 	if operation.Phase == trainv2.IntegrationPhaseIntegratePending {
 		if targetHead != laneHead {
 			if targetHead != operation.TargetBefore {
@@ -165,6 +166,7 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 			if _, err := s.synchronizeDefaultBranchWorktree(ctx, project, laneHead); err != nil {
 				return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("synchronize integrated default branch worktree: %w", err)
 			}
+			syncedDefaultBranch = true
 		}
 		operation, err = s.advanceIntegrationOperation(ctx, operation, trainv2.IntegrationPhaseIntegrateComplete, "")
 		if err != nil {
@@ -172,7 +174,7 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 		}
 	}
 	if operation.Phase == trainv2.IntegrationPhaseIntegrateComplete {
-		if defaultBranchName(targetBranch) == defaultBranchName(project.DefaultBranch) {
+		if !syncedDefaultBranch && defaultBranchName(targetBranch) == defaultBranchName(project.DefaultBranch) {
 			if _, err := s.synchronizeDefaultBranchWorktree(ctx, project, laneHead); err != nil {
 				return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("synchronize integrated default branch worktree: %w", err)
 			}
