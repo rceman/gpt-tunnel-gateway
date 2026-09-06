@@ -114,27 +114,120 @@ func TestCanonicalAgentSchemasAreClosedAndBounded(t *testing.T) {
 	}
 }
 
-func TestCanonicalAgentAwaitNoArgUsesOneTotalTimeoutBudget(t *testing.T) {
+func newInstrumentedAwaitFixture(t *testing.T) (*Server, string, string) {
+	t.Helper()
 	s, revision := newWorkflowPolicyStatusService(t)
 	seedMCPTestCodingAgent(t, s, revision)
 	dir := t.TempDir()
+	logPath := filepath.Join(dir, "live-calls")
 	command := filepath.Join(dir, "airelay")
-	if err := os.WriteFile(command, []byte("#!/bin/sh\nsleep 5\n"), 0o700); err != nil {
+	script := fmt.Sprintf(`#!/bin/sh
+printf '%%s %%s\n' "$(date +%%s%%3N)" "$*" >> %q
+case "$1" in
+session-status) if [ "$3" = --json ]; then printf '{"sessionKey":"%%s","profile":"coding","controllerReachable":true,"state":"idle"}' "$2"; else printf 'Controller: reachable\nState: idle\n'; fi ;;
+tail) printf 'new\n' ;;
+*) exit 99 ;;
+esac
+`, logPath)
+	if err := os.WriteFile(command, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	s.Config.AirelayCommand = command
 	s.Airelay.Command = command
+	s.Config.AgentBindings = map[string]config.AgentBinding{
+		config.ProjectAgentBindingKey("example", "coding-example"): {SessionKey: "example_master", Profile: "coding"},
+	}
 	server := &Server{Service: s}
 	sessionID := genericSession(t, s, "example")
-	ctx, cancel := context.WithTimeout(service.WithAgentSessionID(context.Background(), sessionID), 50*time.Millisecond)
-	defer cancel()
+	return server, sessionID, logPath
+}
+
+func TestCanonicalAgentAwaitDefersLiveProbeAndPreservesTail(t *testing.T) {
+	server, sessionID, logPath := newInstrumentedAwaitFixture(t)
 	started := time.Now()
-	_, err := server.canonicalAgentAwaitAction(ctx, mustJSON(t, map[string]any{"agent": "coding-example"}))
-	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("no-arg await error=%v, want deadline exceeded", err)
+	resultCh := make(chan struct {
+		value any
+		err   error
+	}, 1)
+	go func() {
+		value, err := server.canonicalAgentAwaitAction(
+			service.WithAgentSessionID(context.Background(), sessionID),
+			mustJSON(t, map[string]any{"seconds": 2, "agent": "coding-example"}),
+		)
+		resultCh <- struct {
+			value any
+			err   error
+		}{value, err}
+	}()
+	time.Sleep(250 * time.Millisecond)
+	if data, err := os.ReadFile(logPath); err == nil && len(data) != 0 {
+		t.Fatalf("live Airelay call occurred before defer boundary: %q", data)
 	}
-	if elapsed := time.Since(started); elapsed >= 500*time.Millisecond {
-		t.Fatalf("no-arg await exceeded one total context budget: %s", elapsed)
+	result := <-resultCh
+	if result.err != nil {
+		t.Fatal(result.err)
+	}
+	if elapsed := time.Since(started); elapsed < 900*time.Millisecond || elapsed >= 3*time.Second {
+		t.Fatalf("await duration=%s, want approximately two seconds and below three seconds", elapsed)
+	}
+	if data, err := os.ReadFile(logPath); err != nil || len(data) == 0 {
+		t.Fatalf("final live probe was not recorded: %q, %v", data, err)
+	}
+	value := result.value.(map[string]any)
+	if value["agent"] != "coding-example" || value["status"] != "idle" {
+		t.Fatalf("await returned unexpected status: %#v", value)
+	}
+	if tail, ok := value["tail"].([]string); !ok || !reflect.DeepEqual(tail, []string{"new"}) {
+		t.Fatalf("await tail projection=%#v", value["tail"])
+	}
+}
+
+func TestCanonicalAgentAwaitCancellationBeforeProbeIsPrompt(t *testing.T) {
+	server, sessionID, logPath := newInstrumentedAwaitFixture(t)
+	ctx, cancel := context.WithCancel(service.WithAgentSessionID(context.Background(), sessionID))
+	defer cancel()
+	resultCh := make(chan error, 1)
+	started := time.Now()
+	go func() {
+		_, err := server.canonicalAgentAwaitAction(ctx, mustJSON(t, map[string]any{"seconds": 2, "agent": "coding-example"}))
+		resultCh <- err
+	}()
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-resultCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("await cancellation error=%v", err)
+		}
+		if elapsed := time.Since(started); elapsed >= 500*time.Millisecond {
+			t.Fatalf("await cancellation took %s", elapsed)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("await did not return promptly after cancellation")
+	}
+	if data, err := os.ReadFile(logPath); err == nil && len(data) != 0 {
+		t.Fatalf("cancellation triggered live Airelay call: %q", data)
+	}
+}
+
+func TestCanonicalAgentAwaitOneSecondEntersFinalProbeImmediately(t *testing.T) {
+	server, sessionID, logPath := newInstrumentedAwaitFixture(t)
+	started := time.Now()
+	value, err := server.canonicalAgentAwaitAction(
+		service.WithAgentSessionID(context.Background(), sessionID),
+		mustJSON(t, map[string]any{"seconds": 1, "agent": "coding-example"}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed >= 1500*time.Millisecond {
+		t.Fatalf("one-second await exceeded bounded window: %s", elapsed)
+	}
+	if data, err := os.ReadFile(logPath); err != nil || len(data) == 0 {
+		t.Fatalf("one-second await did not perform final probe: %q, %v", data, err)
+	}
+	if result := value.(map[string]any); result["status"] != "idle" {
+		t.Fatalf("one-second await result=%#v", result)
 	}
 }
 
@@ -189,18 +282,17 @@ func TestCanonicalAgentBusyUsesAirelaySessionState(t *testing.T) {
 	}
 }
 
-func TestCanonicalAgentAwaitTimeoutReturnsIncrementalTail(t *testing.T) {
+func TestCanonicalAgentAwaitPreservesTailProjection(t *testing.T) {
 	s, revision := newWorkflowPolicyStatusService(t)
 	seedMCPTestCodingAgent(t, s, revision)
 	dir := t.TempDir()
-	counter := filepath.Join(dir, "tail-called")
-	script := fmt.Sprintf(`#!/bin/sh
+	script := `#!/bin/sh
 case "$1" in
-session-status) if [ "$3" = --json ]; then printf '{"sessionKey":"%%s","profile":"coding","controllerReachable":true,"state":"idle"}' "$2"; else printf 'Controller: reachable\nState: idle\n'; fi ;;
-tail) if [ -f %s ]; then printf 'old\nnew\n'; else printf 'old\n'; touch %s; fi ;;
+session-status) if [ "$3" = --json ]; then printf '{"sessionKey":"%s","profile":"coding","controllerReachable":true,"state":"idle"}' "$2"; else printf 'Controller: reachable\nState: idle\n'; fi ;;
+tail) printf 'new\n' ;;
 *) exit 99 ;;
 esac
-`, counter, counter)
+`
 	command := filepath.Join(dir, "airelay")
 	if err := os.WriteFile(command, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
