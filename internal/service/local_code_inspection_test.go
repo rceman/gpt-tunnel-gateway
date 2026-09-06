@@ -425,18 +425,39 @@ func TestCodeWorktreeRefreshesCanonicalMainWhenConfiguredWorktreeIsStale(t *test
 	canonical := strings.TrimSpace(testutil.Git(t, remoteWorktree, "rev-parse", "HEAD"))
 	testutil.Git(t, remoteWorktree, "push", "origin", "HEAD:refs/heads/main")
 
-	result, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"})
-	if err != nil {
-		t.Fatalf("CodeWorktree() error = %v", err)
+	before := strings.TrimSpace(testutil.Git(t, f.root, "rev-parse", "HEAD"))
+	if _, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"}); err == nil || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("read-only CodeWorktree did not fail closed for stale main: %v", err)
 	}
-	if len(result.Items) != 1 {
-		t.Fatalf("CodeWorktree() items = %d, want 1", len(result.Items))
+	if after := strings.TrimSpace(testutil.Git(t, f.root, "rev-parse", "HEAD")); after != before {
+		t.Fatalf("read-only CodeWorktree mutated physical HEAD from %s to %s", before, after)
 	}
-	if result.Items[0].Head != canonical {
-		t.Fatalf("main head = %q, want refreshed canonical %q", result.Items[0].Head, canonical)
+	project := f.service.Config.Projects["example"]
+	if _, err := f.service.synchronizeDefaultBranchWorktree(context.Background(), project, canonical); err != nil {
+		t.Fatalf("authorized default-branch synchronization failed: %v", err)
 	}
-	if result.Items[0].Selector != "WT-MAIN-"+canonical[:8] {
-		t.Fatalf("main selector = %q, want refreshed canonical selector", result.Items[0].Selector)
+	for repeat := 0; repeat < 2; repeat++ {
+		result, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"})
+		if err != nil || len(result.Items) != 1 || result.Items[0].Head != canonical || result.Items[0].Selector != "WT-MAIN-"+canonical[:8] {
+			t.Fatalf("CodeWorktree() repeat=%d result=%#v err=%v", repeat, result, err)
+		}
+	}
+	selector := "WT-MAIN-" + canonical[:8]
+	read, err := f.service.CodeRead(context.Background(), CodeReadInput{ProjectID: "example", Worktree: selector, Path: "canonical-main.txt"})
+	if err != nil || read.Content != "canonical main\n" || read.CurrentHead != canonical[:8] {
+		t.Fatalf("CodeRead()=%#v err=%v", read, err)
+	}
+	tree, err := f.service.CodeTree(context.Background(), CodeTreeInput{ProjectID: "example", Worktree: selector, Path: "canonical-main.txt"})
+	if err != nil || len(tree.Paths) != 1 || tree.Paths[0] != "canonical-main.txt" {
+		t.Fatalf("CodeTree()=%#v err=%v", tree, err)
+	}
+	search, err := f.service.CodeSearch(context.Background(), CodeSearchInput{ProjectID: "example", Worktree: selector, Query: "canonical", Paths: []string{"canonical-main.txt"}})
+	if err != nil || len(search.Matches) != 1 {
+		t.Fatalf("CodeSearch()=%#v err=%v", search, err)
+	}
+	diff, err := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector})
+	if err != nil || diff.Diff != "" {
+		t.Fatalf("CodeDiff()=%#v err=%v", diff, err)
 	}
 }
 

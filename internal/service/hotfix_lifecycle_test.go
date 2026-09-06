@@ -60,12 +60,28 @@ func TestHotfixLifecycleUsesRecordedBaseAndExactRetryIsNoOp(t *testing.T) {
 	if first.MainAfter != reviewed || first.BaseSHA != base {
 		t.Fatalf("first integration=%#v", first)
 	}
+	if got := strings.TrimSpace(testutil.Git(t, s.Config.Projects["example"].Root, "rev-parse", "HEAD")); got != reviewed {
+		t.Fatalf("physical default branch HEAD=%s, want reviewed=%s", got, reviewed)
+	}
+	if err := os.WriteFile(filepath.Join(s.Config.Projects["example"].Root, "dirty-after-integration.txt"), []byte("dirty\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.HotfixIntegrate(context.Background(), "example", input); err == nil || !strings.Contains(err.Error(), "synchronize integrated default branch worktree") {
+		t.Fatalf("dirty idempotent retry error=%v, want fail-closed synchronization error", err)
+	}
+	if err := os.Remove(filepath.Join(s.Config.Projects["example"].Root, "dirty-after-integration.txt")); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, s.Config.Projects["example"].Root, "reset", "--hard", base)
 	second, err := s.HotfixIntegrate(context.Background(), "example", input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if second.MainBefore != reviewed || second.MainAfter != reviewed || second.BaseSHA != base {
 		t.Fatalf("retry integration=%#v", second)
+	}
+	if got := strings.TrimSpace(testutil.Git(t, s.Config.Projects["example"].Root, "rev-parse", "HEAD")); got != reviewed {
+		t.Fatalf("physical default branch retry HEAD=%s, want reviewed=%s", got, reviewed)
 	}
 }
 
