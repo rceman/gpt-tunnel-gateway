@@ -161,12 +161,22 @@ func (s *Service) TrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput
 				return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("integration branch did not reach proved Train head")
 			}
 		}
+		if defaultBranchName(targetBranch) == defaultBranchName(project.DefaultBranch) {
+			if _, err := s.synchronizeDefaultBranchWorktree(ctx, project, laneHead); err != nil {
+				return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("synchronize integrated default branch worktree: %w", err)
+			}
+		}
 		operation, err = s.advanceIntegrationOperation(ctx, operation, trainv2.IntegrationPhaseIntegrateComplete, "")
 		if err != nil {
 			return trainv2.IntegrationReceipt{}, OperationResult{}, err
 		}
 	}
 	if operation.Phase == trainv2.IntegrationPhaseIntegrateComplete {
+		if defaultBranchName(targetBranch) == defaultBranchName(project.DefaultBranch) {
+			if _, err := s.synchronizeDefaultBranchWorktree(ctx, project, laneHead); err != nil {
+				return trainv2.IntegrationReceipt{}, OperationResult{}, fmt.Errorf("synchronize integrated default branch worktree: %w", err)
+			}
+		}
 		operation, err = s.advanceIntegrationOperation(ctx, operation, trainv2.IntegrationPhasePostPending, "")
 		if err != nil {
 			return trainv2.IntegrationReceipt{}, OperationResult{}, err

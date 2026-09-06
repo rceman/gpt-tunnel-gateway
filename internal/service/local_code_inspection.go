@@ -369,9 +369,15 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 		return nil, fmt.Errorf("resolve canonical main worktree: %w", err)
 	}
 	project = mainWorktree
-	mainStatus, err := s.Git.SynchronizeDefaultBranchWorktree(ctx, project, canonicalMainHead)
+	mainStatus, err := s.Git.WorktreeStatus(ctx, project)
 	if err != nil {
-		return nil, fmt.Errorf("synchronize main worktree: %w", err)
+		return nil, fmt.Errorf("read main worktree status: %w", err)
+	}
+	if mainStatus.Branch != mainBranch || !mainStatus.Clean {
+		return nil, fmt.Errorf("canonical main worktree is stale or not clean")
+	}
+	if mainStatus.Head != canonicalMainHead {
+		return nil, fmt.Errorf("canonical main worktree is stale: physical head %s, canonical head %s", mainStatus.Head, canonicalMainHead)
 	}
 	mainHead := mainStatus.Head
 	managed := make(map[string]model.TrainV2, len(trains))
