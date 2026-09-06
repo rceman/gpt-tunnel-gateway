@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -16,7 +17,56 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
+
+func TestTSK514AgentInventoryKeepsDisabledCodingAndHidesRetiredWatcher(t *testing.T) {
+	server := newSessionTestServer(t)
+	revision, err := server.Service.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedMCPTestCodingAgent(t, server.Service, revision)
+	now := time.Now().UTC()
+	for _, agent := range []model.Agent{
+		{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coding-disabled", Role: model.AgentRoleCoding, Enabled: false, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now},
+		{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "retired-watcher", Role: "watcher", Enabled: false, CreatedAt: now, UpdatedAt: now},
+	} {
+		payload, err := json.Marshal(agent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := server.Service.Durability.UpsertLocalAgent(context.Background(), sqlitestore.LocalAgent{
+			ProjectID: "example", AgentID: agent.AgentID, Payload: payload, UpdatedAt: now.Format(time.RFC3339Nano),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := context.Background()
+	agents, err := server.Service.AgentList(ctx, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 2 || agents[0].AgentID != "coding-disabled" || agents[1].AgentID != "coding-example" {
+		t.Fatalf("local coding inventory=%#v", agents)
+	}
+
+	sessionID := genericSession(t, server.Service, "example")
+	response := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 514, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session": sessionID, "action": "agent/list", "input": map[string]any{},
+		}},
+	})))
+	result, ok := response["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("public agent/list result=%#v", response)
+	}
+	publicAgents, ok := result["agents"].([]any)
+	if !ok || len(publicAgents) != 1 || publicAgents[0].(map[string]any)["key"] != "coding-example" {
+		t.Fatalf("public agent/list projection=%#v", response)
+	}
+}
 
 func schemaProperties(schema map[string]any) map[string]any {
 	properties, _ := schema["properties"].(map[string]any)
