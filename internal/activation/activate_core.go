@@ -14,6 +14,8 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 )
 
+// LiveMCPSmoke proves the canonical public MCP runtime contract used by both
+// activation and transactional upgrade/rollback verification.
 func LiveMCPSmoke(ctx context.Context, c config.Config, expectedVersion string) error {
 	call := func(id int, method string, params map[string]any) (map[string]any, error) {
 		payload, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})

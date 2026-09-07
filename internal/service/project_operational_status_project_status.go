@@ -16,6 +16,9 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
+// ProjectOperationalStatus is the compact, session-bound operator projection.
+// It deliberately contains identifiers and lifecycle facts, never full durable
+// records, reports, histories, or Agent transcript output.
 type ProjectOperationalStatus struct {
 	Project               ProjectOperationalIdentity    `json:"project"`
 	State                 string                        `json:"state"`

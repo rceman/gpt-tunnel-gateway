@@ -163,7 +163,6 @@ func (s *Service) executeProjectTaskGatesWithTestReuse(ctx context.Context, proj
 // ordinary Task finalization. Broad operation classes never use a package
 // subset; implementation and correction tasks may use the conservative
 // changed-file resolver, which returns full-suite scope on uncertainty.
-
 func resolveFinalizationTestScope(ctx context.Context, operationClass, root string, changedFiles []string) gates.TestScope {
 	switch operationClass {
 	case "", "implementation", "correction":

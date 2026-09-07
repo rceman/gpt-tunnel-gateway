@@ -10,6 +10,10 @@ import (
 	upstream "github.com/rceman/go-sqlite-store/store"
 )
 
+// SharedMutation is the local-first commit unit for one syncable entity. The
+// entity CAS and its Hub outbox row are committed by one SQLite batch before a
+// caller acknowledges the mutation. Hub synchronization is deliberately not
+// part of this operation.
 type SharedMutation struct {
 	OperationID       string
 	EntityType        string
@@ -59,7 +63,6 @@ type SharedADRCreate struct {
 // SharedTaskCreate is the local allocation unit for task/create. The payload
 // builder is called with the SQLite-owned compact task ID while the sequence,
 // task row, and outbox row are committed in one batch.
-
 type SharedTaskCreate struct {
 	OperationID           string
 	ProjectID             string
@@ -171,7 +174,6 @@ func (d *Databases) CommitSharedMutation(ctx context.Context, mutation SharedMut
 // CommitSharedTaskCreate allocates a task number locally and commits the
 // sequence advance, task entity, and Hub outbox entry atomically. It never
 // contacts Hub; a later publisher owns synchronization of the outbox entry.
-
 func (d *Databases) CommitSharedTaskCreate(ctx context.Context, request SharedTaskCreate) (SharedMutationReceipt, string, []byte, error) {
 	if d == nil || d.Shared == nil {
 		return SharedMutationReceipt{}, "", nil, fmt.Errorf("shared store is unavailable")

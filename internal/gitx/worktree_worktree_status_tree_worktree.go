@@ -13,6 +13,9 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
+// WorktreeInfo is the server-owned identity of an existing local worktree.
+// The filesystem path is retained for typed service use and is never exposed
+// as caller authority.
 type WorktreeInfo struct {
 	Path   string
 	Head   string
@@ -22,13 +25,11 @@ type WorktreeInfo struct {
 // WorktreeInventory is one bounded snapshot of Git's worktree registry. The
 // registry is only used to resolve server-owned branch identities; it is not
 // an inventory authority.
-
 type WorktreeInventory struct {
 	byBranch map[string]config.ProjectConfig
 }
 
 // LoadWorktreeInventory enumerates Git worktrees exactly once.
-
 func (r Runner) LoadWorktreeInventory(ctx context.Context, p config.ProjectConfig) (WorktreeInventory, error) {
 	worktrees, err := r.ListWorktrees(ctx, p)
 	if err != nil {
@@ -51,7 +52,6 @@ func (r Runner) LoadWorktreeInventory(ctx context.Context, p config.ProjectConfi
 
 // Resolve validates and resolves a server-owned full local branch ref from
 // the already-loaded inventory without invoking Git again.
-
 func (i WorktreeInventory) Resolve(ref string) (config.ProjectConfig, error) {
 	if !strings.HasPrefix(ref, "refs/heads/") || len(ref) == len("refs/heads/") {
 		return config.ProjectConfig{}, fmt.Errorf("worktree_ref must be a full local branch ref")
@@ -68,7 +68,6 @@ func (i WorktreeInventory) Resolve(ref string) (config.ProjectConfig, error) {
 
 // ResolveHotfixWorktreeFromInventory applies the server-owned hotfix path
 // check to an already-loaded Git inventory.
-
 func (r Runner) ResolveHotfixWorktreeFromInventory(inventory WorktreeInventory, stateDir, projectID, ref string) (config.ProjectConfig, error) {
 	slug, err := hotfixSlugFromRef(ref)
 	if err != nil {
@@ -92,7 +91,6 @@ func (r Runner) ResolveHotfixWorktreeFromInventory(inventory WorktreeInventory, 
 
 // ListWorktrees returns the bounded, Git-owned worktree inventory for a
 // configured repository. It performs no network or mirror operation.
-
 func (r Runner) ListWorktrees(ctx context.Context, p config.ProjectConfig) ([]WorktreeInfo, error) {
 	out, err := r.command(ctx, p.Root, false, "worktree", "list", "--porcelain")
 	if err != nil {
@@ -129,7 +127,6 @@ func (r Runner) ListWorktrees(ctx context.Context, p config.ProjectConfig) ([]Wo
 
 // ResolveWorktree resolves an exact server-owned branch ref to an existing
 // worktree of the configured repository. Callers provide a ref, never a path.
-
 func (r Runner) ResolveWorktree(ctx context.Context, p config.ProjectConfig, ref string) (config.ProjectConfig, error) {
 	if !strings.HasPrefix(ref, "refs/heads/") || len(ref) == len("refs/heads/") {
 		return config.ProjectConfig{}, fmt.Errorf("worktree_ref must be a full local branch ref")
@@ -161,7 +158,6 @@ func (r Runner) ResolveWorktree(ctx context.Context, p config.ProjectConfig, ref
 
 // ReadLocalFile reads a committed object from an existing local worktree.
 // Unlike ReadFile, it never resolves through a mirror or performs network I/O.
-
 func (r Runner) ReadLocalFile(ctx context.Context, p config.ProjectConfig, revision, path string) (string, error) {
 	if err := model.ValidateCommitSHA(revision); err != nil {
 		return "", err
@@ -179,7 +175,6 @@ func (r Runner) ReadLocalFile(ctx context.Context, p config.ProjectConfig, revis
 // ReadWorkingFile reads the current regular file from an existing worktree.
 // Git validates the path and excludes repository metadata through its normal
 // worktree command boundary.
-
 func (r Runner) ReadWorkingFile(ctx context.Context, p config.ProjectConfig, path string) (string, error) {
 	if err := model.ValidateRelativePath(path); err != nil {
 		return "", err
@@ -242,7 +237,6 @@ func (r Runner) ReadWorkingFile(ctx context.Context, p config.ProjectConfig, pat
 
 // WorkingTreeFiles returns the current tracked and non-ignored untracked
 // regular-file paths in a worktree.
-
 func (r Runner) WorkingTreeFiles(ctx context.Context, p config.ProjectConfig, path string) ([]string, error) {
 	if err := validatePath(path); err != nil {
 		return nil, err
@@ -268,7 +262,6 @@ func (r Runner) WorkingTreeFiles(ctx context.Context, p config.ProjectConfig, pa
 
 // WalkWorkingTreeFiles streams tracked and non-ignored untracked regular-file
 // candidates without retaining the complete inventory in memory.
-
 func (r Runner) WalkWorkingTreeFiles(ctx context.Context, p config.ProjectConfig, path string, visit func(string) error) error {
 	if err := validatePath(path); err != nil {
 		return err
@@ -304,7 +297,6 @@ func pathSetContains(paths map[string]struct{}, path string) bool {
 // DiffLineVisitor receives each semantic diff line and its stable zero-based
 // offset in the complete diff stream. Returning ErrStreamLimit stops Git
 // immediately after the current line without turning it into a page driver.
-
 type DiffLineVisitor func(offset int64, line []byte) error
 
 type diffLineStream struct {

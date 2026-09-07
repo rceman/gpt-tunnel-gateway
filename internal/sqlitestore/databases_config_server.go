@@ -43,7 +43,6 @@ type Databases struct {
 
 // OpenError preserves the bounded startup diagnostic boundary without
 // changing the store's ownership or durability behavior.
-
 type OpenError struct {
 	Stage    string
 	Database string
@@ -66,7 +65,6 @@ func Open(stateDir string) (*Databases, error) { return OpenWithConfig(Config{St
 
 // OpenWithObserver is the same durable open path as OpenWithConfig, with
 // bounded phase notifications for daemon startup diagnostics.
-
 func OpenWithObserver(stateDir string, observe func(string)) (*Databases, error) {
 	return openWithConfig(Config{StateDir: stateDir}, observe)
 }

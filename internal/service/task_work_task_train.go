@@ -28,7 +28,6 @@ type currentTaskAttempt struct {
 // taskAttempt resolves the one active TrainItem owned by taskID. The caller
 // supplies only the project and Task identity; Train identity is discovered
 // from the current Train state and never accepted as caller authority.
-
 func (s *Service) taskAttempt(ctx context.Context, projectID, taskID string) (currentTaskAttempt, error) {
 	if err := requireTrainV2Authoring(ctx, s, projectID); err != nil {
 		return currentTaskAttempt{}, err

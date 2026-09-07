@@ -35,7 +35,6 @@ type Result struct {
 // without changing installed artifacts or restarting a process. It is used by
 // in-process control-plane mutations, where calling Source would terminate
 // the serving gateway before the mutation can commit.
-
 func ProveSource(ctx context.Context, c config.Config, configPath string, project config.ProjectConfig, sourceHead string) (Result, error) {
 	if project.Root == "" || sourceHead == "" {
 		return Result{}, fmt.Errorf("activation source is incomplete")
@@ -117,7 +116,6 @@ func sha256File(path string) (string, error) {
 // external operation directory. It performs offline verification first, then
 // holds the controller handoff lock across Gateway stop, atomic replacement,
 // start, readiness/provenance proof, and rollback. Tunnel is never touched.
-
 func SelfActivate(ctx context.Context, c config.Config, configPath string, project config.ProjectConfig, sourceHead string) (Result, error) {
 	return selfActivate(ctx, c, configPath, project, sourceHead, false, true)
 }
@@ -126,7 +124,6 @@ func SelfActivate(ctx context.Context, c config.Config, configPath string, proje
 // keeps the canonical artifact/smoke/atomic Gateway handoff but requires the
 // configured Gateway source to be exactly on main. A broken Gateway may be
 // repaired; the existing Tunnel must remain running and ready.
-
 func DebugActivate(ctx context.Context, c config.Config, configPath string, project config.ProjectConfig, sourceHead string) (Result, error) {
 	return selfActivate(ctx, c, configPath, project, sourceHead, true, false)
 }

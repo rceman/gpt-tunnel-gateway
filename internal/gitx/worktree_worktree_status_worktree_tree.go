@@ -76,7 +76,6 @@ func (r Runner) finishDiffStream(stream *diffLineStream) (bool, error) {
 
 // VisitDiffLocalCommits streams a committed diff and stops at the visitor's
 // semantic page boundary. It never uses a line or byte limit as pagination.
-
 func (r Runner) VisitDiffLocalCommits(ctx context.Context, p config.ProjectConfig, from, to string, paths []string, offset int64, visit DiffLineVisitor) (bool, error) {
 	if err := model.ValidateCommitSHA(from); err != nil {
 		return false, err
@@ -103,7 +102,6 @@ func (r Runner) VisitDiffLocalCommits(ctx context.Context, p config.ProjectConfi
 
 // VisitDiffWorkingFromBase streams tracked changes and regular non-ignored
 // untracked files, stopping at the visitor's semantic page boundary.
-
 func (r Runner) VisitDiffWorkingFromBase(ctx context.Context, p config.ProjectConfig, base string, paths []string, offset int64, visit DiffLineVisitor) (bool, error) {
 	if err := model.ValidateCommitSHA(base); err != nil {
 		return false, err
@@ -208,7 +206,6 @@ func (r Runner) WorktreeStatus(ctx context.Context, p config.ProjectConfig) (Wor
 // ChangedWorkingFiles returns the bounded tracked/untracked paths in the
 // working tree. It is a typed status operation used by verification scope
 // resolution; callers never construct Git commands.
-
 func (r Runner) ChangedWorkingFiles(ctx context.Context, root string) ([]string, error) {
 	out, err := r.command(ctx, root, false, "status", "--porcelain=v1", "--untracked-files=all")
 	if err != nil {
@@ -243,7 +240,6 @@ func (r Runner) ChangedWorkingFiles(ctx context.Context, root string) ([]string,
 // tracked edits, staged edits, untracked files, deletions, and file modes.
 // It is deliberately content-based so a completed verification cannot be
 // reused after source bytes change.
-
 func (r Runner) WorktreeFingerprint(ctx context.Context, root string) (string, error) {
 	status, err := r.command(ctx, root, false, "status", "--porcelain=v2", "--branch")
 	if err != nil {
@@ -272,7 +268,6 @@ func (r Runner) WorktreeFingerprint(ctx context.Context, root string) (string, e
 // WorktreeFileHashes returns content-and-mode identities for every tracked or
 // non-ignored untracked path. Missing tracked paths are retained as "missing"
 // entries so deletions participate in delta calculation.
-
 func (r Runner) WorktreeFileHashes(ctx context.Context, root string) (map[string]string, error) {
 	pathsRaw, err := r.command(ctx, root, false, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
 	if err != nil {

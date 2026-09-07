@@ -58,7 +58,6 @@ func (s *Service) resolveWorkCheckpointAdapter(ctx context.Context, projectID st
 // resolveWorkCheckpointGoScope is the Go project adapter. The checkpoint
 // engine itself carries only neutral changed paths; other projects provide a
 // different adapter through Service.workCheckpointExecutor.
-
 func resolveWorkCheckpointGoScope(ctx context.Context, root string, changedFiles []string) (gates.TestScope, error) {
 	if len(changedFiles) == 0 {
 		return gates.TestScope{Mode: gates.TestScopePackages, Packages: []string{}}, nil

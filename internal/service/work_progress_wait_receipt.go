@@ -77,7 +77,6 @@ const workCheckpointBusyWait = 2 * time.Second
 // single-flight. A busy lock is expected when another caller is already
 // running the same checkpoint; it is not a gate failure. Observe the durable
 // running receipt and return it, or wait briefly for that receipt to appear.
-
 func (s *Service) acquireWorkCheckpointLock(ctx context.Context, in WorkProgressInput) (*lockfile.Lock, *WorkProgressReceipt, error) {
 	lockDir := filepath.Join(s.Config.StateDir, "locks")
 	statePath := workCheckpointStatePath(s.Config.StateDir, in.Root, in.ProjectID)

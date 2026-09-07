@@ -139,7 +139,6 @@ func (d *Databases) listSharedEntitiesQuery(ctx context.Context, entityType, que
 // SeedSharedTask imports a compatibility read into Shared without producing
 // an outbox event. It is used only by an async worker before a first local
 // mutation when the authoritative Shared snapshot predates the task.
-
 func (d *Databases) SeedSharedTask(ctx context.Context, task SharedTask) error {
 	if task.ID == "" || task.Revision < 1 || len(task.Payload) == 0 || task.UpdatedAt == "" {
 		return fmt.Errorf("invalid shared task seed")

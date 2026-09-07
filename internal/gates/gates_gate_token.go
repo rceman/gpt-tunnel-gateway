@@ -149,7 +149,6 @@ func (e Executor) ExecuteWithScope(ctx context.Context, root string, requested [
 // using the repository-owned argv definitions. The Gateway only selects the
 // named group and test mode; it does not derive language-specific package
 // scopes or rewrite command arguments.
-
 func (e Executor) ExecuteWithProjectCommands(ctx context.Context, root string, requested []string, commands model.ProjectGateCommands, testMode string) ([]model.CompletionGateResult, error) {
 	return e.ExecuteWithProjectCommandsAndScope(ctx, root, requested, commands, testMode, FullTestScope())
 }
@@ -159,7 +158,6 @@ func (e Executor) ExecuteWithProjectCommands(ctx context.Context, root string, r
 // canonical Go task test command. Unknown/custom test commands fail closed to
 // the configured full command; the scope resolver itself already falls back
 // to FullTestScope on uncertainty.
-
 func (e Executor) ExecuteWithProjectCommandsAndScope(ctx context.Context, root string, requested []string, commands model.ProjectGateCommands, testMode string, scope TestScope) ([]model.CompletionGateResult, error) {
 	resolved, err := Resolve(requested)
 	if err != nil {
@@ -199,7 +197,6 @@ func (e Executor) ExecuteWithProjectCommandsAndScope(ctx context.Context, root s
 // ProjectGateCommandArgs returns the exact argv that a project-owned gate
 // would execute after applying the server-owned scope to a canonical Go task
 // test command.
-
 func ProjectGateCommandArgs(commands model.ProjectGateCommands, gate, testMode string, scope TestScope) ([]string, error) {
 	if err := commands.Validate(); err != nil {
 		return nil, err

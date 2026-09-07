@@ -39,7 +39,6 @@ func enableTrainV2ForTest(t *testing.T, s *Service, hubRevision string) string {
 
 // The service package checks Hub/path/authority wiring only. Semantic task
 // transitions are exercised with in-memory values in internal/train.
-
 func TestTaskAuthoringServiceWiresCanonicalLifecycle(t *testing.T) {
 	s, hubRevision, _ := testServiceWithoutIdentifiers(t)
 	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)
