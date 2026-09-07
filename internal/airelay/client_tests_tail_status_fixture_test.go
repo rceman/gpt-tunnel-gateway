@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTailUsesExactArgumentsAndNormalizesFixture(t *testing.T) {
