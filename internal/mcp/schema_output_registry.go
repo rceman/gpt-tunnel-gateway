@@ -15,5 +15,6 @@ func mergeToolOutputSchemas(groups ...map[string]map[string]any) map[string]map[
 
 var toolOutputSchemas = mergeToolOutputSchemas(
 	coreToolOutputSchemas(),
+	taskToolOutputSchemas(),
 	runtimeToolOutputSchemas(),
 )
