@@ -19,9 +19,15 @@ func TestTaskAuthoringUpdateSharedBootstrapsLegacyTaskBeforeHubUnavailable(t *te
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
 	legacy, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
-		ProjectID: "example", Title: "Legacy shared task", Objective: "Bootstrap before local-only mutation.",
-		AcceptanceCriteria: []string{"update survives Hub outage"}, ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID:          "example",
+		Title:              "Legacy shared task",
+		Objective:          "Bootstrap before local-only mutation.",
+		AcceptanceCriteria: []string{"update survives Hub outage"},
+		ADRRelation:        model.TaskADRNoRequired,
+		CreatedBy:          "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -41,8 +47,12 @@ func TestTaskAuthoringUpdateSharedBootstrapsLegacyTaskBeforeHubUnavailable(t *te
 	title := "Updated while Hub is unavailable"
 	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
 	started, err := s.TaskAuthoringUpdateAsync(context.Background(), TaskAuthoringUpdateInput{
-		ProjectID: "example", TaskID: legacy.ID, ExpectedRevision: legacy.Revision,
-		ExpectedRevisionSHA256: legacy.RevisionSHA256, Title: &title, UpdatedBy: "planner",
+		ProjectID:              "example",
+		TaskID:                 legacy.ID,
+		ExpectedRevision:       legacy.Revision,
+		ExpectedRevisionSHA256: legacy.RevisionSHA256,
+		Title:                  &title,
+		UpdatedBy:              "planner",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +73,14 @@ func TestSharedBootstrapMarkerBlocksAuthoringAndSurvivesRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Durability = db
-	in := TaskAuthoringCreateInput{ProjectID: "example", Title: "Marker task", Objective: "Require bootstrap first.", AcceptanceCriteria: []string{"marker"}, ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner"}
+	in := TaskAuthoringCreateInput{
+		ProjectID:          "example",
+		Title:              "Marker task",
+		Objective:          "Require bootstrap first.",
+		AcceptanceCriteria: []string{"marker"},
+		ADRRelation:        model.TaskADRNoRequired,
+		CreatedBy:          "planner",
+	}
 	if _, _, err := s.taskAuthoringCreateShared(context.Background(), "op-before-bootstrap", in); err == nil || !strings.Contains(err.Error(), "bootstrap is incomplete") {
 		t.Fatalf("authoring before bootstrap error=%v", err)
 	}

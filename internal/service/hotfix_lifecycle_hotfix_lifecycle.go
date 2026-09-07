@@ -60,7 +60,15 @@ func (s *Service) HotfixIntegrate(ctx context.Context, projectID string, in Hotf
 		if _, err := s.synchronizeDefaultBranchWorktree(ctx, p, mainBefore); err != nil {
 			return HotfixIntegrateResult{}, fmt.Errorf("synchronize integrated default branch worktree: %w", err)
 		}
-		return HotfixIntegrateResult{ProjectID: projectID, HotfixRef: in.HotfixRef, TaskID: identity.TaskID, BaseSHA: base, ReviewedSHA: in.ReviewedSHA, MainBefore: mainBefore, MainAfter: mainBefore}, nil
+		return HotfixIntegrateResult{
+			ProjectID:   projectID,
+			HotfixRef:   in.HotfixRef,
+			TaskID:      identity.TaskID,
+			BaseSHA:     base,
+			ReviewedSHA: in.ReviewedSHA,
+			MainBefore:  mainBefore,
+			MainAfter:   mainBefore,
+		}, nil
 	}
 	if err := s.Git.PushFastForward(ctx, p, p.DefaultBranch, mainBefore, in.ReviewedSHA); err != nil {
 		return HotfixIntegrateResult{}, err
@@ -75,5 +83,13 @@ func (s *Service) HotfixIntegrate(ctx context.Context, projectID string, in Hotf
 	if _, err := s.synchronizeDefaultBranchWorktree(ctx, p, mainAfter); err != nil {
 		return HotfixIntegrateResult{}, fmt.Errorf("synchronize integrated default branch worktree: %w", err)
 	}
-	return HotfixIntegrateResult{ProjectID: projectID, HotfixRef: in.HotfixRef, TaskID: identity.TaskID, BaseSHA: base, ReviewedSHA: in.ReviewedSHA, MainBefore: mainBefore, MainAfter: mainAfter}, nil
+	return HotfixIntegrateResult{
+		ProjectID:   projectID,
+		HotfixRef:   in.HotfixRef,
+		TaskID:      identity.TaskID,
+		BaseSHA:     base,
+		ReviewedSHA: in.ReviewedSHA,
+		MainBefore:  mainBefore,
+		MainAfter:   mainAfter,
+	}, nil
 }

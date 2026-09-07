@@ -97,9 +97,14 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 			pageCursor = encodeCursor(pageEnd + 1)
 		}
 		candidate := CodeReadResult{
-			CodeIdentity: readIdentity, Path: in.Path, StartLine: start, EndLine: pageEnd,
-			TotalLines: len(lines), Content: strings.Join(lines[start-1:pageEnd], "\n"), FileHash: fileHash,
-			Pagination: codePagination(pageCursor),
+			CodeIdentity: readIdentity,
+			Path:         in.Path,
+			StartLine:    start,
+			EndLine:      pageEnd,
+			TotalLines:   len(lines),
+			Content:      strings.Join(lines[start-1:pageEnd], "\n"),
+			FileHash:     fileHash,
+			Pagination:   codePagination(pageCursor),
 		}
 		return codePageFits(candidate)
 	})
@@ -114,9 +119,14 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 			pageCursor = encodeCursor(pageEnd + 1)
 		}
 		return CodeReadResult{
-			CodeIdentity: readIdentity, Path: in.Path, StartLine: start, EndLine: pageEnd,
-			TotalLines: len(lines), Content: strings.Join(lines[start-1:pageEnd], "\n"), FileHash: fileHash,
-			Pagination: codePagination(pageCursor),
+			CodeIdentity: readIdentity,
+			Path:         in.Path,
+			StartLine:    start,
+			EndLine:      pageEnd,
+			TotalLines:   len(lines),
+			Content:      strings.Join(lines[start-1:pageEnd], "\n"),
+			FileHash:     fileHash,
+			Pagination:   codePagination(pageCursor),
 		}, nil
 	}
 	return CodeReadResult{}, fmt.Errorf("code read line exceeds %d tokenizer tokens", CodePageTokenBudget)
@@ -166,7 +176,10 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 			return CodeSearchResult{}, err
 		}
 	}
-	result := CodeSearchResult{CodeIdentity: target.CodeIdentity, Matches: make([]CodeSearchMatch, 0)}
+	result := CodeSearchResult{
+		CodeIdentity: target.CodeIdentity,
+		Matches:      make([]CodeSearchMatch, 0),
+	}
 	continuation := false
 	pathsScanned := 0
 	afterSeen := in.Cursor == ""
@@ -220,8 +233,13 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 			}
 			snippet := boundedSearchSnippet(lines, lineNumber, in.ContextLines, in.Query)
 			candidate := CodeSearchResult{
-				CodeIdentity: result.CodeIdentity, PathsScanned: pathsScanned,
-				Matches: append(append([]CodeSearchMatch(nil), result.Matches...), CodeSearchMatch{Path: pathName, Line: lineNumber + 1, Snippet: snippet}),
+				CodeIdentity: result.CodeIdentity,
+				PathsScanned: pathsScanned,
+				Matches: append(append([]CodeSearchMatch(nil), result.Matches...), CodeSearchMatch{
+					Path:    pathName,
+					Line:    lineNumber + 1,
+					Snippet: snippet,
+				}),
 			}
 			fits, fitErr := codePageFits(candidate)
 			if fitErr != nil {
@@ -234,7 +252,11 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 				}
 				return errCodePageDone
 			}
-			result.Matches = append(result.Matches, CodeSearchMatch{Path: pathName, Line: lineNumber + 1, Snippet: snippet})
+			result.Matches = append(result.Matches, CodeSearchMatch{
+				Path:    pathName,
+				Line:    lineNumber + 1,
+				Snippet: snippet,
+			})
 		}
 		return nil
 	})
@@ -260,8 +282,10 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 			pageCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
 		}
 		return codePageFits(CodeSearchResult{
-			CodeIdentity: result.CodeIdentity, PathsScanned: result.PathsScanned, Matches: result.Matches[:size],
-			Pagination: codePagination(pageCursor),
+			CodeIdentity: result.CodeIdentity,
+			PathsScanned: result.PathsScanned,
+			Matches:      result.Matches[:size],
+			Pagination:   codePagination(pageCursor),
 		})
 	})
 	if fitErr != nil {
@@ -273,7 +297,12 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 			last := result.Matches[pageSize-1]
 			pageCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
 		}
-		return CodeSearchResult{CodeIdentity: result.CodeIdentity, PathsScanned: result.PathsScanned, Matches: result.Matches[:pageSize], Pagination: codePagination(pageCursor)}, nil
+		return CodeSearchResult{
+			CodeIdentity: result.CodeIdentity,
+			PathsScanned: result.PathsScanned,
+			Matches:      result.Matches[:pageSize],
+			Pagination:   codePagination(pageCursor),
+		}, nil
 	}
 	if len(result.Matches) == 0 {
 		result.Pagination = codePagination(resultCursor)

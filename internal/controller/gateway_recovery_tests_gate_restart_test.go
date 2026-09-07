@@ -64,7 +64,11 @@ func TestAcceptGatewayRecoveryReusesTerminalReceipts(t *testing.T) {
 	c := testGatewayRecoveryController(t)
 	operationID := "restart-terminal"
 	path := gatewayRecoveryPath(c.Config.StateDir, operationID)
-	succeeded := gatewayRecoveryReceipt{GatewayRecoveryResult: GatewayRecoveryResult{OperationID: operationID, Outcome: "succeeded", GatewayReady: true}}
+	succeeded := gatewayRecoveryReceipt{GatewayRecoveryResult: GatewayRecoveryResult{
+		OperationID:  operationID,
+		Outcome:      "succeeded",
+		GatewayReady: true,
+	}}
 	if err := fsutil.WriteJSONAtomic(path, succeeded, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +80,13 @@ func TestAcceptGatewayRecoveryReusesTerminalReceipts(t *testing.T) {
 
 	failureID := "restart-failed"
 	failurePath := gatewayRecoveryPath(c.Config.StateDir, failureID)
-	failure := gatewayRecoveryReceipt{GatewayRecoveryResult: GatewayRecoveryResult{OperationID: failureID, Outcome: "failed"}, Error: "readiness timeout"}
+	failure := gatewayRecoveryReceipt{
+		GatewayRecoveryResult: GatewayRecoveryResult{
+			OperationID: failureID,
+			Outcome:     "failed",
+		},
+		Error: "readiness timeout",
+	}
 	if err := fsutil.WriteJSONAtomic(failurePath, failure, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +101,13 @@ func TestRestartGatewayRecoveryReusesTerminalFailureWithoutRestart(t *testing.T)
 	c := testGatewayRecoveryController(t)
 	operationID := "restart-worker-failed"
 	path := gatewayRecoveryPath(c.Config.StateDir, operationID)
-	receipt := gatewayRecoveryReceipt{GatewayRecoveryResult: GatewayRecoveryResult{OperationID: operationID, Outcome: "failed"}, Error: "gateway did not become ready"}
+	receipt := gatewayRecoveryReceipt{
+		GatewayRecoveryResult: GatewayRecoveryResult{
+			OperationID: operationID,
+			Outcome:     "failed",
+		},
+		Error: "gateway did not become ready",
+	}
 	if err := fsutil.WriteJSONAtomic(path, receipt, 0o600); err != nil {
 		t.Fatal(err)
 	}

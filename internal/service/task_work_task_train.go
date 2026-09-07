@@ -253,10 +253,16 @@ func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task mod
 	}
 	defer func() { _ = lock.Release() }()
 	expectedReceipt := hotfixExecutionReceipt{
-		ProjectID: in.ProjectID, HotfixRef: identity.HotfixRef, TaskID: task.ID,
-		TaskRevision: task.Revision, Head: head, AgentID: resolved.AgentID,
-		SessionKey: session, Profile: resolved.Profile, WorktreePath: worktreePath,
-		Message: message,
+		ProjectID:    in.ProjectID,
+		HotfixRef:    identity.HotfixRef,
+		TaskID:       task.ID,
+		TaskRevision: task.Revision,
+		Head:         head,
+		AgentID:      resolved.AgentID,
+		SessionKey:   session,
+		Profile:      resolved.Profile,
+		WorktreePath: worktreePath,
+		Message:      message,
 	}
 	if receipt, readErr := readHotfixExecutionReceipt(receiptPath); readErr == nil {
 		if !receipt.matches(expectedReceipt) {
@@ -265,7 +271,11 @@ func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task mod
 		if receipt.State == "prepared" {
 			return TaskWorkResult{}, fmt.Errorf("hotfix execution dispatch is ambiguous and requires recovery")
 		}
-		return TaskWorkResult{TaskID: task.ID, WorktreePath: worktreePath, Text: task.Objective}, nil
+		return TaskWorkResult{
+			TaskID:       task.ID,
+			WorktreePath: worktreePath,
+			Text:         task.Objective,
+		}, nil
 	} else if !os.IsNotExist(readErr) {
 		return TaskWorkResult{}, readErr
 	}
@@ -284,7 +294,11 @@ func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task mod
 	if err := writeHotfixExecutionReceipt(receiptPath, delivered); err != nil {
 		return TaskWorkResult{}, err
 	}
-	return TaskWorkResult{TaskID: task.ID, WorktreePath: worktreePath, Text: task.Objective}, nil
+	return TaskWorkResult{
+		TaskID:       task.ID,
+		WorktreePath: worktreePath,
+		Text:         task.Objective,
+	}, nil
 }
 
 func (s *Service) TaskFinalize(ctx context.Context, in TaskFinalizeInput) (TrainV2AttemptFinalizeResult, error) {

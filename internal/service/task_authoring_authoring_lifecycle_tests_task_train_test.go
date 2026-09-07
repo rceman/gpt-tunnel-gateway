@@ -63,7 +63,11 @@ func TestTaskAuthoringServiceWiresCanonicalLifecycle(t *testing.T) {
 	if err != nil || read.RevisionSHA256 != task.RevisionSHA256 || read.Execution != "" || read.Scope == nil || read.Scope.Files[0] != "internal/service/task_authoring.go" {
 		t.Fatalf("read wiring failed: %#v %v", read, err)
 	}
-	trainTasks, err := s.TaskAuthoringList(ctx, TaskAuthoringListInput{ProjectID: "example", Execution: model.TaskExecutionTrain, Limit: MaxTaskListLimit})
+	trainTasks, err := s.TaskAuthoringList(ctx, TaskAuthoringListInput{
+		ProjectID: "example",
+		Execution: model.TaskExecutionTrain,
+		Limit:     MaxTaskListLimit,
+	})
 	if err != nil || len(trainTasks.Tasks) != 0 {
 		t.Fatalf("unassigned Task matched train execution filter: %#v %v", trainTasks, err)
 	}
@@ -84,7 +88,11 @@ func TestTaskAuthoringServiceWiresCanonicalLifecycle(t *testing.T) {
 	if err != nil || updated.Revision != 2 || updated.Execution != "" || updated.Scope == nil || updated.Scope.Files[0] != newScope.Files[0] || updateOperation.Status != model.TaskAuthoringPlanned {
 		t.Fatalf("update wiring failed: %#v %#v %v", updated, updateOperation, err)
 	}
-	filtered, err := s.TaskAuthoringList(ctx, TaskAuthoringListInput{ProjectID: "example", Execution: model.TaskExecutionHotfix, Limit: MaxTaskListLimit})
+	filtered, err := s.TaskAuthoringList(ctx, TaskAuthoringListInput{
+		ProjectID: "example",
+		Execution: model.TaskExecutionHotfix,
+		Limit:     MaxTaskListLimit,
+	})
 	if err != nil || len(filtered.Tasks) != 0 {
 		t.Fatalf("execution-filtered list failed: %#v %v", filtered, err)
 	}

@@ -168,7 +168,13 @@ func (d *Databases) CommitSharedMutation(ctx context.Context, mutation SharedMut
 		}
 		return SharedMutationReceipt{}, err
 	}
-	return SharedMutationReceipt{OperationID: mutation.OperationID, EntityType: mutation.EntityType, EntityID: mutation.EntityID, Revision: mutation.Revision, Committed: true}, nil
+	return SharedMutationReceipt{
+		OperationID: mutation.OperationID,
+		EntityType:  mutation.EntityType,
+		EntityID:    mutation.EntityID,
+		Revision:    mutation.Revision,
+		Committed:   true,
+	}, nil
 }
 
 // CommitSharedTaskCreate allocates a task number locally and commits the
@@ -192,7 +198,14 @@ func (d *Databases) CommitSharedTaskCreate(ctx context.Context, request SharedTa
 		if existing, found, err := d.outboxEntry(ctx, request.OperationID); err != nil {
 			return SharedMutationReceipt{}, "", nil, err
 		} else if found {
-			receipt, err := d.reuseSharedMutation(SharedMutation{OperationID: request.OperationID, EntityType: "task", EntityID: existing.EntityID, Revision: existing.Revision, Kind: request.Kind, Payload: existing.Payload}, existing)
+			receipt, err := d.reuseSharedMutation(SharedMutation{
+				OperationID: request.OperationID,
+				EntityType:  "task",
+				EntityID:    existing.EntityID,
+				Revision:    existing.Revision,
+				Kind:        request.Kind,
+				Payload:     existing.Payload,
+			}, existing)
 			return receipt, existing.EntityID, append([]byte(nil), existing.Payload...), err
 		}
 		next, err := d.nextTaskNumber(ctx, request.ProjectID, request.ProjectCode, request.InitialNextTaskNumber)
@@ -213,10 +226,23 @@ func (d *Databases) CommitSharedTaskCreate(ctx context.Context, request SharedTa
 			{SQL: `INSERT INTO hub_outbox(id,entity_type,entity_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?)`, Args: []any{request.OperationID, "task", entityID, 1, request.Kind, payload, created}, RequireRowsAffected: 1},
 		})
 		if err == nil {
-			return SharedMutationReceipt{OperationID: request.OperationID, EntityType: "task", EntityID: entityID, Revision: 1, Committed: true}, entityID, payload, nil
+			return SharedMutationReceipt{
+				OperationID: request.OperationID,
+				EntityType:  "task",
+				EntityID:    entityID,
+				Revision:    1,
+				Committed:   true,
+			}, entityID, payload, nil
 		}
 		if existing, found, readErr := d.outboxEntry(ctx, request.OperationID); readErr == nil && found {
-			receipt, reuseErr := d.reuseSharedMutation(SharedMutation{OperationID: request.OperationID, EntityType: "task", EntityID: existing.EntityID, Revision: existing.Revision, Kind: request.Kind, Payload: existing.Payload}, existing)
+			receipt, reuseErr := d.reuseSharedMutation(SharedMutation{
+				OperationID: request.OperationID,
+				EntityType:  "task",
+				EntityID:    existing.EntityID,
+				Revision:    existing.Revision,
+				Kind:        request.Kind,
+				Payload:     existing.Payload,
+			}, existing)
 			return receipt, existing.EntityID, append([]byte(nil), existing.Payload...), reuseErr
 		}
 		if !errors.Is(err, upstream.ErrRowsAffectedMismatch) {
@@ -278,5 +304,17 @@ func decodeOutboxRow(row []any) (OutboxEntry, error) {
 	if !ok {
 		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox last error")
 	}
-	return OutboxEntry{ID: values[0], EntityType: values[1], EntityID: values[2], Revision: revision, Kind: values[3], Payload: payload, CreatedAt: created, PublishedAt: published, Attempts: attempts, NextAttemptAt: nextAttempt, LastError: lastError}, nil
+	return OutboxEntry{
+		ID:            values[0],
+		EntityType:    values[1],
+		EntityID:      values[2],
+		Revision:      revision,
+		Kind:          values[3],
+		Payload:       payload,
+		CreatedAt:     created,
+		PublishedAt:   published,
+		Attempts:      attempts,
+		NextAttemptAt: nextAttempt,
+		LastError:     lastError,
+	}, nil
 }

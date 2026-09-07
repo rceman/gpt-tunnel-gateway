@@ -151,12 +151,27 @@ func (s *Service) WorkCheckpointStatus(ctx context.Context, in WorkCheckpointInp
 		return WorkCheckpointStatus{}, err
 	}
 	if os.IsNotExist(err) {
-		state = workProgressState{Root: in.Root, ProjectID: in.ProjectID, Baseline: map[string]string{}}
+		state = workProgressState{
+			Root:      in.Root,
+			ProjectID: in.ProjectID,
+			Baseline:  map[string]string{},
+		}
 	}
 	delta := workProgressDelta(state.Baseline, current)
 	names, gateIdentity, err := s.resolveProjectGateProfile(ctx, in.ProjectID)
 	if err != nil {
 		return WorkCheckpointStatus{}, err
 	}
-	return WorkCheckpointStatus{Root: in.Root, ProjectID: in.ProjectID, BaselinePresent: len(state.Baseline) > 0, BaselineFileCount: len(state.Baseline), ChangedFiles: delta, SourceFingerprint: fingerprint, GateIdentity: gateIdentity, GateNames: names, LastReceipt: state.LastReceipt, UpdatedAt: state.UpdatedAt}, nil
+	return WorkCheckpointStatus{
+		Root:              in.Root,
+		ProjectID:         in.ProjectID,
+		BaselinePresent:   len(state.Baseline) > 0,
+		BaselineFileCount: len(state.Baseline),
+		ChangedFiles:      delta,
+		SourceFingerprint: fingerprint,
+		GateIdentity:      gateIdentity,
+		GateNames:         names,
+		LastReceipt:       state.LastReceipt,
+		UpdatedAt:         state.UpdatedAt,
+	}, nil
 }

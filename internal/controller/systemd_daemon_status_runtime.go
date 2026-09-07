@@ -150,7 +150,10 @@ func (c Controller) DaemonStatus(ctx context.Context) (DaemonStatus, error) {
 	if err != nil {
 		return DaemonStatus{}, err
 	}
-	return DaemonStatus{Unit: unit, Runtime: runtimeStatus}, nil
+	return DaemonStatus{
+		Unit:    unit,
+		Runtime: runtimeStatus,
+	}, nil
 }
 
 func (c Controller) DaemonInstall(ctx context.Context) (DaemonStatus, error) {
@@ -294,7 +297,10 @@ func daemonRuntimeUser(configPath string) (daemonRuntimeIdentity, error) {
 	if err != nil || group.Name == "" {
 		return daemonRuntimeIdentity{}, fmt.Errorf("config primary group unavailable")
 	}
-	return daemonRuntimeIdentity{User: owner.Username, Group: group.Name}, nil
+	return daemonRuntimeIdentity{
+		User:  owner.Username,
+		Group: group.Name,
+	}, nil
 }
 
 func daemonControlBinary() (string, error) {

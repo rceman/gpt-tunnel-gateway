@@ -28,7 +28,14 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 		if query != "" && !strings.Contains(candidate.CodeIdentity.Worktree, query) && !strings.Contains(candidate.Label, query) && !strings.Contains(candidate.TrainID, query) {
 			continue
 		}
-		items = append(items, CodeWorktreeItem{Selector: candidate.CodeIdentity.Worktree, Kind: candidate.Kind, Dirty: candidate.Dirty, Head: candidate.CurrentHead, Label: candidate.Label, TrainID: candidate.TrainID})
+		items = append(items, CodeWorktreeItem{
+			Selector: candidate.CodeIdentity.Worktree,
+			Kind:     candidate.Kind,
+			Dirty:    candidate.Dirty,
+			Head:     candidate.CurrentHead,
+			Label:    candidate.Label,
+			TrainID:  candidate.TrainID,
+		})
 	}
 	kind := "code-worktree|" + in.ProjectID + "|" + query
 	if len(items) == 0 {
@@ -46,7 +53,10 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 	if pageErr != nil {
 		return CodeWorktreeResult{}, pageErr
 	}
-	return CodeWorktreeResult{Items: page, Pagination: codePagination(nextCursor)}, nil
+	return CodeWorktreeResult{
+		Items:      page,
+		Pagination: codePagination(nextCursor),
+	}, nil
 }
 
 func codeWorktreePage(kind string, items []CodeWorktreeItem, rawCursor string) ([]CodeWorktreeItem, string, error) {
@@ -77,7 +87,10 @@ func codeWorktreePage(kind string, items []CodeWorktreeItem, rawCursor string) (
 		if index+1 < len(items) {
 			nextCursor = pagination.Encode(kind, items[index].Selector)
 		}
-		fits, fitErr := codePageFits(CodeWorktreeResult{Items: candidate, Pagination: codePagination(nextCursor)})
+		fits, fitErr := codePageFits(CodeWorktreeResult{
+			Items:      candidate,
+			Pagination: codePagination(nextCursor),
+		})
 		if fitErr != nil {
 			return nil, "", fitErr
 		}
@@ -158,7 +171,11 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 		if size < len(paths) {
 			pageCursor = pagination.EncodeFull(kind, paths[size-1])
 		}
-		return codePageFits(CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: paths[:size], Pagination: codePagination(pageCursor)})
+		return codePageFits(CodeTreeResult{
+			CodeIdentity: target.CodeIdentity,
+			Paths:        paths[:size],
+			Pagination:   codePagination(pageCursor),
+		})
 	})
 	if fitErr != nil {
 		return CodeTreeResult{}, fitErr
@@ -167,7 +184,11 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 	if pageSize < len(paths) {
 		pageCursor = pagination.EncodeFull(kind, paths[pageSize-1])
 	}
-	return CodeTreeResult{CodeIdentity: target.CodeIdentity, Paths: paths[:pageSize], Pagination: codePagination(pageCursor)}, nil
+	return CodeTreeResult{
+		CodeIdentity: target.CodeIdentity,
+		Paths:        paths[:pageSize],
+		Pagination:   codePagination(pageCursor),
+	}, nil
 }
 
 func validateCodePatterns(patterns []string) error {

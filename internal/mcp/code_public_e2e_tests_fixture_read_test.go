@@ -110,7 +110,10 @@ func newPublicCodeE2EFixture(t *testing.T) publicCodeE2EFixture {
 		t.Fatal(err)
 	}
 	return publicCodeE2EFixture{
-		server:       &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())},
+		server: &Server{
+			Service:          s,
+			AuthorityContext: authority.WithPlanner(context.Background()),
+		},
 		sessionID:    session.ID,
 		mainSelector: "WT-MAIN-" + currentHead[:8],
 		currentHead:  currentHead,
@@ -126,8 +129,13 @@ func newPublicCodeCallHarness(t *testing.T, fixture publicCodeE2EFixture) public
 		t.Fatal(err)
 	}
 	return publicCodeCallHarness{
-		sessionID: fixture.sessionID, counter: counter,
-		client: &frozenConnectorClient{http: httpServer.Client(), endpoint: httpServer.URL + "/mcp", methods: map[string]int{}},
+		sessionID: fixture.sessionID,
+		counter:   counter,
+		client: &frozenConnectorClient{
+			http:     httpServer.Client(),
+			endpoint: httpServer.URL + "/mcp",
+			methods:  map[string]int{},
+		},
 	}
 }
 

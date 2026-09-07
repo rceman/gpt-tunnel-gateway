@@ -231,8 +231,12 @@ func TestProjectConfigurationUpdateUsesSharedCASAndOutbox(t *testing.T) {
 	routing := configuration.AgentRouting
 	routing.SingletonRecommendedReasoning = model.ReasoningMedium
 	updated, operation, err := s.ProjectConfigurationUpdate(ctx, ProjectConfigurationUpdateInput{
-		ProjectID: "example", ExpectedRevision: configuration.Revision,
-		Patch: ProjectConfigurationPatch{AgentRouting: &routing}, UpdatedBy: "planner",
+		ProjectID:        "example",
+		ExpectedRevision: configuration.Revision,
+		Patch: ProjectConfigurationPatch{
+			AgentRouting: &routing,
+		},
+		UpdatedBy: "planner",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -248,8 +252,12 @@ func TestProjectConfigurationUpdateUsesSharedCASAndOutbox(t *testing.T) {
 		t.Fatalf("project configuration outbox=%#v", entries)
 	}
 	if _, _, err := s.ProjectConfigurationUpdate(ctx, ProjectConfigurationUpdateInput{
-		ProjectID: "example", ExpectedRevision: configuration.Revision,
-		Patch: ProjectConfigurationPatch{AgentRouting: &routing}, UpdatedBy: "other",
+		ProjectID:        "example",
+		ExpectedRevision: configuration.Revision,
+		Patch: ProjectConfigurationPatch{
+			AgentRouting: &routing,
+		},
+		UpdatedBy: "other",
 	}); err == nil {
 		t.Fatal("stale project configuration update unexpectedly passed Shared CAS")
 	}
@@ -294,8 +302,12 @@ func TestProjectConfigurationUpdateUsesSharedActiveTrainGuard(t *testing.T) {
 	}
 	workflow := configuration.Workflow
 	if _, _, err := s.ProjectConfigurationUpdate(ctx, ProjectConfigurationUpdateInput{
-		ProjectID: "example", ExpectedRevision: configuration.Revision,
-		Patch: ProjectConfigurationPatch{Workflow: &workflow}, UpdatedBy: "planner",
+		ProjectID:        "example",
+		ExpectedRevision: configuration.Revision,
+		Patch: ProjectConfigurationPatch{
+			Workflow: &workflow,
+		},
+		UpdatedBy: "planner",
 	}); err == nil {
 		t.Fatal("execution-sensitive project update passed with active Shared Train Attempt")
 	}

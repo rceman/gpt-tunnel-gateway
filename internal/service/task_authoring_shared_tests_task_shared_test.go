@@ -28,10 +28,13 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 	markSharedBootstrapCompleteForTest(t, db)
 
 	created, err := s.TaskAuthoringCreateAsync(context.Background(), TaskAuthoringCreateInput{
-		ProjectID: "example", Title: "Shared task", Objective: "Commit task state locally first.",
+		ProjectID:          "example",
+		Title:              "Shared task",
+		Objective:          "Commit task state locally first.",
 		AcceptanceCriteria: []string{"one shared task"},
 		Scope:              &model.TaskScope{Files: []string{"internal/service/task_authoring_shared.go"}, Modules: []string{"gateway"}},
-		ADRRelation:        model.TaskADRNoRequired, CreatedBy: "planner",
+		ADRRelation:        model.TaskADRNoRequired,
+		CreatedBy:          "planner",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +43,11 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 	if createReceipt.Task == nil || createReceipt.Operation.Status != "planned" {
 		t.Fatalf("create receipt=%#v", createReceipt)
 	}
-	trainTasks, err := s.TaskAuthoringList(context.Background(), TaskAuthoringListInput{ProjectID: "example", Execution: model.TaskExecutionTrain, Limit: MaxTaskListLimit})
+	trainTasks, err := s.TaskAuthoringList(context.Background(), TaskAuthoringListInput{
+		ProjectID: "example",
+		Execution: model.TaskExecutionTrain,
+		Limit:     MaxTaskListLimit,
+	})
 	if err != nil || len(trainTasks.Tasks) != 0 {
 		t.Fatalf("unassigned Shared Task matched train execution filter: %#v err=%v", trainTasks, err)
 	}
@@ -48,9 +55,13 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 	updatedTitle := "Updated shared task"
 	updatedScope := &model.TaskScope{Files: []string{"internal/service/task_authoring_mutation.go"}, Modules: []string{"gateway"}}
 	updated, err := s.TaskAuthoringUpdateAsync(context.Background(), TaskAuthoringUpdateInput{
-		ProjectID: "example", TaskID: createReceipt.Task.ID, ExpectedRevision: createReceipt.Task.Revision,
-		ExpectedRevisionSHA256: createReceipt.Task.RevisionSHA256, Title: &updatedTitle,
-		Scope: updatedScope, UpdatedBy: "planner",
+		ProjectID:              "example",
+		TaskID:                 createReceipt.Task.ID,
+		ExpectedRevision:       createReceipt.Task.Revision,
+		ExpectedRevisionSHA256: createReceipt.Task.RevisionSHA256,
+		Title:                  &updatedTitle,
+		Scope:                  updatedScope,
+		UpdatedBy:              "planner",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -59,14 +70,21 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 	if updateReceipt.Task == nil || updateReceipt.Task.Title != updatedTitle || updateReceipt.Task.Execution != "" || updateReceipt.Task.Scope == nil || updateReceipt.Task.Scope.Files[0] != updatedScope.Files[0] {
 		t.Fatalf("update receipt=%#v", updateReceipt)
 	}
-	filtered, err := s.TaskAuthoringList(context.Background(), TaskAuthoringListInput{ProjectID: "example", Execution: model.TaskExecutionHotfix, Limit: MaxTaskListLimit})
+	filtered, err := s.TaskAuthoringList(context.Background(), TaskAuthoringListInput{
+		ProjectID: "example",
+		Execution: model.TaskExecutionHotfix,
+		Limit:     MaxTaskListLimit,
+	})
 	if err != nil || len(filtered.Tasks) != 0 {
 		t.Fatalf("Shared execution filter=%#v err=%v", filtered, err)
 	}
 
 	ready, err := s.TaskAuthoringReadyAsync(context.Background(), TaskAuthoringReadyInput{
-		ProjectID: "example", TaskID: updateReceipt.Task.ID, ExpectedRevision: updateReceipt.Task.Revision,
-		ExpectedRevisionSHA256: updateReceipt.Task.RevisionSHA256, ReadyBy: "planner",
+		ProjectID:              "example",
+		TaskID:                 updateReceipt.Task.ID,
+		ExpectedRevision:       updateReceipt.Task.Revision,
+		ExpectedRevisionSHA256: updateReceipt.Task.RevisionSHA256,
+		ReadyBy:                "planner",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +203,10 @@ func TestSharedTaskAndADRQueriesDoNotUseHub(t *testing.T) {
 	if err != nil || found.ID != task.ID {
 		t.Fatalf("Shared task/find failed: %#v %v", found, err)
 	}
-	listed, err := s.TaskAuthoringList(context.Background(), TaskAuthoringListInput{ProjectID: "example", Limit: 10})
+	listed, err := s.TaskAuthoringList(context.Background(), TaskAuthoringListInput{
+		ProjectID: "example",
+		Limit:     10,
+	})
 	if err != nil || len(listed.Tasks) != 1 || listed.Tasks[0].ID != task.ID {
 		t.Fatalf("Shared task/list failed: %#v %v", listed, err)
 	}

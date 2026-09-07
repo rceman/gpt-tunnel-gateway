@@ -33,7 +33,12 @@ func (d *Databases) ReadSharedEntity(ctx context.Context, entityType, entityID s
 	if !idOK || !revisionOK || !payloadOK || !updatedOK {
 		return SharedEntity{}, fmt.Errorf("invalid shared %s row", entityType)
 	}
-	return SharedEntity{ID: id, Revision: revision, Payload: append([]byte(nil), payload...), UpdatedAt: updatedAt}, nil
+	return SharedEntity{
+		ID:        id,
+		Revision:  revision,
+		Payload:   append([]byte(nil), payload...),
+		UpdatedAt: updatedAt,
+	}, nil
 }
 
 func SharedIntegrationReceiptID(projectID, trainID string) string {
@@ -57,7 +62,10 @@ func (d *Databases) PutSharedProjection(ctx context.Context, entityType string, 
 
 func (d *Databases) PutSharedIntegrationReceipt(ctx context.Context, receipt SharedIntegrationReceipt) error {
 	return d.PutSharedProjection(ctx, "integration_receipt", SharedEntity{
-		ID: receipt.ID, Revision: receipt.Revision, Payload: receipt.Payload, UpdatedAt: receipt.UpdatedAt,
+		ID:        receipt.ID,
+		Revision:  receipt.Revision,
+		Payload:   receipt.Payload,
+		UpdatedAt: receipt.UpdatedAt,
 	})
 }
 
@@ -131,7 +139,12 @@ func (d *Databases) listSharedEntitiesQuery(ctx context.Context, entityType, que
 		if !idOK || !revisionOK || !payloadOK || !updatedOK {
 			return nil, fmt.Errorf("invalid shared %s row", entityType)
 		}
-		entities = append(entities, SharedEntity{ID: id, Revision: revision, Payload: append([]byte(nil), payload...), UpdatedAt: updatedAt})
+		entities = append(entities, SharedEntity{
+			ID:        id,
+			Revision:  revision,
+			Payload:   append([]byte(nil), payload...),
+			UpdatedAt: updatedAt,
+		})
 	}
 	return entities, nil
 }
@@ -151,7 +164,14 @@ func (d *Databases) reuseSharedMutation(mutation SharedMutation, existing Outbox
 	if existing.EntityType != mutation.EntityType || existing.EntityID != mutation.EntityID || existing.Revision != mutation.Revision || existing.Kind != mutation.Kind || !bytes.Equal(existing.Payload, mutation.Payload) {
 		return SharedMutationReceipt{}, fmt.Errorf("shared mutation operation identity mismatch")
 	}
-	return SharedMutationReceipt{OperationID: mutation.OperationID, EntityType: existing.EntityType, EntityID: existing.EntityID, Revision: existing.Revision, Committed: true, Reused: true}, nil
+	return SharedMutationReceipt{
+		OperationID: mutation.OperationID,
+		EntityType:  existing.EntityType,
+		EntityID:    existing.EntityID,
+		Revision:    existing.Revision,
+		Committed:   true,
+		Reused:      true,
+	}, nil
 }
 
 func (d *Databases) PendingOutbox(ctx context.Context, limit int) ([]OutboxEntry, error) {
@@ -249,5 +269,10 @@ func (d *Databases) SharedSyncHealth(ctx context.Context) (SharedSyncHealth, err
 	if last != "" {
 		state = "degraded"
 	}
-	return SharedSyncHealth{State: state, Pending: int(pending), Retrying: int(retrying), LastError: last}, nil
+	return SharedSyncHealth{
+		State:     state,
+		Pending:   int(pending),
+		Retrying:  int(retrying),
+		LastError: last,
+	}, nil
 }

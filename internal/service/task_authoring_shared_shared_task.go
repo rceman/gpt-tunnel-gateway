@@ -202,7 +202,12 @@ func (s *Service) taskAuthoringCreateShared(ctx context.Context, operationID str
 	if err := json.Unmarshal(payload, &created); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	return created, OperationResult{OperationID: operationID, ProjectID: created.ProjectID, TaskID: created.ID, Status: created.Status}, nil
+	return created, OperationResult{
+		OperationID: operationID,
+		ProjectID:   created.ProjectID,
+		TaskID:      created.ID,
+		Status:      created.Status,
+	}, nil
 }
 
 func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID string, in TaskAuthoringUpdateInput) (model.TaskAuthoring, OperationResult, error) {
@@ -226,7 +231,12 @@ func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID str
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	if !changed {
-		return current, OperationResult{OperationID: operationID, ProjectID: current.ProjectID, TaskID: current.ID, Status: current.Status}, nil
+		return current, OperationResult{
+			OperationID: operationID,
+			ProjectID:   current.ProjectID,
+			TaskID:      current.ID,
+			Status:      current.Status,
+		}, nil
 	}
 	payload, err := json.Marshal(updated)
 	if err != nil {
@@ -235,5 +245,10 @@ func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID str
 	if _, err := s.Durability.CommitSharedMutation(ctx, sqlitestore.SharedMutation{OperationID: operationID, EntityType: "task", EntityID: updated.ID, ExpectedRevision: int64(in.ExpectedRevision), Revision: int64(updated.Revision), Kind: "task-authoring-update", Payload: payload, CreatedAt: s.durableNow()}); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	return updated, OperationResult{OperationID: operationID, ProjectID: updated.ProjectID, TaskID: updated.ID, Status: updated.Status}, nil
+	return updated, OperationResult{
+		OperationID: operationID,
+		ProjectID:   updated.ProjectID,
+		TaskID:      updated.ID,
+		Status:      updated.Status,
+	}, nil
 }

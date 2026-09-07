@@ -24,7 +24,12 @@ func (s *Service) taskAuthoringReadyShared(ctx context.Context, operationID stri
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	if current.Status == model.TaskAuthoringReady {
-		return current, OperationResult{OperationID: operationID, ProjectID: current.ProjectID, TaskID: current.ID, Status: current.Status}, nil
+		return current, OperationResult{
+			OperationID: operationID,
+			ProjectID:   current.ProjectID,
+			TaskID:      current.ID,
+			Status:      current.Status,
+		}, nil
 	}
 	if err := s.validateAuthoringADRReferencesShared(ctx, current); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
@@ -43,7 +48,12 @@ func (s *Service) taskAuthoringReadyShared(ctx context.Context, operationID stri
 	if _, err := s.Durability.CommitSharedMutation(ctx, sqlitestore.SharedMutation{OperationID: operationID, EntityType: "task", EntityID: ready.ID, ExpectedRevision: int64(in.ExpectedRevision), Revision: int64(ready.Revision), Kind: "task-authoring-ready", Payload: payload, CreatedAt: s.durableNow(), AllowSameRevision: true}); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	return ready, OperationResult{OperationID: operationID, ProjectID: ready.ProjectID, TaskID: ready.ID, Status: ready.Status}, nil
+	return ready, OperationResult{
+		OperationID: operationID,
+		ProjectID:   ready.ProjectID,
+		TaskID:      ready.ID,
+		Status:      ready.Status,
+	}, nil
 }
 
 func containsControl(value string) bool {

@@ -72,10 +72,18 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 		if continuation {
 			pageCursor = pagination.EncodeOffset(kind, nextOffset)
 		}
-		return CodeDiffResult{CodeIdentity: target.CodeIdentity, Paths: paths, Diff: strings.Join(pageLines, ""), Pagination: codePagination(pageCursor)}, nil
+		return CodeDiffResult{
+			CodeIdentity: target.CodeIdentity,
+			Paths:        paths,
+			Diff:         strings.Join(pageLines, ""),
+			Pagination:   codePagination(pageCursor),
+		}, nil
 	}
 	if !continuation {
-		result := CodeDiffResult{CodeIdentity: target.CodeIdentity, Paths: paths}
+		result := CodeDiffResult{
+			CodeIdentity: target.CodeIdentity,
+			Paths:        paths,
+		}
 		fits, fitErr := codePageFits(result)
 		if fitErr != nil {
 			return CodeDiffResult{}, fitErr

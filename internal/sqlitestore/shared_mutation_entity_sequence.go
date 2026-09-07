@@ -27,7 +27,14 @@ func (d *Databases) CommitSharedADRCreate(ctx context.Context, request SharedADR
 	if existing, found, err := d.outboxEntry(ctx, request.OperationID); err != nil {
 		return SharedMutationReceipt{}, "", nil, err
 	} else if found {
-		receipt, reuseErr := d.reuseSharedMutation(SharedMutation{OperationID: request.OperationID, EntityType: "adr", EntityID: existing.EntityID, Revision: existing.Revision, Kind: request.Kind, Payload: existing.Payload}, existing)
+		receipt, reuseErr := d.reuseSharedMutation(SharedMutation{
+			OperationID: request.OperationID,
+			EntityType:  "adr",
+			EntityID:    existing.EntityID,
+			Revision:    existing.Revision,
+			Kind:        request.Kind,
+			Payload:     existing.Payload,
+		}, existing)
 		return receipt, existing.EntityID, append([]byte(nil), existing.Payload...), reuseErr
 	}
 	next, err := d.nextADRNumber(ctx, request.ProjectID, request.ProjectCode, request.InitialNextADRNumber)
@@ -49,12 +56,25 @@ func (d *Databases) CommitSharedADRCreate(ctx context.Context, request SharedADR
 	})
 	if err != nil {
 		if existing, found, readErr := d.outboxEntry(ctx, request.OperationID); readErr == nil && found {
-			receipt, reuseErr := d.reuseSharedMutation(SharedMutation{OperationID: request.OperationID, EntityType: "adr", EntityID: existing.EntityID, Revision: existing.Revision, Kind: request.Kind, Payload: existing.Payload}, existing)
+			receipt, reuseErr := d.reuseSharedMutation(SharedMutation{
+				OperationID: request.OperationID,
+				EntityType:  "adr",
+				EntityID:    existing.EntityID,
+				Revision:    existing.Revision,
+				Kind:        request.Kind,
+				Payload:     existing.Payload,
+			}, existing)
 			return receipt, existing.EntityID, append([]byte(nil), existing.Payload...), reuseErr
 		}
 		return SharedMutationReceipt{}, "", nil, err
 	}
-	return SharedMutationReceipt{OperationID: request.OperationID, EntityType: "adr", EntityID: id, Revision: 1, Committed: true}, id, payload, nil
+	return SharedMutationReceipt{
+		OperationID: request.OperationID,
+		EntityType:  "adr",
+		EntityID:    id,
+		Revision:    1,
+		Committed:   true,
+	}, id, payload, nil
 }
 
 func (d *Databases) nextADRNumber(ctx context.Context, projectID, projectCode string, initial int64) (int64, error) {
@@ -207,5 +227,10 @@ func (d *Databases) ReadSharedTask(ctx context.Context, taskID string) (SharedTa
 	if !idOK || !revisionOK || !payloadOK || !updatedOK {
 		return SharedTask{}, fmt.Errorf("invalid shared task row")
 	}
-	return SharedTask{ID: id, Revision: revision, Payload: append([]byte(nil), payload...), UpdatedAt: updatedAt}, nil
+	return SharedTask{
+		ID:        id,
+		Revision:  revision,
+		Payload:   append([]byte(nil), payload...),
+		UpdatedAt: updatedAt,
+	}, nil
 }

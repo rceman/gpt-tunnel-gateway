@@ -82,8 +82,21 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 		}
 		seen[selector] = struct{}{}
 		candidates = append(candidates, codeWorktreeCandidate{
-			localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{ProjectID: projectID, Worktree: selector, Dirty: !status.Clean, CurrentHead: status.Head}, ProjectWorktree: worktree, Kind: kind, TrainID: trainID, DiffBase: diffBase},
-			Label:           label, CreatedAt: createdAt, SortID: sortID,
+			localCodeTarget: localCodeTarget{
+				CodeIdentity: CodeIdentity{
+					ProjectID:   projectID,
+					Worktree:    selector,
+					Dirty:       !status.Clean,
+					CurrentHead: status.Head,
+				},
+				ProjectWorktree: worktree,
+				Kind:            kind,
+				TrainID:         trainID,
+				DiffBase:        diffBase,
+			},
+			Label:     label,
+			CreatedAt: createdAt,
+			SortID:    sortID,
 		})
 		return nil
 	}
@@ -212,10 +225,17 @@ func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selecto
 			if candidate.Kind != kind || (kind == "train" && number != candidateTrainNumber(candidate.TrainID)) || (kind == "hotfix" && candidate.SortID != prefix) {
 				continue
 			}
-			return localCodeTarget{}, &CodeSelectorError{Kind: CodeSelectorStale, Selector: selector, Current: candidate.CodeIdentity.Worktree}
+			return localCodeTarget{}, &CodeSelectorError{
+				Kind:     CodeSelectorStale,
+				Selector: selector,
+				Current:  candidate.CodeIdentity.Worktree,
+			}
 		}
 	}
-	return localCodeTarget{}, &CodeSelectorError{Kind: CodeSelectorNotFound, Selector: selector}
+	return localCodeTarget{}, &CodeSelectorError{
+		Kind:     CodeSelectorNotFound,
+		Selector: selector,
+	}
 }
 
 func candidateTrainNumber(trainID string) uint64 {

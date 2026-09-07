@@ -106,7 +106,10 @@ func TestGatewayRecoveryDuplicateOperationRestartsOneRealProcess(t *testing.T) {
 			_ = process.Process.Kill()
 			return err
 		}
-		return fsutil.WriteJSONAtomic(controller.pidPath("gateway"), pidRecord{PID: process.Process.Pid, StartTimeTicks: startTime}, 0o600)
+		return fsutil.WriteJSONAtomic(controller.pidPath("gateway"), pidRecord{
+			PID:            process.Process.Pid,
+			StartTimeTicks: startTime,
+		}, 0o600)
 	}
 	if err := startHelper(c); err != nil {
 		t.Fatal(err)

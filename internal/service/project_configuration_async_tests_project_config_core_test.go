@@ -37,8 +37,12 @@ func TestProjectConfigurationUpdateSameOperationRetryReusesCommittedResult(t *te
 	routing := configuration.AgentRouting
 	routing.SingletonRecommendedReasoning = model.ReasoningMedium
 	input := ProjectConfigurationUpdateInput{
-		ProjectID: "example", ExpectedRevision: configuration.Revision,
-		Patch: ProjectConfigurationPatch{AgentRouting: &routing}, UpdatedBy: "planner",
+		ProjectID:        "example",
+		ExpectedRevision: configuration.Revision,
+		Patch: ProjectConfigurationPatch{
+			AgentRouting: &routing,
+		},
+		UpdatedBy: "planner",
 	}
 	first, firstOperation, err := s.ProjectConfigurationUpdate(operationCtx, input)
 	if err != nil {

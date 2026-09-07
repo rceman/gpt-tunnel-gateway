@@ -30,13 +30,19 @@ func TestLocalCodeReadFileHashIsWholeFileAndStableAcrossPages(t *testing.T) {
 	wantHash := hex.EncodeToString(digest[:])[:8]
 	selector := "WT-MAIN-" + f.current[:8]
 	first, err := f.service.CodeRead(context.Background(), CodeReadInput{
-		ProjectID: "example", Worktree: selector, Path: "hash.txt", Live: true,
+		ProjectID: "example",
+		Worktree:  selector,
+		Path:      "hash.txt",
+		Live:      true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	repeat, err := f.service.CodeRead(context.Background(), CodeReadInput{
-		ProjectID: "example", Worktree: selector, Path: "hash.txt", Live: true,
+		ProjectID: "example",
+		Worktree:  selector,
+		Path:      "hash.txt",
+		Live:      true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +57,11 @@ func TestLocalCodeReadFileHashIsWholeFileAndStableAcrossPages(t *testing.T) {
 		t.Fatal("large read did not produce a continuation page")
 	}
 	continuation, err := f.service.CodeRead(context.Background(), CodeReadInput{
-		ProjectID: "example", Worktree: selector, Path: "hash.txt", Cursor: first.Pagination.NextCursor, Live: true,
+		ProjectID: "example",
+		Worktree:  selector,
+		Path:      "hash.txt",
+		Cursor:    first.Pagination.NextCursor,
+		Live:      true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +75,9 @@ func TestLocalCodeReadCommittedAndLiveHashesDifferWithSameHead(t *testing.T) {
 	f := newLocalCodeFixture(t)
 	selector := "WT-MAIN-" + f.current[:8]
 	committed, err := f.service.CodeRead(context.Background(), CodeReadInput{
-		ProjectID: "example", Worktree: selector, Path: "tracked.txt",
+		ProjectID: "example",
+		Worktree:  selector,
+		Path:      "tracked.txt",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +95,10 @@ func TestLocalCodeReadCommittedAndLiveHashesDifferWithSameHead(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.WriteFile(filepath.Join(f.root, "tracked.txt"), committedBytes, 0o600) })
 	live, err := f.service.CodeRead(context.Background(), CodeReadInput{
-		ProjectID: "example", Worktree: selector, Path: "tracked.txt", Live: true,
+		ProjectID: "example",
+		Worktree:  selector,
+		Path:      "tracked.txt",
+		Live:      true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -167,19 +182,35 @@ func TestCodeWorktreeRefreshesCanonicalMainWhenConfiguredWorktreeIsStale(t *test
 		}
 	}
 	selector := "WT-MAIN-" + canonical[:8]
-	read, err := f.service.CodeRead(context.Background(), CodeReadInput{ProjectID: "example", Worktree: selector, Path: "canonical-main.txt"})
+	read, err := f.service.CodeRead(context.Background(), CodeReadInput{
+		ProjectID: "example",
+		Worktree:  selector,
+		Path:      "canonical-main.txt",
+	})
 	if err != nil || read.Content != "canonical main\n" || read.CurrentHead != canonical[:8] {
 		t.Fatalf("CodeRead()=%#v err=%v", read, err)
 	}
-	tree, err := f.service.CodeTree(context.Background(), CodeTreeInput{ProjectID: "example", Worktree: selector, Path: "canonical-main.txt"})
+	tree, err := f.service.CodeTree(context.Background(), CodeTreeInput{
+		ProjectID: "example",
+		Worktree:  selector,
+		Path:      "canonical-main.txt",
+	})
 	if err != nil || len(tree.Paths) != 1 || tree.Paths[0] != "canonical-main.txt" {
 		t.Fatalf("CodeTree()=%#v err=%v", tree, err)
 	}
-	search, err := f.service.CodeSearch(context.Background(), CodeSearchInput{ProjectID: "example", Worktree: selector, Query: "canonical", Paths: []string{"canonical-main.txt"}})
+	search, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
+		ProjectID: "example",
+		Worktree:  selector,
+		Query:     "canonical",
+		Paths:     []string{"canonical-main.txt"},
+	})
 	if err != nil || len(search.Matches) != 1 {
 		t.Fatalf("CodeSearch()=%#v err=%v", search, err)
 	}
-	diff, err := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector})
+	diff, err := f.service.CodeDiff(context.Background(), CodeDiffInput{
+		ProjectID: "example",
+		Worktree:  selector,
+	})
 	if err != nil || diff.Diff != "" {
 		t.Fatalf("CodeDiff()=%#v err=%v", diff, err)
 	}

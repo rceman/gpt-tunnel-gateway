@@ -134,7 +134,12 @@ func TestCandidateGatewayRestartMCPNetworkE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := &candidateMCPClient{client: &http.Client{Timeout: 10 * time.Second}, endpoint: "http://" + listenAddr + "/mcp"}
+	client := &candidateMCPClient{
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+		endpoint: "http://" + listenAddr + "/mcp",
+	}
 	first, err := client.call(session.ID, "runtime/restart", map[string]any{"operation_id": "candidate-restart-once"})
 	if err != nil {
 		t.Fatal(err)

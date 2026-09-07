@@ -93,7 +93,11 @@ func (r Runner) VisitDiffLocalCommits(ctx context.Context, p config.ProjectConfi
 		}
 		args = append(args, path)
 	}
-	stream := &diffLineStream{offset: offset, visitor: visit, maxPendingBytes: r.MaxDiffBytes}
+	stream := &diffLineStream{
+		offset:          offset,
+		visitor:         visit,
+		maxPendingBytes: r.MaxDiffBytes,
+	}
 	if err := r.streamDiffCommand(ctx, p.Root, args, stream); err != nil {
 		return false, err
 	}
@@ -114,7 +118,11 @@ func (r Runner) VisitDiffWorkingFromBase(ctx context.Context, p config.ProjectCo
 			return false, err
 		}
 	}
-	stream := &diffLineStream{offset: offset, visitor: visit, maxPendingBytes: r.MaxDiffBytes}
+	stream := &diffLineStream{
+		offset:          offset,
+		visitor:         visit,
+		maxPendingBytes: r.MaxDiffBytes,
+	}
 	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", base}
 	if len(paths) > 0 {
 		args = append(args, "--")

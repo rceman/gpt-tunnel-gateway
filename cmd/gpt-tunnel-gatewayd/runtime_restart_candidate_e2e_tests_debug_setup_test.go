@@ -186,6 +186,27 @@ func prepareCandidateDebugActivation(t *testing.T) candidateDebugActivationFixtu
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := &candidateMCPClient{client: &http.Client{Timeout: 20 * time.Second}, endpoint: "http://" + listenAddr + "/mcp"}
-	return candidateDebugActivationFixture{t: t, activationTimeout: activationTimeout, wantSource: wantSource, sourceFixture: sourceFixture, stateDir: stateDir, pidDir: pidDir, logDir: logDir, installDir: installDir, tunnelPID: tunnelPID, initialPID: initialPID, tunnelRequests: &tunnelRequests, failSecondHealth: &failSecondHealth, client: client, sessionID: session.ID, listenAddr: listenAddr}
+	client := &candidateMCPClient{
+		client: &http.Client{
+			Timeout: 20 * time.Second,
+		},
+		endpoint: "http://" + listenAddr + "/mcp",
+	}
+	return candidateDebugActivationFixture{
+		t:                 t,
+		activationTimeout: activationTimeout,
+		wantSource:        wantSource,
+		sourceFixture:     sourceFixture,
+		stateDir:          stateDir,
+		pidDir:            pidDir,
+		logDir:            logDir,
+		installDir:        installDir,
+		tunnelPID:         tunnelPID,
+		initialPID:        initialPID,
+		tunnelRequests:    &tunnelRequests,
+		failSecondHealth:  &failSecondHealth,
+		client:            client,
+		sessionID:         session.ID,
+		listenAddr:        listenAddr,
+	}
 }

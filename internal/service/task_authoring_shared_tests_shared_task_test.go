@@ -58,7 +58,10 @@ func TestSharedQueriesScopeBeforeGlobalPageLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
-	listed, err := s.TaskAuthoringList(ctx, TaskAuthoringListInput{ProjectID: "example", Limit: 1})
+	listed, err := s.TaskAuthoringList(ctx, TaskAuthoringListInput{
+		ProjectID: "example",
+		Limit:     1,
+	})
 	if err != nil || len(listed.Tasks) != 1 || listed.Tasks[0].ID != task.ID {
 		t.Fatalf("task after global page was lost: %#v %v", listed, err)
 	}
@@ -144,8 +147,12 @@ func TestTaskAuthoringAsyncMutationsCommitSharedWhenHubUnavailable(t *testing.T)
 	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
 
 	created, err := s.TaskAuthoringCreateAsync(context.Background(), TaskAuthoringCreateInput{
-		ProjectID: "example", Title: "Offline shared task", Objective: "Commit without Hub availability.",
-		AcceptanceCriteria: []string{"create", "update", "ready"}, ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
+		ProjectID:          "example",
+		Title:              "Offline shared task",
+		Objective:          "Commit without Hub availability.",
+		AcceptanceCriteria: []string{"create", "update", "ready"},
+		ADRRelation:        model.TaskADRNoRequired,
+		CreatedBy:          "planner",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -153,16 +160,23 @@ func TestTaskAuthoringAsyncMutationsCommitSharedWhenHubUnavailable(t *testing.T)
 	createReceipt := waitTaskCreateReceipt(t, s, created.OperationID)
 	updatedTitle := "Offline updated task"
 	updated, err := s.TaskAuthoringUpdateAsync(context.Background(), TaskAuthoringUpdateInput{
-		ProjectID: "example", TaskID: createReceipt.Task.ID, ExpectedRevision: createReceipt.Task.Revision,
-		ExpectedRevisionSHA256: createReceipt.Task.RevisionSHA256, Title: &updatedTitle, UpdatedBy: "planner",
+		ProjectID:              "example",
+		TaskID:                 createReceipt.Task.ID,
+		ExpectedRevision:       createReceipt.Task.Revision,
+		ExpectedRevisionSHA256: createReceipt.Task.RevisionSHA256,
+		Title:                  &updatedTitle,
+		UpdatedBy:              "planner",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	updateReceipt := waitTaskUpdateReceipt(t, s, updated.OperationID)
 	ready, err := s.TaskAuthoringReadyAsync(context.Background(), TaskAuthoringReadyInput{
-		ProjectID: "example", TaskID: updateReceipt.Task.ID, ExpectedRevision: updateReceipt.Task.Revision,
-		ExpectedRevisionSHA256: updateReceipt.Task.RevisionSHA256, ReadyBy: "planner",
+		ProjectID:              "example",
+		TaskID:                 updateReceipt.Task.ID,
+		ExpectedRevision:       updateReceipt.Task.Revision,
+		ExpectedRevisionSHA256: updateReceipt.Task.RevisionSHA256,
+		ReadyBy:                "planner",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -229,7 +243,13 @@ func TestTaskAuthoringReadySharedRequiresLocalIntegrationReceipt(t *testing.T) {
 	if _, err := db.Shared.Exec(context.Background(), `INSERT INTO shared_trains(id,revision,payload,updated_at) VALUES(?,?,?,?)`, train.ID, train.Revision, trainPayload, train.UpdatedAt.UTC().Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
-	readyInput := TaskAuthoringReadyInput{ProjectID: "example", TaskID: task.ID, ExpectedRevision: task.Revision, ExpectedRevisionSHA256: task.RevisionSHA256, ReadyBy: "planner"}
+	readyInput := TaskAuthoringReadyInput{
+		ProjectID:              "example",
+		TaskID:                 task.ID,
+		ExpectedRevision:       task.Revision,
+		ExpectedRevisionSHA256: task.RevisionSHA256,
+		ReadyBy:                "planner",
+	}
 	if _, _, err := s.taskAuthoringReadyShared(context.Background(), "op-missing-receipt", readyInput); err == nil || !strings.Contains(err.Error(), "dependency-not-integrated") {
 		t.Fatalf("missing local integration receipt error=%v", err)
 	}

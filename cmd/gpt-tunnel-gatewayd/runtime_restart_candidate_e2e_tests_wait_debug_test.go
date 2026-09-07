@@ -87,7 +87,11 @@ func (c *candidateMCPClient) request(method string, params any) (candidateMCPRes
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
-	return candidateMCPResponse{StatusCode: resp.StatusCode, ContentLength: resp.ContentLength, Body: data}, err
+	return candidateMCPResponse{
+		StatusCode:    resp.StatusCode,
+		ContentLength: resp.ContentLength,
+		Body:          data,
+	}, err
 }
 
 func (c *candidateMCPClient) call(sessionID, action string, input map[string]any) (candidateMCPResponse, error) {

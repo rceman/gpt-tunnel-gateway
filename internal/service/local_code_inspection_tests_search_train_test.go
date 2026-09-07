@@ -44,8 +44,12 @@ func TestLocalCodeSearchSkipsPreCursorFileContents(t *testing.T) {
 	kind := codeCursorKind("code-search", target, "needle|"+strings.Join(paths, "\x00")+"|||0|true")
 	cursor := pagination.EncodeSearchCursor(kind, "a-before.txt", 0)
 	result, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
-		ProjectID: "example", Worktree: selector, Live: true,
-		Query: "needle", Paths: paths, Cursor: cursor,
+		ProjectID: "example",
+		Worktree:  selector,
+		Live:      true,
+		Query:     "needle",
+		Paths:     paths,
+		Cursor:    cursor,
 	})
 	if err != nil || len(result.Matches) != 2 || result.Pagination != nil {
 		t.Fatalf("pre-cursor search result was not complete: %#v %v", result, err)
@@ -86,13 +90,17 @@ func TestLocalCodeScanSafetyFailsClosedWithoutPagination(t *testing.T) {
 		t.Fatalf("CodeWorktree returned no canonical main selector: %#v", worktrees.Items)
 	}
 	tree, treeErr := f.service.CodeTree(context.Background(), CodeTreeInput{
-		ProjectID: "example", Worktree: selector, Query: "absent-tree",
+		ProjectID: "example",
+		Worktree:  selector,
+		Query:     "absent-tree",
 	})
 	if treeErr == nil || !strings.Contains(treeErr.Error(), "scan exceeded bounded work") {
 		t.Fatalf("zero-match tree scan did not fail closed: %#v %v", tree, treeErr)
 	}
 	_, err = f.service.CodeSearch(context.Background(), CodeSearchInput{
-		ProjectID: "example", Worktree: selector, Query: "absent-query",
+		ProjectID: "example",
+		Worktree:  selector,
+		Query:     "absent-query",
 	})
 	if err == nil || !strings.Contains(err.Error(), "scan exceeded bounded work") {
 		t.Fatalf("rare-match scan did not fail closed: %v", err)

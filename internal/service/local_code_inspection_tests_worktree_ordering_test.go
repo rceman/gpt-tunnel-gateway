@@ -16,12 +16,42 @@ import (
 func TestSortCodeWorktreeCandidatesUsesKindThenNewestCreationAndCanonicalIDDescending(t *testing.T) {
 	now := time.Now().UTC()
 	candidates := []codeWorktreeCandidate{
-		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "train-old"}, Kind: "train"}, CreatedAt: now.Add(-time.Hour), SortID: "GTW-TRN2"},
-		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "hotfix-tie-b"}, Kind: "hotfix"}, CreatedAt: now, SortID: "b-fix"},
-		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "main"}, Kind: "main"}, SortID: "main"},
-		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "train-new"}, Kind: "train"}, CreatedAt: now, SortID: "GTW-TRN3"},
-		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "hotfix-new"}, Kind: "hotfix"}, CreatedAt: now.Add(time.Minute), SortID: "new-fix"},
-		{localCodeTarget: localCodeTarget{CodeIdentity: CodeIdentity{Worktree: "hotfix-tie-a"}, Kind: "hotfix"}, CreatedAt: now, SortID: "a-fix"},
+		{localCodeTarget: localCodeTarget{
+			CodeIdentity: CodeIdentity{
+				Worktree: "train-old",
+			},
+			Kind: "train",
+		}, CreatedAt: now.Add(-time.Hour), SortID: "GTW-TRN2"},
+		{localCodeTarget: localCodeTarget{
+			CodeIdentity: CodeIdentity{
+				Worktree: "hotfix-tie-b",
+			},
+			Kind: "hotfix",
+		}, CreatedAt: now, SortID: "b-fix"},
+		{localCodeTarget: localCodeTarget{
+			CodeIdentity: CodeIdentity{
+				Worktree: "main",
+			},
+			Kind: "main",
+		}, SortID: "main"},
+		{localCodeTarget: localCodeTarget{
+			CodeIdentity: CodeIdentity{
+				Worktree: "train-new",
+			},
+			Kind: "train",
+		}, CreatedAt: now, SortID: "GTW-TRN3"},
+		{localCodeTarget: localCodeTarget{
+			CodeIdentity: CodeIdentity{
+				Worktree: "hotfix-new",
+			},
+			Kind: "hotfix",
+		}, CreatedAt: now.Add(time.Minute), SortID: "new-fix"},
+		{localCodeTarget: localCodeTarget{
+			CodeIdentity: CodeIdentity{
+				Worktree: "hotfix-tie-a",
+			},
+			Kind: "hotfix",
+		}, CreatedAt: now, SortID: "a-fix"},
 	}
 	sortCodeWorktreeCandidates(candidates)
 	want := []string{"main", "hotfix-new", "hotfix-tie-b", "hotfix-tie-a", "train-new", "train-old"}
@@ -37,7 +67,11 @@ func TestSortCodeWorktreeCandidatesUsesKindThenNewestCreationAndCanonicalIDDesce
 func TestCodeWorktreePagePacksByTokensAndPreservesOrder(t *testing.T) {
 	items := make([]CodeWorktreeItem, 40)
 	for index := range items {
-		items[index] = CodeWorktreeItem{Selector: fmt.Sprintf("WT-MAIN-%08x", index+1), Kind: "main", Label: strings.Repeat(fmt.Sprintf("item-%02d ", index), 40)}
+		items[index] = CodeWorktreeItem{
+			Selector: fmt.Sprintf("WT-MAIN-%08x", index+1),
+			Kind:     "main",
+			Label:    strings.Repeat(fmt.Sprintf("item-%02d ", index), 40),
+		}
 	}
 	kind := "code-worktree|example|"
 	cursor := ""

@@ -46,12 +46,18 @@ func TestLocalCodeInspectionRejectsDirtyWorktree(t *testing.T) {
 	})
 
 	_, err := f.service.CodeRead(context.Background(), CodeReadInput{
-		ProjectID: "example", Worktree: selector, Path: "tracked.txt",
+		ProjectID: "example",
+		Worktree:  selector,
+		Path:      "tracked.txt",
 	})
 	if err == nil || !strings.Contains(err.Error(), "dirty") {
 		t.Fatalf("dirty worktree was not rejected: %v", err)
 	}
-	live, err := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true})
+	live, err := f.service.CodeDiff(context.Background(), CodeDiffInput{
+		ProjectID: "example",
+		Worktree:  selector,
+		Live:      true,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +66,12 @@ func TestLocalCodeInspectionRejectsDirtyWorktree(t *testing.T) {
 		if pages > 100 {
 			t.Fatal("live diff pagination did not terminate")
 		}
-		live, err = f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: selector, Live: true, Cursor: live.Pagination.NextCursor})
+		live, err = f.service.CodeDiff(context.Background(), CodeDiffInput{
+			ProjectID: "example",
+			Worktree:  selector,
+			Live:      true,
+			Cursor:    live.Pagination.NextCursor,
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -84,7 +95,10 @@ func TestCodeDiffRejectsOversizedSemanticLineWithoutPagination(t *testing.T) {
 	}
 	selector := "WT-MAIN-" + f.current[:8]
 	_, err := f.service.CodeDiff(context.Background(), CodeDiffInput{
-		ProjectID: "example", Worktree: selector, Live: true, Paths: []string{"oversized.txt"},
+		ProjectID: "example",
+		Worktree:  selector,
+		Live:      true,
+		Paths:     []string{"oversized.txt"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "internal byte safety limit") {
 		t.Fatalf("oversized semantic line was not rejected without pagination: %v", err)

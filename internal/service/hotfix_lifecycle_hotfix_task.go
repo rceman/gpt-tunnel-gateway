@@ -110,7 +110,13 @@ func (s *Service) HotfixCreate(ctx context.Context, projectID string, in HotfixC
 	if err := s.Git.RecordHotfixIdentity(s.Config.StateDir, gitx.HotfixIdentity{ProjectID: projectID, HotfixRef: ref, TaskID: bound.ID, BaseSHA: base, CreatedAt: time.Now().UTC()}); err != nil {
 		return rollback(err)
 	}
-	return HotfixCreateResult{ProjectID: projectID, HotfixRef: ref, TaskID: bound.ID, BaseSHA: base, HeadSHA: head}, nil
+	return HotfixCreateResult{
+		ProjectID: projectID,
+		HotfixRef: ref,
+		TaskID:    bound.ID,
+		BaseSHA:   base,
+		HeadSHA:   head,
+	}, nil
 }
 
 func (s *Service) bindTaskToHotfix(ctx context.Context, task model.TaskAuthoring) (model.TaskAuthoring, error) {
