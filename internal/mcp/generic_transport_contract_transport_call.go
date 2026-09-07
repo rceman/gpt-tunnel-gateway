@@ -196,7 +196,7 @@ func (s *Server) genericCallPublic(ctx context.Context, legacy map[string]Tool, 
 		"result":  result,
 		"metrics": publicCallMetrics(result, time.Since(started)),
 	}
-	if pagination, ok := result["_pagination"].(map[string]any); ok {
+	if pagination, ok := internal["pagination"].(map[string]any); ok {
 		if cursor, ok := pagination["next_cursor"].(string); ok && cursor != "" {
 			envelope["pagination"] = map[string]any{"next_cursor": cursor}
 		}

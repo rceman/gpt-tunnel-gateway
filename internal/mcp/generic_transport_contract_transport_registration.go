@@ -163,6 +163,7 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 			continue
 		}
 		entry := genericActionEntry{GenericAction: action}
+		entry.OutputSchema = sanitizeTransportOutputSchema(entry.OutputSchema)
 		if entry.ExecutionInputSchema == nil {
 			entry.ExecutionInputSchema = action.InputSchema
 		}
@@ -171,6 +172,7 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 				entry.LegacyTool = "task_create"
 				entry.LegacyInputSchema = legacy.InputSchema
 				entry.LegacyOutputSchema = legacy.OutputSchema
+				entry.LegacyOutputSchema = sanitizeTransportOutputSchema(entry.LegacyOutputSchema)
 				entry.LegacyExecute = legacy.Execute
 				entry.RouteLegacyByProjectModel = true
 			}

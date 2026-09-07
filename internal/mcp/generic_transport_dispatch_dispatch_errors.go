@@ -31,6 +31,65 @@ func genericActionError(_ string, message any) map[string]any {
 func genericActionSuccess(result map[string]any) map[string]any {
 	return map[string]any{"result": result, "is_error": false}
 }
+
+func genericActionSuccessWithPagination(result map[string]any, pagination map[string]any) map[string]any {
+	success := genericActionSuccess(result)
+	if pagination != nil {
+		success["pagination"] = pagination
+	}
+	return success
+}
+
+func detachPrivateTransportMetadata(result map[string]any) (map[string]any, map[string]any, error) {
+	public := make(map[string]any, len(result))
+	for key, value := range result {
+		if key != "_pagination" && key != "_metrics" {
+			public[key] = value
+		}
+	}
+	private, ok := result["_pagination"]
+	if !ok {
+		return public, nil, nil
+	}
+	pagination, ok := private.(map[string]any)
+	if !ok {
+		return nil, nil, fmt.Errorf("invalid private pagination metadata")
+	}
+	cursor, ok := pagination["next_cursor"].(string)
+	if !ok || strings.TrimSpace(cursor) == "" {
+		return nil, nil, fmt.Errorf("invalid private pagination cursor")
+	}
+	return public, map[string]any{"next_cursor": cursor}, nil
+}
+
+func sanitizeTransportOutputSchema(schema map[string]any) map[string]any {
+	if schema == nil {
+		return nil
+	}
+	sanitized := make(map[string]any, len(schema))
+	for key, value := range schema {
+		sanitized[key] = value
+	}
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		cleanProperties := make(map[string]any, len(properties))
+		for property, propertySchema := range properties {
+			if property != "_pagination" && property != "_metrics" {
+				cleanProperties[property] = propertySchema
+			}
+		}
+		sanitized["properties"] = cleanProperties
+	}
+	if required, ok := schema["required"].([]string); ok {
+		cleanRequired := make([]string, 0, len(required))
+		for _, field := range required {
+			if field != "_pagination" && field != "_metrics" {
+				cleanRequired = append(cleanRequired, field)
+			}
+		}
+		sanitized["required"] = cleanRequired
+	}
+	return sanitized
+}
 func validateGenericActionInput(schema map[string]any, raw json.RawMessage) error {
 	if len(raw) == 0 || string(raw) == "null" {
 		return fmt.Errorf("input must be an object")

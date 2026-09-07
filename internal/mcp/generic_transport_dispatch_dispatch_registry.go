@@ -147,10 +147,14 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 				return genericActionError(action, err.Error()), nil
 			}
 			result := compactActionResult(action, normalizeObject(value), detail)
-			if err := validateOutputValue(entry.LegacyOutputSchema, result); err != nil {
+			publicResult, continuation, err := detachPrivateTransportMetadata(result)
+			if err != nil {
+				return genericActionError(action, err.Error()), nil
+			}
+			if err := validateOutputValue(entry.LegacyOutputSchema, publicResult); err != nil {
 				return genericActionError(action, "action output contract violation: "+err.Error()), nil
 			}
-			return genericActionSuccess(result), nil
+			return genericActionSuccessWithPagination(publicResult, continuation), nil
 		}
 	}
 	if entry.Authority != nil {
@@ -186,10 +190,14 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	if err := enforceCodeOutputTokenBudget(action, result); err != nil {
 		return genericActionError(action, err), nil
 	}
-	if err := validateOutputValue(entry.OutputSchema, result); err != nil {
+	publicResult, continuation, err := detachPrivateTransportMetadata(result)
+	if err != nil {
+		return genericActionError(action, err.Error()), nil
+	}
+	if err := validateOutputValue(entry.OutputSchema, publicResult); err != nil {
 		return genericActionError(action, "action output contract violation: "+err.Error()), nil
 	}
-	return genericActionSuccess(result), nil
+	return genericActionSuccessWithPagination(publicResult, continuation), nil
 }
 func (s *Server) recordRuntimeAction(ctx context.Context, sessionRecord durableSession.Record, event, level, action string, cause error, result map[string]any) {
 	if s.Service == nil {
