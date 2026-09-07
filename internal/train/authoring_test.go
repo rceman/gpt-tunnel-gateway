@@ -104,7 +104,10 @@ func TestAuthoringScopeAndExecutionUpdateRevision(t *testing.T) {
 	}
 	newScope := &model.TaskScope{Files: []string{"internal/service/hotfix_lifecycle.go"}, Modules: []string{"gateway"}}
 	newExecution := model.TaskExecutionTrain
-	updated, changed, err := UpdateTask(task, AuthoringPatch{Execution: &newExecution, Scope: newScope}, "planner", now.Add(time.Minute))
+	updated, changed, err := UpdateTask(task, AuthoringPatch{
+		Execution: &newExecution,
+		Scope:     newScope,
+	}, "planner", now.Add(time.Minute))
 	if err != nil || !changed {
 		t.Fatalf("scope/execution update failed: %#v %v %v", updated, changed, err)
 	}

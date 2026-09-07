@@ -57,7 +57,12 @@ func Status(ctx context.Context, c config.Config, configPath string, project con
 		source.Error = "source worktree is dirty"
 	}
 	runtime := (controller.Controller{Config: c, ConfigPath: configPath}).RuntimeIdentity(probeContext)
-	return StatusResult{GatewayID: c.GatewayID, DebugEnabled: c.Debug.Enabled, Source: source, Runtime: runtime}
+	return StatusResult{
+		GatewayID:    c.GatewayID,
+		DebugEnabled: c.Debug.Enabled,
+		Source:       source,
+		Runtime:      runtime,
+	}
 }
 
 func gitOutput(ctx context.Context, root string, args ...string) (string, error) {

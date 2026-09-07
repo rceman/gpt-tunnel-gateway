@@ -161,7 +161,10 @@ func TestSharedADRCreatePublishesThroughOutbox(t *testing.T) {
 	}
 	defer db.Close()
 	receipt, id, payload, err := db.CommitSharedADRCreate(context.Background(), SharedADRCreate{
-		OperationID: "OPR-GTW-ADR-1", ProjectID: "example", ProjectCode: "EXM", Kind: "adr-create",
+		OperationID:  "OPR-GTW-ADR-1",
+		ProjectID:    "example",
+		ProjectCode:  "EXM",
+		Kind:         "adr-create",
 		BuildPayload: func(id string) ([]byte, error) { return []byte(`{"id":"` + id + `"}`), nil },
 	})
 	if err != nil {
@@ -185,7 +188,16 @@ func TestSharedOutboxRetryBackoffAndHealthSurviveRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.CommitSharedMutation(context.Background(), SharedMutation{OperationID: "OPR-GTW-RETRY", EntityType: "task", EntityID: "TSK-GTW-RETRY", ExpectedRevision: 0, Revision: 1, Kind: "create", Payload: []byte("retry"), Create: true}); err != nil {
+	if _, err := db.CommitSharedMutation(context.Background(), SharedMutation{
+		OperationID:      "OPR-GTW-RETRY",
+		EntityType:       "task",
+		EntityID:         "TSK-GTW-RETRY",
+		ExpectedRevision: 0,
+		Revision:         1,
+		Kind:             "create",
+		Payload:          []byte("retry"),
+		Create:           true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.MarkOutboxRetry(context.Background(), "OPR-GTW-RETRY", time.Now().UTC().Add(time.Hour), errors.New("remote unavailable")); err != nil {

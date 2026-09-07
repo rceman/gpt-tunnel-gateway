@@ -52,28 +52,41 @@ func TestHotfixListAndReadUseBoundedIdentityAuthority(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	first, err := s.HotfixList(context.Background(), HotfixListInput{ProjectID: "example", Limit: 1})
+	first, err := s.HotfixList(context.Background(), HotfixListInput{
+		ProjectID: "example",
+		Limit:     1,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.MainHead != base[:8] || len(first.Hotfixes) != 1 || first.Hotfixes[0].Hotfix != "hotfix/newer" || first.Hotfixes[0].Head != hotfixHead[:8] || len(first.Hotfixes[0].Subject) > 160 || !utf8.ValidString(first.Hotfixes[0].Subject) || first.Hotfixes[0].Subject != strings.Repeat("Ж", 80) || !first.HasMore || first.NextCursor == "" {
 		t.Fatalf("first page=%#v", first)
 	}
-	second, err := s.HotfixList(context.Background(), HotfixListInput{ProjectID: "example", Limit: 1, Cursor: first.NextCursor})
+	second, err := s.HotfixList(context.Background(), HotfixListInput{
+		ProjectID: "example",
+		Limit:     1,
+		Cursor:    first.NextCursor,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(second.Hotfixes) != 1 || second.Hotfixes[0].Hotfix != "hotfix/older" || second.HasMore || second.NextCursor != "" {
 		t.Fatalf("second page=%#v", second)
 	}
-	read, err := s.HotfixRead(context.Background(), HotfixReadInput{ProjectID: "example", Hotfix: "hotfix/newer"})
+	read, err := s.HotfixRead(context.Background(), HotfixReadInput{
+		ProjectID: "example",
+		Hotfix:    "hotfix/newer",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if read.ProjectID != "example" || read.HotfixRef != "refs/heads/hotfix/newer" || read.TaskID != "EXM-TSK2" || read.BaseSHA != base || !read.Materialized || read.HeadSHA != hotfixHead || len(read.HeadSHA) != 40 {
 		t.Fatalf("read=%#v", read)
 	}
-	if _, err := s.HotfixRead(context.Background(), HotfixReadInput{ProjectID: "example", Hotfix: "hotfix/missing"}); err == nil {
+	if _, err := s.HotfixRead(context.Background(), HotfixReadInput{
+		ProjectID: "example",
+		Hotfix:    "hotfix/missing",
+	}); err == nil {
 		t.Fatal("missing hotfix identity unexpectedly succeeded")
 	}
 }

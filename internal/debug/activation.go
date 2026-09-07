@@ -42,8 +42,11 @@ type ActivationFailure struct {
 func Activate(ctx context.Context, c config.Config, configPath string, project config.ProjectConfig, sourceHead string) (ActivationResult, error) {
 	result, err := activation.DebugActivate(ctx, c, configPath, project, sourceHead)
 	return ActivationResult{
-		SourceHead: result.SourceHead, Activation: result.Activation, Smoke: result.Smoke,
-		TunnelPID: result.TunnelPID, GatewayPID: result.GatewayPID,
+		SourceHead: result.SourceHead,
+		Activation: result.Activation,
+		Smoke:      result.Smoke,
+		TunnelPID:  result.TunnelPID,
+		GatewayPID: result.GatewayPID,
 	}, err
 }
 
@@ -90,7 +93,10 @@ func readReceipt(path, id string) (activationReceipt, bool, error) {
 }
 
 func failure(receipt activationReceipt) error {
-	return ActivationFailure{OperationID: receipt.OperationID, Cause: receipt.Error}
+	return ActivationFailure{
+		OperationID: receipt.OperationID,
+		Cause:       receipt.Error,
+	}
 }
 
 // AcceptActivation records the bounded accepted receipt before releasing the
@@ -162,7 +168,15 @@ func AcceptActivation(c config.Config, configPath, sourceHead string, release fu
 	}
 	old := ctl.ProcessStatus("gateway")
 	tunnel := ctl.ProcessStatus("tunnel")
-	result := ActivationResult{OperationID: id, SourceHead: sourceHead, Activation: "accepted", Smoke: "pending", GatewayPID: old.PID, TunnelPID: tunnel.PID, Outcome: "accepted"}
+	result := ActivationResult{
+		OperationID: id,
+		SourceHead:  sourceHead,
+		Activation:  "accepted",
+		Smoke:       "pending",
+		GatewayPID:  old.PID,
+		TunnelPID:   tunnel.PID,
+		Outcome:     "accepted",
+	}
 	if err := fsutil.WriteJSONAtomic(path, activationReceipt{ActivationResult: result}, 0o600); err != nil {
 		_ = lock.Release()
 		return ActivationResult{}, err

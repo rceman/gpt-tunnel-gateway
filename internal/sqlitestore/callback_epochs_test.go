@@ -12,7 +12,12 @@ func TestCallbackEpochRequiresRealWorkAndSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	epoch := CallbackEpoch{ID: "agent-work-1", ProjectID: "example", SessionKey: "example_master", ArmedAt: time.Now().UTC()}
+	epoch := CallbackEpoch{
+		ID:         "agent-work-1",
+		ProjectID:  "example",
+		SessionKey: "example_master",
+		ArmedAt:    time.Now().UTC(),
+	}
 	if err := db.ArmCallbackEpoch(context.Background(), epoch); err != nil {
 		t.Fatal(err)
 	}

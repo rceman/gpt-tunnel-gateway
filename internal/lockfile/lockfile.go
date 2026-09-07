@@ -45,7 +45,10 @@ func (e ContentionEvidence) BoundedJSON() string {
 // ReadContentionEvidence reads kernel flock ownership from /proc/locks. The
 // lock file's text is deliberately not consulted because it is only metadata.
 func ReadContentionEvidence(path string) ContentionEvidence {
-	evidence := ContentionEvidence{Path: path, CurrentPID: os.Getpid()}
+	evidence := ContentionEvidence{
+		Path:       path,
+		CurrentPID: os.Getpid(),
+	}
 	device, inode, ok := deviceInode(path)
 	if !ok {
 		return evidence

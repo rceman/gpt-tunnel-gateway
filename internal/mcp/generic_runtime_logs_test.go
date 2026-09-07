@@ -99,7 +99,11 @@ func TestRuntimeRestartNetworkReturnsStableReceipt(t *testing.T) {
 	}
 	httpServer := httptest.NewServer(server.Router())
 	defer httpServer.Close()
-	client := &frozenConnectorClient{http: httpServer.Client(), endpoint: httpServer.URL + "/mcp", methods: map[string]int{}}
+	client := &frozenConnectorClient{
+		http:     httpServer.Client(),
+		endpoint: httpServer.URL + "/mcp",
+		methods:  map[string]int{},
+	}
 	response := frozenResult(t, client.request(t, "tools/call", map[string]any{
 		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "runtime/restart", "input": map[string]any{"operation_id": "restart-network"}},
 	}))

@@ -18,14 +18,22 @@ func TestHotfixLifecycleUsesRecordedBaseAndExactRetryIsNoOp(t *testing.T) {
 	s, hubRevision, base := testService(t)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	task, operation, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
-		ProjectID: "example", Title: "Hotfix-bound Task", Objective: "Exercise the mandatory hotfix Task binding.",
-		ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+		ProjectID:   "example",
+		Title:       "Hotfix-bound Task",
+		Objective:   "Exercise the mandatory hotfix Task binding.",
+		ADRRelation: model.TaskADRNoRequired,
+		CreatedBy:   "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := s.HotfixCreate(context.Background(), "example", HotfixCreateInput{Slug: "repair", TaskID: task.ID})
+	created, err := s.HotfixCreate(context.Background(), "example", HotfixCreateInput{
+		Slug:   "repair",
+		TaskID: task.ID,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +50,10 @@ func TestHotfixLifecycleUsesRecordedBaseAndExactRetryIsNoOp(t *testing.T) {
 	if created.BaseSHA != base || created.HeadSHA != base {
 		t.Fatalf("created=%#v want base=%s", created, base)
 	}
-	if _, err := s.HotfixIntegrate(context.Background(), "example", HotfixIntegrateInput{HotfixRef: created.HotfixRef, ReviewedSHA: created.BaseSHA}); err == nil {
+	if _, err := s.HotfixIntegrate(context.Background(), "example", HotfixIntegrateInput{
+		HotfixRef:   created.HotfixRef,
+		ReviewedSHA: created.BaseSHA,
+	}); err == nil {
 		t.Fatal("reviewed base was accepted as an integration commit")
 	}
 	laneRoot := filepath.Join(s.Config.StateDir, "hotfix-worktrees", "example", "repair")
@@ -52,7 +63,10 @@ func TestHotfixLifecycleUsesRecordedBaseAndExactRetryIsNoOp(t *testing.T) {
 	testutil.Git(t, laneRoot, "add", "fix.txt")
 	testutil.Git(t, laneRoot, "commit", "-m", "hotfix")
 	reviewed := strings.TrimSpace(testutil.Git(t, laneRoot, "rev-parse", "HEAD"))
-	input := HotfixIntegrateInput{HotfixRef: created.HotfixRef, ReviewedSHA: reviewed}
+	input := HotfixIntegrateInput{
+		HotfixRef:   created.HotfixRef,
+		ReviewedSHA: reviewed,
+	}
 	first, err := s.HotfixIntegrate(context.Background(), "example", input)
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +104,10 @@ func TestHotfixCreateRequiresExistingTaskBinding(t *testing.T) {
 	if _, err := s.HotfixCreate(context.Background(), "example", HotfixCreateInput{Slug: "unbound"}); err == nil {
 		t.Fatal("hotfix/create accepted a missing Task binding")
 	}
-	if _, err := s.HotfixCreate(context.Background(), "example", HotfixCreateInput{Slug: "unknown", TaskID: "EXM-TSK999"}); err == nil {
+	if _, err := s.HotfixCreate(context.Background(), "example", HotfixCreateInput{
+		Slug:   "unknown",
+		TaskID: "EXM-TSK999",
+	}); err == nil {
 		t.Fatal("hotfix/create accepted a non-existent Task binding")
 	}
 }
@@ -99,9 +116,14 @@ func TestHotfixCreateRollsBackTaskBindingWhenIdentityWriteFails(t *testing.T) {
 	s, hubRevision, base := testService(t)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	task, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
-		ProjectID: "example", Title: "Hotfix rollback Task", Objective: "Verify failed identity persistence does not bind the Task.",
-		ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+		ProjectID:   "example",
+		Title:       "Hotfix rollback Task",
+		Objective:   "Verify failed identity persistence does not bind the Task.",
+		ADRRelation: model.TaskADRNoRequired,
+		CreatedBy:   "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +135,10 @@ func TestHotfixCreateRollsBackTaskBindingWhenIdentityWriteFails(t *testing.T) {
 	if err := s.Git.RecordHotfixIdentity(s.Config.StateDir, identity); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.HotfixCreate(context.Background(), "example", HotfixCreateInput{Slug: "repair", TaskID: task.ID}); err == nil {
+	if _, err := s.HotfixCreate(context.Background(), "example", HotfixCreateInput{
+		Slug:   "repair",
+		TaskID: task.ID,
+	}); err == nil {
 		t.Fatal("hotfix/create unexpectedly succeeded with an existing identity")
 	}
 	restored, err := s.TaskAuthoringRead(context.Background(), "example", task.ID)
@@ -136,14 +161,22 @@ func TestTaskWorkDeliveredHotfixReceiptAvoidsSecondPrompt(t *testing.T) {
 	installServiceExecutionSessionFixture(t, s, logPath)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	task, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
-		ProjectID: "example", Title: "Delivered hotfix receipt", Objective: "Verify repeated Task work does not prompt twice.",
-		ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+		ProjectID:   "example",
+		Title:       "Delivered hotfix receipt",
+		Objective:   "Verify repeated Task work does not prompt twice.",
+		ADRRelation: model.TaskADRNoRequired,
+		CreatedBy:   "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := s.HotfixCreate(context.Background(), "example", HotfixCreateInput{Slug: "receipt-retry", TaskID: task.ID})
+	created, err := s.HotfixCreate(context.Background(), "example", HotfixCreateInput{
+		Slug:   "receipt-retry",
+		TaskID: task.ID,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

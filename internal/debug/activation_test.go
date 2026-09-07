@@ -66,7 +66,13 @@ func TestRunActivationTerminalReceiptIsIdempotent(t *testing.T) {
 	var executions atomic.Int32
 	execute := func(context.Context) (ActivationResult, error) {
 		executions.Add(1)
-		return ActivationResult{SourceHead: source, Activation: "passed", Smoke: "passed", TunnelPID: 42, GatewayPID: 43}, nil
+		return ActivationResult{
+			SourceHead: source,
+			Activation: "passed",
+			Smoke:      "passed",
+			TunnelPID:  42,
+			GatewayPID: 43,
+		}, nil
 	}
 	first, err := RunActivation(c, "config.json", accepted.OperationID, source, execute)
 	if err != nil || first.Outcome != "succeeded" {
@@ -212,7 +218,13 @@ func TestRunActivationRetriesTransientSuccessReceiptWriteWithoutFalseFailure(t *
 		return fsutil.WriteJSONAtomic(path, value, mode)
 	}
 	result, err := RunActivation(c, "config.json", accepted.OperationID, source, func(context.Context) (ActivationResult, error) {
-		return ActivationResult{SourceHead: source, Activation: "passed", Smoke: "passed", TunnelPID: 42, GatewayPID: 43}, nil
+		return ActivationResult{
+			SourceHead: source,
+			Activation: "passed",
+			Smoke:      "passed",
+			TunnelPID:  42,
+			GatewayPID: 43,
+		}, nil
 	})
 	if err != nil || result.Outcome != "succeeded" {
 		t.Fatalf("successful activation result=%#v err=%v", result, err)

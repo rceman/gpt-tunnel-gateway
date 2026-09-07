@@ -82,11 +82,14 @@ func callbackEventsOutputSchema() map[string]any {
 
 func (s *Server) registerCallbackActions() error {
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:            "callback/events",
-		Description:     "List the bounded project callback events supported by Gateway.",
-		InputSchema:     callbackListInputSchema(),
-		OutputSchema:    callbackEventsOutputSchema(),
-		Annotations:     ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "callback/events",
+		Description:  "List the bounded project callback events supported by Gateway.",
+		InputSchema:  callbackListInputSchema(),
+		OutputSchema: callbackEventsOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:   actionRolePlannerOrAgent,
 		LocalReadOnly:   true,
 		SessionBound:    true,
@@ -98,11 +101,14 @@ func (s *Server) registerCallbackActions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:            "callback/list",
-		Description:     "List deterministic compact callback registrations for the bound project.",
-		InputSchema:     callbackListInputSchema(),
-		OutputSchema:    callbackListOutputSchema(),
-		Annotations:     ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "callback/list",
+		Description:  "List deterministic compact callback registrations for the bound project.",
+		InputSchema:  callbackListInputSchema(),
+		OutputSchema: callbackListOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:   actionRolePlannerOrAgent,
 		LocalReadOnly:   true,
 		SessionBound:    true,
@@ -118,11 +124,14 @@ func (s *Server) registerCallbackActions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:            "callback/register",
-		Description:     "Register one bounded project callback for an Agent work-finished event.",
-		InputSchema:     callbackRegisterInputSchema(),
-		OutputSchema:    callbackRegistrationOutputSchema(),
-		Annotations:     ToolAnnotations{DestructiveHint: true, IdempotentHint: true},
+		Path:         "callback/register",
+		Description:  "Register one bounded project callback for an Agent work-finished event.",
+		InputSchema:  callbackRegisterInputSchema(),
+		OutputSchema: callbackRegistrationOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
 		AuthorityRole:   "planner",
 		SessionBound:    true,
 		SessionRequired: true,
@@ -141,11 +150,14 @@ func (s *Server) registerCallbackActions() error {
 		return err
 	}
 	return s.RegisterGenericAction(GenericAction{
-		Path:            "callback/remove",
-		Description:     "Remove one exact project callback registration.",
-		InputSchema:     callbackRemoveInputSchema(),
-		OutputSchema:    callbackRegistrationOutputSchema(),
-		Annotations:     ToolAnnotations{DestructiveHint: true, IdempotentHint: true},
+		Path:         "callback/remove",
+		Description:  "Remove one exact project callback registration.",
+		InputSchema:  callbackRemoveInputSchema(),
+		OutputSchema: callbackRegistrationOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
 		AuthorityRole:   "planner",
 		SessionBound:    true,
 		SessionRequired: true,

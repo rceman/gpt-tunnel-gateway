@@ -45,7 +45,10 @@ func TestDaemonUnitIsCanonicalSystemGatewayAndTunnelService(t *testing.T) {
 		},
 		ConfigPath: configPath,
 	}
-	unit, err := c.daemonUnitText(daemonRuntimeIdentity{User: "therceman", Group: "therceman"})
+	unit, err := c.daemonUnitText(daemonRuntimeIdentity{
+		User:  "therceman",
+		Group: "therceman",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

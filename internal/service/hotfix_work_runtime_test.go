@@ -22,10 +22,17 @@ func TestHotfixExecutionReceiptRequiresExplicitState(t *testing.T) {
 func TestHotfixExecutionReceiptPreparedDeliveredAndExactBinding(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "receipt.json")
 	expected := hotfixExecutionReceipt{
-		ProjectID: "example", HotfixRef: "refs/heads/hotfix/repair", TaskID: "EXM-TSK1",
-		TaskRevision: 2, Head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", AgentID: "agent",
-		SessionKey: "session", Profile: "coding", WorktreePath: "/srv/repair",
-		Message: "execute", CreatedAt: time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC),
+		ProjectID:    "example",
+		HotfixRef:    "refs/heads/hotfix/repair",
+		TaskID:       "EXM-TSK1",
+		TaskRevision: 2,
+		Head:         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		AgentID:      "agent",
+		SessionKey:   "session",
+		Profile:      "coding",
+		WorktreePath: "/srv/repair",
+		Message:      "execute",
+		CreatedAt:    time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC),
 	}
 	prepared := expected
 	prepared.State = "prepared"
@@ -107,11 +114,19 @@ func TestHotfixExecutionReceiptKeepsExactLaneWorktree(t *testing.T) {
 func TestHotfixExecutionDeliveredReceiptIsIdempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "receipt.json")
 	receipt := hotfixExecutionReceipt{
-		ProjectID: "example", HotfixRef: "refs/heads/hotfix/repair", TaskID: "EXM-TSK1",
-		TaskRevision: 2, Head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", AgentID: "agent",
-		SessionKey: "session", Profile: "coding", WorktreePath: "/srv/repair",
-		Message: "execute", State: "delivered", Delivered: true,
-		CreatedAt: time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC),
+		ProjectID:    "example",
+		HotfixRef:    "refs/heads/hotfix/repair",
+		TaskID:       "EXM-TSK1",
+		TaskRevision: 2,
+		Head:         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		AgentID:      "agent",
+		SessionKey:   "session",
+		Profile:      "coding",
+		WorktreePath: "/srv/repair",
+		Message:      "execute",
+		State:        "delivered",
+		Delivered:    true,
+		CreatedAt:    time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC),
 	}
 	if err := writeHotfixExecutionReceipt(path, receipt); err != nil {
 		t.Fatal(err)
@@ -132,10 +147,18 @@ func TestHotfixExecutionDeliveredReceiptIsIdempotent(t *testing.T) {
 func TestHotfixExecutionPreparedReceiptFailsClosed(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "receipt.json")
 	receipt := hotfixExecutionReceipt{
-		ProjectID: "example", HotfixRef: "refs/heads/hotfix/repair", TaskID: "EXM-TSK1",
-		TaskRevision: 2, Head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", AgentID: "agent",
-		SessionKey: "session", Profile: "coding", WorktreePath: "/srv/repair",
-		Message: "execute", State: "prepared", CreatedAt: time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC),
+		ProjectID:    "example",
+		HotfixRef:    "refs/heads/hotfix/repair",
+		TaskID:       "EXM-TSK1",
+		TaskRevision: 2,
+		Head:         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		AgentID:      "agent",
+		SessionKey:   "session",
+		Profile:      "coding",
+		WorktreePath: "/srv/repair",
+		Message:      "execute",
+		State:        "prepared",
+		CreatedAt:    time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC),
 	}
 	if err := writeHotfixExecutionReceipt(path, receipt); err != nil {
 		t.Fatal(err)

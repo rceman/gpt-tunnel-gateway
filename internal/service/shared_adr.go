@@ -116,5 +116,10 @@ func (s *Service) adrCreateShared(ctx context.Context, in ADRCreateInput) (Opera
 	if err != nil {
 		return OperationResult{}, err
 	}
-	return OperationResult{OperationID: operationID, ProjectID: created.ProjectID, Status: "created", TaskID: id}, nil
+	return OperationResult{
+		OperationID: operationID,
+		ProjectID:   created.ProjectID,
+		Status:      "created",
+		TaskID:      id,
+	}, nil
 }

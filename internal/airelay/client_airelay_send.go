@@ -61,17 +61,31 @@ func (c Client) PromptWithProvenance(ctx context.Context, session, origin, messa
 		return Result{}, fmt.Errorf("invalid durable session provenance")
 	}
 	if message == "" {
-		return Result{}, &MessageValidationError{Code: "EMPTY", Reason: "message is empty"}
+		return Result{}, &MessageValidationError{
+			Code:   "EMPTY",
+			Reason: "message is empty",
+		}
 	}
 	if strings.ContainsRune(message, 0) {
-		return Result{}, &MessageValidationError{Code: "NUL", Reason: "message contains NUL"}
+		return Result{}, &MessageValidationError{
+			Code:   "NUL",
+			Reason: "message contains NUL",
+		}
 	}
 	if !utf8.ValidString(message) {
-		return Result{}, &MessageValidationError{Code: "INVALID_UTF8", Reason: "message is not valid UTF-8"}
+		return Result{}, &MessageValidationError{
+			Code:   "INVALID_UTF8",
+			Reason: "message is not valid UTF-8",
+		}
 	}
 	contentBytes := len([]byte(message))
 	if contentBytes > MaxPromptBytes {
-		return Result{}, &MessageValidationError{Code: "CONTENT_TOO_LARGE", Reason: "message exceeds UTF-8 content limit", LimitBytes: MaxPromptBytes, ActualBytes: contentBytes}
+		return Result{}, &MessageValidationError{
+			Code:        "CONTENT_TOO_LARGE",
+			Reason:      "message exceeds UTF-8 content limit",
+			LimitBytes:  MaxPromptBytes,
+			ActualBytes: contentBytes,
+		}
 	}
 	message = "[" + origin + "] " + message
 	transportLimit := c.MaxMessageBytes
@@ -80,7 +94,12 @@ func (c Client) PromptWithProvenance(ctx context.Context, session, origin, messa
 	}
 	transportBytes := len([]byte(message))
 	if transportBytes > transportLimit {
-		return Result{}, &MessageValidationError{Code: "TRANSPORT_TOO_LARGE", Reason: "provenance-prefixed message exceeds Airelay transport limit", LimitBytes: transportLimit, ActualBytes: transportBytes}
+		return Result{}, &MessageValidationError{
+			Code:        "TRANSPORT_TOO_LARGE",
+			Reason:      "provenance-prefixed message exceeds Airelay transport limit",
+			LimitBytes:  transportLimit,
+			ActualBytes: transportBytes,
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()

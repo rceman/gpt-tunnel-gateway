@@ -34,7 +34,10 @@ func TestVerifySingleFlightReusesCompletedReceipt(t *testing.T) {
 		}
 		return results, nil
 	}
-	in := VerifyInput{Root: t.TempDir(), Scope: "full"}
+	in := VerifyInput{
+		Root:  t.TempDir(),
+		Scope: "full",
+	}
 	firstDone := make(chan VerifyReceipt, 1)
 	firstErr := make(chan error, 1)
 	go func() { receipt, err := s.Verify(context.Background(), in); firstDone <- receipt; firstErr <- err }()
@@ -85,12 +88,18 @@ func TestVerifySourceFingerprintStartsNewRun(t *testing.T) {
 		}
 		return results, nil
 	}
-	first, err := s.Verify(context.Background(), VerifyInput{Root: root, Scope: "full"})
+	first, err := s.Verify(context.Background(), VerifyInput{
+		Root:  root,
+		Scope: "full",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	fingerprint = "source-b"
-	second, err := s.Verify(context.Background(), VerifyInput{Root: root, Scope: "full"})
+	second, err := s.Verify(context.Background(), VerifyInput{
+		Root:  root,
+		Scope: "full",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +109,15 @@ func TestVerifySourceFingerprintStartsNewRun(t *testing.T) {
 }
 
 func TestVerifyOperationIDIncludesGateIdentity(t *testing.T) {
-	base := verifyPlan{Input: VerifyInput{Root: "/repo", Scope: "full"}, Scope: gates.FullTestScope(), GateNames: []string{"format", "check", "test"}, SourceFingerprint: "source"}
+	base := verifyPlan{
+		Input: VerifyInput{
+			Root:  "/repo",
+			Scope: "full",
+		},
+		Scope:             gates.FullTestScope(),
+		GateNames:         []string{"format", "check", "test"},
+		SourceFingerprint: "source",
+	}
 	base.GateIdentity = "gate-a"
 	first, err := verifyOperationID(base)
 	if err != nil {

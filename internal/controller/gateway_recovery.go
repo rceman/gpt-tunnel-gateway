@@ -78,7 +78,10 @@ func readGatewayRecoveryReceipt(path, operationID string) (gatewayRecoveryReceip
 }
 
 func gatewayRecoveryFailure(receipt gatewayRecoveryReceipt) error {
-	return GatewayRecoveryFailure{OperationID: receipt.OperationID, Cause: receipt.Error}
+	return GatewayRecoveryFailure{
+		OperationID: receipt.OperationID,
+		Cause:       receipt.Error,
+	}
 }
 
 func scheduleGatewayRecoveryWorker(c Controller, operationID string, release func(func())) {

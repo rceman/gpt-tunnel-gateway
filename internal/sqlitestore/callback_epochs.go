@@ -58,7 +58,15 @@ func (d *Databases) PendingCallbackEpochs(ctx context.Context, limit int) ([]Cal
 		if !idOK || !projectOK || !agentOK || !sessionOK || !armedAtOK || !busyOK || !idleOK || parseErr != nil || id == "" || projectID == "" || sessionKey == "" || busySeen < 0 || busySeen > 1 || idleObservations < 0 {
 			return nil, fmt.Errorf("invalid callback epoch values")
 		}
-		result = append(result, CallbackEpoch{ID: id, ProjectID: projectID, AgentID: agentID, SessionKey: sessionKey, ArmedAt: parsed, BusySeen: busySeen == 1, IdleObservations: int(idleObservations)})
+		result = append(result, CallbackEpoch{
+			ID:               id,
+			ProjectID:        projectID,
+			AgentID:          agentID,
+			SessionKey:       sessionKey,
+			ArmedAt:          parsed,
+			BusySeen:         busySeen == 1,
+			IdleObservations: int(idleObservations),
+		})
 	}
 	return result, nil
 }

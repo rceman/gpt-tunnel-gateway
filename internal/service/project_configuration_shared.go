@@ -70,7 +70,12 @@ func (s *Service) projectConfigurationUpdateShared(ctx context.Context, in Proje
 		if err := model.ValidateProjectConfiguration(committed); err != nil {
 			return model.ProjectConfiguration{}, OperationResult{}, err
 		}
-		return committed, OperationResult{OperationID: operationID, ProjectID: in.ProjectID, Status: "updated", Hub: hub.TransactionResult{Paths: []string{}}}, nil
+		return committed, OperationResult{
+			OperationID: operationID,
+			ProjectID:   in.ProjectID,
+			Status:      "updated",
+			Hub:         hub.TransactionResult{Paths: []string{}},
+		}, nil
 	}
 	current, err := s.projectConfigurationReadShared(ctx, in.ProjectID)
 	if err != nil {
@@ -105,7 +110,12 @@ func (s *Service) projectConfigurationUpdateShared(ctx context.Context, in Proje
 	}); err != nil {
 		return model.ProjectConfiguration{}, OperationResult{}, err
 	}
-	return updated, OperationResult{OperationID: operationID, ProjectID: in.ProjectID, Status: "updated", Hub: hub.TransactionResult{Paths: []string{}}}, nil
+	return updated, OperationResult{
+		OperationID: operationID,
+		ProjectID:   in.ProjectID,
+		Status:      "updated",
+		Hub:         hub.TransactionResult{Paths: []string{}},
+	}, nil
 }
 
 func projectConfigurationOperationID(ctx context.Context, in ProjectConfigurationUpdateInput) (string, error) {

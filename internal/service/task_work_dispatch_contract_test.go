@@ -15,14 +15,22 @@ import (
 func createHotfixTaskForDispatchTest(t *testing.T, s *Service, revision string) (model.TaskAuthoring, HotfixCreateResult) {
 	t.Helper()
 	task, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
-		ProjectID: "example", Title: "Hotfix dispatch contract", Objective: "Verify the resolved base Agent session is used.",
-		ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID:   "example",
+		Title:       "Hotfix dispatch contract",
+		Objective:   "Verify the resolved base Agent session is used.",
+		ADRRelation: model.TaskADRNoRequired,
+		CreatedBy:   "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := s.HotfixCreate(context.Background(), "example", HotfixCreateInput{Slug: "dispatch-contract", TaskID: task.ID})
+	created, err := s.HotfixCreate(context.Background(), "example", HotfixCreateInput{
+		Slug:   "dispatch-contract",
+		TaskID: task.ID,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

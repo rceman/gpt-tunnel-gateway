@@ -31,11 +31,14 @@ func (s *Server) ensureDebugActions() {
 
 func (s *Server) registerDebugActions() error {
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:             "debug/status",
-		Description:      "Read bounded host-local source and runtime recovery status.",
-		InputSchema:      debugStatusInputSchema(),
-		OutputSchema:     debugStatusOutputSchema(),
-		Annotations:      ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "debug/status",
+		Description:  "Read bounded host-local source and runtime recovery status.",
+		InputSchema:  debugStatusInputSchema(),
+		OutputSchema: debugStatusOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:    durableSession.RolePlanner,
 		LocalReadOnly:    true,
 		LocalReceiptOnly: true,
@@ -53,11 +56,14 @@ func (s *Server) registerDebugActions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:             "debug/prompt",
-		Description:      "Send one bounded direct prompt to a validated Airelay session.",
-		InputSchema:      debugPromptInputSchema(),
-		OutputSchema:     debugPromptOutputSchema(),
-		Annotations:      ToolAnnotations{DestructiveHint: true, IdempotentHint: false},
+		Path:         "debug/prompt",
+		Description:  "Send one bounded direct prompt to a validated Airelay session.",
+		InputSchema:  debugPromptInputSchema(),
+		OutputSchema: debugPromptOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  false,
+		},
 		AuthorityRole:    durableSession.RolePlanner,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -82,11 +88,14 @@ func (s *Server) registerDebugActions() error {
 		return err
 	}
 	return s.RegisterGenericAction(GenericAction{
-		Path:             "debug/activate",
-		Description:      "Activate one exact clean main source revision through the Gateway-only recovery pipeline.",
-		InputSchema:      debugActivateInputSchema(),
-		OutputSchema:     debugActivateOutputSchema(),
-		Annotations:      ToolAnnotations{DestructiveHint: true, IdempotentHint: true},
+		Path:         "debug/activate",
+		Description:  "Activate one exact clean main source revision through the Gateway-only recovery pipeline.",
+		InputSchema:  debugActivateInputSchema(),
+		OutputSchema: debugActivateOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
 		AuthorityRole:    durableSession.RolePlanner,
 		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {

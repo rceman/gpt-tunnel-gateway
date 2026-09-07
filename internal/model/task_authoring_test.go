@@ -63,7 +63,10 @@ func TestTaskAuthoringValidationAndReadySeal(t *testing.T) {
 func TestTaskAuthoringScopeAndExecutionAreHashedAndValidated(t *testing.T) {
 	task := validTaskAuthoringForTest()
 	task.Execution = TaskExecutionHotfix
-	task.Scope = &TaskScope{Files: []string{"internal/service/task_authoring.go"}, Modules: []string{"gateway"}}
+	task.Scope = &TaskScope{
+		Files:   []string{"internal/service/task_authoring.go"},
+		Modules: []string{"gateway"},
+	}
 	digest, err := HashTaskAuthoring(task)
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +87,10 @@ func TestTaskAuthoringScopeAndExecutionAreHashedAndValidated(t *testing.T) {
 		t.Fatalf("scope/execution did not round-trip: %#v", decoded)
 	}
 	changed := task
-	changed.Scope = &TaskScope{Files: []string{"internal/service/other.go"}, Modules: []string{"gateway"}}
+	changed.Scope = &TaskScope{
+		Files:   []string{"internal/service/other.go"},
+		Modules: []string{"gateway"},
+	}
 	changedDigest, err := HashTaskAuthoring(changed)
 	if err != nil {
 		t.Fatal(err)

@@ -21,10 +21,15 @@ func (s *Server) ensureHotfixActions() {
 
 func (s *Server) registerHotfixActions() error {
 	if err := s.RegisterGenericAction(GenericAction{
-		Path: "hotfix/list", Description: "List bounded server-owned hotfix lanes and execution identity.",
-		InputSchema: hotfixListInputSchema(), OutputSchema: hotfixListOutputSchema(),
-		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
-		AuthorityRole: "planner",
+		Path:            "hotfix/list",
+		Description:     "List bounded server-owned hotfix lanes and execution identity.",
+		InputSchema:     hotfixListInputSchema(),
+		OutputSchema:    hotfixListOutputSchema(),
+		Annotations:     readOnlyAnnotations(),
+		LocalReadOnly:   true,
+		SessionBound:    true,
+		SessionRequired: true,
+		AuthorityRole:   "planner",
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.HotfixListInput
 			if err := decode(raw, &in); err != nil {
@@ -41,10 +46,15 @@ func (s *Server) registerHotfixActions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path: "hotfix/read", Description: "Read one server-owned hotfix lane and execution identity.",
-		InputSchema: hotfixReadInputSchema(), OutputSchema: hotfixReadOutputSchema(),
-		Annotations: readOnlyAnnotations(), LocalReadOnly: true, SessionBound: true, SessionRequired: true,
-		AuthorityRole: "planner",
+		Path:            "hotfix/read",
+		Description:     "Read one server-owned hotfix lane and execution identity.",
+		InputSchema:     hotfixReadInputSchema(),
+		OutputSchema:    hotfixReadOutputSchema(),
+		Annotations:     readOnlyAnnotations(),
+		LocalReadOnly:   true,
+		SessionBound:    true,
+		SessionRequired: true,
+		AuthorityRole:   "planner",
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.HotfixReadInput
 			if err := decode(raw, &in); err != nil {
@@ -61,11 +71,14 @@ func (s *Server) registerHotfixActions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
-		Path:            "hotfix/create",
-		Description:     "Create one isolated hotfix lane from the exact refreshed canonical main.",
-		InputSchema:     hotfixCreateInputSchema(),
-		OutputSchema:    hotfixCreateOutputSchema(),
-		Annotations:     ToolAnnotations{DestructiveHint: true, IdempotentHint: false},
+		Path:         "hotfix/create",
+		Description:  "Create one isolated hotfix lane from the exact refreshed canonical main.",
+		InputSchema:  hotfixCreateInputSchema(),
+		OutputSchema: hotfixCreateOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  false,
+		},
 		AuthorityRole:   "planner",
 		SessionBound:    true,
 		SessionRequired: true,
@@ -84,11 +97,14 @@ func (s *Server) registerHotfixActions() error {
 		return err
 	}
 	return s.RegisterGenericAction(GenericAction{
-		Path:            "hotfix/integrate",
-		Description:     "Integrate one exact reviewed hotfix commit by strict non-force fast-forward.",
-		InputSchema:     hotfixIntegrateInputSchema(),
-		OutputSchema:    hotfixIntegrateOutputSchema(),
-		Annotations:     ToolAnnotations{DestructiveHint: true, IdempotentHint: true},
+		Path:         "hotfix/integrate",
+		Description:  "Integrate one exact reviewed hotfix commit by strict non-force fast-forward.",
+		InputSchema:  hotfixIntegrateInputSchema(),
+		OutputSchema: hotfixIntegrateOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
 		AuthorityRole:   "planner",
 		SessionBound:    true,
 		SessionRequired: true,

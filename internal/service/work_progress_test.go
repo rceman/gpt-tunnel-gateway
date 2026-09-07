@@ -34,7 +34,10 @@ func TestWorkProgressAdvancesPostGateBaselineAndNextCallUsesDelta(t *testing.T) 
 		}
 		return fakeReceiptResults(names), nil
 	}
-	first, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{Root: root, ProjectID: "example"})
+	first, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{
+		Root:      root,
+		ProjectID: "example",
+	})
 	if err != nil || first.Status != "completed" || !first.BaselineAdvanced {
 		t.Fatalf("first progress=%#v err=%v", first, err)
 	}
@@ -42,14 +45,20 @@ func TestWorkProgressAdvancesPostGateBaselineAndNextCallUsesDelta(t *testing.T) 
 	if err != nil || state.Baseline["docs/progress.md"] == "" || state.GateIdentity == "" {
 		t.Fatalf("baseline state=%#v err=%v", state, err)
 	}
-	second, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{Root: root, ProjectID: "example"})
+	second, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{
+		Root:      root,
+		ProjectID: "example",
+	})
 	if err != nil || second.Status != "completed" || !second.Reused || second.BaselineAdvanced || len(second.ChangedFiles) != 0 {
 		t.Fatalf("second progress=%#v err=%v", second, err)
 	}
 	if calls != 1 {
 		t.Fatalf("gates executed %d times after baseline advanced", calls)
 	}
-	status, err := s.WorkCheckpointStatus(context.Background(), WorkCheckpointInput{Root: root, ProjectID: "example"})
+	status, err := s.WorkCheckpointStatus(context.Background(), WorkCheckpointInput{
+		Root:      root,
+		ProjectID: "example",
+	})
 	if err != nil || !status.BaselinePresent || len(status.ChangedFiles) != 0 || len(status.GateNames) == 0 {
 		t.Fatalf("checkpoint status=%#v err=%v", status, err)
 	}
@@ -78,7 +87,10 @@ func TestWorkProgressFailureDoesNotAdvanceBaseline(t *testing.T) {
 		}
 		return fakeReceiptResults(names), nil
 	}
-	first, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{Root: root, ProjectID: "example"})
+	first, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{
+		Root:      root,
+		ProjectID: "example",
+	})
 	if err == nil || first.Status != "failed" || first.BaselineAdvanced {
 		t.Fatalf("failed progress=%#v err=%v", first, err)
 	}
@@ -87,7 +99,10 @@ func TestWorkProgressFailureDoesNotAdvanceBaseline(t *testing.T) {
 		t.Fatalf("failed progress advanced baseline=%#v err=%v", state, stateErr)
 	}
 	fail = false
-	second, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{Root: root, ProjectID: "example"})
+	second, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{
+		Root:      root,
+		ProjectID: "example",
+	})
 	if err != nil || second.Status != "completed" || !second.BaselineAdvanced || calls != 2 {
 		t.Fatalf("retry progress=%#v err=%v calls=%d", second, err, calls)
 	}
@@ -103,7 +118,10 @@ func TestWorkCheckpointRequiresExplicitProjectAdapter(t *testing.T) {
 	if err := os.WriteFile(path, []byte("change\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{Root: root, ProjectID: "example"}); err == nil {
+	if _, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{
+		Root:      root,
+		ProjectID: "example",
+	}); err == nil {
 		t.Fatal("checkpoint used an implicit adapter")
 	}
 }
@@ -132,7 +150,10 @@ func TestWorkCheckpointBusyProjectRootIsSingleFlight(t *testing.T) {
 	firstResult := make(chan WorkProgressReceipt, 1)
 	firstError := make(chan error, 1)
 	go func() {
-		receipt, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{Root: root, ProjectID: "example"})
+		receipt, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{
+			Root:      root,
+			ProjectID: "example",
+		})
 		firstResult <- receipt
 		firstError <- err
 	}()
@@ -141,7 +162,10 @@ func TestWorkCheckpointBusyProjectRootIsSingleFlight(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("first checkpoint did not enter its adapter")
 	}
-	second, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{Root: root, ProjectID: "example"})
+	second, err := s.WorkCheckpoint(context.Background(), WorkCheckpointInput{
+		Root:      root,
+		ProjectID: "example",
+	})
 	if err != nil || second.Status != "running" || !second.Reused || second.OperationID == "" {
 		t.Fatalf("busy checkpoint=%#v err=%v", second, err)
 	}
@@ -171,9 +195,13 @@ func configureGoCheckpoint(t *testing.T, s *Service, hubRevision string) {
 	_, _, err = s.ProjectConfigurationUpdate(trustedWorkflowPolicyContext(context.Background(), "planner"), ProjectConfigurationUpdateInput{
 		ProjectID:        "example",
 		ExpectedRevision: configuration.Revision,
-		Patch:            ProjectConfigurationPatch{Checkpoint: &model.ProjectCheckpointProfile{Adapter: "go"}},
-		UpdatedBy:        "test",
-		WriteOptions:     WriteOptions{ExpectedHubRevision: hubRevision},
+		Patch: ProjectConfigurationPatch{
+			Checkpoint: &model.ProjectCheckpointProfile{Adapter: "go"},
+		},
+		UpdatedBy: "test",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubRevision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

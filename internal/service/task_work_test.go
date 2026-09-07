@@ -139,8 +139,12 @@ func TestTaskWorkRejectsTrainRuntimeSessionMismatchWithoutLaunch(t *testing.T) {
 	revision = enableTrainV2ForTest(t, s, revision)
 	task, revision := readyTrainTaskForTest(t, s, revision, "Train session mismatch")
 	train, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
-		ProjectID: "example", TaskIDs: []string{task.ID}, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID: "example",
+		TaskIDs:   []string{task.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

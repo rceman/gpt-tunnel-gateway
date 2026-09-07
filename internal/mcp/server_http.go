@@ -168,7 +168,10 @@ const maxBufferedMCPResponseBytes = 2 << 20
 var errMCPResponseTooLarge = errors.New("MCP response exceeds bounded response buffer")
 
 func newBufferedResponseWriter(destination http.ResponseWriter) *bufferedResponseWriter {
-	return &bufferedResponseWriter{destination: destination, header: destination.Header().Clone()}
+	return &bufferedResponseWriter{
+		destination: destination,
+		header:      destination.Header().Clone(),
+	}
 }
 
 func (w *bufferedResponseWriter) Header() http.Header {

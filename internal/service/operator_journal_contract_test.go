@@ -109,7 +109,10 @@ func TestOperatorHistoryKeepsCollidingJournalFamiliesAndPaginatesByExactID(t *te
 	revision = installOperatorEventFixture(t, s, revision, s.operatorEventPath("example", "EXM-JRN1"), operatorTestEvent("EXM-JRN1", "example"), 2)
 	revision = installOperatorEventFixture(t, s, revision, s.operatorEventPath("example", "EXM-OPR1"), operatorTestEvent("EXM-OPR1", "example"), 2)
 
-	first, err := s.OperatorHistory(ctx, OperatorHistoryInput{ProjectID: "example", Limit: 1})
+	first, err := s.OperatorHistory(ctx, OperatorHistoryInput{
+		ProjectID: "example",
+		Limit:     1,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +120,11 @@ func TestOperatorHistoryKeepsCollidingJournalFamiliesAndPaginatesByExactID(t *te
 		t.Fatalf("unexpected first colliding-family page: %#v", first)
 	}
 
-	second, err := s.OperatorHistory(ctx, OperatorHistoryInput{ProjectID: "example", AfterEventID: first.NextAfterEventID, Limit: 1})
+	second, err := s.OperatorHistory(ctx, OperatorHistoryInput{
+		ProjectID:    "example",
+		AfterEventID: first.NextAfterEventID,
+		Limit:        1,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

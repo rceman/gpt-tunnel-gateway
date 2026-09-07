@@ -84,7 +84,12 @@ func (s *Service) HotfixList(ctx context.Context, in HotfixListInput) (HotfixLis
 		}
 		items = append(items, item)
 	}
-	return HotfixListResult{MainHead: mainHead[:8], Hotfixes: items, NextCursor: pageInfo.NextCursor, HasMore: pageInfo.HasMore}, nil
+	return HotfixListResult{
+		MainHead:   mainHead[:8],
+		Hotfixes:   items,
+		NextCursor: pageInfo.NextCursor,
+		HasMore:    pageInfo.HasMore,
+	}, nil
 }
 
 func (s *Service) HotfixRead(ctx context.Context, in HotfixReadInput) (HotfixReadResult, error) {
@@ -120,7 +125,10 @@ func (s *Service) resolveHotfixHead(ctx context.Context, projectID string, ident
 
 func (s *Service) hotfixListItem(ctx context.Context, projectID string, identity gitx.HotfixIdentity) (HotfixListItem, error) {
 	head, materialized := s.resolveHotfixHead(ctx, projectID, identity)
-	item := HotfixListItem{Task: identity.TaskID, Hotfix: strings.TrimPrefix(identity.HotfixRef, "refs/heads/")}
+	item := HotfixListItem{
+		Task:   identity.TaskID,
+		Hotfix: strings.TrimPrefix(identity.HotfixRef, "refs/heads/"),
+	}
 	if !materialized {
 		return item, nil
 	}
@@ -155,7 +163,14 @@ func boundedHotfixSubject(subject string) string {
 
 func (s *Service) hotfixReadResult(ctx context.Context, projectID string, identity gitx.HotfixIdentity) (HotfixReadResult, error) {
 	head, materialized := s.resolveHotfixHead(ctx, projectID, identity)
-	return HotfixReadResult{ProjectID: projectID, HotfixRef: identity.HotfixRef, TaskID: identity.TaskID, BaseSHA: identity.BaseSHA, HeadSHA: head, Materialized: materialized}, nil
+	return HotfixReadResult{
+		ProjectID:    projectID,
+		HotfixRef:    identity.HotfixRef,
+		TaskID:       identity.TaskID,
+		BaseSHA:      identity.BaseSHA,
+		HeadSHA:      head,
+		Materialized: materialized,
+	}, nil
 }
 
 func canonicalHotfixReadRef(value string) (string, error) {

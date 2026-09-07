@@ -44,10 +44,17 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 	}
 	s.Config.AirelayCommand = command
 	s.Airelay.Command = command
-	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
+	server := &Server{
+		Service:          s,
+		AuthorityContext: authority.WithPlanner(context.Background()),
+	}
 	httpServer := httptest.NewServer(server.Router())
 	defer httpServer.Close()
-	client := &frozenConnectorClient{http: httpServer.Client(), endpoint: httpServer.URL + "/mcp", methods: map[string]int{}}
+	client := &frozenConnectorClient{
+		http:     httpServer.Client(),
+		endpoint: httpServer.URL + "/mcp",
+		methods:  map[string]int{},
+	}
 
 	initialized := client.request(t, "initialize", map[string]any{
 		"protocolVersion": "2025-03-26",

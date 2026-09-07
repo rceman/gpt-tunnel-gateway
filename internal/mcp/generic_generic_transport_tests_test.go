@@ -69,7 +69,10 @@ func TestGenericSessionStartIsDiscoverableAndCreatesPlannerSession(t *testing.T)
 }
 func TestGenericTransportSchemasAreCompactAndApplicationIndependent(t *testing.T) {
 	s, _ := mcpServiceWithSQLite(t, config.Config{GatewayID: "home_pc"})
-	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
+	server := &Server{
+		Service:          s,
+		AuthorityContext: authority.WithPlanner(context.Background()),
+	}
 	tools := server.tools()
 	sessionID := genericSession(t, server.Service, "example")
 	staticBytes := 0

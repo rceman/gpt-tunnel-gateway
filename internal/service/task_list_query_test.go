@@ -76,11 +76,17 @@ func TestTaskListQuerySearchStatusLimitAndCursor(t *testing.T) {
 			t.Fatalf("query=%q result=%#v err=%v", query, result, queryErr)
 		}
 	}
-	typed, err := s.TaskListQuery(ctx, TaskListInput{ProjectID: "example", Type: model.TaskTypeBug})
+	typed, err := s.TaskListQuery(ctx, TaskListInput{
+		ProjectID: "example",
+		Type:      model.TaskTypeBug,
+	})
 	if err != nil || len(typed.Tasks) != 1 || typed.Tasks[0].Task.ID != created[1].task.ID {
 		t.Fatalf("type filter result=%#v err=%v", typed, err)
 	}
-	if _, err := s.TaskListQuery(ctx, TaskListInput{ProjectID: "example", Execution: model.TaskExecutionTrain}); err == nil || !strings.Contains(err.Error(), "execution filter is unavailable") {
+	if _, err := s.TaskListQuery(ctx, TaskListInput{
+		ProjectID: "example",
+		Execution: model.TaskExecutionTrain,
+	}); err == nil || !strings.Contains(err.Error(), "execution filter is unavailable") {
 		t.Fatalf("legacy execution filter was silently ignored: %v", err)
 	}
 	empty, err := s.TaskListQuery(ctx, TaskListInput{

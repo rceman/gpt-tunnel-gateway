@@ -114,7 +114,11 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 	})
 
 	measure("code/tree first", func() error {
-		result, callErr := f.service.CodeTree(context.Background(), CodeTreeInput{ProjectID: "example", Worktree: mainSelector, Live: true})
+		result, callErr := f.service.CodeTree(context.Background(), CodeTreeInput{
+			ProjectID: "example",
+			Worktree:  mainSelector,
+			Live:      true,
+		})
 		if callErr == nil && len(result.Paths) == 0 {
 			callErr = fmt.Errorf("unexpected tree result: %#v", result)
 		}
@@ -123,7 +127,12 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 
 	var searchCursor string
 	measure("code/search first", func() error {
-		result, callErr := f.service.CodeSearch(context.Background(), CodeSearchInput{ProjectID: "example", Worktree: mainSelector, Live: true, Query: "needle"})
+		result, callErr := f.service.CodeSearch(context.Background(), CodeSearchInput{
+			ProjectID: "example",
+			Worktree:  mainSelector,
+			Live:      true,
+			Query:     "needle",
+		})
 		if callErr == nil && (len(result.Matches) == 0 || result.Pagination == nil || result.Pagination.NextCursor == "") {
 			callErr = fmt.Errorf("expected paginated search result: %#v", result)
 		}
@@ -133,7 +142,13 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 		return callErr
 	})
 	measure("code/search continuation", func() error {
-		result, callErr := f.service.CodeSearch(context.Background(), CodeSearchInput{ProjectID: "example", Worktree: mainSelector, Live: true, Query: "needle", Cursor: searchCursor})
+		result, callErr := f.service.CodeSearch(context.Background(), CodeSearchInput{
+			ProjectID: "example",
+			Worktree:  mainSelector,
+			Live:      true,
+			Query:     "needle",
+			Cursor:    searchCursor,
+		})
 		if callErr == nil && len(result.Matches) == 0 {
 			callErr = fmt.Errorf("expected search continuation match: %#v", result)
 		}
@@ -142,7 +157,12 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 
 	var readCursor string
 	measure("code/read first", func() error {
-		result, callErr := f.service.CodeRead(context.Background(), CodeReadInput{ProjectID: "example", Worktree: mainSelector, Live: true, Path: "tracked.txt"})
+		result, callErr := f.service.CodeRead(context.Background(), CodeReadInput{
+			ProjectID: "example",
+			Worktree:  mainSelector,
+			Live:      true,
+			Path:      "tracked.txt",
+		})
 		if callErr == nil && (result.Pagination == nil || result.Pagination.NextCursor == "") {
 			callErr = fmt.Errorf("expected paginated read result: %#v", result)
 		}
@@ -152,7 +172,13 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 		return callErr
 	})
 	measure("code/read continuation", func() error {
-		result, callErr := f.service.CodeRead(context.Background(), CodeReadInput{ProjectID: "example", Worktree: mainSelector, Live: true, Path: "tracked.txt", Cursor: readCursor})
+		result, callErr := f.service.CodeRead(context.Background(), CodeReadInput{
+			ProjectID: "example",
+			Worktree:  mainSelector,
+			Live:      true,
+			Path:      "tracked.txt",
+			Cursor:    readCursor,
+		})
 		if callErr == nil && result.StartLine <= 1 {
 			callErr = fmt.Errorf("expected read continuation to advance: %#v", result)
 		}
@@ -161,7 +187,12 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 
 	var diffCursor string
 	measure("code/diff first", func() error {
-		result, callErr := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: mainSelector, Live: true, Paths: []string{"tracked.txt"}})
+		result, callErr := f.service.CodeDiff(context.Background(), CodeDiffInput{
+			ProjectID: "example",
+			Worktree:  mainSelector,
+			Live:      true,
+			Paths:     []string{"tracked.txt"},
+		})
 		if callErr == nil && (result.Pagination == nil || result.Pagination.NextCursor == "") {
 			callErr = fmt.Errorf("expected paginated diff result: %#v", result)
 		}
@@ -171,7 +202,13 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 		return callErr
 	})
 	measure("code/diff continuation", func() error {
-		result, callErr := f.service.CodeDiff(context.Background(), CodeDiffInput{ProjectID: "example", Worktree: mainSelector, Live: true, Paths: []string{"tracked.txt"}, Cursor: diffCursor})
+		result, callErr := f.service.CodeDiff(context.Background(), CodeDiffInput{
+			ProjectID: "example",
+			Worktree:  mainSelector,
+			Live:      true,
+			Paths:     []string{"tracked.txt"},
+			Cursor:    diffCursor,
+		})
 		if callErr == nil && result.Diff == "" {
 			callErr = fmt.Errorf("expected diff continuation bytes: %#v", result)
 		}

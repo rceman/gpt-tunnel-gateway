@@ -116,7 +116,10 @@ func TestDebugStatusUsesOnlyConfiguredHostLocalState(t *testing.T) {
 		GatewayID:  "debug-test",
 		ListenAddr: "127.0.0.1:1",
 	})
-	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
+	server := &Server{
+		Service:          s,
+		AuthorityContext: authority.WithPlanner(context.Background()),
+	}
 	store := mcpSQLiteSessionStore(t, server.Service)
 	record, err := store.CreateUnbound(durableSession.RolePlanner, nil)
 	if err != nil {
@@ -170,7 +173,10 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 		GatewayID: "debug-test",
 		Projects:  map[string]config.ProjectConfig{gatewaySourceProjectID: {Root: sourceRoot}},
 	})
-	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
+	server := &Server{
+		Service:          s,
+		AuthorityContext: authority.WithPlanner(context.Background()),
+	}
 	store := mcpSQLiteSessionStore(t, server.Service)
 	record, err := store.CreateUnbound(durableSession.RolePlanner, nil)
 	if err != nil {
@@ -211,7 +217,10 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 		AirelayCommand:         script,
 		DispatchTimeoutSeconds: 5,
 	})
-	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
+	server := &Server{
+		Service:          s,
+		AuthorityContext: authority.WithPlanner(context.Background()),
+	}
 	record, err := mcpSQLiteSessionStore(t, server.Service).CreateUnbound(durableSession.RolePlanner, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -251,7 +260,10 @@ func TestDebugActionsRejectNonPlannerSessions(t *testing.T) {
 		Debug:    config.DebugConfig{Enabled: true},
 		StateDir: t.TempDir(),
 	})
-	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
+	server := &Server{
+		Service:          s,
+		AuthorityContext: authority.WithPlanner(context.Background()),
+	}
 	store := mcpSQLiteSessionStore(t, server.Service)
 	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleAgent} {
 		record, err := store.CreateUnbound(role, nil)

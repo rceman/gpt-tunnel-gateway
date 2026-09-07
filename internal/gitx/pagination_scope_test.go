@@ -20,7 +20,10 @@ func TestVisitDiffStopsAtSemanticLineWithoutReadingTail(t *testing.T) {
 	testutil.Git(t, work, "add", "large.txt")
 	testutil.Git(t, work, "commit", "-m", "large diff")
 	head := strings.TrimSpace(testutil.Git(t, work, "rev-parse", "HEAD"))
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 64}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 64,
+	}
 	seen := make([]int64, 0, 3)
 	more, err := r.VisitDiffLocalCommits(context.Background(), config.ProjectConfig{Root: work}, base, head, nil, 0, func(offset int64, line []byte) error {
 		seen = append(seen, offset)
@@ -45,7 +48,10 @@ func TestVisitDiffRejectsOversizedSemanticLineBeforeVisitor(t *testing.T) {
 	testutil.Git(t, work, "add", "oversized.txt")
 	testutil.Git(t, work, "commit", "-m", "oversized diff")
 	head := strings.TrimSpace(testutil.Git(t, work, "rev-parse", "HEAD"))
-	r := Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 64}
+	r := Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 64,
+	}
 	oversizedVisited := false
 	_, err := r.VisitDiffLocalCommits(context.Background(), config.ProjectConfig{Root: work}, base, head, nil, 0, func(_ int64, line []byte) error {
 		if len(line) > 64 {

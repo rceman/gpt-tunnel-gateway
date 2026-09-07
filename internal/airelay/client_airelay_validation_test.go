@@ -37,7 +37,10 @@ esac
 	if err := os.WriteFile(command, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return Client{Command: command, Timeout: time.Second}, marker, worktree
+	return Client{
+		Command: command,
+		Timeout: time.Second,
+	}, marker, worktree
 }
 
 func TestDeriveExecutionSessionKeyRemainsPureAndDeterministic(t *testing.T) {
@@ -73,7 +76,10 @@ func TestValidateExecutionSessionAcceptsExactExistingLaneWithoutLaunch(t *testin
 		t.Fatal(err)
 	}
 	if err := client.ValidateExecutionSession(context.Background(), ExecutionSessionRequest{
-		BaseSessionKey: "base_session", Profile: "coding", WorktreePath: worktree, Identity: "GTW-TRN64",
+		BaseSessionKey: "base_session",
+		Profile:        "coding",
+		WorktreePath:   worktree,
+		Identity:       "GTW-TRN64",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +91,10 @@ func TestValidateExecutionSessionAcceptsExactExistingLaneWithoutLaunch(t *testin
 func TestValidateExecutionSessionMissingLaneFailsClosedWithoutLaunch(t *testing.T) {
 	client, marker, worktree := writeValidationFixture(t, false)
 	if err := client.ValidateExecutionSession(context.Background(), ExecutionSessionRequest{
-		BaseSessionKey: "base_session", Profile: "coding", WorktreePath: worktree, Identity: "GTW-TRN64",
+		BaseSessionKey: "base_session",
+		Profile:        "coding",
+		WorktreePath:   worktree,
+		Identity:       "GTW-TRN64",
 	}); err == nil {
 		t.Fatal("missing legacy execution lane was accepted")
 	}

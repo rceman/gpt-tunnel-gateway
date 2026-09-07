@@ -12,11 +12,14 @@ import (
 func (s *Server) agent_action_set4() error {
 	register := func(action GenericAction) error { return s.RegisterGenericAction(action) }
 	if err := register(GenericAction{
-		Path:          "agent/list",
-		Description:   "List the project-bound Agents in deterministic key order.",
-		InputSchema:   obj(map[string]any{}),
-		OutputSchema:  canonicalAgentListOutputSchema(),
-		Annotations:   ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "agent/list",
+		Description:  "List the project-bound Agents in deterministic key order.",
+		InputSchema:  obj(map[string]any{}),
+		OutputSchema: canonicalAgentListOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole: "planner",
 		LocalReadOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -45,11 +48,14 @@ func (s *Server) agent_action_set4() error {
 		return err
 	}
 	if err := register(GenericAction{
-		Path:                "agent/status",
-		Description:         "Read the compact current status of one server-selected Agent.",
-		InputSchema:         canonicalAgentStatusInputSchema(),
-		OutputSchema:        canonicalAgentStatusOutputSchema(),
-		Annotations:         ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "agent/status",
+		Description:  "Read the compact current status of one server-selected Agent.",
+		InputSchema:  canonicalAgentStatusInputSchema(),
+		OutputSchema: canonicalAgentStatusOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole:       "planner",
 		LocalReadOnly:       true,
 		AllowLegacyOverride: true,
@@ -60,11 +66,14 @@ func (s *Server) agent_action_set4() error {
 		return err
 	}
 	if err := register(GenericAction{
-		Path:          "agent/tail",
-		Description:   "Read a bounded incremental transcript window from the server-selected Agent.",
-		InputSchema:   canonicalAgentTailInputSchema(),
-		OutputSchema:  canonicalAgentTailOutputSchema(),
-		Annotations:   ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "agent/tail",
+		Description:  "Read a bounded incremental transcript window from the server-selected Agent.",
+		InputSchema:  canonicalAgentTailInputSchema(),
+		OutputSchema: canonicalAgentTailOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole: "planner",
 		LocalReadOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -74,11 +83,14 @@ func (s *Server) agent_action_set4() error {
 		return err
 	}
 	return register(GenericAction{
-		Path:          "agent/await",
-		Description:   "Wait for a bounded Agent supervision transition.",
-		InputSchema:   canonicalAgentAwaitInputSchema(),
-		OutputSchema:  canonicalAgentAwaitOutputSchema(),
-		Annotations:   ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		Path:         "agent/await",
+		Description:  "Wait for a bounded Agent supervision transition.",
+		InputSchema:  canonicalAgentAwaitInputSchema(),
+		OutputSchema: canonicalAgentAwaitOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
 		AuthorityRole: "planner",
 		LocalReadOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {

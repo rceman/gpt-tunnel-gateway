@@ -211,7 +211,11 @@ func TestADR84RuntimeActionDoesNotRefreshConnector(t *testing.T) {
 	}
 	httpServer.Start()
 	defer httpServer.Close()
-	client := &frozenConnectorClient{http: httpServer.Client(), endpoint: httpServer.URL + "/mcp", methods: map[string]int{}}
+	client := &frozenConnectorClient{
+		http:     httpServer.Client(),
+		endpoint: httpServer.URL + "/mcp",
+		methods:  map[string]int{},
+	}
 	initialized := client.request(t, "initialize", map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "adr84-no-refresh", "version": "1"}})
 	if initialized["error"] != nil {
 		t.Fatalf("initialize failed: %#v", initialized)
@@ -222,9 +226,12 @@ func TestADR84RuntimeActionDoesNotRefreshConnector(t *testing.T) {
 	sessionID := started["session"].(string)
 	connectionsBefore := connections.Load()
 	if err := server.RegisterGenericAction(GenericAction{
-		Path: "frozen/runtime_probe", Description: "Runtime action registered after connector bootstrap.", AuthorityRole: durableSession.RolePlanner,
-		InputSchema: obj(map[string]any{}), OutputSchema: closedOutput(map[string]any{"ok": outputBoolean()}, "ok"),
-		Execute: func(context.Context, json.RawMessage) (any, error) { return map[string]any{"ok": true}, nil },
+		Path:          "frozen/runtime_probe",
+		Description:   "Runtime action registered after connector bootstrap.",
+		AuthorityRole: durableSession.RolePlanner,
+		InputSchema:   obj(map[string]any{}),
+		OutputSchema:  closedOutput(map[string]any{"ok": outputBoolean()}, "ok"),
+		Execute:       func(context.Context, json.RawMessage) (any, error) { return map[string]any{"ok": true}, nil },
 	}); err != nil {
 		t.Fatal(err)
 	}

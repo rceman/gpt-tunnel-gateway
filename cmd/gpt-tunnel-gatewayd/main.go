@@ -129,7 +129,13 @@ func bootstrapGateway(c config.Config, observe func(string)) (*gatewayRuntime, e
 	go func() { serveErr <- srv.Serve(listener) }()
 	fmt.Fprintf(os.Stderr, "gpt-tunnel-gatewayd %s listening on %s\n", version, c.ListenAddr)
 	startup("HTTP_READY")
-	runtime := &gatewayRuntime{service: svc, durability: durability, server: srv, listener: listener, serveErr: serveErr}
+	runtime := &gatewayRuntime{
+		service:    svc,
+		durability: durability,
+		server:     srv,
+		listener:   listener,
+		serveErr:   serveErr,
+	}
 	return runtime, nil
 }
 

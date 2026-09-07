@@ -159,7 +159,13 @@ func (s *Service) resolveVerifyPlan(ctx context.Context, in VerifyInput) (verify
 	if err != nil {
 		return verifyPlan{}, fmt.Errorf("worktree fingerprint: %w", err)
 	}
-	return verifyPlan{Input: in, Scope: scope, GateNames: names, GateIdentity: gateIdentity, SourceFingerprint: sourceFingerprint}, nil
+	return verifyPlan{
+		Input:             in,
+		Scope:             scope,
+		GateNames:         names,
+		GateIdentity:      gateIdentity,
+		SourceFingerprint: sourceFingerprint,
+	}, nil
 }
 
 func (s *Service) resolveVerifyGateProfile(ctx context.Context, projectID string, scope gates.TestScope) ([]string, string, error) {
@@ -216,7 +222,18 @@ func (s *Service) runVerifyUnderLock(ctx context.Context, lock *lockfile.Lock, p
 	defer lock.Release()
 	now := time.Now().UTC()
 	in := plan.Input
-	receipt := VerifyReceipt{OperationID: operationID, Status: "running", ProjectID: in.ProjectID, Scope: in.Scope, Packages: append([]string{}, in.Packages...), SourceFingerprint: plan.SourceFingerprint, GateIdentity: plan.GateIdentity, GateNames: append([]string{}, plan.GateNames...), CreatedAt: now, UpdatedAt: now}
+	receipt := VerifyReceipt{
+		OperationID:       operationID,
+		Status:            "running",
+		ProjectID:         in.ProjectID,
+		Scope:             in.Scope,
+		Packages:          append([]string{}, in.Packages...),
+		SourceFingerprint: plan.SourceFingerprint,
+		GateIdentity:      plan.GateIdentity,
+		GateNames:         append([]string{}, plan.GateNames...),
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
 	if existing, err := readVerifyReceipt(path); err == nil && !existing.CreatedAt.IsZero() {
 		receipt.CreatedAt = existing.CreatedAt
 	}
@@ -225,7 +242,13 @@ func (s *Service) runVerifyUnderLock(ctx context.Context, lock *lockfile.Lock, p
 	}
 	scope := plan.Scope
 	names := plan.GateNames
-	results, runErr := s.executeVerifyPlanGates(ctx, verifyPlan{Input: in, Scope: scope, GateNames: names, GateIdentity: plan.GateIdentity, SourceFingerprint: plan.SourceFingerprint})
+	results, runErr := s.executeVerifyPlanGates(ctx, verifyPlan{
+		Input:             in,
+		Scope:             scope,
+		GateNames:         names,
+		GateIdentity:      plan.GateIdentity,
+		SourceFingerprint: plan.SourceFingerprint,
+	})
 	receipt.Gates = results
 	receipt.UpdatedAt = time.Now().UTC()
 	if runErr != nil {

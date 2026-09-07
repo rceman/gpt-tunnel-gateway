@@ -14,7 +14,9 @@ func TestResolveAgentDiscoversLegacyAutoBindingProfileByExactSession(t *testing.
 	installServiceExecutionSessionFixture(t, s, t.TempDir()+"/prompts")
 
 	resolved, err := s.ResolveAgent(context.Background(), AgentResolveInput{
-		ProjectID: "example", Role: model.AgentRoleCoding, AgentID: "coder-example",
+		ProjectID: "example",
+		Role:      model.AgentRoleCoding,
+		AgentID:   "coder-example",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -34,8 +36,12 @@ func TestTaskWorkBootstrapsLegacyAutoBindingProfile(t *testing.T) {
 	revision = enableTrainV2ForTest(t, s, revision)
 	task, revision := readyTrainTaskForTest(t, s, revision, "Legacy auto Agent profile")
 	train, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
-		ProjectID: "example", TaskIDs: []string{task.ID}, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID: "example",
+		TaskIDs:   []string{task.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -60,8 +66,12 @@ func TestTaskWorkBootstrapsLegacyAutoBindingWithReadySessionState(t *testing.T) 
 	revision = enableTrainV2ForTest(t, s, revision)
 	task, revision := readyTrainTaskForTest(t, s, revision, "Legacy auto Agent ready state")
 	train, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
-		ProjectID: "example", TaskIDs: []string{task.ID}, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: revision},
+		ProjectID: "example",
+		TaskIDs:   []string{task.ID},
+		CreatedBy: "planner",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

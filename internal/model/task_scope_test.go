@@ -3,7 +3,10 @@ package model
 import "testing"
 
 func TestTaskScopeNormalizesAndBoundsFields(t *testing.T) {
-	scope, err := NormalizeTaskScope(&TaskScope{Files: nil, Modules: []string{"gateway"}})
+	scope, err := NormalizeTaskScope(&TaskScope{
+		Files:   nil,
+		Modules: []string{"gateway"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

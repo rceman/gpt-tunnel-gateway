@@ -77,7 +77,12 @@ func (s Store) ReadLocalSnapshot(ctx context.Context) (*ReadSnapshot, error) {
 		_ = release()
 		return nil, errors.New("local hub snapshot ref unavailable")
 	}
-	return &ReadSnapshot{store: s, root: root, revision: revision, release: release}, nil
+	return &ReadSnapshot{
+		store:    s,
+		root:     root,
+		revision: revision,
+		release:  release,
+	}, nil
 }
 
 // FreshReadSnapshot fetches the configured Hub ref once and holds the

@@ -64,9 +64,12 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 	svc, _ := mcpServiceWithSQLite(t, serviceConfig)
 	server := &Server{Service: svc}
 	if err := server.RegisterGenericAction(GenericAction{
-		Path: "test/authority", Description: "authority boundary test", InputSchema: obj(map[string]any{}),
+		Path:          "test/authority",
+		Description:   "authority boundary test",
+		InputSchema:   obj(map[string]any{}),
 		OutputSchema:  closedOutput(map[string]any{"ok": outputBoolean()}, "ok"),
-		AuthorityRole: durableSession.RolePlanner, Authority: authority.RequirePlanner,
+		AuthorityRole: durableSession.RolePlanner,
+		Authority:     authority.RequirePlanner,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			if err := authority.RequirePlanner(ctx); err != nil {
 				return nil, err

@@ -13,7 +13,12 @@ import (
 )
 
 func hotfixTestRunner(stateDir string) Runner {
-	return Runner{MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100, StateDir: stateDir}
+	return Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+		StateDir:     stateDir,
+	}
 }
 
 func hotfixTestProject(work, mirror string) config.ProjectConfig {
@@ -23,7 +28,12 @@ func hotfixTestProject(work, mirror string) config.ProjectConfig {
 func TestHotfixIdentityIsCreateOnceAndServerOwned(t *testing.T) {
 	stateDir := t.TempDir()
 	r := hotfixTestRunner(stateDir)
-	identity := HotfixIdentity{ProjectID: "example", HotfixRef: "refs/heads/hotfix/repair", TaskID: "EXM-TSK1", BaseSHA: "0123456789012345678901234567890123456789"}
+	identity := HotfixIdentity{
+		ProjectID: "example",
+		HotfixRef: "refs/heads/hotfix/repair",
+		TaskID:    "EXM-TSK1",
+		BaseSHA:   "0123456789012345678901234567890123456789",
+	}
 	if err := r.RecordHotfixIdentity(stateDir, identity); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +44,12 @@ func TestHotfixIdentityIsCreateOnceAndServerOwned(t *testing.T) {
 	if got != identity {
 		t.Fatalf("identity=%#v want %#v", got, identity)
 	}
-	if err := r.RecordHotfixIdentity(stateDir, HotfixIdentity{ProjectID: identity.ProjectID, HotfixRef: identity.HotfixRef, TaskID: identity.TaskID, BaseSHA: "abcdefabcdefabcdefabcdefabcdefabcdefabcd"}); err == nil {
+	if err := r.RecordHotfixIdentity(stateDir, HotfixIdentity{
+		ProjectID: identity.ProjectID,
+		HotfixRef: identity.HotfixRef,
+		TaskID:    identity.TaskID,
+		BaseSHA:   "abcdefabcdefabcdefabcdefabcdefabcdefabcd",
+	}); err == nil {
 		t.Fatal("existing hotfix identity was overwritten")
 	}
 }
@@ -58,7 +73,9 @@ func TestLegacyHotfixIdentityWithoutTaskBindingIsSkippedByInventory(t *testing.T
 		t.Fatalf("legacy identity was returned: %#v", identities)
 	}
 	if err := r.RecordHotfixIdentity(stateDir, HotfixIdentity{
-		ProjectID: "example", HotfixRef: "refs/heads/hotfix/new", BaseSHA: "0123456789012345678901234567890123456789",
+		ProjectID: "example",
+		HotfixRef: "refs/heads/hotfix/new",
+		BaseSHA:   "0123456789012345678901234567890123456789",
 	}); err == nil {
 		t.Fatal("new hotfix identity without TaskID was accepted")
 	}

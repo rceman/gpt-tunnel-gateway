@@ -112,7 +112,10 @@ func (s *Service) SessionStartUnbound(ctx context.Context, role string, label *s
 	if err != nil {
 		return SessionResult{}, err
 	}
-	return SessionResult{Action: "start", Session: record}, nil
+	return SessionResult{
+		Action:  "start",
+		Session: record,
+	}, nil
 }
 
 func (s *Service) SessionBind(ctx context.Context, input SessionBindInput) (SessionResult, error) {

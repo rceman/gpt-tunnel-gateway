@@ -261,13 +261,22 @@ func (s *Service) processTaskCreate(operationID string) {
 		task, result, err = s.taskAuthoringCreateShared(workerCtx, operation.OperationID, operation.Input)
 	} else if existing, findErr := s.findTaskCreateResult(workerCtx, operation); findErr == nil {
 		task = *existing
-		result = OperationResult{OperationID: operationID, ProjectID: existing.ProjectID, TaskID: existing.ID, Status: existing.Status}
+		result = OperationResult{
+			OperationID: operationID,
+			ProjectID:   existing.ProjectID,
+			TaskID:      existing.ID,
+			Status:      existing.Status,
+		}
 	} else if !errors.Is(findErr, os.ErrNotExist) {
 		if asyncMutationOutcomeUnknown(findErr) {
 			s.finishTaskCreateUnknown(operation, findErr)
 			return
 		}
-		s.finishTaskCreate(operation, nil, OperationResult{OperationID: operationID, ProjectID: operation.Input.ProjectID, Status: "failed"}, findErr.Error())
+		s.finishTaskCreate(operation, nil, OperationResult{
+			OperationID: operationID,
+			ProjectID:   operation.Input.ProjectID,
+			Status:      "failed",
+		}, findErr.Error())
 		return
 	} else {
 		task, result, err = s.TaskAuthoringCreate(workerCtx, operation.Input)
@@ -295,7 +304,11 @@ func (s *Service) processTaskCreate(operationID string) {
 
 func (s *Service) finishTaskCreateUnknown(operation TaskCreateOperation, err error) {
 	operation.Status = "outcome_unknown"
-	operation.Operation = OperationResult{OperationID: operation.OperationID, ProjectID: operation.Input.ProjectID, Status: "outcome_unknown"}
+	operation.Operation = OperationResult{
+		OperationID: operation.OperationID,
+		ProjectID:   operation.Input.ProjectID,
+		Status:      "outcome_unknown",
+	}
 	operation.Error = err.Error()
 	operation.RecoveryReason = "bounded worker context ended before Hub outcome was proven; retry is idempotent"
 	operation.UpdatedAt = time.Now().UTC()

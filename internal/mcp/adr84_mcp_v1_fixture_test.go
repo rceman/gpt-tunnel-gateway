@@ -26,7 +26,11 @@ func TestADR84MCPV1ProtectedInputFixture(t *testing.T) {
 	server := newSessionTestServer(t)
 	httpServer := httptest.NewServer(server.Router())
 	defer httpServer.Close()
-	client := &frozenConnectorClient{http: httpServer.Client(), endpoint: httpServer.URL + "/mcp", methods: map[string]int{}}
+	client := &frozenConnectorClient{
+		http:     httpServer.Client(),
+		endpoint: httpServer.URL + "/mcp",
+		methods:  map[string]int{},
+	}
 	tools := client.request(t, "tools/list", map[string]any{})["result"].(map[string]any)["tools"].([]any)
 	if len(tools) != len(adr84MCPV1Fixture) {
 		t.Fatalf("protected tool count=%d want=%d", len(tools), len(adr84MCPV1Fixture))

@@ -137,7 +137,10 @@ func (s *Server) resolveCanonicalInterruptAgent(ctx context.Context, projectID, 
 		if err != nil {
 			return canonicalAgentTarget{}, err
 		}
-		return canonicalAgentTarget{Agent: agent, Resolved: resolved}, nil
+		return canonicalAgentTarget{
+			Agent:    agent,
+			Resolved: resolved,
+		}, nil
 	}
 	resolved, err := s.Service.ResolveAgent(ctx, service.AgentResolveInput{ProjectID: projectID, Role: model.AgentRoleCoding})
 	if err != nil {
@@ -150,7 +153,10 @@ func (s *Server) resolveCanonicalInterruptAgent(ctx context.Context, projectID, 
 	if !agent.Enabled {
 		return canonicalAgentTarget{}, fmt.Errorf("Agent %q is disabled", agent.AgentID)
 	}
-	return canonicalAgentTarget{Agent: agent, Resolved: resolved}, nil
+	return canonicalAgentTarget{
+		Agent:    agent,
+		Resolved: resolved,
+	}, nil
 }
 
 func validateCanonicalAgentMessage(message string) error {

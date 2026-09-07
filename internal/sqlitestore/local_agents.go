@@ -39,7 +39,12 @@ func (d *Databases) ReadLocalAgent(ctx context.Context, projectID, agentID strin
 	if !projectOK || !agentOK || !payloadOK || !updatedOK {
 		return LocalAgent{}, fmt.Errorf("invalid local agent row")
 	}
-	return LocalAgent{ProjectID: project, AgentID: agent, Payload: append([]byte(nil), payload...), UpdatedAt: updatedAt}, nil
+	return LocalAgent{
+		ProjectID: project,
+		AgentID:   agent,
+		Payload:   append([]byte(nil), payload...),
+		UpdatedAt: updatedAt,
+	}, nil
 }
 
 func (d *Databases) ListLocalAgents(ctx context.Context, projectID string, limit int) ([]LocalAgent, error) {
@@ -65,7 +70,12 @@ func (d *Databases) ListLocalAgents(ctx context.Context, projectID string, limit
 		if !projectOK || !agentOK || !payloadOK || !updatedOK {
 			return nil, fmt.Errorf("invalid local agent row")
 		}
-		result = append(result, LocalAgent{ProjectID: project, AgentID: agent, Payload: append([]byte(nil), payload...), UpdatedAt: updatedAt})
+		result = append(result, LocalAgent{
+			ProjectID: project,
+			AgentID:   agent,
+			Payload:   append([]byte(nil), payload...),
+			UpdatedAt: updatedAt,
+		})
 	}
 	return result, nil
 }

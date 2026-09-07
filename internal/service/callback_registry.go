@@ -88,14 +88,22 @@ func (s *Service) CallbackRegister(ctx context.Context, projectID string, in Cal
 		if !reflect.DeepEqual(existing, in.Callback) {
 			return CallbackRegistrationResult{}, &CallbackConflictError{Callback: in.Callback.Callback}
 		}
-		return CallbackRegistrationResult{Key: existing.Callback, Event: existing.Event, Status: "already_registered"}, nil
+		return CallbackRegistrationResult{
+			Key:    existing.Callback,
+			Event:  existing.Event,
+			Status: "already_registered",
+		}, nil
 	}
 	configuration.Callbacks = append(configuration.Callbacks, in.Callback)
 	sortProjectCallbacks(configuration.Callbacks)
 	if _, _, err := s.updateCallbackConfiguration(ctx, projectID, configuration); err != nil {
 		return CallbackRegistrationResult{}, err
 	}
-	return CallbackRegistrationResult{Key: in.Callback.Callback, Event: in.Callback.Event, Status: "registered"}, nil
+	return CallbackRegistrationResult{
+		Key:    in.Callback.Callback,
+		Event:  in.Callback.Event,
+		Status: "registered",
+	}, nil
 }
 
 func (s *Service) CallbackRemove(ctx context.Context, projectID string, in CallbackRemoveInput) (CallbackRegistrationResult, error) {
@@ -124,7 +132,11 @@ func (s *Service) CallbackRemove(ctx context.Context, projectID string, in Callb
 	if _, _, err := s.updateCallbackConfiguration(ctx, projectID, configuration); err != nil {
 		return CallbackRegistrationResult{}, err
 	}
-	return CallbackRegistrationResult{Key: in.Callback, Event: event, Status: "removed"}, nil
+	return CallbackRegistrationResult{
+		Key:    in.Callback,
+		Event:  event,
+		Status: "removed",
+	}, nil
 }
 
 func (s *Service) CallbackList(ctx context.Context, projectID string) (CallbackListResult, error) {
@@ -136,9 +148,15 @@ func (s *Service) CallbackList(ctx context.Context, projectID string) (CallbackL
 	sortProjectCallbacks(callbacks)
 	result := CallbackListResult{Callbacks: make([]CallbackSummary, 0, len(callbacks))}
 	for _, callback := range callbacks {
-		summary := CallbackSummary{Key: callback.Callback, Event: callback.Event}
+		summary := CallbackSummary{
+			Key:   callback.Callback,
+			Event: callback.Event,
+		}
 		if callback.URL != nil {
-			summary.URL = &CallbackURLSummary{Method: callback.URL.Method, URL: callback.URL.URL}
+			summary.URL = &CallbackURLSummary{
+				Method: callback.URL.Method,
+				URL:    callback.URL.URL,
+			}
 		}
 		if callback.Script != nil {
 			summary.Script = &CallbackScriptSummary{Path: callback.Script.Path}
@@ -165,8 +183,10 @@ func (s *Service) updateCallbackConfiguration(ctx context.Context, projectID str
 	return s.ProjectConfigurationUpdate(ctx, ProjectConfigurationUpdateInput{
 		ProjectID:        projectID,
 		ExpectedRevision: configuration.Revision,
-		Patch:            ProjectConfigurationPatch{Callbacks: &callbacks},
-		UpdatedBy:        "gateway-callback",
+		Patch: ProjectConfigurationPatch{
+			Callbacks: &callbacks,
+		},
+		UpdatedBy: "gateway-callback",
 	})
 }
 
