@@ -1,0 +1,214 @@
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
+	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
+)
+
+func seedTrainExecutionSession(t *testing.T, s *Service, trainID string) {
+	t.Helper()
+	identifiers, err := s.ProjectIdentifiersRead(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := s.Config.Projects["example"].AirelaySessionKey
+	key, err := airelay.DeriveExecutionSessionKey(base, "coding", "train:example:"+trainID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktree, err := trainv2.CompactWorktreePath(s.Config.StateDir, identifiers.ProjectCode, trainID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedExistingServiceExecutionSession(t, s, key, "coding", worktree)
+}
+
+func seedExistingServiceExecutionSession(t *testing.T, s *Service, key, profile, worktree string) {
+	t.Helper()
+	dir := filepath.Dir(s.Config.AirelayCommand)
+	sessions, err := json.Marshal([]map[string]string{{"sessionKey": key, "profile": profile, "cwd": worktree}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := json.Marshal([]map[string]string{{"sessionKey": key, "profile": profile, "invocationCwd": worktree}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, payload := range map[string][]byte{
+		"service-execution-active.json": sessions, "service-execution-history.json": history,
+		"state-execution-active.json": sessions, "state-execution-history.json": history,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), payload, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func installExecutionSessionFixture(t *testing.T, s *Service, promptLog string) {
+	t.Helper()
+	dir := filepath.Dir(s.Config.AirelayCommand)
+	active := filepath.Join(dir, "execution-active.json")
+	history := filepath.Join(dir, "execution-history.json")
+	script := fmt.Sprintf("#!/bin/sh\nactive='%s'\nhistory='%s'\ncase \"$1\" in\nsessions) if [ -f \"$active\" ]; then cat \"$active\"; else printf '[]'; fi ;;\nhistory) if [ -f \"$history\" ]; then cat \"$history\"; else printf '[]'; fi ;;\nsession-status) printf '{\"sessionKey\":\"%%s\",\"profile\":\"coding\",\"controllerReachable\":true,\"state\":\"idle\"}' \"$2\" ;;\nstatus) printf 'Controller: reachable\\nState: idle\\n' ;;\nstart) key=\"$4\"; cwd=\"$(pwd)\"; printf '[{\"sessionKey\":\"%%s\",\"profile\":\"%%s\",\"cwd\":\"%%s\"}]' \"$key\" \"$2\" \"$cwd\" > \"$active\"; printf '[{\"sessionKey\":\"%%s\",\"profile\":\"%%s\",\"invocationCwd\":\"%%s\"}]' \"$key\" \"$2\" \"$cwd\" > \"$history\" ;;\nprompt) printf 'prompt\\n' >> '%s' ;;\n*) exit 0 ;;\nesac\n", active, history, promptLog)
+	if err := os.WriteFile(s.Config.AirelayCommand, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func installServiceExecutionSessionFixture(t *testing.T, s *Service, promptLog string) {
+	t.Helper()
+	dir := filepath.Dir(s.Config.AirelayCommand)
+	active := filepath.Join(dir, "service-execution-active.json")
+	history := filepath.Join(dir, "service-execution-history.json")
+	script := fmt.Sprintf(`#!/bin/sh
+active='%s'
+history='%s'
+case "$1" in
+sessions) if [ -f "$active" ]; then cat "$active"; else printf '[]'; fi ;;
+history) if [ -f "$history" ]; then cat "$history"; else printf '[]'; fi ;;
+session-status) if [ "$3" = --json ]; then printf '{"sessionKey":"%%s","profile":"coding","controllerReachable":true,"state":"idle"}' "$2"; else printf 'Controller: reachable\nState: idle\n'; fi ;;
+start) key="$4"; cwd="$(pwd)"; printf '[{"sessionKey":"%%s","profile":"%%s","cwd":"%%s"}]' "$key" "$2" "$cwd" > "$active"; printf '[{"sessionKey":"%%s","profile":"%%s","invocationCwd":"%%s"}]' "$key" "$2" "$cwd" > "$history" ;;
+prompt) printf 'prompt\n' >> '%s' ;;
+*) exit 0 ;;
+esac
+`, active, history, promptLog)
+	if err := os.WriteFile(s.Config.AirelayCommand, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func installServiceExecutionSessionFixtureState(t *testing.T, s *Service, promptLog, state string) {
+	t.Helper()
+	dir := filepath.Dir(s.Config.AirelayCommand)
+	active := filepath.Join(dir, "state-execution-active.json")
+	history := filepath.Join(dir, "state-execution-history.json")
+	script := fmt.Sprintf(`#!/bin/sh
+active='%s'
+history='%s'
+case "$1" in
+sessions) if [ -f "$active" ]; then cat "$active"; else printf '[]'; fi ;;
+history) if [ -f "$history" ]; then cat "$history"; else printf '[]'; fi ;;
+session-status) if [ "$3" = --json ]; then printf '{"sessionKey":"%%s","profile":"coding","controllerReachable":true,"state":"%s"}' "$2"; else printf 'Controller: reachable\nState: idle\n'; fi ;;
+start) key="$4"; cwd="$(pwd)"; printf '[{"sessionKey":"%%s","profile":"%%s","cwd":"%%s"}]' "$key" "$2" "$cwd" > "$active"; printf '[{"sessionKey":"%%s","profile":"%%s","invocationCwd":"%%s"}]' "$key" "$2" "$cwd" > "$history" ;;
+prompt) printf 'prompt\n' >> '%s' ;;
+*) exit 0 ;;
+esac
+`, active, history, state, promptLog)
+	if err := os.WriteFile(s.Config.AirelayCommand, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func planString(value string) *string { return &value }
+
+func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
+	t.Helper()
+	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
+	_, projectRoot, projectHead := testutil.RepoWithBareRemote(t)
+	dir := t.TempDir()
+	airelay := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(airelay, []byte("#!/bin/sh\ncase \"$1\" in\nsession-status) if [ \"$3\" = --json ]; then printf '{\"sessionKey\":\"%s\",\"profile\":\"coding\",\"controllerReachable\":true,\"state\":\"idle\"}' \"$2\"; else printf 'Controller: reachable\\nState: idle\\n'; fi ;;\ntail) printf 'idle\\n' ;;\n*) exit 99 ;;\nesac\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := config.Config{
+		SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875",
+		StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20,
+		MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: airelay,
+		Hub:      config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"},
+		Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}},
+	}
+	s := New(c)
+	s.gateExecutor = func(_ context.Context, _ string, names []string) ([]model.CompletionGateResult, error) {
+		out := make([]model.CompletionGateResult, len(names))
+		for i, name := range names {
+			out[i] = model.CompletionGateResult{ID: name, ExitCode: 0}
+		}
+		return out, nil
+	}
+	s.gateExecutorWithProjectCommands = func(ctx context.Context, root string, names []string, _ model.ProjectGateCommands, _ string) ([]model.CompletionGateResult, error) {
+		return s.gateExecutor(ctx, root, names)
+	}
+	s.formatExecutor = func(context.Context, string, []string) error { return nil }
+	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: "b1a45b1e9475ab29dfd3e84d523b70897c7b8918", Status: "active"}
+	reg, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{
+		Project: project,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: hubHead,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	policy := model.ProjectWorkflowPolicy{SchemaVersion: model.SchemaVersion, ProjectID: project.ID, Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", Agent: model.WorkflowPolicyAgent{WaitForCI: false}, CI: model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve}, UpdatedBy: "test", UpdatedAt: now}
+	_, adopted, err := s.ProjectWorkflowPolicyAdopt(trustedWorkflowPolicyContext(context.Background(), "planner"), ProjectWorkflowPolicyInput{
+		Policy: policy,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: reg.Hub.After,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, adopted.Hub.After, projectHead
+}
+
+func testService(t *testing.T) (*Service, string, string) {
+	s, revision, projectHead := testServiceWithoutIdentifiers(t)
+	if s.Config.AgentBindings == nil {
+		s.Config.AgentBindings = map[string]config.AgentBinding{}
+	}
+	adopted, result, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
+		ProjectID:   "example",
+		ProjectCode: "EXM",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adopted.NextTaskNumber != 1 || result.Status != "adopted" {
+		t.Fatalf("unexpected adopted identifiers: %#v %#v", adopted, result)
+	}
+	installServiceExecutionSessionFixture(t, s, filepath.Join(t.TempDir(), "prompts"))
+	s.Config.AgentBindings[config.ProjectAgentBindingKey("example", "coder-example")] = config.AgentBinding{SessionKey: "example_master"}
+	now := time.Now().UTC()
+	revision = result.Hub.After
+	for _, agent := range []model.Agent{
+		{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coder-example", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now},
+	} {
+		path := s.agentPath("example", agent.AgentID)
+		tx, err := s.Hub.Transact(context.Background(), revision, "test: seed agent "+agent.AgentID, func(worktree string) ([]string, error) {
+			if err := hub.WriteJSON(worktree, path, agent); err != nil {
+				return nil, err
+			}
+			return []string{path}, nil
+		})
+		if err != nil {
+			t.Fatalf("seed test agent %s: %v", agent.AgentID, err)
+		}
+		revision = tx.After
+	}
+	return s, revision, projectHead
+}
+
+func TestValidateConfiguredProjectRecordsRejectsMissingDurableRecord(t *testing.T) {
+	s, _, _ := testService(t)
+	s.Config.Projects["missing"] = s.Config.Projects["example"]
+	if err := s.ValidateConfiguredProjectRecords(context.Background()); err == nil {
+		t.Fatal("missing durable project record was accepted")
+	}
+}

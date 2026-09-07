@@ -1,0 +1,232 @@
+package service
+
+import (
+	"context"
+	"fmt"
+	"reflect"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/gates"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+)
+
+func (s *Service) executeProjectTrainGatesWithReceiptReuse(ctx context.Context, projectID, root string, names []string, commands model.ProjectGateCommands, scope gates.TestScope) ([]model.CompletionGateResult, error) {
+	normalized, err := scope.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	tree, _, identityErr := s.currentTestIdentity(ctx, projectID, root)
+	receipt, receiptDigest, receiptErr := s.loadTestPassReceipt(projectID)
+	byID := make(map[string]model.CompletionGateResult, len(names))
+	missing := make([]string, 0, len(names))
+	for _, name := range names {
+		digest, digestErr := gates.ProjectGateCommandDigest(commands, name, "train", normalized)
+		candidate, ok := byReceiptGate(receipt, name)
+		scopeMatches := name != model.WorkflowGateTest || (receipt.ScopeMode == normalized.Mode && reflect.DeepEqual(receipt.ScopePackages, normalized.Packages))
+		if identityErr != nil || receiptErr != nil || digestErr != nil || receipt.ProjectID != projectID || receipt.TreeID != tree || !scopeMatches || receipt.CommandDigests[name] != digest || !ok || candidate.ExitCode != 0 {
+			missing = append(missing, name)
+			continue
+		}
+		candidate.Execution = "reused"
+		candidate.ReceiptDigest = receiptDigest
+		byID[name] = candidate
+	}
+	if len(missing) > 0 {
+		results, execErr := s.executeProjectGatesCommandSet(ctx, root, missing, commands, "train", normalized)
+		if execErr != nil {
+			return results, execErr
+		}
+		for _, result := range annotateExecutedGateResults(results) {
+			byID[result.ID] = result
+		}
+	}
+	results := make([]model.CompletionGateResult, 0, len(names))
+	for _, name := range names {
+		result, ok := byID[name]
+		if !ok {
+			return nil, fmt.Errorf("train gate evidence missing %q", name)
+		}
+		results = append(results, result)
+	}
+	recorded, recordedDigest, err := s.writeProjectGatePassReceiptLocked(ctx, projectID, root, names, commands, "train", normalized, results)
+	if err != nil {
+		return nil, fmt.Errorf("store Train gate pass receipt: %w", err)
+	}
+	for i := range results {
+		results[i].TreeID = recorded.TreeID
+		results[i].ContractDigest = recorded.CommandDigests[results[i].ID]
+		results[i].ReceiptDigest = recordedDigest
+	}
+	return results, nil
+}
+
+func byReceiptGate(receipt testPassReceipt, wanted string) (model.CompletionGateResult, bool) {
+	for _, result := range receipt.GateResults {
+		if result.ID == wanted {
+			return result, true
+		}
+	}
+	return model.CompletionGateResult{}, false
+}
+
+func (s *Service) executeProjectGatesCommandSet(ctx context.Context, root string, names []string, commands model.ProjectGateCommands, testMode string, scope gates.TestScope) ([]model.CompletionGateResult, error) {
+	normalized, err := scope.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	if normalized.Mode != gates.TestScopeFull && s.gateExecutorWithProjectCommandsAndScope != nil {
+		return s.gateExecutorWithProjectCommandsAndScope(ctx, root, names, commands, testMode, scope)
+	}
+	if s.gateExecutorWithProjectCommands == nil {
+		return nil, fmt.Errorf("project gate executor is not configured")
+	}
+	return s.gateExecutorWithProjectCommands(ctx, root, names, commands, testMode)
+}
+
+func (s *Service) executeProjectTaskGatesWithTestReuse(ctx context.Context, projectID, root string, names []string, commands model.ProjectGateCommands, scope gates.TestScope) ([]model.CompletionGateResult, error) {
+	normalized, scopeErr := scope.Normalize()
+	if scopeErr != nil {
+		normalized = gates.FullTestScope()
+	}
+	tree, _, identityErr := s.currentTestIdentity(ctx, projectID, root)
+	contract, contractErr := gates.TestGateCommandContractDigest(names, normalized)
+	testCommandDigest, commandErr := gates.ProjectGateCommandDigest(commands, model.WorkflowGateTest, "task", normalized)
+	var reused model.CompletionGateResult
+	if identityErr == nil && scopeErr == nil && contractErr == nil && commandErr == nil {
+		if receipt, receiptDigest, err := s.loadTestPassReceipt(projectID); err == nil && receipt.ProjectID == projectID && receipt.TreeID == tree && receipt.ScopeMode == normalized.Mode && reflect.DeepEqual(receipt.ScopePackages, normalized.Packages) && receipt.ContractDigest == contract && receipt.CommandDigests[model.WorkflowGateTest] == testCommandDigest {
+			reused = model.CompletionGateResult{ID: model.WorkflowGateTest, ExitCode: 0, Execution: "reused", TreeID: receipt.TreeID, ContractDigest: testCommandDigest, ReceiptDigest: receiptDigest}
+		}
+	}
+	if reused.ID == "" {
+		if err := s.invalidateTestPassReceipt(projectID); err != nil {
+			return nil, err
+		}
+		results, err := s.executeProjectGatesCommandSet(ctx, root, names, commands, "task", normalized)
+		if err != nil {
+			return results, err
+		}
+		results = annotateExecutedGateResults(results)
+		receipt, receiptDigest, err := s.writeProjectGatePassReceiptLocked(ctx, projectID, root, names, commands, "task", normalized, results)
+		if err != nil {
+			return nil, fmt.Errorf("store test pass receipt: %w", err)
+		}
+		for i := range results {
+			if digest, ok := receipt.CommandDigests[results[i].ID]; ok {
+				results[i].TreeID = receipt.TreeID
+				results[i].ContractDigest = digest
+				results[i].ReceiptDigest = receiptDigest
+			}
+		}
+		return results, nil
+	}
+	nonTest := make([]string, 0, len(names)-1)
+	for _, name := range names {
+		if name != model.WorkflowGateTest {
+			nonTest = append(nonTest, name)
+		}
+	}
+	var nonTestResults []model.CompletionGateResult
+	if len(nonTest) > 0 {
+		results, err := s.executeProjectGatesCommandSet(ctx, root, nonTest, commands, "task", gates.FullTestScope())
+		if err != nil {
+			return results, err
+		}
+		nonTestResults = annotateExecutedGateResults(results)
+	}
+	results := make([]model.CompletionGateResult, 0, len(names))
+	for _, name := range names {
+		if name == model.WorkflowGateTest {
+			results = append(results, reused)
+			continue
+		}
+		for _, result := range nonTestResults {
+			if result.ID == name {
+				results = append(results, result)
+				break
+			}
+		}
+	}
+	receipt, receiptDigest, err := s.writeProjectGatePassReceiptLocked(ctx, projectID, root, names, commands, "task", normalized, results)
+	if err != nil {
+		return nil, fmt.Errorf("store test pass receipt: %w", err)
+	}
+	for i := range results {
+		if digest, ok := receipt.CommandDigests[results[i].ID]; ok {
+			results[i].TreeID = receipt.TreeID
+			results[i].ContractDigest = digest
+			results[i].ReceiptDigest = receiptDigest
+		}
+	}
+	return results, nil
+}
+
+// resolveFinalizationTestScope is the server-owned policy boundary for
+// ordinary Task finalization. Broad operation classes never use a package
+// subset; implementation and correction tasks may use the conservative
+// changed-file resolver, which returns full-suite scope on uncertainty.
+
+func resolveFinalizationTestScope(ctx context.Context, operationClass, root string, changedFiles []string) gates.TestScope {
+	switch operationClass {
+	case "", "implementation", "correction":
+	default:
+		return gates.FullTestScope()
+	}
+	scope, err := gates.ResolveTestScope(ctx, root, changedFiles)
+	if err != nil {
+		return gates.FullTestScope()
+	}
+	return scope
+}
+
+func (s *Service) executeGateNames(ctx context.Context, root string, names []string) ([]model.CompletionGateResult, error) {
+	if s.gateExecutor == nil {
+		return nil, fmt.Errorf("project gate executor is not configured")
+	}
+	results, err := s.gateExecutor(ctx, root, names)
+	if err != nil {
+		return results, err
+	}
+	for i := range results {
+		if i >= len(names) || results[i].ID != names[i] {
+			return nil, fmt.Errorf("gate executor returned unexpected evidence")
+		}
+	}
+	return results, nil
+}
+
+func (s *Service) executeGateNamesWithScope(ctx context.Context, root string, names []string, scope gates.TestScope) ([]model.CompletionGateResult, error) {
+	normalized, err := scope.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	if normalized.Mode == gates.TestScopeFull {
+		return s.executeGateNames(ctx, root, names)
+	}
+	if s.gateExecutorWithScope == nil {
+		return nil, fmt.Errorf("scoped gate executor is not configured")
+	}
+	results, err := s.gateExecutorWithScope(ctx, root, names, normalized)
+	if err != nil {
+		return results, err
+	}
+	for i := range results {
+		if i >= len(names) || results[i].ID != names[i] {
+			return nil, fmt.Errorf("gate executor returned unexpected evidence")
+		}
+	}
+	return results, nil
+}
+
+func validateProjectGateEvidence(results []model.CompletionGateResult, expected []string) error {
+	if err := model.ValidateServerGateEvidence(results); err != nil {
+		return err
+	}
+	if len(results) != len(expected) {
+		return fmt.Errorf("server gate evidence does not match effective project policy")
+	}
+	for i := range results {
+		if results[i].ID != expected[i] {
+			return fmt.Errorf("server gate evidence does not match effective project policy")
+		}
+	}
+	return nil
+}
