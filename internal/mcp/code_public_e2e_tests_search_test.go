@@ -137,7 +137,7 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 	})
 	overflowPagination := overflowPage.pagination
 	if overflowPagination == nil || overflowPagination["next_cursor"] == "" {
-		t.Fatalf("oversized code/read did not auto-pack into continuation pages: %#v", overflow)
+		t.Fatalf("oversized code/read did not auto-pack into continuation pages: %#v", overflowPage)
 	}
 }
 
