@@ -36,6 +36,11 @@ type publicCodeCallHarness struct {
 	client    *frozenConnectorClient
 }
 
+type publicCodePage struct {
+	result     map[string]any
+	pagination map[string]any
+}
+
 func newPublicCodeE2EFixture(t *testing.T) publicCodeE2EFixture {
 	t.Helper()
 	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
@@ -141,10 +146,30 @@ func newPublicCodeCallHarness(t *testing.T, fixture publicCodeE2EFixture) public
 
 func (h publicCodeCallHarness) call(t *testing.T, action string, input map[string]any) map[string]any {
 	t.Helper()
+	return h.callPage(t, action, input).result
+}
+
+func (h publicCodeCallHarness) callPage(t *testing.T, action string, input map[string]any) publicCodePage {
+	t.Helper()
 	response, _, _ := h.callResponse(t, action, input)
 	result := genericActionResult(t, response)
 	assertPublicCodePagination(t, result)
-	return result
+	structured := response["result"].(map[string]any)["structuredContent"].(map[string]any)
+	var pagination map[string]any
+	if raw, ok := structured["pagination"]; ok {
+		var valid bool
+		pagination, valid = raw.(map[string]any)
+		if !valid || len(pagination) != 1 {
+			t.Fatalf("public pagination envelope is malformed: %#v", raw)
+		}
+		if cursor, ok := pagination["next_cursor"].(string); !ok || cursor == "" {
+			t.Fatalf("public pagination envelope lacks next_cursor: %#v", pagination)
+		}
+	}
+	return publicCodePage{
+		result:     result,
+		pagination: pagination,
+	}
 }
 
 func (h publicCodeCallHarness) callResponse(t *testing.T, action string, input map[string]any) (map[string]any, time.Duration, int) {
@@ -188,28 +213,11 @@ func assertPublicCodeReadHead(t *testing.T, result map[string]any, want string) 
 	}
 }
 
-func publicPagination(t *testing.T, result map[string]any) map[string]any {
-	t.Helper()
-	pagination, ok := result["_pagination"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	return pagination
-}
-
 func assertPublicCodePagination(t *testing.T, result map[string]any) {
 	t.Helper()
-	for _, field := range []string{"next_cursor", "truncated"} {
+	for _, field := range []string{"_pagination", "_metrics", "next_cursor", "truncated"} {
 		if _, ok := result[field]; ok {
-			t.Fatalf("public code result exposes legacy pagination field %q: %#v", field, result)
-		}
-	}
-	if pagination, ok := result["_pagination"].(map[string]any); ok {
-		if len(pagination) != 1 {
-			t.Fatalf("public code _pagination has unexpected fields: %#v", pagination)
-		}
-		if _, ok := pagination["next_cursor"].(string); !ok {
-			t.Fatalf("public code _pagination lacks next_cursor: %#v", pagination)
+			t.Fatalf("public code result exposes transport metadata field %q: %#v", field, result)
 		}
 	}
 }

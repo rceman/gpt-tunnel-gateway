@@ -92,22 +92,13 @@ func TestCodeActionsUseTokenBudgetPaginationWithoutPublicLineOrByteControls(t *t
 	}
 	for _, path := range []string{"code/worktree", "code/tree", "code/read", "code/search", "code/diff"} {
 		properties := entries[path].OutputSchema["properties"].(map[string]any)
-		pagination, ok := properties["_pagination"].(map[string]any)
-		if !ok || pagination["type"] != "object" {
-			t.Fatalf("%s does not expose _pagination output metadata: %#v", path, entries[path].OutputSchema)
-		}
-		paginationProperties, ok := pagination["properties"].(map[string]any)
-		if !ok || len(paginationProperties) != 1 {
-			t.Fatalf("%s _pagination has unexpected fields: %#v", path, pagination)
-		}
-		if _, ok := paginationProperties["next_cursor"]; !ok {
-			t.Fatalf("%s _pagination omits next_cursor: %#v", path, pagination)
-		}
-		if _, ok := pagination["required"]; ok {
-			t.Fatalf("%s _pagination is required internally: %#v", path, pagination)
-		}
-		if requiredOutputField(entries[path].OutputSchema, "_pagination") {
-			t.Fatalf("%s _pagination is required on terminal output: %#v", path, entries[path].OutputSchema)
+		for _, field := range []string{"_pagination", "_metrics"} {
+			if _, ok := properties[field]; ok {
+				t.Fatalf("%s exposes private transport metadata %q: %#v", path, field, entries[path].OutputSchema)
+			}
+			if requiredOutputField(entries[path].OutputSchema, field) {
+				t.Fatalf("%s requires private transport metadata %q: %#v", path, field, entries[path].OutputSchema)
+			}
 		}
 		if _, ok := properties["next_cursor"]; ok {
 			t.Fatalf("%s exposes legacy top-level next_cursor", path)

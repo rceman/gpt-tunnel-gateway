@@ -16,13 +16,14 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 	fixture := newPublicCodeE2EFixture(t)
 	harness := newPublicCodeCallHarness(t, fixture)
 
-	worktree := harness.call(t, "code/worktree", map[string]any{})
+	worktreePage := harness.callPage(t, "code/worktree", map[string]any{})
+	worktree := worktreePage.result
 	items, ok := worktree["items"].([]any)
 	if !ok || len(items) != 2 {
 		t.Fatalf("code/worktree first page=%#v", worktree)
 	}
 	firstItem := items[0].(map[string]any)
-	worktreePagination := publicPagination(t, worktree)
+	worktreePagination := worktreePage.pagination
 	if firstItem["head"] != fixture.currentHead {
 		t.Fatalf("code/worktree first page lacks exact head: %#v", worktree)
 	}
@@ -30,34 +31,36 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 		t.Fatalf("code/worktree was item-capped instead of token-packed: %#v", worktree)
 	}
 
-	tree := harness.call(t, "code/tree", map[string]any{"worktree": fixture.mainSelector, "live": true})
+	treePage := harness.callPage(t, "code/tree", map[string]any{"worktree": fixture.mainSelector, "live": true})
+	tree := treePage.result
 	assertPublicCodeHead(t, tree, fixture.currentHead)
 	if paths, ok := tree["paths"].([]any); !ok || len(paths) < 2 {
 		t.Fatalf("code/tree was item-capped instead of token-packed: %#v", tree)
 	}
-	treePagination := publicPagination(t, tree)
+	treePagination := treePage.pagination
 	if treePagination != nil {
 		if treePagination["next_cursor"] == "" {
 			t.Fatalf("code/tree page has continuation metadata without cursor: %#v", tree)
 		}
-		treePage := harness.call(t, "code/tree", map[string]any{"worktree": fixture.mainSelector, "cursor": treePagination["next_cursor"], "live": true})
-		assertPublicCodeHead(t, treePage, fixture.currentHead)
+		treePage = harness.callPage(t, "code/tree", map[string]any{"worktree": fixture.mainSelector, "cursor": treePagination["next_cursor"], "live": true})
+		assertPublicCodeHead(t, treePage.result, fixture.currentHead)
 	}
 
-	search := harness.call(t, "code/search", map[string]any{"worktree": fixture.mainSelector, "query": "needle", "live": true})
+	searchPage := harness.callPage(t, "code/search", map[string]any{"worktree": fixture.mainSelector, "query": "needle", "live": true})
+	search := searchPage.result
 	assertPublicCodeHead(t, search, fixture.currentHead)
 	if matches, ok := search["matches"].([]any); !ok || len(matches) < 2 {
 		t.Fatalf("code/search was item-capped instead of token-packed: %#v", search)
 	}
-	searchPagination := publicPagination(t, search)
+	searchPagination := searchPage.pagination
 	if searchPagination != nil {
 		if searchPagination["next_cursor"] == "" {
 			t.Fatalf("repository-level code/search page has continuation metadata without cursor: %#v", search)
 		}
-		searchPage := harness.call(t, "code/search", map[string]any{"worktree": fixture.mainSelector, "query": "needle", "cursor": searchPagination["next_cursor"], "live": true})
-		assertPublicCodeHead(t, searchPage, fixture.currentHead)
+		searchPage = harness.callPage(t, "code/search", map[string]any{"worktree": fixture.mainSelector, "query": "needle", "cursor": searchPagination["next_cursor"], "live": true})
+		assertPublicCodeHead(t, searchPage.result, fixture.currentHead)
 		firstMatches := search["matches"].([]any)
-		secondMatches := searchPage["matches"].([]any)
+		secondMatches := searchPage.result["matches"].([]any)
 		if len(firstMatches) == 0 || len(secondMatches) == 0 {
 			t.Fatalf("code/search continuation was empty: first=%#v second=%#v", search, searchPage)
 		}
@@ -68,18 +71,19 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 		}
 	}
 
-	read := harness.call(t, "code/read", map[string]any{"worktree": fixture.mainSelector, "path": "tracked.txt", "live": true})
+	readPage := harness.callPage(t, "code/read", map[string]any{"worktree": fixture.mainSelector, "path": "tracked.txt", "live": true})
+	read := readPage.result
 	assertPublicCodeReadHead(t, read, fixture.currentHead)
-	readPagination := publicPagination(t, read)
+	readPagination := readPage.pagination
 	if readPagination == nil || readPagination["next_cursor"] == "" {
 		t.Fatalf("code/read first page is not paginated: %#v", read)
 	}
-	readPage := harness.call(t, "code/read", map[string]any{"worktree": fixture.mainSelector, "path": "tracked.txt", "cursor": readPagination["next_cursor"], "live": true})
-	assertPublicCodeReadHead(t, readPage, fixture.currentHead)
-	if readPage["start_line"].(float64) <= read["start_line"].(float64) {
+	readPage = harness.callPage(t, "code/read", map[string]any{"worktree": fixture.mainSelector, "path": "tracked.txt", "cursor": readPagination["next_cursor"], "live": true})
+	assertPublicCodeReadHead(t, readPage.result, fixture.currentHead)
+	if readPage.result["start_line"].(float64) <= read["start_line"].(float64) {
 		t.Fatalf("code/read continuation did not advance: %#v", readPage)
 	}
-	if _, ok := readPage["_pagination"]; ok {
+	if readPage.pagination != nil {
 		t.Fatalf("terminal code/read page exposed _pagination: %#v", readPage)
 	}
 
@@ -87,7 +91,8 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fixture.server.Service.Config.Projects["example"].Root, "diff-large.txt"), []byte(strings.Repeat(diffLine, 512)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	diff := harness.call(t, "code/diff", map[string]any{"worktree": fixture.mainSelector, "paths": []any{"diff-large.txt"}, "live": true})
+	diffPage := harness.callPage(t, "code/diff", map[string]any{"worktree": fixture.mainSelector, "paths": []any{"diff-large.txt"}, "live": true})
+	diff := diffPage.result
 	assertPublicCodeHead(t, diff, fixture.currentHead)
 	diffText, ok := diff["diff"].(string)
 	if !ok {
@@ -96,13 +101,13 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 	if len(diffText) <= 6000 {
 		t.Fatalf("code/diff page appears driven by the internal 6KB candidate bound: bytes=%d", len(diffText))
 	}
-	diffPagination := publicPagination(t, diff)
+	diffPagination := diffPage.pagination
 	if diffPagination == nil || diffPagination["next_cursor"] == "" {
 		t.Fatalf("code/diff first page is not paginated: %#v", diff)
 	}
-	diffPage := harness.call(t, "code/diff", map[string]any{"worktree": fixture.mainSelector, "paths": []any{"diff-large.txt"}, "cursor": diffPagination["next_cursor"], "live": true})
-	assertPublicCodeHead(t, diffPage, fixture.currentHead)
-	if diffPage["diff"] == "" {
+	diffPage = harness.callPage(t, "code/diff", map[string]any{"worktree": fixture.mainSelector, "paths": []any{"diff-large.txt"}, "cursor": diffPagination["next_cursor"], "live": true})
+	assertPublicCodeHead(t, diffPage.result, fixture.currentHead)
+	if diffPage.result["diff"] == "" {
 		t.Fatalf("code/diff continuation was empty: %#v", diffPage)
 	}
 	for action, input := range map[string]map[string]any{
@@ -127,10 +132,10 @@ func TestPublicCodeActionsE2EPerformanceAndPagination(t *testing.T) {
 		}
 	}
 	write("oversized.txt", oversized.String())
-	overflow := harness.call(t, "code/read", map[string]any{
+	overflowPage := harness.callPage(t, "code/read", map[string]any{
 		"worktree": fixture.mainSelector, "path": "oversized.txt", "live": true,
 	})
-	overflowPagination := publicPagination(t, overflow)
+	overflowPagination := overflowPage.pagination
 	if overflowPagination == nil || overflowPagination["next_cursor"] == "" {
 		t.Fatalf("oversized code/read did not auto-pack into continuation pages: %#v", overflow)
 	}
@@ -167,18 +172,19 @@ func TestPublicCodeSearchContextLinesE2E(t *testing.T) {
 	if !ok || last["snippet"] != "middle\nneedle-last" || len(last["snippet"].(string)) > 240 {
 		t.Fatalf("context search did not preserve ending boundary: %#v", last)
 	}
-	wide := harness.call(t, "code/search", map[string]any{
+	widePage := harness.callPage(t, "code/search", map[string]any{
 		"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "query": "needle", "context_lines": 1, "live": true,
 	})
-	firstPagination := publicPagination(t, wide)
+	wide := widePage.result
+	firstPagination := widePage.pagination
 	if firstPagination == nil || firstPagination["next_cursor"] == "" {
 		t.Fatalf("context search did not paginate: %#v", wide)
 	}
 	seen := make(map[int]bool)
-	page := wide
+	page := widePage
 	for pageNumber := 0; ; pageNumber++ {
-		assertPublicCodeHead(t, page, fixture.currentHead)
-		matches, ok := page["matches"].([]any)
+		assertPublicCodeHead(t, page.result, fixture.currentHead)
+		matches, ok := page.result["matches"].([]any)
 		if !ok || len(matches) == 0 {
 			t.Fatalf("context pagination page %d has no matches: %#v", pageNumber, page)
 		}
@@ -190,14 +196,14 @@ func TestPublicCodeSearchContextLinesE2E(t *testing.T) {
 			}
 			seen[line] = true
 		}
-		pagination := publicPagination(t, page)
+		pagination := page.pagination
 		if pagination == nil {
 			break
 		}
 		if pageNumber > 100 || pagination["next_cursor"] == "" {
 			t.Fatalf("context pagination did not terminate safely: %#v", page)
 		}
-		page = harness.call(t, "code/search", map[string]any{
+		page = harness.callPage(t, "code/search", map[string]any{
 			"worktree": fixture.mainSelector, "paths": []any{"tracked.txt"}, "query": "needle", "context_lines": 1, "cursor": pagination["next_cursor"], "live": true,
 		})
 	}
