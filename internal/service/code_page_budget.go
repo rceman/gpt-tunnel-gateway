@@ -80,3 +80,14 @@ func codePageFits(value any) (bool, error) {
 	}
 	return tokens <= CodePageTokenBudget-codePageTransportReserve, nil
 }
+
+// PublicPageFitsTokenBudget applies the same tokenizer and transport reserve
+// used by code pages to other semantic MCP pages.
+func PublicPageFitsTokenBudget(value any) (bool, error) { return codePageFits(value) }
+
+// LargestPublicPageSize returns the largest semantic prefix that fits the
+// public page budget. The predicate is expected to be monotonic as the prefix
+// grows; a zero result means that even one semantic unit does not fit.
+func LargestPublicPageSize(max int, fits func(int) (bool, error)) (int, error) {
+	return largestCodePageSize(max, fits)
+}

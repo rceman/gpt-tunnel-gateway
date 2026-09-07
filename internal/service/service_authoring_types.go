@@ -39,6 +39,38 @@ type ADRCreateInput struct {
 	WriteOptions
 }
 
+type ADRUpdateInput struct {
+	ProjectID        string  `json:"project_id"`
+	ADRID            string  `json:"adr_id"`
+	Title            *string `json:"title,omitempty"`
+	Context          *string `json:"context,omitempty"`
+	Decision         *string `json:"decision,omitempty"`
+	Consequences     *string `json:"consequences,omitempty"`
+	ExpectedRevision int     `json:"-"`
+	Reason           string  `json:"reason"`
+	UpdatedBy        string  `json:"updated_by"`
+}
+
+type ADRArchiveInput struct {
+	ProjectID        string `json:"project_id"`
+	ADRID            string `json:"adr_id"`
+	ExpectedRevision int    `json:"-"`
+	Reason           string `json:"reason"`
+	ArchivedBy       string `json:"archived_by"`
+}
+
+type ADRListInput struct {
+	CollectionPageInput
+	IncludeArchived bool `json:"include_archived,omitempty"`
+}
+
+type ADRQueryInput struct {
+	CollectionPageInput
+	Text            string `json:"text,omitempty"`
+	Status          string `json:"status,omitempty"`
+	IncludeArchived bool   `json:"include_archived,omitempty"`
+}
+
 type TaskCreateInput struct {
 	ProjectID          string         `json:"project_id"`
 	Slug               string         `json:"slug"`

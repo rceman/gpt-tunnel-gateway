@@ -151,7 +151,7 @@ func (s *Service) bootstrapSharedTasks(ctx context.Context, snapshot *hub.ReadSn
 			return err
 		}
 	}
-	return s.Durability.PutSharedTaskSequence(ctx, projectID, projectCode, nextTaskNumber)
+	return s.Durability.PutSharedSequence(ctx, "task", projectID, projectCode, nextTaskNumber)
 }
 
 func (s *Service) bootstrapSharedADRs(ctx context.Context, snapshot *hub.ReadSnapshot, projectID string) error {
@@ -179,7 +179,8 @@ func (s *Service) bootstrapSharedADRs(ctx context.Context, snapshot *hub.ReadSna
 		if adr.ProjectID != projectID {
 			return fmt.Errorf("ADR bootstrap project mismatch %s", filePath)
 		}
-		if err := model.ValidateADR(adr); err != nil {
+		normalized := normalizeADR(adr)
+		if err := model.ValidateADR(normalized); err != nil {
 			return fmt.Errorf("invalid ADR bootstrap %s: %w", filePath, err)
 		}
 		number, counted, err := sharedADRBootstrapSequenceNumber(adr.ID, projectCode)
@@ -192,8 +193,21 @@ func (s *Service) bootstrapSharedADRs(ctx context.Context, snapshot *hub.ReadSna
 		if err := s.Durability.PutSharedProjection(ctx, "adr", sqlitestore.SharedEntity{ID: adr.ID, Revision: projectionRevision(adr.CreatedAt), Payload: files[filePath], UpdatedAt: adr.CreatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
 			return err
 		}
+		if err := s.Durability.EnsureSharedLifecycleHistory(ctx, "adr", sqlitestore.SharedRevisionRecord{
+			EntityID:      adr.ID,
+			ProjectID:     projectID,
+			Revision:      int64(normalized.Revision),
+			MutationKind:  "migration",
+			Actor:         firstNonEmpty(normalized.UpdatedBy, normalized.CreatedBy, "migration"),
+			Reason:        firstNonEmpty(normalized.LastReason, "migration"),
+			ChangedFields: []string{"migration"},
+			Payload:       append([]byte(nil), files[filePath]...),
+			RecordedAt:    normalized.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		}); err != nil {
+			return err
+		}
 	}
-	return s.Durability.PutSharedADRSequence(ctx, projectID, projectCode, nextADRNumber)
+	return s.Durability.PutSharedSequence(ctx, "adr", projectID, projectCode, nextADRNumber)
 }
 
 func sharedADRBootstrapSequenceNumber(id, projectCode string) (uint64, bool, error) {

@@ -105,16 +105,26 @@ type PlanStatus struct {
 }
 
 type ADR struct {
-	SchemaVersion int       `json:"schema_version"`
-	ID            string    `json:"id"`
-	ProjectID     string    `json:"project_id"`
-	Title         string    `json:"title"`
-	Status        string    `json:"status"`
-	Context       string    `json:"context"`
-	Decision      string    `json:"decision"`
-	Consequences  string    `json:"consequences"`
-	Supersedes    string    `json:"supersedes,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
+	SchemaVersion int        `json:"schema_version"`
+	ID            string     `json:"id"`
+	ProjectID     string     `json:"project_id"`
+	Revision      int        `json:"revision,omitempty"`
+	RevisionCount int        `json:"revision_count,omitempty"`
+	Title         string     `json:"title"`
+	Status        string     `json:"status"`
+	Context       string     `json:"context"`
+	Decision      string     `json:"decision"`
+	Consequences  string     `json:"consequences"`
+	Supersedes    string     `json:"supersedes,omitempty"`
+	CreatedBy     string     `json:"created_by,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedBy     string     `json:"updated_by,omitempty"`
+	UpdatedAt     time.Time  `json:"updated_at,omitempty"`
+	LastReason    string     `json:"last_reason,omitempty"`
+	ArchivedAt    *time.Time `json:"archived_at,omitempty"`
+	ArchivedBy    string     `json:"archived_by,omitempty"`
+	ArchiveReason string     `json:"archive_reason,omitempty"`
+	ReplacedBy    string     `json:"replaced_by,omitempty"`
 }
 
 type Task struct {

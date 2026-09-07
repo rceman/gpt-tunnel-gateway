@@ -215,4 +215,5 @@ const (
 	sharedBootstrapMigrationName            = "gpt_tunnel_shared_bootstrap_markers_v9"
 	sharedADROutboxMigrationName            = "gpt_tunnel_shared_adr_outbox_retry_v10"
 	sharedProjectConfigurationMigrationName = "gpt_tunnel_shared_project_configurations_v11"
+	sharedLifecycleMigrationName            = "gpt_tunnel_shared_lifecycle_v12"
 )

@@ -97,11 +97,27 @@ func ValidateADR(v ADR) error {
 			return fmt.Errorf("invalid supersedes: %w", err)
 		}
 	}
+	if v.ReplacedBy != "" {
+		if err := validateAnyADRIdentifier(v.ReplacedBy); err != nil {
+			return fmt.Errorf("invalid replaced_by: %w", err)
+		}
+	}
 	if len(v.Title) < 3 || len(v.Title) > 300 || len(v.Context) > 100000 || len(v.Decision) > 100000 || len(v.Consequences) > 100000 {
 		return fmt.Errorf("invalid ADR content")
 	}
-	if v.Status != "accepted" && v.Status != "superseded" {
+	if v.Status != ADRStatusAccepted && v.Status != ADRStatusSuperseded && v.Status != ADRStatusArchived {
 		return fmt.Errorf("invalid ADR status")
+	}
+	if v.Status == ADRStatusArchived {
+		if v.ArchivedAt == nil || v.ArchivedAt.IsZero() || v.ArchivedBy == "" || strings.ContainsAny(v.ArchivedBy, "\r\n\x00") {
+			return fmt.Errorf("invalid archived ADR metadata")
+		}
+		if len([]byte(v.ArchiveReason)) == 0 || len([]byte(v.ArchiveReason)) > MaxDeferredReasonBytes || strings.ContainsAny(v.ArchiveReason, "\r\n\x00") {
+			return fmt.Errorf("invalid archived ADR reason")
+		}
+		if v.ReplacedBy == v.ID {
+			return fmt.Errorf("archived ADR cannot replace itself")
+		}
 	}
 	return nil
 }

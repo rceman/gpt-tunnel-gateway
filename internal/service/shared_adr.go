@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -30,6 +31,7 @@ func (s *Service) readSharedADR(ctx context.Context, projectID, id string) (mode
 	if adr.ID != id || adr.ProjectID != projectID {
 		return model.ADR{}, fmt.Errorf("shared ADR ownership mismatch")
 	}
+	adr = normalizeADR(adr)
 	if err := model.ValidateADR(adr); err != nil {
 		return model.ADR{}, err
 	}
@@ -56,6 +58,7 @@ func (s *Service) listSharedADRs(ctx context.Context, projectID string) ([]model
 		if adr.ID != entity.ID {
 			return nil, fmt.Errorf("shared ADR identity mismatch")
 		}
+		adr = normalizeADR(adr)
 		if err := model.ValidateADR(adr); err != nil {
 			return nil, err
 		}
@@ -63,6 +66,52 @@ func (s *Service) listSharedADRs(ctx context.Context, projectID string) ([]model
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	return items, nil
+}
+
+type sharedADRPage struct {
+	ADRs       []model.ADR
+	NextCursor string
+	HasMore    bool
+	CursorKind string
+}
+
+func (s *Service) querySharedADRs(ctx context.Context, projectID, text, status string, includeArchived bool, limit int, cursor string) (sharedADRPage, error) {
+	if err := s.requireLocalTaskAuthoring(ctx, projectID); err != nil {
+		return sharedADRPage{}, err
+	}
+	filters := map[string]string{}
+	if status != "" {
+		filters["status"] = status
+	}
+	includeArchived = includeArchived || status == model.ADRStatusArchived || status == model.ADRStatusSuperseded
+	entities, err := s.Durability.QuerySharedLifecycle(ctx, sqlitestore.SharedLifecycleQuery{
+		EntityType: "adr", ProjectID: projectID, Text: text, Filters: filters,
+		IncludeArchived: includeArchived, ExcludeSuperseded: includeArchived && status == "", Limit: limit, Cursor: cursor,
+	})
+	if err != nil {
+		return sharedADRPage{}, err
+	}
+	items := make([]model.ADR, 0, len(entities.Entities))
+	for _, entity := range entities.Entities {
+		var adr model.ADR
+		if err := json.Unmarshal(entity.Payload, &adr); err != nil {
+			return sharedADRPage{}, fmt.Errorf("decode shared ADR %s: %w", entity.ID, err)
+		}
+		if adr.ProjectID != projectID || adr.ID != entity.ID {
+			return sharedADRPage{}, fmt.Errorf("shared ADR identity mismatch")
+		}
+		adr = normalizeADR(adr)
+		if err := model.ValidateADR(adr); err != nil {
+			return sharedADRPage{}, err
+		}
+		items = append(items, adr)
+	}
+	return sharedADRPage{
+		ADRs:       items,
+		NextCursor: entities.NextCursor,
+		HasMore:    entities.HasMore,
+		CursorKind: entities.CursorKind,
+	}, nil
 }
 
 func withDurableMutationOperationID(ctx context.Context, operationID string) context.Context {
@@ -92,18 +141,27 @@ func (s *Service) adrCreateShared(ctx context.Context, in ADRCreateInput) (Opera
 		operationID = "adr-shared-" + hex.EncodeToString(digest[:])
 	}
 	var created model.ADR
-	_, id, _, err := s.Durability.CommitSharedADRCreate(ctx, sqlitestore.SharedADRCreate{
-		OperationID:          operationID,
-		ProjectID:            in.ADR.ProjectID,
-		ProjectCode:          project.ProjectCode,
-		InitialNextADRNumber: 1,
-		Kind:                 "adr-create",
-		CreatedAt:            time.Now().UTC(),
+	_, id, _, err := s.Durability.CommitSharedLifecycleCreate(ctx, sqlitestore.SharedLifecycleCreate{
+		OperationID:         operationID,
+		EntityType:          "adr",
+		ProjectID:           in.ADR.ProjectID,
+		ProjectCode:         project.ProjectCode,
+		InitialNextNumber:   1,
+		Kind:                "adr-create",
+		HistoryMutationKind: "create",
+		Actor:               firstNonEmpty(in.ADR.CreatedBy, "server"),
+		Reason:              "create",
+		ChangedFields:       []string{"title", "context", "decision", "consequences"},
+		CreatedAt:           time.Now().UTC(),
 		BuildPayload: func(adrID string) ([]byte, error) {
 			created = in.ADR
 			created.SchemaVersion = model.SchemaVersion
 			created.ID = adrID
 			created.CreatedAt = time.Now().UTC()
+			created.Revision = 1
+			created.RevisionCount = 1
+			created.UpdatedAt = time.Time{}
+			created.LastReason = "create"
 			if created.Status == "" {
 				created.Status = "accepted"
 			}
@@ -119,7 +177,54 @@ func (s *Service) adrCreateShared(ctx context.Context, in ADRCreateInput) (Opera
 	return OperationResult{
 		OperationID: operationID,
 		ProjectID:   created.ProjectID,
+		EntityKey:   id,
+		Revision:    1,
 		Status:      "created",
-		TaskID:      id,
 	}, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func normalizeADR(adr model.ADR) model.ADR {
+	if adr.Status == "" {
+		adr.Status = model.ADRStatusAccepted
+	}
+	if adr.Revision == 0 {
+		adr.Revision = 1
+	}
+	if adr.RevisionCount < adr.Revision {
+		adr.RevisionCount = adr.Revision
+	}
+	if adr.CreatedBy == "" {
+		adr.CreatedBy = "migration"
+	}
+	if adr.UpdatedBy == "" {
+		adr.UpdatedBy = adr.CreatedBy
+	}
+	if adr.UpdatedAt.IsZero() {
+		adr.UpdatedAt = adr.CreatedAt
+	}
+	if adr.LastReason == "" {
+		adr.LastReason = "init"
+	}
+	if adr.Status == model.ADRStatusArchived {
+		if adr.ArchivedAt == nil && !adr.UpdatedAt.IsZero() {
+			at := adr.UpdatedAt
+			adr.ArchivedAt = &at
+		}
+		if adr.ArchivedBy == "" {
+			adr.ArchivedBy = adr.UpdatedBy
+		}
+		if adr.ArchiveReason == "" {
+			adr.ArchiveReason = adr.LastReason
+		}
+	}
+	return adr
 }

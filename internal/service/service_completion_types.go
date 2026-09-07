@@ -12,6 +12,8 @@ type OperationResult struct {
 	Hub         hub.TransactionResult `json:"hub"`
 	ProjectID   string                `json:"project_id,omitempty"`
 	TaskID      string                `json:"task_id,omitempty"`
+	EntityKey   string                `json:"entity_key,omitempty"`
+	Revision    int                   `json:"revision,omitempty"`
 	Status      string                `json:"status"`
 }
 

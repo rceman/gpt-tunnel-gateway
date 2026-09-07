@@ -49,65 +49,78 @@ func sharedOutboxRetryDelay(attempt int64) time.Duration {
 }
 
 func (s *Service) publishSharedOutboxEntry(ctx context.Context, entry sqlitestore.OutboxEntry) error {
-	switch entry.EntityType {
-	case "task":
-		var task model.TaskAuthoring
-		if err := json.Unmarshal(entry.Payload, &task); err != nil {
-			return err
-		}
-		if err := model.ValidateTaskAuthoring(task); err != nil {
-			return err
-		}
-		path := s.taskAuthoringPath(task.ProjectID, task.ID)
-		_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared task "+task.ID, func(worktree string) ([]string, error) {
-			var latest model.TaskAuthoring
-			if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
-				if latest.Revision > task.Revision {
-					return nil, fmt.Errorf("Hub task changed while publishing Shared outbox")
-				}
-				if latest.Revision == task.Revision && latest.RevisionSHA256 == task.RevisionSHA256 && latest.Status == task.Status {
-					return nil, nil
-				}
-			} else if !IsNotFound(readErr) {
-				return nil, readErr
-			}
-			if err := hub.WriteJSON(worktree, path, task); err != nil {
-				return nil, err
-			}
-			return []string{path}, nil
-		})
-		return err
-	case "adr":
-		var adr model.ADR
-		if err := json.Unmarshal(entry.Payload, &adr); err != nil {
-			return err
-		}
-		if err := model.ValidateADR(adr); err != nil {
-			return err
-		}
-		path := s.adrPath(adr.ProjectID, adr.ID)
-		_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared ADR "+adr.ID, func(worktree string) ([]string, error) {
-			var latest model.ADR
-			if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
-				if latest.ID == adr.ID && latest.CreatedAt.Equal(adr.CreatedAt) {
-					return nil, nil
-				}
-			} else if !IsNotFound(readErr) {
-				return nil, readErr
-			}
-			if err := hub.WriteJSON(worktree, path, adr); err != nil {
-				return nil, err
-			}
-			return []string{path}, nil
-		})
-		return err
-	case "project_configuration":
-		var configuration model.ProjectConfiguration
-		if err := json.Unmarshal(entry.Payload, &configuration); err != nil {
-			return err
-		}
-		return s.publishSharedProjectConfiguration(ctx, configuration)
-	default:
+	publisher, ok := sharedOutboxPublishers[entry.EntityType]
+	if !ok {
 		return fmt.Errorf("unsupported shared outbox entity %q", entry.EntityType)
 	}
+	return publisher(s, ctx, entry)
+}
+
+var sharedOutboxPublishers = map[string]func(*Service, context.Context, sqlitestore.OutboxEntry) error{
+	"task":                  (*Service).publishSharedTaskOutbox,
+	"adr":                   (*Service).publishSharedADROutbox,
+	"project_configuration": (*Service).publishSharedProjectConfigurationOutbox,
+}
+
+func (s *Service) publishSharedTaskOutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {
+	var task model.TaskAuthoring
+	if err := json.Unmarshal(entry.Payload, &task); err != nil {
+		return err
+	}
+	if err := model.ValidateTaskAuthoring(task); err != nil {
+		return err
+	}
+	path := s.taskAuthoringPath(task.ProjectID, task.ID)
+	_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared task "+task.ID, func(worktree string) ([]string, error) {
+		var latest model.TaskAuthoring
+		if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
+			if latest.Revision > task.Revision {
+				return nil, fmt.Errorf("Hub task changed while publishing Shared outbox")
+			}
+			if latest.Revision == task.Revision && latest.RevisionSHA256 == task.RevisionSHA256 && latest.Status == task.Status {
+				return nil, nil
+			}
+		} else if !IsNotFound(readErr) {
+			return nil, readErr
+		}
+		if err := hub.WriteJSON(worktree, path, task); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	return err
+}
+
+func (s *Service) publishSharedADROutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {
+	var adr model.ADR
+	if err := json.Unmarshal(entry.Payload, &adr); err != nil {
+		return err
+	}
+	if err := model.ValidateADR(adr); err != nil {
+		return err
+	}
+	path := s.adrPath(adr.ProjectID, adr.ID)
+	_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared ADR "+adr.ID, func(worktree string) ([]string, error) {
+		var latest model.ADR
+		if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
+			if latest.ID == adr.ID && latest.CreatedAt.Equal(adr.CreatedAt) {
+				return nil, nil
+			}
+		} else if !IsNotFound(readErr) {
+			return nil, readErr
+		}
+		if err := hub.WriteJSON(worktree, path, adr); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	return err
+}
+
+func (s *Service) publishSharedProjectConfigurationOutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {
+	var configuration model.ProjectConfiguration
+	if err := json.Unmarshal(entry.Payload, &configuration); err != nil {
+		return err
+	}
+	return s.publishSharedProjectConfiguration(ctx, configuration)
 }

@@ -141,7 +141,7 @@ var sharedMigrations = []migrate.Migration{{
 	Statements: []store.Statement{
 		{SQL: `CREATE TABLE IF NOT EXISTS shared_project_configurations (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`},
 	},
-}}
+}, sharedLifecycleMigration}
 
 var localMigrations = []migrate.Migration{{
 	Version: 1, Name: localOperationalMigrationName,

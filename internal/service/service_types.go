@@ -206,6 +206,28 @@ type ADRListPageResult struct {
 	ADRs       []model.ADR `json:"adrs"`
 	NextCursor string      `json:"next_cursor"`
 	HasMore    bool        `json:"has_more"`
+	CursorKind string      `json:"-"`
+}
+
+type ADRHistoryResult struct {
+	ADRID      string                  `json:"adr_id"`
+	ProjectID  string                  `json:"project_id"`
+	Revisions  []model.ADRHistoryEntry `json:"revisions"`
+	NextCursor string                  `json:"next_cursor"`
+	HasMore    bool                    `json:"has_more"`
+	CursorKind string                  `json:"-"`
+}
+
+type ADRLegacyRelation struct {
+	ADR        string `json:"adr"`
+	Revision   int    `json:"revision"`
+	Supersedes string `json:"supersedes"`
+}
+
+type ADRLegacyRelationsResult struct {
+	Relations  []ADRLegacyRelation `json:"relations"`
+	NextCursor string              `json:"-"`
+	HasMore    bool                `json:"-"`
 }
 
 type TaskRevisionListPageResult struct {

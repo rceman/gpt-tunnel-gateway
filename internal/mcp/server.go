@@ -37,6 +37,8 @@ type Server struct {
 	callbackActionErr      error
 	debugActions           sync.Once
 	debugActionErr         error
+	adrActions             sync.Once
+	adrActionErr           error
 }
 type request struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -102,6 +104,7 @@ func (s *Server) tools() map[string]Tool {
 	s.ensureHotfixActions()
 	s.ensureCallbackActions()
 	s.ensureDebugActions()
+	s.ensureADRActions()
 	t := map[string]Tool{}
 	add := toolAdder(func(name, description string, schema map[string]any, fn func(context.Context, json.RawMessage) (any, error)) {
 		output, outputOK := toolOutputSchemas[name]
@@ -119,7 +122,6 @@ func (s *Server) tools() map[string]Tool {
 		}
 	})
 	s.addCoreTools(add)
-	s.addADRTools(add)
 	s.addTaskTools(add)
 	s.addTaskTrainTools(add)
 	addOperatorJournalTools(add, s)

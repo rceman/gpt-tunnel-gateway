@@ -3,12 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/entity"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func (s *Service) PlanRender(ctx context.Context, project string) (model.PlanRender, error) {
@@ -63,64 +62,34 @@ func (s *Service) ADRList(ctx context.Context, project string) ([]model.ADR, err
 	if err := validateEntityProject(project); err != nil {
 		return nil, err
 	}
-	if s.Durability != nil {
-		return s.listSharedADRs(ctx, project)
+	if s.Durability == nil {
+		return nil, fmt.Errorf("ADR Shared durability is unavailable")
 	}
-	records, err := s.entityRegistry(project).ListRecords(ctx, entity.Query{Family: entity.ADRFamily})
-	if err != nil {
-		return nil, err
-	}
-	items := make([]model.ADR, 0, len(records))
-	for _, record := range records {
-		var v model.ADR
-		if err := decodeStrict(record.Bytes, &v); err != nil {
-			return nil, err
-		}
-		if err := model.ValidateADR(v); err != nil {
-			return nil, err
-		}
-		items = append(items, v)
-	}
-	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	return items, nil
+	return s.listSharedADRs(ctx, project)
 }
 
 func (s *Service) ADRListPage(ctx context.Context, project string, in CollectionPageInput) (ADRListPageResult, error) {
-	limit, err := pagination.Limit(in.Limit, s.Config.MaxListItems)
-	if err != nil {
-		return ADRListPageResult{}, err
+	return s.ADRListPageWithOptions(ctx, project, ADRListInput{CollectionPageInput: in})
+}
+
+func (s *Service) ADRListPageWithOptions(ctx context.Context, project string, in ADRListInput) (ADRListPageResult, error) {
+	if s.Durability == nil {
+		return ADRListPageResult{}, fmt.Errorf("ADR Shared durability is unavailable")
 	}
-	items, err := s.ADRList(ctx, project)
-	if err != nil {
-		return ADRListPageResult{}, err
-	}
-	page, info, err := pagination.Page("adr_list:"+project, items, limit, in.Cursor, func(item model.ADR) string { return item.ID })
+	page, err := s.querySharedADRs(ctx, project, "", "", in.IncludeArchived, sqlitestore.SharedLifecycleQueryMaxRows, in.Cursor)
 	if err != nil {
 		return ADRListPageResult{}, err
 	}
 	return ADRListPageResult{
-		ADRs:       page,
-		NextCursor: info.NextCursor,
-		HasMore:    info.HasMore,
+		ADRs:       page.ADRs,
+		NextCursor: page.NextCursor,
+		HasMore:    page.HasMore,
+		CursorKind: page.CursorKind,
 	}, nil
 }
 
 func (s *Service) ADRRead(ctx context.Context, project, id string) (model.ADR, error) {
-	if err := validateEntityProject(project); err != nil {
-		return model.ADR{}, err
-	}
-	if model.ValidateADRIdentifier(id) != nil && model.ValidateCanonicalADRIdentifier(id) != nil {
-		return model.ADR{}, fmt.Errorf("invalid ADR identifier")
-	}
-	if s.Durability != nil {
-		return s.readSharedADR(ctx, project, id)
-	}
-	var v model.ADR
-	_, err := s.entityRegistry(project).ReadInto(ctx, entity.ADRFamily, id, &v)
-	if err == nil {
-		err = model.ValidateADR(v)
-	}
-	return v, err
+	return s.ADRReadRevision(ctx, project, id, 0)
 }
 
 func allocatorConflict(err error) bool {
@@ -139,13 +108,8 @@ func allocatorConflict(err error) bool {
 const allocatorRetryLimit = 20
 
 func (s *Service) ADRCreate(ctx context.Context, in ADRCreateInput) (OperationResult, error) {
-	if s.Durability != nil {
-		return s.adrCreateShared(ctx, in)
+	if s.Durability == nil {
+		return OperationResult{}, fmt.Errorf("ADR Shared durability is unavailable")
 	}
-	for attempt := 0; ; attempt++ {
-		result, err := s.adrCreateOnce(ctx, in)
-		if in.ExpectedHubRevision != "" || err == nil || !allocatorConflict(err) || attempt+1 >= allocatorRetryLimit {
-			return result, err
-		}
-	}
+	return s.adrCreateShared(ctx, in)
 }

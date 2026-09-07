@@ -69,10 +69,10 @@ func planRenderOutputSchema() map[string]any {
 
 func adrOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"schema_version": outputInteger(), "id": outputString(), "project_id": outputString(), "title": outputString(),
-		"status": outputString(), "context": outputString(), "decision": outputString(), "consequences": outputString(),
-		"supersedes": outputString(), "created_at": outputDateTime(),
-	}, "schema_version", "id", "project_id", "title", "status", "context", "decision", "consequences", "created_at")
+		"adr": outputString(), "revision": outputInteger(), "title": outputString(), "status": outputEnum("accepted", "superseded", "archived"),
+		"context": outputString(), "decision": outputString(), "consequences": outputString(), "created_at": outputDateTime(),
+		"updated_at": outputDateTime(), "revision_reason": outputString(),
+	}, "adr", "revision", "title", "status", "context", "decision", "consequences", "created_at")
 }
 
 func taskOutputSchema() map[string]any {
