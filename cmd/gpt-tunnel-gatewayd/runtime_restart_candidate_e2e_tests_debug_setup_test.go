@@ -35,6 +35,7 @@ type candidateDebugActivationFixture struct {
 	failSecondHealth  *atomic.Bool
 	client            *candidateMCPClient
 	sessionID         string
+	listenAddr        string
 }
 
 func prepareCandidateDebugActivation(t *testing.T) candidateDebugActivationFixture {
@@ -186,5 +187,5 @@ func prepareCandidateDebugActivation(t *testing.T) candidateDebugActivationFixtu
 		t.Fatal(err)
 	}
 	client := &candidateMCPClient{client: &http.Client{Timeout: 20 * time.Second}, endpoint: "http://" + listenAddr + "/mcp"}
-	return candidateDebugActivationFixture{t: t, activationTimeout: activationTimeout, wantSource: wantSource, sourceFixture: sourceFixture, stateDir: stateDir, pidDir: pidDir, logDir: logDir, installDir: installDir, tunnelPID: tunnelPID, initialPID: initialPID, tunnelRequests: &tunnelRequests, failSecondHealth: &failSecondHealth, client: client, sessionID: session.ID}
+	return candidateDebugActivationFixture{t: t, activationTimeout: activationTimeout, wantSource: wantSource, sourceFixture: sourceFixture, stateDir: stateDir, pidDir: pidDir, logDir: logDir, installDir: installDir, tunnelPID: tunnelPID, initialPID: initialPID, tunnelRequests: &tunnelRequests, failSecondHealth: &failSecondHealth, client: client, sessionID: session.ID, listenAddr: listenAddr}
 }

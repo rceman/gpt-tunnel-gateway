@@ -32,6 +32,7 @@ func finishCandidateDebugActivation(f candidateDebugActivationFixture) {
 	failSecondHealth := f.failSecondHealth
 	client := f.client
 	sessionID := f.sessionID
+	listenAddr := f.listenAddr
 	first, err := client.call(sessionID, "debug/activate", map[string]any{"main_sha": wantSource})
 	if err != nil {
 		t.Fatalf("debug/activate response failed: %v", err)
