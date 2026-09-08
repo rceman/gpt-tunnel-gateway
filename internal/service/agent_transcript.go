@@ -12,6 +12,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 const (
@@ -30,6 +31,7 @@ type AgentTailResult struct {
 type AgentTailInput struct {
 	Lines           int
 	SessionID       string
+	TargetSessionID string
 	SessionKey      string
 	PreserveBacklog bool
 }
@@ -62,6 +64,36 @@ func AgentSessionID(ctx context.Context) string {
 	return value
 }
 
+func (s *Service) ResolveAgentTailSession(ctx context.Context, projectID, sessionID string) (string, error) {
+	if model.ValidateObjectIdentifier(sessionID) != nil || !strings.HasPrefix(sessionID, durableSession.SessionIDPrefixAgent+"-") {
+		return "", fmt.Errorf("invalid exact Agent tail session %q", sessionID)
+	}
+	if s.Durability == nil {
+		return "", fmt.Errorf("Agent tail session %q is unavailable: local session authority is unavailable", sessionID)
+	}
+	record, err := durableSession.NewStoreWithDurability(s.Durability).Get(sessionID)
+	if err != nil {
+		return "", fmt.Errorf("Agent tail session %q is unavailable: %w", sessionID, err)
+	}
+	if record.ProjectID != projectID || record.Role != durableSession.RoleAgent || record.Status != durableSession.StatusActive {
+		return "", fmt.Errorf("Agent tail session %q is not an active Agent session for project %q", sessionID, projectID)
+	}
+	if record.SessionRef == nil || model.ValidateObjectIdentifier(*record.SessionRef) != nil {
+		return "", fmt.Errorf("Agent tail session %q has no valid Airelay reference", sessionID)
+	}
+	return *record.SessionRef, nil
+}
+
+func (s *Service) AgentTailPageForSession(ctx context.Context, projectID, sessionID string, input AgentTailInput) (AgentTailResult, error) {
+	ref, err := s.ResolveAgentTailSession(ctx, projectID, sessionID)
+	if err != nil {
+		return AgentTailResult{}, err
+	}
+	input.TargetSessionID = sessionID
+	input.SessionKey = ref
+	return s.AgentTailPage(ctx, projectID, input)
+}
+
 func (s *Service) AgentTailPage(ctx context.Context, projectID string, input AgentTailInput) (AgentTailResult, error) {
 	lines := input.Lines
 	if lines == 0 {
@@ -77,7 +109,7 @@ func (s *Service) AgentTailPage(ctx context.Context, projectID string, input Age
 		}
 		return AgentTailResult{}, fmt.Errorf("invalid exact Airelay session %q", session)
 	}
-	statePath, lockName := s.agentTailStateLocation(input.SessionID, projectID, session)
+	statePath, lockName := s.agentTailStateLocation(input.SessionID, projectID, session, input.TargetSessionID)
 	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), lockName)
 	if err != nil {
 		return AgentTailResult{}, fmt.Errorf("agent tail observation is busy")
@@ -161,8 +193,11 @@ func agentTailDelta(previous, current []string, hadPrevious bool) ([]string, boo
 	return current, len(current) > 0, len(current) > 0
 }
 
-func (s *Service) agentTailStateLocation(sessionID, projectID, sessionKey string) (string, string) {
+func (s *Service) agentTailStateLocation(sessionID, projectID, sessionKey string, targetSessionID ...string) (string, string) {
 	identity := sessionID + "\x00" + projectID + "\x00" + sessionKey
+	if len(targetSessionID) > 0 {
+		identity += "\x00" + targetSessionID[0]
+	}
 	digest := sha256.Sum256([]byte(identity))
 	name := hex.EncodeToString(digest[:12])
 	return filepath.Join(s.Config.StateDir, "agent-tail", name+".json"), "agent-tail-" + name

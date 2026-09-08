@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func agent(ctx context.Context, s *service.Service, args []string) {
@@ -52,7 +53,13 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 		if !seenSession {
 			fatal(fmt.Errorf("agent tail requires --session <exact-session>"))
 		}
-		v, err := s.AgentTailPage(ctx, args[1], service.AgentTailInput{Lines: lines, SessionKey: session})
+		db, err := sqlitestore.Open(s.Config.StateDir)
+		if err != nil {
+			fatal(err)
+		}
+		defer db.Close()
+		tailService := service.NewWithDurabilityDeferredWorkers(s.Config, db)
+		v, err := tailService.AgentTailPageForSession(ctx, args[1], session, service.AgentTailInput{Lines: lines, SessionID: session})
 		if err != nil {
 			fatal(err)
 		}
