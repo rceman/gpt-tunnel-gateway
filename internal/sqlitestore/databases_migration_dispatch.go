@@ -281,16 +281,16 @@ func baselineStatements(plan migrationSchemaPlan) []upstream.Statement {
 }
 
 func tableColumns(ctx context.Context, db *upstream.Store, table string) (map[string]bool, error) {
-	rows, err := db.Query(ctx, fmt.Sprintf("PRAGMA table_info('%s')", table))
+	rows, err := db.Query(ctx, `SELECT name FROM pragma_table_info(?)`, table)
 	if err != nil {
 		return nil, fmt.Errorf("inspect columns %s: %w", table, err)
 	}
 	columns := make(map[string]bool, len(rows.Rows))
 	for _, row := range rows.Rows {
-		if len(row) < 2 {
+		if len(row) != 1 {
 			return nil, fmt.Errorf("invalid column metadata for %s", table)
 		}
-		name, ok := row[1].(string)
+		name, ok := row[0].(string)
 		if !ok || name == "" {
 			return nil, fmt.Errorf("invalid column name metadata for %s", table)
 		}
