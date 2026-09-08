@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
-	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func agent(ctx context.Context, s *service.Service, args []string) {
@@ -22,9 +21,7 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 		}
 		output(v)
 	case "tail":
-		lines := 0
 		seenLines := false
-		session := ""
 		seenSession := false
 		for i := 2; i < len(args); {
 			if i+1 >= len(args) {
@@ -32,19 +29,19 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 			}
 			switch args[i] {
 			case "--lines":
-				value, err := strconv.Atoi(args[i+1])
+				_, err := strconv.Atoi(args[i+1])
 				if err != nil {
 					fatal(fmt.Errorf("invalid agent tail bound"))
 				}
 				if seenLines {
 					usage()
 				}
-				lines, seenLines = value, true
+				seenLines = true
 			case "--session":
 				if seenSession || args[i+1] == "" {
 					usage()
 				}
-				session, seenSession = args[i+1], true
+				seenSession = true
 			default:
 				usage()
 			}
@@ -53,17 +50,7 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 		if !seenSession {
 			fatal(fmt.Errorf("agent tail requires --session <exact-session>"))
 		}
-		db, err := sqlitestore.Open(s.Config.StateDir)
-		if err != nil {
-			fatal(err)
-		}
-		defer db.Close()
-		tailService := service.NewWithDurabilityDeferredWorkers(s.Config, db)
-		v, err := tailService.AgentTailPageForSession(ctx, args[1], session, service.AgentTailInput{Lines: lines, SessionID: session})
-		if err != nil {
-			fatal(err)
-		}
-		output(v)
+		fatal(fmt.Errorf("agent tail is available through Gateway agent/tail; CLI transport is deferred to GTW-TSK547"))
 	case "status":
 		if len(args) != 2 {
 			usage()
