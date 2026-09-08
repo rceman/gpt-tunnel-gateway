@@ -14,6 +14,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 func TestCanonicalAgentMessageValidationUsesUTF8ByteBound(t *testing.T) {
@@ -142,6 +143,11 @@ func TestCanonicalAgentPublicMCPContractE2E(t *testing.T) {
 		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	sessionID := genericSession(t, s, "example")
+	ref := "example_master"
+	targetSession, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	schema := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -182,18 +188,20 @@ func TestCanonicalAgentPublicMCPContractE2E(t *testing.T) {
 	if status["envelope"].(map[string]any)["is_error"] != false || statusResult["agent"] != "coding-example" {
 		t.Fatalf("agent/status failed: %#v", status)
 	}
-	tail := call(4, "agent/tail", map[string]any{"session": "example_master", "lines": 1})
-	if tail["envelope"].(map[string]any)["is_error"] != false || tail["result"].(map[string]any)["session"] != "example_master" {
+	tail := call(4, "agent/tail", map[string]any{"session": targetSession.ID, "lines": 1})
+	if tail["envelope"].(map[string]any)["is_error"] != false || tail["result"].(map[string]any)["session"] != targetSession.ID {
 		t.Fatalf("agent/tail failed: %#v", tail)
 	}
-	projectIDTail := callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 40, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{
-			"session": sessionID, "action": "agent/tail", "input": map[string]any{"agent": "coding-example"},
-		}},
-	}))
-	if genericStructured(t, projectIDTail)["is_error"] != true {
-		t.Fatalf("agent/tail accepted legacy agent selector: %#v", projectIDTail)
+	for _, legacyField := range []string{"agent", "agent_key"} {
+		legacyTail := callMCP(t, server, mustJSON(t, map[string]any{
+			"jsonrpc": "2.0", "id": 40, "method": "tools/call",
+			"params": map[string]any{"name": "call", "arguments": map[string]any{
+				"session": sessionID, "action": "agent/tail", "input": map[string]any{legacyField: "coding-example"},
+			}},
+		}))
+		if genericStructured(t, legacyTail)["is_error"] != true {
+			t.Fatalf("agent/tail accepted legacy selector %q: %#v", legacyField, legacyTail)
+		}
 	}
 	prompt := call(5, "agent/prompt", map[string]any{"agent": "coding-example", "message": "contract"})
 	promptResult := prompt["result"].(map[string]any)

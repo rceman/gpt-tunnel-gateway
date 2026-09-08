@@ -10,6 +10,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 func typedStructured(t *testing.T, response map[string]any) map[string]any {
@@ -146,7 +147,8 @@ func TestGenericAgentTailTranscriptDedupe(t *testing.T) {
 	ctx := context.Background()
 	seedMCPTestCodingAgent(t, s, revision)
 	script := filepath.Join(t.TempDir(), "airelay")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\ncase \"$1\" in\nsession-status) if [ \"$3\" = --json ]; then printf '{\"sessionKey\":\"%s\",\"profile\":\"coding\",\"controllerReachable\":true,\"state\":\"idle\"}' \"$2\"; else printf 'Controller: reachable\\nState: idle\\n'; fi ;;\ntail) printf 'two\\nthree\\n' ;;\n*) exit 99 ;;\nesac\n"), 0o700); err != nil {
+	marker := filepath.Join(t.TempDir(), "tail-session")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ncase \"$1\" in\nsession-status) if [ \"$3\" = --json ]; then printf '{\"sessionKey\":\"%s\",\"profile\":\"coding\",\"controllerReachable\":true,\"state\":\"idle\"}' \"$2\"; else printf 'Controller: reachable\\nState: idle\\n'; fi ;;\ntail) printf '%s' \"$2\" > "+marker+"; printf 'two\\nthree\\n' ;;\n*) exit 99 ;;\nesac\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	s.Airelay.Command = script
@@ -155,18 +157,39 @@ func TestGenericAgentTailTranscriptDedupe(t *testing.T) {
 		AuthorityContext: authority.WithPlanner(ctx),
 	}
 	sessionID := genericSession(t, s, "example")
-	first := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"session": "example_master", "lines": 2}}}})))
+	ref := "durable-agent-ref"
+	target, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tailInput := map[string]any{"session": target.ID, "lines": 2}
+	tailCall := func(id int, caller string) map[string]any {
+		t.Helper()
+		return genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{
+			"jsonrpc": "2.0", "id": id, "method": "tools/call",
+			"params": map[string]any{"name": "call", "arguments": map[string]any{
+				"session_id": caller, "action": "agent/tail", "input": tailInput,
+			}},
+		})))
+	}
+	first := tailCall(1, sessionID)
 	lines, ok := first["lines"].([]any)
 	if !ok || len(lines) != 2 {
 		t.Fatalf("initial transcript read=%#v", first)
 	}
-	repeat := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"session": "example_master", "lines": 2}}}})))
+	if got, err := os.ReadFile(marker); err != nil || string(got) != ref {
+		t.Fatalf("tail did not receive stored Agent SessionRef: got=%q err=%v", got, err)
+	}
+	if first["session"] != target.ID {
+		t.Fatalf("tail output did not echo durable Agent session: %#v", first)
+	}
+	repeat := tailCall(2, sessionID)
 	repeatLines, ok := repeat["lines"].([]any)
 	if !ok || len(repeatLines) != 0 {
 		t.Fatalf("unchanged transcript was not deduped=%#v", repeat)
 	}
 	secondSessionID := genericSession(t, s, "example")
-	independent := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": secondSessionID, "action": "agent/tail", "input": map[string]any{"session": "example_master", "lines": 2}}}})))
+	independent := tailCall(3, secondSessionID)
 	independentLines, ok := independent["lines"].([]any)
 	if !ok || len(independentLines) != 2 {
 		t.Fatalf("different durable session did not receive an independent first window=%#v", independent)

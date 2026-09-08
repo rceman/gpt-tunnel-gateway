@@ -10,6 +10,8 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func TestAgentTailUsesExplicitSessionWithoutDurableAgentLookup(t *testing.T) {
@@ -72,6 +74,64 @@ func TestAgentTailRequiresValidExplicitSession(t *testing.T) {
 		if err == nil {
 			t.Fatalf("session %q was accepted without a valid exact session", session)
 		}
+	}
+}
+
+func TestResolveAgentTailSessionUsesDurableBindingAndRejectsInvalidRecords(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlitestore.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s := NewWithDurabilityDeferredWorkers(config.Config{
+		StateDir: dir,
+		Projects: map[string]config.ProjectConfig{"example": {AirelaySessionKey: "configured-fallback"}},
+	}, db)
+	store := durableSession.NewStoreWithDurability(db)
+	ref := "durable-agent-ref"
+	active, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := s.ResolveAgentTailSession(context.Background(), "example", active.ID)
+	if err != nil || resolved != ref {
+		t.Fatalf("durable Agent binding=%q err=%v, want %q", resolved, err, ref)
+	}
+	wrongProject, err := store.Create(durableSession.CreateInput{ProjectID: "other", ProjectCode: "OTH", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	planner, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RolePlanner, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ended, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.End(ended.ID); err != nil {
+		t.Fatal(err)
+	}
+	nilRef, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, sessionID string
+	}{
+		{"unknown", "SA-ABC-9999"},
+		{"wrong project", wrongProject.ID},
+		{"planner role", planner.ID},
+		{"inactive", ended.ID},
+		{"nil ref", nilRef.ID},
+		{"invalid selector", "not-an-agent-session"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := s.ResolveAgentTailSession(context.Background(), "example", test.sessionID); err == nil {
+				t.Fatalf("session %q was accepted", test.sessionID)
+			}
+		})
 	}
 }
 

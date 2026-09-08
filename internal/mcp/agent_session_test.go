@@ -12,6 +12,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
@@ -37,6 +38,11 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	mcpSeedProjectConfiguration(t, s, "example")
 	adoptedPolicyRevision := adoptTestWorkflowPolicy(t, s, "example", registered.Hub.After)
 	registeredAgentRevision := seedMCPTestCodingAgent(t, s, adoptedPolicyRevision)
+	ref := "example_master"
+	targetSession, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
+	if err != nil {
+		t.Fatal(err)
+	}
 	srv := &Server{
 		Service:          s,
 		AuthorityContext: authority.WithPlanner(context.Background()),
@@ -91,7 +97,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatalf("first heartbeat omitted new tail lines: %#v", firstProjection)
 	}
 
-	tail := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"session": "example_master", "lines": 4}}}}))
+	tail := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"session": targetSession.ID, "lines": 4}}}}))
 	tailResult := genericStructured(t, tail)
 	if tailResult["is_error"] != false {
 		t.Fatalf("tail failed: %#v", tail)
