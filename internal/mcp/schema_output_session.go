@@ -26,4 +26,8 @@ func sessionIDOutputSchema() map[string]any {
 	return id
 }
 
-const sessionIDPattern = `^(?:S|SP|SD|SA|SW)-(?:[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}|[A-Z]{3}-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{4})$`
+const (
+	sessionIDBodyPattern  = `(?:[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}|[A-Z]{3}-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{4})`
+	sessionIDPattern      = `^(?:S|SP|SD|SA|SW)-` + sessionIDBodyPattern + `$`
+	agentSessionIDPattern = `^SA-` + sessionIDBodyPattern + `$`
+)
