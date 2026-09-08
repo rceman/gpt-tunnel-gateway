@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/rceman/go-sqlite-store/migrate"
 	"github.com/rceman/go-sqlite-store/store"
 )
 
@@ -177,7 +176,7 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 	if notify != nil {
 		notify("SQLITE_SHARED_MIGRATION")
 	}
-	if err := migrate.Apply(ctx, db.Shared, sharedMigrations, migrate.Options{}); err != nil {
+	if err := applySharedMigrations(ctx, db.Shared); err != nil {
 		return &OpenError{
 			Stage:    "migration",
 			Database: "shared",
@@ -188,7 +187,7 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 	if notify != nil {
 		notify("SQLITE_LOCAL_MIGRATION")
 	}
-	if err := migrate.Apply(ctx, db.Local, localMigrations, migrate.Options{}); err != nil {
+	if err := applyLocalMigrations(ctx, db.Local); err != nil {
 		return &OpenError{
 			Stage:    "migration",
 			Database: "local",
@@ -208,12 +207,20 @@ const (
 	localSessionStoreMigrationVersion       int64 = 202609051747
 	localSessionStoreMigrationDescription         = "create local sessions"
 
-	sharedReplicationMigrationName          = "gpt_tunnel_shared_replication_v1"
-	sharedCutoverMigrationName              = "gpt_tunnel_shared_cutover_v1"
-	sharedTaskSequenceMigrationName         = "gpt_tunnel_shared_task_sequences_v7"
-	sharedIntegrationCurrentMigrationName   = "gpt_tunnel_shared_integration_receipts_v8"
-	sharedBootstrapMigrationName            = "gpt_tunnel_shared_bootstrap_markers_v9"
-	sharedADROutboxMigrationName            = "gpt_tunnel_shared_adr_outbox_retry_v10"
-	sharedProjectConfigurationMigrationName = "gpt_tunnel_shared_project_configurations_v11"
-	sharedLifecycleMigrationName            = "gpt_tunnel_shared_lifecycle_v12"
+	sharedReplicationMigrationName                = "gpt_tunnel_shared_replication_v1"
+	sharedCutoverMigrationName                    = "gpt_tunnel_shared_cutover_v1"
+	sharedTaskSequenceMigrationName               = "gpt_tunnel_shared_task_sequences_v7"
+	sharedIntegrationCurrentMigrationName         = "gpt_tunnel_shared_integration_receipts_v8"
+	sharedBootstrapMigrationName                  = "gpt_tunnel_shared_bootstrap_markers_v9"
+	sharedADROutboxMigrationName                  = "gpt_tunnel_shared_adr_outbox_retry_v10"
+	sharedProjectConfigurationMigrationName       = "gpt_tunnel_shared_project_configurations_v11"
+	sharedLifecycleMigrationName                  = "gpt_tunnel_shared_lifecycle_v12"
+	sharedBaselineVersion                   int64 = 202609080503
+	sharedBaselineName                            = "create shared baseline"
+	sharedBridgeVersion                     int64 = 202609080504
+	sharedBridgeName                              = "bridge legacy shared migrations"
+	localBaselineVersion                    int64 = 202609080505
+	localBaselineName                             = "create local baseline"
+	localBridgeVersion                      int64 = 202609080506
+	localBridgeName                               = "bridge legacy local migrations"
 )
