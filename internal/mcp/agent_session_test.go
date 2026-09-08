@@ -91,7 +91,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatalf("first heartbeat omitted new tail lines: %#v", firstProjection)
 	}
 
-	tail := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"lines": 4}}}}))
+	tail := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"session": "example_master", "lines": 4}}}}))
 	tailResult := genericStructured(t, tail)
 	if tailResult["is_error"] != false {
 		t.Fatalf("tail failed: %#v", tail)
@@ -163,7 +163,7 @@ func TestTailToolSchemaIsSessionBoundAndCursorFree(t *testing.T) {
 		t.Fatal("agent/tail exposes a caller-controlled dedupe override")
 	}
 	outputProperties := entry.OutputSchema["properties"].(map[string]any)
-	for _, field := range []string{"agent", "lines"} {
+	for _, field := range []string{"session", "lines"} {
 		if _, ok := outputProperties[field]; !ok {
 			t.Fatalf("agent/tail output omits %s: %#v", field, entry.OutputSchema)
 		}

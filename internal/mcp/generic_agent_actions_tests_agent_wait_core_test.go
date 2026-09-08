@@ -182,18 +182,18 @@ func TestCanonicalAgentPublicMCPContractE2E(t *testing.T) {
 	if status["envelope"].(map[string]any)["is_error"] != false || statusResult["agent"] != "coding-example" {
 		t.Fatalf("agent/status failed: %#v", status)
 	}
-	tail := call(4, "agent/tail", map[string]any{"agent": "coding-example", "lines": 1})
-	if tail["envelope"].(map[string]any)["is_error"] != false || tail["result"].(map[string]any)["agent"] != "coding-example" {
+	tail := call(4, "agent/tail", map[string]any{"session": "example_master", "lines": 1})
+	if tail["envelope"].(map[string]any)["is_error"] != false || tail["result"].(map[string]any)["session"] != "example_master" {
 		t.Fatalf("agent/tail failed: %#v", tail)
 	}
 	projectIDTail := callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 40, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{
-			"session": sessionID, "action": "agent/tail", "input": map[string]any{"project_id": "example"},
+			"session": sessionID, "action": "agent/tail", "input": map[string]any{"agent": "coding-example"},
 		}},
 	}))
 	if genericStructured(t, projectIDTail)["is_error"] != true {
-		t.Fatalf("agent/tail accepted caller project_id: %#v", projectIDTail)
+		t.Fatalf("agent/tail accepted legacy agent selector: %#v", projectIDTail)
 	}
 	prompt := call(5, "agent/prompt", map[string]any{"agent": "coding-example", "message": "contract"})
 	promptResult := prompt["result"].(map[string]any)

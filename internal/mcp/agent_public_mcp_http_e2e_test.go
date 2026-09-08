@@ -189,8 +189,8 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 	if awaited["agent"] != "coding-example" {
 		t.Fatalf("agent/await result=%#v", awaited)
 	}
-	tail := call("agent/tail", map[string]any{"agent": "coding-example", "lines": 1}, "ADR81 traces the canonical tail action and ADR84/ADR83 Agent naming.")
-	if tail["agent"] != "coding-example" {
+	tail := call("agent/tail", map[string]any{"session": "example_master", "lines": 1}, "TSK546 traces exact-session transcript reads.")
+	if tail["session"] != "example_master" {
 		t.Fatalf("agent/tail result=%#v", tail)
 	}
 	prompt := call("agent/prompt", map[string]any{"agent": "coding-example", "message": "tsk443 public E2E"}, "ADR81 traces prompt dispatch through the ADR84/ADR83 Agent contract.")

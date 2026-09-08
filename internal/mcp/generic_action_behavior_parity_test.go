@@ -155,23 +155,23 @@ func TestGenericAgentTailTranscriptDedupe(t *testing.T) {
 		AuthorityContext: authority.WithPlanner(ctx),
 	}
 	sessionID := genericSession(t, s, "example")
-	first := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"lines": 2}}}})))
+	first := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"session": "example_master", "lines": 2}}}})))
 	lines, ok := first["lines"].([]any)
 	if !ok || len(lines) != 2 {
 		t.Fatalf("initial transcript read=%#v", first)
 	}
-	repeat := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"lines": 2}}}})))
+	repeat := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"session": "example_master", "lines": 2}}}})))
 	repeatLines, ok := repeat["lines"].([]any)
 	if !ok || len(repeatLines) != 0 {
 		t.Fatalf("unchanged transcript was not deduped=%#v", repeat)
 	}
 	secondSessionID := genericSession(t, s, "example")
-	independent := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": secondSessionID, "action": "agent/tail", "input": map[string]any{"lines": 2}}}})))
+	independent := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": secondSessionID, "action": "agent/tail", "input": map[string]any{"session": "example_master", "lines": 2}}}})))
 	independentLines, ok := independent["lines"].([]any)
 	if !ok || len(independentLines) != 2 {
 		t.Fatalf("different durable session did not receive an independent first window=%#v", independent)
 	}
-	unknownOverride := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"lines": 2, "dedupe": false}}}})))
+	unknownOverride := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"session": "example_master", "lines": 2, "dedupe": false}}}})))
 	if unknownOverride["is_error"] != true {
 		t.Fatalf("caller-controlled dedupe override was accepted=%#v", unknownOverride)
 	}

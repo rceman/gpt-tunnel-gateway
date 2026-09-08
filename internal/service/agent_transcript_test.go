@@ -12,7 +12,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 )
 
-func TestAgentTailUsesLocalSessionWithoutDurableAgentLookup(t *testing.T) {
+func TestAgentTailUsesExplicitSessionWithoutDurableAgentLookup(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "airelay")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\n[ \"$1\" = tail ] && printf 'one\\ntwo\\n'\n"), 0o700); err != nil {
@@ -35,8 +35,9 @@ func TestAgentTailUsesLocalSessionWithoutDurableAgentLookup(t *testing.T) {
 		Airelay: airelay.Client{Command: script, Timeout: time.Second},
 	}
 	result, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{
-		SessionID: "SP-FASTTAIL",
-		Lines:     30,
+		SessionID:  "SP-FASTTAIL",
+		SessionKey: "example_master",
+		Lines:      30,
 	})
 	if err != nil {
 		t.Fatalf("local tail failed without Hub access: %v", err)
@@ -45,18 +46,32 @@ func TestAgentTailUsesLocalSessionWithoutDurableAgentLookup(t *testing.T) {
 		t.Fatalf("unexpected local tail result: %#v", result)
 	}
 	repeat, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{
-		SessionID: "SP-FASTTAIL",
-		Lines:     20,
+		SessionID:  "SP-FASTTAIL",
+		SessionKey: "example_master",
+		Lines:      20,
 	})
 	if err != nil || len(repeat.Lines) != 0 || repeat.HasNewInfo {
 		t.Fatalf("unchanged session tail was not deduplicated: %#v err=%v", repeat, err)
 	}
 	independent, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{
-		SessionID: "SP-OTHER",
-		Lines:     20,
+		SessionID:  "SP-OTHER",
+		SessionKey: "example_master",
+		Lines:      20,
 	})
 	if err != nil || !reflect.DeepEqual(independent.Lines, []string{"one", "two"}) || !independent.HasNewInfo {
 		t.Fatalf("tail state leaked across durable sessions: %#v err=%v", independent, err)
+	}
+}
+
+func TestAgentTailRequiresValidExplicitSession(t *testing.T) {
+	s := &Service{Config: config.Config{StateDir: t.TempDir(), Projects: map[string]config.ProjectConfig{
+		"example": {AirelaySessionKey: "configured-fallback"},
+	}}}
+	for _, session := range []string{"", "bad session", "bad\nvalue"} {
+		_, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{SessionKey: session})
+		if err == nil {
+			t.Fatalf("session %q was accepted without a valid exact session", session)
+		}
 	}
 }
 
@@ -83,6 +98,7 @@ func TestAgentTailContinuationPreservesUnreadBacklogAcrossBudgets(t *testing.T) 
 	}
 	input := AgentTailInput{
 		SessionID:       "SP-BACKLOG",
+		SessionKey:      "example_master",
 		Lines:           3,
 		PreserveBacklog: true,
 	}

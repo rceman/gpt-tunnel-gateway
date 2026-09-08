@@ -131,15 +131,20 @@ func TestCanonicalAgentAwaitUsesLocalAuthorityWhenHubUnavailableAndLocked(t *tes
 		t.Fatalf("unexpected local agent/status result: %#v", canonicalStatus)
 	}
 	canonicalTail, err := server.canonicalAgentTailAction(bound, mustJSON(t, map[string]any{
-		"agent": agent.AgentID,
-		"lines": 30,
+		"session": "example_master",
+		"lines":   30,
 	}))
 	if err != nil {
 		t.Fatalf("canonical agent/tail failed with Hub unavailable/locked: %v", err)
 	}
 	tailResult, ok := canonicalTail.(map[string]any)
-	if !ok || tailResult["agent"] != agent.AgentID {
+	if !ok || tailResult["session"] != "example_master" {
 		t.Fatalf("unexpected local agent/tail result: %#v", canonicalTail)
+	}
+	for _, input := range []map[string]any{{}, {"agent": agent.AgentID}, {"session": "bad session"}} {
+		if _, err := server.canonicalAgentTailAction(bound, mustJSON(t, input)); err == nil {
+			t.Fatalf("invalid exact-session tail input was accepted: %#v", input)
+		}
 	}
 	entries := server.genericActionRegistry(server.tools())
 	promptTool, ok := entries["agent/prompt"]

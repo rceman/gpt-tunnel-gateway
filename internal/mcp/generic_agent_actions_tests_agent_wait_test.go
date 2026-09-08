@@ -141,7 +141,7 @@ func TestCanonicalAgentSchemasAreClosedAndBounded(t *testing.T) {
 	assertFields("agent/list", []string{}, []string{})
 	assertFields("agent/status", []string{"agent"}, []string{})
 	assertFields("agent/await", []string{"agent", "seconds"}, []string{})
-	assertFields("agent/tail", []string{"agent", "lines"}, []string{})
+	assertFields("agent/tail", []string{"session", "lines"}, []string{"session"})
 	assertFields("agent/prompt", []string{"agent", "message"}, []string{"message"})
 	assertFields("agent/interrupt", []string{"agent", "message"}, []string{})
 
