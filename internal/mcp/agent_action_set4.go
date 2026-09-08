@@ -128,11 +128,20 @@ func (s *Server) agentStatusActionWithTail(ctx context.Context, raw json.RawMess
 			return nil, fmt.Errorf("agent/status could not resolve a coding Agent: %w", err)
 		}
 		in.AgentID = resolved.AgentID
+		return s.agentStatusProjectionWithTail(ctx, in.ProjectID, in.AgentID, resolved.SessionKey, tailLines, preserveBacklog)
 	}
-	return s.agentStatusProjectionWithTail(ctx, in.ProjectID, in.AgentID, tailLines, preserveBacklog)
+	resolved, err := s.Service.ResolveAgent(ctx, service.AgentResolveInput{
+		ProjectID:     in.ProjectID,
+		AgentID:       in.AgentID,
+		RequireUsable: false,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("agent/status could not resolve Agent session: %w", err)
+	}
+	return s.agentStatusProjectionWithTail(ctx, in.ProjectID, in.AgentID, resolved.SessionKey, tailLines, preserveBacklog)
 }
 
-func (s *Server) agentStatusProjectionWithTail(ctx context.Context, projectID, agentID string, tailLines int, preserveBacklog bool) (map[string]any, error) {
+func (s *Server) agentStatusProjectionWithTail(ctx context.Context, projectID, agentID, sessionKey string, tailLines int, preserveBacklog bool) (map[string]any, error) {
 	status, err := s.Service.AgentRegistryStatus(ctx, projectID, agentID)
 	if err != nil {
 		return nil, err
@@ -140,6 +149,7 @@ func (s *Server) agentStatusProjectionWithTail(ctx context.Context, projectID, a
 	tail, err := s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{
 		Lines:           tailLines,
 		SessionID:       service.AgentSessionID(ctx),
+		SessionKey:      sessionKey,
 		PreserveBacklog: preserveBacklog,
 	})
 	if err != nil {

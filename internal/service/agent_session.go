@@ -92,21 +92,6 @@ func (s *Service) resolveAgentSession(ctx context.Context, projectID, agentID st
 	return local.AirelaySessionKey, nil
 }
 
-// resolveAgentTailSession is intentionally local-only. A bounded tail read
-// observes the server-configured project session; it must not perform the
-// durable AgentList/ResolveAgent routing sequence used by prompt, status, and
-// dispatch paths. Those paths still retain their authoritative Hub checks.
-func (s *Service) resolveAgentTailSession(projectID string) (string, error) {
-	local, err := s.projectConfig(projectID)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(local.AirelaySessionKey) == "" {
-		return "", fmt.Errorf("project %q has no configured Airelay session", projectID)
-	}
-	return local.AirelaySessionKey, nil
-}
-
 func (s *Service) AgentSend(ctx context.Context, projectID, message string) (AgentSendResult, error) {
 	return s.AgentSendForAgent(ctx, projectID, "", message)
 }

@@ -66,15 +66,18 @@ func canonicalAgentAwaitOutputSchema() map[string]any {
 func canonicalAgentTailInputSchema() map[string]any {
 	lines := integer("Maximum transcript lines to return.", 1, 200)
 	lines["default"] = 30
-	return obj(map[string]any{"agent": canonicalAgentSelectorSchema(), "lines": lines})
+	session := str("Exact Airelay session identifier for the transcript.")
+	session["minLength"], session["maxLength"] = 1, 128
+	session["pattern"] = "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+	return obj(map[string]any{"session": session, "lines": lines}, "session")
 }
 
 func canonicalAgentTailOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"agent":     outputString(),
+		"session":   outputString(),
 		"lines":     outputArray(outputString()),
 		"truncated": outputBoolean(),
-	}, "agent", "lines")
+	}, "session", "lines")
 }
 
 func canonicalAgentPromptInputSchema() map[string]any {

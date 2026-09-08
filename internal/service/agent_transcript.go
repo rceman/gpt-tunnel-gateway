@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 const (
@@ -76,12 +77,11 @@ func (s *Service) AgentTailPage(ctx context.Context, projectID string, input Age
 		return AgentTailResult{}, fmt.Errorf("invalid agent tail bounds")
 	}
 	session := input.SessionKey
-	if session == "" {
-		var err error
-		session, err = s.resolveAgentTailSession(projectID)
-		if err != nil {
-			return AgentTailResult{}, err
+	if model.ValidateObjectIdentifier(session) != nil {
+		if session == "" {
+			return AgentTailResult{}, fmt.Errorf("agent tail requires an exact Airelay session")
 		}
+		return AgentTailResult{}, fmt.Errorf("invalid exact Airelay session %q", session)
 	}
 	statePath, lockName := s.agentTailStateLocation(input.SessionID, projectID, session)
 	lock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), lockName)

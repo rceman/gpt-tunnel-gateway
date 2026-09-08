@@ -222,8 +222,8 @@ func (s *Server) canonicalAgentStatusAction(ctx context.Context, raw json.RawMes
 
 func (s *Server) canonicalAgentTailAction(ctx context.Context, raw json.RawMessage) (any, error) {
 	var in struct {
-		Agent string `json:"agent"`
-		Lines int    `json:"lines"`
+		Session string `json:"session"`
+		Lines   int    `json:"lines"`
 	}
 	if err := decode(raw, &in); err != nil {
 		return nil, err
@@ -232,19 +232,15 @@ func (s *Server) canonicalAgentTailAction(ctx context.Context, raw json.RawMessa
 	if err != nil {
 		return nil, err
 	}
-	target, err := s.resolveCanonicalAgent(ctx, projectID, in.Agent, true)
-	if err != nil {
-		return nil, err
-	}
 	tail, err := s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{
 		Lines:      in.Lines,
 		SessionID:  service.AgentSessionID(ctx),
-		SessionKey: target.Resolved.SessionKey,
+		SessionKey: in.Session,
 	})
 	if err != nil {
 		return nil, err
 	}
-	result := map[string]any{"agent": target.Agent.AgentID, "lines": tail.Lines}
+	result := map[string]any{"session": in.Session, "lines": tail.Lines}
 	if tail.HistoryTruncated || tail.Overflow {
 		result["truncated"] = true
 	}
