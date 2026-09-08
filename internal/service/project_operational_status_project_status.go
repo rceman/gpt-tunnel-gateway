@@ -16,6 +16,8 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
+const maxProjectStatusTrainRecords = 1000
+
 // ProjectOperationalStatus is the compact, session-bound operator projection.
 // It deliberately contains identifiers and lifecycle facts, never full durable
 // records, reports, histories, or Agent transcript output.
@@ -270,7 +272,7 @@ func (s *Service) readProjectOperationalTrains(ctx context.Context, projectID st
 	if s.Durability == nil {
 		return s.readTrainV2Records(ctx, projectID)
 	}
-	entities, err := s.Durability.ListSharedEntities(ctx, "train", 1000)
+	entities, err := s.Durability.ListSharedEntities(ctx, "train", maxProjectStatusTrainRecords)
 	if err != nil {
 		return nil, err
 	}
