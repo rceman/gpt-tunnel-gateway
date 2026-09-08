@@ -66,7 +66,7 @@ func canonicalAgentAwaitOutputSchema() map[string]any {
 func canonicalAgentTailInputSchema() map[string]any {
 	lines := integer("Maximum transcript lines to return.", 1, 200)
 	lines["default"] = 30
-	session := str("Exact Airelay session identifier for the transcript.")
+	session := str("Exact durable Gateway Agent session identifier for the transcript, for example SA-GTW-BEYB.")
 	session["minLength"], session["maxLength"] = 1, 128
 	session["pattern"] = "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
 	return obj(map[string]any{"session": session, "lines": lines}, "session")

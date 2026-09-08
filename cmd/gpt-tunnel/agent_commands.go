@@ -48,7 +48,7 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 			i += 2
 		}
 		if !seenSession {
-			fatal(fmt.Errorf("agent tail requires --session <exact-session>"))
+			fatal(fmt.Errorf("agent tail requires --session <durable-agent-session>"))
 		}
 		fatal(fmt.Errorf("agent tail is available through Gateway agent/tail; CLI transport is deferred to GTW-TSK547"))
 	case "status":
