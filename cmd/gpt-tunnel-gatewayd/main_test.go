@@ -108,7 +108,7 @@ func TestPostReadyHubUnavailableDegradesWithoutBlockingLocalStore(t *testing.T) 
 	}
 }
 
-func TestPostReadyHubSyncLoopRetriesExpiredAttemptUntilBootstrapCompletes(t *testing.T) {
+func TestPostReadyHubSyncLoopRetriesExpiredAttemptUntilHubEnsureCompletes(t *testing.T) {
 	oldTimeout, oldDelays := postReadyHubAttemptTimeout, postReadyHubRetryDelays
 	postReadyHubAttemptTimeout = time.Millisecond
 	postReadyHubRetryDelays = []time.Duration{time.Millisecond}
@@ -118,18 +118,18 @@ func TestPostReadyHubSyncLoopRetriesExpiredAttemptUntilBootstrapCompletes(t *tes
 	})
 
 	attempts := 0
-	sharedBootstrapComplete := false
+	hubEnsureComplete := false
 	err := postReadyHubSyncLoop(context.Background(), func(string) {}, func(ctx context.Context) error {
 		attempts++
 		if attempts == 1 {
 			<-ctx.Done()
 			return ctx.Err()
 		}
-		sharedBootstrapComplete = true
+		hubEnsureComplete = true
 		return nil
 	}, func(context.Context) error {
-		if !sharedBootstrapComplete {
-			t.Fatal("state check ran before Shared bootstrap completed")
+		if !hubEnsureComplete {
+			t.Fatal("state check ran before Hub ensure completed")
 		}
 		return nil
 	})

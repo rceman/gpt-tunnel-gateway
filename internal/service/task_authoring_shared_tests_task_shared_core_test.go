@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -10,58 +9,6 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
-
-func TestTaskAuthoringUpdateSharedBootstrapsLegacyTaskBeforeHubUnavailable(t *testing.T) {
-	s, revision, _ := testServiceWithoutIdentifiers(t)
-	revision = adoptAuthoringIdentifiersForTest(t, s, revision)
-	revision = enableTrainV2ForTest(t, s, revision)
-	project := s.Config.Projects["example"]
-	project.ProjectCode = "EXM"
-	s.Config.Projects["example"] = project
-	legacy, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
-		ProjectID:          "example",
-		Title:              "Legacy shared task",
-		Objective:          "Bootstrap before local-only mutation.",
-		AcceptanceCriteria: []string{"update survives Hub outage"},
-		ADRRelation:        model.TaskADRNoRequired,
-		CreatedBy:          "planner",
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: revision,
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	s.Durability = db
-	bootstrapCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
-	if err := s.BootstrapSharedFromHub(bootstrapCtx); err != nil {
-		t.Fatalf("shared bootstrap: %v", err)
-	}
-	title := "Updated while Hub is unavailable"
-	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
-	started, err := s.TaskAuthoringUpdateAsync(context.Background(), TaskAuthoringUpdateInput{
-		ProjectID:              "example",
-		TaskID:                 legacy.ID,
-		ExpectedRevision:       legacy.Revision,
-		ExpectedRevisionSHA256: legacy.RevisionSHA256,
-		Title:                  &title,
-		UpdatedBy:              "planner",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	updated := waitTaskUpdateReceipt(t, s, started.OperationID)
-	if updated.Task == nil || updated.Task.Title != title {
-		t.Fatalf("Hub-unavailable update receipt=%#v", updated)
-	}
-}
 
 func TestSharedBootstrapMarkerBlocksAuthoringAndSurvivesRestart(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)

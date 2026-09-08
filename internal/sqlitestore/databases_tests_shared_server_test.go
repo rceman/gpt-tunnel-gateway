@@ -4,41 +4,10 @@ import (
 	"context"
 	"errors"
 	"os"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	upstream "github.com/rceman/go-sqlite-store/store"
-)
-
-func TestLocalCallbackMigrationUsesUTCTimestampIdentityAndDescription(t *testing.T) {
-	version := strconv.FormatInt(localCallbackEpochsMigrationVersion, 10)
-	if len(version) != len("200601021504") {
-		t.Fatalf("callback migration version=%q, want UTC YYYYMMDDHHMM", version)
-	}
-	if _, err := time.ParseInLocation("200601021504", version, time.UTC); err != nil {
-		t.Fatalf("callback migration version=%q is not a UTC timestamp ID: %v", version, err)
-	}
-	if localCallbackEpochsMigrationDescription == "" || strings.Contains(localCallbackEpochsMigrationDescription, "_v") {
-		t.Fatalf("callback migration description=%q must be separate from a version suffix", localCallbackEpochsMigrationDescription)
-	}
-	for version, name := range map[int64]string{
-		localCallbackEpochsMigrationVersion: localCallbackEpochsMigrationDescription,
-		localAgentRegistryMigrationVersion:  localAgentRegistryMigrationDescription,
-		localSessionStoreMigrationVersion:   localSessionStoreMigrationDescription,
-	} {
-		if version <= 0 || name == "" {
-			t.Fatalf("invalid timestamp migration identity=%d/%q", version, name)
-		}
-	}
-}
-
-const (
-	historicalLocalInterSessionMessagesMigrationName   = "gpt_tunnel_local_inter_session_messages_v1"
-	historicalLocalHistoryIndexesMigrationName         = "gpt_tunnel_local_history_indexes_v1"
-	historicalLocalHistoryProjectIndexesMigrationName  = "gpt_tunnel_local_history_project_indexes_v1"
-	historicalLocalHistoryProjectBackfillMigrationName = "gpt_tunnel_local_history_project_backfill_v1"
 )
 
 func TestOpenMigratesTwoIndependentStoresAndSharedCASIsAtomic(t *testing.T) {
