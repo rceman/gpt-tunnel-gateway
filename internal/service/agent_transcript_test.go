@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -117,6 +118,19 @@ func TestResolveAgentTailSessionUsesDurableBindingAndRejectsInvalidRecords(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	invalidRef := "not a valid ref"
+	invalidRecord := durableSession.Record{
+		SchemaVersion: durableSession.SchemaVersion, ID: "SA-ABC-1234", ProjectID: "example", ProjectCode: "EXM",
+		Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &invalidRef,
+		Status: durableSession.StatusActive, CreatedAt: time.Now().UTC(), StartedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+	payload, err := json.Marshal(invalidRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateLocalSession(context.Background(), sqlitestore.LocalSession{ID: invalidRecord.ID, Payload: payload, UpdatedAt: invalidRecord.UpdatedAt.Format(time.RFC3339Nano), Status: invalidRecord.Status}); err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range []struct {
 		name, sessionID string
 	}{
@@ -125,6 +139,7 @@ func TestResolveAgentTailSessionUsesDurableBindingAndRejectsInvalidRecords(t *te
 		{"planner role", planner.ID},
 		{"inactive", ended.ID},
 		{"nil ref", nilRef.ID},
+		{"invalid ref", invalidRecord.ID},
 		{"invalid selector", "not-an-agent-session"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

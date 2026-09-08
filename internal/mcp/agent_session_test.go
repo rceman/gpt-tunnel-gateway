@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -158,6 +159,15 @@ func TestTailToolSchemaIsSessionBoundAndCursorFree(t *testing.T) {
 	properties := entry.InputSchema["properties"].(map[string]any)
 	if _, ok := properties["project_id"]; ok {
 		t.Fatal("agent/tail exposes project_id")
+	}
+	if pattern := properties["session"].(map[string]any)["pattern"]; pattern != agentSessionIDPattern {
+		t.Fatalf("agent/tail session pattern=%v, want %q", pattern, agentSessionIDPattern)
+	}
+	for _, value := range []string{"example_master", "coding-example", "SP-ABC-1234"} {
+		matches, err := regexp.MatchString(agentSessionIDPattern, value)
+		if err != nil || matches {
+			t.Fatalf("non-Agent session selector %q matched public tail pattern", value)
+		}
 	}
 	if _, ok := properties["skip"]; ok {
 		t.Fatal("agent/tail exposes skip")
