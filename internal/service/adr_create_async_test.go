@@ -84,7 +84,6 @@ func attachTSK409SharedDurability(t *testing.T, s *Service) {
 	if _, err := db.Shared.Exec(context.Background(), `INSERT OR REPLACE INTO shared_entity_sequences(entity_type,project_id,project_code,next_number) VALUES(?,?,?,?)`, "adr", "example", "EXM", 1); err != nil {
 		t.Fatal(err)
 	}
-	markSharedBootstrapCompleteForTest(t, db)
 	payload, err := json.Marshal(configuration)
 	if err != nil {
 		t.Fatal(err)

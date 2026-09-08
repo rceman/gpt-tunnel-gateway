@@ -39,10 +39,6 @@ func newCallbackDurableService(t *testing.T) (*Service, *sqlitestore.Databases) 
 		db.Close()
 		t.Fatal(err)
 	}
-	if err := db.MarkSharedBootstrapComplete(context.Background(), sqlitestore.SharedBootstrapMarker{ProjectID: "example", HubRevision: "fixture", CompletedAt: now.Format(time.RFC3339Nano)}); err != nil {
-		db.Close()
-		t.Fatal(err)
-	}
 	s := NewWithDurabilityDeferredWorkers(config.Config{
 		StateDir: state,
 		Projects: map[string]config.ProjectConfig{"example": {Root: filepath.Join(state, "project"), DefaultBranch: "main"}},

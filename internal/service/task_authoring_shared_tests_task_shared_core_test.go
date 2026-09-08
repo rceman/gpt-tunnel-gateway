@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -10,7 +9,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
-func TestSharedBootstrapMarkerBlocksAuthoringAndSurvivesRestart(t *testing.T) {
+func TestFreshSharedBaselineAllowsAuthoringWithoutBootstrapMarker(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
@@ -19,7 +18,6 @@ func TestSharedBootstrapMarkerBlocksAuthoringAndSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.Durability = db
 	in := TaskAuthoringCreateInput{
 		ProjectID:          "example",
 		Title:              "Marker task",
@@ -28,35 +26,14 @@ func TestSharedBootstrapMarkerBlocksAuthoringAndSurvivesRestart(t *testing.T) {
 		ADRRelation:        model.TaskADRNoRequired,
 		CreatedBy:          "planner",
 	}
-	if _, _, err := s.taskAuthoringCreateShared(context.Background(), "op-before-bootstrap", in); err == nil || !strings.Contains(err.Error(), "bootstrap is incomplete") {
-		t.Fatalf("authoring before bootstrap error=%v", err)
-	}
-	markSharedBootstrapCompleteForTest(t, db)
-	if _, _, err := s.taskAuthoringCreateShared(context.Background(), "op-after-bootstrap", in); err != nil {
-		t.Fatalf("authoring after bootstrap: %v", err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	db, err = sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
 	defer db.Close()
 	s.Durability = db
-	complete, err := db.SharedBootstrapComplete(context.Background(), "example")
-	if err != nil || !complete {
-		t.Fatalf("bootstrap marker after restart: complete=%v err=%v", complete, err)
+	if _, _, err := s.taskAuthoringCreateShared(context.Background(), "op-fresh-baseline", in); err != nil {
+		t.Fatalf("fresh baseline authoring: %v", err)
 	}
-	if err := s.requireLocalTaskAuthoring(context.Background(), "example"); err != nil {
-		t.Fatalf("restart lost bootstrap authority: %v", err)
-	}
-}
-
-func markSharedBootstrapCompleteForTest(t *testing.T, db *sqlitestore.Databases) {
-	t.Helper()
-	if err := db.MarkSharedBootstrapComplete(context.Background(), sqlitestore.SharedBootstrapMarker{ProjectID: "example", HubRevision: "fixture", CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
-		t.Fatal(err)
+	rows, err := db.Shared.Query(context.Background(), `SELECT COUNT(*) FROM shared_bootstrap_markers`)
+	if err != nil || len(rows.Rows) != 1 || rows.Rows[0][0] != int64(0) {
+		t.Fatalf("fresh baseline synthesized bootstrap marker: %#v %v", rows.Rows, err)
 	}
 }
 

@@ -23,7 +23,6 @@ func TestProjectConfigurationUpdateSameOperationRetryReusesCommittedResult(t *te
 		t.Fatal(err)
 	}
 	s.Durability = db
-	markSharedBootstrapCompleteForTest(t, db)
 	payload, err := json.Marshal(configuration)
 	if err != nil {
 		t.Fatal(err)

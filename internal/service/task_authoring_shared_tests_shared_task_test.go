@@ -25,7 +25,6 @@ func TestSharedQueriesScopeBeforeGlobalPageLimit(t *testing.T) {
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
-	markSharedBootstrapCompleteForTest(t, db)
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	for i := 0; i < 1001; i++ {
@@ -143,7 +142,6 @@ func TestTaskAuthoringAsyncMutationsCommitSharedWhenHubUnavailable(t *testing.T)
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
-	markSharedBootstrapCompleteForTest(t, db)
 	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
 
 	created, err := s.TaskAuthoringCreateAsync(context.Background(), TaskAuthoringCreateInput{
@@ -216,7 +214,6 @@ func TestTaskAuthoringReadySharedRequiresLocalIntegrationReceipt(t *testing.T) {
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
-	markSharedBootstrapCompleteForTest(t, db)
 	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
 
 	dependencyID := "GTW-TSK324"

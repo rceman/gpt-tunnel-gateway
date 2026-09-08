@@ -176,7 +176,6 @@ func TestProjectConfigurationReadUsesSharedWhenHubUnavailable(t *testing.T) {
 	}
 	defer db.Close()
 	s.Durability = db
-	markSharedBootstrapCompleteForTest(t, db)
 	payload, err := json.Marshal(configuration)
 	if err != nil {
 		t.Fatal(err)
@@ -217,7 +216,6 @@ func TestProjectConfigurationUpdateUsesSharedCASAndOutbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Durability = db
-	markSharedBootstrapCompleteForTest(t, db)
 	payload, err := json.Marshal(configuration)
 	if err != nil {
 		t.Fatal(err)
@@ -276,7 +274,6 @@ func TestProjectConfigurationUpdateUsesSharedActiveTrainGuard(t *testing.T) {
 	}
 	defer db.Close()
 	s.Durability = db
-	markSharedBootstrapCompleteForTest(t, db)
 	payload, err := json.Marshal(configuration)
 	if err != nil {
 		t.Fatal(err)

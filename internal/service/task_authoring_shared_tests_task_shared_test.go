@@ -25,7 +25,6 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
-	markSharedBootstrapCompleteForTest(t, db)
 
 	created, err := s.TaskAuthoringCreateAsync(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:          "example",
@@ -148,7 +147,6 @@ func TestTaskAuthoringReadUsesSharedBeforeHub(t *testing.T) {
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
-	markSharedBootstrapCompleteForTest(t, db)
 	created, err := trainv2.NewTask("example", "EXM-TSK900", trainv2.AuthoringDraft{Title: "Shared read", Objective: "Read locally", ADRRelation: model.TaskADRNoRequired}, "planner", time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +176,6 @@ func TestSharedTaskAndADRQueriesDoNotUseHub(t *testing.T) {
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
-	markSharedBootstrapCompleteForTest(t, db)
 	task, err := trainv2.NewTask("example", "EXM-TSK901", trainv2.AuthoringDraft{Title: "Shared query", Objective: "Query locally", ADRRelation: model.TaskADRNoRequired}, "planner", time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
