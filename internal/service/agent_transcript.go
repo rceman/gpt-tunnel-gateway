@@ -62,12 +62,6 @@ func AgentSessionID(ctx context.Context) string {
 	return value
 }
 
-func (s *Service) AgentTail(ctx context.Context, projectID string, lines int) (AgentTailResult, error) {
-	return s.AgentTailPage(ctx, projectID, AgentTailInput{
-		Lines: lines,
-	})
-}
-
 func (s *Service) AgentTailPage(ctx context.Context, projectID string, input AgentTailInput) (AgentTailResult, error) {
 	lines := input.Lines
 	if lines == 0 {

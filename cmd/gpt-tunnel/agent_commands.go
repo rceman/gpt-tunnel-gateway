@@ -23,6 +23,8 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 	case "tail":
 		lines := 0
 		seenLines := false
+		session := ""
+		seenSession := false
 		for i := 2; i < len(args); {
 			if i+1 >= len(args) {
 				usage()
@@ -37,12 +39,20 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 					usage()
 				}
 				lines, seenLines = value, true
+			case "--session":
+				if seenSession || args[i+1] == "" {
+					usage()
+				}
+				session, seenSession = args[i+1], true
 			default:
 				usage()
 			}
 			i += 2
 		}
-		v, err := s.AgentTailPage(ctx, args[1], service.AgentTailInput{Lines: lines})
+		if !seenSession {
+			fatal(fmt.Errorf("agent tail requires --session <exact-session>"))
+		}
+		v, err := s.AgentTailPage(ctx, args[1], service.AgentTailInput{Lines: lines, SessionKey: session})
 		if err != nil {
 			fatal(err)
 		}
