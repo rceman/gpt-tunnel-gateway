@@ -74,7 +74,7 @@ func schemaProperties(schema map[string]any) map[string]any {
 func TestCanonicalAgentActionsHaveExactADR85Surface(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc", StateDir: t.TempDir()})}
 	entries := server.genericActionRegistry(server.tools())
-	want := []string{"agent/await", "agent/interrupt", "agent/list", "agent/prompt", "agent/status", "agent/tail"}
+	want := []string{"agent/await", "agent/guide", "agent/interrupt", "agent/list", "agent/prompt", "agent/status", "agent/tail"}
 	got := make([]string, 0)
 	for path := range entries {
 		if len(path) >= len("agent/") && path[:len("agent/")] == "agent/" {
