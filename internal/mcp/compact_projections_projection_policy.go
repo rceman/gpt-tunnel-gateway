@@ -19,7 +19,7 @@ const (
 var projectionClasses = map[string]projectionClass{
 	"adr/archive": projectionCompactDefault, "adr/create": projectionCompactDefault, "adr/history": projectionClosedDefault,
 	"adr/list": projectionClosedDefault, "adr/query": projectionClosedDefault, "adr/read": projectionIntentionalPayload, "adr/update": projectionCompactDefault,
-	"agent/await": projectionClosedDefault, "agent/interrupt": projectionCompactDefault,
+	"agent/await": projectionClosedDefault, "agent/guide": projectionClosedDefault, "agent/interrupt": projectionCompactDefault,
 	"agent/list": projectionClosedDefault, "agent/prompt": projectionCompactDefault,
 	"agent/status": projectionClosedDefault, "agent/tail": projectionIntentionalPayload,
 	"callback/events": projectionClosedDefault, "callback/list": projectionClosedDefault, "callback/register": projectionCompactDefault, "callback/remove": projectionCompactDefault,
