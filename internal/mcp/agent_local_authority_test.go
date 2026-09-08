@@ -100,6 +100,14 @@ func TestCanonicalAgentAwaitUsesLocalAuthorityWhenHubUnavailableAndLocked(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
+	ref := "example_master"
+	tailSession, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{
+		ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent,
+		SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	hubLock, err := lockfile.Acquire(filepath.Join(stateDir, "locks"), "hub-repository")
 	if err != nil {
 		t.Fatal(err)
@@ -131,17 +139,21 @@ func TestCanonicalAgentAwaitUsesLocalAuthorityWhenHubUnavailableAndLocked(t *tes
 		t.Fatalf("unexpected local agent/status result: %#v", canonicalStatus)
 	}
 	canonicalTail, err := server.canonicalAgentTailAction(bound, mustJSON(t, map[string]any{
-		"session": "example_master",
+		"session": tailSession.ID,
 		"lines":   30,
 	}))
 	if err != nil {
 		t.Fatalf("canonical agent/tail failed with Hub unavailable/locked: %v", err)
 	}
 	tailResult, ok := canonicalTail.(map[string]any)
-	if !ok || tailResult["session"] != "example_master" {
+	if !ok || tailResult["session"] != tailSession.ID {
 		t.Fatalf("unexpected local agent/tail result: %#v", canonicalTail)
 	}
-	for _, input := range []map[string]any{{}, {"agent": agent.AgentID}, {"session": "bad session"}} {
+	implicitTail, err := server.canonicalAgentTailAction(bound, mustJSON(t, map[string]any{"lines": 30}))
+	if err != nil || implicitTail.(map[string]any)["session"] != tailSession.ID {
+		t.Fatalf("omitted session selected the wrong durable Agent: result=%#v err=%v", implicitTail, err)
+	}
+	for _, input := range []map[string]any{{"agent": agent.AgentID}, {"agent_key": agent.AgentID}, {"session": "bad session"}} {
 		if _, err := server.canonicalAgentTailAction(bound, mustJSON(t, input)); err == nil {
 			t.Fatalf("invalid exact-session tail input was accepted: %#v", input)
 		}

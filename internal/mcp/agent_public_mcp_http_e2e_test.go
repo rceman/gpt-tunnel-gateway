@@ -90,6 +90,10 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 	if started["role"] != durableSession.RoleAgent {
 		t.Fatalf("Agent session_start returned %#v", started)
 	}
+	tailSessionID, ok := started["session"].(string)
+	if !ok || tailSessionID == "" {
+		t.Fatalf("Agent session_start omitted durable session ID: %#v", started)
+	}
 	sessionID := genericSessionWithRole(t, s, "example", durableSession.RolePlanner)
 	if sessionID == "" {
 		t.Fatalf("test Delivery session did not return a session: %#v", sessionID)
@@ -189,8 +193,8 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 	if awaited["agent"] != "coding-example" {
 		t.Fatalf("agent/await result=%#v", awaited)
 	}
-	tail := call("agent/tail", map[string]any{"session": "example_master", "lines": 1}, "TSK546 traces exact-session transcript reads.")
-	if tail["session"] != "example_master" {
+	tail := call("agent/tail", map[string]any{"session": tailSessionID, "lines": 1}, "TSK546 traces exact durable Agent-session transcript reads.")
+	if tail["session"] != tailSessionID {
 		t.Fatalf("agent/tail result=%#v", tail)
 	}
 	prompt := call("agent/prompt", map[string]any{"agent": "coding-example", "message": "tsk443 public E2E"}, "ADR81 traces prompt dispatch through the ADR84/ADR83 Agent contract.")
