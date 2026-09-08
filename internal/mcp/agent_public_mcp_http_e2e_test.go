@@ -108,7 +108,7 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 		"arguments": map[string]any{"session": sessionID, "path": "agent"},
 	}, schemaMeta))
 	actions, ok := schema["actions"].([]any)
-	if !ok || len(actions) != 6 {
+	if !ok || len(actions) != 7 {
 		t.Fatalf("Agent schema actions=%#v", schema["actions"])
 	}
 	contracts := make(map[string]map[string]any, len(actions))
@@ -120,7 +120,7 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 		path, _ := action["path"].(string)
 		contracts[path] = action
 	}
-	wantActions := []string{"agent/await", "agent/interrupt", "agent/list", "agent/prompt", "agent/status", "agent/tail"}
+	wantActions := []string{"agent/await", "agent/guide", "agent/interrupt", "agent/list", "agent/prompt", "agent/status", "agent/tail"}
 	gotActions := make([]string, 0, len(contracts))
 	for path := range contracts {
 		gotActions = append(gotActions, path)

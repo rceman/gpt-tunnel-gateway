@@ -160,7 +160,7 @@ func TestCanonicalAgentPublicMCPContractE2E(t *testing.T) {
 		paths = append(paths, action["path"].(string))
 	}
 	sortStrings(paths)
-	if !reflect.DeepEqual(paths, []string{"agent/await", "agent/interrupt", "agent/list", "agent/prompt", "agent/status", "agent/tail"}) {
+	if !reflect.DeepEqual(paths, []string{"agent/await", "agent/guide", "agent/interrupt", "agent/list", "agent/prompt", "agent/status", "agent/tail"}) {
 		t.Fatalf("public Agent schema paths=%v", paths)
 	}
 
