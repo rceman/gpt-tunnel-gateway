@@ -8,9 +8,7 @@ func sharedBaselineMigration() migrate.Migration {
 
 func sharedSchemaPlan() migrationSchemaPlan {
 	return migrationSchemaPlan{
-		legacyTables: []string{"shared_task_sequences", "shared_adr_sequences"},
-		tables:       sharedSchemaTables(),
-		statements:   sharedBaselineStatements(),
-		legacy:       sharedLegacyStatements,
+		tables:     sharedSchemaTables(),
+		statements: sharedBaselineStatements(),
 	}
 }

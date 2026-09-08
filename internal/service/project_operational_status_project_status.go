@@ -270,7 +270,7 @@ func (s *Service) readProjectOperationalTrains(ctx context.Context, projectID st
 	if s.Durability == nil {
 		return s.readTrainV2Records(ctx, projectID)
 	}
-	entities, err := s.Durability.ListSharedEntities(ctx, "train", maxSharedBootstrapRecords)
+	entities, err := s.Durability.ListSharedEntities(ctx, "train", 1000)
 	if err != nil {
 		return nil, err
 	}

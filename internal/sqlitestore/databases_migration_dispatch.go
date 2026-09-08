@@ -12,10 +12,8 @@ import (
 )
 
 type migrationSchemaPlan struct {
-	tables       []migrationTableSpec
-	legacyTables []string
-	statements   []upstream.Statement
-	legacy       func(map[string]bool) []upstream.Statement
+	tables     []migrationTableSpec
+	statements []upstream.Statement
 }
 
 type migrationTableSpec struct {
@@ -26,14 +24,28 @@ type migrationTableSpec struct {
 }
 
 func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
-	return applyManagedMigrations(ctx, db, sharedBaselineMigration(), sharedBridgeVersion, sharedBridgeName, sharedSchemaPlan(), validateSharedMigrationHistory)
+	return applyActiveMigrations(ctx, db, sharedBaselineMigration())
 }
 
 func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {
-	return applyManagedMigrations(ctx, db, localBaselineMigration(), localBridgeVersion, localBridgeName, localSchemaPlan(), validateLocalMigrationHistory)
+	return applyActiveMigrations(ctx, db, localBaselineMigration())
 }
 
-func applyManagedMigrations(ctx context.Context, db *upstream.Store, baseline migrate.Migration, bridgeVersion int64, bridgeName string, plan migrationSchemaPlan, validate func(map[int64]string) error) error {
+func applyActiveMigrations(ctx context.Context, db *upstream.Store, migrations ...migrate.Migration) error {
+	if len(migrations) == 0 {
+		return fmt.Errorf("no active migrations configured")
+	}
+	active := make(map[int64]string, len(migrations))
+	for _, migration := range migrations {
+		if err := validateActiveMigrationIdentity(migration); err != nil {
+			return err
+		}
+		if _, exists := active[migration.Version]; exists {
+			return fmt.Errorf("duplicate active migration version %d", migration.Version)
+		}
+		active[migration.Version] = migration.Name
+	}
+	baseline := migrations[0]
 	exists, markers, err := readMigrationMarkers(ctx, db)
 	if err != nil {
 		return err
@@ -46,127 +58,21 @@ func applyManagedMigrations(ctx context.Context, db *upstream.Store, baseline mi
 		if objects != 0 {
 			return fmt.Errorf("migration history is missing beside %d managed schema objects", objects)
 		}
-		if err := validateActiveMigrationIdentity(baseline); err != nil {
-			return err
-		}
-		if err := migrate.Apply(ctx, db, []migrate.Migration{baseline}, migrate.Options{}); err != nil {
+		if err := migrate.Apply(ctx, db, migrations, migrate.Options{}); err != nil {
 			return err
 		}
 		return nil
 	}
-	if err := validate(markers); err != nil {
+	if markers[baseline.Version] != baseline.Name {
+		return fmt.Errorf("unsupported migration history: baseline marker %d/%q is required", baseline.Version, baseline.Name)
+	}
+	for version, name := range markers {
+		if active[version] != name {
+			return fmt.Errorf("unsupported migration marker %d/%q", version, name)
+		}
+	}
+	if err := migrate.Apply(ctx, db, migrations, migrate.Options{}); err != nil {
 		return err
-	}
-	if baseline.Version == sharedBaselineVersion {
-		if err := validateSharedLegacySchema(ctx, db, markers); err != nil {
-			return err
-		}
-	}
-	if baseline.Version == localBaselineVersion {
-		if err := validateLocalLegacySchema(ctx, db, markers); err != nil {
-			return err
-		}
-	}
-	if _, ok := markers[baseline.Version]; ok {
-		return nil
-	}
-	if _, ok := markers[bridgeVersion]; ok {
-		return nil
-	}
-	if err := validateActiveMigrationIdentity(baseline); err != nil {
-		return err
-	}
-	statements, err := compatibilityStatements(ctx, db, plan)
-	if err != nil {
-		return err
-	}
-	bridge := migrate.Migration{Version: bridgeVersion, Name: bridgeName, Statements: statements}
-	if err := validateActiveMigrationIdentity(bridge); err != nil {
-		return err
-	}
-	if err := migrate.Apply(ctx, db, []migrate.Migration{bridge}, migrate.Options{}); err != nil {
-		return err
-	}
-	return nil
-}
-
-func validateSharedLegacySchema(ctx context.Context, db *upstream.Store, markers map[int64]string) error {
-	if markers[12] == sharedLifecycleMigrationName {
-		if err := requireLegacyTable(ctx, db, "shared_entity_sequences", []string{"entity_type", "project_id", "project_code", "next_number"}); err != nil {
-			return err
-		}
-		if err := requireLegacyTable(ctx, db, "shared_entity_revisions", []string{"entity_type", "entity_id", "project_id", "revision", "mutation_kind", "actor", "reason", "changed_fields", "payload", "recorded_at"}); err != nil {
-			return err
-		}
-		rows, err := db.Query(ctx, `SELECT type FROM sqlite_master WHERE type='index' AND name=?`, "shared_entity_revisions_project_idx")
-		if err != nil || len(rows.Rows) != 1 {
-			return fmt.Errorf("Shared lifecycle v12 requires missing index shared_entity_revisions_project_idx: %v", err)
-		}
-	}
-	if markers[12] == "gpt_tunnel_shared_agents_v12" {
-		if err := requireLegacyTable(ctx, db, "shared_agents", []string{"id", "revision", "payload", "updated_at"}); err != nil {
-			return err
-		}
-	}
-	if markers[13] != "" {
-		if err := requireLegacyTable(ctx, db, "shared_watcher_guides", []string{"id", "revision", "payload", "updated_at"}); err != nil {
-			return err
-		}
-	}
-	if markers[14] != "" {
-		if err := requireLegacyTable(ctx, db, "shared_journal_sequences", []string{"project_id", "project_code", "next_event_number"}); err != nil {
-			return err
-		}
-		if err := requireLegacyTable(ctx, db, "shared_journal_supersessions", []string{"target_id", "operation_id", "created_at"}); err != nil {
-			return err
-		}
-	}
-	if markers[15] != "" {
-		if err := requireLegacyTable(ctx, db, "shared_integration_operations", []string{"id", "revision", "payload", "updated_at"}); err != nil {
-			return err
-		}
-	}
-	if markers[16] != "" {
-		columns, err := tableColumns(ctx, db, "hub_outbox")
-		if err != nil {
-			return err
-		}
-		if !columns["project_id"] {
-			return fmt.Errorf("Shared v16 marker requires hub_outbox.project_id")
-		}
-	}
-	return nil
-}
-
-func validateLocalLegacySchema(ctx context.Context, db *upstream.Store, markers map[int64]string) error {
-	if _, ok := markers[2]; !ok {
-		return nil
-	}
-	if err := requireLegacyTable(ctx, db, "local_inter_session_messages", []string{"id", "project_id", "source_session_id", "target_session_id", "topic", "body", "tags", "created_at", "expires_at"}); err != nil {
-		return err
-	}
-	if _, ok := markers[3]; ok {
-		rows, err := db.Query(ctx, `SELECT type FROM sqlite_master WHERE type='index' AND name=?`, "local_inter_session_messages_expiry_idx")
-		if err != nil || len(rows.Rows) != 1 {
-			return fmt.Errorf("Local v3 marker requires missing index local_inter_session_messages_expiry_idx: %v", err)
-		}
-	}
-	return nil
-}
-
-func requireLegacyTable(ctx context.Context, db *upstream.Store, table string, columns []string) error {
-	rows, err := db.Query(ctx, `SELECT type FROM sqlite_master WHERE name=?`, table)
-	if err != nil || len(rows.Rows) != 1 || rows.Rows[0][0] != "table" {
-		return fmt.Errorf("legacy marker requires table %s: %v", table, err)
-	}
-	actual, err := tableColumns(ctx, db, table)
-	if err != nil {
-		return err
-	}
-	for _, column := range columns {
-		if !actual[column] {
-			return fmt.Errorf("legacy table %s is missing required column %s", table, column)
-		}
 	}
 	return nil
 }
@@ -215,49 +121,6 @@ func managedObjectCount(ctx context.Context, db *upstream.Store) (int64, error) 
 	return count, nil
 }
 
-func compatibilityStatements(ctx context.Context, db *upstream.Store, plan migrationSchemaPlan) ([]upstream.Statement, error) {
-	statements := make([]upstream.Statement, 0, len(plan.tables)+len(plan.statements)+8)
-	known := make(map[string]bool, len(plan.tables))
-	for _, name := range plan.legacyTables {
-		rows, err := db.Query(ctx, `SELECT type FROM sqlite_master WHERE name=?`, name)
-		if err != nil {
-			return nil, fmt.Errorf("inspect legacy table %s: %w", name, err)
-		}
-		known[name] = len(rows.Rows) != 0
-	}
-	for _, table := range plan.tables {
-		rows, err := db.Query(ctx, `SELECT type FROM sqlite_master WHERE name=?`, table.name)
-		if err != nil {
-			return nil, fmt.Errorf("inspect table %s: %w", table.name, err)
-		}
-		exists := len(rows.Rows) != 0
-		known[table.name] = exists
-		if !exists {
-			statements = append(statements, upstream.Statement{SQL: table.create})
-			continue
-		}
-		columns, err := tableColumns(ctx, db, table.name)
-		if err != nil {
-			return nil, err
-		}
-		for _, column := range table.columns {
-			if columns[column] {
-				continue
-			}
-			add, ok := table.addColumns[column]
-			if !ok {
-				return nil, fmt.Errorf("legacy table %s is missing required column %s", table.name, column)
-			}
-			statements = append(statements, upstream.Statement{SQL: add})
-		}
-	}
-	statements = append(statements, plan.statements...)
-	if plan.legacy != nil {
-		statements = append(statements, plan.legacy(known)...)
-	}
-	return statements, nil
-}
-
 func validateActiveMigrationIdentity(migration migrate.Migration) error {
 	version := strconv.FormatInt(migration.Version, 10)
 	if len(version) != len("200601021504") {
@@ -278,23 +141,4 @@ func baselineStatements(plan migrationSchemaPlan) []upstream.Statement {
 		statements = append(statements, upstream.Statement{SQL: table.create})
 	}
 	return append(statements, plan.statements...)
-}
-
-func tableColumns(ctx context.Context, db *upstream.Store, table string) (map[string]bool, error) {
-	rows, err := db.Query(ctx, `SELECT name FROM pragma_table_info(?)`, table)
-	if err != nil {
-		return nil, fmt.Errorf("inspect columns %s: %w", table, err)
-	}
-	columns := make(map[string]bool, len(rows.Rows))
-	for _, row := range rows.Rows {
-		if len(row) != 1 {
-			return nil, fmt.Errorf("invalid column metadata for %s", table)
-		}
-		name, ok := row[0].(string)
-		if !ok || name == "" {
-			return nil, fmt.Errorf("invalid column name metadata for %s", table)
-		}
-		columns[name] = true
-	}
-	return columns, nil
 }

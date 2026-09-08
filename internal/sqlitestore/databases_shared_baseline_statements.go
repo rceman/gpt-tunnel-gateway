@@ -22,20 +22,3 @@ func sharedBaselineStatements() []upstream.Statement {
 		{SQL: `INSERT OR IGNORE INTO shared_entity_revisions(entity_type,entity_id,project_id,revision,mutation_kind,actor,reason,changed_fields,payload,recorded_at) SELECT 'adr',id,COALESCE(json_extract(payload,'$.project_id'),''),CASE WHEN CAST(json_extract(payload,'$.revision') AS INTEGER) >= 1 THEN CAST(json_extract(payload,'$.revision') AS INTEGER) ELSE 1 END,'migration',substr(COALESCE(NULLIF(trim(CAST(json_extract(payload,'$.updated_by') AS TEXT)),''),NULLIF(trim(CAST(json_extract(payload,'$.created_by') AS TEXT)),''),'migration'),1,1024),substr(COALESCE(NULLIF(trim(CAST(json_extract(payload,'$.last_reason') AS TEXT)),''),'migration'),1,1024),json('["migration"]'),payload,COALESCE(NULLIF(json_extract(payload,'$.updated_at'),''),NULLIF(json_extract(payload,'$.created_at'),''),updated_at) FROM shared_adrs`},
 	}
 }
-
-func sharedLegacyStatements(existing map[string]bool) []upstream.Statement {
-	statements := make([]upstream.Statement, 0, 4)
-	if existing["shared_task_sequences"] {
-		statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_entity_sequences(entity_type,project_id,project_code,next_number) SELECT 'task',p.project_id,p.project_code,MAX(p.next_task_number,COALESCE(s.next_task_number,1)) FROM shared_project_identifiers p LEFT JOIN shared_task_sequences s ON s.project_id=p.project_id ON CONFLICT(entity_type,project_id) DO UPDATE SET project_code=excluded.project_code,next_number=CASE WHEN excluded.next_number > shared_entity_sequences.next_number THEN excluded.next_number ELSE shared_entity_sequences.next_number END`})
-	}
-	if existing["shared_adr_sequences"] {
-		statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_entity_sequences(entity_type,project_id,project_code,next_number) SELECT 'adr',p.project_id,p.project_code,MAX(p.next_adr_number,COALESCE(s.next_adr_number,1)) FROM shared_project_identifiers p LEFT JOIN shared_adr_sequences s ON s.project_id=p.project_id ON CONFLICT(entity_type,project_id) DO UPDATE SET project_code=excluded.project_code,next_number=CASE WHEN excluded.next_number > shared_entity_sequences.next_number THEN excluded.next_number ELSE shared_entity_sequences.next_number END`})
-	}
-	if existing["shared_task_sequences"] {
-		statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_entity_sequences(entity_type,project_id,project_code,next_number) SELECT 'task',s.project_id,s.project_code,MAX(COALESCE(p.next_task_number,1),s.next_task_number) FROM shared_task_sequences s LEFT JOIN shared_project_identifiers p ON p.project_id=s.project_id ON CONFLICT(entity_type,project_id) DO UPDATE SET project_code=excluded.project_code,next_number=CASE WHEN excluded.next_number > shared_entity_sequences.next_number THEN excluded.next_number ELSE shared_entity_sequences.next_number END`})
-	}
-	if existing["shared_adr_sequences"] {
-		statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_entity_sequences(entity_type,project_id,project_code,next_number) SELECT 'adr',s.project_id,s.project_code,MAX(COALESCE(p.next_adr_number,1),s.next_adr_number) FROM shared_adr_sequences s LEFT JOIN shared_project_identifiers p ON p.project_id=s.project_id ON CONFLICT(entity_type,project_id) DO UPDATE SET project_code=excluded.project_code,next_number=CASE WHEN excluded.next_number > shared_entity_sequences.next_number THEN excluded.next_number ELSE shared_entity_sequences.next_number END`})
-	}
-	return statements
-}

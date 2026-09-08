@@ -142,7 +142,7 @@ func bootstrapGateway(c config.Config, observe func(string)) (*gatewayRuntime, e
 func postReadyHubSync(ctx context.Context, svc *service.Service) {
 	_ = postReadyHubSyncLoop(ctx, startupPhase,
 		func(attemptCtx context.Context) error {
-			return postReadyHubBootstrapContext(svc, attemptCtx, startupPhase)
+			return postReadyHubEnsureContext(svc, attemptCtx, startupPhase)
 		},
 		func(attemptCtx context.Context) error {
 			return postReadyHubStateCheckContext(svc, attemptCtx, startupPhase)
@@ -156,22 +156,17 @@ func postReadyHubSyncContext(svc *service.Service, ctx context.Context, observe 
 			observe(name)
 		}
 	}
-	if err := postReadyHubBootstrapContext(svc, ctx, phase); err != nil {
+	if err := postReadyHubEnsureContext(svc, ctx, phase); err != nil {
 		phase("HUB_SYNC_DEGRADED")
 		return err
 	}
 	return postReadyHubStateCheckContext(svc, ctx, phase)
 }
 
-func postReadyHubBootstrapContext(svc *service.Service, ctx context.Context, phase func(string)) error {
+func postReadyHubEnsureContext(svc *service.Service, ctx context.Context, phase func(string)) error {
 	phase("POST_READY_HUB_ENSURE")
 	if err := svc.Hub.EnsureWithObserver(ctx, phase); err != nil {
 		startupErrorForPhase("POST_READY_HUB_ENSURE", err)
-		return err
-	}
-	phase("POST_READY_SHARED_BOOTSTRAP")
-	if err := svc.BootstrapSharedFromHub(ctx); err != nil {
-		startupErrorForPhase("POST_READY_SHARED_BOOTSTRAP", err)
 		return err
 	}
 	return nil
