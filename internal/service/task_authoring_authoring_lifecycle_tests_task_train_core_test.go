@@ -2,15 +2,20 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func TestTaskAuthoringServiceWiresADRReadiness(t *testing.T) {
 	s, hubRevision, _ := testServiceWithoutIdentifiers(t)
+	attachTSK409SharedDurability(t, s)
 	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
+	syncTSK409SharedConfigurationFromHub(t, s)
 	adrResult, err := s.ADRCreate(context.Background(), ADRCreateInput{
 		ADR: model.ADR{ProjectID: "example", Title: "Accepted decision", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences"},
 		WriteOptions: WriteOptions{
@@ -32,6 +37,16 @@ func TestTaskAuthoringServiceWiresADRReadiness(t *testing.T) {
 		},
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	taskPayload, err := json.Marshal(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Durability.PutSharedProjection(context.Background(), "task", sqlitestore.SharedEntity{
+		ID: task.ID, Revision: int64(task.Revision), Payload: taskPayload,
+		UpdatedAt: task.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	ready, _, err := s.TaskAuthoringReady(context.Background(), TaskAuthoringReadyInput{
