@@ -17,14 +17,16 @@ const (
 // action registry. Keep this table explicit: a newly registered action must
 // choose a bounded default or be deliberately documented as a payload action.
 var projectionClasses = map[string]projectionClass{
-	"adr/create": projectionCompactDefault, "adr/list": projectionClosedDefault, "adr/read": projectionIntentionalPayload,
+	"adr/archive": projectionCompactDefault, "adr/create": projectionCompactDefault, "adr/history": projectionClosedDefault,
+	"adr/list": projectionClosedDefault, "adr/query": projectionClosedDefault, "adr/read": projectionIntentionalPayload, "adr/update": projectionCompactDefault,
 	"agent/await": projectionClosedDefault, "agent/interrupt": projectionCompactDefault,
 	"agent/list": projectionClosedDefault, "agent/prompt": projectionCompactDefault,
 	"agent/status": projectionClosedDefault, "agent/tail": projectionIntentionalPayload,
 	"callback/events": projectionClosedDefault, "callback/list": projectionClosedDefault, "callback/register": projectionCompactDefault, "callback/remove": projectionCompactDefault,
 	"code/diff": projectionIntentionalPayload, "code/read": projectionIntentionalPayload, "code/search": projectionIntentionalPayload,
 	"code/tree": projectionIntentionalPayload, "code/worktree": projectionCompactDefault,
-	"gateway/capabilities": projectionClosedDefault, "gateway/status": projectionClosedDefault,
+	"debug/adr_legacy_relations": projectionClosedDefault,
+	"gateway/capabilities":       projectionClosedDefault, "gateway/status": projectionClosedDefault,
 	"hotfix/create": projectionCompactDefault, "hotfix/integrate": projectionCompactDefault, "hotfix/list": projectionClosedDefault, "hotfix/read": projectionClosedDefault,
 	"operation/read": projectionClosedDefault, "operator/checkpoint": projectionCompactDefault, "operator/history": projectionIntentionalPayload, "operator/record": projectionCompactDefault,
 	"project/status": projectionClosedDefault,
