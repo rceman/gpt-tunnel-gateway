@@ -65,6 +65,54 @@ func TestLegacyNumericAndBridgeMarkersFailClosed(t *testing.T) {
 	}
 }
 
+func TestMigrationHistoryMismatchAndUnknownTimestampFailClosed(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(context.Context, *upstream.Store) error
+	}{
+		{
+			name: "baseline version and name mismatch",
+			setup: func(ctx context.Context, db *upstream.Store) error {
+				_, err := db.Exec(ctx, `INSERT INTO schema_migrations(version,name) VALUES(?,?)`, sharedBaselineVersion+1, sharedBaselineName)
+				return err
+			},
+		},
+		{
+			name: "unknown extra timestamp marker",
+			setup: func(ctx context.Context, db *upstream.Store) error {
+				if _, err := db.Exec(ctx, `INSERT INTO schema_migrations(version,name) VALUES(?,?)`, sharedBaselineVersion, sharedBaselineName); err != nil {
+					return err
+				}
+				_, err := db.Exec(ctx, `INSERT INTO schema_migrations(version,name) VALUES(?,?)`, 209901010101, "unknown future migration")
+				return err
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := t.TempDir()
+			sharedPath, _ := Paths(state)
+			raw, err := upstream.Open(engineConfig(Config{})(sharedPath))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := raw.Exec(context.Background(), `CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL)`); err != nil {
+				raw.Close()
+				t.Fatal(err)
+			}
+			if err := tc.setup(context.Background(), raw); err != nil {
+				raw.Close()
+				t.Fatal(err)
+			}
+			if err := raw.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Open(state); err == nil {
+				t.Fatal("invalid migration history was accepted")
+			}
+		})
+	}
+}
+
 func TestApplyActiveMigrationsAcceptsFutureTimestampMigration(t *testing.T) {
 	path := t.TempDir() + "/future.db"
 	db, err := upstream.Open(upstream.Config{Path: path})
