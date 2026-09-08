@@ -232,6 +232,12 @@ func (s *Server) canonicalAgentTailAction(ctx context.Context, raw json.RawMessa
 	if err != nil {
 		return nil, err
 	}
+	if in.Session == "" {
+		in.Session, err = s.Service.ResolveAgentTailSessionForProject(ctx, projectID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	tail, err := s.Service.AgentTailPageForSession(ctx, projectID, in.Session, service.AgentTailInput{
 		Lines:     in.Lines,
 		SessionID: service.AgentSessionID(ctx),

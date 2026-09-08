@@ -84,6 +84,33 @@ func (s *Service) ResolveAgentTailSession(ctx context.Context, projectID, sessio
 	return *record.SessionRef, nil
 }
 
+func (s *Service) ResolveAgentTailSessionForProject(ctx context.Context, projectID string) (string, error) {
+	if s.Durability == nil {
+		return "", fmt.Errorf("no active Agent session for project %q: local session authority is unavailable", projectID)
+	}
+	records, err := durableSession.NewStoreWithDurability(s.Durability).List()
+	if err != nil {
+		return "", fmt.Errorf("cannot inspect Agent sessions for project %q: %w", projectID, err)
+	}
+	candidates := make([]durableSession.Record, 0, len(records))
+	for _, record := range records {
+		if record.ProjectID == projectID && record.Role == durableSession.RoleAgent && record.Status == durableSession.StatusActive {
+			candidates = append(candidates, record)
+		}
+	}
+	switch len(candidates) {
+	case 0:
+		return "", fmt.Errorf("no active Agent session for project %q; provide an explicit session", projectID)
+	case 1:
+		if _, err := s.ResolveAgentTailSession(ctx, projectID, candidates[0].ID); err != nil {
+			return "", err
+		}
+		return candidates[0].ID, nil
+	default:
+		return "", fmt.Errorf("multiple active Agent sessions for project %q; provide an explicit session", projectID)
+	}
+}
+
 func (s *Service) AgentTailPageForSession(ctx context.Context, projectID, sessionID string, input AgentTailInput) (AgentTailResult, error) {
 	ref, err := s.ResolveAgentTailSession(ctx, projectID, sessionID)
 	if err != nil {

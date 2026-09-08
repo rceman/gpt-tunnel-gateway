@@ -69,7 +69,7 @@ func canonicalAgentTailInputSchema() map[string]any {
 	session := str("Exact durable Gateway Agent session identifier for the transcript, for example SA-GTW-BEYB.")
 	session["minLength"], session["maxLength"] = 1, 128
 	session["pattern"] = agentSessionIDPattern
-	return obj(map[string]any{"session": session, "lines": lines}, "session")
+	return obj(map[string]any{"session": session, "lines": lines})
 }
 
 func canonicalAgentTailOutputSchema() map[string]any {
