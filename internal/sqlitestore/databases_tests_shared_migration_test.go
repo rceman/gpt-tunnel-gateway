@@ -24,20 +24,7 @@ func TestSharedMigrationHistoryPreservesReleasedVersionsBeforeCandidates(t *test
 	want := []struct {
 		version int64
 		name    string
-	}{
-		{1, "gpt_tunnel_shared_authority_v1"},
-		{2, sharedReplicationMigrationName},
-		{3, sharedCutoverMigrationName},
-		{4, "gpt_tunnel_shared_project_identifiers_v1"},
-		{5, "gpt_tunnel_shared_train_admission_v1"},
-		{6, "gpt_tunnel_shared_train_admission_update_guard_v1"},
-		{7, sharedTaskSequenceMigrationName},
-		{8, sharedIntegrationCurrentMigrationName},
-		{9, sharedBootstrapMigrationName},
-		{10, sharedADROutboxMigrationName},
-		{11, sharedProjectConfigurationMigrationName},
-		{12, sharedLifecycleMigrationName},
-	}
+	}{{sharedBaselineVersion, sharedBaselineName}}
 	if len(rows.Rows) != len(want) {
 		t.Fatalf("migration history length=%d, want=%d: %#v", len(rows.Rows), len(want), rows.Rows)
 	}

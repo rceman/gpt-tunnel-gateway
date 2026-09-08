@@ -23,9 +23,13 @@ func TestLocalCallbackMigrationUsesUTCTimestampIdentityAndDescription(t *testing
 	if localCallbackEpochsMigrationDescription == "" || strings.Contains(localCallbackEpochsMigrationDescription, "_v") {
 		t.Fatalf("callback migration description=%q must be separate from a version suffix", localCallbackEpochsMigrationDescription)
 	}
-	for _, migration := range localMigrations {
-		if migration.Version == localCallbackEpochsMigrationVersion && migration.Name != localCallbackEpochsMigrationDescription {
-			t.Fatalf("timestamp migration identity=%d/%q, want description %q", migration.Version, migration.Name, localCallbackEpochsMigrationDescription)
+	for version, name := range map[int64]string{
+		localCallbackEpochsMigrationVersion: localCallbackEpochsMigrationDescription,
+		localAgentRegistryMigrationVersion:  localAgentRegistryMigrationDescription,
+		localSessionStoreMigrationVersion:   localSessionStoreMigrationDescription,
+	} {
+		if version <= 0 || name == "" {
+			t.Fatalf("invalid timestamp migration identity=%d/%q", version, name)
 		}
 	}
 }

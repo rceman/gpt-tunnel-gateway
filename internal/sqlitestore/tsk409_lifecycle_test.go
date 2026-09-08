@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/rceman/go-sqlite-store/migrate"
 	upstream "github.com/rceman/go-sqlite-store/store"
 )
 
@@ -95,7 +94,7 @@ func TestTSK409V12BackfillsLegacyRowsAndSequenceHighWaterMarks(t *testing.T) {
 	}
 	defer shared.Close()
 	ctx := context.Background()
-	if err := migrate.Apply(ctx, shared, sharedMigrations[:len(sharedMigrations)-1], migrate.Options{}); err != nil {
+	if err := applyTSK538SharedLegacyPrefix(ctx, shared); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := shared.Exec(ctx, `INSERT INTO shared_project_identifiers(project_id,project_code,next_task_number,next_adr_number,next_rule_number,next_train_number,next_journal_number) VALUES(?,?,?,?,?,?,?)`, "example", "EXM", 4, 8, 1, 1, 1); err != nil {
@@ -122,9 +121,15 @@ func TestTSK409V12BackfillsLegacyRowsAndSequenceHighWaterMarks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := migrate.Apply(ctx, shared, sharedMigrations[len(sharedMigrations)-1:], migrate.Options{}); err != nil {
+	if err := shared.Close(); err != nil {
 		t.Fatal(err)
 	}
+	db, err := Open(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	shared = db.Shared
 	rows, err := shared.Query(ctx, `SELECT entity_id,revision,changed_fields,payload FROM shared_entity_revisions WHERE entity_type='adr' ORDER BY entity_id`)
 	if err != nil || len(rows.Rows) != 2 {
 		t.Fatalf("backfilled history rows=%v err=%v", rows.Rows, err)

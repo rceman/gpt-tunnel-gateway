@@ -99,9 +99,7 @@ func TestOpenUpgradesFullHistoricalLocalLineageWithoutRewritingHistory(t *testin
 		{int64(3), historicalLocalHistoryIndexesMigrationName},
 		{int64(4), historicalLocalHistoryProjectIndexesMigrationName},
 		{int64(5), historicalLocalHistoryProjectBackfillMigrationName},
-		{localCallbackEpochsMigrationVersion, localCallbackEpochsMigrationDescription},
-		{localAgentRegistryMigrationVersion, localAgentRegistryMigrationDescription},
-		{localSessionStoreMigrationVersion, localSessionStoreMigrationDescription},
+		{localBridgeVersion, localBridgeName},
 	}
 	if len(rows.Rows) != len(want) {
 		db.Close()
@@ -155,7 +153,7 @@ func TestOpenFreshLocalAppliesTimestampedLocalMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := [][]any{{int64(1), localOperationalMigrationName}, {localCallbackEpochsMigrationVersion, localCallbackEpochsMigrationDescription}, {localAgentRegistryMigrationVersion, localAgentRegistryMigrationDescription}, {localSessionStoreMigrationVersion, localSessionStoreMigrationDescription}}
+	want := [][]any{{localBaselineVersion, localBaselineName}}
 	if len(rows.Rows) != len(want) {
 		t.Fatalf("fresh migration history=%#v, want=%#v", rows.Rows, want)
 	}
@@ -170,91 +168,5 @@ func TestOpenFreshLocalAppliesTimestampedLocalMigrations(t *testing.T) {
 	}
 	if len(rows.Rows) != 4 || rows.Rows[0][0] != "index" || rows.Rows[0][1] != "local_agents_project_idx" || rows.Rows[1][0] != "index" || rows.Rows[1][1] != "local_callback_epochs_pending_idx" || rows.Rows[2][0] != "table" || rows.Rows[2][1] != "local_agents" || rows.Rows[3][0] != "table" || rows.Rows[3][1] != "local_callback_epochs" {
 		t.Fatalf("fresh callback schema=%#v", rows.Rows)
-	}
-}
-
-func TestOpenAcceptsReleasedVersionThreeAndAppliesBootstrapMigration(t *testing.T) {
-	stateDir := t.TempDir()
-	db, err := Open(stateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sharedPath := db.SharedPath()
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	raw, err := upstream.Open(upstream.Config{Path: sharedPath})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	if _, err := raw.Exec(ctx, `DELETE FROM schema_migrations WHERE version=?`, int64(9)); err != nil {
-		raw.Close()
-		t.Fatal(err)
-	}
-	if _, err := raw.Exec(ctx, `DROP TABLE shared_bootstrap_markers`); err != nil {
-		raw.Close()
-		t.Fatal(err)
-	}
-	if err := raw.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	reopened, err := Open(stateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reopened.Close()
-	rows, err := reopened.Shared.Query(ctx, `SELECT name FROM schema_migrations WHERE version=?`, int64(3))
-	if err != nil || len(rows.Rows) != 1 || rows.Rows[0][0] != sharedCutoverMigrationName {
-		t.Fatalf("released version-3 identity changed: rows=%#v err=%v", rows.Rows, err)
-	}
-	rows, err = reopened.Shared.Query(ctx, `SELECT name FROM schema_migrations WHERE version=?`, int64(9))
-	if err != nil || len(rows.Rows) != 1 || rows.Rows[0][0] != sharedBootstrapMigrationName {
-		t.Fatalf("bootstrap migration was not applied at version 9: rows=%#v err=%v", rows.Rows, err)
-	}
-}
-
-func TestOpenRejectsWrongVersionTwoNameWithoutChangingMarker(t *testing.T) {
-	stateDir := t.TempDir()
-	db, err := Open(stateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sharedPath := db.SharedPath()
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	const wrongName = "gpt_tunnel_shared_wrong_v2"
-	ctx := context.Background()
-	raw, err := upstream.Open(upstream.Config{Path: sharedPath})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := raw.Exec(ctx, `UPDATE schema_migrations SET name=? WHERE version=?`, wrongName, int64(2)); err != nil {
-		raw.Close()
-		t.Fatal(err)
-	}
-	if err := raw.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := Open(stateDir); err == nil {
-		t.Fatal("Open succeeded with a wrong version-2 migration name")
-	}
-
-	raw, err = upstream.Open(upstream.Config{Path: sharedPath})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer raw.Close()
-	rows, err := raw.Query(ctx, `SELECT name FROM schema_migrations WHERE version=?`, int64(2))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows.Rows) != 1 || rows.Rows[0][0] != wrongName {
-		t.Fatalf("version-2 marker changed after rejection: %#v", rows.Rows)
 	}
 }
