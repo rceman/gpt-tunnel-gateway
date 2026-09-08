@@ -19,10 +19,10 @@ func canonicalAgentGuideOutputSchema() map[string]any {
 
 func canonicalAgentGuide() map[string]any {
 	return map[string]any{
-		"architecture":     "Use exactly one durable Planner session and one attached enabled coding Agent; Train and watcher state are not Agent supervision authority.",
-		"tail":             "agent/tail accepts {session?,lines?}. Omitted session selects the unique active durable Agent session; zero is an error and more than one requires explicit SA-*. Examples: {} or {lines:30}; explicit: {session:\"SA-GTW-BEYB\",lines:30}. The selected durable session resolves internally to its stored Airelay ref.",
-		"status_await":     "agent/status and agent/await use the logical Agent key (for example gpt-review-planner); they resolve the current coding Agent internally. They do not accept an SA-* transcript selector.",
-		"prompt_interrupt": "agent/prompt sends a bounded message to the resolved logical Agent. agent/interrupt cancels its current turn and may submit a bounded replacement message. Both use logical Agent identity and server authority.",
+		"architecture":     "The Planner role may have multiple durable Planner sessions; the project has exactly one attached enabled coding Agent. Train and watcher state are not Agent supervision authority.",
+		"tail":             "agent/tail accepts {session?,lines?}. Omitted session selects the unique active durable Agent session; zero is an error and more than one requires explicit SA-*. Examples: {} or {lines:30}; explicit: {session:\"SA-GTW-AB12\",lines:30}. The selected durable session resolves internally to its stored Airelay ref.",
+		"status_await":     "agent/status and agent/await accept an optional logical Agent selector; when omitted, they use the server-selected attached coding Agent. They do not accept a durable SA-* selector.",
+		"prompt_interrupt": "agent/prompt and agent/interrupt accept an optional logical Agent selector; when omitted, they use the server-selected attached coding Agent. Prompt sends a bounded message; interrupt cancels the current turn and may submit a bounded replacement. Neither accepts a durable SA-* selector.",
 		"authority":        "Gateway schemas and handlers are the operational contract. No repo guide file, Train record, watcher, project Airelay fallback, or duplicate policy source is authoritative.",
 	}
 }
