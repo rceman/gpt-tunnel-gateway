@@ -137,13 +137,6 @@ func requireSharedProjectConfiguration(ctx context.Context, s *Service, projectI
 	if _, ok := s.Config.Projects[projectID]; !ok {
 		return fmt.Errorf("project %q is not configured locally", projectID)
 	}
-	complete, err := s.Durability.SharedBootstrapComplete(ctx, projectID)
-	if err != nil {
-		return fmt.Errorf("read Shared bootstrap marker: %w", err)
-	}
-	if !complete {
-		return fmt.Errorf("Shared bootstrap is incomplete for project %q", projectID)
-	}
 	return nil
 }
 
