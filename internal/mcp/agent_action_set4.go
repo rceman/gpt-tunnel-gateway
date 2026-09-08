@@ -67,7 +67,7 @@ func (s *Server) agent_action_set4() error {
 	}
 	if err := register(GenericAction{
 		Path:         "agent/tail",
-		Description:  "Read a bounded incremental transcript window from the exact durable Gateway Agent session.",
+		Description:  "Read a bounded transcript window from an optional durable Agent session; omission uses the unique active session, while multiple active sessions require an explicit session.",
 		InputSchema:  canonicalAgentTailInputSchema(),
 		OutputSchema: canonicalAgentTailOutputSchema(),
 		Annotations: ToolAnnotations{

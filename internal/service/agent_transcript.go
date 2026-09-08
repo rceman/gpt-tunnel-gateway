@@ -100,7 +100,7 @@ func (s *Service) ResolveAgentTailSessionForProject(ctx context.Context, project
 	}
 	switch len(candidates) {
 	case 0:
-		return "", fmt.Errorf("no active Agent session for project %q; provide an explicit session", projectID)
+		return "", fmt.Errorf("no active Agent session exists for project %q", projectID)
 	case 1:
 		if _, err := s.ResolveAgentTailSession(ctx, projectID, candidates[0].ID); err != nil {
 			return "", err
