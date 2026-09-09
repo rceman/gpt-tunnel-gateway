@@ -66,3 +66,76 @@ func TestTaskDeferCLIRouteIsRetired(t *testing.T) {
 		t.Fatalf("task defer was not rejected by the current CLI contract: %s", output)
 	}
 }
+
+func TestTaskLifecycleCLIHardCutKeepsOnlyExecutionRoutes(t *testing.T) {
+	workdir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), "gpt-tunnel")
+	build := exec.Command("go", "build", "-o", bin, ".")
+	build.Dir = workdir
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build CLI: %v\n%s", err, output)
+	}
+
+	stateDir := t.TempDir()
+	c := config.Config{
+		SchemaVersion:          1,
+		GatewayID:              "test_gateway",
+		ListenAddr:             "127.0.0.1:8875",
+		StateDir:               stateDir,
+		MaxReadBytes:           1,
+		MaxDiffBytes:           1,
+		MaxListItems:           1,
+		DispatchTimeoutSeconds: 1,
+		RunTimeoutSeconds:      60,
+		AirelayCommand:         "airelay",
+		Hub: config.HubConfig{
+			RepositoryURL: stateDir,
+			Branch:        "main",
+			AuthorName:    "Gateway",
+			AuthorEmail:   "gateway@example.invalid",
+		},
+		Controller: config.ControllerConfig{TunnelHealthListenAddr: "127.0.0.1:8766"},
+	}
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	data, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inputPath := filepath.Join(t.TempDir(), "task.json")
+	if err := os.WriteFile(inputPath, []byte(`{"title":"retired"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(args ...string) (string, error) {
+		t.Helper()
+		cmd := exec.Command(bin, args...)
+		cmd.Env = append(os.Environ(), "GPT_TUNNEL_CONFIG="+configPath)
+		output, err := cmd.CombinedOutput()
+		return string(output), err
+	}
+	for _, args := range [][]string{
+		{"task", "create", "--file", inputPath},
+		{"task", "list", "example"},
+		{"task", "read", "EXM-TSK1"},
+		{"task", "supersede", "EXM-TSK1", "--file", inputPath},
+	} {
+		output, err := run(args...)
+		exitErr, ok := err.(*exec.ExitError)
+		if !ok || exitErr.ExitCode() != 2 || !strings.Contains(output, "usage: gpt-tunnel") {
+			t.Fatalf("retired task route was not rejected: args=%#v err=%v output=%s", args, err, output)
+		}
+	}
+	for _, args := range [][]string{{"task", "work", "EXM-TSK1"}, {"task", "finalize", "EXM-TSK1"}} {
+		output, err := run(args...)
+		exitErr, ok := err.(*exec.ExitError)
+		if !ok || exitErr.ExitCode() == 2 || strings.Contains(output, "usage: gpt-tunnel") {
+			t.Fatalf("execution task route was not recognized: args=%#v err=%v output=%s", args, err, output)
+		}
+	}
+}
