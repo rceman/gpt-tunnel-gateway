@@ -182,7 +182,7 @@ func TestProjectUpdateSharedConflictCompensatesHubAndConfig(t *testing.T) {
 		t.Fatal("unexpected Shared configuration before bootstrap")
 	}
 	_ = configuration
-	if _, err := f.d.PutSharedProjection(context.Background(), "project_configuration", sqlitestore.SharedEntity{ID: "example", Revision: 99, Payload: []byte(`{"project_id":"example","revision":99}`), UpdatedAt: "now"}); err != nil {
+	if err := f.d.PutSharedProjection(context.Background(), "project_configuration", sqlitestore.SharedEntity{ID: "example", Revision: 99, Payload: []byte(`{"project_id":"example","revision":99}`), UpdatedAt: "now"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.s.ProjectUpdate(context.Background(), ProjectUpdateInput{
