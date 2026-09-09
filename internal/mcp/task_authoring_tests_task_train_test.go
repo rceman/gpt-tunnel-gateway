@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
-	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"

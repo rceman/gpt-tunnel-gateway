@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
-	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
