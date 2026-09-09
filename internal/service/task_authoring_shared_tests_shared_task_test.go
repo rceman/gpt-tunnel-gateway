@@ -37,7 +37,7 @@ func TestSharedQueriesScopeBeforeGlobalPageLimit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	task, err := trainv2.NewTask("example", "EXM-TSK903", trainv2.AuthoringDraft{Title: "After page", Objective: "Remain visible", ADRRelation: model.TaskADRNoRequired}, "planner", time.Now().UTC())
+	task, err := trainv2.NewTask("example", "EXM-TSK903", trainv2.AuthoringDraft{Title: "After page", Summary: "Remain visible after pagination.", Objective: "Remain visible", ADRRelation: model.TaskADRNoRequired}, "planner", time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,6 +165,7 @@ func TestTaskAuthoringAsyncMutationsCommitSharedWhenHubUnavailable(t *testing.T)
 		ExpectedRevisionSHA256: createReceipt.Task.RevisionSHA256,
 		Title:                  &updatedTitle,
 		UpdatedBy:              "planner",
+		Reason:                 "update offline shared task",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +220,7 @@ func TestTaskAuthoringReadySharedRequiresLocalIntegrationReceipt(t *testing.T) {
 
 	dependencyID := "GTW-TSK324"
 	task, err := trainv2.NewTask("example", "EXM-TSK330", trainv2.AuthoringDraft{
-		Title: "Dependent task", Objective: "Require a locally proven integration.",
+		Title: "Dependent task", Summary: "Require a locally proven integration.", Objective: "Require a locally proven integration.",
 		AcceptanceCriteria: []string{"local receipt is required"}, Dependencies: []string{dependencyID},
 		ADRRelation: model.TaskADRNoRequired,
 	}, "planner", time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC))
