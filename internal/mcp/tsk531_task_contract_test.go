@@ -1,8 +1,13 @@
 package mcp
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
@@ -49,9 +54,9 @@ func TestTSK531CanonicalTaskSurfaceAndLegacyEvidenceContract(t *testing.T) {
 			t.Fatalf("%s is not closed: %#v", path, schema)
 		}
 	}
-	assertSchemaKeys("task/create", entries["task/create"].InputSchema, []string{"title", "summary", "objective", "adr_relation", "type", "scope", "acceptance_criteria", "constraints", "priority", "dependencies", "preparation_references", "metadata"})
+	assertSchemaKeys("task/create", entries["task/create"].InputSchema, []string{"title", "summary", "objective", "adr_relation", "adr_references", "type", "scope", "acceptance_criteria", "constraints", "priority", "dependencies", "preparation_references", "metadata"})
 	assertSchemaKeys("task/read", entries["task/read"].InputSchema, []string{"key", "revision"})
-	assertSchemaKeys("task/update", entries["task/update"].InputSchema, []string{"key", "reason", "title", "summary", "objective", "adr_relation", "type", "scope", "acceptance_criteria", "constraints", "priority", "dependencies", "preparation_references", "metadata"})
+	assertSchemaKeys("task/update", entries["task/update"].InputSchema, []string{"key", "reason", "title", "summary", "objective", "adr_relation", "adr_references", "type", "scope", "acceptance_criteria", "constraints", "priority", "dependencies", "preparation_references", "metadata"})
 	assertSchemaKeys("task/list", entries["task/list"].InputSchema, []string{"cursor", "include_archived"})
 	assertSchemaKeys("task/query", entries["task/query"].InputSchema, []string{"cursor", "text", "status", "type"})
 	assertSchemaKeys("task/archive", entries["task/archive"].InputSchema, []string{"key", "reason"})
@@ -61,7 +66,9 @@ func TestTSK531CanonicalTaskSurfaceAndLegacyEvidenceContract(t *testing.T) {
 	}
 	for _, path := range []string{"task/list", "task/query"} {
 		assertSchemaKeys(path+" output", entries[path].OutputSchema, []string{"items", "next_cursor"})
-		if _, ok := schemaProperties(entries[path].OutputSchema["properties"].(map[string]any)["items"].(map[string]any))["detail"]; ok {
+		items := entries[path].OutputSchema["properties"].(map[string]any)["items"].(map[string]any)
+		assertSchemaKeys(path+" item", items["items"].(map[string]any), []string{"key", "title", "summary", "status", "revision", "updated_at"})
+		if _, ok := schemaProperties(items["items"].(map[string]any))["detail"]; ok {
 			t.Fatalf("%s injected detail into compact items", path)
 		}
 	}
@@ -99,7 +106,67 @@ func TestTSK531CanonicalTaskSurfaceAndLegacyEvidenceContract(t *testing.T) {
 	if !ok {
 		t.Fatalf("legacy read projection=%#v", read.OutputSchema)
 	}
-	if legacyProjection["additionalProperties"] != false || len(schemaProperties(legacyProjection)) != 30 {
+	legacyFields := []string{"schema_version", "id", "task_id", "task_revision", "revision_sha256", "parent_task_revision", "parent_task_sha256", "project_id", "title", "type", "objective", "branch", "base_revision", "acceptance_criteria", "constraints", "required_gates", "workflow_policy_revision", "operation_class", "effective_ci_field", "effective_ci_mode", "wait_for_ci", "ci_blocking", "agent_may_wait", "status", "source_train_id", "source_item_position", "source_attempt_number", "created_by", "created_at"}
+	if legacyProjection["additionalProperties"] != false || len(schemaProperties(legacyProjection)) != len(legacyFields) {
 		t.Fatalf("legacy read projection is not closed/full: %#v", legacyProjection)
+	}
+	for _, field := range legacyFields {
+		if _, ok := schemaProperties(legacyProjection)[field]; !ok {
+			t.Fatalf("legacy read projection missing %q", field)
+		}
+	}
+}
+
+func TestTSK531LegacyRevisionActionsExecuteAgainstBoundedTempHub(t *testing.T) {
+	server := newSessionTestServer(t)
+	ctx := authority.WithPlanner(context.Background())
+	hubRevision, err := server.Service.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, _, err := server.Service.TaskAuthoringCreate(ctx, service.TaskAuthoringCreateInput{
+		ProjectID: "example", Title: "Legacy evidence fixture", Summary: "Bounded legacy evidence summary.",
+		Objective: "Preserve one legacy revision for evidence.", AcceptanceCriteria: []string{"read-only"},
+		ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
+		WriteOptions: service.WriteOptions{ExpectedHubRevision: hubRevision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := server.genericActionRegistry(server.tools())
+	listValue, err := entries["debug/task_legacy_revision_list"].Execute(ctx, mustJSON(t, map[string]any{
+		"project_id": "example", "task": task.ID,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, ok := listValue.(map[string]any)
+	if !ok || list["task"] != task.ID {
+		t.Fatalf("legacy list=%#v", listValue)
+	}
+	revisions, ok := list["revisions"].([]any)
+	if !ok || len(revisions) != 1 {
+		t.Fatalf("legacy revisions=%#v", list["revisions"])
+	}
+	revisionID := revisions[0].(map[string]any)["revision_id"].(string)
+	readValue, err := entries["debug/task_legacy_revision_read"].Execute(ctx, mustJSON(t, map[string]any{
+		"project_id": "example", "revision_id": revisionID,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, ok := readValue.(map[string]any)
+	if !ok || read["revision"] == nil {
+		t.Fatalf("legacy read=%#v", readValue)
+	}
+	if _, err := entries["debug/task_legacy_revision_list"].Execute(ctx, mustJSON(t, map[string]any{
+		"project_id": "other", "task": task.ID,
+	})); err == nil {
+		t.Fatal("legacy list crossed project ownership")
+	}
+	if _, err := entries["debug/task_legacy_revision_read"].Execute(ctx, mustJSON(t, map[string]any{
+		"project_id": "example", "revision_id": fmt.Sprintf("%s.REV0", task.ID),
+	})); err == nil {
+		t.Fatal("invalid legacy REV identifier was accepted")
 	}
 }

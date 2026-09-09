@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
@@ -36,6 +37,9 @@ func TestTSK531SharedTaskLifecycleContract(t *testing.T) {
 	if _, _, err := s.taskAuthoringUpdateShared(ctx, "tsk531-noop", TaskAuthoringUpdateInput{ProjectID: "example", TaskID: created.ID, ExpectedRevision: 1, Reason: "   "}); err == nil {
 		t.Fatal("whitespace-only reason accepted before no-op rejection")
 	}
+	if _, _, err := s.taskAuthoringUpdateShared(ctx, "tsk531-noop-valid-reason", TaskAuthoringUpdateInput{ProjectID: "example", TaskID: created.ID, ExpectedRevision: 1, Reason: "no changes"}); err == nil {
+		t.Fatal("valid reason with no mutable fields accepted")
+	}
 	newTitle, newSummary := "Updated Lifecycle Task", "Updated searchable summary."
 	updated, _, err := s.taskAuthoringUpdateShared(ctx, "tsk531-update", TaskAuthoringUpdateInput{
 		ProjectID: "example", TaskID: created.ID, ExpectedRevision: created.Revision, ExpectedRevisionSHA256: created.RevisionSHA256,
@@ -43,6 +47,14 @@ func TestTSK531SharedTaskLifecycleContract(t *testing.T) {
 	})
 	if err != nil || updated.Revision != 2 || updated.Summary != newSummary {
 		t.Fatalf("update=%#v err=%v", updated, err)
+	}
+	current, err := s.TaskLifecycleRead(ctx, "example", created.ID, 0)
+	if err != nil || current.Revision != 2 || current.Title != newTitle || current.Summary != newSummary {
+		t.Fatalf("current read=%#v err=%v", current, err)
+	}
+	historical, err := s.TaskLifecycleRead(ctx, "example", created.ID, 1)
+	if err != nil || historical.Revision != 1 || historical.Title != created.Title || historical.Summary != created.Summary {
+		t.Fatalf("historical read=%#v err=%v", historical, err)
 	}
 	if _, _, err := s.taskAuthoringUpdateShared(ctx, "tsk531-conflict", TaskAuthoringUpdateInput{ProjectID: "example", TaskID: created.ID, ExpectedRevision: 1, Title: &newTitle, UpdatedBy: "planner", Reason: "stale"}); err == nil {
 		t.Fatal("stale server-owned CAS update succeeded")
@@ -77,4 +89,63 @@ func TestTSK531SharedTaskLifecycleContract(t *testing.T) {
 
 func archivedRevision(page sqlitestore.SharedHistoryPage) int {
 	return int(page.Records[len(page.Records)-1].Revision)
+}
+
+func TestTSK531ReadyArchiveClearsSealAndRecordsIt(t *testing.T) {
+	s, hubRevision, _ := testServiceWithoutIdentifiers(t)
+	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)
+	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
+	ctx := context.Background()
+	task, operation, err := s.TaskAuthoringCreate(ctx, TaskAuthoringCreateInput{
+		ProjectID: "example", Title: "Ready archive fixture", Summary: "Ready archive summary.",
+		Objective: "Archive a ready Task safely.", AcceptanceCriteria: []string{"ready seal is cleared"},
+		ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
+		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := s.TaskAuthoringReadyAsync(ctx, TaskAuthoringReadyInput{
+		ProjectID: task.ProjectID, TaskID: task.ID, ExpectedRevision: task.Revision,
+		ExpectedRevisionSHA256: task.RevisionSHA256, ReadyBy: "planner",
+		WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	var ready TaskAuthoringReadyReceipt
+	for time.Now().Before(deadline) {
+		ready, err = s.TaskAuthoringReadyOperationStatus(ctx, started.OperationID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ready.Status == "completed" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if ready.Status != "completed" || ready.Task == nil || ready.Task.ReadySeal == nil {
+		t.Fatalf("ready fixture did not complete: %#v", ready)
+	}
+	archived, err := s.TaskLifecycleArchive(ctx, "example", task.ID, "planner", "retire ready Task")
+	if err != nil || archived.Status != model.TaskAuthoringArchived || archived.ReadySeal != nil {
+		t.Fatalf("ready archive=%#v err=%v", archived, err)
+	}
+	history, err := s.TaskLifecycleHistory(ctx, "example", task.ID, "")
+	if err != nil || len(history.Records) == 0 {
+		t.Fatalf("ready archive history=%#v err=%v", history, err)
+	}
+	last := history.Records[len(history.Records)-1]
+	if last.MutationKind != "archive" || len(last.ChangedFields) != 2 || last.ChangedFields[0] != "status" || last.ChangedFields[1] != "ready_seal" {
+		t.Fatalf("ready archive changed fields=%v record=%#v", last.ChangedFields, last)
+	}
+	repeated, err := s.TaskLifecycleArchive(ctx, "example", task.ID, "planner", "repeat")
+	if err != nil || repeated.Revision != archived.Revision {
+		t.Fatalf("repeat ready archive=%#v err=%v", repeated, err)
+	}
+	repeatedHistory, err := s.TaskLifecycleHistory(ctx, "example", task.ID, "")
+	if err != nil || len(repeatedHistory.Records) != len(history.Records) {
+		t.Fatalf("repeat archive added history: before=%d after=%d err=%v", len(history.Records), len(repeatedHistory.Records), err)
+	}
 }

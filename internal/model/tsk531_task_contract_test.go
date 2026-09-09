@@ -12,16 +12,21 @@ func TestTSK531TaskSummaryAndHistoricalHashContract(t *testing.T) {
 	if err := ValidateTaskAuthoring(task); err != nil {
 		t.Fatal(err)
 	}
-	for _, summary := range []string{"", strings.Repeat("x", 257)} {
+	for _, summary := range []string{"", strings.Repeat("界", 256), strings.Repeat("x", 257)} {
 		candidate := task
 		candidate.Summary = summary
+		candidate.RevisionSHA256, _ = HashTaskAuthoring(candidate)
 		if summary == "" {
 			if err := ValidateTaskAuthoring(candidate); err == nil {
 				t.Fatal("current Task without summary was accepted")
 			}
 			continue
 		}
-		if err := ValidateTaskAuthoring(candidate); err == nil {
+		err := ValidateTaskAuthoring(candidate)
+		if len([]rune(summary)) == 256 && err != nil {
+			t.Fatalf("256-rune summary rejected: %v", err)
+		}
+		if len([]rune(summary)) == 257 && err == nil {
 			t.Fatal("overlong summary was accepted")
 		}
 	}
