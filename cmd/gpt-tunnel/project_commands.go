@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func project(ctx context.Context, s *service.Service, args []string) {
@@ -18,6 +20,21 @@ func project(ctx context.Context, s *service.Service, args []string) {
 	case "read":
 		require(args, 2)
 		v, e := s.ProjectRead(ctx, args[1])
+		if e != nil {
+			fatal(e)
+		}
+		output(v)
+	case "update":
+		if len(args) != 3 || args[1] != "--project-code" {
+			usage()
+		}
+		db, e := sqlitestore.Open(s.Config.StateDir)
+		if e != nil {
+			fatal(fmt.Errorf("open Shared/Local durability for project update: %w", e))
+		}
+		defer db.Close()
+		s.Durability = db
+		v, e := s.ProjectUpdate(ctx, service.ProjectUpdateInput{ProjectID: args[0], ProjectCode: args[2]})
 		if e != nil {
 			fatal(e)
 		}

@@ -248,6 +248,20 @@ type ProjectIdentifiersAdoptInput struct {
 	WriteOptions
 }
 
+type ProjectUpdateInput struct {
+	ProjectID      string `json:"project_id"`
+	ProjectCode    string `json:"project_code"`
+	NextTaskNumber uint64 `json:"next_task_number"`
+	NextADRNumber  uint64 `json:"next_adr_number"`
+}
+
+type ProjectUpdateResult struct {
+	ProjectID           string `json:"project_id"`
+	PreviousProjectCode string `json:"previous_project_code"`
+	ProjectCode         string `json:"project_code"`
+	SharedConfiguration bool   `json:"shared_configuration"`
+}
+
 type ProjectWorkflowPolicyInput struct {
 	Policy model.ProjectWorkflowPolicy `json:"policy"`
 	WriteOptions

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 )
 
 type Config struct {
@@ -151,6 +153,48 @@ func Load(path string) (Config, error) {
 		c.Projects[id] = p
 	}
 	return c, nil
+}
+
+// UpdateProjectCode changes only one existing host project code and returns
+// the original bytes for compensation if a later authority rejects the change.
+func UpdateProjectCode(path, projectID, expectedCode, projectCode string) ([]byte, error) {
+	if path == "" {
+		path = DefaultPath()
+	}
+	original, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	c, err := Load(path)
+	if err != nil {
+		return nil, err
+	}
+	project, ok := c.Projects[projectID]
+	if !ok {
+		return nil, fmt.Errorf("unknown local project %q", projectID)
+	}
+	if project.ProjectCode != expectedCode {
+		return nil, fmt.Errorf("local project code changed: expected %q, found %q", expectedCode, project.ProjectCode)
+	}
+	if !regexp.MustCompile(`^[A-Z]{3}$`).MatchString(projectCode) {
+		return nil, fmt.Errorf("project_code must be exactly three uppercase letters")
+	}
+	project.ProjectCode = projectCode
+	c.Projects[projectID] = project
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	if err := fsutil.WriteJSONAtomic(path, c, 0o600); err != nil {
+		return nil, err
+	}
+	return original, nil
+}
+
+func Restore(path string, original []byte) error {
+	if path == "" {
+		path = DefaultPath()
+	}
+	return fsutil.WriteFileAtomic(path, original, 0o600)
 }
 func (c *Config) expand() {
 	c.StateDir = expand(c.StateDir)
