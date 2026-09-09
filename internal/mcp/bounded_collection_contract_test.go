@@ -7,6 +7,15 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
+func isAlwaysAvailableDebugEvidence(path string) bool {
+	switch path {
+	case "debug/adr_legacy_relations", "debug/task_legacy_revision_list", "debug/task_legacy_revision_read":
+		return true
+	default:
+		return false
+	}
+}
+
 func TestGrowingCollectionInputsExposeBoundedContinuationContract(t *testing.T) {
 	tools := (&Server{Service: service.New(config.Config{MaxListItems: 1000})}).tools()
 	for _, name := range []string{"git_refs", "git_log", "git_tree"} {

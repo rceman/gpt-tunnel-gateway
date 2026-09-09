@@ -60,7 +60,7 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 	got := map[string]bool{}
 	for path := range entries {
 		if strings.HasPrefix(path, "debug/") {
-			if path == "debug/adr_legacy_relations" || path == "debug/task_legacy_revision_list" || path == "debug/task_legacy_revision_read" {
+			if isAlwaysAvailableDebugEvidence(path) {
 				continue
 			}
 			got[path] = true
@@ -102,7 +102,7 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 	actions := domain.(map[string]any)["actions"].([]map[string]any)
 	filtered := make([]map[string]any, 0, len(actions))
 	for _, action := range actions {
-		if action["path"] == "debug/adr_legacy_relations" || action["path"] == "debug/task_legacy_revision_list" || action["path"] == "debug/task_legacy_revision_read" {
+		if isAlwaysAvailableDebugEvidence(action["path"].(string)) {
 			continue
 		}
 		filtered = append(filtered, action)
