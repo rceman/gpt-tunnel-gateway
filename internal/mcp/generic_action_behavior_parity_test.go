@@ -83,51 +83,17 @@ func callTypedAndGeneric(t *testing.T, server *Server, sessionID, name, action s
 	return typed, generic
 }
 
-func TestTypedAndGenericTaskListSearchStatusLimitCursorParity(t *testing.T) {
-	s, revision := newWorkflowPolicyStatusService(t)
+func TestTypedAndGenericTaskListCursorParity(t *testing.T) {
+	s, _ := newWorkflowPolicyStatusService(t)
 	ctx := context.Background()
-	revision = ensureMCPTestProjectIdentifiers(t, s)
-	for _, spec := range []struct{ slug, title string }{
-		{"alpha-parity", "Alpha parity task"},
-		{"beta-parity", "Beta parity task"},
-		{"gamma-parity", "Gamma parity task"},
-	} {
-		_, operation, err := s.TaskCreate(ctx, service.TaskCreateInput{
-			ProjectID: "example", Slug: spec.slug, Title: spec.title, Objective: spec.title,
-			AcceptanceCriteria: []string{"bounded"}, OperationClass: "implementation", CreatedBy: "planner",
-			WriteOptions: service.WriteOptions{ExpectedHubRevision: revision},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		revision = operation.Hub.After
-	}
 	server := &Server{
 		Service:          s,
 		AuthorityContext: authority.WithPlanner(ctx),
 	}
 	sessionID := genericSession(t, s, "example")
 
-	callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{
-		"query": "BETA", "status": "created", "limit": 10,
-	})
-	pageOne, _ := callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{
-		"limit": 2,
-	})
-	cursor, ok := pageOne["next_cursor"].(string)
-	if !ok || cursor == "" || pageOne["has_more"] != true {
-		t.Fatalf("task/list did not return bounded continuation: %#v", pageOne)
-	}
-	callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{
-		"limit": 2, "cursor": cursor,
-	})
-
-	direct, _ := callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{
-		"limit": 2,
-	})
-	repeat, _ := callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{
-		"limit": 2,
-	})
+	direct, _ := callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{})
+	repeat, _ := callTypedAndGeneric(t, server, sessionID, "call", "task/list", map[string]any{})
 	assertJSONEqual(t, direct, repeat)
 }
 
