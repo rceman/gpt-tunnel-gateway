@@ -38,7 +38,7 @@ func (s *Server) registerTaskLegacyRevisionActions() error {
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			page, err := s.Service.TaskRevisionListPage(ctx, in.Task, service.CollectionPageInput{Limit: taskLegacyRevisionPageSize, Cursor: in.Cursor})
+			page, err := s.Service.TaskRevisionLegacyEvidenceListPage(ctx, in.Task, service.CollectionPageInput{Limit: taskLegacyRevisionPageSize, Cursor: in.Cursor})
 			if err != nil {
 				return nil, err
 			}
@@ -83,7 +83,7 @@ func (s *Server) registerTaskLegacyRevisionActions() error {
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			revision, err := s.Service.TaskRevisionRead(ctx, in.RevisionID)
+			revision, err := s.Service.TaskRevisionLegacyEvidenceRead(ctx, in.RevisionID)
 			if err != nil {
 				return nil, err
 			}
@@ -149,7 +149,7 @@ func taskLegacyRevisionReadOutputSchema() map[string]any {
 		"workflow_policy_revision": outputInteger(), "operation_class": outputString(), "effective_ci_field": outputString(),
 		"effective_ci_mode": outputString(), "wait_for_ci": outputBoolean(), "ci_blocking": outputBoolean(),
 		"agent_may_wait": outputBoolean(), "status": outputString(), "source_train_id": outputString(),
-		"source_item_position": outputInteger(), "source_attempt_number": outputInteger(), "created_by": outputString(),
+		"source_item_position": outputInteger(), "source_attempt_number": outputInteger(), "source_run_id": outputString(), "source_report_id": outputString(), "created_by": outputString(),
 		"created_at": outputDateTime(),
 	}, "schema_version", "id", "task_id", "task_revision", "revision_sha256", "project_id", "title", "objective", "branch", "acceptance_criteria", "constraints", "workflow_policy_revision", "operation_class", "effective_ci_field", "effective_ci_mode", "wait_for_ci", "ci_blocking", "agent_may_wait", "status", "created_by", "created_at")
 	return closedOutput(map[string]any{"revision": legacy}, "revision")
