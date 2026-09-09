@@ -12,7 +12,7 @@ import (
 )
 
 func taskLifecycleValue(task model.TaskAuthoring) map[string]any {
-	value := map[string]any{"key": task.ID, "revision": task.Revision, "title": task.Title, "status": task.Status, "type": task.Type, "objective": task.Objective, "acceptance_criteria": task.AcceptanceCriteria, "constraints": task.Constraints, "dependencies": task.Dependencies, "preparation_references": task.PreparationReferences, "adr_relation": task.ADRRelation, "adr_references": task.ADRReferences, "created_at": task.CreatedAt}
+	value := map[string]any{"key": task.ID, "revision": task.Revision, "title": task.Title, "status": task.Status, "type": task.Type, "objective": task.Objective, "acceptance_criteria": nonNilTaskStrings(task.AcceptanceCriteria), "constraints": nonNilTaskStrings(task.Constraints), "dependencies": nonNilTaskStrings(task.Dependencies), "preparation_references": nonNilTaskStrings(task.PreparationReferences), "adr_relation": task.ADRRelation, "adr_references": nonNilTaskStrings(task.ADRReferences), "created_at": task.CreatedAt}
 	if task.Summary != "" {
 		value["summary"] = task.Summary
 	}
@@ -29,6 +29,13 @@ func taskLifecycleValue(task model.TaskAuthoring) map[string]any {
 		value["updated_at"] = task.UpdatedAt
 	}
 	return value
+}
+
+func nonNilTaskStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }
 
 func (s *Server) registerTaskAuthoringActions() error {
