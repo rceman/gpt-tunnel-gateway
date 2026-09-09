@@ -19,7 +19,8 @@ func TestProjectUpdateCLIRequiresExactArgumentShape(t *testing.T) {
 		SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875",
 		StateDir: filepath.Join(root, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20,
 		MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60,
-		AirelayCommand: "/bin/false", Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Test", AuthorEmail: "test@example.invalid"},
+		AirelayCommand: "/bin/false", Controller: config.ControllerConfig{TunnelHealthListenAddr: "127.0.0.1:8876"},
+		Hub:      config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Test", AuthorEmail: "test@example.invalid"},
 		Projects: map[string]config.ProjectConfig{"example": {Root: root, Mirror: filepath.Join(root, "mirror.git"), Remote: "origin", DefaultBranch: "main", ProjectCode: "RSM", AirelaySessionKey: "example_master"}},
 	}
 	configPath := filepath.Join(root, "config.json")
