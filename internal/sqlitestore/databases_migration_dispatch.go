@@ -35,17 +35,29 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 		}
 		markers = map[int64]string{}
 	}
+	summary := migrate.Migration{Version: sharedTaskSummaryMigrationVersion, Name: sharedTaskSummaryMigrationName, Statements: []upstream.Statement{{SQL: "SELECT 1"}}}
 	if name, applied := markers[sharedTaskSummaryMigrationVersion]; applied {
 		if name != sharedTaskSummaryMigrationName {
 			return fmt.Errorf("unsupported migration marker %d/%q", sharedTaskSummaryMigrationVersion, name)
 		}
-		return applyActiveMigrations(ctx, db, baseline, migrate.Migration{Version: sharedTaskSummaryMigrationVersion, Name: sharedTaskSummaryMigrationName, Statements: []upstream.Statement{{SQL: "SELECT 1"}}})
+	} else {
+		summary, err = sharedTaskSummaryMigration(ctx, db)
+		if err != nil {
+			return err
+		}
 	}
-	summary, err := sharedTaskSummaryMigration(ctx, db)
-	if err != nil {
-		return err
+	sequence := migrate.Migration{
+		Version:    sharedTaskSequenceMigrationVersion,
+		Name:       sharedTaskSequenceMigrationName,
+		Statements: []upstream.Statement{{SQL: "SELECT 1"}},
 	}
-	return applyActiveMigrations(ctx, db, baseline, summary)
+	if _, applied := markers[sharedTaskSequenceMigrationVersion]; !applied {
+		sequence, err = sharedTaskSequenceMigration(ctx, db)
+		if err != nil {
+			return err
+		}
+	}
+	return applyActiveMigrations(ctx, db, baseline, summary, sequence)
 }
 
 func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {
