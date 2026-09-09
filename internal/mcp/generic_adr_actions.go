@@ -239,7 +239,7 @@ func (s *Server) registerADRActions() error {
 	}); err != nil {
 		return err
 	}
-	return register(GenericAction{
+	if err := register(GenericAction{
 		Path:                 "debug/adr_legacy_relations",
 		Description:          "Read-only legacy ADR relation metadata.",
 		InputSchema:          adrLegacyRelationsSchema(),
@@ -272,5 +272,8 @@ func (s *Server) registerADRActions() error {
 			}
 			return result, nil
 		},
-	})
+	}); err != nil {
+		return err
+	}
+	return s.registerTaskLegacyRevisionActions()
 }
