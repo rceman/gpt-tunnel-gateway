@@ -126,7 +126,7 @@ type TaskAuthoringUpdateInput struct {
 	ADRRelation            *string            `json:"adr_relation,omitempty"`
 	ADRReferences          *[]string          `json:"adr_references,omitempty"`
 	UpdatedBy              string             `json:"updated_by"`
-	Reason                 string             `json:"-"`
+	Reason                 string             `json:"reason,omitempty"`
 	WriteOptions
 }
 
