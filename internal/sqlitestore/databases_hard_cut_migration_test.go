@@ -14,7 +14,7 @@ func TestFreshBaselinesAreTheOnlyMarkersAndReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertMigrationMarker(t, db.Shared, sharedBaselineVersion, sharedBaselineName)
+	assertFreshSharedMigrationMarkers(t, db.Shared)
 	assertMigrationMarker(t, db.Local, localBaselineVersion, localBaselineName)
 	assertFinalSharedSchema(t, db.Shared)
 	assertFinalLocalSchema(t, db.Local)
@@ -26,8 +26,25 @@ func TestFreshBaselinesAreTheOnlyMarkersAndReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	assertMigrationMarker(t, reopened.Shared, sharedBaselineVersion, sharedBaselineName)
+	assertFreshSharedMigrationMarkers(t, reopened.Shared)
 	assertMigrationMarker(t, reopened.Local, localBaselineVersion, localBaselineName)
+}
+
+func assertFreshSharedMigrationMarkers(t *testing.T, db *upstream.Store) {
+	t.Helper()
+	rows, err := db.Query(context.Background(), `SELECT version,name FROM schema_migrations ORDER BY version`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][2]any{{sharedBaselineVersion, sharedBaselineName}, {sharedTaskSummaryMigrationVersion, sharedTaskSummaryMigrationName}}
+	if len(rows.Rows) != len(want) {
+		t.Fatalf("fresh Shared migration markers=%#v, want=%#v", rows.Rows, want)
+	}
+	for i, marker := range want {
+		if rows.Rows[i][0] != marker[0] || rows.Rows[i][1] != marker[1] {
+			t.Fatalf("fresh Shared migration marker[%d]=%#v, want=%#v", i, rows.Rows[i], marker)
+		}
+	}
 }
 
 func TestLegacyNumericAndBridgeMarkersFailClosed(t *testing.T) {
