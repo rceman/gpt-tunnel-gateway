@@ -9,14 +9,14 @@ import (
 
 func TestTaskListSchemaUsesCanonicalBoundedSurface(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{MaxListItems: 1000})}
-	tool := server.genericActionRegistry(server.tools())["task/list"]
-	if tool.Name == "" {
+	entry, ok := server.genericActionRegistry(server.tools())["task/list"]
+	if !ok {
 		t.Fatal("task/list tool missing")
 	}
-	if tool.InputSchema["additionalProperties"] != false {
-		t.Fatalf("task_list input is not closed: %#v", tool.InputSchema)
+	if entry.InputSchema["additionalProperties"] != false {
+		t.Fatalf("task_list input is not closed: %#v", entry.InputSchema)
 	}
-	properties := tool.InputSchema["properties"].(map[string]any)
+	properties := entry.InputSchema["properties"].(map[string]any)
 	for _, name := range []string{"cursor", "include_archived"} {
 		if _, ok := properties[name]; !ok {
 			t.Fatalf("task_list input missing %q: %#v", name, properties)
@@ -25,7 +25,7 @@ func TestTaskListSchemaUsesCanonicalBoundedSurface(t *testing.T) {
 	if _, ok := properties["limit"]; ok {
 		t.Fatal("task/list exposes caller-controlled limit")
 	}
-	output := tool.OutputSchema
+	output := entry.OutputSchema
 	if output["additionalProperties"] != false {
 		t.Fatalf("task_list output is not closed: %#v", output)
 	}
