@@ -38,8 +38,11 @@ var sharedLifecycleRegistry = map[string]sharedLifecycleDefinition{
 		SequenceCodeColumn:   "project_code",
 		SequenceNumberColumn: "next_number",
 		IDToken:              "TSK",
-		SearchFields:         []string{"id", "title", "summary", "description", "status", "type", "execution"},
-		FilterFields:         []string{"status", "type", "execution"},
+		HistoryTable:         "shared_entity_revisions",
+		HistoryEntityColumn:  "entity_type",
+		HistoryIDColumn:      "entity_id",
+		SearchFields:         []string{"id", "title", "objective", "status", "type", "priority", "adr_relation"},
+		FilterFields:         []string{"status", "type"},
 	},
 	"train": {
 		EntityType:   "train",

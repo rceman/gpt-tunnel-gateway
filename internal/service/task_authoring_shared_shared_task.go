@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
@@ -172,12 +173,17 @@ func (s *Service) taskAuthoringCreateShared(ctx context.Context, operationID str
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	var created model.TaskAuthoring
-	_, _, payload, err := s.Durability.CommitSharedTaskCreate(ctx, sqlitestore.SharedTaskCreate{
-		OperationID: operationID,
-		ProjectID:   in.ProjectID,
-		ProjectCode: code,
-		Kind:        "task-authoring-create",
-		CreatedAt:   s.durableNow(),
+	_, _, payload, err := s.Durability.CommitSharedLifecycleCreate(ctx, sqlitestore.SharedLifecycleCreate{
+		OperationID:         operationID,
+		EntityType:          "task",
+		ProjectID:           in.ProjectID,
+		ProjectCode:         code,
+		Kind:                "task-create",
+		HistoryMutationKind: "create",
+		Actor:               in.CreatedBy,
+		Reason:              "create",
+		ChangedFields:       []string{"create"},
+		CreatedAt:           s.durableNow(),
 		BuildPayload: func(taskID string) ([]byte, error) {
 			var err error
 			created, err = trainv2.NewTask(in.ProjectID, taskID, draft, in.CreatedBy, s.durableNow())
@@ -233,7 +239,15 @@ func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID str
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	if _, err := s.Durability.CommitSharedMutation(ctx, sqlitestore.SharedMutation{OperationID: operationID, EntityType: "task", EntityID: updated.ID, ExpectedRevision: int64(in.ExpectedRevision), Revision: int64(updated.Revision), Kind: "task-authoring-update", Payload: payload, CreatedAt: s.durableNow()}); err != nil {
+	shared, err := s.Durability.ReadSharedTask(ctx, updated.ID)
+	if err != nil {
+		return model.TaskAuthoring{}, OperationResult{}, err
+	}
+	reason := strings.TrimSpace(in.Reason)
+	if reason == "" {
+		reason = "update"
+	}
+	if _, err := s.Durability.CommitSharedLifecycleRevision(ctx, sqlitestore.SharedLifecycleRevision{OperationID: operationID, EntityType: "task", ProjectID: updated.ProjectID, EntityID: updated.ID, ExpectedRevision: int64(in.ExpectedRevision), ExpectedStoreRevision: shared.Revision, Revision: int64(updated.Revision), Kind: "update", HistoryMutationKind: "update", Payload: payload, Actor: in.UpdatedBy, Reason: reason, ChangedFields: taskAuthoringChangedFields(in), CreatedAt: s.durableNow()}); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	return updated, OperationResult{

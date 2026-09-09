@@ -6,157 +6,299 @@ import (
 	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-func taskAuthoringReadySchema() map[string]any {
-	properties := taskAuthoringProperties()
-	for _, key := range []string{"type", "execution", "scope", "title", "objective", "acceptance_criteria", "constraints", "priority", "dependencies", "preparation_references", "metadata", "adr_relation", "adr_references", "created_by", "updated_by"} {
-		delete(properties, key)
+func taskLifecycleValue(task model.TaskAuthoring) map[string]any {
+	value := map[string]any{"task": task.ID, "revision": task.Revision, "title": task.Title, "status": task.Status, "type": task.Type, "objective": task.Objective, "acceptance_criteria": task.AcceptanceCriteria, "constraints": task.Constraints, "dependencies": task.Dependencies, "preparation_references": task.PreparationReferences, "adr_relation": task.ADRRelation, "adr_references": task.ADRReferences, "created_at": task.CreatedAt}
+	if task.Scope != nil {
+		value["scope"] = task.Scope
 	}
-	return obj(properties, "project_id", "task_id", "expected_revision", "ready_by")
+	if task.Priority != "" {
+		value["priority"] = task.Priority
+	}
+	if task.Metadata != nil {
+		value["metadata"] = task.Metadata
+	}
+	if task.Revision >= 2 {
+		value["updated_at"] = task.UpdatedAt
+	}
+	return value
 }
-func taskAuthoringOutputSchema() map[string]any {
-	return map[string]any{"type": "object", "additionalProperties": true}
-}
+
 func (s *Server) registerTaskAuthoringActions() error {
-	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "task/create",
-		Description:  "Create a branchless train_v2 planned Task specification.",
-		InputSchema:  taskAuthoringCreateSchema(),
-		OutputSchema: taskAuthoringOutputSchema(),
+	register := func(action GenericAction) error {
+		action.AuthorityRole = actionRolePlannerOrAgent
+		action.SessionBound = true
+		action.LocalReceiptOnly = true
+		return s.RegisterGenericAction(action)
+	}
+	if err := register(GenericAction{
+		Path:                 "task/create",
+		Description:          "Create one revisioned Task.",
+		InputSchema:          taskLifecycleCreateSchema(),
+		ExecutionInputSchema: adrExecutionSchema(taskLifecycleCreateSchema()),
+		OutputSchema:         taskLifecycleOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
-			IdempotentHint:  false,
 		},
-		AuthorityRole:       "planner",
-		LocalReceiptOnly:    true,
-		AllowLegacyOverride: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in service.TaskAuthoringCreateInput
+			var in struct {
+				ProjectID             string            `json:"project_id"`
+				Type                  model.TaskType    `json:"type,omitempty"`
+				Scope                 *model.TaskScope  `json:"scope,omitempty"`
+				Title                 string            `json:"title"`
+				Objective             string            `json:"objective"`
+				AcceptanceCriteria    []string          `json:"acceptance_criteria"`
+				Constraints           []string          `json:"constraints"`
+				Priority              string            `json:"priority,omitempty"`
+				Dependencies          []string          `json:"dependencies,omitempty"`
+				PreparationReferences []string          `json:"preparation_references,omitempty"`
+				Metadata              map[string]string `json:"metadata,omitempty"`
+				ADRRelation           string            `json:"adr_relation"`
+				ADRReferences         []string          `json:"adr_references,omitempty"`
+			}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			operation, err := s.Service.TaskAuthoringCreateAsync(ctx, in)
+			actor := service.AgentSessionID(ctx)
+			if actor == "" {
+				return nil, fmt.Errorf("authorized session actor is unavailable")
+			}
+			task, _, err := s.Service.TaskLifecycleCreate(ctx, service.TaskAuthoringCreateInput{ProjectID: in.ProjectID, Type: in.Type, Scope: in.Scope, Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences, CreatedBy: actor}, "")
 			if err != nil {
 				return nil, err
 			}
-			return operation.Receipt(), nil
+			return map[string]any{"task": task.ID, "revision": task.Revision}, nil
 		},
 	}); err != nil {
 		return err
 	}
-	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "task/update",
-		Description:  "Optimistically update a train_v2 Task specification.",
-		InputSchema:  taskAuthoringUpdateSchema(),
-		OutputSchema: taskAuthoringOutputSchema(),
+	if err := register(GenericAction{
+		Path:                 "task/read",
+		Description:          "Read one Task revision.",
+		InputSchema:          taskLifecycleReadSchema(),
+		ExecutionInputSchema: adrExecutionSchema(taskLifecycleReadSchema()),
+		OutputSchema:         taskLifecycleReadOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				ProjectID string `json:"project_id"`
+				Task      string `json:"task"`
+				Revision  int    `json:"revision,omitempty"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			task, err := s.Service.TaskLifecycleRead(ctx, in.ProjectID, in.Task, in.Revision)
+			if err != nil {
+				return nil, err
+			}
+			return taskLifecycleValue(task), nil
+		},
+	}); err != nil {
+		return err
+	}
+	if err := register(GenericAction{
+		Path:                 "task/update",
+		Description:          "Update Task content with server-owned CAS.",
+		InputSchema:          taskLifecycleUpdateSchema(),
+		ExecutionInputSchema: adrExecutionSchema(taskLifecycleUpdateSchema()),
+		OutputSchema:         taskLifecycleOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole:    "planner",
-		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TaskAuthoringUpdateInput
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			return s.Service.TaskAuthoringUpdateAsync(ctx, in)
+			in.ProjectID = projectIDFromTaskRaw(raw)
+			in.TaskID = taskIDFromTaskRaw(raw)
+			in.Reason = reasonFromTaskRaw(raw)
+			in.UpdatedBy = service.AgentSessionID(ctx)
+			if in.UpdatedBy == "" {
+				return nil, fmt.Errorf("authorized session actor is unavailable")
+			}
+			current, err := s.Service.TaskAuthoringRead(ctx, in.ProjectID, in.TaskID)
+			if err != nil {
+				return nil, err
+			}
+			in.ExpectedRevision = current.Revision
+			task, _, err := s.Service.TaskLifecycleUpdate(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"task": task.ID, "revision": task.Revision}, nil
 		},
 	}); err != nil {
 		return err
 	}
-	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "task/ready",
-		Description:  "Persist the exact train_v2 Task readiness seal.",
-		InputSchema:  taskAuthoringReadySchema(),
-		OutputSchema: taskAuthoringOutputSchema(),
+	if err := register(GenericAction{
+		Path:                 "task/list",
+		Description:          "List bounded Task summaries.",
+		InputSchema:          taskLifecycleListSchema(),
+		ExecutionInputSchema: adrExecutionSchema(taskLifecycleListSchema()),
+		OutputSchema:         taskLifecycleListOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				ProjectID       string `json:"project_id"`
+				Cursor          string `json:"cursor,omitempty"`
+				IncludeArchived bool   `json:"include_archived,omitempty"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			page, err := s.Service.TaskLifecycleListQuery(ctx, in.ProjectID, "", "", "", in.Cursor, in.IncludeArchived)
+			if err != nil {
+				return nil, err
+			}
+			return taskPageValue(page), nil
+		},
+	}); err != nil {
+		return err
+	}
+	if err := register(GenericAction{
+		Path:                 "task/query",
+		Description:          "Query bounded Task summaries.",
+		InputSchema:          taskLifecycleQuerySchema(),
+		ExecutionInputSchema: adrExecutionSchema(taskLifecycleQuerySchema()),
+		OutputSchema:         taskLifecycleListOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				ProjectID string         `json:"project_id"`
+				Cursor    string         `json:"cursor,omitempty"`
+				Text      string         `json:"text,omitempty"`
+				Status    string         `json:"status,omitempty"`
+				Type      model.TaskType `json:"type,omitempty"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			page, err := s.Service.TaskLifecycleListQuery(ctx, in.ProjectID, in.Text, in.Status, in.Type, in.Cursor, in.Status == model.TaskAuthoringArchived)
+			if err != nil {
+				return nil, err
+			}
+			return taskPageValue(page), nil
+		},
+	}); err != nil {
+		return err
+	}
+	if err := register(GenericAction{
+		Path:                 "task/archive",
+		Description:          "Archive one Task.",
+		InputSchema:          taskLifecycleArchiveSchema(),
+		ExecutionInputSchema: adrExecutionSchema(taskLifecycleArchiveSchema()),
+		OutputSchema:         taskLifecycleOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole:    "planner",
-		LocalReceiptOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in service.TaskAuthoringReadyInput
+			var in struct {
+				ProjectID string `json:"project_id"`
+				Task      string `json:"task"`
+				Reason    string `json:"reason"`
+			}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			return s.Service.TaskAuthoringReadyAsync(ctx, in)
-		},
-	}); err != nil {
-		return err
-	}
-	if err := s.RegisterGenericAction(GenericAction{
-		Path:        "task/list",
-		Description: "List bounded train_v2 Task specifications or historical Tasks.",
-		InputSchema: obj(map[string]any{
-			"project_id": str("Registered project identifier."), "query": str("Case-insensitive Task search text."),
-			"type": taskTypeSchema(), "execution": taskExecutionSchema(), "status": str("Optional Task status."), "limit": integer("Maximum Tasks.", 1, service.MaxTaskListLimit), "cursor": str("Legacy continuation cursor."),
-		}, "project_id"),
-		OutputSchema: taskAuthoringOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole:       "planner",
-		AllowLegacyOverride: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				ProjectID string              `json:"project_id"`
-				Query     string              `json:"query,omitempty"`
-				Type      model.TaskType      `json:"type,omitempty"`
-				Execution model.TaskExecution `json:"execution,omitempty"`
-				Status    string              `json:"status,omitempty"`
-				Limit     int                 `json:"limit,omitempty"`
-				Cursor    string              `json:"cursor,omitempty"`
+			actor := service.AgentSessionID(ctx)
+			if actor == "" {
+				return nil, fmt.Errorf("authorized session actor is unavailable")
 			}
-			if err := decode(raw, &input); err != nil {
-				return nil, err
-			}
-			enabled, err := s.Service.TrainV2Enabled(ctx, input.ProjectID)
+			task, err := s.Service.TaskLifecycleArchive(ctx, in.ProjectID, in.Task, actor, in.Reason)
 			if err != nil {
 				return nil, err
 			}
-			if enabled {
-				return s.Service.TaskAuthoringList(ctx, service.TaskAuthoringListInput{ProjectID: input.ProjectID, Query: input.Query, Type: input.Type, Execution: input.Execution, Status: input.Status, Limit: input.Limit})
-			}
-			return s.Service.TaskListQuery(ctx, service.TaskListInput{ProjectID: input.ProjectID, Query: input.Query, Type: input.Type, Execution: input.Execution, Status: input.Status, Limit: input.Limit, Cursor: input.Cursor})
+			return map[string]any{"task": task.ID, "revision": task.Revision}, nil
 		},
 	}); err != nil {
 		return err
 	}
-	if err := s.RegisterGenericAction(GenericAction{
-		Path:         "task/read",
-		Description:  "Read a train_v2 Task specification or historical Task record.",
-		InputSchema:  obj(map[string]any{"task_id": str("Stable Task identifier.")}, "task_id"),
-		OutputSchema: taskAuthoringOutputSchema(),
+	if err := register(GenericAction{
+		Path:                 "task/history",
+		Description:          "Read bounded Task revision history.",
+		InputSchema:          taskLifecycleHistorySchema(),
+		ExecutionInputSchema: adrExecutionSchema(taskLifecycleHistorySchema()),
+		OutputSchema:         taskLifecycleHistoryOutputSchema(),
 		Annotations: ToolAnnotations{
 			ReadOnlyHint:   true,
 			IdempotentHint: true,
 		},
-		AuthorityRole:       "planner",
-		AllowLegacyOverride: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				TaskID string `json:"task_id"`
+			var in struct {
+				ProjectID string `json:"project_id"`
+				Task      string `json:"task"`
+				Cursor    string `json:"cursor,omitempty"`
 			}
-			if err := decode(raw, &input); err != nil {
+			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			if task, err := s.Service.TaskAuthoringFind(ctx, input.TaskID); err == nil {
-				if enabled, enabledErr := s.Service.TrainV2Enabled(ctx, task.ProjectID); enabledErr != nil {
-					return nil, enabledErr
-				} else if enabled {
-					return s.Service.TrainV2TaskRead(ctx, task.ProjectID, task.ID)
-				}
-				return map[string]any{"task": task, "authoring": true}, nil
+			page, err := s.Service.TaskLifecycleHistory(ctx, in.ProjectID, in.Task, in.Cursor)
+			if err != nil {
+				return nil, err
 			}
-			return nil, fmt.Errorf("Task is not admitted to Train-v2")
+			rows := make([]any, 0, len(page.Records))
+			for _, record := range page.Records {
+				rows = append(rows, map[string]any{"revision": record.Revision, "mutation_kind": record.MutationKind, "actor": record.Actor, "reason": record.Reason, "changed_fields": record.ChangedFields, "recorded_at": record.RecordedAt})
+			}
+			result := map[string]any{"task": in.Task, "revisions": rows}
+			if page.HasMore {
+				result["_pagination"] = map[string]any{"next_cursor": pagination.EncodeOpaqueKeyset("task-history:"+in.ProjectID+":"+in.Task, fmt.Sprintf("%d", page.NextRevision))}
+			}
+			return result, nil
 		},
 	}); err != nil {
 		return err
 	}
 	return s.registerTaskExecutionActions()
+}
+
+func projectIDFromTaskRaw(raw json.RawMessage) string {
+	var value struct {
+		ProjectID string `json:"project_id"`
+	}
+	_ = json.Unmarshal(raw, &value)
+	return value.ProjectID
+}
+
+func taskIDFromTaskRaw(raw json.RawMessage) string {
+	var value struct {
+		Task string `json:"task"`
+	}
+	_ = json.Unmarshal(raw, &value)
+	return value.Task
+}
+
+func reasonFromTaskRaw(raw json.RawMessage) string {
+	var value struct {
+		Reason string `json:"reason"`
+	}
+	_ = json.Unmarshal(raw, &value)
+	return value.Reason
+}
+func taskPageValue(page service.TaskLifecyclePage) map[string]any {
+	tasks := make([]any, 0, len(page.Tasks))
+	for _, task := range page.Tasks {
+		tasks = append(tasks, map[string]any{"task": task.ID, "title": task.Title, "status": task.Status, "revision": task.Revision, "updated_at": task.UpdatedAt})
+	}
+	result := map[string]any{"tasks": tasks}
+	if page.HasMore && page.NextCursor != "" {
+		result["_pagination"] = map[string]any{"next_cursor": page.NextCursor}
+	}
+	return result
 }
