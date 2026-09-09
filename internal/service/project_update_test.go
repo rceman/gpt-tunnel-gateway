@@ -28,6 +28,7 @@ func newProjectUpdateFixture(t *testing.T) projectUpdateFixture {
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "RSM"
 	s.Config.Projects["example"] = project
+	s.Config.Controller.TunnelHealthListenAddr = "127.0.0.1:8876"
 	s.ConfigPath = filepath.Join(t.TempDir(), "config.json")
 	if err := fsutil.WriteJSONAtomic(s.ConfigPath, s.Config, 0o600); err != nil {
 		t.Fatal(err)
