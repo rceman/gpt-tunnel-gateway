@@ -33,51 +33,62 @@ func (s *Service) ProjectUpdate(ctx context.Context, in ProjectUpdateInput) (Pro
 	if err != nil {
 		return ProjectUpdateResult{}, err
 	}
-	defer snapshot.Close()
-	readCtx := hub.WithReadSnapshot(ctx, snapshot)
-	project, err := s.ProjectRead(readCtx, in.ProjectID)
-	if err != nil {
-		return ProjectUpdateResult{}, err
+	preflight := func() (model.ProjectIdentifiers, model.ProjectConfiguration, error) {
+		readCtx := hub.WithReadSnapshot(ctx, snapshot)
+		project, err := s.ProjectRead(readCtx, in.ProjectID)
+		if err != nil {
+			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, err
+		}
+		if err := model.ValidateProject(project); err != nil {
+			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, err
+		}
+		identifiers, err := s.ProjectIdentifiersRead(readCtx, in.ProjectID)
+		if err != nil {
+			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, err
+		}
+		if identifiers.ProjectCode != local.ProjectCode {
+			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, fmt.Errorf("local and durable project codes disagree")
+		}
+		if identifiers.NextTaskNumber != 1 || identifiers.NextADRNumber != 1 {
+			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, fmt.Errorf("project code correction requires virgin Hub identifier counters")
+		}
+		var configuration model.ProjectConfiguration
+		if err := snapshot.ReadJSON(readCtx, s.projectConfigurationPath(in.ProjectID), &configuration); err != nil {
+			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, fmt.Errorf("Hub project configuration is unavailable: %w", err)
+		}
+		normalizeProjectConfiguration(&configuration)
+		if err := model.ValidateProjectConfiguration(configuration); err != nil {
+			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, err
+		}
+		if err := validateVirginHub(readCtx, snapshot, in.ProjectID, in.ProjectCode); err != nil {
+			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, err
+		}
+		if err := validateVirginLocal(s.Durability, in.ProjectID); err != nil {
+			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, err
+		}
+		if err := validateVirginShared(ctx, s.Durability, in.ProjectID); err != nil {
+			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, err
+		}
+		if err := ensureUniqueHubCode(readCtx, snapshot, in.ProjectID, in.ProjectCode); err != nil {
+			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, err
+		}
+		return identifiers, configuration, nil
 	}
-	if err := model.ValidateProject(project); err != nil {
-		return ProjectUpdateResult{}, err
+	identifiers, configuration, preflightErr := preflight()
+	hubRevision := snapshot.Revision()
+	closeErr := snapshot.Close()
+	if preflightErr != nil {
+		return ProjectUpdateResult{}, preflightErr
 	}
-	identifiers, err := s.ProjectIdentifiersRead(readCtx, in.ProjectID)
-	if err != nil {
-		return ProjectUpdateResult{}, err
-	}
-	if identifiers.ProjectCode != local.ProjectCode {
-		return ProjectUpdateResult{}, fmt.Errorf("local and durable project codes disagree")
-	}
-	if identifiers.NextTaskNumber != 1 || identifiers.NextADRNumber != 1 {
-		return ProjectUpdateResult{}, fmt.Errorf("project code correction requires virgin Hub identifier counters")
-	}
-	var configuration model.ProjectConfiguration
-	if err := snapshot.ReadJSON(readCtx, s.projectConfigurationPath(in.ProjectID), &configuration); err != nil {
-		return ProjectUpdateResult{}, fmt.Errorf("Hub project configuration is unavailable: %w", err)
-	}
-	normalizeProjectConfiguration(&configuration)
-	if err := model.ValidateProjectConfiguration(configuration); err != nil {
-		return ProjectUpdateResult{}, err
-	}
-	if err := validateVirginHub(readCtx, snapshot, in.ProjectID, in.ProjectCode); err != nil {
-		return ProjectUpdateResult{}, err
-	}
-	if err := validateVirginLocal(s.Durability, in.ProjectID); err != nil {
-		return ProjectUpdateResult{}, err
-	}
-	if err := validateVirginShared(ctx, s.Durability, in.ProjectID); err != nil {
-		return ProjectUpdateResult{}, err
-	}
-	if err := ensureUniqueHubCode(readCtx, snapshot, in.ProjectID, in.ProjectCode); err != nil {
-		return ProjectUpdateResult{}, err
+	if closeErr != nil {
+		return ProjectUpdateResult{}, fmt.Errorf("close Hub preflight snapshot: %w", closeErr)
 	}
 
 	originalConfig, err := config.UpdateProjectCode(s.ConfigPath, in.ProjectID, local.ProjectCode, in.ProjectCode)
 	if err != nil {
 		return ProjectUpdateResult{}, err
 	}
-	tx, err := s.Hub.Transact(ctx, snapshot.Revision(), "gateway: update project code "+in.ProjectID, func(worktree string) ([]string, error) {
+	tx, err := s.Hub.Transact(ctx, hubRevision, "gateway: update project code "+in.ProjectID, func(worktree string) ([]string, error) {
 		path := s.projectIdentifiersPath(in.ProjectID)
 		var current model.ProjectIdentifiers
 		if err := readWorktreeJSON(worktree, path, &current); err != nil {
