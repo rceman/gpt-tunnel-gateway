@@ -15,6 +15,7 @@ func validTaskAuthoringForTest() TaskAuthoring {
 		ProjectID:             "example",
 		Revision:              1,
 		Title:                 "Bounded task authoring",
+		Summary:               "A bounded Task authoring summary.",
 		Objective:             "Validate the planned and ready task contract.",
 		AcceptanceCriteria:    []string{"planned state is durable", "ready seal is exact"},
 		Constraints:           []string{"no execution identity in the Task"},

@@ -35,7 +35,13 @@ func TestTSK531TaskSummaryAndHistoricalHashContract(t *testing.T) {
 			t.Fatal("overlong summary was accepted")
 		}
 	}
-	if err := ValidateTaskAuthoringRevision(validTaskAuthoringForTest(), true); err != nil {
+	legacy := validTaskAuthoringForTest()
+	legacy.Summary = ""
+	legacy.RevisionSHA256, err = HashTaskAuthoring(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateTaskAuthoringRevision(legacy, true); err != nil {
 		t.Fatalf("pre-summary historical payload rejected: %v", err)
 	}
 	for _, title := range []string{strings.Repeat("界", 129), strings.Repeat("界", 128)} {
@@ -51,7 +57,7 @@ func TestTSK531TaskSummaryAndHistoricalHashContract(t *testing.T) {
 			t.Fatal("129-rune title accepted")
 		}
 	}
-	encoded, err := json.Marshal(validTaskAuthoringForTest())
+	encoded, err := json.Marshal(legacy)
 	if err != nil {
 		t.Fatal(err)
 	}
