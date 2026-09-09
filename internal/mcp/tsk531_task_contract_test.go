@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
-	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
@@ -54,21 +53,49 @@ func TestTSK531CanonicalTaskSurfaceAndLegacyEvidenceContract(t *testing.T) {
 			t.Fatalf("%s is not closed: %#v", path, schema)
 		}
 	}
+	assertRequired := func(path string, schema map[string]any, want ...string) {
+		t.Helper()
+		got := stringList(schema["required"])
+		for _, field := range want {
+			found := false
+			for _, candidate := range got {
+				if candidate == field {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("%s missing required field %q: %v", path, field, got)
+			}
+		}
+	}
 	assertSchemaKeys("task/create", entries["task/create"].InputSchema, []string{"title", "summary", "objective", "adr_relation", "adr_references", "type", "scope", "acceptance_criteria", "constraints", "priority", "dependencies", "preparation_references", "metadata"})
+	assertRequired("task/create", entries["task/create"].InputSchema, "title", "summary", "objective", "adr_relation")
 	assertSchemaKeys("task/read", entries["task/read"].InputSchema, []string{"key", "revision"})
+	assertRequired("task/read", entries["task/read"].InputSchema, "key")
 	assertSchemaKeys("task/update", entries["task/update"].InputSchema, []string{"key", "reason", "title", "summary", "objective", "adr_relation", "adr_references", "type", "scope", "acceptance_criteria", "constraints", "priority", "dependencies", "preparation_references", "metadata"})
+	assertRequired("task/update", entries["task/update"].InputSchema, "key", "reason")
 	assertSchemaKeys("task/list", entries["task/list"].InputSchema, []string{"cursor", "include_archived"})
 	assertSchemaKeys("task/query", entries["task/query"].InputSchema, []string{"cursor", "text", "status", "type"})
 	assertSchemaKeys("task/archive", entries["task/archive"].InputSchema, []string{"key", "reason"})
+	assertRequired("task/archive", entries["task/archive"].InputSchema, "key", "reason")
 	assertSchemaKeys("task/history", entries["task/history"].InputSchema, []string{"key", "cursor"})
+	assertRequired("task/history", entries["task/history"].InputSchema, "key")
 	for _, path := range []string{"task/create", "task/update", "task/archive"} {
 		assertSchemaKeys(path+" output", entries[path].OutputSchema, []string{"key", "revision"})
 	}
 	for _, path := range []string{"task/list", "task/query"} {
 		assertSchemaKeys(path+" output", entries[path].OutputSchema, []string{"items", "next_cursor"})
 		items := entries[path].OutputSchema["properties"].(map[string]any)["items"].(map[string]any)
-		assertSchemaKeys(path+" item", items["items"].(map[string]any), []string{"key", "title", "summary", "status", "revision", "updated_at"})
-		if _, ok := schemaProperties(items["items"].(map[string]any))["detail"]; ok {
+		item := items["items"].(map[string]any)
+		assertSchemaKeys(path+" item", item, []string{"key", "title", "summary", "status", "revision", "updated_at"})
+		assertRequired(path+" item", item, "key", "title", "summary", "status", "revision")
+		for _, field := range stringList(item["required"]) {
+			if field == "updated_at" {
+				t.Fatalf("%s made updated_at required", path)
+			}
+		}
+		if _, ok := schemaProperties(item)["detail"]; ok {
 			t.Fatalf("%s injected detail into compact items", path)
 		}
 	}
@@ -124,11 +151,10 @@ func TestTSK531LegacyRevisionActionsExecuteAgainstBoundedTempHub(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, _, err := server.Service.TaskAuthoringCreate(ctx, service.TaskAuthoringCreateInput{
-		ProjectID: "example", Title: "Legacy evidence fixture", Summary: "Bounded legacy evidence summary.",
+	task, _, err := server.Service.TaskCreate(ctx, service.TaskCreateInput{
+		ProjectID: "example", Slug: "legacy-evidence-fixture", Title: "Legacy evidence fixture",
 		Objective: "Preserve one legacy revision for evidence.", AcceptanceCriteria: []string{"read-only"},
-		ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
-		WriteOptions: service.WriteOptions{ExpectedHubRevision: hubRevision},
+		CreatedBy: "planner", WriteOptions: service.WriteOptions{ExpectedHubRevision: hubRevision},
 	})
 	if err != nil {
 		t.Fatal(err)

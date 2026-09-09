@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
@@ -92,40 +91,33 @@ func archivedRevision(page sqlitestore.SharedHistoryPage) int {
 }
 
 func TestTSK531ReadyArchiveClearsSealAndRecordsIt(t *testing.T) {
-	s, hubRevision, _ := testServiceWithoutIdentifiers(t)
-	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)
-	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	project := s.Config.Projects["example"]
+	project.ProjectCode = "EXM"
+	s.Config.Projects["example"] = project
+	db, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s.Durability = db
 	ctx := context.Background()
-	task, operation, err := s.TaskAuthoringCreate(ctx, TaskAuthoringCreateInput{
+	task, _, err := s.taskAuthoringCreateShared(ctx, "tsk531-ready-create", TaskAuthoringCreateInput{
 		ProjectID: "example", Title: "Ready archive fixture", Summary: "Ready archive summary.",
 		Objective: "Archive a ready Task safely.", AcceptanceCriteria: []string{"ready seal is cleared"},
 		ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: hubRevision},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	started, err := s.TaskAuthoringReadyAsync(ctx, TaskAuthoringReadyInput{
+	ready, _, err := s.taskAuthoringReadyShared(ctx, "tsk531-ready", TaskAuthoringReadyInput{
 		ProjectID: task.ProjectID, TaskID: task.ID, ExpectedRevision: task.Revision,
 		ExpectedRevisionSHA256: task.RevisionSHA256, ReadyBy: "planner",
-		WriteOptions: WriteOptions{ExpectedHubRevision: operation.Hub.After},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(10 * time.Second)
-	var ready TaskAuthoringReadyReceipt
-	for time.Now().Before(deadline) {
-		ready, err = s.TaskAuthoringReadyOperationStatus(ctx, started.OperationID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if ready.Status == "completed" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if ready.Status != "completed" || ready.Task == nil || ready.Task.ReadySeal == nil {
+	if ready.Status != model.TaskAuthoringReady || ready.ReadySeal == nil {
 		t.Fatalf("ready fixture did not complete: %#v", ready)
 	}
 	archived, err := s.TaskLifecycleArchive(ctx, "example", task.ID, "planner", "retire ready Task")

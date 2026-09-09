@@ -146,6 +146,30 @@ func TestTSK531SummaryMigrationUsesSentenceAndNoOpPaths(t *testing.T) {
 	if err != nil || len(afterNoOp.Rows) != 1 || afterNoOp.Rows[0][0] != beforeNoOp.Rows[0][0] || string(afterNoOp.Rows[0][1].([]byte)) != string(beforeNoOp.Rows[0][1].([]byte)) {
 		t.Fatalf("already summarized row changed: before=%#v after=%#v err=%v", beforeNoOp.Rows, afterNoOp.Rows, err)
 	}
+	fresh, err := upstream.Open(upstream.Config{Path: t.TempDir() + "/fresh-noop.db"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fresh.Close()
+	if err := migrate.Apply(ctx, fresh, []migrate.Migration{sharedBaselineMigration()}, migrate.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	valid := summaryMigrationFixture("GTW-TSK901", "Already valid summary.", now)
+	validPayload := mustJSON(t, valid)
+	if _, err := fresh.Exec(ctx, `INSERT INTO shared_tasks(id,revision,payload,updated_at) VALUES(?,?,?,?)`, valid.ID, valid.Revision, validPayload, valid.UpdatedAt.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if err := applySharedMigrations(ctx, fresh); err != nil {
+		t.Fatalf("fresh no-op dispatcher apply=%v", err)
+	}
+	markers, err := fresh.Query(ctx, `SELECT version,name FROM schema_migrations WHERE version=?`, sharedTaskSummaryMigrationVersion)
+	if err != nil || len(markers.Rows) != 1 || markers.Rows[0][1] != sharedTaskSummaryMigrationName {
+		t.Fatalf("fresh no-op marker=%#v err=%v", markers.Rows, err)
+	}
+	freshRow, err := fresh.Query(ctx, `SELECT revision,payload FROM shared_tasks WHERE id=?`, valid.ID)
+	if err != nil || len(freshRow.Rows) != 1 || freshRow.Rows[0][0] != int64(valid.Revision) || string(freshRow.Rows[0][1].([]byte)) != string(validPayload) {
+		t.Fatalf("fresh no-op task changed: %#v err=%v", freshRow.Rows, err)
+	}
 }
 
 func TestTSK531SummaryMigrationRejectsConflictingHistory(t *testing.T) {

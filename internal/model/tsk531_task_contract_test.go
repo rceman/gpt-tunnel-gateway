@@ -9,6 +9,11 @@ import (
 func TestTSK531TaskSummaryAndHistoricalHashContract(t *testing.T) {
 	task := validTaskAuthoringForTest()
 	task.Summary = "A bounded summary."
+	var err error
+	task.RevisionSHA256, err = HashTaskAuthoring(task)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := ValidateTaskAuthoring(task); err != nil {
 		t.Fatal(err)
 	}
