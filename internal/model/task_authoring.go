@@ -32,11 +32,25 @@ func HashTaskAuthoring(v TaskAuthoring) (string, error) {
 }
 
 func ValidateTaskAuthoring(v TaskAuthoring) error {
+	return validateTaskAuthoring(v, true)
+}
+
+// ValidateTaskAuthoringRevision validates immutable historical payloads. A
+// pre-summary revision may omit Summary; current state and new revisions may
+// not.
+func ValidateTaskAuthoringRevision(v TaskAuthoring, historical bool) error {
+	return validateTaskAuthoring(v, !historical)
+}
+
+func validateTaskAuthoring(v TaskAuthoring, requireSummary bool) error {
 	if v.SchemaVersion != TaskAuthoringSchemaVersion || ValidateCanonicalTaskID(v.ID) != nil || ValidateProjectIdentifier(v.ProjectID) != nil {
 		return fmt.Errorf("invalid task authoring identity")
 	}
-	if len(v.Title) < 3 || len(v.Title) > 300 || len(v.Objective) < 3 || len(v.Objective) > 200000 {
+	if len(v.Title) < 3 || len(v.Title) > 128 || len(v.Objective) < 3 || len(v.Objective) > 200000 {
 		return fmt.Errorf("invalid task authoring content")
+	}
+	if (requireSummary && strings.TrimSpace(v.Summary) == "") || len([]rune(v.Summary)) > 256 {
+		return fmt.Errorf("invalid task authoring summary")
 	}
 	if _, err := NormalizeTaskType(v.Type); err != nil {
 		return err

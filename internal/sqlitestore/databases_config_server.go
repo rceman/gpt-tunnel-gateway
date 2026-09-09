@@ -199,8 +199,10 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 }
 
 const (
-	sharedBaselineVersion int64 = 202609080503
-	sharedBaselineName          = "create shared baseline"
-	localBaselineVersion  int64 = 202609080505
-	localBaselineName           = "create local baseline"
+	sharedBaselineVersion             int64 = 202609080503
+	sharedBaselineName                      = "create shared baseline"
+	sharedTaskSummaryMigrationVersion int64 = 202609090934
+	sharedTaskSummaryMigrationName          = "migrate retained task summaries"
+	localBaselineVersion              int64 = 202609080505
+	localBaselineName                       = "create local baseline"
 )

@@ -17,6 +17,7 @@ type AuthoringDraft struct {
 	Execution             model.TaskExecution
 	Scope                 *model.TaskScope
 	Title                 string
+	Summary               string
 	Objective             string
 	AcceptanceCriteria    []string
 	Constraints           []string
@@ -35,6 +36,7 @@ type AuthoringPatch struct {
 	Execution             *model.TaskExecution
 	Scope                 *model.TaskScope
 	Title                 *string
+	Summary               *string
 	Objective             *string
 	AcceptanceCriteria    *[]string
 	Constraints           *[]string
@@ -60,6 +62,7 @@ func ValidateDraft(draft AuthoringDraft) error {
 		Scope:                 draft.Scope,
 		RevisionSHA256:        strings.Repeat("a", 64),
 		Title:                 draft.Title,
+		Summary:               draft.Summary,
 		Objective:             draft.Objective,
 		AcceptanceCriteria:    cloneStrings(draft.AcceptanceCriteria),
 		Constraints:           cloneStrings(draft.Constraints),
@@ -121,6 +124,7 @@ func NewTask(projectID, taskID string, draft AuthoringDraft, createdBy string, n
 		Execution:             draft.Execution,
 		Scope:                 draft.Scope,
 		Title:                 draft.Title,
+		Summary:               draft.Summary,
 		Objective:             draft.Objective,
 		AcceptanceCriteria:    cloneStrings(draft.AcceptanceCriteria),
 		Constraints:           cloneStrings(draft.Constraints),
@@ -191,6 +195,9 @@ func UpdateTask(current model.TaskAuthoring, patch AuthoringPatch, updatedBy str
 	if patch.Title != nil && *patch.Title != updated.Title {
 		updated.Title, changed = *patch.Title, true
 	}
+	if patch.Summary != nil && *patch.Summary != updated.Summary {
+		updated.Summary, changed = *patch.Summary, true
+	}
 	if patch.Objective != nil && *patch.Objective != updated.Objective {
 		updated.Objective, changed = *patch.Objective, true
 	}
@@ -226,6 +233,7 @@ func UpdateTask(current model.TaskAuthoring, patch AuthoringPatch, updatedBy str
 		Execution:             updated.Execution,
 		Scope:                 updated.Scope,
 		Title:                 updated.Title,
+		Summary:               updated.Summary,
 		Objective:             updated.Objective,
 		AcceptanceCriteria:    updated.AcceptanceCriteria,
 		Constraints:           updated.Constraints,

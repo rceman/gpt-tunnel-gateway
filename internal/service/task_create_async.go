@@ -87,7 +87,7 @@ func normalizeTaskCreateInput(in TaskAuthoringCreateInput) (TaskAuthoringCreateI
 	}
 	draft := trainv2.AuthoringDraft{
 		Type: in.Type, Scope: in.Scope,
-		Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria,
+		Title: in.Title, Summary: in.Summary, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria,
 		Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies,
 		PreparationReferences: in.PreparationReferences, Metadata: in.Metadata,
 		ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences,

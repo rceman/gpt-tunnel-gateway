@@ -11,7 +11,10 @@ import (
 )
 
 func taskLifecycleValue(task model.TaskAuthoring) map[string]any {
-	value := map[string]any{"task": task.ID, "revision": task.Revision, "title": task.Title, "status": task.Status, "type": task.Type, "objective": task.Objective, "acceptance_criteria": task.AcceptanceCriteria, "constraints": task.Constraints, "dependencies": task.Dependencies, "preparation_references": task.PreparationReferences, "adr_relation": task.ADRRelation, "adr_references": task.ADRReferences, "created_at": task.CreatedAt}
+	value := map[string]any{"key": task.ID, "revision": task.Revision, "title": task.Title, "status": task.Status, "type": task.Type, "objective": task.Objective, "acceptance_criteria": task.AcceptanceCriteria, "constraints": task.Constraints, "dependencies": task.Dependencies, "preparation_references": task.PreparationReferences, "adr_relation": task.ADRRelation, "adr_references": task.ADRReferences, "created_at": task.CreatedAt}
+	if task.Summary != "" {
+		value["summary"] = task.Summary
+	}
 	if task.Scope != nil {
 		value["scope"] = task.Scope
 	}
@@ -49,6 +52,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 				Type                  model.TaskType    `json:"type,omitempty"`
 				Scope                 *model.TaskScope  `json:"scope,omitempty"`
 				Title                 string            `json:"title"`
+				Summary               string            `json:"summary"`
 				Objective             string            `json:"objective"`
 				AcceptanceCriteria    []string          `json:"acceptance_criteria"`
 				Constraints           []string          `json:"constraints"`
@@ -66,11 +70,11 @@ func (s *Server) registerTaskAuthoringActions() error {
 			if actor == "" {
 				return nil, fmt.Errorf("authorized session actor is unavailable")
 			}
-			task, _, err := s.Service.TaskLifecycleCreate(ctx, service.TaskAuthoringCreateInput{ProjectID: in.ProjectID, Type: in.Type, Scope: in.Scope, Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences, CreatedBy: actor}, "")
+			task, _, err := s.Service.TaskLifecycleCreate(ctx, service.TaskAuthoringCreateInput{ProjectID: in.ProjectID, Type: in.Type, Scope: in.Scope, Title: in.Title, Summary: in.Summary, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences, CreatedBy: actor}, "")
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"task": task.ID, "revision": task.Revision}, nil
+			return map[string]any{"key": task.ID, "revision": task.Revision}, nil
 		},
 	}); err != nil {
 		return err
@@ -88,13 +92,13 @@ func (s *Server) registerTaskAuthoringActions() error {
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				ProjectID string `json:"project_id"`
-				Task      string `json:"task"`
+				Key       string `json:"key"`
 				Revision  int    `json:"revision,omitempty"`
 			}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			task, err := s.Service.TaskLifecycleRead(ctx, in.ProjectID, in.Task, in.Revision)
+			task, err := s.Service.TaskLifecycleRead(ctx, in.ProjectID, in.Key, in.Revision)
 			if err != nil {
 				return nil, err
 			}
@@ -134,7 +138,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"task": task.ID, "revision": task.Revision}, nil
+			return map[string]any{"key": task.ID, "revision": task.Revision}, nil
 		},
 	}); err != nil {
 		return err
@@ -210,7 +214,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				ProjectID string `json:"project_id"`
-				Task      string `json:"task"`
+				Key       string `json:"key"`
 				Reason    string `json:"reason"`
 			}
 			if err := decode(raw, &in); err != nil {
@@ -220,11 +224,11 @@ func (s *Server) registerTaskAuthoringActions() error {
 			if actor == "" {
 				return nil, fmt.Errorf("authorized session actor is unavailable")
 			}
-			task, err := s.Service.TaskLifecycleArchive(ctx, in.ProjectID, in.Task, actor, in.Reason)
+			task, err := s.Service.TaskLifecycleArchive(ctx, in.ProjectID, in.Key, actor, in.Reason)
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"task": task.ID, "revision": task.Revision}, nil
+			return map[string]any{"key": task.ID, "revision": task.Revision}, nil
 		},
 	}); err != nil {
 		return err
@@ -242,13 +246,13 @@ func (s *Server) registerTaskAuthoringActions() error {
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				ProjectID string `json:"project_id"`
-				Task      string `json:"task"`
+				Key       string `json:"key"`
 				Cursor    string `json:"cursor,omitempty"`
 			}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			page, err := s.Service.TaskLifecycleHistory(ctx, in.ProjectID, in.Task, in.Cursor)
+			page, err := s.Service.TaskLifecycleHistory(ctx, in.ProjectID, in.Key, in.Cursor)
 			if err != nil {
 				return nil, err
 			}
@@ -256,9 +260,9 @@ func (s *Server) registerTaskAuthoringActions() error {
 			for _, record := range page.Records {
 				rows = append(rows, map[string]any{"revision": record.Revision, "mutation_kind": record.MutationKind, "actor": record.Actor, "reason": record.Reason, "changed_fields": record.ChangedFields, "recorded_at": record.RecordedAt})
 			}
-			result := map[string]any{"task": in.Task, "revisions": rows}
+			result := map[string]any{"key": in.Key, "revisions": rows}
 			if page.HasMore {
-				result["_pagination"] = map[string]any{"next_cursor": pagination.EncodeOpaqueKeyset("task-history:"+in.ProjectID+":"+in.Task, fmt.Sprintf("%d", page.NextRevision))}
+				result["_pagination"] = map[string]any{"next_cursor": pagination.EncodeOpaqueKeyset("task-history:"+in.ProjectID+":"+in.Key, fmt.Sprintf("%d", page.NextRevision))}
 			}
 			return result, nil
 		},
@@ -278,10 +282,10 @@ func projectIDFromTaskRaw(raw json.RawMessage) string {
 
 func taskIDFromTaskRaw(raw json.RawMessage) string {
 	var value struct {
-		Task string `json:"task"`
+		Key string `json:"key"`
 	}
 	_ = json.Unmarshal(raw, &value)
-	return value.Task
+	return value.Key
 }
 
 func reasonFromTaskRaw(raw json.RawMessage) string {
@@ -294,9 +298,9 @@ func reasonFromTaskRaw(raw json.RawMessage) string {
 func taskPageValue(page service.TaskLifecyclePage) map[string]any {
 	tasks := make([]any, 0, len(page.Tasks))
 	for _, task := range page.Tasks {
-		tasks = append(tasks, map[string]any{"task": task.ID, "title": task.Title, "status": task.Status, "revision": task.Revision, "updated_at": task.UpdatedAt})
+		tasks = append(tasks, map[string]any{"key": task.ID, "title": task.Title, "summary": task.Summary, "status": task.Status, "revision": task.Revision, "updated_at": task.UpdatedAt})
 	}
-	result := map[string]any{"tasks": tasks}
+	result := map[string]any{"items": tasks}
 	if page.HasMore && page.NextCursor != "" {
 		result["_pagination"] = map[string]any{"next_cursor": page.NextCursor}
 	}

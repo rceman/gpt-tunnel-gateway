@@ -48,7 +48,7 @@ func (s *Service) TaskLifecycleRead(ctx context.Context, projectID, taskID strin
 	if task.ID != taskID || task.ProjectID != projectID || int64(task.Revision) != record.Revision {
 		return model.TaskAuthoring{}, fmt.Errorf("task revision identity mismatch")
 	}
-	return task, model.ValidateTaskAuthoring(task)
+	return task, model.ValidateTaskAuthoringRevision(task, task.Summary == "")
 }
 
 func (s *Service) TaskLifecycleArchive(ctx context.Context, projectID, taskID, actor, reason string) (model.TaskAuthoring, error) {
@@ -153,6 +153,9 @@ func taskAuthoringChangedFields(in TaskAuthoringUpdateInput) []string {
 	}
 	if in.Title != nil {
 		fields = append(fields, "title")
+	}
+	if in.Summary != nil {
+		fields = append(fields, "summary")
 	}
 	if in.Objective != nil {
 		fields = append(fields, "objective")

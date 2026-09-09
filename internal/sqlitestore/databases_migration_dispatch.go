@@ -24,7 +24,28 @@ type migrationTableSpec struct {
 }
 
 func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
-	return applyActiveMigrations(ctx, db, sharedBaselineMigration())
+	baseline := sharedBaselineMigration()
+	exists, markers, err := readMigrationMarkers(ctx, db)
+	if err != nil {
+		return err
+	}
+	if !exists || len(markers) == 0 {
+		if err := applyActiveMigrations(ctx, db, baseline); err != nil {
+			return err
+		}
+		markers = map[int64]string{}
+	}
+	if name, applied := markers[sharedTaskSummaryMigrationVersion]; applied {
+		if name != sharedTaskSummaryMigrationName {
+			return fmt.Errorf("unsupported migration marker %d/%q", sharedTaskSummaryMigrationVersion, name)
+		}
+		return applyActiveMigrations(ctx, db, baseline, migrate.Migration{Version: sharedTaskSummaryMigrationVersion, Name: sharedTaskSummaryMigrationName, Statements: []upstream.Statement{{SQL: "SELECT 1"}}})
+	}
+	summary, err := sharedTaskSummaryMigration(ctx, db)
+	if err != nil {
+		return err
+	}
+	return applyActiveMigrations(ctx, db, baseline, summary)
 }
 
 func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {

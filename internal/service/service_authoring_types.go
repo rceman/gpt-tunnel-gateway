@@ -93,6 +93,7 @@ type TaskAuthoringCreateInput struct {
 	Type                  model.TaskType    `json:"type,omitempty"`
 	Scope                 *model.TaskScope  `json:"scope,omitempty"`
 	Title                 string            `json:"title"`
+	Summary               string            `json:"summary"`
 	Objective             string            `json:"objective"`
 	AcceptanceCriteria    []string          `json:"acceptance_criteria"`
 	Constraints           []string          `json:"constraints"`
@@ -114,6 +115,7 @@ type TaskAuthoringUpdateInput struct {
 	Type                   *model.TaskType    `json:"type,omitempty"`
 	Scope                  *model.TaskScope   `json:"scope,omitempty"`
 	Title                  *string            `json:"title,omitempty"`
+	Summary                *string            `json:"summary,omitempty"`
 	Objective              *string            `json:"objective,omitempty"`
 	AcceptanceCriteria     *[]string          `json:"acceptance_criteria,omitempty"`
 	Constraints            *[]string          `json:"constraints,omitempty"`
