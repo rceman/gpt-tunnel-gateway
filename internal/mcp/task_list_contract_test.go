@@ -8,7 +8,8 @@ import (
 )
 
 func TestTaskListSchemaUsesCanonicalBoundedSurface(t *testing.T) {
-	tool := (&Server{Service: service.New(config.Config{MaxListItems: 1000})}).tools()["task/list"]
+	server := &Server{Service: service.New(config.Config{MaxListItems: 1000})}
+	tool := server.genericActionRegistry(server.tools())["task/list"]
 	if tool.Name == "" {
 		t.Fatal("task/list tool missing")
 	}

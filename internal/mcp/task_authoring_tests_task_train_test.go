@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
@@ -90,7 +91,7 @@ func TestTrainV2TaskAuthoringMCPWiringAndSchemaParity(t *testing.T) {
 			},
 		}},
 	})))
-	if len(created) != 2 || created["key"] == nil || created["revision"] != 1 {
+	if len(created) != 2 || created["key"] == nil || created["revision"] != float64(1) {
 		t.Fatalf("generic task/create result is not closed key/revision: %#v", created)
 	}
 	key, ok := created["key"].(string)
@@ -121,7 +122,13 @@ func TestTrainV2TaskAuthoringMCPWiringAndSchemaParity(t *testing.T) {
 }
 
 func TestTaskCreateSchemaUsesTaskTypeAndRejectsLegacyOperationClass(t *testing.T) {
-	schema := taskAuthoringCreateSchema()
+	server := &Server{Service: service.New(config.Config{StateDir: t.TempDir()})}
+	entries := server.genericActionRegistry(server.tools())
+	createEntry, ok := entries["task/create"]
+	if !ok {
+		t.Fatal("canonical task/create action missing")
+	}
+	schema := createEntry.InputSchema
 	if schema["additionalProperties"] != false {
 		t.Fatalf("task/create root is not closed: %#v", schema)
 	}
@@ -139,7 +146,11 @@ func TestTaskCreateSchemaUsesTaskTypeAndRejectsLegacyOperationClass(t *testing.T
 	if typ["default"] != "task" {
 		t.Fatalf("task type default=%#v", typ["default"])
 	}
-	for name, schema := range map[string]map[string]any{"create": taskAuthoringCreateSchema(), "update": taskAuthoringUpdateSchema()} {
+	updateEntry, ok := entries["task/update"]
+	if !ok {
+		t.Fatal("canonical task/update action missing")
+	}
+	for name, schema := range map[string]map[string]any{"create": schema, "update": updateEntry.InputSchema} {
 		properties := schema["properties"].(map[string]any)
 		if _, ok := properties["execution"]; ok {
 			t.Fatalf("%s exposes server-owned execution", name)
@@ -162,7 +173,7 @@ func TestTaskCreateSchemaUsesTaskTypeAndRejectsLegacyOperationClass(t *testing.T
 	if err := validateGenericActionInput(schema, valid); err != nil {
 		t.Fatalf("valid typed task/create input rejected: %v", err)
 	}
-	updateSchema := taskAuthoringUpdateSchema()
+	updateSchema := updateEntry.InputSchema
 	updateWithExecution := mustJSON(t, map[string]any{
 		"project_id": "example", "task_id": "EXM-TSK1", "expected_revision": 1, "updated_by": "planner", "execution": "train",
 	})
