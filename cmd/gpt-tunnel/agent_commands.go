@@ -6,11 +6,31 @@ import (
 	"strconv"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func agent(ctx context.Context, s *service.Service, args []string) {
 	require(args, 2)
 	switch args[0] {
+	case "register":
+		if len(args) < 3 || len(args) > 4 {
+			usage()
+		}
+		ex, rest := expected(args[3:])
+		if len(rest) != 0 {
+			usage()
+		}
+		db, err := sqlitestore.Open(s.Config.StateDir)
+		if err != nil {
+			fatal(fmt.Errorf("open Shared/Local durability for Agent registration: %w", err))
+		}
+		defer db.Close()
+		s.Durability = db
+		v, _, err := s.AgentRegister(ctx, service.AgentRegisterInput{ProjectID: args[1], AgentID: args[2], WriteOptions: service.WriteOptions{ExpectedHubRevision: ex}})
+		if err != nil {
+			fatal(err)
+		}
+		output(v)
 	case "send":
 		if len(args) != 4 || args[2] != "--text" {
 			usage()

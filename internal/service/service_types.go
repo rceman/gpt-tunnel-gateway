@@ -276,6 +276,12 @@ type AgentUpdateInput struct {
 	WriteOptions
 }
 
+type AgentRegisterInput struct {
+	ProjectID string `json:"project_id"`
+	AgentID   string `json:"agent_id"`
+	WriteOptions
+}
+
 type AgentDisableInput struct {
 	ProjectID string `json:"project_id"`
 	AgentID   string `json:"agent_id"`
