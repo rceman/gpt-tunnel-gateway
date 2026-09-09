@@ -133,7 +133,7 @@ func TestTSK531CanonicalTaskSurfaceAndLegacyEvidenceContract(t *testing.T) {
 	if !ok {
 		t.Fatalf("legacy read projection=%#v", read.OutputSchema)
 	}
-	legacyFields := []string{"schema_version", "id", "task_id", "task_revision", "revision_sha256", "parent_task_revision", "parent_task_sha256", "project_id", "title", "type", "objective", "branch", "base_revision", "acceptance_criteria", "constraints", "required_gates", "workflow_policy_revision", "operation_class", "effective_ci_field", "effective_ci_mode", "wait_for_ci", "ci_blocking", "agent_may_wait", "status", "source_train_id", "source_item_position", "source_attempt_number", "created_by", "created_at"}
+	legacyFields := []string{"schema_version", "id", "task_id", "task_revision", "revision_sha256", "parent_task_revision", "parent_task_sha256", "project_id", "title", "type", "objective", "branch", "base_revision", "acceptance_criteria", "constraints", "required_gates", "workflow_policy_revision", "operation_class", "effective_ci_field", "effective_ci_mode", "wait_for_ci", "ci_blocking", "agent_may_wait", "status", "source_train_id", "source_item_position", "source_attempt_number", "source_run_id", "source_report_id", "created_by", "created_at"}
 	if legacyProjection["additionalProperties"] != false || len(schemaProperties(legacyProjection)) != len(legacyFields) {
 		t.Fatalf("legacy read projection is not closed/full: %#v", legacyProjection)
 	}
