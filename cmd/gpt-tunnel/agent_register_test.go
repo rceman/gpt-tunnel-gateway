@@ -23,13 +23,18 @@ func TestAgentRegisterCLISyntaxRejectsMalformedArguments(t *testing.T) {
 		t.Fatalf("build CLI: %v\n%s", err, output)
 	}
 	dir := t.TempDir()
+	airelay := filepath.Join(dir, "airelay")
+	if err := os.WriteFile(airelay, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	configPath := filepath.Join(dir, "config.json")
 	data, err := json.Marshal(config.Config{
 		SchemaVersion: 1, GatewayID: "test-gateway", ListenAddr: "127.0.0.1:8875",
 		StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20,
 		MaxListItems: 1000, DispatchTimeoutSeconds: 1, RunTimeoutSeconds: 60,
-		Hub:        config.HubConfig{RepositoryURL: dir, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"},
-		Controller: config.ControllerConfig{TunnelHealthListenAddr: "127.0.0.1:8876"},
+		AirelayCommand: airelay,
+		Hub:            config.HubConfig{RepositoryURL: dir, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"},
+		Controller:     config.ControllerConfig{TunnelHealthListenAddr: "127.0.0.1:8876"},
 	})
 	if err != nil {
 		t.Fatal(err)
