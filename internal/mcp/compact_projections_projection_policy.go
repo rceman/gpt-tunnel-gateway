@@ -33,10 +33,9 @@ var projectionClasses = map[string]projectionClass{
 	"rules/read":     projectionIntentionalPayload, "runtime/logs": projectionIntentionalPayload, "runtime/restart": projectionCompactDefault,
 	"session/end": projectionClosedDefault, "session/info": projectionClosedDefault, "session/list": projectionClosedDefault, "session/start": projectionClosedDefault, "system/await": projectionClosedDefault,
 	"system/call": projectionClosedDefault, "system/schema": projectionClosedDefault,
-	"task/correction_create": projectionCompactDefault, "task/create": projectionCompactDefault, "task/finalize": projectionCompactDefault,
-	"task/list": projectionCompactDefault, "task/read": projectionCompactDefault, "task/ready": projectionCompactDefault,
-	"task/revision_list": projectionCompactDefault, "task/revision_read": projectionCompactDefault, "task/supersede": projectionCompactDefault,
-	"task/update": projectionCompactDefault, "task/work": projectionCompactDefault,
+	"task/archive": projectionClosedDefault, "task/create": projectionClosedDefault, "task/finalize": projectionCompactDefault,
+	"task/history": projectionClosedDefault, "task/list": projectionClosedDefault, "task/query": projectionClosedDefault,
+	"task/read": projectionClosedDefault, "task/update": projectionClosedDefault, "task/work": projectionCompactDefault,
 	"train/add": projectionCompactDefault, "train/advance": projectionCompactDefault, "train/correction-start": projectionCompactDefault,
 	"train/attempt-finalize": projectionCompactDefault, "train/attempt-proof-recover": projectionCompactDefault, "train/attempt-review": projectionCompactDefault, "train/review-resolve": projectionCompactDefault,
 	"train/create": projectionCompactDefault, "train/cutover": projectionCompactDefault, "train/full-proof": projectionCompactDefault, "train/review-backfill": projectionCompactDefault,
@@ -50,7 +49,7 @@ func compactProjectionAction(path string) bool {
 }
 func projectionDetailAction(path string) bool {
 	switch path {
-	case "task/list", "task/read", "train/list", "train/read":
+	case "train/list", "train/read":
 		return true
 	default:
 		return false

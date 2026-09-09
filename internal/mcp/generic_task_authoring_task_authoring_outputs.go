@@ -299,7 +299,11 @@ func reasonFromTaskRaw(raw json.RawMessage) string {
 func taskPageValue(page service.TaskLifecyclePage) map[string]any {
 	tasks := make([]any, 0, len(page.Tasks))
 	for _, task := range page.Tasks {
-		tasks = append(tasks, map[string]any{"key": task.ID, "title": task.Title, "summary": task.Summary, "status": task.Status, "revision": task.Revision, "updated_at": task.UpdatedAt})
+		item := map[string]any{"key": task.ID, "title": task.Title, "summary": task.Summary, "status": task.Status, "revision": task.Revision}
+		if task.Revision >= 2 {
+			item["updated_at"] = task.UpdatedAt
+		}
+		tasks = append(tasks, item)
 	}
 	result := map[string]any{"items": tasks}
 	if page.HasMore && page.NextCursor != "" {

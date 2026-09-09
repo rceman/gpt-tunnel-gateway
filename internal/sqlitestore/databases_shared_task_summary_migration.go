@@ -73,7 +73,11 @@ func sharedTaskSummaryMigration(ctx context.Context, db *upstream.Store) (migrat
 			return migration, fmt.Errorf("retained Task %s has no clear bounded summary", id)
 		}
 		current.Summary = summary
-		oldRecordedAt := current.CreatedAt.UTC().Format(time.RFC3339Nano)
+		oldRecordedTime := current.CreatedAt
+		if current.Revision >= 2 {
+			oldRecordedTime = current.UpdatedAt
+		}
+		oldRecordedAt := oldRecordedTime.UTC().Format(time.RFC3339Nano)
 		oldHistory, err := db.Query(ctx, `SELECT project_id,mutation_kind,actor,reason,changed_fields,payload,recorded_at FROM shared_entity_revisions WHERE entity_type='task' AND entity_id=? AND revision=?`, id, storeRevision)
 		if err != nil {
 			return migration, fmt.Errorf("read retained Task %s history: %w", id, err)
@@ -116,6 +120,9 @@ func sharedTaskSummaryMigration(ctx context.Context, db *upstream.Store) (migrat
 			upstream.Statement{SQL: `INSERT INTO hub_outbox(id,entity_type,entity_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?)`, Args: []any{opID, "task", id, current.Revision, "task-summary-migration", newPayload, recordedAt}, RequireRowsAffected: 1},
 		)
 		migration.Statements = append(migration.Statements, statements...)
+	}
+	if len(migration.Statements) == 0 {
+		migration.Statements = []upstream.Statement{{SQL: "SELECT 1"}}
 	}
 	return migration, nil
 }

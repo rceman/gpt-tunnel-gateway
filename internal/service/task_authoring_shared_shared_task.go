@@ -248,7 +248,7 @@ func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID str
 	}
 	reason := strings.TrimSpace(in.Reason)
 	if reason == "" {
-		reason = "update"
+		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("Task update reason is required")
 	}
 	if _, err := s.Durability.CommitSharedLifecycleRevision(ctx, sqlitestore.SharedLifecycleRevision{OperationID: operationID, EntityType: "task", ProjectID: updated.ProjectID, EntityID: updated.ID, ExpectedRevision: int64(in.ExpectedRevision), ExpectedStoreRevision: shared.Revision, Revision: int64(updated.Revision), Kind: "update", HistoryMutationKind: "update", Payload: payload, Actor: in.UpdatedBy, Reason: reason, ChangedFields: taskAuthoringChangedFields(in), CreatedAt: s.durableNow()}); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err

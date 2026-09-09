@@ -66,6 +66,9 @@ func (s *Service) TaskLifecycleArchive(ctx context.Context, projectID, taskID, a
 	if current.ProjectID != projectID || current.ID != taskID {
 		return model.TaskAuthoring{}, fmt.Errorf("shared task ownership mismatch")
 	}
+	if current.Status == model.TaskAuthoringArchived {
+		return current, nil
+	}
 	if admitted, err := s.taskAdmittedToNonterminalTrainShared(ctx, projectID, taskID); err != nil {
 		return model.TaskAuthoring{}, err
 	} else if admitted {
@@ -89,11 +92,19 @@ func (s *Service) TaskLifecycleArchive(ctx context.Context, projectID, taskID, a
 	}
 	if _, err := s.Durability.CommitSharedLifecycleArchive(ctx, sqlitestore.SharedLifecycleArchive{SharedLifecycleRevision: sqlitestore.SharedLifecycleRevision{
 		OperationID: "task-lifecycle-archive-" + strconv.FormatInt(s.durableNow().UnixNano(), 10), EntityType: "task", ProjectID: projectID, EntityID: taskID,
-		ExpectedRevision: entity.Revision, ExpectedStoreRevision: entity.Revision, Revision: int64(current.Revision), Payload: payload, Actor: actor, Reason: reason, ChangedFields: []string{"status"}, CreatedAt: s.durableNow(),
+		ExpectedRevision: entity.Revision, ExpectedStoreRevision: entity.Revision, Revision: int64(current.Revision), Payload: payload, Actor: actor, Reason: reason, ChangedFields: taskArchiveChangedFields(current), CreatedAt: s.durableNow(),
 	}}); err != nil {
 		return model.TaskAuthoring{}, err
 	}
 	return current, nil
+}
+
+func taskArchiveChangedFields(current model.TaskAuthoring) []string {
+	fields := []string{"status"}
+	if current.ReadySeal != nil {
+		fields = append(fields, "ready_seal")
+	}
+	return fields
 }
 
 func (s *Service) TaskLifecycleListQuery(ctx context.Context, projectID, text, status string, typ model.TaskType, cursor string, includeArchived bool) (TaskLifecyclePage, error) {
