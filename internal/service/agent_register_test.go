@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -45,7 +46,7 @@ func TestAgentRegisterCreatesPortableHubAndLocalAgent(t *testing.T) {
 	if err := s.Hub.ReadJSON(context.Background(), s.agentPath("example", agent.AgentID), &hubAgent); err != nil {
 		t.Fatal(err)
 	}
-	if hubAgent != agent {
+	if !reflect.DeepEqual(hubAgent, agent) {
 		t.Fatalf("Hub and returned Agent differ: hub=%#v returned=%#v", hubAgent, agent)
 	}
 	localAgent, err := db.ReadLocalAgent(context.Background(), "example", agent.AgentID)
