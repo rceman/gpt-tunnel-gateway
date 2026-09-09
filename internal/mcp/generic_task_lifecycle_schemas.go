@@ -37,16 +37,16 @@ func taskLifecycleHistorySchema() map[string]any {
 
 func taskLifecycleReadOutputSchema() map[string]any {
 	p := taskLifecycleInputProperties()
-	properties := map[string]any{"key": outputString(), "revision": outputInteger(), "title": p["title"], "summary": p["summary"], "status": outputEnum(model.TaskAuthoringPlanned, model.TaskAuthoringReady, model.TaskAuthoringArchived), "type": p["type"], "scope": p["scope"], "objective": p["objective"], "acceptance_criteria": p["acceptance_criteria"], "constraints": p["constraints"], "priority": p["priority"], "dependencies": p["dependencies"], "preparation_references": p["preparation_references"], "metadata": p["metadata"], "adr_relation": p["adr_relation"], "adr_references": p["adr_references"], "created_at": outputDateTime(), "updated_at": outputDateTime(), "revision_reason": outputString()}
+	properties := map[string]any{"key": outputString(), "revision": outputInteger(), "title": p["title"], "summary": p["summary"], "status": outputEnum(model.TaskAuthoringPlanned, model.TaskAuthoringReady, model.TaskAuthoringArchived), "type": p["type"], "scope": p["scope"], "objective": p["objective"], "acceptance_criteria": p["acceptance_criteria"], "constraints": p["constraints"], "priority": p["priority"], "dependencies": p["dependencies"], "preparation_references": p["preparation_references"], "metadata": p["metadata"], "adr_relation": p["adr_relation"], "adr_references": p["adr_references"], "created_at": outputDateTime(), "updated_at": outputDateTime()}
 	return closedOutput(properties, "key", "revision", "title", "status", "type", "objective", "acceptance_criteria", "constraints", "dependencies", "preparation_references", "adr_relation", "adr_references", "created_at")
 }
 func taskLifecycleSummarySchema() map[string]any {
 	return closedOutput(map[string]any{"key": outputString(), "title": outputString(), "summary": outputString(), "status": outputEnum(model.TaskAuthoringPlanned, model.TaskAuthoringReady, model.TaskAuthoringArchived), "revision": outputInteger(), "updated_at": outputDateTime()}, "key", "title", "summary", "status", "revision")
 }
 func taskLifecycleListOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"items": outputArray(taskLifecycleSummarySchema())}, "items")
+	return closedOutput(map[string]any{"items": outputArray(taskLifecycleSummarySchema()), "next_cursor": outputString()}, "items")
 }
 func taskLifecycleHistoryOutputSchema() map[string]any {
 	row := closedOutput(map[string]any{"revision": outputInteger(), "mutation_kind": outputString(), "actor": outputString(), "reason": outputString(), "changed_fields": outputArray(outputString()), "recorded_at": outputDateTime()}, "revision", "mutation_kind", "actor", "reason", "recorded_at")
-	return closedOutput(map[string]any{"key": outputString(), "revisions": outputArray(row)}, "key", "revisions")
+	return closedOutput(map[string]any{"key": outputString(), "revisions": outputArray(row), "next_cursor": outputString()}, "key", "revisions")
 }

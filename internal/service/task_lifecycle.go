@@ -66,9 +66,23 @@ func (s *Service) TaskLifecycleArchive(ctx context.Context, projectID, taskID, a
 	if current.ProjectID != projectID || current.ID != taskID {
 		return model.TaskAuthoring{}, fmt.Errorf("shared task ownership mismatch")
 	}
+	if admitted, err := s.taskAdmittedToNonterminalTrainShared(ctx, projectID, taskID); err != nil {
+		return model.TaskAuthoring{}, err
+	} else if admitted {
+		return model.TaskAuthoring{}, fmt.Errorf("Task %q is admitted to a nonterminal Train and cannot be archived", taskID)
+	}
 	current.Status = model.TaskAuthoringArchived
 	current.Revision++
 	current.UpdatedAt = s.durableNow()
+	current.ReadySeal = nil
+	current.RevisionSHA256 = ""
+	current.RevisionSHA256, err = model.HashTaskAuthoring(current)
+	if err != nil {
+		return model.TaskAuthoring{}, err
+	}
+	if err := model.ValidateTaskAuthoring(current); err != nil {
+		return model.TaskAuthoring{}, err
+	}
 	payload, err := json.Marshal(current)
 	if err != nil {
 		return model.TaskAuthoring{}, err

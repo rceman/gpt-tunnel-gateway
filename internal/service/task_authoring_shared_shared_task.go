@@ -211,6 +211,9 @@ func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID str
 	if err := s.requireLocalTaskAuthoring(ctx, in.ProjectID); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
+	if in.Type == nil && in.Scope == nil && in.Title == nil && in.Summary == nil && in.Objective == nil && in.AcceptanceCriteria == nil && in.Constraints == nil && in.Priority == nil && in.Dependencies == nil && in.PreparationReferences == nil && in.Metadata == nil && in.ADRRelation == nil && in.ADRReferences == nil {
+		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("at least one mutable Task field is required")
+	}
 	current, err := s.readSharedTask(ctx, in.ProjectID, in.TaskID)
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err

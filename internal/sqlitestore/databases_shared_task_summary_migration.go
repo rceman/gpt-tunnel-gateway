@@ -13,49 +13,48 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-var retainedTaskSummaryIDs = []string{
-	"GTW-TSK384", "GTW-TSK393", "GTW-TSK409", "GTW-TSK433", "GTW-TSK434", "GTW-TSK435", "GTW-TSK455", "GTW-TSK478", "GTW-TSK479", "GTW-TSK480", "GTW-TSK507", "GTW-TSK511", "GTW-TSK521", "GTW-TSK522", "GTW-TSK523", "GTW-TSK527", "GTW-TSK529", "GTW-TSK530", "GTW-TSK531", "GTW-TSK532", "GTW-TSK539", "GTW-TSK540", "GTW-TSK541", "GTW-TSK542", "GTW-TSK543", "GTW-TSK544", "GTW-TSK545",
+const sharedTaskSummaryMigrationMaxRows = 256
+
+var explicitTaskSummaries = map[string]string{
+	"GTW-TSK433": "Migrate Train planning and Journal onto the SharedLifecycle core after Task execution cleanup, while leaving Rule and Milestone to their dedicated Tasks.",
+	"GTW-TSK434": "Prove the complete canonical GPT Tunnel lifecycle on a clean disposable project before BotDuel onboarding, including Task execution, review/rework, integration, release and deployment.",
+	"GTW-TSK521": "Implement ADR108 Task execution, review and integration on SharedLifecycle using one reused Agent, immutable review artifacts and verified-tree squash integration.",
+	"GTW-TSK527": "Separate Milestone layout authority in ADR95 from reusable status-symbol authority in ADR107 while preserving both ADR identities and history.",
+	"GTW-TSK529": "Implement Project release as a durable operation over exact canonical-main source, separate from Task integration and deployment.",
+	"GTW-TSK530": "Implement Project deployment as a durable operation for an exact eligible release, separate from Task integration, release creation and break-glass activation.",
+	"GTW-TSK550": "Allow requires_new_adr Tasks without existing ADR references while keeping existing-ADR relations fail-closed.",
 }
 
 func sharedTaskSummaryMigration(ctx context.Context, db *upstream.Store) (migrate.Migration, error) {
 	migration := migrate.Migration{Version: sharedTaskSummaryMigrationVersion, Name: sharedTaskSummaryMigrationName}
-	rows, err := db.Query(ctx, "SELECT COUNT(*) FROM shared_tasks")
+	rows, err := db.Query(ctx, "SELECT id,revision,payload FROM shared_tasks ORDER BY id")
 	if err != nil {
 		return migration, fmt.Errorf("count Shared Tasks for summary migration: %w", err)
 	}
-	if len(rows.Rows) != 1 || len(rows.Rows[0]) != 1 {
-		return migration, fmt.Errorf("invalid Shared Task count result")
-	}
-	count, ok := rows.Rows[0][0].(int64)
-	if !ok || count < 0 {
-		return migration, fmt.Errorf("invalid Shared Task count %T", rows.Rows[0][0])
-	}
-	if count == 0 {
+	if len(rows.Rows) == 0 {
 		migration.Statements = []upstream.Statement{{SQL: "SELECT 1"}}
 		return migration, nil
 	}
-	if count != int64(len(retainedTaskSummaryIDs)) {
-		return migration, fmt.Errorf("retained Task summary migration requires exactly %d current Tasks, found %d", len(retainedTaskSummaryIDs), count)
+	if len(rows.Rows) > sharedTaskSummaryMigrationMaxRows {
+		return migration, fmt.Errorf("current Task inventory exceeds bounded migration maximum %d", sharedTaskSummaryMigrationMaxRows)
 	}
-	for _, id := range retainedTaskSummaryIDs {
-		rows, err := db.Query(ctx, `SELECT id,revision,payload FROM shared_tasks WHERE id=?`, id)
-		if err != nil {
-			return migration, fmt.Errorf("read retained Task %s: %w", id, err)
+	migrationTime := time.Now().UTC()
+	for _, row := range rows.Rows {
+		if len(row) != 3 {
+			return migration, fmt.Errorf("invalid current Task row shape")
 		}
-		if len(rows.Rows) != 1 || len(rows.Rows[0]) != 3 {
-			return migration, fmt.Errorf("retained Task %s is missing or duplicated", id)
-		}
-		storeRevision, ok := rows.Rows[0][1].(int64)
-		payload, payloadOK := rows.Rows[0][2].([]byte)
-		if !ok || storeRevision < 1 || !payloadOK {
+		id, idOK := row[0].(string)
+		storeRevision, revisionOK := row[1].(int64)
+		payload, payloadOK := row[2].([]byte)
+		if !idOK || id == "" || !revisionOK || storeRevision < 1 || !payloadOK {
 			return migration, fmt.Errorf("retained Task %s has invalid store row", id)
 		}
 		var current model.TaskAuthoring
 		if err := json.Unmarshal(payload, &current); err != nil {
 			return migration, fmt.Errorf("decode retained Task %s: %w", id, err)
 		}
-		if current.ID != id || current.Revision != int(storeRevision) || current.Summary != "" {
-			return migration, fmt.Errorf("retained Task %s identity/revision/summary mismatch", id)
+		if current.ID != id || current.Revision != int(storeRevision) {
+			return migration, fmt.Errorf("current Task %s identity/revision mismatch", id)
 		}
 		if err := model.ValidateTaskAuthoringRevision(current, true); err != nil {
 			return migration, fmt.Errorf("retained Task %s validation failed: %w", id, err)
@@ -63,8 +62,14 @@ func sharedTaskSummaryMigration(ctx context.Context, db *upstream.Store) (migrat
 		if len([]rune(current.Title)) > 128 {
 			return migration, fmt.Errorf("retained Task %s title exceeds 128 characters", id)
 		}
-		summary := strings.TrimSpace(current.Title)
-		if summary == "" || len([]rune(summary)) > 256 {
+		if current.Summary != "" {
+			continue
+		}
+		summary, ok := explicitTaskSummaries[id]
+		if !ok {
+			summary, err = boundedTaskSummary(current.Objective)
+		}
+		if err != nil {
 			return migration, fmt.Errorf("retained Task %s has no clear bounded summary", id)
 		}
 		current.Summary = summary
@@ -78,15 +83,18 @@ func sharedTaskSummaryMigration(ctx context.Context, db *upstream.Store) (migrat
 		}
 		statements := make([]upstream.Statement, 0, 4)
 		if len(oldHistory.Rows) == 0 {
-			statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_entity_revisions(entity_type,entity_id,project_id,revision,mutation_kind,actor,reason,changed_fields,payload,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, Args: []any{"task", id, current.ProjectID, storeRevision, "create", current.CreatedBy, "create", []byte(`["create"]`), payload, oldRecordedAt}, RequireRowsAffected: 1})
+			statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_entity_revisions(entity_type,entity_id,project_id,revision,mutation_kind,actor,reason,changed_fields,payload,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, Args: []any{"task", id, current.ProjectID, storeRevision, "migration", "system:task-summary-migration", "preserve pre-summary Task payload", []byte(`["legacy"]`), payload, oldRecordedAt}, RequireRowsAffected: 1})
 		} else {
+			if len(oldHistory.Rows[0]) != 7 || oldHistory.Rows[0][0] != current.ProjectID {
+				return migration, fmt.Errorf("retained Task %s current history is not an exact preserved payload", id)
+			}
 			historyPayload, payloadOK := oldHistory.Rows[0][5].([]byte)
-			if len(oldHistory.Rows[0]) != 7 || oldHistory.Rows[0][0] != current.ProjectID || !payloadOK || !bytes.Equal(historyPayload, payload) {
+			if !payloadOK || !bytes.Equal(historyPayload, payload) {
 				return migration, fmt.Errorf("retained Task %s current history is not an exact preserved payload", id)
 			}
 		}
 		current.Revision++
-		current.UpdatedAt = time.Now().UTC()
+		current.UpdatedAt = migrationTime
 		current.RevisionSHA256 = ""
 		current.RevisionSHA256, err = model.HashTaskAuthoring(current)
 		if err != nil {
@@ -110,4 +118,17 @@ func sharedTaskSummaryMigration(ctx context.Context, db *upstream.Store) (migrat
 		migration.Statements = append(migration.Statements, statements...)
 	}
 	return migration, nil
+}
+
+func boundedTaskSummary(objective string) (string, error) {
+	words := strings.Fields(objective)
+	for i, word := range words {
+		if strings.HasSuffix(word, ".") || strings.HasSuffix(word, "!") || strings.HasSuffix(word, "?") {
+			candidate := strings.Join(words[:i+1], " ")
+			if candidate != "" && len([]rune(candidate)) <= 256 {
+				return candidate, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("objective has no complete sentence within 256 characters")
 }

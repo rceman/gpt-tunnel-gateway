@@ -8,6 +8,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 func taskLifecycleValue(task model.TaskAuthoring) map[string]any {
@@ -32,7 +33,7 @@ func taskLifecycleValue(task model.TaskAuthoring) map[string]any {
 
 func (s *Server) registerTaskAuthoringActions() error {
 	register := func(action GenericAction) error {
-		action.AuthorityRole = actionRolePlannerOrAgent
+		action.AuthorityRole = durableSession.RolePlanner
 		action.SessionBound = true
 		action.LocalReceiptOnly = true
 		return s.RegisterGenericAction(action)
@@ -262,7 +263,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 			}
 			result := map[string]any{"key": in.Key, "revisions": rows}
 			if page.HasMore {
-				result["_pagination"] = map[string]any{"next_cursor": pagination.EncodeOpaqueKeyset("task-history:"+in.ProjectID+":"+in.Key, fmt.Sprintf("%d", page.NextRevision))}
+				result["next_cursor"] = pagination.EncodeOpaqueKeyset("task-history:"+in.ProjectID+":"+in.Key, fmt.Sprintf("%d", page.NextRevision))
 			}
 			return result, nil
 		},
@@ -302,7 +303,7 @@ func taskPageValue(page service.TaskLifecyclePage) map[string]any {
 	}
 	result := map[string]any{"items": tasks}
 	if page.HasMore && page.NextCursor != "" {
-		result["_pagination"] = map[string]any{"next_cursor": page.NextCursor}
+		result["next_cursor"] = page.NextCursor
 	}
 	return result
 }

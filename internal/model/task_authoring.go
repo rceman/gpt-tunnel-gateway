@@ -46,7 +46,7 @@ func validateTaskAuthoring(v TaskAuthoring, requireSummary bool) error {
 	if v.SchemaVersion != TaskAuthoringSchemaVersion || ValidateCanonicalTaskID(v.ID) != nil || ValidateProjectIdentifier(v.ProjectID) != nil {
 		return fmt.Errorf("invalid task authoring identity")
 	}
-	if len(v.Title) < 3 || len(v.Title) > 128 || len(v.Objective) < 3 || len(v.Objective) > 200000 {
+	if len([]rune(v.Title)) < 3 || len([]rune(v.Title)) > 128 || len(v.Objective) < 3 || len(v.Objective) > 200000 {
 		return fmt.Errorf("invalid task authoring content")
 	}
 	if (requireSummary && strings.TrimSpace(v.Summary) == "") || len([]rune(v.Summary)) > 256 {
@@ -82,8 +82,22 @@ func validateTaskAuthoring(v TaskAuthoring, requireSummary bool) error {
 		if len(v.ADRReferences) != 0 {
 			return fmt.Errorf("no_adr_required cannot include ADR references")
 		}
-	case TaskADRImplementsExisting, TaskADRRequiresNew, TaskADRSupersedesExisting:
+	case TaskADRImplementsExisting, TaskADRSupersedesExisting:
 		if len(v.ADRReferences) == 0 || len(v.ADRReferences) > 8 {
+			return fmt.Errorf("ADR relation requires bounded ADR references")
+		}
+		seen := map[string]bool{}
+		for _, id := range v.ADRReferences {
+			if ValidateADRIdentifier(id) != nil && ValidateCanonicalADRIdentifier(id) != nil {
+				return fmt.Errorf("invalid ADR reference %q", id)
+			}
+			if seen[id] {
+				return fmt.Errorf("duplicate ADR reference %q", id)
+			}
+			seen[id] = true
+		}
+	case TaskADRRequiresNew:
+		if len(v.ADRReferences) > 8 {
 			return fmt.Errorf("ADR relation requires bounded ADR references")
 		}
 		seen := map[string]bool{}

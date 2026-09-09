@@ -41,7 +41,7 @@ var sharedLifecycleRegistry = map[string]sharedLifecycleDefinition{
 		HistoryTable:         "shared_entity_revisions",
 		HistoryEntityColumn:  "entity_type",
 		HistoryIDColumn:      "entity_id",
-		SearchFields:         []string{"id", "title", "objective", "status", "type", "priority", "adr_relation"},
+		SearchFields:         []string{"id", "title", "summary", "objective", "status", "type", "priority", "adr_relation"},
 		FilterFields:         []string{"status", "type"},
 	},
 	"train": {
