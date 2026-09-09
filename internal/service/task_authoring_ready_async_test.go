@@ -15,6 +15,7 @@ func TestTaskAuthoringReadyAsyncIsBoundedAndIdempotent(t *testing.T) {
 	task, operation, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:          "example",
 		Title:              "Async ready task",
+		Summary:            "Persist a readiness intent.",
 		Objective:          "Persist a readiness intent before Hub work.",
 		AcceptanceCriteria: []string{"one durable readiness seal"},
 		ADRRelation:        model.TaskADRNoRequired,

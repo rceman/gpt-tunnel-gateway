@@ -14,6 +14,7 @@ func readyTrainTaskForTest(t *testing.T, s *Service, hubRevision, title string) 
 	task, created, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:   "example",
 		Title:       title,
+		Summary:     "Produce one ready Task for admission.",
 		Objective:   "Produce one exact ready Task for Train admission.",
 		ADRRelation: model.TaskADRNoRequired,
 		CreatedBy:   "planner",

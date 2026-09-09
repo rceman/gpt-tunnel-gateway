@@ -20,6 +20,7 @@ func TestHotfixLifecycleUsesRecordedBaseAndExactRetryIsNoOp(t *testing.T) {
 	task, operation, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:   "example",
 		Title:       "Hotfix-bound Task",
+		Summary:     "Exercise hotfix binding.",
 		Objective:   "Exercise the mandatory hotfix Task binding.",
 		ADRRelation: model.TaskADRNoRequired,
 		CreatedBy:   "planner",
@@ -118,6 +119,7 @@ func TestHotfixCreateRollsBackTaskBindingWhenIdentityWriteFails(t *testing.T) {
 	task, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:   "example",
 		Title:       "Hotfix rollback Task",
+		Summary:     "Verify rollback binding.",
 		Objective:   "Verify failed identity persistence does not bind the Task.",
 		ADRRelation: model.TaskADRNoRequired,
 		CreatedBy:   "planner",
@@ -163,6 +165,7 @@ func TestTaskWorkDeliveredHotfixReceiptAvoidsSecondPrompt(t *testing.T) {
 	task, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:   "example",
 		Title:       "Delivered hotfix receipt",
+		Summary:     "Verify delivered receipt reuse.",
 		Objective:   "Verify repeated Task work does not prompt twice.",
 		ADRRelation: model.TaskADRNoRequired,
 		CreatedBy:   "planner",

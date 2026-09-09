@@ -37,6 +37,7 @@ func TestTaskAuthoringFindSkipsEarlierLegacyProject(t *testing.T) {
 	task, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:   "example",
 		Title:       "Canonical task",
+		Summary:     "Find the canonical task.",
 		Objective:   "Find the canonical train_v2 task.",
 		ADRRelation: model.TaskADRNoRequired,
 		CreatedBy:   "planner",

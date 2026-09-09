@@ -28,6 +28,7 @@ func TestTaskAuthoringServiceWiresADRReadiness(t *testing.T) {
 	task, operation, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:     "example",
 		Title:         "ADR-linked task",
+		Summary:       "Require an accepted ADR relation.",
 		Objective:     "Require accepted ADR relation.",
 		ADRRelation:   model.TaskADRImplementsExisting,
 		ADRReferences: []string{"EXM-ADR1"},
@@ -65,6 +66,7 @@ func TestTaskAuthoringServiceWiresADRReadiness(t *testing.T) {
 	bad, badOperation, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:     "example",
 		Title:         "Bad ADR task",
+		Summary:       "Reject an invalid ADR relation.",
 		Objective:     "Reject missing ADR at readiness.",
 		ADRRelation:   model.TaskADRImplementsExisting,
 		ADRReferences: []string{"EXM-ADR99"},
@@ -95,6 +97,7 @@ func TestTaskAuthoringRequiresTrainV2AndOptimisticRevision(t *testing.T) {
 	if _, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:   "example",
 		Title:       "Legacy blocked",
+		Summary:     "Require the current execution model.",
 		Objective:   "Must require train_v2.",
 		ADRRelation: model.TaskADRNoRequired,
 		CreatedBy:   "planner",
@@ -109,6 +112,7 @@ func TestTaskAuthoringRequiresTrainV2AndOptimisticRevision(t *testing.T) {
 	task, operation, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:   "example",
 		Title:       "Revision guard",
+		Summary:     "Exercise optimistic revision checks.",
 		Objective:   "Exercise optimistic revision.",
 		ADRRelation: model.TaskADRNoRequired,
 		CreatedBy:   "planner",

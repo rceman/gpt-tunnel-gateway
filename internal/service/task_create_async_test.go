@@ -15,6 +15,7 @@ func TestTaskAuthoringCreateAsyncIsDurableAndIdempotent(t *testing.T) {
 	in := TaskAuthoringCreateInput{
 		ProjectID:          "example",
 		Title:              "Async task receipt",
+		Summary:            "Persist an asynchronous task receipt.",
 		Objective:          "Persist intent before remote Hub work.",
 		AcceptanceCriteria: []string{"one durable task"},
 		ADRRelation:        model.TaskADRNoRequired,

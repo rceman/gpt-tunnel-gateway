@@ -15,6 +15,7 @@ func TestTaskAuthoringUpdateAsyncIsBoundedIdempotentAndRestartReadable(t *testin
 	task, operation, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:          "example",
 		Title:              "Async update task",
+		Summary:            "Persist an update intent.",
 		Objective:          "Persist an update intent before Hub work.",
 		AcceptanceCriteria: []string{"one bounded receipt"},
 		ADRRelation:        model.TaskADRNoRequired,

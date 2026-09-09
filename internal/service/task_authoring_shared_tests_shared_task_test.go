@@ -147,6 +147,7 @@ func TestTaskAuthoringAsyncMutationsCommitSharedWhenHubUnavailable(t *testing.T)
 	created, err := s.TaskAuthoringCreateAsync(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:          "example",
 		Title:              "Offline shared task",
+		Summary:            "Commit shared state without Hub.",
 		Objective:          "Commit without Hub availability.",
 		AcceptanceCriteria: []string{"create", "update", "ready"},
 		ADRRelation:        model.TaskADRNoRequired,

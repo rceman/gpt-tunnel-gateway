@@ -17,6 +17,7 @@ func createHotfixTaskForDispatchTest(t *testing.T, s *Service, revision string) 
 	task, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:   "example",
 		Title:       "Hotfix dispatch contract",
+		Summary:     "Verify hotfix dispatch binding.",
 		Objective:   "Verify the resolved base Agent session is used.",
 		ADRRelation: model.TaskADRNoRequired,
 		CreatedBy:   "planner",

@@ -47,6 +47,7 @@ func TestTaskAuthoringServiceWiresCanonicalLifecycle(t *testing.T) {
 	task, operation, err := s.TaskAuthoringCreate(ctx, TaskAuthoringCreateInput{
 		ProjectID:          "example",
 		Title:              "Bounded train task",
+		Summary:            "Create a bounded train task.",
 		Objective:          "Create a branchless planned specification.",
 		AcceptanceCriteria: []string{"planned is durable"},
 		Scope:              &model.TaskScope{Files: []string{"internal/service/task_authoring.go"}, Modules: []string{"gateway"}},

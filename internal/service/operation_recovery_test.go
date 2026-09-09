@@ -140,6 +140,7 @@ func TestRecoverRunningTaskCreateForStartup(t *testing.T) {
 		Input: TaskAuthoringCreateInput{
 			ProjectID: "example",
 			Title:     "Recovery test task",
+			Summary:   "Verify restart recovery.",
 			Objective: "Verify restart recovery.",
 			CreatedBy: "planner",
 		},

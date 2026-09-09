@@ -21,6 +21,7 @@ func TestFreshSharedBaselineAllowsAuthoringWithoutBootstrapMarker(t *testing.T) 
 	in := TaskAuthoringCreateInput{
 		ProjectID:          "example",
 		Title:              "Marker task",
+		Summary:            "Verify baseline authoring.",
 		Objective:          "Require bootstrap first.",
 		AcceptanceCriteria: []string{"marker"},
 		ADRRelation:        model.TaskADRNoRequired,
