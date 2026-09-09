@@ -249,10 +249,8 @@ type ProjectIdentifiersAdoptInput struct {
 }
 
 type ProjectUpdateInput struct {
-	ProjectID      string `json:"project_id"`
-	ProjectCode    string `json:"project_code"`
-	NextTaskNumber uint64 `json:"next_task_number"`
-	NextADRNumber  uint64 `json:"next_adr_number"`
+	ProjectID   string `json:"project_id"`
+	ProjectCode string `json:"project_code"`
 }
 
 type ProjectUpdateResult struct {

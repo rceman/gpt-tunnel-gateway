@@ -18,8 +18,7 @@ type ProjectBootstrapUpdate struct {
 	ProjectID           string
 	PreviousProjectCode string
 	ProjectCode         string
-	NextTaskNumber      uint64
-	NextADRNumber       uint64
+	HubIdentifiers      model.ProjectIdentifiers
 	Configuration       model.ProjectConfiguration
 }
 
@@ -38,11 +37,11 @@ func (d *Databases) ReconcileProjectBootstrap(ctx context.Context, in ProjectBoo
 	if err := model.ValidateProjectCode(in.ProjectCode); err != nil {
 		return err
 	}
-	if err := model.ValidateCompactIDNumber(in.NextTaskNumber); err != nil {
-		return fmt.Errorf("next task number: %w", err)
+	if err := model.ValidateProjectIdentifiers(in.HubIdentifiers); err != nil {
+		return fmt.Errorf("Hub identifiers: %w", err)
 	}
-	if err := model.ValidateCompactIDNumber(in.NextADRNumber); err != nil {
-		return fmt.Errorf("next ADR number: %w", err)
+	if in.HubIdentifiers.ProjectID != in.ProjectID || in.HubIdentifiers.ProjectCode != in.PreviousProjectCode {
+		return fmt.Errorf("Hub identifier identity mismatch")
 	}
 	if in.PreviousProjectCode == in.ProjectCode {
 		return fmt.Errorf("project code is unchanged")
@@ -66,6 +65,9 @@ func (d *Databases) ReconcileProjectBootstrap(ctx context.Context, in ProjectBoo
 	}
 	if identifiers.found && (identifiers.nextTask < 1 || identifiers.nextADR < 1) {
 		return fmt.Errorf("Shared project identifier counters are invalid")
+	}
+	if identifiers.found && (uint64(identifiers.nextTask) != in.HubIdentifiers.NextTaskNumber || uint64(identifiers.nextADR) != in.HubIdentifiers.NextADRNumber) {
+		return fmt.Errorf("Shared and Hub project identifier counters disagree")
 	}
 	sequences, err := readBootstrapSequences(ctx, d, in.ProjectID)
 	if err != nil {
@@ -111,14 +113,14 @@ func (d *Databases) ReconcileProjectBootstrap(ctx context.Context, in ProjectBoo
 	if identifiers.found {
 		statements = append(statements, upstream.Statement{SQL: `UPDATE shared_project_identifiers SET project_code=? WHERE project_id=? AND project_code=?`, Args: []any{in.ProjectCode, in.ProjectID, identifiers.projectCode}, RequireRowsAffected: 1})
 	} else {
-		statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_project_identifiers(project_id,project_code,next_task_number,next_adr_number,next_rule_number,next_journal_number,next_train_number) VALUES(?,?,?,?,?,?,?)`, Args: []any{in.ProjectID, in.ProjectCode, in.NextTaskNumber, in.NextADRNumber, 1, 1, 1}, RequireRowsAffected: 1})
+		statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_project_identifiers(project_id,project_code,next_task_number,next_adr_number,next_rule_number,next_journal_number,next_train_number) VALUES(?,?,?,?,?,?,?)`, Args: []any{in.ProjectID, in.ProjectCode, in.HubIdentifiers.NextTaskNumber, in.HubIdentifiers.NextADRNumber, 1, 1, 1}, RequireRowsAffected: 1})
 	}
 	for _, sequence := range sequences {
 		statements = append(statements, upstream.Statement{SQL: `UPDATE shared_entity_sequences SET project_code=? WHERE entity_type=? AND project_id=? AND project_code=?`, Args: []any{in.ProjectCode, sequence.entityType, in.ProjectID, sequence.projectCode}, RequireRowsAffected: 1})
 	}
 	for _, entityType := range []string{"task", "adr"} {
 		if !hasBootstrapSequence(sequences, entityType) {
-			statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_entity_sequences(entity_type,project_id,project_code,next_number) VALUES(?,?,?,?)`, Args: []any{entityType, in.ProjectID, in.ProjectCode, maxBootstrapNext(sequences, entityType, sequenceFallback(entityType, identifiers, in))}, RequireRowsAffected: 1})
+			statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_entity_sequences(entity_type,project_id,project_code,next_number) VALUES(?,?,?,?)`, Args: []any{entityType, in.ProjectID, in.ProjectCode, maxBootstrapNext(sequences, entityType, sequenceFallback(entityType, identifiers, in.HubIdentifiers))}, RequireRowsAffected: 1})
 		}
 	}
 	if !configurationPresent {
@@ -192,7 +194,7 @@ func hasBootstrapSequence(rows []bootstrapSequence, typ string) bool {
 	}
 	return false
 }
-func sequenceFallback(typ string, ids bootstrapIdentifiers, in ProjectBootstrapUpdate) int64 {
+func sequenceFallback(typ string, ids bootstrapIdentifiers, hubIDs model.ProjectIdentifiers) int64 {
 	if typ == "adr" && ids.nextADR > 0 {
 		return ids.nextADR
 	}
@@ -200,9 +202,9 @@ func sequenceFallback(typ string, ids bootstrapIdentifiers, in ProjectBootstrapU
 		return ids.nextTask
 	}
 	if typ == "adr" {
-		return int64(in.NextADRNumber)
+		return int64(hubIDs.NextADRNumber)
 	}
-	return int64(in.NextTaskNumber)
+	return int64(hubIDs.NextTaskNumber)
 }
 func maxBootstrapNext(rows []bootstrapSequence, typ string, fallback int64) int64 {
 	for _, row := range rows {

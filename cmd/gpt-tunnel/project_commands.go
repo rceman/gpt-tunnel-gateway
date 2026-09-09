@@ -25,7 +25,7 @@ func project(ctx context.Context, s *service.Service, args []string) {
 		}
 		output(v)
 	case "update":
-		if len(args) != 3 || args[1] != "--project-code" {
+		if len(args) != 4 || args[2] != "--project-code" {
 			usage()
 		}
 		db, e := sqlitestore.Open(s.Config.StateDir)
@@ -34,7 +34,7 @@ func project(ctx context.Context, s *service.Service, args []string) {
 		}
 		defer db.Close()
 		s.Durability = db
-		v, e := s.ProjectUpdate(ctx, service.ProjectUpdateInput{ProjectID: args[0], ProjectCode: args[2]})
+		v, e := s.ProjectUpdate(ctx, service.ProjectUpdateInput{ProjectID: args[1], ProjectCode: args[3]})
 		if e != nil {
 			fatal(e)
 		}

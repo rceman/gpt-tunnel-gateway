@@ -49,6 +49,9 @@ func (s *Service) ProjectUpdate(ctx context.Context, in ProjectUpdateInput) (Pro
 	if identifiers.ProjectCode != local.ProjectCode {
 		return ProjectUpdateResult{}, fmt.Errorf("local and durable project codes disagree")
 	}
+	if identifiers.NextTaskNumber != 1 || identifiers.NextADRNumber != 1 {
+		return ProjectUpdateResult{}, fmt.Errorf("project code correction requires virgin Hub identifier counters")
+	}
 	var configuration model.ProjectConfiguration
 	if err := snapshot.ReadJSON(readCtx, s.projectConfigurationPath(in.ProjectID), &configuration); err != nil {
 		return ProjectUpdateResult{}, fmt.Errorf("Hub project configuration is unavailable: %w", err)
@@ -96,7 +99,7 @@ func (s *Service) ProjectUpdate(ctx context.Context, in ProjectUpdateInput) (Pro
 		_ = config.Restore(s.ConfigPath, originalConfig)
 		return ProjectUpdateResult{}, err
 	}
-	if err := s.Durability.ReconcileProjectBootstrap(ctx, sqlitestore.ProjectBootstrapUpdate{ProjectID: in.ProjectID, PreviousProjectCode: local.ProjectCode, ProjectCode: in.ProjectCode, NextTaskNumber: identifiers.NextTaskNumber, NextADRNumber: identifiers.NextADRNumber, Configuration: configuration}); err != nil {
+	if err := s.Durability.ReconcileProjectBootstrap(ctx, sqlitestore.ProjectBootstrapUpdate{ProjectID: in.ProjectID, PreviousProjectCode: local.ProjectCode, ProjectCode: in.ProjectCode, HubIdentifiers: identifiers, Configuration: configuration}); err != nil {
 		rollbackErr := s.rollbackProjectCode(ctx, tx.After, in.ProjectID, local.ProjectCode)
 		configErr := config.Restore(s.ConfigPath, originalConfig)
 		if rollbackErr != nil || configErr != nil {
