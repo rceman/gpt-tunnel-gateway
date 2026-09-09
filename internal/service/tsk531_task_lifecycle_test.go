@@ -21,8 +21,13 @@ func TestTSK531SharedTaskLifecycleContract(t *testing.T) {
 	s.Durability = db
 	ctx := context.Background()
 	created, _, err := s.taskAuthoringCreateShared(ctx, "tsk531-create", TaskAuthoringCreateInput{
-		ProjectID: "example", Title: "Lifecycle Task", Summary: "Searchable compact summary.", Objective: "A bounded objective sentence.",
-		AcceptanceCriteria: []string{"history"}, ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
+		ProjectID:          "example",
+		Title:              "Lifecycle Task",
+		Summary:            "Searchable compact summary.",
+		Objective:          "A bounded objective sentence.",
+		AcceptanceCriteria: []string{"history"},
+		ADRRelation:        model.TaskADRNoRequired,
+		CreatedBy:          "planner",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -33,16 +38,32 @@ func TestTSK531SharedTaskLifecycleContract(t *testing.T) {
 	if _, err := s.TaskLifecycleRead(ctx, "example", created.ID, 1); err != nil {
 		t.Fatalf("historical revision 1: %v", err)
 	}
-	if _, _, err := s.taskAuthoringUpdateShared(ctx, "tsk531-noop", TaskAuthoringUpdateInput{ProjectID: "example", TaskID: created.ID, ExpectedRevision: 1, Reason: "   "}); err == nil {
+	if _, _, err := s.taskAuthoringUpdateShared(ctx, "tsk531-noop", TaskAuthoringUpdateInput{
+		ProjectID:        "example",
+		TaskID:           created.ID,
+		ExpectedRevision: 1,
+		Reason:           "   ",
+	}); err == nil {
 		t.Fatal("whitespace-only reason accepted before no-op rejection")
 	}
-	if _, _, err := s.taskAuthoringUpdateShared(ctx, "tsk531-noop-valid-reason", TaskAuthoringUpdateInput{ProjectID: "example", TaskID: created.ID, ExpectedRevision: 1, Reason: "no changes"}); err == nil {
+	if _, _, err := s.taskAuthoringUpdateShared(ctx, "tsk531-noop-valid-reason", TaskAuthoringUpdateInput{
+		ProjectID:        "example",
+		TaskID:           created.ID,
+		ExpectedRevision: 1,
+		Reason:           "no changes",
+	}); err == nil {
 		t.Fatal("valid reason with no mutable fields accepted")
 	}
 	newTitle, newSummary := "Updated Lifecycle Task", "Updated searchable summary."
 	updated, _, err := s.taskAuthoringUpdateShared(ctx, "tsk531-update", TaskAuthoringUpdateInput{
-		ProjectID: "example", TaskID: created.ID, ExpectedRevision: created.Revision, ExpectedRevisionSHA256: created.RevisionSHA256,
-		Title: &newTitle, Summary: &newSummary, UpdatedBy: "planner", Reason: "clarify content",
+		ProjectID:              "example",
+		TaskID:                 created.ID,
+		ExpectedRevision:       created.Revision,
+		ExpectedRevisionSHA256: created.RevisionSHA256,
+		Title:                  &newTitle,
+		Summary:                &newSummary,
+		UpdatedBy:              "planner",
+		Reason:                 "clarify content",
 	})
 	if err != nil || updated.Revision != 2 || updated.Summary != newSummary {
 		t.Fatalf("update=%#v err=%v", updated, err)
@@ -55,7 +76,14 @@ func TestTSK531SharedTaskLifecycleContract(t *testing.T) {
 	if err != nil || historical.Revision != 1 || historical.Title != created.Title || historical.Summary != created.Summary {
 		t.Fatalf("historical read=%#v err=%v", historical, err)
 	}
-	if _, _, err := s.taskAuthoringUpdateShared(ctx, "tsk531-conflict", TaskAuthoringUpdateInput{ProjectID: "example", TaskID: created.ID, ExpectedRevision: 1, Title: &newTitle, UpdatedBy: "planner", Reason: "stale"}); err == nil {
+	if _, _, err := s.taskAuthoringUpdateShared(ctx, "tsk531-conflict", TaskAuthoringUpdateInput{
+		ProjectID:        "example",
+		TaskID:           created.ID,
+		ExpectedRevision: 1,
+		Title:            &newTitle,
+		UpdatedBy:        "planner",
+		Reason:           "stale",
+	}); err == nil {
 		t.Fatal("stale server-owned CAS update succeeded")
 	}
 	page, err := s.TaskLifecycleListQuery(ctx, "example", "Updated searchable", "", model.TaskTypeTask, "", false)
@@ -103,16 +131,23 @@ func TestTSK531ReadyArchiveClearsSealAndRecordsIt(t *testing.T) {
 	s.Durability = db
 	ctx := context.Background()
 	task, _, err := s.taskAuthoringCreateShared(ctx, "tsk531-ready-create", TaskAuthoringCreateInput{
-		ProjectID: "example", Title: "Ready archive fixture", Summary: "Ready archive summary.",
-		Objective: "Archive a ready Task safely.", AcceptanceCriteria: []string{"ready seal is cleared"},
-		ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
+		ProjectID:          "example",
+		Title:              "Ready archive fixture",
+		Summary:            "Ready archive summary.",
+		Objective:          "Archive a ready Task safely.",
+		AcceptanceCriteria: []string{"ready seal is cleared"},
+		ADRRelation:        model.TaskADRNoRequired,
+		CreatedBy:          "planner",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ready, _, err := s.taskAuthoringReadyShared(ctx, "tsk531-ready", TaskAuthoringReadyInput{
-		ProjectID: task.ProjectID, TaskID: task.ID, ExpectedRevision: task.Revision,
-		ExpectedRevisionSHA256: task.RevisionSHA256, ReadyBy: "planner",
+		ProjectID:              task.ProjectID,
+		TaskID:                 task.ID,
+		ExpectedRevision:       task.Revision,
+		ExpectedRevisionSHA256: task.RevisionSHA256,
+		ReadyBy:                "planner",
 	})
 	if err != nil {
 		t.Fatal(err)
