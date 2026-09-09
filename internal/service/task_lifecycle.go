@@ -69,6 +69,7 @@ func (s *Service) TaskLifecycleArchive(ctx context.Context, projectID, taskID, a
 	if current.Status == model.TaskAuthoringArchived {
 		return current, nil
 	}
+	hadReadySeal := current.ReadySeal != nil
 	if admitted, err := s.taskAdmittedToNonterminalTrainShared(ctx, projectID, taskID); err != nil {
 		return model.TaskAuthoring{}, err
 	} else if admitted {
@@ -92,16 +93,16 @@ func (s *Service) TaskLifecycleArchive(ctx context.Context, projectID, taskID, a
 	}
 	if _, err := s.Durability.CommitSharedLifecycleArchive(ctx, sqlitestore.SharedLifecycleArchive{SharedLifecycleRevision: sqlitestore.SharedLifecycleRevision{
 		OperationID: "task-lifecycle-archive-" + strconv.FormatInt(s.durableNow().UnixNano(), 10), EntityType: "task", ProjectID: projectID, EntityID: taskID,
-		ExpectedRevision: entity.Revision, ExpectedStoreRevision: entity.Revision, Revision: int64(current.Revision), Payload: payload, Actor: actor, Reason: reason, ChangedFields: taskArchiveChangedFields(current), CreatedAt: s.durableNow(),
+		ExpectedRevision: entity.Revision, ExpectedStoreRevision: entity.Revision, Revision: int64(current.Revision), Payload: payload, Actor: actor, Reason: reason, ChangedFields: taskArchiveChangedFields(hadReadySeal), CreatedAt: s.durableNow(),
 	}}); err != nil {
 		return model.TaskAuthoring{}, err
 	}
 	return current, nil
 }
 
-func taskArchiveChangedFields(current model.TaskAuthoring) []string {
+func taskArchiveChangedFields(hadReadySeal bool) []string {
 	fields := []string{"status"}
-	if current.ReadySeal != nil {
+	if hadReadySeal {
 		fields = append(fields, "ready_seal")
 	}
 	return fields

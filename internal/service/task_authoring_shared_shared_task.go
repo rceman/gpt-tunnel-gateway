@@ -211,6 +211,10 @@ func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID str
 	if err := s.requireLocalTaskAuthoring(ctx, in.ProjectID); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
+	reason := strings.TrimSpace(in.Reason)
+	if reason == "" {
+		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("Task update reason is required")
+	}
 	if in.Type == nil && in.Scope == nil && in.Title == nil && in.Summary == nil && in.Objective == nil && in.AcceptanceCriteria == nil && in.Constraints == nil && in.Priority == nil && in.Dependencies == nil && in.PreparationReferences == nil && in.Metadata == nil && in.ADRRelation == nil && in.ADRReferences == nil {
 		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("at least one mutable Task field is required")
 	}
@@ -245,10 +249,6 @@ func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID str
 	shared, err := s.Durability.ReadSharedTask(ctx, updated.ID)
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
-	}
-	reason := strings.TrimSpace(in.Reason)
-	if reason == "" {
-		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("Task update reason is required")
 	}
 	if _, err := s.Durability.CommitSharedLifecycleRevision(ctx, sqlitestore.SharedLifecycleRevision{OperationID: operationID, EntityType: "task", ProjectID: updated.ProjectID, EntityID: updated.ID, ExpectedRevision: int64(in.ExpectedRevision), ExpectedStoreRevision: shared.Revision, Revision: int64(updated.Revision), Kind: "update", HistoryMutationKind: "update", Payload: payload, Actor: in.UpdatedBy, Reason: reason, ChangedFields: taskAuthoringChangedFields(in), CreatedAt: s.durableNow()}); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
