@@ -83,7 +83,7 @@ func callTypedAndGeneric(t *testing.T, server *Server, sessionID, name, action s
 	return typed, generic
 }
 
-func TestTypedAndGenericTaskListCursorParity(t *testing.T) {
+func TestTypedAndGenericTaskListParity(t *testing.T) {
 	s, _ := newWorkflowPolicyStatusService(t)
 	ctx := context.Background()
 	server := &Server{
