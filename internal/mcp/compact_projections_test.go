@@ -81,17 +81,20 @@ func TestSchemaDomainDiscoveryIsCompactUnlessDetailRequested(t *testing.T) {
 }
 
 func TestCanonicalTaskReadPreservesFullPayload(t *testing.T) {
-	task := map[string]any{
-		"id": "GTW-TSK1", "title": "Task", "status": "ready", "objective": "secret detail",
+	value := map[string]any{
+		"key": "GTW-TSK1", "revision": 1, "title": "Task", "summary": "A compact summary.",
+		"status": "planned", "objective": "The complete canonical objective.",
 		"acceptance_criteria": []any{"large detail"}, "created_at": "2026-01-01T00:00:00Z",
 	}
-	compactTaskResult := compactActionResult("task/read", map[string]any{"task": task}, false)
-	compactTask := compactTaskResult["task"].(map[string]any)
-	if _, ok := compactTask["objective"]; !ok {
-		t.Fatalf("canonical task read lost objective: %#v", compactTask)
+	result := compactActionResult("task/read", value, false)
+	if _, ok := result["objective"]; !ok {
+		t.Fatalf("canonical task read lost objective: %#v", result)
 	}
-	if compactTask["id"] != "GTW-TSK1" || compactTask["status"] != "ready" {
-		t.Fatalf("compact task lost identity/status: %#v", compactTask)
+	if result["key"] != "GTW-TSK1" || result["revision"] != 1 || result["status"] != "planned" {
+		t.Fatalf("canonical task read lost identity/status: %#v", result)
+	}
+	if _, ok := result["detail"]; ok {
+		t.Fatalf("canonical task read exposed detail control: %#v", result)
 	}
 }
 
@@ -107,6 +110,29 @@ func TestCompactSuccessfulAgentPromptKeepsOnlyProjectID(t *testing.T) {
 	result, ok := compact["result"].(map[string]any)
 	if !ok || len(result) != 1 || result["project_id"] != "example" {
 		t.Fatalf("compact successful Agent result was not project-only: %#v", compact)
+	}
+}
+
+func TestCompactMutationDoesNotLeakNestedDurablePayloads(t *testing.T) {
+	value := map[string]any{
+		"agent":         map[string]any{"agent_id": "coder", "secret": "agent-detail"},
+		"guide":         map[string]any{"project_id": "example", "revision": float64(2), "content": "full guide"},
+		"configuration": map[string]any{"project_id": "example", "revision": float64(2), "gate_commands": "full commands"},
+		"policy":        map[string]any{"project_id": "example", "revision": float64(2), "gates": []any{"format"}, "secret": "policy-detail"},
+		"identifiers":   map[string]any{"project_id": "example", "project_code": "EXM", "next_task_number": float64(2), "secret": "counter-detail"},
+		"adr":           map[string]any{"id": "GTW-ADR1", "title": "ADR", "context": "full context"},
+	}
+	compact := compactActionResult("operator/checkpoint", value, false)
+	for key, forbidden := range map[string]string{
+		"agent": "secret", "guide": "content", "configuration": "gate_commands", "policy": "secret", "identifiers": "secret", "adr": "context",
+	} {
+		object, ok := compact[key].(map[string]any)
+		if !ok {
+			t.Fatalf("compact mutation lost %s object: %#v", key, compact)
+		}
+		if _, leaked := object[forbidden]; leaked {
+			t.Fatalf("compact mutation leaked %s.%s: %#v", key, forbidden, compact)
+		}
 	}
 }
 

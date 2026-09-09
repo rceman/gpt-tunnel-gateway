@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
@@ -79,6 +80,44 @@ func TestTrainV2TaskAuthoringMCPWiringAndSchemaParity(t *testing.T) {
 				t.Fatalf("task authoring schema %s exposes execution field %q", path, forbidden)
 			}
 		}
+	}
+	created := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session_id": sessionID, "action": "task/create", "input": map[string]any{
+				"type": "bug", "scope": map[string]any{"files": []any{"internal/mcp/test.go"}},
+				"title": "Generic planned task", "summary": "A bounded generic task summary.",
+				"objective": "Exercise canonical generic Task authoring.", "adr_relation": model.TaskADRNoRequired,
+			},
+		}},
+	})))
+	if len(created) != 2 || created["key"] == nil || created["revision"] != 1 {
+		t.Fatalf("generic task/create result is not closed key/revision: %#v", created)
+	}
+	key, ok := created["key"].(string)
+	if !ok || !strings.HasPrefix(key, "EXM-TSK") {
+		t.Fatalf("generic task/create returned non-canonical key: %#v", created)
+	}
+	read := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session_id": sessionID, "action": "task/read", "input": map[string]any{"key": key},
+		}},
+	})))
+	if read["key"] != key || read["type"] != "bug" || read["objective"] == nil || read["scope"] == nil {
+		t.Fatalf("canonical task/read did not preserve create fields: %#v", read)
+	}
+	withProject := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session_id": sessionID, "action": "task/create", "input": map[string]any{
+				"project_id": "example", "title": "Rejected project field", "summary": "A bounded summary.",
+				"objective": "The session owns project authority.", "adr_relation": model.TaskADRNoRequired,
+			},
+		}},
+	})))
+	if withProject["is_error"] != true {
+		t.Fatalf("session-bound task/create accepted caller project_id: %#v", withProject)
 	}
 }
 
