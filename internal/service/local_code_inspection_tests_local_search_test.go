@@ -199,6 +199,7 @@ func TestLocalCodeSearchContinuesFromExactScanPosition(t *testing.T) {
 	if err := os.WriteFile(pathName, []byte(content.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	installLocalCodeBehaviorDouble(t, f, map[string]string{"many-matches.txt": content.String()})
 	t.Cleanup(func() { _ = os.Remove(pathName) })
 	selector := "WT-MAIN-" + f.current[:8]
 	first, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
@@ -230,9 +231,11 @@ func TestLocalCodeSearchContinuesFromExactScanPosition(t *testing.T) {
 func TestLocalCodeSearchReturnsBoundedContextLines(t *testing.T) {
 	f := newLocalCodeFixture(t)
 	pathName := filepath.Join(f.root, "context.txt")
-	if err := os.WriteFile(pathName, []byte("before\nneedle\nafter\n"), 0o600); err != nil {
+	content := "before\nneedle\nafter\n"
+	if err := os.WriteFile(pathName, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	installLocalCodeBehaviorDouble(t, f, map[string]string{"context.txt": content})
 	t.Cleanup(func() { _ = os.Remove(pathName) })
 	selector := "WT-MAIN-" + f.current[:8]
 	result, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
@@ -257,9 +260,11 @@ func TestLocalCodeSearchReturnsBoundedContextLines(t *testing.T) {
 		t.Fatalf("context_lines=0 result = %#v, err=%v", zero, err)
 	}
 	longBefore := strings.Repeat("before-context ", 30)
-	if err := os.WriteFile(pathName, []byte(longBefore+"\nneedle\nafter\n"), 0o600); err != nil {
+	content = longBefore + "\nneedle\nafter\n"
+	if err := os.WriteFile(pathName, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	installLocalCodeBehaviorDouble(t, f, map[string]string{"context.txt": content})
 	result, err = f.service.CodeSearch(context.Background(), CodeSearchInput{
 		ProjectID:    "example",
 		Worktree:     selector,

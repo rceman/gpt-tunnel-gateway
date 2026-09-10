@@ -25,6 +25,11 @@ func TestLocalCodeSearchSkipsPreCursorFileContents(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	installLocalCodeBehaviorDouble(t, f, map[string]string{
+		"a-before.txt": "ordinary content\n",
+		"b-match.txt":  "needle first\n",
+		"c-match.txt":  "needle second\n",
+	})
 	t.Cleanup(func() {
 		for _, name := range []string{"a-before.txt", "b-match.txt", "c-match.txt"} {
 			_ = os.Remove(filepath.Join(f.root, name))
