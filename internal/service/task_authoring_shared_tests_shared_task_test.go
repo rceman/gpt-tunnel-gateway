@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,15 +26,11 @@ func TestSharedQueriesScopeBeforeGlobalPageLimit(t *testing.T) {
 	s.Config.Projects["example"] = project
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	for i := 0; i < 1001; i++ {
-		id := fmt.Sprintf("AAA-TSK%04d", i)
-		if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_tasks(id,revision,payload,updated_at) VALUES(?,?,?,?)`, id, 1, []byte(`{"project_id":"other"}`), now); err != nil {
-			t.Fatal(err)
-		}
-		adrID := fmt.Sprintf("AAA-ADR%04d", i)
-		if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_adrs(id,revision,payload,updated_at) VALUES(?,?,?,?)`, adrID, 1, []byte(`{"project_id":"other"}`), now); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := db.Shared.Exec(ctx, `WITH RECURSIVE numbers(n) AS (SELECT 0 UNION ALL SELECT n+1 FROM numbers WHERE n < 1000) INSERT INTO shared_tasks(id,revision,payload,updated_at) SELECT printf('AAA-TSK%04d', n), 1, CAST('{"project_id":"other"}' AS BLOB), ? FROM numbers`, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Shared.Exec(ctx, `WITH RECURSIVE numbers(n) AS (SELECT 0 UNION ALL SELECT n+1 FROM numbers WHERE n < 1000) INSERT INTO shared_adrs(id,revision,payload,updated_at) SELECT printf('AAA-ADR%04d', n), 1, CAST('{"project_id":"other"}' AS BLOB), ? FROM numbers`, now); err != nil {
+		t.Fatal(err)
 	}
 	task, err := trainv2.NewTask("example", "EXM-TSK903", trainv2.AuthoringDraft{Title: "After page", Summary: "Remain visible after pagination.", Objective: "Remain visible", ADRRelation: model.TaskADRNoRequired}, "planner", time.Now().UTC())
 	if err != nil {
