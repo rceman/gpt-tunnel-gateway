@@ -19,12 +19,13 @@ func canonicalAgentGuideOutputSchema() map[string]any {
 		"checkpoints":        boundedGuideText("Production and tests-only checkpoint discipline."),
 		"testing":            boundedGuideText("ADR118 rev2 deterministic testing guidance."),
 		"execution_example":  boundedGuideText("A concise good example and explicit wasteful bad example."),
+		"cli_usage":          boundedGuideText("Supported zero-state and safe read-only CLI examples."),
 		"architecture":       boundedGuideText("The canonical supervision architecture."),
 		"tail":               boundedGuideText("The canonical agent/tail selector and resolution contract."),
 		"status_await":       boundedGuideText("The canonical agent/status and agent/await selector contract."),
 		"prompt_interrupt":   boundedGuideText("The canonical agent/prompt and agent/interrupt contract."),
 		"authority":          boundedGuideText("The authority and excluded execution-state contract."),
-	}, "architecture", "tail", "status_await", "prompt_interrupt", "authority")
+	}, "role_authority", "startup", "canonical_state", "exploration_budget", "stop_fast", "checkpoints", "testing", "execution_example", "cli_usage", "architecture", "tail", "status_await", "prompt_interrupt", "authority")
 }
 
 func canonicalAgentGuide() map[string]any {
@@ -38,6 +39,7 @@ func canonicalAgentGuide() map[string]any {
 		"checkpoints":        content.Checkpoints,
 		"testing":            content.Testing,
 		"execution_example":  content.ExecutionExample,
+		"cli_usage":          content.CLIUsage,
 		"architecture":       content.Architecture,
 		"tail":               content.Tail,
 		"status_await":       content.StatusAwait,
