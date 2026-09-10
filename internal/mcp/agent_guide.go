@@ -1,5 +1,7 @@
 package mcp
 
+import "github.com/rceman/gpt-tunnel-gateway/internal/agentguide"
+
 func boundedGuideText(description string) map[string]any {
 	value := outputString()
 	value["maxLength"] = 768
@@ -18,11 +20,12 @@ func canonicalAgentGuideOutputSchema() map[string]any {
 }
 
 func canonicalAgentGuide() map[string]any {
+	content := agentguide.Canonical()
 	return map[string]any{
-		"architecture":     "The Planner role may have multiple durable Planner sessions; the project has exactly one attached enabled coding Agent. Train and watcher state are not Agent supervision authority.",
-		"tail":             "agent/tail accepts {session?,lines?}. Omitted session selects the unique active durable Agent session; zero is an error and more than one requires explicit SA-*. Examples: {} or {lines:30}; explicit: {session:\"SA-GTW-AB12\",lines:30}. The selected durable session resolves internally to its stored Airelay ref.",
-		"status_await":     "agent/status and agent/await accept an optional logical Agent selector; when omitted, they use the server-selected attached coding Agent. They do not accept a durable SA-* selector.",
-		"prompt_interrupt": "agent/prompt and agent/interrupt accept an optional logical Agent selector; when omitted, they use the server-selected attached coding Agent. Prompt sends a bounded message; interrupt cancels the current turn and may submit a bounded replacement. Neither accepts a durable SA-* selector.",
-		"authority":        "Gateway schemas and handlers are the operational contract. No repo guide file, Train record, watcher, project Airelay fallback, or duplicate policy source is authoritative.",
+		"architecture":     content.Architecture,
+		"tail":             content.Tail,
+		"status_await":     content.StatusAwait,
+		"prompt_interrupt": content.PromptInterrupt,
+		"authority":        content.Authority,
 	}
 }

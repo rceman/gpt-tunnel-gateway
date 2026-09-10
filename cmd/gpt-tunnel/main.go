@@ -27,14 +27,18 @@ func main() {
 		fmt.Println(releaseartifacts.BuildSourceRevision)
 		return
 	}
+	group := os.Args[1]
+	args := os.Args[2:]
+	if group == "guide" {
+		guide(args)
+		return
+	}
 	c, err := config.Load("")
 	if err != nil {
 		fatal(err)
 	}
 	s := service.New(c)
 	ctx := context.Background()
-	group := os.Args[1]
-	args := os.Args[2:]
 	switch group {
 	case "format", "check", "test":
 		gate(ctx, s, group, args)
@@ -65,7 +69,7 @@ func main() {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {format|check|test|verify|work|project|plan|adr|task|agent|operator|git|query|daemon} [args]")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {guide|format|check|test|verify|work|project|plan|adr|task|agent|operator|git|query|daemon} [args]")
 	fmt.Fprintln(os.Stderr, "new operational IDs: CODE-TSK<N>, CODE-TSK<N>-RUN<M>, CODE-ADR<N>, CODE-OPR<N>")
 	fmt.Fprintln(os.Stderr, "task work/finalize are execution commands; Task lifecycle actions use the Gateway MCP API")
 	fmt.Fprintln(os.Stderr, "pre-cutover IDs remain read-only history and are not accepted by operational mutations")
