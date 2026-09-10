@@ -18,11 +18,11 @@ type TaskExecutionDispatchInput struct {
 type TaskExecutionPublicOutput struct {
 	Key               string `json:"key"`
 	Status            string `json:"status"`
-	Stage             string `json:"stage"`
-	Worktree          string `json:"worktree"`
-	Head              string `json:"head"`
-	Agent             string `json:"agent"`
-	ExecutionRevision int    `json:"execution_revision"`
+	Stage             string `json:"stage,omitempty"`
+	Worktree          string `json:"worktree,omitempty"`
+	Head              string `json:"head,omitempty"`
+	Agent             string `json:"agent,omitempty"`
+	ExecutionRevision int    `json:"execution_revision,omitempty"`
 	UpdatedAt         string `json:"updated_at,omitempty"`
 }
 

@@ -169,8 +169,8 @@ func (d *Databases) UpdateTaskExecutionState(ctx context.Context, state model.Ta
 	if d == nil || d.Shared == nil {
 		return fmt.Errorf("shared store is unavailable")
 	}
-	if state.TaskID == "" || state.ProjectID == "" || state.Status == "" || state.Stage == "" || state.Head == "" || state.UpdatedAt.IsZero() {
-		return fmt.Errorf("incomplete Task execution update")
+	if err := model.ValidateTaskExecutionState(state); err != nil {
+		return err
 	}
 	_, err := d.Shared.Batch(ctx, []upstream.Statement{{SQL: `UPDATE shared_task_execution_states SET status=?,stage=?,head_sha=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND execution_revision=?`, Args: []any{state.Status, state.Stage, state.Head, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano), state.ProjectID, state.TaskID, expectedRevision}, RequireRowsAffected: 1}})
 	return err

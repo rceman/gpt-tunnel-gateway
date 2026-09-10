@@ -50,6 +50,23 @@ func (r Runner) RemoveTaskWorktree(ctx context.Context, p config.ProjectConfig, 
 	return r.DeleteTrainBranch(ctx, p, branch, base)
 }
 
+func (r Runner) RemoveTaskWorktreeAfterIntegration(ctx context.Context, p config.ProjectConfig, stateDir, projectID, taskID string, taskType model.TaskType, title, head, branch string) error {
+	path, expectedBranch, err := taskWorktreePath(stateDir, projectID, taskID, taskType, title)
+	if err != nil || expectedBranch != branch {
+		return fmt.Errorf("Task worktree identity is invalid")
+	}
+	lane := p
+	lane.Root = path
+	actual, actualBranch, clean, err := r.CurrentHead(ctx, lane)
+	if err != nil || !clean || actualBranch != branch || actual != head {
+		return fmt.Errorf("Task worktree cleanup authority is invalid")
+	}
+	if err := r.removeTrainWorktree(ctx, p, path); err != nil {
+		return err
+	}
+	return r.DeleteTrainBranch(ctx, p, branch, head)
+}
+
 func taskWorktreePath(stateDir, projectID, taskID string, taskType model.TaskType, title string) (string, string, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return "", "", err

@@ -66,7 +66,7 @@ func ValidateTaskExecutionState(v TaskExecutionState) error {
 	if idx < 0 || !strings.HasPrefix(v.Worktree, "WT-TSK"+v.TaskID[idx+4:]+"-") {
 		return fmt.Errorf("Task execution worktree does not match Task")
 	}
-	if !strings.HasSuffix(v.Worktree, "-"+strings.ToLower(v.Head[:8])) {
+	if len(v.Head) != 40 || !strings.HasSuffix(v.Worktree, "-"+strings.ToLower(v.Head[:8])) {
 		return fmt.Errorf("Task execution worktree does not match current head")
 	}
 	if v.ExecutionRevision < 1 || v.UpdatedAt.IsZero() || v.Branch == "" || v.TaskRevision < 1 {

@@ -20,6 +20,10 @@ func taskExecutionReworkSchema() map[string]any {
 	return obj(map[string]any{"key": str("Canonical Task identifier."), "stage": outputEnum("code", "tests", "rebase"), "comment": str("Required bounded rework comment.")}, "key", "stage", "comment")
 }
 
+func taskExecutionAgentInputSchema() map[string]any {
+	return obj(map[string]any{})
+}
+
 func taskExecutionReviewOutputSchema() map[string]any {
 	return closedOutput(map[string]any{"key": outputString(), "stage": outputEnum("code", "tests", "rebase"), "status": outputString(), "worktree": outputString(), "head": taskExecutionPublicHeadSchema(), "agent": outputString(), "execution_revision": outputInteger(), "submitted_at": outputDateTime()}, "key", "stage", "status", "worktree", "head", "agent", "execution_revision", "submitted_at")
 }
@@ -116,27 +120,27 @@ func (s *Server) registerTaskExecutionReviewActions() error {
 	for _, action := range []struct {
 		path        string
 		description string
-		serviceCall func(context.Context, string, string) (service.TaskExecutionPublicOutput, error)
+		serviceCall func(context.Context, string) (service.TaskExecutionPublicOutput, error)
 	}{
-		{path: "task/current", description: "Read the current execution state for the assigned canonical Task.", serviceCall: func(ctx context.Context, projectID, key string) (service.TaskExecutionPublicOutput, error) {
-			return s.Service.TaskExecutionStatus(ctx, projectID, key)
+		{path: "task/current", description: "Read the current execution state for the assigned canonical Task.", serviceCall: func(ctx context.Context, projectID string) (service.TaskExecutionPublicOutput, error) {
+			return s.Service.TaskExecutionCurrent(ctx, projectID)
 		}},
-		{path: "task/submit-code", description: "Submit the assigned Task worktree for code review.", serviceCall: func(ctx context.Context, projectID, key string) (service.TaskExecutionPublicOutput, error) {
-			return s.Service.TaskExecutionSubmitCode(ctx, projectID, key)
+		{path: "task/submit-code", description: "Submit the assigned Task worktree for code review.", serviceCall: func(ctx context.Context, projectID string) (service.TaskExecutionPublicOutput, error) {
+			return s.Service.TaskExecutionSubmitCodeForAgent(ctx, projectID)
 		}},
-		{path: "task/submit-tests", description: "Submit the assigned Task worktree for tests review.", serviceCall: func(ctx context.Context, projectID, key string) (service.TaskExecutionPublicOutput, error) {
-			return s.Service.TaskExecutionSubmitTests(ctx, projectID, key)
+		{path: "task/submit-tests", description: "Submit the assigned Task worktree for tests review.", serviceCall: func(ctx context.Context, projectID string) (service.TaskExecutionPublicOutput, error) {
+			return s.Service.TaskExecutionSubmitTestsForAgent(ctx, projectID)
 		}},
-		{path: "task/submit-rebase", description: "Submit the assigned Task worktree for rebase review.", serviceCall: func(ctx context.Context, projectID, key string) (service.TaskExecutionPublicOutput, error) {
-			return s.Service.TaskExecutionSubmitRebase(ctx, projectID, key)
+		{path: "task/submit-rebase", description: "Submit the assigned Task worktree for rebase review.", serviceCall: func(ctx context.Context, projectID string) (service.TaskExecutionPublicOutput, error) {
+			return s.Service.TaskExecutionSubmitRebaseForAgent(ctx, projectID)
 		}},
 	} {
 		call := action.serviceCall
 		if err := registerAgent(GenericAction{
 			Path:                 action.path,
 			Description:          action.description,
-			InputSchema:          taskExecutionStatusSchema(),
-			ExecutionInputSchema: adrExecutionSchema(taskExecutionStatusSchema()),
+			InputSchema:          taskExecutionAgentInputSchema(),
+			ExecutionInputSchema: adrExecutionSchema(taskExecutionAgentInputSchema()),
 			OutputSchema:         taskExecutionLifecycleOutputSchema(),
 			Annotations: ToolAnnotations{
 				DestructiveHint: action.path != "task/current",
@@ -145,12 +149,11 @@ func (s *Server) registerTaskExecutionReviewActions() error {
 			Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 				var in struct {
 					ProjectID string `json:"project_id"`
-					Key       string `json:"key"`
 				}
 				if err := decode(raw, &in); err != nil {
 					return nil, err
 				}
-				return call(ctx, in.ProjectID, in.Key)
+				return call(ctx, in.ProjectID)
 			},
 		}); err != nil {
 			return err

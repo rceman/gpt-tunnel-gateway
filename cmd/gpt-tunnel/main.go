@@ -71,7 +71,7 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {guide|format|check|test|verify|work|project|plan|adr|task|agent|operator|git|query|daemon} [args]")
 	fmt.Fprintln(os.Stderr, "new operational IDs: CODE-TSK<N>, CODE-TSK<N>-RUN<M>, CODE-ADR<N>, CODE-OPR<N>")
-	fmt.Fprintln(os.Stderr, "task work/finalize are execution commands; Task lifecycle actions use the Gateway MCP API")
+	fmt.Fprintln(os.Stderr, "Agent Task execution commands use the Gateway session authority")
 	fmt.Fprintln(os.Stderr, "pre-cutover IDs remain read-only history and are not accepted by operational mutations")
 	os.Exit(2)
 }

@@ -36,8 +36,7 @@ func task(ctx context.Context, s *service.Service, args []string) {
 		require(args, 2)
 		result, err := taskReadGatewayCall(ctx, s, args[1])
 	case "current", "submit-code", "submit-tests", "submit-rebase":
-		require(args, 2)
-		result, err := taskExecutionGatewayCall(ctx, s, args[0], args[1])
+		result, err := taskExecutionGatewayCall(ctx, s, args[0])
 		if err != nil {
 			fatal(err)
 		}
@@ -104,10 +103,7 @@ func taskReadGatewayCall(ctx context.Context, s *service.Service, key string) (a
 	return result, nil
 }
 
-func taskExecutionGatewayCall(ctx context.Context, s *service.Service, command, key string) (any, error) {
-	if err := model.ValidateCanonicalTaskID(key); err != nil {
-		return nil, err
-	}
+func taskExecutionGatewayCall(ctx context.Context, s *service.Service, command string) (any, error) {
 	session := os.Getenv("GPT_TUNNEL_SESSION")
 	if session == "" {
 		return nil, fmt.Errorf("Gateway session authority is required; run this Agent command from a Gateway-bound session")
@@ -118,7 +114,7 @@ func taskExecutionGatewayCall(ctx context.Context, s *service.Service, command, 
 	} else {
 		action = "task/current"
 	}
-	payload, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": session, "action": action, "input": map[string]any{"key": key}}}})
+	payload, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": session, "action": action, "input": map[string]any{}}}})
 	if err != nil {
 		return nil, err
 	}

@@ -141,8 +141,11 @@ func (s *Service) TaskExecutionReview(ctx context.Context, in TaskExecutionRevie
 	if phase.TaskRevisionSHA256 != state.TaskRevisionSHA256 || phase.Status != model.TaskExecutionAwaitingReview {
 		return TaskExecutionReviewOutput{}, fmt.Errorf("Task review is stale")
 	}
-	if len(phase.Head) < 8 {
+	if model.ValidateCommitSHA(phase.Head) != nil {
 		return TaskExecutionReviewOutput{}, fmt.Errorf("Task review has invalid head authority")
+	}
+	if err := s.validateTaskExecutionReviewAncestry(ctx, state, phase); err != nil {
+		return TaskExecutionReviewOutput{}, err
 	}
 	return taskExecutionReviewOutput(state, phase), nil
 }
