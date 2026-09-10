@@ -12,7 +12,7 @@ func TestTSK409ADRPublicSchemasAreClosedAndTransportNeutral(t *testing.T) {
 	want := map[string][]string{
 		"adr/create":                 {"title", "context", "decision", "consequences"},
 		"adr/read":                   {"adr", "revision"},
-		"adr/update":                 {"adr", "reason", "title", "context", "decision", "consequences"},
+		"adr/update":                 {"adr", "reason", "title", "context", "decision", "consequences", "status"},
 		"adr/list":                   {"cursor", "include_archived"},
 		"adr/query":                  {"cursor", "text", "status"},
 		"adr/archive":                {"adr", "reason"},
