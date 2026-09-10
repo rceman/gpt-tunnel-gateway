@@ -56,6 +56,27 @@ func TestGuideRejectsArgumentsBeforeLoadingConfig(t *testing.T) {
 	}
 }
 
+func TestGuideDocumentsBoundedAlternativeWhenRGIsUnavailable(t *testing.T) {
+	bin := buildGuideCLI(t)
+	cmd := exec.Command(bin, "guide")
+	cmd.Env = []string{"PATH=" + t.TempDir(), "GPT_TUNNEL_CONFIG=/definitely/missing.json"}
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("guide failed without rg on PATH: %v", err)
+	}
+	text := string(output)
+	for _, required := range []string{
+		"If rg is available",
+		"repo-local find, grep, or sed",
+		"tool absence never broadens scope",
+		"assigned repository/worktree",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("no-rg guide omitted %q: %s", required, text)
+		}
+	}
+}
+
 func buildGuideCLI(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "gpt-tunnel")

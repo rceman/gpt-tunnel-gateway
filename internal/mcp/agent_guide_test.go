@@ -77,7 +77,7 @@ func TestTSK545AgentGuideIsClosedBoundedAndPlannerOnly(t *testing.T) {
 		"SA-GTW-AB12",
 		"optional logical Agent selector",
 		"Train and watcher",
-		"project Airelay fallback",
+		"project Airelay-session substitution",
 		"repo guide file",
 	} {
 		found := false
