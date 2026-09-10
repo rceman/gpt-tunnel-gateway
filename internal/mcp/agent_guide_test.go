@@ -3,9 +3,11 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/agentguide"
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
@@ -31,14 +33,17 @@ func TestTSK545AgentGuideIsClosedBoundedAndPlannerOnly(t *testing.T) {
 		t.Fatalf("agent/guide output is not closed: %#v", entry.OutputSchema)
 	}
 	properties := schemaProperties(entry.OutputSchema)
-	want := []string{"architecture", "authority", "prompt_interrupt", "status_await", "tail"}
+	want := []string{"role_authority", "startup", "canonical_state", "exploration_budget", "stop_fast", "checkpoints", "testing", "execution_example", "cli_usage", "architecture", "tail", "status_await", "prompt_interrupt", "authority"}
+	if len(properties) != len(want) {
+		t.Fatalf("agent/guide fields=%v", properties)
+	}
 	for _, field := range want {
 		value, ok := properties[field].(map[string]any)
 		if !ok || value["type"] != "string" || value["maxLength"] != 768 {
 			t.Fatalf("agent/guide output field %q=%#v", field, properties[field])
 		}
 	}
-	if got := stringList(entry.OutputSchema["required"]); len(got) != len(want) {
+	if got := stringList(entry.OutputSchema["required"]); !reflect.DeepEqual(got, want) {
 		t.Fatalf("agent/guide required=%v", got)
 	}
 	value, err := entry.Execute(authority.WithPlanner(context.Background()), json.RawMessage(`{}`))
@@ -48,6 +53,21 @@ func TestTSK545AgentGuideIsClosedBoundedAndPlannerOnly(t *testing.T) {
 	guide, ok := value.(map[string]any)
 	if !ok {
 		t.Fatalf("agent/guide result=%#v", value)
+	}
+	canonical := agentguide.Canonical()
+	wantContent := map[string]string{
+		"role_authority": canonical.RoleAuthority, "startup": canonical.Startup,
+		"canonical_state": canonical.CanonicalState, "exploration_budget": canonical.Exploration,
+		"stop_fast": canonical.StopFast, "checkpoints": canonical.Checkpoints,
+		"testing": canonical.Testing, "execution_example": canonical.ExecutionExample,
+		"cli_usage": canonical.CLIUsage, "architecture": canonical.Architecture,
+		"authority": canonical.Authority, "prompt_interrupt": canonical.PromptInterrupt,
+		"status_await": canonical.StatusAwait, "tail": canonical.Tail,
+	}
+	for field, wantText := range wantContent {
+		if gotText, ok := guide[field].(string); !ok || gotText != wantText {
+			t.Fatalf("agent/guide field %q=%#v want=%q", field, guide[field], wantText)
+		}
 	}
 	for _, text := range []string{
 		"multiple durable Planner sessions",
