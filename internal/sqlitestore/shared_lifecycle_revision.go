@@ -28,6 +28,17 @@ func (d *Databases) CommitSharedLifecycleRevision(ctx context.Context, request S
 	if err != nil || payloadRevision != request.Revision {
 		return SharedMutationReceipt{}, fmt.Errorf("invalid shared %s logical revision", request.EntityType)
 	}
+	currentRows, err := d.Shared.Query(ctx, fmt.Sprintf("SELECT payload FROM %s WHERE id=?", definition.StateTable), request.EntityID)
+	if err != nil || len(currentRows.Rows) != 1 {
+		return SharedMutationReceipt{}, fmt.Errorf("invalid shared %s current state", request.EntityType)
+	}
+	currentPayload, ok := currentRows.Rows[0][0].([]byte)
+	if !ok {
+		return SharedMutationReceipt{}, fmt.Errorf("invalid shared %s current payload", request.EntityType)
+	}
+	if err := validateSharedLifecycleStatus(definition, currentPayload, request.Payload, false); err != nil {
+		return SharedMutationReceipt{}, err
+	}
 	recorded := request.CreatedAt.UTC().Format(time.RFC3339Nano)
 	if request.CreatedAt.IsZero() {
 		recorded = time.Now().UTC().Format(time.RFC3339Nano)

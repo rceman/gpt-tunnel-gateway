@@ -105,7 +105,7 @@ func ValidateADR(v ADR) error {
 	if len(v.Title) < 3 || len(v.Title) > 300 || len(v.Context) > 100000 || len(v.Decision) > 100000 || len(v.Consequences) > 100000 {
 		return fmt.Errorf("invalid ADR content")
 	}
-	if v.Status != ADRStatusAccepted && v.Status != ADRStatusSuperseded && v.Status != ADRStatusArchived {
+	if v.Status != ADRStatusProposed && v.Status != ADRStatusAccepted && v.Status != ADRStatusSuperseded && v.Status != ADRStatusArchived {
 		return fmt.Errorf("invalid ADR status")
 	}
 	if v.Status == ADRStatusArchived {

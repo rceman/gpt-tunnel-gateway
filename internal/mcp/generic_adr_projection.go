@@ -13,7 +13,7 @@ func adrActionProperties() map[string]any {
 	return map[string]any{
 		"adr": str("Stable ADR reference."), "revision": integer("Exact historical ADR revision.", 1, 1000000),
 		"title": boundedADRString("ADR title.", 3, 300), "context": boundedADRString("ADR context.", 0, 100000), "decision": boundedADRString("ADR decision.", 0, 100000),
-		"consequences": boundedADRString("ADR consequences.", 0, 100000), "status": outputEnum("accepted", "superseded", "archived"),
+		"consequences": boundedADRString("ADR consequences.", 0, 100000), "status": outputEnum("proposed", "accepted", "superseded", "archived"),
 		"reason": boundedADRString("Bounded mutation reason.", 1, 1024), "include_archived": map[string]any{"type": "boolean"},
 		"text": str("Case-insensitive text matched across ADR content."), "cursor": str("Opaque server-owned continuation token."),
 	}
@@ -85,7 +85,7 @@ func adrListOutputSchema() map[string]any {
 	return closedOutput(map[string]any{"adrs": outputArray(adrSummaryOutputSchema())}, "adrs")
 }
 func adrSummaryOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"adr": outputString(), "title": outputString(), "status": outputEnum("accepted", "superseded", "archived"), "revision": outputInteger(), "updated_at": outputDateTime()}, "adr", "title", "status", "revision")
+	return closedOutput(map[string]any{"adr": outputString(), "title": outputString(), "status": outputEnum("proposed", "accepted", "superseded", "archived"), "revision": outputInteger(), "updated_at": outputDateTime()}, "adr", "title", "status", "revision")
 }
 func adrPublicProjection(v model.ADR) map[string]any {
 	result := map[string]any{"adr": v.ID, "revision": v.Revision, "title": v.Title, "status": v.Status, "context": v.Context, "decision": v.Decision, "consequences": v.Consequences, "created_at": v.CreatedAt}

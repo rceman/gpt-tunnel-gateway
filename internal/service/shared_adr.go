@@ -163,7 +163,7 @@ func (s *Service) adrCreateShared(ctx context.Context, in ADRCreateInput) (Opera
 			created.UpdatedAt = time.Time{}
 			created.LastReason = "create"
 			if created.Status == "" {
-				created.Status = "accepted"
+				created.Status = model.ADRStatusProposed
 			}
 			if err := model.ValidateADR(created); err != nil {
 				return nil, err

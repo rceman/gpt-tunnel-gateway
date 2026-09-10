@@ -152,6 +152,9 @@ func (d *Databases) commitSharedLifecycleCreateOnce(ctx context.Context, request
 	if len(payload) == 0 {
 		return SharedMutationReceipt{}, "", nil, fmt.Errorf("shared %s payload is empty", request.EntityType)
 	}
+	if err := validateSharedLifecycleStatus(definition, nil, payload, true); err != nil {
+		return SharedMutationReceipt{}, "", nil, err
+	}
 	statements := []upstream.Statement{
 		{SQL: fmt.Sprintf("UPDATE %s SET %s=? WHERE %s=? AND project_id=? AND %s=? AND %s=?", definition.SequenceTable, definition.SequenceNumberColumn, definition.SequenceEntityColumn, definition.SequenceCodeColumn, definition.SequenceNumberColumn), Args: []any{next + 1, request.EntityType, request.ProjectID, request.ProjectCode, next}, RequireRowsAffected: 1},
 		{SQL: fmt.Sprintf("INSERT INTO %s(id,revision,payload,updated_at) VALUES(?,?,?,?)", definition.StateTable), Args: []any{entityID, 1, payload, created}, RequireRowsAffected: 1},

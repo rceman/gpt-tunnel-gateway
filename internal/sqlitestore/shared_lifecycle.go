@@ -15,34 +15,42 @@ import (
 // this registry owns state, allocation, history, and outbox composition.
 // Identifiers in this registry are trusted SQL identifiers, never caller input.
 type sharedLifecycleDefinition struct {
-	EntityType           string
-	StateTable           string
-	SequenceTable        string
-	SequenceEntityColumn string
-	SequenceCodeColumn   string
-	SequenceNumberColumn string
-	IDToken              string
-	HistoryTable         string
-	HistoryEntityColumn  string
-	HistoryIDColumn      string
-	SearchFields         []string
-	FilterFields         []string
+	EntityType            string
+	StateTable            string
+	SequenceTable         string
+	SequenceEntityColumn  string
+	SequenceCodeColumn    string
+	SequenceNumberColumn  string
+	IDToken               string
+	HistoryTable          string
+	HistoryEntityColumn   string
+	HistoryIDColumn       string
+	SearchFields          []string
+	FilterFields          []string
+	DefaultCreateStatus   string
+	AllowedCreateStatuses []string
+	AllowedStatuses       []string
+	AllowedTransitions    map[string][]string
 }
 
 var sharedLifecycleRegistry = map[string]sharedLifecycleDefinition{
 	"task": {
-		EntityType:           "task",
-		StateTable:           "shared_tasks",
-		SequenceTable:        "shared_entity_sequences",
-		SequenceEntityColumn: "entity_type",
-		SequenceCodeColumn:   "project_code",
-		SequenceNumberColumn: "next_number",
-		IDToken:              "TSK",
-		HistoryTable:         "shared_entity_revisions",
-		HistoryEntityColumn:  "entity_type",
-		HistoryIDColumn:      "entity_id",
-		SearchFields:         []string{"id", "title", "summary", "objective", "status", "type", "priority", "adr_relation"},
-		FilterFields:         []string{"status", "type"},
+		EntityType:            "task",
+		StateTable:            "shared_tasks",
+		SequenceTable:         "shared_entity_sequences",
+		SequenceEntityColumn:  "entity_type",
+		SequenceCodeColumn:    "project_code",
+		SequenceNumberColumn:  "next_number",
+		IDToken:               "TSK",
+		HistoryTable:          "shared_entity_revisions",
+		HistoryEntityColumn:   "entity_type",
+		HistoryIDColumn:       "entity_id",
+		SearchFields:          []string{"id", "title", "summary", "objective", "status", "type", "priority", "adr_relation"},
+		FilterFields:          []string{"status", "type"},
+		DefaultCreateStatus:   "planned",
+		AllowedCreateStatuses: []string{"planned"},
+		AllowedStatuses:       []string{"planned", "ready", "archived"},
+		AllowedTransitions:    map[string][]string{"planned": {"ready", "archived"}, "ready": {"archived"}},
 	},
 	"train": {
 		EntityType:   "train",
@@ -51,18 +59,22 @@ var sharedLifecycleRegistry = map[string]sharedLifecycleDefinition{
 		FilterFields: []string{"status"},
 	},
 	"adr": {
-		EntityType:           "adr",
-		StateTable:           "shared_adrs",
-		SequenceTable:        "shared_entity_sequences",
-		SequenceEntityColumn: "entity_type",
-		SequenceCodeColumn:   "project_code",
-		SequenceNumberColumn: "next_number",
-		IDToken:              "ADR",
-		HistoryTable:         "shared_entity_revisions",
-		HistoryEntityColumn:  "entity_type",
-		HistoryIDColumn:      "entity_id",
-		SearchFields:         []string{"id", "title", "status", "context", "decision", "consequences", "supersedes"},
-		FilterFields:         []string{"status"},
+		EntityType:            "adr",
+		StateTable:            "shared_adrs",
+		SequenceTable:         "shared_entity_sequences",
+		SequenceEntityColumn:  "entity_type",
+		SequenceCodeColumn:    "project_code",
+		SequenceNumberColumn:  "next_number",
+		IDToken:               "ADR",
+		HistoryTable:          "shared_entity_revisions",
+		HistoryEntityColumn:   "entity_type",
+		HistoryIDColumn:       "entity_id",
+		SearchFields:          []string{"id", "title", "status", "context", "decision", "consequences", "supersedes"},
+		FilterFields:          []string{"status"},
+		DefaultCreateStatus:   "proposed",
+		AllowedCreateStatuses: []string{"proposed", "accepted"},
+		AllowedStatuses:       []string{"proposed", "accepted", "superseded", "archived"},
+		AllowedTransitions:    map[string][]string{"proposed": {"accepted", "archived"}, "accepted": {"superseded", "archived"}, "superseded": {"archived"}},
 	},
 	"rule": {
 		EntityType:   "rule",
@@ -269,6 +281,37 @@ func matchesLifecycleText(fields map[string]any, searchFields []string, text str
 func sharedLifecycle(entityType string) (sharedLifecycleDefinition, bool) {
 	definition, ok := sharedLifecycleRegistry[entityType]
 	return definition, ok
+}
+
+func validateSharedLifecycleStatus(definition sharedLifecycleDefinition, previousPayload, payload []byte, creating bool) error {
+	if definition.DefaultCreateStatus == "" {
+		return nil
+	}
+	var next struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(payload, &next); err != nil || next.Status == "" || !containsString(definition.AllowedStatuses, next.Status) {
+		return fmt.Errorf("invalid shared %s status", definition.EntityType)
+	}
+	if creating {
+		if !containsString(definition.AllowedCreateStatuses, next.Status) {
+			return fmt.Errorf("invalid shared %s create status", definition.EntityType)
+		}
+		return nil
+	}
+	var previous struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(previousPayload, &previous); err != nil || previous.Status == "" || !containsString(definition.AllowedStatuses, previous.Status) {
+		return fmt.Errorf("invalid shared %s previous status", definition.EntityType)
+	}
+	if previous.Status == next.Status {
+		return nil
+	}
+	if !containsString(definition.AllowedTransitions[previous.Status], next.Status) {
+		return fmt.Errorf("invalid shared %s status transition %q to %q", definition.EntityType, previous.Status, next.Status)
+	}
+	return nil
 }
 
 func sharedProjectionTable(entityType string) (string, bool) {

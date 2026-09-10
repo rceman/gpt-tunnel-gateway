@@ -248,7 +248,7 @@ func (s *Service) ADRQuery(ctx context.Context, project string, in ADRQueryInput
 	}
 	text := strings.ToLower(strings.TrimSpace(in.Text))
 	status := strings.TrimSpace(in.Status)
-	if status != "" && status != model.ADRStatusAccepted && status != model.ADRStatusSuperseded && status != model.ADRStatusArchived {
+	if status != "" && status != model.ADRStatusProposed && status != model.ADRStatusAccepted && status != model.ADRStatusSuperseded && status != model.ADRStatusArchived {
 		return ADRListPageResult{}, fmt.Errorf("invalid ADR status filter")
 	}
 	page, err := s.querySharedADRs(ctx, project, text, status, in.IncludeArchived, sqlitestore.SharedLifecycleQueryMaxRows, in.Cursor)

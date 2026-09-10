@@ -5,6 +5,7 @@ import "time"
 const ADRRevisionSchemaVersion = 1
 
 const (
+	ADRStatusProposed   = "proposed"
 	ADRStatusAccepted   = "accepted"
 	ADRStatusSuperseded = "superseded"
 	ADRStatusArchived   = "archived"
