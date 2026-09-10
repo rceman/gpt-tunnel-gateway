@@ -64,6 +64,15 @@ func (s *Service) TaskExecutionDispatch(ctx context.Context, in TaskExecutionDis
 	if err != nil {
 		return TaskExecutionPublicOutput{}, err
 	}
+	states, err := s.Durability.ListTaskExecutionStates(ctx, in.ProjectID)
+	if err != nil {
+		return TaskExecutionPublicOutput{}, err
+	}
+	for _, other := range states {
+		if other.Agent == agent && other.TaskID != in.Key && other.Status != model.TaskExecutionIntegrated && other.Status != model.TaskExecutionFailed {
+			return TaskExecutionPublicOutput{}, fmt.Errorf("logical Agent %q already has a nonterminal Task", agent)
+		}
+	}
 	project, err := s.EffectiveProjectConfig(in.ProjectID)
 	if err != nil {
 		return TaskExecutionPublicOutput{}, err

@@ -11,6 +11,12 @@ func taskExecutionIntegrateSchema() map[string]any {
 	return obj(map[string]any{"key": str("Canonical Task identifier."), "comment": str("Optional bounded integration comment.")}, "key")
 }
 
+func taskExecutionIntegrateOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"operation_id": outputString(), "status": outputString(), "result": taskExecutionLifecycleOutputSchema(), "error": outputString(), "created_at": outputDateTime(), "updated_at": outputDateTime(),
+	}, "operation_id", "status", "created_at", "updated_at")
+}
+
 func (s *Server) registerTaskExecutionIntegrateAction() error {
 	return s.RegisterGenericAction(GenericAction{
 		Path:                 "task/integrate",
@@ -20,7 +26,7 @@ func (s *Server) registerTaskExecutionIntegrateAction() error {
 		LocalReceiptOnly:     true,
 		InputSchema:          taskExecutionIntegrateSchema(),
 		ExecutionInputSchema: adrExecutionSchema(taskExecutionIntegrateSchema()),
-		OutputSchema:         taskExecutionLifecycleOutputSchema(),
+		OutputSchema:         taskExecutionIntegrateOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  true,
@@ -34,7 +40,7 @@ func (s *Server) registerTaskExecutionIntegrateAction() error {
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			return s.Service.TaskExecutionIntegrate(ctx, service.TaskExecutionIntegrateInput{ProjectID: in.ProjectID, Key: in.Key, Comment: in.Comment})
+			return s.Service.TaskExecutionIntegrateAsync(ctx, service.TaskExecutionIntegrateInput{ProjectID: in.ProjectID, Key: in.Key, Comment: in.Comment})
 		},
 	})
 }

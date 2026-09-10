@@ -10,6 +10,16 @@ import (
 
 func (s *Service) durableMutationExecutionSet1(ctx context.Context, operation durableMutationOperation) (json.RawMessage, error) {
 	switch operation.Kind {
+	case "task-execution-integrate":
+		var input TaskExecutionIntegrateInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.TaskExecutionIntegrate(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
 	case "task-authoring-update":
 		var input TaskAuthoringUpdateInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
