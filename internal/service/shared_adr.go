@@ -162,13 +162,21 @@ func (s *Service) adrCreateShared(ctx context.Context, in ADRCreateInput) (Opera
 			created.RevisionCount = 1
 			created.UpdatedAt = time.Time{}
 			created.LastReason = "create"
-			if created.Status == "" {
-				created.Status = model.ADRStatusProposed
+			payload, err := json.Marshal(created)
+			if err != nil {
+				return nil, err
+			}
+			payload, err = sqlitestore.ApplySharedLifecycleCreateDefaults("adr", payload)
+			if err != nil {
+				return nil, err
+			}
+			if err := json.Unmarshal(payload, &created); err != nil {
+				return nil, err
 			}
 			if err := model.ValidateADR(created); err != nil {
 				return nil, err
 			}
-			return json.Marshal(created)
+			return payload, nil
 		},
 	})
 	if err != nil {

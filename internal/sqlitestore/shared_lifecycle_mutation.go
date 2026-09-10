@@ -149,6 +149,10 @@ func (d *Databases) commitSharedLifecycleCreateOnce(ctx context.Context, request
 	if err != nil {
 		return SharedMutationReceipt{}, "", nil, err
 	}
+	payload, err = ApplySharedLifecycleCreateDefaults(request.EntityType, payload)
+	if err != nil {
+		return SharedMutationReceipt{}, "", nil, err
+	}
 	if len(payload) == 0 {
 		return SharedMutationReceipt{}, "", nil, fmt.Errorf("shared %s payload is empty", request.EntityType)
 	}

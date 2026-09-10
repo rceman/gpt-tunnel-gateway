@@ -50,7 +50,7 @@ var sharedLifecycleRegistry = map[string]sharedLifecycleDefinition{
 		DefaultCreateStatus:   "planned",
 		AllowedCreateStatuses: []string{"planned"},
 		AllowedStatuses:       []string{"planned", "ready", "done", "archived"},
-		AllowedTransitions:    map[string][]string{"planned": {"ready", "archived"}, "ready": {"done", "archived"}},
+		AllowedTransitions:    map[string][]string{"planned": {"ready", "done", "archived"}, "ready": {"done", "archived"}},
 	},
 	"train": {
 		EntityType:   "train",
@@ -281,37 +281,6 @@ func matchesLifecycleText(fields map[string]any, searchFields []string, text str
 func sharedLifecycle(entityType string) (sharedLifecycleDefinition, bool) {
 	definition, ok := sharedLifecycleRegistry[entityType]
 	return definition, ok
-}
-
-func validateSharedLifecycleStatus(definition sharedLifecycleDefinition, previousPayload, payload []byte, creating bool) error {
-	if definition.DefaultCreateStatus == "" {
-		return nil
-	}
-	var next struct {
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal(payload, &next); err != nil || next.Status == "" || !containsString(definition.AllowedStatuses, next.Status) {
-		return fmt.Errorf("invalid shared %s status", definition.EntityType)
-	}
-	if creating {
-		if !containsString(definition.AllowedCreateStatuses, next.Status) {
-			return fmt.Errorf("invalid shared %s create status", definition.EntityType)
-		}
-		return nil
-	}
-	var previous struct {
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal(previousPayload, &previous); err != nil || previous.Status == "" || !containsString(definition.AllowedStatuses, previous.Status) {
-		return fmt.Errorf("invalid shared %s previous status", definition.EntityType)
-	}
-	if previous.Status == next.Status {
-		return nil
-	}
-	if !containsString(definition.AllowedTransitions[previous.Status], next.Status) {
-		return fmt.Errorf("invalid shared %s status transition %q to %q", definition.EntityType, previous.Status, next.Status)
-	}
-	return nil
 }
 
 func sharedProjectionTable(entityType string) (string, bool) {
