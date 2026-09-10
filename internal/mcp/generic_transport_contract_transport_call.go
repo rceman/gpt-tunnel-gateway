@@ -229,9 +229,6 @@ func (s *Server) recordPublicCallUsage(ctx context.Context, requestID, sessionID
 	if s.Service == nil || s.Service.Durability == nil || requestID == "" || sessionID == "" {
 		return nil
 	}
-	if _, err := s.activeSession(sessionID); err != nil {
-		return nil
-	}
 	inputTokens, err := codeOutputCounter.CountText(input)
 	if err != nil {
 		return err
