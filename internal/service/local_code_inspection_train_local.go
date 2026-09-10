@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -176,23 +175,6 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 	return candidates, nil
 }
 
-func codeTrainBase(train model.TrainV2, currentHead string) (string, error) {
-	if len(train.Items) == 0 || len(train.Items[0].Attempts) == 0 {
-		if train.Status == model.TrainV2Planned {
-			return currentHead, nil
-		}
-		return "", fmt.Errorf("managed Train %s has no canonical Shared Train base", train.ID)
-	}
-	// The first Attempt of the first Shared Train item is the canonical lane
-	// base. Later item Attempts start from intermediate heads and must not be
-	// mistaken for separate Train bases.
-	base := train.Items[0].Attempts[0].StartHead
-	if model.ValidateCommitSHA(base) != nil {
-		return "", fmt.Errorf("managed Train %s has an invalid canonical Shared Train base", train.ID)
-	}
-	return base, nil
-}
-
 func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selector string, live bool) (localCodeTarget, error) {
 	if s.codeTargetResolver != nil {
 		return s.codeTargetResolver(ctx, projectID, selector, live)
@@ -203,6 +185,14 @@ func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selecto
 	if !live {
 		if kind, _, prefix, parseErr := parseCodeSelector(selector); parseErr == nil && kind == "main" {
 			return s.resolveCleanMainCodeTarget(ctx, projectID, selector, prefix)
+		}
+		if kind, _, slug, parseErr := parseCodeSelector(selector); parseErr == nil && kind == "hotfix" {
+			return s.resolveExactHotfixCodeTarget(ctx, projectID, selector, slug, live)
+		}
+	}
+	if live {
+		if kind, _, slug, parseErr := parseCodeSelector(selector); parseErr == nil && kind == "hotfix" {
+			return s.resolveExactHotfixCodeTarget(ctx, projectID, selector, slug, live)
 		}
 	}
 	candidates, err := s.codeWorktreeCandidates(ctx, projectID)
@@ -246,53 +236,60 @@ func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selecto
 	}
 }
 
+func (s *Service) resolveExactHotfixCodeTargetDetached(ctx context.Context, projectID, selector, slug string, live bool) (localCodeTarget, error) {
+	project, err := s.EffectiveProjectConfig(projectID)
+	if err != nil {
+		return localCodeTarget{}, err
+	}
+	ref := "refs/heads/hotfix/" + slug
+	identity, err := s.Git.ReadHotfixIdentity(s.Config.StateDir, projectID, ref)
+	if err != nil {
+		return localCodeTarget{}, &CodeSelectorError{
+			Kind:     CodeSelectorNotFound,
+			Selector: selector,
+		}
+	}
+	worktree, err := s.Git.ResolveHotfixWorktree(ctx, project, s.Config.StateDir, projectID, identity.HotfixRef)
+	if err != nil {
+		return localCodeTarget{}, fmt.Errorf("resolve managed hotfix %s worktree: %w", identity.HotfixRef, err)
+	}
+	status, err := s.Git.WorktreeStatus(ctx, worktree)
+	if err != nil {
+		return localCodeTarget{}, fmt.Errorf("read managed hotfix %s worktree status: %w", identity.HotfixRef, err)
+	}
+	currentSelector, err := codeHotfixSelector(slug, status.Head)
+	if err != nil {
+		return localCodeTarget{}, err
+	}
+	if currentSelector != selector {
+		return localCodeTarget{}, &CodeSelectorError{
+			Kind:     CodeSelectorStale,
+			Selector: selector,
+			Current:  currentSelector,
+		}
+	}
+	if !live && !status.Clean {
+		return localCodeTarget{}, fmt.Errorf("worktree selector %q is dirty; set live=true for bounded observation", selector)
+	}
+	ancestor, err := s.Git.IsAncestor(ctx, worktree.Root, identity.BaseSHA, status.Head)
+	if err != nil || !ancestor {
+		return localCodeTarget{}, fmt.Errorf("worktree selector %q has an invalid authoritative hotfix base", selector)
+	}
+	return localCodeTarget{
+		CodeIdentity: CodeIdentity{
+			ProjectID:   projectID,
+			Worktree:    selector,
+			Dirty:       !status.Clean,
+			CurrentHead: status.Head,
+			Live:        live,
+		},
+		ProjectWorktree: worktree,
+		Kind:            "hotfix",
+		DiffBase:        identity.BaseSHA,
+	}, nil
+}
+
 func candidateTrainNumber(trainID string) uint64 {
 	_, number, _ := model.ParseTrainV2ID(trainID)
 	return number
-}
-
-func parseCodeSelector(selector string) (string, uint64, string, error) {
-	if strings.HasPrefix(selector, "WT-MAIN-") && len(selector) == len("WT-MAIN-")+8 {
-		prefix := selector[len("WT-MAIN-"):]
-		if !validSelectorPrefix(prefix) {
-			return "", 0, "", fmt.Errorf("invalid worktree selector")
-		}
-		return "main", 0, prefix, nil
-	}
-	if strings.HasPrefix(selector, "WT-FIX-") {
-		rest := strings.TrimPrefix(selector, "WT-FIX-")
-		separator := strings.LastIndexByte(rest, '-')
-		if separator < 1 || separator == len(rest)-1 {
-			return "", 0, "", fmt.Errorf("invalid worktree selector")
-		}
-		slug, prefix := rest[:separator], rest[separator+1:]
-		if model.ValidateTaskSlug(slug) != nil || !validSelectorPrefix(prefix) {
-			return "", 0, "", fmt.Errorf("invalid worktree selector")
-		}
-		return "hotfix", 0, slug, nil
-	}
-	if !strings.HasPrefix(selector, "WT-TRN") {
-		return "", 0, "", fmt.Errorf("invalid worktree selector")
-	}
-	parts := strings.Split(strings.TrimPrefix(selector, "WT-TRN"), "-")
-	if len(parts) != 2 || len(parts[1]) != 8 || (len(parts[0]) > 1 && strings.HasPrefix(parts[0], "0")) || !validSelectorPrefix(parts[1]) {
-		return "", 0, "", fmt.Errorf("invalid worktree selector")
-	}
-	number, err := strconv.ParseUint(parts[0], 10, 64)
-	if err != nil {
-		return "", 0, "", err
-	}
-	return "train", number, parts[1], nil
-}
-
-func validSelectorPrefix(prefix string) bool {
-	if len(prefix) != 8 {
-		return false
-	}
-	for _, char := range prefix {
-		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
-			return false
-		}
-	}
-	return true
 }
