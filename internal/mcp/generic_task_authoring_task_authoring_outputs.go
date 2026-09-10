@@ -45,6 +45,12 @@ func (s *Server) registerTaskAuthoringActions() error {
 		action.LocalReceiptOnly = true
 		return s.RegisterGenericAction(action)
 	}
+	registerRead := func(action GenericAction) error {
+		action.AuthorityRole = actionRolePlannerOrAgent
+		action.SessionBound = true
+		action.LocalReceiptOnly = true
+		return s.RegisterGenericAction(action)
+	}
 	if err := register(GenericAction{
 		Path:                 "task/create",
 		Description:          "Create one revisioned Task.",
@@ -87,7 +93,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 	}); err != nil {
 		return err
 	}
-	if err := register(GenericAction{
+	if err := registerRead(GenericAction{
 		Path:                 "task/read",
 		Description:          "Read one Task revision.",
 		InputSchema:          taskLifecycleReadSchema(),
