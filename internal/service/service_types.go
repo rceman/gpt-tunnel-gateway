@@ -46,6 +46,8 @@ type Service struct {
 	taskActivator                           func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
 	runtimeSourceProver                     func(context.Context, config.ProjectConfig, string) (TaskActivationResult, error)
 	codeFileReader                          func(context.Context, localCodeTarget, string) (string, error)
+	codeTargetResolver                      func(context.Context, string, string, bool) (localCodeTarget, error)
+	codePathWalker                          func(context.Context, localCodeTarget, []string, string, []string, []string, func(string) error) error
 	taskCreateWorkerOnce                    sync.Once
 	taskCreateMu                            sync.Mutex
 	taskCreateWake                          chan string

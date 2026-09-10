@@ -194,6 +194,9 @@ func codeTrainBase(train model.TrainV2, currentHead string) (string, error) {
 }
 
 func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selector string, live bool) (localCodeTarget, error) {
+	if s.codeTargetResolver != nil {
+		return s.codeTargetResolver(ctx, projectID, selector, live)
+	}
 	if selector == "" {
 		return localCodeTarget{}, fmt.Errorf("worktree selector is required")
 	}

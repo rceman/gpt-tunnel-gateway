@@ -228,6 +228,9 @@ func codePathMatches(pathName string, include, exclude []string) bool {
 }
 
 func (s *Service) walkCodePaths(ctx context.Context, target localCodeTarget, paths []string, rootPath string, include, exclude []string, visit func(string) error) error {
+	if s.codePathWalker != nil {
+		return s.codePathWalker(ctx, target, paths, rootPath, include, exclude, visit)
+	}
 	selected, err := validateLocalCodePaths(paths, false)
 	if err != nil {
 		return err
