@@ -47,7 +47,7 @@ func TestTSK409ADRPublicSchemasAreClosedAndTransportNeutral(t *testing.T) {
 		}
 	}
 	queryStatus := tsk409SchemaProperties(entries["adr/query"].InputSchema)["status"].(map[string]any)
-	if !reflect.DeepEqual(queryStatus["enum"], []any{"accepted", "superseded", "archived"}) {
+	if !reflect.DeepEqual(queryStatus["enum"], []any{"proposed", "accepted", "superseded", "archived"}) {
 		t.Fatalf("query status enum=%#v", queryStatus["enum"])
 	}
 }
