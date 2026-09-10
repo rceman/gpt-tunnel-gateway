@@ -197,6 +197,11 @@ func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selecto
 	if selector == "" {
 		return localCodeTarget{}, fmt.Errorf("worktree selector is required")
 	}
+	if !live {
+		if kind, _, prefix, parseErr := parseCodeSelector(selector); parseErr == nil && kind == "main" {
+			return s.resolveCleanMainCodeTarget(ctx, projectID, selector, prefix)
+		}
+	}
 	candidates, err := s.codeWorktreeCandidates(ctx, projectID)
 	if err != nil {
 		return localCodeTarget{}, err
