@@ -44,11 +44,31 @@ func TestCodeSearchCleanMainLatencyAndResolutionWork(t *testing.T) {
 		name  string
 		input CodeSearchInput
 	}{
-		{name: "known-file", input: CodeSearchInput{Worktree: selector, Query: "needle", Paths: []string{"tracked.txt"}}},
-		{name: "small-include", input: CodeSearchInput{Worktree: selector, Query: "needle", Include: []string{"*.txt"}}},
-		{name: "broad-internal", input: CodeSearchInput{Worktree: selector, Query: "needle", Include: []string{"internal/*"}}},
-		{name: "zero-match", input: CodeSearchInput{Worktree: selector, Query: "absent"}},
-		{name: "paginated-context", input: CodeSearchInput{Worktree: selector, Query: "needle", Paths: []string{"internal/search.txt"}, ContextLines: 1}},
+		{name: "known-file", input: CodeSearchInput{
+			Worktree: selector,
+			Query:    "needle",
+			Paths:    []string{"tracked.txt"},
+		}},
+		{name: "small-include", input: CodeSearchInput{
+			Worktree: selector,
+			Query:    "needle",
+			Include:  []string{"*.txt"},
+		}},
+		{name: "broad-internal", input: CodeSearchInput{
+			Worktree: selector,
+			Query:    "needle",
+			Include:  []string{"internal/*"},
+		}},
+		{name: "zero-match", input: CodeSearchInput{
+			Worktree: selector,
+			Query:    "absent",
+		}},
+		{name: "paginated-context", input: CodeSearchInput{
+			Worktree:     selector,
+			Query:        "needle",
+			Paths:        []string{"internal/search.txt"},
+			ContextLines: 1,
+		}},
 	}
 
 	for _, testCase := range cases {
