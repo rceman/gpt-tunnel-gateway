@@ -133,7 +133,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 		},
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in service.TaskAuthoringUpdateInput
-			if err := decode(raw, &in); err != nil {
+			if err := decodeTaskUpdateInput(raw, &in); err != nil {
 				return nil, err
 			}
 			in.ProjectID = projectIDFromTaskRaw(raw)
