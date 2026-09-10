@@ -39,11 +39,18 @@ func TestTSK521TaskExecutionStorageRejectsCorruption(t *testing.T) {
 	if _, _, err := db.ReadTaskExecutionState(ctx, state.ProjectID, state.TaskID); err == nil {
 		t.Fatal("corrupted Task hash was accepted")
 	}
+	if _, err := db.Shared.Exec(ctx, `UPDATE shared_task_execution_states SET task_revision_sha256=?, execution_revision=? WHERE task_id=?`, state.TaskRevisionSHA256, "not-an-integer", state.TaskID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := db.ReadTaskExecutionState(ctx, state.ProjectID, state.TaskID); err == nil {
+		t.Fatal("corrupted execution_revision type was accepted")
+	}
 }
 
 func TestTSK521SharedExecutionMigrationIsSingleDeterministicMarker(t *testing.T) {
+	stateDir := t.TempDir()
 	for i := 0; i < 2; i++ {
-		db, err := Open(t.TempDir())
+		db, err := Open(stateDir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -51,6 +58,18 @@ func TestTSK521SharedExecutionMigrationIsSingleDeterministicMarker(t *testing.T)
 		if err != nil || len(rows.Rows) != 1 || rows.Rows[0][1] != sharedTaskExecutionMigrationName {
 			t.Fatalf("execution marker=%#v err=%v", rows.Rows, err)
 		}
-		db.Close()
+		count, err := db.Shared.Query(context.Background(), `SELECT COUNT(*) FROM schema_migrations WHERE version=?`, sharedTaskExecutionMigrationVersion)
+		if err != nil || len(count.Rows) != 1 || count.Rows[0][0] != int64(1) {
+			t.Fatalf("execution marker count=%#v err=%v", count.Rows, err)
+		}
+		if i == 0 {
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

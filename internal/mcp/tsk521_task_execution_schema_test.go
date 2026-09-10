@@ -34,11 +34,17 @@ func TestTSK521TaskExecutionSchemasAreClosedAndPubliclyBounded(t *testing.T) {
 	assertKeys("status output", status.OutputSchema, []string{"key", "status", "stage", "worktree", "head", "agent", "execution_revision", "updated_at"})
 	for _, schema := range []map[string]any{dispatch.OutputSchema, status.OutputSchema} {
 		properties := schema["properties"].(map[string]any)
-		if _, ok := properties["agent_key"]; ok {
-			t.Fatal("public execution schema exposes agent_key")
+		for _, forbidden := range []string{"agent_key", "agent_id", "session"} {
+			if _, ok := properties[forbidden]; ok {
+				t.Fatalf("public execution schema exposes %s", forbidden)
+			}
 		}
-		if _, ok := properties["session"]; ok {
-			t.Fatal("public execution schema exposes session")
+	}
+	for name, schema := range map[string]map[string]any{"dispatch": dispatch.OutputSchema, "status": status.OutputSchema} {
+		properties := schema["properties"].(map[string]any)
+		head := properties["head"].(map[string]any)
+		if head["pattern"] != "^[a-f0-9]{8}$" {
+			t.Fatalf("%s head schema=%v", name, head)
 		}
 	}
 	if got := status.OutputSchema["required"].([]string); len(got) != 2 || got[0] != "key" || got[1] != "status" {
