@@ -24,7 +24,7 @@ func TestSharedMigrationHistoryPreservesReleasedVersionsBeforeCandidates(t *test
 	want := []struct {
 		version int64
 		name    string
-	}{{sharedBaselineVersion, sharedBaselineName}, {sharedTaskSummaryMigrationVersion, sharedTaskSummaryMigrationName}, {sharedTaskSequenceMigrationVersion, sharedTaskSequenceMigrationName}}
+	}{{sharedBaselineVersion, sharedBaselineName}, {sharedTaskSummaryMigrationVersion, sharedTaskSummaryMigrationName}, {sharedTaskSequenceMigrationVersion, sharedTaskSequenceMigrationName}, {sharedTaskExecutionMigrationVersion, sharedTaskExecutionMigrationName}}
 	if len(rows.Rows) != len(want) {
 		t.Fatalf("migration history length=%d, want=%d: %#v", len(rows.Rows), len(want), rows.Rows)
 	}
