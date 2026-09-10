@@ -193,9 +193,7 @@ func (s *Server) genericCallPublic(ctx context.Context, legacy map[string]Tool, 
 	if internal["is_error"] == true {
 		failure := publicCallFailureFromInternal(internal, time.Since(started))
 		withoutMetrics := clonePublicCallWithoutMetrics(failure)
-		if usageErr := s.recordPublicCallUsage(ctx, requestID, call.SessionID, raw, withoutMetrics); usageErr != nil {
-			return publicCallFailure("USAGE_RECORD_FAILED", usageErr.Error(), time.Since(started)), nil
-		}
+		_ = s.recordPublicCallUsage(ctx, requestID, call.SessionID, raw, withoutMetrics)
 		return failure, nil
 	}
 	result, ok := internal["result"].(map[string]any)
@@ -211,11 +209,9 @@ func (s *Server) genericCallPublic(ctx context.Context, legacy map[string]Tool, 
 			envelope["pagination"] = map[string]any{"next_cursor": cursor}
 		}
 	}
-	if usageErr := s.recordPublicCallUsage(ctx, requestID, call.SessionID, raw, envelope); usageErr != nil {
-		return publicCallFailure("USAGE_RECORD_FAILED", usageErr.Error(), time.Since(started)), nil
-	}
+	_ = s.recordPublicCallUsage(ctx, requestID, call.SessionID, raw, envelope)
 
-	envelope["metrics"] = publicCallMetrics(envelope, time.Since(started))
+	envelope["metrics"] = publicCallMetrics(result, time.Since(started))
 	return envelope, nil
 }
 
@@ -231,6 +227,9 @@ func clonePublicCallWithoutMetrics(value map[string]any) map[string]any {
 
 func (s *Server) recordPublicCallUsage(ctx context.Context, requestID, sessionID string, input []byte, output map[string]any) error {
 	if s.Service == nil || s.Service.Durability == nil || requestID == "" || sessionID == "" {
+		return nil
+	}
+	if _, err := s.activeSession(sessionID); err != nil {
 		return nil
 	}
 	inputTokens, err := codeOutputCounter.CountText(input)
