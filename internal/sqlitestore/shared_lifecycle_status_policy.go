@@ -5,6 +5,21 @@ import (
 	"fmt"
 )
 
+// SharedLifecycleStatusValues exposes the descriptor-owned status vocabulary
+// for schemas and other boundary projections. The returned slice is detached
+// from the registry so callers cannot mutate policy.
+func SharedLifecycleStatusValues(entityType string, forCreate bool) []string {
+	definition, ok := sharedLifecycle(entityType)
+	if !ok {
+		return nil
+	}
+	values := definition.AllowedStatuses
+	if forCreate {
+		values = definition.AllowedCreateStatuses
+	}
+	return append([]string(nil), values...)
+}
+
 func validateSharedLifecycleStatus(definition sharedLifecycleDefinition, previousPayload, payload []byte, creating bool) error {
 	if definition.DefaultCreateStatus == "" {
 		return nil

@@ -7,13 +7,15 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func adrActionProperties() map[string]any {
+	statuses := outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", false)...)
 	return map[string]any{
 		"adr": str("Stable ADR reference."), "revision": integer("Exact historical ADR revision.", 1, 1000000),
 		"title": boundedADRString("ADR title.", 3, 300), "context": boundedADRString("ADR context.", 0, 100000), "decision": boundedADRString("ADR decision.", 0, 100000),
-		"consequences": boundedADRString("ADR consequences.", 0, 100000), "status": outputEnum("proposed", "accepted", "superseded", "archived"),
+		"consequences": boundedADRString("ADR consequences.", 0, 100000), "status": statuses,
 		"reason": boundedADRString("Bounded mutation reason.", 1, 1024), "include_archived": map[string]any{"type": "boolean"},
 		"text": str("Case-insensitive text matched across ADR content."), "cursor": str("Opaque server-owned continuation token."),
 	}
@@ -27,7 +29,7 @@ func boundedADRString(description string, min, max int) map[string]any {
 
 func adrCreateSchema() map[string]any {
 	p := adrActionProperties()
-	return obj(map[string]any{"title": p["title"], "context": p["context"], "decision": p["decision"], "consequences": p["consequences"], "status": p["status"]}, "title", "context", "decision", "consequences")
+	return obj(map[string]any{"title": p["title"], "context": p["context"], "decision": p["decision"], "consequences": p["consequences"], "status": outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", true)...)}, "title", "context", "decision", "consequences")
 }
 func adrReadSchema() map[string]any {
 	p := adrActionProperties()
@@ -43,7 +45,7 @@ func adrQuerySchema() map[string]any {
 }
 func adrUpdateSchema() map[string]any {
 	p := adrActionProperties()
-	return obj(map[string]any{"adr": p["adr"], "title": p["title"], "context": p["context"], "decision": p["decision"], "consequences": p["consequences"], "status": p["status"], "reason": p["reason"]}, "adr", "reason")
+	return obj(map[string]any{"adr": p["adr"], "title": p["title"], "context": p["context"], "decision": p["decision"], "consequences": p["consequences"], "status": outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", false)...), "reason": p["reason"]}, "adr", "reason")
 }
 func adrArchiveSchema() map[string]any {
 	p := adrActionProperties()
