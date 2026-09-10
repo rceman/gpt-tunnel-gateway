@@ -8,6 +8,13 @@ import (
 
 var trainV2SHA256RE = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+func ValidateSHA256(value string) error {
+	if !trainV2SHA256RE.MatchString(value) {
+		return fmt.Errorf("invalid SHA-256 digest")
+	}
+	return nil
+}
+
 func ValidateTrainV2CutoverReceipt(v TrainV2CutoverReceipt) error {
 	if v.SchemaVersion != TrainV2CutoverSchemaVersion || ValidateProjectIdentifier(v.ProjectID) != nil || v.ExecutionModel != "train_v2" || v.ConfigurationRevision < 1 {
 		return fmt.Errorf("invalid train v2 cutover identity")

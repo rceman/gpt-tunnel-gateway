@@ -18,6 +18,8 @@ type AgentResolveInput struct {
 	AgentID              string
 	RecommendedReasoning string
 	RequireUsable        bool
+	RequireUnique        bool
+	RequireAttached      bool
 }
 
 type ResolvedAgent struct {

@@ -45,13 +45,13 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 			return ResolvedAgent{}, fmt.Errorf("agent %q is not currently usable", in.AgentID)
 		}
 		var exactAuthority bool
-		binding, exactAuthority, err = s.resolveExactAgentBinding(ctx, binding, in.RequireUsable)
+		binding, exactAuthority, err = s.resolveExactAgentBinding(ctx, binding, in.RequireUsable && !in.RequireAttached)
 		if err != nil {
 			return ResolvedAgent{}, fmt.Errorf("agent %q is not currently usable: %w", in.AgentID, err)
 		}
-		if in.RequireUsable && !exactAuthority {
+		if (in.RequireUsable || in.RequireAttached) && !exactAuthority {
 			status, statusErr := s.Airelay.Status(ctx, binding.SessionKey)
-			if statusErr != nil || !status.ControllerReachable || status.State != "idle" {
+			if statusErr != nil || !status.ControllerReachable || (in.RequireUsable && !in.RequireAttached && status.State != "idle") {
 				return ResolvedAgent{}, fmt.Errorf("agent %q is not currently usable", in.AgentID)
 			}
 		}
@@ -85,13 +85,13 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 			continue
 		}
 		var exactAuthority bool
-		binding, exactAuthority, bindingErr := s.resolveExactAgentBinding(ctx, binding, in.RequireUsable)
+		binding, exactAuthority, bindingErr := s.resolveExactAgentBinding(ctx, binding, in.RequireUsable && !in.RequireAttached)
 		if bindingErr != nil {
 			continue
 		}
-		if in.RequireUsable && !exactAuthority {
+		if (in.RequireUsable || in.RequireAttached) && !exactAuthority {
 			status, statusErr := s.Airelay.Status(ctx, binding.SessionKey)
-			if statusErr != nil || !status.ControllerReachable || status.State != "idle" {
+			if statusErr != nil || !status.ControllerReachable || (in.RequireUsable && !in.RequireAttached && status.State != "idle") {
 				continue
 			}
 		}
@@ -101,6 +101,23 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 			profile: binding.Profile,
 			score:   routingScore(agent.RecommendedReasoning),
 		})
+	}
+	if in.RequireUnique {
+		if len(candidates) == 0 {
+			return ResolvedAgent{}, fmt.Errorf("AGENT_NOT_AVAILABLE: no eligible attached coding Agent exists")
+		}
+		if len(candidates) > 1 {
+			return ResolvedAgent{}, fmt.Errorf("multiple eligible attached coding Agents exist; explicit agent is required")
+		}
+		selected := candidates[0]
+		return ResolvedAgent{
+			ProjectID:         in.ProjectID,
+			AgentID:           selected.agent.AgentID,
+			Role:              selected.agent.Role,
+			SessionKey:        selected.session,
+			Profile:           selected.profile,
+			ResolvedReasoning: selected.agent.RecommendedReasoning,
+		}, nil
 	}
 	if len(candidates) == 0 {
 		if in.AgentID != "" {

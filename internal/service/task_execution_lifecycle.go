@@ -123,46 +123,17 @@ func (s *Service) TaskExecutionStatus(ctx context.Context, projectID, key string
 }
 
 func (s *Service) resolveTaskExecutionAgent(ctx context.Context, projectID, requested string) (string, error) {
-	agents, err := s.AgentList(ctx, projectID)
+	resolved, err := s.ResolveAgent(ctx, AgentResolveInput{
+		ProjectID:       projectID,
+		Role:            model.AgentRoleCoding,
+		AgentID:         requested,
+		RequireUnique:   requested == "",
+		RequireAttached: true,
+	})
 	if err != nil {
 		return "", err
 	}
-	eligible := make([]string, 0, len(agents))
-	for _, agent := range agents {
-		if agent.Role != model.AgentRoleCoding || !agent.Enabled {
-			continue
-		}
-		binding, ok := s.resolveLocalAgentBinding(projectID, agent, agents)
-		if !ok || binding.Validate() != nil {
-			continue
-		}
-		binding, exact, bindingErr := s.resolveExactAgentBinding(ctx, binding, false)
-		if bindingErr != nil {
-			continue
-		}
-		if !exact {
-			status, statusErr := s.Airelay.Status(ctx, binding.SessionKey)
-			if statusErr != nil || !status.ControllerReachable {
-				continue
-			}
-		}
-		eligible = append(eligible, agent.AgentID)
-	}
-	if requested != "" {
-		for _, agent := range eligible {
-			if agent == requested {
-				return agent, nil
-			}
-		}
-		return "", fmt.Errorf("AGENT_NOT_AVAILABLE: logical Agent %q is not eligible", requested)
-	}
-	if len(eligible) == 0 {
-		return "", fmt.Errorf("AGENT_NOT_AVAILABLE: no eligible enabled coding Agent exists")
-	}
-	if len(eligible) > 1 {
-		return "", fmt.Errorf("multiple eligible coding Agents exist; explicit agent is required")
-	}
-	return eligible[0], nil
+	return resolved.AgentID, nil
 }
 
 func taskExecutionWorktree(key, head string) string {

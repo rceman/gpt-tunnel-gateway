@@ -56,7 +56,7 @@ func ValidateTaskExecutionState(v TaskExecutionState) error {
 	if err := ValidateObjectIdentifier(v.Agent); err != nil {
 		return fmt.Errorf("invalid Task execution Agent: %w", err)
 	}
-	if ValidateCommitSHA(v.BaseHead) != nil || ValidateCommitSHA(v.Head) != nil {
+	if ValidateCommitSHA(v.BaseHead) != nil || ValidateCommitSHA(v.Head) != nil || ValidateSHA256(v.TaskRevisionSHA256) != nil {
 		return fmt.Errorf("invalid Task execution full head authority")
 	}
 	if !taskExecutionWorktreePattern.MatchString(v.Worktree) {
@@ -66,7 +66,10 @@ func ValidateTaskExecutionState(v TaskExecutionState) error {
 	if idx < 0 || !strings.HasPrefix(v.Worktree, "WT-TSK"+v.TaskID[idx+4:]+"-") {
 		return fmt.Errorf("Task execution worktree does not match Task")
 	}
-	if v.ExecutionRevision < 1 || v.UpdatedAt.IsZero() || v.Branch == "" || v.TaskRevision < 1 || ValidateCommitSHA(v.TaskRevisionSHA256) != nil {
+	if !strings.HasSuffix(v.Worktree, "-"+strings.ToLower(v.Head[:8])) {
+		return fmt.Errorf("Task execution worktree does not match current head")
+	}
+	if v.ExecutionRevision < 1 || v.UpdatedAt.IsZero() || v.Branch == "" || v.TaskRevision < 1 {
 		return fmt.Errorf("incomplete Task execution state")
 	}
 	if err := ValidateBranch(v.Branch); err != nil || !strings.HasPrefix(v.Branch, "task/"+v.TaskID+"-") {
