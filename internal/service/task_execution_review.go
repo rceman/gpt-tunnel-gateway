@@ -124,6 +124,8 @@ func (s *Service) TaskExecutionReview(ctx context.Context, in TaskExecutionRevie
 	if err := validateTaskExecutionReviewInput(in.ProjectID, in.Key, in.Stage); err != nil {
 		return TaskExecutionReviewOutput{}, err
 	}
+	s.taskExecutionMu.Lock()
+	defer s.taskExecutionMu.Unlock()
 	state, found, err := s.readExecutionForMutation(ctx, in.ProjectID, in.Key)
 	if err != nil || !found {
 		if err != nil {
@@ -257,13 +259,6 @@ func validateTaskExecutionReviewInput(projectID, key, stage string) error {
 		return fmt.Errorf("invalid review stage")
 	}
 	return nil
-}
-
-func (s *Service) readExecutionForMutation(ctx context.Context, projectID, key string) (model.TaskExecutionState, bool, error) {
-	if s.Durability == nil {
-		return model.TaskExecutionState{}, false, fmt.Errorf("shared durability is unavailable")
-	}
-	return s.Durability.ReadTaskExecutionState(ctx, projectID, key)
 }
 
 func (s *Service) taskExecutionLaneHead(ctx context.Context, projectID, key string, state model.TaskExecutionState) (string, string, bool, error) {

@@ -3,6 +3,7 @@ package gitx
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -67,6 +68,11 @@ func (r Runner) RemoveTaskWorktreeAfterIntegration(ctx context.Context, p config
 	}
 	lane := p
 	lane.Root = path
+	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+		return r.DeleteTrainBranch(ctx, p, branch, head)
+	} else if statErr != nil {
+		return statErr
+	}
 	actual, actualBranch, clean, err := r.CurrentHead(ctx, lane)
 	if err != nil || !clean || actualBranch != branch || actual != head {
 		return fmt.Errorf("Task worktree cleanup authority is invalid")

@@ -32,7 +32,7 @@ func (s *Service) ExecuteProjectGates(ctx context.Context, projectID, operationC
 		return nil, err
 	}
 	mode := "train"
-	if operationClass == "" || operationClass == "implementation" || operationClass == "correction" {
+	if operationClass == "" || operationClass == "implementation" || operationClass == "correction" || operationClass == "integration" {
 		mode = "task"
 	}
 	return s.executeProjectGatesWithProjectCommands(ctx, projectID, root, names, mode)

@@ -35,7 +35,15 @@ func (s *Service) reconcileTaskExecutionBase(ctx context.Context, state model.Ta
 	}
 	newHead, _, err := s.Git.ReplayTaskCommits(ctx, lane, canonical, ids)
 	if err != nil {
-		return err
+		state.Stage = "rebase"
+		state.Status = model.TaskExecutionChangesRequested
+		state.ExecutionRevision++
+		state.UpdatedAt = time.Now().UTC()
+		phase := sqlitestore.TaskExecutionPhase{TaskID: state.TaskID, ProjectID: state.ProjectID, ExecutionRevision: state.ExecutionRevision, Stage: state.Stage, Status: state.Status, Head: state.Head, Branch: state.Branch, TaskRevisionSHA256: state.TaskRevisionSHA256, EventKind: "rework", Comment: "controlled rebase conflict; Planner authorization required", CreatedAt: state.UpdatedAt}
+		if persistErr := s.Durability.TransitionTaskExecutionState(ctx, state, state.ExecutionRevision-1, phase); persistErr != nil {
+			return fmt.Errorf("rebase conflict and recovery state could not be recorded: %w (original: %v)", persistErr, err)
+		}
+		return fmt.Errorf("controlled Task rebase conflict; durable rebase state recorded: %w", err)
 	}
 	actual, branch, clean, err := s.Git.CurrentHead(ctx, lane)
 	if err != nil || !clean || branch != state.Branch || actual != newHead {

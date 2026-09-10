@@ -208,6 +208,8 @@ func (s *Service) taskAuthoringCreateShared(ctx context.Context, operationID str
 }
 
 func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID string, in TaskAuthoringUpdateInput) (model.TaskAuthoring, OperationResult, error) {
+	s.taskExecutionMu.Lock()
+	defer s.taskExecutionMu.Unlock()
 	if err := s.requireLocalTaskAuthoring(ctx, in.ProjectID); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}

@@ -18,14 +18,19 @@ type TaskExecutionIntegrateInput struct {
 }
 
 type taskExecutionIntegrationCapture struct {
-	SchemaVersion   int                          `json:"schema_version"`
-	ProjectID       string                       `json:"project_id"`
-	TaskID          string                       `json:"task_id"`
-	BaseHead        string                       `json:"base_head"`
-	LaneHead        string                       `json:"lane_head"`
-	Branch          string                       `json:"branch"`
-	IntegrationHead string                       `json:"integration_head,omitempty"`
-	Gates           []model.CompletionGateResult `json:"gates"`
+	SchemaVersion      int                          `json:"schema_version"`
+	ProjectID          string                       `json:"project_id"`
+	TaskID             string                       `json:"task_id"`
+	TaskRevision       int                          `json:"task_revision"`
+	TaskRevisionSHA256 string                       `json:"task_revision_sha256"`
+	ExecutionRevision  int                          `json:"execution_revision"`
+	BaseHead           string                       `json:"base_head"`
+	LaneHead           string                       `json:"lane_head"`
+	Branch             string                       `json:"branch"`
+	CandidateHead      string                       `json:"candidate_head"`
+	CandidateTree      string                       `json:"candidate_tree"`
+	IntegrationHead    string                       `json:"integration_head,omitempty"`
+	Gates              []model.CompletionGateResult `json:"gates"`
 }
 
 func (s *Service) saveTaskExecutionIntegrationCapture(ctx context.Context, capture taskExecutionIntegrationCapture) error {
@@ -51,11 +56,26 @@ func readTaskExecutionIntegrationCapture(operation durableMutationOperation) (ta
 		return taskExecutionIntegrationCapture{}, nil
 	}
 	var capture taskExecutionIntegrationCapture
-	if err := json.Unmarshal([]byte(operation.CapturedState), &capture); err != nil || capture.SchemaVersion != 1 || capture.ProjectID == "" || capture.TaskID == "" || model.ValidateCommitSHA(capture.BaseHead) != nil || model.ValidateCommitSHA(capture.LaneHead) != nil || model.ValidateBranch(capture.Branch) != nil {
+	if err := json.Unmarshal([]byte(operation.CapturedState), &capture); err != nil || capture.SchemaVersion != 2 || capture.ProjectID == "" || capture.TaskID == "" || capture.TaskRevision < 1 || model.ValidateSHA256(capture.TaskRevisionSHA256) != nil || capture.ExecutionRevision < 1 || model.ValidateCommitSHA(capture.BaseHead) != nil || model.ValidateCommitSHA(capture.LaneHead) != nil || model.ValidateCommitSHA(capture.CandidateHead) != nil || model.ValidateCommitSHA(capture.CandidateTree) != nil || model.ValidateBranch(capture.Branch) != nil || len(capture.Gates) == 0 {
 		return taskExecutionIntegrationCapture{}, fmt.Errorf("invalid durable Task integration capture")
 	}
 	if capture.IntegrationHead != "" && model.ValidateCommitSHA(capture.IntegrationHead) != nil {
 		return taskExecutionIntegrationCapture{}, fmt.Errorf("invalid durable Task integration result")
+	}
+	seenGates := map[string]struct{}{}
+	for _, gate := range capture.Gates {
+		if gate.ID == "" || gate.ExitCode != 0 {
+			return taskExecutionIntegrationCapture{}, fmt.Errorf("invalid durable Task gate evidence")
+		}
+		if _, exists := seenGates[gate.ID]; exists {
+			return taskExecutionIntegrationCapture{}, fmt.Errorf("duplicate durable Task gate evidence")
+		}
+		seenGates[gate.ID] = struct{}{}
+		if gate.TreeID != "" {
+			if model.ValidateCommitSHA(gate.TreeID) != nil || gate.TreeID != capture.CandidateTree {
+				return taskExecutionIntegrationCapture{}, fmt.Errorf("invalid durable Task gate tree evidence")
+			}
+		}
 	}
 	return capture, nil
 }
@@ -111,12 +131,15 @@ func (s *Service) TaskExecutionIntegrate(ctx context.Context, in TaskExecutionIn
 	lane := project
 	lane.Root = lanePath
 	operationCapture := taskExecutionIntegrationCapture{
-		SchemaVersion: 1,
-		ProjectID:     in.ProjectID,
-		TaskID:        in.Key,
-		BaseHead:      state.BaseHead,
-		LaneHead:      state.Head,
-		Branch:        state.Branch,
+		SchemaVersion:      2,
+		ProjectID:          in.ProjectID,
+		TaskID:             in.Key,
+		TaskRevision:       state.TaskRevision,
+		TaskRevisionSHA256: state.TaskRevisionSHA256,
+		ExecutionRevision:  state.ExecutionRevision,
+		BaseHead:           state.BaseHead,
+		LaneHead:           state.Head,
+		Branch:             state.Branch,
 	}
 	if operationID := durableMutationOperationID(ctx); operationID != "" {
 		operation, readErr := s.readDurableMutation(operationID)
@@ -129,16 +152,19 @@ func (s *Service) TaskExecutionIntegrate(ctx context.Context, in TaskExecutionIn
 		}
 		if operationCapture.SchemaVersion == 0 {
 			operationCapture = taskExecutionIntegrationCapture{
-				SchemaVersion: 1,
-				ProjectID:     in.ProjectID,
-				TaskID:        in.Key,
-				BaseHead:      state.BaseHead,
-				LaneHead:      state.Head,
-				Branch:        state.Branch,
+				SchemaVersion:      2,
+				ProjectID:          in.ProjectID,
+				TaskID:             in.Key,
+				TaskRevision:       state.TaskRevision,
+				TaskRevisionSHA256: state.TaskRevisionSHA256,
+				ExecutionRevision:  state.ExecutionRevision,
+				BaseHead:           state.BaseHead,
+				LaneHead:           state.Head,
+				Branch:             state.Branch,
 			}
 		}
 	}
-	if operationCapture.ProjectID != in.ProjectID || operationCapture.TaskID != in.Key || operationCapture.BaseHead != state.BaseHead || operationCapture.LaneHead != state.Head || operationCapture.Branch != state.Branch {
+	if operationCapture.ProjectID != in.ProjectID || operationCapture.TaskID != in.Key || operationCapture.TaskRevision != state.TaskRevision || operationCapture.TaskRevisionSHA256 != state.TaskRevisionSHA256 || operationCapture.ExecutionRevision != state.ExecutionRevision || operationCapture.BaseHead != state.BaseHead || operationCapture.LaneHead != state.Head || operationCapture.Branch != state.Branch {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("durable Task integration identity does not match execution state")
 	}
 	if operationCapture.IntegrationHead == "" {
@@ -156,27 +182,44 @@ func (s *Service) TaskExecutionIntegrate(ctx context.Context, in TaskExecutionIn
 			return TaskExecutionPublicOutput{}, syncErr
 		}
 	}
-	integrationState := state
 	if state.Status == model.TaskExecutionReadyForIntegration {
 		gates, gateErr := s.ExecuteProjectGates(ctx, in.ProjectID, lane.Root, "integration")
 		if gateErr != nil {
 			return TaskExecutionPublicOutput{}, gateErr
 		}
 		operationCapture.Gates = gates
+		candidateHead, candidateBranch, candidateClean, candidateErr := s.Git.CurrentHead(ctx, lane)
+		candidateTree, treeErr := s.Git.TreeID(ctx, lane)
+		if candidateErr != nil || treeErr != nil || !candidateClean || candidateBranch != state.Branch || candidateHead != state.Head || model.ValidateCommitSHA(candidateTree) != nil {
+			return TaskExecutionPublicOutput{}, fmt.Errorf("Task candidate tree is not an exact clean reviewed lane")
+		}
+		operationCapture.CandidateHead = candidateHead
+		operationCapture.CandidateTree = candidateTree
 		state.Status = model.TaskExecutionIntegrating
 		state.ExecutionRevision++
 		state.UpdatedAt = s.durableNow()
+		operationCapture.ExecutionRevision = state.ExecutionRevision
 		if err := s.Durability.UpdateTaskExecutionState(ctx, state, state.ExecutionRevision-1); err != nil {
 			return TaskExecutionPublicOutput{}, err
 		}
 		if err := s.saveTaskExecutionIntegrationCapture(ctx, operationCapture); err != nil {
 			return TaskExecutionPublicOutput{}, s.failTaskExecutionIntegration(ctx, state, err)
 		}
-		integrationState = state
+	}
+	if operationCapture.IntegrationHead == "" {
+		if operationCapture.CandidateHead != state.Head || operationCapture.CandidateTree == "" {
+			return TaskExecutionPublicOutput{}, fmt.Errorf("durable Task candidate evidence is missing or stale")
+		}
+		if candidateHead, candidateBranch, candidateClean, statusErr := s.Git.CurrentHead(ctx, lane); statusErr != nil || !candidateClean || candidateBranch != state.Branch || candidateHead != operationCapture.CandidateHead {
+			return TaskExecutionPublicOutput{}, fmt.Errorf("Task candidate lane changed after verification")
+		}
+		if tree, treeErr := s.Git.TreeID(ctx, lane); treeErr != nil || tree != operationCapture.CandidateTree {
+			return TaskExecutionPublicOutput{}, fmt.Errorf("Task candidate tree changed after verification")
+		}
 	}
 	if operationCapture.IntegrationHead != "" {
 		if current, statusErr := s.Git.WorktreeStatus(ctx, project); statusErr != nil || current.Head != operationCapture.IntegrationHead || !current.Clean {
-			return TaskExecutionPublicOutput{}, s.failTaskExecutionIntegration(ctx, state, fmt.Errorf("durable Task integration result does not match canonical clean head"))
+			return TaskExecutionPublicOutput{}, fmt.Errorf("durable Task integration result does not match canonical clean head; retry is required")
 		}
 	} else {
 		message := "Task " + task.ID + ": " + task.Title
@@ -193,24 +236,28 @@ func (s *Service) TaskExecutionIntegrate(ctx context.Context, in TaskExecutionIn
 		}
 		current, statusErr := s.Git.WorktreeStatus(ctx, project)
 		if statusErr != nil || !current.Clean || model.ValidateCommitSHA(current.Head) != nil {
-			return TaskExecutionPublicOutput{}, s.failTaskExecutionIntegration(ctx, state, fmt.Errorf("integrated canonical branch failed final verification"))
+			return TaskExecutionPublicOutput{}, fmt.Errorf("integrated canonical branch failed final verification; retry is required")
+		}
+		finalTree, treeErr := s.Git.TreeID(ctx, project)
+		if treeErr != nil || finalTree != operationCapture.CandidateTree {
+			return TaskExecutionPublicOutput{}, fmt.Errorf("integrated commit tree does not equal verified Task candidate tree")
 		}
 		operationCapture.IntegrationHead = current.Head
 		if err := s.saveTaskExecutionIntegrationCapture(ctx, operationCapture); err != nil {
-			return TaskExecutionPublicOutput{}, s.failTaskExecutionIntegration(ctx, state, err)
+			return TaskExecutionPublicOutput{}, fmt.Errorf("integration recovery evidence remains pending; retry is required: %w", err)
 		}
 	}
 	if _, err := s.taskLifecycleComplete(ctx, in.ProjectID, in.Key, "gateway", "Task execution integrated"); err != nil {
-		return TaskExecutionPublicOutput{}, s.failTaskExecutionIntegration(ctx, integrationState, fmt.Errorf("complete canonical Task after integration: %w", err))
+		return TaskExecutionPublicOutput{}, fmt.Errorf("complete canonical Task after integration; retry is required: %w", err)
 	}
 	if err := s.Git.RemoveTaskWorktreeAfterIntegration(ctx, project, s.Config.StateDir, in.ProjectID, in.Key, task.Type, task.Title, state.Head, state.Branch); err != nil {
-		return TaskExecutionPublicOutput{}, s.failTaskExecutionIntegration(ctx, integrationState, fmt.Errorf("Task worktree cleanup failed: %w", err))
+		return TaskExecutionPublicOutput{}, fmt.Errorf("Task worktree cleanup remains pending; retry is required: %w", err)
 	}
 	state.Status = model.TaskExecutionIntegrated
 	state.ExecutionRevision++
 	state.UpdatedAt = s.durableNow()
 	if err := s.Durability.UpdateTaskExecutionState(ctx, state, state.ExecutionRevision-1); err != nil {
-		return TaskExecutionPublicOutput{}, s.failTaskExecutionIntegration(ctx, integrationState, err)
+		return TaskExecutionPublicOutput{}, fmt.Errorf("Task execution completion remains pending; retry is required: %w", err)
 	}
 	return taskExecutionPublicOutput(state), nil
 }

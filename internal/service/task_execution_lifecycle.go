@@ -36,22 +36,12 @@ func (s *Service) TaskExecutionDispatch(ctx context.Context, in TaskExecutionDis
 	if err := model.ValidateCanonicalTaskID(in.Key); err != nil {
 		return TaskExecutionPublicOutput{}, err
 	}
-	task, err := s.TaskAuthoringRead(ctx, in.ProjectID, in.Key)
+	s.taskExecutionMu.Lock()
+	defer s.taskExecutionMu.Unlock()
+	task, err := s.taskAuthoringReadForExecution(ctx, in.ProjectID, in.Key)
 	if err != nil {
 		return TaskExecutionPublicOutput{}, err
 	}
-	if task.Status == model.TaskAuthoringArchived {
-		return TaskExecutionPublicOutput{}, fmt.Errorf("archived Task is not dispatchable")
-	}
-	if task.Status != model.TaskAuthoringPlanned && task.Status != model.TaskAuthoringReady {
-		return TaskExecutionPublicOutput{}, fmt.Errorf("Task is not dispatchable in status %q", task.Status)
-	}
-	taskHash, err := model.HashTaskAuthoring(task)
-	if err != nil || taskHash != task.RevisionSHA256 {
-		return TaskExecutionPublicOutput{}, fmt.Errorf("Task authoring revision hash is invalid")
-	}
-	s.taskExecutionMu.Lock()
-	defer s.taskExecutionMu.Unlock()
 	if existing, found, readErr := s.Durability.ReadTaskExecutionState(ctx, in.ProjectID, in.Key); readErr != nil {
 		return TaskExecutionPublicOutput{}, readErr
 	} else if found {
