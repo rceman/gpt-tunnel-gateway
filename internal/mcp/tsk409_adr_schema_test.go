@@ -10,7 +10,7 @@ func TestTSK409ADRPublicSchemasAreClosedAndTransportNeutral(t *testing.T) {
 	server.ensureADRActions()
 	entries := server.genericActionRegistry(nil)
 	want := map[string][]string{
-		"adr/create":                 {"title", "context", "decision", "consequences"},
+		"adr/create":                 {"title", "context", "decision", "consequences", "status"},
 		"adr/read":                   {"adr", "revision"},
 		"adr/update":                 {"adr", "reason", "title", "context", "decision", "consequences", "status"},
 		"adr/list":                   {"cursor", "include_archived"},
