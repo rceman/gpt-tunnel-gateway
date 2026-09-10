@@ -8,10 +8,12 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func task(ctx context.Context, s *service.Service, args []string) {
@@ -34,6 +36,29 @@ func task(ctx context.Context, s *service.Service, args []string) {
 	case "read":
 		require(args, 2)
 		result, err := taskReadGatewayCall(ctx, s, args[1])
+	case "current", "submit-code", "submit-tests", "submit-rebase":
+		require(args, 2)
+		projectID, err := taskProjectForCLI(s, args[1])
+		if err != nil {
+			fatal(err)
+		}
+		db, err := sqlitestore.Open(s.Config.StateDir)
+		if err != nil {
+			fatal(fmt.Errorf("open Task execution authority: %w", err))
+		}
+		defer db.Close()
+		s.Durability = db
+		var result service.TaskExecutionPublicOutput
+		switch args[0] {
+		case "current":
+			result, err = s.TaskExecutionStatus(ctx, projectID, args[1])
+		case "submit-code":
+			result, err = s.TaskExecutionSubmitCode(ctx, projectID, args[1])
+		case "submit-tests":
+			result, err = s.TaskExecutionSubmitTests(ctx, projectID, args[1])
+		case "submit-rebase":
+			result, err = s.TaskExecutionSubmitRebase(ctx, projectID, args[1])
+		}
 		if err != nil {
 			fatal(err)
 		}
@@ -98,4 +123,24 @@ func taskReadGatewayCall(ctx context.Context, s *service.Service, key string) (a
 		return nil, fmt.Errorf("Gateway Task read failed")
 	}
 	return result, nil
+}
+
+func taskProjectForCLI(s *service.Service, key string) (string, error) {
+	if err := model.ValidateCanonicalTaskID(key); err != nil {
+		return "", err
+	}
+	code := key[:strings.Index(key, "-TSK")]
+	found := ""
+	for projectID, project := range s.Config.Projects {
+		if project.ProjectCode == code {
+			if found != "" {
+				return "", fmt.Errorf("Task key %q matches multiple configured projects", key)
+			}
+			found = projectID
+		}
+	}
+	if found == "" {
+		return "", fmt.Errorf("no configured project matches Task key %q", key)
+	}
+	return found, nil
 }

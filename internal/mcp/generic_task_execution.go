@@ -110,6 +110,9 @@ func (s *Server) registerTaskExecutionActions() error {
 	}); err != nil {
 		return err
 	}
+	if err := s.registerTaskExecutionReviewActions(); err != nil {
+		return err
+	}
 	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "task/work",
 		Description:  "Start or resume the exact current TrainItem Attempt addressed by Task identity.",
