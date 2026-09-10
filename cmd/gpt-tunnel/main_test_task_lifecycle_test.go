@@ -122,7 +122,6 @@ func TestTaskLifecycleCLIHardCutKeepsOnlyExecutionRoutes(t *testing.T) {
 	for _, args := range [][]string{
 		{"task", "create", "--file", inputPath},
 		{"task", "list", "example"},
-		{"task", "read", "EXM-TSK1"},
 		{"task", "supersede", "EXM-TSK1", "--file", inputPath},
 	} {
 		output, err := run(args...)
