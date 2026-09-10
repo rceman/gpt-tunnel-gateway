@@ -20,6 +20,10 @@ func taskExecutionLifecycleOutputSchema() map[string]any {
 	return closedOutput(map[string]any{"key": outputString(), "status": outputString(), "stage": outputString(), "worktree": outputString(), "head": outputString(), "agent": outputString(), "execution_revision": outputInteger(), "updated_at": outputDateTime()}, "key", "status", "stage", "worktree", "head", "agent", "execution_revision")
 }
 
+func taskExecutionStatusOutputSchema() map[string]any {
+	return closedOutput(map[string]any{"key": outputString(), "status": outputString(), "stage": outputString(), "worktree": outputString(), "head": outputString(), "agent": outputString(), "execution_revision": outputInteger(), "updated_at": outputDateTime()}, "key", "status")
+}
+
 func taskExecutionOutputSchema() map[string]any {
 	return map[string]any{"type": "object", "additionalProperties": true}
 }
@@ -84,7 +88,7 @@ func (s *Server) registerTaskExecutionActions() error {
 		Description:          "Read the durable execution state for one canonical Task.",
 		InputSchema:          taskExecutionStatusSchema(),
 		ExecutionInputSchema: adrExecutionSchema(taskExecutionStatusSchema()),
-		OutputSchema:         taskExecutionLifecycleOutputSchema(),
+		OutputSchema:         taskExecutionStatusOutputSchema(),
 		Annotations: ToolAnnotations{
 			ReadOnlyHint:   true,
 			IdempotentHint: true,

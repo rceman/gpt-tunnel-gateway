@@ -1,8 +1,6 @@
 package sqlitestore
 
 import (
-	"context"
-
 	"github.com/rceman/go-sqlite-store/migrate"
 	upstream "github.com/rceman/go-sqlite-store/store"
 )
@@ -25,6 +23,14 @@ updated_at TEXT NOT NULL
 	}
 }
 
-func validateSharedTaskExecutionMigration(ctx context.Context, db *upstream.Store) (migrate.Migration, error) {
-	return sharedTaskExecutionMigration(), nil
+func sharedTaskExecutionAuthorityMigration() migrate.Migration {
+	return migrate.Migration{
+		Version: sharedTaskExecutionAuthorityMigrationVersion,
+		Name:    sharedTaskExecutionAuthorityMigrationName,
+		Statements: []upstream.Statement{
+			{SQL: `ALTER TABLE shared_task_execution_states ADD COLUMN base_head_sha TEXT NOT NULL DEFAULT ''`},
+			{SQL: `ALTER TABLE shared_task_execution_states ADD COLUMN worktree_path TEXT NOT NULL DEFAULT ''`},
+			{SQL: `ALTER TABLE shared_task_execution_states ADD COLUMN branch TEXT NOT NULL DEFAULT ''`},
+		},
+	}
 }

@@ -58,13 +58,8 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 		}
 	}
 	execution := sharedTaskExecutionMigration()
-	if _, applied := markers[sharedTaskExecutionMigrationVersion]; !applied {
-		execution, err = validateSharedTaskExecutionMigration(ctx, db)
-		if err != nil {
-			return err
-		}
-	}
-	return applyActiveMigrations(ctx, db, baseline, summary, sequence, execution)
+	authority := sharedTaskExecutionAuthorityMigration()
+	return applyActiveMigrations(ctx, db, baseline, summary, sequence, execution, authority)
 }
 
 func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {

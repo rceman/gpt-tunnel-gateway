@@ -50,6 +50,7 @@ type Service struct {
 	codePathWalker                          func(context.Context, localCodeTarget, []string, string, []string, []string, func(string) error) error
 	taskCreateWorkerOnce                    sync.Once
 	taskCreateMu                            sync.Mutex
+	taskExecutionMu                         sync.Mutex
 	taskCreateWake                          chan string
 	taskCreateActive                        map[string]struct{}
 	durableMutationWorkerOnce               sync.Once
