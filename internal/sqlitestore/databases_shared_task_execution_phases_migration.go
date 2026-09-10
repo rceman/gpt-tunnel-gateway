@@ -23,7 +23,7 @@ event_kind TEXT NOT NULL,
 decision TEXT,
 comment TEXT,
 created_at TEXT NOT NULL,
-UNIQUE(project_id,task_id,execution_revision,event_kind)
+UNIQUE(project_id,task_id,execution_revision)
 )`}},
 	}
 }

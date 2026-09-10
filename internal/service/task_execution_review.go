@@ -78,8 +78,10 @@ func (s *Service) submitTaskExecution(ctx context.Context, projectID, key, stage
 	if err != nil {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("assigned Agent is not usable: %w", err)
 	}
-	if sessionID := AgentSessionID(ctx); sessionID != "" && resolved.SessionKey != sessionID {
-		return TaskExecutionPublicOutput{}, fmt.Errorf("Task is assigned to a different Agent session")
+	if sessionID := AgentSessionID(ctx); sessionID != "" {
+		if err := s.validateTaskExecutionAgentSession(ctx, projectID, resolved, sessionID); err != nil {
+			return TaskExecutionPublicOutput{}, err
+		}
 	}
 	actual, branch, clean, err := s.taskExecutionLaneHead(ctx, projectID, key, state)
 	if err != nil || !clean || branch != state.Branch {
@@ -216,15 +218,25 @@ func (s *Service) TaskExecutionRework(ctx context.Context, in TaskExecutionRewor
 	if (in.Stage == "code" && state.Stage != "code" && state.Stage != "tests" && state.Stage != "rebase") || (in.Stage == "tests" && state.Stage != "tests" && state.Stage != "rebase") || (in.Stage == "rebase" && state.Stage != "rebase") {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("rework stage is stale")
 	}
+	comment := strings.TrimSpace(in.Comment)
 	if state.Status == model.TaskExecutionChangesRequested {
-		return taskExecutionPublicOutput(state), nil
+		phase, found, phaseErr := s.Durability.ReadLatestTaskExecutionPhase(ctx, in.ProjectID, in.Key, in.Stage)
+		if phaseErr != nil {
+			return TaskExecutionPublicOutput{}, phaseErr
+		}
+		if found && phase.EventKind == "rework" {
+			if phase.Comment == comment {
+				return taskExecutionPublicOutput(state), nil
+			}
+			return TaskExecutionPublicOutput{}, fmt.Errorf("conflicting Task rework mutation")
+		}
 	}
 	now := time.Now().UTC()
 	state.Stage = in.Stage
 	state.Status = model.TaskExecutionChangesRequested
 	state.ExecutionRevision++
 	state.UpdatedAt = now
-	phase := sqlitestore.TaskExecutionPhase{TaskID: in.Key, ProjectID: in.ProjectID, ExecutionRevision: state.ExecutionRevision, Stage: in.Stage, Status: state.Status, Head: state.Head, Branch: state.Branch, TaskRevisionSHA256: state.TaskRevisionSHA256, EventKind: "rework", Comment: strings.TrimSpace(in.Comment), CreatedAt: now}
+	phase := sqlitestore.TaskExecutionPhase{TaskID: in.Key, ProjectID: in.ProjectID, ExecutionRevision: state.ExecutionRevision, Stage: in.Stage, Status: state.Status, Head: state.Head, Branch: state.Branch, TaskRevisionSHA256: state.TaskRevisionSHA256, EventKind: "rework", Comment: comment, CreatedAt: now}
 	if err := s.Durability.TransitionTaskExecutionState(ctx, state, state.ExecutionRevision-1, phase); err != nil {
 		return TaskExecutionPublicOutput{}, err
 	}
