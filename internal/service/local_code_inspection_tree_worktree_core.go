@@ -15,43 +15,71 @@ import (
 )
 
 func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeWorktreeResult, error) {
-	candidates, err := s.codeWorktreeCandidates(ctx, in.ProjectID)
-	if err != nil {
-		return CodeWorktreeResult{}, err
-	}
 	query := strings.TrimSpace(in.Query)
 	if len(query) > LocalCodeMaxQueryBytes || strings.ContainsAny(query, "\x00\r\n") {
 		return CodeWorktreeResult{}, fmt.Errorf("invalid worktree query")
 	}
-	items := make([]CodeWorktreeItem, 0, len(candidates))
-	for _, candidate := range candidates {
+	kind := "code-worktree|" + in.ProjectID + "|" + query
+	after, err := pagination.Decode(in.Cursor, kind)
+	if err != nil {
+		return CodeWorktreeResult{}, err
+	}
+	cursorFound := in.Cursor == ""
+	page := make([]CodeWorktreeItem, 0)
+	nextCursor := ""
+	pageFull := errors.New("code worktree page full")
+	_, streamErr := s.codeWorktreeCandidatesStream(ctx, in.ProjectID, func(candidate codeWorktreeCandidate) error {
 		if query != "" && !strings.Contains(candidate.CodeIdentity.Worktree, query) && !strings.Contains(candidate.Label, query) && !strings.Contains(candidate.TrainID, query) {
-			continue
+			return nil
 		}
-		items = append(items, CodeWorktreeItem{
+		if !cursorFound {
+			if candidate.CodeIdentity.Worktree == after {
+				cursorFound = true
+			}
+			return nil
+		}
+		item := CodeWorktreeItem{
 			Selector: candidate.CodeIdentity.Worktree,
 			Kind:     candidate.Kind,
 			Dirty:    candidate.Dirty,
 			Head:     candidate.CurrentHead,
 			Label:    candidate.Label,
 			TrainID:  candidate.TrainID,
-		})
+		}
+		trial := append(append([]CodeWorktreeItem{}, page...), item)
+		candidateCursor := ""
+		if len(trial) > 0 {
+			candidateCursor = pagination.Encode(kind, item.Selector)
+		}
+		fits, fitErr := codePageFits(CodeWorktreeResult{Items: trial, Pagination: codePagination(candidateCursor)})
+		if fitErr != nil {
+			return fitErr
+		}
+		if !fits {
+			if len(page) == 0 {
+				return fmt.Errorf("code worktree item exceeds %d tokenizer tokens", CodePageTokenBudget)
+			}
+			nextCursor = pagination.Encode(kind, page[len(page)-1].Selector)
+			return pageFull
+		}
+		page = trial
+		return nil
+	})
+	if streamErr != nil && !errors.Is(streamErr, pageFull) {
+		return CodeWorktreeResult{}, streamErr
 	}
-	kind := "code-worktree|" + in.ProjectID + "|" + query
-	if len(items) == 0 {
-		result := CodeWorktreeResult{Items: items}
+	if in.Cursor != "" && !cursorFound {
+		return CodeWorktreeResult{}, fmt.Errorf("continuation cursor is no longer valid")
+	}
+	if nextCursor == "" {
+		result := CodeWorktreeResult{Items: page}
 		fits, fitErr := codePageFits(result)
 		if fitErr != nil {
 			return CodeWorktreeResult{}, fitErr
 		}
-		if fits {
-			return result, nil
+		if !fits {
+			return CodeWorktreeResult{}, fmt.Errorf("code worktree result exceeds %d tokenizer tokens", CodePageTokenBudget)
 		}
-		return CodeWorktreeResult{}, fmt.Errorf("code worktree result exceeds %d tokenizer tokens", CodePageTokenBudget)
-	}
-	page, nextCursor, pageErr := codeWorktreePage(kind, items, in.Cursor)
-	if pageErr != nil {
-		return CodeWorktreeResult{}, pageErr
 	}
 	return CodeWorktreeResult{
 		Items:      page,

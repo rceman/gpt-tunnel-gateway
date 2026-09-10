@@ -15,6 +15,10 @@ import (
 )
 
 func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) ([]codeWorktreeCandidate, error) {
+	return s.codeWorktreeCandidatesStream(ctx, projectID, nil)
+}
+
+func (s *Service) codeWorktreeCandidatesStream(ctx context.Context, projectID string, emit func(codeWorktreeCandidate) error) ([]codeWorktreeCandidate, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return nil, err
 	}
@@ -80,7 +84,7 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 			return fmt.Errorf("ambiguous worktree selector %q", selector)
 		}
 		seen[selector] = struct{}{}
-		candidates = append(candidates, codeWorktreeCandidate{
+		candidate := codeWorktreeCandidate{
 			localCodeTarget: localCodeTarget{
 				CodeIdentity: CodeIdentity{
 					ProjectID:   projectID,
@@ -96,32 +100,18 @@ func (s *Service) codeWorktreeCandidates(ctx context.Context, projectID string) 
 			Label:     label,
 			CreatedAt: createdAt,
 			SortID:    sortID,
-		})
+		}
+		if emit != nil {
+			return emit(candidate)
+		}
+		candidates = append(candidates, candidate)
 		return nil
 	}
 	if err := addCandidate(project, mainStatus, "main", "main", "", mainStatus.Head, time.Time{}, "main"); err != nil {
 		return nil, err
 	}
-	hotfixes, err := s.Git.ListHotfixIdentities(s.Config.StateDir, projectID)
-	if err != nil {
-		return nil, fmt.Errorf("read managed hotfix identities: %w", err)
-	}
-	for _, identity := range hotfixes {
-		if identity.CreatedAt.IsZero() {
-			continue
-		}
-		worktree, resolveErr := s.Git.ResolveHotfixWorktreeFromInventory(worktreeInventory, s.Config.StateDir, projectID, identity.HotfixRef)
-		if resolveErr != nil {
-			return nil, fmt.Errorf("resolve managed hotfix %s worktree: %w", identity.HotfixRef, resolveErr)
-		}
-		status, statusErr := s.Git.WorktreeStatus(ctx, worktree)
-		if statusErr != nil {
-			return nil, fmt.Errorf("read managed hotfix %s worktree status: %w", identity.HotfixRef, statusErr)
-		}
-		slug := strings.TrimPrefix(identity.HotfixRef, "refs/heads/hotfix/")
-		if err := addCandidate(worktree, status, "hotfix", slug, "", identity.BaseSHA, identity.CreatedAt, slug); err != nil {
-			return nil, err
-		}
+	if err := s.codeWorktreeHotfixCandidates(ctx, projectID, worktreeInventory, addCandidate); err != nil {
+		return nil, err
 	}
 	trainIDs := make([]string, 0, len(managed))
 	for candidateID := range managed {
