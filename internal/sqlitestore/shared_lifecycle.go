@@ -49,8 +49,8 @@ var sharedLifecycleRegistry = map[string]sharedLifecycleDefinition{
 		FilterFields:          []string{"status", "type"},
 		DefaultCreateStatus:   "planned",
 		AllowedCreateStatuses: []string{"planned"},
-		AllowedStatuses:       []string{"planned", "ready", "archived"},
-		AllowedTransitions:    map[string][]string{"planned": {"ready", "archived"}, "ready": {"archived"}},
+		AllowedStatuses:       []string{"planned", "ready", "done", "archived"},
+		AllowedTransitions:    map[string][]string{"planned": {"ready", "archived"}, "ready": {"done", "archived"}},
 	},
 	"train": {
 		EntityType:   "train",

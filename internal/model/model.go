@@ -157,6 +157,7 @@ const (
 	TaskAuthoringSchemaVersion = 1
 	TaskAuthoringPlanned       = "planned"
 	TaskAuthoringReady         = "ready"
+	TaskAuthoringDone          = "done"
 	TaskAuthoringArchived      = "archived"
 	TaskADRNoRequired          = "no_adr_required"
 	TaskADRImplementsExisting  = "implements_existing"

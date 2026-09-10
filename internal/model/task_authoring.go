@@ -119,7 +119,7 @@ func validateTaskAuthoring(v TaskAuthoring, requireSummary bool) error {
 	if v.CreatedBy == "" || strings.ContainsAny(v.CreatedBy, "\x00\r\n") || v.CreatedAt.IsZero() || v.UpdatedAt.IsZero() {
 		return fmt.Errorf("invalid task authoring metadata")
 	}
-	if v.Status != TaskAuthoringPlanned && v.Status != TaskAuthoringReady && v.Status != TaskAuthoringArchived {
+	if v.Status != TaskAuthoringPlanned && v.Status != TaskAuthoringReady && v.Status != TaskAuthoringDone && v.Status != TaskAuthoringArchived {
 		return fmt.Errorf("invalid task authoring status")
 	}
 	want, err := HashTaskAuthoring(v)
@@ -134,8 +134,8 @@ func validateTaskAuthoring(v TaskAuthoring, requireSummary bool) error {
 		if v.ReadySeal == nil || v.ReadySeal.Revision != v.Revision || v.ReadySeal.RevisionSHA256 != v.RevisionSHA256 || v.ReadySeal.ReadyBy == "" || v.ReadySeal.ReadyAt.IsZero() {
 			return fmt.Errorf("ready task has invalid ready seal")
 		}
-	} else if v.ReadySeal != nil {
-		return fmt.Errorf("archived task cannot have ready seal")
+	} else if v.Status == TaskAuthoringDone || v.ReadySeal != nil {
+		return fmt.Errorf("terminal task cannot have ready seal")
 	}
 	return nil
 }
