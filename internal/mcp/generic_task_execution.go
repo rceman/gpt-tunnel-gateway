@@ -16,12 +16,16 @@ func taskExecutionStatusSchema() map[string]any {
 	return obj(map[string]any{"key": str("Canonical Task identifier.")}, "key")
 }
 
+func taskExecutionPublicHeadSchema() map[string]any {
+	return map[string]any{"type": "string", "pattern": "^[a-f0-9]{8}$"}
+}
+
 func taskExecutionLifecycleOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"key": outputString(), "status": outputString(), "stage": outputString(), "worktree": outputString(), "head": outputString(), "agent": outputString(), "execution_revision": outputInteger(), "updated_at": outputDateTime()}, "key", "status", "stage", "worktree", "head", "agent", "execution_revision")
+	return closedOutput(map[string]any{"key": outputString(), "status": outputString(), "stage": outputString(), "worktree": outputString(), "head": taskExecutionPublicHeadSchema(), "agent": outputString(), "execution_revision": outputInteger(), "updated_at": outputDateTime()}, "key", "status", "stage", "worktree", "head", "agent", "execution_revision")
 }
 
 func taskExecutionStatusOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"key": outputString(), "status": outputString(), "stage": outputString(), "worktree": outputString(), "head": outputString(), "agent": outputString(), "execution_revision": outputInteger(), "updated_at": outputDateTime()}, "key", "status")
+	return closedOutput(map[string]any{"key": outputString(), "status": outputString(), "stage": outputString(), "worktree": outputString(), "head": taskExecutionPublicHeadSchema(), "agent": outputString(), "execution_revision": outputInteger(), "updated_at": outputDateTime()}, "key", "status")
 }
 
 func taskExecutionOutputSchema() map[string]any {
