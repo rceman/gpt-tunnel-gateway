@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
+
+var errSharedOutboxNoop = errors.New("shared outbox publication is already current")
 
 func (s *Service) startSharedOutboxWorker() {
 	if s.Durability == nil {
@@ -26,7 +29,7 @@ func (s *Service) sharedOutboxWorker() {
 		if err == nil {
 			for _, entry := range entries {
 				workerCtx, workerCancel := s.asyncMutationContext("shared-outbox", entry.ID)
-				if err := s.publishSharedOutboxEntry(workerCtx, entry); err == nil {
+				if err := s.publishSharedOutboxEntry(workerCtx, entry); err == nil || errors.Is(err, errSharedOutboxNoop) {
 					_ = s.Durability.MarkOutboxPublished(context.Background(), entry.ID, time.Now().UTC())
 				} else {
 					_ = s.Durability.MarkOutboxRetry(context.Background(), entry.ID, time.Now().UTC().Add(sharedOutboxRetryDelay(entry.Attempts+1)), err)
@@ -78,7 +81,7 @@ func (s *Service) publishSharedTaskOutbox(ctx context.Context, entry sqlitestore
 				return nil, fmt.Errorf("Hub task changed while publishing Shared outbox")
 			}
 			if latest.Revision == task.Revision && latest.RevisionSHA256 == task.RevisionSHA256 && latest.Status == task.Status {
-				return nil, nil
+				return nil, errSharedOutboxNoop
 			}
 		} else if !IsNotFound(readErr) {
 			return nil, readErr
@@ -104,7 +107,7 @@ func (s *Service) publishSharedADROutbox(ctx context.Context, entry sqlitestore.
 		var latest model.ADR
 		if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
 			if latest.ID == adr.ID && latest.CreatedAt.Equal(adr.CreatedAt) {
-				return nil, nil
+				return nil, errSharedOutboxNoop
 			}
 		} else if !IsNotFound(readErr) {
 			return nil, readErr

@@ -174,7 +174,7 @@ func (s *Service) publishSharedProjectConfiguration(ctx context.Context, configu
 				return nil, fmt.Errorf("Hub project configuration is newer than Shared outbox")
 			}
 			if latest.Revision == configuration.Revision && reflect.DeepEqual(latest, configuration) {
-				return nil, nil
+				return nil, errSharedOutboxNoop
 			}
 			if latest.Revision == configuration.Revision {
 				return nil, fmt.Errorf("Hub project configuration conflicts with Shared outbox")
