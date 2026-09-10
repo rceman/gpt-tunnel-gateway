@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func inheritSessionProject(schema map[string]any, projectID string, raw json.RawMessage) (json.RawMessage, error) {
@@ -176,6 +178,10 @@ func (s *Server) genericCall(ctx context.Context, legacy map[string]Tool, raw js
 
 func (s *Server) genericCallPublic(ctx context.Context, legacy map[string]Tool, raw json.RawMessage) (any, error) {
 	started := time.Now()
+	requestID := runtime_log.NewRequestID()
+	ctx = runtime_log.WithRequestID(ctx, requestID)
+	var call genericCallInput
+	_ = decode(raw, &call)
 	value, err := s.genericCall(ctx, legacy, raw)
 	if err != nil {
 		return publicCallFailure("CALL_FAILED", err.Error(), time.Since(started)), nil
@@ -185,23 +191,68 @@ func (s *Server) genericCallPublic(ctx context.Context, legacy map[string]Tool, 
 		return publicCallFailure("CALL_FAILED", "action returned a non-object result", time.Since(started)), nil
 	}
 	if internal["is_error"] == true {
-		return publicCallFailureFromInternal(internal, time.Since(started)), nil
+		failure := publicCallFailureFromInternal(internal, time.Since(started))
+		withoutMetrics := clonePublicCallWithoutMetrics(failure)
+		if usageErr := s.recordPublicCallUsage(ctx, requestID, call.SessionID, raw, withoutMetrics); usageErr != nil {
+			return publicCallFailure("USAGE_RECORD_FAILED", usageErr.Error(), time.Since(started)), nil
+		}
+		return failure, nil
 	}
 	result, ok := internal["result"].(map[string]any)
 	if !ok {
 		return publicCallFailure("CALL_FAILED", "action returned no object result", time.Since(started)), nil
 	}
 	envelope := map[string]any{
-		"ok":      true,
-		"result":  result,
-		"metrics": publicCallMetrics(result, time.Since(started)),
+		"ok":     true,
+		"result": result,
 	}
 	if pagination, ok := internal["pagination"].(map[string]any); ok {
 		if cursor, ok := pagination["next_cursor"].(string); ok && cursor != "" {
 			envelope["pagination"] = map[string]any{"next_cursor": cursor}
 		}
 	}
+	if usageErr := s.recordPublicCallUsage(ctx, requestID, call.SessionID, raw, envelope); usageErr != nil {
+		return publicCallFailure("USAGE_RECORD_FAILED", usageErr.Error(), time.Since(started)), nil
+	}
+
+	envelope["metrics"] = publicCallMetrics(envelope, time.Since(started))
 	return envelope, nil
+}
+
+func clonePublicCallWithoutMetrics(value map[string]any) map[string]any {
+	copyValue := make(map[string]any, len(value))
+	for key, item := range value {
+		if key != "metrics" {
+			copyValue[key] = item
+		}
+	}
+	return copyValue
+}
+
+func (s *Server) recordPublicCallUsage(ctx context.Context, requestID, sessionID string, input []byte, output map[string]any) error {
+	if s.Service == nil || s.Service.Durability == nil || requestID == "" || sessionID == "" {
+		return nil
+	}
+	inputTokens, err := codeOutputCounter.CountText(input)
+	if err != nil {
+		return err
+	}
+	outputPayload, err := json.Marshal(output)
+	if err != nil {
+		return err
+	}
+	outputTokens, err := codeOutputCounter.CountText(outputPayload)
+	if err != nil {
+		return err
+	}
+	return s.Service.Durability.RecordTokenUsage(ctx, sqlitestore.TokenUsageEvent{
+		EventID:      "mcp-usage-" + requestID,
+		SessionID:    sessionID,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  inputTokens + outputTokens,
+		RecordedAt:   time.Now().UTC(),
+	})
 }
 
 func publicCallFailureFromInternal(internal map[string]any, elapsed time.Duration) map[string]any {

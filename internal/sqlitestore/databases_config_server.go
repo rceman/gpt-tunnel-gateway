@@ -211,4 +211,6 @@ const (
 	sharedTaskExecutionPhaseMigrationName          = "create task execution phase history"
 	localBaselineVersion                     int64 = 202609080505
 	localBaselineName                              = "create local baseline"
+	localTokenUsageMigrationVersion          int64 = 202609102010
+	localTokenUsageMigrationName                   = "create local token usage ledger"
 )
