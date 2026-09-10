@@ -46,13 +46,13 @@ class IntegrationActivateTests(unittest.TestCase):
             stale_gateway.write_bytes(b"stale-gateway")
             status.write_text(json.dumps({
                 "gateway": {
-                    "running": True,
+                    "running": False,
                     "pid": 100,
                     "executable": str(stale_gateway),
                     "identity_valid": True,
                 },
                 "tunnel": {"running": True, "pid": 514205, "identity_valid": True},
-                "gateway_ready": True,
+                "gateway_ready": False,
                 "tunnel_ready": True,
                 "version_match": True,
             }))

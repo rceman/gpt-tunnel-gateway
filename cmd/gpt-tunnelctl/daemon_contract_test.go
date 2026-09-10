@@ -12,7 +12,7 @@ func TestCtlLifecycleBoundaryKeepsOnlyHiddenDaemonPrimitives(t *testing.T) {
 		t.Fatal(err)
 	}
 	startupSource := string(startup)
-	for _, hidden := range []string{"daemon-start", "daemon-stop", "runtime-status"} {
+	for _, hidden := range []string{"daemon-start", "daemon-stop", "gateway-start", "gateway-stop", "gateway-restart", "runtime-status"} {
 		if !strings.Contains(startupSource, "\""+hidden+"\"") {
 			t.Fatalf("hidden internal primitive %q is absent", hidden)
 		}
