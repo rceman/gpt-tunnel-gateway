@@ -77,7 +77,7 @@ func (s *Service) ADRUpdate(ctx context.Context, in ADRUpdateInput) (OperationRe
 	if in.ExpectedRevision < 1 || !validADRMutationReason(in.Reason) || strings.TrimSpace(in.UpdatedBy) == "" {
 		return OperationResult{}, fmt.Errorf("ADR update requires expected_revision, reason, and updated_by")
 	}
-	if in.Title == nil && in.Context == nil && in.Decision == nil && in.Consequences == nil {
+	if in.Title == nil && in.Context == nil && in.Decision == nil && in.Consequences == nil && in.Status == nil {
 		return OperationResult{}, fmt.Errorf("ADR update requires at least one mutable content field")
 	}
 	id, _, err := parseADRSelector(in.ADRID, 0)
