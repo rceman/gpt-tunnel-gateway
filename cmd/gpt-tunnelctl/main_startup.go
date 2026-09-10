@@ -29,7 +29,7 @@ func main() {
 		fmt.Println(releaseartifacts.BuildSourceRevision)
 		return
 	}
-	if os.Args[1] == "daemon-start" || os.Args[1] == "daemon-stop" {
+	if os.Args[1] == "daemon-start" || os.Args[1] == "daemon-stop" || os.Args[1] == "gateway-start" || os.Args[1] == "gateway-stop" || os.Args[1] == "gateway-restart" {
 		daemonLifecycle(os.Args[1])
 		return
 	}
@@ -102,8 +102,9 @@ func main() {
 }
 
 // daemonLifecycle is intentionally hidden from the public CLI usage. It is
-// invoked only by the canonical systemd unit with its exact config path in
-// GPT_TUNNEL_CONFIG, and delegates process ownership to Controller.Start/Stop.
+// invoked by canonical machine operations with their exact config path in
+// GPT_TUNNEL_CONFIG. Full daemon actions delegate to Controller.Start/Stop;
+// Gateway-only actions never touch the Tunnel process.
 func daemonLifecycle(action string) {
 	path := os.Getenv("GPT_TUNNEL_CONFIG")
 	if path == "" {
@@ -122,6 +123,24 @@ func daemonLifecycle(action string) {
 	}
 	if action == "daemon-stop" {
 		if err := ctl.Stop(); err != nil {
+			fatal(err)
+		}
+		return
+	}
+	if action == "gateway-stop" {
+		if err := ctl.StopGatewayOnly(); err != nil {
+			fatal(err)
+		}
+		return
+	}
+	if action == "gateway-start" {
+		if err := ctl.StartGatewayOnly(); err != nil {
+			fatal(err)
+		}
+		return
+	}
+	if action == "gateway-restart" {
+		if _, err := ctl.RestartGatewayOnlyAfterUpgradeDiagnostics(); err != nil {
 			fatal(err)
 		}
 		return

@@ -4,6 +4,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 )
 
 func copyExecutable(src, dst string) error {
@@ -47,6 +50,37 @@ func (c Controller) RestartGateway() error {
 // and starts the currently installed binary. It intentionally does not touch the
 // tunnel process; callers own rollback of the installed gateway binary.
 func (c Controller) RestartGatewayAfterUpgrade() error {
-	_, err := c.RestartGatewayAfterUpgradeDiagnostics()
+	_, err := c.RestartGatewayOnlyAfterUpgradeDiagnostics()
 	return err
+}
+
+// StopGatewayOnly stops only the controller-owned Gateway process. The Tunnel
+// process is deliberately outside this handoff.
+func (c Controller) StopGatewayOnly() error {
+	return c.StopGatewayForUpgrade()
+}
+
+// StartGatewayOnly starts the controller-owned Gateway and waits for its
+// readiness endpoint. It never starts or inspects the Tunnel process.
+func (c Controller) StartGatewayOnly() error {
+	lock, err := lockfile.Acquire(c.Config.Controller.PIDDir, "controller")
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+	if err := restartGatewayStartFn(c); err != nil {
+		return err
+	}
+	if err := restartGatewayWaitFn(c.gatewayReadyURL(), true, 30*time.Second); err != nil {
+		_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
+		return err
+	}
+	c.processEvent("gateway", c.Config.Controller.GatewayBinary, "info", "process_ready", c.process("gateway", c.Config.Controller.GatewayBinary).PID, "gateway ready", nil)
+	return nil
+}
+
+// RestartGatewayOnlyAfterUpgradeDiagnostics is the explicit Gateway-only
+// restart authority used by machine handoffs and artifact upgrades.
+func (c Controller) RestartGatewayOnlyAfterUpgradeDiagnostics() (GatewayStartupDiagnostics, error) {
+	return c.RestartGatewayAfterUpgradeDiagnostics()
 }
