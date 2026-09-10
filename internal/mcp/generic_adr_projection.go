@@ -27,7 +27,7 @@ func boundedADRString(description string, min, max int) map[string]any {
 
 func adrCreateSchema() map[string]any {
 	p := adrActionProperties()
-	return obj(map[string]any{"title": p["title"], "context": p["context"], "decision": p["decision"], "consequences": p["consequences"]}, "title", "context", "decision", "consequences")
+	return obj(map[string]any{"title": p["title"], "context": p["context"], "decision": p["decision"], "consequences": p["consequences"], "status": p["status"]}, "title", "context", "decision", "consequences")
 }
 func adrReadSchema() map[string]any {
 	p := adrActionProperties()
@@ -43,7 +43,7 @@ func adrQuerySchema() map[string]any {
 }
 func adrUpdateSchema() map[string]any {
 	p := adrActionProperties()
-	return obj(map[string]any{"adr": p["adr"], "title": p["title"], "context": p["context"], "decision": p["decision"], "consequences": p["consequences"], "reason": p["reason"]}, "adr", "reason")
+	return obj(map[string]any{"adr": p["adr"], "title": p["title"], "context": p["context"], "decision": p["decision"], "consequences": p["consequences"], "status": p["status"], "reason": p["reason"]}, "adr", "reason")
 }
 func adrArchiveSchema() map[string]any {
 	p := adrActionProperties()

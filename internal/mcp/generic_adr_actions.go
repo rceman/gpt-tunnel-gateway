@@ -41,6 +41,7 @@ func (s *Server) registerADRActions() error {
 				Context      string `json:"context"`
 				Decision     string `json:"decision"`
 				Consequences string `json:"consequences"`
+				Status       string `json:"status,omitempty"`
 			}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
@@ -49,7 +50,7 @@ func (s *Server) registerADRActions() error {
 			if actor == "" {
 				return nil, fmt.Errorf("authorized session actor is unavailable")
 			}
-			v, err := s.Service.ADRCreate(ctx, service.ADRCreateInput{ADR: model.ADR{ProjectID: in.ProjectID, Title: in.Title, Context: in.Context, Decision: in.Decision, Consequences: in.Consequences, CreatedBy: actor, UpdatedBy: actor}})
+			v, err := s.Service.ADRCreate(ctx, service.ADRCreateInput{ADR: model.ADR{ProjectID: in.ProjectID, Title: in.Title, Context: in.Context, Decision: in.Decision, Consequences: in.Consequences, Status: in.Status, CreatedBy: actor, UpdatedBy: actor}})
 			if err != nil {
 				return nil, err
 			}
@@ -104,6 +105,7 @@ func (s *Server) registerADRActions() error {
 				Context      *string `json:"context,omitempty"`
 				Decision     *string `json:"decision,omitempty"`
 				Consequences *string `json:"consequences,omitempty"`
+				Status       *string `json:"status,omitempty"`
 				Reason       string  `json:"reason"`
 			}
 			if err := decode(raw, &in); err != nil {
@@ -113,7 +115,7 @@ func (s *Server) registerADRActions() error {
 			if actor == "" {
 				return nil, fmt.Errorf("authorized session actor is unavailable")
 			}
-			v, err := s.Service.ADRUpdateCurrent(ctx, service.ADRUpdateInput{ProjectID: in.ProjectID, ADRID: in.ADR, Title: in.Title, Context: in.Context, Decision: in.Decision, Consequences: in.Consequences, Reason: in.Reason, UpdatedBy: actor})
+			v, err := s.Service.ADRUpdateCurrent(ctx, service.ADRUpdateInput{ProjectID: in.ProjectID, ADRID: in.ADR, Title: in.Title, Context: in.Context, Decision: in.Decision, Consequences: in.Consequences, Status: in.Status, Reason: in.Reason, UpdatedBy: actor})
 			if err != nil {
 				return nil, err
 			}

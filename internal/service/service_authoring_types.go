@@ -46,6 +46,7 @@ type ADRUpdateInput struct {
 	Context          *string `json:"context,omitempty"`
 	Decision         *string `json:"decision,omitempty"`
 	Consequences     *string `json:"consequences,omitempty"`
+	Status           *string `json:"status,omitempty"`
 	ExpectedRevision int     `json:"-"`
 	Reason           string  `json:"reason"`
 	UpdatedBy        string  `json:"updated_by"`

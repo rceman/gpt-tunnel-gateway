@@ -115,6 +115,9 @@ func (s *Service) ADRUpdate(ctx context.Context, in ADRUpdateInput) (OperationRe
 	if in.Consequences != nil {
 		current.Consequences = *in.Consequences
 	}
+	if in.Status != nil {
+		current.Status = *in.Status
+	}
 	current.Revision++
 	current.RevisionCount = current.Revision
 	current.UpdatedBy = strings.TrimSpace(in.UpdatedBy)

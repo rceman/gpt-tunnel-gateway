@@ -269,7 +269,7 @@ func parseADRTime(value string) (resultTime time.Time) {
 }
 
 func changedADRFields(in ADRUpdateInput) []string {
-	fields := make([]string, 0, 4)
+	fields := make([]string, 0, 5)
 	if in.Title != nil {
 		fields = append(fields, "title")
 	}
@@ -281,6 +281,9 @@ func changedADRFields(in ADRUpdateInput) []string {
 	}
 	if in.Consequences != nil {
 		fields = append(fields, "consequences")
+	}
+	if in.Status != nil {
+		fields = append(fields, "status")
 	}
 	return fields
 }
