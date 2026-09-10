@@ -38,8 +38,14 @@ func TestTSK577ADRStatusSchemasAndRuntimeUseDescriptorPolicy(t *testing.T) {
 		t.Fatalf("create result=%#v", createdResult)
 	}
 	omittedStatus := call(2, "adr/create", map[string]any{"title": "Defaulted ADR", "context": "context", "decision": "decision", "consequences": "consequences"})
-	if omittedStatus["is_error"] == true || omittedStatus["result"].(map[string]any)["status"] != "proposed" {
+	if omittedStatus["is_error"] == true {
 		t.Fatalf("ADR create omitted status=%#v, want proposed", omittedStatus)
+	}
+	omittedResult := omittedStatus["result"].(map[string]any)
+	omittedID := omittedResult["adr"].(string)
+	omittedRead := call(3, "adr/read", map[string]any{"adr": omittedID})
+	if omittedRead["is_error"] == true || omittedRead["result"].(map[string]any)["status"] != "proposed" {
+		t.Fatalf("ADR create omitted status=%#v, want proposed", omittedRead)
 	}
 	accepted := call(3, "adr/create", map[string]any{"title": "Rejected ADR", "context": "context", "decision": "decision", "consequences": "consequences", "status": "accepted"})
 	if accepted["is_error"] != true {
