@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -62,6 +63,16 @@ func startGatewayOnlyTestProcess(t *testing.T, c Controller, name string) (*exec
 	return cmd, record
 }
 
+func requireStoppedGatewayOnlyHelper(t *testing.T, cmd *exec.Cmd) {
+	t.Helper()
+	if err := cmd.Wait(); err != nil {
+		status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus)
+		if !ok || !status.Signaled() {
+			t.Fatalf("stopped helper exit: %v", err)
+		}
+	}
+}
+
 func TestStopGatewayOnlyPreservesTunnelIdentity(t *testing.T) {
 	dir := t.TempDir()
 	c := gatewayOnlyTestController(t, dir)
@@ -72,9 +83,7 @@ func TestStopGatewayOnlyPreservesTunnelIdentity(t *testing.T) {
 	if err := c.StopGatewayOnly(); err != nil {
 		t.Fatal(err)
 	}
-	if err := gateway.Wait(); err != nil {
-		t.Fatalf("Gateway helper exit: %v", err)
-	}
+	requireStoppedGatewayOnlyHelper(t, gateway)
 	if alive(gateway.Process.Pid) {
 		t.Fatal("Gateway process survived Gateway-only stop")
 	}
@@ -143,12 +152,8 @@ func TestControllerStopStillStopsTunnelAndGateway(t *testing.T) {
 	if err := c.Stop(); err != nil {
 		t.Fatal(err)
 	}
-	if err := tunnel.Wait(); err != nil {
-		t.Fatalf("Tunnel helper exit: %v", err)
-	}
-	if err := gateway.Wait(); err != nil {
-		t.Fatalf("Gateway helper exit: %v", err)
-	}
+	requireStoppedGatewayOnlyHelper(t, tunnel)
+	requireStoppedGatewayOnlyHelper(t, gateway)
 	if alive(gateway.Process.Pid) || alive(tunnel.Process.Pid) {
 		t.Fatal("full Controller.Stop did not stop both processes")
 	}
