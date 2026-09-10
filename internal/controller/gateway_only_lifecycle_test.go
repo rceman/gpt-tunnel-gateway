@@ -72,6 +72,9 @@ func TestStopGatewayOnlyPreservesTunnelIdentity(t *testing.T) {
 	if err := c.StopGatewayOnly(); err != nil {
 		t.Fatal(err)
 	}
+	if err := gateway.Wait(); err != nil {
+		t.Fatalf("Gateway helper exit: %v", err)
+	}
 	if alive(gateway.Process.Pid) {
 		t.Fatal("Gateway process survived Gateway-only stop")
 	}
@@ -139,6 +142,12 @@ func TestControllerStopStillStopsTunnelAndGateway(t *testing.T) {
 	tunnel, _ := startGatewayOnlyTestProcess(t, c, "tunnel")
 	if err := c.Stop(); err != nil {
 		t.Fatal(err)
+	}
+	if err := tunnel.Wait(); err != nil {
+		t.Fatalf("Tunnel helper exit: %v", err)
+	}
+	if err := gateway.Wait(); err != nil {
+		t.Fatalf("Gateway helper exit: %v", err)
 	}
 	if alive(gateway.Process.Pid) || alive(tunnel.Process.Pid) {
 		t.Fatal("full Controller.Stop did not stop both processes")
