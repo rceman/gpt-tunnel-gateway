@@ -69,5 +69,21 @@ func taskWorktreePath(stateDir, projectID, taskID string, taskType model.TaskTyp
 		slug = "task"
 	}
 	branch := "task/" + taskID + "-" + slug
-	return filepath.Join(stateDir, "task-worktrees", projectID, taskID), branch, nil
+	path, err := TaskWorktreePath(stateDir, projectID, taskID)
+	return path, branch, err
+}
+
+// TaskWorktreePath is the sole server-owned resolver for a Task lane path.
+// Persisted execution records never supply this path as authority.
+func TaskWorktreePath(stateDir, projectID, taskID string) (string, error) {
+	if err := model.ValidateProjectIdentifier(projectID); err != nil {
+		return "", err
+	}
+	if err := model.ValidateCanonicalTaskID(taskID); err != nil {
+		return "", err
+	}
+	if stateDir == "" {
+		return "", fmt.Errorf("Task worktree state directory is required")
+	}
+	return filepath.Join(stateDir, "task-worktrees", projectID, taskID), nil
 }

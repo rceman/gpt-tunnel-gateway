@@ -10,18 +10,19 @@ import (
 // TaskExecutionState is the durable execution authority for one canonical
 // Task. Full head is internal authority; public projections shorten it.
 type TaskExecutionState struct {
-	TaskID            string    `json:"task_id"`
-	ProjectID         string    `json:"project_id"`
-	Status            string    `json:"status"`
-	Stage             string    `json:"stage"`
-	Worktree          string    `json:"worktree"`
-	BaseHead          string    `json:"-"`
-	Head              string    `json:"-"`
-	WorktreePath      string    `json:"-"`
-	Branch            string    `json:"-"`
-	Agent             string    `json:"agent"`
-	ExecutionRevision int       `json:"execution_revision"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	TaskID             string    `json:"task_id"`
+	ProjectID          string    `json:"project_id"`
+	Status             string    `json:"status"`
+	Stage              string    `json:"stage"`
+	Worktree           string    `json:"worktree"`
+	BaseHead           string    `json:"-"`
+	Head               string    `json:"-"`
+	Branch             string    `json:"-"`
+	TaskRevision       int       `json:"-"`
+	TaskRevisionSHA256 string    `json:"-"`
+	Agent              string    `json:"agent"`
+	ExecutionRevision  int       `json:"execution_revision"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 const (
@@ -65,8 +66,11 @@ func ValidateTaskExecutionState(v TaskExecutionState) error {
 	if idx < 0 || !strings.HasPrefix(v.Worktree, "WT-TSK"+v.TaskID[idx+4:]+"-") {
 		return fmt.Errorf("Task execution worktree does not match Task")
 	}
-	if v.ExecutionRevision < 1 || v.UpdatedAt.IsZero() || v.WorktreePath == "" || v.Branch == "" {
+	if v.ExecutionRevision < 1 || v.UpdatedAt.IsZero() || v.Branch == "" || v.TaskRevision < 1 || ValidateCommitSHA(v.TaskRevisionSHA256) != nil {
 		return fmt.Errorf("incomplete Task execution state")
+	}
+	if err := ValidateBranch(v.Branch); err != nil || !strings.HasPrefix(v.Branch, "task/"+v.TaskID+"-") {
+		return fmt.Errorf("invalid server-derived Task execution branch")
 	}
 	return nil
 }

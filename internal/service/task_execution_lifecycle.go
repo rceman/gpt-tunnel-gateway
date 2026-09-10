@@ -46,6 +46,10 @@ func (s *Service) TaskExecutionDispatch(ctx context.Context, in TaskExecutionDis
 	if task.Status != model.TaskAuthoringPlanned && task.Status != model.TaskAuthoringReady {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("Task is not dispatchable in status %q", task.Status)
 	}
+	taskHash, err := model.HashTaskAuthoring(task)
+	if err != nil || taskHash != task.RevisionSHA256 {
+		return TaskExecutionPublicOutput{}, fmt.Errorf("Task authoring revision hash is invalid")
+	}
 	s.taskExecutionMu.Lock()
 	defer s.taskExecutionMu.Unlock()
 	if existing, found, readErr := s.Durability.ReadTaskExecutionState(ctx, in.ProjectID, in.Key); readErr != nil {
@@ -69,7 +73,7 @@ func (s *Service) TaskExecutionDispatch(ctx context.Context, in TaskExecutionDis
 		return TaskExecutionPublicOutput{}, err
 	}
 	short := strings.ToLower(base[:8])
-	lane, lanePath, branch, err := s.Git.CreateTaskWorktree(ctx, project, s.Config.StateDir, in.ProjectID, in.Key, task.Type, task.Title, base)
+	lane, _, branch, err := s.Git.CreateTaskWorktree(ctx, project, s.Config.StateDir, in.ProjectID, in.Key, task.Type, task.Title, base)
 	if err != nil {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("create Task worktree: %w", err)
 	}
@@ -80,7 +84,7 @@ func (s *Service) TaskExecutionDispatch(ctx context.Context, in TaskExecutionDis
 	}
 	worktree := taskExecutionWorktree(in.Key, short)
 	now := time.Now().UTC()
-	state := model.TaskExecutionState{TaskID: in.Key, ProjectID: in.ProjectID, Status: model.TaskExecutionDispatched, Stage: "code", Worktree: worktree, BaseHead: base, Head: actual, WorktreePath: lanePath, Branch: branch, Agent: agent, ExecutionRevision: 1, UpdatedAt: now}
+	state := model.TaskExecutionState{TaskID: in.Key, ProjectID: in.ProjectID, TaskRevision: task.Revision, TaskRevisionSHA256: task.RevisionSHA256, Status: model.TaskExecutionDispatched, Stage: "code", Worktree: worktree, BaseHead: base, Head: actual, Branch: branch, Agent: agent, ExecutionRevision: 1, UpdatedAt: now}
 	if err := s.Durability.CreateTaskExecutionState(ctx, state); err != nil {
 		if existing, found, readErr := s.Durability.ReadTaskExecutionState(ctx, in.ProjectID, in.Key); readErr == nil && found {
 			if in.Agent != "" && existing.Agent != in.Agent {
@@ -132,13 +136,13 @@ func (s *Service) resolveTaskExecutionAgent(ctx context.Context, projectID, requ
 		if !ok || binding.Validate() != nil {
 			continue
 		}
-		binding, exact, bindingErr := s.resolveExactAgentBinding(ctx, binding, true)
+		binding, exact, bindingErr := s.resolveExactAgentBinding(ctx, binding, false)
 		if bindingErr != nil {
 			continue
 		}
 		if !exact {
 			status, statusErr := s.Airelay.Status(ctx, binding.SessionKey)
-			if statusErr != nil || !status.ControllerReachable || status.State != "idle" {
+			if statusErr != nil || !status.ControllerReachable {
 				continue
 			}
 		}

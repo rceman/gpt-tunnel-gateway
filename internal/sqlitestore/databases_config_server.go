@@ -199,16 +199,14 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 }
 
 const (
-	sharedBaselineVersion                        int64 = 202609080503
-	sharedBaselineName                                 = "create shared baseline"
-	sharedTaskSummaryMigrationVersion            int64 = 202609090934
-	sharedTaskSummaryMigrationName                     = "migrate retained task summaries"
-	sharedTaskSequenceMigrationVersion           int64 = 202609091757
-	sharedTaskSequenceMigrationName                    = "reconcile retained task sequences"
-	sharedTaskExecutionMigrationVersion          int64 = 202609100915
-	sharedTaskExecutionMigrationName                   = "create task execution state"
-	sharedTaskExecutionAuthorityMigrationVersion int64 = 202609100916
-	sharedTaskExecutionAuthorityMigrationName          = "add task execution authority"
-	localBaselineVersion                         int64 = 202609080505
-	localBaselineName                                  = "create local baseline"
+	sharedBaselineVersion               int64 = 202609080503
+	sharedBaselineName                        = "create shared baseline"
+	sharedTaskSummaryMigrationVersion   int64 = 202609090934
+	sharedTaskSummaryMigrationName            = "migrate retained task summaries"
+	sharedTaskSequenceMigrationVersion  int64 = 202609091757
+	sharedTaskSequenceMigrationName           = "reconcile retained task sequences"
+	sharedTaskExecutionMigrationVersion int64 = 202609100915
+	sharedTaskExecutionMigrationName          = "create task execution state"
+	localBaselineVersion                int64 = 202609080505
+	localBaselineName                         = "create local baseline"
 )
