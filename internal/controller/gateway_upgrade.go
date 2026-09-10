@@ -57,7 +57,12 @@ func (c Controller) RestartGatewayAfterUpgrade() error {
 // StopGatewayOnly stops only the controller-owned Gateway process. The Tunnel
 // process is deliberately outside this handoff.
 func (c Controller) StopGatewayOnly() error {
-	return c.StopGatewayForUpgrade()
+	lock, err := lockfile.Acquire(c.Config.Controller.PIDDir, "controller")
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+	return c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
 }
 
 // StartGatewayOnly starts the controller-owned Gateway and waits for its
