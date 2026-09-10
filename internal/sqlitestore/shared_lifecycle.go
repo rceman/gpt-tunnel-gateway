@@ -72,7 +72,7 @@ var sharedLifecycleRegistry = map[string]sharedLifecycleDefinition{
 		SearchFields:          []string{"id", "title", "status", "context", "decision", "consequences", "supersedes"},
 		FilterFields:          []string{"status"},
 		DefaultCreateStatus:   "proposed",
-		AllowedCreateStatuses: []string{"proposed", "accepted"},
+		AllowedCreateStatuses: []string{"proposed"},
 		AllowedStatuses:       []string{"proposed", "accepted", "superseded", "archived"},
 		AllowedTransitions:    map[string][]string{"proposed": {"accepted", "archived"}, "accepted": {"superseded", "archived"}, "superseded": {"archived"}},
 	},
