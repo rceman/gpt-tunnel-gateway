@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 func taskExecutionReviewSchema() map[string]any {
@@ -80,7 +81,7 @@ func (s *Server) registerTaskExecutionReviewActions() error {
 	}); err != nil {
 		return err
 	}
-	return register(GenericAction{
+	if err := register(GenericAction{
 		Path:                 "task/rework",
 		Description:          "Reopen one Task execution stage with a bounded Planner comment.",
 		InputSchema:          taskExecutionReworkSchema(),
@@ -102,5 +103,58 @@ func (s *Server) registerTaskExecutionReviewActions() error {
 			}
 			return s.Service.TaskExecutionRework(ctx, service.TaskExecutionReworkInput{ProjectID: in.ProjectID, Key: in.Key, Stage: in.Stage, Comment: in.Comment})
 		},
-	})
+	}); err != nil {
+		return err
+	}
+	registerAgent := func(action GenericAction) error {
+		action.AuthorityRole = durableSession.RoleAgent
+		action.SessionBound = true
+		action.SessionRequired = true
+		action.LocalReceiptOnly = true
+		return s.RegisterGenericAction(action)
+	}
+	for _, action := range []struct {
+		path        string
+		description string
+		serviceCall func(context.Context, string, string) (service.TaskExecutionPublicOutput, error)
+	}{
+		{path: "task/current", description: "Read the current execution state for the assigned canonical Task.", serviceCall: func(ctx context.Context, projectID, key string) (service.TaskExecutionPublicOutput, error) {
+			return s.Service.TaskExecutionStatus(ctx, projectID, key)
+		}},
+		{path: "task/submit-code", description: "Submit the assigned Task worktree for code review.", serviceCall: func(ctx context.Context, projectID, key string) (service.TaskExecutionPublicOutput, error) {
+			return s.Service.TaskExecutionSubmitCode(ctx, projectID, key)
+		}},
+		{path: "task/submit-tests", description: "Submit the assigned Task worktree for tests review.", serviceCall: func(ctx context.Context, projectID, key string) (service.TaskExecutionPublicOutput, error) {
+			return s.Service.TaskExecutionSubmitTests(ctx, projectID, key)
+		}},
+		{path: "task/submit-rebase", description: "Submit the assigned Task worktree for rebase review.", serviceCall: func(ctx context.Context, projectID, key string) (service.TaskExecutionPublicOutput, error) {
+			return s.Service.TaskExecutionSubmitRebase(ctx, projectID, key)
+		}},
+	} {
+		call := action.serviceCall
+		if err := registerAgent(GenericAction{
+			Path:                 action.path,
+			Description:          action.description,
+			InputSchema:          taskExecutionStatusSchema(),
+			ExecutionInputSchema: adrExecutionSchema(taskExecutionStatusSchema()),
+			OutputSchema:         taskExecutionLifecycleOutputSchema(),
+			Annotations: ToolAnnotations{
+				DestructiveHint: action.path != "task/current",
+				IdempotentHint:  true,
+			},
+			Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var in struct {
+					ProjectID string `json:"project_id"`
+					Key       string `json:"key"`
+				}
+				if err := decode(raw, &in); err != nil {
+					return nil, err
+				}
+				return call(ctx, in.ProjectID, in.Key)
+			},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

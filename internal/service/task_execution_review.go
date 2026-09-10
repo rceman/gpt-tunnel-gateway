@@ -69,13 +69,17 @@ func (s *Service) submitTaskExecution(ctx context.Context, projectID, key, stage
 	if state.Stage != stage || (state.Status != model.TaskExecutionDispatched && state.Status != model.TaskExecutionChangesRequested) {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("Task is not accepting a %s submission", stage)
 	}
-	if _, err := s.ResolveAgent(ctx, AgentResolveInput{
+	resolved, err := s.ResolveAgent(ctx, AgentResolveInput{
 		ProjectID:       projectID,
 		Role:            model.AgentRoleCoding,
 		AgentID:         state.Agent,
 		RequireAttached: true,
-	}); err != nil {
+	})
+	if err != nil {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("assigned Agent is not usable: %w", err)
+	}
+	if sessionID := AgentSessionID(ctx); sessionID != "" && resolved.SessionKey != sessionID {
+		return TaskExecutionPublicOutput{}, fmt.Errorf("Task is assigned to a different Agent session")
 	}
 	actual, branch, clean, err := s.taskExecutionLaneHead(ctx, projectID, key, state)
 	if err != nil || !clean || branch != state.Branch {
@@ -86,7 +90,28 @@ func (s *Service) submitTaskExecution(ctx context.Context, projectID, key, stage
 	state.Status = model.TaskExecutionAwaitingReview
 	state.ExecutionRevision++
 	state.UpdatedAt = now
-	phase := sqlitestore.TaskExecutionPhase{TaskID: key, ProjectID: projectID, ExecutionRevision: state.ExecutionRevision, Stage: stage, Status: state.Status, Head: actual, Branch: state.Branch, TaskRevisionSHA256: state.TaskRevisionSHA256, CreatedAt: now}
+	phase := sqlitestore.TaskExecutionPhase{TaskID: key, ProjectID: projectID, ExecutionRevision: state.ExecutionRevision, Stage: stage, Status: state.Status, Head: actual, Branch: state.Branch, TaskRevisionSHA256: state.TaskRevisionSHA256, EventKind: "submission", CreatedAt: now}
+	if stage != "code" {
+		previousStage := "code"
+		if stage == "rebase" {
+			previousStage = "tests"
+		}
+		accepted, acceptedFound, acceptedErr := s.Durability.ReadLatestTaskExecutionPhase(ctx, projectID, key, previousStage)
+		if acceptedErr != nil || !acceptedFound || accepted.Decision != "accept" || accepted.EventKind != "review" {
+			if acceptedErr != nil {
+				return TaskExecutionPublicOutput{}, acceptedErr
+			}
+			return TaskExecutionPublicOutput{}, fmt.Errorf("accepted %s submission is required", previousStage)
+		}
+		lanePath, pathErr := gitx.TaskWorktreePath(s.Config.StateDir, projectID, key)
+		if pathErr != nil {
+			return TaskExecutionPublicOutput{}, pathErr
+		}
+		ancestor, ancestorErr := s.Git.IsAncestor(ctx, lanePath, accepted.Head, actual)
+		if ancestorErr != nil || !ancestor {
+			return TaskExecutionPublicOutput{}, fmt.Errorf("%s submission must descend from accepted %s head", stage, previousStage)
+		}
+	}
 	if err := s.Durability.TransitionTaskExecutionState(ctx, state, state.ExecutionRevision-1, phase); err != nil {
 		return TaskExecutionPublicOutput{}, err
 	}
@@ -147,7 +172,7 @@ func (s *Service) TaskExecutionReviewDecide(ctx context.Context, in TaskExecutio
 		return TaskExecutionPublicOutput{}, fmt.Errorf("Task has no %s submission", in.Stage)
 	}
 	if phase.Decision != "" {
-		if phase.Decision == in.Decision {
+		if phase.Decision == in.Decision && phase.Comment == strings.TrimSpace(in.Comment) {
 			return taskExecutionPublicOutput(state), nil
 		}
 		return TaskExecutionPublicOutput{}, fmt.Errorf("contradictory review decision")
@@ -165,7 +190,7 @@ func (s *Service) TaskExecutionReviewDecide(ctx context.Context, in TaskExecutio
 	} else {
 		state.Status = model.TaskExecutionReadyForIntegration
 	}
-	phase = sqlitestore.TaskExecutionPhase{TaskID: in.Key, ProjectID: in.ProjectID, ExecutionRevision: state.ExecutionRevision, Stage: in.Stage, Status: state.Status, Head: state.Head, Branch: state.Branch, TaskRevisionSHA256: state.TaskRevisionSHA256, Decision: in.Decision, Comment: strings.TrimSpace(in.Comment), CreatedAt: now}
+	phase = sqlitestore.TaskExecutionPhase{TaskID: in.Key, ProjectID: in.ProjectID, ExecutionRevision: state.ExecutionRevision, Stage: in.Stage, Status: state.Status, Head: state.Head, Branch: state.Branch, TaskRevisionSHA256: state.TaskRevisionSHA256, EventKind: "review", Decision: in.Decision, Comment: strings.TrimSpace(in.Comment), CreatedAt: now}
 	if err := s.Durability.TransitionTaskExecutionState(ctx, state, state.ExecutionRevision-1, phase); err != nil {
 		return TaskExecutionPublicOutput{}, err
 	}
@@ -188,17 +213,18 @@ func (s *Service) TaskExecutionRework(ctx context.Context, in TaskExecutionRewor
 		}
 		return TaskExecutionPublicOutput{}, fmt.Errorf("Task has no execution state")
 	}
-	if state.Stage != in.Stage {
+	if (in.Stage == "code" && state.Stage != "code" && state.Stage != "tests" && state.Stage != "rebase") || (in.Stage == "tests" && state.Stage != "tests" && state.Stage != "rebase") || (in.Stage == "rebase" && state.Stage != "rebase") {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("rework stage is stale")
 	}
 	if state.Status == model.TaskExecutionChangesRequested {
 		return taskExecutionPublicOutput(state), nil
 	}
 	now := time.Now().UTC()
+	state.Stage = in.Stage
 	state.Status = model.TaskExecutionChangesRequested
 	state.ExecutionRevision++
 	state.UpdatedAt = now
-	phase := sqlitestore.TaskExecutionPhase{TaskID: in.Key, ProjectID: in.ProjectID, ExecutionRevision: state.ExecutionRevision, Stage: in.Stage, Status: state.Status, Head: state.Head, Branch: state.Branch, TaskRevisionSHA256: state.TaskRevisionSHA256, Comment: strings.TrimSpace(in.Comment), CreatedAt: now}
+	phase := sqlitestore.TaskExecutionPhase{TaskID: in.Key, ProjectID: in.ProjectID, ExecutionRevision: state.ExecutionRevision, Stage: in.Stage, Status: state.Status, Head: state.Head, Branch: state.Branch, TaskRevisionSHA256: state.TaskRevisionSHA256, EventKind: "rework", Comment: strings.TrimSpace(in.Comment), CreatedAt: now}
 	if err := s.Durability.TransitionTaskExecutionState(ctx, state, state.ExecutionRevision-1, phase); err != nil {
 		return TaskExecutionPublicOutput{}, err
 	}
