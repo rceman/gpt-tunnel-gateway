@@ -20,10 +20,6 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 		return CodeWorktreeResult{}, fmt.Errorf("invalid worktree query")
 	}
 	kind := "code-worktree|" + in.ProjectID + "|" + query
-	after, err := pagination.Decode(in.Cursor, kind)
-	if err != nil {
-		return CodeWorktreeResult{}, err
-	}
 	cursorFound := in.Cursor == ""
 	page := make([]CodeWorktreeItem, 0)
 	nextCursor := ""
@@ -33,7 +29,7 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 			return nil
 		}
 		if !cursorFound {
-			if candidate.CodeIdentity.Worktree == after {
+			if codeWorktreeCursorMatches(in.Cursor, kind, candidate.CodeIdentity.Worktree) {
 				cursorFound = true
 			}
 			return nil
@@ -85,6 +81,14 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 		Items:      page,
 		Pagination: codePagination(nextCursor),
 	}, nil
+}
+
+func codeWorktreeCursorMatches(raw, kind, selector string) bool {
+	if raw == "" {
+		return true
+	}
+	matched, err := pagination.Resolve(raw, kind, []string{selector})
+	return err == nil && matched == selector
 }
 
 func codeWorktreePage(kind string, items []CodeWorktreeItem, rawCursor string) ([]CodeWorktreeItem, string, error) {
