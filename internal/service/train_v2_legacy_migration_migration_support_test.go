@@ -82,7 +82,7 @@ exec %q "$@"
 	return reset, read
 }
 func TestTrainV2LegacyMigrationSixActionsReuseOneSnapshot(t *testing.T) {
-	s, revision, _ := testService(t)
+	s, revision, _ := testServiceSerial(t)
 	revision = enableTrainV2ForTest(t, s, revision)
 	now := nowUTC()
 	trains := make([]model.TrainV2, 0, 6)

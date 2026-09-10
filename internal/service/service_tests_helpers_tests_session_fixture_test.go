@@ -114,6 +114,11 @@ esac
 func planString(value string) *string { return &value }
 
 func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
+	t.Parallel()
+	return testServiceWithoutIdentifiersSetup(t)
+}
+
+func testServiceWithoutIdentifiersSetup(t *testing.T) (*Service, string, string) {
 	t.Helper()
 	hubBare, _, hubHead := testutil.RepoWithBareRemote(t)
 	_, projectRoot, projectHead := testutil.RepoWithBareRemote(t)
@@ -166,7 +171,17 @@ func testServiceWithoutIdentifiers(t *testing.T) (*Service, string, string) {
 }
 
 func testService(t *testing.T) (*Service, string, string) {
-	s, revision, projectHead := testServiceWithoutIdentifiers(t)
+	t.Parallel()
+	return testServiceSetup(t)
+}
+
+func testServiceSerial(t *testing.T) (*Service, string, string) {
+	t.Helper()
+	return testServiceSetup(t)
+}
+
+func testServiceSetup(t *testing.T) (*Service, string, string) {
+	s, revision, projectHead := testServiceWithoutIdentifiersSetup(t)
 	if s.Config.AgentBindings == nil {
 		s.Config.AgentBindings = map[string]config.AgentBinding{}
 	}

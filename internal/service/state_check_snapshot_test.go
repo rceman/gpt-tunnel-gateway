@@ -17,7 +17,7 @@ import (
 )
 
 func TestStateCheckWithoutDurabilityUsesLocalConfigurationWithoutHub(t *testing.T) {
-	s, revision, _ := testService(t)
+	s, revision, _ := testServiceSerial(t)
 	train, _ := reviewBackfillFixture(t)
 	operation := trainv2.IntegrationOperation{
 		SchemaVersion: 1,
