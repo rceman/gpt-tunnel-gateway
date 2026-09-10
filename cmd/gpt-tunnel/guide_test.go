@@ -39,12 +39,16 @@ func TestGuideIsZeroStateAndMatchesCanonicalContent(t *testing.T) {
 		"task work/finalize are execution mutations",
 		"GOOD reposuite README-only proof",
 		"BAD: git log --all",
+		"Prefer rg for source search",
+		"repo-local grep, find, or sed",
+		"Agent-native bounded read/search tools are also valid",
 	} {
 		if !strings.Contains(string(output), text) {
 			t.Fatalf("guide omitted critical text %q", text)
 		}
 	}
-	if strings.Contains(string(output), "rg --files") || strings.Contains(string(output), "fallback") {
+	lower := strings.ToLower(string(output))
+	if strings.Contains(string(output), "rg --files") || strings.Contains(lower, "fallback") || strings.Contains(lower, "install rg") || strings.Contains(lower, "sudo ") || strings.Contains(lower, "package manager") {
 		t.Fatalf("guide contains an unavailable or prohibited instruction: %s", output)
 	}
 }
@@ -69,8 +73,9 @@ func TestGuideDocumentsBoundedAlternativeWhenRGIsUnavailable(t *testing.T) {
 	}
 	text := string(output)
 	for _, required := range []string{
-		"If rg is available",
-		"repo-local find, grep, or sed",
+		"Prefer rg for source search",
+		"if it is absent",
+		"repo-local grep, find, or sed",
 		"tool absence never broadens scope",
 		"assigned repository/worktree",
 	} {
@@ -78,7 +83,8 @@ func TestGuideDocumentsBoundedAlternativeWhenRGIsUnavailable(t *testing.T) {
 			t.Fatalf("no-rg guide omitted %q: %s", required, text)
 		}
 	}
-	if strings.Contains(text, "rg --files") || strings.Contains(text, "fallback") {
+	lower := strings.ToLower(text)
+	if strings.Contains(text, "rg --files") || strings.Contains(lower, "fallback") || strings.Contains(lower, "install rg") || strings.Contains(lower, "sudo ") || strings.Contains(lower, "package manager") {
 		t.Fatalf("no-rg guide contains an unavailable or prohibited instruction: %s", text)
 	}
 }

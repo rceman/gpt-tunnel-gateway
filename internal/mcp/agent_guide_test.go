@@ -79,6 +79,9 @@ func TestTSK545AgentGuideIsClosedBoundedAndPlannerOnly(t *testing.T) {
 		"Train and watcher",
 		"project Airelay-session substitution",
 		"repo guide file",
+		"Prefer rg for source search",
+		"repo-local grep, find, or sed",
+		"Agent-native bounded read/search tools are also valid",
 	} {
 		found := false
 		for _, raw := range guide {
