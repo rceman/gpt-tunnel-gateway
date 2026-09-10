@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
@@ -106,7 +107,7 @@ func (s *Service) publishSharedADROutbox(ctx context.Context, entry sqlitestore.
 	_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared ADR "+adr.ID, func(worktree string) ([]string, error) {
 		var latest model.ADR
 		if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
-			if latest.ID == adr.ID && latest.CreatedAt.Equal(adr.CreatedAt) {
+			if latest.ID == adr.ID && latest.Revision == adr.Revision && reflect.DeepEqual(latest, adr) {
 				return nil, errSharedOutboxNoop
 			}
 		} else if !IsNotFound(readErr) {
