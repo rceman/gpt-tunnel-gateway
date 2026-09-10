@@ -1,5 +1,7 @@
 package mcp
 
+import "github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
+
 func outputString() map[string]any  { return map[string]any{"type": "string"} }
 func outputBoolean() map[string]any { return map[string]any{"type": "boolean"} }
 func outputInteger() map[string]any { return map[string]any{"type": "integer"} }
@@ -69,7 +71,7 @@ func planRenderOutputSchema() map[string]any {
 
 func adrOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"adr": outputString(), "revision": outputInteger(), "title": outputString(), "status": outputEnum("proposed", "accepted", "superseded", "archived"),
+		"adr": outputString(), "revision": outputInteger(), "title": outputString(), "status": outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", false)...),
 		"context": outputString(), "decision": outputString(), "consequences": outputString(), "created_at": outputDateTime(),
 		"updated_at": outputDateTime(), "revision_reason": outputString(),
 	}, "adr", "revision", "title", "status", "context", "decision", "consequences", "created_at")

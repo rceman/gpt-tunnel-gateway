@@ -87,7 +87,7 @@ func adrListOutputSchema() map[string]any {
 	return closedOutput(map[string]any{"adrs": outputArray(adrSummaryOutputSchema())}, "adrs")
 }
 func adrSummaryOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"adr": outputString(), "title": outputString(), "status": outputEnum("proposed", "accepted", "superseded", "archived"), "revision": outputInteger(), "updated_at": outputDateTime()}, "adr", "title", "status", "revision")
+	return closedOutput(map[string]any{"adr": outputString(), "title": outputString(), "status": outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", false)...), "revision": outputInteger(), "updated_at": outputDateTime()}, "adr", "title", "status", "revision")
 }
 func adrPublicProjection(v model.ADR) map[string]any {
 	result := map[string]any{"adr": v.ID, "revision": v.Revision, "title": v.Title, "status": v.Status, "context": v.Context, "decision": v.Decision, "consequences": v.Consequences, "created_at": v.CreatedAt}
