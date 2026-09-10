@@ -44,6 +44,9 @@ func TestGuideIsZeroStateAndMatchesCanonicalContent(t *testing.T) {
 			t.Fatalf("guide omitted critical text %q", text)
 		}
 	}
+	if strings.Contains(string(output), "rg --files") || strings.Contains(string(output), "fallback") {
+		t.Fatalf("guide contains an unavailable or prohibited instruction: %s", output)
+	}
 }
 
 func TestGuideRejectsArgumentsBeforeLoadingConfig(t *testing.T) {
@@ -74,6 +77,9 @@ func TestGuideDocumentsBoundedAlternativeWhenRGIsUnavailable(t *testing.T) {
 		if !strings.Contains(text, required) {
 			t.Fatalf("no-rg guide omitted %q: %s", required, text)
 		}
+	}
+	if strings.Contains(text, "rg --files") || strings.Contains(text, "fallback") {
+		t.Fatalf("no-rg guide contains an unavailable or prohibited instruction: %s", text)
 	}
 }
 
