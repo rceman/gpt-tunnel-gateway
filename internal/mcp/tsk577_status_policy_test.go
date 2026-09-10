@@ -37,22 +37,26 @@ func TestTSK577ADRStatusSchemasAndRuntimeUseDescriptorPolicy(t *testing.T) {
 	if createdResult["revision"] != float64(1) {
 		t.Fatalf("create result=%#v", createdResult)
 	}
-	accepted := call(2, "adr/create", map[string]any{"title": "Rejected ADR", "context": "context", "decision": "decision", "consequences": "consequences", "status": "accepted"})
+	omittedStatus := call(2, "adr/create", map[string]any{"title": "Defaulted ADR", "context": "context", "decision": "decision", "consequences": "consequences"})
+	if omittedStatus["is_error"] == true || omittedStatus["result"].(map[string]any)["status"] != "proposed" {
+		t.Fatalf("ADR create omitted status=%#v, want proposed", omittedStatus)
+	}
+	accepted := call(3, "adr/create", map[string]any{"title": "Rejected ADR", "context": "context", "decision": "decision", "consequences": "consequences", "status": "accepted"})
 	if accepted["is_error"] != true {
 		t.Fatalf("ADR create accepted disallowed status: %#v", accepted)
 	}
-	updated := call(3, "adr/update", map[string]any{"adr": adrID, "status": "accepted", "reason": "accepted by owner"})
+	updated := call(4, "adr/update", map[string]any{"adr": adrID, "status": "accepted", "reason": "accepted by owner"})
 	if updated["is_error"] == true {
 		t.Fatalf("ADR update status transition failed: %#v", updated)
 	}
 	if result := updated["result"].(map[string]any); result["revision"] != float64(2) {
 		t.Fatalf("update result=%#v", result)
 	}
-	readOne := call(4, "adr/read", map[string]any{"adr": adrID, "revision": 1})
+	readOne := call(5, "adr/read", map[string]any{"adr": adrID, "revision": 1})
 	if result := readOne["result"].(map[string]any); result["status"] != "proposed" {
 		t.Fatalf("historical ADR revision=%#v", result)
 	}
-	readTwo := call(5, "adr/read", map[string]any{"adr": adrID, "revision": 2})
+	readTwo := call(6, "adr/read", map[string]any{"adr": adrID, "revision": 2})
 	if result := readTwo["result"].(map[string]any); result["status"] != "accepted" {
 		t.Fatalf("current ADR revision=%#v", result)
 	}
