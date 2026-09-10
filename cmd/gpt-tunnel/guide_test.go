@@ -27,6 +27,9 @@ func TestGuideIsZeroStateAndMatchesCanonicalContent(t *testing.T) {
 	if !reflect.DeepEqual(got, agentguide.Canonical()) {
 		t.Fatalf("guide content differs from canonical source: got=%#v want=%#v", got, agentguide.Canonical())
 	}
+	if !strings.Contains(got.CLIUsage, "before work, use gpt-tunnel task read <key>") {
+		t.Fatalf("guide CLI usage omitted exact Task read command: %q", got.CLIUsage)
+	}
 	for _, text := range []string{
 		"Planner owns Task/ADR decisions",
 		"git branch --show-current",
@@ -35,7 +38,6 @@ func TestGuideIsZeroStateAndMatchesCanonicalContent(t *testing.T) {
 		"immutable checkpoint",
 		"deterministic fakes or mocks",
 		"gpt-tunnel project list",
-		"before work, use gpt-tunnel task read",
 		"The CLI has no Task list surface",
 		"task work/finalize are execution mutations",
 		"GOOD reposuite README-only proof",
