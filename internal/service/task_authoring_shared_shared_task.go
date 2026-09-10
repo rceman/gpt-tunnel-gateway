@@ -218,6 +218,11 @@ func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID str
 	if in.Type == nil && in.Scope == nil && in.Title == nil && in.Summary == nil && in.Objective == nil && in.AcceptanceCriteria == nil && in.Constraints == nil && in.Priority == nil && in.Dependencies == nil && in.PreparationReferences == nil && in.Metadata == nil && in.ADRRelation == nil && in.ADRReferences == nil {
 		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("at least one mutable Task field is required")
 	}
+	if state, found, err := s.Durability.ReadTaskExecutionState(ctx, in.ProjectID, in.TaskID); err != nil {
+		return model.TaskAuthoring{}, OperationResult{}, err
+	} else if found && model.IsTaskExecutionNonTerminal(state.Status) {
+		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("Task %q cannot be updated while execution is nonterminal", in.TaskID)
+	}
 	current, err := s.readSharedTask(ctx, in.ProjectID, in.TaskID)
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err

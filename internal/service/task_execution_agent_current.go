@@ -77,7 +77,7 @@ func (s *Service) resolveTaskExecutionTaskForAgent(ctx context.Context, projectI
 	}
 	var selected string
 	for _, state := range states {
-		if _, ok := matched[state.Agent]; !ok || state.Status == model.TaskExecutionIntegrated {
+		if _, ok := matched[state.Agent]; !ok || !model.IsTaskExecutionNonTerminal(state.Status) {
 			continue
 		}
 		if selected != "" {

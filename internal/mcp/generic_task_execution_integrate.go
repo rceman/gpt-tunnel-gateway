@@ -13,8 +13,8 @@ func taskExecutionIntegrateSchema() map[string]any {
 
 func taskExecutionIntegrateOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"operation_id": outputString(), "status": outputString(), "result": taskExecutionLifecycleOutputSchema(), "error": outputString(), "created_at": outputDateTime(), "updated_at": outputDateTime(),
-	}, "operation_id", "status", "created_at", "updated_at")
+		"status": outputString(), "result": taskExecutionLifecycleOutputSchema(), "error": outputString(), "created_at": outputDateTime(), "updated_at": outputDateTime(),
+	}, "status", "created_at", "updated_at")
 }
 
 func (s *Server) registerTaskExecutionIntegrateAction() error {

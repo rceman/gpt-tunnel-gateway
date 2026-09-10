@@ -31,6 +31,16 @@ func (r Runner) CreateTaskWorktree(ctx context.Context, p config.ProjectConfig, 
 	return lane, path, branch, nil
 }
 
+// ReplayTaskCommits applies validated Task commits to a refreshed server-owned
+// lane using the existing bounded replay primitive.
+func (r Runner) ReplayTaskCommits(ctx context.Context, p config.ProjectConfig, target string, commits []string) (string, map[string]string, error) {
+	head, mapping, err := r.ReplayTrainCommits(ctx, p, target, commits)
+	if err != nil {
+		return "", nil, fmt.Errorf("Task worktree reconciliation failed: %w", err)
+	}
+	return head, mapping, nil
+}
+
 // RemoveTaskWorktree removes only the lane created at the exact base by the
 // current dispatch attempt; any mutation makes rollback fail closed.
 func (r Runner) RemoveTaskWorktree(ctx context.Context, p config.ProjectConfig, stateDir, projectID, taskID string, taskType model.TaskType, title, base string) error {

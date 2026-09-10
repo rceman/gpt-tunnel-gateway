@@ -93,9 +93,12 @@ func (s *Service) TaskExecutionIntegrate(ctx context.Context, in TaskExecutionIn
 	if err != nil || !found || accepted.Head != state.Head || accepted.TaskRevisionSHA256 != state.TaskRevisionSHA256 {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("Task integration review authority is stale")
 	}
-	task, err := s.TaskAuthoringRead(ctx, in.ProjectID, in.Key)
+	task, err := s.TaskLifecycleRead(ctx, in.ProjectID, in.Key, state.TaskRevision)
 	if err != nil {
 		return TaskExecutionPublicOutput{}, err
+	}
+	if task.Revision != state.TaskRevision || task.RevisionSHA256 != state.TaskRevisionSHA256 {
+		return TaskExecutionPublicOutput{}, fmt.Errorf("Task authoring revision changed after dispatch")
 	}
 	project, err := s.EffectiveProjectConfig(in.ProjectID)
 	if err != nil {
@@ -144,6 +147,9 @@ func (s *Service) TaskExecutionIntegrate(ctx context.Context, in TaskExecutionIn
 			return TaskExecutionPublicOutput{}, refreshErr
 		}
 		if canonical != state.BaseHead {
+			if rebaseErr := s.reconcileTaskExecutionBase(ctx, state, project, canonical); rebaseErr != nil {
+				return TaskExecutionPublicOutput{}, rebaseErr
+			}
 			return TaskExecutionPublicOutput{}, fmt.Errorf("canonical default branch advanced beyond Task base; rebase is required")
 		}
 		if _, syncErr := s.Git.SynchronizeDefaultBranchWorktree(ctx, project, canonical); syncErr != nil {
@@ -194,8 +200,8 @@ func (s *Service) TaskExecutionIntegrate(ctx context.Context, in TaskExecutionIn
 			return TaskExecutionPublicOutput{}, s.failTaskExecutionIntegration(ctx, state, err)
 		}
 	}
-	if _, err := s.TaskLifecycleArchive(ctx, in.ProjectID, in.Key, "gateway", "Task execution integrated"); err != nil {
-		return TaskExecutionPublicOutput{}, s.failTaskExecutionIntegration(ctx, integrationState, fmt.Errorf("archive canonical Task after integration: %w", err))
+	if _, err := s.taskLifecycleComplete(ctx, in.ProjectID, in.Key, "gateway", "Task execution integrated"); err != nil {
+		return TaskExecutionPublicOutput{}, s.failTaskExecutionIntegration(ctx, integrationState, fmt.Errorf("complete canonical Task after integration: %w", err))
 	}
 	if err := s.Git.RemoveTaskWorktreeAfterIntegration(ctx, project, s.Config.StateDir, in.ProjectID, in.Key, task.Type, task.Title, state.Head, state.Branch); err != nil {
 		return TaskExecutionPublicOutput{}, s.failTaskExecutionIntegration(ctx, integrationState, fmt.Errorf("Task worktree cleanup failed: %w", err))

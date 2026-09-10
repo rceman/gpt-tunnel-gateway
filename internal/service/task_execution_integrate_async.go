@@ -8,7 +8,7 @@ import (
 )
 
 type TaskExecutionIntegrateReceipt struct {
-	OperationID string                     `json:"operation_id"`
+	OperationID string                     `json:"-"`
 	Status      string                     `json:"status"`
 	Result      *TaskExecutionPublicOutput `json:"result,omitempty"`
 	Error       string                     `json:"error,omitempty"`

@@ -69,7 +69,7 @@ func (s *Service) TaskExecutionDispatch(ctx context.Context, in TaskExecutionDis
 		return TaskExecutionPublicOutput{}, err
 	}
 	for _, other := range states {
-		if other.Agent == agent && other.TaskID != in.Key && other.Status != model.TaskExecutionIntegrated && other.Status != model.TaskExecutionFailed {
+		if other.Agent == agent && other.TaskID != in.Key && model.IsTaskExecutionNonTerminal(other.Status) {
 			return TaskExecutionPublicOutput{}, fmt.Errorf("logical Agent %q already has a nonterminal Task", agent)
 		}
 	}

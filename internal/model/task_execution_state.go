@@ -86,3 +86,13 @@ func validTaskExecutionStatus(value string) bool {
 		return false
 	}
 }
+
+// IsTaskExecutionTerminal is the single authority for current-task
+// eligibility. Failed and integrated executions are terminal.
+func IsTaskExecutionTerminal(status string) bool {
+	return status == TaskExecutionIntegrated || status == TaskExecutionFailed
+}
+
+func IsTaskExecutionNonTerminal(status string) bool {
+	return status != "" && !IsTaskExecutionTerminal(status)
+}
