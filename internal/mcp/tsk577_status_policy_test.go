@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func TestTSK577ADRStatusSchemasAndRuntimeUseDescriptorPolicy(t *testing.T) {
@@ -30,7 +31,7 @@ func TestTSK577ADRStatusSchemasAndRuntimeUseDescriptorPolicy(t *testing.T) {
 			}},
 		})))
 	}
-	created := call(1, "adr/create", map[string]any{"title": "Policy ADR", "context": "context", "decision": "decision", "consequences": "consequences"})
+	created := call(1, "adr/create", map[string]any{"title": "Policy ADR", "context": "context", "decision": "decision", "consequences": "consequences", "status": "proposed"})
 	createdResult := created["result"].(map[string]any)
 	adrID := createdResult["adr"].(string)
 	if createdResult["revision"] != float64(1) {
@@ -46,6 +47,20 @@ func TestTSK577ADRStatusSchemasAndRuntimeUseDescriptorPolicy(t *testing.T) {
 	}
 	if result := updated["result"].(map[string]any); result["revision"] != float64(2) {
 		t.Fatalf("update result=%#v", result)
+	}
+	readOne := call(4, "adr/read", map[string]any{"adr": adrID, "revision": 1})
+	if result := readOne["result"].(map[string]any); result["status"] != "proposed" {
+		t.Fatalf("historical ADR revision=%#v", result)
+	}
+	readTwo := call(5, "adr/read", map[string]any{"adr": adrID, "revision": 2})
+	if result := readTwo["result"].(map[string]any); result["status"] != "accepted" {
+		t.Fatalf("current ADR revision=%#v", result)
+	}
+	if got := sqlitestore.SharedLifecycleStatusValues("task", true); len(got) != 1 || got[0] != "planned" {
+		t.Fatalf("Task create status policy=%#v, want [planned]", got)
+	}
+	if got := sqlitestore.SharedLifecycleStatusValues("task", false); len(got) != 4 || got[2] != "done" {
+		t.Fatalf("Task allowed status policy=%#v, want done", got)
 	}
 }
 
