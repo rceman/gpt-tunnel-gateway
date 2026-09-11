@@ -134,7 +134,7 @@ func validateTaskAuthoring(v TaskAuthoring, requireSummary bool) error {
 		if v.ReadySeal == nil || v.ReadySeal.Revision != v.Revision || v.ReadySeal.RevisionSHA256 != v.RevisionSHA256 || v.ReadySeal.ReadyBy == "" || v.ReadySeal.ReadyAt.IsZero() {
 			return fmt.Errorf("ready task has invalid ready seal")
 		}
-	} else if v.Status == TaskAuthoringDone || v.ReadySeal != nil {
+	} else if (v.Status == TaskAuthoringDone || v.Status == TaskAuthoringArchived) && v.ReadySeal != nil {
 		return fmt.Errorf("terminal task cannot have ready seal")
 	}
 	return nil
