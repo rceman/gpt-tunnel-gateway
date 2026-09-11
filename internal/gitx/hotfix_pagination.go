@@ -33,10 +33,9 @@ func (r Runner) ListHotfixIdentitiesPage(stateDir, projectID string, limit int, 
 		return nil, pagination.PageInfo{}, err
 	}
 	defer directory.Close()
-	kind, after := "hotfix_list:"+projectID, ""
+	kind := "hotfix_list:" + projectID
 	if cursor != "" {
-		after, err = pagination.Decode(cursor, kind)
-		if err != nil {
+		if err := pagination.ValidateOpaqueCursor(cursor, kind); err != nil {
 			return nil, pagination.PageInfo{}, err
 		}
 	}
@@ -65,14 +64,14 @@ func (r Runner) ListHotfixIdentitiesPage(stateDir, projectID string, limit int, 
 				return nil, pagination.PageInfo{}, fmt.Errorf("read hotfix identity %s: %w", ref, identityErr)
 			}
 			if !foundCursor {
-				if ref == after {
+				if pagination.OpaqueCursorMatches(cursor, kind, ref) {
 					foundCursor = true
 					continue
 				}
 				continue
 			}
 			if len(page) == limit {
-				return page, pagination.PageInfo{HasMore: true, NextCursor: pagination.Encode(kind, page[len(page)-1].HotfixRef)}, nil
+				return page, pagination.PageInfo{HasMore: true, NextCursor: pagination.EncodeFull(kind, page[len(page)-1].HotfixRef)}, nil
 			}
 			page = append(page, identity)
 		}
