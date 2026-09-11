@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"sync"
 )
 
 const CompactCursorLength = 8
@@ -16,6 +18,14 @@ const (
 	DefaultLimit = 20
 	MaxLimit     = 100
 )
+
+const compactHandleCapacity = 4096
+
+var compactHandles = struct {
+	sync.Mutex
+	values map[string]map[string]string
+	order  []string
+}{values: make(map[string]map[string]string)}
 
 type PageInfo struct {
 	NextCursor string `json:"next_cursor"`
@@ -46,6 +56,38 @@ func Limit(requested, configured int) (int, error) {
 
 func Encode(kind, key string) string {
 	return compactEncode(kind, key)
+}
+
+// EncodeServerCursor publishes a scoped compact handle while retaining the
+// complete cursor key in bounded server-owned memory.
+func EncodeServerCursor(kind, key string) string {
+	handle := Encode(kind, key)
+	compactHandles.Lock()
+	defer compactHandles.Unlock()
+	if compactHandles.values[kind] == nil {
+		compactHandles.values[kind] = make(map[string]string)
+	}
+	compactHandles.values[kind][handle] = key
+	compactHandles.order = append(compactHandles.order, kind+"\x00"+handle)
+	for len(compactHandles.order) > compactHandleCapacity {
+		old := compactHandles.order[0]
+		compactHandles.order = compactHandles.order[1:]
+		parts := strings.SplitN(old, "\x00", 2)
+		if len(parts) == 2 {
+			delete(compactHandles.values[parts[0]], parts[1])
+		}
+	}
+	return handle
+}
+
+func ResolveServerCursor(raw, kind string) (string, bool) {
+	if len(raw) != CompactCursorLength {
+		return "", false
+	}
+	compactHandles.Lock()
+	defer compactHandles.Unlock()
+	key, ok := compactHandles.values[kind][raw]
+	return key, ok
 }
 
 // EncodeFull returns a bounded opaque cursor. The scope and key digests bind

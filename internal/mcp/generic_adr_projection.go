@@ -113,7 +113,7 @@ func adrPublicPageCandidate(p service.ADRListPageResult, count int) (map[string]
 	if p.HasMore || count < len(p.ADRs) {
 		next := p.NextCursor
 		if count < len(p.ADRs) {
-			next = pagination.EncodeOpaqueKeyset(p.CursorKind, p.ADRs[count-1].ID)
+			next = pagination.EncodeServerCursor(p.CursorKind, p.ADRs[count-1].ID)
 		}
 		if next == "" {
 			return nil, fmt.Errorf("ADR pagination invariant: continuation is empty")
@@ -136,7 +136,7 @@ func adrHistoryPageCandidate(p service.ADRHistoryResult, count int) (map[string]
 	if p.HasMore || count < len(p.Revisions) {
 		next := p.NextCursor
 		if count < len(p.Revisions) {
-			next = pagination.EncodeOpaqueKeyset(p.CursorKind, strconv.Itoa(p.Revisions[count-1].Revision))
+			next = pagination.EncodeServerCursor(p.CursorKind, strconv.Itoa(p.Revisions[count-1].Revision))
 		}
 		if next == "" {
 			return nil, fmt.Errorf("ADR history pagination invariant: continuation is empty")

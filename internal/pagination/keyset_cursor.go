@@ -26,6 +26,9 @@ func EncodeOpaqueKeyset(kind, key string) string {
 }
 
 func DecodeOpaqueKeyset(raw, kind string) (string, error) {
+	if key, ok := ResolveServerCursor(raw, kind); ok {
+		return key, nil
+	}
 	data, err := base64.RawURLEncoding.DecodeString(raw)
 	if err != nil || len(data) < 1+16+2+16 || data[0] != 5 {
 		return "", fmt.Errorf("invalid continuation cursor")

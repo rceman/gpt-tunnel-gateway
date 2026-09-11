@@ -153,8 +153,10 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 	}
 	kind := codeCursorKind("code-tree", target, in.Path+"|"+in.Query+"|"+strconv.FormatBool(target.Live))
 	if in.Cursor != "" {
-		if err = pagination.ValidateOpaqueCursor(in.Cursor, kind); err != nil {
-			return CodeTreeResult{}, err
+		if _, compact := pagination.ResolveServerCursor(in.Cursor, kind); !compact {
+			if err = pagination.ValidateOpaqueCursor(in.Cursor, kind); err != nil {
+				return CodeTreeResult{}, err
+			}
 		}
 	}
 	paths := make([]string, 0, LocalCodeMaxScanPaths)
@@ -170,7 +172,8 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 			}
 		}()
 		if hasCursor {
-			if !afterSeen && pagination.OpaqueCursorMatches(in.Cursor, kind, pathName) {
+			compactKey, compactOK := pagination.ResolveServerCursor(in.Cursor, kind)
+			if !afterSeen && (pagination.OpaqueCursorMatches(in.Cursor, kind, pathName) || (compactOK && compactKey == pathName)) {
 				afterSeen = true
 				cursorFound = true
 				scanPaths = 0
@@ -204,7 +207,7 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 	pageSize, fitErr := largestCodePageSize(len(paths), func(size int) (bool, error) {
 		pageCursor := ""
 		if size < len(paths) {
-			pageCursor = pagination.EncodeFull(kind, paths[size-1])
+			pageCursor = pagination.EncodeServerCursor(kind, paths[size-1])
 		}
 		return codePageFits(CodeTreeResult{
 			CodeIdentity: target.CodeIdentity,
@@ -217,7 +220,7 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 	}
 	pageCursor := ""
 	if pageSize < len(paths) {
-		pageCursor = pagination.EncodeFull(kind, paths[pageSize-1])
+		pageCursor = pagination.EncodeServerCursor(kind, paths[pageSize-1])
 	}
 	return CodeTreeResult{
 		CodeIdentity: target.CodeIdentity,

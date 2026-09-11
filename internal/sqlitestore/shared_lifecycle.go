@@ -169,7 +169,7 @@ func (d *Databases) QuerySharedLifecycle(ctx context.Context, query SharedLifecy
 	if len(entities) > query.Limit {
 		result.Entities = entities[:query.Limit]
 		result.HasMore = true
-		result.NextCursor = pagination.EncodeOpaqueKeyset(kind, result.Entities[len(result.Entities)-1].ID)
+		result.NextCursor = pagination.EncodeServerCursor(kind, result.Entities[len(result.Entities)-1].ID)
 	}
 	return result, nil
 }

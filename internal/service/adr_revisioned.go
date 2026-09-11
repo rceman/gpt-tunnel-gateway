@@ -128,7 +128,7 @@ func (s *Service) ADRHistoryPage(ctx context.Context, project, selector string, 
 		}
 	}
 	if page.HasMore {
-		result.NextCursor = pagination.EncodeOpaqueKeyset("adr-history:"+project+":"+id, strconv.FormatInt(page.NextRevision, 10))
+		result.NextCursor = pagination.EncodeServerCursor("adr-history:"+project+":"+id, strconv.FormatInt(page.NextRevision, 10))
 		result.HasMore = true
 	}
 	return result, nil
@@ -206,7 +206,7 @@ func (s *Service) ADRLegacyRelations(ctx context.Context, project, selector, cur
 			appendRelation(historical, int(record.Revision))
 		}
 		if history.HasMore {
-			result.NextCursor = pagination.EncodeOpaqueKeyset(cursorKind, strconv.FormatInt(history.NextRevision, 10))
+			result.NextCursor = pagination.EncodeServerCursor(cursorKind, strconv.FormatInt(history.NextRevision, 10))
 			result.HasMore = true
 		}
 		return result, nil

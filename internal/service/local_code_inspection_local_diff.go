@@ -25,7 +25,14 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 		var decodeErr error
 		offset, decodeErr = pagination.DecodeOffset(in.Cursor, kind)
 		if decodeErr != nil {
-			return CodeDiffResult{}, decodeErr
+			key, ok := pagination.ResolveServerCursor(in.Cursor, kind)
+			if !ok {
+				return CodeDiffResult{}, decodeErr
+			}
+			offset, decodeErr = strconv.ParseInt(key, 10, 64)
+			if decodeErr != nil {
+				return CodeDiffResult{}, fmt.Errorf("invalid code diff cursor")
+			}
 		}
 		if offset < 0 {
 			return CodeDiffResult{}, fmt.Errorf("invalid code diff cursor")
@@ -39,7 +46,7 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 			CodeIdentity: target.CodeIdentity,
 			Paths:        paths,
 			Diff:         strings.Join(candidateLines, ""),
-			Pagination:   codePagination(pagination.EncodeOffset(kind, lineOffset+1)),
+			Pagination:   codePagination(pagination.EncodeServerCursor(kind, strconv.FormatInt(lineOffset+1, 10))),
 		}
 		fits, fitErr := codePageFits(candidate)
 		if fitErr != nil {
@@ -70,7 +77,7 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 	if len(pageLines) > 0 {
 		pageCursor := ""
 		if continuation {
-			pageCursor = pagination.EncodeOffset(kind, nextOffset)
+			pageCursor = pagination.EncodeServerCursor(kind, strconv.FormatInt(nextOffset, 10))
 		}
 		return CodeDiffResult{
 			CodeIdentity: target.CodeIdentity,

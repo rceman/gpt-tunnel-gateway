@@ -85,7 +85,7 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	count := end - start + 1
 	encodeCursor := func(next int) string {
 		if boundedRange {
-			return pagination.EncodeRangeCursor(kind, next, end)
+			return pagination.EncodeServerCursor(kind, strconv.Itoa(next))
 		}
 		return pagination.Encode(kind, strconv.Itoa(next))
 	}
@@ -171,9 +171,12 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		return CodeSearchResult{}, err
 	}
 	kind := codeCursorKind("code-search", target, in.Query+"|"+strings.Join(selectedPaths, "\x00")+"|"+strings.Join(in.Include, "\x00")+"|"+strings.Join(in.Exclude, "\x00")+"|"+strconv.Itoa(in.ContextLines)+"|"+strconv.FormatBool(target.Live))
+	compactCursor := false
 	if in.Cursor != "" {
-		if err := pagination.ValidateSearchCursor(in.Cursor, kind); err != nil {
-			return CodeSearchResult{}, err
+		if _, compactCursor = pagination.ResolveServerCursor(in.Cursor, kind); !compactCursor {
+			if err := pagination.ValidateSearchCursor(in.Cursor, kind); err != nil {
+				return CodeSearchResult{}, err
+			}
 		}
 	}
 	result := CodeSearchResult{
@@ -192,7 +195,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 			}
 		}()
 		cursorLine := 0
-		if !afterSeen {
+		if !afterSeen && !compactCursor {
 			if !pagination.SearchCursorPathMatches(in.Cursor, kind, pathName) {
 				return nil
 			}
@@ -221,6 +224,14 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		lines := strings.Split(data, "\n")
 		for lineNumber, line := range lines {
 			if !strings.Contains(line, in.Query) {
+				continue
+			}
+			if !afterSeen && compactCursor {
+				if key, _ := pagination.ResolveServerCursor(in.Cursor, kind); key == pathName+"|"+strconv.Itoa(lineNumber+1) {
+					afterSeen = true
+					cursorFound = true
+					pathsScanned = 0
+				}
 				continue
 			}
 			if !afterSeen {
@@ -273,13 +284,13 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	resultCursor := ""
 	if continuation {
 		last := result.Matches[len(result.Matches)-1]
-		resultCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
+		resultCursor = pagination.EncodeServerCursor(kind, last.Path+"|"+strconv.Itoa(last.Line))
 	}
 	pageSize, fitErr := largestCodePageSize(len(result.Matches), func(size int) (bool, error) {
 		pageCursor := resultCursor
 		if size < len(result.Matches) {
 			last := result.Matches[size-1]
-			pageCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
+			pageCursor = pagination.EncodeServerCursor(kind, last.Path+"|"+strconv.Itoa(last.Line))
 		}
 		return codePageFits(CodeSearchResult{
 			CodeIdentity: result.CodeIdentity,
@@ -295,7 +306,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		pageCursor := resultCursor
 		if pageSize < len(result.Matches) {
 			last := result.Matches[pageSize-1]
-			pageCursor = pagination.EncodeSearchCursor(kind, last.Path, last.Line)
+			pageCursor = pagination.EncodeServerCursor(kind, last.Path+"|"+strconv.Itoa(last.Line))
 		}
 		return CodeSearchResult{
 			CodeIdentity: result.CodeIdentity,

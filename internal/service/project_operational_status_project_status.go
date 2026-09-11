@@ -73,7 +73,7 @@ type ProjectOperationalIntegration struct {
 
 type ProjectOperationalRules struct {
 	Revision     int    `json:"revision"`
-	Digest       string `json:"digest"`
+	Digest       string `json:"-"`
 	Acknowledged bool   `json:"acknowledged"`
 	Fresh        bool   `json:"fresh"`
 }

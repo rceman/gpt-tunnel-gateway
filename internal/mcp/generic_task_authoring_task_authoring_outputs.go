@@ -276,7 +276,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 			}
 			result := map[string]any{"key": in.Key, "revisions": rows}
 			if page.HasMore {
-				result["next_cursor"] = pagination.EncodeOpaqueKeyset("task-history:"+in.ProjectID+":"+in.Key, fmt.Sprintf("%d", page.NextRevision))
+				result["next_cursor"] = pagination.EncodeServerCursor("task-history:"+in.ProjectID+":"+in.Key, fmt.Sprintf("%d", page.NextRevision))
 			}
 			return result, nil
 		},
