@@ -35,6 +35,10 @@ func task(ctx context.Context, s *service.Service, args []string) {
 	case "read":
 		require(args, 2)
 		result, err := taskReadGatewayCall(ctx, s, args[1])
+		if err != nil {
+			fatal(err)
+		}
+		output(result)
 	case "current", "submit-code", "submit-tests", "submit-rebase":
 		result, err := taskExecutionGatewayCall(ctx, s, args[0])
 		if err != nil {
