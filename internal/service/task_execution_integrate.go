@@ -96,7 +96,7 @@ func (s *Service) TaskExecutionIntegrate(ctx context.Context, in TaskExecutionIn
 	}
 	s.taskExecutionMu.Lock()
 	defer s.taskExecutionMu.Unlock()
-	state, found, err := s.readExecutionForMutation(ctx, in.ProjectID, in.Key)
+	state, found, err := s.readExecutionForIntegration(ctx, in.ProjectID, in.Key)
 	if err != nil || !found {
 		if err != nil {
 			return TaskExecutionPublicOutput{}, err
