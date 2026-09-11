@@ -64,7 +64,16 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 			if resolveErr != nil {
 				return CodeReadResult{}, resolveErr
 			}
-			start, err = strconv.Atoi(resolved)
+			parts := strings.Split(resolved, ":")
+			if len(parts) == 3 && parts[0] == "range" {
+				start, err = strconv.Atoi(parts[1])
+				if err == nil {
+					end, err = strconv.Atoi(parts[2])
+					boundedRange = true
+				}
+			} else {
+				start, err = strconv.Atoi(resolved)
+			}
 			if err != nil {
 				return CodeReadResult{}, fmt.Errorf("invalid code read cursor")
 			}
@@ -85,7 +94,7 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 	count := end - start + 1
 	encodeCursor := func(next int) string {
 		if boundedRange {
-			return pagination.EncodeServerCursor(kind, strconv.Itoa(next))
+			return pagination.EncodeServerCursor(kind, fmt.Sprintf("range:%d:%d", next, end))
 		}
 		return pagination.Encode(kind, strconv.Itoa(next))
 	}
