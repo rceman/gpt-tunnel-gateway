@@ -47,7 +47,10 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 		if len(trial) > 0 {
 			candidateCursor = pagination.Encode(kind, item.Selector)
 		}
-		fits, fitErr := codePageFits(CodeWorktreeResult{Items: trial, Pagination: codePagination(candidateCursor)})
+		fits, fitErr := codePageFits(CodeWorktreeResult{
+			Items:      trial,
+			Pagination: codePagination(candidateCursor),
+		})
 		if fitErr != nil {
 			return fitErr
 		}
