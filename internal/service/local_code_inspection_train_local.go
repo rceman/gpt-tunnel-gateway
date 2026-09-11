@@ -278,8 +278,3 @@ func (s *Service) resolveExactHotfixCodeTargetDetached(ctx context.Context, proj
 		DiffBase:        identity.BaseSHA,
 	}, nil
 }
-
-func candidateTrainNumber(trainID string) uint64 {
-	_, number, _ := model.ParseTrainV2ID(trainID)
-	return number
-}
