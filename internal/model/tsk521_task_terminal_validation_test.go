@@ -29,7 +29,12 @@ func TestTSK521TerminalTaskReadySealValidation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			task.ReadySeal = &TaskReadySeal{Revision: task.Revision, RevisionSHA256: task.RevisionSHA256, ReadyBy: "planner", ReadyAt: time.Now().UTC()}
+			task.ReadySeal = &TaskReadySeal{
+				Revision:       task.Revision,
+				RevisionSHA256: task.RevisionSHA256,
+				ReadyBy:        "planner",
+				ReadyAt:        time.Now().UTC(),
+			}
 			if err := ValidateTaskAuthoring(task); err == nil {
 				t.Fatal("terminal task with seal accepted")
 			}
