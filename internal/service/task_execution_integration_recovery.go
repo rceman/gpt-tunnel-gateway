@@ -24,7 +24,8 @@ func (s *Service) readExecutionForIntegration(ctx context.Context, projectID, ke
 	} else {
 		operation, readErr := s.readDurableMutation(durableMutationOperationID(ctx))
 		capture, captureErr := readTaskExecutionIntegrationCapture(operation)
-		if readErr != nil || captureErr != nil || capture.IntegrationHead == "" || capture.ProjectID != projectID || capture.TaskID != key || capture.ExecutionRevision != state.ExecutionRevision || capture.TaskRevision != state.TaskRevision || capture.TaskRevisionSHA256 != state.TaskRevisionSHA256 || capture.Branch != state.Branch || capture.LaneHead != state.Head {
+		completed := state.Status == model.TaskExecutionIntegrated && capture.ExecutionRevision+1 == state.ExecutionRevision
+		if readErr != nil || captureErr != nil || capture.IntegrationHead == "" || capture.ProjectID != projectID || capture.TaskID != key || (!completed && capture.ExecutionRevision != state.ExecutionRevision) || capture.TaskRevision != state.TaskRevision || capture.TaskRevisionSHA256 != state.TaskRevisionSHA256 || capture.Branch != state.Branch || capture.LaneHead != state.Head {
 			return model.TaskExecutionState{}, false, frozenErr
 		}
 		current, currentErr := s.TaskAuthoringRead(ctx, projectID, key)
