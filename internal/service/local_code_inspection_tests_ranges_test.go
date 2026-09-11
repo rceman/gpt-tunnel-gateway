@@ -183,7 +183,12 @@ func TestLocalCodeReadCompactContinuationPreservesBoundedEnd(t *testing.T) {
 
 	count := 100
 	page, err := f.service.CodeRead(context.Background(), CodeReadInput{
-		ProjectID: "example", Worktree: selector, Path: "bounded.txt", StartLine: 10, LineCount: &count, Live: true,
+		ProjectID: "example",
+		Worktree:  selector,
+		Path:      "bounded.txt",
+		StartLine: 10,
+		LineCount: &count,
+		Live:      true,
 	})
 	if err != nil || page.Pagination == nil {
 		t.Fatalf("bounded read did not paginate: %#v %v", page, err)
@@ -193,7 +198,11 @@ func TestLocalCodeReadCompactContinuationPreservesBoundedEnd(t *testing.T) {
 			t.Fatalf("continuation escaped requested range: %#v", page)
 		}
 		page, err = f.service.CodeRead(context.Background(), CodeReadInput{
-			ProjectID: "example", Worktree: selector, Path: "bounded.txt", Cursor: page.Pagination.NextCursor, Live: true,
+			ProjectID: "example",
+			Worktree:  selector,
+			Path:      "bounded.txt",
+			Cursor:    page.Pagination.NextCursor,
+			Live:      true,
 		})
 		if err != nil {
 			t.Fatal(err)
