@@ -167,3 +167,39 @@ func TestLocalCodeReadSupportsExactBoundedRangesAndContinuation(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalCodeReadCompactContinuationPreservesBoundedEnd(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	selector := "WT-MAIN-" + f.current[:8]
+	var content strings.Builder
+	for line := 1; line <= 120; line++ {
+		fmt.Fprintf(&content, "%03d %s\n", line, strings.Repeat("bounded-token ", 48))
+	}
+	path := filepath.Join(f.root, "bounded.txt")
+	if err := os.WriteFile(path, []byte(content.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(path) })
+
+	count := 100
+	page, err := f.service.CodeRead(context.Background(), CodeReadInput{
+		ProjectID: "example", Worktree: selector, Path: "bounded.txt", StartLine: 10, LineCount: &count, Live: true,
+	})
+	if err != nil || page.Pagination == nil {
+		t.Fatalf("bounded read did not paginate: %#v %v", page, err)
+	}
+	for page.Pagination != nil {
+		if page.EndLine > 109 {
+			t.Fatalf("continuation escaped requested range: %#v", page)
+		}
+		page, err = f.service.CodeRead(context.Background(), CodeReadInput{
+			ProjectID: "example", Worktree: selector, Path: "bounded.txt", Cursor: page.Pagination.NextCursor, Live: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if page.EndLine != 109 {
+		t.Fatalf("bounded continuation ended at %d, want 109", page.EndLine)
+	}
+}
