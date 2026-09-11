@@ -56,13 +56,17 @@ func (s *Service) CodeRead(ctx context.Context, in CodeReadInput) (CodeReadResul
 		if rangeErr == nil {
 			boundedRange = true
 		} else {
-			keys := make([]string, len(lines)+1)
-			for index := range keys {
-				keys[index] = strconv.Itoa(index + 1)
-			}
-			resolved, resolveErr := pagination.Resolve(in.Cursor, kind, keys)
-			if resolveErr != nil {
-				return CodeReadResult{}, resolveErr
+			resolved, serverCursor := pagination.ResolveServerCursor(in.Cursor, kind)
+			if !serverCursor {
+				keys := make([]string, len(lines)+1)
+				for index := range keys {
+					keys[index] = strconv.Itoa(index + 1)
+				}
+				var resolveErr error
+				resolved, resolveErr = pagination.Resolve(in.Cursor, kind, keys)
+				if resolveErr != nil {
+					return CodeReadResult{}, resolveErr
+				}
 			}
 			parts := strings.Split(resolved, ":")
 			if len(parts) == 3 && parts[0] == "range" {
