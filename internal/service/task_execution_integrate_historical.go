@@ -116,10 +116,16 @@ func (s *Service) taskExecutionHistoricalIntegrate(ctx context.Context, in TaskE
 		return TaskExecutionPublicOutput{}, fmt.Errorf("historical evidence lacks durable Planner Session authority")
 	}
 	session, err := durableSession.NewStoreWithDurability(s.Durability).Get(*event.SessionID)
+	if err != nil {
+		return TaskExecutionPublicOutput{}, fmt.Errorf("historical evidence Planner Session authority could not be read: %w", err)
+	}
+	if session.Role != durableSession.RolePlanner || session.Status != durableSession.StatusActive || session.ProjectID != in.ProjectID || session.ProjectCode != identifiers.ProjectCode {
+		return TaskExecutionPublicOutput{}, fmt.Errorf("historical evidence does not carry durable active Planner Session authority for this project")
+	}
 	// The session must demonstrably exist when the canonical Journal event was
 	// recorded: a later-created session cannot retroactively grant authority.
-	if err != nil || session.Role != durableSession.RolePlanner || session.Status != durableSession.StatusActive || session.ProjectID != in.ProjectID || session.ProjectCode != identifiers.ProjectCode || session.CreatedAt.After(event.RecordedAt) || session.StartedAt.After(event.RecordedAt) {
-		return TaskExecutionPublicOutput{}, fmt.Errorf("historical evidence does not carry durable active Planner Session authority for this project")
+	if session.CreatedAt.After(event.RecordedAt) || session.StartedAt.After(event.RecordedAt) {
+		return TaskExecutionPublicOutput{}, fmt.Errorf("historical evidence Planner Session postdates the Journal record")
 	}
 	if h.Profile == "bootstrap_full" && event.Kind != model.OperatorTaskReview {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("historical bootstrap evidence is not a task review Journal event")

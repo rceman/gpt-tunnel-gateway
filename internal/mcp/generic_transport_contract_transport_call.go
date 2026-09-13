@@ -45,6 +45,30 @@ func bindProjectValue(schema map[string]any, value any, projectID string) (any, 
 			} else if containsRequired(stringList(schema["required"]), "project_id") {
 				result["project_id"] = projectID
 			}
+		} else if branches, ok := schema["oneOf"].([]any); ok && len(branches) > 0 {
+			declared := false
+			allRequired := true
+			for _, raw := range branches {
+				branch, _ := raw.(map[string]any)
+				branchProperties, _ := branch["properties"].(map[string]any)
+				if _, exists := branchProperties["project_id"]; !exists {
+					allRequired = false
+					continue
+				}
+				declared = true
+				if !containsRequired(stringList(branch["required"]), "project_id") {
+					allRequired = false
+				}
+			}
+			if declared {
+				if supplied, exists := current["project_id"]; exists {
+					if suppliedString, ok := supplied.(string); !ok || suppliedString != projectID {
+						return nil, fmt.Errorf("project_id does not match session project")
+					}
+				} else if allRequired {
+					result["project_id"] = projectID
+				}
+			}
 		}
 		return result, nil
 	case []any:

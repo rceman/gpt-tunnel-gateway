@@ -349,9 +349,11 @@ func (s *Service) taskCompleteReplay(in TaskCompleteInput, task model.TaskAuthor
 	if !hasExecution || state.Status != model.TaskExecutionDone || state.TaskRevision != task.Revision || state.TaskRevisionSHA256 != task.RevisionSHA256 ||
 		len(phases) != 1 || phase.Head != stored.IntegrationHead ||
 		phase.ProjectID != in.ProjectID || phase.TaskID != in.Key || phase.Status != model.TaskExecutionIntegrated || phase.Stage != "integration" || phase.EventKind != "integration" || phase.Decision != "accept" ||
-		phase.TaskRevisionSHA256 != state.TaskRevisionSHA256 || phase.Branch != state.Branch || phase.ExecutionRevision+1 != state.ExecutionRevision ||
-		event.RecordedAt.Before(phase.CreatedAt) || !state.UpdatedAt.Equal(event.RecordedAt) {
+		phase.TaskRevisionSHA256 != state.TaskRevisionSHA256 || phase.Branch != state.Branch || phase.ExecutionRevision+1 != state.ExecutionRevision {
 		return TaskCompleteOutput{}, fmt.Errorf("Task completion execution evidence conflicts with the recorded contract; evidence reconciliation is required")
+	}
+	if event.RecordedAt.Before(phase.CreatedAt) || !state.UpdatedAt.Equal(event.RecordedAt) {
+		return TaskCompleteOutput{}, fmt.Errorf("Task completion evidence timestamp ordering conflicts with the recorded contract; evidence reconciliation is required")
 	}
 	switch in.Mode {
 	case "integrated":
@@ -527,8 +529,14 @@ func (s *Service) taskCompleteEvidenceAuthority(event model.OperatorJournalEvent
 		return fmt.Errorf("Task completion evidence lacks durable Planner Session authority")
 	}
 	session, err := durableSession.NewStoreWithDurability(s.Durability).Get(*event.SessionID)
-	if err != nil || session.Role != durableSession.RolePlanner || session.Status != durableSession.StatusActive || session.ProjectID != projectID || session.ProjectCode != projectCode || session.CreatedAt.After(event.RecordedAt) || session.StartedAt.After(event.RecordedAt) {
+	if err != nil {
+		return fmt.Errorf("Task completion evidence Planner Session authority could not be read: %w", err)
+	}
+	if session.Role != durableSession.RolePlanner || session.Status != durableSession.StatusActive || session.ProjectID != projectID || session.ProjectCode != projectCode {
 		return fmt.Errorf("Task completion evidence does not carry durable active Planner Session authority for this project")
+	}
+	if session.CreatedAt.After(event.RecordedAt) || session.StartedAt.After(event.RecordedAt) {
+		return fmt.Errorf("Task completion evidence Planner Session postdates the Journal record")
 	}
 	return nil
 }
@@ -556,12 +564,15 @@ func (s *Service) taskCompleteIntegratedProof(ctx context.Context, task model.Ta
 	if strings.HasPrefix(phase.Comment, taskExecutionHistoricalPhasePrefix) {
 		return taskCompleteIntegratedEvidence{}, fmt.Errorf("integrated completion rejects a historical integration phase")
 	}
-	receipt, current, err := s.taskExecutionVerificationProofCurrent(ctx, state)
+	receipt, current, reason, err := s.taskExecutionVerificationProofCurrent(ctx, state)
 	if err != nil {
 		return taskCompleteIntegratedEvidence{}, err
 	}
-	if !current || receipt.CompletedAt.After(phase.CreatedAt) {
-		return taskCompleteIntegratedEvidence{}, fmt.Errorf("integrated completion requires a current immutable Task verification")
+	if !current {
+		return taskCompleteIntegratedEvidence{}, fmt.Errorf("integrated completion requires a current immutable Task verification: %s", reason)
+	}
+	if receipt.CompletedAt.After(phase.CreatedAt) {
+		return taskCompleteIntegratedEvidence{}, fmt.Errorf("integrated Task verification postdates the integration phase")
 	}
 	required, profile, err := s.taskExecutionGateProfile(ctx, task.ProjectID)
 	if err != nil {

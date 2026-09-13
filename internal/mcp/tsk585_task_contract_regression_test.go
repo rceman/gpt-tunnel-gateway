@@ -557,3 +557,82 @@ func TestTSK585HistoricalIntegrateMCPSchema(t *testing.T) {
 		t.Fatalf("historical mode enum: %#v", historicalMode)
 	}
 }
+func TestTSK585TaskIntegrateMCPDispatch(t *testing.T) {
+	svc, _ := newWorkflowPolicyStatusService(t)
+	server := &Server{
+		Service:          svc,
+		AuthorityContext: authority.WithPlanner(context.Background()),
+	}
+	planner := genericSession(t, svc, "example")
+	call := func(input map[string]any) map[string]any {
+		t.Helper()
+		value, err := tsk585TrustedTool(t, server, "call", map[string]any{"session": planner, "action": "task/integrate", "input": input})
+		if err != nil {
+			t.Fatalf("task/integrate transport failed: %v", err)
+		}
+		doc, _ := json.Marshal(value)
+		var decoded map[string]any
+		if err := json.Unmarshal(doc, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		return decoded
+	}
+	sha := strings.Repeat("a", 40)
+	for name, input := range map[string]map[string]any{
+		"verified default":  {"key": "EXM-TSK1"},
+		"verified explicit": {"key": "EXM-TSK1", "mode": "verified", "comment": "bounded"},
+		"historical legacy": {"key": "EXM-TSK1", "mode": "historical", "historical": map[string]any{
+			"integration_head": sha, "profile": "legacy", "evidence": "EXM-JRN1"}},
+		"historical bootstrap_full": {"key": "EXM-TSK1", "mode": "historical", "historical": map[string]any{
+			"integration_head": sha, "profile": "bootstrap_full", "evidence": "EXM-JRN1", "candidate_head": sha, "main_base": sha}},
+	} {
+		result := call(input)
+		if result["ok"] != true {
+			t.Fatalf("%s task/integrate must pass schema and reach the service: %#v", name, result)
+		}
+		payload, ok := result["result"].(map[string]any)
+		if !ok || payload["operation_id"] == "" {
+			t.Fatalf("%s task/integrate did not enqueue a mutation receipt: %#v", name, result)
+		}
+	}
+	if rejected := call(map[string]any{"key": "EXM-TSK1", "project_id": "other"}); rejected["ok"] != false {
+		t.Fatalf("caller-supplied foreign project_id must be rejected: %#v", rejected)
+	}
+	if rejected := call(map[string]any{"key": "EXM-TSK1", "project_id": "example"}); rejected["ok"] != false {
+		t.Fatalf("caller-supplied project_id stays closed out of the public schema: %#v", rejected)
+	}
+	if rejected := call(map[string]any{"key": "EXM-TSK1", "bogus": 1}); rejected["ok"] != false {
+		t.Fatalf("unknown property must remain rejected: %#v", rejected)
+	}
+
+	execution := taskExecutionIntegrateExecutionSchema(taskExecutionIntegrateSchema())
+	bind := func(raw string) (map[string]any, error) {
+		t.Helper()
+		bound, err := inheritSessionProject(execution, "example", json.RawMessage(raw))
+		if err != nil {
+			return nil, err
+		}
+		var value map[string]any
+		if err := json.Unmarshal(bound, &value); err != nil {
+			t.Fatal(err)
+		}
+		return value, nil
+	}
+	bound, err := bind(`{"key":"EXM-TSK1"}`)
+	if err != nil || bound["project_id"] != "example" {
+		t.Fatalf("oneOf binder must inject session project for the verified branch: %v %#v", err, bound)
+	}
+	bound, err = bind(`{"key":"EXM-TSK1","mode":"historical","historical":{"integration_head":"` + sha + `","profile":"legacy","evidence":"EXM-JRN1"}}`)
+	if err != nil || bound["project_id"] != "example" {
+		t.Fatalf("oneOf binder must inject session project for the historical branch: %v %#v", err, bound)
+	}
+	if nested, ok := bound["historical"].(map[string]any); !ok || nested["project_id"] != nil {
+		t.Fatalf("nested oneOf object must not receive project_id: %#v", bound["historical"])
+	}
+	if bound, err = bind(`{"key":"EXM-TSK1","project_id":"example"}`); err != nil || bound["project_id"] != "example" {
+		t.Fatalf("matching caller project_id must survive binding: %v %#v", err, bound)
+	}
+	if _, err = bind(`{"key":"EXM-TSK1","project_id":"other"}`); err == nil || !strings.Contains(err.Error(), "project_id does not match session project") {
+		t.Fatalf("foreign caller project_id must fail binding: %v", err)
+	}
+}

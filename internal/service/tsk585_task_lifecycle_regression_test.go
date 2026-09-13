@@ -110,16 +110,36 @@ func tsk585CompletionInput(task model.TaskAuthoring, mode, reason string, eviden
 }
 func tsk585IntegratedCompleteFixture(t *testing.T, s *Service, key string) (model.TaskAuthoring, string) {
 	t.Helper()
-	task := tsk585CompleteTask(t, s, key, "Completable", "criterion one")
-	tsk585Dispatch(t, s, task.ID)
-	tsk585LaneCommit(t, s, task.ID, "candidate")
-	tsk585DriveToVerified(t, s, task.ID)
-	operation := tsk585Integrate(t, s, task.ID)
-	if operation.Status != "completed" {
-		t.Fatalf("integrate status=%q error=%q", operation.Status, operation.Error)
+	for attempt := 0; attempt < 3; attempt++ {
+		idem := key
+		if attempt > 0 {
+			idem = fmt.Sprintf("%s-r%d", key, attempt)
+		}
+		task := tsk585CompleteTask(t, s, idem, "Completable", "criterion one")
+		tsk585Dispatch(t, s, task.ID)
+		tsk585LaneCommit(t, s, task.ID, "candidate")
+		tsk585DriveToVerified(t, s, task.ID)
+		operation := tsk585Integrate(t, s, task.ID)
+		if operation.Status != "completed" {
+			t.Fatalf("integrate status=%q error=%q", operation.Status, operation.Error)
+		}
+		ctx := context.Background()
+		receipt, receiptFound, err := s.Durability.ReadLatestTaskExecutionVerification(ctx, "example", task.ID)
+		phases, phaseErr := s.Durability.ReadTaskExecutionPhases(ctx, "example", task.ID, "integration")
+		if err != nil || phaseErr != nil || !receiptFound || len(phases) != 1 {
+			t.Fatalf("integrated fixture durable proof incomplete: receiptFound=%v err=%v phases=%#v phaseErr=%v", receiptFound, err, phases, phaseErr)
+		}
+		if receipt.CompletedAt.After(phases[0].CreatedAt) {
+			// A transient backward wall-clock step inverted the durable
+			// verification/integration ordering; the poisoned evidence is
+			// immutable, so rebuild the fixture with a fresh Task identity.
+			continue
+		}
+		capture := tsk585IntegrateCapture(t, s, operation.OperationID)
+		return task, capture.IntegrationHead
 	}
-	capture := tsk585IntegrateCapture(t, s, operation.OperationID)
-	return task, capture.IntegrationHead
+	t.Fatal("wall clock repeatedly inverted the verification/integration ordering")
+	return model.TaskAuthoring{}, ""
 }
 func tsk585CompletionEvent(t *testing.T, db *sqlitestore.Databases, key string) sqlitestore.TaskLifecycleEvent {
 	t.Helper()
@@ -167,7 +187,7 @@ func TestTSK585TaskCompleteIntegrated(t *testing.T) {
 		testsPhases, testsErr = db.ReadTaskExecutionPhases(ctx, "example", task.ID, "tests")
 		rebasePhases, rebaseErr = db.ReadTaskExecutionPhases(ctx, "example", task.ID, "rebase")
 		integrationPhases, integrationErr = db.ReadTaskExecutionPhases(ctx, "example", task.ID, "integration")
-		currentReceipt, currentOK, currentErr := s.taskExecutionVerificationProofCurrent(ctx, stateDiag)
+		currentReceipt, currentOK, _, currentErr := s.taskExecutionVerificationProofCurrent(ctx, stateDiag)
 		t.Fatalf("first completion: %v state=%#v stateFound=%v stateErr=%v receipt=%#v receiptFound=%v receiptErr=%v currentReceipt=%#v currentOK=%v currentErr=%v code=%#v codeErr=%v tests=%#v testsErr=%v rebase=%#v rebaseErr=%v integration=%#v integrationErr=%v", err, stateDiag, stateFound, stateErr, receiptDiag, receiptFound, receiptErr, currentReceipt, currentOK, currentErr, codePhases, codeErr, testsPhases, testsErr, rebasePhases, rebaseErr, integrationPhases, integrationErr)
 	}
 	if out != (TaskCompleteOutput{

@@ -425,28 +425,34 @@ func taskExecutionVerificationBinds(receipt model.TaskExecutionVerification, sta
 	return receipt.ProjectID == state.ProjectID && receipt.TaskID == state.TaskID && receipt.TaskRevision == state.TaskRevision && receipt.TaskRevisionSHA256 == state.TaskRevisionSHA256 && receipt.BaseHead == state.BaseHead && receipt.CandidateHead == state.Head && receipt.Branch == state.Branch && receipt.AttemptRevision < state.ExecutionRevision
 }
 
-func (s *Service) taskExecutionVerificationProofCurrent(ctx context.Context, state model.TaskExecutionState) (model.TaskExecutionVerification, bool, error) {
+func (s *Service) taskExecutionVerificationProofCurrent(ctx context.Context, state model.TaskExecutionState) (model.TaskExecutionVerification, bool, string, error) {
 	receipt, found, err := s.Durability.ReadLatestTaskExecutionVerification(ctx, state.ProjectID, state.TaskID)
-	if err != nil || !found {
-		return model.TaskExecutionVerification{}, false, err
+	if err != nil {
+		return model.TaskExecutionVerification{}, false, "", err
 	}
-	if receipt.Outcome != model.TaskExecutionVerificationSucceeded || !taskExecutionVerificationBinds(receipt, state) {
-		return model.TaskExecutionVerification{}, false, nil
+	if !found {
+		return model.TaskExecutionVerification{}, false, "no Task verification receipt", nil
+	}
+	if receipt.Outcome != model.TaskExecutionVerificationSucceeded {
+		return receipt, false, "receipt outcome is not succeeded", nil
+	}
+	if !taskExecutionVerificationBinds(receipt, state) {
+		return receipt, false, "receipt does not bind the integrated execution state", nil
 	}
 	latestPhaseRev := 0
 	for _, stage := range []string{"code", "tests", "rebase"} {
 		phase, phaseFound, phaseErr := s.Durability.ReadLatestTaskExecutionPhase(ctx, state.ProjectID, state.TaskID, stage)
 		if phaseErr != nil {
-			return model.TaskExecutionVerification{}, false, phaseErr
+			return model.TaskExecutionVerification{}, false, "", phaseErr
 		}
 		if phaseFound && phase.ExecutionRevision > latestPhaseRev {
 			latestPhaseRev = phase.ExecutionRevision
 		}
 	}
 	if latestPhaseRev > receipt.AttemptRevision+1 {
-		return model.TaskExecutionVerification{}, false, nil
+		return receipt, false, "a review phase postdates the verification attempt", nil
 	}
-	return receipt, true, nil
+	return receipt, true, "", nil
 }
 
 func taskExecutionVerificationProjection(receipt model.TaskExecutionVerification) TaskExecutionVerificationPublic {
@@ -472,7 +478,7 @@ func (s *Service) taskExecutionVerificationProjectionFor(ctx context.Context, st
 	if s.Durability == nil {
 		return TaskExecutionVerificationPublic{}, false, nil
 	}
-	receipt, current, err := s.taskExecutionVerificationProofCurrent(ctx, state)
+	receipt, current, _, err := s.taskExecutionVerificationProofCurrent(ctx, state)
 	if err != nil || !current {
 		return TaskExecutionVerificationPublic{}, false, err
 	}
@@ -570,7 +576,7 @@ func (s *Service) taskExecutionTestRun(ctx context.Context, in TaskExecutionTest
 		return TaskExecutionPublicOutput{}, fmt.Errorf("canonical default branch advanced beyond the admitted Task base; controlled rebase is required")
 	}
 	if state.Status == model.TaskExecutionVerified {
-		receipt, current, err := s.taskExecutionVerificationProofCurrent(ctx, state)
+		receipt, current, _, err := s.taskExecutionVerificationProofCurrent(ctx, state)
 		if err != nil {
 			s.taskExecutionMu.Unlock()
 			return TaskExecutionPublicOutput{}, err

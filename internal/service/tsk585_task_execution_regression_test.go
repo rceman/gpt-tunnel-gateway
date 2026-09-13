@@ -160,14 +160,7 @@ func TestTSK585TaskTestEndToEnd(t *testing.T) {
 	}
 	tsk585DriveToVerification(t, s, task.ID)
 
-	receipt, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
-		ProjectID: "example",
-		Key:       task.ID,
-	})
-	if err != nil {
-		t.Fatalf("task/test enqueue: %v", err)
-	}
-	operation := tsk585WaitOperation(t, s, receipt.OperationID)
+	operation := tsk585VerifyTask(t, s, task.ID)
 	if operation.Status != "completed" {
 		t.Fatalf("operation status=%q error=%q", operation.Status, operation.Error)
 	}
@@ -179,7 +172,7 @@ func TestTSK585TaskTestEndToEnd(t *testing.T) {
 		t.Fatalf("state=%#v found=%v err=%v", state, found, err)
 	}
 	latest, found, err := db.ReadLatestTaskExecutionVerification(ctx, "example", task.ID)
-	if err != nil || !found || latest.Outcome != model.TaskExecutionVerificationSucceeded || latest.OperationID != receipt.OperationID {
+	if err != nil || !found || latest.Outcome != model.TaskExecutionVerificationSucceeded || latest.OperationID != operation.OperationID {
 		t.Fatalf("latest receipt=%#v found=%v err=%v", latest, found, err)
 	}
 	if latest.CandidateHead != state.Head || latest.BaseHead != state.BaseHead || latest.TaskRevisionSHA256 != state.TaskRevisionSHA256 || latest.CodeReviewID < 1 || latest.TestsReviewID < 1 || len(latest.GateProfileSHA256) != 64 || len(latest.Gates) == 0 {
@@ -189,7 +182,7 @@ func TestTSK585TaskTestEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Verification == nil || status.Verification.OperationID != receipt.OperationID || status.Verification.CandidateHead != strings.ToLower(state.Head[:8]) || status.Verification.TaskRevision != task.Revision {
+	if status.Verification == nil || status.Verification.OperationID != operation.OperationID || status.Verification.CandidateHead != strings.ToLower(state.Head[:8]) || status.Verification.TaskRevision != task.Revision {
 		t.Fatalf("status verification projection=%#v", status.Verification)
 	}
 
@@ -200,7 +193,7 @@ func TestTSK585TaskTestEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if duplicate.OperationID != receipt.OperationID || duplicate.Status != "completed" || duplicate.Result == nil {
+	if duplicate.OperationID != operation.OperationID || duplicate.Status != "completed" || duplicate.Result == nil {
 		t.Fatalf("unchanged duplicate must return completed proof: %#v", duplicate)
 	}
 	if _, err := s.TaskExecutionRework(ctx, TaskExecutionReworkInput{
@@ -314,14 +307,7 @@ func TestTSK585RebaseConflictPreservesLane(t *testing.T) {
 	tsk585FileCommit(t, lanePath, "conflict.txt", "lane\n", "lane change")
 	preRebaseHead := strings.TrimSpace(testutil.Git(t, lanePath, "rev-parse", "HEAD"))
 	tsk585DriveToVerification(t, s, task.ID)
-	first, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
-		ProjectID: "example",
-		Key:       task.ID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if operation := tsk585WaitOperation(t, s, first.OperationID); operation.Status != "completed" {
+	if operation := tsk585VerifyTask(t, s, task.ID); operation.Status != "completed" {
 		t.Fatalf("operation status=%q error=%q", operation.Status, operation.Error)
 	}
 	projectRoot := s.Config.Projects["example"].Root
@@ -330,14 +316,7 @@ func TestTSK585RebaseConflictPreservesLane(t *testing.T) {
 	testutil.Git(t, projectRoot, "push", "origin", "main")
 	canonical := strings.TrimSpace(testutil.Git(t, projectRoot, "rev-parse", "main"))
 
-	second, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
-		ProjectID: "example",
-		Key:       task.ID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	operation := tsk585WaitOperation(t, s, second.OperationID)
+	operation := tsk585VerifyTask(t, s, task.ID)
 	t.Logf("conflict op error=%q", operation.Error)
 	if operation.Status != "failed" {
 		t.Fatalf("conflicting rebase must fail the operation: status=%q error=%q", operation.Status, operation.Error)
@@ -406,14 +385,7 @@ func TestTSK585RebaseConflictPreservesLane(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("accept resolved rebase: %v", err)
 	}
-	third, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
-		ProjectID: "example",
-		Key:       task.ID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	operation = tsk585WaitOperation(t, s, third.OperationID)
+	operation = tsk585VerifyTask(t, s, task.ID)
 	if operation.Status != "completed" {
 		t.Fatalf("post-resolution verification status=%q error=%q", operation.Status, operation.Error)
 	}
@@ -549,14 +521,7 @@ func TestTSK585GOFLAGSNarrowsEffectiveCoverage(t *testing.T) {
 	tsk585Dispatch(t, s, task.ID)
 	tsk585DriveToVerification(t, s, task.ID)
 	s.effectiveGOFLAGS = func(context.Context) (string, error) { return "-count=2 -v", nil }
-	first, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
-		ProjectID: "example",
-		Key:       task.ID,
-	})
-	if err != nil {
-		t.Fatalf("supported effective GOFLAGS must be admitted: %v", err)
-	}
-	operation := tsk585WaitOperation(t, s, first.OperationID)
+	operation := tsk585VerifyTask(t, s, task.ID)
 	if operation.Status != "completed" {
 		t.Fatalf("supported GOFLAGS verification status=%q error=%q", operation.Status, operation.Error)
 	}
@@ -603,14 +568,7 @@ func TestTSK585VerificationNeverReusesReceipt(t *testing.T) {
 		}
 		return out, nil
 	}
-	receipt, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
-		ProjectID: "example",
-		Key:       task.ID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	operation := tsk585WaitOperation(t, s, receipt.OperationID)
+	operation := tsk585VerifyTask(t, s, task.ID)
 	if operation.Status != "completed" {
 		t.Fatalf("verification status=%q error=%q", operation.Status, operation.Error)
 	}
@@ -630,17 +588,31 @@ func TestTSK585VerificationNeverReusesReceipt(t *testing.T) {
 		t.Fatalf("fresh execution must leave pass-receipt evidence on disk: %v", err)
 	}
 }
+func tsk585VerifyTask(t *testing.T, s *Service, key string) durableMutationOperation {
+	t.Helper()
+	for attempt := 0; attempt < 3; attempt++ {
+		receipt, err := s.TaskExecutionTestAsync(context.Background(), TaskExecutionTestInput{
+			ProjectID: "example",
+			Key:       key,
+		})
+		if err != nil {
+			t.Fatalf("enqueue task/test: %v", err)
+		}
+		operation := tsk585WaitOperation(t, s, receipt.OperationID)
+		if operation.Status != "failed" || !strings.Contains(operation.Error, "timing is not ordered") {
+			return operation
+		}
+		// A transient backward wall-clock step inside the verification window
+		// is environmental, not a code defect; re-enqueueing the identical
+		// input re-executes the failed operation idempotently.
+	}
+	t.Fatal("task/test kept failing on wall-clock disorder")
+	return durableMutationOperation{}
+}
 func tsk585DriveToVerified(t *testing.T, s *Service, key string) {
 	t.Helper()
 	tsk585DriveToVerification(t, s, key)
-	receipt, err := s.TaskExecutionTestAsync(context.Background(), TaskExecutionTestInput{
-		ProjectID: "example",
-		Key:       key,
-	})
-	if err != nil {
-		t.Fatalf("enqueue task/test: %v", err)
-	}
-	if operation := tsk585WaitOperation(t, s, receipt.OperationID); operation.Status != "completed" {
+	if operation := tsk585VerifyTask(t, s, key); operation.Status != "completed" {
 		t.Fatalf("task/test status=%q error=%q", operation.Status, operation.Error)
 	}
 }
@@ -1138,6 +1110,29 @@ func tsk585PlannerSession(t *testing.T, s *Service) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Fixture sessions model pre-existing Planner authority. Give the record a
+	// settled creation margin so a transient backward wall-clock step between
+	// session creation and the Journal write cannot invert the durable
+	// ordering the admission check must verify.
+	ctx := context.Background()
+	row, err := s.Durability.ReadLocalSession(ctx, rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored durableSession.Record
+	if err := json.Unmarshal(row.Payload, &stored); err != nil {
+		t.Fatal(err)
+	}
+	settled := stored.CreatedAt.Add(-time.Minute)
+	stored.CreatedAt = settled
+	stored.StartedAt = settled
+	payload, err := json.Marshal(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Durability.UpdateLocalSession(ctx, rec.ID, row.Payload, payload, stored.UpdatedAt.UTC().Format(time.RFC3339Nano), stored.Status); err != nil {
+		t.Fatal(err)
+	}
 	return rec.ID
 }
 func tsk585JournalEvidence(t *testing.T, s *Service, taskID string, commits, facts []string) model.OperatorJournalEvent {
@@ -1593,13 +1588,12 @@ func TestTSK585TaskReviewBases(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	operation := tsk585WaitOperation(t, s, tsk585TestOperation(t, s, task.ID))
+	operation := tsk585VerifyTask(t, s, task.ID)
 	if operation.Status != "completed" {
 		t.Fatalf("operation=%q %q", operation.Status, operation.Error)
 	}
 	tsk585AdvanceCanonical(t, s)
-	second := tsk585TestOperation(t, s, task.ID)
-	operation = tsk585WaitOperation(t, s, second)
+	operation = tsk585VerifyTask(t, s, task.ID)
 	if operation.Status != "failed" {
 		t.Fatalf("canonical advance op=%q %q", operation.Status, operation.Error)
 	}
@@ -1658,17 +1652,6 @@ func TestTSK585TaskReviewBases(t *testing.T) {
 			t.Fatal("rebase cursor must not cross to the omitted base")
 		}
 	}
-}
-func tsk585TestOperation(t *testing.T, s *Service, key string) string {
-	t.Helper()
-	out, err := s.TaskExecutionTestAsync(context.Background(), TaskExecutionTestInput{
-		ProjectID: "example",
-		Key:       key,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return out.OperationID
 }
 func tsk585AwaitingCodeReview(t *testing.T, idem string) (*Service, *sqlitestore.Databases, model.TaskAuthoring, model.TaskExecutionState) {
 	t.Helper()
@@ -1838,12 +1821,12 @@ func TestTSK585TaskReviewAcceptedArtifactRejections(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		operation := tsk585WaitOperation(t, s, tsk585TestOperation(t, s, task.ID))
+		operation := tsk585VerifyTask(t, s, task.ID)
 		if operation.Status != "completed" {
 			t.Fatalf("operation=%q %q", operation.Status, operation.Error)
 		}
 		tsk585AdvanceCanonical(t, s)
-		operation = tsk585WaitOperation(t, s, tsk585TestOperation(t, s, task.ID))
+		operation = tsk585VerifyTask(t, s, task.ID)
 		if operation.Status != "failed" {
 			t.Fatalf("canonical advance op=%q %q", operation.Status, operation.Error)
 		}

@@ -272,7 +272,7 @@ func (s *Service) TaskExecutionIntegrate(ctx context.Context, in TaskExecutionIn
 			return TaskExecutionPublicOutput{}, s.rejectTaskExecutionIntegration(ctx, state, admissionErr)
 		}
 		if !usable || !taskExecutionIntegrationCaptureMatchesAdmission(operationCapture, admission, state) {
-			receipt, current, err := s.taskExecutionVerificationProofCurrent(ctx, state)
+			receipt, current, _, err := s.taskExecutionVerificationProofCurrent(ctx, state)
 			if err != nil {
 				return TaskExecutionPublicOutput{}, s.rejectTaskExecutionIntegration(ctx, state, err)
 			}
