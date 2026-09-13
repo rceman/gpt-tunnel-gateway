@@ -19,7 +19,7 @@ import (
 )
 
 func TestGatewayRecoveryDuplicateOperationRestartsOneRealProcess(t *testing.T) {
-	configPath := os.Getenv("GPT_TUNNEL_CONFIG")
+	configPath := os.Getenv("GTW_TEST_GATEWAY_RECOVERY_HELPER_CONFIG")
 	if configPath != "" {
 		address, err := os.ReadFile(configPath)
 		if err != nil {
@@ -94,7 +94,7 @@ func TestGatewayRecoveryDuplicateOperationRestartsOneRealProcess(t *testing.T) {
 	var workers sync.WaitGroup
 	startHelper := func(controller Controller) error {
 		process := exec.Command(controller.Config.Controller.GatewayBinary, "-test.run=^TestGatewayRecoveryDuplicateOperationRestartsOneRealProcess$", "-test.v=false")
-		process.Env = processEnv([]string{"GPT_TUNNEL_CONFIG=" + configFile})
+		process.Env = processEnv([]string{"GTW_TEST_GATEWAY_RECOVERY_HELPER_CONFIG=" + configFile})
 		process.Stdout = io.Discard
 		process.Stderr = io.Discard
 		if err := process.Start(); err != nil {
