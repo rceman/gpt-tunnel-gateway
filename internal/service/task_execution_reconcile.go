@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -11,10 +12,14 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
-// reconcileTaskExecutionBase replays only the immutable commits in the
-// server-owned Task lane onto the refreshed canonical base. The resulting
-// rebase request is durable, so an Agent can resume by submitting the opened
-// rebase stage; callers never select a target or strategy.
+// reconcileTaskExecutionBase rebases the server-owned Task lane onto the
+// refreshed canonical base. A conflict leaves the lane mid-rebase with the
+// durable conflict state recording the exact canonical target; the owning
+// Agent resolves the conflicted bytes, continues the in-progress rebase, and
+// submits the rebase stage for Planner review. Other failures restore the
+// original lane exactly. The resulting rebase request is durable, so an Agent
+// can resume by submitting the opened rebase stage; callers never select a
+// target or strategy.
 func (s *Service) reconcileTaskExecutionBase(ctx context.Context, state model.TaskExecutionState, project config.ProjectConfig, canonical string) error {
 	path, err := gitx.TaskWorktreePath(s.Config.StateDir, state.ProjectID, state.TaskID)
 	if err != nil {
@@ -22,38 +27,38 @@ func (s *Service) reconcileTaskExecutionBase(ctx context.Context, state model.Ta
 	}
 	lane := project
 	lane.Root = path
-	commits, err := s.Git.LocalLog(ctx, path, state.BaseHead, state.Head, 1024)
-	if err != nil || len(commits) == 0 {
+	base, err := s.Git.MergeBaseInWorktree(ctx, path, state.Head, canonical)
+	if err != nil || base == "" {
 		if err != nil {
-			return fmt.Errorf("read Task lane commits for rebase: %w", err)
+			return fmt.Errorf("read Task lane divergence for rebase: %w", err)
 		}
-		return fmt.Errorf("Task lane has no commits to rebase")
+		return fmt.Errorf("Task lane has no common history with the refreshed canonical")
 	}
-	ids := make([]string, 0, len(commits))
-	for _, commit := range commits {
-		ids = append(ids, commit.SHA)
-	}
-	newHead, _, err := s.Git.ReplayTaskCommits(ctx, lane, canonical, ids)
+	newHead, err := s.Git.ReconcileTaskLane(ctx, lane, canonical, base)
 	if err != nil {
 		state.Stage = "rebase"
 		state.Status = model.TaskExecutionChangesRequested
+		state.BaseHead = canonical
 		state.ExecutionRevision++
 		state.UpdatedAt = time.Now().UTC()
-		phase := sqlitestore.TaskExecutionPhase{TaskID: state.TaskID, ProjectID: state.ProjectID, ExecutionRevision: state.ExecutionRevision, Stage: state.Stage, Status: state.Status, Head: state.Head, Branch: state.Branch, TaskRevisionSHA256: state.TaskRevisionSHA256, EventKind: "rework", Comment: "controlled rebase conflict; Planner authorization required", CreatedAt: state.UpdatedAt}
-		if persistErr := s.Durability.TransitionTaskExecutionState(ctx, state, state.ExecutionRevision-1, phase); persistErr != nil {
-			return fmt.Errorf("rebase conflict and recovery state could not be recorded: %w (original: %v)", persistErr, err)
+		var conflict *gitx.TaskReconcileConflictError
+		var comment string
+		if errors.As(err, &conflict) {
+			comment = fmt.Sprintf("controlled rebase conflict replaying %s onto canonical %s; owning Agent resolves and Planner review is required", conflict.Commit[:8], conflict.Target[:8])
+		} else {
+			comment = fmt.Sprintf("controlled rebase onto canonical %s failed; Planner authorization required", canonical[:8])
 		}
-		return fmt.Errorf("controlled Task rebase conflict; durable rebase state recorded: %w", err)
-	}
-	actual, branch, clean, err := s.Git.CurrentHead(ctx, lane)
-	if err != nil || !clean || branch != state.Branch || actual != newHead {
-		return fmt.Errorf("rebased Task lane failed exact identity verification")
+		phase := sqlitestore.TaskExecutionPhase{TaskID: state.TaskID, ProjectID: state.ProjectID, ExecutionRevision: state.ExecutionRevision, Stage: state.Stage, Status: state.Status, Head: state.Head, Branch: state.Branch, TaskRevisionSHA256: state.TaskRevisionSHA256, EventKind: "rework", Comment: comment, CreatedAt: state.UpdatedAt}
+		if persistErr := s.Durability.TransitionTaskExecutionState(ctx, state, state.ExecutionRevision-1, phase); persistErr != nil {
+			return fmt.Errorf("rebase failure and recovery state could not be recorded: %w (original: %v)", persistErr, err)
+		}
+		return fmt.Errorf("controlled Task rebase could not complete; durable rebase state recorded: %w", err)
 	}
 	state.BaseHead = canonical
-	state.Head = actual
+	state.Head = newHead
 	state.Stage = "rebase"
 	state.Status = model.TaskExecutionChangesRequested
-	state.Worktree = taskExecutionWorktree(state.TaskID, actual[:8])
+	state.Worktree = taskExecutionWorktree(state.TaskID, newHead[:8])
 	state.ExecutionRevision++
 	state.UpdatedAt = time.Now().UTC()
 	phase := sqlitestore.TaskExecutionPhase{

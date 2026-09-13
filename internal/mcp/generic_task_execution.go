@@ -21,11 +21,11 @@ func taskExecutionPublicHeadSchema() map[string]any {
 }
 
 func taskExecutionLifecycleOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"key": outputString(), "status": outputString(), "stage": outputString(), "worktree": outputString(), "head": taskExecutionPublicHeadSchema(), "agent": outputString(), "execution_revision": outputInteger(), "updated_at": outputDateTime()}, "key", "status", "stage", "worktree", "head", "agent", "execution_revision")
+	return closedOutput(map[string]any{"key": outputString(), "status": outputString(), "stage": outputString(), "worktree": outputString(), "head": taskExecutionPublicHeadSchema(), "agent": outputString(), "execution_revision": outputInteger(), "updated_at": outputDateTime(), "verification": taskExecutionVerificationOutputSchema()}, "key", "status", "stage", "worktree", "head", "agent", "execution_revision")
 }
 
 func taskExecutionStatusOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"key": outputString(), "status": outputString(), "stage": outputString(), "worktree": outputString(), "head": taskExecutionPublicHeadSchema(), "agent": outputString(), "execution_revision": outputInteger(), "updated_at": outputDateTime()}, "key", "status")
+	return closedOutput(map[string]any{"key": outputString(), "status": outputString(), "stage": outputString(), "worktree": outputString(), "head": taskExecutionPublicHeadSchema(), "agent": outputString(), "execution_revision": outputInteger(), "updated_at": outputDateTime(), "verification": taskExecutionVerificationOutputSchema()}, "key", "status")
 }
 
 func taskExecutionOutputSchema() map[string]any {
@@ -90,5 +90,11 @@ func (s *Server) registerTaskExecutionActions() error {
 	if err := s.registerTaskExecutionReviewActions(); err != nil {
 		return err
 	}
-	return s.registerTaskExecutionIntegrateAction()
+	if err := s.registerTaskExecutionIntegrateAction(); err != nil {
+		return err
+	}
+	if err := s.registerTaskCompleteAction(); err != nil {
+		return err
+	}
+	return s.registerTaskExecutionTestAction()
 }

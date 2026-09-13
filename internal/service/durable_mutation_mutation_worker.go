@@ -87,7 +87,7 @@ func (s *Service) enqueueTypedDurableMutationWithIdentity(ctx context.Context, k
 		if operation.RequestSHA256 != digest || operation.Kind != kind {
 			return durableMutationOperation{}, fmt.Errorf("durable mutation identity mismatch")
 		}
-		if operation.Status == "failed" {
+		if operation.Status == "failed" || operation.Status == "outcome_unknown" {
 			operation.Status = "accepted"
 			operation.Error = ""
 			operation.UpdatedAt = time.Now().UTC()
@@ -114,6 +114,9 @@ func (s *Service) enqueueTypedDurableMutationWithIdentity(ctx context.Context, k
 		Status:        "accepted",
 		CreatedAt:     now,
 		UpdatedAt:     now,
+	}
+	if identityRaw != nil {
+		operation.CapturedState = string(identityRaw)
 	}
 	if err := s.writeDurableMutation(operation); err != nil {
 		return durableMutationOperation{}, err

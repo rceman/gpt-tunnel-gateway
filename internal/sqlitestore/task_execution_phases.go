@@ -108,55 +108,88 @@ func (d *Databases) readTaskExecutionPhaseWhere(ctx context.Context, projectID, 
 	if len(rows.Rows) == 0 {
 		return TaskExecutionPhase{}, false, nil
 	}
-	r := rows.Rows[0]
+	phase, err := decodeTaskExecutionPhaseRow(rows.Rows[0])
+	if err != nil {
+		return TaskExecutionPhase{}, false, err
+	}
+	return phase, true, nil
+}
+
+func decodeTaskExecutionPhaseRow(r []any) (TaskExecutionPhase, error) {
 	if len(r) != 13 {
-		return TaskExecutionPhase{}, false, fmt.Errorf("invalid Task execution phase row")
+		return TaskExecutionPhase{}, fmt.Errorf("invalid Task execution phase row")
 	}
 	phase := TaskExecutionPhase{}
 	if v, ok := r[0].(int64); ok {
 		phase.ID = v
 	} else {
-		return phase, false, fmt.Errorf("invalid Task execution phase id")
+		return phase, fmt.Errorf("invalid Task execution phase id")
 	}
 	stringFields := []*string{&phase.TaskID, &phase.ProjectID, &phase.Stage, &phase.Status, &phase.Head, &phase.Branch, &phase.TaskRevisionSHA256, &phase.EventKind, &phase.Decision, &phase.Comment}
 	for i, p := range []int{1, 2, 4, 5, 6, 7, 8, 9, 10, 11} {
 		v, ok := r[p].(string)
 		if !ok {
-			return TaskExecutionPhase{}, false, fmt.Errorf("invalid Task execution phase value types")
+			return phase, fmt.Errorf("invalid Task execution phase value types")
 		}
 		*stringFields[i] = v
 	}
 	v, ok := r[3].(int64)
 	if !ok {
-		return TaskExecutionPhase{}, false, fmt.Errorf("invalid Task execution phase revision")
+		return phase, fmt.Errorf("invalid Task execution phase revision")
 	}
 	phase.ExecutionRevision = int(v)
 	createdValue, ok := r[12].(string)
 	if !ok {
-		return TaskExecutionPhase{}, false, fmt.Errorf("invalid Task execution phase timestamp")
+		return phase, fmt.Errorf("invalid Task execution phase timestamp")
 	}
 	created, err := time.Parse(time.RFC3339Nano, createdValue)
 	if err != nil {
-		return TaskExecutionPhase{}, false, fmt.Errorf("invalid Task execution phase timestamp")
+		return phase, fmt.Errorf("invalid Task execution phase timestamp")
 	}
 	phase.CreatedAt = created
 	if err := validateTaskExecutionPhase(phase); err != nil {
-		return TaskExecutionPhase{}, false, err
+		return phase, err
 	}
-	return phase, true, nil
+	return phase, nil
+}
+
+const taskExecutionPhaseHistoryBound = 256
+
+// ReadTaskExecutionPhases returns every recorded phase for one stage ordered
+// by insertion; more than 256 rows fails closed rather than truncating.
+func (d *Databases) ReadTaskExecutionPhases(ctx context.Context, projectID, taskID, stage string) ([]TaskExecutionPhase, error) {
+	if d == nil || d.Shared == nil {
+		return nil, fmt.Errorf("shared store is unavailable")
+	}
+	rows, err := d.Shared.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM shared_task_execution_phases WHERE project_id=? AND task_id=? AND stage=? ORDER BY id ASC LIMIT ?`, projectID, taskID, stage, taskExecutionPhaseHistoryBound+1)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows.Rows) > taskExecutionPhaseHistoryBound {
+		return nil, fmt.Errorf("Task execution phase history exceeds the bounded read")
+	}
+	phases := make([]TaskExecutionPhase, 0, len(rows.Rows))
+	for _, r := range rows.Rows {
+		phase, err := decodeTaskExecutionPhaseRow(r)
+		if err != nil {
+			return nil, err
+		}
+		phases = append(phases, phase)
+	}
+	return phases, nil
 }
 
 func validateTaskExecutionPhase(phase TaskExecutionPhase) error {
 	if model.ValidateProjectIdentifier(phase.ProjectID) != nil || model.ValidateCanonicalTaskID(phase.TaskID) != nil || phase.Stage == "" || phase.Status == "" || phase.ExecutionRevision < 1 || phase.Head == "" || phase.Branch == "" || phase.TaskRevisionSHA256 == "" {
 		return fmt.Errorf("incomplete Task execution phase")
 	}
-	if phase.EventKind != "submission" && phase.EventKind != "review" && phase.EventKind != "rework" {
+	if phase.EventKind != "submission" && phase.EventKind != "review" && phase.EventKind != "rework" && phase.EventKind != "integration" {
 		return fmt.Errorf("invalid Task execution phase event kind")
 	}
 	if phase.Decision != "" && phase.Decision != "accept" && phase.Decision != "reject" {
 		return fmt.Errorf("invalid Task execution phase decision")
 	}
-	if phase.Stage != "code" && phase.Stage != "tests" && phase.Stage != "rebase" {
+	if phase.Stage != "code" && phase.Stage != "tests" && phase.Stage != "rebase" && phase.Stage != "integration" {
 		return fmt.Errorf("invalid Task execution phase stage")
 	}
 	if len(phase.Head) != 40 || model.ValidateCommitSHA(phase.Head) != nil || model.ValidateSHA256(phase.TaskRevisionSHA256) != nil || model.ValidateBranch(phase.Branch) != nil || !strings.HasPrefix(phase.Branch, "task/"+phase.TaskID+"-") {
@@ -172,7 +205,7 @@ func (d *Databases) UpdateTaskExecutionState(ctx context.Context, state model.Ta
 	if err := model.ValidateTaskExecutionState(state); err != nil {
 		return err
 	}
-	_, err := d.Shared.Batch(ctx, []upstream.Statement{{SQL: `UPDATE shared_task_execution_states SET status=?,stage=?,head_sha=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND execution_revision=?`, Args: []any{state.Status, state.Stage, state.Head, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano), state.ProjectID, state.TaskID, expectedRevision}, RequireRowsAffected: 1}})
+	_, err := d.Shared.Batch(ctx, []upstream.Statement{{SQL: `UPDATE shared_task_execution_states SET task_revision=?,task_revision_sha256=?,status=?,stage=?,worktree=?,base_head_sha=?,head_sha=?,branch=?,agent=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND execution_revision=?`, Args: []any{state.TaskRevision, state.TaskRevisionSHA256, state.Status, state.Stage, state.Worktree, state.BaseHead, state.Head, state.Branch, state.Agent, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano), state.ProjectID, state.TaskID, expectedRevision}, RequireRowsAffected: 1}})
 	return err
 }
 
@@ -183,14 +216,14 @@ func (d *Databases) TransitionTaskExecutionState(ctx context.Context, state mode
 	if err := model.ValidateTaskExecutionState(state); err != nil {
 		return err
 	}
-	if phase.TaskID != state.TaskID || phase.ProjectID != state.ProjectID || phase.ExecutionRevision != state.ExecutionRevision || phase.Head != state.Head || phase.Branch != state.Branch || phase.TaskRevisionSHA256 != state.TaskRevisionSHA256 {
+	if phase.TaskID != state.TaskID || phase.ProjectID != state.ProjectID || phase.ExecutionRevision != state.ExecutionRevision || phase.Branch != state.Branch || phase.TaskRevisionSHA256 != state.TaskRevisionSHA256 || (phase.Stage != "integration" && phase.Head != state.Head) {
 		return fmt.Errorf("Task execution phase does not match state")
 	}
 	if err := validateTaskExecutionPhase(phase); err != nil {
 		return err
 	}
 	_, err := d.Shared.Batch(ctx, []upstream.Statement{
-		{SQL: `UPDATE shared_task_execution_states SET status=?,stage=?,head_sha=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND execution_revision=?`, Args: []any{state.Status, state.Stage, state.Head, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano), state.ProjectID, state.TaskID, expectedRevision}, RequireRowsAffected: 1},
+		{SQL: `UPDATE shared_task_execution_states SET task_revision=?,task_revision_sha256=?,status=?,stage=?,worktree=?,base_head_sha=?,head_sha=?,branch=?,agent=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND execution_revision=?`, Args: []any{state.TaskRevision, state.TaskRevisionSHA256, state.Status, state.Stage, state.Worktree, state.BaseHead, state.Head, state.Branch, state.Agent, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano), state.ProjectID, state.TaskID, expectedRevision}, RequireRowsAffected: 1},
 		{SQL: `INSERT INTO shared_task_execution_phases(task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,decision,comment,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, Args: []any{phase.TaskID, phase.ProjectID, phase.ExecutionRevision, phase.Stage, phase.Status, phase.Head, phase.Branch, phase.TaskRevisionSHA256, phase.EventKind, phase.Decision, phase.Comment, phase.CreatedAt.UTC().Format(time.RFC3339Nano)}, RequireRowsAffected: 1},
 	})
 	return err

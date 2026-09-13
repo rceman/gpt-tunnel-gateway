@@ -215,7 +215,7 @@ func codeSearchInputSchema() map[string]any {
 func codeDiffInputSchema() map[string]any {
 	paths := array(str("Optional repository-relative diff path."))
 	paths["maxItems"] = service.LocalCodeMaxPaths
-	return obj(map[string]any{"worktree": codeSelectorSchema(), "paths": paths, "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree")
+	return obj(map[string]any{"worktree": codeSelectorSchema(), "paths": paths, "base": taskExecutionPublicHeadSchema(), "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree")
 }
 
 func codePaginationOutputSchema() map[string]any {
@@ -261,8 +261,9 @@ func codeSearchOutputSchema() map[string]any {
 
 func codeDiffOutputSchema() map[string]any {
 	properties := codeIdentityOutputSchema()
+	properties["base"] = taskExecutionPublicHeadSchema()
 	properties["paths"] = outputArray(outputString())
 	properties["diff"] = outputString()
 	properties["_pagination"] = codePaginationOutputSchema()
-	return closedOutput(properties, "worktree", "dirty", "live", "head", "paths", "diff")
+	return closedOutput(properties, "worktree", "dirty", "live", "head", "base", "paths", "diff")
 }

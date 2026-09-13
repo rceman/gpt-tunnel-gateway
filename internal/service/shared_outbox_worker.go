@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -74,15 +75,38 @@ func (s *Service) publishSharedTaskOutbox(ctx context.Context, entry sqlitestore
 	if err := model.ValidateTaskAuthoring(task); err != nil {
 		return err
 	}
+	if entry.EntityType != "task" || entry.EntityID != task.ID || entry.Revision != int64(task.Revision) {
+		return fmt.Errorf("shared task outbox entry identity mismatch")
+	}
 	path := s.taskAuthoringPath(task.ProjectID, task.ID)
 	_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared task "+task.ID, func(worktree string) ([]string, error) {
 		var latest model.TaskAuthoring
 		if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
-			if latest.Revision > task.Revision {
-				return nil, fmt.Errorf("Hub task changed while publishing Shared outbox")
+			if err := model.ValidateTaskAuthoring(latest); err != nil {
+				return nil, fmt.Errorf("Hub task %q is malformed authority: %w", task.ID, err)
 			}
-			if latest.Revision == task.Revision && latest.RevisionSHA256 == task.RevisionSHA256 && latest.Status == task.Status {
+			if latest.ID != task.ID || latest.ProjectID != task.ProjectID {
+				return nil, fmt.Errorf("Hub task identity conflicts at %s", path)
+			}
+			switch {
+			case latest.Revision > task.Revision:
 				return nil, errSharedOutboxNoop
+			case latest.Revision < task.Revision:
+			case latest.RevisionSHA256 != task.RevisionSHA256:
+				return nil, fmt.Errorf("Hub task content digest conflicts at revision %d", task.Revision)
+			case latest.UpdatedAt.After(task.UpdatedAt):
+				return nil, errSharedOutboxNoop
+			case task.UpdatedAt.After(latest.UpdatedAt):
+			default:
+				latestCanonical, latestErr := json.Marshal(latest)
+				taskCanonical, taskErr := json.Marshal(task)
+				if latestErr != nil || taskErr != nil {
+					return nil, fmt.Errorf("cannot compare Hub task payload at revision %d", task.Revision)
+				}
+				if bytes.Equal(latestCanonical, taskCanonical) {
+					return nil, errSharedOutboxNoop
+				}
+				return nil, fmt.Errorf("equal-time Hub task payload is contradictory at revision %d", task.Revision)
 			}
 		} else if !IsNotFound(readErr) {
 			return nil, readErr

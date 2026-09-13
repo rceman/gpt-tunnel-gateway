@@ -76,6 +76,7 @@ type SharedRevisionRecord struct {
 type SharedHistoryPage struct {
 	Records      []SharedRevisionRecord
 	NextRevision int64
+	NextCursor   string
 	HasMore      bool
 }
 

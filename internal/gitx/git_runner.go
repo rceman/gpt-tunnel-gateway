@@ -38,7 +38,7 @@ func (r Runner) commandWithEnv(ctx context.Context, dir string, gitDir bool, ext
 		if stdout.exceeded || stderr.exceeded {
 			return nil, fmt.Errorf("git output exceeds %d bytes", r.MaxReadBytes)
 		}
-		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return stdout.data, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	if stdout.exceeded || stderr.exceeded {
 		return nil, fmt.Errorf("git output exceeds %d bytes", r.MaxReadBytes)

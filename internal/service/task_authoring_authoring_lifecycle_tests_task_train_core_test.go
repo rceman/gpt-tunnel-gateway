@@ -17,12 +17,23 @@ func TestTaskAuthoringServiceWiresADRReadiness(t *testing.T) {
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	syncTSK409SharedConfigurationFromHub(t, s)
 	adrResult, err := s.ADRCreate(context.Background(), ADRCreateInput{
-		ADR: model.ADR{ProjectID: "example", Title: "Accepted decision", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences"},
+		ADR: model.ADR{ProjectID: "example", Title: "Accepted decision", Status: model.ADRStatusProposed, Context: "context", Decision: "decision", Consequences: "consequences"},
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: hubRevision,
 		},
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	adrStatus := model.ADRStatusAccepted
+	if _, err := s.ADRUpdate(context.Background(), ADRUpdateInput{
+		ProjectID:        "example",
+		ADRID:            adrResult.EntityKey,
+		Status:           &adrStatus,
+		ExpectedRevision: 1,
+		Reason:           "accept decision",
+		UpdatedBy:        "planner",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	task, operation, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{

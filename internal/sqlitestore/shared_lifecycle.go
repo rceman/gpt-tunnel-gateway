@@ -106,6 +106,7 @@ type SharedLifecycleQuery struct {
 	Filters           map[string]string
 	IncludeArchived   bool
 	ExcludeSuperseded bool
+	ExcludeDone       bool
 	Limit             int
 	Cursor            string
 }
@@ -146,7 +147,8 @@ func (d *Databases) QuerySharedLifecycle(ctx context.Context, query SharedLifecy
 		Filters           map[string]string `json:"filters"`
 		Archived          bool              `json:"archived"`
 		ExcludeSuperseded bool              `json:"exclude_superseded"`
-	}{query.EntityType, query.ProjectID, strings.ToLower(strings.TrimSpace(query.Text)), query.Filters, query.IncludeArchived, query.ExcludeSuperseded})
+		ExcludeDone       bool              `json:"exclude_done"`
+	}{query.EntityType, query.ProjectID, strings.ToLower(strings.TrimSpace(query.Text)), query.Filters, query.IncludeArchived, query.ExcludeSuperseded, query.ExcludeDone})
 	if err != nil {
 		return SharedLifecycleQueryPage{}, err
 	}
@@ -186,6 +188,10 @@ func (d *Databases) querySharedLifecycleRows(ctx context.Context, definition sha
 	} else if query.ExcludeSuperseded {
 		where = append(where, "COALESCE(json_extract(payload, '$.status'), '') != ?")
 		args = append(args, "superseded")
+	}
+	if query.ExcludeDone {
+		where = append(where, "COALESCE(json_extract(payload, '$.status'), '') != ?")
+		args = append(args, "done")
 	}
 	fields := make([]string, 0, len(query.Filters))
 	for field := range query.Filters {

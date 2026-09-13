@@ -199,18 +199,22 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 }
 
 const (
-	sharedBaselineVersion                    int64 = 202609080503
-	sharedBaselineName                             = "create shared baseline"
-	sharedTaskSummaryMigrationVersion        int64 = 202609090934
-	sharedTaskSummaryMigrationName                 = "migrate retained task summaries"
-	sharedTaskSequenceMigrationVersion       int64 = 202609091757
-	sharedTaskSequenceMigrationName                = "reconcile retained task sequences"
-	sharedTaskExecutionMigrationVersion      int64 = 202609100915
-	sharedTaskExecutionMigrationName               = "create task execution state"
-	sharedTaskExecutionPhaseMigrationVersion int64 = 202609101320
-	sharedTaskExecutionPhaseMigrationName          = "create task execution phase history"
-	localBaselineVersion                     int64 = 202609080505
-	localBaselineName                              = "create local baseline"
-	localTokenUsageMigrationVersion          int64 = 202609102010
-	localTokenUsageMigrationName                   = "create local token usage ledger"
+	sharedBaselineVersion                           int64 = 202609080503
+	sharedBaselineName                                    = "create shared baseline"
+	sharedTaskSummaryMigrationVersion               int64 = 202609090934
+	sharedTaskSummaryMigrationName                        = "migrate retained task summaries"
+	sharedTaskSequenceMigrationVersion              int64 = 202609091757
+	sharedTaskSequenceMigrationName                       = "reconcile retained task sequences"
+	sharedTaskExecutionMigrationVersion             int64 = 202609100915
+	sharedTaskExecutionMigrationName                      = "create task execution state"
+	sharedTaskExecutionPhaseMigrationVersion        int64 = 202609101320
+	sharedTaskExecutionPhaseMigrationName                 = "create task execution phase history"
+	sharedTaskExecutionVerificationMigrationVersion int64 = 202609110900
+	sharedTaskExecutionVerificationMigrationName          = "create task execution verification receipts"
+	sharedTaskLifecycleMigrationVersion             int64 = 202609111312
+	sharedTaskLifecycleMigrationName                      = "create task lifecycle events"
+	localBaselineVersion                            int64 = 202609080505
+	localBaselineName                                     = "create local baseline"
+	localTokenUsageMigrationVersion                 int64 = 202609102010
+	localTokenUsageMigrationName                          = "create local token usage ledger"
 )

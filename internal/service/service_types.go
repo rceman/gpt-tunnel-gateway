@@ -40,6 +40,9 @@ type Service struct {
 	gateExecutorWithScope                   func(context.Context, string, []string, gates.TestScope) ([]model.CompletionGateResult, error)
 	gateExecutorWithProjectCommands         func(context.Context, string, []string, model.ProjectGateCommands, string) ([]model.CompletionGateResult, error)
 	gateExecutorWithProjectCommandsAndScope func(context.Context, string, []string, model.ProjectGateCommands, string, gates.TestScope) ([]model.CompletionGateResult, error)
+	effectiveGOFLAGS                        func(context.Context) (string, error)
+	taskIntegrationFaultHook                func(context.Context, string) error
+	taskIntegrationWriteAhead               func(context.Context, taskExecutionIntegrationCapture) error
 	formatExecutor                          func(context.Context, string, []string) error
 	verifyWorktreeFingerprint               func(context.Context, string) (string, error)
 	workCheckpointExecutor                  func(context.Context, string, string, []string, []string) ([]model.CompletionGateResult, error)
@@ -51,6 +54,7 @@ type Service struct {
 	taskCreateWorkerOnce                    sync.Once
 	taskCreateMu                            sync.Mutex
 	taskExecutionMu                         sync.Mutex
+	taskExecutionVerifyInFlight             map[string]string
 	taskCreateWake                          chan string
 	taskCreateActive                        map[string]struct{}
 	durableMutationWorkerOnce               sync.Once
@@ -81,17 +85,18 @@ func NewWithDurabilityDeferredWorkers(c config.Config, durability *sqlitestore.D
 func newService(c config.Config, durability *sqlitestore.Databases, startWorkers bool) *Service {
 	executor := gates.NewExecutor()
 	s := &Service{
-		Config:                c,
-		ConfigPath:            config.DefaultPath(),
-		Hub:                   hub.Store{Config: c},
-		Durability:            durability,
-		Git:                   gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems, StateDir: c.StateDir},
-		Airelay:               airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: airelay.MaxTransportMessageBytes},
-		taskCreateWake:        make(chan string, 32),
-		taskCreateActive:      make(map[string]struct{}),
-		durableMutationWake:   make(chan string, 32),
-		durableMutationActive: make(map[string]struct{}),
-		asyncMutationTimeouts: map[string]time.Duration{"train-v2-integrate": defaultIntegrationTimeout},
+		Config:                      c,
+		ConfigPath:                  config.DefaultPath(),
+		Hub:                         hub.Store{Config: c},
+		Durability:                  durability,
+		Git:                         gitx.Runner{MaxReadBytes: c.MaxReadBytes, MaxDiffBytes: c.MaxDiffBytes, MaxListItems: c.MaxListItems, StateDir: c.StateDir},
+		Airelay:                     airelay.Client{Command: c.AirelayCommand, Timeout: time.Duration(c.DispatchTimeoutSeconds) * time.Second, MaxMessageBytes: airelay.MaxTransportMessageBytes},
+		taskCreateWake:              make(chan string, 32),
+		taskCreateActive:            make(map[string]struct{}),
+		taskExecutionVerifyInFlight: make(map[string]string),
+		durableMutationWake:         make(chan string, 32),
+		durableMutationActive:       make(map[string]struct{}),
+		asyncMutationTimeouts:       map[string]time.Duration{"train-v2-integrate": defaultIntegrationTimeout},
 		gateExecutor: func(ctx context.Context, root string, names []string) ([]model.CompletionGateResult, error) {
 			return executor.Execute(ctx, root, names)
 		},

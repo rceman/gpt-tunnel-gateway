@@ -47,7 +47,22 @@ func (s *Service) resolveExactTaskCodeTarget(ctx context.Context, projectID, sel
 	if err != nil {
 		return localCodeTarget{}, err
 	}
-	if status.Branch != state.Branch || model.ValidateCommitSHA(status.Head) != nil || !strings.HasSuffix(selector, "-"+strings.ToLower(status.Head[:8])) {
+	selectorHead := status.Head
+	midRebase := false
+	if status.Branch != state.Branch {
+		onto, ontoErr := s.Git.RebaseOnto(ctx, project)
+		branchHead, branchErr := s.Git.BranchHead(ctx, project, state.Branch)
+		if ontoErr != nil || branchErr != nil || status.Branch != "(detached)" || onto == "" || onto != state.BaseHead || branchHead != state.Head {
+			return localCodeTarget{}, &CodeSelectorError{
+				Kind:     CodeSelectorStale,
+				Selector: selector,
+				Current:  state.Worktree,
+			}
+		}
+		selectorHead = state.Head
+		midRebase = true
+	}
+	if model.ValidateCommitSHA(selectorHead) != nil || !strings.HasSuffix(selector, "-"+strings.ToLower(selectorHead[:8])) {
 		return localCodeTarget{}, &CodeSelectorError{
 			Kind:     CodeSelectorStale,
 			Selector: selector,
@@ -61,6 +76,9 @@ func (s *Service) resolveExactTaskCodeTarget(ctx context.Context, projectID, sel
 	if err != nil || !ancestor {
 		return localCodeTarget{}, fmt.Errorf("worktree selector %q has an invalid Task base", selector)
 	}
+	if midRebase && !live {
+		return localCodeTarget{}, fmt.Errorf("worktree selector %q is mid-rebase; set live=true for bounded observation", selector)
+	}
 	return localCodeTarget{
 		CodeIdentity: CodeIdentity{
 			ProjectID:   projectID,
@@ -71,6 +89,7 @@ func (s *Service) resolveExactTaskCodeTarget(ctx context.Context, projectID, sel
 		},
 		ProjectWorktree: project,
 		Kind:            "task",
+		TaskID:          state.TaskID,
 		DiffBase:        state.BaseHead,
 	}, nil
 }

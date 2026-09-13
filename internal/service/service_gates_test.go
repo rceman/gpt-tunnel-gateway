@@ -38,7 +38,7 @@ func TestExecuteProjectGatesUsesServerOwnedResults(t *testing.T) {
 	}
 }
 
-func TestExecuteProjectGatesUsesProjectOwnedTaskAndTrainModes(t *testing.T) {
+func TestExecuteProjectGatesUsesProjectOwnedTaskModes(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
 	var modes []string
 	s.gateExecutorWithProjectCommands = func(_ context.Context, _ string, names []string, commands model.ProjectGateCommands, mode string) ([]model.CompletionGateResult, error) {
@@ -57,7 +57,7 @@ func TestExecuteProjectGatesUsesProjectOwnedTaskAndTrainModes(t *testing.T) {
 	if _, err := s.ExecuteProjectGates(context.Background(), "example", "integration", s.Config.Projects["example"].Root); err != nil {
 		t.Fatal(err)
 	}
-	if len(modes) != 2 || modes[0] != "task" || modes[1] != "train" {
+	if len(modes) != 2 || modes[0] != "task" || modes[1] != "task" {
 		t.Fatalf("project gate modes=%v", modes)
 	}
 }

@@ -7,14 +7,51 @@ import (
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
+
+func validCodeDiffBase8(base string) bool {
+	if len(base) != 8 {
+		return false
+	}
+	for _, r := range base {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
+			return false
+		}
+	}
+	return true
+}
 
 func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResult, error) {
 	target, err := s.resolveLocalCodeTarget(ctx, in.ProjectID, in.Worktree, in.Live)
 	if err != nil {
 		return CodeDiffResult{}, err
 	}
+	if in.Base != "" {
+		if !validCodeDiffBase8(in.Base) || target.Kind != "task" || target.TaskID == "" {
+			return CodeDiffResult{}, fmt.Errorf("code diff base must be a server-authorized sha8 for a Task worktree")
+		}
+		state, found, stateErr := s.readExecutionForMutation(ctx, target.ProjectID, target.TaskID)
+		if stateErr != nil || !found || state.Worktree != target.Worktree {
+			if stateErr != nil {
+				return CodeDiffResult{}, stateErr
+			}
+			return CodeDiffResult{}, fmt.Errorf("code diff base is not bound to the current Task worktree")
+		}
+		phase, comparisonBase, selectErr := s.taskExecutionReviewSelection(ctx, target.ProjectID, target.TaskID, state.Stage, state)
+		if selectErr != nil {
+			return CodeDiffResult{}, selectErr
+		}
+		if phase.Head != target.CurrentHead || strings.ToLower(comparisonBase[:8]) != in.Base {
+			return CodeDiffResult{}, fmt.Errorf("code diff base is not authorized for this submission")
+		}
+		target.DiffBase = comparisonBase
+	}
+	if model.ValidateCommitSHA(target.DiffBase) != nil {
+		return CodeDiffResult{}, fmt.Errorf("code diff has no valid comparison base")
+	}
+	diffBase8 := strings.ToLower(target.DiffBase[:8])
 	paths, err := validateLocalCodePaths(in.Paths, false)
 	if err != nil {
 		return CodeDiffResult{}, err
@@ -44,6 +81,7 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 		candidateLines := append(append([]string(nil), pageLines...), string(line))
 		candidate := CodeDiffResult{
 			CodeIdentity: target.CodeIdentity,
+			Base:         diffBase8,
 			Paths:        paths,
 			Diff:         strings.Join(candidateLines, ""),
 			Pagination:   codePagination(pagination.EncodeServerCursor(kind, strconv.FormatInt(lineOffset+1, 10))),
@@ -81,6 +119,7 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 		}
 		return CodeDiffResult{
 			CodeIdentity: target.CodeIdentity,
+			Base:         diffBase8,
 			Paths:        paths,
 			Diff:         strings.Join(pageLines, ""),
 			Pagination:   codePagination(pageCursor),
@@ -89,6 +128,7 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 	if !continuation {
 		result := CodeDiffResult{
 			CodeIdentity: target.CodeIdentity,
+			Base:         diffBase8,
 			Paths:        paths,
 		}
 		fits, fitErr := codePageFits(result)

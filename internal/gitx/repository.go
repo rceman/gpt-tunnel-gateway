@@ -259,6 +259,23 @@ func (r Runner) ChangedFiles(ctx context.Context, root, from, to string) ([]stri
 	sort.Strings(lines)
 	return lines, nil
 }
+
+// MergeBaseInWorktree resolves the merge base where both revisions are
+// expected to be present, without mirror or project-root selection.
+func (r Runner) MergeBaseInWorktree(ctx context.Context, root, left, right string) (string, error) {
+	if err := model.ValidateRevision(left); err != nil {
+		return "", err
+	}
+	if err := model.ValidateRevision(right); err != nil {
+		return "", err
+	}
+	out, err := r.command(ctx, root, false, "merge-base", left, right)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 func (r Runner) MergeBase(ctx context.Context, p config.ProjectConfig, left, right string) (string, error) {
 	if err := model.ValidateRevision(left); err != nil {
 		return "", err

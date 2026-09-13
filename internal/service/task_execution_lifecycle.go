@@ -16,14 +16,15 @@ type TaskExecutionDispatchInput struct {
 }
 
 type TaskExecutionPublicOutput struct {
-	Key               string `json:"key"`
-	Status            string `json:"status"`
-	Stage             string `json:"stage,omitempty"`
-	Worktree          string `json:"worktree,omitempty"`
-	Head              string `json:"head,omitempty"`
-	Agent             string `json:"agent,omitempty"`
-	ExecutionRevision int    `json:"execution_revision,omitempty"`
-	UpdatedAt         string `json:"updated_at,omitempty"`
+	Key               string                           `json:"key"`
+	Status            string                           `json:"status"`
+	Stage             string                           `json:"stage,omitempty"`
+	Worktree          string                           `json:"worktree,omitempty"`
+	Head              string                           `json:"head,omitempty"`
+	Agent             string                           `json:"agent,omitempty"`
+	ExecutionRevision int                              `json:"execution_revision,omitempty"`
+	UpdatedAt         string                           `json:"updated_at,omitempty"`
+	Verification      *TaskExecutionVerificationPublic `json:"verification,omitempty"`
 }
 
 func (s *Service) TaskExecutionDispatch(ctx context.Context, in TaskExecutionDispatchInput) (TaskExecutionPublicOutput, error) {
@@ -59,7 +60,7 @@ func (s *Service) TaskExecutionDispatch(ctx context.Context, in TaskExecutionDis
 		return TaskExecutionPublicOutput{}, err
 	}
 	for _, other := range states {
-		if other.Agent == agent && other.TaskID != in.Key && model.IsTaskExecutionNonTerminal(other.Status) {
+		if other.Agent == agent && other.TaskID != in.Key && model.IsTaskExecutionAgentOwned(other.Status) {
 			return TaskExecutionPublicOutput{}, fmt.Errorf("logical Agent %q already has a nonterminal Task", agent)
 		}
 	}
@@ -113,7 +114,15 @@ func (s *Service) TaskExecutionStatus(ctx context.Context, projectID, key string
 	if state, found, err := s.Durability.ReadTaskExecutionState(ctx, projectID, key); err != nil {
 		return TaskExecutionPublicOutput{}, err
 	} else if found {
-		return taskExecutionPublicOutput(state), nil
+		out := taskExecutionPublicOutput(state)
+		verification, ok, err := s.taskExecutionVerificationProjectionFor(ctx, state)
+		if err != nil {
+			return TaskExecutionPublicOutput{}, err
+		}
+		if ok {
+			out.Verification = &verification
+		}
+		return out, nil
 	}
 	return TaskExecutionPublicOutput{
 		Key:    key,

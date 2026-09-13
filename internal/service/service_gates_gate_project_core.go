@@ -97,26 +97,7 @@ func (s *Service) executeProjectTaskGatesWithTestReuse(ctx context.Context, proj
 		}
 	}
 	if reused.ID == "" {
-		if err := s.invalidateTestPassReceipt(projectID); err != nil {
-			return nil, err
-		}
-		results, err := s.executeProjectGatesCommandSet(ctx, root, names, commands, "task", normalized)
-		if err != nil {
-			return results, err
-		}
-		results = annotateExecutedGateResults(results)
-		receipt, receiptDigest, err := s.writeProjectGatePassReceiptLocked(ctx, projectID, root, names, commands, "task", normalized, results)
-		if err != nil {
-			return nil, fmt.Errorf("store test pass receipt: %w", err)
-		}
-		for i := range results {
-			if digest, ok := receipt.CommandDigests[results[i].ID]; ok {
-				results[i].TreeID = receipt.TreeID
-				results[i].ContractDigest = digest
-				results[i].ReceiptDigest = receiptDigest
-			}
-		}
-		return results, nil
+		return s.executeProjectTaskGatesFresh(ctx, projectID, root, names, commands, normalized)
 	}
 	nonTest := make([]string, 0, len(names)-1)
 	for _, name := range names {
@@ -228,4 +209,34 @@ func validateProjectGateEvidence(results []model.CompletionGateResult, expected 
 		}
 	}
 	return nil
+}
+
+// executeProjectTaskGatesFresh always executes the configured gate commands
+// and records fresh pass evidence; a prior receipt may remain on disk for
+// legacy callers but never substitutes for execution here.
+func (s *Service) executeProjectTaskGatesFresh(ctx context.Context, projectID, root string, names []string, commands model.ProjectGateCommands, scope gates.TestScope) ([]model.CompletionGateResult, error) {
+	normalized, scopeErr := scope.Normalize()
+	if scopeErr != nil {
+		normalized = gates.FullTestScope()
+	}
+	if err := s.invalidateTestPassReceipt(projectID); err != nil {
+		return nil, err
+	}
+	results, err := s.executeProjectGatesCommandSet(ctx, root, names, commands, "task", normalized)
+	if err != nil {
+		return results, err
+	}
+	results = annotateExecutedGateResults(results)
+	receipt, receiptDigest, err := s.writeProjectGatePassReceiptLocked(ctx, projectID, root, names, commands, "task", normalized, results)
+	if err != nil {
+		return nil, fmt.Errorf("store test pass receipt: %w", err)
+	}
+	for i := range results {
+		if digest, ok := receipt.CommandDigests[results[i].ID]; ok {
+			results[i].TreeID = receipt.TreeID
+			results[i].ContractDigest = digest
+			results[i].ReceiptDigest = receiptDigest
+		}
+	}
+	return results, nil
 }

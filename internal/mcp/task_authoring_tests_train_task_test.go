@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
@@ -16,12 +17,40 @@ func createReadyMCPTrainTask(t *testing.T, server *Server) model.TaskAuthoring {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, operation, err := server.Service.TaskAuthoringCreate(ctx, service.TaskAuthoringCreateInput{ProjectID: "example", Title: "Ready generic Train Task", Objective: "Create a ready Task for generic Train admission.", ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner", WriteOptions: service.WriteOptions{ExpectedHubRevision: revision}})
+	task, operation, err := server.Service.TaskLifecycleCreate(ctx, service.TaskAuthoringCreateInput{ProjectID: "example", Title: "Ready generic Train Task", Summary: "Ready Train task fixture.", Objective: "Create a ready Task for generic Train admission.", ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner", WriteOptions: service.WriteOptions{ExpectedHubRevision: revision}}, "tsk585-train-fixture")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ready, _, err := server.Service.TaskAuthoringReady(ctx, service.TaskAuthoringReadyInput{ProjectID: "example", TaskID: task.ID, ExpectedRevision: task.Revision, ExpectedRevisionSHA256: task.RevisionSHA256, ReadyBy: "planner", WriteOptions: service.WriteOptions{ExpectedHubRevision: operation.Hub.After}})
+	receipt, err := server.Service.TaskAuthoringReadyAsync(ctx, service.TaskAuthoringReadyInput{ProjectID: "example", TaskID: task.ID, ExpectedRevision: task.Revision, ExpectedRevisionSHA256: task.RevisionSHA256, ReadyBy: "planner", WriteOptions: service.WriteOptions{ExpectedHubRevision: operation.Hub.After}})
 	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for receipt.Status != "completed" && receipt.Status != "failed" {
+		if !time.Now().Before(deadline) {
+			t.Fatalf("Task ready operation %s did not reach a terminal state within 10s: %#v", receipt.OperationID, receipt)
+		}
+		time.Sleep(10 * time.Millisecond)
+		receipt, err = server.Service.TaskAuthoringReadyOperationStatus(ctx, receipt.OperationID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if receipt.Status != "completed" || receipt.Task == nil {
+		t.Fatalf("Task ready did not complete: %#v", receipt)
+	}
+	ready := *receipt.Task
+	revision, err = server.Service.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "gpt-tunnel/v1/projects/example/tasks-v2/" + ready.ID + ".json"
+	if _, err := server.Service.Hub.Transact(ctx, revision, "test: publish ready task", func(worktree string) ([]string, error) {
+		if err := hub.WriteJSON(worktree, path, ready); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return ready

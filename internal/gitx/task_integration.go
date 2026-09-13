@@ -9,36 +9,145 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-// SquashTaskIntoDefaultBranch integrates a clean server-owned Task lane into
-// an exact clean default-branch head and returns the resulting commit.
-func (r Runner) SquashTaskIntoDefaultBranch(ctx context.Context, project, lane config.ProjectConfig, base, head, message string) (string, error) {
-	if model.ValidateCommitSHA(base) != nil || model.ValidateCommitSHA(head) != nil || strings.TrimSpace(message) == "" {
+// PrepareTaskIntegrationCommit creates the exact integration commit object —
+// one parent at the verified canonical base and the verified candidate tree —
+// without touching any ref, index, or worktree.
+func (r Runner) PrepareTaskIntegrationCommit(ctx context.Context, p config.ProjectConfig, tree, parent, message string) (string, error) {
+	if model.ValidateCommitSHA(tree) != nil || model.ValidateCommitSHA(parent) != nil || strings.TrimSpace(message) == "" {
 		return "", fmt.Errorf("invalid Task integration authority")
 	}
-	target, err := r.WorktreeStatus(ctx, project)
-	if err != nil || !target.Clean {
-		return "", fmt.Errorf("default branch must be clean before Task integration")
+	out, err := r.command(ctx, p.Root, false,
+		"-c", "user.name=GPT Tunnel Gateway",
+		"-c", "user.email=gpt-tunnel-gateway@localhost",
+		"commit-tree", tree, "-p", parent, "-m", message)
+	if err != nil {
+		return "", fmt.Errorf("prepare Task integration commit: %w", err)
 	}
-	if target.Head != base || target.Branch != strings.TrimPrefix(project.DefaultBranch, "refs/heads/") {
-		return "", fmt.Errorf("default branch is not at the exact Task base")
+	commit := strings.TrimSpace(string(out))
+	if err := model.ValidateCommitSHA(commit); err != nil {
+		return "", fmt.Errorf("prepared Task integration commit is invalid: %w", err)
 	}
-	source, err := r.WorktreeStatus(ctx, lane)
-	if err != nil || !source.Clean || source.Head != head {
-		return "", fmt.Errorf("Task lane is not at its exact clean reviewed head")
+	return commit, nil
+}
+
+// SyncTaskIntegrationCheckout brings the default-branch checkout to the
+// landed canonical head through a fast-forward merge only. The merge itself
+// is the byte-safety boundary: unrelated staged or untracked bytes are
+// carried forward, conflicting ones make the merge refuse, and the caller
+// can retry recoverably — nothing is ever reset, forced, or overwritten.
+func (r Runner) SyncTaskIntegrationCheckout(ctx context.Context, p config.ProjectConfig, branch, head string) (WorktreeStatus, error) {
+	if err := model.ValidateBranch(branch); err != nil {
+		return WorktreeStatus{}, err
 	}
-	if _, err := r.command(ctx, lane.Root, false, "merge-base", "--is-ancestor", base, head); err != nil {
-		return "", fmt.Errorf("Task head is not descended from its base")
+	if err := model.ValidateCommitSHA(head); err != nil {
+		return WorktreeStatus{}, err
 	}
-	if _, err := r.command(ctx, project.Root, false, "merge", "--squash", "--no-commit", source.Branch); err != nil {
-		return "", fmt.Errorf("squash Task lane: %w", err)
+	status, err := r.WorktreeStatus(ctx, p)
+	if err != nil {
+		return WorktreeStatus{}, err
 	}
-	if _, err := r.command(ctx, project.Root, false, "commit", "-m", message); err != nil {
-		_, _ = r.command(context.Background(), project.Root, false, "reset", "--hard", base)
-		return "", fmt.Errorf("commit squashed Task lane: %w", err)
+	if status.Branch != branch {
+		return status, fmt.Errorf("default branch checkout is on %q, want %q", status.Branch, branch)
 	}
-	result, _, clean, err := r.CurrentHead(ctx, project)
-	if err != nil || !clean || result == base {
-		return "", fmt.Errorf("integrated default branch is not a new clean commit")
+	if status.Head == head {
+		return status, nil
 	}
-	return result, nil
+	if status.Head == "" || status.Head == "(initial)" {
+		return status, fmt.Errorf("default branch checkout has no head")
+	}
+	if err := r.MaterializeMirrorCommit(ctx, p, branch, head); err != nil {
+		return status, err
+	}
+	ancestor, err := r.IsAncestor(ctx, p.Root, status.Head, head)
+	if err != nil {
+		return status, err
+	}
+	if !ancestor {
+		return status, fmt.Errorf("default branch checkout head %s is not an ancestor of %s", status.Head, head)
+	}
+	if _, err := r.command(ctx, p.Root, false, "merge", "--ff-only", head); err != nil {
+		return status, fmt.Errorf("default branch checkout synchronization is not clean: %w", err)
+	}
+	after, err := r.WorktreeStatus(ctx, p)
+	if err != nil {
+		return status, err
+	}
+	if after.Branch != branch || after.Head != head {
+		return after, fmt.Errorf("default branch checkout did not reach the landed head")
+	}
+	return after, nil
+}
+
+// RemoteBranchHead resolves the exact remote branch head without updating any
+// local tracking ref. It accepts exactly one <sha>\t<ref> record.
+func (r Runner) RemoteBranchHead(ctx context.Context, p config.ProjectConfig, branch string) (string, error) {
+	if err := model.ValidateBranch(branch); err != nil {
+		return "", err
+	}
+	ref := "refs/heads/" + branch
+	out, err := r.command(ctx, p.Root, false, "ls-remote", "--exit-code", p.Remote, ref)
+	if err != nil {
+		return "", fmt.Errorf("remote branch head: %w", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) != 1 {
+		return "", fmt.Errorf("remote branch %q did not resolve to exactly one ref", branch)
+	}
+	fields := strings.Split(lines[0], "\t")
+	if len(fields) != 2 || fields[1] != ref || model.ValidateCommitSHA(fields[0]) != nil {
+		return "", fmt.Errorf("remote branch %q resolved ambiguously", branch)
+	}
+	return fields[0], nil
+}
+
+// MaterializeRemoteBranchObjects fetches the remote branch objects only: no
+// refs, FETCH_HEAD, or worktree are updated. The configured remote URL is
+// resolved first so the fetch cannot opportunistically update remote-tracking
+// refs through the configured fetch refspec.
+func (r Runner) MaterializeRemoteBranchObjects(ctx context.Context, p config.ProjectConfig, branch string) error {
+	if err := model.ValidateBranch(branch); err != nil {
+		return err
+	}
+	out, err := r.command(ctx, p.Root, false, "remote", "get-url", p.Remote)
+	if err != nil {
+		return fmt.Errorf("resolve remote URL: %w", err)
+	}
+	url := strings.TrimSpace(string(out))
+	if url == "" {
+		return fmt.Errorf("remote %q has no URL", p.Remote)
+	}
+	if _, err := r.command(ctx, p.Root, false, "fetch", "--no-tags", "--no-write-fetch-head", url, "refs/heads/"+branch); err != nil {
+		return fmt.Errorf("materialize remote branch objects: %w", err)
+	}
+	return nil
+}
+
+// InspectTaskIntegrationCommit returns the exact tree and parent list of a
+// prepared integration commit.
+func (r Runner) InspectTaskIntegrationCommit(ctx context.Context, p config.ProjectConfig, commit string) (string, []string, error) {
+	if err := model.ValidateCommitSHA(commit); err != nil {
+		return "", nil, err
+	}
+	out, err := r.command(ctx, p.Root, false, "cat-file", "commit", commit)
+	if err != nil {
+		return "", nil, fmt.Errorf("inspect Task integration commit: %w", err)
+	}
+	tree := ""
+	var parents []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if line == "" {
+			break
+		}
+		if rest, ok := strings.CutPrefix(line, "tree "); ok {
+			tree = rest
+			continue
+		}
+		if rest, ok := strings.CutPrefix(line, "parent "); ok {
+			parents = append(parents, rest)
+		}
+	}
+	if err := model.ValidateCommitSHA(tree); err != nil || len(parents) == 0 {
+		return "", nil, fmt.Errorf("Task integration commit has no recorded tree/parents")
+	}
+	return tree, parents, nil
 }

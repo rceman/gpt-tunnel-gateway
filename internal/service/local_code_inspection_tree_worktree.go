@@ -108,6 +108,7 @@ type CodeDiffInput struct {
 	ProjectID string   `json:"-"`
 	Worktree  string   `json:"worktree"`
 	Paths     []string `json:"paths"`
+	Base      string   `json:"base"`
 	Cursor    string   `json:"cursor"`
 	Live      bool     `json:"live"`
 }
@@ -201,6 +202,7 @@ func boundedSearchSnippet(lines []string, matchLine, contextLines int, query str
 
 type CodeDiffResult struct {
 	CodeIdentity
+	Base       string          `json:"base"`
 	Paths      []string        `json:"paths"`
 	Diff       string          `json:"diff"`
 	Pagination *CodePagination `json:"_pagination,omitempty"`
@@ -222,6 +224,7 @@ type localCodeTarget struct {
 	ProjectWorktree config.ProjectConfig
 	Kind            string
 	TrainID         string
+	TaskID          string
 	DiffBase        string
 }
 

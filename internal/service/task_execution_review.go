@@ -38,6 +38,7 @@ type TaskExecutionReviewOutput struct {
 	Stage             string `json:"stage"`
 	Status            string `json:"status"`
 	Worktree          string `json:"worktree"`
+	Base              string `json:"base"`
 	Head              string `json:"head"`
 	Agent             string `json:"agent"`
 	ExecutionRevision int    `json:"execution_revision"`
@@ -89,6 +90,7 @@ func (s *Service) submitTaskExecution(ctx context.Context, projectID, key, stage
 	}
 	now := time.Now().UTC()
 	state.Head = actual
+	state.Worktree = taskExecutionWorktree(key, actual[:8])
 	state.Status = model.TaskExecutionAwaitingReview
 	state.ExecutionRevision++
 	state.UpdatedAt = now
@@ -105,12 +107,19 @@ func (s *Service) submitTaskExecution(ctx context.Context, projectID, key, stage
 			}
 			return TaskExecutionPublicOutput{}, fmt.Errorf("accepted %s submission is required", previousStage)
 		}
+		base := accepted.Head
+		if stage == "rebase" {
+			base = state.BaseHead
+		}
 		lanePath, pathErr := gitx.TaskWorktreePath(s.Config.StateDir, projectID, key)
 		if pathErr != nil {
 			return TaskExecutionPublicOutput{}, pathErr
 		}
-		ancestor, ancestorErr := s.Git.IsAncestor(ctx, lanePath, accepted.Head, actual)
+		ancestor, ancestorErr := s.Git.IsAncestor(ctx, lanePath, base, actual)
 		if ancestorErr != nil || !ancestor {
+			if stage == "rebase" {
+				return TaskExecutionPublicOutput{}, fmt.Errorf("rebase submission must descend from the refreshed canonical base")
+			}
 			return TaskExecutionPublicOutput{}, fmt.Errorf("%s submission must descend from accepted %s head", stage, previousStage)
 		}
 	}
@@ -133,23 +142,11 @@ func (s *Service) TaskExecutionReview(ctx context.Context, in TaskExecutionRevie
 		}
 		return TaskExecutionReviewOutput{}, fmt.Errorf("Task has no execution state")
 	}
-	phase, found, err := s.Durability.ReadLatestTaskExecutionPhase(ctx, in.ProjectID, in.Key, in.Stage)
-	if err != nil || !found {
-		if err != nil {
-			return TaskExecutionReviewOutput{}, err
-		}
-		return TaskExecutionReviewOutput{}, fmt.Errorf("Task has no %s submission", in.Stage)
-	}
-	if phase.TaskRevisionSHA256 != state.TaskRevisionSHA256 || phase.Status != model.TaskExecutionAwaitingReview {
-		return TaskExecutionReviewOutput{}, fmt.Errorf("Task review is stale")
-	}
-	if model.ValidateCommitSHA(phase.Head) != nil {
-		return TaskExecutionReviewOutput{}, fmt.Errorf("Task review has invalid head authority")
-	}
-	if err := s.validateTaskExecutionReviewAncestry(ctx, state, phase); err != nil {
+	phase, comparisonBase, err := s.taskExecutionReviewSelection(ctx, in.ProjectID, in.Key, in.Stage, state)
+	if err != nil {
 		return TaskExecutionReviewOutput{}, err
 	}
-	return taskExecutionReviewOutput(state, phase), nil
+	return taskExecutionReviewOutput(state, phase, comparisonBase), nil
 }
 
 func (s *Service) TaskExecutionReviewDecide(ctx context.Context, in TaskExecutionReviewDecisionInput) (TaskExecutionPublicOutput, error) {
@@ -195,7 +192,7 @@ func (s *Service) TaskExecutionReviewDecide(ctx context.Context, in TaskExecutio
 	} else if in.Stage == "code" {
 		state.Stage, state.Status = "tests", model.TaskExecutionDispatched
 	} else {
-		state.Status = model.TaskExecutionReadyForIntegration
+		state.Status = model.TaskExecutionReadyForVerification
 	}
 	phase = sqlitestore.TaskExecutionPhase{TaskID: in.Key, ProjectID: in.ProjectID, ExecutionRevision: state.ExecutionRevision, Stage: in.Stage, Status: state.Status, Head: state.Head, Branch: state.Branch, TaskRevisionSHA256: state.TaskRevisionSHA256, EventKind: "review", Decision: in.Decision, Comment: strings.TrimSpace(in.Comment), CreatedAt: now}
 	if err := s.Durability.TransitionTaskExecutionState(ctx, state, state.ExecutionRevision-1, phase); err != nil {
@@ -219,6 +216,9 @@ func (s *Service) TaskExecutionRework(ctx context.Context, in TaskExecutionRewor
 			return TaskExecutionPublicOutput{}, err
 		}
 		return TaskExecutionPublicOutput{}, fmt.Errorf("Task has no execution state")
+	}
+	if !model.IsTaskExecutionReworkable(state.Status) {
+		return TaskExecutionPublicOutput{}, fmt.Errorf("Task execution is not open for rework")
 	}
 	if (in.Stage == "code" && state.Stage != "code" && state.Stage != "tests" && state.Stage != "rebase") || (in.Stage == "tests" && state.Stage != "tests" && state.Stage != "rebase") || (in.Stage == "rebase" && state.Stage != "rebase") {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("rework stage is stale")
@@ -274,12 +274,13 @@ func (s *Service) taskExecutionLaneHead(ctx context.Context, projectID, key stri
 	return s.Git.CurrentHead(ctx, project)
 }
 
-func taskExecutionReviewOutput(state model.TaskExecutionState, phase sqlitestore.TaskExecutionPhase) TaskExecutionReviewOutput {
+func taskExecutionReviewOutput(state model.TaskExecutionState, phase sqlitestore.TaskExecutionPhase, comparisonBase string) TaskExecutionReviewOutput {
 	return TaskExecutionReviewOutput{
 		Key:               state.TaskID,
 		Stage:             phase.Stage,
 		Status:            phase.Status,
 		Worktree:          state.Worktree,
+		Base:              strings.ToLower(comparisonBase[:8]),
 		Head:              strings.ToLower(phase.Head[:8]),
 		Agent:             state.Agent,
 		ExecutionRevision: phase.ExecutionRevision,

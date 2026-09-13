@@ -20,6 +20,16 @@ func (s *Service) durableMutationExecutionSet1(ctx context.Context, operation du
 			return nil, err
 		}
 		return json.Marshal(result)
+	case "task-execution-test":
+		var input TaskExecutionTestInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		result, err := s.taskExecutionTestRun(ctx, input, operation.CapturedState)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
 	case "task-authoring-update":
 		var input TaskAuthoringUpdateInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {

@@ -7,8 +7,9 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-// Integration recovery may finish only after durable post-main evidence and
-// an idempotent Task done transition are both present.
+// Integration recovery reads the frozen-Task execution state; the prepared
+// commit and admitted proof live in the durable operation capture, so a retry
+// or restart resumes from the recorded boundary rather than re-deciding.
 func (s *Service) readExecutionForIntegration(ctx context.Context, projectID, key string) (model.TaskExecutionState, bool, error) {
 	if s.Durability == nil {
 		return model.TaskExecutionState{}, false, fmt.Errorf("shared durability is unavailable")
@@ -17,21 +18,8 @@ func (s *Service) readExecutionForIntegration(ctx context.Context, projectID, ke
 	if err != nil || !found {
 		return state, found, err
 	}
-	if frozenErr := s.validateFrozenTaskExecutionTask(ctx, state); frozenErr == nil {
-		return state, true, nil
-	} else if durableMutationOperationID(ctx) == "" {
+	if frozenErr := s.validateFrozenTaskExecutionTask(ctx, state); frozenErr != nil {
 		return model.TaskExecutionState{}, false, frozenErr
-	} else {
-		operation, readErr := s.readDurableMutation(durableMutationOperationID(ctx))
-		capture, captureErr := readTaskExecutionIntegrationCapture(operation)
-		completed := state.Status == model.TaskExecutionIntegrated && capture.ExecutionRevision+1 == state.ExecutionRevision
-		if readErr != nil || captureErr != nil || capture.IntegrationHead == "" || capture.ProjectID != projectID || capture.TaskID != key || (!completed && capture.ExecutionRevision != state.ExecutionRevision) || capture.TaskRevision != state.TaskRevision || capture.TaskRevisionSHA256 != state.TaskRevisionSHA256 || capture.Branch != state.Branch || capture.LaneHead != state.Head {
-			return model.TaskExecutionState{}, false, frozenErr
-		}
-		current, currentErr := s.TaskAuthoringRead(ctx, projectID, key)
-		if currentErr != nil || current.Status != model.TaskAuthoringDone {
-			return model.TaskExecutionState{}, false, frozenErr
-		}
-		return state, true, nil
 	}
+	return state, true, nil
 }

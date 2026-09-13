@@ -2,15 +2,18 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func configureTrainV2MCPTest(t *testing.T, server *Server) {
@@ -22,9 +25,10 @@ func configureTrainV2MCPTest(t *testing.T, server *Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var latest model.ProjectConfiguration
 	_, err = server.Service.Hub.Transact(ctx, revision, "test: seed train_v2 authority", func(worktree string) ([]string, error) {
 		path := "gpt-tunnel/v1/projects/example/configuration/current.json"
-		latest := configuration
+		latest = configuration
 		latest.ExecutionModel = "train_v2"
 		latest.Revision = configuration.Revision + 1
 		if err := model.ValidateProjectConfiguration(latest); err != nil {
@@ -36,6 +40,16 @@ func configureTrainV2MCPTest(t *testing.T, server *Server) {
 		return []string{path}, nil
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if server.Service.Durability == nil {
+		t.Fatal("configureTrainV2MCPTest requires Shared durability")
+	}
+	payload, err := json.Marshal(latest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Service.Durability.PutSharedProjection(ctx, "project_configuration", sqlitestore.SharedEntity{ID: latest.ProjectID, Revision: int64(latest.Revision), Payload: payload, UpdatedAt: latest.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
 		t.Fatal(err)
 	}
 }

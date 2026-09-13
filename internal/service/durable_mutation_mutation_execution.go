@@ -49,6 +49,15 @@ func (s *Service) processDurableMutation(operationID string) {
 	result, runErr := execute(workerCtx, operation)
 	s.durableMutationMu.Lock()
 	defer s.durableMutationMu.Unlock()
+	// The handler may have durably written capture evidence mid-run (e.g. the
+	// integration write-ahead record). Re-read so the finish write never
+	// clobbers it; on read failure leave the record running so restart
+	// recovery replays with the on-disk capture intact.
+	if fresh, readErr := s.readDurableMutation(operationID); readErr == nil {
+		operation = fresh
+	} else {
+		return
+	}
 	operation.UpdatedAt = time.Now().UTC()
 	if runErr != nil {
 		operation.Status = "failed"
@@ -67,7 +76,7 @@ func (s *Service) processDurableMutation(operationID string) {
 }
 func (s *Service) executeDurableMutation(ctx context.Context, operation durableMutationOperation) (json.RawMessage, error) {
 	switch operation.Kind {
-	case "task-execution-integrate", "task-authoring-update", "task-authoring-ready", "train-v2-integrate", "train-v2-full-proof", "train-v2-review-backfill", "train-v2-start", "train-v2-advance", "train-v2-correction-start":
+	case "task-execution-integrate", "task-execution-test", "task-authoring-update", "task-authoring-ready", "train-v2-integrate", "train-v2-full-proof", "train-v2-review-backfill", "train-v2-start", "train-v2-advance", "train-v2-correction-start":
 		return s.durableMutationExecutionSet1(ctx, operation)
 	case "adr-create", "agent-prompt", "agent-recover", "agent-interrupt", "agent-update":
 		return s.durableMutationExecutionSet2(ctx, operation)

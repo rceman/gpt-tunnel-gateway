@@ -8,7 +8,7 @@ import (
 )
 
 type TaskExecutionIntegrateReceipt struct {
-	OperationID string                     `json:"-"`
+	OperationID string                     `json:"operation_id"`
 	Status      string                     `json:"status"`
 	Result      *TaskExecutionPublicOutput `json:"result,omitempty"`
 	Error       string                     `json:"error,omitempty"`
@@ -20,7 +20,7 @@ func taskExecutionIntegrateReceipt(operation durableMutationOperation) TaskExecu
 	receipt := TaskExecutionIntegrateReceipt{
 		OperationID: operation.OperationID,
 		Status:      operation.Status,
-		Error:       operation.Error,
+		Error:       boundedTaskVerificationError(operation.Error),
 		CreatedAt:   operation.CreatedAt,
 		UpdatedAt:   operation.UpdatedAt,
 	}
@@ -38,7 +38,15 @@ func taskExecutionIntegrateReceipt(operation durableMutationOperation) TaskExecu
 }
 
 func (s *Service) TaskExecutionIntegrateAsync(ctx context.Context, in TaskExecutionIntegrateInput) (TaskExecutionIntegrateReceipt, error) {
-	if err := validateTaskExecutionReviewInput(in.ProjectID, in.Key, "code"); err != nil {
+	// Verified intake keeps the pre-slice boundary: an empty mode serializes as
+	// omitted (preserving durable request identity) and only the legacy
+	// project/key check runs; the worker runs the full validator. Historical
+	// or unknown shapes fail intake through the shared validator.
+	if (in.Mode == "" || in.Mode == "verified") && in.Historical == nil {
+		if err := validateTaskExecutionReviewInput(in.ProjectID, in.Key, "code"); err != nil {
+			return TaskExecutionIntegrateReceipt{}, err
+		}
+	} else if err := validateTaskExecutionIntegrateInput(in); err != nil {
 		return TaskExecutionIntegrateReceipt{}, err
 	}
 	operation, err := s.enqueueTypedDurableMutation(ctx, "task-execution-integrate", in.ProjectID, in)

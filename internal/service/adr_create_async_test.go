@@ -18,7 +18,7 @@ func TestADRCreateAsyncIsBoundedAndIdempotent(t *testing.T) {
 		ADR: model.ADR{
 			ProjectID:    "example",
 			Title:        "Async decision",
-			Status:       "accepted",
+			Status:       model.ADRStatusProposed,
 			Context:      "context",
 			Decision:     "decision",
 			Consequences: "consequences",
@@ -60,6 +60,17 @@ func TestADRCreateAsyncIsBoundedAndIdempotent(t *testing.T) {
 	}
 	if completed.Status != "completed" || completed.Operation == nil {
 		t.Fatalf("ADR create worker did not complete: %#v", completed)
+	}
+	status := model.ADRStatusAccepted
+	if _, err := s.ADRUpdate(context.Background(), ADRUpdateInput{
+		ProjectID:        "example",
+		ADRID:            completed.Operation.EntityKey,
+		Status:           &status,
+		ExpectedRevision: 1,
+		Reason:           "accept decision",
+		UpdatedBy:        "planner",
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 

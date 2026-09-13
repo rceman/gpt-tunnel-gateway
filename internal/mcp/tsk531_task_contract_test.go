@@ -17,6 +17,8 @@ func TestTSK531CanonicalTaskSurfaceAndLegacyEvidenceContract(t *testing.T) {
 	wantCanonical := map[string]bool{
 		"task/create": true, "task/read": true, "task/update": true,
 		"task/list": true, "task/query": true, "task/archive": true, "task/history": true,
+		"task/dispatch": true, "task/status": true, "task/test": true, "task/integrate": true,
+		"task/complete": true, "task/review": true, "task/review_decide": true, "task/rework": true, "task/guide": true,
 	}
 	for path := range wantCanonical {
 		if _, ok := entries[path]; !ok {
@@ -26,16 +28,17 @@ func TestTSK531CanonicalTaskSurfaceAndLegacyEvidenceContract(t *testing.T) {
 	for _, path := range []string{
 		"task/ready", "task/revision_list", "task/revision_read", "task/correction_create", "task/supersede",
 		"task/_ready", "task/_revision_list", "task/_revision_read", "task/_correction_create", "task/_supersede",
+		"task/work", "task/finalize",
 	} {
 		if _, ok := entries[path]; ok {
 			t.Fatalf("retired Task action remains registered: %q", path)
 		}
 	}
-	if _, ok := entries["task/work"]; !ok {
-		t.Fatal("TSK521 task/work execution action disappeared")
+	if _, ok := entries["task/dispatch"]; !ok {
+		t.Fatal("TSK521 task/dispatch execution action disappeared")
 	}
-	if _, ok := entries["task/finalize"]; !ok {
-		t.Fatal("TSK521 task/finalize execution action disappeared")
+	if _, ok := entries["task/integrate"]; !ok {
+		t.Fatal("TSK521 task/integrate execution action disappeared")
 	}
 
 	assertSchemaKeys := func(path string, schema map[string]any, want []string) {

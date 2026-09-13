@@ -30,8 +30,8 @@ func TestTSK521TaskExecutionSchemasAreClosedAndPubliclyBounded(t *testing.T) {
 	}
 	assertKeys("dispatch input", dispatch.InputSchema, []string{"key", "agent"})
 	assertKeys("status input", status.InputSchema, []string{"key"})
-	assertKeys("dispatch output", dispatch.OutputSchema, []string{"key", "status", "stage", "worktree", "head", "agent", "execution_revision", "updated_at"})
-	assertKeys("status output", status.OutputSchema, []string{"key", "status", "stage", "worktree", "head", "agent", "execution_revision", "updated_at"})
+	assertKeys("dispatch output", dispatch.OutputSchema, []string{"key", "status", "stage", "worktree", "head", "agent", "execution_revision", "updated_at", "verification"})
+	assertKeys("status output", status.OutputSchema, []string{"key", "status", "stage", "worktree", "head", "agent", "execution_revision", "updated_at", "verification"})
 	for _, schema := range []map[string]any{dispatch.OutputSchema, status.OutputSchema} {
 		properties := schema["properties"].(map[string]any)
 		for _, forbidden := range []string{"agent_key", "agent_id", "session"} {

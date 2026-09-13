@@ -172,6 +172,9 @@ func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selecto
 	if selector == "" {
 		return localCodeTarget{}, fmt.Errorf("worktree selector is required")
 	}
+	if strings.HasPrefix(selector, "WT-TSK") {
+		return s.resolveExactTaskCodeTarget(ctx, projectID, selector, live)
+	}
 	if !live {
 		if kind, _, prefix, parseErr := parseCodeSelector(selector); parseErr == nil && kind == "main" {
 			return s.resolveCleanMainCodeTarget(ctx, projectID, selector, prefix)

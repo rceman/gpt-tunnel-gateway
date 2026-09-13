@@ -9,37 +9,71 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
-func (s *Service) validateTaskExecutionReviewAncestry(ctx context.Context, state model.TaskExecutionState, phase sqlitestore.TaskExecutionPhase) error {
+func (s *Service) taskExecutionReviewSelection(ctx context.Context, projectID, key, stage string, state model.TaskExecutionState) (sqlitestore.TaskExecutionPhase, string, error) {
 	if s.Durability == nil {
-		return fmt.Errorf("shared durability is unavailable")
+		return sqlitestore.TaskExecutionPhase{}, "", fmt.Errorf("shared durability is unavailable")
 	}
-	base := state.BaseHead
-	if phase.Stage != "code" {
+	if state.ProjectID != projectID || state.TaskID != key || state.Status != model.TaskExecutionAwaitingReview || state.Stage != stage {
+		return sqlitestore.TaskExecutionPhase{}, "", fmt.Errorf("Task is not awaiting %s review", stage)
+	}
+	phase, found, err := s.Durability.ReadLatestTaskExecutionPhase(ctx, projectID, key, stage)
+	if err != nil || !found {
+		if err != nil {
+			return sqlitestore.TaskExecutionPhase{}, "", err
+		}
+		return sqlitestore.TaskExecutionPhase{}, "", fmt.Errorf("Task has no %s submission", stage)
+	}
+	if phase.ProjectID != projectID || phase.TaskID != key || phase.Stage != stage ||
+		phase.EventKind != "submission" || phase.Status != model.TaskExecutionAwaitingReview || phase.Decision != "" || phase.Comment != "" ||
+		phase.ExecutionRevision != state.ExecutionRevision || phase.TaskRevisionSHA256 != state.TaskRevisionSHA256 ||
+		phase.Head != state.Head || phase.Branch != state.Branch {
+		return sqlitestore.TaskExecutionPhase{}, "", fmt.Errorf("Task review is stale")
+	}
+	if model.ValidateCommitSHA(phase.Head) != nil {
+		return sqlitestore.TaskExecutionPhase{}, "", fmt.Errorf("Task review has invalid head authority")
+	}
+	if state.Worktree != taskExecutionWorktree(key, phase.Head[:8]) {
+		return sqlitestore.TaskExecutionPhase{}, "", fmt.Errorf("Task review has invalid worktree authority")
+	}
+	actual, branch, clean, err := s.taskExecutionLaneHead(ctx, projectID, key, state)
+	if err != nil || !clean || branch != state.Branch || actual != phase.Head {
+		return sqlitestore.TaskExecutionPhase{}, "", fmt.Errorf("assigned Task lane must be clean on the submitted head")
+	}
+	comparisonBase := state.BaseHead
+	ancestryBase := state.BaseHead
+	if stage != "code" {
 		previous := "code"
-		if phase.Stage == "rebase" {
+		if stage == "rebase" {
 			previous = "tests"
 		}
-		accepted, found, err := s.Durability.ReadLatestAcceptedTaskExecutionPhase(ctx, state.ProjectID, state.TaskID, previous)
-		if err != nil {
-			return err
+		accepted, acceptedFound, acceptedErr := s.Durability.ReadLatestAcceptedTaskExecutionPhase(ctx, projectID, key, previous)
+		if acceptedErr != nil {
+			return sqlitestore.TaskExecutionPhase{}, "", acceptedErr
 		}
-		if !found || accepted.Head == "" {
-			return fmt.Errorf("accepted %s submission is required for review", previous)
+		wantStatus := model.TaskExecutionDispatched
+		if previous == "tests" {
+			wantStatus = model.TaskExecutionReadyForVerification
 		}
-		base = accepted.Head
-	}
-	project, err := s.EffectiveProjectConfig(state.ProjectID)
-	if err != nil {
-		return err
+		if !acceptedFound || accepted.ProjectID != projectID || accepted.TaskID != key || accepted.Stage != previous ||
+			accepted.EventKind != "review" || accepted.Decision != "accept" || accepted.Status != wantStatus ||
+			accepted.ExecutionRevision >= phase.ExecutionRevision || accepted.CreatedAt.After(phase.CreatedAt) ||
+			accepted.TaskRevisionSHA256 != state.TaskRevisionSHA256 || model.ValidateCommitSHA(accepted.Head) != nil || accepted.Branch != state.Branch {
+			return sqlitestore.TaskExecutionPhase{}, "", fmt.Errorf("accepted %s submission is required for review", previous)
+		}
+		comparisonBase = accepted.Head
+		if stage == "rebase" {
+			ancestryBase = state.BaseHead
+		} else {
+			ancestryBase = accepted.Head
+		}
 	}
 	lanePath, err := gitx.TaskWorktreePath(s.Config.StateDir, state.ProjectID, state.TaskID)
 	if err != nil {
-		return err
+		return sqlitestore.TaskExecutionPhase{}, "", err
 	}
-	project.Root = lanePath
-	ancestor, err := s.Git.IsAncestor(ctx, project.Root, base, phase.Head)
+	ancestor, err := s.Git.IsAncestor(ctx, lanePath, ancestryBase, phase.Head)
 	if err != nil || !ancestor {
-		return fmt.Errorf("Task %s review head is not descended from its required base", phase.Stage)
+		return sqlitestore.TaskExecutionPhase{}, "", fmt.Errorf("Task %s review head is not descended from its required base", stage)
 	}
-	return nil
+	return phase, comparisonBase, nil
 }

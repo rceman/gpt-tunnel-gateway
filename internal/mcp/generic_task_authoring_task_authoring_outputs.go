@@ -276,7 +276,10 @@ func (s *Server) registerTaskAuthoringActions() error {
 			}
 			result := map[string]any{"key": in.Key, "revisions": rows}
 			if page.HasMore {
-				result["next_cursor"] = pagination.EncodeServerCursor("task-history:"+in.ProjectID+":"+in.Key, fmt.Sprintf("%d", page.NextRevision))
+				if page.NextCursor == "" {
+					return nil, fmt.Errorf("task history continuation cursor is required")
+				}
+				result["next_cursor"] = pagination.EncodeOpaqueKeyset("task-history:"+in.ProjectID+":"+in.Key, page.NextCursor)
 			}
 			return result, nil
 		},

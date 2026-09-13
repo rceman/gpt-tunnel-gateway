@@ -11,7 +11,7 @@ import (
 
 func TestAdmissionBuildsOnlyExactReadySnapshots(t *testing.T) {
 	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
-	task := model.TaskAuthoring{SchemaVersion: model.TaskAuthoringSchemaVersion, ID: "GTW-TSK179", ProjectID: "gateway", Revision: 1, Title: "Ready task", Objective: "A ready task for admission.", ADRRelation: model.TaskADRNoRequired, Status: model.TaskAuthoringReady, CreatedBy: "planner", CreatedAt: now, UpdatedAt: now, ReadySeal: &model.TaskReadySeal{Revision: 1, ReadyBy: "planner", ReadyAt: now}}
+	task := model.TaskAuthoring{SchemaVersion: model.TaskAuthoringSchemaVersion, ID: "GTW-TSK179", ProjectID: "gateway", Revision: 1, Title: "Ready task", Summary: "Ready task summary.", Objective: "A ready task for admission.", ADRRelation: model.TaskADRNoRequired, Status: model.TaskAuthoringReady, CreatedBy: "planner", CreatedAt: now, UpdatedAt: now, ReadySeal: &model.TaskReadySeal{Revision: 1, ReadyBy: "planner", ReadyAt: now}}
 	digest, err := model.HashTaskAuthoring(task)
 	if err != nil {
 		t.Fatal(err)
@@ -32,6 +32,7 @@ func readyAdmissionTask(t *testing.T, id string, now time.Time) model.TaskAuthor
 	t.Helper()
 	draft := AuthoringDraft{
 		Title:       "Ready " + id,
+		Summary:     "Ready task summary for train admission.",
 		Objective:   "A ready task for train admission.",
 		ADRRelation: model.TaskADRNoRequired,
 	}

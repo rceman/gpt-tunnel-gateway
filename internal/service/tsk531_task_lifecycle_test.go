@@ -90,15 +90,15 @@ func TestTSK531SharedTaskLifecycleContract(t *testing.T) {
 	if err != nil || len(page.Tasks) != 1 || page.Tasks[0].Summary != newSummary || page.Tasks[0].Revision != 2 {
 		t.Fatalf("summary query page=%#v err=%v", page, err)
 	}
-	if archived, err := s.TaskLifecycleArchive(ctx, "example", created.ID, "planner", "retire"); err != nil || archived.Revision != 3 || archived.Status != model.TaskAuthoringArchived {
+	if archived, err := s.TaskLifecycleArchive(ctx, "example", created.ID, "planner", "retire"); err != nil || archived.Revision != 2 || archived.RevisionSHA256 != updated.RevisionSHA256 || archived.Status != model.TaskAuthoringArchived {
 		t.Fatalf("archive=%#v err=%v", archived, err)
 	}
 	history, err := s.TaskLifecycleHistory(ctx, "example", created.ID, "")
 	if err != nil || len(history.Records) != 3 || history.Records[2].MutationKind != "archive" {
 		t.Fatalf("history=%#v err=%v", history, err)
 	}
-	if got := taskArchiveChangedFields(true); len(got) != 2 || got[1] != "ready_seal" {
-		t.Fatalf("ready seal change fields=%v", got)
+	if history.Records[0].Revision != 1 || history.Records[1].Revision != 2 || history.Records[2].Revision != 2 {
+		t.Fatalf("history revisions=%v", history.Records)
 	}
 	repeated, err := s.TaskLifecycleArchive(ctx, "example", created.ID, "planner", "different reason")
 	if err != nil || repeated.Revision != archivedRevision(history) {
@@ -156,8 +156,14 @@ func TestTSK531ReadyArchiveClearsSealAndRecordsIt(t *testing.T) {
 		t.Fatalf("ready fixture did not complete: %#v", ready)
 	}
 	archived, err := s.TaskLifecycleArchive(ctx, "example", task.ID, "planner", "retire ready Task")
-	if err != nil || archived.Status != model.TaskAuthoringArchived || archived.ReadySeal != nil {
+	if err != nil || archived.Status != model.TaskAuthoringArchived || archived.ReadySeal != nil ||
+		archived.Revision != ready.Revision || archived.RevisionSHA256 != ready.RevisionSHA256 {
 		t.Fatalf("ready archive=%#v err=%v", archived, err)
+	}
+	content, err := s.TaskLifecycleRead(ctx, "example", task.ID, ready.Revision)
+	if err != nil || content.Title != "Ready archive fixture" || content.Status != model.TaskAuthoringPlanned ||
+		content.ReadySeal != nil || content.Revision != ready.Revision || content.RevisionSHA256 != ready.RevisionSHA256 {
+		t.Fatalf("content revision read=%#v err=%v", content, err)
 	}
 	history, err := s.TaskLifecycleHistory(ctx, "example", task.ID, "")
 	if err != nil || len(history.Records) == 0 {

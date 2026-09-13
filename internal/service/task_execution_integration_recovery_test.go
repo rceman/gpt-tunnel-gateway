@@ -7,11 +7,16 @@ import (
 	"testing"
 	"time"
 
+	upstream "github.com/rceman/go-sqlite-store/store"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func seedTaskIntegrationRecovery(t *testing.T, status string, executionRevision int, captureRevision int, integrationHead string) (*Service, context.Context, model.TaskExecutionState, string) {
+	return seedTaskIntegrationRecoveryCompleted(t, false, status, executionRevision, captureRevision, integrationHead)
+}
+
+func seedTaskIntegrationRecoveryCompleted(t *testing.T, complete bool, status string, executionRevision int, captureRevision int, integrationHead string) (*Service, context.Context, model.TaskExecutionState, string) {
 	t.Helper()
 	s, _, _ := testService(t)
 	project := s.Config.Projects["example"]
@@ -34,8 +39,30 @@ func seedTaskIntegrationRecovery(t *testing.T, status string, executionRevision 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.taskLifecycleComplete(context.Background(), task.ProjectID, task.ID, "gateway", "integration complete"); err != nil {
-		t.Fatal(err)
+	if complete {
+		entity, err := db.ReadSharedTask(context.Background(), task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var done model.TaskAuthoring
+		if err := json.Unmarshal(entity.Payload, &done); err != nil {
+			t.Fatal(err)
+		}
+		done.Status = model.TaskAuthoringDone
+		done.ReadySeal = nil
+		done.Revision++
+		done.UpdatedAt = time.Now().UTC()
+		done.RevisionSHA256 = ""
+		if done.RevisionSHA256, err = model.HashTaskAuthoring(done); err != nil {
+			t.Fatal(err)
+		}
+		payload, err := json.Marshal(done)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Shared.Batch(context.Background(), []upstream.Statement{{SQL: `UPDATE shared_tasks SET payload=?,revision=?,updated_at=? WHERE id=? AND revision=?`, Args: []any{payload, int64(done.Revision), done.UpdatedAt.UTC().Format(time.RFC3339Nano), task.ID, entity.Revision}, RequireRowsAffected: 1}}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	head := strings.Repeat("a", 40)
 	state := model.TaskExecutionState{
@@ -83,7 +110,7 @@ func seedTaskIntegrationRecovery(t *testing.T, status string, executionRevision 
 	return s, withDurableMutationOperationID(context.Background(), opID), state, opID
 }
 
-func TestTSK521PostMainRecoveryCompletesAfterTaskDone(t *testing.T) {
+func TestTSK521PostMainRecoveryReadsIntegratingState(t *testing.T) {
 	s, ctx, want, _ := seedTaskIntegrationRecovery(t, model.TaskExecutionIntegrating, 1, 1, strings.Repeat("d", 40))
 	got, found, err := s.readExecutionForIntegration(ctx, want.ProjectID, want.TaskID)
 	if err != nil || !found || got != want {
@@ -104,7 +131,7 @@ func TestTSK521CompletedIntegrationRetryIsIdempotent(t *testing.T) {
 }
 
 func TestTSK521PartialOrMismatchedIntegrationCaptureFailsClosed(t *testing.T) {
-	s, ctx, want, opID := seedTaskIntegrationRecovery(t, model.TaskExecutionIntegrated, 2, 1, strings.Repeat("d", 40))
+	s, ctx, want, opID := seedTaskIntegrationRecoveryCompleted(t, true, model.TaskExecutionIntegrated, 2, 1, strings.Repeat("d", 40))
 	operation, err := s.readDurableMutation(opID)
 	if err != nil {
 		t.Fatal(err)

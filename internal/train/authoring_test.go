@@ -18,6 +18,7 @@ func (m *taskMemory) replace(task model.TaskAuthoring) {
 func authoringDraft() AuthoringDraft {
 	return AuthoringDraft{
 		Title:              "Bounded train task",
+		Summary:            "Bounded train task summary.",
 		Objective:          "Exercise the storage-independent task lifecycle.",
 		AcceptanceCriteria: []string{"revision is hashed", "ready is sealed"},
 		Constraints:        []string{"no host execution identity"},

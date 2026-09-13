@@ -26,16 +26,19 @@ type TaskExecutionState struct {
 }
 
 const (
-	TaskExecutionPlanned             = "planned"
-	TaskExecutionDispatched          = "dispatched"
-	TaskExecutionInProgress          = "in_progress"
-	TaskExecutionAwaitingReview      = "awaiting_review"
-	TaskExecutionChangesRequested    = "changes_requested"
-	TaskExecutionReadyForIntegration = "ready_for_integration"
-	TaskExecutionIntegrating         = "integrating"
-	TaskExecutionIntegrated          = "integrated"
-	TaskExecutionBlocked             = "blocked"
-	TaskExecutionFailed              = "failed"
+	TaskExecutionPlanned              = "planned"
+	TaskExecutionDispatched           = "dispatched"
+	TaskExecutionInProgress           = "in_progress"
+	TaskExecutionAwaitingReview       = "awaiting_review"
+	TaskExecutionChangesRequested     = "changes_requested"
+	TaskExecutionReadyForVerification = "ready_for_verification"
+	TaskExecutionVerifying            = "verifying"
+	TaskExecutionVerified             = "verified"
+	TaskExecutionIntegrating          = "integrating"
+	TaskExecutionIntegrated           = "integrated"
+	TaskExecutionDone                 = "done"
+	TaskExecutionBlocked              = "blocked"
+	TaskExecutionFailed               = "failed"
 )
 
 var taskExecutionWorktreePattern = regexp.MustCompile(`^WT-TSK[0-9]+-[a-f0-9]{8}$`)
@@ -80,7 +83,7 @@ func ValidateTaskExecutionState(v TaskExecutionState) error {
 
 func validTaskExecutionStatus(value string) bool {
 	switch value {
-	case TaskExecutionDispatched, TaskExecutionInProgress, TaskExecutionAwaitingReview, TaskExecutionChangesRequested, TaskExecutionReadyForIntegration, TaskExecutionIntegrating, TaskExecutionIntegrated, TaskExecutionBlocked, TaskExecutionFailed:
+	case TaskExecutionDispatched, TaskExecutionInProgress, TaskExecutionAwaitingReview, TaskExecutionChangesRequested, TaskExecutionReadyForVerification, TaskExecutionVerifying, TaskExecutionVerified, TaskExecutionIntegrating, TaskExecutionIntegrated, TaskExecutionDone, TaskExecutionBlocked, TaskExecutionFailed:
 		return true
 	default:
 		return false
@@ -88,11 +91,36 @@ func validTaskExecutionStatus(value string) bool {
 }
 
 // IsTaskExecutionTerminal is the single authority for current-task
-// eligibility. Failed and integrated executions are terminal.
+// eligibility. Failed and done executions are terminal.
 func IsTaskExecutionTerminal(status string) bool {
-	return status == TaskExecutionIntegrated || status == TaskExecutionFailed
+	return status == TaskExecutionDone || status == TaskExecutionFailed
 }
 
 func IsTaskExecutionNonTerminal(status string) bool {
 	return status != "" && !IsTaskExecutionTerminal(status)
+}
+
+func IsTaskExecutionAgentActionable(status, stage string) bool {
+	if stage != "code" && stage != "tests" && stage != "rebase" {
+		return false
+	}
+	return status == TaskExecutionDispatched || status == TaskExecutionInProgress || status == TaskExecutionChangesRequested
+}
+
+func IsTaskExecutionAgentOwned(status string) bool {
+	switch status {
+	case TaskExecutionDispatched, TaskExecutionInProgress, TaskExecutionAwaitingReview, TaskExecutionChangesRequested, TaskExecutionReadyForVerification, TaskExecutionVerifying, TaskExecutionVerified, TaskExecutionIntegrating, TaskExecutionBlocked:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsTaskExecutionReworkable(status string) bool {
+	switch status {
+	case TaskExecutionDispatched, TaskExecutionInProgress, TaskExecutionAwaitingReview, TaskExecutionChangesRequested, TaskExecutionReadyForVerification, TaskExecutionVerified, TaskExecutionBlocked:
+		return true
+	default:
+		return false
+	}
 }
