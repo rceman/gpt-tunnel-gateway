@@ -161,7 +161,15 @@ func (s *Service) resolveRuntimeRoleSessionForAgentSelector(selected runtimeAgen
 	}, nil
 }
 
+func (s *Service) ResolveProjectLead(ctx context.Context, projectID string) (RuntimeRoleSession, error) {
+	return s.resolveProjectRoleSession(ctx, projectID, durableSession.RoleLead, "Lead")
+}
+
 func (s *Service) ResolveProjectWorker(ctx context.Context, projectID string) (RuntimeRoleSession, error) {
+	return s.resolveProjectRoleSession(ctx, projectID, durableSession.RoleWorker, "Worker")
+}
+
+func (s *Service) resolveProjectRoleSession(ctx context.Context, projectID, role, roleLabel string) (RuntimeRoleSession, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return RuntimeRoleSession{}, err
 	}
@@ -197,12 +205,12 @@ func (s *Service) ResolveProjectWorker(ctx context.Context, projectID string) (R
 		}
 		matches := make([]durableSession.Record, 0, 1)
 		for _, record := range sessions {
-			if record.Status == durableSession.StatusActive && record.ProjectID == projectID && record.Role == durableSession.RoleWorker && record.SessionRef != nil && *record.SessionRef == binding.SessionKey {
+			if record.Status == durableSession.StatusActive && record.ProjectID == projectID && record.Role == role && record.SessionRef != nil && *record.SessionRef == binding.SessionKey {
 				matches = append(matches, record)
 			}
 		}
 		if len(matches) > 1 {
-			return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_AMBIGUOUS: multiple active Worker Sessions match managed Agent %q", agent.AgentID)
+			return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_AMBIGUOUS: multiple active %s Sessions match managed Agent %q", roleLabel, agent.AgentID)
 		}
 		if len(matches) == 1 {
 			candidates = append(candidates, RuntimeRoleSession{
@@ -214,40 +222,48 @@ func (s *Service) ResolveProjectWorker(ctx context.Context, projectID string) (R
 		}
 	}
 	if len(candidates) == 0 {
-		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_IDENTITY_UNAVAILABLE: no explicitly attached Worker role matches an enabled managed Agent")
+		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_IDENTITY_UNAVAILABLE: no explicitly attached %s role matches an enabled managed Agent", roleLabel)
 	}
 	if len(candidates) != 1 {
-		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_IDENTITY_AMBIGUOUS: project has multiple explicitly attached Worker roles")
+		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_IDENTITY_AMBIGUOUS: project has multiple explicitly attached %s roles", roleLabel)
 	}
 	probe, err := s.Airelay.Status(ctx, candidates[0].Binding.SessionKey)
 	if err != nil || !probe.ControllerReachable || strings.EqualFold(probe.State, "error") || strings.EqualFold(probe.State, "unavailable") {
 		if err != nil {
-			return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_IDENTITY_UNAVAILABLE: Worker Airelay binding is not live: %w", err)
+			return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_IDENTITY_UNAVAILABLE: %s Airelay binding is not live: %w", roleLabel, err)
 		}
-		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_IDENTITY_UNAVAILABLE: Worker Airelay binding is not live")
+		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_IDENTITY_UNAVAILABLE: %s Airelay binding is not live", roleLabel)
 	}
 	candidates[0].RuntimeState = probe.State
 	candidates[0].ControllerReachable = probe.ControllerReachable
 	return candidates[0], nil
 }
 
+func (s *Service) ResolveLeadSession(ctx context.Context, projectID, sessionID string) (RuntimeRoleSession, error) {
+	return s.resolveRoleSession(ctx, projectID, sessionID, durableSession.RoleLead, "Lead")
+}
+
 func (s *Service) ResolveWorkerSession(ctx context.Context, projectID, sessionID string) (RuntimeRoleSession, error) {
+	return s.resolveRoleSession(ctx, projectID, sessionID, durableSession.RoleWorker, "Worker")
+}
+
+func (s *Service) resolveRoleSession(ctx context.Context, projectID, sessionID, role, roleLabel string) (RuntimeRoleSession, error) {
 	if sessionID == "" {
-		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: Worker Session is required")
+		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: %s Session is required", roleLabel)
 	}
 	record, err := durableSession.NewStoreWithDurability(s.Durability).Get(sessionID)
 	if err != nil {
-		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: Worker Session is unavailable: %w", err)
+		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: %s Session is unavailable: %w", roleLabel, err)
 	}
-	if record.Status != durableSession.StatusActive || record.ProjectID != projectID || record.Role != durableSession.RoleWorker || record.SessionRef == nil || strings.TrimSpace(*record.SessionRef) != *record.SessionRef || *record.SessionRef == "" {
-		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: Worker Session binding is inactive or mismatched")
+	if record.Status != durableSession.StatusActive || record.ProjectID != projectID || record.Role != role || record.SessionRef == nil || strings.TrimSpace(*record.SessionRef) != *record.SessionRef || *record.SessionRef == "" {
+		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: %s Session binding is inactive or mismatched", roleLabel)
 	}
-	resolved, err := s.ResolveRuntimeRoleSession(ctx, *record.SessionRef, durableSession.RoleWorker)
+	resolved, err := s.ResolveRuntimeRoleSession(ctx, *record.SessionRef, role)
 	if err != nil {
 		return RuntimeRoleSession{}, err
 	}
 	if resolved.ProjectID != projectID || resolved.Session.ID != sessionID {
-		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: Worker Session binding is stale or mismatched")
+		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: %s Session binding is stale or mismatched", roleLabel)
 	}
 	return resolved, nil
 }
