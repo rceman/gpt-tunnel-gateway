@@ -26,7 +26,6 @@ type Config struct {
 	Hub                    HubConfig                          `json:"hub"`
 	Controller             ControllerConfig                   `json:"controller"`
 	Debug                  DebugConfig                        `json:"debug"`
-	AgentBindings          map[string]AgentBinding            `json:"agent_bindings,omitempty"`
 	ProjectAgentBindings   map[string]map[string]AgentBinding `json:"project_agent_bindings,omitempty"`
 	Projects               map[string]ProjectConfig           `json:"projects"`
 }
@@ -60,41 +59,13 @@ type AgentBinding struct {
 	Profile    string `json:"profile,omitempty"`
 }
 
-// ProjectAgentBindingKey is the canonical key for the legacy flat map when a
-// host config is being migrated to project-scoped bindings.
-func ProjectAgentBindingKey(projectID, agentID string) string {
-	return projectID + "/" + agentID
-}
-
-// ResolveAgentBinding prefers the explicit project-scoped map and then the
-// canonical composite key. The final flat-key fallback is retained only for
-// existing host configs that have not adopted project-scoped bindings yet.
 func (c Config) ResolveAgentBinding(projectID, agentID string) (AgentBinding, bool) {
-	if byProject, ok := c.ProjectAgentBindings[projectID]; ok {
-		binding, found := byProject[agentID]
-		return binding, found
-	}
-	if binding, ok := c.AgentBindings[ProjectAgentBindingKey(projectID, agentID)]; ok {
-		return binding, true
-	}
-	if binding, ok := c.AgentBindings[projectID+"::"+agentID]; ok {
-		return binding, true
-	}
-	binding, ok := c.AgentBindings[agentID]
-	return binding, ok
-}
-
-// ResolveAutoAgentBinding returns the single project-local session configured
-// for a host when the project has not yet materialized an explicit
-// project/agent binding. Callers must apply their own ambiguity and role
-// checks; this method only exposes the host-local fallback and never creates
-// or persists an Agent record.
-func (c Config) ResolveAutoAgentBinding(projectID string) (AgentBinding, bool) {
-	project, ok := c.Projects[projectID]
-	if !ok || strings.TrimSpace(project.AirelaySessionKey) == "" {
+	byProject, ok := c.ProjectAgentBindings[projectID]
+	if !ok {
 		return AgentBinding{}, false
 	}
-	return AgentBinding{SessionKey: project.AirelaySessionKey}, true
+	binding, found := byProject[agentID]
+	return binding, found
 }
 
 func (b AgentBinding) Validate() error {

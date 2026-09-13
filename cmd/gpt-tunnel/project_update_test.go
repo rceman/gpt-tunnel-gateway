@@ -16,7 +16,7 @@ func TestProjectUpdateCLIRequiresExactArgumentShape(t *testing.T) {
 	hubBare, _, _ := testutil.RepoWithBareRemote(t)
 	root := t.TempDir()
 	c := config.Config{
-		SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875",
+		SchemaVersion: 1, GatewayID: "HOM", ListenAddr: "127.0.0.1:8875",
 		StateDir: filepath.Join(root, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20,
 		MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60,
 		AirelayCommand: "/bin/false", Controller: config.ControllerConfig{TunnelHealthListenAddr: "127.0.0.1:8876"},

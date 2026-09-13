@@ -22,7 +22,7 @@ func newSessionTestServer(t *testing.T) *Server {
 	t.Helper()
 	state := filepath.Join(t.TempDir(), "state")
 	hubBare, root, hubHead := testutil.RepoWithBareRemote(t)
-	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", StateDir: state, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"}, Projects: map[string]config.ProjectConfig{
+	c := config.Config{SchemaVersion: 1, GatewayID: "HOM", StateDir: state, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"}, Projects: map[string]config.ProjectConfig{
 		"example": {Root: root, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", ProjectCode: "EXM", AirelaySessionKey: "example_master"},
 	}}
 	db, err := sqlitestore.Open(state)
@@ -125,7 +125,7 @@ func TestSessionLifecyclePersistsAndBindsProjectRole(t *testing.T) {
 	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt", "label": "main"}))
 	record := started["session"].(map[string]any)
 	id := record["session_id"].(string)
-	if !strings.HasPrefix(id, "SP-") || len(id) != 11 || record["project_id"] != "example" || record["role"] != "planner" || record["status"] != "active" {
+	if !strings.HasPrefix(id, "HOM_EXM_P_") || len(id) != 15 || record["project_id"] != "example" || record["role"] != "planner" || record["status"] != "active" {
 		t.Fatalf("bad session projection: %#v", record)
 	}
 	info := genericStructured(t, sessionCall(t, server, map[string]any{"action": "info", "session_id": id}))
@@ -145,19 +145,19 @@ func TestSessionLifecyclePersistsAndBindsProjectRole(t *testing.T) {
 	}
 }
 
-func TestSessionBootstrapCreatesIndependentPlannerAndAgentTypedSessions(t *testing.T) {
+func TestSessionBootstrapCreatesIndependentPlannerAndWorkerTypedSessions(t *testing.T) {
 	server := newSessionTestServer(t)
 	planner := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt"}))
-	agent := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "agent", "session_type": "chatgpt"}))
+	worker := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "worker", "session_type": "chatgpt", "session_ref": "runtime-worker"}))
 	plannerID := planner["session"].(map[string]any)["session_id"].(string)
-	agentID := agent["session"].(map[string]any)["session_id"].(string)
-	if !strings.HasPrefix(plannerID, "SP-") || !strings.HasPrefix(agentID, "SA-") || plannerID == agentID {
-		t.Fatalf("bootstrap did not create independent typed sessions: planner=%q agent=%q", plannerID, agentID)
+	workerID := worker["session"].(map[string]any)["session_id"].(string)
+	if !strings.HasPrefix(plannerID, "HOM_EXM_P_") || !strings.HasPrefix(workerID, "HOM_EXM_W_") || plannerID == workerID {
+		t.Fatalf("bootstrap did not create independent typed sessions: planner=%q worker=%q", plannerID, workerID)
 	}
 	if err := authority.RequirePlanner(context.Background()); err == nil {
 		t.Fatal("untrusted context acquired planner authority")
 	}
-	if err := authority.RequirePlannerOrAgent(authority.WithPlannerOrAgent(context.Background())); err != nil {
+	if err := authority.RequirePlannerOrManagedRuntime(authority.WithPlannerOrManagedRuntime(context.Background())); err != nil {
 		t.Fatalf("combined bootstrap authority rejected: %v", err)
 	}
 }
@@ -169,10 +169,10 @@ func TestSessionListIsSessionlessAndPreservesUpdatedReference(t *testing.T) {
 	}))
 	plannerRecord := planner["session"].(map[string]any)
 	plannerID := plannerRecord["session_id"].(string)
-	agent := genericStructured(t, sessionCall(t, server, map[string]any{
-		"action": "start", "project_id": "example", "role": "agent", "session_type": "chatgpt",
+	worker := genericStructured(t, sessionCall(t, server, map[string]any{
+		"action": "start", "project_id": "example", "role": "worker", "session_type": "chatgpt", "session_ref": "runtime-worker",
 	}))
-	agentID := agent["session"].(map[string]any)["session_id"].(string)
+	workerID := worker["session"].(map[string]any)["session_id"].(string)
 
 	listed := genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": plannerID, "action": "session/list", "input": map[string]any{}}}})))
 	sessions, ok := listed["sessions"].([]any)
@@ -197,7 +197,7 @@ func TestSessionListIsSessionlessAndPreservesUpdatedReference(t *testing.T) {
 		t.Fatalf("session.info did not preserve the new reference: %#v", info)
 	}
 
-	if _, ok := genericStructured(t, sessionCall(t, server, map[string]any{"action": "end", "session_id": agentID}))["session"]; !ok {
+	if _, ok := genericStructured(t, sessionCall(t, server, map[string]any{"action": "end", "session_id": workerID}))["session"]; !ok {
 		t.Fatal("session.end did not return the ended session")
 	}
 	listed = genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": plannerID, "action": "session/list", "input": map[string]any{}}}})))

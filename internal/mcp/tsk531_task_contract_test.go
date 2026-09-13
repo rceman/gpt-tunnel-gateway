@@ -115,7 +115,7 @@ func TestTSK531CanonicalTaskSurfaceAndLegacyEvidenceContract(t *testing.T) {
 		if entry.AuthorityRole != durableSession.RolePlanner || !entry.SessionBound || !entry.SessionRequired || !entry.LocalReadOnly || !entry.LocalReceiptOnly || !entry.Annotations.ReadOnlyHint || !entry.Annotations.IdempotentHint {
 			t.Fatalf("%s authority/annotations=%#v", path, entry)
 		}
-		if actionAuthorityAllowsSessionRole(entry.AuthorityRole, durableSession.RoleAgent) {
+		if actionAuthorityAllowsSessionRole(entry.AuthorityRole, "agent") {
 			t.Fatalf("Agent access allowed for %s", path)
 		}
 	}

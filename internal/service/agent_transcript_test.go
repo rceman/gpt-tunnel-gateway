@@ -38,7 +38,7 @@ func TestAgentTailUsesExplicitSessionWithoutDurableAgentLookup(t *testing.T) {
 		Airelay: airelay.Client{Command: script, Timeout: time.Second},
 	}
 	result, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{
-		SessionID:  "SP-FASTTAIL",
+		SessionID:  "HOM_EXM_W_aaaaa",
 		SessionKey: "example_master",
 		Lines:      30,
 	})
@@ -49,7 +49,7 @@ func TestAgentTailUsesExplicitSessionWithoutDurableAgentLookup(t *testing.T) {
 		t.Fatalf("unexpected local tail result: %#v", result)
 	}
 	repeat, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{
-		SessionID:  "SP-FASTTAIL",
+		SessionID:  "HOM_EXM_W_aaaaa",
 		SessionKey: "example_master",
 		Lines:      20,
 	})
@@ -57,7 +57,7 @@ func TestAgentTailUsesExplicitSessionWithoutDurableAgentLookup(t *testing.T) {
 		t.Fatalf("unchanged session tail was not deduplicated: %#v err=%v", repeat, err)
 	}
 	independent, err := s.AgentTailPage(context.Background(), "example", AgentTailInput{
-		SessionID:  "SP-OTHER",
+		SessionID:  "HOM_EXM_W_ddddd",
 		SessionKey: "example_master",
 		Lines:      20,
 	})
@@ -91,7 +91,7 @@ func TestResolveAgentTailSessionUsesDurableBindingAndRejectsInvalidRecords(t *te
 	}, db)
 	store := durableSession.NewStoreWithDurability(db)
 	ref := "durable-agent-ref"
-	active, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
+	active, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,29 +99,34 @@ func TestResolveAgentTailSessionUsesDurableBindingAndRejectsInvalidRecords(t *te
 	if err != nil || resolved != ref {
 		t.Fatalf("durable Agent binding=%q err=%v, want %q", resolved, err, ref)
 	}
-	wrongProject, err := store.Create(durableSession.CreateInput{ProjectID: "other", ProjectCode: "OTH", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
+	wrongProject, err := store.Create(durableSession.CreateInput{ProjectID: "other", ProjectCode: "OTH", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
 	if err != nil {
 		t.Fatal(err)
 	}
-	planner, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RolePlanner, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ended, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
+	ended, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.End(ended.ID); err != nil {
 		t.Fatal(err)
 	}
-	nilRef, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT})
+	now := time.Now().UTC()
+	nilRecord := durableSession.Record{
+		SchemaVersion: durableSession.SchemaVersion, ID: "HOM_EXM_W_ccccc", ProjectID: "example", ProjectCode: "EXM",
+		Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT,
+		Status: durableSession.StatusActive, CreatedAt: now, StartedAt: now, UpdatedAt: now,
+	}
+	nilPayload, err := json.Marshal(nilRecord)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateLocalSession(context.Background(), sqlitestore.LocalSession{ID: nilRecord.ID, Payload: nilPayload, UpdatedAt: now.Format(time.RFC3339Nano), Status: nilRecord.Status}); err != nil {
 		t.Fatal(err)
 	}
 	invalidRef := "not a valid ref"
 	invalidRecord := durableSession.Record{
 		SchemaVersion: durableSession.SchemaVersion, ID: "SA-ABC-1234", ProjectID: "example", ProjectCode: "EXM",
-		Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &invalidRef,
+		Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &invalidRef,
 		Status: durableSession.StatusActive, CreatedAt: time.Now().UTC(), StartedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 	}
 	payload, err := json.Marshal(invalidRecord)
@@ -136,9 +141,8 @@ func TestResolveAgentTailSessionUsesDurableBindingAndRejectsInvalidRecords(t *te
 	}{
 		{"unknown", "SA-ABC-9999"},
 		{"wrong project", wrongProject.ID},
-		{"planner role", planner.ID},
 		{"inactive", ended.ID},
-		{"nil ref", nilRef.ID},
+		{"nil ref", nilRecord.ID},
 		{"invalid ref", invalidRecord.ID},
 		{"invalid selector", "not-an-agent-session"},
 	} {
@@ -172,7 +176,7 @@ func TestAgentTailContinuationPreservesUnreadBacklogAcrossBudgets(t *testing.T) 
 		Airelay: airelay.Client{Command: script, Timeout: time.Second},
 	}
 	input := AgentTailInput{
-		SessionID:       "SP-BACKLOG",
+		SessionID:       "HOM_EXM_W_bbbbb",
 		SessionKey:      "example_master",
 		Lines:           3,
 		PreserveBacklog: true,
@@ -193,15 +197,15 @@ func TestAgentTailContinuationPreservesUnreadBacklogAcrossBudgets(t *testing.T) 
 
 func TestAgentTailObservationKeyScopesSessionProjectAndTarget(t *testing.T) {
 	s := &Service{}
-	firstPath, firstLock := s.agentTailStateLocation("SP-ONE", "project-one", "project-one_master")
-	samePath, sameLock := s.agentTailStateLocation("SP-ONE", "project-one", "project-one_master")
+	firstPath, firstLock := s.agentTailStateLocation("HOM_EXM_W_ccccc", "project-one", "project-one_master")
+	samePath, sameLock := s.agentTailStateLocation("HOM_EXM_W_ccccc", "project-one", "project-one_master")
 	if firstPath != samePath || firstLock != sameLock {
 		t.Fatalf("identical observation identity was not stable: %q/%q vs %q/%q", firstPath, firstLock, samePath, sameLock)
 	}
 	variants := [][3]string{
-		{"SP-TWO", "project-one", "project-one_master"},
-		{"SP-ONE", "project-two", "project-one_master"},
-		{"SP-ONE", "project-one", "project-two_master"},
+		{"HOM_EXM_W_eeeee", "project-one", "project-one_master"},
+		{"HOM_EXM_W_ccccc", "project-two", "project-one_master"},
+		{"HOM_EXM_W_ccccc", "project-one", "project-two_master"},
 	}
 	for _, variant := range variants {
 		path, lock := s.agentTailStateLocation(variant[0], variant[1], variant[2])

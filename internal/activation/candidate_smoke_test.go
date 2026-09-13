@@ -47,7 +47,7 @@ func TestSmokeCandidateReachesHTTPReadyWithinExistingDeadline(t *testing.T) {
 	t.Cleanup(func() { _ = fixtureHubLock.Release() })
 	c := config.Config{
 		SchemaVersion:          1,
-		GatewayID:              "candidate_test",
+		GatewayID:              "HOM",
 		ListenAddr:             "127.0.0.1:18877",
 		StateDir:               fixtureStateDir,
 		MaxReadBytes:           1 << 20,

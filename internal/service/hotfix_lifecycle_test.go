@@ -158,7 +158,7 @@ func TestHotfixCreateRollsBackTaskBindingWhenIdentityWriteFails(t *testing.T) {
 
 func TestTaskWorkDeliveredHotfixReceiptAvoidsSecondPrompt(t *testing.T) {
 	s, hubRevision, _ := testService(t)
-	s.Config.AgentBindings["example/coder-example"] = config.AgentBinding{SessionKey: "example_master", Profile: "coding"}
+	s.Config.ProjectAgentBindings["example"]["coder-example"] = config.AgentBinding{SessionKey: "example_master", Profile: "coding"}
 	logPath := filepath.Join(t.TempDir(), "prompts")
 	installServiceExecutionSessionFixture(t, s, logPath)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)

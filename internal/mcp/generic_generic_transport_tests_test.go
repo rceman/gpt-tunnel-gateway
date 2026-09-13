@@ -24,7 +24,12 @@ func genericSessionWithRole(t *testing.T, s *service.Service, projectID, role st
 	if projectID != "example" {
 		projectCode = "OTH"
 	}
-	record, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{ProjectID: projectID, ProjectCode: projectCode, Role: role, SessionType: durableSession.SessionTypeChatGPT})
+	input := durableSession.CreateInput{ProjectID: projectID, ProjectCode: projectCode, Role: role, SessionType: durableSession.SessionTypeChatGPT}
+	if durableSession.WorkflowRoleRequiresRef(role) {
+		ref := "runtime-" + role
+		input.SessionRef = &ref
+	}
+	record, err := mcpSQLiteSessionStore(t, s).Create(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,12 +68,12 @@ func TestGenericSessionStartIsDiscoverableAndCreatesPlannerSession(t *testing.T)
 		t.Fatalf("session.start public call failed: %#v", dispatch)
 	}
 	session := dispatch["session"].(map[string]any)
-	if session["role"] != durableSession.RolePlanner || !strings.HasPrefix(session["session_id"].(string), "SP-") {
+	if session["role"] != durableSession.RolePlanner || !strings.HasPrefix(session["session_id"].(string), "HOM_EXM_P_") {
 		t.Fatalf("generic planner bootstrap did not create SP session: %#v", session)
 	}
 }
 func TestGenericTransportSchemasAreCompactAndApplicationIndependent(t *testing.T) {
-	s, _ := mcpServiceWithSQLite(t, config.Config{GatewayID: "home_pc"})
+	s, _ := mcpServiceWithSQLite(t, config.Config{GatewayID: "HOM"})
 	server := &Server{
 		Service:          s,
 		AuthorityContext: authority.WithPlanner(context.Background()),

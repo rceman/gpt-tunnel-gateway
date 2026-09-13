@@ -1396,7 +1396,8 @@ func TestTSK585HistoricalSessionAuthority(t *testing.T) {
 		return event.ID
 	}
 	store := durableSession.NewStoreWithDurability(s.Durability)
-	agentSession, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT})
+	agentRef := "example_master"
+	agentSession, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &agentRef})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1458,10 +1459,11 @@ func TestTSK585HistoricalSessionAuthority(t *testing.T) {
 	reject("agent session with planner actor", agent)
 	reject("ended planner session", ended)
 	reject("cross-project planner session", cross)
-	postDatedID := "SP-EXM-ZZZZ"
+	postDatedID := "HOM_EXM_P_zzzzz"
 	postDatedEvent := record(&postDatedID, "planner")
 	time.Sleep(2 * time.Millisecond)
-	postStore := durableSession.Store{Durability: s.Durability, TypedIDGenerator: func(string) (string, error) { return postDatedID, nil }}
+	postStore := durableSession.NewStoreWithGateway(s.Durability, "HOM")
+	postStore.TypedIDGenerator = func(string) (string, error) { return postDatedID, nil }
 	if _, err := postStore.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RolePlanner, SessionType: durableSession.SessionTypeChatGPT}); err != nil {
 		t.Fatal(err)
 	}

@@ -80,7 +80,7 @@ func TestAgentPromptWorkerPreservesOriginatingSessionProvenance(t *testing.T) {
 	}
 	s.Airelay.Command = command
 
-	const sessionID = "SP-ABCDEFGH"
+	const sessionID = "HOM_EXM_P_abcde"
 	receipt, err := s.AgentPromptAsync(WithAgentSessionID(context.Background(), sessionID), AgentPromptInput{
 		ProjectID: "example",
 		Message:   "preserve this provenance",

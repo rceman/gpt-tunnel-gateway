@@ -47,7 +47,7 @@ func TestManagedProjectResolutionMCPCapabilitiesAndGitAreDynamic(t *testing.T) {
 	_, rootOne, _ := testutil.RepoWithBareRemote(t)
 	_, rootTwo, _ := testutil.RepoWithBareRemote(t)
 	stateDir := t.TempDir()
-	c := config.Config{GatewayID: "home_pc", ListenAddr: "127.0.0.1:8875", StateDir: stateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: "git@example.invalid:hub.git", Branch: "main"}}
+	c := config.Config{GatewayID: "HOM", ListenAddr: "127.0.0.1:8875", StateDir: stateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: "git@example.invalid:hub.git", Branch: "main"}}
 	server := &Server{Service: service.New(c)}
 	registry := writeMCPManagedRegistry(t, server.Service, rootOne, "managed", "git@example.invalid:managed.git")
 
@@ -99,7 +99,7 @@ func TestManagedProjectResolutionMCPCapabilitiesAndGitAreDynamic(t *testing.T) {
 
 func TestManagedProjectResolutionMCPFailsClosedAndDoesNotWriteAbsentRegistry(t *testing.T) {
 	stateDir := t.TempDir()
-	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc", StateDir: stateDir})}
+	server := &Server{Service: service.New(config.Config{GatewayID: "HOM", StateDir: stateDir})}
 	if _, err := executeMCPTool(t, server, "gateway_capabilities", map[string]any{}); err != nil {
 		t.Fatalf("static-only capabilities failed without registry: %v", err)
 	}

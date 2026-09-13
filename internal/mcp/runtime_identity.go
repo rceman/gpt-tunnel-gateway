@@ -39,8 +39,6 @@ func runtimeRoleForAction(action string, entry genericActionEntry) string {
 	switch entry.AuthorityRole {
 	case durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker:
 		return entry.AuthorityRole
-	case durableSession.RoleAgent:
-		return durableSession.RoleWorker
 	default:
 		return ""
 	}
@@ -51,12 +49,7 @@ func runtimeActionAcceptsManagedRole(action string) bool {
 }
 
 func durableRoleRequiresRuntime(role string) bool {
-	switch role {
-	case durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker:
-		return true
-	default:
-		return false
-	}
+	return durableSession.WorkflowRoleRequiresRuntime(role)
 }
 
 type runtimeSessionResolution struct {

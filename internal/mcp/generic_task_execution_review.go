@@ -114,7 +114,7 @@ func (s *Server) registerTaskExecutionReviewActions() error {
 		return err
 	}
 	registerAgent := func(action GenericAction) error {
-		action.AuthorityRole = durableSession.RoleAgent
+		action.AuthorityRole = durableSession.RoleWorker
 		action.SessionBound = true
 		action.SessionRequired = true
 		action.LocalReceiptOnly = true
@@ -175,7 +175,7 @@ func (s *Server) registerTaskExecutionReviewActions() error {
 		LocalReadOnly:   true,
 		SessionBound:    true,
 		SessionRequired: true,
-		AuthorityRole:   actionRolePlannerOrAgent,
+		AuthorityRole:   actionRolePlannerOrManagedRuntime,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				ProjectID string `json:"project_id"`

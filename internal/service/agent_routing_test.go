@@ -8,9 +8,9 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-func TestResolveAgentDiscoversLegacyAutoBindingProfileByExactSession(t *testing.T) {
+func TestResolveAgentUsesExplicitProjectBinding(t *testing.T) {
 	s, _, _ := testService(t)
-	delete(s.Config.AgentBindings, config.ProjectAgentBindingKey("example", "coder-example"))
+	s.Config.ProjectAgentBindings["example"]["coder-example"] = config.AgentBinding{SessionKey: "example_master", Profile: "coding"}
 	installServiceExecutionSessionFixture(t, s, t.TempDir()+"/prompts")
 
 	resolved, err := s.ResolveAgent(context.Background(), AgentResolveInput{
@@ -22,66 +22,20 @@ func TestResolveAgentDiscoversLegacyAutoBindingProfileByExactSession(t *testing.
 		t.Fatal(err)
 	}
 	if resolved.SessionKey != "example_master" || resolved.Profile != "coding" {
-		t.Fatalf("resolved legacy auto binding=%#v", resolved)
-	}
-	if binding, ok := s.Config.ResolveAutoAgentBinding("example"); !ok || binding.Profile != "" {
-		t.Fatalf("auto binding was persisted or synthesized: %#v, %v", binding, ok)
+		t.Fatalf("resolved explicit project binding=%#v", resolved)
 	}
 }
 
-func TestTaskWorkBootstrapsLegacyAutoBindingProfile(t *testing.T) {
-	s, revision, _ := testService(t)
-	delete(s.Config.AgentBindings, config.ProjectAgentBindingKey("example", "coder-example"))
+func TestResolveAgentFailsClosedWithoutExplicitProjectBinding(t *testing.T) {
+	s, _, _ := testService(t)
+	delete(s.Config.ProjectAgentBindings["example"], "coder-example")
 	installServiceExecutionSessionFixture(t, s, t.TempDir()+"/prompts")
-	revision = enableTrainV2ForTest(t, s, revision)
-	task, revision := readyTrainTaskForTest(t, s, revision, "Legacy auto Agent profile")
-	train, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
-		ProjectID: "example",
-		TaskIDs:   []string{task.ID},
-		CreatedBy: "planner",
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: revision,
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	seedTrainExecutionSession(t, s, train.ID)
-	work, err := s.TaskWork(context.Background(), TaskWorkInput{TaskID: task.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if work.TrainID != train.ID || work.TaskID != task.ID || work.Text == "" {
-		t.Fatalf("legacy auto-bound TaskWork=%#v", work)
-	}
-	if binding, ok := s.Config.ResolveAutoAgentBinding("example"); !ok || binding.Profile != "" {
-		t.Fatalf("TaskWork persisted discovered profile: %#v, %v", binding, ok)
-	}
-}
 
-func TestTaskWorkBootstrapsLegacyAutoBindingWithReadySessionState(t *testing.T) {
-	s, revision, _ := testService(t)
-	delete(s.Config.AgentBindings, config.ProjectAgentBindingKey("example", "coder-example"))
-	installServiceExecutionSessionFixtureState(t, s, t.TempDir()+"/prompts", "ready")
-	revision = enableTrainV2ForTest(t, s, revision)
-	task, revision := readyTrainTaskForTest(t, s, revision, "Legacy auto Agent ready state")
-	train, _, err := s.TrainV2Create(context.Background(), TrainV2CreateInput{
+	if _, err := s.ResolveAgent(context.Background(), AgentResolveInput{
 		ProjectID: "example",
-		TaskIDs:   []string{task.ID},
-		CreatedBy: "planner",
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: revision,
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	seedTrainExecutionSession(t, s, train.ID)
-	work, err := s.TaskWork(context.Background(), TaskWorkInput{TaskID: task.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if work.TrainID != train.ID || work.TaskID != task.ID || work.Text == "" {
-		t.Fatalf("ready-state legacy auto TaskWork=%#v", work)
+		Role:      model.AgentRoleCoding,
+		AgentID:   "coder-example",
+	}); err == nil {
+		t.Fatal("Agent resolution succeeded without an explicit project binding")
 	}
 }

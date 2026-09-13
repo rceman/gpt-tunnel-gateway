@@ -19,7 +19,7 @@ import (
 func TestServiceSessionLifecycleUsesRegisteredProject(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "state")
 	hubBare, root, hubHead := testutil.RepoWithBareRemote(t)
-	c := config.Config{StateDir: state, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"}, Projects: map[string]config.ProjectConfig{
+	c := config.Config{GatewayID: "HOM", StateDir: state, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"}, Projects: map[string]config.ProjectConfig{
 		"example": {Root: root, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", ProjectCode: "EXM", AirelaySessionKey: "example_master"},
 	}}
 	db, err := sqlitestore.Open(state)

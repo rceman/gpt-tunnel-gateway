@@ -144,7 +144,7 @@ func TestADR84FrozenConnectorContract(t *testing.T) {
 		t.Fatalf("status is incomplete: %#v", status)
 	}
 	started := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "EXM", "role": durableSession.RolePlanner, "ref": "connector"},
+		"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner, "ref": "connector"},
 	}))
 	sessionID := started["session"].(string)
 	record, err := mcpSQLiteSessionStore(t, server.Service).Get(sessionID)
@@ -222,7 +222,7 @@ func TestADR84RuntimeActionDoesNotRefreshConnector(t *testing.T) {
 	}
 	client.notify(t, "notifications/initialized")
 	client.request(t, "tools/list", map[string]any{})
-	started := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "EXM", "role": durableSession.RolePlanner}}))
+	started := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner}}))
 	sessionID := started["session"].(string)
 	connectionsBefore := connections.Load()
 	if err := server.RegisterGenericAction(GenericAction{

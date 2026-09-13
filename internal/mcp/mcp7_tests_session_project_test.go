@@ -10,7 +10,7 @@ import (
 func TestPublicSchemaFiltersActionsByImmutableSessionRole(t *testing.T) {
 	server := newSessionTestServer(t)
 	plannerID := genericSessionWithRole(t, server.Service, "example", durableSession.RolePlanner)
-	agentID := genericSessionWithRole(t, server.Service, "example", durableSession.RoleAgent)
+	agentID := genericSessionWithRole(t, server.Service, "example", durableSession.RoleWorker)
 
 	schema := func(sessionID, path string) map[string]any {
 		t.Helper()
@@ -41,7 +41,6 @@ func TestPublicSchemaFiltersActionsByImmutableSessionRole(t *testing.T) {
 		sessionID string
 	}{
 		{name: durableSession.RolePlanner, sessionID: plannerID},
-		{name: durableSession.RoleAgent, sessionID: agentID},
 	} {
 		sessionActions := actions(role.sessionID, "session")
 		for _, path := range []string{"session/info", "session/list", "session/end"} {
@@ -57,10 +56,6 @@ func TestPublicSchemaFiltersActionsByImmutableSessionRole(t *testing.T) {
 	plannerRuntime := actions(plannerID, "runtime")
 	if !plannerRuntime["runtime/logs"] || !plannerRuntime["runtime/restart"] {
 		t.Fatalf("planner runtime schema=%#v", plannerRuntime)
-	}
-	agentRuntime := actions(agentID, "runtime")
-	if !agentRuntime["runtime/logs"] || agentRuntime["runtime/restart"] {
-		t.Fatalf("agent runtime schema=%#v", agentRuntime)
 	}
 	plannerTrain := actions(plannerID, "train")
 	if !plannerTrain["train/review-resolve"] {
@@ -98,11 +93,11 @@ func TestProjectBoundSessionFlowUsesCodeAndSessionDerivedProject(t *testing.T) {
 	server := newSessionTestServer(t)
 	started := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "EXM", "role": durableSession.RolePlanner}},
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner}},
 	})))
 	sessionID := started["session"].(string)
-	if !strings.HasPrefix(sessionID, "SP-") {
-		t.Fatalf("session ID did not embed Planner role: %q", sessionID)
+	if !strings.HasPrefix(sessionID, "HOM_EXM_P_") || len(sessionID) != 15 {
+		t.Fatalf("session ID did not use canonical Planner identity: %q", sessionID)
 	}
 	if record, err := mcpSQLiteSessionStore(t, server.Service).Get(sessionID); err != nil || record.ProjectID != "example" {
 		t.Fatalf("session_start was not project-bound: %#v err=%v", record, err)
@@ -116,14 +111,14 @@ func TestProjectBoundSessionFlowUsesCodeAndSessionDerivedProject(t *testing.T) {
 	}
 	bad := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "EXM", "role": "invalid"}},
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": "invalid"}},
 	}))
 	if bad["error"] == nil && bad["result"].(map[string]any)["isError"] != true {
 		t.Fatalf("invalid role was accepted: %#v", bad)
 	}
 	legacyProject := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 5, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "example", "role": durableSession.RolePlanner}},
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "example", "role": durableSession.RolePlanner}},
 	}))
 	if legacyProject["error"] == nil && legacyProject["result"].(map[string]any)["isError"] != true {
 		t.Fatalf("internal project ID was accepted as a public alias: %#v", legacyProject)

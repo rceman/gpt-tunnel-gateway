@@ -133,13 +133,9 @@ func seedTSK571Airelay(t *testing.T) string {
 
 func (f *tsk571HTTPFixture) createSession(t *testing.T, role, runtimeKey string) string {
 	t.Helper()
-	var ref *string
-	if role != durableSession.RoleAgent {
-		value := runtimeKey
-		ref = &value
-	}
+	value := runtimeKey
 	record, err := mcpSQLiteSessionStore(t, f.server.Service).Create(durableSession.CreateInput{
-		ProjectID: "example", ProjectCode: "EXM", Role: role, SessionType: durableSession.SessionTypeChatGPT, SessionRef: ref,
+		ProjectID: "example", ProjectCode: "EXM", Role: role, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &value,
 	})
 	if err != nil {
 		t.Fatalf("create %s Session: %v", role, err)
@@ -374,14 +370,18 @@ func TestTSK571DirectDurableRoleSessionsRequireRuntimeIdentity(t *testing.T) {
 	}
 }
 
-func TestTSK571PlannerAndLegacyAgentDirectSessionsRemainValid(t *testing.T) {
+func TestTSK571PlannerDirectSessionWorksAndAgentRoleIsRejected(t *testing.T) {
 	t.Setenv("GPT_TUNNEL_SESSION", "")
-	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleAgent}, true, true)
-	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleAgent} {
-		result := fixture.call(t, fixture.sessions[role], "task/read", map[string]any{"key": fixture.task.ID})
-		if result["ok"] != true {
-			t.Fatalf("direct %s Session task/read failed: %#v", role, result)
-		}
+	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner}, true, true)
+	result := fixture.call(t, fixture.sessions[durableSession.RolePlanner], "task/read", map[string]any{"key": fixture.task.ID})
+	if result["ok"] != true {
+		t.Fatalf("direct Planner Session task/read failed: %#v", result)
+	}
+	ref := "runtime-tsk571"
+	if _, err := mcpSQLiteSessionStore(t, fixture.server.Service).Create(durableSession.CreateInput{
+		ProjectID: "example", ProjectCode: "EXM", Role: "agent", SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref,
+	}); err == nil {
+		t.Fatal("Agent compatibility role was accepted")
 	}
 }
 
@@ -393,7 +393,7 @@ func TestTSK571AgentOperationsStayBoundToResolvedRuntime(t *testing.T) {
 	if !strings.Contains(message, "managed runtime is not authorized for the requested Agent") {
 		t.Fatalf("wrong Agent selector was not rejected: %q", message)
 	}
-	wrongSession := fixture.call(t, fixture.runtime, "agent/tail", map[string]any{"session": "SA-EXM-ABCD"})
+	wrongSession := fixture.call(t, fixture.runtime, "agent/tail", map[string]any{"session": "HOM_EXM_W_zzzzz"})
 	message = tsk571ErrorMessage(t, wrongSession)
 	if !strings.Contains(message, "managed runtime is not authorized for the requested Agent Session") {
 		t.Fatalf("wrong Agent Session selector was not rejected: %q", message)
@@ -409,8 +409,9 @@ func TestTSK571NewRoleSessionIDsRemainDistinct(t *testing.T) {
 	seen := map[string]string{}
 	for _, role := range []string{durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker} {
 		id := fixture.sessions[role]
-		if !strings.HasPrefix(id, durableSession.SessionIDPrefixAgent+"-") {
-			t.Fatalf("%s Session ID=%q does not use the managed role Session ID family", role, id)
+		code, ok := durableSession.WorkflowRoleCode(role)
+		if !ok || len(id) != 15 || !strings.HasPrefix(id, "HOM_EXM_") || id[8] != code[0] {
+			t.Fatalf("%s Session ID=%q does not use the canonical role Session identity", role, id)
 		}
 		if previous, ok := seen[id]; ok {
 			t.Fatalf("%s Session merged with %s as %q", role, previous, id)

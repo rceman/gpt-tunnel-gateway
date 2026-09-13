@@ -5,6 +5,8 @@ import (
 	"fmt"
 )
 
+const sessionIDAlphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+
 func (s Store) nextID(role, projectCode string) (string, error) {
 	if s.IDGenerator != nil {
 		return s.IDGenerator()
@@ -12,32 +14,29 @@ func (s Store) nextID(role, projectCode string) (string, error) {
 	if s.TypedIDGenerator != nil {
 		return s.TypedIDGenerator(role)
 	}
-	var raw [5]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return "", fmt.Errorf("generate session ID: %w", err)
+	if err := validateGatewayKey(s.GatewayID); err != nil {
+		return "", err
 	}
-	const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-	var value uint64
-	for _, b := range raw {
-		value = value<<8 | uint64(b)
+	if err := validateProjectCode(projectCode); err != nil {
+		return "", err
 	}
-	var encoded [8]byte
-	for i := len(encoded) - 1; i >= 0; i-- {
-		encoded[i] = alphabet[value&31]
-		value >>= 5
-	}
-	prefix := SessionIDPrefixAgent
-	if role == RolePlanner {
-		prefix = SessionIDPrefixPlanner
-	}
-	if !validRole(role) {
+	roleCode, ok := WorkflowRoleCode(role)
+	if !ok {
 		return "", fmt.Errorf("%w: unsupported session role", ErrInvalidSession)
 	}
-	if projectCode != "" {
-		if err := validateProjectCode(projectCode); err != nil {
-			return "", err
+	var suffix [5]byte
+	for i := range suffix {
+		for {
+			var raw [1]byte
+			if _, err := rand.Read(raw[:]); err != nil {
+				return "", fmt.Errorf("generate session ID: %w", err)
+			}
+			if raw[0] >= 252 {
+				continue
+			}
+			suffix[i] = sessionIDAlphabet[int(raw[0])%len(sessionIDAlphabet)]
+			break
 		}
-		return prefix + "-" + projectCode + "-" + string(encoded[4:]), nil
 	}
-	return prefix + "-" + string(encoded[:]), nil
+	return fmt.Sprintf("%s_%s_%s_%s", s.GatewayID, projectCode, roleCode, string(suffix[:])), nil
 }

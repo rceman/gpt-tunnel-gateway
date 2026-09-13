@@ -57,7 +57,7 @@ func (c Client) PromptWithProvenance(ctx context.Context, session, origin, messa
 	}
 	if origin == "" {
 		origin = "GTW"
-	} else if !provenanceRE.MatchString(origin) {
+	} else if !provenanceRE(origin) {
 		return Result{}, fmt.Errorf("invalid durable session provenance")
 	}
 	if message == "" {

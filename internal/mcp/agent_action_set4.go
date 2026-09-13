@@ -88,7 +88,7 @@ func (s *Server) agent_action_set4() error {
 	}
 	if err := register(GenericAction{
 		Path:         "agent/tail",
-		Description:  "Read a bounded transcript window from an optional durable Agent session; omission uses the unique active session, while multiple active sessions require an explicit session.",
+		Description:  "Read a bounded transcript window from an optional durable role Session; omission uses the unique active role-bound Session, while multiple active Sessions require an explicit Session.",
 		InputSchema:  canonicalAgentTailInputSchema(),
 		OutputSchema: canonicalAgentTailOutputSchema(),
 		Annotations: ToolAnnotations{

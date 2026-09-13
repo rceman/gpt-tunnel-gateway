@@ -31,7 +31,7 @@ func TestGuideIsZeroStateAndMatchesCanonicalContent(t *testing.T) {
 		t.Fatalf("guide CLI usage omitted exact Task read command: %q", got.CLIUsage)
 	}
 	for _, text := range []string{
-		"Planner owns Task/ADR decisions",
+		"Planner owns project context and Task/ADR decisions",
 		"git branch --show-current",
 		"Never scan ~/.local/share/gpt-tunnel-gateway",
 		"roughly 2-3 commands",

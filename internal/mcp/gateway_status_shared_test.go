@@ -39,7 +39,7 @@ func TestGatewayStatusUsesSharedProjectProjectionWithoutHub(t *testing.T) {
 	}
 
 	c := config.Config{
-		GatewayID: "test-gateway",
+		GatewayID: "HOM",
 		StateDir:  stateDir,
 		Hub: config.HubConfig{
 			RepositoryURL: filepath.Join(t.TempDir(), "unavailable-hub.git"),

@@ -10,7 +10,7 @@ import (
 )
 
 func TestRemovedRunToolsAreNotRegistered(t *testing.T) {
-	srv := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
+	srv := &Server{Service: service.New(config.Config{GatewayID: "HOM"})}
 	for _, name := range []string{"run_list", "run_read", "run_status", "run_report", "run_review_snapshot", "run_agent_tail", "run_resume", "run_sweep", "run_cancel", "run_cancel_acknowledge_no_mutation"} {
 		if _, ok := srv.tools()[name]; ok {
 			t.Fatalf("obsolete run tool is still registered: %s", name)
@@ -19,7 +19,7 @@ func TestRemovedRunToolsAreNotRegistered(t *testing.T) {
 }
 
 func TestToolCallRejectsInvalidAndOversizedMeta(t *testing.T) {
-	srv := &Server{Service: service.New(config.Config{GatewayID: "home_pc"})}
+	srv := &Server{Service: service.New(config.Config{GatewayID: "HOM"})}
 	for _, meta := range []string{`null`, `[]`, `"value"`} {
 		body := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"status","arguments":{},"_meta":` + meta + `}}`)
 		response := callMCP(t, srv, body)

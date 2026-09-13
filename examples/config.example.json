@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "gateway_id": "home_pc",
+  "gateway_id": "HOM",
   "listen_addr": "127.0.0.1:8875",
   "state_dir": "~/.local/share/gpt-tunnel-gateway",
   "max_read_bytes": 1048576,
@@ -11,7 +11,7 @@
   "airelay_command": "airelay",
   "hub": {
     "repository_url": "git@github.com:rceman/typer.git",
-    "branch": "gpt-tunnel/home_pc",
+    "branch": "gpt-tunnel/HOM",
     "author_name": "GPT Tunnel Gateway",
     "author_email": "gpt-tunnel-gateway@localhost.invalid"
   },

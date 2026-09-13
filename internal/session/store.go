@@ -11,20 +11,17 @@ import (
 )
 
 const (
-	SchemaVersion          = 1
-	RolePlanner            = "planner"
-	RoleLead               = "lead"
-	RoleAdvisor            = "advisor"
-	RoleWorker             = "worker"
-	RoleAgent              = "agent"
-	SessionIDPrefixLegacy  = "S"
-	SessionIDPrefixPlanner = "SP"
-	SessionIDPrefixAgent   = "SA"
-	SessionTypeChatGPT     = "chatgpt"
-	StatusActive           = "active"
-	StatusEnded            = "ended"
-	maxRecordBytes         = 64 << 10
-	maxCreateAttempts      = 16
+	SchemaVersion      = 1
+	RolePlanner        = "planner"
+	RoleLead           = "lead"
+	RoleAdvisor        = "advisor"
+	RoleWorker         = "worker"
+	SessionTypeChatGPT = "chatgpt"
+	StatusActive       = "active"
+	StatusEnded        = "ended"
+	maxRecordBytes     = 64 << 10
+	maxCreateAttempts  = 16
+	defaultGatewayKey  = "HOM"
 )
 
 type Record struct {
@@ -55,12 +52,20 @@ type UpdateInput struct{ SessionRef, Label *string }
 // Store is the production Session repository. Local SQLite is its only authority.
 type Store struct {
 	Durability       *sqlitestore.Databases
+	GatewayID        string
 	IDGenerator      func() (string, error)
 	TypedIDGenerator func(string) (string, error)
 }
 
 func NewStoreWithDurability(durability *sqlitestore.Databases) Store {
-	return Store{Durability: durability}
+	return NewStoreWithGateway(durability, defaultGatewayKey)
+}
+
+func NewStoreWithGateway(durability *sqlitestore.Databases, gatewayID string) Store {
+	return Store{
+		Durability: durability,
+		GatewayID:  gatewayID,
+	}
 }
 func (s Store) requireLocal() error {
 	if s.Durability == nil || s.Durability.Local == nil {
@@ -70,14 +75,13 @@ func (s Store) requireLocal() error {
 }
 func (s Store) Create(input CreateInput) (Record, error) { return s.create(input, true) }
 func (s Store) CreateUnbound(role string, label *string) (Record, error) {
-	return s.create(CreateInput{
-		Role:        role,
-		SessionType: SessionTypeChatGPT,
-		Label:       label,
-	}, false)
+	return Record{}, fmt.Errorf("%w: unbound sessions are not supported", ErrInvalidSession)
 }
 func (s Store) create(input CreateInput, requireProject bool) (Record, error) {
 	if err := validateCreateInput(input, requireProject); err != nil {
+		return Record{}, err
+	}
+	if err := validateGatewayKey(s.GatewayID); err != nil {
 		return Record{}, err
 	}
 	if err := s.requireLocal(); err != nil {
@@ -260,6 +264,9 @@ func (s Store) List() ([]Record, error) {
 	}
 	result := make([]Record, 0, len(rows))
 	for _, row := range rows {
+		if !sessionIDRE.MatchString(row.ID) {
+			continue
+		}
 		record, err := decodeLocal(row)
 		if err != nil {
 			return nil, err

@@ -33,10 +33,7 @@ func TestDebugDomainIsAbsentWhenDisabled(t *testing.T) {
 		// debug; runtime debug actions remain disabled and are checked below.
 		_ = raw
 	}
-	record, err := mcpSQLiteSessionStore(t, server.Service).CreateUnbound(durableSession.RolePlanner, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	record := debugTestSession(t, mcpSQLiteSessionStore(t, server.Service), durableSession.RolePlanner)
 	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{
@@ -118,13 +115,27 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 	}
 }
 
+func debugTestSession(t *testing.T, store durableSession.Store, role string) durableSession.Record {
+	t.Helper()
+	input := durableSession.CreateInput{ProjectID: gatewaySourceProjectID, ProjectCode: "GTW", Role: role, SessionType: durableSession.SessionTypeChatGPT}
+	if durableSession.WorkflowRoleRequiresRef(role) {
+		ref := "runtime-worker"
+		input.SessionRef = &ref
+	}
+	record, err := store.Create(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
 func TestDebugStatusUsesOnlyConfiguredHostLocalState(t *testing.T) {
 	_, sourceRoot, _ := testutil.RepoWithBareRemote(t)
 	s, _ := mcpServiceWithSQLite(t, config.Config{
 		Debug:      config.DebugConfig{Enabled: true},
 		StateDir:   t.TempDir(),
 		Projects:   map[string]config.ProjectConfig{gatewaySourceProjectID: {Root: sourceRoot}},
-		GatewayID:  "debug-test",
+		GatewayID:  "HOM",
 		ListenAddr: "127.0.0.1:1",
 	})
 	server := &Server{
@@ -132,14 +143,7 @@ func TestDebugStatusUsesOnlyConfiguredHostLocalState(t *testing.T) {
 		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	store := mcpSQLiteSessionStore(t, server.Service)
-	record, err := store.CreateUnbound(durableSession.RolePlanner, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	record, err = store.Bind(record.ID, gatewaySourceProjectID, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	record := debugTestSession(t, store, durableSession.RolePlanner)
 	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{
@@ -154,7 +158,7 @@ func TestDebugStatusUsesOnlyConfiguredHostLocalState(t *testing.T) {
 	if result["debug_enabled"] != true || result["source"].(map[string]any)["root"] != sourceRoot {
 		t.Fatalf("debug/status omitted host-local source identity: %#v", result)
 	}
-	if result["gateway_id"] != "debug-test" {
+	if result["gateway_id"] != "HOM" {
 		t.Fatalf("debug/status gateway_id=%#v want debug-test", result["gateway_id"])
 	}
 	if result["source"].(map[string]any)["clean"] != true {
@@ -170,7 +174,7 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 	var gotHead string
 	debugActivationAcceptFn = func(c config.Config, _ string, sourceHead string, _ func(func())) (debugdomain.ActivationResult, error) {
 		gotHead = sourceHead
-		if c.GatewayID != "debug-test" {
+		if c.GatewayID != "HOM" {
 			t.Fatalf("activation gateway_id=%q", c.GatewayID)
 		}
 		return debugdomain.ActivationResult{
@@ -181,7 +185,7 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 	s, _ := mcpServiceWithSQLite(t, config.Config{
 		Debug:     config.DebugConfig{Enabled: true},
 		StateDir:  t.TempDir(),
-		GatewayID: "debug-test",
+		GatewayID: "HOM",
 		Projects:  map[string]config.ProjectConfig{gatewaySourceProjectID: {Root: sourceRoot}},
 	})
 	server := &Server{
@@ -189,14 +193,7 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	store := mcpSQLiteSessionStore(t, server.Service)
-	record, err := store.CreateUnbound(durableSession.RolePlanner, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	record, err = store.Bind(record.ID, gatewaySourceProjectID, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	record := debugTestSession(t, store, durableSession.RolePlanner)
 	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{
@@ -232,15 +229,8 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 		Service:          s,
 		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
-	record, err := mcpSQLiteSessionStore(t, server.Service).CreateUnbound(durableSession.RolePlanner, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
 	store := mcpSQLiteSessionStore(t, server.Service)
-	record, err = store.Bind(record.ID, gatewaySourceProjectID, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	record := debugTestSession(t, store, durableSession.RolePlanner)
 	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{
@@ -276,12 +266,14 @@ func TestDebugActionsRejectNonPlannerSessions(t *testing.T) {
 		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	store := mcpSQLiteSessionStore(t, server.Service)
-	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleAgent} {
-		record, err := store.CreateUnbound(role, nil)
-		if err != nil {
-			t.Fatal(err)
+	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleWorker} {
+		input := durableSession.CreateInput{ProjectID: gatewaySourceProjectID, ProjectCode: "GTW", Role: role, SessionType: durableSession.SessionTypeChatGPT}
+		if durableSession.WorkflowRoleRequiresRef(role) {
+			ref := "runtime-worker"
+			input.SessionRef = &ref
 		}
-		if _, err := store.Bind(record.ID, gatewaySourceProjectID, nil); err != nil {
+		record, err := store.Create(input)
+		if err != nil {
 			t.Fatal(err)
 		}
 		response := callMCPRaw(t, server, mustJSON(t, map[string]any{

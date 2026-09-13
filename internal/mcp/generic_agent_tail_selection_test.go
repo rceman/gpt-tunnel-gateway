@@ -28,7 +28,7 @@ func TestGenericAgentTailSelectsOnlyUnambiguousDurableAgentSession(t *testing.T)
 	plannerID := genericSession(t, s, "example")
 	store := mcpSQLiteSessionStore(t, s)
 	refOne := "durable-ref-one"
-	one, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &refOne})
+	one, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &refOne})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,10 +63,10 @@ func TestGenericAgentTailSelectsOnlyUnambiguousDurableAgentSession(t *testing.T)
 		t.Fatalf("zero-session failure invoked Airelay: %v", err)
 	}
 	refA, refB := "durable-ref-a", "durable-ref-b"
-	if _, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &refA}); err != nil {
+	if _, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &refA}); err != nil {
 		t.Fatal(err)
 	}
-	b, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &refB})
+	b, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &refB})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -365,7 +365,8 @@ func TestTSK585TaskCompleteEvidenceAuthority(t *testing.T) {
 		return tsk585CompleteEvidence(t, s, task, sessionID, model.OperatorTaskReview, []string{fact}, nil).ID
 	}
 	store := durableSession.NewStoreWithDurability(s.Durability)
-	agentSession, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT})
+	agentRef := "example_master"
+	agentSession, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &agentRef})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,10 +433,11 @@ func TestTSK585TaskCompleteEvidenceAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases["superseded"] = superseded.ID
-	postDatedID := "SP-EXM-ZZZZ"
+	postDatedID := "HOM_EXM_P_zzzzz"
 	postDated := tsk585CompleteEvidence(t, s, task, &postDatedID, model.OperatorTaskReview, []string{fact}, nil)
 	time.Sleep(2 * time.Millisecond)
-	postStore := durableSession.Store{Durability: s.Durability, TypedIDGenerator: func(string) (string, error) { return postDatedID, nil }}
+	postStore := durableSession.NewStoreWithGateway(s.Durability, "HOM")
+	postStore.TypedIDGenerator = func(string) (string, error) { return postDatedID, nil }
 	if _, err := postStore.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RolePlanner, SessionType: durableSession.SessionTypeChatGPT}); err != nil {
 		t.Fatal(err)
 	}

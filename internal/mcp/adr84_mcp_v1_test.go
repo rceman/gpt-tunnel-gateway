@@ -65,14 +65,17 @@ func TestADR84PublicBootstrapAndBoundCallUseExactEnvelopes(t *testing.T) {
 	}
 	guide := call(2, "guide", map[string]any{})
 	roles, ok := guide["roles"].([]any)
-	if !ok || len(roles) != 2 {
-		t.Fatalf("guide omitted roles: %#v", guide)
+	if !ok || len(roles) != 4 {
+		t.Fatalf("guide omitted canonical roles: %#v", guide)
 	}
-	if roles[0].(map[string]any)["key"] != "planner" || roles[0].(map[string]any)["ref_required"] != false || roles[1].(map[string]any)["key"] != "agent" || roles[1].(map[string]any)["ref_required"] != true || roles[1].(map[string]any)["ref_semantics"] != "airelay_session_key" {
-		t.Fatalf("guide role contract=%#v", roles)
+	for index, role := range durableSession.WorkflowRoles() {
+		got := roles[index].(map[string]any)
+		if got["key"] != role.Key || got["ref_required"] != role.RefRequired {
+			t.Fatalf("guide role contract=%#v", roles)
+		}
 	}
-	projects := call(3, "projects", map[string]any{"gateway": "test_gateway"})
-	if projects["gateway"].(map[string]any)["key"] != "test_gateway" {
+	projects := call(3, "projects", map[string]any{"gateway": "HOM"})
+	if projects["gateway"].(map[string]any)["key"] != "HOM" {
 		t.Fatalf("projects gateway=%#v", projects["gateway"])
 	}
 	listedProjects := projects["projects"].([]any)
@@ -80,7 +83,7 @@ func TestADR84PublicBootstrapAndBoundCallUseExactEnvelopes(t *testing.T) {
 		t.Fatalf("projects did not expose compact identity: %#v", projects)
 	}
 	started := call(4, "session_start", map[string]any{
-		"gateway": "test_gateway", "project": "EXM", "role": durableSession.RolePlanner, "ref": "planner-e2e",
+		"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner, "ref": "planner-e2e",
 	})
 	if len(started) != 6 || started["session"] == nil || started["gateway"] == nil || started["project"] == nil || started["rules"] == nil {
 		t.Fatalf("session_start is not ADR84-shaped: %#v", started)

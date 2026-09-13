@@ -155,7 +155,7 @@ func tsk585BrowseFixture(t *testing.T) *Server {
 	_, projectRoot, _ := testutil.RepoWithBareRemote(t)
 	stateDir := t.TempDir()
 	c := config.Config{
-		SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875",
+		SchemaVersion: 1, GatewayID: "HOM", ListenAddr: "127.0.0.1:8875",
 		StateDir: stateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000,
 		Hub:      config.HubConfig{RepositoryURL: filepath.Join(stateDir, "hub.git"), Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"},
 		Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(stateDir, "mirror.git"), Remote: "origin", DefaultBranch: "main"}},
@@ -329,7 +329,7 @@ func TestTSK585TaskGuideMCP(t *testing.T) {
 	if !ok {
 		t.Fatal("task/guide is not registered")
 	}
-	if action.AuthorityRole != actionRolePlannerOrAgent || !action.SessionBound || !action.LocalReadOnly || action.LocalReceiptOnly ||
+	if action.AuthorityRole != actionRolePlannerOrManagedRuntime || !action.SessionBound || !action.LocalReadOnly || action.LocalReceiptOnly ||
 		!action.Annotations.ReadOnlyHint || !action.Annotations.IdempotentHint {
 		t.Fatalf("task/guide flags=%#v", action)
 	}
@@ -378,7 +378,7 @@ func TestTSK585TaskGuideMCPTransport(t *testing.T) {
 	}
 	start := func(role string, ref *string) string {
 		t.Helper()
-		args := map[string]any{"gateway": "test_gateway", "project": "EXM", "role": role}
+		args := map[string]any{"gateway": "HOM", "project": "EXM", "role": role}
 		if ref != nil {
 			args["ref"] = *ref
 		}
@@ -409,9 +409,7 @@ func TestTSK585TaskGuideMCPTransport(t *testing.T) {
 		return decoded, true
 	}
 	planner := start("planner", nil)
-	agentRef := "example_master"
-	agent := start("agent", &agentRef)
-	for name, session := range map[string]string{"planner": planner, "agent": agent} {
+	for name, session := range map[string]string{"planner": planner} {
 		result, ok := call(session, map[string]any{})
 		if !ok || result["is_error"] == true {
 			t.Fatalf("%s task/guide failed: %#v", name, result)
@@ -433,7 +431,7 @@ func TestTSK585TaskGuideMCPTransport(t *testing.T) {
 		t.Fatalf("extra public property must be rejected: %#v", result)
 	}
 	result, _ = func() (map[string]any, bool) {
-		value, err := tsk585TrustedTool(t, server, "call", map[string]any{"session": agent, "action": "task/review", "input": map[string]any{"key": "EXM-TSK1", "stage": "code"}})
+		value, err := tsk585TrustedTool(t, server, "call", map[string]any{"session": planner, "action": "task/review", "input": map[string]any{"key": "EXM-TSK1", "stage": "code"}})
 		if err != nil {
 			return nil, false
 		}

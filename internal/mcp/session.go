@@ -41,8 +41,6 @@ func withRoleAuthority(ctx context.Context, role string) (context.Context, error
 		return authority.WithAdvisor(ctx), nil
 	case durableSession.RoleWorker:
 		return authority.WithWorker(ctx), nil
-	case durableSession.RoleAgent:
-		return authority.WithAgent(ctx), nil
 	default:
 		return nil, fmt.Errorf("unsupported persisted session role %q", role)
 	}

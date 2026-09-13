@@ -27,7 +27,7 @@ func registerTransportProbeActions(t *testing.T, server *Server) {
 			Description:      "transport probe",
 			InputSchema:      input,
 			OutputSchema:     output,
-			AuthorityRole:    actionRolePlannerOrAgent,
+			AuthorityRole:    actionRolePlannerOrManagedRuntime,
 			LocalReceiptOnly: true,
 			Execute: func(ctx context.Context, _ json.RawMessage) (any, error) {
 				return execute(ctx, nil)

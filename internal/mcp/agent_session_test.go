@@ -29,8 +29,11 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	c := config.Config{SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: script, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
+	c := config.Config{SchemaVersion: 1, GatewayID: "HOM", ListenAddr: "127.0.0.1:8875", StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: script, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"}, Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(dir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}}}
 	s, _ := mcpServiceWithSQLite(t, c)
+	s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
+		"example": {"coding-example": {SessionKey: "example_master", Profile: "coding"}},
+	}
 	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "rceman/gpt-review-planner", WorkflowCommit: strings.Repeat("a", 40), Status: "active"}
 	registered, err := s.ProjectRegister(context.Background(), service.ProjectRegisterInput{Project: project, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubHead}})
 	if err != nil {
@@ -40,7 +43,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	adoptedPolicyRevision := adoptTestWorkflowPolicy(t, s, "example", registered.Hub.After)
 	registeredAgentRevision := seedMCPTestCodingAgent(t, s, adoptedPolicyRevision)
 	ref := "example_master"
-	targetSession, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
+	targetSession, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +153,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 }
 
 func TestTailToolSchemaIsSessionBoundAndCursorFree(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "test_gateway", StateDir: t.TempDir()})}
+	server := &Server{Service: service.New(config.Config{GatewayID: "HOM", StateDir: t.TempDir()})}
 	entries := server.genericActionRegistry(server.tools())
 	entry, ok := entries["agent/tail"]
 	if !ok || !entry.SessionBound {

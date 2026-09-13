@@ -11,6 +11,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 func addMCP7BootstrapTools(add func(string, string, map[string]any, func(context.Context, json.RawMessage) (any, error)), s *Server) {
@@ -19,10 +20,7 @@ func addMCP7BootstrapTools(add func(string, string, map[string]any, func(context
 	})
 	add("guide", "Describe the bounded GPT Tunnel bootstrap sequence and server-authorized roles.", guidePublicInputSchema(), func(context.Context, json.RawMessage) (any, error) {
 		return map[string]any{
-			"roles": []map[string]any{
-				{"key": "planner", "ref_required": false},
-				{"key": "agent", "ref_required": true, "ref_semantics": "airelay_session_key"},
-			},
+			"roles": publicWorkflowRoles(),
 			"steps": []string{
 				"Use status to confirm Gateway ingress and readiness.",
 				"Use projects with the Gateway key to discover registered projects.",
@@ -51,9 +49,22 @@ func emptyPublicInputSchema() map[string]any {
 	return schema
 }
 
+func publicWorkflowRoles() []map[string]any {
+	roles := durableSession.WorkflowRoles()
+	result := make([]map[string]any, 0, len(roles))
+	for _, role := range roles {
+		item := map[string]any{"key": role.Key, "ref_required": role.RefRequired}
+		if role.RefSemantics != "" {
+			item["ref_semantics"] = role.RefSemantics
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
 func projectsPublicInputSchema() map[string]any {
 	gateway := str("Canonical registered Gateway key.")
-	gateway["minLength"] = 1
+	gateway["pattern"] = `^[A-Z]{3}$`
 	return obj(map[string]any{
 		"gateway": gateway,
 	}, "gateway")
@@ -80,7 +91,7 @@ func statusPublicOutputSchema() map[string]any {
 
 func guidePublicOutputSchema() map[string]any {
 	role := closedOutput(map[string]any{
-		"key":           outputString(),
+		"key":           durableSession.WorkflowRoleOutputSchema(),
 		"ref_required":  outputBoolean(),
 		"ref_semantics": outputString(),
 	}, "key", "ref_required")

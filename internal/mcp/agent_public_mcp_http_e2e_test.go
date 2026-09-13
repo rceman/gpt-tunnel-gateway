@@ -81,13 +81,13 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 	started := frozenResult(t, client.request(t, "tools/call", map[string]any{
 		"name": "session_start",
 		"arguments": map[string]any{
-			"gateway": "test_gateway",
+			"gateway": "HOM",
 			"project": "EXM",
-			"role":    "agent",
+			"role":    "worker",
 			"ref":     "example_master",
 		},
 	}))
-	if started["role"] != durableSession.RoleAgent {
+	if started["role"] != durableSession.RoleWorker {
 		t.Fatalf("Agent session_start returned %#v", started)
 	}
 	tailSessionID, ok := started["session"].(string)

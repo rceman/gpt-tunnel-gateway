@@ -30,7 +30,7 @@ func TestAgentTailCLIFailsClosedWithoutLocalStoreOrAirelay(t *testing.T) {
 	}
 	configPath := filepath.Join(dir, "config.json")
 	data, err := json.Marshal(config.Config{
-		SchemaVersion: 1, GatewayID: "test-gateway", ListenAddr: "127.0.0.1:8875",
+		SchemaVersion: 1, GatewayID: "HOM", ListenAddr: "127.0.0.1:8875",
 		StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20,
 		MaxListItems: 1000, DispatchTimeoutSeconds: 1, RunTimeoutSeconds: 60,
 		AirelayCommand: command, Hub: config.HubConfig{RepositoryURL: dir, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"},

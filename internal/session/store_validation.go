@@ -7,7 +7,8 @@ import (
 	"strings"
 )
 
-var sessionIDRE = regexp.MustCompile(`^(?:S|SP|SD|SA|SW)-(?:[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}|[A-Z]{3}-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{4})$`)
+var sessionIDRE = regexp.MustCompile(`^[A-Z]{3}_[A-Z]{3}_[PLAW]_[a-z0-9]{5}$`)
+var sessionGatewayKeyRE = regexp.MustCompile(`^[A-Z]{3}$`)
 var sessionProjectCodeRE = regexp.MustCompile(`^[A-Z]{3}$`)
 
 var (
@@ -15,6 +16,11 @@ var (
 	ErrAlreadyEnded   = errors.New("session is already ended")
 	ErrInvalidSession = errors.New("invalid session")
 )
+
+// IsCanonicalSessionID reports whether value uses the durable workflow Session identity format.
+func IsCanonicalSessionID(value string) bool {
+	return sessionIDRE.MatchString(value)
+}
 
 func (r Record) Validate() error {
 	if err := validateRecordShape(r); err != nil {
@@ -27,19 +33,23 @@ func (r Record) Validate() error {
 }
 
 func validateRecordShape(r Record) error {
-	if r.SchemaVersion != SchemaVersion || !sessionIDRE.MatchString(r.ID) || !validSessionType(r.SessionType) {
+	if r.SchemaVersion != SchemaVersion || !IsCanonicalSessionID(r.ID) || !validSessionType(r.SessionType) {
 		return fmt.Errorf("%w: invalid session record", ErrInvalidSession)
 	}
-	if r.ProjectCode != "" {
-		if err := validateProjectCode(r.ProjectCode); err != nil {
-			return err
-		}
-		if sessionIDProjectCode(r.ID) != r.ProjectCode {
-			return fmt.Errorf("%w: session project code does not match session ID", ErrInvalidSession)
-		}
+	if r.ProjectCode == "" {
+		return fmt.Errorf("%w: bound session project code is required", ErrInvalidSession)
+	}
+	if err := validateProjectCode(r.ProjectCode); err != nil {
+		return err
+	}
+	if sessionIDProjectCode(r.ID) != r.ProjectCode {
+		return fmt.Errorf("%w: session project code does not match session ID", ErrInvalidSession)
 	}
 	if strings.TrimSpace(r.ProjectID) == "" && r.ProjectRulesRevision != 0 {
 		return fmt.Errorf("%w: unbound session has project rules acknowledgement", ErrInvalidSession)
+	}
+	if strings.TrimSpace(r.ProjectID) == "" {
+		return fmt.Errorf("%w: bound session project is required", ErrInvalidSession)
 	}
 	if r.Status != StatusActive && r.Status != StatusEnded {
 		return fmt.Errorf("%w: invalid session status", ErrInvalidSession)
@@ -53,10 +63,20 @@ func validateRecordShape(r Record) error {
 	if r.Status == StatusEnded && (r.EndedAt == nil || r.EndedAt.Before(r.StartedAt)) {
 		return fmt.Errorf("%w: ended session has invalid ended_at", ErrInvalidSession)
 	}
+	if WorkflowRoleRequiresRef(r.Role) && (r.SessionRef == nil || strings.TrimSpace(*r.SessionRef) == "") {
+		return fmt.Errorf("%w: managed-runtime role requires session_ref", ErrInvalidSession)
+	}
 	if err := validateOptionalText(r.SessionRef, "session_ref"); err != nil {
 		return err
 	}
 	return validateOptionalText(r.Label, "label")
+}
+
+func validateGatewayKey(value string) error {
+	if !sessionGatewayKeyRE.MatchString(value) {
+		return fmt.Errorf("%w: gateway key must be three uppercase letters", ErrInvalidSession)
+	}
+	return nil
 }
 
 func validateProjectCode(value string) error {
@@ -67,34 +87,24 @@ func validateProjectCode(value string) error {
 }
 
 func sessionIDProjectCode(id string) string {
-	parts := strings.Split(id, "-")
-	if len(parts) == 3 && sessionProjectCodeRE.MatchString(parts[1]) {
+	parts := strings.Split(id, "_")
+	if len(parts) == 4 && sessionProjectCodeRE.MatchString(parts[1]) {
 		return parts[1]
 	}
 	return ""
 }
 
 func validRole(role string) bool {
-	switch role {
-	case RolePlanner, RoleLead, RoleAdvisor, RoleWorker, RoleAgent:
-		return true
-	default:
-		return false
-	}
+	return IsWorkflowRole(role)
 }
 
 func sessionIDMatchesRole(id, role string) bool {
-	if strings.HasPrefix(id, SessionIDPrefixLegacy+"-") {
-		return true
-	}
-	prefix, _, ok := strings.Cut(id, "-")
-	if !ok {
+	parts := strings.Split(id, "_")
+	if len(parts) != 4 {
 		return false
 	}
-	if role == RolePlanner {
-		return prefix == SessionIDPrefixPlanner
-	}
-	return prefix == SessionIDPrefixAgent && validRole(role)
+	workflowRole, ok := WorkflowRoleByCode(parts[2])
+	return ok && workflowRole.Key == role
 }
 
 func validSessionType(value string) bool { return value == SessionTypeChatGPT }
@@ -109,6 +119,9 @@ func validateCreateInput(input CreateInput, requireProject bool) error {
 		}
 	} else if requireProject {
 		return fmt.Errorf("%w: project code is required for bound sessions", ErrInvalidSession)
+	}
+	if WorkflowRoleRequiresRef(input.Role) && (input.SessionRef == nil || strings.TrimSpace(*input.SessionRef) == "") {
+		return fmt.Errorf("%w: managed-runtime role requires session_ref", ErrInvalidSession)
 	}
 	if err := validateOptionalText(input.SessionRef, "session_ref"); err != nil {
 		return err

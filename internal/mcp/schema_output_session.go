@@ -1,10 +1,12 @@
 package mcp
 
+import durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
+
 func sessionRecordSchema() map[string]any {
 	sessionID := outputString()
 	sessionID["pattern"] = sessionIDPattern
 	return closedOutput(map[string]any{
-		"schema_version": outputInteger(), "session_id": sessionID, "project_id": outputString(), "project_code": outputString(), "role": outputString(),
+		"schema_version": outputInteger(), "session_id": sessionID, "project_id": outputString(), "project_code": outputString(), "role": durableSession.WorkflowRoleOutputSchema(),
 		"session_type": outputString(), "session_ref": outputString(), "label": outputString(), "status": outputString(),
 		"created_at": outputDateTime(), "started_at": outputDateTime(), "ended_at": outputDateTime(), "updated_at": outputDateTime(),
 	}, "schema_version", "session_id", "project_id", "role", "session_type", "status", "created_at", "started_at", "updated_at")
@@ -27,7 +29,6 @@ func sessionIDOutputSchema() map[string]any {
 }
 
 const (
-	sessionIDBodyPattern  = `(?:[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}|[A-Z]{3}-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{4})`
-	sessionIDPattern      = `^(?:S|SP|SD|SA|SW)-` + sessionIDBodyPattern + `$`
-	agentSessionIDPattern = `^SA-` + sessionIDBodyPattern + `$`
+	sessionIDPattern      = `^[A-Z]{3}_[A-Z]{3}_[PLAW]_[a-z0-9]{5}$`
+	agentSessionIDPattern = sessionIDPattern
 )

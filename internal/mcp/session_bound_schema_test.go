@@ -8,7 +8,7 @@ import (
 )
 
 func TestSessionBoundActionSchemasDoNotExposeProjectID(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "test_gateway"})}
+	server := &Server{Service: service.New(config.Config{GatewayID: "HOM"})}
 	entries := server.genericActionRegistry(server.tools())
 	for path, entry := range entries {
 		if !entry.SessionBound {

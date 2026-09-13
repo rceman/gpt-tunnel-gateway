@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-func TestPlannerOrAgentBootstrapDoesNotBecomeRoleAuthority(t *testing.T) {
-	ctx := WithPlannerOrAgent(context.Background())
-	if err := RequirePlannerOrAgent(ctx); err != nil {
+func TestPlannerOrManagedRuntimeBootstrapDoesNotBecomeRoleAuthority(t *testing.T) {
+	ctx := WithPlannerOrManagedRuntime(context.Background())
+	if err := RequirePlannerOrManagedRuntime(ctx); err != nil {
 		t.Fatalf("bootstrap authority rejected: %v", err)
 	}
 	if err := RequirePlanner(ctx); err == nil {
@@ -16,8 +16,8 @@ func TestPlannerOrAgentBootstrapDoesNotBecomeRoleAuthority(t *testing.T) {
 	if err := RequireRole(ctx, "planner"); err != nil {
 		t.Fatalf("planner session bootstrap was rejected: %v", err)
 	}
-	if err := RequireRole(ctx, "agent"); err != nil {
-		t.Fatalf("agent session bootstrap was rejected: %v", err)
+	if err := RequireRole(ctx, "agent"); err == nil {
+		t.Fatal("Agent compatibility role acquired workflow-role authority")
 	}
 }
 
@@ -30,7 +30,7 @@ func TestBootstrapSessionAuthorityIsNarrowAndRequiresTrustedRoot(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s bootstrap rejected: %v", name, err)
 		}
-		if err := RequirePlannerOrAgent(bootstrapped); err != nil {
+		if err := RequirePlannerOrManagedRuntime(bootstrapped); err != nil {
 			t.Fatalf("%s bootstrap lost combined session capability: %v", name, err)
 		}
 		if err := RequirePlanner(bootstrapped); err == nil {

@@ -217,10 +217,5 @@ func (s *Service) ResolveWorkerSession(ctx context.Context, projectID, sessionID
 }
 
 func runtimeRoleAllowed(role string) bool {
-	switch role {
-	case durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker:
-		return true
-	default:
-		return false
-	}
+	return durableSession.IsWorkflowRole(role)
 }

@@ -16,7 +16,7 @@ import (
 func TestGenericRegisteredActionDiscoveryAndCall(t *testing.T) {
 	server := &Server{
 		Service: func() *service.Service {
-			s, _ := mcpServiceWithSQLite(t, config.Config{GatewayID: "home_pc", StateDir: filepath.Join(t.TempDir(), "state")})
+			s, _ := mcpServiceWithSQLite(t, config.Config{GatewayID: "HOM", StateDir: filepath.Join(t.TempDir(), "state")})
 			return s
 		}(),
 		AuthorityContext: authority.WithPlanner(context.Background()),
@@ -78,7 +78,7 @@ func TestGenericRegisteredActionDiscoveryAndCall(t *testing.T) {
 func TestGenericLegacyReadAndMutationAuthorityReuse(t *testing.T) {
 	server := &Server{
 		Service: func() *service.Service {
-			s, _ := mcpServiceWithSQLite(t, config.Config{GatewayID: "home_pc", StateDir: filepath.Join(t.TempDir(), "state")})
+			s, _ := mcpServiceWithSQLite(t, config.Config{GatewayID: "HOM", StateDir: filepath.Join(t.TempDir(), "state")})
 			return s
 		}(),
 		AuthorityContext: authority.WithPlanner(context.Background()),

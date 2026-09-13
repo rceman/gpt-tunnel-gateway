@@ -77,13 +77,13 @@ func TestPublicSessionStartGatewaySelectionContract(t *testing.T) {
 
 	assertStarted(call(map[string]any{
 		"project": "EXM", "role": durableSession.RolePlanner,
-	}), "test_gateway")
+	}), "HOM")
 	assertStarted(call(map[string]any{
-		"gateway": "test_gateway", "project": "EXM", "role": durableSession.RolePlanner,
-	}), "test_gateway")
+		"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner,
+	}), "HOM")
 
 	unknown := call(map[string]any{
-		"gateway": "not-registered", "project": "EXM", "role": durableSession.RolePlanner,
+		"gateway": "BAD", "project": "EXM", "role": durableSession.RolePlanner,
 	})
 	unknownResult, ok := unknown["result"].(map[string]any)
 	if !ok || unknownResult["isError"] != true {
@@ -94,11 +94,11 @@ func TestPublicSessionStartGatewaySelectionContract(t *testing.T) {
 		t.Fatalf("unknown explicit gateway omitted error content: %#v", unknown)
 	}
 	unknownText, ok := unknownContent[0].(map[string]any)["text"].(string)
-	if !ok || !strings.Contains(unknownText, "unknown gateway") || !strings.Contains(unknownText, "not-registered") {
+	if !ok || !strings.Contains(unknownText, "unknown gateway") || !strings.Contains(unknownText, "BAD") {
 		t.Fatalf("unknown explicit gateway error=%q", unknownText)
 	}
 
-	server.gatewayInventoryFn = func() []string { return []string{"other_gateway", "test_gateway"} }
+	server.gatewayInventoryFn = func() []string { return []string{"OTH", "HOM"} }
 	ambiguous := call(map[string]any{
 		"project": "EXM", "role": durableSession.RolePlanner,
 	})
@@ -107,7 +107,7 @@ func TestPublicSessionStartGatewaySelectionContract(t *testing.T) {
 		t.Fatalf("omitted gateway was accepted for ambiguous inventory: %#v", ambiguous)
 	}
 	ambiguousText := ambiguousResult["content"].([]any)[0].(map[string]any)["text"].(string)
-	if !strings.Contains(ambiguousText, "gateway selection required") || !strings.Contains(ambiguousText, "other_gateway, test_gateway") {
+	if !strings.Contains(ambiguousText, "gateway selection required") || !strings.Contains(ambiguousText, "HOM, OTH") {
 		t.Fatalf("ambiguous gateway error was not deterministic/bounded: %q", ambiguousText)
 	}
 }
@@ -115,11 +115,12 @@ func TestPublicSessionStartGatewaySelectionContract(t *testing.T) {
 func TestPublicSessionStartRejectsDeliveryRole(t *testing.T) {
 	server := newSessionTestServer(t)
 	roleSchema := sessionStartPublicInputSchema()["properties"].(map[string]any)["role"].(map[string]any)
-	if roleSchema["type"] != "string" || roleSchema["minLength"] != 1 || roleSchema["maxLength"] != 256 {
+	if roleSchema["type"] != "string" || roleSchema["minLength"] != 1 || roleSchema["maxLength"] != 16 {
 		t.Fatalf("public session_start role schema=%#v", roleSchema)
 	}
-	if _, ok := roleSchema["enum"]; ok {
-		t.Fatalf("public session_start role schema must not enumerate roles: %#v", roleSchema)
+	enum, ok := roleSchema["enum"].([]any)
+	if !ok || len(enum) != len(durableSession.WorkflowRoles()) {
+		t.Fatalf("public session_start role schema is not registry-backed: %#v", roleSchema)
 	}
 	sessionsDir := filepath.Join(server.Service.Config.StateDir, "sessions")
 	countSessions := func() int {
@@ -136,7 +137,7 @@ func TestPublicSessionStartRejectsDeliveryRole(t *testing.T) {
 	for _, role := range []string{"delivery", "watcher"} {
 		response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-			"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "EXM", "role": role, "ref": role}},
+			"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": role, "ref": role}},
 		}))
 		if response["error"] == nil {
 			result, _ := response["result"].(map[string]any)
@@ -156,7 +157,7 @@ func TestPublicSessionStartAfterTerminationIsFreshAndBoundCallWorks(t *testing.T
 	start := func(role, label string) string {
 		result := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-			"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "test_gateway", "project": "EXM", "role": role, "ref": label}},
+			"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": role, "ref": label}},
 		})))
 		project := result["project"].(map[string]any)
 		if result["role"] != role || result["session"] == "" || project["key"] != "EXM" || project["name"] != "example" {

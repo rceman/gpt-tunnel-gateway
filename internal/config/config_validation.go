@@ -13,7 +13,8 @@ func (c Config) Validate() error {
 		return fmt.Errorf("unsupported config schema_version")
 	}
 	idre := regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
-	if !idre.MatchString(c.GatewayID) {
+	gatewayIDRE := regexp.MustCompile(`^[A-Z]{3}$`)
+	if !gatewayIDRE.MatchString(c.GatewayID) {
 		return fmt.Errorf("invalid gateway_id")
 	}
 	if err := validateLoopbackAddress("listen_addr", c.ListenAddr); err != nil {
@@ -39,14 +40,6 @@ func (c Config) Validate() error {
 	}
 	if err := validateLoopbackAddress("controller.tunnel_health_listen_addr", c.Controller.TunnelHealthListenAddr); err != nil {
 		return err
-	}
-	for agentID, binding := range c.AgentBindings {
-		if !validAgentBindingMapKey(agentID) {
-			return fmt.Errorf("invalid agent binding id %q", agentID)
-		}
-		if err := binding.Validate(); err != nil {
-			return fmt.Errorf("invalid agent binding %q: %w", agentID, err)
-		}
 	}
 	for projectID, bindings := range c.ProjectAgentBindings {
 		if !regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`).MatchString(projectID) {
@@ -82,19 +75,6 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
-}
-
-func validAgentBindingMapKey(value string) bool {
-	if regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`).MatchString(value) {
-		return true
-	}
-	for _, separator := range []string{"/", "::"} {
-		parts := strings.Split(value, separator)
-		if len(parts) == 2 && regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`).MatchString(parts[0]) && regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`).MatchString(parts[1]) {
-			return true
-		}
-	}
-	return false
 }
 
 func validateRepositoryURL(value string) error {

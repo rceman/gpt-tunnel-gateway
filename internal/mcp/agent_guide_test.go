@@ -15,7 +15,7 @@ import (
 )
 
 func TestTSK545AgentGuideIsClosedBoundedAndPlannerOnly(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc", StateDir: t.TempDir()})}
+	server := &Server{Service: service.New(config.Config{GatewayID: "HOM", StateDir: t.TempDir()})}
 	entry, ok := server.genericActionRegistry(server.tools())["agent/guide"]
 	if !ok {
 		t.Fatal("agent/guide is not registered")
@@ -70,11 +70,11 @@ func TestTSK545AgentGuideIsClosedBoundedAndPlannerOnly(t *testing.T) {
 		}
 	}
 	for _, text := range []string{
-		"multiple durable Planner sessions",
-		"exactly one attached enabled coding Agent",
+		"durable Planner, Lead, Advisor, and Worker",
+		"Agent is a generic managed runtime",
 		"zero is an error",
-		"more than one requires explicit SA-*",
-		"SA-GTW-AB12",
+		"more than one requires an explicit canonical Session key",
+		"HOM_GTW_W_a23df",
 		"optional logical Agent selector",
 		"Train and watcher",
 		"project Airelay-session substitution",
@@ -99,9 +99,11 @@ func TestTSK545AgentGuideIsClosedBoundedAndPlannerOnly(t *testing.T) {
 func TestTSK545AgentGuideRejectsNonPlannerSession(t *testing.T) {
 	server := newSessionTestServer(t)
 	store := mcpSQLiteSessionStore(t, server.Service)
+	ref := "runtime-worker"
 	session, err := store.Create(durableSession.CreateInput{
-		ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent,
+		ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker,
 		SessionType: durableSession.SessionTypeChatGPT,
+		SessionRef:  &ref,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +118,7 @@ func TestTSK545AgentGuideRejectsNonPlannerSession(t *testing.T) {
 		t.Fatalf("non-Planner guide call succeeded: %#v", response)
 	}
 	errorValue, _ := response["result"].(map[string]any)["error"].(map[string]any)
-	if !strings.Contains(errorValue["message"].(string), "planner") {
+	if !strings.Contains(errorValue["message"].(string), "managed runtime identity") {
 		t.Fatalf("non-Planner guide error=%#v", response)
 	}
 }

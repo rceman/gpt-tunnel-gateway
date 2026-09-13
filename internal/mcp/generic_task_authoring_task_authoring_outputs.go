@@ -46,7 +46,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 		return s.RegisterGenericAction(action)
 	}
 	registerRead := func(action GenericAction) error {
-		action.AuthorityRole = actionRolePlannerOrAgent
+		action.AuthorityRole = actionRolePlannerOrManagedRuntime
 		action.SessionBound = true
 		action.LocalReceiptOnly = true
 		return s.RegisterGenericAction(action)

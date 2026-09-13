@@ -26,7 +26,7 @@ func TestTaskDeferCLIRouteIsRetired(t *testing.T) {
 	stateDir := t.TempDir()
 	c := config.Config{
 		SchemaVersion:          1,
-		GatewayID:              "test_gateway",
+		GatewayID:              "HOM",
 		ListenAddr:             "127.0.0.1:8875",
 		StateDir:               stateDir,
 		MaxReadBytes:           1,
@@ -82,7 +82,7 @@ func TestTaskLifecycleCLIHardCutKeepsOnlyExecutionRoutes(t *testing.T) {
 	stateDir := t.TempDir()
 	c := config.Config{
 		SchemaVersion:          1,
-		GatewayID:              "test_gateway",
+		GatewayID:              "HOM",
 		ListenAddr:             "127.0.0.1:8875",
 		StateDir:               stateDir,
 		MaxReadBytes:           1,

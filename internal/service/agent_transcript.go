@@ -65,8 +65,8 @@ func AgentSessionID(ctx context.Context) string {
 }
 
 func (s *Service) ResolveAgentTailSession(ctx context.Context, projectID, sessionID string) (string, error) {
-	if model.ValidateObjectIdentifier(sessionID) != nil || !strings.HasPrefix(sessionID, durableSession.SessionIDPrefixAgent+"-") {
-		return "", fmt.Errorf("invalid exact Agent tail session %q", sessionID)
+	if model.ValidateObjectIdentifier(sessionID) != nil {
+		return "", fmt.Errorf("invalid exact workflow Session %q", sessionID)
 	}
 	if s.Durability == nil {
 		return "", fmt.Errorf("Agent tail session %q is unavailable: local session authority is unavailable", sessionID)
@@ -75,8 +75,8 @@ func (s *Service) ResolveAgentTailSession(ctx context.Context, projectID, sessio
 	if err != nil {
 		return "", fmt.Errorf("Agent tail session %q is unavailable: %w", sessionID, err)
 	}
-	if record.ProjectID != projectID || record.Role != durableSession.RoleAgent || record.Status != durableSession.StatusActive {
-		return "", fmt.Errorf("Agent tail session %q is not an active Agent session for project %q", sessionID, projectID)
+	if record.ProjectID != projectID || !durableSession.IsWorkflowRole(record.Role) || record.Status != durableSession.StatusActive {
+		return "", fmt.Errorf("workflow Session %q is not an active bound role Session for project %q", sessionID, projectID)
 	}
 	if record.SessionRef == nil || model.ValidateObjectIdentifier(*record.SessionRef) != nil {
 		return "", fmt.Errorf("Agent tail session %q has no valid Airelay reference", sessionID)
@@ -94,7 +94,7 @@ func (s *Service) ResolveAgentTailSessionForProject(ctx context.Context, project
 	}
 	candidates := make([]durableSession.Record, 0, len(records))
 	for _, record := range records {
-		if record.ProjectID == projectID && record.Role == durableSession.RoleAgent && record.Status == durableSession.StatusActive {
+		if record.ProjectID == projectID && durableSession.IsWorkflowRole(record.Role) && record.Status == durableSession.StatusActive && record.SessionRef != nil {
 			candidates = append(candidates, record)
 		}
 	}

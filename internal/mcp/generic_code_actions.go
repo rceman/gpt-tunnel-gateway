@@ -28,7 +28,7 @@ func (s *Server) registerCodeActions() error {
 		LocalReadOnly:   true,
 		SessionBound:    true,
 		SessionRequired: true,
-		AuthorityRole:   actionRolePlannerOrAgent,
+		AuthorityRole:   actionRolePlannerOrManagedRuntime,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input service.CodeWorktreeInput
 			if err := decode(raw, &input); err != nil {
@@ -54,7 +54,7 @@ func (s *Server) registerCodeActions() error {
 		LocalReadOnly:   true,
 		SessionBound:    true,
 		SessionRequired: true,
-		AuthorityRole:   actionRolePlannerOrAgent,
+		AuthorityRole:   actionRolePlannerOrManagedRuntime,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input service.CodeTreeInput
 			if err := decode(raw, &input); err != nil {
@@ -80,7 +80,7 @@ func (s *Server) registerCodeActions() error {
 		LocalReadOnly:   true,
 		SessionBound:    true,
 		SessionRequired: true,
-		AuthorityRole:   actionRolePlannerOrAgent,
+		AuthorityRole:   actionRolePlannerOrManagedRuntime,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input service.CodeReadInput
 			if err := decode(raw, &input); err != nil {
@@ -106,7 +106,7 @@ func (s *Server) registerCodeActions() error {
 		LocalReadOnly:   true,
 		SessionBound:    true,
 		SessionRequired: true,
-		AuthorityRole:   actionRolePlannerOrAgent,
+		AuthorityRole:   actionRolePlannerOrManagedRuntime,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input service.CodeSearchInput
 			if err := decode(raw, &input); err != nil {
@@ -132,7 +132,7 @@ func (s *Server) registerCodeActions() error {
 		LocalReadOnly:   true,
 		SessionBound:    true,
 		SessionRequired: true,
-		AuthorityRole:   actionRolePlannerOrAgent,
+		AuthorityRole:   actionRolePlannerOrManagedRuntime,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var input service.CodeDiffInput
 			if err := decode(raw, &input); err != nil {

@@ -67,7 +67,7 @@ func (s *Service) SessionStart(ctx context.Context, input SessionStartInput) (Se
 	if _, err := s.ProjectConfigurationRead(ctx, input.ProjectID); err != nil {
 		return SessionResult{}, fmt.Errorf("session project Shared configuration is unavailable: %w", err)
 	}
-	record, err := durableSession.NewStoreWithDurability(s.Durability).Create(durableSession.CreateInput{ProjectID: input.ProjectID, ProjectCode: project.ProjectCode, Role: input.Role, SessionType: input.SessionType, SessionRef: input.SessionRef, Label: input.Label})
+	record, err := durableSession.NewStoreWithGateway(s.Durability, s.Config.GatewayID).Create(durableSession.CreateInput{ProjectID: input.ProjectID, ProjectCode: project.ProjectCode, Role: input.Role, SessionType: input.SessionType, SessionRef: input.SessionRef, Label: input.Label})
 	if err != nil {
 		return SessionResult{}, err
 	}
@@ -105,24 +105,12 @@ func (s *Service) SessionStartByCode(ctx context.Context, projectCode, role stri
 }
 
 func (s *Service) SessionStartUnbound(ctx context.Context, role string, label *string) (SessionResult, error) {
-	if err := authority.RequireRole(ctx, role); err != nil {
-		return SessionResult{}, err
-	}
-	record, err := durableSession.NewStoreWithDurability(s.Durability).CreateUnbound(role, label)
-	if err != nil {
-		return SessionResult{}, err
-	}
-	return SessionResult{
-		Action:  "start",
-		Session: record,
-	}, nil
+	return SessionResult{}, fmt.Errorf("unbound sessions are not supported")
 }
 
 func (s *Service) SessionBind(ctx context.Context, input SessionBindInput) (SessionResult, error) {
 	if err := authority.RequireRole(ctx, durableSession.RolePlanner); err != nil {
-		if err := authority.RequireRole(ctx, durableSession.RoleAgent); err != nil {
-			return SessionResult{}, err
-		}
+		return SessionResult{}, err
 	}
 	project, err := s.ProjectRead(ctx, input.ProjectID)
 	if err != nil {
@@ -134,7 +122,7 @@ func (s *Service) SessionBind(ctx context.Context, input SessionBindInput) (Sess
 	if project.Status != "active" {
 		return SessionResult{}, fmt.Errorf("session project is not active")
 	}
-	record, err := durableSession.NewStoreWithDurability(s.Durability).Bind(input.SessionID, input.ProjectID, input.SessionRef)
+	record, err := durableSession.NewStoreWithGateway(s.Durability, s.Config.GatewayID).Bind(input.SessionID, input.ProjectID, input.SessionRef)
 	if err != nil {
 		return SessionResult{}, err
 	}
@@ -145,7 +133,7 @@ func (s *Service) SessionBind(ctx context.Context, input SessionBindInput) (Sess
 }
 
 func (s *Service) SessionInfo(ctx context.Context, sessionID string) (SessionResult, error) {
-	record, err := durableSession.NewStoreWithDurability(s.Durability).Get(sessionID)
+	record, err := durableSession.NewStoreWithGateway(s.Durability, s.Config.GatewayID).Get(sessionID)
 	if err != nil {
 		return SessionResult{}, err
 	}
@@ -156,7 +144,7 @@ func (s *Service) SessionInfo(ctx context.Context, sessionID string) (SessionRes
 }
 
 func (s *Service) SessionList() (SessionListResult, error) {
-	records, err := durableSession.NewStoreWithDurability(s.Durability).List()
+	records, err := durableSession.NewStoreWithGateway(s.Durability, s.Config.GatewayID).List()
 	if err != nil {
 		return SessionListResult{}, err
 	}
@@ -188,7 +176,7 @@ func cloneSessionString(value *string) *string {
 }
 
 func (s *Service) SessionUpdate(ctx context.Context, input SessionUpdateInput) (SessionResult, error) {
-	record, err := durableSession.NewStoreWithDurability(s.Durability).Update(input.SessionID, durableSession.UpdateInput{SessionRef: input.SessionRef, Label: input.Label})
+	record, err := durableSession.NewStoreWithGateway(s.Durability, s.Config.GatewayID).Update(input.SessionID, durableSession.UpdateInput{SessionRef: input.SessionRef, Label: input.Label})
 	if err != nil {
 		return SessionResult{}, err
 	}
@@ -199,7 +187,7 @@ func (s *Service) SessionUpdate(ctx context.Context, input SessionUpdateInput) (
 }
 
 func (s *Service) SessionEnd(ctx context.Context, sessionID string) (SessionResult, error) {
-	record, err := durableSession.NewStoreWithDurability(s.Durability).End(sessionID)
+	record, err := durableSession.NewStoreWithGateway(s.Durability, s.Config.GatewayID).End(sessionID)
 	if err != nil {
 		return SessionResult{}, err
 	}

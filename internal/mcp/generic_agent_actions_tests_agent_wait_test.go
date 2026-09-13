@@ -72,7 +72,7 @@ func schemaProperties(schema map[string]any) map[string]any {
 }
 
 func TestCanonicalAgentActionsHaveExactADR85Surface(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc", StateDir: t.TempDir()})}
+	server := &Server{Service: service.New(config.Config{GatewayID: "HOM", StateDir: t.TempDir()})}
 	entries := server.genericActionRegistry(server.tools())
 	want := []string{"agent/await", "agent/guide", "agent/interrupt", "agent/list", "agent/prompt", "agent/status", "agent/tail"}
 	got := make([]string, 0)
@@ -110,7 +110,7 @@ func TestCanonicalAgentActionsHaveExactADR85Surface(t *testing.T) {
 }
 
 func TestCanonicalAgentSchemasAreClosedAndBounded(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "home_pc", StateDir: t.TempDir()})}
+	server := &Server{Service: service.New(config.Config{GatewayID: "HOM", StateDir: t.TempDir()})}
 	entries := server.genericActionRegistry(server.tools())
 	assertFields := func(path string, fields, required []string) {
 		schema := entries[path].InputSchema
@@ -182,8 +182,8 @@ esac
 	}
 	s.Config.AirelayCommand = command
 	s.Airelay.Command = command
-	s.Config.AgentBindings = map[string]config.AgentBinding{
-		config.ProjectAgentBindingKey("example", "coding-example"): {SessionKey: "example_master", Profile: "coding"},
+	s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
+		"example": {"coding-example": {SessionKey: "example_master", Profile: "coding"}},
 	}
 	server := &Server{Service: s}
 	sessionID := genericSession(t, s, "example")

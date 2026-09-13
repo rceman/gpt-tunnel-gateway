@@ -18,7 +18,7 @@ import (
 )
 
 func TestToolsListAndToolResultsUseObjects(t *testing.T) {
-	c := config.Config{GatewayID: "test", ListenAddr: "127.0.0.1:1", MaxReadBytes: 1, MaxDiffBytes: 1, MaxListItems: 1}
+	c := config.Config{GatewayID: "HOM", ListenAddr: "127.0.0.1:1", MaxReadBytes: 1, MaxDiffBytes: 1, MaxListItems: 1}
 	s, _ := mcpServiceWithSQLite(t, c)
 	srv := &Server{
 		Service:          s,

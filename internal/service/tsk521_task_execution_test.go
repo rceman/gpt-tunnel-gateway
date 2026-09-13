@@ -121,10 +121,13 @@ func seedTSK521Agent(t *testing.T, s *Service, agentID string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if s.Config.AgentBindings == nil {
-		s.Config.AgentBindings = map[string]config.AgentBinding{}
+	if s.Config.ProjectAgentBindings == nil {
+		s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{}
 	}
-	s.Config.AgentBindings[config.ProjectAgentBindingKey("example", agentID)] = config.AgentBinding{SessionKey: agentID + "_master", Profile: "coding"}
+	if s.Config.ProjectAgentBindings["example"] == nil {
+		s.Config.ProjectAgentBindings["example"] = map[string]config.AgentBinding{}
+	}
+	s.Config.ProjectAgentBindings["example"][agentID] = config.AgentBinding{SessionKey: agentID + "_master", Profile: "coding"}
 }
 
 func TestTSK521TaskDispatchAgentSelectionFailsClosedAndExplicitlySelects(t *testing.T) {
@@ -135,7 +138,7 @@ func TestTSK521TaskDispatchAgentSelectionFailsClosedAndExplicitlySelects(t *test
 			project.AirelaySessionKey = ""
 			return project
 		}()
-		delete(s.Config.AgentBindings, config.ProjectAgentBindingKey("example", "coder-example"))
+		delete(s.Config.ProjectAgentBindings["example"], "coder-example")
 		if _, err := s.ResolveAgent(context.Background(), AgentResolveInput{
 			ProjectID:       "example",
 			Role:            model.AgentRoleCoding,

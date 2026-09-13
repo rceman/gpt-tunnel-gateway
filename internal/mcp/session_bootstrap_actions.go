@@ -29,16 +29,14 @@ func globalWorkflowDigest() string {
 }
 
 func sessionStartPublicInputSchema() map[string]any {
-	ref := str("Optional bounded caller reference; Agent sessions require the exact Airelay session key.")
+	ref := str("Optional bounded caller reference; managed-runtime roles require the exact Airelay session key.")
 	ref["minLength"] = 1
 	ref["maxLength"] = 256
 	gateway := str("Canonical registered Gateway key.")
-	gateway["minLength"] = 1
+	gateway["pattern"] = `^[A-Z]{3}$`
 	project := str("Canonical registered project code.")
-	project["minLength"] = 1
-	role := str("Server-authorized durable session role.")
-	role["minLength"] = 1
-	role["maxLength"] = 256
+	project["pattern"] = `^[A-Z]{3}$`
+	role := durableSession.WorkflowRoleSchema("Server-authorized durable session role.")
 	return obj(map[string]any{
 		"gateway": gateway,
 		"project": project,
@@ -65,7 +63,7 @@ func sessionStartPublicOutputSchema() map[string]any {
 		"session": sessionIDOutputSchema(),
 		"gateway": gateway,
 		"project": project,
-		"role":    outputString(),
+		"role":    durableSession.WorkflowRoleOutputSchema(),
 		"ref":     outputString(),
 		"rules": closedOutput(map[string]any{
 			"digest": outputString(),
@@ -100,27 +98,20 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	if err != nil {
 		return nil, err
 	}
-	if in.Role != durableSession.RolePlanner && (in.Ref == nil || *in.Ref == "") {
+	workflowRole, ok := durableSession.WorkflowRoleByKey(in.Role)
+	if !ok {
+		return nil, fmt.Errorf("unsupported session role %q", in.Role)
+	}
+	if workflowRole.RefRequired && (in.Ref == nil || *in.Ref == "") {
 		return nil, fmt.Errorf("managed role session ref is required")
 	}
 	bootstrapContext, err := authority.BootstrapSessionAuthority(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var sessionContext context.Context
-	switch in.Role {
-	case durableSession.RolePlanner:
-		sessionContext = authority.WithPlanner(bootstrapContext)
-	case durableSession.RoleLead:
-		sessionContext = authority.WithLead(bootstrapContext)
-	case durableSession.RoleAdvisor:
-		sessionContext = authority.WithAdvisor(bootstrapContext)
-	case durableSession.RoleWorker:
-		sessionContext = authority.WithWorker(bootstrapContext)
-	case durableSession.RoleAgent:
-		sessionContext = authority.WithAgent(bootstrapContext)
-	default:
-		return nil, fmt.Errorf("unsupported session role %q", in.Role)
+	sessionContext, err := withRoleAuthority(bootstrapContext, in.Role)
+	if err != nil {
+		return nil, err
 	}
 	started, err := s.Service.SessionStart(sessionContext, service.SessionStartInput{
 		ProjectID:   projectID,

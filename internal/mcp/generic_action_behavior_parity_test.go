@@ -123,7 +123,7 @@ func TestGenericAgentTailTranscriptDedupe(t *testing.T) {
 	}
 	sessionID := genericSession(t, s, "example")
 	ref := "durable-agent-ref"
-	target, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
+	target, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
 	if err != nil {
 		t.Fatal(err)
 	}

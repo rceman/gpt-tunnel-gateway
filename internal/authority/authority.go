@@ -3,14 +3,17 @@ package authority
 import (
 	"context"
 	"fmt"
+
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 type role string
 
 const (
-	planner        role = "planner"
-	plannerOrAgent role = "planner_or_agent"
-	operator       role = "operator"
+	planner                 role = durableSession.RolePlanner
+	plannerOrManagedRuntime role = "planner_or_managed_runtime"
+	operator                role = "operator"
+	managedRuntime          role = "agent"
 )
 
 type contextKey struct{}
@@ -19,39 +22,38 @@ func WithPlanner(ctx context.Context) context.Context {
 	return context.WithValue(ctx, contextKey{}, planner)
 }
 
-// WithAgent marks the server-authorized Agent role used by a durable session.
-// Agent sessions may be created only through the trusted bootstrap boundary.
+// WithAgent marks the server-authorized generic managed runtime.
 func WithAgent(ctx context.Context) context.Context {
-	return context.WithValue(ctx, contextKey{}, role("agent"))
+	return context.WithValue(ctx, contextKey{}, managedRuntime)
 }
 
 func WithLead(ctx context.Context) context.Context {
-	return context.WithValue(ctx, contextKey{}, role("lead"))
+	return context.WithValue(ctx, contextKey{}, role(durableSession.RoleLead))
 }
 
 func WithAdvisor(ctx context.Context) context.Context {
-	return context.WithValue(ctx, contextKey{}, role("advisor"))
+	return context.WithValue(ctx, contextKey{}, role(durableSession.RoleAdvisor))
 }
 
 func WithWorker(ctx context.Context) context.Context {
-	return context.WithValue(ctx, contextKey{}, role("worker"))
+	return context.WithValue(ctx, contextKey{}, role(durableSession.RoleWorker))
 }
 
-// WithPlannerOrAgent is the daemon's narrowly scoped bootstrap authority.
-// It can authorize creation of either durable project session role, but it is
-// intentionally not accepted by role-specific checks.
-func WithPlannerOrAgent(ctx context.Context) context.Context {
-	return context.WithValue(ctx, contextKey{}, plannerOrAgent)
+// WithPlannerOrManagedRuntime is the daemon's narrowly scoped bootstrap authority.
+// It can authorize creation of any canonical durable project Session role, but it
+// is intentionally not accepted by role-specific checks.
+func WithPlannerOrManagedRuntime(ctx context.Context) context.Context {
+	return context.WithValue(ctx, contextKey{}, plannerOrManagedRuntime)
 }
 
-// BootstrapSessionAuthority upgrades an already trusted planner/agent
-// server context only for session.start. It does not grant the combined
-// marker to an untrusted request context.
+// BootstrapSessionAuthority upgrades an already trusted Planner or managed
+// runtime context only for session.start. It does not grant the combined marker
+// to an untrusted request context.
 func BootstrapSessionAuthority(ctx context.Context) (context.Context, error) {
-	if err := RequirePlannerOrAgent(ctx); err != nil {
+	if err := RequirePlannerOrManagedRuntime(ctx); err != nil {
 		return nil, err
 	}
-	return WithPlannerOrAgent(ctx), nil
+	return WithPlannerOrManagedRuntime(ctx), nil
 }
 
 func WithOperator(ctx context.Context) context.Context {
@@ -75,9 +77,9 @@ func Attach(request, trusted context.Context) context.Context {
 	return context.WithValue(request, contextKey{}, v)
 }
 
-func RequirePlannerOrAgent(ctx context.Context) error {
+func RequirePlannerOrManagedRuntime(ctx context.Context) error {
 	v, ok := ctx.Value(contextKey{}).(role)
-	if !ok || (v != planner && v != role("agent") && v != plannerOrAgent) {
+	if !ok || (v != planner && v != managedRuntime && v != plannerOrManagedRuntime) {
 		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
 	}
 	return nil
@@ -91,47 +93,45 @@ func RequirePlanner(ctx context.Context) error {
 }
 
 func RequireAgent(ctx context.Context) error {
-	if v, ok := ctx.Value(contextKey{}).(role); !ok || v != role("agent") {
+	if v, ok := ctx.Value(contextKey{}).(role); !ok || v != managedRuntime {
 		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
 	}
 	return nil
 }
 
 func RequireLead(ctx context.Context) error {
-	if v, ok := ctx.Value(contextKey{}).(role); !ok || v != role("lead") {
+	if v, ok := ctx.Value(contextKey{}).(role); !ok || v != role(durableSession.RoleLead) {
 		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
 	}
 	return nil
 }
 
 func RequireAdvisor(ctx context.Context) error {
-	if v, ok := ctx.Value(contextKey{}).(role); !ok || v != role("advisor") {
+	if v, ok := ctx.Value(contextKey{}).(role); !ok || v != role(durableSession.RoleAdvisor) {
 		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
 	}
 	return nil
 }
 
 func RequireWorker(ctx context.Context) error {
-	if v, ok := ctx.Value(contextKey{}).(role); !ok || v != role("worker") {
+	if v, ok := ctx.Value(contextKey{}).(role); !ok || v != role(durableSession.RoleWorker) {
 		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
 	}
 	return nil
 }
 
 func RequireRole(ctx context.Context, wanted string) error {
-	if v, ok := ctx.Value(contextKey{}).(role); ok && v == plannerOrAgent && (wanted == "planner" || wanted == "agent" || wanted == "lead" || wanted == "advisor" || wanted == "worker") {
+	if v, ok := ctx.Value(contextKey{}).(role); ok && v == plannerOrManagedRuntime && durableSession.IsWorkflowRole(wanted) {
 		return nil
 	}
 	switch wanted {
-	case "planner":
+	case durableSession.RolePlanner:
 		return RequirePlanner(ctx)
-	case "agent":
-		return RequireAgent(ctx)
-	case "lead":
+	case durableSession.RoleLead:
 		return RequireLead(ctx)
-	case "advisor":
+	case durableSession.RoleAdvisor:
 		return RequireAdvisor(ctx)
-	case "worker":
+	case durableSession.RoleWorker:
 		return RequireWorker(ctx)
 	default:
 		return fmt.Errorf("AUTHORITY_UNAVAILABLE")

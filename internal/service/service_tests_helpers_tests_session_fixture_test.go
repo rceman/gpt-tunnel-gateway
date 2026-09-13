@@ -128,7 +128,7 @@ func testServiceWithoutIdentifiersSetup(t *testing.T) (*Service, string, string)
 		t.Fatal(err)
 	}
 	c := config.Config{
-		SchemaVersion: 1, GatewayID: "test_gateway", ListenAddr: "127.0.0.1:8875",
+		SchemaVersion: 1, GatewayID: "HOM", ListenAddr: "127.0.0.1:8875",
 		StateDir: filepath.Join(dir, "state"), MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20,
 		MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: airelay,
 		Hub:      config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"},
@@ -182,8 +182,11 @@ func testServiceSerial(t *testing.T) (*Service, string, string) {
 
 func testServiceSetup(t *testing.T) (*Service, string, string) {
 	s, revision, projectHead := testServiceWithoutIdentifiersSetup(t)
-	if s.Config.AgentBindings == nil {
-		s.Config.AgentBindings = map[string]config.AgentBinding{}
+	if s.Config.ProjectAgentBindings == nil {
+		s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{}
+	}
+	if s.Config.ProjectAgentBindings["example"] == nil {
+		s.Config.ProjectAgentBindings["example"] = map[string]config.AgentBinding{}
 	}
 	adopted, result, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
 		ProjectID:   "example",
@@ -199,7 +202,7 @@ func testServiceSetup(t *testing.T) (*Service, string, string) {
 		t.Fatalf("unexpected adopted identifiers: %#v %#v", adopted, result)
 	}
 	installServiceExecutionSessionFixture(t, s, filepath.Join(t.TempDir(), "prompts"))
-	s.Config.AgentBindings[config.ProjectAgentBindingKey("example", "coder-example")] = config.AgentBinding{SessionKey: "example_master"}
+	s.Config.ProjectAgentBindings["example"]["coder-example"] = config.AgentBinding{SessionKey: "example_master"}
 	now := time.Now().UTC()
 	revision = result.Hub.After
 	for _, agent := range []model.Agent{

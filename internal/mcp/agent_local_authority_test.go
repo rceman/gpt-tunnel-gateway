@@ -24,7 +24,7 @@ func TestCanonicalAgentAwaitUsesLocalAuthorityWhenHubUnavailableAndLocked(t *tes
 	}
 	c := config.Config{
 		SchemaVersion:          1,
-		GatewayID:              "test-gateway",
+		GatewayID:              "HOM",
 		StateDir:               stateDir,
 		MaxReadBytes:           1 << 20,
 		MaxDiffBytes:           1 << 20,
@@ -91,6 +91,9 @@ func TestCanonicalAgentAwaitUsesLocalAuthorityWhenHubUnavailableAndLocked(t *tes
 	}
 
 	s := service.NewWithDurabilityDeferredWorkers(c, db)
+	s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
+		"example": {"coding-example": {SessionKey: "example_master", Profile: "coding"}},
+	}
 	session, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{
 		ProjectID:   "example",
 		ProjectCode: "EXM",
@@ -102,7 +105,7 @@ func TestCanonicalAgentAwaitUsesLocalAuthorityWhenHubUnavailableAndLocked(t *tes
 	}
 	ref := "example_master"
 	tailSession, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{
-		ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleAgent,
+		ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker,
 		SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref,
 	})
 	if err != nil {

@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -24,6 +23,8 @@ func testStore(t *testing.T) (Store, string) {
 	return NewStoreWithDurability(db), state
 }
 
+func stringPtr(value string) *string { return &value }
+
 func testCreateInput(role string) CreateInput {
 	return CreateInput{
 		ProjectID:   "example",
@@ -39,7 +40,7 @@ func TestStoreSQLiteLifecycleHasNoSessionJSONAuthority(t *testing.T) {
 	record, err := store.Create(CreateInput{
 		ProjectID:   "example",
 		ProjectCode: "EXM",
-		Role:        RoleAgent,
+		Role:        RolePlanner,
 		SessionType: SessionTypeChatGPT,
 		SessionRef:  &ref,
 		Label:       &label,
@@ -78,7 +79,7 @@ func TestStoreConcurrentCreateUsesOneLocalDBAndUniqueIDs(t *testing.T) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			record, err := store.CreateUnbound(RolePlanner, nil)
+			record, err := store.Create(testCreateInput(RolePlanner))
 			if err != nil {
 				errs <- err
 				return
@@ -106,23 +107,23 @@ func TestStoreConcurrentCreateUsesOneLocalDBAndUniqueIDs(t *testing.T) {
 
 func TestStoreCreateCollisionRegeneratesWithoutOverwrite(t *testing.T) {
 	store, _ := testStore(t)
-	ids := []string{"SP-EXM-0123", "SP-EXM-0123", "SP-EXM-89AB"}
+	ids := []string{"HOM_EXM_P_aaaaa", "HOM_EXM_P_aaaaa", "HOM_EXM_P_89abz"}
 	store.IDGenerator = func() (string, error) { id := ids[0]; ids = ids[1:]; return id, nil }
 	if _, err := store.Create(testCreateInput(RolePlanner)); err != nil {
 		t.Fatal(err)
 	}
 	created, err := store.Create(testCreateInput(RolePlanner))
-	if err != nil || created.ID != "SP-EXM-89AB" {
+	if err != nil || created.ID != "HOM_EXM_P_89abz" {
 		t.Fatalf("created=%#v err=%v", created, err)
 	}
-	if got, err := store.Get("SP-EXM-0123"); err != nil || got.ID != "SP-EXM-0123" {
+	if got, err := store.Get("HOM_EXM_P_aaaaa"); err != nil || got.ID != "HOM_EXM_P_aaaaa" {
 		t.Fatalf("collision row=%#v err=%v", got, err)
 	}
 }
 
 func TestStoreBindAppliesProjectAndRefInOneRecordMutation(t *testing.T) {
 	store, _ := testStore(t)
-	record, err := store.CreateUnbound(RolePlanner, nil)
+	record, err := store.Create(testCreateInput(RolePlanner))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +139,7 @@ func TestStoreBindAppliesProjectAndRefInOneRecordMutation(t *testing.T) {
 
 func TestStoreConcurrentEndIsIdempotent(t *testing.T) {
 	store, _ := testStore(t)
-	record, err := store.CreateUnbound(RolePlanner, nil)
+	record, err := store.Create(testCreateInput(RolePlanner))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,30 +162,32 @@ func TestStoreConcurrentEndIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestCutoverValidatesThenBatchImportsAndCleansAllFiles(t *testing.T) {
+func TestCutoverLeavesLegacySessionsUntouchedAndUntranslated(t *testing.T) {
 	store, state := testStore(t)
-	now := time.Now().UTC()
-	records := []Record{{SchemaVersion: SchemaVersion, ID: "SP-ABC12345", Role: RolePlanner, SessionType: SessionTypeChatGPT, Status: StatusActive, CreatedAt: now, StartedAt: now, UpdatedAt: now}, {SchemaVersion: SchemaVersion, ID: "SA-ABC12345", Role: RoleAgent, SessionType: SessionTypeChatGPT, Status: StatusActive, CreatedAt: now, StartedAt: now, UpdatedAt: now}}
 	dir := filepath.Join(state, "sessions")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, record := range records {
-		raw, _ := json.Marshal(record)
-		if err := os.WriteFile(filepath.Join(dir, record.ID+".json"), raw, 0o600); err != nil {
-			t.Fatal(err)
-		}
+	legacyID := "SA-ABC12345"
+	path := filepath.Join(dir, legacyID+".json")
+	if err := os.WriteFile(path, []byte(`{"session_id":"SA-ABC12345","role":"agent"}`), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	if err := CutoverLegacyJSON(context.Background(), state, store.Durability); err != nil {
 		t.Fatal(err)
 	}
-	for _, record := range records {
-		if _, err := os.Stat(filepath.Join(dir, record.ID+".json")); !os.IsNotExist(err) {
-			t.Fatalf("legacy file remains: %v", err)
-		}
-		if got, err := store.Get(record.ID); err != nil || got.ID != record.ID {
-			t.Fatalf("import=%#v err=%v", got, err)
-		}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("legacy state was modified: %v", err)
+	}
+	if _, err := store.Get(legacyID); !errors.Is(err, ErrInvalidSession) {
+		t.Fatalf("legacy ID lookup err=%v", err)
+	}
+	records, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("legacy state was translated into records: %#v", records)
 	}
 }
 
@@ -206,7 +209,7 @@ func TestStoreCreateCollisionExhaustionPreservesExistingRow(t *testing.T) {
 
 func TestStoreCASRejectsSecondMutationFromSameObservedGeneration(t *testing.T) {
 	store, _ := testStore(t)
-	record, err := store.CreateUnbound(RolePlanner, nil)
+	record, err := store.Create(testCreateInput(RolePlanner))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,67 +243,45 @@ func TestStoreCASRejectsSecondMutationFromSameObservedGeneration(t *testing.T) {
 	}
 }
 
-func TestCutoverMatchingExistingRowIsIdempotentAndCleansFile(t *testing.T) {
+func TestCutoverDoesNotRewriteLegacySQLiteRows(t *testing.T) {
 	store, state := testStore(t)
-	now := time.Now().UTC()
-	record := Record{
-		SchemaVersion: SchemaVersion,
-		ID:            "SP-ABC12345",
-		Role:          RolePlanner,
-		SessionType:   SessionTypeChatGPT,
-		Status:        StatusActive,
-		CreatedAt:     now,
-		StartedAt:     now,
-		UpdatedAt:     now,
-	}
-	raw, _ := json.Marshal(record)
+	legacyID := "SP-ABC12345"
 	dir := filepath.Join(state, "sessions")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, record.ID+".json")
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Durability.CreateLocalSession(context.Background(), sqlitestore.LocalSession{ID: record.ID, Payload: raw, UpdatedAt: record.UpdatedAt.Format(time.RFC3339Nano), Status: record.Status}); err != nil {
+	path := filepath.Join(dir, legacyID+".json")
+	if err := os.WriteFile(path, []byte(`{"session_id":"SP-ABC12345","role":"planner"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := CutoverLegacyJSON(context.Background(), state, store.Durability); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("matching legacy file remains: %v", err)
+	if _, err := store.Get(legacyID); !errors.Is(err, ErrInvalidSession) {
+		t.Fatalf("legacy SQLite lookup err=%v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("legacy file was removed or rewritten: %v", err)
 	}
 }
 
-func TestCutoverMalformedLaterRecordInsertsNothing(t *testing.T) {
+func TestCutoverIgnoresMalformedLegacyFiles(t *testing.T) {
 	store, state := testStore(t)
-	now := time.Now().UTC()
-	valid := Record{
-		SchemaVersion: SchemaVersion,
-		ID:            "SP-ABC12345",
-		Role:          RolePlanner,
-		SessionType:   SessionTypeChatGPT,
-		Status:        StatusActive,
-		CreatedAt:     now,
-		StartedAt:     now,
-		UpdatedAt:     now,
-	}
 	dir := filepath.Join(state, "sessions")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := json.Marshal(valid)
-	if err := os.WriteFile(filepath.Join(dir, valid.ID+".json"), raw, 0o600); err != nil {
+	path := filepath.Join(dir, "SA-ABC12345.json")
+	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "SA-ABC12345.json"), []byte("{"), 0o600); err != nil {
+	if err := CutoverLegacyJSON(context.Background(), state, store.Durability); err != nil {
 		t.Fatal(err)
 	}
-	if err := CutoverLegacyJSON(context.Background(), state, store.Durability); err == nil {
-		t.Fatal("malformed later record accepted")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("malformed legacy evidence changed: %v", err)
 	}
-	if _, err := store.Get(valid.ID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("partial import occurred: %v", err)
+	if records, err := store.List(); err != nil || len(records) != 0 {
+		t.Fatalf("malformed legacy record surfaced: records=%#v err=%v", records, err)
 	}
 }

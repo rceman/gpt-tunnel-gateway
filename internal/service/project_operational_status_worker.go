@@ -11,14 +11,6 @@ func (s *Service) projectHasExplicitAgentBinding(ctx context.Context, projectID 
 	if bindings, ok := s.Config.ProjectAgentBindings[projectID]; ok && len(bindings) > 0 {
 		return true
 	}
-	prefixes := []string{projectID + "/", projectID + "::"}
-	for key := range s.Config.AgentBindings {
-		for _, prefix := range prefixes {
-			if len(key) > len(prefix) && key[:len(prefix)] == prefix {
-				return true
-			}
-		}
-	}
 	agents, err := s.AgentList(ctx, projectID)
 	if err != nil {
 		return false
