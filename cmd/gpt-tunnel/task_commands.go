@@ -54,9 +54,9 @@ func taskReadGatewayCall(ctx context.Context, s *service.Service, key string) (a
 	if err := model.ValidateCanonicalTaskID(key); err != nil {
 		return nil, err
 	}
-	session := os.Getenv("GPT_TUNNEL_SESSION")
+	session := strings.TrimSpace(os.Getenv("AIRELAY_SESSION_KEY"))
 	if session == "" {
-		return nil, fmt.Errorf("Gateway session authority is required; run this Agent command from a Gateway-bound session")
+		return nil, fmt.Errorf("Gateway session authority is required; run this Agent command from a managed Airelay runtime")
 	}
 	payload := map[string]any{
 		"jsonrpc": "2.0",
@@ -108,9 +108,9 @@ func taskReadGatewayCall(ctx context.Context, s *service.Service, key string) (a
 }
 
 func taskExecutionGatewayCall(ctx context.Context, s *service.Service, command string) (any, error) {
-	session := os.Getenv("GPT_TUNNEL_SESSION")
+	session := strings.TrimSpace(os.Getenv("AIRELAY_SESSION_KEY"))
 	if session == "" {
-		return nil, fmt.Errorf("Gateway session authority is required; run this Agent command from a Gateway-bound session")
+		return nil, fmt.Errorf("Gateway session authority is required; run this Agent command from a managed Airelay runtime")
 	}
 	action := "task/status"
 	if command != "current" {

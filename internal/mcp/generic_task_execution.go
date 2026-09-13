@@ -35,6 +35,9 @@ func taskExecutionOutputSchema() map[string]any {
 func (s *Server) registerTaskExecutionActions() error {
 	register := func(action GenericAction) error {
 		action.AuthorityRole = durableSession.RolePlanner
+		if action.Path == "task/status" {
+			action.AuthorityRole = actionRolePlannerOrLead
+		}
 		action.SessionBound = true
 		action.LocalReceiptOnly = true
 		return s.RegisterGenericAction(action)

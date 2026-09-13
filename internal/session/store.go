@@ -13,6 +13,9 @@ import (
 const (
 	SchemaVersion          = 1
 	RolePlanner            = "planner"
+	RoleLead               = "lead"
+	RoleAdvisor            = "advisor"
+	RoleWorker             = "worker"
 	RoleAgent              = "agent"
 	SessionIDPrefixLegacy  = "S"
 	SessionIDPrefixPlanner = "SP"

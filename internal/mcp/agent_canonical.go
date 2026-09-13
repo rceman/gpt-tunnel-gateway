@@ -41,6 +41,12 @@ func (s *Server) boundAgentProject(ctx context.Context) (string, error) {
 }
 
 func (s *Server) resolveCanonicalAgent(ctx context.Context, projectID, requested string, requireEnabled bool) (canonicalAgentTarget, error) {
+	if runtimeAgentID := managedRuntimeAgentID(ctx); runtimeAgentID != "" {
+		if requested != "" && requested != runtimeAgentID {
+			return canonicalAgentTarget{}, fmt.Errorf("managed runtime is not authorized for the requested Agent")
+		}
+		requested = runtimeAgentID
+	}
 	if requested != "" {
 		if model.ValidateObjectIdentifier(requested) != nil {
 			return canonicalAgentTarget{}, fmt.Errorf("invalid Agent selector")
@@ -118,6 +124,12 @@ func (s *Server) resolveCanonicalAgent(ctx context.Context, projectID, requested
 }
 
 func (s *Server) resolveCanonicalInterruptAgent(ctx context.Context, projectID, requested string) (canonicalAgentTarget, error) {
+	if runtimeAgentID := managedRuntimeAgentID(ctx); runtimeAgentID != "" {
+		if requested != "" && requested != runtimeAgentID {
+			return canonicalAgentTarget{}, fmt.Errorf("managed runtime is not authorized for the requested Agent")
+		}
+		requested = runtimeAgentID
+	}
 	if requested != "" {
 		if model.ValidateObjectIdentifier(requested) != nil {
 			return canonicalAgentTarget{}, fmt.Errorf("invalid Agent selector")
@@ -232,7 +244,13 @@ func (s *Server) canonicalAgentTailAction(ctx context.Context, raw json.RawMessa
 	if err != nil {
 		return nil, err
 	}
-	if in.Session == "" {
+	if hasManagedRuntimeIdentity(ctx) {
+		expected := service.AgentSessionID(ctx)
+		if in.Session != "" && in.Session != expected {
+			return nil, fmt.Errorf("managed runtime is not authorized for the requested Agent Session")
+		}
+		in.Session = expected
+	} else if in.Session == "" {
 		in.Session, err = s.Service.ResolveAgentTailSessionForProject(ctx, projectID)
 		if err != nil {
 			return nil, err

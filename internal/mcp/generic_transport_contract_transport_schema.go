@@ -84,7 +84,7 @@ func removeRequiredKey(value any, remove string) []string {
 	return result
 }
 func genericCallInputSchema() map[string]any {
-	session := str("Existing durable project-bound session identifier.")
+	session := str("Existing durable project-bound Session identifier or the calling managed Airelay runtime identity.")
 	session["minLength"] = 1
 	action := str("Server-owned application action path.")
 	action["minLength"] = 1

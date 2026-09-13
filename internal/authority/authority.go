@@ -25,6 +25,18 @@ func WithAgent(ctx context.Context) context.Context {
 	return context.WithValue(ctx, contextKey{}, role("agent"))
 }
 
+func WithLead(ctx context.Context) context.Context {
+	return context.WithValue(ctx, contextKey{}, role("lead"))
+}
+
+func WithAdvisor(ctx context.Context) context.Context {
+	return context.WithValue(ctx, contextKey{}, role("advisor"))
+}
+
+func WithWorker(ctx context.Context) context.Context {
+	return context.WithValue(ctx, contextKey{}, role("worker"))
+}
+
 // WithPlannerOrAgent is the daemon's narrowly scoped bootstrap authority.
 // It can authorize creation of either durable project session role, but it is
 // intentionally not accepted by role-specific checks.
@@ -85,8 +97,29 @@ func RequireAgent(ctx context.Context) error {
 	return nil
 }
 
+func RequireLead(ctx context.Context) error {
+	if v, ok := ctx.Value(contextKey{}).(role); !ok || v != role("lead") {
+		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
+	}
+	return nil
+}
+
+func RequireAdvisor(ctx context.Context) error {
+	if v, ok := ctx.Value(contextKey{}).(role); !ok || v != role("advisor") {
+		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
+	}
+	return nil
+}
+
+func RequireWorker(ctx context.Context) error {
+	if v, ok := ctx.Value(contextKey{}).(role); !ok || v != role("worker") {
+		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
+	}
+	return nil
+}
+
 func RequireRole(ctx context.Context, wanted string) error {
-	if v, ok := ctx.Value(contextKey{}).(role); ok && v == plannerOrAgent && (wanted == "planner" || wanted == "agent") {
+	if v, ok := ctx.Value(contextKey{}).(role); ok && v == plannerOrAgent && (wanted == "planner" || wanted == "agent" || wanted == "lead" || wanted == "advisor" || wanted == "worker") {
 		return nil
 	}
 	switch wanted {
@@ -94,6 +127,12 @@ func RequireRole(ctx context.Context, wanted string) error {
 		return RequirePlanner(ctx)
 	case "agent":
 		return RequireAgent(ctx)
+	case "lead":
+		return RequireLead(ctx)
+	case "advisor":
+		return RequireAdvisor(ctx)
+	case "worker":
+		return RequireWorker(ctx)
 	default:
 		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
 	}

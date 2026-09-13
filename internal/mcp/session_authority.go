@@ -10,7 +10,11 @@ import (
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
-const actionRolePlannerOrAgent = "planner_or_agent"
+const (
+	actionRolePlannerOrAgent = "planner_or_agent"
+	actionRolePlannerOrLead  = "planner_or_lead"
+	actionRoleManagedRuntime = "managed_runtime"
+)
 
 func actionAuthorityAllowsSessionRole(actionRole, sessionRole string) bool {
 	switch actionRole {
@@ -19,9 +23,19 @@ func actionAuthorityAllowsSessionRole(actionRole, sessionRole string) bool {
 	case durableSession.RolePlanner:
 		return sessionRole == durableSession.RolePlanner
 	case durableSession.RoleAgent:
-		return sessionRole == durableSession.RoleAgent
+		return sessionRole == durableSession.RoleAgent || sessionRole == durableSession.RoleWorker
+	case durableSession.RoleLead:
+		return sessionRole == durableSession.RoleLead
+	case durableSession.RoleAdvisor:
+		return sessionRole == durableSession.RoleAdvisor
+	case durableSession.RoleWorker:
+		return sessionRole == durableSession.RoleWorker || sessionRole == durableSession.RoleAgent
 	case actionRolePlannerOrAgent:
-		return sessionRole == durableSession.RolePlanner || sessionRole == durableSession.RoleAgent
+		return sessionRole == durableSession.RolePlanner || sessionRole == durableSession.RoleAgent || sessionRole == durableSession.RoleLead || sessionRole == durableSession.RoleWorker
+	case actionRolePlannerOrLead:
+		return sessionRole == durableSession.RolePlanner || sessionRole == durableSession.RoleLead
+	case actionRoleManagedRuntime:
+		return sessionRole == durableSession.RolePlanner || sessionRole == durableSession.RoleLead || sessionRole == durableSession.RoleAdvisor || sessionRole == durableSession.RoleWorker || sessionRole == durableSession.RoleAgent
 	default:
 		return false
 	}
@@ -31,6 +45,7 @@ type actionAuthorityContract struct {
 	Role                   string
 	RequiresWorkflowPolicy bool
 	LocalReceiptOnly       bool
+	ManagedRuntime         bool
 }
 
 func actionAuthorityContractFor(toolName string) actionAuthorityContract {
@@ -49,7 +64,7 @@ func actionAuthorityContractFor(toolName string) actionAuthorityContract {
 
 func validateActionAuthorityRole(role string) error {
 	switch role {
-	case "", durableSession.RolePlanner, durableSession.RoleAgent, actionRolePlannerOrAgent:
+	case "", durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker, durableSession.RoleAgent, actionRolePlannerOrAgent, actionRolePlannerOrLead, actionRoleManagedRuntime:
 		return nil
 	default:
 		return fmt.Errorf("unsupported action authority role %q", role)
@@ -155,9 +170,42 @@ func requireActionAuthority(ctx context.Context, contract actionAuthorityContrac
 	case durableSession.RolePlanner:
 		return authority.RequirePlanner(ctx)
 	case durableSession.RoleAgent:
+		if err := authority.RequireAgent(ctx); err == nil {
+			return nil
+		}
+		return authority.RequireWorker(ctx)
+	case durableSession.RoleLead:
+		return authority.RequireLead(ctx)
+	case durableSession.RoleAdvisor:
+		return authority.RequireAdvisor(ctx)
+	case durableSession.RoleWorker:
+		if err := authority.RequireWorker(ctx); err == nil {
+			return nil
+		}
 		return authority.RequireAgent(ctx)
 	case actionRolePlannerOrAgent:
-		return authority.RequirePlannerOrAgent(ctx)
+		if err := authority.RequirePlanner(ctx); err == nil {
+			return nil
+		}
+		if err := authority.RequireLead(ctx); err == nil {
+			return nil
+		}
+		if err := authority.RequireWorker(ctx); err == nil {
+			return nil
+		}
+		return authority.RequireAgent(ctx)
+	case actionRolePlannerOrLead:
+		if err := authority.RequirePlanner(ctx); err == nil {
+			return nil
+		}
+		return authority.RequireLead(ctx)
+	case actionRoleManagedRuntime:
+		for _, check := range []func(context.Context) error{authority.RequirePlanner, authority.RequireLead, authority.RequireAdvisor, authority.RequireWorker, authority.RequireAgent} {
+			if err := check(ctx); err == nil {
+				return nil
+			}
+		}
+		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
 	default:
 		return fmt.Errorf("unsupported action authority role %q", contract.Role)
 	}
@@ -188,34 +236,23 @@ func (s *Server) resolveSessionAuthority(ctx context.Context, record durableSess
 	if err := requireSessionRole(bootstrapContext, record.Role); err != nil {
 		return nil, fmt.Errorf("session authority is not trusted by this server: %w", err)
 	}
-	if contract.Role != "" && contract.Role != actionRolePlannerOrAgent && record.Role != contract.Role {
+	if !contract.ManagedRuntime && !actionAuthorityAllowsSessionRole(contract.Role, record.Role) {
 		return nil, fmt.Errorf("session role %q is not authorized for this action; required %q", record.Role, contract.Role)
-	}
-	if contract.Role == actionRolePlannerOrAgent && record.Role != durableSession.RolePlanner && record.Role != durableSession.RoleAgent {
-		return nil, fmt.Errorf("session role %q is not authorized for this action", record.Role)
 	}
 	if contract.LocalReceiptOnly {
 		if record.ProjectID == "" {
 			return nil, fmt.Errorf("project binding is required for local receipt action")
 		}
-		roleContext := bootstrapContext
-		switch record.Role {
-		case durableSession.RolePlanner:
-			roleContext = authority.WithPlanner(roleContext)
-		case durableSession.RoleAgent:
-			roleContext = authority.WithAgent(roleContext)
+		roleContext, err := withRoleAuthority(bootstrapContext, record.Role)
+		if err != nil {
+			return nil, err
 		}
 		return withResolvedSessionAuthority(roleContext, resolvedSessionAuthority{Session: record}), nil
 	}
 	if record.ProjectID == "" {
-		roleContext := bootstrapContext
-		switch record.Role {
-		case durableSession.RolePlanner:
-			roleContext = authority.WithPlanner(roleContext)
-		case durableSession.RoleAgent:
-			roleContext = authority.WithAgent(roleContext)
-		default:
-			return nil, fmt.Errorf("session role %q is invalid", record.Role)
+		roleContext, err := withRoleAuthority(bootstrapContext, record.Role)
+		if err != nil {
+			return nil, err
 		}
 		return withResolvedSessionAuthority(roleContext, resolvedSessionAuthority{Session: record}), nil
 	}
@@ -240,14 +277,9 @@ func (s *Server) resolveSessionAuthority(ctx context.Context, record durableSess
 		}
 		policy = &value
 	}
-	roleContext := bootstrapContext
-	switch record.Role {
-	case durableSession.RolePlanner:
-		roleContext = authority.WithPlanner(roleContext)
-	case durableSession.RoleAgent:
-		roleContext = authority.WithAgent(roleContext)
-	default:
-		return nil, fmt.Errorf("session role %q is invalid", record.Role)
+	roleContext, err := withRoleAuthority(bootstrapContext, record.Role)
+	if err != nil {
+		return nil, err
 	}
 	return withResolvedSessionAuthority(roleContext, resolvedSessionAuthority{
 		Session: record,

@@ -100,8 +100,8 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	if err != nil {
 		return nil, err
 	}
-	if in.Role == durableSession.RoleAgent && (in.Ref == nil || *in.Ref == "") {
-		return nil, fmt.Errorf("Agent session ref is required")
+	if in.Role != durableSession.RolePlanner && (in.Ref == nil || *in.Ref == "") {
+		return nil, fmt.Errorf("managed role session ref is required")
 	}
 	bootstrapContext, err := authority.BootstrapSessionAuthority(ctx)
 	if err != nil {
@@ -111,6 +111,12 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	switch in.Role {
 	case durableSession.RolePlanner:
 		sessionContext = authority.WithPlanner(bootstrapContext)
+	case durableSession.RoleLead:
+		sessionContext = authority.WithLead(bootstrapContext)
+	case durableSession.RoleAdvisor:
+		sessionContext = authority.WithAdvisor(bootstrapContext)
+	case durableSession.RoleWorker:
+		sessionContext = authority.WithWorker(bootstrapContext)
 	case durableSession.RoleAgent:
 		sessionContext = authority.WithAgent(bootstrapContext)
 	default:

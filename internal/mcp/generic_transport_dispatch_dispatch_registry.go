@@ -33,9 +33,24 @@ func (s *Server) genericCallWithEntries(ctx context.Context, entries map[string]
 	if input.SessionID == "" {
 		return nil, fmt.Errorf("session is required")
 	}
+	entry, entryOK := entries[input.Action]
 	record, err := s.activeSession(input.SessionID)
+	if err == nil && durableRoleRequiresRuntime(record.Role) {
+		return nil, fmt.Errorf("managed runtime identity is required for this role-bound operation")
+	}
 	if err != nil {
-		return nil, err
+		if !entryOK {
+			return nil, err
+		}
+		resolved, resolveErr := s.resolveRuntimeSession(ctx, input.SessionID, input.Action, entry)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		record = resolved.Session
+		ctx = withManagedRuntimeIdentity(ctx, managedRuntimeIdentity{
+			AgentID: resolved.AgentID,
+			Role:    resolved.Role,
+		})
 	}
 	ctx = withSession(ctx, record)
 	return s.genericDispatch(ctx, entries, record, input.Action, input.Input)
@@ -91,6 +106,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 			Role:                   entry.AuthorityRole,
 			RequiresWorkflowPolicy: entry.RequiresWorkflowPolicy,
 			LocalReceiptOnly:       entry.LocalReceiptOnly,
+			ManagedRuntime:         strings.HasPrefix(action, "agent/") && hasManagedRuntimeIdentity(ctx),
 		})
 		if err != nil {
 			return genericActionError(action, err.Error()), nil

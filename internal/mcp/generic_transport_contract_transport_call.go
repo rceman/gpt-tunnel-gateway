@@ -119,7 +119,7 @@ func genericSchemaInputSchema() map[string]any {
 }
 
 func genericSchemaPublicInputSchema() map[string]any {
-	session := str("Existing durable project-bound session identifier.")
+	session := str("Existing durable project-bound Session identifier or the calling managed Airelay runtime identity.")
 	session["minLength"] = 1
 	return obj(map[string]any{
 		"session": session,
@@ -190,10 +190,25 @@ func (s *Server) genericCall(ctx context.Context, legacy map[string]Tool, raw js
 	entries := s.genericActionRegistry(legacy)
 	record := durableSession.Record{}
 	if input.SessionID != "" {
+		entry, entryOK := entries[input.Action]
 		var err error
 		record, err = s.activeSession(input.SessionID)
+		if err == nil && durableRoleRequiresRuntime(record.Role) {
+			return nil, fmt.Errorf("managed runtime identity is required for this role-bound operation")
+		}
 		if err != nil {
-			return nil, err
+			if !entryOK {
+				return nil, err
+			}
+			resolved, resolveErr := s.resolveRuntimeSession(ctx, input.SessionID, input.Action, entry)
+			if resolveErr != nil {
+				return nil, resolveErr
+			}
+			record = resolved.Session
+			ctx = withManagedRuntimeIdentity(ctx, managedRuntimeIdentity{
+				AgentID: resolved.AgentID,
+				Role:    resolved.Role,
+			})
 		}
 		ctx = withSession(ctx, record)
 	}

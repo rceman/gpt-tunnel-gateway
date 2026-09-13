@@ -16,7 +16,7 @@ func (s *Service) validateTaskExecutionAgentSession(ctx context.Context, project
 	if err != nil {
 		return fmt.Errorf("Task Agent session is unavailable: %w", err)
 	}
-	if record.ProjectID != projectID || record.Role != durableSession.RoleAgent || record.Status != durableSession.StatusActive || record.SessionRef == nil || *record.SessionRef != resolved.SessionKey {
+	if record.ProjectID != projectID || (record.Role != durableSession.RoleAgent && record.Role != durableSession.RoleWorker) || record.Status != durableSession.StatusActive || record.SessionRef == nil || *record.SessionRef != resolved.SessionKey {
 		return fmt.Errorf("Task is assigned to a different Agent session")
 	}
 	return nil

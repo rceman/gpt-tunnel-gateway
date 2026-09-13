@@ -31,6 +31,23 @@ func requireSessionRole(ctx context.Context, role string) error {
 	return authority.RequireRole(ctx, role)
 }
 
+func withRoleAuthority(ctx context.Context, role string) (context.Context, error) {
+	switch role {
+	case durableSession.RolePlanner:
+		return authority.WithPlanner(ctx), nil
+	case durableSession.RoleLead:
+		return authority.WithLead(ctx), nil
+	case durableSession.RoleAdvisor:
+		return authority.WithAdvisor(ctx), nil
+	case durableSession.RoleWorker:
+		return authority.WithWorker(ctx), nil
+	case durableSession.RoleAgent:
+		return authority.WithAgent(ctx), nil
+	default:
+		return nil, fmt.Errorf("unsupported persisted session role %q", role)
+	}
+}
+
 // existingSessionRoleContext converts trusted bootstrap authority into the
 // exact durable role recorded in the session. The combined marker is accepted
 // only as the creation capability; it is never used as persisted session
@@ -43,14 +60,7 @@ func existingSessionRoleContext(ctx context.Context, role string) (context.Conte
 	if err := authority.RequireRole(bootstrapContext, role); err != nil {
 		return nil, err
 	}
-	switch role {
-	case durableSession.RolePlanner:
-		return authority.WithPlanner(bootstrapContext), nil
-	case durableSession.RoleAgent:
-		return authority.WithAgent(bootstrapContext), nil
-	default:
-		return nil, fmt.Errorf("unsupported persisted session role %q", role)
-	}
+	return withRoleAuthority(bootstrapContext, role)
 }
 
 type sessionActionInput struct {

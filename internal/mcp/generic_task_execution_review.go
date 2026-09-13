@@ -31,6 +31,9 @@ func taskExecutionReviewOutputSchema() map[string]any {
 func (s *Server) registerTaskExecutionReviewActions() error {
 	register := func(action GenericAction) error {
 		action.AuthorityRole = "planner"
+		if action.Path == "task/review" {
+			action.AuthorityRole = actionRolePlannerOrLead
+		}
 		action.SessionBound = true
 		action.LocalReceiptOnly = true
 		return s.RegisterGenericAction(action)

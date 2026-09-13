@@ -12,7 +12,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-func TestTSK567TaskReadUsesGatewaySessionAuthority(t *testing.T) {
+func TestTSK567TaskReadUsesAirelayRuntimeAuthority(t *testing.T) {
 	const session = "SA-EXAMPLE01"
 	var request map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -23,7 +23,8 @@ func TestTSK567TaskReadUsesGatewaySessionAuthority(t *testing.T) {
 	}))
 	defer server.Close()
 
-	t.Setenv("GPT_TUNNEL_SESSION", session)
+	t.Setenv("GPT_TUNNEL_SESSION", "")
+	t.Setenv("AIRELAY_SESSION_KEY", session)
 	s := &service.Service{Config: config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://")}}
 	result, err := taskReadGatewayCall(context.Background(), s, "EXM-TSK1")
 	if err != nil {
@@ -43,8 +44,9 @@ func TestTSK567TaskReadUsesGatewaySessionAuthority(t *testing.T) {
 	}
 }
 
-func TestTSK567TaskReadRequiresGatewaySessionBeforeTransport(t *testing.T) {
+func TestTSK567TaskReadRequiresAirelayRuntimeBeforeTransport(t *testing.T) {
 	t.Setenv("GPT_TUNNEL_SESSION", "")
+	t.Setenv("AIRELAY_SESSION_KEY", "")
 	s := &service.Service{Config: config.Config{ListenAddr: "127.0.0.1:1"}}
 	if _, err := taskReadGatewayCall(context.Background(), s, "EXM-TSK1"); err == nil || !strings.Contains(err.Error(), "Gateway session authority is required") {
 		t.Fatalf("missing session error=%v", err)
