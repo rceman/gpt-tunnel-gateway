@@ -174,7 +174,30 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 		result.RecommendedNextAction = "supervise current operation"
 	}
 	trains, trainsErr := s.readProjectOperationalTrains(ctx, projectID)
+	var taskStates []model.TaskExecutionState
+	var taskStatesErr error
+	workerContract := false
 	if s.Durability != nil {
+		taskStates, taskStatesErr = s.Durability.ListTaskExecutionStates(ctx, projectID)
+		workerContract = taskStatesErr == nil && len(taskStates) > 0
+		if !workerContract {
+			workerContract = s.projectHasExplicitAgentBinding(ctx, projectID)
+		}
+	}
+	if workerContract && s.Durability != nil {
+		worker, workerErr := s.ResolveProjectWorker(ctx, projectID)
+		if workerErr != nil {
+			result.Agent.State = "unavailable"
+		} else {
+			result.Agent.AgentID = worker.Agent.AgentID
+			result.Agent.Expected = worker.Agent.AgentID
+			result.Agent.SessionReady = worker.ControllerReachable
+			result.Agent.State = "idle"
+			if worker.RuntimeState == "busy" || worker.RuntimeState == "working" || worker.RuntimeState == "running" {
+				result.Agent.State = "working"
+			}
+		}
+	} else if s.Durability != nil {
 		agentID, sessionKey := sharedOperationalAgentIdentity(trains)
 		result.Agent.AgentID = agentID
 		if agentID != "" {
@@ -224,6 +247,9 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 	}
 	if trainsErr == nil {
 		s.populateProjectOperationalTrain(&result, trains)
+	}
+	if workerContract && result.Agent.AgentID != "" {
+		s.populateProjectOperationalTask(&result, taskStates, result.Agent.AgentID)
 	}
 	runtime := controller.Controller{Config: s.Config, ConfigPath: s.ConfigPath}.RuntimeIdentity(ctx)
 	result.Integration = ProjectOperationalIntegration{

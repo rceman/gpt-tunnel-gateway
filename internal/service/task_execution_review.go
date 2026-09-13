@@ -70,18 +70,23 @@ func (s *Service) submitTaskExecution(ctx context.Context, projectID, key, stage
 	if state.Stage != stage || (state.Status != model.TaskExecutionDispatched && state.Status != model.TaskExecutionChangesRequested) {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("Task is not accepting a %s submission", stage)
 	}
-	resolved, err := s.ResolveAgent(ctx, AgentResolveInput{
-		ProjectID:       projectID,
-		Role:            model.AgentRoleCoding,
-		AgentID:         state.Agent,
-		RequireAttached: true,
-	})
-	if err != nil {
-		return TaskExecutionPublicOutput{}, fmt.Errorf("assigned Agent is not usable: %w", err)
-	}
 	if sessionID := AgentSessionID(ctx); sessionID != "" {
-		if err := s.validateTaskExecutionAgentSession(ctx, projectID, resolved, sessionID); err != nil {
-			return TaskExecutionPublicOutput{}, err
+		worker, workerErr := s.resolveWorkerSessionForTask(ctx, projectID)
+		if workerErr != nil {
+			return TaskExecutionPublicOutput{}, workerErr
+		}
+		if state.Agent != worker.Agent.AgentID {
+			return TaskExecutionPublicOutput{}, fmt.Errorf("Task is assigned to a different Worker")
+		}
+	} else {
+		_, resolveErr := s.ResolveAgent(ctx, AgentResolveInput{
+			ProjectID:       projectID,
+			Role:            model.AgentRoleCoding,
+			AgentID:         state.Agent,
+			RequireAttached: true,
+		})
+		if resolveErr != nil {
+			return TaskExecutionPublicOutput{}, fmt.Errorf("assigned Agent is not usable: %w", resolveErr)
 		}
 	}
 	actual, branch, clean, err := s.taskExecutionLaneHead(ctx, projectID, key, state)
@@ -262,15 +267,10 @@ func validateTaskExecutionReviewInput(projectID, key, stage string) error {
 }
 
 func (s *Service) taskExecutionLaneHead(ctx context.Context, projectID, key string, state model.TaskExecutionState) (string, string, bool, error) {
-	path, err := gitx.TaskWorktreePath(s.Config.StateDir, projectID, key)
+	project, err := s.taskExecutionLane(projectID, key, state)
 	if err != nil {
 		return "", "", false, err
 	}
-	project, err := s.EffectiveProjectConfig(projectID)
-	if err != nil {
-		return "", "", false, err
-	}
-	project.Root = path
 	return s.Git.CurrentHead(ctx, project)
 }
 

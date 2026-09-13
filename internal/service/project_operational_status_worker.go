@@ -1,0 +1,49 @@
+package service
+
+import (
+	"context"
+	"sort"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+)
+
+func (s *Service) projectHasExplicitAgentBinding(ctx context.Context, projectID string) bool {
+	if bindings, ok := s.Config.ProjectAgentBindings[projectID]; ok && len(bindings) > 0 {
+		return true
+	}
+	prefixes := []string{projectID + "/", projectID + "::"}
+	for key := range s.Config.AgentBindings {
+		for _, prefix := range prefixes {
+			if len(key) > len(prefix) && key[:len(prefix)] == prefix {
+				return true
+			}
+		}
+	}
+	agents, err := s.AgentList(ctx, projectID)
+	if err != nil {
+		return false
+	}
+	for _, agent := range agents {
+		if _, ok := s.Config.ResolveAgentBinding(projectID, agent.AgentID); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) populateProjectOperationalTask(result *ProjectOperationalStatus, states []model.TaskExecutionState, agentID string) {
+	candidates := append([]model.TaskExecutionState{}, states...)
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].UpdatedAt.After(candidates[j].UpdatedAt) })
+	for _, state := range candidates {
+		if state.Agent != agentID || !model.IsTaskExecutionAgentOwned(state.Status) {
+			continue
+		}
+		result.TaskID = state.TaskID
+		result.TaskState = state.Status
+		if result.State == "idle" {
+			result.State = "working"
+			result.RecommendedNextAction = "supervise current Worker Task"
+		}
+		return
+	}
+}

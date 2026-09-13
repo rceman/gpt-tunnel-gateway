@@ -10,6 +10,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
@@ -226,6 +227,12 @@ func (s *Service) AgentRegistryStatus(ctx context.Context, projectID, agentID st
 		Enabled:       agent.Enabled,
 		State:         "registered",
 	}
+	if sessionID := AgentSessionID(ctx); sessionID != "" {
+		record, sessionErr := durableSession.NewStoreWithDurability(s.Durability).Get(sessionID)
+		if sessionErr == nil && isWorkerSession(record) {
+			return s.workerAgentRegistryStatus(ctx, projectID, agent, status)
+		}
+	}
 	active, activeFound, activeErr := s.trainV2ActiveAttempt(ctx, projectID)
 	if activeErr == nil && activeFound && active.Attempt.AgentID == agentID {
 		status.AttemptState = active.Attempt.Status
@@ -264,5 +271,35 @@ func (s *Service) AgentRegistryStatus(ctx context.Context, projectID, agentID st
 		return status, nil
 	}
 	status.State, status.Usable, status.Reason = "usable", true, "ready"
+	return status, nil
+}
+
+func (s *Service) workerAgentRegistryStatus(ctx context.Context, projectID string, agent model.Agent, status model.AgentAvailabilityStatus) (model.AgentAvailabilityStatus, error) {
+	if !agent.Enabled {
+		status.State, status.Reason = "disabled", "agent is disabled"
+		return status, nil
+	}
+	worker, err := s.ResolveProjectWorker(ctx, projectID)
+	if err != nil {
+		status.State, status.Reason = "unavailable", err.Error()
+		return status, nil
+	}
+	if worker.Agent.AgentID != agent.AgentID || worker.Session.ID != AgentSessionID(ctx) {
+		status.State, status.Reason = "unavailable", "Agent is not the explicitly attached Worker"
+		return status, nil
+	}
+	status.Bound = true
+	status.SessionState = worker.RuntimeState
+	status.State, status.Usable, status.Reason = "usable", true, "ready"
+	states, statesErr := s.Durability.ListTaskExecutionStates(ctx, projectID)
+	if statesErr != nil {
+		return status, nil
+	}
+	for _, state := range states {
+		if state.Agent == agent.AgentID && model.IsTaskExecutionAgentOwned(state.Status) {
+			status.TaskID = state.TaskID
+			break
+		}
+	}
 	return status, nil
 }

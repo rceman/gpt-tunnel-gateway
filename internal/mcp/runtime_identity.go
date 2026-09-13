@@ -31,7 +31,7 @@ func managedRuntimeAgentID(ctx context.Context) string {
 
 func runtimeRoleForAction(action string, entry genericActionEntry) string {
 	switch action {
-	case "task/current", "task/submit-code", "task/submit-tests", "task/submit-rebase", "task/read", "task/guide":
+	case "task/current", "task/submit-code", "task/submit-tests", "task/submit-rebase", "task/read", "task/guide", "agent/status":
 		return durableSession.RoleWorker
 	case "task/status", "task/review":
 		return durableSession.RoleLead

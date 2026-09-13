@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
@@ -45,31 +47,13 @@ func (s *Service) resolveTaskExecutionTaskForAgent(ctx context.Context, projectI
 	if s.Durability == nil {
 		return "", fmt.Errorf("shared durability is unavailable")
 	}
-	sessionID := AgentSessionID(ctx)
-	if !strings.HasPrefix(sessionID, durableSession.SessionIDPrefixAgent+"-") {
-		return "", fmt.Errorf("Gateway Agent session authority is required")
+	if strings.TrimSpace(projectID) != projectID || model.ValidateProjectIdentifier(projectID) != nil {
+		return "", fmt.Errorf("invalid project authority")
 	}
-	agents, err := s.AgentList(ctx, projectID)
+	sessionID := AgentSessionID(ctx)
+	worker, err := s.ResolveWorkerSession(ctx, projectID, sessionID)
 	if err != nil {
 		return "", err
-	}
-	matched := make(map[string]struct{})
-	for _, agent := range agents {
-		if agent.Role != model.AgentRoleCoding || !agent.Enabled {
-			continue
-		}
-		resolved, resolveErr := s.ResolveAgent(ctx, AgentResolveInput{
-			ProjectID:       projectID,
-			Role:            model.AgentRoleCoding,
-			AgentID:         agent.AgentID,
-			RequireAttached: true,
-		})
-		if resolveErr == nil && s.validateTaskExecutionAgentSession(ctx, projectID, resolved, sessionID) == nil {
-			matched[agent.AgentID] = struct{}{}
-		}
-	}
-	if len(matched) != 1 {
-		return "", fmt.Errorf("Gateway Agent session is not uniquely bound to a coding Agent")
 	}
 	states, err := s.Durability.ListTaskExecutionStates(ctx, projectID)
 	if err != nil {
@@ -77,16 +61,57 @@ func (s *Service) resolveTaskExecutionTaskForAgent(ctx context.Context, projectI
 	}
 	var selected string
 	for _, state := range states {
-		if _, ok := matched[state.Agent]; !ok || !model.IsTaskExecutionAgentOwned(state.Status) {
+		if state.Agent != worker.Agent.AgentID || !model.IsTaskExecutionAgentOwned(state.Status) {
 			continue
 		}
+		if _, laneErr := s.taskExecutionLane(projectID, state.TaskID, state); laneErr != nil {
+			return "", fmt.Errorf("current Task lane is unavailable: %w", laneErr)
+		}
 		if selected != "" {
-			return "", fmt.Errorf("multiple current Tasks are assigned to this Agent")
+			return "", fmt.Errorf("multiple current Tasks are assigned to this Worker")
 		}
 		selected = state.TaskID
 	}
 	if selected == "" {
-		return "", fmt.Errorf("no current Task is assigned to this Agent")
+		return "", fmt.Errorf("no current Task is assigned to this Worker")
 	}
 	return selected, nil
+}
+
+func (s *Service) taskExecutionLane(projectID, key string, state model.TaskExecutionState) (config.ProjectConfig, error) {
+	if state.ProjectID != projectID || state.TaskID != key {
+		return config.ProjectConfig{}, fmt.Errorf("Task lane authority does not match the requested project and Task")
+	}
+	if model.ValidateCommitSHA(state.Head) != nil || model.ValidateBranch(state.Branch) != nil || state.Worktree != taskExecutionWorktree(key, strings.ToLower(state.Head[:8])) {
+		return config.ProjectConfig{}, fmt.Errorf("Task lane authority is invalid or stale")
+	}
+	path, err := gitx.TaskWorktreePath(s.Config.StateDir, projectID, key)
+	if err != nil {
+		return config.ProjectConfig{}, err
+	}
+	project, err := s.EffectiveProjectConfig(projectID)
+	if err != nil {
+		return config.ProjectConfig{}, err
+	}
+	project.Root = path
+	return project, nil
+}
+
+func (s *Service) resolveWorkerSessionForTask(ctx context.Context, projectID string) (RuntimeRoleSession, error) {
+	sessionID := AgentSessionID(ctx)
+	if sessionID == "" {
+		return RuntimeRoleSession{}, fmt.Errorf("Task requires an active Worker Session")
+	}
+	worker, err := s.ResolveProjectWorker(ctx, projectID)
+	if err != nil {
+		return RuntimeRoleSession{}, err
+	}
+	if worker.Session.ID != sessionID {
+		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: Worker attachment is stale or mismatched")
+	}
+	return worker, nil
+}
+
+func isWorkerSession(record durableSession.Record) bool {
+	return record.Status == durableSession.StatusActive && record.Role == durableSession.RoleWorker && record.SessionRef != nil && strings.TrimSpace(*record.SessionRef) == *record.SessionRef && *record.SessionRef != ""
 }
