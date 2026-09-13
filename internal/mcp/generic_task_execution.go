@@ -9,7 +9,7 @@ import (
 )
 
 func taskDispatchSchema() map[string]any {
-	return obj(map[string]any{"key": str("Canonical Task identifier."), "agent": str("Optional logical coding Agent identity, such as GTW-CODER.")}, "key")
+	return obj(map[string]any{"key": str("Canonical Task identifier; execution is assigned to the project's attached Worker runtime.")}, "key")
 }
 
 func taskExecutionStatusSchema() map[string]any {
@@ -44,7 +44,7 @@ func (s *Server) registerTaskExecutionActions() error {
 	}
 	if err := register(GenericAction{
 		Path:                 "task/dispatch",
-		Description:          "Dispatch one canonical Task to exactly one eligible logical coding Agent.",
+		Description:          "Dispatch one canonical Task to the project's explicitly attached Worker runtime.",
 		InputSchema:          taskDispatchSchema(),
 		ExecutionInputSchema: adrExecutionSchema(taskDispatchSchema()),
 		OutputSchema:         taskExecutionLifecycleOutputSchema(),
@@ -56,12 +56,11 @@ func (s *Server) registerTaskExecutionActions() error {
 			var in struct {
 				ProjectID string `json:"project_id"`
 				Key       string `json:"key"`
-				Agent     string `json:"agent,omitempty"`
 			}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			result, err := s.Service.TaskExecutionDispatch(ctx, service.TaskExecutionDispatchInput{ProjectID: in.ProjectID, Key: in.Key, Agent: in.Agent})
+			result, err := s.Service.TaskExecutionDispatch(ctx, service.TaskExecutionDispatchInput{ProjectID: in.ProjectID, Key: in.Key})
 			return result, err
 		},
 	}); err != nil {

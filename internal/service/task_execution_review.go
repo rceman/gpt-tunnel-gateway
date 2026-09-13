@@ -86,7 +86,7 @@ func (s *Service) submitTaskExecution(ctx context.Context, projectID, key, stage
 			RequireAttached: true,
 		})
 		if resolveErr != nil {
-			return TaskExecutionPublicOutput{}, fmt.Errorf("assigned Agent is not usable: %w", resolveErr)
+			return TaskExecutionPublicOutput{}, fmt.Errorf("assigned Worker runtime is not usable: %w", resolveErr)
 		}
 	}
 	actual, branch, clean, err := s.taskExecutionLaneHead(ctx, projectID, key, state)

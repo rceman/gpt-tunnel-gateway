@@ -39,6 +39,12 @@ func tsk585Setup(t *testing.T) (*Service, *sqlitestore.Databases) {
 		t.Fatal(err)
 	}
 	s.Durability = db
+	ref := "example_master"
+	if _, err := durableSession.NewStoreWithDurability(db).Create(durableSession.CreateInput{
+		ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	payload, err := json.Marshal(configuration)
 	if err != nil {
 		t.Fatal(err)

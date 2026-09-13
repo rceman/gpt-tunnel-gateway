@@ -28,7 +28,7 @@ func TestTSK521TaskExecutionSchemasAreClosedAndPubliclyBounded(t *testing.T) {
 			t.Fatalf("%s is not closed", name)
 		}
 	}
-	assertKeys("dispatch input", dispatch.InputSchema, []string{"key", "agent"})
+	assertKeys("dispatch input", dispatch.InputSchema, []string{"key"})
 	assertKeys("status input", status.InputSchema, []string{"key"})
 	assertKeys("dispatch output", dispatch.OutputSchema, []string{"key", "status", "stage", "worktree", "head", "agent", "execution_revision", "updated_at", "verification"})
 	assertKeys("status output", status.OutputSchema, []string{"key", "status", "stage", "worktree", "head", "agent", "execution_revision", "updated_at", "verification"})

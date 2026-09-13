@@ -18,8 +18,8 @@ func TestTaskExecutionSchemasAreTaskIdentityOnly(t *testing.T) {
 	if _, ok := dispatchProperties["key"]; !ok {
 		t.Fatal("dispatch does not expose key")
 	}
-	if _, ok := dispatchProperties["agent"]; !ok {
-		t.Fatal("dispatch does not expose optional agent")
+	if _, ok := dispatchProperties["agent"]; ok {
+		t.Fatal("dispatch exposes caller-selected Agent")
 	}
 	for _, legacy := range []string{"agent_key", "agent_id", "session", "task_id"} {
 		if _, ok := dispatchProperties[legacy]; ok {

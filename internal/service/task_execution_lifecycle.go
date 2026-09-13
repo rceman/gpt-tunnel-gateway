@@ -131,27 +131,14 @@ func (s *Service) TaskExecutionStatus(ctx context.Context, projectID, key string
 }
 
 func (s *Service) resolveTaskExecutionAgent(ctx context.Context, projectID, requested string) (string, error) {
-	if AgentSessionID(ctx) != "" {
-		worker, err := s.ResolveProjectWorker(ctx, projectID)
-		if err != nil {
-			return "", err
-		}
-		if requested != "" && requested != worker.Agent.AgentID {
-			return "", fmt.Errorf("requested Agent is not the project's attached Worker")
-		}
-		return worker.Agent.AgentID, nil
-	}
-	resolved, err := s.ResolveAgent(ctx, AgentResolveInput{
-		ProjectID:       projectID,
-		Role:            model.AgentRoleCoding,
-		AgentID:         requested,
-		RequireUnique:   requested == "",
-		RequireAttached: true,
-	})
+	worker, err := s.ResolveProjectWorker(ctx, projectID)
 	if err != nil {
 		return "", err
 	}
-	return resolved.AgentID, nil
+	if requested != "" && requested != worker.Agent.AgentID {
+		return "", fmt.Errorf("requested Agent is not the project's attached Worker")
+	}
+	return worker.Agent.AgentID, nil
 }
 
 func taskExecutionWorktree(key, head string) string {

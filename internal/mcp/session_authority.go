@@ -29,7 +29,7 @@ func actionAuthorityAllowsSessionRole(actionRole, sessionRole string) bool {
 	case durableSession.RoleWorker:
 		return sessionRole == durableSession.RoleWorker
 	case actionRolePlannerOrManagedRuntime:
-		return sessionRole == durableSession.RolePlanner || sessionRole == durableSession.RoleLead || sessionRole == durableSession.RoleWorker
+		return sessionRole == durableSession.RolePlanner || sessionRole == durableSession.RoleLead || sessionRole == durableSession.RoleAdvisor || sessionRole == durableSession.RoleWorker
 	case actionRolePlannerOrLead:
 		return sessionRole == durableSession.RolePlanner || sessionRole == durableSession.RoleLead
 	case actionRoleManagedRuntime:
@@ -181,6 +181,9 @@ func requireActionAuthority(ctx context.Context, contract actionAuthorityContrac
 			return nil
 		}
 		if err := authority.RequireLead(ctx); err == nil {
+			return nil
+		}
+		if err := authority.RequireAdvisor(ctx); err == nil {
 			return nil
 		}
 		if err := authority.RequireWorker(ctx); err == nil {

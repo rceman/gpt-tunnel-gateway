@@ -200,7 +200,7 @@ func (s *Server) genericCall(ctx context.Context, legacy map[string]Tool, raw js
 			if !entryOK {
 				return nil, err
 			}
-			resolved, resolveErr := s.resolveRuntimeSession(ctx, input.SessionID, input.Action, entry)
+			resolved, resolveErr := s.resolveRuntimeSession(ctx, input.SessionID, input.Action, entry, input.Input)
 			if resolveErr != nil {
 				return nil, resolveErr
 			}

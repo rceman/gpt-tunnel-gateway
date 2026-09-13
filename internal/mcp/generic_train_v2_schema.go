@@ -37,7 +37,7 @@ func trainV2StartSchema() map[string]any {
 		"project_id":            str("Registered project identifier."),
 		"train_id":              str("Server-allocated Train identifier."),
 		"started_by":            str("Author identity."),
-		"agent_id":              str("Optional coding Agent identity."),
+		"agent_id":              str("Optional managed Agent runtime identity."),
 		"recommended_reasoning": str("Optional reasoning preference."),
 		"expected_hub_revision": str("Optimistic Hub revision."),
 	}, "project_id", "train_id", "started_by")

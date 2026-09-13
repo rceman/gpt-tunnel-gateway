@@ -92,7 +92,40 @@ func (s *Service) resolveManagedAgentForRuntime(ctx context.Context, runtimeKey 
 	return candidates[0], nil
 }
 
+func (s *Service) ResolveRuntimeAgentSession(ctx context.Context, runtimeKey string) (RuntimeRoleSession, error) {
+	if runtimeKey == "" || strings.TrimSpace(runtimeKey) != runtimeKey {
+		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_IDENTITY_REQUIRED: managed Airelay runtime identity is required")
+	}
+	selected, err := s.resolveManagedAgentForRuntime(ctx, runtimeKey)
+	if err != nil {
+		return RuntimeRoleSession{}, err
+	}
+	return s.resolveRuntimeRoleSessionForAgentShared(selected)
+}
+
+func (s *Service) ResolveRuntimeRoleSessionForSession(ctx context.Context, runtimeKey, sessionID string) (RuntimeRoleSession, error) {
+	if runtimeKey == "" || strings.TrimSpace(runtimeKey) != runtimeKey {
+		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_IDENTITY_REQUIRED: managed Airelay runtime identity is required")
+	}
+	if model.ValidateObjectIdentifier(sessionID) != nil {
+		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: invalid durable role Session")
+	}
+	selected, err := s.resolveManagedAgentForRuntime(ctx, runtimeKey)
+	if err != nil {
+		return RuntimeRoleSession{}, err
+	}
+	return s.resolveRuntimeRoleSessionForAgentSelector(selected, "", sessionID, false)
+}
+
 func (s *Service) resolveRuntimeRoleSessionForAgent(selected runtimeAgentCandidate, role string) (RuntimeRoleSession, error) {
+	return s.resolveRuntimeRoleSessionForAgentSelector(selected, role, "", false)
+}
+
+func (s *Service) resolveRuntimeRoleSessionForAgentShared(selected runtimeAgentCandidate) (RuntimeRoleSession, error) {
+	return s.resolveRuntimeRoleSessionForAgentSelector(selected, "", "", true)
+}
+
+func (s *Service) resolveRuntimeRoleSessionForAgentSelector(selected runtimeAgentCandidate, role, sessionID string, allowShared bool) (RuntimeRoleSession, error) {
 	sessions, err := durableSession.NewStoreWithDurability(s.Durability).List()
 	if err != nil {
 		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: durable role Session authority is unavailable: %w", err)
@@ -100,6 +133,9 @@ func (s *Service) resolveRuntimeRoleSessionForAgent(selected runtimeAgentCandida
 	matches := make([]durableSession.Record, 0, 1)
 	for _, record := range sessions {
 		if record.Status != durableSession.StatusActive || record.ProjectID != selected.projectID || record.SessionRef == nil || *record.SessionRef != selected.binding.SessionKey {
+			continue
+		}
+		if sessionID != "" && record.ID != sessionID {
 			continue
 		}
 		if role != "" && record.Role != role {
@@ -114,7 +150,7 @@ func (s *Service) resolveRuntimeRoleSessionForAgent(selected runtimeAgentCandida
 	if len(matches) == 0 {
 		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: no active role-bound Session matches the managed Agent and requested role")
 	}
-	if len(matches) != 1 {
+	if len(matches) != 1 && !allowShared {
 		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_AMBIGUOUS: multiple active role-bound Sessions match the managed Agent and requested role")
 	}
 	return RuntimeRoleSession{

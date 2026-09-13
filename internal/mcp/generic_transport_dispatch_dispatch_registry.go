@@ -42,7 +42,7 @@ func (s *Server) genericCallWithEntries(ctx context.Context, entries map[string]
 		if !entryOK {
 			return nil, err
 		}
-		resolved, resolveErr := s.resolveRuntimeSession(ctx, input.SessionID, input.Action, entry)
+		resolved, resolveErr := s.resolveRuntimeSession(ctx, input.SessionID, input.Action, entry, input.Input)
 		if resolveErr != nil {
 			return nil, resolveErr
 		}

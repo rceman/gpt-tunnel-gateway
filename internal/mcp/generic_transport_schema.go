@@ -77,7 +77,7 @@ func (s *Server) genericSchemaPublic(ctx context.Context, legacy map[string]Tool
 		var resolved runtimeSessionResolution
 		var resolveErr error
 		if entryOK {
-			resolved, resolveErr = s.resolveRuntimeSession(ctx, input.Session, input.Path, entry)
+			resolved, resolveErr = s.resolveRuntimeSession(ctx, input.Session, input.Path, entry, nil)
 		} else {
 			identity, identityErr := s.Service.ResolveRuntimeRoleSession(ctx, input.Session, "")
 			if identityErr == nil {

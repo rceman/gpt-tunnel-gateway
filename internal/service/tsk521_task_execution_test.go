@@ -11,6 +11,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
@@ -33,6 +34,12 @@ func TestTSK521TaskDispatchCreatesOneFrozenTaskLane(t *testing.T) {
 	}
 	defer db.Close()
 	s.Durability = db
+	ref := "example_master"
+	if _, err := durableSession.NewStoreWithDurability(db).Create(durableSession.CreateInput{
+		ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	payload, err := json.Marshal(configuration)
 	if err != nil {
@@ -191,6 +198,12 @@ func TestTSK521ConcurrentDispatchConvergesToOneLane(t *testing.T) {
 	}
 	defer db.Close()
 	s.Durability = db
+	ref := "example_master"
+	if _, err := durableSession.NewStoreWithDurability(db).Create(durableSession.CreateInput{
+		ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	payload, err := json.Marshal(configuration)
 	if err != nil {
 		t.Fatal(err)
