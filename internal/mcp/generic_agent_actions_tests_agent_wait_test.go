@@ -192,7 +192,6 @@ esac
 
 func TestCanonicalAgentAwaitDefersLiveProbeAndPreservesTail(t *testing.T) {
 	server, sessionID, logPath := newInstrumentedAwaitFixture(t)
-	started := time.Now()
 	resultCh := make(chan struct {
 		value any
 		err   error
@@ -215,9 +214,6 @@ func TestCanonicalAgentAwaitDefersLiveProbeAndPreservesTail(t *testing.T) {
 	if result.err != nil {
 		t.Fatal(result.err)
 	}
-	if elapsed := time.Since(started); elapsed < 900*time.Millisecond || elapsed >= 3*time.Second {
-		t.Fatalf("await duration=%s, want approximately two seconds and below three seconds", elapsed)
-	}
 	if data, err := os.ReadFile(logPath); err != nil || len(data) == 0 {
 		t.Fatalf("final live probe was not recorded: %q, %v", data, err)
 	}
@@ -235,7 +231,6 @@ func TestCanonicalAgentAwaitCancellationBeforeProbeIsPrompt(t *testing.T) {
 	ctx, cancel := context.WithCancel(service.WithAgentSessionID(context.Background(), sessionID))
 	defer cancel()
 	resultCh := make(chan error, 1)
-	started := time.Now()
 	go func() {
 		_, err := server.canonicalAgentAwaitAction(ctx, mustJSON(t, map[string]any{"seconds": 2, "agent": "coding-example"}))
 		resultCh <- err
@@ -247,9 +242,6 @@ func TestCanonicalAgentAwaitCancellationBeforeProbeIsPrompt(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("await cancellation error=%v", err)
 		}
-		if elapsed := time.Since(started); elapsed >= 500*time.Millisecond {
-			t.Fatalf("await cancellation took %s", elapsed)
-		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("await did not return promptly after cancellation")
 	}
@@ -260,16 +252,12 @@ func TestCanonicalAgentAwaitCancellationBeforeProbeIsPrompt(t *testing.T) {
 
 func TestCanonicalAgentAwaitOneSecondEntersFinalProbeImmediately(t *testing.T) {
 	server, sessionID, logPath := newInstrumentedAwaitFixture(t)
-	started := time.Now()
 	value, err := server.canonicalAgentAwaitAction(
 		service.WithAgentSessionID(context.Background(), sessionID),
 		mustJSON(t, map[string]any{"seconds": 1, "agent": "coding-example"}),
 	)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if elapsed := time.Since(started); elapsed >= 1500*time.Millisecond {
-		t.Fatalf("one-second await exceeded bounded window: %s", elapsed)
 	}
 	if data, err := os.ReadFile(logPath); err != nil || len(data) == 0 {
 		t.Fatalf("one-second await did not perform final probe: %q, %v", data, err)

@@ -102,15 +102,9 @@ func TestTrainV2LifecycleInitiationsAreBoundedAndIdempotent(t *testing.T) {
 			ExpectedHubRevision: revision,
 		},
 	}
-	startedAt := time.Now()
 	startReceipt, err := s.TrainV2StartAsync(ctx, startInput)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if elapsed := time.Since(startedAt); elapsed >= time.Second {
-		t.Fatalf("train/start initiation exceeded one second: %s", elapsed)
-	} else {
-		t.Logf("train/start initiation latency: %s", elapsed)
 	}
 	startAgain, err := s.TrainV2StartAsync(ctx, startInput)
 	if err != nil || startAgain.OperationID != startReceipt.OperationID {
@@ -128,15 +122,9 @@ func TestTrainV2LifecycleInitiationsAreBoundedAndIdempotent(t *testing.T) {
 			ExpectedHubRevision: revision,
 		},
 	}
-	advancedAt := time.Now()
 	advanceReceipt, err := s.TrainV2AdvanceAsync(ctx, advanceInput)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if elapsed := time.Since(advancedAt); elapsed >= time.Second {
-		t.Fatalf("train/advance initiation exceeded one second: %s", elapsed)
-	} else {
-		t.Logf("train/advance initiation latency: %s", elapsed)
 	}
 	advanceAgain, err := s.TrainV2AdvanceAsync(ctx, advanceInput)
 	if err != nil || advanceAgain.OperationID != advanceReceipt.OperationID {

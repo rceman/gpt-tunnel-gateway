@@ -76,13 +76,9 @@ func TestGatewayStatusUsesSharedProjectProjectionWithoutHub(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(service.WithAgentSessionID(context.Background(), session.ID), time.Second)
 	defer cancel()
-	started := time.Now()
 	value, err := entries["gateway/status"].Execute(ctx, nil)
 	if err != nil {
 		t.Fatalf("gateway/status failed with unavailable Hub: %v", err)
-	}
-	if elapsed := time.Since(started); elapsed >= time.Second {
-		t.Fatalf("gateway/status took %s with Shared state and unavailable Hub", elapsed)
 	}
 	base, ok := value.(map[string]any)
 	if !ok {

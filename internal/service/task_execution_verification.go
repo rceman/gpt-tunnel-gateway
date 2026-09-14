@@ -129,6 +129,15 @@ func (s *Service) TaskExecutionTestAsync(ctx context.Context, in TaskExecutionTe
 		return TaskExecutionTestReceipt{}, fmt.Errorf("Task has not been dispatched")
 	}
 	admission, err := s.taskExecutionVerificationAdmissionFor(ctx, in.ProjectID, state)
+	if err == nil {
+		if receipt, reused, reuseErr := s.reuseCurrentTaskExecutionVerification(ctx, state, admission); reuseErr != nil {
+			s.taskExecutionMu.Unlock()
+			return TaskExecutionTestReceipt{}, reuseErr
+		} else if reused {
+			s.taskExecutionMu.Unlock()
+			return receipt, nil
+		}
+	}
 	s.taskExecutionMu.Unlock()
 	if err != nil {
 		return TaskExecutionTestReceipt{}, err
@@ -138,6 +147,29 @@ func (s *Service) TaskExecutionTestAsync(ctx context.Context, in TaskExecutionTe
 		return TaskExecutionTestReceipt{}, err
 	}
 	return taskExecutionTestReceipt(operation), nil
+}
+
+func (s *Service) reuseCurrentTaskExecutionVerification(ctx context.Context, state model.TaskExecutionState, admission taskExecutionVerificationAdmission) (TaskExecutionTestReceipt, bool, error) {
+	if state.Status != model.TaskExecutionVerified || !admission.snapshot.clean || admission.snapshot.head != state.Head {
+		return TaskExecutionTestReceipt{}, false, nil
+	}
+	receipt, current, _, err := s.taskExecutionVerificationProofCurrent(ctx, state)
+	if err != nil {
+		return TaskExecutionTestReceipt{}, false, err
+	}
+	if !current || receipt.BaseHead != admission.canonical || receipt.GateProfileSHA256 != admission.profile || receipt.CandidateHead != admission.snapshot.head || receipt.CandidateTree != admission.snapshot.tree || receipt.CodeReviewID != admission.reviews.code || receipt.TestsReviewID != admission.reviews.tests || receipt.RebaseReviewID != admission.reviews.rebase {
+		return TaskExecutionTestReceipt{}, false, nil
+	}
+	result := taskExecutionPublicOutput(state)
+	projection := taskExecutionVerificationProjection(receipt)
+	result.Verification = &projection
+	return TaskExecutionTestReceipt{
+		OperationID: receipt.OperationID,
+		Status:      "completed",
+		Result:      &result,
+		CreatedAt:   receipt.StartedAt,
+		UpdatedAt:   receipt.CompletedAt,
+	}, true, nil
 }
 
 func (s *Service) taskExecutionVerificationAdmissionFor(ctx context.Context, projectID string, state model.TaskExecutionState) (taskExecutionVerificationAdmission, error) {
@@ -285,11 +317,14 @@ func taskExecutionVerificationAllowedTestFlag(arg string) bool {
 	}
 }
 
-// taskExecutionVerificationFullSuiteArgv requires the test gate to run the
-// full repository suite uncached: ./... coverage plus an explicit positive
-// -count so no prior Task/Train receipt or Go result cache can stand in for
-// fresh execution on this exact candidate.
+// taskExecutionVerificationFullSuiteArgv requires the canonical full runner,
+// or its legacy equivalent: complete repository coverage plus an explicit
+// positive -count whenever a new exact-candidate verification is required.
+// An unchanged exact candidate may reuse its authoritative verification receipt.
 func taskExecutionVerificationFullSuiteArgv(argv []string) bool {
+	if len(argv) == 1 && argv[0] == "./scripts/test-full.sh" {
+		return true
+	}
 	if len(argv) < 3 || argv[0] != "go" || argv[1] != "test" {
 		return false
 	}
@@ -315,8 +350,8 @@ func taskExecutionVerificationFullSuiteArgv(argv []string) bool {
 }
 
 // executeTaskVerificationGates runs the effective integration-class gate set
-// for a Task verification attempt. Every new attempt executes fresh: a prior
-// matching pass receipt is never substituted for execution.
+// for a Task verification attempt. The caller reuses a valid unchanged
+// exact-candidate receipt before reaching this fresh execution path.
 func (s *Service) executeTaskVerificationGates(ctx context.Context, projectID, root string, names []string) ([]model.CompletionGateResult, error) {
 	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
 	if err != nil {

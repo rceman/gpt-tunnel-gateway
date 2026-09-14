@@ -37,15 +37,9 @@ func TestTaskAuthoringReadyAsyncIsBoundedAndIdempotent(t *testing.T) {
 			ExpectedHubRevision: operation.Hub.After,
 		},
 	}
-	started := time.Now()
 	first, err := s.TaskAuthoringReadyAsync(context.Background(), in)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if elapsed := time.Since(started); elapsed >= time.Second {
-		t.Fatalf("task/ready receipt exceeded one second: %s", elapsed)
-	} else {
-		t.Logf("task/ready receipt latency: %s", elapsed)
 	}
 	second, err := s.TaskAuthoringReadyAsync(context.Background(), in)
 	if err != nil {

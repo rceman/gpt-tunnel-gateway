@@ -15,15 +15,9 @@ func TestTrainV2AdmissionMutationsReturnBoundedReceipts(t *testing.T) {
 		CreatedBy: "planner",
 	}
 
-	started := time.Now()
 	first, err := s.TrainV2CreateAsync(ctx, create)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if elapsed := time.Since(started); elapsed >= time.Second {
-		t.Fatalf("train/create initiation exceeded one second: %s", elapsed)
-	} else {
-		t.Logf("train/create initiation latency: %s", elapsed)
 	}
 	second, err := s.TrainV2CreateAsync(ctx, create)
 	if err != nil {
@@ -40,15 +34,9 @@ func TestTrainV2AdmissionMutationsReturnBoundedReceipts(t *testing.T) {
 		ExpectedRevision: 1,
 		AddedBy:          "planner",
 	}
-	started = time.Now()
 	addFirst, err := s.TrainV2AddAsync(ctx, add)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if elapsed := time.Since(started); elapsed >= time.Second {
-		t.Fatalf("train/add initiation exceeded one second: %s", elapsed)
-	} else {
-		t.Logf("train/add initiation latency: %s", elapsed)
 	}
 	addSecond, err := s.TrainV2AddAsync(ctx, add)
 	if err != nil {

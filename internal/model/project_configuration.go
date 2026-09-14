@@ -116,10 +116,10 @@ func DefaultProjectGateCommands() ProjectGateCommands {
 		},
 		Test: ProjectTestGateCommands{
 			Task: ProjectGateCommand{
-				Command: []string{"go", "test", "./...", "-count=1"},
+				Command: []string{"./scripts/test-full.sh"},
 			},
 			Train: ProjectGateCommand{
-				Command: []string{"go", "test", "./...", "-count=1"},
+				Command: []string{"./scripts/test-full.sh"},
 			},
 		},
 	}

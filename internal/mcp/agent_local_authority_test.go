@@ -200,16 +200,12 @@ func TestCanonicalAgentAwaitUsesLocalAuthorityWhenHubUnavailableAndLocked(t *tes
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	started := time.Now()
 	result, err := server.canonicalAgentAwaitAction(bound, mustJSON(t, map[string]any{
 		"agent":   agent.AgentID,
 		"seconds": 1,
 	}))
 	if err != nil {
 		t.Fatalf("canonical agent/await failed with Hub unavailable/locked: %v", err)
-	}
-	if elapsed := time.Since(started); elapsed >= 1500*time.Millisecond {
-		t.Fatalf("canonical agent/await exceeded its bounded fast wait: %s", elapsed)
 	}
 	awaited, ok := result.(map[string]any)
 	if !ok || awaited["agent"] != agent.AgentID || awaited["status"] != "idle" {

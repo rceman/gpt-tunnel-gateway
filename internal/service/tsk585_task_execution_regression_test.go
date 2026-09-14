@@ -191,6 +191,9 @@ func TestTSK585TaskTestEndToEnd(t *testing.T) {
 	if status.Verification == nil || status.Verification.OperationID != operation.OperationID || status.Verification.CandidateHead != strings.ToLower(state.Head[:8]) || status.Verification.TaskRevision != task.Revision {
 		t.Fatalf("status verification projection=%#v", status.Verification)
 	}
+	if err := os.Remove(durableMutationPath(s.Config.StateDir, operation.OperationID)); err != nil {
+		t.Fatalf("remove completed durable operation: %v", err)
+	}
 
 	duplicate, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
 		ProjectID: "example",
@@ -200,7 +203,7 @@ func TestTSK585TaskTestEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	if duplicate.OperationID != operation.OperationID || duplicate.Status != "completed" || duplicate.Result == nil {
-		t.Fatalf("unchanged duplicate must return completed proof: %#v", duplicate)
+		t.Fatalf("unchanged duplicate must reuse completed verification receipt: %#v", duplicate)
 	}
 	if _, err := s.TaskExecutionRework(ctx, TaskExecutionReworkInput{
 		ProjectID: "example",
@@ -402,6 +405,7 @@ func TestTSK585RebaseConflictPreservesLane(t *testing.T) {
 }
 func TestTSK585FullSuiteArgv(t *testing.T) {
 	accepted := [][]string{
+		{"./scripts/test-full.sh"},
 		{"go", "test", "./...", "-count=1"},
 		{"go", "test", "./...", "-count=1", "-race", "-timeout=2m", "-coverprofile=cover.out"},
 		{"go", "test", "./...", "-count=3", "-parallel=4", "-shuffle=on"},
@@ -538,7 +542,7 @@ func TestTSK604GateProfileIgnoresDaemonEnvironment(t *testing.T) {
 		t.Fatalf("daemon environment changed the gate profile: before=%s after=%s", before, after)
 	}
 }
-func TestTSK585VerificationNeverReusesReceipt(t *testing.T) {
+func TestTSK585VerificationDoesNotSubstitutePriorGatePassReceipt(t *testing.T) {
 	s, db := tsk585Setup(t)
 	defer db.Close()
 	ctx := context.Background()

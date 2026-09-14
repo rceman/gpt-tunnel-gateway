@@ -1,3 +1,5 @@
+//go:build liveperformance
+
 package service
 
 import (
@@ -15,9 +17,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
-const localCodePerformanceLimit = time.Second
-
-func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
+func TestLocalCodeInspectionPerformanceProfile(t *testing.T) {
 	f := newLocalCodeFixture(t)
 	project := f.service.Config.Projects["example"]
 	project.ProjectCode = "EXM"
@@ -99,9 +99,6 @@ func TestLocalCodeInspectionPerformanceGate(t *testing.T) {
 		t.Logf("%s: %dms", name, elapsed.Milliseconds())
 		if err != nil {
 			t.Fatalf("%s failed: %v", name, err)
-		}
-		if elapsed >= localCodePerformanceLimit {
-			t.Fatalf("%s exceeded %s: %s", name, localCodePerformanceLimit, elapsed)
 		}
 	}
 

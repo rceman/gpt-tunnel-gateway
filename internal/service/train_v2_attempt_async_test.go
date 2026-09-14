@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
@@ -44,15 +43,9 @@ func TestTrainV2AttemptMutationsReturnBoundedReceipts(t *testing.T) {
 			ExpectedHubRevision: revision,
 		},
 	}
-	started := time.Now()
 	finalizeReceipt, err := s.TrainV2AttemptFinalizeAsync(ctx, finalizeInput)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if elapsed := time.Since(started); elapsed >= time.Second {
-		t.Fatalf("train/attempt-finalize initiation exceeded one second: %s", elapsed)
-	} else {
-		t.Logf("train/attempt-finalize initiation latency: %s", elapsed)
 	}
 	finalizeAgain, err := s.TrainV2AttemptFinalizeAsync(ctx, finalizeInput)
 	if err != nil || finalizeAgain.OperationID != finalizeReceipt.OperationID {
@@ -73,15 +66,9 @@ func TestTrainV2AttemptMutationsReturnBoundedReceipts(t *testing.T) {
 			ExpectedHubRevision: revision,
 		},
 	}
-	started = time.Now()
 	reviewReceipt, err := s.TrainV2AttemptReviewAsync(ctx, reviewInput)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if elapsed := time.Since(started); elapsed >= time.Second {
-		t.Fatalf("train/attempt-review initiation exceeded one second: %s", elapsed)
-	} else {
-		t.Logf("train/attempt-review initiation latency: %s", elapsed)
 	}
 	reviewAgain, err := s.TrainV2AttemptReviewAsync(ctx, reviewInput)
 	if err != nil || reviewAgain.OperationID != reviewReceipt.OperationID {

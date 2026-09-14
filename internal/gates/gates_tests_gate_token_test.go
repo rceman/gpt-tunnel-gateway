@@ -268,7 +268,7 @@ func TestExecutorUsesScopedAndLegacyFullTestCommands(t *testing.T) {
 	}
 }
 
-func TestProjectTaskCommandUsesAffectedPackagesAndTrainStaysFull(t *testing.T) {
+func TestProjectAndTrainCommandsUseCanonicalFullRunner(t *testing.T) {
 	var calls [][]string
 	e := Executor{Command: func(_ context.Context, _ string, name string, args ...string) (int, string, error) {
 		calls = append(calls, append([]string{name}, args...))
@@ -284,7 +284,7 @@ func TestProjectTaskCommandUsesAffectedPackagesAndTrainStaysFull(t *testing.T) {
 	if _, err := e.ExecuteWithProjectCommandsAndScope(context.Background(), "/repo", []string{"test"}, commands, "train", FullTestScope()); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(calls[0], []string{"go", "test", "./internal/service", "-count=1"}) || !reflect.DeepEqual(calls[1], []string{"go", "test", "./...", "-count=1"}) {
+	if !reflect.DeepEqual(calls[0], []string{"./scripts/test-full.sh"}) || !reflect.DeepEqual(calls[1], []string{"./scripts/test-full.sh"}) {
 		t.Fatalf("project task/train commands=%v", calls)
 	}
 }

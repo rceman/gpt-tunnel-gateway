@@ -78,6 +78,47 @@ durably merged task permits the next explicitly listed task to be dispatched.
 Failed, blocked, rejected, cancelled, or deferred tasks stop the train. After
 the final listed task is merged, the train becomes completed and idle.
 
+## Test gate separation
+
+Routine Worker verification is the focused or affected deterministic set plus the
+cache-aware fast runner:
+
+```text
+python3 scripts/test-fast.py --affected
+```
+
+The fast lane deliberately does not pass `-count=1`; it uses Go's native cache
+and expands changed Go packages to their repository-local dependents. By
+default, committed changes are compared with `origin/main` (then `main`); set
+`GPT_TEST_BASE` or pass `--base <ref>` when the assigned base is different.
+Working-tree and staged changes are always included. An unknown-impact change
+fails safe to all packages. Documentation-only changes have no Go package to
+execute.
+
+`task/test` owns the complete deterministic correctness proof once for the exact
+candidate. Its project-owned test gate is the canonical uncached runner. It
+discovers every package and shards the large service and MCP packages into
+explicit test-name groups; no test coverage is omitted:
+
+```text
+./scripts/test-full.sh
+```
+
+Worker must not repeat that full runner immediately before `task/test` unless a
+Task explicitly requires broader pre-submit proof. The distinct live
+performance/E2E lane records environment identity and cold/warm timings:
+
+```text
+python3 scripts/test-performance.py --output <performance-report.json>
+```
+
+`python3 scripts/test-profile.py --output <profile-report.json>` is timing
+and top-slow-contributor evidence, not correctness or performance acceptance.
+Race execution is a separate gate. The full runner is also the only default
+Task verification command. When the Task revision, accepted reviews, base,
+candidate head/tree, branch, and gate profile are unchanged, `task/test` reuses
+the authoritative successful verification receipt instead of rerunning it.
+
 ## Release lifecycle
 
 Gateway v0.6.1 tooling adoption is Stage A `implementation_unreleased`:

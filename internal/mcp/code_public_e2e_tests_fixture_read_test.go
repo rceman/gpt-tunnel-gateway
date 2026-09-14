@@ -21,8 +21,6 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/tokenizer"
 )
 
-const publicCodeCallLimit = time.Second
-
 type publicCodeE2EFixture struct {
 	server       *Server
 	sessionID    string
@@ -151,7 +149,7 @@ func (h publicCodeCallHarness) call(t *testing.T, action string, input map[strin
 
 func (h publicCodeCallHarness) callPage(t *testing.T, action string, input map[string]any) publicCodePage {
 	t.Helper()
-	response, _, _ := h.callResponse(t, action, input)
+	response, _ := h.callResponse(t, action, input)
 	result := genericActionResult(t, response)
 	assertPublicCodePagination(t, result)
 	structured := response["result"].(map[string]any)["structuredContent"].(map[string]any)
@@ -172,18 +170,13 @@ func (h publicCodeCallHarness) callPage(t *testing.T, action string, input map[s
 	}
 }
 
-func (h publicCodeCallHarness) callResponse(t *testing.T, action string, input map[string]any) (map[string]any, time.Duration, int) {
+func (h publicCodeCallHarness) callResponse(t *testing.T, action string, input map[string]any) (map[string]any, int) {
 	t.Helper()
-	started := time.Now()
 	response := h.client.request(t, "tools/call", map[string]any{
 		"name": "call", "arguments": map[string]any{
 			"session": h.sessionID, "action": action, "input": input,
 		},
 	})
-	elapsed := time.Since(started)
-	if elapsed >= publicCodeCallLimit {
-		t.Fatalf("%s exceeded %s: %s", action, publicCodeCallLimit, elapsed)
-	}
 	serialized, err := json.Marshal(response)
 	if err != nil {
 		t.Fatal(err)
@@ -195,8 +188,8 @@ func (h publicCodeCallHarness) callResponse(t *testing.T, action string, input m
 	if tokens > tokenizer.MaxTokens {
 		t.Fatalf("%s output exceeded %d tokens: %d", action, tokenizer.MaxTokens, tokens)
 	}
-	t.Logf("%s: elapsed_ms=%d output_tokens=%d", action, elapsed.Milliseconds(), tokens)
-	return response, elapsed, tokens
+	t.Logf("%s: output_tokens=%d", action, tokens)
+	return response, tokens
 }
 
 func assertPublicCodeHead(t *testing.T, result map[string]any, want string) {

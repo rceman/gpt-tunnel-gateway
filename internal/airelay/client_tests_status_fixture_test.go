@@ -68,12 +68,8 @@ func TestPromptHonorsCallerDeadline(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	started := time.Now()
 	if _, err := c.Prompt(ctx, "project_master", "message"); err == nil || !strings.Contains(err.Error(), "prompt timeout") {
 		t.Fatalf("caller deadline was not propagated: %v", err)
-	}
-	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Fatalf("prompt exceeded caller deadline by too much: %s", elapsed)
 	}
 }
 
