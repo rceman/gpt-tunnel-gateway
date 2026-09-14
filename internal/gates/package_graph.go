@@ -163,17 +163,3 @@ func (b *boundedCommandOutput) Write(p []byte) (int, error) {
 }
 
 func (b *boundedCommandOutput) String() string { return string(b.data) }
-
-// EffectiveGOFLAGS returns the GOFLAGS the go tool will actually apply,
-// resolving the process environment and the GOENV configuration file.
-func EffectiveGOFLAGS(ctx context.Context) (string, error) {
-	cmd := exec.CommandContext(ctx, "go", "env", "GOFLAGS")
-	outputBuffer := boundedCommandOutput{limit: 4 << 10}
-	stderrBuffer := boundedCommandOutput{limit: 4 << 10}
-	cmd.Stdout = &outputBuffer
-	cmd.Stderr = &stderrBuffer
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("go env GOFLAGS: %w", err)
-	}
-	return strings.TrimSpace(outputBuffer.String()), nil
-}

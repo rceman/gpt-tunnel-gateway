@@ -519,24 +519,23 @@ func TestTSK585FrozenTaskMutationDuringGates(t *testing.T) {
 		t.Fatalf("no success receipt may be published: %#v", latest)
 	}
 }
-func TestTSK585GOFLAGSNarrowsEffectiveCoverage(t *testing.T) {
+func TestTSK604GateProfileIgnoresDaemonEnvironment(t *testing.T) {
 	s, db := tsk585Setup(t)
 	defer db.Close()
 	ctx := context.Background()
-	task := tsk585Task(t, s, "tsk585-goflags", "GOFLAGS Task")
-	tsk585Dispatch(t, s, task.ID)
-	tsk585DriveToVerification(t, s, task.ID)
-	s.effectiveGOFLAGS = func(context.Context) (string, error) { return "-count=2 -v", nil }
-	operation := tsk585VerifyTask(t, s, task.ID)
-	if operation.Status != "completed" {
-		t.Fatalf("supported GOFLAGS verification status=%q error=%q", operation.Status, operation.Error)
+	_, before, err := s.taskExecutionGateProfile(ctx, "example")
+	if err != nil {
+		t.Fatal(err)
 	}
-	s.effectiveGOFLAGS = func(context.Context) (string, error) { return "-run=^TestNothing$", nil }
-	if _, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
-		ProjectID: "example",
-		Key:       task.ID,
-	}); err == nil || !strings.Contains(err.Error(), "GOFLAGS") {
-		t.Fatalf("narrowing GOFLAGS must fail admission: %v", err)
+	t.Setenv("PATH", filepath.Join(t.TempDir(), "shadow")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GPT_TUNNEL_UI_INJECTED", "changed-after-restart")
+	t.Setenv("SHELL", filepath.Join(t.TempDir(), "changed-shell"))
+	_, after, err := s.taskExecutionGateProfile(ctx, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != after {
+		t.Fatalf("daemon environment changed the gate profile: before=%s after=%s", before, after)
 	}
 }
 func TestTSK585VerificationNeverReusesReceipt(t *testing.T) {

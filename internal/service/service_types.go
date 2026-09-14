@@ -40,7 +40,6 @@ type Service struct {
 	gateExecutorWithScope                   func(context.Context, string, []string, gates.TestScope) ([]model.CompletionGateResult, error)
 	gateExecutorWithProjectCommands         func(context.Context, string, []string, model.ProjectGateCommands, string) ([]model.CompletionGateResult, error)
 	gateExecutorWithProjectCommandsAndScope func(context.Context, string, []string, model.ProjectGateCommands, string, gates.TestScope) ([]model.CompletionGateResult, error)
-	effectiveGOFLAGS                        func(context.Context) (string, error)
 	taskIntegrationFaultHook                func(context.Context, string) error
 	taskIntegrationWriteAhead               func(context.Context, taskExecutionIntegrationCapture) error
 	formatExecutor                          func(context.Context, string, []string) error

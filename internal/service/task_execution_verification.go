@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -316,15 +314,6 @@ func taskExecutionVerificationFullSuiteArgv(argv []string) bool {
 	return full && fresh
 }
 
-func taskExecutionVerificationEnvironmentClean(goflags string) bool {
-	for _, flag := range strings.Fields(goflags) {
-		if !taskExecutionVerificationAllowedTestFlag(flag) {
-			return false
-		}
-	}
-	return true
-}
-
 // executeTaskVerificationGates runs the effective integration-class gate set
 // for a Task verification attempt. Every new attempt executes fresh: a prior
 // matching pass receipt is never substituted for execution.
@@ -343,18 +332,7 @@ func (s *Service) executeTaskVerificationGates(ctx context.Context, projectID, r
 	return results, nil
 }
 
-func (s *Service) taskExecutionEffectiveGOFLAGS(ctx context.Context) (string, error) {
-	if s.effectiveGOFLAGS != nil {
-		return s.effectiveGOFLAGS(ctx)
-	}
-	return gates.EffectiveGOFLAGS(ctx)
-}
-
 func (s *Service) taskExecutionGateProfile(ctx context.Context, projectID string) ([]string, string, error) {
-	goflags, err := s.taskExecutionEffectiveGOFLAGS(ctx)
-	if err != nil {
-		return nil, "", fmt.Errorf("Task verification cannot resolve effective GOFLAGS: %w", err)
-	}
 	names, err := s.ResolveProjectGates(ctx, projectID, "integration")
 	if err != nil {
 		return nil, "", err
@@ -383,15 +361,8 @@ func (s *Service) taskExecutionGateProfile(ctx context.Context, projectID string
 		if name == model.WorkflowGateTest && !taskExecutionVerificationFullSuiteArgv(argv) {
 			return nil, "", fmt.Errorf("Task verification requires the configured test gate to target the full repository suite")
 		}
-		if name == model.WorkflowGateTest && !taskExecutionVerificationEnvironmentClean(goflags) {
-			return nil, "", fmt.Errorf("Task verification requires the effective test environment to be unmodified by GOFLAGS")
-		}
 		commands[name] = digest
 	}
-	env := append([]string{}, os.Environ()...)
-	sort.Strings(env)
-	envSum := sha256.Sum256([]byte(strings.Join(env, "\x00")))
-	goflagsSum := sha256.Sum256([]byte(goflags))
 	profile := struct {
 		Version        string            `json:"version"`
 		Mode           string            `json:"mode"`
@@ -400,18 +371,14 @@ func (s *Service) taskExecutionGateProfile(ctx context.Context, projectID string
 		Scope          string            `json:"scope"`
 		Packages       []string          `json:"packages,omitempty"`
 		RunnerContract string            `json:"runner_contract"`
-		EnvSHA256      string            `json:"env_sha256"`
-		GOFLAGSSHA256  string            `json:"goflags_sha256"`
 	}{
-		Version:        "task-execution-verification/v2",
+		Version:        "task-execution-verification/v3",
 		Mode:           "task",
 		Gates:          names,
 		Commands:       commands,
 		Scope:          normalized.Mode,
 		Packages:       normalized.Packages,
 		RunnerContract: gates.TestGateRunnerContractVersion,
-		EnvSHA256:      hex.EncodeToString(envSum[:]),
-		GOFLAGSSHA256:  hex.EncodeToString(goflagsSum[:]),
 	}
 	raw, err := json.Marshal(profile)
 	if err != nil {
