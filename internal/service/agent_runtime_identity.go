@@ -92,6 +92,60 @@ func (s *Service) resolveManagedAgentForRuntime(ctx context.Context, runtimeKey 
 	return candidates[0], nil
 }
 
+func (s *Service) validateManagedRuntimeBindingCollision(ctx context.Context, candidate model.Agent) error {
+	if !candidate.Enabled || candidate.Role != model.AgentRoleCoding {
+		return nil
+	}
+	binding, bound := s.Config.ResolveAgentBinding(candidate.ProjectID, candidate.AgentID)
+	if !bound {
+		return nil
+	}
+	if err := binding.Validate(); err != nil {
+		return fmt.Errorf("RUNTIME_IDENTITY_UNAVAILABLE: invalid runtime binding for Agent %q: %w", candidate.AgentID, err)
+	}
+	projectIDs, err := s.EffectiveProjectIDs()
+	if err != nil {
+		return fmt.Errorf("RUNTIME_IDENTITY_UNAVAILABLE: project registry is unavailable: %w", err)
+	}
+	for _, projectID := range projectIDs {
+		agents, listErr := s.AgentList(ctx, projectID)
+		if listErr != nil {
+			return fmt.Errorf("RUNTIME_IDENTITY_UNAVAILABLE: managed Agent registry is unavailable: %w", listErr)
+		}
+		if err := s.validateManagedRuntimeBindingAgainst(candidate, agents); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) validateManagedRuntimeBindingAgainst(candidate model.Agent, existing []model.Agent) error {
+	if !candidate.Enabled || candidate.Role != model.AgentRoleCoding {
+		return nil
+	}
+	binding, bound := s.Config.ResolveAgentBinding(candidate.ProjectID, candidate.AgentID)
+	if !bound {
+		return nil
+	}
+	if err := binding.Validate(); err != nil {
+		return fmt.Errorf("RUNTIME_IDENTITY_UNAVAILABLE: invalid runtime binding for Agent %q: %w", candidate.AgentID, err)
+	}
+	for _, other := range existing {
+		if other.ProjectID == candidate.ProjectID && other.AgentID == candidate.AgentID {
+			continue
+		}
+		if !other.Enabled || other.Role != model.AgentRoleCoding {
+			continue
+		}
+		otherBinding, otherBound := s.Config.ResolveAgentBinding(other.ProjectID, other.AgentID)
+		if !otherBound || otherBinding.Validate() != nil || otherBinding.SessionKey != binding.SessionKey {
+			continue
+		}
+		return fmt.Errorf("RUNTIME_IDENTITY_AMBIGUOUS: runtime binding %q is already assigned to enabled Agent %q/%q", binding.SessionKey, other.ProjectID, other.AgentID)
+	}
+	return nil
+}
+
 func (s *Service) ResolveRuntimeAgentSession(ctx context.Context, runtimeKey string) (RuntimeRoleSession, error) {
 	if runtimeKey == "" || strings.TrimSpace(runtimeKey) != runtimeKey {
 		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_IDENTITY_REQUIRED: managed Airelay runtime identity is required")

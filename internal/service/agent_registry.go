@@ -144,6 +144,29 @@ func (s *Service) AgentUpdate(ctx context.Context, in AgentUpdateInput) (model.A
 	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
 		return model.Agent{}, OperationResult{}, err
 	}
+	existing, err := s.AgentRead(ctx, in.ProjectID, in.AgentID)
+	if err != nil {
+		return model.Agent{}, OperationResult{}, err
+	}
+	candidate := existing
+	if in.Enabled != nil {
+		candidate.Enabled = *in.Enabled
+	}
+	if in.Role != nil {
+		candidate.Role = *in.Role
+	}
+	if in.RecommendedReasoning != nil {
+		candidate.RecommendedReasoning = *in.RecommendedReasoning
+	}
+	if in.Capabilities != nil {
+		candidate.Capabilities = model.NormalizeAgentCapabilities(*in.Capabilities)
+	}
+	if err := model.ValidateAgent(candidate); err != nil {
+		return model.Agent{}, OperationResult{}, err
+	}
+	if err := s.validateManagedRuntimeBindingCollision(ctx, candidate); err != nil {
+		return model.Agent{}, OperationResult{}, err
+	}
 	path := s.agentPath(in.ProjectID, in.AgentID)
 	var updated model.Agent
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: update agent "+in.ProjectID+"/"+in.AgentID, func(worktree string) ([]string, error) {
@@ -171,6 +194,24 @@ func (s *Service) AgentUpdate(ctx context.Context, in AgentUpdateInput) (model.A
 		}
 		updated.UpdatedAt = updatedAt
 		if err := model.ValidateAgent(updated); err != nil {
+			return nil, err
+		}
+		agentPaths, err := listWorktreeAgents(worktree, s.projectPrefix(in.ProjectID))
+		if err != nil {
+			return nil, err
+		}
+		existingAgents := make([]model.Agent, 0, len(agentPaths))
+		for _, existingPath := range agentPaths {
+			var existing model.Agent
+			if err := readWorktreeJSON(worktree, existingPath, &existing); err != nil {
+				return nil, err
+			}
+			if err := model.ValidateAgent(existing); err != nil || existing.ProjectID != in.ProjectID {
+				return nil, fmt.Errorf("invalid existing Agent record %q", existingPath)
+			}
+			existingAgents = append(existingAgents, existing)
+		}
+		if err := s.validateManagedRuntimeBindingAgainst(updated, existingAgents); err != nil {
 			return nil, err
 		}
 		if err := hub.WriteJSON(worktree, path, updated); err != nil {

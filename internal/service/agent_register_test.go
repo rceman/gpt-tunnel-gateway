@@ -65,7 +65,7 @@ func TestAgentRegisterCreatesPortableHubAndLocalAgent(t *testing.T) {
 	}
 }
 
-func TestAgentRegisterRejectsDuplicateEnabledAndStaleCAS(t *testing.T) {
+func TestAgentRegisterAllowsMultipleEnabledAndRejectsDuplicateAndStaleCAS(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
 	_, adopted, err := s.ProjectIdentifiersAdopt(context.Background(), ProjectIdentifiersAdoptInput{
 		ProjectID:   "example",
@@ -102,10 +102,20 @@ func TestAgentRegisterRejectsDuplicateEnabledAndStaleCAS(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.AgentRegister(context.Background(), AgentRegisterInput{
+	second, secondResult, err := s.AgentRegister(context.Background(), AgentRegisterInput{
 		ProjectID: "example",
 		AgentID:   "second-agent",
+	})
+	if err != nil || !second.Enabled || secondResult.Status != "registered" {
+		t.Fatalf("second enabled coding Agent was not registered: agent=%#v result=%#v err=%v", second, secondResult, err)
+	}
+	if _, _, err := s.AgentRegister(context.Background(), AgentRegisterInput{
+		ProjectID: "example",
+		AgentID:   "coder-example",
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: secondResult.Hub.After,
+		},
 	}); err == nil {
-		t.Fatal("second enabled coding Agent unexpectedly succeeded")
+		t.Fatal("duplicate Agent identity unexpectedly succeeded")
 	}
 }

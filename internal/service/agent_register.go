@@ -64,10 +64,6 @@ func (s *Service) AgentRegister(ctx context.Context, in AgentRegisterInput) (mod
 			_ = snapshot.Close()
 			return model.Agent{}, OperationResult{}, fmt.Errorf("Agent %q is already registered", in.AgentID)
 		}
-		if existing.Role == model.AgentRoleCoding && existing.Enabled {
-			_ = snapshot.Close()
-			return model.Agent{}, OperationResult{}, fmt.Errorf("project %q already has an enabled coding Agent", in.ProjectID)
-		}
 	}
 	hubRevision := snapshot.Revision()
 	if in.ExpectedHubRevision != "" && in.ExpectedHubRevision != hubRevision {
@@ -90,6 +86,9 @@ func (s *Service) AgentRegister(ctx context.Context, in AgentRegisterInput) (mod
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}
+	if err := s.validateManagedRuntimeBindingCollision(ctx, agent); err != nil {
+		return model.Agent{}, OperationResult{}, err
+	}
 	path := s.agentPath(in.ProjectID, in.AgentID)
 	tx, err := s.Hub.Transact(ctx, hubRevision, "gateway: register Agent "+in.ProjectID+"/"+in.AgentID, func(worktree string) ([]string, error) {
 		if _, err := os.Stat(filepath.Join(worktree, filepath.FromSlash(path))); err == nil {
@@ -101,6 +100,7 @@ func (s *Service) AgentRegister(ctx context.Context, in AgentRegisterInput) (mod
 		if err != nil {
 			return nil, err
 		}
+		existingAgents := make([]model.Agent, 0, len(agentPaths))
 		for _, existingPath := range agentPaths {
 			var existing model.Agent
 			if err := readWorktreeJSON(worktree, existingPath, &existing); err != nil {
@@ -109,9 +109,10 @@ func (s *Service) AgentRegister(ctx context.Context, in AgentRegisterInput) (mod
 			if err := model.ValidateAgent(existing); err != nil || existing.ProjectID != in.ProjectID {
 				return nil, fmt.Errorf("invalid existing Agent record %q", existingPath)
 			}
-			if existing.Role == model.AgentRoleCoding && existing.Enabled {
-				return nil, fmt.Errorf("project %q already has an enabled coding Agent", in.ProjectID)
-			}
+			existingAgents = append(existingAgents, existing)
+		}
+		if err := s.validateManagedRuntimeBindingAgainst(agent, existingAgents); err != nil {
+			return nil, err
 		}
 		if err := hub.WriteJSON(worktree, path, agent); err != nil {
 			return nil, err
