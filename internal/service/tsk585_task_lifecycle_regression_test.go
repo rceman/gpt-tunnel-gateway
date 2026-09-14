@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
@@ -40,42 +41,9 @@ func tsk585CompleteTask(t *testing.T, s *Service, idem, title string, criteria .
 	}
 	return task
 }
-func tsk585AcceptanceFact(t *testing.T, task model.TaskAuthoring, criterion int, mode, integrationHead, deliverable string) string {
+func tsk585ReviewRationale(t *testing.T, task model.TaskAuthoring, criterion int, mode, integrationHead, deliverable string) string {
 	t.Helper()
-	fact := taskCompletionAcceptanceFact{
-		SchemaVersion:      1,
-		TaskRevisionSHA256: task.RevisionSHA256,
-		Criterion:          criterion,
-		Decision:           "accept",
-		Mode:               mode,
-	}
-	if integrationHead != "" {
-		fact.IntegrationHead = &integrationHead
-	}
-	if deliverable != "" {
-		fact.DeliverableKind = &deliverable
-	}
-	raw, err := json.Marshal(fact)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return taskCompletionAcceptanceFactPrefix + string(raw)
-}
-func tsk585RawAcceptanceFact(t *testing.T, task model.TaskAuthoring, criterion int, mode string, head *string, deliverable *string) string {
-	t.Helper()
-	raw, err := json.Marshal(taskCompletionAcceptanceFact{
-		SchemaVersion:      1,
-		TaskRevisionSHA256: task.RevisionSHA256,
-		Criterion:          criterion,
-		Decision:           "accept",
-		Mode:               mode,
-		IntegrationHead:    head,
-		DeliverableKind:    deliverable,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return taskCompletionAcceptanceFactPrefix + string(raw)
+	return "ACCEPT: all current Task acceptance criteria are satisfied; authoritative lifecycle receipts are the source of exact proof."
 }
 func tsk585CompleteEvidence(t *testing.T, s *Service, task model.TaskAuthoring, sessionID *string, kind model.OperatorJournalKind, facts []string, commits []string) model.OperatorJournalEvent {
 	t.Helper()
@@ -83,7 +51,7 @@ func tsk585CompleteEvidence(t *testing.T, s *Service, task model.TaskAuthoring, 
 		ProjectID:  "example",
 		SessionID:  sessionID,
 		Kind:       kind,
-		Summary:    "acceptance evidence",
+		Summary:    "final Task review",
 		Content:    model.OperatorJournalContent{Facts: facts},
 		References: model.OperatorJournalReferences{Tasks: []string{task.ID}, Commits: commits},
 		Actor:      "owner",
@@ -93,20 +61,14 @@ func tsk585CompleteEvidence(t *testing.T, s *Service, task model.TaskAuthoring, 
 	}
 	return event
 }
-func tsk585CompletionInput(task model.TaskAuthoring, mode, reason string, evidence map[int][]string) TaskCompleteInput {
-	in := TaskCompleteInput{
+func tsk585CompletionInput(task model.TaskAuthoring, mode, reason, review string) TaskCompleteInput {
+	return TaskCompleteInput{
 		ProjectID: "example",
 		Key:       task.ID,
 		Mode:      mode,
 		Reason:    reason,
+		Review:    review,
 	}
-	for i := 1; i <= len(task.AcceptanceCriteria); i++ {
-		in.Acceptance = append(in.Acceptance, TaskCompleteAcceptanceInput{
-			Criterion: i,
-			Evidence:  evidence[i],
-		})
-	}
-	return in
 }
 func tsk585IntegratedCompleteFixture(t *testing.T, s *Service, key string) (model.TaskAuthoring, string) {
 	t.Helper()
@@ -175,8 +137,8 @@ func TestTSK585TaskCompleteIntegrated(t *testing.T) {
 		t.Fatal(err)
 	}
 	sessionID := tsk585PlannerSession(t, s)
-	event := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 1, "integrated", integration, "")}, []string{integration})
-	in := tsk585CompletionInput(task, "integrated", "all criteria accepted", map[int][]string{1: {event.ID}})
+	event := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task, 1, "integrated", integration, "")}, []string{integration})
+	in := tsk585CompletionInput(task, "integrated", "all criteria accepted", event.ID)
 	out, err := s.TaskComplete(ctx, in, "planner")
 	if err != nil {
 		stateDiag, stateFound, stateErr := db.ReadTaskExecutionState(ctx, "example", task.ID)
@@ -217,7 +179,7 @@ func TestTSK585TaskCompleteIntegrated(t *testing.T) {
 	if err := decodeStrict(lifecycle.Contract, &contract); err != nil {
 		t.Fatal(err)
 	}
-	if contract.Mode != "integrated" || contract.IntegrationHead != integration || contract.TaskRevisionSHA256 != task.RevisionSHA256 || len(contract.Acceptance) != 1 ||
+	if contract.Mode != "integrated" || contract.Review != event.ID || contract.IntegrationHead != integration || contract.TaskRevisionSHA256 != task.RevisionSHA256 || !reflect.DeepEqual(contract.AcceptanceCriteria, task.AcceptanceCriteria) || len(contract.Acceptance) != 0 ||
 		contract.VerificationOperationID != receipt.OperationID || contract.VerificationAttemptRevision != receipt.AttemptRevision {
 		t.Fatalf("contract=%#v", contract)
 	}
@@ -276,9 +238,8 @@ func TestTSK585TaskCompleteNonCode(t *testing.T) {
 	ctx := context.Background()
 	task := tsk585CompleteTask(t, s, "tsk585-complete-nc", "Non Code", "doc criterion", "second criterion")
 	sessionID := tsk585PlannerSession(t, s)
-	e1 := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 1, "non_code", "", "non_code")}, nil)
-	e2 := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 2, "non_code", "", "non_code")}, nil)
-	out, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "non_code", "docs done", map[int][]string{1: {e1.ID}, 2: {e2.ID}}), "planner")
+	e1 := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task, 1, "non_code", "", "non_code")}, nil)
+	out, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "non_code", "docs done", e1.ID), "planner")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,8 +298,8 @@ func TestTSK585TaskCompleteHistorical(t *testing.T) {
 		t.Fatal("fixture requires no verification receipt")
 	}
 	sessionID := tsk585PlannerSession(t, s)
-	acc := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 1, "historical", integration, "")}, []string{integration})
-	out, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "historical", "recognized and accepted", map[int][]string{1: {acc.ID}}), "planner")
+	acc := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task, 1, "historical", integration, "")}, []string{integration})
+	out, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "historical", "recognized and accepted", acc.ID), "planner")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,12 +315,12 @@ func TestTSK585TaskCompleteHistorical(t *testing.T) {
 		t.Fatalf("historical contract must not carry verification identity: %#v", histContract)
 	}
 }
-func TestTSK585TaskCompleteEvidenceAuthority(t *testing.T) {
+func TestTSK610TaskCompleteReviewAuthority(t *testing.T) {
 	s, db := tsk585Setup(t)
 	defer db.Close()
 	ctx := context.Background()
 	task := tsk585CompleteTask(t, s, "tsk585-complete-auth", "Authority", "one")
-	fact := tsk585AcceptanceFact(t, task, 1, "non_code", "", "non_code")
+	fact := tsk585ReviewRationale(t, task, 1, "non_code", "", "non_code")
 	record := func(sessionID *string, actor string) string {
 		t.Helper()
 		return tsk585CompleteEvidence(t, s, task, sessionID, model.OperatorTaskReview, []string{fact}, nil).ID
@@ -388,34 +349,8 @@ func TestTSK585TaskCompleteEvidenceAuthority(t *testing.T) {
 		"agent session spoof": record(&agentSession.ID, "planner"),
 		"ended session":       record(&ended.ID, "planner"),
 		"cross-project":       record(&cross.ID, "planner"),
-		"wrong kind":          tsk585CompleteEvidence(t, s, task, ptr(tsk585PlannerSession(t, s)), model.OperatorTaskPlan, []string{fact}, nil).ID,
+		"wrong kind":          tsk585CompleteEvidence(t, s, task, ptr(tsk585PlannerSession(t, s)), model.OperatorTaskPlan, []string{"plan"}, nil).ID,
 		"no task ref":         "",
-		"malformed fact":      tsk585CompleteEvidence(t, s, task, ptr(tsk585PlannerSession(t, s)), model.OperatorTaskReview, []string{taskCompletionAcceptanceFactPrefix + "{bad"}, nil).ID,
-		"reject decision": tsk585CompleteEvidence(t, s, task, ptr(tsk585PlannerSession(t, s)), model.OperatorTaskReview, []string{taskCompletionAcceptanceFactPrefix + mustJSON(taskCompletionAcceptanceFact{
-			SchemaVersion:      1,
-			TaskRevisionSHA256: task.RevisionSHA256,
-			Criterion:          1,
-			Decision:           "reject",
-			Mode:               "non_code",
-			DeliverableKind:    ptrStr("non_code"),
-		})}, nil).ID,
-		"wrong criterion fact": tsk585CompleteEvidence(t, s, task, ptr(tsk585PlannerSession(t, s)), model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 2, "non_code", "", "non_code")}, nil).ID,
-		"wrong mode":           tsk585CompleteEvidence(t, s, task, ptr(tsk585PlannerSession(t, s)), model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 1, "integrated", "", "non_code")}, nil).ID,
-		"wrong task digest": tsk585CompleteEvidence(t, s, task, ptr(tsk585PlannerSession(t, s)), model.OperatorTaskReview, []string{taskCompletionAcceptanceFactPrefix + mustJSON(taskCompletionAcceptanceFact{
-			SchemaVersion:      1,
-			TaskRevisionSHA256: strings.Repeat("e", 64),
-			Criterion:          1,
-			Decision:           "accept",
-			Mode:               "non_code",
-			DeliverableKind:    ptrStr("non_code"),
-		})}, nil).ID,
-		"missing deliverable": tsk585CompleteEvidence(t, s, task, ptr(tsk585PlannerSession(t, s)), model.OperatorTaskReview, []string{taskCompletionAcceptanceFactPrefix + mustJSON(taskCompletionAcceptanceFact{
-			SchemaVersion:      1,
-			TaskRevisionSHA256: task.RevisionSHA256,
-			Criterion:          1,
-			Decision:           "accept",
-			Mode:               "non_code",
-		})}, nil).ID,
 	}
 	otherTask := tsk585CompleteTask(t, s, "tsk585-complete-auth2", "Other", "one")
 	cases["no task ref"] = tsk585CompleteEvidence(t, s, otherTask, ptr(tsk585PlannerSession(t, s)), model.OperatorTaskReview, []string{fact}, nil).ID
@@ -442,8 +377,32 @@ func TestTSK585TaskCompleteEvidenceAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases["post-dated session"] = postDated.ID
+	validSession := tsk585PlannerSession(t, s)
+	wrongProjectReview, _, err := s.OperatorRecord(ctx, OperatorRecordInput{
+		ProjectID:  "example",
+		SessionID:  &validSession,
+		Kind:       model.OperatorTaskReview,
+		Summary:    "final Task review",
+		Content:    model.OperatorJournalContent{Facts: []string{"ACCEPT: wrong-project review fixture"}},
+		References: model.OperatorJournalReferences{Tasks: []string{task.ID}},
+		Actor:      "owner",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongProjectReview.ProjectID = "other"
+	if _, err := s.Hub.Transact(ctx, mustHubRevision(t, s), "test: seed wrong-project review", func(worktree string) ([]string, error) {
+		path := s.operatorEventPath("example", wrongProjectReview.ID)
+		if err := hub.WriteJSON(worktree, path, wrongProjectReview); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cases["wrong project Journal"] = wrongProjectReview.ID
 	for name, evidenceID := range cases {
-		in := tsk585CompletionInput(task, "non_code", "ok", map[int][]string{1: {evidenceID}})
+		in := tsk585CompletionInput(task, "non_code", "ok", evidenceID)
 		if _, err := s.TaskComplete(ctx, in, "planner"); err == nil {
 			t.Fatalf("%s must reject", name)
 		}
@@ -468,8 +427,8 @@ func TestTSK585TaskCompleteAtomicFaultRollsBack(t *testing.T) {
 		t.Fatalf("install trigger: %v", err)
 	}
 	sessionID := tsk585PlannerSession(t, s)
-	ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 1, "integrated", integration, "")}, []string{integration})
-	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "integrated", "ok", map[int][]string{1: {ev.ID}}), "planner"); err == nil {
+	ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task, 1, "integrated", integration, "")}, []string{integration})
+	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "integrated", "ok", ev.ID), "planner"); err == nil {
 		t.Fatal("injected completion failure must fail")
 	} else if !strings.Contains(err.Error(), "injected completion event failure") {
 		t.Fatalf("failure must come from the injected commit boundary: %v", err)
@@ -537,8 +496,8 @@ func TestTSK585TaskCompleteHistoricalBootstrap(t *testing.T) {
 		t.Fatalf("historical integrate: %q", op.Error)
 	}
 	sessionID := tsk585PlannerSession(t, s)
-	acc := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 1, "historical", integration, "")}, []string{integration})
-	out, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "historical", "ok", map[int][]string{1: {acc.ID}}), "planner")
+	acc := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task, 1, "historical", integration, "")}, []string{integration})
+	out, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "historical", "ok", acc.ID), "planner")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -567,8 +526,8 @@ func TestTSK611TaskCompleteWithHistoricalVerificationProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	sessionID := tsk585PlannerSession(t, s)
-	ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 1, "integrated", integration, "")}, []string{integration})
-	out, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "integrated", "ok", map[int][]string{1: {ev.ID}}), "planner")
+	ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task, 1, "integrated", integration, "")}, []string{integration})
+	out, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "integrated", "ok", ev.ID), "planner")
 	if err != nil {
 		t.Fatalf("valid stored verification with an older profile must complete: %v", err)
 	}
@@ -604,8 +563,8 @@ func TestTSK611TaskCompleteRejectsInconsistentStoredVerificationEvidence(t *test
 		t.Fatal(err)
 	}
 	sessionID := tsk585PlannerSession(t, s)
-	ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 1, "integrated", integration, "")}, []string{integration})
-	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "integrated", "ok", map[int][]string{1: {ev.ID}}), "planner"); err == nil {
+	ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task, 1, "integrated", integration, "")}, []string{integration})
+	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "integrated", "ok", ev.ID), "planner"); err == nil {
 		t.Fatal("completion must reject verification evidence with an inconsistent candidate tree")
 	}
 	events, _ := db.ListTaskLifecycleEvents(ctx, "example", task.ID, 256)
@@ -613,23 +572,20 @@ func TestTSK611TaskCompleteRejectsInconsistentStoredVerificationEvidence(t *test
 		t.Fatal("rejected completion must not write")
 	}
 }
-func TestTSK585TaskCompleteCrossCriterionReuse(t *testing.T) {
+func TestTSK610TaskCompleteSingleReviewCoversAllCriteria(t *testing.T) {
 	s, db := tsk585Setup(t)
 	defer db.Close()
 	ctx := context.Background()
 	task := tsk585CompleteTask(t, s, "tsk585-complete-xc", "Cross", "one", "two")
 	sessionID := tsk585PlannerSession(t, s)
-	both := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{
-		tsk585AcceptanceFact(t, task, 1, "non_code", "", "non_code"),
-		tsk585AcceptanceFact(t, task, 2, "non_code", "", "non_code"),
-	}, nil)
-	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "non_code", "ok", map[int][]string{1: {both.ID}, 2: {both.ID}}), "planner"); err != nil {
+	both := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task, 1, "non_code", "", "non_code")}, nil)
+	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "non_code", "ok", both.ID), "planner"); err != nil {
 		t.Fatalf("one event covering both criteria must succeed: %v", err)
 	}
 	task2 := tsk585CompleteTask(t, s, "tsk585-complete-xc2", "Cross", "one", "two")
-	only1 := tsk585CompleteEvidence(t, s, task2, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task2, 1, "non_code", "", "non_code")}, nil)
-	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task2, "non_code", "ok", map[int][]string{1: {only1.ID}, 2: {only1.ID}}), "planner"); err == nil {
-		t.Fatal("reusing a criterion-1-only event for criterion 2 must reject")
+	only1 := tsk585CompleteEvidence(t, s, task2, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task2, 1, "non_code", "", "non_code")}, nil)
+	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task2, "non_code", "ok", only1.ID), "planner"); err != nil {
+		t.Fatalf("one final review is sufficient for all current criteria: %v", err)
 	}
 }
 func TestTSK585TaskHistoryMerged(t *testing.T) {
@@ -653,8 +609,8 @@ func TestTSK585TaskHistoryMerged(t *testing.T) {
 		t.Fatal(err)
 	}
 	sessionID := tsk585PlannerSession(t, s)
-	ev := tsk585CompleteEvidence(t, s, current, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, current, 1, "non_code", "", "non_code")}, nil)
-	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(current, "non_code", "done", map[int][]string{1: {ev.ID}}), "planner"); err != nil {
+	ev := tsk585CompleteEvidence(t, s, current, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, current, 1, "non_code", "", "non_code")}, nil)
+	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(current, "non_code", "done", ev.ID), "planner"); err != nil {
 		t.Fatal(err)
 	}
 	page, err := s.TaskLifecycleHistory(ctx, "example", task.ID, "")
@@ -699,8 +655,8 @@ func TestTSK585TaskCompleteIntegrationObjectProof(t *testing.T) {
 			t.Fatal(err)
 		}
 		sessionID := tsk585PlannerSession(t, s)
-		ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 1, "integrated", wrong, "")}, []string{wrong})
-		if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "integrated", "ok", map[int][]string{1: {ev.ID}}), "planner"); err == nil {
+		ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task, 1, "integrated", wrong, "")}, []string{wrong})
+		if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "integrated", "ok", ev.ID), "planner"); err == nil {
 			t.Fatal("wrong sole parent must reject")
 		}
 		entity, _ := db.ReadSharedTask(ctx, task.ID)
@@ -724,8 +680,8 @@ func TestTSK585TaskCompleteIntegrationObjectProof(t *testing.T) {
 			t.Fatal(err)
 		}
 		sessionID := tsk585PlannerSession(t, s)
-		ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 1, "integrated", wrong, "")}, []string{wrong})
-		if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "integrated", "ok", map[int][]string{1: {ev.ID}}), "planner"); err == nil {
+		ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task, 1, "integrated", wrong, "")}, []string{wrong})
+		if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "integrated", "ok", ev.ID), "planner"); err == nil {
 			t.Fatal("wrong candidate tree must reject")
 		}
 		_ = integration
@@ -874,67 +830,37 @@ func TestTSK585TaskHistoryServicePageBoundary(t *testing.T) {
 		t.Fatal("wrong-scoped opaque cursor must reject")
 	}
 }
-func TestTSK585TaskCompleteFactPropertyPresence(t *testing.T) {
+func TestTSK610TaskCompleteCompactReviewAndSnapshot(t *testing.T) {
 	s, db := tsk585Setup(t)
 	defer db.Close()
 	ctx := context.Background()
-	empty := ""
-	attempt := func(t *testing.T, task model.TaskAuthoring, mode, head string, factHead *string, factDeliverable *string, commits []string, wantErr bool) {
-		t.Helper()
-		sessionID := tsk585PlannerSession(t, s)
-		ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585RawAcceptanceFact(t, task, 1, mode, factHead, factDeliverable)}, commits)
-		_, err := s.TaskComplete(ctx, tsk585CompletionInput(task, mode, "ok", map[int][]string{1: {ev.ID}}), "planner")
-		if wantErr && err == nil {
-			t.Fatalf("head=%v deliverable=%v must reject", factHead, factDeliverable)
-		}
-		if !wantErr && err != nil {
-			t.Fatalf("valid fact must pass: %v", err)
-		}
+	task := tsk585CompleteTask(t, s, "tsk610-compact-review", "Compact review", "first criterion", "second criterion")
+	sessionID := tsk585PlannerSession(t, s)
+	review := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{
+		"ACCEPT: all current criteria satisfied; exact lifecycle receipts are authoritative.",
+		"task_acceptance:{this is narrative, not machine authority}",
+	}, nil)
+	out, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "non_code", "all current criteria accepted", review.ID), "planner")
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Run("integrated", func(t *testing.T) {
-		task, integration := tsk585IntegratedCompleteFixture(t, s, "tsk585-complete-fp1")
-		h := integration
-		nk := "non_code"
-		attempt(t, task, "integrated", integration, nil, nil, []string{integration}, true)
-		attempt(t, task, "integrated", integration, &empty, nil, []string{integration}, true)
-		attempt(t, task, "integrated", integration, &h, &empty, []string{integration}, true)
-		attempt(t, task, "integrated", integration, &h, &nk, []string{integration}, true)
-		attempt(t, task, "integrated", integration, &h, nil, nil, true)
-		attempt(t, task, "integrated", integration, &h, nil, []string{integration}, false)
-		releaseExecutionDone(t, db, task.ID)
-	})
-	t.Run("historical", func(t *testing.T) {
-		task, integration := tsk585HistoricalCompleteFixture(t, s, db, "tsk585-complete-fp2")
-		h := integration
-		attempt(t, task, "historical", integration, nil, nil, []string{integration}, true)
-		attempt(t, task, "historical", integration, &h, nil, []string{integration}, false)
-		releaseExecutionDone(t, db, task.ID)
-	})
-	t.Run("non_code", func(t *testing.T) {
-		task := tsk585CompleteTask(t, s, "tsk585-complete-fp3", "Presence", "one")
-		head := strings.Repeat("a", 40)
-		nk := "non_code"
-		sessionID := tsk585PlannerSession(t, s)
-		for _, tc := range []struct {
-			head, deliverable *string
-			wantErr           bool
-		}{
-			{nil, nil, true},
-			{nil, &empty, true},
-			{&empty, &nk, true},
-			{&head, &nk, true},
-			{nil, &nk, false},
-		} {
-			ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585RawAcceptanceFact(t, task, 1, "non_code", tc.head, tc.deliverable)}, nil)
-			_, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "non_code", "ok", map[int][]string{1: {ev.ID}}), "planner")
-			if tc.wantErr && err == nil {
-				t.Fatalf("head=%v deliverable=%v must reject", tc.head, tc.deliverable)
-			}
-			if !tc.wantErr && err != nil {
-				t.Fatalf("valid fact must pass: %v", err)
-			}
-		}
-	})
+	if out != (TaskCompleteOutput{
+		Key:      task.ID,
+		Status:   model.TaskAuthoringDone,
+		Revision: task.Revision,
+	}) {
+		t.Fatalf("sparse output=%#v", out)
+	}
+	contract := taskCompletionContract{}
+	if err := decodeStrict(tsk585CompletionEvent(t, db, task.ID).Contract, &contract); err != nil {
+		t.Fatal(err)
+	}
+	if contract.Review != review.ID || !reflect.DeepEqual(contract.AcceptanceCriteria, task.AcceptanceCriteria) || len(contract.Acceptance) != 0 {
+		t.Fatalf("compact completion contract=%#v", contract)
+	}
+	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "non_code", "all current criteria accepted", review.ID), "planner"); err != nil {
+		t.Fatalf("repeated compact completion must be idempotent: %v", err)
+	}
 }
 func tsk585HistoricalCompleteFixture(t *testing.T, s *Service, db *sqlitestore.Databases, idem string) (model.TaskAuthoring, string) {
 	t.Helper()
@@ -974,8 +900,8 @@ func TestTSK585TaskHistoryChangedFields(t *testing.T) {
 
 	planned := tsk585CompleteTask(t, s, "tsk585-hist-cf1", "Planned", "one")
 	sessionID := tsk585PlannerSession(t, s)
-	ev := tsk585CompleteEvidence(t, s, planned, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, planned, 1, "non_code", "", "non_code")}, nil)
-	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(planned, "non_code", "ok", map[int][]string{1: {ev.ID}}), "planner"); err != nil {
+	ev := tsk585CompleteEvidence(t, s, planned, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, planned, 1, "non_code", "", "non_code")}, nil)
+	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(planned, "non_code", "ok", ev.ID), "planner"); err != nil {
 		t.Fatal(err)
 	}
 	page, err := s.TaskLifecycleHistory(ctx, "example", planned.ID, "")
@@ -997,8 +923,8 @@ func TestTSK585TaskHistoryChangedFields(t *testing.T) {
 	if _, err := db.Shared.Exec(ctx, `UPDATE shared_tasks SET payload=?,updated_at=? WHERE id=? AND revision=?`, payload, row.UpdatedAt.UTC().Format(time.RFC3339Nano), ready.ID, entity.Revision); err != nil {
 		t.Fatal(err)
 	}
-	ev2 := tsk585CompleteEvidence(t, s, row, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, row, 1, "non_code", "", "non_code")}, nil)
-	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(row, "non_code", "ok", map[int][]string{1: {ev2.ID}}), "planner"); err != nil {
+	ev2 := tsk585CompleteEvidence(t, s, row, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, row, 1, "non_code", "", "non_code")}, nil)
+	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(row, "non_code", "ok", ev2.ID), "planner"); err != nil {
 		t.Fatal(err)
 	}
 	page2, err := s.TaskLifecycleHistory(ctx, "example", ready.ID, "")
@@ -1160,8 +1086,8 @@ func TestTSK585TaskArchiveDone(t *testing.T) {
 	ctx := context.Background()
 	task := tsk585CompleteTask(t, s, "tsk585-arch-done", "Archive done", "one")
 	sessionID := tsk585PlannerSession(t, s)
-	ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 1, "non_code", "", "non_code")}, nil)
-	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "non_code", "ok", map[int][]string{1: {ev.ID}}), "planner"); err != nil {
+	ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task, 1, "non_code", "", "non_code")}, nil)
+	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "non_code", "ok", ev.ID), "planner"); err != nil {
 		t.Fatal(err)
 	}
 	completed, err := s.TaskLifecycleRead(ctx, "example", task.ID, 0)
@@ -1408,8 +1334,8 @@ func TestTSK585DoneTaskExactVisibility(t *testing.T) {
 	ctx := context.Background()
 	task := tsk585CompleteTask(t, s, "tsk585-browse-done", "Completed browse target", "one")
 	sessionID := tsk585PlannerSession(t, s)
-	ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 1, "non_code", "", "non_code")}, nil)
-	out, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "non_code", "ok", map[int][]string{1: {ev.ID}}), "planner")
+	ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task, 1, "non_code", "", "non_code")}, nil)
+	out, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "non_code", "ok", ev.ID), "planner")
 	if err != nil {
 		t.Fatal(err)
 	}

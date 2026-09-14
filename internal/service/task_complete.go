@@ -17,17 +17,17 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
-type TaskCompleteAcceptanceInput struct {
+type taskCompleteLegacyAcceptanceInput struct {
 	Criterion int      `json:"criterion"`
 	Evidence  []string `json:"evidence"`
 }
 
 type TaskCompleteInput struct {
-	ProjectID  string                        `json:"project_id,omitempty"`
-	Key        string                        `json:"key"`
-	Mode       string                        `json:"mode"`
-	Reason     string                        `json:"reason"`
-	Acceptance []TaskCompleteAcceptanceInput `json:"acceptance"`
+	ProjectID string `json:"project_id,omitempty"`
+	Key       string `json:"key"`
+	Mode      string `json:"mode"`
+	Reason    string `json:"reason"`
+	Review    string `json:"review"`
 }
 
 type TaskCompleteOutput struct {
@@ -36,88 +36,46 @@ type TaskCompleteOutput struct {
 	Revision int    `json:"revision"`
 }
 
-const taskCompletionAcceptanceFactPrefix = "task_acceptance:"
-
-type taskCompletionAcceptanceFact struct {
-	SchemaVersion      int     `json:"schema_version"`
-	TaskRevisionSHA256 string  `json:"task_revision_sha256"`
-	Criterion          int     `json:"criterion"`
-	Decision           string  `json:"decision"`
-	Mode               string  `json:"mode"`
-	IntegrationHead    *string `json:"integration_head,omitempty"`
-	DeliverableKind    *string `json:"deliverable_kind,omitempty"`
-}
-
 type taskCompletionContract struct {
-	SchemaVersion               int                           `json:"schema_version"`
-	Mode                        string                        `json:"mode"`
-	Reason                      string                        `json:"reason"`
-	TaskRevision                int                           `json:"task_revision"`
-	TaskRevisionSHA256          string                        `json:"task_revision_sha256"`
-	IntegrationHead             string                        `json:"integration_head,omitempty"`
-	VerificationOperationID     string                        `json:"verification_operation_id,omitempty"`
-	VerificationAttemptRevision int                           `json:"verification_attempt_revision,omitempty"`
-	Acceptance                  []TaskCompleteAcceptanceInput `json:"acceptance"`
+	SchemaVersion               int                                 `json:"schema_version"`
+	Mode                        string                              `json:"mode"`
+	Reason                      string                              `json:"reason"`
+	Review                      string                              `json:"review,omitempty"`
+	TaskRevision                int                                 `json:"task_revision"`
+	TaskRevisionSHA256          string                              `json:"task_revision_sha256"`
+	AcceptanceCriteria          []string                            `json:"acceptance_criteria,omitempty"`
+	IntegrationHead             string                              `json:"integration_head,omitempty"`
+	VerificationOperationID     string                              `json:"verification_operation_id,omitempty"`
+	VerificationAttemptRevision int                                 `json:"verification_attempt_revision,omitempty"`
+	Acceptance                  []taskCompleteLegacyAcceptanceInput `json:"acceptance,omitempty"`
 }
 
-func validateTaskCompleteInput(in TaskCompleteInput) ([]TaskCompleteAcceptanceInput, error) {
+func validateTaskCompleteInput(in TaskCompleteInput) error {
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
-		return nil, err
+		return err
 	}
 	if err := model.ValidateCanonicalTaskID(in.Key); err != nil {
-		return nil, err
+		return err
 	}
 	switch in.Mode {
 	case "integrated", "non_code", "historical":
 	default:
-		return nil, fmt.Errorf("invalid Task completion mode %q", in.Mode)
+		return fmt.Errorf("invalid Task completion mode %q", in.Mode)
 	}
 	if strings.ContainsRune(in.Reason, 0) || utf8.RuneCountInString(in.Reason) < 1 || utf8.RuneCountInString(in.Reason) > 1024 {
-		return nil, fmt.Errorf("invalid Task completion reason")
+		return fmt.Errorf("invalid Task completion reason")
 	}
-	if len(in.Acceptance) < 1 || len(in.Acceptance) > 128 {
-		return nil, fmt.Errorf("invalid Task completion acceptance coverage")
+	if _, _, err := model.ParseJournalID(in.Review); err != nil {
+		return fmt.Errorf("invalid Task completion review Journal identifier %q", in.Review)
 	}
-	normalized := make([]TaskCompleteAcceptanceInput, 0, len(in.Acceptance))
-	for _, item := range in.Acceptance {
-		if item.Criterion < 1 || item.Criterion > 128 {
-			return nil, fmt.Errorf("invalid Task completion criterion %d", item.Criterion)
-		}
-		if len(item.Evidence) < 1 || len(item.Evidence) > 8 {
-			return nil, fmt.Errorf("invalid Task completion evidence set")
-		}
-		seen := map[string]bool{}
-		evidence := append([]string(nil), item.Evidence...)
-		for _, id := range evidence {
-			if _, _, err := model.ParseJournalID(id); err != nil {
-				return nil, fmt.Errorf("invalid Task completion evidence Journal identifier %q", id)
-			}
-			if seen[id] {
-				return nil, fmt.Errorf("duplicate Task completion evidence %q", id)
-			}
-			seen[id] = true
-		}
-		slices.Sort(evidence)
-		normalized = append(normalized, TaskCompleteAcceptanceInput{
-			Criterion: item.Criterion,
-			Evidence:  evidence,
-		})
-	}
-	slices.SortFunc(normalized, func(a, b TaskCompleteAcceptanceInput) int { return a.Criterion - b.Criterion })
-	for i := 1; i < len(normalized); i++ {
-		if normalized[i].Criterion == normalized[i-1].Criterion {
-			return nil, fmt.Errorf("duplicate Task completion criterion %d", normalized[i].Criterion)
-		}
-	}
-	return normalized, nil
+	return nil
 }
 
 func (s *Service) TaskComplete(ctx context.Context, in TaskCompleteInput, actor string) (TaskCompleteOutput, error) {
 	if utf8.RuneCountInString(actor) < 1 {
 		return TaskCompleteOutput{}, fmt.Errorf("Task completion requires an actor")
 	}
-	acceptance, err := validateTaskCompleteInput(in)
-	if err != nil {
+	if err := validateTaskCompleteInput(in); err != nil {
 		return TaskCompleteOutput{}, err
 	}
 	if err := s.requireLocalTaskAuthoring(ctx, in.ProjectID); err != nil {
@@ -145,24 +103,13 @@ func (s *Service) TaskComplete(ctx context.Context, in TaskCompleteInput, actor 
 	if len(task.AcceptanceCriteria) < 1 || len(task.AcceptanceCriteria) > 128 {
 		return TaskCompleteOutput{}, fmt.Errorf("Task has no completable acceptance criteria")
 	}
-	if len(acceptance) != len(task.AcceptanceCriteria) {
-		return TaskCompleteOutput{}, fmt.Errorf("Task completion must cover every acceptance criterion exactly once")
-	}
-	for i, item := range acceptance {
-		if item.Criterion != i+1 {
-			return TaskCompleteOutput{}, fmt.Errorf("Task completion must cover every acceptance criterion exactly once")
-		}
-	}
 	identifiers, err := s.ProjectIdentifiersRead(ctx, in.ProjectID)
 	if err != nil {
 		return TaskCompleteOutput{}, err
 	}
-	for _, item := range acceptance {
-		for _, id := range item.Evidence {
-			code, _, err := model.ParseJournalID(id)
-			if err != nil || code != identifiers.ProjectCode {
-				return TaskCompleteOutput{}, fmt.Errorf("Task completion evidence %q does not bind this project", id)
-			}
+	if task.Status == model.TaskAuthoringDone {
+		if err := s.taskCompleteReviewProof(ctx, in, task, identifiers.ProjectCode); err != nil {
+			return TaskCompleteOutput{}, err
 		}
 	}
 	state, hasExecution, err := s.Durability.ReadTaskExecutionState(ctx, in.ProjectID, in.Key)
@@ -181,7 +128,7 @@ func (s *Service) TaskComplete(ctx context.Context, in TaskCompleteInput, actor 
 		if !found {
 			return TaskCompleteOutput{}, fmt.Errorf("completed Task lacks its completion lifecycle event; evidence reconciliation is required")
 		}
-		return s.taskCompleteReplay(in, task, state, hasExecution, phases, event, acceptance)
+		return s.taskCompleteReplay(in, task, state, hasExecution, phases, event)
 	}
 	if found {
 		return TaskCompleteOutput{}, fmt.Errorf("Task completion lifecycle event exists without a completed Task; evidence reconciliation is required")
@@ -213,12 +160,13 @@ func (s *Service) TaskComplete(ctx context.Context, in TaskCompleteInput, actor 
 		SchemaVersion:               1,
 		Mode:                        in.Mode,
 		Reason:                      in.Reason,
+		Review:                      in.Review,
 		TaskRevision:                task.Revision,
 		TaskRevisionSHA256:          task.RevisionSHA256,
+		AcceptanceCriteria:          append([]string(nil), task.AcceptanceCriteria...),
 		IntegrationHead:             integrationHead,
 		VerificationOperationID:     verification.OperationID,
 		VerificationAttemptRevision: verification.AttemptRevision,
-		Acceptance:                  acceptance,
 	}
 	contractJSON, err := json.Marshal(contract)
 	if err != nil {
@@ -229,7 +177,7 @@ func (s *Service) TaskComplete(ctx context.Context, in TaskCompleteInput, actor 
 	opSum := sha256.Sum256(append([]byte(in.ProjectID+"\x00"+in.Key+"\x00"), contractJSON...))
 	operationID := "task-complete-" + hex.EncodeToString(opSum[:])
 
-	if err := s.taskCompleteAcceptanceProof(ctx, in, task, identifiers.ProjectCode, acceptance, integrationHead); err != nil {
+	if err := s.taskCompleteReviewProof(ctx, in, task, identifiers.ProjectCode); err != nil {
 		return TaskCompleteOutput{}, err
 	}
 
@@ -286,7 +234,7 @@ func (s *Service) TaskComplete(ctx context.Context, in TaskCompleteInput, actor 
 	}
 	if err := s.Durability.CommitTaskCompletion(ctx, req); err != nil {
 
-		if out, ok, _ := s.taskCompleteCommittedReplay(ctx, in, acceptance); ok {
+		if out, ok, _ := s.taskCompleteCommittedReplay(ctx, in); ok {
 			return out, nil
 		}
 		return TaskCompleteOutput{}, err
@@ -298,7 +246,7 @@ func (s *Service) TaskComplete(ctx context.Context, in TaskCompleteInput, actor 
 	}, nil
 }
 
-func (s *Service) taskCompleteReplay(in TaskCompleteInput, task model.TaskAuthoring, state model.TaskExecutionState, hasExecution bool, phases []sqlitestore.TaskExecutionPhase, event sqlitestore.TaskLifecycleEvent, acceptance []TaskCompleteAcceptanceInput) (TaskCompleteOutput, error) {
+func (s *Service) taskCompleteReplay(in TaskCompleteInput, task model.TaskAuthoring, state model.TaskExecutionState, hasExecution bool, phases []sqlitestore.TaskExecutionPhase, event sqlitestore.TaskLifecycleEvent) (TaskCompleteOutput, error) {
 	var stored taskCompletionContract
 	if err := decodeStrict(event.Contract, &stored); err != nil {
 		return TaskCompleteOutput{}, fmt.Errorf("Task completion contract is corrupt: %w", err)
@@ -314,13 +262,13 @@ func (s *Service) taskCompleteReplay(in TaskCompleteInput, task model.TaskAuthor
 		SchemaVersion:      1,
 		Mode:               in.Mode,
 		Reason:             in.Reason,
+		Review:             in.Review,
 		TaskRevision:       task.Revision,
 		TaskRevisionSHA256: task.RevisionSHA256,
-		Acceptance:         acceptance,
+		AcceptanceCriteria: append([]string(nil), task.AcceptanceCriteria...),
 	}
-	if stored.SchemaVersion != 1 || stored.TaskRevision != current.TaskRevision || stored.TaskRevisionSHA256 != current.TaskRevisionSHA256 || stored.Mode != current.Mode || stored.Reason != current.Reason || !slices.EqualFunc(stored.Acceptance, current.Acceptance, func(a, b TaskCompleteAcceptanceInput) bool {
-		return a.Criterion == b.Criterion && slices.Equal(a.Evidence, b.Evidence)
-	}) {
+	legacyContract := stored.Review == "" && len(stored.Acceptance) > 0
+	if stored.SchemaVersion != 1 || stored.TaskRevision != current.TaskRevision || stored.TaskRevisionSHA256 != current.TaskRevisionSHA256 || stored.Mode != current.Mode || stored.Reason != current.Reason || (!legacyContract && (stored.Review != current.Review || !slices.Equal(stored.AcceptanceCriteria, current.AcceptanceCriteria))) {
 		return TaskCompleteOutput{}, fmt.Errorf("Task completion request conflicts with the recorded completion contract; evidence reconciliation is required")
 	}
 	expectedOp := sha256.Sum256(append([]byte(in.ProjectID+"\x00"+in.Key+"\x00"), canonical...))
@@ -388,7 +336,7 @@ func (s *Service) taskCompleteReplay(in TaskCompleteInput, task model.TaskAuthor
 	}, nil
 }
 
-func (s *Service) taskCompleteCommittedReplay(ctx context.Context, in TaskCompleteInput, acceptance []TaskCompleteAcceptanceInput) (TaskCompleteOutput, bool, error) {
+func (s *Service) taskCompleteCommittedReplay(ctx context.Context, in TaskCompleteInput) (TaskCompleteOutput, bool, error) {
 	event, found, err := s.Durability.ReadTaskCompletionEvent(ctx, in.ProjectID, in.Key)
 	if err != nil || !found {
 		return TaskCompleteOutput{}, false, err
@@ -409,93 +357,43 @@ func (s *Service) taskCompleteCommittedReplay(ctx context.Context, in TaskComple
 	if err != nil {
 		return TaskCompleteOutput{}, false, err
 	}
-	out, err := s.taskCompleteReplay(in, task, state, hasExecution, phases, event, acceptance)
+	out, err := s.taskCompleteReplay(in, task, state, hasExecution, phases, event)
 	if err != nil {
 		return TaskCompleteOutput{}, false, nil
 	}
 	return out, true, nil
 }
 
-func (s *Service) taskCompleteAcceptanceProof(ctx context.Context, in TaskCompleteInput, task model.TaskAuthoring, projectCode string, acceptance []TaskCompleteAcceptanceInput, integrationHead string) error {
+func (s *Service) taskCompleteReviewProof(ctx context.Context, in TaskCompleteInput, task model.TaskAuthoring, projectCode string) error {
 	registry := s.entityRegistry(in.ProjectID)
 	type admitted struct {
 		record entity.Record
 		event  model.OperatorJournalEvent
 	}
-	cache := map[string]admitted{}
-	load := func(id string) (admitted, error) {
-		if entry, ok := cache[id]; ok {
-			return entry, nil
-		}
-		var event model.OperatorJournalEvent
-		record, err := registry.ReadInto(ctx, entity.JournalFamily, id, &event)
-		if err != nil {
-			return admitted{}, fmt.Errorf("Task completion evidence Journal record: %w", err)
-		}
-		if _, err := validateOperatorEventPathIdentity(record.Path, s.operatorEventsPrefix(in.ProjectID), event, in.ProjectID, projectCode); err != nil {
-			return admitted{}, fmt.Errorf("Task completion evidence Journal record: %w", err)
-		}
-		cache[id] = admitted{
-			record: record,
-			event:  event,
-		}
-		return cache[id], nil
+	var review model.OperatorJournalEvent
+	record, err := registry.ReadInto(ctx, entity.JournalFamily, in.Review, &review)
+	if err != nil {
+		return fmt.Errorf("Task completion review Journal record: %w", err)
 	}
-	for _, item := range acceptance {
-		for _, id := range item.Evidence {
-			entry, err := load(id)
-			if err != nil {
-				return err
-			}
-			event := entry.event
-			if err := s.taskCompleteEvidenceAuthority(event, in.ProjectID, projectCode); err != nil {
-				return err
-			}
-			if event.Kind != model.OperatorTaskReview {
-				return fmt.Errorf("Task completion evidence is not a task review Journal event")
-			}
-			if !slices.Contains(event.References.Tasks, in.Key) {
-				return fmt.Errorf("Task completion evidence does not reference the Task")
-			}
-			var fact *taskCompletionAcceptanceFact
-			count := 0
-			for _, raw := range event.Content.Facts {
-				if !strings.HasPrefix(raw, taskCompletionAcceptanceFactPrefix) {
-					continue
-				}
-				var parsed taskCompletionAcceptanceFact
-				if err := decodeStrict([]byte(strings.TrimPrefix(raw, taskCompletionAcceptanceFactPrefix)), &parsed); err != nil {
-					return fmt.Errorf("Task completion acceptance fact is malformed: %w", err)
-				}
-				if parsed.Criterion == item.Criterion {
-					count++
-					fact = &parsed
-				}
-			}
-			if count != 1 || fact == nil {
-				return fmt.Errorf("Task completion evidence must carry exactly one acceptance fact for criterion %d", item.Criterion)
-			}
-			if fact.SchemaVersion != 1 || fact.TaskRevisionSHA256 != task.RevisionSHA256 || fact.Decision != "accept" || fact.Mode != in.Mode {
-				return fmt.Errorf("Task completion acceptance fact does not bind the current Task revision and request")
-			}
-			switch in.Mode {
-			case "non_code":
-				if fact.IntegrationHead != nil || fact.DeliverableKind == nil || *fact.DeliverableKind != "non_code" {
-					return fmt.Errorf("non_code Task completion requires the approved non-code deliverable fact")
-				}
-			case "integrated", "historical":
-				if fact.IntegrationHead == nil || model.ValidateCommitSHA(*fact.IntegrationHead) != nil || *fact.IntegrationHead != integrationHead || fact.DeliverableKind != nil || !slices.Contains(event.References.Commits, integrationHead) {
-					return fmt.Errorf("Task completion acceptance fact does not bind the integration commit")
-				}
-			}
-		}
+	if _, err := validateOperatorEventPathIdentity(record.Path, s.operatorEventsPrefix(in.ProjectID), review, in.ProjectID, projectCode); err != nil {
+		return fmt.Errorf("Task completion review Journal record: %w", err)
 	}
+	if err := s.taskCompleteEvidenceAuthority(review, in.ProjectID, projectCode); err != nil {
+		return err
+	}
+	if review.Kind != model.OperatorTaskReview {
+		return fmt.Errorf("Task completion review is not a task review Journal event")
+	}
+	if !slices.Contains(review.References.Tasks, task.ID) {
+		return fmt.Errorf("Task completion review does not reference the Task")
+	}
+	cache := map[string]admitted{in.Review: {record: record, event: review}}
 	records, err := registry.ListRecords(ctx, entity.Query{Family: entity.JournalFamily})
 	if err != nil {
 		return err
 	}
 	eventsPrefix := s.operatorEventsPrefix(in.ProjectID)
-	stable := map[string]bool{}
+	stable := false
 	for _, rec := range records {
 		var other model.OperatorJournalEvent
 		if err := decodeStrict(rec.Bytes, &other); err != nil {
@@ -506,20 +404,16 @@ func (s *Service) taskCompleteAcceptanceProof(ctx context.Context, in TaskComple
 		}
 		if entry, ok := cache[rec.ID]; ok {
 			if !bytes.Equal(entry.record.Bytes, rec.Bytes) {
-				return fmt.Errorf("Task completion evidence Journal record changed during admission")
+				return fmt.Errorf("Task completion review Journal record changed during admission")
 			}
-			stable[rec.ID] = true
+			stable = true
 		}
-		if other.SupersedesEventID != "" {
-			if _, isRequested := cache[other.SupersedesEventID]; isRequested {
-				return fmt.Errorf("Task completion evidence Journal record is superseded")
-			}
+		if other.SupersedesEventID == in.Review {
+			return fmt.Errorf("Task completion review Journal record is superseded")
 		}
 	}
-	for id := range cache {
-		if !stable[id] {
-			return fmt.Errorf("Task completion evidence Journal record disappeared during admission")
-		}
+	if !stable {
+		return fmt.Errorf("Task completion review Journal record disappeared during admission")
 	}
 	return nil
 }

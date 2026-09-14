@@ -32,7 +32,7 @@ func TestTSK585TaskCompleteMCPSchema(t *testing.T) {
 	for _, r := range public["required"].([]string) {
 		required[r] = true
 	}
-	for _, want := range []string{"key", "mode", "reason", "acceptance"} {
+	for _, want := range []string{"key", "mode", "reason", "review"} {
 		if !required[want] {
 			t.Fatalf("public schema missing required %q", want)
 		}
@@ -61,33 +61,9 @@ func TestTSK585TaskCompleteMCPSchema(t *testing.T) {
 	if reason["minLength"] != 1 || reason["maxLength"] != 1024 {
 		t.Fatalf("reason bounds=%v", reason)
 	}
-	acceptance := props["acceptance"].(map[string]any)
-	if acceptance["minItems"] != 1 || acceptance["maxItems"] != 128 {
-		t.Fatalf("acceptance bounds=%v", acceptance)
-	}
-	item := acceptance["items"].(map[string]any)
-	if item["additionalProperties"] != false {
-		t.Fatal("acceptance item must be closed")
-	}
-	itemRequired := map[string]bool{}
-	for _, r := range item["required"].([]string) {
-		itemRequired[r] = true
-	}
-	if !itemRequired["criterion"] || !itemRequired["evidence"] {
-		t.Fatalf("acceptance item required=%v", itemRequired)
-	}
-	itemProps := item["properties"].(map[string]any)
-	criterion := itemProps["criterion"].(map[string]any)
-	if criterion["minimum"] != float64(1) || criterion["maximum"] != float64(128) {
-		t.Fatalf("criterion bounds=%v", criterion)
-	}
-	evidence := itemProps["evidence"].(map[string]any)
-	if evidence["minItems"] != 1 || evidence["maxItems"] != 8 || evidence["uniqueItems"] != true {
-		t.Fatalf("evidence bounds=%v", evidence)
-	}
-	jrn := evidence["items"].(map[string]any)
-	if jrn["minLength"] != 8 || jrn["maxLength"] != 23 {
-		t.Fatalf("evidence JRN bounds=%v", jrn)
+	review := props["review"].(map[string]any)
+	if review["minLength"] != 8 || review["maxLength"] != 23 || review["pattern"] != model.JournalIDPattern {
+		t.Fatalf("review JRN bounds=%v", review)
 	}
 
 	outProps := out["properties"].(map[string]any)
@@ -129,20 +105,19 @@ func TestTSK585TaskCompleteMCPRegistration(t *testing.T) {
 func TestTSK585TaskCompleteMCPValidation(t *testing.T) {
 	public := taskCompleteSchema()
 	jrn := `"EXM-JRN1"`
-	valid := `{"key":"EXM-TSK1","mode":"non_code","reason":"done","acceptance":[{"criterion":1,"evidence":[` + jrn + `]}]}`
+	valid := `{"key":"EXM-TSK1","mode":"non_code","reason":"done","review":` + jrn + `}`
 	if err := tsk585IntegrateSchemaCheck(t, public, valid); err != nil {
 		t.Fatalf("valid input rejected: %v", err)
 	}
 	rejected := map[string]string{
-		"missing mode":       `{"key":"EXM-TSK1","reason":"x","acceptance":[{"criterion":1,"evidence":[` + jrn + `]}]}`,
-		"missing reason":     `{"key":"EXM-TSK1","mode":"non_code","acceptance":[{"criterion":1,"evidence":[` + jrn + `]}]}`,
-		"missing acceptance": `{"key":"EXM-TSK1","mode":"non_code","reason":"x"}`,
-		"bad mode":           `{"key":"EXM-TSK1","mode":"verified","reason":"x","acceptance":[{"criterion":1,"evidence":[` + jrn + `]}]}`,
-		"empty reason":       `{"key":"EXM-TSK1","mode":"non_code","reason":"","acceptance":[{"criterion":1,"evidence":[` + jrn + `]}]}`,
-		"criterion zero":     `{"key":"EXM-TSK1","mode":"non_code","reason":"x","acceptance":[{"criterion":0,"evidence":[` + jrn + `]}]}`,
-		"empty evidence":     `{"key":"EXM-TSK1","mode":"non_code","reason":"x","acceptance":[{"criterion":1,"evidence":[]}]}`,
-		"bad jrn":            `{"key":"EXM-TSK1","mode":"non_code","reason":"x","acceptance":[{"criterion":1,"evidence":["bogus"]}]}`,
-		"unknown property":   `{"key":"EXM-TSK1","mode":"non_code","reason":"x","acceptance":[{"criterion":1,"evidence":[` + jrn + `]}],"extra":1}`,
+		"missing mode":      `{"key":"EXM-TSK1","reason":"x","review":` + jrn + `}`,
+		"missing reason":    `{"key":"EXM-TSK1","mode":"non_code","review":` + jrn + `}`,
+		"missing review":    `{"key":"EXM-TSK1","mode":"non_code","reason":"x"}`,
+		"bad mode":          `{"key":"EXM-TSK1","mode":"verified","reason":"x","review":` + jrn + `}`,
+		"empty reason":      `{"key":"EXM-TSK1","mode":"non_code","reason":"","review":` + jrn + `}`,
+		"bad jrn":           `{"key":"EXM-TSK1","mode":"non_code","reason":"x","review":"bogus"}`,
+		"legacy acceptance": `{"key":"EXM-TSK1","mode":"non_code","reason":"x","acceptance":[{"criterion":1,"evidence":[` + jrn + `]}]}`,
+		"unknown property":  `{"key":"EXM-TSK1","mode":"non_code","reason":"x","review":` + jrn + `,"extra":1}`,
 	}
 	for name, raw := range rejected {
 		if err := tsk585IntegrateSchemaCheck(t, public, raw); err == nil {

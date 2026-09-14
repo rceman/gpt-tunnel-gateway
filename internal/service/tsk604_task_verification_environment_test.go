@@ -15,8 +15,8 @@ func TestTSK604TaskCompleteAfterRestartIgnoresEnvironmentDrift(t *testing.T) {
 	ctx := context.Background()
 	task, integration := tsk585IntegratedCompleteFixture(t, s, "tsk604-restart")
 	sessionID := tsk585PlannerSession(t, s)
-	evidence := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 1, "integrated", integration, "")}, []string{integration})
-	input := tsk585CompletionInput(task, "integrated", "accepted after restart", map[int][]string{1: {evidence.ID}})
+	evidence := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task, 1, "integrated", integration, "")}, []string{integration})
+	input := tsk585CompletionInput(task, "integrated", "accepted after restart", evidence.ID)
 
 	oldPath := os.Getenv("PATH")
 	t.Setenv("PATH", filepath.Join(t.TempDir(), "shadow")+string(os.PathListSeparator)+oldPath)

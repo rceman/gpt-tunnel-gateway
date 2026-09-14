@@ -16,17 +16,12 @@ func taskCompleteSchema() map[string]any {
 	jrn["pattern"] = model.JournalIDPattern
 	jrn["minLength"] = 8
 	jrn["maxLength"] = 23
-	acceptanceItem := obj(map[string]any{
-		"criterion": map[string]any{"type": "integer", "description": "1-based Task acceptance criterion position.", "minimum": float64(1), "maximum": float64(128)},
-		"evidence":  map[string]any{"type": "array", "description": "Planner task-review Journal evidence for this criterion.", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": jrn},
-	}, "criterion", "evidence")
 	return obj(map[string]any{
 		"key":    key,
 		"mode":   map[string]any{"type": "string", "description": "Completion mode.", "enum": []any{"integrated", "non_code", "historical"}},
-		"reason": map[string]any{"type": "string", "description": "Completion reason.", "minLength": 1, "maxLength": 1024},
-		"acceptance": map[string]any{"type": "array", "description": "Acceptance evidence for every Task criterion.",
-			"minItems": 1, "maxItems": 128, "items": acceptanceItem},
-	}, "key", "mode", "reason", "acceptance")
+		"reason": map[string]any{"type": "string", "description": "Planner's concise completion rationale.", "minLength": 1, "maxLength": 1024},
+		"review": jrn,
+	}, "key", "mode", "reason", "review")
 }
 
 func taskCompleteOutputSchema() map[string]any {
@@ -44,7 +39,7 @@ func taskCompleteOutputSchema() map[string]any {
 func (s *Server) registerTaskCompleteAction() error {
 	return s.RegisterGenericAction(GenericAction{
 		Path:                 "task/complete",
-		Description:          "Complete one canonical Task with acceptance-backed Planner Journal evidence.",
+		Description:          "Complete one canonical Task with one final Planner task-review Journal reference.",
 		AuthorityRole:        "planner",
 		SessionBound:         true,
 		LocalReceiptOnly:     true,
