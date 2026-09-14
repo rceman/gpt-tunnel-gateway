@@ -11,6 +11,7 @@ import (
 
 func TestTrainV2AdvanceReceiptIdentityTracksLocalExecutionGeneration(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
+	_ = testServiceWithDurability(t, s)
 	in := TrainV2AdvanceInput{
 		ProjectID: "example",
 		TrainID:   "GTW-TRN999",
@@ -61,6 +62,7 @@ func TestTrainV2AdvanceReceiptIdentityTracksLocalExecutionGeneration(t *testing.
 
 func TestTaskWorkReceiptIdentityTracksHubRevision(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
+	_ = testServiceWithDurability(t, s)
 	in := TaskWorkInput{
 		ProjectID: "example",
 		TaskID:    "EXM-TSK1",
@@ -92,6 +94,7 @@ func TestTaskWorkReceiptIdentityTracksHubRevision(t *testing.T) {
 func TestTrainV2LifecycleInitiationsAreBoundedAndIdempotent(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
 	_ = enableTrainV2ForTest(t, s, revision)
+	_ = testServiceWithDurability(t, s)
 	ctx := context.Background()
 
 	startInput := TrainV2StartInput{

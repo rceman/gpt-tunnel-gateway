@@ -8,6 +8,7 @@ import (
 
 func TestTrainV2AdmissionMutationsReturnBoundedReceipts(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
+	_ = testServiceWithDurability(t, s)
 	ctx := context.Background()
 	create := TrainV2CreateInput{
 		ProjectID: "example",

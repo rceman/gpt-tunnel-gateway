@@ -170,6 +170,47 @@ func FormatADRID(projectCode string, number uint64) (string, error) {
 	return fmt.Sprintf("%s-ADR%d", projectCode, number), nil
 }
 
+func FormatOperationID(projectCode string, number uint64) (string, error) {
+	if err := ValidateProjectCode(projectCode); err != nil {
+		return "", err
+	}
+	if err := ValidateCompactIDNumber(number); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s-OPR%d", projectCode, number), nil
+}
+
+func ParseOperationID(value string) (string, uint64, error) {
+	matches := canonicalOperationIDRE.FindStringSubmatch(value)
+	if len(matches) != 3 {
+		return "", 0, fmt.Errorf("invalid canonical operation ID")
+	}
+	number, err := parseCompactIDNumber(matches[2])
+	if err != nil {
+		return "", 0, err
+	}
+	return matches[1], number, nil
+}
+
+func ValidateOperationID(value string) error {
+	_, _, err := ParseOperationID(value)
+	return err
+}
+
+func ValidateOperationIDForProject(value, expectedProjectCode string) error {
+	if err := ValidateProjectCode(expectedProjectCode); err != nil {
+		return fmt.Errorf("expected project code: %w", err)
+	}
+	projectCode, _, err := ParseOperationID(value)
+	if err != nil {
+		return err
+	}
+	if projectCode != expectedProjectCode {
+		return fmt.Errorf("operation ID project code %q does not match expected project code %q", projectCode, expectedProjectCode)
+	}
+	return nil
+}
+
 func ParseADRID(value string) (string, uint64, error) {
 	matches := canonicalADRIDRE.FindStringSubmatch(value)
 	if len(matches) != 3 {

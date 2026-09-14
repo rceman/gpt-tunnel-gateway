@@ -87,5 +87,5 @@ func assertFinalLocalSchema(t *testing.T, db *upstream.Store) {
 	for _, table := range localSchemaPlan().tables {
 		assertColumns(t, db, table.name, table.columns)
 	}
-	assertObjects(t, db, "index", []string{"local_events_kind_idx", "local_events_recorded_idx", "local_events_project_idx", "local_logs_filter_idx", "local_logs_recorded_idx", "local_logs_project_idx", "local_callback_epochs_pending_idx", "local_agents_project_idx", "local_sessions_updated_idx"})
+	assertObjects(t, db, "index", []string{"local_operations_mutation_idx", "local_operations_project_idx", "local_operation_sequences_project_idx", "local_events_kind_idx", "local_events_recorded_idx", "local_events_project_idx", "local_logs_filter_idx", "local_logs_recorded_idx", "local_logs_project_idx", "local_callback_epochs_pending_idx", "local_agents_project_idx", "local_sessions_updated_idx"})
 }

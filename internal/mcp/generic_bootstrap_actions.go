@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
@@ -27,14 +28,16 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		if path == "project/status" {
 			entry.OutputSchema = projectOperationalStatusOutputSchema()
 		}
-		if path == "operation/read" {
+		if path == "operation/read" || path == "operation/await" {
 			entry.OutputSchema = operationReadOutputSchema()
 		}
 		if path == "session/info" {
 			entry.LocalReadOnly = true
 		}
-		if path == "operation/read" {
+		if path == "operation/read" || path == "operation/await" {
 			entry.LocalReadOnly = true
+			entry.Annotations.ReadOnlyHint = true
+			entry.Annotations.IdempotentHint = true
 		}
 		entries[path] = entry
 	}
@@ -53,7 +56,7 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		return s.sessionActionForContext(ctx, "end")
 	})
 	add("operation/read", "Read one authorized durable asynchronous mutation receipt.", obj(map[string]any{
-		"operation_id": str("Durable operation identifier."),
+		"operation_id": str("Canonical project-scoped Operation key."),
 	}, "operation_id"), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var input struct {
 			OperationID string `json:"operation_id"`
@@ -62,6 +65,19 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 			return nil, err
 		}
 		return s.Service.OperationRead(ctx, input.OperationID)
+	})
+	add("operation/await", "Wait for one authorized durable Operation without replaying its mutation.", obj(map[string]any{
+		"operation_id": str("Canonical project-scoped Operation key."),
+		"seconds":      integer("Maximum bounded wait in seconds; defaults to 30 and is capped at 60.", 1, 60),
+	}, "operation_id"), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var input struct {
+			OperationID string `json:"operation_id"`
+			Seconds     int    `json:"seconds,omitempty"`
+		}
+		if err := decode(raw, &input); err != nil {
+			return nil, err
+		}
+		return s.Service.OperationAwait(ctx, input.OperationID, time.Duration(input.Seconds)*time.Second)
 	})
 	if tool, ok := legacy["system_ping"]; ok {
 		add("gateway/status", "Read Gateway health and runtime status.", obj(map[string]any{}), false, func(ctx context.Context, raw json.RawMessage) (any, error) {

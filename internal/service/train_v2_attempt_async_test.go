@@ -9,6 +9,7 @@ import (
 
 func TestTrainV2AttemptCompletionIsServerMaterializedWithoutAgentFile(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
+	_ = testServiceWithDurability(t, s)
 	task := model.TaskAuthoring{SchemaVersion: 1, ID: "GTW-TSK285", RevisionSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	item := model.TrainV2Item{Position: 0, TaskID: task.ID}
 	attempt := model.TrainV2Attempt{Number: 1}
@@ -33,6 +34,7 @@ func TestTrainV2AttemptCompletionIsServerMaterializedWithoutAgentFile(t *testing
 
 func TestTrainV2AttemptMutationsReturnBoundedReceipts(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
+	_ = testServiceWithDurability(t, s)
 	ctx := context.Background()
 	finalizeInput := TrainV2AttemptFinalizeInput{
 		ProjectID:     "example",

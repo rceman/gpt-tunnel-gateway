@@ -7,7 +7,8 @@ import (
 
 func TestTrainV2IntegrateAsyncReturnsBoundedIdempotentInitiationReceipt(t *testing.T) {
 	s, hubRevision, _ := testServiceWithoutIdentifiers(t)
-	_ = enableTrainV2ForTest(t, s, hubRevision)
+	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
+	_ = testServiceWithDurability(t, s)
 	in := TrainV2IntegrateInput{
 		ProjectID: "example",
 		TrainID:   "GTW-TRN999",

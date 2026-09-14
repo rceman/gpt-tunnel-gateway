@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 func (s *Service) startDurableMutationWorker() {
@@ -20,7 +21,20 @@ func (s *Service) startDurableMutationWorker() {
 			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
 				operationID := strings.TrimSuffix(entry.Name(), ".json")
 				operation, err := s.readDurableMutation(operationID)
-				if err != nil || !replayDurableMutationOnStartup(operation.Status) {
+				if err != nil {
+					continue
+				}
+				if model.ValidateOperationID(operationID) != nil && strings.HasPrefix(operationID, "mutation-") {
+					adopted, adoptedOK, adoptErr := s.adoptLegacyDurableMutationOnStartup(context.Background(), operation)
+					if adoptErr != nil {
+						continue
+					}
+					if adoptedOK {
+						operationID = adopted.OperationID
+						operation = adopted
+					}
+				}
+				if !replayDurableMutationOnStartup(operation.Status) {
 					continue
 				}
 				if operation.Status == "running" {
@@ -56,12 +70,81 @@ func (s *Service) enqueueDurableMutation(operationID string) {
 	default:
 	}
 }
+
+func (s *Service) adoptLegacyDurableMutationForRequest(ctx context.Context, operationID, projectID, kind, digest string) (durableMutationOperation, bool, error) {
+	legacy, err := s.readDurableMutation("mutation-" + digest)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return durableMutationOperation{}, false, nil
+		}
+		return durableMutationOperation{}, false, err
+	}
+	if legacy.RequestSHA256 != digest || legacy.ProjectID != projectID || legacy.Kind != kind {
+		return durableMutationOperation{}, false, fmt.Errorf("legacy durable mutation identity mismatch")
+	}
+	legacyID := legacy.OperationID
+	legacy.Input, err = canonicalizeAdoptedOperationJSON(legacy.Input, legacyID, operationID)
+	if err != nil {
+		return durableMutationOperation{}, false, fmt.Errorf("canonicalize legacy durable mutation input: %w", err)
+	}
+	legacy.Result, err = canonicalizeAdoptedOperationJSON(legacy.Result, legacyID, operationID)
+	if err != nil {
+		return durableMutationOperation{}, false, fmt.Errorf("canonicalize legacy durable mutation result: %w", err)
+	}
+	legacy.OperationID = operationID
+	legacy.MutationID = digest
+	if err := s.writeDurableMutation(legacy); err != nil {
+		return durableMutationOperation{}, false, err
+	}
+	return legacy, true, nil
+}
+
+func (s *Service) adoptLegacyDurableMutationOnStartup(ctx context.Context, legacy durableMutationOperation) (durableMutationOperation, bool, error) {
+	if s.Durability == nil {
+		return durableMutationOperation{}, false, nil
+	}
+	projectCode, err := s.localOperationProjectCode(ctx, legacy.ProjectID)
+	if err != nil {
+		return durableMutationOperation{}, false, err
+	}
+	allocated, err := s.Durability.AllocateLocalOperation(ctx, legacy.ProjectID, projectCode, legacy.RequestSHA256, legacy.Kind, time.Now().UTC())
+	if err != nil {
+		return durableMutationOperation{}, false, err
+	}
+	if operation, readErr := s.readDurableMutation(allocated.OperationID); readErr == nil {
+		if operation.RequestSHA256 != legacy.RequestSHA256 || operation.Kind != legacy.Kind || operation.ProjectID != legacy.ProjectID {
+			return durableMutationOperation{}, false, fmt.Errorf("adopted durable mutation identity mismatch")
+		}
+		return operation, true, nil
+	} else if !os.IsNotExist(readErr) {
+		return durableMutationOperation{}, false, readErr
+	}
+	legacyID := legacy.OperationID
+	legacy.Input, err = canonicalizeAdoptedOperationJSON(legacy.Input, legacyID, allocated.OperationID)
+	if err != nil {
+		return durableMutationOperation{}, false, fmt.Errorf("canonicalize legacy durable mutation input: %w", err)
+	}
+	legacy.Result, err = canonicalizeAdoptedOperationJSON(legacy.Result, legacyID, allocated.OperationID)
+	if err != nil {
+		return durableMutationOperation{}, false, fmt.Errorf("canonicalize legacy durable mutation result: %w", err)
+	}
+	legacy.OperationID = allocated.OperationID
+	legacy.MutationID = allocated.MutationID
+	if err := s.writeDurableMutation(legacy); err != nil {
+		return durableMutationOperation{}, false, err
+	}
+	return legacy, true, nil
+}
+
 func (s *Service) enqueueTypedDurableMutation(ctx context.Context, kind, projectID string, input any) (durableMutationOperation, error) {
 	return s.enqueueTypedDurableMutationWithIdentity(ctx, kind, projectID, input, nil)
 }
 func (s *Service) enqueueTypedDurableMutationWithIdentity(ctx context.Context, kind, projectID string, input, identity any) (durableMutationOperation, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return durableMutationOperation{}, err
+	}
+	if s.Durability == nil {
+		return durableMutationOperation{}, fmt.Errorf("local durability is unavailable")
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -76,12 +159,18 @@ func (s *Service) enqueueTypedDurableMutationWithIdentity(ctx context.Context, k
 		}
 	}
 	digest := durableMutationDigestWithIdentity(kind, sessionID, raw, identityRaw)
-	operationID := "mutation-" + digest
-	if err := model.ValidateObjectIdentifier(operationID); err != nil {
+	projectCode, err := s.localOperationProjectCode(ctx, projectID)
+	if err != nil {
 		return durableMutationOperation{}, err
 	}
 	s.durableMutationMu.Lock()
 	defer s.durableMutationMu.Unlock()
+	now := time.Now().UTC()
+	allocated, err := s.Durability.AllocateLocalOperation(ctx, projectID, projectCode, digest, kind, now)
+	if err != nil {
+		return durableMutationOperation{}, err
+	}
+	operationID := allocated.OperationID
 	operation, err := s.readDurableMutation(operationID)
 	if err == nil {
 		if operation.RequestSHA256 != digest || operation.Kind != kind {
@@ -90,7 +179,7 @@ func (s *Service) enqueueTypedDurableMutationWithIdentity(ctx context.Context, k
 		if operation.Status == "failed" || operation.Status == "outcome_unknown" {
 			operation.Status = "accepted"
 			operation.Error = ""
-			operation.UpdatedAt = time.Now().UTC()
+			operation.UpdatedAt = now
 			if err := s.writeDurableMutation(operation); err != nil {
 				return durableMutationOperation{}, err
 			}
@@ -102,10 +191,28 @@ func (s *Service) enqueueTypedDurableMutationWithIdentity(ctx context.Context, k
 	if !os.IsNotExist(err) {
 		return durableMutationOperation{}, err
 	}
-	now := time.Now().UTC()
+	legacy, adoptedOK, err := s.adoptLegacyDurableMutationForRequest(ctx, operationID, projectID, kind, digest)
+	if err != nil {
+		return durableMutationOperation{}, err
+	}
+	if adoptedOK {
+		operation = legacy
+		if operation.Status == "failed" || operation.Status == "outcome_unknown" {
+			operation.Status = "accepted"
+			operation.Error = ""
+			operation.UpdatedAt = now
+			if err := s.writeDurableMutation(operation); err != nil {
+				return durableMutationOperation{}, err
+			}
+		}
+		s.startDurableMutationWorker()
+		s.enqueueDurableMutation(operationID)
+		return operation, nil
+	}
 	operation = durableMutationOperation{
 		SchemaVersion: durableMutationSchemaVersion,
 		OperationID:   operationID,
+		MutationID:    digest,
 		Kind:          kind,
 		RequestSHA256: digest,
 		SessionID:     sessionID,
@@ -124,4 +231,36 @@ func (s *Service) enqueueTypedDurableMutationWithIdentity(ctx context.Context, k
 	s.startDurableMutationWorker()
 	s.enqueueDurableMutation(operationID)
 	return operation, nil
+}
+
+func (s *Service) localOperationProjectCode(ctx context.Context, projectID string) (string, error) {
+	if s.Durability == nil || s.Durability.Local == nil {
+		return "", fmt.Errorf("local durability is unavailable")
+	}
+	if project, ok := s.Config.Projects[projectID]; ok && project.ProjectCode != "" {
+		if err := model.ValidateProjectCode(project.ProjectCode); err != nil {
+			return "", err
+		}
+		return project.ProjectCode, nil
+	}
+	if sessionID := AgentSessionID(ctx); sessionID != "" {
+		if session, err := durableSession.NewStoreWithDurability(s.Durability).Get(sessionID); err == nil && session.ProjectID == projectID && model.ValidateProjectCode(session.ProjectCode) == nil {
+			return session.ProjectCode, nil
+		}
+	}
+	if s.Durability == nil || s.Durability.Shared == nil {
+		return "", fmt.Errorf("project %q has no local operation project code", projectID)
+	}
+	rows, err := s.Durability.Shared.Query(ctx, `SELECT project_code FROM shared_project_identifiers WHERE project_id=?`, projectID)
+	if err != nil {
+		return "", err
+	}
+	if len(rows.Rows) != 1 || len(rows.Rows[0]) != 1 {
+		return "", fmt.Errorf("project %q has no local operation project code", projectID)
+	}
+	code, ok := rows.Rows[0][0].(string)
+	if !ok || model.ValidateProjectCode(code) != nil {
+		return "", fmt.Errorf("project %q has invalid local operation project code", projectID)
+	}
+	return code, nil
 }

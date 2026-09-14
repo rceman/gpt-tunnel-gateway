@@ -608,6 +608,9 @@ func tsk585VerifyTask(t *testing.T, s *Service, key string) durableMutationOpera
 			t.Fatalf("enqueue task/test: %v", err)
 		}
 		operation := tsk585WaitOperation(t, s, receipt.OperationID)
+		if model.ValidateOperationID(operation.OperationID) != nil {
+			t.Fatalf("task/test exposed non-canonical operation identity: %q", operation.OperationID)
+		}
 		if operation.Status != "failed" || !strings.Contains(operation.Error, "timing is not ordered") {
 			return operation
 		}
@@ -634,7 +637,11 @@ func tsk585Integrate(t *testing.T, s *Service, key string) durableMutationOperat
 	if err != nil {
 		t.Fatalf("enqueue task/integrate: %v", err)
 	}
-	return tsk585WaitOperation(t, s, receipt.OperationID)
+	operation := tsk585WaitOperation(t, s, receipt.OperationID)
+	if model.ValidateOperationID(operation.OperationID) != nil {
+		t.Fatalf("task/integrate exposed non-canonical operation identity: %q", operation.OperationID)
+	}
+	return operation
 }
 func tsk585MainHead(t *testing.T, s *Service) string {
 	t.Helper()

@@ -12,6 +12,8 @@ func localBaselineMigration() migrate.Migration {
 func localSchemaPlan() migrationSchemaPlan {
 	return migrationSchemaPlan{
 		tables: []migrationTableSpec{
+			{name: "local_operation_sequences", create: `CREATE TABLE IF NOT EXISTS local_operation_sequences (project_id TEXT PRIMARY KEY, project_code TEXT NOT NULL, next_number INTEGER NOT NULL CHECK(next_number BETWEEN 1 AND 9007199254740991))`, columns: []string{"project_id", "project_code", "next_number"}},
+			{name: "local_operations", create: `CREATE TABLE IF NOT EXISTS local_operations (operation_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, project_code TEXT NOT NULL, operation_number INTEGER NOT NULL, mutation_id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, status TEXT NOT NULL, result_payload BLOB, error TEXT NOT NULL DEFAULT '', recovery_reason TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`, columns: []string{"operation_id", "project_id", "project_code", "operation_number", "mutation_id", "kind", "status", "result_payload", "error", "recovery_reason", "created_at", "updated_at"}},
 			{name: "local_events", create: `CREATE TABLE IF NOT EXISTS local_events (id TEXT PRIMARY KEY, kind TEXT NOT NULL, payload BLOB NOT NULL, recorded_at TEXT NOT NULL, project_id TEXT NOT NULL DEFAULT '')`, columns: []string{"id", "kind", "payload", "recorded_at", "project_id"}, addColumns: map[string]string{"project_id": `ALTER TABLE local_events ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`}},
 			{name: "local_messages", create: `CREATE TABLE IF NOT EXISTS local_messages (id TEXT PRIMARY KEY, session_id TEXT, payload BLOB NOT NULL, recorded_at TEXT NOT NULL)`, columns: []string{"id", "session_id", "payload", "recorded_at"}},
 			{name: "local_logs", create: `CREATE TABLE IF NOT EXISTS local_logs (id TEXT PRIMARY KEY, level TEXT NOT NULL, component TEXT NOT NULL, event TEXT NOT NULL, payload BLOB NOT NULL, recorded_at TEXT NOT NULL, project_id TEXT NOT NULL DEFAULT '')`, columns: []string{"id", "level", "component", "event", "payload", "recorded_at", "project_id"}, addColumns: map[string]string{"project_id": `ALTER TABLE local_logs ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`}},
@@ -21,6 +23,9 @@ func localSchemaPlan() migrationSchemaPlan {
 			{name: "local_sessions", create: `CREATE TABLE IF NOT EXISTS local_sessions (session_id TEXT PRIMARY KEY, payload BLOB NOT NULL, updated_at TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('active','ended')))`, columns: []string{"session_id", "payload", "updated_at", "status"}},
 		},
 		statements: []upstream.Statement{
+			{SQL: `CREATE UNIQUE INDEX IF NOT EXISTS local_operations_mutation_idx ON local_operations(mutation_id)`},
+			{SQL: `CREATE INDEX IF NOT EXISTS local_operations_project_idx ON local_operations(project_id,operation_number)`},
+			{SQL: `CREATE INDEX IF NOT EXISTS local_operation_sequences_project_idx ON local_operation_sequences(project_id)`},
 			{SQL: `CREATE INDEX IF NOT EXISTS local_events_kind_idx ON local_events(kind,recorded_at DESC,id DESC)`},
 			{SQL: `CREATE INDEX IF NOT EXISTS local_events_recorded_idx ON local_events(recorded_at DESC,id DESC)`},
 			{SQL: `CREATE INDEX IF NOT EXISTS local_events_project_idx ON local_events(project_id,recorded_at DESC,id DESC)`},

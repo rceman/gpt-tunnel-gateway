@@ -217,4 +217,6 @@ const (
 	localBaselineName                                     = "create local baseline"
 	localTokenUsageMigrationVersion                 int64 = 202609102010
 	localTokenUsageMigrationName                          = "create local token usage ledger"
+	localOperationMigrationVersion                  int64 = 202609141200
+	localOperationMigrationName                           = "create local durable operations"
 )

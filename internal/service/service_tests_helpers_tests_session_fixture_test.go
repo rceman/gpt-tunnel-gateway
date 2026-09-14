@@ -13,6 +13,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
@@ -178,6 +179,45 @@ func testService(t *testing.T) (*Service, string, string) {
 func testServiceSerial(t *testing.T) (*Service, string, string) {
 	t.Helper()
 	return testServiceSetup(t)
+}
+
+func testServiceWithDurability(t *testing.T, s *Service) *sqlitestore.Databases {
+	t.Helper()
+	configuration, err := s.ProjectConfigurationRead(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	identifiers, identifiersErr := s.ProjectIdentifiersRead(context.Background(), "example")
+	project := s.Config.Projects["example"]
+	if project.ProjectCode == "" && identifiersErr == nil {
+		project.ProjectCode = identifiers.ProjectCode
+	}
+	if project.ProjectCode == "" {
+		project.ProjectCode = "EXM"
+	}
+	s.Config.Projects["example"] = project
+	db, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(configuration)
+	if err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(context.Background(), "project_configuration", sqlitestore.SharedEntity{ID: "example", Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if identifiersErr == nil {
+		if _, err := db.Shared.Exec(context.Background(), `INSERT OR IGNORE INTO shared_project_identifiers(project_id,project_code,next_task_number,next_adr_number,next_rule_number,next_journal_number,next_train_number) VALUES(?,?,?,?,?,?,?)`, "example", identifiers.ProjectCode, identifiers.NextTaskNumber, identifiers.NextADRNumber, 1, 1, 1); err != nil {
+			db.Close()
+			t.Fatal(err)
+		}
+	}
+	s.Durability = db
+	t.Cleanup(func() { _ = db.Close() })
+	return db
 }
 
 func testServiceSetup(t *testing.T) (*Service, string, string) {

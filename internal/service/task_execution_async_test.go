@@ -8,6 +8,7 @@ import (
 
 func TestTaskExecutionMutationsReturnBoundedReceipts(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
+	_ = testServiceWithDurability(t, s)
 	ctx := context.Background()
 
 	work, err := s.TaskWorkAsync(ctx, TaskWorkInput{

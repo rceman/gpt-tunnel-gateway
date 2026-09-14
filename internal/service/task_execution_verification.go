@@ -157,7 +157,7 @@ func (s *Service) reuseCurrentTaskExecutionVerification(ctx context.Context, sta
 	if err != nil {
 		return TaskExecutionTestReceipt{}, false, err
 	}
-	if !current || receipt.BaseHead != admission.canonical || receipt.GateProfileSHA256 != admission.profile || receipt.CandidateHead != admission.snapshot.head || receipt.CandidateTree != admission.snapshot.tree || receipt.CodeReviewID != admission.reviews.code || receipt.TestsReviewID != admission.reviews.tests || receipt.RebaseReviewID != admission.reviews.rebase {
+	if !current || model.ValidateOperationID(receipt.OperationID) != nil || receipt.BaseHead != admission.canonical || receipt.GateProfileSHA256 != admission.profile || receipt.CandidateHead != admission.snapshot.head || receipt.CandidateTree != admission.snapshot.tree || receipt.CodeReviewID != admission.reviews.code || receipt.TestsReviewID != admission.reviews.tests || receipt.RebaseReviewID != admission.reviews.rebase {
 		return TaskExecutionTestReceipt{}, false, nil
 	}
 	result := taskExecutionPublicOutput(state)

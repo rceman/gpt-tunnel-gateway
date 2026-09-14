@@ -8,6 +8,7 @@ import (
 
 func TestTaskSupersedeAsyncIsBoundedAndIdempotent(t *testing.T) {
 	s, revision, _ := testService(t)
+	_ = testServiceWithDurability(t, s)
 	ctx := context.Background()
 	original, operation, err := s.TaskCreate(ctx, TaskCreateInput{
 		ProjectID:          "example",

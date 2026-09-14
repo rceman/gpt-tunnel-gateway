@@ -6,12 +6,22 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func TestTaskAuthoringCreateAsyncIsDurableAndIdempotent(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
+	project := s.Config.Projects["example"]
+	project.ProjectCode = "EXM"
+	s.Config.Projects["example"] = project
 	revision = adoptAuthoringIdentifiersForTest(t, s, revision)
 	revision = enableTrainV2ForTest(t, s, revision)
+	db, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s.Durability = db
 	in := TaskAuthoringCreateInput{
 		ProjectID:          "example",
 		Title:              "Async task receipt",
@@ -32,7 +42,7 @@ func TestTaskAuthoringCreateAsyncIsDurableAndIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.OperationID == "" || first.OperationID != second.OperationID || first.Status != "accepted" {
+	if model.ValidateOperationID(first.OperationID) != nil || first.OperationID != second.OperationID || first.Status != "accepted" {
 		t.Fatalf("non-idempotent task/create receipt: first=%#v second=%#v", first, second)
 	}
 

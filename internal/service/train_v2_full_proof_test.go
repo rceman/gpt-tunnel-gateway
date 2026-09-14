@@ -106,6 +106,7 @@ func seedFullProofTrain(t *testing.T, s *Service, expected, head string) (model.
 func TestTrainV2FullProofAsyncTransitionsTerminalReviewedTrain(t *testing.T) {
 	s, revision, projectHead := testServiceWithoutIdentifiers(t)
 	revision = enableTrainV2ForTest(t, s, revision)
+	_ = testServiceWithDurability(t, s)
 	train, _ := seedFullProofTrain(t, s, revision, projectHead)
 	in := TrainV2FullProofInput{
 		ProjectID: "example",

@@ -15,6 +15,7 @@ import (
 
 func TestProjectConfigurationUpdateAsyncIsBoundedAndIdempotent(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
+	_ = testServiceWithDurability(t, s)
 	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
 	current, err := s.ProjectConfigurationRead(ctx, "example")
 	if err != nil {
@@ -64,6 +65,7 @@ func TestProjectConfigurationUpdateAsyncIsBoundedAndIdempotent(t *testing.T) {
 
 func TestProjectConfigurationCheckpointUpdateAdvancesRevisionAndUsesSchemaValidPaths(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
+	_ = testServiceWithDurability(t, s)
 	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
 	current, err := s.ProjectConfigurationRead(ctx, "example")
 	if err != nil {

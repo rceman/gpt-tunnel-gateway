@@ -65,7 +65,7 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 }
 
 func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {
-	return applyActiveMigrations(ctx, db, localBaselineMigration(), localTokenUsageMigration())
+	return applyActiveMigrations(ctx, db, localBaselineMigration(), localTokenUsageMigration(), localOperationMigration())
 }
 
 func applyActiveMigrations(ctx context.Context, db *upstream.Store, migrations ...migrate.Migration) error {

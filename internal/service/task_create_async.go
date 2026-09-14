@@ -70,6 +70,66 @@ func taskCreateRequestDigest(in TaskAuthoringCreateInput) (string, error) {
 	return hex.EncodeToString(digest[:]), nil
 }
 
+func canonicalizeAdoptedTaskCreateOperation(operation *TaskCreateOperation, legacyID, operationID string) {
+	metadata := make(map[string]string, len(operation.Input.Metadata)+1)
+	for key, value := range operation.Input.Metadata {
+		metadata[key] = value
+	}
+	metadata["gateway_operation_id"] = operationID
+	operation.Input.Metadata = metadata
+	operation.Operation.OperationID = operationID
+	if operation.Task != nil && operation.Task.Metadata != nil && operation.Task.Metadata["gateway_operation_id"] == legacyID {
+		operation.Task.Metadata["gateway_operation_id"] = operationID
+	}
+	operation.OperationID = operationID
+}
+
+func (s *Service) adoptLegacyTaskCreateForRequest(operationID, projectID, requestSHA string) (TaskCreateOperation, bool, error) {
+	legacyID := "task-create-" + requestSHA
+	var legacy TaskCreateOperation
+	if err := fsutil.ReadJSONBounded(taskCreateOperationPath(s.Config.StateDir, legacyID), 1<<20, &legacy); err != nil {
+		if os.IsNotExist(err) {
+			return TaskCreateOperation{}, false, nil
+		}
+		return TaskCreateOperation{}, false, err
+	}
+	if legacy.SchemaVersion != taskCreateOperationSchemaVersion || legacy.OperationID != legacyID || legacy.RequestSHA256 != requestSHA || legacy.Input.ProjectID != projectID {
+		return TaskCreateOperation{}, false, fmt.Errorf("legacy task/create operation identity mismatch")
+	}
+	canonicalizeAdoptedTaskCreateOperation(&legacy, legacyID, operationID)
+	if err := s.writeTaskCreateOperation(legacy); err != nil {
+		return TaskCreateOperation{}, false, err
+	}
+	return legacy, true, nil
+}
+
+func (s *Service) adoptLegacyTaskCreateOnStartup(ctx context.Context, legacy TaskCreateOperation) (TaskCreateOperation, bool, error) {
+	if s.Durability == nil {
+		return TaskCreateOperation{}, false, nil
+	}
+	projectCode, err := s.localOperationProjectCode(ctx, legacy.Input.ProjectID)
+	if err != nil {
+		return TaskCreateOperation{}, false, err
+	}
+	allocated, err := s.Durability.AllocateLocalOperation(ctx, legacy.Input.ProjectID, projectCode, legacy.RequestSHA256, "task-create", time.Now().UTC())
+	if err != nil {
+		return TaskCreateOperation{}, false, err
+	}
+	if operation, readErr := s.TaskCreateOperationRead(ctx, allocated.OperationID); readErr == nil {
+		if operation.RequestSHA256 != legacy.RequestSHA256 || operation.Input.ProjectID != legacy.Input.ProjectID {
+			return TaskCreateOperation{}, false, fmt.Errorf("adopted task/create operation identity mismatch")
+		}
+		return operation, true, nil
+	} else if !os.IsNotExist(readErr) {
+		return TaskCreateOperation{}, false, readErr
+	}
+	canonicalizeAdoptedTaskCreateOperation(&legacy, legacy.OperationID, allocated.OperationID)
+	if err := s.writeTaskCreateOperation(legacy); err != nil {
+		return TaskCreateOperation{}, false, err
+	}
+	return legacy, true, nil
+}
+
 func normalizeTaskCreateInput(in TaskAuthoringCreateInput) (TaskAuthoringCreateInput, error) {
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return TaskAuthoringCreateInput{}, err
@@ -107,10 +167,18 @@ func (s *Service) TaskAuthoringCreateAsync(ctx context.Context, in TaskAuthoring
 	if err != nil {
 		return TaskCreateOperation{}, err
 	}
-	operationID := "task-create-" + requestSHA
-	if err := model.ValidateObjectIdentifier(operationID); err != nil {
+	s.taskCreateMu.Lock()
+	defer s.taskCreateMu.Unlock()
+	projectCode, err := s.localOperationProjectCode(ctx, in.ProjectID)
+	if err != nil {
 		return TaskCreateOperation{}, err
 	}
+	now := time.Now().UTC()
+	allocated, err := s.Durability.AllocateLocalOperation(ctx, in.ProjectID, projectCode, requestSHA, "task-create", now)
+	if err != nil {
+		return TaskCreateOperation{}, err
+	}
+	operationID := allocated.OperationID
 	metadata := make(map[string]string, len(in.Metadata)+1)
 	for key, value := range in.Metadata {
 		metadata[key] = value
@@ -118,9 +186,6 @@ func (s *Service) TaskAuthoringCreateAsync(ctx context.Context, in TaskAuthoring
 	metadata["gateway_operation_id"] = operationID
 	in.Metadata = metadata
 	path := taskCreateOperationPath(s.Config.StateDir, operationID)
-
-	s.taskCreateMu.Lock()
-	defer s.taskCreateMu.Unlock()
 	var operation TaskCreateOperation
 	if err := fsutil.ReadJSONBounded(path, 1<<20, &operation); err == nil {
 		if operation.RequestSHA256 != requestSHA || operation.OperationID != operationID {
@@ -130,7 +195,7 @@ func (s *Service) TaskAuthoringCreateAsync(ctx context.Context, in TaskAuthoring
 			operation.Status = "accepted"
 			operation.Error = ""
 			operation.UpdatedAt = time.Now().UTC()
-			if err := fsutil.WriteJSONAtomic(path, operation, 0o600); err != nil {
+			if err := s.writeTaskCreateOperation(operation); err != nil {
 				return TaskCreateOperation{}, err
 			}
 		}
@@ -140,8 +205,24 @@ func (s *Service) TaskAuthoringCreateAsync(ctx context.Context, in TaskAuthoring
 	} else if !os.IsNotExist(err) {
 		return TaskCreateOperation{}, err
 	}
+	if legacy, adopted, adoptErr := s.adoptLegacyTaskCreateForRequest(operationID, in.ProjectID, requestSHA); adoptErr != nil {
+		return TaskCreateOperation{}, adoptErr
+	} else if adopted {
+		operation = legacy
+		if operation.Status == "failed" || operation.Status == "outcome_unknown" {
+			operation.Status = "accepted"
+			operation.Error = ""
+			operation.UpdatedAt = time.Now().UTC()
+			if err := s.writeTaskCreateOperation(operation); err != nil {
+				return TaskCreateOperation{}, err
+			}
+		}
+		s.startTaskCreateWorker()
+		s.enqueueTaskCreate(operationID)
+		return operation, nil
+	}
 
-	now := time.Now().UTC()
+	now = allocated.CreatedAt
 	operation = TaskCreateOperation{
 		SchemaVersion: taskCreateOperationSchemaVersion,
 		OperationID:   operationID,
@@ -151,7 +232,7 @@ func (s *Service) TaskAuthoringCreateAsync(ctx context.Context, in TaskAuthoring
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
-	if err := fsutil.WriteJSONAtomic(path, operation, 0o600); err != nil {
+	if err := s.writeTaskCreateOperation(operation); err != nil {
 		return TaskCreateOperation{}, err
 	}
 	s.startTaskCreateWorker()
@@ -173,6 +254,32 @@ func (s *Service) TaskCreateOperationRead(ctx context.Context, operationID strin
 	return operation, nil
 }
 
+func (s *Service) writeTaskCreateOperation(operation TaskCreateOperation) error {
+	if err := fsutil.WriteJSONAtomic(taskCreateOperationPath(s.Config.StateDir, operation.OperationID), operation, 0o600); err != nil {
+		return err
+	}
+	if model.ValidateOperationID(operation.OperationID) != nil {
+		return nil
+	}
+	if s.Durability == nil {
+		return fmt.Errorf("local durability is unavailable")
+	}
+	local, err := s.Durability.ReadLocalOperation(context.Background(), operation.OperationID)
+	if err != nil {
+		return err
+	}
+	result, err := json.Marshal(operation.Receipt())
+	if err != nil {
+		return err
+	}
+	local.Status = operation.Status
+	local.ResultPayload = result
+	local.Error = operation.Error
+	local.RecoveryReason = operation.RecoveryReason
+	local.UpdatedAt = operation.UpdatedAt
+	return s.Durability.UpdateLocalOperation(context.Background(), local)
+}
+
 func (s *Service) TaskCreateOperationStatus(ctx context.Context, operationID string) (TaskCreateReceipt, error) {
 	operation, err := s.TaskCreateOperationRead(ctx, operationID)
 	if err != nil {
@@ -190,7 +297,20 @@ func (s *Service) startTaskCreateWorker() {
 			}
 			operationID := strings.TrimSuffix(entry.Name(), ".json")
 			operation, err := s.TaskCreateOperationRead(context.Background(), operationID)
-			if err != nil || operation.Status == "completed" || operation.Status == "failed" || operation.Status == "outcome_unknown" {
+			if err != nil {
+				continue
+			}
+			if model.ValidateOperationID(operationID) != nil && strings.HasPrefix(operationID, "task-create-") {
+				adopted, adoptedOK, adoptErr := s.adoptLegacyTaskCreateOnStartup(context.Background(), operation)
+				if adoptErr != nil {
+					continue
+				}
+				if adoptedOK {
+					operationID = adopted.OperationID
+					operation = adopted
+				}
+			}
+			if operation.Status == "completed" || operation.Status == "failed" || operation.Status == "outcome_unknown" {
 				continue
 			}
 			if operation.Status == "running" {
@@ -214,7 +334,7 @@ func (s *Service) recoverRunningTaskCreate(operation TaskCreateOperation) error 
 	operation.Error = ""
 	operation.RecoveryReason = "recovered after Gateway restart; retry is idempotent"
 	operation.UpdatedAt = time.Now().UTC()
-	return fsutil.WriteJSONAtomic(taskCreateOperationPath(s.Config.StateDir, operation.OperationID), operation, 0o600)
+	return s.writeTaskCreateOperation(operation)
 }
 
 func (s *Service) enqueueTaskCreate(operationID string) {
@@ -244,8 +364,7 @@ func (s *Service) processTaskCreate(operationID string) {
 	s.taskCreateActive[operationID] = struct{}{}
 	operation.Status = "running"
 	operation.UpdatedAt = time.Now().UTC()
-	path := taskCreateOperationPath(s.Config.StateDir, operationID)
-	_ = fsutil.WriteJSONAtomic(path, operation, 0o600)
+	_ = s.writeTaskCreateOperation(operation)
 	s.taskCreateMu.Unlock()
 	defer func() {
 		s.taskCreateMu.Lock()
@@ -312,7 +431,7 @@ func (s *Service) finishTaskCreateUnknown(operation TaskCreateOperation, err err
 	operation.Error = err.Error()
 	operation.RecoveryReason = "bounded worker context ended before Hub outcome was proven; retry is idempotent"
 	operation.UpdatedAt = time.Now().UTC()
-	_ = fsutil.WriteJSONAtomic(taskCreateOperationPath(s.Config.StateDir, operation.OperationID), operation, 0o600)
+	_ = s.writeTaskCreateOperation(operation)
 }
 
 func (s *Service) findTaskCreateResult(ctx context.Context, operation TaskCreateOperation) (*model.TaskAuthoring, error) {
@@ -339,5 +458,5 @@ func (s *Service) finishTaskCreate(operation TaskCreateOperation, task *model.Ta
 		operation.Error = failure
 	}
 	operation.UpdatedAt = time.Now().UTC()
-	_ = fsutil.WriteJSONAtomic(taskCreateOperationPath(s.Config.StateDir, operation.OperationID), operation, 0o600)
+	_ = s.writeTaskCreateOperation(operation)
 }

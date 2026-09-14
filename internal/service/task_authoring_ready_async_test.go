@@ -12,7 +12,8 @@ func TestTaskAuthoringReadyAsyncIsBoundedAndIdempotent(t *testing.T) {
 	s, hubRevision, _ := testServiceWithoutIdentifiers(t)
 	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
-	task, operation, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
+	_ = testServiceWithDurability(t, s)
+	task, _, err := s.taskAuthoringCreateShared(context.Background(), "EXM-OPR100", TaskAuthoringCreateInput{
 		ProjectID:          "example",
 		Title:              "Async ready task",
 		Summary:            "Persist a readiness intent.",
@@ -34,7 +35,7 @@ func TestTaskAuthoringReadyAsyncIsBoundedAndIdempotent(t *testing.T) {
 		ExpectedRevisionSHA256: task.RevisionSHA256,
 		ReadyBy:                "planner",
 		WriteOptions: WriteOptions{
-			ExpectedHubRevision: operation.Hub.After,
+			ExpectedHubRevision: hubRevision,
 		},
 	}
 	first, err := s.TaskAuthoringReadyAsync(context.Background(), in)

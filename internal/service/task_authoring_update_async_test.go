@@ -12,7 +12,8 @@ func TestTaskAuthoringUpdateAsyncIsBoundedIdempotentAndRestartReadable(t *testin
 	s, hubRevision, _ := testServiceWithoutIdentifiers(t)
 	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
-	task, operation, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
+	_ = testServiceWithDurability(t, s)
+	task, _, err := s.taskAuthoringCreateShared(context.Background(), "EXM-OPR100", TaskAuthoringCreateInput{
 		ProjectID:          "example",
 		Title:              "Async update task",
 		Summary:            "Persist an update intent.",
@@ -35,8 +36,9 @@ func TestTaskAuthoringUpdateAsyncIsBoundedIdempotentAndRestartReadable(t *testin
 		ExpectedRevisionSHA256: task.RevisionSHA256,
 		Title:                  &title,
 		UpdatedBy:              "planner",
+		Reason:                 "update title",
 		WriteOptions: WriteOptions{
-			ExpectedHubRevision: operation.Hub.After,
+			ExpectedHubRevision: hubRevision,
 		},
 	}
 	ownerContext := WithAgentSessionID(context.Background(), "SP-ABCDEFGH")

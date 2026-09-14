@@ -119,6 +119,16 @@ Task verification command. When the Task revision, accepted reviews, base,
 candidate head/tree, branch, and gate profile are unchanged, `task/test` reuses
 the authoritative successful verification receipt instead of rerunning it.
 
+## Durable server operations
+
+Asynchronous mutation responses return a compact project-scoped Operation key,
+such as `GTW-OPR1`. Use `operation/read` for a bounded durable projection and
+`operation/await` for a read-only wait; the latter defaults to 30 seconds and
+is capped at 60 seconds. These actions never retry or replay the mutation.
+`agent/await` remains exclusively managed-Agent runtime supervision. Do not
+wait for Task or server mutations with `agent/await`, shell sleep, or process
+inspection.
+
 ## Release lifecycle
 
 Gateway v0.6.1 tooling adoption is Stage A `implementation_unreleased`:

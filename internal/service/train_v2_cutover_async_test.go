@@ -8,6 +8,7 @@ import (
 
 func TestTrainV2CutoverReturnsBoundedReceipt(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
+	_ = testServiceWithDurability(t, s)
 	receipt, err := s.TrainV2CutoverAsync(context.Background(), TrainV2CutoverInput{
 		ProjectID: "example",
 		UpdatedBy: "planner",
