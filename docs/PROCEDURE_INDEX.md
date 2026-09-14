@@ -17,7 +17,6 @@
 | Validate implementation release state | `python3 scripts/release.py check-source` | read-only |
 | Validate release tooling provenance | `python3 scripts/validate-release-tool-conformance.py --release-script scripts/release.py --ci-script scripts/check-github-ci.py` | read-only |
 | Check exact-SHA CI | `python3 scripts/check-github-ci.py --repository rceman/gpt-tunnel-gateway --sha-from-git HEAD --policy required --wait --format json` | read-only |
-| Load pinned workflow | `python3 scripts/load-pinned-workflow.py` | bounded read-only |
 | Verify release publication | `python3 scripts/verify-release-publication.py --repository rceman/gpt-tunnel-gateway --commit <SHA> --tag <TAG>` | read-only |
 | Write agent completion receipt | `gpt-tunnel run write-completion <run-id> --completion-file <receipt-input>` | authoritative Run.CompletionPath atomic write |
 
@@ -25,11 +24,9 @@ Read the relevant runbook before any mutating procedure. A gateway upgrade
 never restarts tunnel-client. After two activation failures, use diagnosis-only
 mode until an exact root cause is established.
 
-The project workflow pin is planner `v2.1.0` at commit
-`900d284a97dd745d079134b49e5654b909e88c0a`, recorded in
-`.gpt-workflow.lock`. Runtime-upgrade, persisted-state migration, incident,
-direct-session, and MCP tool-contract policy gates are consumed from that
-release before source release or activation.
+Current operational authority is defined by the canonical GTW MCP/actions,
+guides, Tasks, ADRs, Rules, and repository-local declarations. No external
+workflow document or remote bootstrap is required before repository work.
 
 The helper contracts, typed failure states and prohibited ad hoc substitutions
 are defined in `docs/CANONICAL_AGENT_TOOLING.md`.

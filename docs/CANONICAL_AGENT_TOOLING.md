@@ -9,7 +9,6 @@ fail closed when required proof cannot be established.
 | --- | --- | --- | --- | --- |
 | `check-github-ci.py` | Prove an exact-SHA Actions run and its complete job set | The previous checker exposed only a selected job and could accept incomplete job metadata | CI gates and release verification | Retain as the canonical CI checker |
 | `verify-release-publication.py` | Prove release commit, annotated tag object, peeled commit, exact-SHA CI/jobs and declared publication topology | Local tag checks did not prove remote CI/job completeness or whether a GitHub Release was unexpectedly present | Release publication gate | Retain as the canonical publication verifier |
-| `load-pinned-workflow.py` | Retrieve and verify the exact workflow document named by `.gpt-workflow.lock` | Ad hoc planner-document downloads did not bind repository, commit, path and content digest in one result | Before substantial implementation/review work | Retain as the canonical pinned-workflow loader |
 | `gpt-tunnel run write-completion` | Validate and atomically place a task completion receipt at the independently derived Run-specific path | Python-side task hashing and caller-selected local task/run files diverged from Gateway authority | Agent completion preparation; final hub publication remains `gpt-tunnel run finalize` | Retain as the canonical receipt writer |
 
 ## Contracts
@@ -26,17 +25,6 @@ successful CI, and treats a missing GitHub Release as expected. A declared
 GitHub Release must have exactly the configured assets. Authentication,
 rate-limit, API, not-found and mismatch conditions remain typed; the helper
 does not scrape HTML or extract IDs from rendered pages.
-
-`load-pinned-workflow.py` has no output-format flag. Its documented invocation
-is simply:
-
-```bash
-python3 scripts/load-pinned-workflow.py [--lock PATH]
-```
-
-It validates strict lock JSON, the exact HTTPS GitHub repository, lowercase
-commit, safe relative document path, bounded response size and SHA-256 content
-digest. The resulting provenance binds the retrieved bytes to the lock.
 
 `gpt-tunnel run write-completion` accepts only a receipt input file and a
 canonical Run ID. The Gateway independently reads the Task and Run from the

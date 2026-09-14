@@ -6,7 +6,7 @@
 - Required base branch: `feature/go-tunnel-gateway-foundation`
 - Required base commit: `97375fb57d2af5d223c5b345a4576c1ee0ec197f`
 - Target patch version: `0.2.0`
-- Workflow: `gpt-review-planner` v1.3.0 at `b1a45b1e9475ab29dfd3e84d523b70897c7b8918`
+- Workflow: historical external bootstrap; current authority is repository-local GTW policy.
 
 ## Authorship boundary
 

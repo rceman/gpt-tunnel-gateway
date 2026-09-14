@@ -1,4 +1,3 @@
-import hashlib
 import importlib.util
 import json
 import os
@@ -10,7 +9,6 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
-from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,7 +24,6 @@ def load_script(name, filename):
     return module
 
 
-loader = load_script("pinned_workflow_loader", "load-pinned-workflow.py")
 publication = load_script("release_publication_verifier", "verify-release-publication.py")
 
 

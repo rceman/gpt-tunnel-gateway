@@ -14,18 +14,13 @@ outside Git.
 - v0.6.0 tag object: `47a749da0d5cf1fe65799fbdd2f3c34bfc6f4736`
 - This handoff is a post-release documentation commit on top of that
   immutable release tag. Use `git rev-parse HEAD` for the current handoff tip.
-- Planner repository: `git@github.com:rceman/gpt-review-planner.git`
-- Planner release: `v2.1.0`
-- Planner tagged workflow commit: `900d284a97dd745d079134b49e5654b909e88c0a`
-- Planner tag object: `3e43f88718bfab96c5b7713a695ad3a31a2ce780`
-- The gateway workflow lock pins the planner URL, version, commit, and tag
-  object above. Do not modify the planner repository as part of gateway work.
+- Historical external planner provenance is retired; current work is governed
+  by canonical GTW MCP/actions, guides, Tasks, ADRs, Rules, and local declarations.
 
 ## Release lifecycle state
 
-Gateway v0.6.1 remains in Stage A `implementation_unreleased`. The canonical
-release tools are byte-identical to planner commit
-`feeabecf5eb1854e9cd3ce7bb85fe6a601dc4645`:
+Gateway v0.6.1 remains in Stage A `implementation_unreleased`. The repository-local
+canonical release tools are:
 
 - `scripts/release.py`;
 - `scripts/check-github-ci.py`;

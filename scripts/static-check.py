@@ -9,7 +9,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 errors: list[str] = []
 
 required = [
-    "README.md", "VERSION", "CHANGELOG.md", "AGENTS.md", ".gpt-workflow.lock",
+    "README.md", "VERSION", "CHANGELOG.md", "AGENTS.md",
     "cmd/gpt-tunnel/main.go", "cmd/gpt-tunnel-gatewayd/main.go", "cmd/gpt-tunnelctl/main.go",
     "docs/ARCHITECTURE.md", "docs/BEHAVIOR_CONTRACT.md", "docs/HUB_LAYOUT.md",
     "docs/RELEASE_LIFECYCLE.md", "scripts/release.py", "scripts/check-github-ci.py",
