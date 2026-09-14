@@ -574,23 +574,16 @@ func (s *Service) taskCompleteIntegratedProof(ctx context.Context, task model.Ta
 	if receipt.CompletedAt.After(phase.CreatedAt) {
 		return taskCompleteIntegratedEvidence{}, fmt.Errorf("integrated Task verification postdates the integration phase")
 	}
-	required, profile, err := s.taskExecutionGateProfile(ctx, task.ProjectID)
-	if err != nil {
-		return taskCompleteIntegratedEvidence{}, err
-	}
-	if receipt.GateProfileSHA256 != profile {
-		return taskCompleteIntegratedEvidence{}, fmt.Errorf("Task verification does not bind the current gate profile")
-	}
 	if err := model.ValidateServerGateEvidence(receipt.Gates); err != nil {
 		return taskCompleteIntegratedEvidence{}, fmt.Errorf("Task verification gate evidence is malformed: %w", err)
 	}
-	if len(receipt.Gates) != len(required) {
-		return taskCompleteIntegratedEvidence{}, fmt.Errorf("Task verification does not cover the required gates")
+	if len(receipt.Gates) == 0 {
+		return taskCompleteIntegratedEvidence{}, fmt.Errorf("Task verification gate evidence is empty")
 	}
 	seen := map[string]bool{}
 	for _, gate := range receipt.Gates {
-		if !slices.Contains(required, gate.ID) || seen[gate.ID] {
-			return taskCompleteIntegratedEvidence{}, fmt.Errorf("Task verification has unexpected gate evidence")
+		if seen[gate.ID] {
+			return taskCompleteIntegratedEvidence{}, fmt.Errorf("Task verification has duplicate gate evidence")
 		}
 		seen[gate.ID] = true
 		if gate.Execution != "executed" || gate.ExitCode != 0 || gate.TreeID != receipt.CandidateTree || model.ValidateSHA256(gate.ContractDigest) != nil || model.ValidateSHA256(gate.ReceiptDigest) != nil {

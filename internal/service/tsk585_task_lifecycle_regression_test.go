@@ -549,25 +549,54 @@ func TestTSK585TaskCompleteHistoricalBootstrap(t *testing.T) {
 		t.Fatal("historical completion must not fabricate a verification receipt")
 	}
 }
-func TestTSK585TaskCompleteStaleVerification(t *testing.T) {
+func TestTSK611TaskCompleteWithHistoricalVerificationProfile(t *testing.T) {
 	s, db := tsk585Setup(t)
 	defer db.Close()
 	ctx := context.Background()
-	task, integration := tsk585IntegratedCompleteFixture(t, s, "tsk585-complete-stale")
+	task, integration := tsk585IntegratedCompleteFixture(t, s, "tsk611-complete-historical-profile")
 	receipt, found, err := db.ReadLatestTaskExecutionVerification(ctx, "example", task.ID)
 	if err != nil || !found {
 		t.Fatalf("fixture requires a verification receipt: %v", err)
 	}
-	raw, err := json.Marshal(receipt)
+	receipt.GateProfileSHA256 = strings.Repeat("f", 64)
+	mutated, err := json.Marshal(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil {
+	if _, err := db.Shared.Exec(ctx, `UPDATE shared_task_execution_verifications SET receipt_json=? WHERE project_id=? AND task_id=? AND operation_id=?`, string(mutated), "example", task.ID, receipt.OperationID); err != nil {
 		t.Fatal(err)
 	}
-	doc["gate_profile_sha256"] = strings.Repeat("f", 64)
-	mutated, err := json.Marshal(doc)
+	sessionID := tsk585PlannerSession(t, s)
+	ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 1, "integrated", integration, "")}, []string{integration})
+	out, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "integrated", "ok", map[int][]string{1: {ev.ID}}), "planner")
+	if err != nil {
+		t.Fatalf("valid stored verification with an older profile must complete: %v", err)
+	}
+	if out.Status != model.TaskAuthoringDone || out.Key != task.ID {
+		t.Fatalf("completion output=%#v", out)
+	}
+	phases, err := db.ReadTaskExecutionPhases(ctx, "example", task.ID, "integration")
+	if err != nil || len(phases) != 1 {
+		t.Fatalf("completion must not integrate again: phases=%#v err=%v", phases, err)
+	}
+}
+
+func TestTSK611TaskCompleteRejectsInconsistentStoredVerificationEvidence(t *testing.T) {
+	s, db := tsk585Setup(t)
+	defer db.Close()
+	ctx := context.Background()
+	task, integration := tsk585IntegratedCompleteFixture(t, s, "tsk611-complete-inconsistent-evidence")
+	receipt, found, err := db.ReadLatestTaskExecutionVerification(ctx, "example", task.ID)
+	if err != nil || !found {
+		t.Fatalf("fixture requires a verification receipt: %v", err)
+	}
+	wrongTreeSum := sha256.Sum256([]byte("inconsistent-candidate-tree"))
+	wrongTree := hex.EncodeToString(wrongTreeSum[:])
+	receipt.CandidateTree = wrongTree
+	for i := range receipt.Gates {
+		receipt.Gates[i].TreeID = wrongTree
+	}
+	mutated, err := json.Marshal(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -577,7 +606,7 @@ func TestTSK585TaskCompleteStaleVerification(t *testing.T) {
 	sessionID := tsk585PlannerSession(t, s)
 	ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585AcceptanceFact(t, task, 1, "integrated", integration, "")}, []string{integration})
 	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "integrated", "ok", map[int][]string{1: {ev.ID}}), "planner"); err == nil {
-		t.Fatal("completion must reject a noncurrent verification profile")
+		t.Fatal("completion must reject verification evidence with an inconsistent candidate tree")
 	}
 	events, _ := db.ListTaskLifecycleEvents(ctx, "example", task.ID, 256)
 	if len(events) != 0 || tsk585CompletionOutbox(t, db, task.ID) != 0 {
