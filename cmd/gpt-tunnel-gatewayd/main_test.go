@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -10,11 +11,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func TestHoldHubRepositoryLockHelper(t *testing.T) {
@@ -36,6 +40,82 @@ func testBootstrapConfig(t *testing.T) config.Config {
 	return config.Config{
 		StateDir: t.TempDir(), ListenAddr: "127.0.0.1:0", MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100,
 		Hub: config.HubConfig{RepositoryURL: filepath.Join(t.TempDir(), "missing-hub"), Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"},
+	}
+}
+
+func TestBootstrapGTWIdentityMigrationDoesNotRequireHub(t *testing.T) {
+	c := testBootstrapConfig(t)
+	c.Projects = map[string]config.ProjectConfig{
+		config.GTWProjectID: {
+			Root:              t.TempDir(),
+			Mirror:            filepath.Join(t.TempDir(), "mirror.git"),
+			Remote:            "origin",
+			DefaultBranch:     "main",
+			ProjectCode:       "GTW",
+			AirelaySessionKey: "gpt-tunnel-gateway_master",
+		},
+	}
+	c.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
+		config.GTWProjectID: {
+			config.GTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master", Profile: "coding"},
+		},
+	}
+	db, err := sqlitestore.Open(c.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	agent := model.Agent{
+		SchemaVersion:        model.AgentSchemaVersion,
+		ProjectID:            config.GTWProjectID,
+		AgentID:              config.LegacyGTWWorkerAgentID,
+		Role:                 model.AgentRoleCoding,
+		Enabled:              true,
+		RecommendedReasoning: model.ReasoningHigh,
+		Capabilities:         []string{"coding"},
+		CreatedAt:            now.Add(-time.Minute),
+		UpdatedAt:            now,
+	}
+	payload, err := json.Marshal(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertLocalAgent(context.Background(), sqlitestore.LocalAgent{ProjectID: agent.ProjectID, AgentID: agent.AgentID, Payload: payload, UpdatedAt: now.Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateTaskExecutionState(context.Background(), model.TaskExecutionState{
+		TaskID: "GTW-TSK620", ProjectID: config.GTWProjectID, TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("a", 64),
+		Status: model.TaskExecutionDispatched, Stage: "code", Worktree: "WT-TSK620-cccccccc", BaseHead: strings.Repeat("b", 40),
+		Head: strings.Repeat("c", 40), Branch: "task/GTW-TSK620-bootstrap", Agent: config.LegacyGTWWorkerAgentID,
+		ExecutionRevision: 1, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := bootstrapGateway(c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeBootstrap(t, runtime)
+	if _, err := runtime.service.Durability.ReadLocalAgent(context.Background(), config.GTWProjectID, config.LegacyGTWWorkerAgentID); err == nil {
+		t.Fatal("startup left the legacy Local Agent projection active")
+	}
+	if _, err := runtime.service.Durability.ReadLocalAgent(context.Background(), config.GTWProjectID, config.GTWWorkerAgentID); err != nil {
+		t.Fatalf("startup did not migrate Local Agent projection without Hub: %v", err)
+	}
+	state, found, err := runtime.service.Durability.ReadTaskExecutionState(context.Background(), config.GTWProjectID, "GTW-TSK620")
+	if err != nil || !found || state.Agent != config.GTWWorkerAgentID {
+		t.Fatalf("startup did not migrate nonterminal execution authority without Hub: state=%#v found=%v err=%v", state, found, err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	if err := postReadyHubSyncContext(runtime.service, ctx, nil); err == nil {
+		t.Fatal("unavailable Hub was reported as reconciled")
+	}
+	if _, err := runtime.service.Durability.ReadLocalAgent(context.Background(), config.GTWProjectID, config.GTWWorkerAgentID); err != nil {
+		t.Fatalf("Hub outage removed the Local Agent continuity: %v", err)
 	}
 }
 

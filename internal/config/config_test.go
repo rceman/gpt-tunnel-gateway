@@ -135,3 +135,114 @@ func TestValidateRejectsRelativeHubURLAndStateDir(t *testing.T) {
 		t.Fatal("relative state directory accepted")
 	}
 }
+
+func TestLoadMigratesGTWWorkerBindingAcrossRestart(t *testing.T) {
+	dir := t.TempDir()
+	c := baseConfig(dir)
+	c.Projects[GTWProjectID] = ProjectConfig{
+		Root:              t.TempDir(),
+		Mirror:            filepath.Join(t.TempDir(), "mirror.git"),
+		Remote:            "origin",
+		DefaultBranch:     "main",
+		AirelaySessionKey: "gpt-tunnel-gateway_master",
+	}
+	c.ProjectAgentBindings = map[string]map[string]AgentBinding{
+		GTWProjectID: {
+			LegacyGTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master", Profile: "coding"},
+		},
+	}
+	path := filepath.Join(dir, "config.json")
+	data, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := loaded.ResolveAgentBinding(GTWProjectID, LegacyGTWWorkerAgentID); found {
+		t.Fatal("legacy GTW Worker binding survived migration")
+	}
+	binding, found := loaded.ResolveAgentBinding(GTWProjectID, GTWWorkerAgentID)
+	if !found || binding.SessionKey != "gpt-tunnel-gateway_master" {
+		t.Fatalf("migrated GTW Worker binding=%#v found=%v", binding, found)
+	}
+	data, err = json.Marshal(loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := restarted.ResolveAgentBinding(GTWProjectID, LegacyGTWWorkerAgentID); found {
+		t.Fatal("legacy GTW Worker binding returned after restart")
+	}
+	if binding, found := restarted.ResolveAgentBinding(GTWProjectID, GTWWorkerAgentID); !found || binding.SessionKey != "gpt-tunnel-gateway_master" {
+		t.Fatalf("restarted GTW Worker binding=%#v found=%v", binding, found)
+	}
+}
+
+func TestLoadRejectsGTWWorkerBindingCollision(t *testing.T) {
+	dir := t.TempDir()
+	c := baseConfig(dir)
+	c.Projects[GTWProjectID] = ProjectConfig{
+		Root:              t.TempDir(),
+		Mirror:            filepath.Join(t.TempDir(), "mirror.git"),
+		Remote:            "origin",
+		DefaultBranch:     "main",
+		AirelaySessionKey: "gpt-tunnel-gateway_master",
+	}
+	c.ProjectAgentBindings = map[string]map[string]AgentBinding{
+		GTWProjectID: {
+			LegacyGTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master", Profile: "coding"},
+			GTWWorkerAgentID:       {SessionKey: "other_runtime", Profile: "coding"},
+		},
+	}
+	data, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("legacy/canonical GTW Worker binding collision was accepted")
+	}
+}
+
+func TestGTWWorkerBindingKeepsCanonicalRuntimeIdentity(t *testing.T) {
+	c := baseConfig(t.TempDir())
+	c.Projects["gpt-tunnel-gateway"] = ProjectConfig{
+		Root:              t.TempDir(),
+		Mirror:            filepath.Join(t.TempDir(), "mirror.git"),
+		Remote:            "origin",
+		DefaultBranch:     "main",
+		AirelaySessionKey: "gpt-tunnel-gateway_master",
+	}
+	c.ProjectAgentBindings = map[string]map[string]AgentBinding{
+		"gpt-tunnel-gateway": {
+			"gtw-worker": {SessionKey: "gpt-tunnel-gateway_master", Profile: "coding"},
+		},
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	binding, found := c.ResolveAgentBinding("gpt-tunnel-gateway", "gtw-worker")
+	if !found || binding.SessionKey != "gpt-tunnel-gateway_master" || binding.Profile != "coding" {
+		t.Fatalf("canonical Worker binding=%#v found=%v", binding, found)
+	}
+	if _, legacyFound := c.ResolveAgentBinding("gpt-tunnel-gateway", "gpt-review-planner"); legacyFound {
+		t.Fatal("legacy Managed Agent identity remained bound")
+	}
+	if len(c.ProjectAgentBindings["gpt-tunnel-gateway"]) != 1 {
+		t.Fatalf("duplicate Worker Agent bindings=%#v", c.ProjectAgentBindings["gpt-tunnel-gateway"])
+	}
+}

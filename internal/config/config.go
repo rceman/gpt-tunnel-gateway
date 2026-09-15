@@ -54,6 +54,12 @@ type ProjectConfig struct {
 // AgentBinding is host-local resolution for a portable Agent identity.
 // Provider/session details stay in this generic binding map so a future Agent
 // Registry can replace the map without changing project contracts.
+const (
+	GTWProjectID           = "gpt-tunnel-gateway"
+	GTWWorkerAgentID       = "gtw-worker"
+	LegacyGTWWorkerAgentID = "gpt-review-planner"
+)
+
 type AgentBinding struct {
 	SessionKey string `json:"session_key"`
 	Profile    string `json:"profile,omitempty"`
@@ -66,6 +72,23 @@ func (c Config) ResolveAgentBinding(projectID, agentID string) (AgentBinding, bo
 	}
 	binding, found := byProject[agentID]
 	return binding, found
+}
+
+func (c *Config) migrateGTWWorkerBinding() error {
+	bindings, ok := c.ProjectAgentBindings[GTWProjectID]
+	if !ok {
+		return nil
+	}
+	legacy, foundLegacy := bindings[LegacyGTWWorkerAgentID]
+	if !foundLegacy {
+		return nil
+	}
+	if _, foundCanonical := bindings[GTWWorkerAgentID]; foundCanonical {
+		return fmt.Errorf("conflicting GTW Worker Agent bindings: %q and %q", LegacyGTWWorkerAgentID, GTWWorkerAgentID)
+	}
+	delete(bindings, LegacyGTWWorkerAgentID)
+	bindings[GTWWorkerAgentID] = legacy
+	return nil
 }
 
 func (b AgentBinding) Validate() error {
@@ -113,6 +136,9 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("parse config: trailing JSON content")
 	}
 	c.expand()
+	if err := c.migrateGTWWorkerBinding(); err != nil {
+		return Config{}, err
+	}
 	if err := c.Validate(); err != nil {
 		return Config{}, err
 	}

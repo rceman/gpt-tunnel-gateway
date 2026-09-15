@@ -83,7 +83,7 @@ func TestProjectOperationalStatusUsesLocalSharedStateWhenHubUnavailable(t *testi
 			Attempts: []model.TrainV2Attempt{{
 				Number:            1,
 				Status:            model.TrainV2AttemptRunning,
-				AgentID:           "gpt-review-planner",
+				AgentID:           "gtw-worker",
 				AirelaySessionKey: "gpt-tunnel-gateway_master",
 				GatewayID:         "gateway-one",
 				StartHead:         strings.Repeat("b", 40),
@@ -124,7 +124,7 @@ func TestProjectOperationalStatusUsesLocalSharedStateWhenHubUnavailable(t *testi
 	if result.Rules.Revision != configuration.Revision {
 		t.Fatalf("unexpected rules revision: %#v", result.Rules)
 	}
-	if result.Agent.AgentID != "gpt-review-planner" || result.Agent.Expected != "gpt-review-planner" || !result.Agent.SessionReady {
+	if result.Agent.AgentID != "gtw-worker" || result.Agent.Expected != "gtw-worker" || !result.Agent.SessionReady {
 		t.Fatalf("Shared active Attempt identity was not projected: %#v", result.Agent)
 	}
 	finished := now.Add(time.Minute)

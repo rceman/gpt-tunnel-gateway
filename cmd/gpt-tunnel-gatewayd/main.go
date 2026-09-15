@@ -113,6 +113,11 @@ func bootstrapGateway(c config.Config, observe func(string)) (*gatewayRuntime, e
 		return nil, fmt.Errorf("legacy session cutover: %w", err)
 	}
 	svc := service.NewWithDurabilityDeferredWorkers(c, durability)
+	startup("LOCAL_SHARED_AGENT_IDENTITY_MIGRATION")
+	if err := svc.MigrateGTWWorkerIdentityLocalShared(context.Background()); err != nil {
+		_ = durability.Close()
+		return nil, fmt.Errorf("managed Agent identity migration: %w", err)
+	}
 	startup("LOCAL_STATE_READY")
 	// session_start is Planner-only. Generic call/batch still derive the exact
 	// persisted Planner or Delivery role after resolving the durable session.
@@ -142,7 +147,7 @@ func bootstrapGateway(c config.Config, observe func(string)) (*gatewayRuntime, e
 func postReadyHubSync(ctx context.Context, svc *service.Service) {
 	_ = postReadyHubSyncLoop(ctx, startupPhase,
 		func(attemptCtx context.Context) error {
-			return postReadyHubEnsureContext(svc, attemptCtx, startupPhase)
+			return postReadyHubEnsureAndReconcileContext(svc, attemptCtx, startupPhase)
 		},
 		func(attemptCtx context.Context) error {
 			return postReadyHubStateCheckContext(svc, attemptCtx, startupPhase)
@@ -156,11 +161,23 @@ func postReadyHubSyncContext(svc *service.Service, ctx context.Context, observe 
 			observe(name)
 		}
 	}
-	if err := postReadyHubEnsureContext(svc, ctx, phase); err != nil {
+	if err := postReadyHubEnsureAndReconcileContext(svc, ctx, phase); err != nil {
 		phase("HUB_SYNC_DEGRADED")
 		return err
 	}
 	return postReadyHubStateCheckContext(svc, ctx, phase)
+}
+
+func postReadyHubEnsureAndReconcileContext(svc *service.Service, ctx context.Context, phase func(string)) error {
+	if err := postReadyHubEnsureContext(svc, ctx, phase); err != nil {
+		return err
+	}
+	phase("POST_READY_AGENT_IDENTITY_RECONCILE")
+	if err := svc.ReconcileGTWWorkerIdentity(ctx); err != nil {
+		startupErrorForPhase("POST_READY_AGENT_IDENTITY_RECONCILE", err)
+		return err
+	}
+	return nil
 }
 
 func postReadyHubEnsureContext(svc *service.Service, ctx context.Context, phase func(string)) error {

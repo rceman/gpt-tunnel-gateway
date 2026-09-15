@@ -23,7 +23,7 @@ func reviewBackfillFixture(t *testing.T) (model.TrainV2, []byte) {
 		Repository:  model.RepositoryProof{Head: head, Branch: "train/example", WorktreeClean: true}, FinishedAt: now,
 	}
 	item := model.TrainV2Item{Position: 0, TaskID: taskID, TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("b", 64), Status: model.TrainV2ItemFinalized, AddedAt: now, SuccessfulAttemptNumber: 1,
-		Attempts: []model.TrainV2Attempt{{Number: 1, Status: model.TrainV2AttemptSucceeded, AgentID: "gpt-review-planner", AirelaySessionKey: "gpt-tunnel-gateway_master", GatewayID: "home_pc", StartHead: head, StartedAt: now, FinishedAt: &now, ReportID: reportPath}},
+		Attempts: []model.TrainV2Attempt{{Number: 1, Status: model.TrainV2AttemptSucceeded, AgentID: "gtw-worker", AirelaySessionKey: "gpt-tunnel-gateway_master", GatewayID: "home_pc", StartHead: head, StartedAt: now, FinishedAt: &now, ReportID: reportPath}},
 		Proof:    &model.TrainV2ImplementationProof{CheckpointHead: head, ImplementationSHA: head, ReportID: reportPath, GateResults: report.GateResults, RecordedAt: now}}
 	train := model.TrainV2{SchemaVersion: model.TrainV2SchemaVersion, ID: trainID, ProjectID: "example", Revision: 1, Items: []model.TrainV2Item{item}, Status: model.TrainV2Running, CreatedBy: "planner", CreatedAt: now, UpdatedAt: now}
 	if err := model.ValidateTrainV2(train); err != nil {

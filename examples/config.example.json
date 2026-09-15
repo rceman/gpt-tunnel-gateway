@@ -26,6 +26,14 @@
   "debug": {
     "enabled": false
   },
+  "project_agent_bindings": {
+    "gpt-tunnel-gateway": {
+      "gtw-worker": {
+        "session_key": "gpt-tunnel-gateway_master",
+        "profile": "coding"
+      }
+    }
+  },
   "projects": {
     "gpt-tunnel-gateway": {
       "root": "~/git/gpt-tunnel-gateway",
