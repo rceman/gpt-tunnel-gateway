@@ -289,6 +289,7 @@ func (d *Databases) CommitTaskCompletion(ctx context.Context, req CommitTaskComp
 
 type TaskHistoryCursor struct {
 	RecordedAt string `json:"recorded_at"`
+	Revision   int64  `json:"revision,omitempty"`
 	Source     int    `json:"source"`
 	ID         int64  `json:"id"`
 }
@@ -330,6 +331,9 @@ func validateTaskHistoryCursor(cursor TaskHistoryCursor, allowZero bool) error {
 	if cursor.Source != 0 && cursor.Source != 1 {
 		return fmt.Errorf("invalid task history cursor source")
 	}
+	if cursor.Revision < 0 {
+		return fmt.Errorf("invalid task history cursor revision")
+	}
 	if cursor.ID < 1 {
 		return fmt.Errorf("invalid task history cursor id")
 	}
@@ -338,6 +342,34 @@ func validateTaskHistoryCursor(cursor TaskHistoryCursor, allowZero bool) error {
 		return fmt.Errorf("invalid task history cursor timestamp")
 	}
 	return nil
+}
+
+func (d *Databases) normalizeTaskHistoryCursor(ctx context.Context, projectID, taskID string, cursor TaskHistoryCursor) (TaskHistoryCursor, error) {
+	if cursor == (TaskHistoryCursor{}) || cursor.Revision > 0 {
+		return cursor, nil
+	}
+	var query string
+	var args []any
+	if cursor.Source == 0 {
+		query = `SELECT revision FROM shared_entity_revisions WHERE entity_type='task' AND project_id=? AND entity_id=? AND revision=? AND recorded_at=?`
+		args = []any{projectID, taskID, cursor.ID, cursor.RecordedAt}
+	} else {
+		query = `SELECT revision FROM shared_task_lifecycle_events WHERE project_id=? AND task_id=? AND id=? AND recorded_at=?`
+		args = []any{projectID, taskID, cursor.ID, cursor.RecordedAt}
+	}
+	rows, err := d.Shared.Query(ctx, query, args...)
+	if err != nil {
+		return TaskHistoryCursor{}, err
+	}
+	if len(rows.Rows) != 1 {
+		return TaskHistoryCursor{}, fmt.Errorf("invalid legacy task history cursor")
+	}
+	revision, ok := rows.Rows[0][0].(int64)
+	if !ok || revision < 1 {
+		return TaskHistoryCursor{}, fmt.Errorf("invalid legacy task history cursor")
+	}
+	cursor.Revision = revision
+	return cursor, nil
 }
 
 func (d *Databases) ListTaskHistoryPage(ctx context.Context, projectID, taskID string, after TaskHistoryCursor, limit int) (SharedHistoryPage, error) {
@@ -356,22 +388,20 @@ func (d *Databases) ListTaskHistoryPage(ctx context.Context, projectID, taskID s
 	if err := validateTaskHistoryCursor(after, true); err != nil {
 		return SharedHistoryPage{}, err
 	}
+	after, err := d.normalizeTaskHistoryCursor(ctx, projectID, taskID, after)
+	if err != nil {
+		return SharedHistoryPage{}, err
+	}
 	type keyed struct {
-		record SharedRevisionRecord
-		source int
-		id     int64
-		at     time.Time
+		record   SharedRevisionRecord
+		revision int64
+		source   int
+		id       int64
+		at       time.Time
 	}
 	var merged []keyed
-	var contentSQL string
-	var contentArgs []any
-	if after.Source == 0 {
-		contentSQL = `SELECT entity_id,project_id,revision,mutation_kind,actor,reason,changed_fields,payload,recorded_at FROM shared_entity_revisions WHERE entity_type='task' AND project_id=? AND entity_id=? AND (recorded_at>? OR (recorded_at=? AND revision>?)) ORDER BY recorded_at ASC, revision ASC LIMIT ?`
-		contentArgs = []any{projectID, taskID, after.RecordedAt, after.RecordedAt, after.ID, int64(limit) + 1}
-	} else {
-		contentSQL = `SELECT entity_id,project_id,revision,mutation_kind,actor,reason,changed_fields,payload,recorded_at FROM shared_entity_revisions WHERE entity_type='task' AND project_id=? AND entity_id=? AND recorded_at>? ORDER BY recorded_at ASC, revision ASC LIMIT ?`
-		contentArgs = []any{projectID, taskID, after.RecordedAt, int64(limit) + 1}
-	}
+	contentSQL := `SELECT entity_id,project_id,revision,mutation_kind,actor,reason,changed_fields,payload,recorded_at FROM shared_entity_revisions WHERE entity_type='task' AND project_id=? AND entity_id=? AND revision>? ORDER BY revision ASC LIMIT ?`
+	contentArgs := []any{projectID, taskID, after.Revision, int64(limit) + 1}
 	contentRows, err := d.Shared.Query(ctx, contentSQL, contentArgs...)
 	if err != nil {
 		return SharedHistoryPage{}, err
@@ -386,20 +416,21 @@ func (d *Databases) ListTaskHistoryPage(ctx context.Context, projectID, taskID s
 			return SharedHistoryPage{}, fmt.Errorf("invalid shared revision recorded_at")
 		}
 		merged = append(merged, keyed{
-			record: item,
-			source: 0,
-			id:     item.Revision,
-			at:     at,
+			record:   item,
+			revision: item.Revision,
+			source:   0,
+			id:       item.Revision,
+			at:       at,
 		})
 	}
 	var lifecycleSQL string
 	var lifecycleArgs []any
-	if after.Source == 1 {
-		lifecycleSQL = taskLifecycleEventColumns + ` WHERE project_id=? AND task_id=? AND (recorded_at>? OR (recorded_at=? AND id>?)) ORDER BY recorded_at ASC, id ASC LIMIT ?`
-		lifecycleArgs = []any{projectID, taskID, after.RecordedAt, after.RecordedAt, after.ID, int64(limit) + 1}
+	if after == (TaskHistoryCursor{}) || after.Source == 0 {
+		lifecycleSQL = taskLifecycleEventColumns + ` WHERE project_id=? AND task_id=? AND revision>=? ORDER BY revision ASC, id ASC LIMIT ?`
+		lifecycleArgs = []any{projectID, taskID, after.Revision, int64(limit) + 1}
 	} else {
-		lifecycleSQL = taskLifecycleEventColumns + ` WHERE project_id=? AND task_id=? AND recorded_at>=? ORDER BY recorded_at ASC, id ASC LIMIT ?`
-		lifecycleArgs = []any{projectID, taskID, after.RecordedAt, int64(limit) + 1}
+		lifecycleSQL = taskLifecycleEventColumns + ` WHERE project_id=? AND task_id=? AND (revision>? OR (revision=? AND id>?)) ORDER BY revision ASC, id ASC LIMIT ?`
+		lifecycleArgs = []any{projectID, taskID, after.Revision, after.Revision, after.ID, int64(limit) + 1}
 	}
 	lifecycleRows, err := d.Shared.Query(ctx, lifecycleSQL, lifecycleArgs...)
 	if err != nil {
@@ -426,14 +457,15 @@ func (d *Databases) ListTaskHistoryPage(ctx context.Context, projectID, taskID s
 				Payload:       append([]byte(nil), event.Contract...),
 				RecordedAt:    event.RecordedAt.UTC().Format(time.RFC3339Nano),
 			},
-			source: 1,
-			id:     event.ID,
-			at:     event.RecordedAt.UTC(),
+			revision: event.Revision,
+			source:   1,
+			id:       event.ID,
+			at:       event.RecordedAt.UTC(),
 		})
 	}
 	sort.SliceStable(merged, func(i, j int) bool {
-		if !merged[i].at.Equal(merged[j].at) {
-			return merged[i].at.Before(merged[j].at)
+		if merged[i].revision != merged[j].revision {
+			return merged[i].revision < merged[j].revision
 		}
 		if merged[i].source != merged[j].source {
 			return merged[i].source < merged[j].source
@@ -450,6 +482,7 @@ func (d *Databases) ListTaskHistoryPage(ctx context.Context, projectID, taskID s
 		page.Records = page.Records[:limit]
 		cursor, err := EncodeTaskHistoryCursor(TaskHistoryCursor{
 			RecordedAt: last.at.UTC().Format(time.RFC3339Nano),
+			Revision:   last.revision,
 			Source:     last.source,
 			ID:         last.id,
 		})

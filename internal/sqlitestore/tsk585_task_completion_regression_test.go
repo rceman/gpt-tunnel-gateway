@@ -143,6 +143,81 @@ func TestTSK585TaskHistoryCursor(t *testing.T) {
 		}
 	}
 }
+func TestTSK621TaskHistoryOrdersByRevisionAcrossClockInversion(t *testing.T) {
+	db, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	taskID := "EXM-TSK621"
+	fields := []byte(`[]`)
+	payload := []byte(`{}`)
+	for _, row := range []struct {
+		revision int64
+		recorded string
+	}{
+		{revision: 1, recorded: "2026-09-15T10:00:00Z"},
+		{revision: 2, recorded: "2026-09-15T10:00:02Z"},
+		{revision: 3, recorded: "2026-09-15T10:00:02.000000001Z"},
+	} {
+		if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_entity_revisions(entity_type,entity_id,project_id,revision,mutation_kind,actor,reason,changed_fields,payload,recorded_at) VALUES('task',?,?,?,'update','planner','revise',?,?,?)`, taskID, "example", row.revision, fields, payload, row.recorded); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, row := range []struct {
+		opID       string
+		revision   int64
+		kind       string
+		fromStatus string
+		toStatus   string
+		recorded   string
+	}{
+		{opID: "task-history-complete", revision: 1, kind: "complete", fromStatus: "planned", toStatus: "done", recorded: "2026-09-15T09:00:00Z"},
+		{opID: "task-history-archive", revision: 2, kind: "archive", fromStatus: "done", toStatus: "archived", recorded: "2026-09-15T10:00:02Z"},
+	} {
+		if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_task_lifecycle_events(operation_id,project_id,task_id,revision,event_kind,from_status,to_status,actor,reason,contract,recorded_at) VALUES(?,?,?, ?,?,?,?,'planner','history',?,?)`, row.opID, "example", taskID, row.revision, row.kind, row.fromStatus, row.toStatus, payload, row.recorded); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var after TaskHistoryCursor
+	want := []struct {
+		revision int64
+		kind     string
+		source   int
+		recorded string
+	}{
+		{revision: 1, kind: "update", source: 0, recorded: "2026-09-15T10:00:00Z"},
+		{revision: 1, kind: "complete", source: 1, recorded: "2026-09-15T09:00:00Z"},
+		{revision: 2, kind: "update", source: 0, recorded: "2026-09-15T10:00:02Z"},
+		{revision: 2, kind: "archive", source: 1, recorded: "2026-09-15T10:00:02Z"},
+		{revision: 3, kind: "update", source: 0, recorded: "2026-09-15T10:00:02.000000001Z"},
+	}
+	for i, expected := range want {
+		page, pageErr := db.ListTaskHistoryPage(ctx, "example", taskID, after, 1)
+		if pageErr != nil {
+			t.Fatal(pageErr)
+		}
+		if len(page.Records) != 1 || page.Records[0].Revision != expected.revision || page.Records[0].MutationKind != expected.kind || page.Records[0].RecordedAt != expected.recorded {
+			t.Fatalf("page %d=%#v want revision=%d kind=%s recorded=%s", i, page, expected.revision, expected.kind, expected.recorded)
+		}
+		if i == len(want)-1 {
+			if page.HasMore || page.NextCursor != "" {
+				t.Fatalf("final page=%#v", page)
+			}
+			break
+		}
+		cursor, cursorErr := DecodeTaskHistoryCursor(page.NextCursor)
+		if cursorErr != nil {
+			t.Fatal(cursorErr)
+		}
+		if cursor.Revision != expected.revision || cursor.Source != expected.source {
+			t.Fatalf("page %d semantic cursor=%#v", i, cursor)
+		}
+		after = cursor
+	}
+}
+
 func TestTSK585TaskLifecycleEventTransitions(t *testing.T) {
 	db, err := Open(t.TempDir())
 	if err != nil {

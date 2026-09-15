@@ -793,14 +793,10 @@ func TestTSK585TaskHistoryServicePageBoundary(t *testing.T) {
 		id     int64
 	}
 	visited := map[tuple]bool{}
-	var lastTime time.Time
+	var lastRevision int64
 	var lastSource, lastID = -1, int64(-1)
 	lifecycleCount := 0
 	for _, rec := range seen {
-		at, err := time.Parse(time.RFC3339Nano, rec.RecordedAt)
-		if err != nil {
-			t.Fatal(err)
-		}
 		source, id := 0, rec.Revision
 		if rec.MutationKind == "complete" {
 			source, id = 1, 1
@@ -811,10 +807,10 @@ func TestTSK585TaskHistoryServicePageBoundary(t *testing.T) {
 			t.Fatalf("duplicate history tuple %#v", key)
 		}
 		visited[key] = true
-		if at.Before(lastTime) || (at.Equal(lastTime) && (source < lastSource || (source == lastSource && id <= lastID))) {
+		if rec.Revision < lastRevision || (rec.Revision == lastRevision && (source < lastSource || (source == lastSource && id <= lastID))) {
 			t.Fatalf("history out of order at %#v", rec)
 		}
-		lastTime, lastSource, lastID = at, source, id
+		lastRevision, lastSource, lastID = rec.Revision, source, id
 	}
 	if lifecycleCount != 1 {
 		t.Fatalf("lifecycle rows=%d", lifecycleCount)
