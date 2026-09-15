@@ -55,14 +55,8 @@ func (s *Service) TaskExecutionDispatch(ctx context.Context, in TaskExecutionDis
 	if err != nil {
 		return TaskExecutionPublicOutput{}, err
 	}
-	states, err := s.Durability.ListTaskExecutionStates(ctx, in.ProjectID)
-	if err != nil {
+	if err := s.ensureWorkerActionableSlot(ctx, in.ProjectID, agent, in.Key); err != nil {
 		return TaskExecutionPublicOutput{}, err
-	}
-	for _, other := range states {
-		if other.Agent == agent && other.TaskID != in.Key && model.IsTaskExecutionAgentOwned(other.Status) {
-			return TaskExecutionPublicOutput{}, fmt.Errorf("logical Agent %q already has a nonterminal Task", agent)
-		}
 	}
 	project, err := s.EffectiveProjectConfig(in.ProjectID)
 	if err != nil {
@@ -96,6 +90,19 @@ func (s *Service) TaskExecutionDispatch(ctx context.Context, in TaskExecutionDis
 		return TaskExecutionPublicOutput{}, err
 	}
 	return taskExecutionPublicOutput(state), nil
+}
+
+func (s *Service) ensureWorkerActionableSlot(ctx context.Context, projectID, agent, excludedTaskID string) error {
+	states, err := s.Durability.ListTaskExecutionStates(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	for _, other := range states {
+		if other.Agent == agent && other.TaskID != excludedTaskID && model.IsTaskExecutionAgentActionable(other.Status, other.Stage) {
+			return fmt.Errorf("logical Agent %q already has an actionable Task", agent)
+		}
+	}
+	return nil
 }
 
 func (s *Service) TaskExecutionStatus(ctx context.Context, projectID, key string) (TaskExecutionPublicOutput, error) {

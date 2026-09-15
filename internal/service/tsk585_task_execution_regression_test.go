@@ -98,6 +98,293 @@ func tsk585Dispatch(t *testing.T, s *Service, key string) string {
 	}
 	return out.Worktree
 }
+func tsk622SetExecutionStatus(t *testing.T, db *sqlitestore.Databases, key, status, stage string) model.TaskExecutionState {
+	t.Helper()
+	ctx := context.Background()
+	state, found, err := db.ReadTaskExecutionState(ctx, "example", key)
+	if err != nil || !found {
+		t.Fatalf("read Task execution state found=%v err=%v", found, err)
+	}
+	state.Status = status
+	state.Stage = stage
+	state.ExecutionRevision++
+	state.UpdatedAt = time.Now().UTC()
+	if err := db.UpdateTaskExecutionState(ctx, state, state.ExecutionRevision-1); err != nil {
+		t.Fatal(err)
+	}
+	return state
+}
+
+func tsk622AssertWorkerSessionCount(t *testing.T, db *sqlitestore.Databases) string {
+	t.Helper()
+	records, err := durableSession.NewStoreWithDurability(db).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Role != durableSession.RoleWorker {
+		t.Fatalf("Worker Session records=%#v", records)
+	}
+	return records[0].ID
+}
+
+func TestTSK622DispatchUsesWorkerActionableOwnership(t *testing.T) {
+	cases := []struct {
+		name    string
+		status  string
+		stage   string
+		allowed bool
+	}{
+		{name: "awaiting review", status: model.TaskExecutionAwaitingReview, stage: "code", allowed: true},
+		{name: "ready for verification", status: model.TaskExecutionReadyForVerification, stage: "code", allowed: true},
+		{name: "verifying", status: model.TaskExecutionVerifying, stage: "tests", allowed: true},
+		{name: "verified", status: model.TaskExecutionVerified, stage: "tests", allowed: true},
+		{name: "integrating", status: model.TaskExecutionIntegrating, stage: "rebase", allowed: true},
+		{name: "integrated pending acceptance", status: model.TaskExecutionIntegrated, stage: "code", allowed: true},
+		{name: "blocked", status: model.TaskExecutionBlocked, stage: "code", allowed: true},
+		{name: "active code", status: model.TaskExecutionDispatched, stage: "code", allowed: false},
+		{name: "active tests", status: model.TaskExecutionInProgress, stage: "tests", allowed: false},
+		{name: "active rebase", status: model.TaskExecutionChangesRequested, stage: "rebase", allowed: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, db := tsk585Setup(t)
+			defer db.Close()
+			first := tsk585Task(t, s, "tsk622-first-"+strings.ReplaceAll(tc.name, " ", "-"), "First Task")
+			tsk585Dispatch(t, s, first.ID)
+			before := tsk622SetExecutionStatus(t, db, first.ID, tc.status, tc.stage)
+			second := tsk585Task(t, s, "tsk622-second-"+strings.ReplaceAll(tc.name, " ", "-"), "Second Task")
+			out, err := s.TaskExecutionDispatch(context.Background(), TaskExecutionDispatchInput{
+				ProjectID: "example",
+				Key:       second.ID,
+			})
+			if tc.allowed {
+				if err != nil {
+					t.Fatalf("non-actionable Task blocked dispatch: %v", err)
+				}
+				if out.Agent != before.Agent {
+					t.Fatalf("Worker Agent changed from %q to %q", before.Agent, out.Agent)
+				}
+			} else if err == nil {
+				t.Fatal("second actionable Task dispatch was accepted")
+			}
+			after, found, readErr := db.ReadTaskExecutionState(context.Background(), "example", first.ID)
+			if readErr != nil || !found || after.Worktree != before.Worktree || after.Branch != before.Branch || after.BaseHead != before.BaseHead || after.Head != before.Head || after.TaskRevision != before.TaskRevision || after.TaskRevisionSHA256 != before.TaskRevisionSHA256 || after.Agent != before.Agent {
+				t.Fatalf("first Task lane changed after dispatch: before=%#v after=%#v found=%v err=%v", before, after, found, readErr)
+			}
+			sessionID := tsk622AssertWorkerSessionCount(t, db)
+			if tc.allowed {
+				status, statusErr := s.ProjectOperationalStatus(WithAgentSessionID(context.Background(), sessionID))
+				if statusErr != nil || status.TaskID != second.ID || status.TaskState != model.TaskExecutionDispatched {
+					t.Fatalf("project/status did not select actionable Task: status=%#v err=%v", status, statusErr)
+				}
+			}
+		})
+	}
+}
+
+func TestTSK622DispatchOwnershipSurvivesDurabilityRestart(t *testing.T) {
+	s, db := tsk585Setup(t)
+	first := tsk585Task(t, s, "tsk622-restart-first", "Restart First Task")
+	tsk585Dispatch(t, s, first.ID)
+	before := tsk622SetExecutionStatus(t, db, first.ID, model.TaskExecutionReadyForVerification, "code")
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	s.Durability = reopened
+	second := tsk585Task(t, s, "tsk622-restart-second", "Restart Second Task")
+	out, err := s.TaskExecutionDispatch(context.Background(), TaskExecutionDispatchInput{
+		ProjectID: "example",
+		Key:       second.ID,
+	})
+	if err != nil || out.Agent != before.Agent {
+		t.Fatalf("dispatch after durability restart output=%#v err=%v", out, err)
+	}
+	if got := tsk622AssertWorkerSessionCount(t, reopened); got == "" {
+		t.Fatal("durable Worker Session identity was lost on restart")
+	}
+}
+
+func TestTSK622ReworkAndReviewRejectRespectWorkerActionableSlot(t *testing.T) {
+	t.Run("rework cannot create a second actionable Task", func(t *testing.T) {
+		s, db := tsk585Setup(t)
+		defer db.Close()
+		first := tsk585Task(t, s, "tsk622-rework-first", "Rework First Task")
+		tsk585Dispatch(t, s, first.ID)
+		firstBefore := tsk622SetExecutionStatus(t, db, first.ID, model.TaskExecutionVerified, "tests")
+		second := tsk585Task(t, s, "tsk622-rework-second", "Rework Second Task")
+		tsk585Dispatch(t, s, second.ID)
+		if _, err := s.TaskExecutionRework(context.Background(), TaskExecutionReworkInput{
+			ProjectID: "example",
+			Key:       first.ID,
+			Stage:     "code",
+			Comment:   "reopen first",
+		}); err == nil {
+			t.Fatal("rework created a second actionable Task")
+		}
+		firstAfter, found, err := db.ReadTaskExecutionState(context.Background(), "example", first.ID)
+		if err != nil || !found || firstAfter.Status != firstBefore.Status || firstAfter.Stage != firstBefore.Stage || firstAfter.ExecutionRevision != firstBefore.ExecutionRevision {
+			t.Fatalf("rejected rework mutated first Task: before=%#v after=%#v found=%v err=%v", firstBefore, firstAfter, found, err)
+		}
+		tsk622SetExecutionStatus(t, db, second.ID, model.TaskExecutionReadyForVerification, "code")
+		if _, err := s.TaskExecutionRework(context.Background(), TaskExecutionReworkInput{
+			ProjectID: "example",
+			Key:       first.ID,
+			Stage:     "code",
+			Comment:   "reopen first after handoff",
+		}); err != nil {
+			t.Fatalf("rework after newer Task became non-actionable: %v", err)
+		}
+		firstAfter, found, err = db.ReadTaskExecutionState(context.Background(), "example", first.ID)
+		if err != nil || !found || firstAfter.Status != model.TaskExecutionChangesRequested || firstAfter.Stage != "code" {
+			t.Fatalf("rework state=%#v found=%v err=%v", firstAfter, found, err)
+		}
+	})
+
+	t.Run("review rejection cannot create a second actionable Task", func(t *testing.T) {
+		s, db := tsk585Setup(t)
+		defer db.Close()
+		first := tsk585Task(t, s, "tsk622-review-first", "Review First Task")
+		tsk585Dispatch(t, s, first.ID)
+		tsk585LaneCommit(t, s, first.ID, "review candidate")
+		if _, err := s.TaskExecutionSubmitCode(context.Background(), "example", first.ID); err != nil {
+			t.Fatal(err)
+		}
+		firstBefore, found, err := db.ReadTaskExecutionState(context.Background(), "example", first.ID)
+		if err != nil || !found || firstBefore.Status != model.TaskExecutionAwaitingReview {
+			t.Fatalf("first review state=%#v found=%v err=%v", firstBefore, found, err)
+		}
+		second := tsk585Task(t, s, "tsk622-review-second", "Review Second Task")
+		tsk585Dispatch(t, s, second.ID)
+		if _, err := s.TaskExecutionReviewDecide(context.Background(), TaskExecutionReviewDecisionInput{
+			ProjectID: "example",
+			Key:       first.ID,
+			Stage:     "code",
+			Decision:  "reject",
+			Comment:   "needs correction",
+		}); err == nil {
+			t.Fatal("review rejection created a second actionable Task")
+		}
+		firstAfter, found, err := db.ReadTaskExecutionState(context.Background(), "example", first.ID)
+		if err != nil || !found || firstAfter.Status != firstBefore.Status || firstAfter.ExecutionRevision != firstBefore.ExecutionRevision {
+			t.Fatalf("rejected review mutated first Task: before=%#v after=%#v found=%v err=%v", firstBefore, firstAfter, found, err)
+		}
+		phase, phaseFound, phaseErr := db.ReadLatestTaskExecutionPhase(context.Background(), "example", first.ID, "code")
+		if phaseErr != nil || !phaseFound || phase.Decision != "" {
+			t.Fatalf("rejected review wrote decision phase=%#v found=%v err=%v", phase, phaseFound, phaseErr)
+		}
+	})
+}
+
+func tsk622RestartDurability(t *testing.T, s *Service, db *sqlitestore.Databases) *sqlitestore.Databases {
+	t.Helper()
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Durability = reopened
+	return reopened
+}
+
+func TestTSK622ActionableTransitionsSurviveDurabilityRestart(t *testing.T) {
+	t.Run("rework", func(t *testing.T) {
+		s, db := tsk585Setup(t)
+		first := tsk585Task(t, s, "tsk622-restart-rework-first", "Restart Rework First")
+		tsk585Dispatch(t, s, first.ID)
+		firstBefore := tsk622SetExecutionStatus(t, db, first.ID, model.TaskExecutionVerified, "tests")
+		second := tsk585Task(t, s, "tsk622-restart-rework-second", "Restart Rework Second")
+		tsk585Dispatch(t, s, second.ID)
+		reopened := tsk622RestartDurability(t, s, db)
+		defer reopened.Close()
+		if _, err := s.TaskExecutionRework(context.Background(), TaskExecutionReworkInput{
+			ProjectID: "example",
+			Key:       first.ID,
+			Stage:     "code",
+			Comment:   "restart reopen",
+		}); err == nil {
+			t.Fatal("rework after restart created a second actionable Task")
+		}
+		firstAfter, found, err := reopened.ReadTaskExecutionState(context.Background(), "example", first.ID)
+		if err != nil || !found || firstAfter.Status != firstBefore.Status || firstAfter.ExecutionRevision != firstBefore.ExecutionRevision {
+			t.Fatalf("rejected restart rework mutated first Task: before=%#v after=%#v found=%v err=%v", firstBefore, firstAfter, found, err)
+		}
+		tsk622SetExecutionStatus(t, reopened, second.ID, model.TaskExecutionReadyForVerification, "code")
+		if _, err := s.TaskExecutionRework(context.Background(), TaskExecutionReworkInput{
+			ProjectID: "example",
+			Key:       first.ID,
+			Stage:     "code",
+			Comment:   "restart reopen after handoff",
+		}); err != nil {
+			t.Fatalf("rework after restart handoff: %v", err)
+		}
+	})
+
+	t.Run("review rejection", func(t *testing.T) {
+		s, db := tsk585Setup(t)
+		first := tsk585Task(t, s, "tsk622-restart-review-reject-first", "Restart Review Reject First")
+		tsk585Dispatch(t, s, first.ID)
+		tsk585LaneCommit(t, s, first.ID, "restart review candidate")
+		if _, err := s.TaskExecutionSubmitCode(context.Background(), "example", first.ID); err != nil {
+			t.Fatal(err)
+		}
+		firstBefore, found, err := db.ReadTaskExecutionState(context.Background(), "example", first.ID)
+		if err != nil || !found || firstBefore.Status != model.TaskExecutionAwaitingReview {
+			t.Fatalf("review state=%#v found=%v err=%v", firstBefore, found, err)
+		}
+		second := tsk585Task(t, s, "tsk622-restart-review-reject-second", "Restart Review Reject Second")
+		tsk585Dispatch(t, s, second.ID)
+		reopened := tsk622RestartDurability(t, s, db)
+		defer reopened.Close()
+		if _, err := s.TaskExecutionReviewDecide(context.Background(), TaskExecutionReviewDecisionInput{
+			ProjectID: "example",
+			Key:       first.ID,
+			Stage:     "code",
+			Decision:  "reject",
+			Comment:   "restart reject",
+		}); err == nil {
+			t.Fatal("review rejection after restart created a second actionable Task")
+		}
+		firstAfter, found, err := reopened.ReadTaskExecutionState(context.Background(), "example", first.ID)
+		if err != nil || !found || firstAfter.Status != firstBefore.Status || firstAfter.ExecutionRevision != firstBefore.ExecutionRevision {
+			t.Fatalf("rejected restart review mutated first Task: before=%#v after=%#v found=%v err=%v", firstBefore, firstAfter, found, err)
+		}
+	})
+
+	t.Run("code review acceptance", func(t *testing.T) {
+		s, db := tsk585Setup(t)
+		first := tsk585Task(t, s, "tsk622-restart-review-accept-first", "Restart Review Accept First")
+		tsk585Dispatch(t, s, first.ID)
+		tsk585LaneCommit(t, s, first.ID, "restart review acceptance candidate")
+		if _, err := s.TaskExecutionSubmitCode(context.Background(), "example", first.ID); err != nil {
+			t.Fatal(err)
+		}
+		second := tsk585Task(t, s, "tsk622-restart-review-accept-second", "Restart Review Accept Second")
+		tsk585Dispatch(t, s, second.ID)
+		reopened := tsk622RestartDurability(t, s, db)
+		defer reopened.Close()
+		if _, err := s.TaskExecutionReviewDecide(context.Background(), TaskExecutionReviewDecisionInput{
+			ProjectID: "example",
+			Key:       first.ID,
+			Stage:     "code",
+			Decision:  "accept",
+			Comment:   "restart accept",
+		}); err == nil {
+			t.Fatal("code review acceptance after restart created a second actionable Task")
+		}
+		state, found, err := reopened.ReadTaskExecutionState(context.Background(), "example", first.ID)
+		if err != nil || !found || state.Status != model.TaskExecutionAwaitingReview {
+			t.Fatalf("rejected restart acceptance mutated first Task: state=%#v found=%v err=%v", state, found, err)
+		}
+	})
+}
+
 func tsk585LaneCommit(t *testing.T, s *Service, key, message string) {
 	t.Helper()
 	path, err := gitx.TaskWorktreePath(s.Config.StateDir, "example", key)

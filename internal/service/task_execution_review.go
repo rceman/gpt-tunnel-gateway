@@ -189,16 +189,23 @@ func (s *Service) TaskExecutionReviewDecide(ctx context.Context, in TaskExecutio
 	if state.Status != model.TaskExecutionAwaitingReview || state.Stage != in.Stage {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("review decision is stale")
 	}
+	nextStage, nextStatus := state.Stage, state.Status
+	if in.Decision == "reject" {
+		nextStatus = model.TaskExecutionChangesRequested
+	} else if in.Stage == "code" {
+		nextStage, nextStatus = "tests", model.TaskExecutionDispatched
+	} else {
+		nextStatus = model.TaskExecutionReadyForVerification
+	}
+	if model.IsTaskExecutionAgentActionable(nextStatus, nextStage) {
+		if err := s.ensureWorkerActionableSlot(ctx, in.ProjectID, state.Agent, in.Key); err != nil {
+			return TaskExecutionPublicOutput{}, err
+		}
+	}
 	now := time.Now().UTC()
+	state.Stage, state.Status = nextStage, nextStatus
 	state.ExecutionRevision++
 	state.UpdatedAt = now
-	if in.Decision == "reject" {
-		state.Status = model.TaskExecutionChangesRequested
-	} else if in.Stage == "code" {
-		state.Stage, state.Status = "tests", model.TaskExecutionDispatched
-	} else {
-		state.Status = model.TaskExecutionReadyForVerification
-	}
 	phase = sqlitestore.TaskExecutionPhase{TaskID: in.Key, ProjectID: in.ProjectID, ExecutionRevision: state.ExecutionRevision, Stage: in.Stage, Status: state.Status, Head: state.Head, Branch: state.Branch, TaskRevisionSHA256: state.TaskRevisionSHA256, EventKind: "review", Decision: in.Decision, Comment: strings.TrimSpace(in.Comment), CreatedAt: now}
 	if err := s.Durability.TransitionTaskExecutionState(ctx, state, state.ExecutionRevision-1, phase); err != nil {
 		return TaskExecutionPublicOutput{}, err
@@ -240,6 +247,9 @@ func (s *Service) TaskExecutionRework(ctx context.Context, in TaskExecutionRewor
 			}
 			return TaskExecutionPublicOutput{}, fmt.Errorf("conflicting Task rework mutation")
 		}
+	}
+	if err := s.ensureWorkerActionableSlot(ctx, in.ProjectID, state.Agent, in.Key); err != nil {
+		return TaskExecutionPublicOutput{}, err
 	}
 	now := time.Now().UTC()
 	state.Stage = in.Stage

@@ -27,7 +27,7 @@ func (s *Service) populateProjectOperationalTask(result *ProjectOperationalStatu
 	candidates := append([]model.TaskExecutionState{}, states...)
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].UpdatedAt.After(candidates[j].UpdatedAt) })
 	for _, state := range candidates {
-		if state.Agent != agentID || !model.IsTaskExecutionAgentOwned(state.Status) {
+		if state.Agent != agentID || !model.IsTaskExecutionAgentActionable(state.Status, state.Stage) {
 			continue
 		}
 		result.TaskID = state.TaskID
