@@ -48,6 +48,36 @@ func TestLocalOperationAllocationIsCompactMonotonicIsolatedAndRestartSafe(t *tes
 	}
 }
 
+func TestLocalOperationAdmissionCoordinateQueryAndCorruptionValidation(t *testing.T) {
+	db, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	inputSHA256 := strings.Repeat("b", 64)
+	op, err := db.AllocateLocalOperationWithAdmissionCoordinate(ctx, "example", "EXM", strings.Repeat("a", 64), "agent-prompt", "HOM_EXM_P_coord", inputSHA256, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	matched, err := db.ListLocalOperationsByAdmissionCoordinate(ctx, "example", "agent-prompt", "HOM_EXM_P_coord", inputSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matched) != 1 || matched[0].OperationID != op.OperationID {
+		t.Fatalf("matched operations=%#v", matched)
+	}
+	if err := db.SetLocalOperationAdmissionCoordinate(ctx, op.OperationID, op.ProjectID, "HOM_EXM_P_other", inputSHA256); err == nil {
+		t.Fatal("admission coordinate was overwritten")
+	}
+	if _, err := db.Local.Exec(ctx, `UPDATE local_operations SET admission_input_sha256=? WHERE operation_id=?`, "corrupt", op.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ListLocalOperations(ctx, "example"); err == nil {
+		t.Fatal("corrupt admission coordinate was accepted")
+	}
+}
+
 func TestLocalOperationConcurrentAllocationDoesNotCollide(t *testing.T) {
 	db, err := Open(t.TempDir())
 	if err != nil {

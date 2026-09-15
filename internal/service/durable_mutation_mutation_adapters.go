@@ -80,6 +80,10 @@ func (s *Service) writeDurableMutation(operation durableMutationOperation) error
 		local.Error = operation.Error
 		local.RecoveryReason = operation.RecoveryReason
 		local.UpdatedAt = operation.UpdatedAt
+		if len(operation.Input) > 0 {
+			local.AdmissionSessionID = operation.SessionID
+			local.AdmissionInputSHA256 = durableMutationInputSHA256(operation.Input)
+		}
 		if err := s.Durability.UpdateLocalOperation(context.Background(), local); err != nil {
 			return err
 		}

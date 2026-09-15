@@ -107,7 +107,7 @@ func (s *Service) AgentPromptAsync(ctx context.Context, in AgentPromptInput) (Ag
 	if in.ProjectID == "" || in.Message == "" {
 		return AgentPromptReceipt{}, fmt.Errorf("project_id and message are required")
 	}
-	operation, err := s.enqueueTypedDurableMutation(ctx, "agent-prompt", in.ProjectID, in)
+	operation, err := s.enqueueRepeatableAgentMutation(ctx, "agent-prompt", in.ProjectID, in)
 	if err != nil {
 		return AgentPromptReceipt{}, err
 	}
@@ -118,7 +118,7 @@ func (s *Service) AgentRecoveryAsync(ctx context.Context, in AgentRecoverInput) 
 	if in.ProjectID == "" {
 		return AgentRecoveryReceipt{}, fmt.Errorf("project_id is required")
 	}
-	operation, err := s.enqueueTypedDurableMutation(ctx, "agent-recover", in.ProjectID, in)
+	operation, err := s.enqueueRepeatableAgentMutation(ctx, "agent-recover", in.ProjectID, in)
 	if err != nil {
 		return AgentRecoveryReceipt{}, err
 	}
@@ -126,10 +126,10 @@ func (s *Service) AgentRecoveryAsync(ctx context.Context, in AgentRecoverInput) 
 }
 
 func (s *Service) AgentInterruptAsync(ctx context.Context, in AgentInterruptInput) (AgentInterruptReceipt, error) {
-	if in.ProjectID == "" || in.OperationID == "" {
-		return AgentInterruptReceipt{}, fmt.Errorf("project_id and operation_id are required")
+	if in.ProjectID == "" {
+		return AgentInterruptReceipt{}, fmt.Errorf("project_id is required")
 	}
-	operation, err := s.enqueueTypedDurableMutation(ctx, "agent-interrupt", in.ProjectID, in)
+	operation, err := s.enqueueRepeatableAgentMutation(ctx, "agent-interrupt", in.ProjectID, in)
 	if err != nil {
 		return AgentInterruptReceipt{}, err
 	}

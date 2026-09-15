@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	upstream "github.com/rceman/go-sqlite-store/store"
@@ -13,21 +14,31 @@ import (
 )
 
 type LocalOperation struct {
-	OperationID     string
-	ProjectID       string
-	ProjectCode     string
-	OperationNumber uint64
-	MutationID      string
-	Kind            string
-	Status          string
-	ResultPayload   []byte
-	Error           string
-	RecoveryReason  string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	OperationID          string
+	ProjectID            string
+	ProjectCode          string
+	OperationNumber      uint64
+	MutationID           string
+	Kind                 string
+	Status               string
+	ResultPayload        []byte
+	Error                string
+	RecoveryReason       string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	AdmissionSessionID   string
+	AdmissionInputSHA256 string
 }
 
 func (d *Databases) AllocateLocalOperation(ctx context.Context, projectID, projectCode, mutationID, kind string, now time.Time) (LocalOperation, error) {
+	return d.allocateLocalOperation(ctx, projectID, projectCode, mutationID, kind, "", "", now)
+}
+
+func (d *Databases) AllocateLocalOperationWithAdmissionCoordinate(ctx context.Context, projectID, projectCode, mutationID, kind, sessionID, inputSHA256 string, now time.Time) (LocalOperation, error) {
+	return d.allocateLocalOperation(ctx, projectID, projectCode, mutationID, kind, sessionID, inputSHA256, now)
+}
+
+func (d *Databases) allocateLocalOperation(ctx context.Context, projectID, projectCode, mutationID, kind, sessionID, inputSHA256 string, now time.Time) (LocalOperation, error) {
 	if d == nil || d.Local == nil {
 		return LocalOperation{}, fmt.Errorf("local store is unavailable")
 	}
@@ -46,9 +57,21 @@ func (d *Databases) AllocateLocalOperation(ctx context.Context, projectID, proje
 	if kind == "" || now.IsZero() {
 		return LocalOperation{}, fmt.Errorf("invalid local operation allocation")
 	}
+	if err := validateAdmissionCoordinate(sessionID, inputSHA256); err != nil {
+		return LocalOperation{}, err
+	}
 	if existing, err := d.ReadLocalOperationByMutation(ctx, mutationID); err == nil {
 		if existing.ProjectID != projectID || existing.ProjectCode != projectCode || existing.Kind != kind {
 			return LocalOperation{}, fmt.Errorf("local operation mutation identity mismatch")
+		}
+		if inputSHA256 != "" && (existing.AdmissionSessionID != sessionID || existing.AdmissionInputSHA256 != inputSHA256) {
+			if existing.AdmissionSessionID != "" || existing.AdmissionInputSHA256 != "" {
+				return LocalOperation{}, fmt.Errorf("local operation admission coordinate mismatch")
+			}
+			if err := d.SetLocalOperationAdmissionCoordinate(ctx, existing.OperationID, projectID, sessionID, inputSHA256); err != nil {
+				return LocalOperation{}, err
+			}
+			return d.ReadLocalOperation(ctx, existing.OperationID)
 		}
 		return existing, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -57,11 +80,14 @@ func (d *Databases) AllocateLocalOperation(ctx context.Context, projectID, proje
 	at := now.UTC().Format(time.RFC3339Nano)
 	_, err := d.Local.Batch(ctx, []upstream.Statement{
 		{SQL: `INSERT OR IGNORE INTO local_operation_sequences(project_id,project_code,next_number) VALUES(?,?,1)`, Args: []any{projectID, projectCode}},
-		{SQL: `INSERT INTO local_operations(operation_id,project_id,project_code,operation_number,mutation_id,kind,status,result_payload,error,recovery_reason,created_at,updated_at) SELECT project_code || '-OPR' || CAST(next_number AS TEXT),project_id,project_code,next_number,?,?,?,NULL,'','',?,? FROM local_operation_sequences WHERE project_id=? AND project_code=?`, Args: []any{mutationID, kind, "accepted", at, at, projectID, projectCode}, RequireRowsAffected: 1},
+		{SQL: `INSERT INTO local_operations(operation_id,project_id,project_code,operation_number,mutation_id,kind,status,result_payload,error,recovery_reason,created_at,updated_at,admission_session_id,admission_input_sha256) SELECT project_code || '-OPR' || CAST(next_number AS TEXT),project_id,project_code,next_number,?,?,?,NULL,'','',?,?,?,? FROM local_operation_sequences WHERE project_id=? AND project_code=?`, Args: []any{mutationID, kind, "accepted", at, at, sessionID, inputSHA256, projectID, projectCode}, RequireRowsAffected: 1},
 		{SQL: `UPDATE local_operation_sequences SET next_number=next_number+1 WHERE project_id=? AND project_code=?`, Args: []any{projectID, projectCode}, RequireRowsAffected: 1},
 	})
 	if err != nil {
 		if existing, readErr := d.ReadLocalOperationByMutation(ctx, mutationID); readErr == nil {
+			if inputSHA256 != "" && (existing.AdmissionSessionID != sessionID || existing.AdmissionInputSHA256 != inputSHA256) {
+				return LocalOperation{}, fmt.Errorf("local operation admission coordinate mismatch")
+			}
 			return existing, nil
 		}
 		return LocalOperation{}, err
@@ -100,6 +126,80 @@ func (d *Databases) ReadLocalOperationByMutation(ctx context.Context, mutationID
 	return decodeLocalOperation(rows.Rows[0])
 }
 
+func (d *Databases) ListLocalOperations(ctx context.Context, projectID string) ([]LocalOperation, error) {
+	if d == nil || d.Local == nil {
+		return nil, fmt.Errorf("local store is unavailable")
+	}
+	if err := model.ValidateProjectIdentifier(projectID); err != nil {
+		return nil, err
+	}
+	rows, err := d.Local.Query(ctx, localOperationSelect+` WHERE project_id=? ORDER BY operation_number DESC`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	operations := make([]LocalOperation, 0, len(rows.Rows))
+	for _, row := range rows.Rows {
+		operation, decodeErr := decodeLocalOperation(row)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		operations = append(operations, operation)
+	}
+	return operations, nil
+}
+
+func (d *Databases) SetLocalOperationAdmissionCoordinate(ctx context.Context, operationID, projectID, sessionID, inputSHA256 string) error {
+	if d == nil || d.Local == nil || model.ValidateOperationID(operationID) != nil || model.ValidateProjectIdentifier(projectID) != nil {
+		return fmt.Errorf("invalid local operation admission coordinate")
+	}
+	if err := validateAdmissionCoordinate(sessionID, inputSHA256); err != nil {
+		return err
+	}
+	existing, err := d.ReadLocalOperation(ctx, operationID)
+	if err != nil {
+		return err
+	}
+	if existing.ProjectID != projectID {
+		return fmt.Errorf("local operation admission project mismatch")
+	}
+	if existing.AdmissionSessionID == sessionID && existing.AdmissionInputSHA256 == inputSHA256 {
+		return nil
+	}
+	if existing.AdmissionSessionID != "" || existing.AdmissionInputSHA256 != "" {
+		return fmt.Errorf("local operation admission coordinate mismatch")
+	}
+	_, err = d.Local.Batch(ctx, []upstream.Statement{{SQL: `UPDATE local_operations SET admission_session_id=?,admission_input_sha256=? WHERE operation_id=? AND project_id=? AND admission_session_id='' AND admission_input_sha256=''`, Args: []any{sessionID, inputSHA256, operationID, projectID}, RequireRowsAffected: 1}})
+	return err
+}
+
+func (d *Databases) ListLocalOperationsByAdmissionCoordinate(ctx context.Context, projectID, kind, sessionID, inputSHA256 string) ([]LocalOperation, error) {
+	if d == nil || d.Local == nil {
+		return nil, fmt.Errorf("local store is unavailable")
+	}
+	if err := model.ValidateProjectIdentifier(projectID); err != nil {
+		return nil, err
+	}
+	if kind == "" {
+		return nil, fmt.Errorf("invalid local operation kind")
+	}
+	if err := validateAdmissionCoordinate(sessionID, inputSHA256); err != nil {
+		return nil, err
+	}
+	rows, err := d.Local.Query(ctx, localOperationSelect+` WHERE project_id=? AND kind=? AND admission_session_id=? AND admission_input_sha256=? ORDER BY operation_number DESC`, projectID, kind, sessionID, inputSHA256)
+	if err != nil {
+		return nil, err
+	}
+	operations := make([]LocalOperation, 0, len(rows.Rows))
+	for _, row := range rows.Rows {
+		operation, decodeErr := decodeLocalOperation(row)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		operations = append(operations, operation)
+	}
+	return operations, nil
+}
+
 func (d *Databases) UpdateLocalOperation(ctx context.Context, operation LocalOperation) error {
 	if d == nil || d.Local == nil || model.ValidateOperationID(operation.OperationID) != nil || operation.ProjectID == "" || operation.Kind == "" || operation.CreatedAt.IsZero() || operation.UpdatedAt.IsZero() {
 		return fmt.Errorf("invalid local operation")
@@ -107,14 +207,17 @@ func (d *Databases) UpdateLocalOperation(ctx context.Context, operation LocalOpe
 	if err := validateLocalOperationStatus(operation.Status); err != nil {
 		return err
 	}
-	_, err := d.Local.Batch(ctx, []upstream.Statement{{SQL: `UPDATE local_operations SET status=?,result_payload=?,error=?,recovery_reason=?,updated_at=? WHERE operation_id=? AND project_id=?`, Args: []any{operation.Status, operation.ResultPayload, operation.Error, operation.RecoveryReason, operation.UpdatedAt.UTC().Format(time.RFC3339Nano), operation.OperationID, operation.ProjectID}, RequireRowsAffected: 1}})
+	if err := validateAdmissionCoordinate(operation.AdmissionSessionID, operation.AdmissionInputSHA256); err != nil {
+		return err
+	}
+	_, err := d.Local.Batch(ctx, []upstream.Statement{{SQL: `UPDATE local_operations SET status=?,result_payload=?,error=?,recovery_reason=?,updated_at=?,admission_session_id=?,admission_input_sha256=? WHERE operation_id=? AND project_id=?`, Args: []any{operation.Status, operation.ResultPayload, operation.Error, operation.RecoveryReason, operation.UpdatedAt.UTC().Format(time.RFC3339Nano), operation.AdmissionSessionID, operation.AdmissionInputSHA256, operation.OperationID, operation.ProjectID}, RequireRowsAffected: 1}})
 	return err
 }
 
-const localOperationSelect = `SELECT operation_id,project_id,project_code,operation_number,mutation_id,kind,status,result_payload,error,recovery_reason,created_at,updated_at FROM local_operations`
+const localOperationSelect = `SELECT operation_id,project_id,project_code,operation_number,mutation_id,kind,status,result_payload,error,recovery_reason,created_at,updated_at,admission_session_id,admission_input_sha256 FROM local_operations`
 
 func decodeLocalOperation(row []any) (LocalOperation, error) {
-	if len(row) != 12 {
+	if len(row) != 14 {
 		return LocalOperation{}, fmt.Errorf("invalid local operation row")
 	}
 	operationNumber, ok := row[3].(int64)
@@ -169,7 +272,37 @@ func decodeLocalOperation(row []any) (LocalOperation, error) {
 	if operation.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated); err != nil {
 		return LocalOperation{}, fmt.Errorf("invalid local operation updated_at: %w", err)
 	}
+	if operation.AdmissionSessionID, ok = row[12].(string); !ok {
+		return LocalOperation{}, fmt.Errorf("invalid local operation admission session")
+	}
+	if operation.AdmissionInputSHA256, ok = row[13].(string); !ok {
+		return LocalOperation{}, fmt.Errorf("invalid local operation admission input")
+	}
+	if err := validateAdmissionCoordinate(operation.AdmissionSessionID, operation.AdmissionInputSHA256); err != nil {
+		return LocalOperation{}, err
+	}
 	return operation, nil
+}
+
+func validateAdmissionCoordinate(sessionID, inputSHA256 string) error {
+	if sessionID != "" && len(sessionID) > 128 {
+		return fmt.Errorf("invalid local operation admission session")
+	}
+	if sessionID != "" && strings.ContainsRune(sessionID, 0) {
+		return fmt.Errorf("invalid local operation admission session")
+	}
+	if inputSHA256 != "" {
+		if len(inputSHA256) != 64 {
+			return fmt.Errorf("invalid local operation admission input")
+		}
+		if _, err := hex.DecodeString(inputSHA256); err != nil {
+			return fmt.Errorf("invalid local operation admission input: %w", err)
+		}
+	}
+	if inputSHA256 == "" && sessionID != "" {
+		return fmt.Errorf("invalid local operation admission coordinate")
+	}
+	return nil
 }
 
 func validateLocalOperationStatus(status string) error {

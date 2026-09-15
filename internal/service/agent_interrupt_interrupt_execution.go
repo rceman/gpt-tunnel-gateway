@@ -9,6 +9,9 @@ import (
 )
 
 func (s *Service) AgentInterrupt(ctx context.Context, in AgentInterruptInput) (AgentInterruptResult, error) {
+	if in.OperationID == "" {
+		in.OperationID = durableMutationOperationID(ctx)
+	}
 	if err := validateAgentInterruptInput(in); err != nil {
 		return AgentInterruptResult{}, err
 	}

@@ -1,7 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,6 +15,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func (s *Service) startDurableMutationWorker() {
@@ -139,7 +144,16 @@ func (s *Service) adoptLegacyDurableMutationOnStartup(ctx context.Context, legac
 func (s *Service) enqueueTypedDurableMutation(ctx context.Context, kind, projectID string, input any) (durableMutationOperation, error) {
 	return s.enqueueTypedDurableMutationWithIdentity(ctx, kind, projectID, input, nil)
 }
+
+func (s *Service) enqueueRepeatableAgentMutation(ctx context.Context, kind, projectID string, input any) (durableMutationOperation, error) {
+	return s.enqueueTypedDurableMutationWithPolicy(ctx, kind, projectID, input, nil, true)
+}
+
 func (s *Service) enqueueTypedDurableMutationWithIdentity(ctx context.Context, kind, projectID string, input, identity any) (durableMutationOperation, error) {
+	return s.enqueueTypedDurableMutationWithPolicy(ctx, kind, projectID, input, identity, false)
+}
+
+func (s *Service) enqueueTypedDurableMutationWithPolicy(ctx context.Context, kind, projectID string, input, identity any, freshAfterTerminal bool) (durableMutationOperation, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return durableMutationOperation{}, err
 	}
@@ -166,13 +180,53 @@ func (s *Service) enqueueTypedDurableMutationWithIdentity(ctx context.Context, k
 	s.durableMutationMu.Lock()
 	defer s.durableMutationMu.Unlock()
 	now := time.Now().UTC()
-	allocated, err := s.Durability.AllocateLocalOperation(ctx, projectID, projectCode, digest, kind, now)
+	admissionInputSHA256 := durableMutationInputSHA256(raw)
+	allocate := func(mutationID string) (string, error) {
+		var allocated sqlitestore.LocalOperation
+		var allocateErr error
+		if freshAfterTerminal {
+			allocated, allocateErr = s.Durability.AllocateLocalOperationWithAdmissionCoordinate(ctx, projectID, projectCode, mutationID, kind, sessionID, admissionInputSHA256, now)
+		} else {
+			allocated, allocateErr = s.Durability.AllocateLocalOperation(ctx, projectID, projectCode, mutationID, kind, now)
+		}
+		if allocateErr != nil {
+			return "", allocateErr
+		}
+		return allocated.OperationID, nil
+	}
+	operationID, err := allocate(digest)
 	if err != nil {
 		return durableMutationOperation{}, err
 	}
-	operationID := allocated.OperationID
-	operation, err := s.readDurableMutation(operationID)
-	if err == nil {
+	operation, readErr := s.readDurableMutation(operationID)
+	if readErr == nil {
+		if operation.RequestSHA256 != digest || operation.Kind != kind {
+			return durableMutationOperation{}, fmt.Errorf("durable mutation identity mismatch")
+		}
+		if freshAfterTerminal && durableMutationTerminal(operation.Status) {
+			latest, found, findErr := s.findLatestEquivalentDurableMutation(ctx, kind, projectID, projectCode, sessionID, raw)
+			if findErr != nil {
+				return durableMutationOperation{}, findErr
+			}
+			if found {
+				operation = latest
+				digest = operation.RequestSHA256
+				operationID = operation.OperationID
+			}
+			if !found || durableMutationTerminal(operation.Status) {
+				digest, err = freshDurableMutationDigest(kind, sessionID, raw)
+				if err != nil {
+					return durableMutationOperation{}, err
+				}
+				operationID, err = allocate(digest)
+				if err != nil {
+					return durableMutationOperation{}, err
+				}
+				operation, readErr = s.readDurableMutation(operationID)
+			}
+		}
+	}
+	if readErr == nil {
 		if operation.RequestSHA256 != digest || operation.Kind != kind {
 			return durableMutationOperation{}, fmt.Errorf("durable mutation identity mismatch")
 		}
@@ -188,14 +242,14 @@ func (s *Service) enqueueTypedDurableMutationWithIdentity(ctx context.Context, k
 		s.enqueueDurableMutation(operationID)
 		return operation, nil
 	}
-	if !os.IsNotExist(err) {
-		return durableMutationOperation{}, err
+	if !os.IsNotExist(readErr) {
+		return durableMutationOperation{}, readErr
 	}
 	legacy, adoptedOK, err := s.adoptLegacyDurableMutationForRequest(ctx, operationID, projectID, kind, digest)
 	if err != nil {
 		return durableMutationOperation{}, err
 	}
-	if adoptedOK {
+	if adoptedOK && !(freshAfterTerminal && durableMutationTerminal(legacy.Status)) {
 		operation = legacy
 		if operation.Status == "failed" || operation.Status == "outcome_unknown" {
 			operation.Status = "accepted"
@@ -208,6 +262,46 @@ func (s *Service) enqueueTypedDurableMutationWithIdentity(ctx context.Context, k
 		s.startDurableMutationWorker()
 		s.enqueueDurableMutation(operationID)
 		return operation, nil
+	}
+	if adoptedOK {
+		latest, found, findErr := s.findLatestEquivalentDurableMutation(ctx, kind, projectID, projectCode, sessionID, raw)
+		if findErr != nil {
+			return durableMutationOperation{}, findErr
+		}
+		if found && !durableMutationTerminal(latest.Status) {
+			operation = latest
+			operationID = latest.OperationID
+			digest = latest.RequestSHA256
+			if operation.Status == "failed" || operation.Status == "outcome_unknown" {
+				operation.Status = "accepted"
+				operation.Error = ""
+				operation.UpdatedAt = now
+				if err := s.writeDurableMutation(operation); err != nil {
+					return durableMutationOperation{}, err
+				}
+			}
+			s.startDurableMutationWorker()
+			s.enqueueDurableMutation(operationID)
+			return operation, nil
+		}
+		digest, err = freshDurableMutationDigest(kind, sessionID, raw)
+		if err != nil {
+			return durableMutationOperation{}, err
+		}
+		operationID, err = allocate(digest)
+		if err != nil {
+			return durableMutationOperation{}, err
+		}
+		if operation, readErr = s.readDurableMutation(operationID); readErr == nil {
+			if operation.RequestSHA256 != digest || operation.Kind != kind {
+				return durableMutationOperation{}, fmt.Errorf("durable mutation identity mismatch")
+			}
+			s.startDurableMutationWorker()
+			s.enqueueDurableMutation(operationID)
+			return operation, nil
+		} else if !os.IsNotExist(readErr) {
+			return durableMutationOperation{}, readErr
+		}
 	}
 	operation = durableMutationOperation{
 		SchemaVersion: durableMutationSchemaVersion,
@@ -231,6 +325,103 @@ func (s *Service) enqueueTypedDurableMutationWithIdentity(ctx context.Context, k
 	s.startDurableMutationWorker()
 	s.enqueueDurableMutation(operationID)
 	return operation, nil
+}
+
+func durableMutationTerminal(status string) bool {
+	return status == "completed"
+}
+
+func (s *Service) findLatestEquivalentDurableMutation(ctx context.Context, kind, projectID, projectCode, sessionID string, input []byte) (durableMutationOperation, bool, error) {
+	inputSHA256 := durableMutationInputSHA256(input)
+	localOperations, err := s.Durability.ListLocalOperationsByAdmissionCoordinate(ctx, projectID, kind, sessionID, inputSHA256)
+	if err != nil {
+		return durableMutationOperation{}, false, err
+	}
+	var latest durableMutationOperation
+	found := false
+	for _, local := range localOperations {
+		if local.ProjectCode != projectCode || local.AdmissionSessionID != sessionID || local.AdmissionInputSHA256 != inputSHA256 {
+			return durableMutationOperation{}, false, fmt.Errorf("equivalent Local operation %s admission coordinate mismatch", local.OperationID)
+		}
+		operation, readErr := s.readDurableMutation(local.OperationID)
+		if readErr != nil {
+			return durableMutationOperation{}, false, fmt.Errorf("equivalent Local operation %s is corrupt: %w", local.OperationID, readErr)
+		}
+		operationCode, operationNumber, parseErr := model.ParseOperationID(operation.OperationID)
+		if parseErr != nil || operationCode != local.ProjectCode || operationNumber != local.OperationNumber || operation.OperationID != local.OperationID || operation.ProjectID != local.ProjectID || operation.Kind != local.Kind || operation.RequestSHA256 != local.MutationID {
+			return durableMutationOperation{}, false, fmt.Errorf("equivalent Local operation %s identity mismatch", local.OperationID)
+		}
+		if operation.SessionID != sessionID {
+			return durableMutationOperation{}, false, fmt.Errorf("equivalent Local operation %s session coordinate mismatch", local.OperationID)
+		}
+		if !durableMutationKnownStatus(operation.Status) {
+			return durableMutationOperation{}, false, fmt.Errorf("equivalent Local operation %s has invalid status", local.OperationID)
+		}
+		equivalent, inputErr := durableMutationInputEqual(operation.Input, input)
+		if inputErr != nil {
+			return durableMutationOperation{}, false, fmt.Errorf("equivalent Local operation %s input is corrupt: %w", local.OperationID, inputErr)
+		}
+		if !equivalent {
+			return durableMutationOperation{}, false, fmt.Errorf("equivalent Local operation %s admission input mismatch", local.OperationID)
+		}
+		if !found || durableMutationTurnAfter(operation, latest) {
+			latest = operation
+			found = true
+		}
+	}
+	return latest, found, nil
+}
+
+func durableMutationKnownStatus(status string) bool {
+	switch status {
+	case "accepted", "running", "completed", "failed", "outcome_unknown":
+		return true
+	default:
+		return false
+	}
+}
+
+func durableMutationTurnAfter(candidate, current durableMutationOperation) bool {
+	_, candidateNumber, candidateErr := model.ParseOperationID(candidate.OperationID)
+	_, currentNumber, currentErr := model.ParseOperationID(current.OperationID)
+	if candidateErr == nil && currentErr == nil && candidateNumber != currentNumber {
+		return candidateNumber > currentNumber
+	}
+	if !candidate.CreatedAt.Equal(current.CreatedAt) {
+		return candidate.CreatedAt.After(current.CreatedAt)
+	}
+	if !candidate.UpdatedAt.Equal(current.UpdatedAt) {
+		return candidate.UpdatedAt.After(current.UpdatedAt)
+	}
+	return candidate.OperationID > current.OperationID
+}
+
+func durableMutationInputSHA256(input []byte) string {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, input); err == nil {
+		input = compact.Bytes()
+	}
+	digest := sha256.Sum256(input)
+	return hex.EncodeToString(digest[:])
+}
+
+func durableMutationInputEqual(left, right []byte) (bool, error) {
+	var leftCompact, rightCompact bytes.Buffer
+	if err := json.Compact(&leftCompact, left); err != nil {
+		return false, err
+	}
+	if err := json.Compact(&rightCompact, right); err != nil {
+		return false, err
+	}
+	return bytes.Equal(leftCompact.Bytes(), rightCompact.Bytes()), nil
+}
+
+func freshDurableMutationDigest(kind, sessionID string, input []byte) (string, error) {
+	var turn [16]byte
+	if _, err := rand.Read(turn[:]); err != nil {
+		return "", fmt.Errorf("create server-owned Agent turn identity: %w", err)
+	}
+	return durableMutationDigestWithIdentity(kind, sessionID, input, turn[:]), nil
 }
 
 func (s *Service) localOperationProjectCode(ctx context.Context, projectID string) (string, error) {

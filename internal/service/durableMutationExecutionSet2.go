@@ -45,6 +45,9 @@ func (s *Service) durableMutationExecutionSet2(ctx context.Context, operation du
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return nil, err
 		}
+		if input.OperationID == "" {
+			input.OperationID = operation.OperationID
+		}
 		result, err := s.AgentInterrupt(authority.WithPlanner(ctx), input)
 		if err != nil {
 			return nil, err

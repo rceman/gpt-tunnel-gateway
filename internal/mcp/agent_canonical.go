@@ -2,8 +2,6 @@ package mcp
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -268,14 +266,6 @@ func (s *Server) canonicalAgentTailAction(ctx context.Context, raw json.RawMessa
 		result["truncated"] = true
 	}
 	return result, nil
-}
-
-func newCanonicalAgentOperationID() (string, error) {
-	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		return "", fmt.Errorf("create Agent operation identity: %w", err)
-	}
-	return "mutation-agent-" + hex.EncodeToString(value[:]), nil
 }
 
 func (s *Server) canonicalAgentAwaitAction(ctx context.Context, raw json.RawMessage) (any, error) {

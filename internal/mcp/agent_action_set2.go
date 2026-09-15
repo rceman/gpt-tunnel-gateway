@@ -38,16 +38,11 @@ func (s *Server) agent_action_set2() error {
 			if err != nil {
 				return nil, err
 			}
-			operationID, err := newCanonicalAgentOperationID()
-			if err != nil {
-				return nil, err
-			}
 			receipt, err := s.Service.AgentInterruptAsync(ctx, service.AgentInterruptInput{
-				OperationID: operationID,
-				ProjectID:   projectID,
-				AgentID:     target.Agent.AgentID,
-				SessionKey:  target.Resolved.SessionKey,
-				Message:     in.Message,
+				ProjectID:  projectID,
+				AgentID:    target.Agent.AgentID,
+				SessionKey: target.Resolved.SessionKey,
+				Message:    in.Message,
 			})
 			if err != nil {
 				return nil, err
