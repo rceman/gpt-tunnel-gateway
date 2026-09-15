@@ -23,6 +23,7 @@ type TaskExecutionPublicOutput struct {
 	Head              string                           `json:"head,omitempty"`
 	Agent             string                           `json:"agent,omitempty"`
 	ExecutionRevision int                              `json:"execution_revision,omitempty"`
+	Reason            string                           `json:"reason,omitempty"`
 	UpdatedAt         string                           `json:"updated_at,omitempty"`
 	Verification      *TaskExecutionVerificationPublic `json:"verification,omitempty"`
 }
@@ -128,6 +129,13 @@ func (s *Service) TaskExecutionStatus(ctx context.Context, projectID, key string
 		}
 		if ok {
 			out.Verification = &verification
+		}
+		if state.Status == model.TaskExecutionBlocked {
+			reason, reasonErr := s.taskExecutionBlockedReason(ctx, state)
+			if reasonErr != nil {
+				return TaskExecutionPublicOutput{}, reasonErr
+			}
+			out.Reason = reason
 		}
 		return out, nil
 	}

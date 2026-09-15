@@ -25,7 +25,7 @@ func taskExecutionLifecycleOutputSchema() map[string]any {
 }
 
 func taskExecutionStatusOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"key": outputString(), "status": outputString(), "stage": outputString(), "worktree": outputString(), "head": taskExecutionPublicHeadSchema(), "agent": outputString(), "execution_revision": outputInteger(), "updated_at": outputDateTime(), "verification": taskExecutionVerificationOutputSchema()}, "key", "status")
+	return closedOutput(map[string]any{"key": outputString(), "status": outputString(), "stage": outputString(), "worktree": outputString(), "head": taskExecutionPublicHeadSchema(), "agent": outputString(), "execution_revision": outputInteger(), "reason": outputString(), "updated_at": outputDateTime(), "verification": taskExecutionVerificationOutputSchema()}, "key", "status")
 }
 
 func taskExecutionOutputSchema() map[string]any {

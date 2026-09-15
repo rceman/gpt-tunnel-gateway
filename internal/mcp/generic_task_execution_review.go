@@ -20,8 +20,18 @@ func taskExecutionReworkSchema() map[string]any {
 	return obj(map[string]any{"key": str("Canonical Task identifier."), "stage": outputEnum("code", "tests", "rebase"), "comment": str("Required bounded rework comment.")}, "key", "stage", "comment")
 }
 
+func taskExecutionParkSchema() map[string]any {
+	reason := str("Required bounded block or resume reason.")
+	reason["minLength"], reason["maxLength"] = 1, 1024
+	return obj(map[string]any{"key": str("Canonical Task identifier."), "reason": reason}, "key", "reason")
+}
+
 func taskExecutionAgentInputSchema() map[string]any {
 	return obj(map[string]any{})
+}
+
+func taskExecutionParkOutputSchema() map[string]any {
+	return closedOutput(map[string]any{"key": outputString(), "status": outputString(), "stage": outputString(), "worktree": outputString(), "head": taskExecutionPublicHeadSchema(), "agent": outputString(), "execution_revision": outputInteger(), "reason": outputString(), "updated_at": outputDateTime()}, "key", "status", "stage", "worktree", "head", "agent", "execution_revision", "reason")
 }
 
 func taskExecutionReviewOutputSchema() map[string]any {
@@ -31,7 +41,7 @@ func taskExecutionReviewOutputSchema() map[string]any {
 func (s *Server) registerTaskExecutionReviewActions() error {
 	register := func(action GenericAction) error {
 		action.AuthorityRole = "planner"
-		if action.Path == "task/review" {
+		if action.Path == "task/review" || action.Path == "task/block" || action.Path == "task/resume" {
 			action.AuthorityRole = actionRolePlannerOrLead
 		}
 		action.SessionBound = true
@@ -112,6 +122,44 @@ func (s *Server) registerTaskExecutionReviewActions() error {
 		},
 	}); err != nil {
 		return err
+	}
+	for _, action := range []struct {
+		path        string
+		description string
+		call        func(context.Context, service.TaskExecutionBlockInput) (service.TaskExecutionPublicOutput, error)
+	}{
+		{path: "task/block", description: "Durably block one Worker-actionable Task lane without changing its authority.", call: func(ctx context.Context, in service.TaskExecutionBlockInput) (service.TaskExecutionPublicOutput, error) {
+			return s.Service.TaskExecutionBlock(ctx, in)
+		}},
+		{path: "task/resume", description: "Resume one durably blocked Task lane after a bounded Planner decision.", call: func(ctx context.Context, in service.TaskExecutionBlockInput) (service.TaskExecutionPublicOutput, error) {
+			return s.Service.TaskExecutionResume(ctx, service.TaskExecutionResumeInput{ProjectID: in.ProjectID, Key: in.Key, Reason: in.Reason})
+		}},
+	} {
+		park := action
+		if err := register(GenericAction{
+			Path:                 park.path,
+			Description:          park.description,
+			InputSchema:          taskExecutionParkSchema(),
+			ExecutionInputSchema: adrExecutionSchema(taskExecutionParkSchema()),
+			OutputSchema:         taskExecutionParkOutputSchema(),
+			Annotations: ToolAnnotations{
+				DestructiveHint: true,
+				IdempotentHint:  true,
+			},
+			Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var in struct {
+					ProjectID string `json:"project_id"`
+					Key       string `json:"key"`
+					Reason    string `json:"reason"`
+				}
+				if err := decode(raw, &in); err != nil {
+					return nil, err
+				}
+				return park.call(ctx, service.TaskExecutionBlockInput{ProjectID: in.ProjectID, Key: in.Key, Reason: in.Reason})
+			},
+		}); err != nil {
+			return err
+		}
 	}
 	registerAgent := func(action GenericAction) error {
 		action.AuthorityRole = durableSession.RoleWorker

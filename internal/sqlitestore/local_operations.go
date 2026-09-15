@@ -30,6 +30,13 @@ type LocalOperation struct {
 	AdmissionInputSHA256 string
 }
 
+type LocalOperationTurnSummary struct {
+	OperationID string
+	ProjectID   string
+	Kind        string
+	Status      string
+}
+
 func (d *Databases) AllocateLocalOperation(ctx context.Context, projectID, projectCode, mutationID, kind string, now time.Time) (LocalOperation, error) {
 	return d.allocateLocalOperation(ctx, projectID, projectCode, mutationID, kind, "", "", now)
 }
@@ -146,6 +153,44 @@ func (d *Databases) ListLocalOperations(ctx context.Context, projectID string) (
 		operations = append(operations, operation)
 	}
 	return operations, nil
+}
+
+func (d *Databases) ListLocalOperationTurnSummaries(ctx context.Context, projectID string) ([]LocalOperationTurnSummary, error) {
+	if d == nil || d.Local == nil {
+		return nil, fmt.Errorf("local store is unavailable")
+	}
+	if err := model.ValidateProjectIdentifier(projectID); err != nil {
+		return nil, err
+	}
+	rows, err := d.Local.Query(ctx, `SELECT operation_id,project_id,kind,status FROM local_operations WHERE project_id=? ORDER BY operation_id DESC`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	summaries := make([]LocalOperationTurnSummary, 0, len(rows.Rows))
+	for _, row := range rows.Rows {
+		if len(row) != 4 {
+			return nil, fmt.Errorf("invalid local operation turn row")
+		}
+		summary := LocalOperationTurnSummary{}
+		var ok bool
+		if summary.OperationID, ok = row[0].(string); !ok || model.ValidateOperationID(summary.OperationID) != nil {
+			return nil, fmt.Errorf("invalid local operation turn identifier")
+		}
+		if summary.ProjectID, ok = row[1].(string); !ok || summary.ProjectID != projectID {
+			return nil, fmt.Errorf("invalid local operation turn project")
+		}
+		if summary.Kind, ok = row[2].(string); !ok || summary.Kind == "" {
+			return nil, fmt.Errorf("invalid local operation turn kind")
+		}
+		if summary.Status, ok = row[3].(string); !ok {
+			return nil, fmt.Errorf("invalid local operation turn status")
+		}
+		if err := validateLocalOperationStatus(summary.Status); err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, summary)
+	}
+	return summaries, nil
 }
 
 func (d *Databases) SetLocalOperationAdmissionCoordinate(ctx context.Context, operationID, projectID, sessionID, inputSHA256 string) error {

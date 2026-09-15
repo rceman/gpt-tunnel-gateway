@@ -183,10 +183,14 @@ func validateTaskExecutionPhase(phase TaskExecutionPhase) error {
 	if model.ValidateProjectIdentifier(phase.ProjectID) != nil || model.ValidateCanonicalTaskID(phase.TaskID) != nil || phase.Stage == "" || phase.Status == "" || phase.ExecutionRevision < 1 || phase.Head == "" || phase.Branch == "" || phase.TaskRevisionSHA256 == "" {
 		return fmt.Errorf("incomplete Task execution phase")
 	}
-	if phase.EventKind != "submission" && phase.EventKind != "review" && phase.EventKind != "rework" && phase.EventKind != "integration" {
+	if phase.EventKind != "submission" && phase.EventKind != "review" && phase.EventKind != "rework" && phase.EventKind != "integration" && phase.EventKind != "block" && phase.EventKind != "resume" {
 		return fmt.Errorf("invalid Task execution phase event kind")
 	}
-	if phase.Decision != "" && phase.Decision != "accept" && phase.Decision != "reject" {
+	if phase.EventKind == "block" || phase.EventKind == "resume" {
+		if phase.Stage == "integration" || !model.IsTaskExecutionAgentActionable(phase.Decision, phase.Stage) {
+			return fmt.Errorf("invalid Task execution parked status")
+		}
+	} else if phase.Decision != "" && phase.Decision != "accept" && phase.Decision != "reject" {
 		return fmt.Errorf("invalid Task execution phase decision")
 	}
 	if phase.Stage != "code" && phase.Stage != "tests" && phase.Stage != "rebase" && phase.Stage != "integration" {

@@ -61,7 +61,7 @@ func (s *Service) resolveTaskExecutionTaskForAgent(ctx context.Context, projectI
 	}
 	var selected string
 	for _, state := range states {
-		if state.Agent != worker.Agent.AgentID || !model.IsTaskExecutionAgentOwned(state.Status) {
+		if state.Agent != worker.Agent.AgentID || !model.IsTaskExecutionAgentActionable(state.Status, state.Stage) {
 			continue
 		}
 		if _, laneErr := s.taskExecutionLane(projectID, state.TaskID, state); laneErr != nil {
