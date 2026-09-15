@@ -18,7 +18,7 @@ func TestDebugDomainIsAbsentWhenDisabled(t *testing.T) {
 	s, _ := mcpServiceWithSQLite(t, config.Config{StateDir: t.TempDir()})
 	server := &Server{Service: s}
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"debug/status", "debug/prompt", "debug/activate"} {
+	for _, path := range []string{"debug/status", "debug/prompt", "debug/tail", "debug/activate"} {
 		if _, ok := entries[path]; ok {
 			t.Fatalf("disabled debug action %q was registered", path)
 		}
@@ -53,7 +53,7 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 	})
 	server := &Server{Service: s}
 	entries := server.genericActionRegistry(server.tools())
-	want := map[string]bool{"debug/status": true, "debug/prompt": true, "debug/activate": true}
+	want := map[string]bool{"debug/status": true, "debug/prompt": true, "debug/tail": true, "debug/activate": true}
 	got := map[string]bool{}
 	for path := range entries {
 		if strings.HasPrefix(path, "debug/") {

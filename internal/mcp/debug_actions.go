@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -11,7 +12,11 @@ import (
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
-const gatewaySourceProjectID = "gpt-tunnel-gateway"
+const (
+	gatewaySourceProjectID = "gpt-tunnel-gateway"
+	debugTailDefaultLines  = 20
+	debugTailMaxLines      = 100
+)
 
 var debugActivationAcceptFn = func(c config.Config, configPath, sourceHead string, release func(func())) (debugdomain.ActivationResult, error) {
 	return debugdomain.AcceptActivation(c, configPath, sourceHead, release)
@@ -87,6 +92,55 @@ func (s *Server) registerDebugActions() error {
 	}); err != nil {
 		return err
 	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "debug/tail",
+		Description:  "Read a bounded transcript tail from a validated direct Airelay session.",
+		InputSchema:  debugTailInputSchema(),
+		OutputSchema: debugTailOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole:    durableSession.RolePlanner,
+		LocalReadOnly:    true,
+		LocalReceiptOnly: true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				AirelaySession string `json:"airelay_session"`
+				Lines          *int   `json:"lines"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			lines := debugTailDefaultLines
+			if in.Lines != nil {
+				lines = *in.Lines
+			}
+			if lines < 1 || lines > debugTailMaxLines {
+				return nil, fmt.Errorf("debug tail line count must be between 1 and %d", debugTailMaxLines)
+			}
+			result, err := s.Service.Airelay.Tail(ctx, in.AirelaySession, lines)
+			if err != nil {
+				return nil, err
+			}
+			transcript := strings.TrimRight(result.Stdout, "\r\n")
+			transcriptLines := []string{}
+			if transcript != "" {
+				transcriptLines = strings.Split(transcript, "\n")
+				if len(transcriptLines) > lines {
+					transcriptLines = transcriptLines[len(transcriptLines)-lines:]
+				}
+			}
+			return map[string]any{
+				"status":          "ok",
+				"airelay_session": in.AirelaySession,
+				"lines":           transcriptLines,
+				"exit_code":       result.ExitCode,
+			}, nil
+		},
+	}); err != nil {
+		return err
+	}
 	return s.RegisterGenericAction(GenericAction{
 		Path:         "debug/activate",
 		Description:  "Activate one exact clean main source revision through the Gateway-only recovery pipeline.",
@@ -146,6 +200,31 @@ func debugPromptInputSchema() map[string]any {
 		"airelay_session": session,
 		"message":         message,
 	}, "airelay_session", "message")
+}
+
+func debugTailInputSchema() map[string]any {
+	session := str("Validated direct Airelay session key; transitional recovery selector.")
+	session["minLength"], session["maxLength"] = 1, 128
+	session["pattern"] = "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+	lines := integer("Maximum transcript lines to return.", 1, debugTailMaxLines)
+	lines["default"] = debugTailDefaultLines
+	return obj(map[string]any{
+		"airelay_session": session,
+		"lines":           lines,
+	}, "airelay_session")
+}
+
+func debugTailOutputSchema() map[string]any {
+	line := outputString()
+	line["maxLength"] = airelay.MaxTransportMessageBytes
+	lines := outputArray(line)
+	lines["maxItems"] = debugTailMaxLines
+	return closedOutput(map[string]any{
+		"status":          outputEnum("ok"),
+		"airelay_session": outputString(),
+		"lines":           lines,
+		"exit_code":       integer("Direct Airelay exit code.", -1, 1<<31-1),
+	}, "status", "airelay_session", "lines", "exit_code")
 }
 
 func debugActivateInputSchema() map[string]any {
