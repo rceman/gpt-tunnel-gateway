@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	actionRolePlannerOrManagedRuntime = "planner_or_managed_runtime"
+	actionRoleWorkflow                = "workflow"
+	actionRolePlannerOrManagedRuntime = actionRoleWorkflow
 	actionRolePlannerOrLead           = "planner_or_lead"
-	actionRoleManagedRuntime          = "managed_runtime"
 )
 
 func actionAuthorityAllowsSessionRole(actionRole, sessionRole string) bool {
@@ -28,12 +28,10 @@ func actionAuthorityAllowsSessionRole(actionRole, sessionRole string) bool {
 		return sessionRole == durableSession.RoleAdvisor
 	case durableSession.RoleWorker:
 		return sessionRole == durableSession.RoleWorker
-	case actionRolePlannerOrManagedRuntime:
+	case actionRoleWorkflow:
 		return sessionRole == durableSession.RolePlanner || sessionRole == durableSession.RoleLead || sessionRole == durableSession.RoleAdvisor || sessionRole == durableSession.RoleWorker
 	case actionRolePlannerOrLead:
 		return sessionRole == durableSession.RolePlanner || sessionRole == durableSession.RoleLead
-	case actionRoleManagedRuntime:
-		return durableSession.IsWorkflowRole(sessionRole)
 	default:
 		return false
 	}
@@ -62,7 +60,7 @@ func actionAuthorityContractFor(toolName string) actionAuthorityContract {
 
 func validateActionAuthorityRole(role string) error {
 	switch role {
-	case "", actionRolePlannerOrManagedRuntime, actionRolePlannerOrLead, actionRoleManagedRuntime:
+	case "", actionRoleWorkflow, actionRolePlannerOrLead:
 		return nil
 	default:
 		if durableSession.IsWorkflowRole(role) {
@@ -176,7 +174,7 @@ func requireActionAuthority(ctx context.Context, contract actionAuthorityContrac
 		return authority.RequireAdvisor(ctx)
 	case durableSession.RoleWorker:
 		return authority.RequireWorker(ctx)
-	case actionRolePlannerOrManagedRuntime:
+	case actionRoleWorkflow:
 		if err := authority.RequirePlanner(ctx); err == nil {
 			return nil
 		}
@@ -186,22 +184,12 @@ func requireActionAuthority(ctx context.Context, contract actionAuthorityContrac
 		if err := authority.RequireAdvisor(ctx); err == nil {
 			return nil
 		}
-		if err := authority.RequireWorker(ctx); err == nil {
-			return nil
-		}
-		return authority.RequireAgent(ctx)
+		return authority.RequireWorker(ctx)
 	case actionRolePlannerOrLead:
 		if err := authority.RequirePlanner(ctx); err == nil {
 			return nil
 		}
 		return authority.RequireLead(ctx)
-	case actionRoleManagedRuntime:
-		for _, check := range []func(context.Context) error{authority.RequirePlanner, authority.RequireLead, authority.RequireAdvisor, authority.RequireWorker, authority.RequireAgent} {
-			if err := check(ctx); err == nil {
-				return nil
-			}
-		}
-		return fmt.Errorf("AUTHORITY_UNAVAILABLE")
 	default:
 		return fmt.Errorf("unsupported action authority role %q", contract.Role)
 	}

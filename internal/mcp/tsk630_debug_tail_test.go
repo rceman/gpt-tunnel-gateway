@@ -8,12 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
-func TestTSK630DebugTailUsesDirectBoundedRecoverySelector(t *testing.T) {
+func TestTSK630DebugTailUsesLogicalAgentAndBoundedRecoverySelector(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "args")
 	script := filepath.Join(dir, "airelay")
@@ -21,31 +20,28 @@ func TestTSK630DebugTailUsesDirectBoundedRecoverySelector(t *testing.T) {
 	if err := os.WriteFile(script, []byte(contents), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	s, _ := mcpServiceWithSQLite(t, config.Config{
-		Debug:                  config.DebugConfig{Enabled: true},
-		StateDir:               t.TempDir(),
-		AirelayCommand:         script,
-		DispatchTimeoutSeconds: 5,
-	})
-	server := &Server{
-		Service:          s,
-		AuthorityContext: authority.WithPlanner(context.Background()),
-	}
+	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleWorker}, true, true)
+	fixture.server.Service.Config.Debug.Enabled = true
+	fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID][fixture.agentID] = config.AgentBinding{SessionKey: "debug_session", Profile: "coding"}
+	fixture.addSession(t, fixture.projectID, "EXM", durableSession.RoleWorker, "debug_session")
+	fixture.server.Service.Airelay.Command = script
+	fixture.server.Service.Config.AirelayCommand = script
+	fixture.server.Service.Airelay.Timeout = 5 * time.Second
+	server := fixture.server
 	entry := server.genericActionRegistry(server.tools())["debug/tail"]
-	if entry.Authority != nil || !entry.LocalReadOnly || !entry.LocalReceiptOnly || entry.SessionBound {
-		t.Fatalf("debug/tail retained normal routing or write authority: %#v", entry)
+	if entry.Authority != nil || !entry.LocalReadOnly || !entry.LocalReceiptOnly || !entry.SessionBound || !entry.SessionRequired {
+		t.Fatalf("debug/tail contract=%#v", entry)
 	}
 	if entry.AuthorityRole != durableSession.RolePlanner {
 		t.Fatalf("debug/tail authority role=%q", entry.AuthorityRole)
 	}
-	store := mcpSQLiteSessionStore(t, server.Service)
-	planner := debugTestSession(t, store, durableSession.RolePlanner)
+	planner := fixture.sessions[durableSession.RolePlanner]
 	call := func(input map[string]any) map[string]any {
 		t.Helper()
 		response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 			"params": map[string]any{"name": "call", "arguments": map[string]any{
-				"session": planner.ID, "action": "debug/tail", "input": input,
+				"session": planner, "action": "debug/tail", "input": input,
 			}},
 		}))
 		return typedStructured(t, response)
@@ -57,7 +53,7 @@ func TestTSK630DebugTailUsesDirectBoundedRecoverySelector(t *testing.T) {
 			t.Fatalf("debug/tail failed for %v: %#v", input, structured)
 		}
 		result := structured["result"].(map[string]any)
-		if result["status"] != "ok" || result["airelay_session"] != "debug_session" || result["exit_code"] != float64(0) {
+		if result["status"] != "ok" || result["agent"] != fixture.agentID || result["exit_code"] != float64(0) {
 			t.Fatalf("debug/tail evidence=%#v", result)
 		}
 		lines, ok := result["lines"].([]any)
@@ -73,15 +69,15 @@ func TestTSK630DebugTailUsesDirectBoundedRecoverySelector(t *testing.T) {
 			t.Fatalf("tail argv=%q want %q", args, wantArgs)
 		}
 	}
-	check(map[string]any{"airelay_session": "debug_session"}, 20, "line-131")
-	check(map[string]any{"airelay_session": "debug_session", "lines": 1}, 1, "line-150")
-	check(map[string]any{"airelay_session": "debug_session", "lines": 100}, 100, "line-51")
+	check(map[string]any{"agent": fixture.agentID}, 20, "line-131")
+	check(map[string]any{"agent": fixture.agentID, "lines": 1}, 1, "line-150")
+	check(map[string]any{"agent": fixture.agentID, "lines": 100}, 100, "line-51")
 	before, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, lines := range []int{0, 101} {
-		structured := call(map[string]any{"airelay_session": "debug_session", "lines": lines})
+		structured := call(map[string]any{"agent": fixture.agentID, "lines": lines})
 		if structured["ok"] != false {
 			t.Fatalf("invalid debug/tail line count %d was accepted: %#v", lines, structured)
 		}
@@ -95,7 +91,7 @@ func TestTSK630DebugTailUsesDirectBoundedRecoverySelector(t *testing.T) {
 	}
 }
 
-func TestTSK630DebugTailPlannerOnlyBeforeLeadAuthority(t *testing.T) {
+func TestTSK630DebugTailAllowsPlannerAndLeadDurableSessions(t *testing.T) {
 	fixture := newTSK571HTTPFixture(t, nil, true, true)
 	fixture.server.Service.Config.Debug.Enabled = true
 	dir := t.TempDir()
@@ -126,16 +122,13 @@ func TestTSK630DebugTailPlannerOnlyBeforeLeadAuthority(t *testing.T) {
 	for _, item := range runtimes {
 		revision = seedTSK571Agent(t, fixture.server.Service, revision, item.agent, true)
 		fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID][item.agent] = config.AgentBinding{SessionKey: item.runtime, Profile: "coding"}
-		fixture.addSession(t, fixture.projectID, "EXM", item.role, item.runtime)
+		fixture.sessions[item.role] = fixture.addSession(t, fixture.projectID, "EXM", item.role, item.runtime)
 	}
 	for _, item := range runtimes {
-		if _, err := fixture.server.Service.ResolveRuntimeRoleSession(context.Background(), item.runtime, item.role); err != nil {
-			t.Fatalf("runtime identity %s/%s was not valid: %v", item.role, item.runtime, err)
-		}
-		result := fixture.call(t, item.runtime, "debug/tail", map[string]any{"airelay_session": "debug_session", "lines": 1})
+		result := fixture.call(t, fixture.sessions[item.role], "debug/tail", map[string]any{"agent": item.agent, "lines": 1})
 		allowed := item.role == durableSession.RolePlanner
 		if (result["ok"] == true) != allowed {
-			t.Fatalf("debug/tail role=%s runtime=%s allowed=%v result=%#v", item.role, item.runtime, allowed, result)
+			t.Fatalf("debug/tail role=%s durable_session=%s allowed=%v result=%#v", item.role, fixture.sessions[item.role], allowed, result)
 		}
 	}
 }

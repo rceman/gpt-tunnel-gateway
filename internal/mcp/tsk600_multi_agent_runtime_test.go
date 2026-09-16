@@ -9,7 +9,7 @@ import (
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
-func TestTSK600GenericRuntimeAmbiguityFailsClosed(t *testing.T) {
+func TestTSK629RuntimeKeyFailsClosedDespiteAmbiguousBindings(t *testing.T) {
 	t.Setenv("GPT_TUNNEL_SESSION", "")
 	fixture := newTSK571HTTPFixture(t, []string{durableSession.RoleLead}, true, true)
 	installTSK563Airelay(t, fixture)
@@ -22,12 +22,12 @@ func TestTSK600GenericRuntimeAmbiguityFailsClosed(t *testing.T) {
 
 	result := fixture.call(t, fixture.runtime, "agent/status", map[string]any{})
 	message := tsk571ErrorMessage(t, result)
-	if !strings.Contains(message, "RUNTIME_IDENTITY_AMBIGUOUS") {
-		t.Fatalf("ambiguous managed runtime was not rejected: %q", message)
+	if !strings.Contains(message, "durable Session") {
+		t.Fatalf("ambiguous runtime-key caller was not rejected at the durable Session boundary: %q", message)
 	}
 }
 
-func TestTSK600DistinctLeadWorkerRuntimesKeepGenericAndTaskRoutingSeparate(t *testing.T) {
+func TestTSK629LogicalAgentAndTaskRoutingStaySeparate(t *testing.T) {
 	t.Setenv("GPT_TUNNEL_SESSION", "")
 	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleLead}, true, true)
 	installTSK563Airelay(t, fixture)
@@ -41,17 +41,12 @@ func TestTSK600DistinctLeadWorkerRuntimesKeepGenericAndTaskRoutingSeparate(t *te
 	workerSession := fixture.addSession(t, fixture.projectID, "EXM", durableSession.RoleWorker, workerRuntime)
 	planner := fixture.sessions[durableSession.RolePlanner]
 
-	for _, runtime := range []string{fixture.runtime, workerRuntime} {
-		status := fixture.call(t, runtime, "agent/status", map[string]any{})
+	for _, agent := range []string{fixture.agentID, "coding-worker"} {
+		status := fixture.call(t, planner, "agent/status", map[string]any{"agent": agent})
 		if status["ok"] != true {
-			t.Fatalf("generic agent/status failed for runtime %s: %#v", runtime, status)
+			t.Fatalf("Planner could not address logical Agent %s: %#v", agent, status)
 		}
 	}
-	plannerWorkerStatus := fixture.call(t, planner, "agent/status", map[string]any{"agent": "coding-worker"})
-	if plannerWorkerStatus["ok"] != true {
-		t.Fatalf("Planner could not address the Worker through generic agent/status: %#v", plannerWorkerStatus)
-	}
-
 	dispatched := fixture.call(t, planner, "task/dispatch", map[string]any{"key": fixture.task.ID})
 	if dispatched["ok"] != true {
 		t.Fatalf("Task dispatch failed with distinct Lead and Worker Agents: %#v", dispatched)
@@ -60,17 +55,9 @@ func TestTSK600DistinctLeadWorkerRuntimesKeepGenericAndTaskRoutingSeparate(t *te
 	if !ok || dispatchResult["agent"] != "coding-worker" {
 		t.Fatalf("Task dispatch did not derive the attached Worker: %#v", dispatched)
 	}
-	workerRead := fixture.call(t, workerRuntime, "task/read", map[string]any{"key": fixture.task.ID})
+	workerRead := fixture.call(t, workerSession, "task/read", map[string]any{"key": fixture.task.ID})
 	if workerRead["ok"] != true {
-		t.Fatalf("Worker runtime lost Task authority: %#v", workerRead)
-	}
-	leadWorkerAction := fixture.call(t, fixture.runtime, "task/current", map[string]any{})
-	if message := tsk571ErrorMessage(t, leadWorkerAction); !strings.Contains(message, "RUNTIME_SESSION_UNAVAILABLE") {
-		t.Fatalf("Lead runtime acquired Worker lane authority: %q", message)
-	}
-	workerLeadAction := fixture.call(t, workerRuntime, "task/status", map[string]any{"key": fixture.task.ID})
-	if message := tsk571ErrorMessage(t, workerLeadAction); !strings.Contains(message, "RUNTIME_SESSION_UNAVAILABLE") {
-		t.Fatalf("Worker runtime acquired Lead authority: %q", message)
+		t.Fatalf("Worker Session lost Task authority: %#v", workerRead)
 	}
 	resolvedWorker, err := fixture.server.Service.ResolveWorkerSession(context.Background(), fixture.projectID, workerSession)
 	if err != nil || resolvedWorker.Agent.AgentID != "coding-worker" {

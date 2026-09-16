@@ -37,14 +37,14 @@ func TestTSK578RoleRegistryFeedsPublicSchemasAndProjections(t *testing.T) {
 	}
 }
 
-func TestTSK578RuntimeResolutionUsesCanonicalSessionBindingNotIDPrefix(t *testing.T) {
+func TestTSK578DurableSessionResolutionUsesCanonicalSessionBindingNotIDPrefix(t *testing.T) {
 	t.Setenv("GPT_TUNNEL_SESSION", "")
 	fixture := newTSK571HTTPFixture(t, []string{durableSession.RoleWorker, durableSession.RoleLead}, true, true)
 	workerID := fixture.sessions[durableSession.RoleWorker]
 	if len(workerID) != 15 || workerID[:8] != "HOM_EXM_" || workerID[8] != 'W' {
 		t.Fatalf("unexpected canonical Worker Session ID=%q", workerID)
 	}
-	result := fixture.call(t, fixture.runtime, "task/read", map[string]any{"key": fixture.task.ID})
+	result := fixture.call(t, fixture.sessions[durableSession.RoleWorker], "task/read", map[string]any{"key": fixture.task.ID})
 	if result["ok"] != true {
 		t.Fatalf("runtime did not resolve canonical Worker Session: %#v", result)
 	}

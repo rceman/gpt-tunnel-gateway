@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
+	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
@@ -119,7 +120,7 @@ func genericSchemaInputSchema() map[string]any {
 }
 
 func genericSchemaPublicInputSchema() map[string]any {
-	session := str("Existing durable project-bound Session identifier or the calling managed Airelay runtime identity.")
+	session := str("Existing active durable GTW Session identifier for authenticated schema discovery.")
 	session["minLength"] = 1
 	return obj(map[string]any{
 		"session": session,
@@ -179,6 +180,23 @@ func genericSchemaOutputSchema() map[string]any {
 	}, "revision", "kind", "path", "contract")
 	return map[string]any{"type": "object", "oneOf": []any{root, domain, actionResult}}
 }
+func (s *Server) authenticateSession(ctx context.Context, entries map[string]genericActionEntry, record durableSession.Record, action string) (context.Context, error) {
+	contract := actionAuthorityContract{}
+	if entry, ok := entries[action]; ok {
+		contract = actionAuthorityContract{
+			Role:                   entry.AuthorityRole,
+			RequiresWorkflowPolicy: entry.RequiresWorkflowPolicy,
+			LocalReceiptOnly:       entry.LocalReceiptOnly,
+		}
+	}
+	resolved, err := s.resolveSessionAuthority(ctx, record, contract)
+	if err != nil {
+		return nil, err
+	}
+	resolved = withSession(resolved, record)
+	return service.WithAgentSessionID(resolved, record.ID), nil
+}
+
 func (s *Server) genericCall(ctx context.Context, legacy map[string]Tool, raw json.RawMessage) (any, error) {
 	var input genericCallInput
 	if err := decode(raw, &input); err != nil {
@@ -188,29 +206,13 @@ func (s *Server) genericCall(ctx context.Context, legacy map[string]Tool, raw js
 		return nil, fmt.Errorf("session is required")
 	}
 	entries := s.genericActionRegistry(legacy)
-	record := durableSession.Record{}
-	if input.SessionID != "" {
-		entry, entryOK := entries[input.Action]
-		var err error
-		record, err = s.activeSession(input.SessionID)
-		if err == nil && durableRoleRequiresRuntime(record.Role) {
-			return nil, fmt.Errorf("managed runtime identity is required for this role-bound operation")
-		}
-		if err != nil {
-			if !entryOK {
-				return nil, err
-			}
-			resolved, resolveErr := s.resolveRuntimeSession(ctx, input.SessionID, input.Action, entry, input.Input)
-			if resolveErr != nil {
-				return nil, resolveErr
-			}
-			record = resolved.Session
-			ctx = withManagedRuntimeIdentity(ctx, managedRuntimeIdentity{
-				AgentID: resolved.AgentID,
-				Role:    resolved.Role,
-			})
-		}
-		ctx = withSession(ctx, record)
+	record, err := s.activeSession(input.SessionID)
+	if err != nil {
+		return nil, fmt.Errorf("durable Session authentication failed: %w", err)
+	}
+	ctx, err = s.authenticateSession(ctx, entries, record, input.Action)
+	if err != nil {
+		return nil, err
 	}
 	return s.genericDispatch(ctx, entries, record, input.Action, input.Input)
 }

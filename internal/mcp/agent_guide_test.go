@@ -72,12 +72,9 @@ func TestTSK545AgentGuideIsClosedBoundedAndPlannerOnly(t *testing.T) {
 	for _, text := range []string{
 		"durable Planner, Lead, Advisor, and Worker",
 		"Agent is a generic managed runtime",
-		"zero is an error",
-		"more than one requires an explicit canonical Session key",
-		"HOM_GTW_W_a23df",
-		"optional logical Agent selector",
+		"Callers cannot select a durable Session",
+		"logical Agent selector",
 		"Train and watcher",
-		"project Airelay-session substitution",
 		"repo guide file",
 		"Prefer rg for source search",
 		"repo-local grep, find, or sed",
@@ -118,7 +115,7 @@ func TestTSK545AgentGuideRejectsNonPlannerSession(t *testing.T) {
 		t.Fatalf("non-Planner guide call succeeded: %#v", response)
 	}
 	errorValue, _ := response["result"].(map[string]any)["error"].(map[string]any)
-	if !strings.Contains(errorValue["message"].(string), "managed runtime identity") {
+	if !strings.Contains(errorValue["message"].(string), "not authorized") {
 		t.Fatalf("non-Planner guide error=%#v", response)
 	}
 }

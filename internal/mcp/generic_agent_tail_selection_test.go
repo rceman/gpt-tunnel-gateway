@@ -2,13 +2,12 @@ package mcp
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
@@ -28,9 +27,12 @@ func TestGenericAgentTailSelectsOnlyUnambiguousDurableAgentSession(t *testing.T)
 	plannerID := genericSession(t, s, "example")
 	store := mcpSQLiteSessionStore(t, s)
 	refOne := "durable-ref-one"
-	one, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &refOne})
+	_, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &refOne})
 	if err != nil {
 		t.Fatal(err)
+	}
+	s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
+		"example": {"coding-example": {SessionKey: refOne, Profile: "coding"}},
 	}
 	call := func(id int, input map[string]any) map[string]any {
 		t.Helper()
@@ -41,26 +43,24 @@ func TestGenericAgentTailSelectsOnlyUnambiguousDurableAgentSession(t *testing.T)
 			}},
 		})))
 	}
-	selected := call(1, map[string]any{"lines": 1})
+	selected := call(1, map[string]any{"agent": "coding-example", "lines": 1})
 	selectedResult := selected["result"].(map[string]any)
-	if selected["is_error"] != false || selectedResult["session"] != one.ID {
-		t.Fatalf("omitted session did not select the unique durable Agent: %#v", selected)
+	if selected["is_error"] != false || selectedResult["agent"] != "coding-example" {
+		t.Fatalf("logical Agent did not select the configured durable target: %#v", selected)
 	}
 	if got, err := os.ReadFile(marker); err != nil || string(got) != refOne {
 		t.Fatalf("unique selection did not pass stored SessionRef: got=%q err=%v", got, err)
 	}
-	if _, err := store.End(one.ID); err != nil {
-		t.Fatal(err)
-	}
+	delete(s.Config.ProjectAgentBindings["example"], "coding-example")
 	if err := os.Remove(marker); err != nil {
 		t.Fatal(err)
 	}
-	noAgent := call(2, map[string]any{"lines": 1})
-	if noAgent["is_error"] != true || !strings.Contains(fmt.Sprint(noAgent["result"]), "no active Agent session exists") {
-		t.Fatalf("zero active Agent sessions was not rejected: %#v", noAgent)
+	noAgent := call(2, map[string]any{"agent": "coding-example", "lines": 1})
+	if noAgent["is_error"] != true {
+		t.Fatalf("unbound logical Agent was not rejected: %#v", noAgent)
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("zero-session failure invoked Airelay: %v", err)
+		t.Fatalf("unbound-Agent failure invoked Airelay: %v", err)
 	}
 	refA, refB := "durable-ref-a", "durable-ref-b"
 	if _, err := store.Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &refA}); err != nil {
@@ -70,16 +70,14 @@ func TestGenericAgentTailSelectsOnlyUnambiguousDurableAgentSession(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ambiguous := call(3, map[string]any{"lines": 1})
-	if ambiguous["is_error"] != true || !strings.Contains(fmt.Sprint(ambiguous["result"]), "multiple active Agent sessions") {
-		t.Fatalf("multiple active Agent sessions were not rejected: %#v", ambiguous)
+	s.Config.ProjectAgentBindings["example"]["coding-example"] = config.AgentBinding{SessionKey: refB, Profile: "coding"}
+	selectedAgain := call(3, map[string]any{"agent": "coding-example", "lines": 1})
+	if selectedAgain["is_error"] != false || selectedAgain["result"].(map[string]any)["agent"] != "coding-example" {
+		t.Fatalf("configured logical Agent did not resolve its current target: %#v", selectedAgain)
 	}
-	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("ambiguous selection invoked Airelay: %v", err)
-	}
-	explicit := call(4, map[string]any{"session": b.ID, "lines": 1})
-	if explicit["is_error"] != false || explicit["result"].(map[string]any)["session"] != b.ID {
-		t.Fatalf("explicit session did not override ambiguity: %#v", explicit)
+	privateSelector := call(4, map[string]any{"session": b.ID, "lines": 1})
+	if privateSelector["is_error"] != true {
+		t.Fatalf("private Session selector was accepted: %#v", privateSelector)
 	}
 	if got, err := os.ReadFile(marker); err != nil || string(got) != refB {
 		t.Fatalf("explicit selection did not pass selected SessionRef: got=%q err=%v", got, err)

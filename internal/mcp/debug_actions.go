@@ -37,7 +37,7 @@ func (s *Server) ensureDebugActions() {
 func (s *Server) registerDebugActions() error {
 	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "debug/status",
-		Description:  "Read bounded host-local source and runtime recovery status.",
+		Description:  "Read bounded host-local source and recovery status.",
 		InputSchema:  debugStatusInputSchema(),
 		OutputSchema: debugStatusOutputSchema(),
 		Annotations: ToolAnnotations{
@@ -47,6 +47,8 @@ func (s *Server) registerDebugActions() error {
 		AuthorityRole:    durableSession.RolePlanner,
 		LocalReadOnly:    true,
 		LocalReceiptOnly: true,
+		SessionBound:     true,
+		SessionRequired:  true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			if _, err := decodeDebugEmptyInput(raw); err != nil {
 				return nil, err
@@ -62,7 +64,7 @@ func (s *Server) registerDebugActions() error {
 	}
 	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "debug/prompt",
-		Description:  "Send one bounded direct prompt to a validated Airelay session.",
+		Description:  "Send one bounded direct prompt to a server-selected Agent.",
 		InputSchema:  debugPromptInputSchema(),
 		OutputSchema: debugPromptOutputSchema(),
 		Annotations: ToolAnnotations{
@@ -71,22 +73,35 @@ func (s *Server) registerDebugActions() error {
 		},
 		AuthorityRole:    durableSession.RolePlanner,
 		LocalReceiptOnly: true,
+		SessionBound:     true,
+		SessionRequired:  true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
-				AirelaySession string `json:"airelay_session"`
-				Message        string `json:"message"`
+				Agent   string `json:"agent"`
+				Message string `json:"message"`
 			}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			result, err := s.Service.Airelay.Prompt(ctx, in.AirelaySession, in.Message)
+			if err := validateCanonicalAgentMessage(in.Message); err != nil {
+				return nil, err
+			}
+			projectID, err := s.boundAgentProject(ctx)
+			if err != nil {
+				return nil, err
+			}
+			target, err := s.resolveCanonicalAgent(ctx, projectID, in.Agent, true)
+			if err != nil {
+				return nil, err
+			}
+			result, err := s.Service.Airelay.Prompt(ctx, target.Resolved.SessionKey, in.Message)
 			if err != nil {
 				return nil, err
 			}
 			return map[string]any{
-				"status":          "accepted",
-				"airelay_session": in.AirelaySession,
-				"exit_code":       result.ExitCode,
+				"status":    "accepted",
+				"agent":     target.Agent.AgentID,
+				"exit_code": result.ExitCode,
 			}, nil
 		},
 	}); err != nil {
@@ -94,7 +109,7 @@ func (s *Server) registerDebugActions() error {
 	}
 	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "debug/tail",
-		Description:  "Read a bounded transcript tail from a validated direct Airelay session.",
+		Description:  "Read a bounded transcript tail from a server-selected Agent.",
 		InputSchema:  debugTailInputSchema(),
 		OutputSchema: debugTailOutputSchema(),
 		Annotations: ToolAnnotations{
@@ -104,10 +119,12 @@ func (s *Server) registerDebugActions() error {
 		AuthorityRole:    durableSession.RolePlanner,
 		LocalReadOnly:    true,
 		LocalReceiptOnly: true,
+		SessionBound:     true,
+		SessionRequired:  true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
-				AirelaySession string `json:"airelay_session"`
-				Lines          *int   `json:"lines"`
+				Agent string `json:"agent"`
+				Lines *int   `json:"lines"`
 			}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
@@ -119,7 +136,15 @@ func (s *Server) registerDebugActions() error {
 			if lines < 1 || lines > debugTailMaxLines {
 				return nil, fmt.Errorf("debug tail line count must be between 1 and %d", debugTailMaxLines)
 			}
-			result, err := s.Service.Airelay.Tail(ctx, in.AirelaySession, lines)
+			projectID, err := s.boundAgentProject(ctx)
+			if err != nil {
+				return nil, err
+			}
+			target, err := s.resolveCanonicalAgent(ctx, projectID, in.Agent, true)
+			if err != nil {
+				return nil, err
+			}
+			result, err := s.Service.Airelay.Tail(ctx, target.Resolved.SessionKey, lines)
 			if err != nil {
 				return nil, err
 			}
@@ -132,10 +157,10 @@ func (s *Server) registerDebugActions() error {
 				}
 			}
 			return map[string]any{
-				"status":          "ok",
-				"airelay_session": in.AirelaySession,
-				"lines":           transcriptLines,
-				"exit_code":       result.ExitCode,
+				"status":    "ok",
+				"agent":     target.Agent.AgentID,
+				"lines":     transcriptLines,
+				"exit_code": result.ExitCode,
 			}, nil
 		},
 	}); err != nil {
@@ -152,6 +177,8 @@ func (s *Server) registerDebugActions() error {
 		},
 		AuthorityRole:    durableSession.RolePlanner,
 		LocalReceiptOnly: true,
+		SessionBound:     true,
+		SessionRequired:  true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				MainSHA string `json:"main_sha"`
@@ -191,27 +218,21 @@ func decodeDebugEmptyInput(raw json.RawMessage) (struct{}, error) {
 func debugStatusInputSchema() map[string]any { return obj(map[string]any{}) }
 
 func debugPromptInputSchema() map[string]any {
-	session := str("Validated direct Airelay session key.")
-	session["minLength"], session["maxLength"] = 1, 128
-	session["pattern"] = "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
-	message := str("Bounded direct Airelay prompt message.")
+	message := str("Bounded direct Agent prompt message.")
 	message["minLength"], message["maxLength"] = 1, airelay.MaxPromptBytes
 	return obj(map[string]any{
-		"airelay_session": session,
-		"message":         message,
-	}, "airelay_session", "message")
+		"agent":   canonicalAgentSelectorSchema(),
+		"message": message,
+	}, "message")
 }
 
 func debugTailInputSchema() map[string]any {
-	session := str("Validated direct Airelay session key; transitional recovery selector.")
-	session["minLength"], session["maxLength"] = 1, 128
-	session["pattern"] = "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
 	lines := integer("Maximum transcript lines to return.", 1, debugTailMaxLines)
 	lines["default"] = debugTailDefaultLines
 	return obj(map[string]any{
-		"airelay_session": session,
-		"lines":           lines,
-	}, "airelay_session")
+		"agent": canonicalAgentSelectorSchema(),
+		"lines": lines,
+	})
 }
 
 func debugTailOutputSchema() map[string]any {
@@ -220,11 +241,11 @@ func debugTailOutputSchema() map[string]any {
 	lines := outputArray(line)
 	lines["maxItems"] = debugTailMaxLines
 	return closedOutput(map[string]any{
-		"status":          outputEnum("ok"),
-		"airelay_session": outputString(),
-		"lines":           lines,
-		"exit_code":       integer("Direct Airelay exit code.", -1, 1<<31-1),
-	}, "status", "airelay_session", "lines", "exit_code")
+		"status":    outputEnum("ok"),
+		"agent":     outputString(),
+		"lines":     lines,
+		"exit_code": integer("Direct Agent exit code.", -1, 1<<31-1),
+	}, "status", "agent", "lines", "exit_code")
 }
 
 func debugActivateInputSchema() map[string]any {
@@ -272,8 +293,8 @@ func debugRuntimeOutputSchema() map[string]any {
 
 func debugPromptOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"status": outputEnum("accepted"), "airelay_session": outputString(), "exit_code": integer("Direct Airelay exit code.", -1, 1<<31-1),
-	}, "status", "airelay_session", "exit_code")
+		"status": outputEnum("accepted"), "agent": outputString(), "exit_code": integer("Direct Agent exit code.", -1, 1<<31-1),
+	}, "status", "agent", "exit_code")
 }
 
 func debugActivateOutputSchema() map[string]any {

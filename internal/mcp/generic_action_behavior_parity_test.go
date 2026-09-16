@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
@@ -123,11 +124,14 @@ func TestGenericAgentTailTranscriptDedupe(t *testing.T) {
 	}
 	sessionID := genericSession(t, s, "example")
 	ref := "durable-agent-ref"
-	target, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
+	_, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
 	if err != nil {
 		t.Fatal(err)
 	}
-	tailInput := map[string]any{"session": target.ID, "lines": 2}
+	s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
+		"example": {"coding-example": {SessionKey: ref, Profile: "coding"}},
+	}
+	tailInput := map[string]any{"agent": "coding-example", "lines": 2}
 	tailCall := func(id int, caller string) map[string]any {
 		t.Helper()
 		return genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{
@@ -145,8 +149,8 @@ func TestGenericAgentTailTranscriptDedupe(t *testing.T) {
 	if got, err := os.ReadFile(marker); err != nil || string(got) != ref {
 		t.Fatalf("tail did not receive stored Agent SessionRef: got=%q err=%v", got, err)
 	}
-	if first["session"] != target.ID {
-		t.Fatalf("tail output did not echo durable Agent session: %#v", first)
+	if first["agent"] != "coding-example" {
+		t.Fatalf("tail output did not identify the logical Agent: %#v", first)
 	}
 	repeat := tailCall(2, sessionID)
 	repeatLines, ok := repeat["lines"].([]any)

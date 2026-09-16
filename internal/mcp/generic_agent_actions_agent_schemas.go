@@ -66,18 +66,15 @@ func canonicalAgentAwaitOutputSchema() map[string]any {
 func canonicalAgentTailInputSchema() map[string]any {
 	lines := integer("Maximum transcript lines to return.", 1, 200)
 	lines["default"] = 30
-	session := str("Optional exact durable role Session identifier; when omitted, Gateway uses the unique active role-bound Session and requires an explicit session if more than one is active.")
-	session["minLength"], session["maxLength"] = 1, 128
-	session["pattern"] = agentSessionIDPattern
-	return obj(map[string]any{"session": session, "lines": lines})
+	return obj(map[string]any{"agent": canonicalAgentSelectorSchema(), "lines": lines})
 }
 
 func canonicalAgentTailOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"session":   outputString(),
+		"agent":     outputString(),
 		"lines":     outputArray(outputString()),
 		"truncated": outputBoolean(),
-	}, "session", "lines")
+	}, "agent", "lines")
 }
 
 func canonicalAgentPromptInputSchema() map[string]any {

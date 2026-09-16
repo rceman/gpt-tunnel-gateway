@@ -37,28 +37,24 @@ esac
 	fixture.server.Service.Airelay.Timeout = time.Second
 }
 
-func TestTSK563GenericAgentControlsReachEveryManagedRole(t *testing.T) {
+func TestTSK629PlannerControlsLogicalAgentThroughDurableSession(t *testing.T) {
 	t.Setenv("GPT_TUNNEL_SESSION", "")
-	for _, role := range []string{durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker} {
-		t.Run(role, func(t *testing.T) {
-			fixture := newTSK571HTTPFixture(t, []string{role}, true, true)
-			installTSK563Airelay(t, fixture)
+	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleWorker}, true, true)
+	installTSK563Airelay(t, fixture)
 
-			for _, action := range []struct {
-				name  string
-				input map[string]any
-			}{
-				{name: "agent/status", input: map[string]any{}},
-				{name: "agent/await", input: map[string]any{"seconds": 1}},
-				{name: "agent/tail", input: map[string]any{"lines": 1}},
-				{name: "agent/prompt", input: map[string]any{"message": "TSK563 runtime control"}},
-			} {
-				result := fixture.call(t, fixture.runtime, action.name, action.input)
-				if result["ok"] != true {
-					t.Fatalf("%s was not reachable for %s runtime: %#v", action.name, role, result)
-				}
-			}
-		})
+	for _, action := range []struct {
+		name  string
+		input map[string]any
+	}{
+		{name: "agent/status", input: map[string]any{"agent": fixture.agentID}},
+		{name: "agent/await", input: map[string]any{"agent": fixture.agentID, "seconds": 1}},
+		{name: "agent/tail", input: map[string]any{"agent": fixture.agentID, "lines": 1}},
+		{name: "agent/prompt", input: map[string]any{"agent": fixture.agentID, "message": "TSK629 logical Agent control"}},
+	} {
+		result := fixture.call(t, fixture.sessions[durableSession.RolePlanner], action.name, action.input)
+		if result["ok"] != true {
+			t.Fatalf("%s was not reachable through durable Planner Session: %#v", action.name, result)
+		}
 	}
 }
 
@@ -75,33 +71,27 @@ func TestTSK563SharedAgentKeepsRoleSessionsDistinct(t *testing.T) {
 		if resolved.Session.ID != fixture.sessions[role] || resolved.Session.Role != role || resolved.Agent.AgentID != fixture.agentID {
 			t.Fatalf("shared Agent merged %s authority: %#v", role, resolved)
 		}
-		result := fixture.call(t, fixture.runtime, "agent/tail", map[string]any{"session": fixture.sessions[role], "lines": 1})
-		if result["ok"] != true {
-			t.Fatalf("explicit %s Session tail failed: %#v", role, result)
-		}
-	}
-
-	for _, role := range []string{durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker} {
-		result := fixture.call(t, fixture.sessions[role], "agent/status", map[string]any{})
-		message := tsk571ErrorMessage(t, result)
-		if !strings.Contains(message, "managed runtime identity is required") {
-			t.Fatalf("direct %s Session acquired generic runtime authority: %q", role, message)
-		}
 	}
 }
 
-func TestTSK563AgentTailExplicitSessionRejectsMismatchedBinding(t *testing.T) {
+func TestTSK629LogicalAgentTargetRejectsPrivateSelectors(t *testing.T) {
 	t.Setenv("GPT_TUNNEL_SESSION", "")
-	fixture := newTSK571HTTPFixture(t, []string{durableSession.RoleLead, durableSession.RoleWorker}, true, true)
+	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleWorker}, true, true)
 	installTSK563Airelay(t, fixture)
-	other := fixture.addSession(t, "other", "OTH", durableSession.RoleWorker, fixture.runtime)
 
-	for _, sessionID := range []string{other, "HOM_EXM_W_zzzzz"} {
-		result := fixture.call(t, fixture.runtime, "agent/tail", map[string]any{"session": sessionID, "lines": 1})
-		message := tsk571ErrorMessage(t, result)
-		if !strings.Contains(message, "managed runtime is not authorized for the requested Agent Session") {
-			t.Fatalf("mismatched Session %q was not rejected: %q", sessionID, message)
+	for _, input := range []map[string]any{
+		{"agent": "missing-agent", "lines": 1},
+		{"session": fixture.sessions[durableSession.RoleWorker], "lines": 1},
+		{"airelay_session": fixture.runtime, "lines": 1},
+	} {
+		result := fixture.call(t, fixture.sessions[durableSession.RolePlanner], "agent/tail", input)
+		if result["ok"] != false {
+			t.Fatalf("private or unknown Agent target was accepted: input=%#v result=%#v", input, result)
 		}
+	}
+	runtimeResult := fixture.call(t, fixture.runtime, "agent/tail", map[string]any{"agent": fixture.agentID, "lines": 1})
+	if runtimeResult["ok"] != false {
+		t.Fatalf("runtime-key caller was accepted: %#v", runtimeResult)
 	}
 }
 

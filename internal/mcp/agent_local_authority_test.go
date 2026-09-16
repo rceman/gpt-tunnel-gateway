@@ -142,21 +142,20 @@ func TestCanonicalAgentAwaitUsesLocalAuthorityWhenHubUnavailableAndLocked(t *tes
 		t.Fatalf("unexpected local agent/status result: %#v", canonicalStatus)
 	}
 	canonicalTail, err := server.canonicalAgentTailAction(bound, mustJSON(t, map[string]any{
-		"session": tailSession.ID,
-		"lines":   30,
+		"agent": agent.AgentID,
+		"lines": 30,
 	}))
 	if err != nil {
 		t.Fatalf("canonical agent/tail failed with Hub unavailable/locked: %v", err)
 	}
 	tailResult, ok := canonicalTail.(map[string]any)
-	if !ok || tailResult["session"] != tailSession.ID {
+	if !ok || tailResult["agent"] != agent.AgentID {
 		t.Fatalf("unexpected local agent/tail result: %#v", canonicalTail)
 	}
-	implicitTail, err := server.canonicalAgentTailAction(bound, mustJSON(t, map[string]any{"lines": 30}))
-	if err != nil || implicitTail.(map[string]any)["session"] != tailSession.ID {
-		t.Fatalf("omitted session selected the wrong durable Agent: result=%#v err=%v", implicitTail, err)
+	if _, err := server.canonicalAgentTailAction(bound, mustJSON(t, map[string]any{"lines": 30})); err == nil {
+		t.Fatal("omitted Agent bypassed the configured local list boundary")
 	}
-	for _, input := range []map[string]any{{"agent": agent.AgentID}, {"agent_key": agent.AgentID}, {"session": "bad session"}} {
+	for _, input := range []map[string]any{{"agent_key": agent.AgentID}, {"session": tailSession.ID}, {"agent": "bad agent"}} {
 		if _, err := server.canonicalAgentTailAction(bound, mustJSON(t, input)); err == nil {
 			t.Fatalf("invalid exact-session tail input was accepted: %#v", input)
 		}

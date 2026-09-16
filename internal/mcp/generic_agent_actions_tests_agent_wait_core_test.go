@@ -12,6 +12,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
@@ -144,9 +145,12 @@ func TestCanonicalAgentPublicMCPContractE2E(t *testing.T) {
 	}
 	sessionID := genericSession(t, s, "example")
 	ref := "example_master"
-	targetSession, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
+	_, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
 	if err != nil {
 		t.Fatal(err)
+	}
+	s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
+		"example": {"coding-example": {SessionKey: ref, Profile: "coding"}},
 	}
 
 	schema := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
@@ -188,11 +192,11 @@ func TestCanonicalAgentPublicMCPContractE2E(t *testing.T) {
 	if status["envelope"].(map[string]any)["is_error"] != false || statusResult["agent"] != "coding-example" {
 		t.Fatalf("agent/status failed: %#v", status)
 	}
-	tail := call(4, "agent/tail", map[string]any{"session": targetSession.ID, "lines": 1})
-	if tail["envelope"].(map[string]any)["is_error"] != false || tail["result"].(map[string]any)["session"] != targetSession.ID {
+	tail := call(4, "agent/tail", map[string]any{"agent": "coding-example", "lines": 1})
+	if tail["envelope"].(map[string]any)["is_error"] != false || tail["result"].(map[string]any)["agent"] != "coding-example" {
 		t.Fatalf("agent/tail failed: %#v", tail)
 	}
-	for _, legacyField := range []string{"agent", "agent_key"} {
+	for _, legacyField := range []string{"session", "agent_key", "airelay_session"} {
 		legacyTail := callMCP(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": 40, "method": "tools/call",
 			"params": map[string]any{"name": "call", "arguments": map[string]any{

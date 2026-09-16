@@ -155,7 +155,7 @@ func TestTSK574WorkerReusesSessionAcrossReworkAndSequentialTasks(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	current := fixture.call(t, fixture.runtime, "task/current", map[string]any{})
+	current := fixture.call(t, fixture.sessions[durableSession.RoleWorker], "task/current", map[string]any{})
 	if current["ok"] != true {
 		t.Fatalf("Worker current after rework failed: %#v", current)
 	}
@@ -200,12 +200,12 @@ func TestTSK574StalePreviousLaneCannotSubmitCurrentTask(t *testing.T) {
 	testutil.Git(t, lanePath, "checkout", "-b", staleBranch)
 	defer func() { testutil.Git(t, lanePath, "checkout", secondBranch(t, fixture, secondTask.ID)) }()
 
-	rejected := fixture.call(t, fixture.runtime, "task/submit-code", map[string]any{"cwd": first.Worktree})
+	rejected := fixture.call(t, fixture.sessions[durableSession.RoleWorker], "task/submit-code", map[string]any{"cwd": first.Worktree})
 	message := tsk571ErrorMessage(t, rejected)
 	if !strings.Contains(message, "unknown argument \"cwd\"") {
 		t.Fatalf("caller lane/cwd injection was not rejected: %q", message)
 	}
-	rejected = fixture.call(t, fixture.runtime, "task/submit-code", map[string]any{})
+	rejected = fixture.call(t, fixture.sessions[durableSession.RoleWorker], "task/submit-code", map[string]any{})
 	message = tsk571ErrorMessage(t, rejected)
 	if !strings.Contains(message, "server-owned branch") {
 		t.Fatalf("stale previous lane rejection=%q", message)
@@ -294,7 +294,7 @@ func TestTSK574SharedAgentRolesDoNotInterfereWithWorkerStatusReadiness(t *testin
 	}
 	projectResult := projectStatus["result"].(map[string]any)
 	projectAgent := projectResult["agent"].(map[string]any)
-	agentStatus := fixture.call(t, fixture.runtime, "agent/status", map[string]any{})
+	agentStatus := fixture.call(t, fixture.sessions[durableSession.RolePlanner], "agent/status", map[string]any{"agent": fixture.agentID})
 	if agentStatus["ok"] != true {
 		t.Fatalf("agent/status failed: %#v", agentStatus)
 	}
@@ -310,7 +310,7 @@ func TestTSK574SharedAgentRolesDoNotInterfereWithWorkerStatusReadiness(t *testin
 	}
 	projectResult = projectStatus["result"].(map[string]any)
 	projectAgent = projectResult["agent"].(map[string]any)
-	agentStatus = fixture.call(t, fixture.runtime, "agent/status", map[string]any{})
+	agentStatus = fixture.call(t, fixture.sessions[durableSession.RolePlanner], "agent/status", map[string]any{"agent": fixture.agentID})
 	if agentStatus["ok"] != true {
 		t.Fatalf("busy agent/status failed: %#v", agentStatus)
 	}

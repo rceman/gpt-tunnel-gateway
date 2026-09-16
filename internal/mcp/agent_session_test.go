@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -43,7 +42,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	adoptedPolicyRevision := adoptTestWorkflowPolicy(t, s, "example", registered.Hub.After)
 	registeredAgentRevision := seedMCPTestCodingAgent(t, s, adoptedPolicyRevision)
 	ref := "example_master"
-	targetSession, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
+	_, err = mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RoleWorker, SessionType: durableSession.SessionTypeChatGPT, SessionRef: &ref})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +100,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatalf("first heartbeat omitted new tail lines: %#v", firstProjection)
 	}
 
-	tail := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"session": targetSession.ID, "lines": 4}}}}))
+	tail := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"agent": "coding-example", "lines": 4}}}}))
 	tailResult := genericStructured(t, tail)
 	if tailResult["is_error"] != false {
 		t.Fatalf("tail failed: %#v", tail)
@@ -163,26 +162,16 @@ func TestTailToolSchemaIsSessionBoundAndCursorFree(t *testing.T) {
 	if _, ok := properties["project_id"]; ok {
 		t.Fatal("agent/tail exposes project_id")
 	}
-	if pattern := properties["session"].(map[string]any)["pattern"]; pattern != agentSessionIDPattern {
-		t.Fatalf("agent/tail session pattern=%v, want %q", pattern, agentSessionIDPattern)
+	if _, ok := properties["agent"]; !ok {
+		t.Fatal("agent/tail omits logical Agent selector")
 	}
-	for _, value := range []string{"example_master", "coding-example", "SP-ABC-1234"} {
-		matches, err := regexp.MatchString(agentSessionIDPattern, value)
-		if err != nil || matches {
-			t.Fatalf("non-Agent session selector %q matched public tail pattern", value)
+	for _, field := range []string{"session", "session_key", "airelay_session", "skip", "cursor", "dedupe"} {
+		if _, ok := properties[field]; ok {
+			t.Fatalf("agent/tail exposes private selector %s", field)
 		}
 	}
-	if _, ok := properties["skip"]; ok {
-		t.Fatal("agent/tail exposes skip")
-	}
-	if _, ok := properties["cursor"]; ok {
-		t.Fatal("agent/tail exposes cursor")
-	}
-	if _, ok := properties["dedupe"]; ok {
-		t.Fatal("agent/tail exposes a caller-controlled dedupe override")
-	}
 	outputProperties := entry.OutputSchema["properties"].(map[string]any)
-	for _, field := range []string{"session", "lines"} {
+	for _, field := range []string{"agent", "lines"} {
 		if _, ok := outputProperties[field]; !ok {
 			t.Fatalf("agent/tail output omits %s: %#v", field, entry.OutputSchema)
 		}

@@ -135,25 +135,13 @@ func TestTSK590LeadAndWorkerRoleAuthorityIsolatedOverHTTP(t *testing.T) {
 		t.Fatalf("Lead and Worker authorities were merged: lead=%#v worker=%#v", leadResolved, workerResolved)
 	}
 
-	leadStatus := fixture.call(t, fixture.runtime, "task/status", map[string]any{"key": fixture.task.ID})
-	assertTSK571Resolved(t, leadStatus)
-	leadWorkerAction := fixture.call(t, fixture.runtime, "task/current", map[string]any{})
-	if message := tsk571ErrorMessage(t, leadWorkerAction); !strings.Contains(message, "RUNTIME_SESSION_UNAVAILABLE") {
-		t.Fatalf("Lead runtime acquired Worker lane authority: %q", message)
+	leadStatus := fixture.call(t, fixture.sessions[durableSession.RoleLead], "task/status", map[string]any{"key": fixture.task.ID})
+	if leadStatus["ok"] != true {
+		t.Fatalf("durable Lead task/status failed: %#v", leadStatus)
 	}
-	workerRead := fixture.call(t, workerRuntime, "task/read", map[string]any{"key": fixture.task.ID})
+	workerRead := fixture.call(t, workerSession, "task/read", map[string]any{"key": fixture.task.ID})
 	if workerRead["ok"] != true {
-		t.Fatalf("Worker runtime task/read failed: %#v", workerRead)
-	}
-	workerLeadAction := fixture.call(t, workerRuntime, "task/status", map[string]any{"key": fixture.task.ID})
-	if message := tsk571ErrorMessage(t, workerLeadAction); !strings.Contains(message, "RUNTIME_SESSION_UNAVAILABLE") {
-		t.Fatalf("Worker runtime acquired Lead authority: %q", message)
-	}
-	for _, runtime := range []string{fixture.runtime, workerRuntime} {
-		status := fixture.call(t, runtime, "agent/status", map[string]any{})
-		if status["ok"] != true {
-			t.Fatalf("generic agent/status could not address runtime %s: %#v", runtime, status)
-		}
+		t.Fatalf("durable Worker task/read failed: %#v", workerRead)
 	}
 	if workerResolved.Session.ID != workerSession {
 		t.Fatalf("Worker resolver selected unexpected Session: %#v", workerResolved)
@@ -165,14 +153,13 @@ func TestTSK590PlannerAddressesLeadThroughGenericAgentControls(t *testing.T) {
 	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleLead}, true, true)
 	installTSK563Airelay(t, fixture)
 	planner := fixture.sessions[durableSession.RolePlanner]
-	lead := fixture.sessions[durableSession.RoleLead]
 	for _, action := range []struct {
 		name  string
 		input map[string]any
 	}{
 		{name: "agent/status", input: map[string]any{"agent": fixture.agentID}},
 		{name: "agent/await", input: map[string]any{"agent": fixture.agentID, "seconds": 1}},
-		{name: "agent/tail", input: map[string]any{"session": lead, "lines": 1}},
+		{name: "agent/tail", input: map[string]any{"agent": fixture.agentID, "lines": 1}},
 		{name: "agent/prompt", input: map[string]any{"agent": fixture.agentID, "message": "TSK590 bounded Lead supervision"}},
 	} {
 		result := fixture.call(t, planner, action.name, action.input)

@@ -88,7 +88,7 @@ func (s *Server) agent_action_set4() error {
 	}
 	if err := register(GenericAction{
 		Path:         "agent/tail",
-		Description:  "Read a bounded transcript window from an optional durable role Session; omission uses the unique active role-bound Session, while multiple active Sessions require an explicit Session.",
+		Description:  "Read a bounded transcript window from a server-selected logical Agent.",
 		InputSchema:  canonicalAgentTailInputSchema(),
 		OutputSchema: canonicalAgentTailOutputSchema(),
 		Annotations: ToolAnnotations{
@@ -112,7 +112,7 @@ func (s *Server) agent_action_set4() error {
 			ReadOnlyHint:   true,
 			IdempotentHint: true,
 		},
-		AuthorityRole: "planner",
+		AuthorityRole: actionRolePlannerOrLead,
 		LocalReadOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			return s.canonicalAgentAwaitAction(ctx, raw)

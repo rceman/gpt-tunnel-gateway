@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -71,8 +72,8 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 			t.Fatalf("enabled debug actions omitted %q: %v", path, got)
 		}
 		entry := entries[path]
-		if entry.AuthorityRole != durableSession.RolePlanner {
-			t.Fatalf("debug action %q authority role=%q want %q", path, entry.AuthorityRole, durableSession.RolePlanner)
+		if entry.AuthorityRole != durableSession.RolePlanner || !entry.SessionBound || !entry.SessionRequired {
+			t.Fatalf("debug action %q authority/session contract=%#v", path, entry)
 		}
 		if path == "debug/activate" && !entry.Annotations.IdempotentHint {
 			t.Fatal("debug/activate must advertise idempotent source-keyed ensure semantics")
@@ -215,27 +216,22 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 
 func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 	script := filepath.Join(t.TempDir(), "airelay")
-	contents := "#!/bin/sh\nif [ \"$1\" = prompt ] && [ \"$2\" = debug_session ] && [ \"$3\" = \"[GTW] recovery message\" ]; then exit 0; fi\nexit 1\n"
+	contents := "#!/bin/sh\nif [ \"$1\" = prompt ] && [ \"$2\" = runtime-tsk571 ] && [ \"$3\" = \"[GTW] recovery message\" ]; then exit 0; fi\nexit 1\n"
 	if err := os.WriteFile(script, []byte(contents), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	s, _ := mcpServiceWithSQLite(t, config.Config{
-		Debug:                  config.DebugConfig{Enabled: true},
-		StateDir:               t.TempDir(),
-		AirelayCommand:         script,
-		DispatchTimeoutSeconds: 5,
-	})
-	server := &Server{
-		Service:          s,
-		AuthorityContext: authority.WithPlanner(context.Background()),
-	}
-	store := mcpSQLiteSessionStore(t, server.Service)
-	record := debugTestSession(t, store, durableSession.RolePlanner)
+	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleWorker}, true, true)
+	fixture.server.Service.Config.Debug.Enabled = true
+	fixture.server.Service.Airelay.Command = script
+	fixture.server.Service.Config.AirelayCommand = script
+	fixture.server.Service.Airelay.Timeout = 5 * time.Second
+	server := fixture.server
+	recordID := fixture.sessions[durableSession.RolePlanner]
 	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{
-			"session": record.ID, "action": "debug/prompt", "input": map[string]any{
-				"airelay_session": "debug_session", "message": "recovery message",
+			"session": recordID, "action": "debug/prompt", "input": map[string]any{
+				"agent": fixture.agentID, "message": "recovery message",
 			},
 		}},
 	}))
@@ -244,12 +240,12 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 		t.Fatalf("direct debug/prompt failed: %#v", response)
 	}
 	result := structured["result"].(map[string]any)
-	if result["status"] != "accepted" || result["airelay_session"] != "debug_session" {
+	if result["status"] != "accepted" || result["agent"] != fixture.agentID {
 		t.Fatalf("unexpected direct debug/prompt result: %#v", result)
 	}
 	entry := server.genericActionRegistry(server.tools())["debug/prompt"]
-	if entry.Authority != nil || !entry.LocalReceiptOnly || entry.SessionBound {
-		t.Fatalf("debug/prompt retained normal authority routing: %#v", entry)
+	if entry.Authority != nil || !entry.LocalReceiptOnly || !entry.SessionBound || !entry.SessionRequired {
+		t.Fatalf("debug/prompt contract changed: %#v", entry)
 	}
 	if entry.AuthorityRole != durableSession.RolePlanner {
 		t.Fatalf("debug/prompt authority role=%q want %q", entry.AuthorityRole, durableSession.RolePlanner)
@@ -266,7 +262,7 @@ func TestDebugActionsRejectNonPlannerSessions(t *testing.T) {
 		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	store := mcpSQLiteSessionStore(t, server.Service)
-	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleWorker} {
+	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker} {
 		input := durableSession.CreateInput{ProjectID: gatewaySourceProjectID, ProjectCode: "GTW", Role: role, SessionType: durableSession.SessionTypeChatGPT}
 		if durableSession.WorkflowRoleRequiresRef(role) {
 			ref := "runtime-worker"

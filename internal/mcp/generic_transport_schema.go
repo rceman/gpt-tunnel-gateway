@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 )
 
 func (s *Server) genericSchema(legacy map[string]Tool, raw json.RawMessage) (any, error) {
@@ -69,35 +68,12 @@ func (s *Server) genericSchemaPublic(ctx context.Context, legacy map[string]Tool
 		return genericSchemaV2(entries, input.Path)
 	}
 	record, err := s.activeSession(input.Session)
-	if err == nil && durableRoleRequiresRuntime(record.Role) {
-		return nil, fmt.Errorf("managed runtime identity is required for this role-bound operation")
-	}
 	if err != nil {
-		entry, entryOK := entries[input.Path]
-		var resolved runtimeSessionResolution
-		var resolveErr error
-		if entryOK {
-			resolved, resolveErr = s.resolveRuntimeSession(ctx, input.Session, input.Path, entry, nil)
-		} else {
-			identity, identityErr := s.Service.ResolveRuntimeRoleSession(ctx, input.Session, "")
-			if identityErr == nil {
-				resolved = runtimeSessionResolution{
-					Session: identity.Session,
-					AgentID: identity.Agent.AgentID,
-					Role:    identity.Session.Role,
-				}
-			} else {
-				resolveErr = identityErr
-			}
-		}
-		if resolveErr != nil {
-			return nil, fmt.Errorf("schema session is invalid: %w", resolveErr)
-		}
-		record = resolved.Session
-		ctx = withManagedRuntimeIdentity(ctx, managedRuntimeIdentity{
-			AgentID: resolved.AgentID,
-			Role:    resolved.Role,
-		})
+		return nil, fmt.Errorf("schema session is invalid: durable Session authentication failed: %w", err)
+	}
+	ctx, err = s.authenticateSession(ctx, entries, record, input.Path)
+	if err != nil {
+		return nil, fmt.Errorf("schema session authority is invalid: %w", err)
 	}
 	if record.ProjectID == "" {
 		return nil, fmt.Errorf("PROJECT_BINDING_REQUIRED: bind the session before schema discovery")
@@ -111,7 +87,7 @@ func (s *Server) genericSchemaPublic(ctx context.Context, legacy map[string]Tool
 func schemaEntriesForSessionRole(entries map[string]genericActionEntry, role string) map[string]genericActionEntry {
 	filtered := make(map[string]genericActionEntry, len(entries))
 	for path, entry := range entries {
-		if actionAuthorityAllowsSessionRole(entry.AuthorityRole, role) || (strings.HasPrefix(path, "agent/") && actionAuthorityAllowsSessionRole(actionRoleManagedRuntime, role)) {
+		if actionAuthorityAllowsSessionRole(entry.AuthorityRole, role) {
 			filtered[path] = entry
 		}
 	}

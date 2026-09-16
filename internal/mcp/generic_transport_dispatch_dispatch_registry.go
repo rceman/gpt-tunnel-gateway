@@ -7,10 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
-	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
@@ -33,26 +31,14 @@ func (s *Server) genericCallWithEntries(ctx context.Context, entries map[string]
 	if input.SessionID == "" {
 		return nil, fmt.Errorf("session is required")
 	}
-	entry, entryOK := entries[input.Action]
 	record, err := s.activeSession(input.SessionID)
-	if err == nil && durableRoleRequiresRuntime(record.Role) {
-		return nil, fmt.Errorf("managed runtime identity is required for this role-bound operation")
-	}
 	if err != nil {
-		if !entryOK {
-			return nil, err
-		}
-		resolved, resolveErr := s.resolveRuntimeSession(ctx, input.SessionID, input.Action, entry, input.Input)
-		if resolveErr != nil {
-			return nil, resolveErr
-		}
-		record = resolved.Session
-		ctx = withManagedRuntimeIdentity(ctx, managedRuntimeIdentity{
-			AgentID: resolved.AgentID,
-			Role:    resolved.Role,
-		})
+		return nil, fmt.Errorf("durable Session authentication failed: %w", err)
 	}
-	ctx = withSession(ctx, record)
+	ctx, err = s.authenticateSession(ctx, entries, record, input.Action)
+	if err != nil {
+		return nil, err
+	}
 	return s.genericDispatch(ctx, entries, record, input.Action, input.Input)
 }
 func (s *Server) genericDispatch(ctx context.Context, entries map[string]genericActionEntry, record durableSession.Record, action string, raw json.RawMessage) (result map[string]any, returnErr error) {
@@ -95,28 +81,11 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		return genericActionError(action, "PROJECT_BINDING_REQUIRED: bind the session before project work"), nil
 	}
 	if record.ID != "" {
-		bootstrapContext := ctx
-		if elevated, err := authority.BootstrapSessionAuthority(ctx); err == nil {
-			bootstrapContext = elevated
-		}
-		if err := requireSessionRole(bootstrapContext, record.Role); err != nil {
-			return genericActionError(action, err.Error()), nil
-		}
-		resolved, err := s.resolveSessionAuthority(bootstrapContext, record, actionAuthorityContract{
-			Role:                   entry.AuthorityRole,
-			RequiresWorkflowPolicy: entry.RequiresWorkflowPolicy,
-			LocalReceiptOnly:       entry.LocalReceiptOnly,
-			ManagedRuntime:         strings.HasPrefix(action, "agent/") && hasManagedRuntimeIdentity(ctx),
-		})
-		if err != nil {
-			return genericActionError(action, err.Error()), nil
-		}
-		ctx = resolved
-		ctx = service.WithAgentSessionID(ctx, record.ID)
 		if entry.SessionBound {
 			if err := validateGenericActionInput(entry.InputSchema, raw); err != nil {
 				return genericActionError(action, err.Error()+"; inspect schema with path=\""+action+"\""), nil
 			}
+			var err error
 			raw, err = inheritSessionProject(entry.ExecutionInputSchema, record.ProjectID, raw)
 			if err != nil {
 				return genericActionError(action, err.Error()), nil

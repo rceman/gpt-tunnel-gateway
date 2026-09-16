@@ -39,12 +39,6 @@ func (s *Server) boundAgentProject(ctx context.Context) (string, error) {
 }
 
 func (s *Server) resolveCanonicalAgent(ctx context.Context, projectID, requested string, requireEnabled bool) (canonicalAgentTarget, error) {
-	if runtimeAgentID := managedRuntimeAgentID(ctx); runtimeAgentID != "" {
-		if requested != "" && requested != runtimeAgentID {
-			return canonicalAgentTarget{}, fmt.Errorf("managed runtime is not authorized for the requested Agent")
-		}
-		requested = runtimeAgentID
-	}
 	if requested != "" {
 		if model.ValidateObjectIdentifier(requested) != nil {
 			return canonicalAgentTarget{}, fmt.Errorf("invalid Agent selector")
@@ -122,12 +116,6 @@ func (s *Server) resolveCanonicalAgent(ctx context.Context, projectID, requested
 }
 
 func (s *Server) resolveCanonicalInterruptAgent(ctx context.Context, projectID, requested string) (canonicalAgentTarget, error) {
-	if runtimeAgentID := managedRuntimeAgentID(ctx); runtimeAgentID != "" {
-		if requested != "" && requested != runtimeAgentID {
-			return canonicalAgentTarget{}, fmt.Errorf("managed runtime is not authorized for the requested Agent")
-		}
-		requested = runtimeAgentID
-	}
 	if requested != "" {
 		if model.ValidateObjectIdentifier(requested) != nil {
 			return canonicalAgentTarget{}, fmt.Errorf("invalid Agent selector")
@@ -232,8 +220,8 @@ func (s *Server) canonicalAgentStatusAction(ctx context.Context, raw json.RawMes
 
 func (s *Server) canonicalAgentTailAction(ctx context.Context, raw json.RawMessage) (any, error) {
 	var in struct {
-		Session string `json:"session"`
-		Lines   int    `json:"lines"`
+		Agent string `json:"agent"`
+		Lines int    `json:"lines"`
 	}
 	if err := decode(raw, &in); err != nil {
 		return nil, err
@@ -242,26 +230,19 @@ func (s *Server) canonicalAgentTailAction(ctx context.Context, raw json.RawMessa
 	if err != nil {
 		return nil, err
 	}
-	if hasManagedRuntimeIdentity(ctx) {
-		expected := service.AgentSessionID(ctx)
-		if in.Session != "" && in.Session != expected {
-			return nil, fmt.Errorf("managed runtime is not authorized for the requested Agent Session")
-		}
-		in.Session = expected
-	} else if in.Session == "" {
-		in.Session, err = s.Service.ResolveAgentTailSessionForProject(ctx, projectID)
-		if err != nil {
-			return nil, err
-		}
+	target, err := s.resolveCanonicalAgent(ctx, projectID, in.Agent, true)
+	if err != nil {
+		return nil, err
 	}
-	tail, err := s.Service.AgentTailPageForSession(ctx, projectID, in.Session, service.AgentTailInput{
-		Lines:     in.Lines,
-		SessionID: service.AgentSessionID(ctx),
+	tail, err := s.Service.AgentTailPage(ctx, projectID, service.AgentTailInput{
+		Lines:      in.Lines,
+		SessionID:  service.AgentSessionID(ctx),
+		SessionKey: target.Resolved.SessionKey,
 	})
 	if err != nil {
 		return nil, err
 	}
-	result := map[string]any{"session": in.Session, "lines": tail.Lines}
+	result := map[string]any{"agent": target.Agent.AgentID, "lines": tail.Lines}
 	if tail.HistoryTruncated || tail.Overflow {
 		result["truncated"] = true
 	}
