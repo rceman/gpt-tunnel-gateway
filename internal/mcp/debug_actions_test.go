@@ -333,37 +333,96 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 	}
 }
 
-func TestDebugActionsAuthorizePlannerAndLeadSessions(t *testing.T) {
-	s, _ := mcpServiceWithSQLite(t, config.Config{
-		Debug:    config.DebugConfig{Enabled: true},
-		StateDir: t.TempDir(),
-		Projects: map[string]config.ProjectConfig{gatewaySourceProjectID: {Root: t.TempDir()}},
-	})
-	server := &Server{
-		Service:          s,
-		AuthorityContext: authority.WithPlanner(context.Background()),
+func TestDebugAwaitRequiresExplicitSeconds(t *testing.T) {
+	s, _ := mcpServiceWithSQLite(t, config.Config{Debug: config.DebugConfig{Enabled: true}, StateDir: t.TempDir()})
+	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
+	entry := server.genericActionRegistry(server.tools())["debug/await"]
+	required := stringList(entry.InputSchema["required"])
+	if len(required) != 2 || !containsRequired(required, "agent_ref") || !containsRequired(required, "seconds") {
+		t.Fatalf("debug/await required fields=%v", required)
 	}
-	store := mcpSQLiteSessionStore(t, server.Service)
-	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker} {
-		input := durableSession.CreateInput{ProjectID: gatewaySourceProjectID, ProjectCode: "GTW", Role: role, SessionType: durableSession.SessionTypeChatGPT}
-		if durableSession.WorkflowRoleRequiresRef(role) {
-			ref := "runtime-worker"
-			input.SessionRef = &ref
-		}
-		record, err := store.Create(input)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response := callMCPRaw(t, server, mustJSON(t, map[string]any{
-			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-			"params": map[string]any{"name": "call", "arguments": map[string]any{
-				"session": record.ID, "action": "debug/status", "input": map[string]any{},
-			}},
-		}))
-		structured := typedStructured(t, response)
-		allowed := role == durableSession.RolePlanner || role == durableSession.RoleLead
-		if (structured["ok"] == true) != allowed {
-			t.Fatalf("debug/status role=%s allowed=%v response=%#v", role, allowed, response)
+	seconds := entry.InputSchema["properties"].(map[string]any)["seconds"].(map[string]any)
+	if _, ok := seconds["default"]; ok {
+		t.Fatal("debug/await seconds unexpectedly has a default")
+	}
+	record := debugTestSession(t, mcpSQLiteSessionStore(t, server.Service), durableSession.RolePlanner)
+	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session": record.ID, "action": "debug/await", "input": map[string]any{"agent_ref": "runtime-tsk628"},
+		}},
+	}))
+	structured := typedStructured(t, response)
+	if structured["ok"] == true {
+		t.Fatalf("debug/await accepted omitted seconds: %#v", response)
+	}
+	message := structured["error"].(map[string]any)["message"].(string)
+	if !strings.Contains(message, "seconds") {
+		t.Fatalf("omitted seconds rejection=%q", message)
+	}
+}
+
+func TestDebugActionsAuthorizeEachRoleBeforeExecution(t *testing.T) {
+	oldActivation := debugActivationAcceptFn
+	defer func() { debugActivationAcceptFn = oldActivation }()
+	_, sourceRoot, _ := testutil.RepoWithBareRemote(t)
+	logPath := filepath.Join(t.TempDir(), "airelay-calls")
+	script := filepath.Join(t.TempDir(), "airelay")
+	contents := "#!/bin/sh\nprintf '%s\\n' \"$1\" >> \"" + logPath + "\"\ncase \"$1\" in\nprompt) exit 0;;\ntail) printf 'bounded debug tail\\n'; exit 0;;\nsession-status) printf 'Controller: reachable\\nState: idle\\n'; exit 0;;\n*) exit 0;;\nesac\n"
+	if err := os.WriteFile(script, []byte(contents), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker}, true, true)
+	fixture.server.Service.Config.Debug.Enabled = true
+	if fixture.server.Service.Config.Projects == nil {
+		fixture.server.Service.Config.Projects = map[string]config.ProjectConfig{}
+	}
+	fixture.server.Service.Config.Projects[gatewaySourceProjectID] = config.ProjectConfig{Root: sourceRoot}
+	fixture.server.Service.Config.ProjectAgentBindings = nil
+	fixture.server.Service.Airelay.Command = script
+	fixture.server.Service.Config.AirelayCommand = script
+	fixture.server.Service.Airelay.Timeout = 5 * time.Second
+	var activationCalls int
+	debugActivationAcceptFn = func(c config.Config, _ string, sourceHead string, _ func(func())) (debugdomain.ActivationResult, error) {
+		activationCalls++
+		return debugdomain.ActivationResult{OperationID: "debug-auth-test", SourceHead: sourceHead, Activation: "accepted", Smoke: "pending", Outcome: "accepted"}, nil
+	}
+	actions := []struct {
+		path  string
+		input map[string]any
+	}{
+		{path: "debug/status", input: map[string]any{}},
+		{path: "debug/prompt", input: map[string]any{"agent_ref": "runtime-tsk628", "message": "bounded auth test"}},
+		{path: "debug/tail", input: map[string]any{"agent_ref": "runtime-tsk628", "lines": 1}},
+		{path: "debug/await", input: map[string]any{"agent_ref": "runtime-tsk628", "seconds": 1, "lines": 1}},
+		{path: "debug/activate", input: map[string]any{"main_sha": strings.Repeat("a", 40)}},
+	}
+	roles := []string{durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker}
+	for _, action := range actions {
+		for _, role := range roles {
+			beforeCalls, err := os.ReadFile(logPath)
+			if err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			beforeActivation := activationCalls
+			result := fixture.call(t, fixture.sessions[role], action.path, action.input)
+			allowed := role == durableSession.RolePlanner || role == durableSession.RoleLead
+			if (result["ok"] == true) != allowed {
+				t.Fatalf("%s role=%s allowed=%v result=%#v", action.path, role, allowed, result)
+			}
+			if !allowed {
+				message := tsk571ErrorMessage(t, result)
+				if !strings.Contains(message, "not authorized") {
+					t.Fatalf("%s role=%s rejection was not authorization-first: %q", action.path, role, message)
+				}
+				afterCalls, readErr := os.ReadFile(logPath)
+				if readErr != nil && !os.IsNotExist(readErr) {
+					t.Fatal(readErr)
+				}
+				if string(afterCalls) != string(beforeCalls) || activationCalls != beforeActivation {
+					t.Fatalf("%s role=%s reached a bounded handler before rejection", action.path, role)
+				}
+			}
 		}
 	}
 }

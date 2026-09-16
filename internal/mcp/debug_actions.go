@@ -17,7 +17,6 @@ const (
 	gatewaySourceProjectID    = "gpt-tunnel-gateway"
 	debugTailDefaultLines     = 20
 	debugTailMaxLines         = 100
-	debugAwaitDefaultSeconds  = 50
 	debugAwaitFinalReadBudget = time.Second
 	debugAwaitMaxSeconds      = 600
 )
@@ -268,15 +267,14 @@ func debugTailInputSchema() map[string]any {
 }
 
 func debugAwaitInputSchema() map[string]any {
-	seconds := integer("Maximum seconds to supervise a direct Agent reference.", 1, debugAwaitMaxSeconds)
-	seconds["default"] = debugAwaitDefaultSeconds
+	seconds := integer("Seconds to supervise a direct Agent reference.", 1, debugAwaitMaxSeconds)
 	lines := integer("Maximum transcript lines to return.", 1, debugTailMaxLines)
 	lines["default"] = debugTailDefaultLines
 	return obj(map[string]any{
 		"agent_ref": debugAgentRefSchema(),
 		"seconds":   seconds,
 		"lines":     lines,
-	}, "agent_ref")
+	}, "agent_ref", "seconds")
 }
 
 func debugTailOutputSchema() map[string]any {
@@ -310,7 +308,7 @@ func (s *Server) debugAwaitAction(ctx context.Context, raw json.RawMessage) (any
 	actionStarted := time.Now()
 	var in struct {
 		AgentRef string `json:"agent_ref"`
-		Seconds  *int   `json:"seconds"`
+		Seconds  int    `json:"seconds"`
 		Lines    *int   `json:"lines"`
 	}
 	if err := decode(raw, &in); err != nil {
@@ -319,10 +317,7 @@ func (s *Server) debugAwaitAction(ctx context.Context, raw json.RawMessage) (any
 	if err := validateDebugAgentRef(in.AgentRef); err != nil {
 		return nil, err
 	}
-	seconds := debugAwaitDefaultSeconds
-	if in.Seconds != nil {
-		seconds = *in.Seconds
-	}
+	seconds := in.Seconds
 	if seconds < 1 || seconds > debugAwaitMaxSeconds {
 		return nil, fmt.Errorf("debug await seconds must be between 1 and %d", debugAwaitMaxSeconds)
 	}
