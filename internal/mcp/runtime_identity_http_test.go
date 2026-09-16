@@ -231,10 +231,8 @@ func TestTSK629SharedPhysicalAgentRoleSpecificSessionsRemainDistinct(t *testing.
 	if result["ok"] != true {
 		t.Fatalf("exact durable Worker Session did not remain usable after a duplicate ref: %#v", result)
 	}
-	if runtimeResult := fixture.call(t, fixture.runtime, "task/read", map[string]any{"key": fixture.task.ID}); runtimeResult["ok"] != true {
-		if !strings.Contains(tsk571ErrorMessage(t, runtimeResult), "durable Session") {
-			t.Fatalf("runtime-key failure was not a durable Session rejection: %#v", runtimeResult)
-		}
+	if runtimeResult := fixture.call(t, fixture.runtime, "task/read", map[string]any{"key": fixture.task.ID}); runtimeResult["ok"] == true || !strings.Contains(tsk571ErrorMessage(t, runtimeResult), "durable Session") {
+		t.Fatalf("runtime-key failure was not a durable Session rejection: %#v", runtimeResult)
 	}
 }
 

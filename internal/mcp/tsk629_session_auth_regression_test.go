@@ -122,6 +122,17 @@ func TestTSK629PublicSchemasHideRuntimeSelectors(t *testing.T) {
 		if !ok {
 			t.Fatalf("missing public action %q", path)
 		}
+		if path == "debug/prompt" || path == "debug/tail" {
+			requiredAgent := false
+			for _, required := range stringList(entry.InputSchema["required"]) {
+				if required == "agent" {
+					requiredAgent = true
+				}
+			}
+			if !requiredAgent {
+				t.Fatalf("%s does not require an explicit logical Agent selector: %#v", path, entry.InputSchema)
+			}
+		}
 		encoded, err := json.Marshal(map[string]any{"input": entry.InputSchema, "output": entry.OutputSchema})
 		if err != nil {
 			t.Fatal(err)
@@ -153,33 +164,30 @@ func TestTSK629PublicBoundaryInventoryHasNoInternalSelectors(t *testing.T) {
 		"airelay_session", "session_key", "runtime_ref", "runtime-key", "exact airelay session key",
 		"managed runtime", "agent runtime", "worker runtime", "managed-runtime",
 	}
-	forbiddenInputKeys := map[string]bool{"airelay_session": true, "airelay_session_key": true, "session_key": true, "session_ref": true, "runtime_ref": true}
-	var audit func(string, any, bool)
-	audit = func(path string, value any, input bool) {
-		object, ok := value.(map[string]any)
-		if !ok {
-			return
-		}
-		for key, child := range object {
-			lowerKey := strings.ToLower(key)
-			if input && forbiddenInputKeys[lowerKey] {
-				t.Fatalf("public schema %s exposes internal selector %q", path, key)
-			}
-			if lowerKey == "description" {
-				text, _ := child.(string)
-				lowerText := strings.ToLower(text)
-				for _, forbidden := range forbiddenDescriptions {
-					if strings.Contains(lowerText, forbidden) {
-						t.Fatalf("public schema %s description exposes %q: %q", path, forbidden, text)
+	forbiddenSelectorKeys := map[string]bool{"airelay_session": true, "airelay_session_key": true, "session_key": true, "session_ref": true, "runtime_ref": true}
+	var audit func(string, any)
+	audit = func(path string, value any) {
+		switch current := value.(type) {
+		case map[string]any:
+			for key, child := range current {
+				lowerKey := strings.ToLower(key)
+				if forbiddenSelectorKeys[lowerKey] {
+					t.Fatalf("public schema %s exposes internal selector %q", path, key)
+				}
+				if lowerKey == "description" {
+					text, _ := child.(string)
+					lowerText := strings.ToLower(text)
+					for _, forbidden := range forbiddenDescriptions {
+						if strings.Contains(lowerText, forbidden) {
+							t.Fatalf("public schema %s description exposes %q: %q", path, forbidden, text)
+						}
 					}
 				}
+				audit(path+"."+key, child)
 			}
-			audit(path+"."+key, child, input)
-		}
-		if branches, ok := object["oneOf"].([]any); ok {
-			for index, branch := range branches {
-				audit(path+".oneOf", branch, input)
-				_ = index
+		case []any:
+			for _, child := range current {
+				audit(path+"[]", child)
 			}
 		}
 	}
@@ -191,8 +199,8 @@ func TestTSK629PublicBoundaryInventoryHasNoInternalSelectors(t *testing.T) {
 				t.Fatalf("public action %s description exposes %q: %q", path, forbidden, entry.Description)
 			}
 		}
-		audit(path+".input", entry.InputSchema, true)
-		audit(path+".output", entry.OutputSchema, false)
+		audit(path+".input", entry.InputSchema)
+		audit(path+".output", entry.OutputSchema)
 	}
 	for name, tool := range server.publicTools() {
 		for _, forbidden := range forbiddenDescriptions {
@@ -200,8 +208,8 @@ func TestTSK629PublicBoundaryInventoryHasNoInternalSelectors(t *testing.T) {
 				t.Fatalf("public tool %s description exposes %q: %q", name, forbidden, tool.Description)
 			}
 		}
-		audit(name+".input", tool.InputSchema, true)
-		audit(name+".output", tool.OutputSchema, false)
+		audit(name+".input", tool.InputSchema)
+		audit(name+".output", tool.OutputSchema)
 	}
 	for _, value := range []any{agentguide.Canonical(), taskGuideWorkflow, taskGuideReview, taskGuideVerification, taskGuideCompletion, taskGuideBoundaries} {
 		encoded, err := json.Marshal(value)

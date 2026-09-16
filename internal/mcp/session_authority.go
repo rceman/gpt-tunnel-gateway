@@ -11,9 +11,8 @@ import (
 )
 
 const (
-	actionRoleWorkflow                = "workflow"
-	actionRolePlannerOrManagedRuntime = actionRoleWorkflow
-	actionRolePlannerOrLead           = "planner_or_lead"
+	actionRoleWorkflow      = "workflow"
+	actionRolePlannerOrLead = "planner_or_lead"
 )
 
 func actionAuthorityAllowsSessionRole(actionRole, sessionRole string) bool {
@@ -41,7 +40,6 @@ type actionAuthorityContract struct {
 	Role                   string
 	RequiresWorkflowPolicy bool
 	LocalReceiptOnly       bool
-	ManagedRuntime         bool
 }
 
 func actionAuthorityContractFor(toolName string) actionAuthorityContract {
@@ -220,7 +218,7 @@ func (s *Server) resolveSessionAuthority(ctx context.Context, record durableSess
 	if err := requireSessionRole(bootstrapContext, record.Role); err != nil {
 		return nil, fmt.Errorf("session authority is not trusted by this server: %w", err)
 	}
-	if !contract.ManagedRuntime && !actionAuthorityAllowsSessionRole(contract.Role, record.Role) {
+	if !actionAuthorityAllowsSessionRole(contract.Role, record.Role) {
 		return nil, fmt.Errorf("session role %q is not authorized for this action; required %q", record.Role, contract.Role)
 	}
 	if contract.LocalReceiptOnly {

@@ -18,7 +18,7 @@ func (s *Server) ensureADRActions() {
 
 func (s *Server) registerADRActions() error {
 	register := func(a GenericAction) error {
-		a.AuthorityRole = actionRolePlannerOrManagedRuntime
+		a.AuthorityRole = actionRoleWorkflow
 		a.SessionBound = true
 		a.LocalReceiptOnly = true
 		a.AllowLegacyOverride = true

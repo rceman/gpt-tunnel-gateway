@@ -12,7 +12,7 @@ func TestTSK567TaskReadAgentContractIsBoundedAndReadOnly(t *testing.T) {
 	if !ok {
 		t.Fatal("task/read is not registered")
 	}
-	if entry.AuthorityRole != actionRolePlannerOrManagedRuntime || !entry.SessionBound || !entry.LocalReceiptOnly || !entry.Annotations.ReadOnlyHint || !entry.Annotations.IdempotentHint {
+	if entry.AuthorityRole != actionRoleWorkflow || !entry.SessionBound || !entry.LocalReceiptOnly || !entry.Annotations.ReadOnlyHint || !entry.Annotations.IdempotentHint {
 		t.Fatalf("task/read authority=%#v", entry)
 	}
 	if !actionAuthorityAllowsSessionRole(entry.AuthorityRole, durableSession.RoleWorker) {

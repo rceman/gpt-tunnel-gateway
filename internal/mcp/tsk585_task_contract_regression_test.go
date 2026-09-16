@@ -304,7 +304,7 @@ func TestTSK585TaskGuideMCP(t *testing.T) {
 	if !ok {
 		t.Fatal("task/guide is not registered")
 	}
-	if action.AuthorityRole != actionRolePlannerOrManagedRuntime || !action.SessionBound || !action.LocalReadOnly || action.LocalReceiptOnly ||
+	if action.AuthorityRole != actionRoleWorkflow || !action.SessionBound || !action.LocalReadOnly || action.LocalReceiptOnly ||
 		!action.Annotations.ReadOnlyHint || !action.Annotations.IdempotentHint {
 		t.Fatalf("task/guide flags=%#v", action)
 	}

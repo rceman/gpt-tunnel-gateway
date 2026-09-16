@@ -247,7 +247,7 @@ func (s *Server) registerTaskExecutionReviewActions() error {
 		LocalReadOnly:   true,
 		SessionBound:    true,
 		SessionRequired: true,
-		AuthorityRole:   actionRolePlannerOrManagedRuntime,
+		AuthorityRole:   actionRoleWorkflow,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				ProjectID string `json:"project_id"`

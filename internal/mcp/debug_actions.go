@@ -223,7 +223,7 @@ func debugPromptInputSchema() map[string]any {
 	return obj(map[string]any{
 		"agent":   canonicalAgentSelectorSchema(),
 		"message": message,
-	}, "message")
+	}, "agent", "message")
 }
 
 func debugTailInputSchema() map[string]any {
@@ -232,7 +232,7 @@ func debugTailInputSchema() map[string]any {
 	return obj(map[string]any{
 		"agent": canonicalAgentSelectorSchema(),
 		"lines": lines,
-	})
+	}, "agent")
 }
 
 func debugTailOutputSchema() map[string]any {
