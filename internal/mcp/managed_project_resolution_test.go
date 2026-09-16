@@ -23,7 +23,7 @@ func writeMCPManagedRegistry(t *testing.T, s *service.Service, root, projectID, 
 	if err != nil {
 		t.Fatalf("digest managed registry: %v", err)
 	}
-	next := config.ManagedProjectRegistry{SchemaVersion: config.ManagedProjectRegistrySchemaVersion, Revision: current.Revision + 1, Projects: map[string]config.ManagedProjectEntry{projectID: {Root: root, RepositoryURL: repositoryURL, Remote: "origin", DefaultBranch: "main", AirelaySessionKey: projectID + "_master"}}}
+	next := config.ManagedProjectRegistry{SchemaVersion: config.ManagedProjectRegistrySchemaVersion, Revision: current.Revision + 1, Projects: map[string]config.ManagedProjectEntry{projectID: {Root: root, RepositoryURL: repositoryURL, Remote: "origin", DefaultBranch: "main"}}}
 	if _, err := config.WriteManagedProjectRegistry(s.Config.StateDir, digest, next); err != nil {
 		t.Fatalf("write managed registry: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestManagedProjectResolutionMCPCapabilitiesAndGitAreDynamic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	replacement := config.ManagedProjectRegistry{SchemaVersion: config.ManagedProjectRegistrySchemaVersion, Revision: current.Revision + 1, Projects: map[string]config.ManagedProjectEntry{"managed": {Root: rootTwo, RepositoryURL: "git@example.invalid:managed.git", Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "managed_master"}}}
+	replacement := config.ManagedProjectRegistry{SchemaVersion: config.ManagedProjectRegistrySchemaVersion, Revision: current.Revision + 1, Projects: map[string]config.ManagedProjectEntry{"managed": {Root: rootTwo, RepositoryURL: "git@example.invalid:managed.git", Remote: "origin", DefaultBranch: "main"}}}
 	if _, err := config.WriteManagedProjectRegistry(stateDir, digest, replacement); err != nil {
 		t.Fatal(err)
 	}

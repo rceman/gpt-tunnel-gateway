@@ -46,7 +46,7 @@ func tsk620WorkerMigrationFixture(t *testing.T) (*Service, *sqlitestore.Database
 	t.Cleanup(func() { _ = db.Close() })
 	s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
 		config.GTWProjectID: {
-			config.LegacyGTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master", Profile: "coding"},
+			config.LegacyGTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master"},
 		},
 	}
 	if _, _, err := s.AgentRegister(context.Background(), AgentRegisterInput{
@@ -73,7 +73,7 @@ func sessionRef(value string) *string { return &value }
 func TestTSK620ManagedAgentMigrationPreservesWorkerSessionAndRestarts(t *testing.T) {
 	s, db, sessionID := tsk620WorkerMigrationFixture(t)
 	s.Config.ProjectAgentBindings[config.GTWProjectID] = map[string]config.AgentBinding{
-		config.GTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master", Profile: "coding"},
+		config.GTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master"},
 	}
 	if err := s.MigrateGTWWorkerIdentityLocalShared(context.Background()); err != nil {
 		t.Fatal(err)
@@ -120,7 +120,7 @@ func TestTSK620AsyncHubReconciliationRejectsCollisionAfterLocalMigration(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.Config.ProjectAgentBindings[config.GTWProjectID][config.GTWWorkerAgentID] = config.AgentBinding{SessionKey: "gpt-tunnel-gateway_other", Profile: "coding"}
+	s.Config.ProjectAgentBindings[config.GTWProjectID][config.GTWWorkerAgentID] = config.AgentBinding{SessionKey: "gpt-tunnel-gateway_other"}
 	if _, _, err := s.AgentRegister(context.Background(), AgentRegisterInput{
 		ProjectID: config.GTWProjectID,
 		AgentID:   config.GTWWorkerAgentID,
@@ -134,7 +134,7 @@ func TestTSK620AsyncHubReconciliationRejectsCollisionAfterLocalMigration(t *test
 		t.Fatal(err)
 	}
 	s.Config.ProjectAgentBindings[config.GTWProjectID] = map[string]config.AgentBinding{
-		config.GTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master", Profile: "coding"},
+		config.GTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master"},
 	}
 	if err := s.MigrateGTWWorkerIdentityLocalShared(context.Background()); err != nil {
 		t.Fatal(err)

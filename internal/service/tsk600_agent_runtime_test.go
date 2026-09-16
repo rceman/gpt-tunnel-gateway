@@ -60,7 +60,7 @@ func tsk600Binding(s *Service, agentID, runtime string) {
 	if s.Config.ProjectAgentBindings["example"] == nil {
 		s.Config.ProjectAgentBindings["example"] = map[string]config.AgentBinding{}
 	}
-	s.Config.ProjectAgentBindings["example"][agentID] = config.AgentBinding{SessionKey: runtime, Profile: "coding"}
+	s.Config.ProjectAgentBindings["example"][agentID] = config.AgentBinding{SessionKey: runtime}
 }
 
 func registerTSK600Agent(t *testing.T, s *Service, agentID string) model.Agent {

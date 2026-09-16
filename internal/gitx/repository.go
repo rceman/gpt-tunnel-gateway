@@ -13,6 +13,30 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
 
+func (r Runner) RepositoryRoot(ctx context.Context, path string) (string, error) {
+	out, err := r.command(ctx, path, false, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", fmt.Errorf("resolve repository root: %w", err)
+	}
+	root := strings.TrimSpace(string(out))
+	if root == "" || !filepath.IsAbs(root) {
+		return "", fmt.Errorf("repository root is not absolute")
+	}
+	return filepath.Clean(root), nil
+}
+
+func (r Runner) RemoteNames(ctx context.Context, p config.ProjectConfig) ([]string, error) {
+	out, err := r.command(ctx, p.Root, false, "remote")
+	if err != nil {
+		return nil, fmt.Errorf("list Git remotes: %w", err)
+	}
+	lines := strings.Fields(string(out))
+	if len(lines) == 0 {
+		return nil, fmt.Errorf("repository has no remotes")
+	}
+	return lines, nil
+}
+
 func (r Runner) Show(ctx context.Context, p config.ProjectConfig, rev string) (string, error) {
 	if err := model.ValidateRevision(rev); err != nil {
 		return "", err

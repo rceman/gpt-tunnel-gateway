@@ -190,7 +190,7 @@ func TestLoadMigratesGTWWorkerBindingAcrossRestart(t *testing.T) {
 	}
 	c.ProjectAgentBindings = map[string]map[string]AgentBinding{
 		GTWProjectID: {
-			LegacyGTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master", Profile: "coding"},
+			LegacyGTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master"},
 		},
 	}
 	path := filepath.Join(dir, "config.json")
@@ -243,8 +243,8 @@ func TestLoadRejectsGTWWorkerBindingCollision(t *testing.T) {
 	}
 	c.ProjectAgentBindings = map[string]map[string]AgentBinding{
 		GTWProjectID: {
-			LegacyGTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master", Profile: "coding"},
-			GTWWorkerAgentID:       {SessionKey: "other_runtime", Profile: "coding"},
+			LegacyGTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master"},
+			GTWWorkerAgentID:       {SessionKey: "other_runtime"},
 		},
 	}
 	data, err := json.Marshal(c)
@@ -271,14 +271,14 @@ func TestGTWWorkerBindingKeepsCanonicalRuntimeIdentity(t *testing.T) {
 	}
 	c.ProjectAgentBindings = map[string]map[string]AgentBinding{
 		"gpt-tunnel-gateway": {
-			"gtw-worker": {SessionKey: "gpt-tunnel-gateway_master", Profile: "coding"},
+			"gtw-worker": {SessionKey: "gpt-tunnel-gateway_master"},
 		},
 	}
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	binding, found := c.ResolveAgentBinding("gpt-tunnel-gateway", "gtw-worker")
-	if !found || binding.SessionKey != "gpt-tunnel-gateway_master" || binding.Profile != "coding" {
+	if !found || binding.SessionKey != "gpt-tunnel-gateway_master" {
 		t.Fatalf("canonical Worker binding=%#v found=%v", binding, found)
 	}
 	if _, legacyFound := c.ResolveAgentBinding("gpt-tunnel-gateway", "gpt-review-planner"); legacyFound {

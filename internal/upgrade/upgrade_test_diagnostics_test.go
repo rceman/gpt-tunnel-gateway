@@ -26,7 +26,7 @@ func TestInspectConfiguredProjectsUsesManagedSnapshotAndRejectsMalformedRegistry
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry := config.ManagedProjectRegistry{SchemaVersion: config.ManagedProjectRegistrySchemaVersion, Revision: 1, Projects: map[string]config.ManagedProjectEntry{"managed": {Root: root, RepositoryURL: filepath.Join(stateDir, "managed.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "managed_master"}}}
+	registry := config.ManagedProjectRegistry{SchemaVersion: config.ManagedProjectRegistrySchemaVersion, Revision: 1, Projects: map[string]config.ManagedProjectEntry{"managed": {Root: root, RepositoryURL: filepath.Join(stateDir, "managed.git"), Remote: "origin", DefaultBranch: "main"}}}
 	if _, err := config.WriteManagedProjectRegistry(stateDir, digest, registry); err != nil {
 		t.Fatal(err)
 	}

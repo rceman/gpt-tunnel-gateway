@@ -129,7 +129,7 @@ func TestGenericAgentTailTranscriptDedupe(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
-		"example": {"coding-example": {SessionKey: ref, Profile: "coding"}},
+		"example": {"coding-example": {SessionKey: ref}},
 	}
 	tailInput := map[string]any{"agent": "coding-example", "lines": 2}
 	tailCall := func(id int, caller string) map[string]any {

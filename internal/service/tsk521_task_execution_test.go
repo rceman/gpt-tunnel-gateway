@@ -134,7 +134,7 @@ func seedTSK521Agent(t *testing.T, s *Service, agentID string) {
 	if s.Config.ProjectAgentBindings["example"] == nil {
 		s.Config.ProjectAgentBindings["example"] = map[string]config.AgentBinding{}
 	}
-	s.Config.ProjectAgentBindings["example"][agentID] = config.AgentBinding{SessionKey: agentID + "_master", Profile: "coding"}
+	s.Config.ProjectAgentBindings["example"][agentID] = config.AgentBinding{SessionKey: agentID + "_master"}
 }
 
 func TestTSK521TaskDispatchAgentSelectionFailsClosedAndExplicitlySelects(t *testing.T) {

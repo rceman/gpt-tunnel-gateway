@@ -127,8 +127,8 @@ func (s *Service) adrCreateShared(ctx context.Context, in ADRCreateInput) (Opera
 	if err := s.requireLocalTaskAuthoring(ctx, in.ADR.ProjectID); err != nil {
 		return OperationResult{}, err
 	}
-	project, ok := s.Config.Projects[in.ADR.ProjectID]
-	if !ok || model.ValidateProjectCode(project.ProjectCode) != nil {
+	project, err := s.EffectiveProjectConfig(in.ADR.ProjectID)
+	if err != nil || model.ValidateProjectCode(project.ProjectCode) != nil {
 		return OperationResult{}, fmt.Errorf("project %q has no local project code", in.ADR.ProjectID)
 	}
 	operationID := durableMutationOperationID(ctx)

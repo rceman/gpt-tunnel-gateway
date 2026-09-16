@@ -62,7 +62,6 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 			RequestedReasoning: recommended,
 			ResolvedReasoning:  agent.RecommendedReasoning,
 			SessionKey:         binding.SessionKey,
-			Profile:            binding.Profile,
 		}, nil
 	}
 	agents, err := s.AgentList(ctx, in.ProjectID)
@@ -72,7 +71,6 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 	type candidate struct {
 		agent   model.Agent
 		session string
-		profile string
 		score   int
 	}
 	candidates := make([]candidate, 0, len(agents))
@@ -98,7 +96,6 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 		candidates = append(candidates, candidate{
 			agent:   agent,
 			session: binding.SessionKey,
-			profile: binding.Profile,
 			score:   routingScore(agent.RecommendedReasoning),
 		})
 	}
@@ -115,7 +112,6 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 			AgentID:           selected.agent.AgentID,
 			Role:              selected.agent.Role,
 			SessionKey:        selected.session,
-			Profile:           selected.profile,
 			ResolvedReasoning: selected.agent.RecommendedReasoning,
 		}, nil
 	}
@@ -155,22 +151,19 @@ func (s *Service) ResolveAgent(ctx context.Context, in AgentResolveInput) (Resol
 		RequestedReasoning: recommended,
 		ResolvedReasoning:  selected.agent.RecommendedReasoning,
 		SessionKey:         selected.session,
-		Profile:            selected.profile,
 		Fallback:           fallback,
 		FallbackReason:     fallbackReason,
 	}, nil
 }
 
 func (s *Service) resolveExactAgentBinding(ctx context.Context, binding config.AgentBinding, requireUsable bool) (config.AgentBinding, bool, error) {
-	if binding.Profile == "" {
-		authority, err := s.Airelay.ResolveSessionAuthority(ctx, binding.SessionKey, requireUsable)
-		if err != nil {
-			return config.AgentBinding{}, false, err
-		}
-		binding.Profile = authority.Profile
-		return binding, true, nil
+	if !requireUsable {
+		return binding, false, nil
 	}
-	return binding, false, nil
+	if _, err := s.Airelay.ResolveSessionAuthority(ctx, binding.SessionKey, true); err != nil {
+		return config.AgentBinding{}, false, err
+	}
+	return binding, true, nil
 }
 
 func validRoutingReasoning(value string) bool {

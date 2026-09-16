@@ -22,7 +22,7 @@ func TestGitcmdResolvesManagedProjectAfterServiceConstruction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	next := config.ManagedProjectRegistry{SchemaVersion: config.ManagedProjectRegistrySchemaVersion, Revision: 1, Projects: map[string]config.ManagedProjectEntry{"managed": {Root: projectRoot, RepositoryURL: "git@example.invalid:managed.git", Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "managed_master"}}}
+	next := config.ManagedProjectRegistry{SchemaVersion: config.ManagedProjectRegistrySchemaVersion, Revision: 1, Projects: map[string]config.ManagedProjectEntry{"managed": {Root: projectRoot, RepositoryURL: "git@example.invalid:managed.git", Remote: "origin", DefaultBranch: "main"}}}
 	if _, err := config.WriteManagedProjectRegistry(stateDir, digest, next); err != nil {
 		t.Fatal(err)
 	}

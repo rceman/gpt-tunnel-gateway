@@ -34,16 +34,15 @@ func EffectiveProjects(static map[string]ProjectConfig, managed ManagedProjectRe
 	}
 	for id, entry := range managed.Projects {
 		mirror := filepath.Clean(ManagedProjectMirrorPath(stateDir, id))
-		if err := recordProjectCollision(id, entry.Root, mirror, entry.AirelaySessionKey, ids, roots, mirrors, sessions); err != nil {
+		if err := recordProjectCollision(id, entry.Root, mirror, "", ids, roots, mirrors, sessions); err != nil {
 			return nil, err
 		}
 		result[id] = ProjectConfig{
-			Root:              entry.Root,
-			Mirror:            mirror,
-			Remote:            entry.Remote,
-			DefaultBranch:     entry.DefaultBranch,
-			ProjectCode:       entry.ProjectCode,
-			AirelaySessionKey: entry.AirelaySessionKey,
+			Root:          entry.Root,
+			Mirror:        mirror,
+			Remote:        entry.Remote,
+			DefaultBranch: entry.DefaultBranch,
+			ProjectCode:   entry.ProjectCode,
 		}
 	}
 	return result, nil
@@ -74,7 +73,7 @@ func EffectiveProjectsFromValidatedStatic(static map[string]ProjectConfig, manag
 		result[id] = project
 	}
 	for id, project := range managedProjects {
-		if err := recordProjectCollision(id, project.Root, project.Mirror, project.AirelaySessionKey, ids, roots, mirrors, sessions); err != nil {
+		if err := recordProjectCollision(id, project.Root, project.Mirror, "", ids, roots, mirrors, sessions); err != nil {
 			return nil, err
 		}
 		result[id] = project
@@ -136,12 +135,14 @@ func recordProjectCollision(id, root, mirror, session string, ids, roots, mirror
 	if previous, ok := mirrors[mirror]; ok {
 		return fmt.Errorf("duplicate project mirror %q from %s and %s", mirror, previous, id)
 	}
-	if previous, ok := sessions[session]; ok {
-		return fmt.Errorf("duplicate project session %q from %s and %s", session, previous, id)
+	if session != "" {
+		if previous, ok := sessions[session]; ok {
+			return fmt.Errorf("duplicate project session %q from %s and %s", session, previous, id)
+		}
+		sessions[session] = id
 	}
 	ids[id] = id
 	roots[root] = id
 	mirrors[mirror] = id
-	sessions[session] = id
 	return nil
 }

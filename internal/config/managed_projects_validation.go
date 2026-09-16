@@ -20,7 +20,6 @@ func validateManagedProjectRegistry(registry ManagedProjectRegistry, stateDir st
 		return fmt.Errorf("managed project registry exceeds %d entries", MaxManagedProjectEntries)
 	}
 	roots := map[string]string{}
-	sessions := map[string]string{}
 	mirrors := map[string]string{}
 	for id, entry := range registry.Projects {
 		if err := validateManagedProjectEntry(id, entry); err != nil {
@@ -29,11 +28,7 @@ func validateManagedProjectRegistry(registry ManagedProjectRegistry, stateDir st
 		if previous, ok := roots[entry.Root]; ok {
 			return fmt.Errorf("duplicate managed project root %q from %s and %s", entry.Root, previous, id)
 		}
-		if previous, ok := sessions[entry.AirelaySessionKey]; ok {
-			return fmt.Errorf("duplicate managed project session %q from %s and %s", entry.AirelaySessionKey, previous, id)
-		}
 		roots[entry.Root] = id
-		sessions[entry.AirelaySessionKey] = id
 		if stateDir != "" {
 			mirror := filepath.Clean(ManagedProjectMirrorPath(stateDir, id))
 			if previous, ok := mirrors[mirror]; ok {
@@ -68,7 +63,7 @@ func validateManagedProjectEntry(id string, entry ManagedProjectEntry) error {
 	if normalized != entry.RepositoryURL {
 		return fmt.Errorf("managed project %q repository_url is not normalized", id)
 	}
-	if err := validateProjectValues(entry.Remote, entry.DefaultBranch, entry.AirelaySessionKey); err != nil {
+	if err := validateManagedProjectValues(entry.Remote, entry.DefaultBranch); err != nil {
 		return fmt.Errorf("invalid managed project %q: %w", id, err)
 	}
 	if entry.ProjectCode != "" && !managedProjectCodeRE.MatchString(entry.ProjectCode) {
@@ -102,6 +97,22 @@ func validateProjectValues(remote, branch, session string) error {
 	}
 	if !managedSessionRE.MatchString(session) {
 		return fmt.Errorf("invalid airelay_session_key")
+	}
+	return nil
+}
+
+func validateManagedProjectValues(remote, branch string) error {
+	if err := rejectUnsafeManagedValue(remote, "remote"); err != nil {
+		return err
+	}
+	if err := rejectUnsafeManagedValue(branch, "default_branch"); err != nil {
+		return err
+	}
+	if !managedRemoteRE.MatchString(remote) {
+		return fmt.Errorf("invalid remote")
+	}
+	if err := validateBranch(branch); err != nil {
+		return fmt.Errorf("invalid default_branch: %w", err)
 	}
 	return nil
 }

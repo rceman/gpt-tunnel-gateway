@@ -14,7 +14,7 @@ func TestManagedProjectRegistryNestedDuplicateAndTrailingFieldsRejected(t *testi
 	if err := os.Mkdir(root, 0o755); err != nil {
 		t.Fatalf("create root: %v", err)
 	}
-	entry := `{"root":"` + root + `","repository_url":"git@github.com:example/demo.git","remote":"origin","default_branch":"main","airelay_session_key":"demo_master"}`
+	entry := `{"root":"` + root + `","repository_url":"git@github.com:example/demo.git","remote":"origin","default_branch":"main"}`
 	for name, data := range map[string]string{
 		"duplicate_entry_field": `{"schema_version":1,"revision":0,"projects":{"demo":` + strings.Replace(entry, `"remote":"origin"`, `"remote":"origin","remote":"origin"`, 1) + `}}`,
 		"unknown_entry_field":   `{"schema_version":1,"revision":0,"projects":{"demo":` + strings.TrimSuffix(entry, "}") + `,"unknown":true}}`,

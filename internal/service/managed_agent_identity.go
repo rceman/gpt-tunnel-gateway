@@ -12,7 +12,7 @@ import (
 )
 
 func (s *Service) MigrateGTWWorkerIdentityLocalShared(ctx context.Context) error {
-	if _, ok := s.Config.Projects[config.GTWProjectID]; !ok || s.Durability == nil {
+	if _, err := s.EffectiveProjectConfig(config.GTWProjectID); err != nil || s.Durability == nil {
 		return nil
 	}
 	if err := s.Durability.MigrateLocalAgentIdentity(ctx, config.GTWProjectID, config.LegacyGTWWorkerAgentID, config.GTWWorkerAgentID); err != nil {
@@ -25,7 +25,7 @@ func (s *Service) MigrateGTWWorkerIdentityLocalShared(ctx context.Context) error
 }
 
 func (s *Service) ReconcileGTWWorkerIdentity(ctx context.Context) error {
-	if _, ok := s.Config.Projects[config.GTWProjectID]; !ok {
+	if _, err := s.EffectiveProjectConfig(config.GTWProjectID); err != nil {
 		return nil
 	}
 	agentDir := s.projectPrefix(config.GTWProjectID) + "/agents"

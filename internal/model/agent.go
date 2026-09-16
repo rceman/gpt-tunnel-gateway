@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/workflowrole"
 )
 
 const (
@@ -32,6 +34,7 @@ type Agent struct {
 	ProjectID            string    `json:"project_id"`
 	AgentID              string    `json:"agent_id"`
 	Role                 string    `json:"role"`
+	WorkflowRole         string    `json:"workflow_role,omitempty"`
 	Enabled              bool      `json:"enabled"`
 	RecommendedReasoning string    `json:"recommended_reasoning"`
 	Capabilities         []string  `json:"capabilities"`
@@ -74,6 +77,9 @@ func ValidateAgent(v Agent) error {
 	}
 	if v.Role != AgentRoleCoding {
 		return fmt.Errorf("invalid agent role")
+	}
+	if v.WorkflowRole != "" && !workflowrole.Is(v.WorkflowRole) {
+		return fmt.Errorf("invalid agent workflow_role")
 	}
 	switch v.RecommendedReasoning {
 	case ReasoningLow, ReasoningMedium, ReasoningHigh, ReasoningMax, ReasoningBestAvailable:

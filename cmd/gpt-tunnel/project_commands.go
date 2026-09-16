@@ -11,6 +11,27 @@ import (
 func project(ctx context.Context, s *service.Service, args []string) {
 	require(args, 1)
 	switch args[0] {
+	case "onboard":
+		input, err := parseProjectOnboardArgs(args[1:])
+		if err != nil {
+			if err == errInteractiveOnboard {
+				input, err = promptProjectOnboard()
+			}
+			if err != nil {
+				fatal(err)
+			}
+		}
+		db, err := sqlitestore.Open(s.Config.StateDir)
+		if err != nil {
+			fatal(fmt.Errorf("open Shared/Local durability for project onboarding: %w", err))
+		}
+		defer db.Close()
+		s.Durability = db
+		result, err := s.ProjectOnboard(ctx, input)
+		if err != nil {
+			fatal(err)
+		}
+		output(renderProjectOnboard(result))
 	case "list":
 		v, e := s.ProjectList(ctx)
 		if e != nil {

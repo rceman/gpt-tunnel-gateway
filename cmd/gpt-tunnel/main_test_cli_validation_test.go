@@ -30,16 +30,20 @@ func TestCancelAcknowledgeCLIArgumentsAreStrict(t *testing.T) {
 	}
 }
 
-func TestOnboardingIsNotExposedByCLI(t *testing.T) {
-	data, err := os.ReadFile("main.go")
+func TestOnboardingIsCLIOnly(t *testing.T) {
+	mainData, err := os.ReadFile("main.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := string(data)
-	for _, forbidden := range []string{"onboard", "onboard-status", "onboard-recover", "ProjectOnboard"} {
-		if strings.Contains(source, forbidden) {
-			t.Fatalf("onboarding CLI surface contains %q", forbidden)
-		}
+	if strings.Contains(string(mainData), "ProjectOnboard") {
+		t.Fatal("onboarding service authority leaked into the CLI entrypoint")
+	}
+	projectData, err := os.ReadFile("project_commands.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(projectData), `case "onboard":`) {
+		t.Fatal("project onboarding is not exposed by the CLI")
 	}
 }
 

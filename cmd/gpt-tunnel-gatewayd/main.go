@@ -113,6 +113,7 @@ func bootstrapGateway(c config.Config, observe func(string)) (*gatewayRuntime, e
 		return nil, fmt.Errorf("legacy session cutover: %w", err)
 	}
 	svc := service.NewWithDurabilityDeferredWorkers(c, durability)
+	svc.EnableHostConfigRefresh()
 	startup("LOCAL_SHARED_AGENT_IDENTITY_MIGRATION")
 	if err := svc.MigrateGTWWorkerIdentityLocalShared(context.Background()); err != nil {
 		_ = durability.Close()

@@ -77,11 +77,10 @@ func TestManagedProjectRegistryWriterUsesDigestRevisionAndAtomicState(t *testing
 	invalid := next
 	invalid.Revision = 2
 	invalid.Projects["managed"] = ManagedProjectEntry{
-		Root:              filepath.Join(stateDir, "missing"),
-		RepositoryURL:     "git@github.com:example/managed.git",
-		Remote:            "origin",
-		DefaultBranch:     "main",
-		AirelaySessionKey: "managed_master",
+		Root:          filepath.Join(stateDir, "missing"),
+		RepositoryURL: "git@github.com:example/managed.git",
+		Remote:        "origin",
+		DefaultBranch: "main",
 	}
 	if _, err := WriteManagedProjectRegistry(stateDir, receipt.AfterDigest, invalid); err == nil {
 		t.Fatalf("invalid registry write unexpectedly succeeded")

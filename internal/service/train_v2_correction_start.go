@@ -80,7 +80,10 @@ func (s *Service) TrainV2CorrectionStart(ctx context.Context, in TrainV2Correcti
 	if err != nil || runtime.ItemPosition != in.RejectedItemPosition || runtime.AttemptNumber != in.RejectedAttemptNumber || runtime.TaskID != rejected.TaskID {
 		return trainv2.StartResult{}, fmt.Errorf("local runtime is not bound to the rejected Attempt")
 	}
-	lane := s.Config.Projects[in.ProjectID]
+	lane, err := s.EffectiveProjectConfig(in.ProjectID)
+	if err != nil {
+		return trainv2.StartResult{}, err
+	}
 	lane.Root = runtime.WorktreePath
 	head, branch, clean, err := s.Git.CurrentHead(ctx, lane)
 	if err != nil {

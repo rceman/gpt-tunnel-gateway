@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Service) projectHasExplicitAgentBinding(ctx context.Context, projectID string) bool {
-	if bindings, ok := s.Config.ProjectAgentBindings[projectID]; ok && len(bindings) > 0 {
+	if s.hasProjectAgentBinding(projectID) {
 		return true
 	}
 	agents, err := s.AgentList(ctx, projectID)
@@ -16,7 +16,7 @@ func (s *Service) projectHasExplicitAgentBinding(ctx context.Context, projectID 
 		return false
 	}
 	for _, agent := range agents {
-		if _, ok := s.Config.ResolveAgentBinding(projectID, agent.AgentID); ok {
+		if _, ok := s.agentBinding(projectID, agent.AgentID); ok {
 			return true
 		}
 	}

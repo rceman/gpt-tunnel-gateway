@@ -183,7 +183,7 @@ esac
 	s.Config.AirelayCommand = command
 	s.Airelay.Command = command
 	s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
-		"example": {"coding-example": {SessionKey: "example_master", Profile: "coding"}},
+		"example": {"coding-example": {SessionKey: "example_master"}},
 	}
 	server := &Server{Service: s}
 	sessionID := genericSession(t, s, "example")

@@ -105,7 +105,10 @@ func (s *Service) advanceTrainV2Locked(ctx context.Context, in TrainV2AdvanceInp
 	nextItem.TaskRevision = currentTask.Revision
 	nextItem.TaskRevisionSHA256 = currentTask.RevisionSHA256
 
-	lane := s.Config.Projects[in.ProjectID]
+	lane, err := s.EffectiveProjectConfig(in.ProjectID)
+	if err != nil {
+		return trainv2.StartResult{}, err
+	}
 	lane.Root = runtime.WorktreePath
 	head, branch, clean, err := s.Git.CurrentHead(ctx, lane)
 	if err != nil {

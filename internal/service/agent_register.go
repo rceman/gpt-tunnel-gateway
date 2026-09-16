@@ -10,6 +10,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
@@ -19,6 +20,16 @@ const (
 
 var defaultRegisteredAgentCapabilities = []string{"git", "review"}
 
+func validatePortableAgentWorkflowRole(role string) error {
+	if role == "" {
+		return nil
+	}
+	if _, ok := durableSession.WorkflowRoleByKey(role); !ok {
+		return fmt.Errorf("unsupported Agent workflow role %q", role)
+	}
+	return nil
+}
+
 // AgentRegister creates one portable project Agent and its Local projection.
 // It is deliberately separate from AgentUpdate: bootstrap must never turn an
 // update of a missing record into an implicit registration.
@@ -27,6 +38,9 @@ func (s *Service) AgentRegister(ctx context.Context, in AgentRegisterInput) (mod
 		return model.Agent{}, OperationResult{}, err
 	}
 	if err := model.ValidateObjectIdentifier(in.AgentID); err != nil {
+		return model.Agent{}, OperationResult{}, err
+	}
+	if err := validatePortableAgentWorkflowRole(in.WorkflowRole); err != nil {
 		return model.Agent{}, OperationResult{}, err
 	}
 	if s.Durability == nil {
@@ -80,6 +94,7 @@ func (s *Service) AgentRegister(ctx context.Context, in AgentRegisterInput) (mod
 		ProjectID:            in.ProjectID,
 		AgentID:              in.AgentID,
 		Role:                 model.AgentRoleCoding,
+		WorkflowRole:         in.WorkflowRole,
 		Enabled:              true,
 		RecommendedReasoning: defaultRegisteredAgentReasoning,
 		Capabilities:         append([]string(nil), defaultRegisteredAgentCapabilities...),
@@ -148,6 +163,76 @@ func (s *Service) AgentRegister(ctx context.Context, in AgentRegisterInput) (mod
 		ProjectID: in.ProjectID,
 		Status:    "registered",
 	}, nil
+}
+
+func (s *Service) ensurePortableAgentWorkflowRole(ctx context.Context, existing model.Agent, workflowRole string) (model.Agent, error) {
+	if err := validatePortableAgentWorkflowRole(workflowRole); err != nil {
+		return model.Agent{}, err
+	}
+	if existing.WorkflowRole != "" {
+		if existing.WorkflowRole != workflowRole {
+			return model.Agent{}, fmt.Errorf("Agent %q is already assigned workflow role %q", existing.AgentID, existing.WorkflowRole)
+		}
+		return existing, nil
+	}
+	hubRevision, err := s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		return model.Agent{}, err
+	}
+	path := s.agentPath(existing.ProjectID, existing.AgentID)
+	updated := existing
+	tx, err := s.Hub.Transact(ctx, hubRevision, "gateway: materialize Agent workflow role "+existing.ProjectID+"/"+existing.AgentID, func(worktree string) ([]string, error) {
+		if err := readWorktreeJSON(worktree, path, &updated); err != nil {
+			return nil, err
+		}
+		if err := model.ValidateAgent(updated); err != nil || updated.ProjectID != existing.ProjectID || updated.AgentID != existing.AgentID {
+			return nil, fmt.Errorf("invalid existing Agent")
+		}
+		if updated.WorkflowRole != "" {
+			return nil, fmt.Errorf("Agent %q workflow role changed during bootstrap", updated.AgentID)
+		}
+		updated.WorkflowRole = workflowRole
+		updatedAt := time.Now().UTC()
+		if updatedAt.Before(updated.CreatedAt) {
+			updatedAt = updated.CreatedAt
+		}
+		updated.UpdatedAt = updatedAt
+		if err := hub.WriteJSON(worktree, path, updated); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	if err != nil {
+		return model.Agent{}, err
+	}
+	if updated.WorkflowRole == "" {
+		return updated, nil
+	}
+	payload, err := json.Marshal(updated)
+	if err != nil {
+		return model.Agent{}, fmt.Errorf("encode Local Agent projection: %w", err)
+	}
+	if s.Durability == nil {
+		return updated, nil
+	}
+	if err := s.Durability.UpsertLocalAgent(ctx, sqlitestore.LocalAgent{
+		ProjectID: existing.ProjectID,
+		AgentID:   existing.AgentID,
+		Payload:   payload,
+		UpdatedAt: updated.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}); err != nil {
+		_, rollbackErr := s.Hub.Transact(ctx, tx.After, "gateway: rollback Agent workflow role "+existing.ProjectID+"/"+existing.AgentID, func(worktree string) ([]string, error) {
+			if err := hub.WriteJSON(worktree, path, existing); err != nil {
+				return nil, err
+			}
+			return []string{path}, nil
+		})
+		if rollbackErr != nil {
+			return model.Agent{}, fmt.Errorf("Agent workflow role left Hub/Local state inconsistent: projection=%v rollback=%v", err, rollbackErr)
+		}
+		return model.Agent{}, fmt.Errorf("write Local Agent projection: %w", err)
+	}
+	return updated, nil
 }
 
 func listWorktreeAgents(worktree, prefix string) ([]string, error) {

@@ -214,20 +214,25 @@ func (e *ManagedProjectEntry) UnmarshalJSON(data []byte) error {
 	}
 	for key := range fields {
 		switch key {
-		case "root", "repository_url", "remote", "default_branch", "airelay_session_key":
+		case "root", "repository_url", "remote", "default_branch", "project_code", "airelay_session_key":
 		default:
 			return fmt.Errorf("unknown managed project field %q", key)
 		}
 	}
-	for _, key := range []string{"root", "repository_url", "remote", "default_branch", "airelay_session_key"} {
+	for _, key := range []string{"root", "repository_url", "remote", "default_branch"} {
 		if _, ok := fields[key]; !ok {
 			return fmt.Errorf("managed project field %q is required", key)
 		}
 	}
 	var entry ManagedProjectEntry
-	for key, target := range map[string]*string{"root": &entry.Root, "repository_url": &entry.RepositoryURL, "remote": &entry.Remote, "default_branch": &entry.DefaultBranch, "airelay_session_key": &entry.AirelaySessionKey} {
+	for key, target := range map[string]*string{"root": &entry.Root, "repository_url": &entry.RepositoryURL, "remote": &entry.Remote, "default_branch": &entry.DefaultBranch} {
 		if err := json.Unmarshal(fields[key], target); err != nil {
 			return fmt.Errorf("%s: %w", key, err)
+		}
+	}
+	if raw, ok := fields["project_code"]; ok {
+		if err := json.Unmarshal(raw, &entry.ProjectCode); err != nil {
+			return fmt.Errorf("project_code: %w", err)
 		}
 	}
 	*e = entry
@@ -236,16 +241,16 @@ func (e *ManagedProjectEntry) UnmarshalJSON(data []byte) error {
 
 func (e ManagedProjectEntry) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Root              string `json:"root"`
-		RepositoryURL     string `json:"repository_url"`
-		Remote            string `json:"remote"`
-		DefaultBranch     string `json:"default_branch"`
-		AirelaySessionKey string `json:"airelay_session_key"`
+		Root          string `json:"root"`
+		RepositoryURL string `json:"repository_url"`
+		Remote        string `json:"remote"`
+		DefaultBranch string `json:"default_branch"`
+		ProjectCode   string `json:"project_code,omitempty"`
 	}{
-		Root:              e.Root,
-		RepositoryURL:     e.RepositoryURL,
-		Remote:            e.Remote,
-		DefaultBranch:     e.DefaultBranch,
-		AirelaySessionKey: e.AirelaySessionKey,
+		Root:          e.Root,
+		RepositoryURL: e.RepositoryURL,
+		Remote:        e.Remote,
+		DefaultBranch: e.DefaultBranch,
+		ProjectCode:   e.ProjectCode,
 	})
 }

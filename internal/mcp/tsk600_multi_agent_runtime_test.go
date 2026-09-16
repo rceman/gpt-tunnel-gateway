@@ -18,7 +18,7 @@ func TestTSK629RuntimeKeyFailsClosedDespiteAmbiguousBindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedTSK571Agent(t, fixture.server.Service, revision, "coding-secondary", true)
-	fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID]["coding-secondary"] = config.AgentBinding{SessionKey: fixture.runtime, Profile: "coding"}
+	fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID]["coding-secondary"] = config.AgentBinding{SessionKey: fixture.runtime}
 
 	result := fixture.call(t, fixture.runtime, "agent/status", map[string]any{})
 	message := tsk571ErrorMessage(t, result)
@@ -37,7 +37,7 @@ func TestTSK629LogicalAgentAndTaskRoutingStaySeparate(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedTSK571Agent(t, fixture.server.Service, revision, "coding-worker", true)
-	fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID]["coding-worker"] = config.AgentBinding{SessionKey: workerRuntime, Profile: "coding"}
+	fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID]["coding-worker"] = config.AgentBinding{SessionKey: workerRuntime}
 	workerSession := fixture.addSession(t, fixture.projectID, "EXM", durableSession.RoleWorker, workerRuntime)
 	planner := fixture.sessions[durableSession.RolePlanner]
 

@@ -57,7 +57,7 @@ func TestBootstrapGTWIdentityMigrationDoesNotRequireHub(t *testing.T) {
 	}
 	c.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
 		config.GTWProjectID: {
-			config.GTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master", Profile: "coding"},
+			config.GTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master"},
 		},
 	}
 	db, err := sqlitestore.Open(c.StateDir)

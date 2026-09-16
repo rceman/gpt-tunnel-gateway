@@ -62,7 +62,26 @@ const (
 
 type AgentBinding struct {
 	SessionKey string `json:"session_key"`
-	Profile    string `json:"profile,omitempty"`
+}
+
+func (b *AgentBinding) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for key := range fields {
+		if key != "session_key" && key != "profile" {
+			return fmt.Errorf("unknown agent binding field %q", key)
+		}
+	}
+	var sessionKey string
+	if raw, ok := fields["session_key"]; ok {
+		if err := json.Unmarshal(raw, &sessionKey); err != nil {
+			return fmt.Errorf("session_key: %w", err)
+		}
+	}
+	*b = AgentBinding{SessionKey: sessionKey}
+	return nil
 }
 
 func (c Config) ResolveAgentBinding(projectID, agentID string) (AgentBinding, bool) {
@@ -106,9 +125,6 @@ func (b AgentBinding) Validate() error {
 	if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`).MatchString(b.SessionKey) {
 		return fmt.Errorf("invalid agent binding session_key")
 	}
-	if b.Profile != "" && !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`).MatchString(b.Profile) {
-		return fmt.Errorf("invalid agent binding profile")
-	}
 	return nil
 }
 
@@ -147,12 +163,19 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("parse config: trailing JSON content")
 	}
 	c.expand()
+	legacyProfiles := hasLegacyAgentBindingProfiles(data)
+	legacyWorker := hasLegacyGTWWorkerBinding(c)
 	if err := c.migrateGTWWorkerBinding(); err != nil {
 		return Config{}, err
 	}
 	c.applyStandingDebugPolicy()
 	if err := c.Validate(); err != nil {
 		return Config{}, err
+	}
+	if legacyProfiles || legacyWorker {
+		if err := fsutil.WriteJSONAtomic(path, c, 0o600); err != nil {
+			return Config{}, fmt.Errorf("persist canonical host bindings: %w", err)
+		}
 	}
 	c.StateDir = filepath.Clean(c.StateDir)
 	for id, p := range c.Projects {
@@ -162,6 +185,90 @@ func Load(path string) (Config, error) {
 		c.Projects[id] = p
 	}
 	return c, nil
+}
+
+func hasLegacyGTWWorkerBinding(c Config) bool {
+	_, ok := c.ProjectAgentBindings[GTWProjectID][LegacyGTWWorkerAgentID]
+	return ok
+}
+
+func hasLegacyAgentBindingProfiles(data []byte) bool {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil {
+		return false
+	}
+	raw, ok := root["project_agent_bindings"]
+	if !ok {
+		return false
+	}
+	var projects map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &projects); err != nil {
+		return false
+	}
+	for _, bindings := range projects {
+		for _, binding := range bindings {
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(binding, &fields); err == nil {
+				if _, ok := fields["profile"]; ok {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func UpdateAgentBinding(path, projectID, agentID string, expected *AgentBinding, binding AgentBinding) ([]byte, error) {
+	if path == "" {
+		path = DefaultPath()
+	}
+	if err := binding.Validate(); err != nil {
+		return nil, err
+	}
+	original, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	c, err := Load(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateBindingIdentity(projectID, agentID); err != nil {
+		return nil, err
+	}
+	current, found := c.ResolveAgentBinding(projectID, agentID)
+	if expected != nil {
+		if !found || current != *expected {
+			return nil, fmt.Errorf("agent binding changed for %q/%q", projectID, agentID)
+		}
+	}
+	if found && current != binding {
+		return nil, fmt.Errorf("agent binding conflict for %q/%q", projectID, agentID)
+	}
+	if c.ProjectAgentBindings == nil {
+		c.ProjectAgentBindings = map[string]map[string]AgentBinding{}
+	}
+	if c.ProjectAgentBindings[projectID] == nil {
+		c.ProjectAgentBindings[projectID] = map[string]AgentBinding{}
+	}
+	c.ProjectAgentBindings[projectID][agentID] = binding
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	if err := fsutil.WriteJSONAtomic(path, c, 0o600); err != nil {
+		return nil, err
+	}
+	return original, nil
+}
+
+func validateBindingIdentity(projectID, agentID string) error {
+	if !regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`).MatchString(projectID) {
+		return fmt.Errorf("invalid project agent binding project id %q", projectID)
+	}
+	if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`).MatchString(agentID) {
+		return fmt.Errorf("invalid project agent binding id %q", agentID)
+	}
+	return nil
 }
 
 // UpdateProjectCode changes only one existing host project code and returns

@@ -192,7 +192,7 @@ func TestManagedProjectRegistryCanonicalizesRootsAndRejectsInvalidValues(t *test
 	invalid := []ManagedProjectRegistry{
 		{SchemaVersion: 2, Projects: map[string]ManagedProjectEntry{}},
 		{SchemaVersion: 1, Projects: map[string]ManagedProjectEntry{"bad id!": managedTestEntry(root, "bad")}},
-		{SchemaVersion: 1, Projects: map[string]ManagedProjectEntry{"demo": {Root: root, RepositoryURL: "git@github.com:example/demo.git\n", Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "demo_master"}}},
+		{SchemaVersion: 1, Projects: map[string]ManagedProjectEntry{"demo": {Root: root, RepositoryURL: "git@github.com:example/demo.git\n", Remote: "origin", DefaultBranch: "main"}}},
 	}
 	for index, candidate := range invalid {
 		if err := candidate.ValidateForStateDir(stateDir); err == nil {

@@ -52,9 +52,9 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 	if err != nil {
 		return trainv2.StartResult{}, err
 	}
-	projectConfig, ok := s.Config.Projects[in.ProjectID]
-	if !ok {
-		return trainv2.StartResult{}, fmt.Errorf("project %q has no local runtime configuration", in.ProjectID)
+	projectConfig, err := s.EffectiveProjectConfig(in.ProjectID)
+	if err != nil {
+		return trainv2.StartResult{}, fmt.Errorf("project %q has no local runtime configuration: %w", in.ProjectID, err)
 	}
 	resolved, err := s.ResolveAgent(ctx, AgentResolveInput{
 		ProjectID:            in.ProjectID,
@@ -69,6 +69,10 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 	if err := s.checkSessionAvailableForTrainAttempt(ctx, resolved.SessionKey, train.ID); err != nil {
 		return trainv2.StartResult{}, err
 	}
+	authority, err := s.Airelay.ResolveSessionAuthority(ctx, resolved.SessionKey, true)
+	if err != nil {
+		return trainv2.StartResult{}, fmt.Errorf("resolve Agent runtime authority: %w", err)
+	}
 	return trainv2.Start(ctx, trainv2.StartInput{
 		ProjectID:           in.ProjectID,
 		TrainID:             in.TrainID,
@@ -78,7 +82,7 @@ func (s *Service) TrainV2Start(ctx context.Context, in TrainV2StartInput) (train
 		ResolvedReasoning:   resolved.ResolvedReasoning,
 		ResolvedAgentID:     resolved.AgentID,
 		SessionKey:          resolved.SessionKey,
-		Profile:             resolved.Profile,
+		Profile:             authority.Profile,
 		AgentFallback:       resolved.Fallback,
 		AgentFallbackReason: resolved.FallbackReason,
 		ExpectedHubRevision: in.ExpectedHubRevision,

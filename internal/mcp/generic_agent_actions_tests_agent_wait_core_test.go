@@ -150,7 +150,7 @@ func TestCanonicalAgentPublicMCPContractE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
-		"example": {"coding-example": {SessionKey: ref, Profile: "coding"}},
+		"example": {"coding-example": {SessionKey: ref}},
 	}
 
 	schema := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{

@@ -16,9 +16,8 @@ func (s *Service) requireLocalTaskAuthoring(ctx context.Context, projectID strin
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return err
 	}
-	_, ok := s.Config.Projects[projectID]
-	if !ok {
-		return fmt.Errorf("project %q is not configured locally", projectID)
+	if _, err := s.EffectiveProjectConfig(projectID); err != nil {
+		return fmt.Errorf("project %q is not configured locally: %w", projectID, err)
 	}
 	return nil
 }
@@ -27,7 +26,11 @@ func (s *Service) sharedTaskProjectCode(ctx context.Context, projectID string) (
 	if err := s.requireLocalTaskAuthoring(ctx, projectID); err != nil {
 		return "", err
 	}
-	if code := s.Config.Projects[projectID].ProjectCode; model.ValidateProjectCode(code) == nil {
+	project, err := s.EffectiveProjectConfig(projectID)
+	if err != nil {
+		return "", err
+	}
+	if code := project.ProjectCode; model.ValidateProjectCode(code) == nil {
 		return code, nil
 	}
 	code, _, found, err := s.Durability.ReadSharedTaskSequence(ctx, projectID)

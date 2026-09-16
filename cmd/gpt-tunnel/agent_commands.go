@@ -13,12 +13,13 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 	require(args, 2)
 	switch args[0] {
 	case "register":
-		if len(args) < 3 || len(args) > 4 {
+		input, err := parseAgentRegisterArgs(args[1:])
+		if err != nil {
 			usage()
 		}
-		ex, rest := expected(args[3:])
-		if len(rest) != 0 {
-			usage()
+		projectID, err := s.ProjectIDForRoot(ctx, "")
+		if err != nil {
+			fatal(err)
 		}
 		db, err := sqlitestore.Open(s.Config.StateDir)
 		if err != nil {
@@ -26,11 +27,12 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 		}
 		defer db.Close()
 		s.Durability = db
-		v, _, err := s.AgentRegister(ctx, service.AgentRegisterInput{ProjectID: args[1], AgentID: args[2], WriteOptions: service.WriteOptions{ExpectedHubRevision: ex}})
+		input.ProjectID = projectID
+		result, err := s.AgentBootstrap(ctx, input)
 		if err != nil {
 			fatal(err)
 		}
-		output(v)
+		output(renderAgentRegister(result))
 	case "send":
 		if len(args) != 4 || args[2] != "--text" {
 			usage()

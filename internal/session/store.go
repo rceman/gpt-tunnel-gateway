@@ -12,10 +12,6 @@ import (
 
 const (
 	SchemaVersion      = 1
-	RolePlanner        = "planner"
-	RoleLead           = "lead"
-	RoleAdvisor        = "advisor"
-	RoleWorker         = "worker"
 	SessionTypeChatGPT = "chatgpt"
 	StatusActive       = "active"
 	StatusEnded        = "ended"

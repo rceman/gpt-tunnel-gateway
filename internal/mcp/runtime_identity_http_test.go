@@ -41,7 +41,7 @@ func newTSK571HTTPFixture(t *testing.T, roles []string, bind, enabled bool) *tsk
 	server.Service.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{}
 	if bind {
 		server.Service.Config.ProjectAgentBindings["example"] = map[string]config.AgentBinding{
-			"coding-example": {SessionKey: runtimeKey, Profile: "coding"},
+			"coding-example": {SessionKey: runtimeKey},
 		}
 	}
 	server.Service.Airelay.Command = seedTSK571Airelay(t)

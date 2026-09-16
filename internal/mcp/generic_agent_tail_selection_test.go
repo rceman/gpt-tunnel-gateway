@@ -32,7 +32,7 @@ func TestGenericAgentTailSelectsOnlyUnambiguousDurableAgentSession(t *testing.T)
 		t.Fatal(err)
 	}
 	s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
-		"example": {"coding-example": {SessionKey: refOne, Profile: "coding"}},
+		"example": {"coding-example": {SessionKey: refOne}},
 	}
 	call := func(id int, input map[string]any) map[string]any {
 		t.Helper()
@@ -70,7 +70,7 @@ func TestGenericAgentTailSelectsOnlyUnambiguousDurableAgentSession(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.Config.ProjectAgentBindings["example"]["coding-example"] = config.AgentBinding{SessionKey: refB, Profile: "coding"}
+	s.Config.ProjectAgentBindings["example"]["coding-example"] = config.AgentBinding{SessionKey: refB}
 	selectedAgain := call(3, map[string]any{"agent": "coding-example", "lines": 1})
 	if selectedAgain["is_error"] != false || selectedAgain["result"].(map[string]any)["agent"] != "coding-example" {
 		t.Fatalf("configured logical Agent did not resolve its current target: %#v", selectedAgain)

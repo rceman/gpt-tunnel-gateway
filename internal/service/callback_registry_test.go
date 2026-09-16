@@ -41,7 +41,7 @@ func newCallbackDurableService(t *testing.T) (*Service, *sqlitestore.Databases) 
 	}
 	s := NewWithDurabilityDeferredWorkers(config.Config{
 		StateDir: state,
-		Projects: map[string]config.ProjectConfig{"example": {Root: filepath.Join(state, "project"), DefaultBranch: "main"}},
+		Projects: map[string]config.ProjectConfig{"example": {Root: filepath.Join(state, "project"), Mirror: filepath.Join(state, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "callback_runtime"}},
 	}, db)
 	return s, db
 }

@@ -172,15 +172,19 @@ func (s *Service) validateTrainExecutionSession(ctx context.Context, current cur
 	if err != nil {
 		return err
 	}
+	authority, err := s.Airelay.ResolveSessionAuthority(ctx, resolved.SessionKey, true)
+	if err != nil {
+		return err
+	}
 	if err := s.Airelay.ValidateExecutionSession(ctx, airelay.ExecutionSessionRequest{
 		BaseSessionKey: resolved.SessionKey,
-		Profile:        resolved.Profile,
+		Profile:        authority.Profile,
 		WorktreePath:   current.Runtime.WorktreePath,
 		Identity:       "train:" + current.Train.ProjectID + ":" + current.Train.ID,
 	}); err != nil {
 		return err
 	}
-	expectedKey, err := airelay.DeriveExecutionSessionKey(resolved.SessionKey, resolved.Profile, "train:"+current.Train.ProjectID+":"+current.Train.ID)
+	expectedKey, err := airelay.DeriveExecutionSessionKey(resolved.SessionKey, authority.Profile, "train:"+current.Train.ProjectID+":"+current.Train.ID)
 	if err != nil {
 		return err
 	}
@@ -242,10 +246,14 @@ func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task mod
 	if err != nil {
 		return TaskWorkResult{}, err
 	}
+	authority, err := s.Airelay.ResolveSessionAuthority(ctx, resolved.SessionKey, true)
+	if err != nil {
+		return TaskWorkResult{}, err
+	}
 	worktreePath := filepath.Clean(worktree.Root)
 	message := "Read Task " + task.ID + " and execute it only in the server-owned hotfix worktree " + worktreePath + "."
 	session := resolved.SessionKey
-	generation := hotfixExecutionGeneration(in.ProjectID, identity.HotfixRef, task.ID, task.Revision, head, resolved.AgentID, session, resolved.Profile, worktree.Root, message)
+	generation := hotfixExecutionGeneration(in.ProjectID, identity.HotfixRef, task.ID, task.Revision, head, resolved.AgentID, session, authority.Profile, worktree.Root, message)
 	receiptPath := hotfixExecutionReceiptPath(s.Config.StateDir, in.ProjectID, task.ID, generation)
 	lock, err := acquireHotfixExecutionLock(s.Config.StateDir, generation)
 	if err != nil {
@@ -260,7 +268,7 @@ func (s *Service) taskHotfixWork(ctx context.Context, in TaskWorkInput, task mod
 		Head:         head,
 		AgentID:      resolved.AgentID,
 		SessionKey:   session,
-		Profile:      resolved.Profile,
+		Profile:      authority.Profile,
 		WorktreePath: worktreePath,
 		Message:      message,
 	}

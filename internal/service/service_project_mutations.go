@@ -92,6 +92,10 @@ func (s *Service) ProjectIdentifiersAdopt(ctx context.Context, in ProjectIdentif
 }
 
 func (s *Service) ProjectRegister(ctx context.Context, in ProjectRegisterInput) (OperationResult, error) {
+	return s.projectRegister(ctx, in, false)
+}
+
+func (s *Service) projectRegister(ctx context.Context, in ProjectRegisterInput, allowUnconfigured bool) (OperationResult, error) {
 	p := in.Project
 	now := time.Now().UTC()
 	p.SchemaVersion = model.SchemaVersion
@@ -105,8 +109,10 @@ func (s *Service) ProjectRegister(ctx context.Context, in ProjectRegisterInput) 
 	if err := model.ValidateProject(p); err != nil {
 		return OperationResult{}, err
 	}
-	if _, err := s.projectConfig(p.ID); err != nil {
-		return OperationResult{}, err
+	if !allowUnconfigured {
+		if _, err := s.projectConfig(p.ID); err != nil {
+			return OperationResult{}, err
+		}
 	}
 	plan := model.Plan{
 		SchemaVersion:    model.PlanSchemaVersion,

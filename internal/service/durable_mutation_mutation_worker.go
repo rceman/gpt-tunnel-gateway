@@ -428,7 +428,7 @@ func (s *Service) localOperationProjectCode(ctx context.Context, projectID strin
 	if s.Durability == nil || s.Durability.Local == nil {
 		return "", fmt.Errorf("local durability is unavailable")
 	}
-	if project, ok := s.Config.Projects[projectID]; ok && project.ProjectCode != "" {
+	if project, err := s.EffectiveProjectConfig(projectID); err == nil && project.ProjectCode != "" {
 		if err := model.ValidateProjectCode(project.ProjectCode); err != nil {
 			return "", err
 		}

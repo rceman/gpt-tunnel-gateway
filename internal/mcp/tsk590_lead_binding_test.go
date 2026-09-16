@@ -21,7 +21,7 @@ func TestTSK590LeadBindingBindRebindAndGatewayRestart(t *testing.T) {
 		t.Fatalf("unbound Lead was not rejected: %v", err)
 	}
 	fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID] = map[string]config.AgentBinding{
-		fixture.agentID: {SessionKey: fixture.runtime, Profile: "coding"},
+		fixture.agentID: {SessionKey: fixture.runtime},
 	}
 	initial, err := fixture.server.Service.ResolveProjectLead(ctx, fixture.projectID)
 	if err != nil {
@@ -43,7 +43,7 @@ func TestTSK590LeadBindingBindRebindAndGatewayRestart(t *testing.T) {
 
 	reboundRuntime := "runtime-tsk590-lead-rebound"
 	reboundSession := fixture.addSession(t, fixture.projectID, "EXM", durableSession.RoleLead, reboundRuntime)
-	fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID][fixture.agentID] = config.AgentBinding{SessionKey: reboundRuntime, Profile: "coding"}
+	fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID][fixture.agentID] = config.AgentBinding{SessionKey: reboundRuntime}
 	rebound, err := fixture.server.Service.ResolveProjectLead(ctx, fixture.projectID)
 	if err != nil {
 		t.Fatalf("rebound Lead did not resolve: %v", err)
@@ -100,7 +100,7 @@ func TestTSK590LeadBindingRejectsWrongProjectAndAmbiguity(t *testing.T) {
 		}
 		seedTSK571Agent(t, fixture.server.Service, revision, "coding-secondary", true)
 		secondaryRuntime := "runtime-tsk590-secondary"
-		fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID]["coding-secondary"] = config.AgentBinding{SessionKey: secondaryRuntime, Profile: "coding"}
+		fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID]["coding-secondary"] = config.AgentBinding{SessionKey: secondaryRuntime}
 		fixture.addSession(t, fixture.projectID, "EXM", durableSession.RoleLead, secondaryRuntime)
 		_, err = fixture.server.Service.ResolveProjectLead(ctx, fixture.projectID)
 		if err == nil || !strings.Contains(err.Error(), "RUNTIME_IDENTITY_AMBIGUOUS") {
@@ -120,7 +120,7 @@ func TestTSK590LeadAndWorkerRoleAuthorityIsolatedOverHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedTSK571Agent(t, fixture.server.Service, revision, "coding-worker", true)
-	fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID]["coding-worker"] = config.AgentBinding{SessionKey: workerRuntime, Profile: "coding"}
+	fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID]["coding-worker"] = config.AgentBinding{SessionKey: workerRuntime}
 	workerSession := fixture.addSession(t, fixture.projectID, "EXM", durableSession.RoleWorker, workerRuntime)
 
 	leadResolved, err := fixture.server.Service.ResolveProjectLead(ctx, fixture.projectID)

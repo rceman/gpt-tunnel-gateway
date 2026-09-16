@@ -14,11 +14,10 @@ import (
 
 func managedServiceTestEntry(root, projectID string) config.ManagedProjectEntry {
 	return config.ManagedProjectEntry{
-		Root:              root,
-		RepositoryURL:     "git@example.invalid:" + projectID + ".git",
-		Remote:            "origin",
-		DefaultBranch:     "main",
-		AirelaySessionKey: projectID + "_master",
+		Root:          root,
+		RepositoryURL: "git@example.invalid:" + projectID + ".git",
+		Remote:        "origin",
+		DefaultBranch: "main",
 	}
 }
 

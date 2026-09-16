@@ -30,7 +30,7 @@ func newWorkflowPolicyStatusService(t *testing.T) (*service.Service, string) {
 	}
 	s, _ := mcpServiceWithSQLite(t, c)
 	s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
-		"example": {"coding-example": {SessionKey: "example_master", Profile: "coding"}},
+		"example": {"coding-example": {SessionKey: "example_master"}},
 	}
 	mcpSeedProjectConfiguration(t, s, "example")
 	project := model.Project{SchemaVersion: 1, ID: "example", RepositoryURL: "git@example.invalid:example.git", DefaultBranch: "main", WorkflowRepository: "gpt-review-planner", WorkflowCommit: "b1a45b1e9475ab29dfd3e84d523b70897c7b8918", Status: "active"}

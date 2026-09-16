@@ -1,5 +1,7 @@
 package mcp
 
+import durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
+
 func (s *Server) ensureAgentActions() {
 	if s.Service == nil {
 		return
@@ -17,6 +19,7 @@ func agentInputSchema() map[string]any {
 		"project_id":            str("Registered project identifier."),
 		"agent_id":              str("Stable project-scoped agent identifier."),
 		"role":                  str("Logical Agent capability: coding."),
+		"workflow_role":         durableSession.WorkflowRoleSchema("Canonical Planner, Lead, Advisor, or Worker identity."),
 		"enabled":               map[string]any{"type": "boolean"},
 		"recommended_reasoning": str("Routing preference: low, medium, high, max, or best_available."),
 		"capabilities":          array(str("Bounded capability identifier.")),

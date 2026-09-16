@@ -65,6 +65,8 @@ type Service struct {
 	durableMutationActive                   map[string]struct{}
 	workflowPolicyCacheMu                   sync.RWMutex
 	legacyWorkflowPolicyRead                func(context.Context, string, *model.ProjectWorkflowPolicy) error
+	hostConfigRefreshEnabled                bool
+	hostConfigRefreshMu                     sync.Mutex
 }
 
 func New(c config.Config) *Service {
@@ -285,8 +287,9 @@ type AgentUpdateInput struct {
 }
 
 type AgentRegisterInput struct {
-	ProjectID string `json:"project_id"`
-	AgentID   string `json:"agent_id"`
+	ProjectID    string `json:"project_id"`
+	AgentID      string `json:"agent_id"`
+	WorkflowRole string `json:"workflow_role,omitempty"`
 	WriteOptions
 }
 

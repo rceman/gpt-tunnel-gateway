@@ -133,7 +133,7 @@ func tsk585BrowseFixture(t *testing.T) *Server {
 		SchemaVersion: 1, GatewayID: "HOM", ListenAddr: "127.0.0.1:8875",
 		StateDir: stateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000,
 		Hub:      config.HubConfig{RepositoryURL: filepath.Join(stateDir, "hub.git"), Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"},
-		Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(stateDir, "mirror.git"), Remote: "origin", DefaultBranch: "main"}},
+		Projects: map[string]config.ProjectConfig{"example": {Root: projectRoot, Mirror: filepath.Join(stateDir, "mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "example_master"}},
 	}
 	svc := service.New(c)
 	db, err := sqlitestore.Open(stateDir)

@@ -55,7 +55,6 @@ func TestEffectiveProjectsRejectsCrossSourceCollisions(t *testing.T) {
 		{name: "project id", static: baseStatic, managed: managedTestRegistry(rootB, "static")},
 		{name: "root", static: baseStatic, managed: managedTestRegistry(rootA, "managed")},
 		{name: "mirror", static: map[string]ProjectConfig{"static": {Root: rootA, Mirror: ManagedProjectMirrorPath(stateDir, "managed"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "static_master"}}, managed: managedTestRegistry(rootB, "managed")},
-		{name: "session", static: map[string]ProjectConfig{"static": {Root: rootA, Mirror: filepath.Join(stateDir, "static-mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "managed_master"}}, managed: managedTestRegistry(rootB, "managed")},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -103,7 +102,6 @@ func TestEffectiveProjectsFromValidatedStaticRejectsCrossSourceCollisions(t *tes
 		{name: "id", static: map[string]ProjectConfig{"managed": {Root: filepath.Join(stateDir, "missing-id-root"), Mirror: filepath.Join(stateDir, "id-mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "static_master"}}},
 		{name: "root", static: map[string]ProjectConfig{"static": {Root: managedRoot, Mirror: filepath.Join(stateDir, "root-mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "static_master"}}},
 		{name: "mirror", static: map[string]ProjectConfig{"static": {Root: filepath.Join(stateDir, "missing-mirror-root"), Mirror: managedMirror, Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "static_master"}}},
-		{name: "session", static: map[string]ProjectConfig{"static": {Root: filepath.Join(stateDir, "missing-session-root"), Mirror: filepath.Join(stateDir, "session-mirror.git"), Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "managed_master"}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

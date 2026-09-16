@@ -29,7 +29,6 @@ type ResolvedAgent struct {
 	RequestedReasoning string
 	ResolvedReasoning  string
 	SessionKey         string
-	Profile            string
 	Fallback           bool
 	FallbackReason     string
 }

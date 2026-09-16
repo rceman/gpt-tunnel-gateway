@@ -247,7 +247,7 @@ func TestTSK574WorkerBindingFailuresFailClosed(t *testing.T) {
 	t.Run("mismatched runtime", func(t *testing.T) {
 		fixture := newTSK571HTTPFixture(t, []string{durableSession.RoleWorker}, true, true)
 		installTSK574Airelay(t, fixture, "idle", true)
-		fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID][fixture.agentID] = config.AgentBinding{SessionKey: "different-runtime", Profile: "coding"}
+		fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID][fixture.agentID] = config.AgentBinding{SessionKey: "different-runtime"}
 		if _, err := fixture.server.Service.ResolveProjectWorker(context.Background(), fixture.projectID); err == nil || !strings.Contains(err.Error(), "RUNTIME_IDENTITY_UNAVAILABLE") {
 			t.Fatalf("mismatched Worker binding error=%v", err)
 		}
@@ -260,7 +260,7 @@ func TestTSK574WorkerBindingFailuresFailClosed(t *testing.T) {
 			t.Fatal(err)
 		}
 		_ = seedTSK571Agent(t, fixture.server.Service, revision, "coding-secondary", true)
-		fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID]["coding-secondary"] = config.AgentBinding{SessionKey: "runtime-secondary", Profile: "coding"}
+		fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID]["coding-secondary"] = config.AgentBinding{SessionKey: "runtime-secondary"}
 		fixture.addSession(t, fixture.projectID, "EXM", durableSession.RoleWorker, "runtime-secondary")
 		if _, err := fixture.server.Service.ResolveProjectWorker(context.Background(), fixture.projectID); err == nil || !strings.Contains(err.Error(), "RUNTIME_IDENTITY_AMBIGUOUS") {
 			t.Fatalf("multiple Worker binding error=%v", err)

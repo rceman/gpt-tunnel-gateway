@@ -7,11 +7,10 @@ import (
 
 func managedTestEntry(root, projectID string) ManagedProjectEntry {
 	return ManagedProjectEntry{
-		Root:              root,
-		RepositoryURL:     "git@github.com:example/" + projectID + ".git",
-		Remote:            "origin",
-		DefaultBranch:     "main",
-		AirelaySessionKey: projectID + "_master",
+		Root:          root,
+		RepositoryURL: "git@github.com:example/" + projectID + ".git",
+		Remote:        "origin",
+		DefaultBranch: "main",
 	}
 }
 

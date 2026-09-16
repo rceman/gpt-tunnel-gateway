@@ -72,7 +72,7 @@ func (s *Service) resolveManagedAgentForRuntime(ctx context.Context, runtimeKey 
 			if !agent.Enabled || agent.Role != model.AgentRoleCoding {
 				continue
 			}
-			binding, bound := s.Config.ResolveAgentBinding(projectID, agent.AgentID)
+			binding, bound := s.agentBinding(projectID, agent.AgentID)
 			if !bound || binding.Validate() != nil || binding.SessionKey != runtimeKey {
 				continue
 			}
@@ -96,7 +96,7 @@ func (s *Service) validateManagedRuntimeBindingCollision(ctx context.Context, ca
 	if !candidate.Enabled || candidate.Role != model.AgentRoleCoding {
 		return nil
 	}
-	binding, bound := s.Config.ResolveAgentBinding(candidate.ProjectID, candidate.AgentID)
+	binding, bound := s.agentBinding(candidate.ProjectID, candidate.AgentID)
 	if !bound {
 		return nil
 	}
@@ -123,7 +123,7 @@ func (s *Service) validateManagedRuntimeBindingAgainst(candidate model.Agent, ex
 	if !candidate.Enabled || candidate.Role != model.AgentRoleCoding {
 		return nil
 	}
-	binding, bound := s.Config.ResolveAgentBinding(candidate.ProjectID, candidate.AgentID)
+	binding, bound := s.agentBinding(candidate.ProjectID, candidate.AgentID)
 	if !bound {
 		return nil
 	}
@@ -137,7 +137,7 @@ func (s *Service) validateManagedRuntimeBindingAgainst(candidate model.Agent, ex
 		if !other.Enabled || other.Role != model.AgentRoleCoding {
 			continue
 		}
-		otherBinding, otherBound := s.Config.ResolveAgentBinding(other.ProjectID, other.AgentID)
+		otherBinding, otherBound := s.agentBinding(other.ProjectID, other.AgentID)
 		if !otherBound || otherBinding.Validate() != nil || otherBinding.SessionKey != binding.SessionKey {
 			continue
 		}
@@ -250,7 +250,7 @@ func (s *Service) resolveProjectRoleSession(ctx context.Context, projectID, role
 		if !agent.Enabled || agent.Role != model.AgentRoleCoding {
 			continue
 		}
-		binding, bound := s.Config.ResolveAgentBinding(projectID, agent.AgentID)
+		binding, bound := s.agentBinding(projectID, agent.AgentID)
 		if !bound {
 			continue
 		}

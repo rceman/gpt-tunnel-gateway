@@ -1,90 +1,52 @@
 package session
 
-type WorkflowRole struct {
-	Key            string
-	Code           string
-	ManagedRuntime bool
-	RefRequired    bool
-	RefSemantics   string
-}
+import "github.com/rceman/gpt-tunnel-gateway/internal/workflowrole"
 
-var workflowRoleRegistry = [...]WorkflowRole{
-	{Key: RolePlanner, Code: "P"},
-	{Key: RoleLead, Code: "L", ManagedRuntime: true, RefRequired: true, RefSemantics: "airelay_session_key"},
-	{Key: RoleAdvisor, Code: "A", ManagedRuntime: true, RefRequired: true, RefSemantics: "airelay_session_key"},
-	{Key: RoleWorker, Code: "W", ManagedRuntime: true, RefRequired: true, RefSemantics: "airelay_session_key"},
-}
+type WorkflowRole = workflowrole.Role
+
+const (
+	RolePlanner = workflowrole.RolePlanner
+	RoleLead    = workflowrole.RoleLead
+	RoleAdvisor = workflowrole.RoleAdvisor
+	RoleWorker  = workflowrole.RoleWorker
+)
 
 func WorkflowRoles() []WorkflowRole {
-	roles := make([]WorkflowRole, len(workflowRoleRegistry))
-	copy(roles, workflowRoleRegistry[:])
-	return roles
+	return workflowrole.Roles()
 }
 
 func WorkflowRoleNames() []string {
-	roles := WorkflowRoles()
-	result := make([]string, 0, len(roles))
-	for _, role := range roles {
-		result = append(result, role.Key)
-	}
-	return result
+	return workflowrole.Names()
 }
 
 func WorkflowRoleSchema(description string) map[string]any {
-	enum := make([]any, 0, len(workflowRoleRegistry))
-	for _, role := range workflowRoleRegistry {
-		enum = append(enum, role.Key)
-	}
-	return map[string]any{
-		"type":        "string",
-		"description": description,
-		"enum":        enum,
-		"minLength":   1,
-		"maxLength":   16,
-	}
+	return workflowrole.Schema(description)
 }
 
 func WorkflowRoleOutputSchema() map[string]any {
-	return WorkflowRoleSchema("")
+	return workflowrole.OutputSchema()
 }
 
 func WorkflowRoleByKey(key string) (WorkflowRole, bool) {
-	for _, role := range workflowRoleRegistry {
-		if role.Key == key {
-			return role, true
-		}
-	}
-	return WorkflowRole{}, false
+	return workflowrole.ByKey(key)
 }
 
 func WorkflowRoleByCode(code string) (WorkflowRole, bool) {
-	for _, role := range workflowRoleRegistry {
-		if role.Code == code {
-			return role, true
-		}
-	}
-	return WorkflowRole{}, false
+	return workflowrole.ByCode(code)
 }
 
 func WorkflowRoleCode(key string) (string, bool) {
-	role, ok := WorkflowRoleByKey(key)
-	if !ok {
-		return "", false
-	}
-	return role.Code, true
+	return workflowrole.Code(key)
 }
 
 func IsWorkflowRole(key string) bool {
-	_, ok := WorkflowRoleByKey(key)
-	return ok
+	return workflowrole.Is(key)
 }
 
 func WorkflowRoleRequiresRuntime(key string) bool {
-	role, ok := WorkflowRoleByKey(key)
-	return ok && role.ManagedRuntime
+	return workflowrole.RequiresRuntime(key)
 }
 
 func WorkflowRoleRequiresRef(key string) bool {
-	role, ok := WorkflowRoleByKey(key)
-	return ok && role.RefRequired
+	return workflowrole.RequiresRef(key)
 }

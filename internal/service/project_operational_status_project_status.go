@@ -225,7 +225,7 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 				result.Agent.State = "unavailable"
 				break
 			}
-			binding, bound := s.Config.ResolveAgentBinding(projectID, agent.AgentID)
+			binding, bound := s.agentBinding(projectID, agent.AgentID)
 			if !bound || binding.Validate() != nil {
 				result.Agent.State = "unavailable"
 				break

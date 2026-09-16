@@ -40,7 +40,7 @@ func createHotfixTaskForDispatchTest(t *testing.T, s *Service, revision string) 
 
 func TestTaskHotfixWorkUsesResolvedBaseSessionAndExactWorktree(t *testing.T) {
 	s, revision, _ := testService(t)
-	s.Config.ProjectAgentBindings["example"]["coder-example"] = config.AgentBinding{SessionKey: "example_master", Profile: "coding"}
+	s.Config.ProjectAgentBindings["example"]["coder-example"] = config.AgentBinding{SessionKey: "example_master"}
 	installServiceExecutionSessionFixture(t, s, filepath.Join(t.TempDir(), "prompts"))
 	revision = enableTrainV2ForTest(t, s, revision)
 	task, created := createHotfixTaskForDispatchTest(t, s, revision)

@@ -92,7 +92,7 @@ func TestCanonicalAgentAwaitUsesLocalAuthorityWhenHubUnavailableAndLocked(t *tes
 
 	s := service.NewWithDurabilityDeferredWorkers(c, db)
 	s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
-		"example": {"coding-example": {SessionKey: "example_master", Profile: "coding"}},
+		"example": {"coding-example": {SessionKey: "example_master"}},
 	}
 	session, err := mcpSQLiteSessionStore(t, s).Create(durableSession.CreateInput{
 		ProjectID:   "example",

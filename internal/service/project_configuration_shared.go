@@ -134,8 +134,8 @@ func requireSharedProjectConfiguration(ctx context.Context, s *Service, projectI
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return err
 	}
-	if _, ok := s.Config.Projects[projectID]; !ok {
-		return fmt.Errorf("project %q is not configured locally", projectID)
+	if _, err := s.EffectiveProjectConfig(projectID); err != nil {
+		return fmt.Errorf("project %q is not configured locally: %w", projectID, err)
 	}
 	return nil
 }
