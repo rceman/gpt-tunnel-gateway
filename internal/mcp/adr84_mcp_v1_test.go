@@ -83,9 +83,9 @@ func TestADR84PublicBootstrapAndBoundCallUseExactEnvelopes(t *testing.T) {
 		t.Fatalf("projects did not expose compact identity: %#v", projects)
 	}
 	started := call(4, "session_start", map[string]any{
-		"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner, "ref": "planner-e2e",
+		"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner,
 	})
-	if len(started) != 6 || started["session"] == nil || started["gateway"] == nil || started["project"] == nil || started["rules"] == nil {
+	if len(started) != 5 || started["session"] == nil || started["gateway"] == nil || started["project"] == nil || started["rules"] == nil {
 		t.Fatalf("session_start is not ADR84-shaped: %#v", started)
 	}
 	startedProject := started["project"].(map[string]any)

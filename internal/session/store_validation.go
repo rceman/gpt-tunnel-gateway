@@ -64,7 +64,7 @@ func validateRecordShape(r Record) error {
 		return fmt.Errorf("%w: ended session has invalid ended_at", ErrInvalidSession)
 	}
 	if WorkflowRoleRequiresRef(r.Role) && (r.SessionRef == nil || strings.TrimSpace(*r.SessionRef) == "") {
-		return fmt.Errorf("%w: managed-runtime role requires session_ref", ErrInvalidSession)
+		return fmt.Errorf("%w: managed role requires a server-owned binding", ErrInvalidSession)
 	}
 	if err := validateOptionalText(r.SessionRef, "session_ref"); err != nil {
 		return err
@@ -121,7 +121,7 @@ func validateCreateInput(input CreateInput, requireProject bool) error {
 		return fmt.Errorf("%w: project code is required for bound sessions", ErrInvalidSession)
 	}
 	if WorkflowRoleRequiresRef(input.Role) && (input.SessionRef == nil || strings.TrimSpace(*input.SessionRef) == "") {
-		return fmt.Errorf("%w: managed-runtime role requires session_ref", ErrInvalidSession)
+		return fmt.Errorf("%w: managed role requires a server-owned binding", ErrInvalidSession)
 	}
 	if err := validateOptionalText(input.SessionRef, "session_ref"); err != nil {
 		return err

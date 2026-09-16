@@ -24,6 +24,8 @@ func newSessionTestServer(t *testing.T) *Server {
 	hubBare, root, hubHead := testutil.RepoWithBareRemote(t)
 	c := config.Config{SchemaVersion: 1, GatewayID: "HOM", StateDir: state, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 1000, Hub: config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"}, Projects: map[string]config.ProjectConfig{
 		"example": {Root: root, Mirror: filepath.Join(t.TempDir(), "mirror.git"), Remote: "origin", DefaultBranch: "main", ProjectCode: "EXM", AirelaySessionKey: "example_master"},
+	}, ProjectAgentBindings: map[string]map[string]config.AgentBinding{
+		"example": {"coding-example": {SessionKey: "runtime-worker", Profile: "coding"}},
 	}}
 	db, err := sqlitestore.Open(state)
 	if err != nil {
@@ -148,7 +150,7 @@ func TestSessionLifecyclePersistsAndBindsProjectRole(t *testing.T) {
 func TestSessionBootstrapCreatesIndependentPlannerAndWorkerTypedSessions(t *testing.T) {
 	server := newSessionTestServer(t)
 	planner := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt"}))
-	worker := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "worker", "session_type": "chatgpt", "session_ref": "runtime-worker"}))
+	worker := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "worker", "session_type": "chatgpt", "agent": "coding-example"}))
 	plannerID := planner["session"].(map[string]any)["session_id"].(string)
 	workerID := worker["session"].(map[string]any)["session_id"].(string)
 	if !strings.HasPrefix(plannerID, "HOM_EXM_P_") || !strings.HasPrefix(workerID, "HOM_EXM_W_") || plannerID == workerID {
@@ -162,7 +164,7 @@ func TestSessionBootstrapCreatesIndependentPlannerAndWorkerTypedSessions(t *test
 	}
 }
 
-func TestSessionListIsSessionlessAndPreservesUpdatedReference(t *testing.T) {
+func TestSessionListIsSessionlessAndHidesInternalBinding(t *testing.T) {
 	server := newSessionTestServer(t)
 	planner := genericStructured(t, sessionCall(t, server, map[string]any{
 		"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt", "label": "main",
@@ -170,7 +172,7 @@ func TestSessionListIsSessionlessAndPreservesUpdatedReference(t *testing.T) {
 	plannerRecord := planner["session"].(map[string]any)
 	plannerID := plannerRecord["session_id"].(string)
 	worker := genericStructured(t, sessionCall(t, server, map[string]any{
-		"action": "start", "project_id": "example", "role": "worker", "session_type": "chatgpt", "session_ref": "runtime-worker",
+		"action": "start", "project_id": "example", "role": "worker", "session_type": "chatgpt", "agent": "coding-example",
 	}))
 	workerID := worker["session"].(map[string]any)["session_id"].(string)
 
@@ -185,16 +187,15 @@ func TestSessionListIsSessionlessAndPreservesUpdatedReference(t *testing.T) {
 		t.Fatalf("session.list ordering is not deterministic: %#v", sessions)
 	}
 
-	newRef := "https://chatgpt.com/c/new"
 	updated := genericStructured(t, sessionCall(t, server, map[string]any{
-		"action": "update", "session_id": plannerID, "session_ref": newRef,
+		"action": "update", "session_id": plannerID, "label": "renamed",
 	}))
-	if updated["session"].(map[string]any)["session_ref"] != newRef {
-		t.Fatalf("session.update did not return the new reference: %#v", updated)
+	if updated["session"].(map[string]any)["label"] != "renamed" {
+		t.Fatalf("session.update did not return the updated metadata: %#v", updated)
 	}
 	info := genericStructured(t, sessionCall(t, server, map[string]any{"action": "info", "session_id": plannerID}))
-	if info["session"].(map[string]any)["session_ref"] != newRef {
-		t.Fatalf("session.info did not preserve the new reference: %#v", info)
+	if _, ok := info["session"].(map[string]any)["session_ref"]; ok {
+		t.Fatalf("session.info exposed internal binding: %#v", info)
 	}
 
 	if _, ok := genericStructured(t, sessionCall(t, server, map[string]any{"action": "end", "session_id": workerID}))["session"]; !ok {
@@ -206,7 +207,10 @@ func TestSessionListIsSessionlessAndPreservesUpdatedReference(t *testing.T) {
 		t.Fatalf("session.list included ended session: %#v", listed)
 	}
 	item := sessions[0].(map[string]any)
-	if item["session_id"] != plannerID || item["ref"] != newRef || item["role"] != "planner" || item["project_id"] != "example" {
+	if item["session_id"] != plannerID || item["role"] != "planner" || item["project_id"] != "example" {
 		t.Fatalf("session.list projection=%#v", item)
+	}
+	if _, ok := item["ref"]; ok {
+		t.Fatalf("session.list exposed internal binding: %#v", item)
 	}
 }

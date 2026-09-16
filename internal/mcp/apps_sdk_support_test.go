@@ -170,10 +170,6 @@ func normalizeLegacyTransportTestRequest(t *testing.T, body []byte) []byte {
 		if sessionType, ok := arguments["session_type"].(string); ok && sessionType == "chatgpt" {
 			delete(arguments, "session_type")
 		}
-		if ref, ok := arguments["session_ref"]; ok {
-			arguments["ref"] = ref
-			delete(arguments, "session_ref")
-		}
 	default:
 		return mustJSON(t, request)
 	}

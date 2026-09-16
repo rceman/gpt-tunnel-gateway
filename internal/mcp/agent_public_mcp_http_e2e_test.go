@@ -84,7 +84,7 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 			"gateway": "HOM",
 			"project": "EXM",
 			"role":    "worker",
-			"ref":     "example_master",
+			"agent":   "coding-example",
 		},
 	}))
 	if started["role"] != durableSession.RoleWorker {

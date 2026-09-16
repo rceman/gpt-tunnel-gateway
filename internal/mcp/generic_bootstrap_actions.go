@@ -34,6 +34,9 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		if path == "session/info" {
 			entry.LocalReadOnly = true
 		}
+		if path == "session/list" || path == "session/info" || path == "session/end" {
+			entry.OutputSchema = sessionOutputSchema()
+		}
 		if path == "operation/read" || path == "operation/await" {
 			entry.LocalReadOnly = true
 			entry.Annotations.ReadOnlyHint = true
@@ -47,7 +50,11 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		return s.Service.ProjectOperationalStatus(ctx)
 	})
 	add("session/list", "List active durable sessions.", obj(map[string]any{}), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
-		return s.Service.SessionList()
+		result, err := s.Service.SessionList()
+		if err != nil {
+			return nil, err
+		}
+		return publicSessionResult(result), nil
 	})
 	add("session/info", "Read the durable session bound to the public session.", obj(map[string]any{}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.sessionActionForContext(ctx, "info")
@@ -132,9 +139,13 @@ func (s *Server) sessionActionForContext(ctx context.Context, action string) (an
 	}
 	switch action {
 	case "info":
-		return info, nil
+		return publicSessionResult(info), nil
 	case "end":
-		return s.Service.SessionEnd(roleCtx, id)
+		result, err := s.Service.SessionEnd(roleCtx, id)
+		if err != nil {
+			return nil, err
+		}
+		return publicSessionResult(result), nil
 	default:
 		return nil, fmt.Errorf("unsupported session action %q", action)
 	}

@@ -351,12 +351,9 @@ func TestTSK585TaskGuideMCPTransport(t *testing.T) {
 		Service:          svc,
 		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
-	start := func(role string, ref *string) string {
+	start := func(role string) string {
 		t.Helper()
 		args := map[string]any{"gateway": "HOM", "project": "EXM", "role": role}
-		if ref != nil {
-			args["ref"] = *ref
-		}
 		value, err := tsk585TrustedTool(t, server, "session_start", args)
 		if err != nil {
 			t.Fatal(err)
@@ -383,7 +380,7 @@ func TestTSK585TaskGuideMCPTransport(t *testing.T) {
 		}
 		return decoded, true
 	}
-	planner := start("planner", nil)
+	planner := start("planner")
 	for name, session := range map[string]string{"planner": planner} {
 		result, ok := call(session, map[string]any{})
 		if !ok || result["is_error"] == true {

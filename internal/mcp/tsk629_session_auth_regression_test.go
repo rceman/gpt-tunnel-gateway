@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/agentguide"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
@@ -142,5 +143,138 @@ func TestTSK629PublicSchemasHideRuntimeSelectors(t *testing.T) {
 		if strings.Contains(string(generic), forbidden) {
 			t.Fatalf("generic transport schema leaks %q: %s", forbidden, generic)
 		}
+	}
+}
+
+func TestTSK629PublicBoundaryInventoryHasNoInternalSelectors(t *testing.T) {
+	s, _ := mcpServiceWithSQLite(t, config.Config{Debug: config.DebugConfig{Enabled: true}, StateDir: t.TempDir()})
+	server := &Server{Service: s}
+	forbiddenDescriptions := []string{
+		"airelay_session", "session_key", "runtime_ref", "runtime-key", "exact airelay session key",
+		"managed runtime", "agent runtime", "worker runtime", "managed-runtime",
+	}
+	forbiddenInputKeys := map[string]bool{"airelay_session": true, "airelay_session_key": true, "session_key": true, "session_ref": true, "runtime_ref": true}
+	var audit func(string, any, bool)
+	audit = func(path string, value any, input bool) {
+		object, ok := value.(map[string]any)
+		if !ok {
+			return
+		}
+		for key, child := range object {
+			lowerKey := strings.ToLower(key)
+			if input && forbiddenInputKeys[lowerKey] {
+				t.Fatalf("public schema %s exposes internal selector %q", path, key)
+			}
+			if lowerKey == "description" {
+				text, _ := child.(string)
+				lowerText := strings.ToLower(text)
+				for _, forbidden := range forbiddenDescriptions {
+					if strings.Contains(lowerText, forbidden) {
+						t.Fatalf("public schema %s description exposes %q: %q", path, forbidden, text)
+					}
+				}
+			}
+			audit(path+"."+key, child, input)
+		}
+		if branches, ok := object["oneOf"].([]any); ok {
+			for index, branch := range branches {
+				audit(path+".oneOf", branch, input)
+				_ = index
+			}
+		}
+	}
+	entries := server.genericActionRegistry(server.tools())
+	for path, entry := range entries {
+		lowerDescription := strings.ToLower(entry.Description)
+		for _, forbidden := range forbiddenDescriptions {
+			if strings.Contains(lowerDescription, forbidden) {
+				t.Fatalf("public action %s description exposes %q: %q", path, forbidden, entry.Description)
+			}
+		}
+		audit(path+".input", entry.InputSchema, true)
+		audit(path+".output", entry.OutputSchema, false)
+	}
+	for name, tool := range server.publicTools() {
+		for _, forbidden := range forbiddenDescriptions {
+			if strings.Contains(strings.ToLower(tool.Description), forbidden) {
+				t.Fatalf("public tool %s description exposes %q: %q", name, forbidden, tool.Description)
+			}
+		}
+		audit(name+".input", tool.InputSchema, true)
+		audit(name+".output", tool.OutputSchema, false)
+	}
+	for _, value := range []any{agentguide.Canonical(), taskGuideWorkflow, taskGuideReview, taskGuideVerification, taskGuideCompletion, taskGuideBoundaries} {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.ToLower(string(encoded))
+		for _, forbidden := range forbiddenDescriptions {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("canonical guide exposes %q: %s", forbidden, encoded)
+			}
+		}
+	}
+	sessionStartInput := sessionStartPublicInputSchema()["properties"].(map[string]any)
+	if _, ok := sessionStartInput["ref"]; ok {
+		t.Fatal("session_start retains the public ref alias")
+	}
+	if _, ok := sessionStartInput["agent"]; !ok {
+		t.Fatal("session_start omits the logical Agent selector")
+	}
+	if _, ok := sessionStartInput["label"]; !ok {
+		t.Fatal("session_start omits bounded Session labels")
+	}
+	outputProperties := sessionStartPublicOutputSchema()["properties"].(map[string]any)
+	if _, ok := outputProperties["ref"]; ok {
+		t.Fatal("session_start output retains the internal ref projection")
+	}
+	if _, ok := outputProperties["label"]; !ok {
+		t.Fatal("session_start output omits bounded Session labels")
+	}
+	sessionInput := sessionInputSchema()
+	encodedSessionInput, _ := json.Marshal(sessionInput)
+	if strings.Contains(string(encodedSessionInput), "session_ref") {
+		t.Fatalf("session action schema exposes session_ref: %s", encodedSessionInput)
+	}
+	for _, path := range []string{"train/start", "train/correction-start"} {
+		entry, ok := entries[path]
+		if !ok {
+			t.Fatalf("missing public Train action %q", path)
+		}
+		properties := entry.InputSchema["properties"].(map[string]any)
+		if _, ok := properties["agent_id"]; ok {
+			t.Fatalf("Train action %s retains agent_id targeting", path)
+		}
+		if _, ok := properties["agent"]; !ok {
+			t.Fatalf("Train action %s omits logical Agent targeting", path)
+		}
+	}
+}
+
+func TestTSK629PublicSessionBootstrapRejectsBindingAliases(t *testing.T) {
+	server := newSessionTestServer(t)
+	tool := server.tools()["session_start"]
+	if _, err := tool.Execute(server.AuthorityContext, mustJSON(t, map[string]any{"gateway": "HOM", "project": "EXM", "role": durableSession.RoleWorker, "ref": "runtime-worker"})); err == nil {
+		t.Fatal("session_start accepted the removed ref alias")
+	}
+	if _, err := tool.Execute(server.AuthorityContext, mustJSON(t, map[string]any{"gateway": "HOM", "project": "EXM", "role": durableSession.RoleWorker})); err == nil {
+		t.Fatal("managed session_start accepted without a logical Agent")
+	}
+	value, err := tool.Execute(server.AuthorityContext, mustJSON(t, map[string]any{"gateway": "HOM", "project": "EXM", "role": durableSession.RoleWorker, "agent": "coding-example", "label": "worker-session"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected := normalizeObject(value)
+	if _, ok := projected["ref"]; ok {
+		t.Fatalf("session_start exposed ref: %#v", projected)
+	}
+	if projected["label"] != "worker-session" {
+		t.Fatalf("session_start did not preserve label: %#v", projected)
+	}
+	recordID := projected["session"].(string)
+	record, err := mcpSQLiteSessionStore(t, server.Service).Get(recordID)
+	if err != nil || record.SessionRef == nil || *record.SessionRef != "runtime-worker" || record.Label == nil || *record.Label != "worker-session" {
+		t.Fatalf("server did not store the resolved binding and label: record=%#v err=%v", record, err)
 	}
 }

@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
@@ -36,6 +38,58 @@ func (s *Server) boundAgentProject(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("Agent action requires a bound project")
 	}
 	return record.ProjectID, nil
+}
+
+func (s *Server) resolveHostLocalAgentBinding(projectID, requested string) (string, config.AgentBinding, error) {
+	if model.ValidateProjectIdentifier(projectID) != nil {
+		return "", config.AgentBinding{}, fmt.Errorf("invalid project")
+	}
+	bindings := s.Service.Config.ProjectAgentBindings[projectID]
+	if requested != "" {
+		if model.ValidateObjectIdentifier(requested) != nil {
+			return "", config.AgentBinding{}, fmt.Errorf("invalid Agent selector")
+		}
+		binding, ok := bindings[requested]
+		if !ok || binding.Validate() != nil {
+			return "", config.AgentBinding{}, fmt.Errorf("logical Agent %q has no valid local binding", requested)
+		}
+		return requested, binding, nil
+	}
+	candidates := make([]string, 0, len(bindings))
+	for agentID, binding := range bindings {
+		if model.ValidateObjectIdentifier(agentID) == nil && binding.Validate() == nil {
+			candidates = append(candidates, agentID)
+		}
+	}
+	sort.Strings(candidates)
+	if len(candidates) == 0 {
+		return "", config.AgentBinding{}, fmt.Errorf("no logically bound Agent is available")
+	}
+	if len(candidates) > 1 {
+		return "", config.AgentBinding{}, fmt.Errorf("logical Agent selector is required when multiple local bindings exist")
+	}
+	return candidates[0], bindings[candidates[0]], nil
+}
+
+func (s *Server) resolveDebugAgent(projectID, requested string) (canonicalAgentTarget, error) {
+	agentID, binding, err := s.resolveHostLocalAgentBinding(projectID, requested)
+	if err != nil {
+		return canonicalAgentTarget{}, err
+	}
+	return canonicalAgentTarget{
+		Agent: model.Agent{
+			ProjectID: projectID,
+			AgentID:   agentID,
+			Role:      model.AgentRoleCoding,
+			Enabled:   true,
+		},
+		Resolved: service.ResolvedAgent{
+			ProjectID:  projectID,
+			AgentID:    agentID,
+			SessionKey: binding.SessionKey,
+			Profile:    binding.Profile,
+		},
+	}, nil
 }
 
 func (s *Server) resolveCanonicalAgent(ctx context.Context, projectID, requested string, requireEnabled bool) (canonicalAgentTarget, error) {

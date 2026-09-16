@@ -144,11 +144,11 @@ func TestADR84FrozenConnectorContract(t *testing.T) {
 		t.Fatalf("status is incomplete: %#v", status)
 	}
 	started := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner, "ref": "connector"},
+		"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner, "label": "connector"},
 	}))
 	sessionID := started["session"].(string)
 	record, err := mcpSQLiteSessionStore(t, server.Service).Get(sessionID)
-	if err != nil || record.ProjectID != "example" || record.Role != durableSession.RolePlanner || record.Status != durableSession.StatusActive || record.SessionRef == nil || *record.SessionRef != "connector" {
+	if err != nil || record.ProjectID != "example" || record.Role != durableSession.RolePlanner || record.Status != durableSession.StatusActive || record.SessionRef != nil || record.Label == nil || *record.Label != "connector" {
 		t.Fatalf("session_start did not create the bound Planner session: %#v err=%v", record, err)
 	}
 	for _, path := range []string{"", "project", "project/status"} {

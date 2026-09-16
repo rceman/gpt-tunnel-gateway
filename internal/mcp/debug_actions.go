@@ -90,7 +90,7 @@ func (s *Server) registerDebugActions() error {
 			if err != nil {
 				return nil, err
 			}
-			target, err := s.resolveCanonicalAgent(ctx, projectID, in.Agent, true)
+			target, err := s.resolveDebugAgent(projectID, in.Agent)
 			if err != nil {
 				return nil, err
 			}
@@ -140,7 +140,7 @@ func (s *Server) registerDebugActions() error {
 			if err != nil {
 				return nil, err
 			}
-			target, err := s.resolveCanonicalAgent(ctx, projectID, in.Agent, true)
+			target, err := s.resolveDebugAgent(projectID, in.Agent)
 			if err != nil {
 				return nil, err
 			}

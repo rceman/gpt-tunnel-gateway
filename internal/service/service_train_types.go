@@ -38,7 +38,7 @@ type TrainV2StartInput struct {
 	ProjectID            string `json:"project_id"`
 	TrainID              string `json:"train_id"`
 	StartedBy            string `json:"started_by"`
-	AgentID              string `json:"agent_id,omitempty"`
+	AgentID              string `json:"agent,omitempty"`
 	RecommendedReasoning string `json:"recommended_reasoning,omitempty"`
 	WriteOptions
 }
@@ -165,7 +165,7 @@ type TaskWorkInput struct {
 	ProjectID            string `json:"project_id"`
 	TaskID               string `json:"task_id"`
 	StartedBy            string `json:"started_by,omitempty"`
-	AgentID              string `json:"agent_id,omitempty"`
+	AgentID              string `json:"agent,omitempty"`
 	RecommendedReasoning string `json:"recommended_reasoning,omitempty"`
 	WriteOptions
 }

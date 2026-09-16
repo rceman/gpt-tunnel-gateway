@@ -9,7 +9,7 @@ import (
 )
 
 func taskDispatchSchema() map[string]any {
-	return obj(map[string]any{"key": str("Canonical Task identifier; execution is assigned to the project's attached Worker runtime.")}, "key")
+	return obj(map[string]any{"key": str("Canonical Task identifier; execution is assigned to the project's attached Worker lane.")}, "key")
 }
 
 func taskExecutionStatusSchema() map[string]any {
@@ -44,7 +44,7 @@ func (s *Server) registerTaskExecutionActions() error {
 	}
 	if err := register(GenericAction{
 		Path:                 "task/dispatch",
-		Description:          "Dispatch one canonical Task to the project's explicitly attached Worker runtime.",
+		Description:          "Dispatch one canonical Task to the project's explicitly attached Worker lane.",
 		InputSchema:          taskDispatchSchema(),
 		ExecutionInputSchema: adrExecutionSchema(taskDispatchSchema()),
 		OutputSchema:         taskExecutionLifecycleOutputSchema(),

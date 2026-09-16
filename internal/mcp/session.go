@@ -67,8 +67,31 @@ type sessionActionInput struct {
 	ProjectID   string  `json:"project_id"`
 	Role        string  `json:"role"`
 	SessionType string  `json:"session_type"`
-	SessionRef  *string `json:"session_ref"`
+	Agent       *string `json:"agent"`
 	Label       *string `json:"label"`
+}
+
+func publicSessionRecord(record durableSession.Record) map[string]any {
+	result := normalizeObject(record)
+	for _, key := range []string{"session_ref", "global_rules_revision", "global_rules_digest", "project_rules_revision", "project_rules_digest"} {
+		delete(result, key)
+	}
+	return result
+}
+
+func publicSessionResult(value any) any {
+	switch result := value.(type) {
+	case service.SessionResult:
+		return map[string]any{"action": result.Action, "session": publicSessionRecord(result.Session)}
+	case service.SessionListResult:
+		sessions := make([]map[string]any, 0, len(result.Sessions))
+		for _, item := range result.Sessions {
+			sessions = append(sessions, map[string]any{"session_id": item.SessionID, "role": item.Role, "project_id": item.ProjectID})
+		}
+		return map[string]any{"action": result.Action, "sessions": sessions}
+	default:
+		return value
+	}
 }
 
 func (s *Server) sessionAction(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -81,17 +104,39 @@ func (s *Server) sessionAction(ctx context.Context, raw json.RawMessage) (any, e
 		if input.SessionID != "" {
 			return nil, fmt.Errorf("session_id is not accepted by session.start")
 		}
+		workflowRole, ok := durableSession.WorkflowRoleByKey(input.Role)
+		if !ok {
+			return nil, fmt.Errorf("unsupported session role %q", input.Role)
+		}
+		var sessionRef *string
+		if workflowRole.RefRequired {
+			if input.Agent == nil || *input.Agent == "" {
+				return nil, fmt.Errorf("managed role logical Agent is required")
+			}
+			_, binding, err := s.resolveHostLocalAgentBinding(input.ProjectID, *input.Agent)
+			if err != nil {
+				return nil, err
+			}
+			ref := binding.SessionKey
+			sessionRef = &ref
+		} else if input.Agent != nil {
+			return nil, fmt.Errorf("logical Agent is only valid for managed workflow roles")
+		}
 		bootstrapContext, err := authority.BootstrapSessionAuthority(ctx)
 		if err != nil {
 			return nil, err
 		}
-		result, err := s.Service.SessionStart(bootstrapContext, service.SessionStartInput{ProjectID: input.ProjectID, Role: input.Role, SessionType: input.SessionType, SessionRef: input.SessionRef, Label: input.Label})
+		result, err := s.Service.SessionStart(bootstrapContext, service.SessionStartInput{ProjectID: input.ProjectID, Role: input.Role, SessionType: input.SessionType, SessionRef: sessionRef, Label: input.Label})
 		if err != nil {
 			return nil, err
 		}
-		return result, nil
+		return publicSessionResult(result), nil
 	case "list":
-		return s.Service.SessionList()
+		result, err := s.Service.SessionList()
+		if err != nil {
+			return nil, err
+		}
+		return publicSessionResult(result), nil
 	case "info":
 		if input.SessionID == "" {
 			return nil, fmt.Errorf("session_id is required")
@@ -103,7 +148,7 @@ func (s *Server) sessionAction(ctx context.Context, raw json.RawMessage) (any, e
 		if _, err := existingSessionRoleContext(ctx, result.Session.Role); err != nil {
 			return nil, err
 		}
-		return result, nil
+		return publicSessionResult(result), nil
 	case "update":
 		if input.SessionID == "" {
 			return nil, fmt.Errorf("session_id is required")
@@ -116,7 +161,27 @@ func (s *Server) sessionAction(ctx context.Context, raw json.RawMessage) (any, e
 		if err != nil {
 			return nil, err
 		}
-		return s.Service.SessionUpdate(roleContext, service.SessionUpdateInput{SessionID: input.SessionID, SessionRef: input.SessionRef, Label: input.Label})
+		var sessionRef *string
+		workflowRole, ok := durableSession.WorkflowRoleByKey(info.Session.Role)
+		if !ok {
+			return nil, fmt.Errorf("unsupported persisted session role %q", info.Session.Role)
+		}
+		if input.Agent != nil {
+			if !workflowRole.RefRequired || *input.Agent == "" {
+				return nil, fmt.Errorf("logical Agent is only valid for a non-empty managed workflow role")
+			}
+			_, binding, err := s.resolveHostLocalAgentBinding(info.Session.ProjectID, *input.Agent)
+			if err != nil {
+				return nil, err
+			}
+			ref := binding.SessionKey
+			sessionRef = &ref
+		}
+		result, err := s.Service.SessionUpdate(roleContext, service.SessionUpdateInput{SessionID: input.SessionID, SessionRef: sessionRef, Label: input.Label})
+		if err != nil {
+			return nil, err
+		}
+		return publicSessionResult(result), nil
 	case "end":
 		if input.SessionID == "" {
 			return nil, fmt.Errorf("session_id is required")
@@ -129,7 +194,11 @@ func (s *Server) sessionAction(ctx context.Context, raw json.RawMessage) (any, e
 		if err != nil {
 			return nil, err
 		}
-		return s.Service.SessionEnd(roleContext, input.SessionID)
+		result, err := s.Service.SessionEnd(roleContext, input.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		return publicSessionResult(result), nil
 	default:
 		return nil, fmt.Errorf("unknown session action %q", input.Action)
 	}

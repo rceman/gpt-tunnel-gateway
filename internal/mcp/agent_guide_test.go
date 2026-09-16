@@ -71,7 +71,7 @@ func TestTSK545AgentGuideIsClosedBoundedAndPlannerOnly(t *testing.T) {
 	}
 	for _, text := range []string{
 		"durable Planner, Lead, Advisor, and Worker",
-		"Agent is a generic managed runtime",
+		"Agent is a logical project identity",
 		"Callers cannot select a durable Session",
 		"logical Agent selector",
 		"Train and watcher",

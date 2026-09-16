@@ -59,7 +59,7 @@ func TestPublicSessionStartGatewaySelectionContract(t *testing.T) {
 			"params": map[string]any{"name": "session_start", "arguments": arguments},
 		}))
 	}
-	assertStarted := func(response map[string]any, wantGateway string) {
+	assertStarted := func(response map[string]any, wantGateway, wantLabel string) {
 		t.Helper()
 		result, ok := response["result"].(map[string]any)
 		if !ok || result["isError"] == true {
@@ -73,14 +73,17 @@ func TestPublicSessionStartGatewaySelectionContract(t *testing.T) {
 		if !ok || gateway["key"] != wantGateway {
 			t.Fatalf("session_start gateway=%#v want=%q", structured["gateway"], wantGateway)
 		}
+		if structured["label"] != wantLabel {
+			t.Fatalf("session_start label=%#v want=%q", structured["label"], wantLabel)
+		}
 	}
 
 	assertStarted(call(map[string]any{
-		"project": "EXM", "role": durableSession.RolePlanner,
-	}), "HOM")
+		"project": "EXM", "role": durableSession.RolePlanner, "label": "default",
+	}), "HOM", "default")
 	assertStarted(call(map[string]any{
-		"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner,
-	}), "HOM")
+		"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner, "label": "explicit",
+	}), "HOM", "explicit")
 
 	unknown := call(map[string]any{
 		"gateway": "BAD", "project": "EXM", "role": durableSession.RolePlanner,
@@ -137,7 +140,7 @@ func TestPublicSessionStartRejectsDeliveryRole(t *testing.T) {
 	for _, role := range []string{"delivery", "watcher"} {
 		response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-			"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": role, "ref": role}},
+			"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": role}},
 		}))
 		if response["error"] == nil {
 			result, _ := response["result"].(map[string]any)
@@ -157,10 +160,10 @@ func TestPublicSessionStartAfterTerminationIsFreshAndBoundCallWorks(t *testing.T
 	start := func(role, label string) string {
 		result := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-			"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": role, "ref": label}},
+			"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": role, "label": label}},
 		})))
 		project := result["project"].(map[string]any)
-		if result["role"] != role || result["session"] == "" || project["key"] != "EXM" || project["name"] != "example" {
+		if result["role"] != role || result["session"] == "" || project["key"] != "EXM" || project["name"] != "example" || result["label"] != label {
 			t.Fatalf("session_start(%q) result=%#v", role, result)
 		}
 		return result["session"].(string)
@@ -186,8 +189,8 @@ func TestPublicSessionStartAfterTerminationIsFreshAndBoundCallWorks(t *testing.T
 		t.Fatalf("fresh session reused terminated ID %q", b)
 	}
 	bound, err := mcpSQLiteSessionStore(t, server.Service).Get(b)
-	if err != nil || bound.ProjectID != "example" {
-		t.Fatalf("fresh session did not bind at creation: %#v err=%v", bound, err)
+	if err != nil || bound.ProjectID != "example" || bound.Label == nil || *bound.Label != "fresh" {
+		t.Fatalf("fresh session did not bind label at creation: %#v err=%v", bound, err)
 	}
 	status := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",

@@ -11,6 +11,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	debugdomain "github.com/rceman/gpt-tunnel-gateway/internal/debug"
+	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
@@ -216,7 +217,7 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 
 func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 	script := filepath.Join(t.TempDir(), "airelay")
-	contents := "#!/bin/sh\nif [ \"$1\" = prompt ] && [ \"$2\" = runtime-tsk571 ] && [ \"$3\" = \"[GTW] recovery message\" ]; then exit 0; fi\nexit 1\n"
+	contents := "#!/bin/sh\nif [ \"$1\" = prompt ] && [ \"$2\" = runtime-tsk571 ] && [ \"$3\" = \"[GTW] recovery message\" ]; then exit 0; fi\nif [ \"$1\" = tail ] && [ \"$2\" = runtime-tsk571 ] && [ \"$3\" = --lines ] && [ \"$4\" = 2 ]; then printf 'break-glass tail\\n'; exit 0; fi\nexit 1\n"
 	if err := os.WriteFile(script, []byte(contents), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -225,6 +226,12 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 	fixture.server.Service.Airelay.Command = script
 	fixture.server.Service.Config.AirelayCommand = script
 	fixture.server.Service.Airelay.Timeout = 5 * time.Second
+	fixture.server.Service.Durability.Shared = nil
+	hubLock, err := lockfile.Acquire(filepath.Join(fixture.server.Service.Config.StateDir, "locks"), "hub-repository")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hubLock.Release()
 	server := fixture.server
 	recordID := fixture.sessions[durableSession.RolePlanner]
 	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
@@ -242,6 +249,20 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 	result := structured["result"].(map[string]any)
 	if result["status"] != "accepted" || result["agent"] != fixture.agentID {
 		t.Fatalf("unexpected direct debug/prompt result: %#v", result)
+	}
+	tailResponse := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session": recordID, "action": "debug/tail", "input": map[string]any{"agent": fixture.agentID, "lines": 2},
+		}},
+	}))
+	tailStructured := typedStructured(t, tailResponse)
+	if tailStructured["ok"] != true {
+		t.Fatalf("direct debug/tail failed while normal routing was unavailable: %#v", tailResponse)
+	}
+	tailResult := tailStructured["result"].(map[string]any)
+	if tailResult["agent"] != fixture.agentID || tailResult["status"] != "ok" {
+		t.Fatalf("unexpected direct debug/tail result: %#v", tailResult)
 	}
 	entry := server.genericActionRegistry(server.tools())["debug/prompt"]
 	if entry.Authority != nil || !entry.LocalReceiptOnly || !entry.SessionBound || !entry.SessionRequired {

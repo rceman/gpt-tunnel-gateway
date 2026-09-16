@@ -29,20 +29,29 @@ func globalWorkflowDigest() string {
 }
 
 func sessionStartPublicInputSchema() map[string]any {
-	ref := str("Optional bounded caller reference; managed-runtime roles require the exact Airelay session key.")
-	ref["minLength"] = 1
-	ref["maxLength"] = 256
+	agent := str("Logical Agent key used for server-side managed-role binding.")
+	agent["minLength"] = 1
+	agent["maxLength"] = 128
 	gateway := str("Canonical registered Gateway key.")
 	gateway["pattern"] = `^[A-Z]{3}$`
 	project := str("Canonical registered project code.")
 	project["pattern"] = `^[A-Z]{3}$`
 	role := durableSession.WorkflowRoleSchema("Server-authorized durable session role.")
-	return obj(map[string]any{
+	label := str("Optional bounded durable Session label.")
+	label["maxLength"] = 256
+	schema := obj(map[string]any{
+		"agent":   agent,
 		"gateway": gateway,
+		"label":   label,
 		"project": project,
 		"role":    role,
-		"ref":     ref,
 	}, "project", "role")
+	schema["if"] = map[string]any{
+		"properties": map[string]any{"role": map[string]any{"enum": []any{durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker}}},
+		"required":   []string{"role"},
+	}
+	schema["then"] = map[string]any{"required": []string{"agent"}}
+	return schema
 }
 
 func sessionStartPublicOutputSchema() map[string]any {
@@ -60,11 +69,12 @@ func sessionStartPublicOutputSchema() map[string]any {
 		"text":     outputString(),
 	}, "key", "revision", "text")
 	return closedOutput(map[string]any{
+		"agent":   outputString(),
+		"label":   outputString(),
 		"session": sessionIDOutputSchema(),
 		"gateway": gateway,
 		"project": project,
 		"role":    durableSession.WorkflowRoleOutputSchema(),
-		"ref":     outputString(),
 		"rules": closedOutput(map[string]any{
 			"digest": outputString(),
 			"items":  outputArray(rule),
@@ -74,10 +84,11 @@ func sessionStartPublicOutputSchema() map[string]any {
 
 func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (any, error) {
 	var in struct {
+		Agent   string  `json:"agent"`
 		Gateway string  `json:"gateway"`
+		Label   *string `json:"label"`
 		Project string  `json:"project"`
 		Role    string  `json:"role"`
-		Ref     *string `json:"ref"`
 	}
 	if err := decode(raw, &in); err != nil {
 		return nil, err
@@ -102,8 +113,22 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 	if !ok {
 		return nil, fmt.Errorf("unsupported session role %q", in.Role)
 	}
-	if workflowRole.RefRequired && (in.Ref == nil || *in.Ref == "") {
-		return nil, fmt.Errorf("managed role session ref is required")
+	var sessionRef *string
+	if workflowRole.RefRequired {
+		if in.Agent == "" {
+			return nil, fmt.Errorf("managed role logical Agent is required")
+		}
+		bindingAgent, binding, bindingErr := s.resolveHostLocalAgentBinding(projectID, in.Agent)
+		if bindingErr != nil {
+			return nil, bindingErr
+		}
+		if bindingAgent != in.Agent {
+			return nil, fmt.Errorf("managed role logical Agent binding mismatch")
+		}
+		ref := binding.SessionKey
+		sessionRef = &ref
+	} else if in.Agent != "" {
+		return nil, fmt.Errorf("logical Agent is only valid for managed workflow roles")
 	}
 	bootstrapContext, err := authority.BootstrapSessionAuthority(ctx)
 	if err != nil {
@@ -118,7 +143,8 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 		ProjectCode: project.ProjectCode,
 		Role:        in.Role,
 		SessionType: durableSession.SessionTypeChatGPT,
-		SessionRef:  in.Ref,
+		SessionRef:  sessionRef,
+		Label:       in.Label,
 	})
 	if err != nil {
 		return nil, err
@@ -131,8 +157,11 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 		"role":    started.Session.Role,
 		"rules":   rules,
 	}
-	if started.Session.SessionRef != nil {
-		result["ref"] = *started.Session.SessionRef
+	if in.Agent != "" {
+		result["agent"] = in.Agent
+	}
+	if started.Session.Label != nil {
+		result["label"] = *started.Session.Label
 	}
 	return result, nil
 }
