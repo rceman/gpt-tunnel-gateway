@@ -6,15 +6,11 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 func (s *Service) TrainV2ReviewResolve(ctx context.Context, in TrainV2ReviewResolveInput) (TrainV2ReviewResolveResult, error) {
-	if err := authority.RequirePlanner(ctx); err != nil {
-		return TrainV2ReviewResolveResult{}, err
-	}
 	if err := requireTrainV2Authoring(ctx, s, in.ProjectID); err != nil {
 		return TrainV2ReviewResolveResult{}, err
 	}

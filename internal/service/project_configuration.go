@@ -73,9 +73,6 @@ func (s *Service) projectConfigurationStatus(ctx context.Context, projectID stri
 }
 
 func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConfigurationUpdateInput) (model.ProjectConfiguration, OperationResult, error) {
-	if err := RequireWorkflowPolicyAuthority(ctx); err != nil {
-		return model.ProjectConfiguration{}, OperationResult{}, err
-	}
 	if s.Durability != nil {
 		return s.projectConfigurationUpdateShared(ctx, in)
 	}

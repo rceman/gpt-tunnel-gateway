@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
@@ -43,8 +42,8 @@ func TestGenericCallUsesDurableSessionRoleBeforeInputDecode(t *testing.T) {
 	}
 	wrong := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/agent", "input": map[string]any{"unknown": true}}}})))
 	message := wrong["result"].(map[string]any)["error"].(map[string]any)["message"].(string)
-	if wrong["is_error"] != true || !strings.Contains(message, `required "worker"`) || calls != 1 {
-		t.Fatalf("wrong role was not rejected before decode/handler: result=%#v calls=%d", wrong, calls)
+	if wrong["is_error"] != true || message != `unknown argument "unknown"; inspect schema with path="test/agent"` || calls != 1 {
+		t.Fatalf("invalid input was not rejected before handler: result=%#v calls=%d", wrong, calls)
 	}
 }
 
@@ -58,7 +57,7 @@ func TestGenericCallChecksEveryActionAgainstDurableSession(t *testing.T) {
 	sessionID := started["session"].(map[string]any)["session_id"].(string)
 	allowed := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/planner", "input": map[string]any{"value": "ok"}}}})))
 	denied := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/agent", "input": map[string]any{"value": "denied"}}}})))
-	if allowed["is_error"] != false || denied["is_error"] != true || plannerCalls != 1 || deliveryCalls != 0 {
-		t.Fatalf("call authority mismatch: allowed=%#v denied=%#v planner=%d delivery=%d", allowed, denied, plannerCalls, deliveryCalls)
+	if allowed["is_error"] != false || denied["is_error"] != false || plannerCalls != 1 || deliveryCalls != 1 {
+		t.Fatalf("authenticated action mismatch: allowed=%#v second=%#v planner=%d delivery=%d", allowed, denied, plannerCalls, deliveryCalls)
 	}
 }

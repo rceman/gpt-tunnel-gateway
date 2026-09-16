@@ -85,13 +85,14 @@ func (s *Server) genericSchemaPublic(ctx context.Context, legacy map[string]Tool
 }
 
 func schemaEntriesForSessionRole(entries map[string]genericActionEntry, role string) map[string]genericActionEntry {
-	filtered := make(map[string]genericActionEntry, len(entries))
-	for path, entry := range entries {
-		if actionAuthorityAllowsSessionRole(entry.AuthorityRole, role) {
-			filtered[path] = entry
-		}
+	if !actionAuthorityAllowsSessionRole("", role) {
+		return map[string]genericActionEntry{}
 	}
-	return filtered
+	available := make(map[string]genericActionEntry, len(entries))
+	for path, entry := range entries {
+		available[path] = entry
+	}
+	return available
 }
 
 func genericSchemaV2(entries map[string]genericActionEntry, path string) (map[string]any, error) {

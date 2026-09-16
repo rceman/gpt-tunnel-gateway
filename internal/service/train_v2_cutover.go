@@ -22,9 +22,6 @@ func trainV2CutoverPath(projectID string) string {
 // the Hub transaction; the transaction writes configuration and receipt
 // together so a partial cutover cannot leave two writable authorities.
 func (s *Service) TrainV2Cutover(ctx context.Context, in TrainV2CutoverInput) (model.TrainV2CutoverReceipt, OperationResult, error) {
-	if err := RequireWorkflowPolicyAuthority(ctx); err != nil {
-		return model.TrainV2CutoverReceipt{}, OperationResult{}, err
-	}
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return model.TrainV2CutoverReceipt{}, OperationResult{}, err
 	}

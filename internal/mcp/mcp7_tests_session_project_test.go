@@ -77,8 +77,8 @@ func TestPublicSchemaFiltersActionsByImmutableSessionRole(t *testing.T) {
 		"params": map[string]any{"name": "schema", "arguments": map[string]any{"session": agentID, "path": "train/review-resolve"}},
 	}))
 	result, ok := unauthorized["result"].(map[string]any)
-	if !ok || result["isError"] != true {
-		t.Fatalf("unauthorized exact schema action was exposed: %#v", unauthorized)
+	if !ok || result["isError"] != false {
+		t.Fatalf("authenticated non-Planner exact schema action was rejected: %#v", unauthorized)
 	}
 	removed := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",

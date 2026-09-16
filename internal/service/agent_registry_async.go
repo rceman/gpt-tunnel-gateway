@@ -47,9 +47,6 @@ func agentMutationReceipt(operation durableMutationOperation) AgentMutationRecei
 }
 
 func (s *Service) AgentUpdateAsync(ctx context.Context, in AgentUpdateInput) (AgentMutationReceipt, error) {
-	if err := s.requireAgentMutation(ctx); err != nil {
-		return AgentMutationReceipt{}, err
-	}
 	operation, err := s.enqueueTypedDurableMutation(ctx, "agent-update", in.ProjectID, in)
 	if err != nil {
 		return AgentMutationReceipt{}, err
@@ -58,9 +55,6 @@ func (s *Service) AgentUpdateAsync(ctx context.Context, in AgentUpdateInput) (Ag
 }
 
 func (s *Service) AgentDisableAsync(ctx context.Context, in AgentDisableInput) (AgentMutationReceipt, error) {
-	if err := s.requireAgentMutation(ctx); err != nil {
-		return AgentMutationReceipt{}, err
-	}
 	operation, err := s.enqueueTypedDurableMutation(ctx, "agent-disable", in.ProjectID, in)
 	if err != nil {
 		return AgentMutationReceipt{}, err

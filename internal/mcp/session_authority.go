@@ -15,25 +15,8 @@ const (
 	actionRolePlannerOrLead = "planner_or_lead"
 )
 
-func actionAuthorityAllowsSessionRole(actionRole, sessionRole string) bool {
-	switch actionRole {
-	case "":
-		return true
-	case durableSession.RolePlanner:
-		return sessionRole == durableSession.RolePlanner
-	case durableSession.RoleLead:
-		return sessionRole == durableSession.RoleLead
-	case durableSession.RoleAdvisor:
-		return sessionRole == durableSession.RoleAdvisor
-	case durableSession.RoleWorker:
-		return sessionRole == durableSession.RoleWorker
-	case actionRoleWorkflow:
-		return sessionRole == durableSession.RolePlanner || sessionRole == durableSession.RoleLead || sessionRole == durableSession.RoleAdvisor || sessionRole == durableSession.RoleWorker
-	case actionRolePlannerOrLead:
-		return sessionRole == durableSession.RolePlanner || sessionRole == durableSession.RoleLead
-	default:
-		return false
-	}
+func actionAuthorityAllowsSessionRole(_ string, sessionRole string) bool {
+	return durableSession.IsWorkflowRole(sessionRole)
 }
 
 type actionAuthorityContract struct {
@@ -161,6 +144,9 @@ func sessionIDFromRaw(raw json.RawMessage) (string, bool) {
 }
 
 func requireActionAuthority(ctx context.Context, contract actionAuthorityContract) error {
+	if _, authenticated := resolvedSessionAuthorityFromContext(ctx); authenticated {
+		return nil
+	}
 	switch contract.Role {
 	case "":
 		return nil
@@ -204,12 +190,28 @@ func withResolvedSessionAuthority(ctx context.Context, resolved resolvedSessionA
 	return context.WithValue(ctx, sessionAuthorityContextKey{}, resolved)
 }
 
+func resolvedSessionAuthorityFromContext(ctx context.Context) (resolvedSessionAuthority, bool) {
+	resolved, ok := ctx.Value(sessionAuthorityContextKey{}).(resolvedSessionAuthority)
+	return resolved, ok && resolved.Session.ID != ""
+}
+
+func authorizeAuthenticatedAction(ctx context.Context, actionPath string) error {
+	resolved, ok := resolvedSessionAuthorityFromContext(ctx)
+	if !ok {
+		return fmt.Errorf("durable Session authentication is required for action %q", actionPath)
+	}
+	if !durableSession.IsWorkflowRole(resolved.Session.Role) {
+		return fmt.Errorf("unsupported authenticated Session role %q", resolved.Session.Role)
+	}
+	return nil
+}
+
 func (s *Server) resolveSessionAuthority(ctx context.Context, record durableSession.Record, contract actionAuthorityContract) (context.Context, error) {
 	if record.ID == "" {
 		return ctx, nil
 	}
-	if contract.Role == "" && !contract.RequiresWorkflowPolicy {
-		return ctx, nil
+	if !durableSession.IsWorkflowRole(record.Role) {
+		return nil, fmt.Errorf("unsupported persisted session role %q", record.Role)
 	}
 	bootstrapContext := ctx
 	if elevated, err := authority.BootstrapSessionAuthority(ctx); err == nil {
@@ -218,8 +220,12 @@ func (s *Server) resolveSessionAuthority(ctx context.Context, record durableSess
 	if err := requireSessionRole(bootstrapContext, record.Role); err != nil {
 		return nil, fmt.Errorf("session authority is not trusted by this server: %w", err)
 	}
-	if !actionAuthorityAllowsSessionRole(contract.Role, record.Role) {
-		return nil, fmt.Errorf("session role %q is not authorized for this action; required %q", record.Role, contract.Role)
+	if contract.Role == "" && !contract.RequiresWorkflowPolicy {
+		roleContext, err := withRoleAuthority(bootstrapContext, record.Role)
+		if err != nil {
+			return nil, err
+		}
+		return withResolvedSessionAuthority(roleContext, resolvedSessionAuthority{Session: record}), nil
 	}
 	if contract.LocalReceiptOnly {
 		if record.ProjectID == "" {

@@ -194,7 +194,11 @@ func (s *Server) authenticateSession(ctx context.Context, entries map[string]gen
 		return nil, err
 	}
 	resolved = withSession(resolved, record)
-	return service.WithAgentSessionID(resolved, record.ID), nil
+	resolved = service.WithAgentSessionID(resolved, record.ID)
+	if err := authorizeAuthenticatedAction(resolved, action); err != nil {
+		return nil, err
+	}
+	return resolved, nil
 }
 
 func (s *Server) genericCall(ctx context.Context, legacy map[string]Tool, raw json.RawMessage) (any, error) {
@@ -206,6 +210,9 @@ func (s *Server) genericCall(ctx context.Context, legacy map[string]Tool, raw js
 		return nil, fmt.Errorf("session is required")
 	}
 	entries := s.genericActionRegistry(legacy)
+	if _, ok := entries[input.Action]; !ok {
+		return genericActionError(input.Action, fmt.Sprintf("unknown action %q; inspect schema with path=\"\"", input.Action)), nil
+	}
 	record, err := s.activeSession(input.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("durable Session authentication failed: %w", err)

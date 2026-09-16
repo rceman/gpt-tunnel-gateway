@@ -13,9 +13,6 @@ import (
 )
 
 func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWorkflowPolicyInput) (model.ProjectWorkflowPolicy, OperationResult, error) {
-	if err := RequireWorkflowPolicyAuthority(ctx); err != nil {
-		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
-	}
 	policy := in.Policy
 	if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
 		return model.ProjectWorkflowPolicy{}, OperationResult{}, err

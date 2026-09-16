@@ -15,12 +15,7 @@ func TestTSK631TaskRefreshHasClosedLeadPlannerContract(t *testing.T) {
 	if entry.AuthorityRole != actionRolePlannerOrLead || !entry.SessionBound || !entry.LocalReceiptOnly {
 		t.Fatalf("task/refresh authority=%#v", entry)
 	}
-	for _, role := range []string{durableSession.RoleWorker, durableSession.RoleAdvisor} {
-		if actionAuthorityAllowsSessionRole(entry.AuthorityRole, role) {
-			t.Fatalf("task/refresh admitted %s", role)
-		}
-	}
-	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleLead} {
+	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker} {
 		if !actionAuthorityAllowsSessionRole(entry.AuthorityRole, role) {
 			t.Fatalf("task/refresh rejected %s", role)
 		}

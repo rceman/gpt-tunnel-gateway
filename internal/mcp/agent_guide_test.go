@@ -93,7 +93,7 @@ func TestTSK545AgentGuideIsClosedBoundedAndPlannerOnly(t *testing.T) {
 	}
 }
 
-func TestTSK545AgentGuideRejectsNonPlannerSession(t *testing.T) {
+func TestTSK545AgentGuideAllowsEveryAuthenticatedWorkflowSession(t *testing.T) {
 	server := newSessionTestServer(t)
 	store := mcpSQLiteSessionStore(t, server.Service)
 	ref := "runtime-worker"
@@ -111,11 +111,7 @@ func TestTSK545AgentGuideRejectsNonPlannerSession(t *testing.T) {
 			"session": session.ID, "action": "agent/guide", "input": map[string]any{},
 		}},
 	})))
-	if response["is_error"] != true {
-		t.Fatalf("non-Planner guide call succeeded: %#v", response)
-	}
-	errorValue, _ := response["result"].(map[string]any)["error"].(map[string]any)
-	if !strings.Contains(errorValue["message"].(string), "not authorized") {
-		t.Fatalf("non-Planner guide error=%#v", response)
+	if response["is_error"] != false {
+		t.Fatalf("authenticated Worker guide call was rejected: %#v", response)
 	}
 }

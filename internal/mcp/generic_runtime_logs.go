@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
-	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 var gatewayRecoveryAcceptFn = func(c controller.Controller, operationID string, release func(func())) (controller.GatewayRecoveryResult, error) {
@@ -72,8 +70,6 @@ func (s *Server) ensureRuntimeLogActions() {
 					DestructiveHint: true,
 					IdempotentHint:  true,
 				},
-				Authority:     authority.RequirePlanner,
-				AuthorityRole: durableSession.RolePlanner,
 				Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 					var input struct {
 						OperationID string `json:"operation_id"`

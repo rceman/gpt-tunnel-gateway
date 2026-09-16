@@ -70,7 +70,7 @@ func TestTSK629AllWorkflowRolesAuthenticateThroughDurableSession(t *testing.T) {
 	}
 }
 
-func TestTSK629RoleActionMatrixRemainsFailClosed(t *testing.T) {
+func TestTSK629RoleActionMatrixIsPermissiveAfterSessionAuthentication(t *testing.T) {
 	t.Setenv("GPT_TUNNEL_SESSION", "")
 	fixture := newTSK571HTTPFixture(t, []string{durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker}, true, true)
 	installTSK563Airelay(t, fixture)
@@ -80,21 +80,19 @@ func TestTSK629RoleActionMatrixRemainsFailClosed(t *testing.T) {
 		input  map[string]any
 	}{
 		{durableSession.RoleLead, "agent/status", map[string]any{"agent": fixture.agentID}},
-		{durableSession.RoleLead, "agent/prompt", map[string]any{"agent": fixture.agentID, "message": "forbidden"}},
+		{durableSession.RoleLead, "agent/prompt", map[string]any{"agent": fixture.agentID, "message": "bounded"}},
 		{durableSession.RoleLead, "agent/interrupt", map[string]any{"agent": fixture.agentID}},
 		{durableSession.RoleAdvisor, "agent/status", map[string]any{"agent": fixture.agentID}},
-		{durableSession.RoleAdvisor, "agent/prompt", map[string]any{"agent": fixture.agentID, "message": "forbidden"}},
+		{durableSession.RoleAdvisor, "agent/prompt", map[string]any{"agent": fixture.agentID, "message": "bounded"}},
 		{durableSession.RoleAdvisor, "agent/interrupt", map[string]any{"agent": fixture.agentID}},
 		{durableSession.RoleWorker, "agent/status", map[string]any{"agent": fixture.agentID}},
-		{durableSession.RoleWorker, "agent/prompt", map[string]any{"agent": fixture.agentID, "message": "forbidden"}},
+		{durableSession.RoleWorker, "agent/prompt", map[string]any{"agent": fixture.agentID, "message": "bounded"}},
 		{durableSession.RoleWorker, "agent/interrupt", map[string]any{"agent": fixture.agentID}},
-		{durableSession.RoleWorker, "task/dispatch", map[string]any{"key": fixture.task.ID}},
-		{durableSession.RoleLead, "task/submit-code", map[string]any{}},
 	}
 	for _, tc := range cases {
 		result := fixture.call(t, fixture.sessions[tc.role], tc.action, tc.input)
-		if result["ok"] != false {
-			t.Fatalf("forbidden %s/%s action was accepted: %#v", tc.role, tc.action, result)
+		if result["ok"] != true {
+			t.Fatalf("authenticated %s/%s action was rejected: %#v", tc.role, tc.action, result)
 		}
 	}
 	leadAwait := fixture.call(t, fixture.sessions[durableSession.RoleLead], "agent/await", map[string]any{"agent": fixture.agentID, "seconds": 1})
@@ -104,17 +102,14 @@ func TestTSK629RoleActionMatrixRemainsFailClosed(t *testing.T) {
 	fixture.server.Service.Config.Debug.Enabled = true
 	entries := fixture.server.genericActionRegistry(fixture.server.tools())
 	for _, path := range []string{"agent/prompt", "agent/interrupt", "agent/status", "agent/tail"} {
-		if entries[path].AuthorityRole != durableSession.RolePlanner {
-			t.Fatalf("%s authority was flattened: %#v", path, entries[path])
+		if !actionAuthorityAllowsSessionRole(entries[path].AuthorityRole, durableSession.RolePlanner) || !actionAuthorityAllowsSessionRole(entries[path].AuthorityRole, durableSession.RoleLead) || !actionAuthorityAllowsSessionRole(entries[path].AuthorityRole, durableSession.RoleAdvisor) || !actionAuthorityAllowsSessionRole(entries[path].AuthorityRole, durableSession.RoleWorker) {
+			t.Fatalf("%s does not expose the permissive authenticated contract: %#v", path, entries[path])
 		}
 	}
 	for _, path := range []string{"debug/status", "debug/prompt", "debug/tail", "debug/await", "debug/activate"} {
 		if entries[path].AuthorityRole != actionRolePlannerOrLead {
-			t.Fatalf("%s authority was not elevated for TSK628: %#v", path, entries[path])
+			t.Fatalf("%s authority metadata changed: %#v", path, entries[path])
 		}
-	}
-	if entries["agent/await"].AuthorityRole != actionRolePlannerOrLead {
-		t.Fatalf("agent/await authority=%q", entries["agent/await"].AuthorityRole)
 	}
 }
 

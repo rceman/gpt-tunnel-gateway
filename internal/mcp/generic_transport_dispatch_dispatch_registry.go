@@ -143,8 +143,10 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		}
 	}
 	if entry.Authority != nil {
-		if err := entry.Authority(ctx); err != nil {
-			return genericActionError(action, err.Error()), nil
+		if _, authenticated := resolvedSessionAuthorityFromContext(ctx); !authenticated {
+			if err := entry.Authority(ctx); err != nil {
+				return genericActionError(action, err.Error()), nil
+			}
 		}
 	}
 	started = true

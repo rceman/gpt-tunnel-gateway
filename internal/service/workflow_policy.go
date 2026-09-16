@@ -20,10 +20,6 @@ func WithOperatorWorkflowPolicyAuthority(ctx context.Context) context.Context {
 	return authority.WithOperator(ctx)
 }
 
-func RequireWorkflowPolicyAuthority(ctx context.Context) error {
-	return authority.RequirePlanner(ctx)
-}
-
 func (s *Service) workflowPolicyPath(projectID string) string {
 	if model.ValidateProjectIdentifier(projectID) != nil {
 		return "../invalid-workflow-policy"

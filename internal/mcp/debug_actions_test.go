@@ -355,7 +355,10 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 
 func TestDebugAwaitRequiresExplicitSeconds(t *testing.T) {
 	s, _ := mcpServiceWithSQLite(t, config.Config{Debug: config.DebugConfig{Enabled: true}, StateDir: t.TempDir()})
-	server := &Server{Service: s, AuthorityContext: authority.WithPlanner(context.Background())}
+	server := &Server{
+		Service:          s,
+		AuthorityContext: authority.WithPlanner(context.Background()),
+	}
 	entry := server.genericActionRegistry(server.tools())["debug/await"]
 	required := stringList(entry.InputSchema["required"])
 	if len(required) != 2 || !containsRequired(required, "agent_ref") || !containsRequired(required, "seconds") {
@@ -426,22 +429,20 @@ func TestDebugActionsAuthorizeEachRoleBeforeExecution(t *testing.T) {
 			}
 			beforeActivation := activationCalls
 			result := fixture.call(t, fixture.sessions[role], action.path, action.input)
-			allowed := role == durableSession.RolePlanner || role == durableSession.RoleLead
-			if (result["ok"] == true) != allowed {
-				t.Fatalf("%s role=%s allowed=%v result=%#v", action.path, role, allowed, result)
+			if result["ok"] != true {
+				t.Fatalf("%s role=%s was rejected after authentication: %#v", action.path, role, result)
 			}
-			if !allowed {
-				message := tsk571ErrorMessage(t, result)
-				if !strings.Contains(message, "not authorized") {
-					t.Fatalf("%s role=%s rejection was not authorization-first: %q", action.path, role, message)
-				}
+			if action.path == "debug/prompt" || action.path == "debug/tail" || action.path == "debug/await" {
 				afterCalls, readErr := os.ReadFile(logPath)
-				if readErr != nil && !os.IsNotExist(readErr) {
+				if readErr != nil {
 					t.Fatal(readErr)
 				}
-				if string(afterCalls) != string(beforeCalls) || activationCalls != beforeActivation {
-					t.Fatalf("%s role=%s reached a bounded handler before rejection", action.path, role)
+				if len(afterCalls) <= len(beforeCalls) {
+					t.Fatalf("%s role=%s did not reach its bounded stub", action.path, role)
 				}
+			}
+			if action.path == "debug/activate" && activationCalls != beforeActivation+1 {
+				t.Fatalf("%s role=%s did not reach activation stub", action.path, role)
 			}
 		}
 	}

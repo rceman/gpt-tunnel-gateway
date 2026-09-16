@@ -98,24 +98,13 @@ func TestWorkflowPolicyRevisionAndTaskProjection(t *testing.T) {
 	if policy.WorkflowStage != model.WorkflowStageTransitionalMain || policy.IntegrationBranch != "main" || policy.CI.Task != model.WorkflowCIModeDisabled {
 		t.Fatalf("unexpected initial workflow policy: %#v", policy)
 	}
-	beforeAuthorizationCheck, err := s.Hub.RemoteRevision(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, unauthorized := range []context.Context{ctx, trustedWorkflowPolicyContext(ctx, "agent")} {
-		_, _, authErr := s.ProjectWorkflowPolicyUpdate(unauthorized, ProjectWorkflowPolicyInput{
-			Policy: policy,
-			WriteOptions: WriteOptions{
-				ExpectedHubRevision: beforeAuthorizationCheck,
-			},
-		})
-		if authErr == nil || authErr.Error() != "AUTHORITY_UNAVAILABLE" {
-			t.Fatalf("unauthorized policy write was accepted: %v", authErr)
-		}
-	}
-	afterAuthorizationCheck, err := s.Hub.RemoteRevision(ctx)
-	if err != nil || afterAuthorizationCheck != beforeAuthorizationCheck {
-		t.Fatalf("unauthorized policy write changed Hub revision: before=%s after=%s err=%v", beforeAuthorizationCheck, afterAuthorizationCheck, err)
+	if _, _, err := s.ProjectWorkflowPolicyUpdate(ctx, ProjectWorkflowPolicyInput{
+		Policy: policy,
+		WriteOptions: WriteOptions{
+			ExpectedHubRevision: revision,
+		},
+	}); err != nil && err.Error() == "AUTHORITY_UNAVAILABLE" {
+		t.Fatalf("permissive workflow-policy action retained a role gate: %v", err)
 	}
 	task, created, err := s.TaskCreate(ctx, TaskCreateInput{
 		ProjectID:          "example",

@@ -52,9 +52,6 @@ func projectConfigurationMutationReceipt(operation durableMutationOperation) Pro
 }
 
 func (s *Service) ProjectConfigurationUpdateAsync(ctx context.Context, in ProjectConfigurationUpdateInput) (ProjectConfigurationMutationReceipt, error) {
-	if err := RequireWorkflowPolicyAuthority(ctx); err != nil {
-		return ProjectConfigurationMutationReceipt{}, err
-	}
 	if in.ProjectID == "" {
 		return ProjectConfigurationMutationReceipt{}, fmt.Errorf("project_id is required")
 	}

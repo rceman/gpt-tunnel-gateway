@@ -160,7 +160,7 @@ func TestCallbackActionsUsePublicCallAndSharedRegistry(t *testing.T) {
 	}
 }
 
-func TestCallbackActionsRejectDeliveryMutationAndRequireBoundSession(t *testing.T) {
+func TestCallbackActionsRequireBoundSessionAndAllowAuthenticatedWorkflowRoles(t *testing.T) {
 	server, _ := newCallbackPublicServer(t)
 	response := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"action": "callback/list", "input": map[string]any{}}}}))
 	if response["error"] == nil && !strings.Contains(string(mustJSON(t, response)), "session") {
@@ -169,7 +169,7 @@ func TestCallbackActionsRejectDeliveryMutationAndRequireBoundSession(t *testing.
 	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "worker", "session_type": "chatgpt", "agent": "coding-example"}))
 	session := started["session"].(map[string]any)["session_id"].(string)
 	result := genericStructured(t, publicCallbackEnvelope(t, server, session, "callback/register", map[string]any{"callback": "delivery", "event": model.ProjectCallbackWorkFinishedEvent, "url": map[string]any{"method": "POST", "url": "https://example.invalid", "body": "{}"}}))
-	if result["is_error"] != true {
-		t.Fatalf("delivery registered callback: %#v", result)
+	if result["is_error"] != false {
+		t.Fatalf("authenticated Worker callback registration was rejected: %#v", result)
 	}
 }

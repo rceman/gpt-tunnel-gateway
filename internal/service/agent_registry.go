@@ -21,10 +21,6 @@ func (s *Service) agentPath(projectID, agentID string) string {
 	return s.projectPrefix(projectID) + "/agents/" + agentID + ".json"
 }
 
-func (s *Service) requireAgentMutation(ctx context.Context) error {
-	return RequireWorkflowPolicyAuthority(ctx)
-}
-
 func (s *Service) AgentRead(ctx context.Context, projectID, agentID string) (model.Agent, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return model.Agent{}, err
@@ -129,9 +125,6 @@ func (s *Service) listLocalAgents(ctx context.Context, projectID string) ([]mode
 }
 
 func (s *Service) AgentUpdate(ctx context.Context, in AgentUpdateInput) (model.Agent, OperationResult, error) {
-	if err := s.requireAgentMutation(ctx); err != nil {
-		return model.Agent{}, OperationResult{}, err
-	}
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return model.Agent{}, OperationResult{}, err
 	}

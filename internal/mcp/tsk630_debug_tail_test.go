@@ -116,9 +116,8 @@ func TestTSK630DebugTailAllowsPlannerAndLeadDurableSessions(t *testing.T) {
 	}
 	for _, item := range runtimes {
 		result := fixture.call(t, fixture.sessions[item.role], "debug/tail", map[string]any{"agent_ref": item.agentRef, "lines": 1})
-		allowed := item.role == durableSession.RolePlanner || item.role == durableSession.RoleLead
-		if (result["ok"] == true) != allowed {
-			t.Fatalf("debug/tail role=%s durable_session=%s allowed=%v result=%#v", item.role, fixture.sessions[item.role], allowed, result)
+		if result["ok"] != true {
+			t.Fatalf("authenticated debug/tail role=%s durable_session=%s was rejected: %#v", item.role, fixture.sessions[item.role], result)
 		}
 	}
 }
