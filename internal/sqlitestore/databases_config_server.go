@@ -219,4 +219,6 @@ const (
 	localTokenUsageMigrationName                          = "create local token usage ledger"
 	localOperationMigrationVersion                  int64 = 202609141200
 	localOperationMigrationName                           = "create local durable operations"
+	localOperationAdmissionMigrationVersion         int64 = 202609161045
+	localOperationAdmissionMigrationName                  = "migrate local operation admission coordinates"
 )
