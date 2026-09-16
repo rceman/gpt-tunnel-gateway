@@ -25,16 +25,6 @@ func TestDebugDomainIsAbsentWhenDisabled(t *testing.T) {
 			t.Fatalf("disabled debug action %q was registered", path)
 		}
 	}
-	root, err := server.genericSchema(nil, []byte(`{"path":""}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	rootObject := root.(map[string]any)
-	for _, raw := range rootObject["domains"].([]string) {
-		// The TSK409 read-only ADR relation action is always available under
-		// debug; runtime debug actions remain disabled and are checked below.
-		_ = raw
-	}
 	record := debugTestSession(t, mcpSQLiteSessionStore(t, server.Service), durableSession.RolePlanner)
 	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -59,9 +49,6 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 	got := map[string]bool{}
 	for path := range entries {
 		if strings.HasPrefix(path, "debug/") {
-			if isAlwaysAvailableDebugEvidence(path) {
-				continue
-			}
 			got[path] = true
 		}
 	}
@@ -99,20 +86,53 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	actions := domain.(map[string]any)["actions"].([]map[string]any)
-	filtered := make([]map[string]any, 0, len(actions))
-	for _, action := range actions {
-		if isAlwaysAvailableDebugEvidence(action["path"].(string)) {
-			continue
-		}
-		filtered = append(filtered, action)
-	}
-	actions = filtered
 	if len(actions) != len(want) {
 		t.Fatalf("debug schema actions=%#v want=%v", actions, want)
 	}
 	for _, action := range actions {
 		if !want[action["path"].(string)] {
 			t.Fatalf("unexpected debug schema action=%#v", action)
+		}
+	}
+}
+
+func TestEnabledDebugSchemaDiscoveryIsExactForPlannerAndLead(t *testing.T) {
+	s, _ := mcpServiceWithSQLite(t, config.Config{Debug: config.DebugConfig{Enabled: true}, StateDir: t.TempDir()})
+	server := &Server{Service: s}
+	store := mcpSQLiteSessionStore(t, s)
+	want := map[string]bool{
+		"debug/status":   true,
+		"debug/prompt":   true,
+		"debug/tail":     true,
+		"debug/await":    true,
+		"debug/activate": true,
+	}
+	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleLead} {
+		record := debugTestSession(t, store, role)
+		if role == durableSession.RolePlanner {
+			server.AuthorityContext = authority.WithPlanner(context.Background())
+		} else {
+			server.AuthorityContext = authority.WithLead(context.Background())
+		}
+		value, err := server.genericSchemaPublic(server.AuthorityContext, server.tools(), mustJSON(t, map[string]any{
+			"session": record.ID, "path": "debug",
+		}))
+		if err != nil {
+			t.Fatalf("%s schema discovery failed: %v", role, err)
+		}
+		domain := value.(map[string]any)
+		actions := domain["actions"].([]map[string]any)
+		got := make(map[string]bool, len(actions))
+		for _, action := range actions {
+			got[action["path"].(string)] = true
+		}
+		if len(got) != len(want) {
+			t.Fatalf("%s debug schema paths=%v want=%v", role, got, want)
+		}
+		for path := range want {
+			if !got[path] {
+				t.Fatalf("%s debug schema omitted %q: %v", role, path, got)
+			}
 		}
 	}
 }

@@ -286,9 +286,6 @@ func (s *Server) registerTaskAuthoringActions() error {
 	}); err != nil {
 		return err
 	}
-	if err := s.registerTaskLegacyRevisionActions(); err != nil {
-		return err
-	}
 	return s.registerTaskExecutionActions()
 }
 

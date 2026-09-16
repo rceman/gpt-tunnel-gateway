@@ -7,7 +7,6 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
-	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 func TestTSK531CanonicalTaskSurfaceAndLegacyEvidenceContract(t *testing.T) {
@@ -107,47 +106,14 @@ func TestTSK531CanonicalTaskSurfaceAndLegacyEvidenceContract(t *testing.T) {
 		t.Fatal("task/read output has projection detail")
 	}
 
-	for _, path := range []string{"debug/task_legacy_revision_list", "debug/task_legacy_revision_read"} {
-		entry, ok := entries[path]
-		if !ok {
-			t.Fatalf("missing legacy evidence action %q", path)
-		}
-		if entry.AuthorityRole != durableSession.RolePlanner || !entry.SessionBound || !entry.SessionRequired || !entry.LocalReadOnly || !entry.LocalReceiptOnly || !entry.Annotations.ReadOnlyHint || !entry.Annotations.IdempotentHint {
-			t.Fatalf("%s authority/annotations=%#v", path, entry)
-		}
-		if actionAuthorityAllowsSessionRole(entry.AuthorityRole, "agent") {
-			t.Fatalf("Agent access allowed for %s", path)
-		}
-	}
-	list := entries["debug/task_legacy_revision_list"]
-	assertSchemaKeys("legacy list", list.InputSchema, []string{"task", "cursor"})
-	if _, ok := schemaProperties(list.InputSchema)["limit"]; ok {
-		t.Fatal("legacy list exposes caller limit")
-	}
-	assertSchemaKeys("legacy list output", list.OutputSchema, []string{"task", "revisions", "next_cursor"})
-	if taskLegacyRevisionPageSize != 20 {
-		t.Fatalf("legacy page size=%d", taskLegacyRevisionPageSize)
-	}
-
-	read := entries["debug/task_legacy_revision_read"]
-	assertSchemaKeys("legacy read", read.InputSchema, []string{"revision_id"})
-	readProperties := schemaProperties(read.OutputSchema)
-	legacyProjection, ok := readProperties["revision"].(map[string]any)
-	if !ok {
-		t.Fatalf("legacy read projection=%#v", read.OutputSchema)
-	}
-	legacyFields := []string{"schema_version", "id", "task_id", "task_revision", "revision_sha256", "parent_task_revision", "parent_task_sha256", "project_id", "title", "type", "objective", "branch", "base_revision", "acceptance_criteria", "constraints", "required_gates", "workflow_policy_revision", "operation_class", "effective_ci_field", "effective_ci_mode", "wait_for_ci", "ci_blocking", "agent_may_wait", "status", "source_train_id", "source_item_position", "source_attempt_number", "source_run_id", "source_report_id", "created_by", "created_at"}
-	if legacyProjection["additionalProperties"] != false || len(schemaProperties(legacyProjection)) != len(legacyFields) {
-		t.Fatalf("legacy read projection is not closed/full: %#v", legacyProjection)
-	}
-	for _, field := range legacyFields {
-		if _, ok := schemaProperties(legacyProjection)[field]; !ok {
-			t.Fatalf("legacy read projection missing %q", field)
+	for _, path := range []string{"debug/adr_legacy_relations", "debug/task_legacy_revision_list", "debug/task_legacy_revision_read"} {
+		if _, ok := entries[path]; ok {
+			t.Fatalf("retired legacy debug action remains registered: %q", path)
 		}
 	}
 }
 
-func TestTSK531LegacyRevisionActionsExecuteAgainstBoundedTempHub(t *testing.T) {
+func TestTSK531LegacyRevisionHelpersRemainAvailableWithoutPublicActions(t *testing.T) {
 	server := newSessionTestServer(t)
 	ctx := authority.WithPlanner(context.Background())
 	hubRevision, err := server.Service.Hub.RemoteRevision(ctx)
@@ -162,40 +128,21 @@ func TestTSK531LegacyRevisionActionsExecuteAgainstBoundedTempHub(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries := server.genericActionRegistry(server.tools())
-	listValue, err := entries["debug/task_legacy_revision_list"].Execute(ctx, mustJSON(t, map[string]any{
-		"project_id": "example", "task": task.ID,
-	}))
+	page, err := server.Service.TaskRevisionLegacyEvidenceListPage(ctx, task.ID, service.CollectionPageInput{Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
-	list, ok := listValue.(map[string]any)
-	if !ok || list["task"] != task.ID {
-		t.Fatalf("legacy list=%#v", listValue)
+	if len(page.Revisions) != 1 || page.Revisions[0].TaskID != task.ID {
+		t.Fatalf("legacy revisions=%#v", page.Revisions)
 	}
-	revisions, ok := list["revisions"].([]any)
-	if !ok || len(revisions) != 1 {
-		t.Fatalf("legacy revisions=%#v", list["revisions"])
-	}
-	revisionID := revisions[0].(map[string]any)["revision_id"].(string)
-	readValue, err := entries["debug/task_legacy_revision_read"].Execute(ctx, mustJSON(t, map[string]any{
-		"project_id": "example", "revision_id": revisionID,
-	}))
+	read, err := server.Service.TaskRevisionLegacyEvidenceRead(ctx, page.Revisions[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	read, ok := readValue.(map[string]any)
-	if !ok || read["revision"] == nil {
-		t.Fatalf("legacy read=%#v", readValue)
+	if read.ID != page.Revisions[0].ID || read.TaskID != task.ID {
+		t.Fatalf("legacy read=%#v", read)
 	}
-	if _, err := entries["debug/task_legacy_revision_list"].Execute(ctx, mustJSON(t, map[string]any{
-		"project_id": "other", "task": task.ID,
-	})); err == nil {
-		t.Fatal("legacy list crossed project ownership")
-	}
-	if _, err := entries["debug/task_legacy_revision_read"].Execute(ctx, mustJSON(t, map[string]any{
-		"project_id": "example", "revision_id": fmt.Sprintf("%s.REV0", task.ID),
-	})); err == nil {
+	if _, err := server.Service.TaskRevisionLegacyEvidenceRead(ctx, fmt.Sprintf("%s.REV0", task.ID)); err == nil {
 		t.Fatal("invalid legacy REV identifier was accepted")
 	}
 }

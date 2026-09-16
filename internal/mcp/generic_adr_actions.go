@@ -241,38 +241,5 @@ func (s *Server) registerADRActions() error {
 	}); err != nil {
 		return err
 	}
-	return register(GenericAction{
-		Path:                 "debug/adr_legacy_relations",
-		Description:          "Read-only legacy ADR relation metadata.",
-		InputSchema:          adrLegacyRelationsSchema(),
-		ExecutionInputSchema: adrExecutionSchema(adrLegacyRelationsSchema()),
-		OutputSchema:         adrLegacyRelationsOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in struct {
-				ProjectID string `json:"project_id"`
-				ADR       string `json:"adr,omitempty"`
-				Cursor    string `json:"cursor,omitempty"`
-			}
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			page, err := s.Service.ADRLegacyRelations(ctx, in.ProjectID, in.ADR, in.Cursor)
-			if err != nil {
-				return nil, err
-			}
-			relations := make([]any, 0, len(page.Relations))
-			for _, relation := range page.Relations {
-				relations = append(relations, map[string]any{"adr": relation.ADR, "revision": relation.Revision, "supersedes": relation.Supersedes})
-			}
-			result := map[string]any{"relations": relations}
-			if page.HasMore {
-				result["_pagination"] = map[string]any{"next_cursor": page.NextCursor}
-			}
-			return result, nil
-		},
-	})
+	return nil
 }
