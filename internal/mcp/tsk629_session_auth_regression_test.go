@@ -103,9 +103,14 @@ func TestTSK629RoleActionMatrixRemainsFailClosed(t *testing.T) {
 	}
 	fixture.server.Service.Config.Debug.Enabled = true
 	entries := fixture.server.genericActionRegistry(fixture.server.tools())
-	for _, path := range []string{"agent/prompt", "agent/interrupt", "agent/status", "agent/tail", "debug/tail"} {
+	for _, path := range []string{"agent/prompt", "agent/interrupt", "agent/status", "agent/tail"} {
 		if entries[path].AuthorityRole != durableSession.RolePlanner {
 			t.Fatalf("%s authority was flattened: %#v", path, entries[path])
+		}
+	}
+	for _, path := range []string{"debug/status", "debug/prompt", "debug/tail", "debug/await", "debug/activate"} {
+		if entries[path].AuthorityRole != actionRolePlannerOrLead {
+			t.Fatalf("%s authority was not elevated for TSK628: %#v", path, entries[path])
 		}
 	}
 	if entries["agent/await"].AuthorityRole != actionRolePlannerOrLead {
@@ -117,20 +122,20 @@ func TestTSK629PublicSchemasHideRuntimeSelectors(t *testing.T) {
 	s, _ := mcpServiceWithSQLite(t, config.Config{Debug: config.DebugConfig{Enabled: true}, StateDir: t.TempDir()})
 	server := &Server{Service: s}
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"agent/prompt", "agent/interrupt", "agent/status", "agent/tail", "agent/await", "debug/prompt", "debug/tail"} {
+	for _, path := range []string{"agent/prompt", "agent/interrupt", "agent/status", "agent/tail", "agent/await", "debug/prompt", "debug/tail", "debug/await"} {
 		entry, ok := entries[path]
 		if !ok {
 			t.Fatalf("missing public action %q", path)
 		}
-		if path == "debug/prompt" || path == "debug/tail" {
-			requiredAgent := false
+		if strings.HasPrefix(path, "debug/") && path != "debug/status" {
+			requiredAgentRef := false
 			for _, required := range stringList(entry.InputSchema["required"]) {
-				if required == "agent" {
-					requiredAgent = true
+				if required == "agent_ref" {
+					requiredAgentRef = true
 				}
 			}
-			if !requiredAgent {
-				t.Fatalf("%s does not require an explicit logical Agent selector: %#v", path, entry.InputSchema)
+			if !requiredAgentRef {
+				t.Fatalf("%s does not require an explicit debug agent_ref: %#v", path, entry.InputSchema)
 			}
 		}
 		encoded, err := json.Marshal(map[string]any{"input": entry.InputSchema, "output": entry.OutputSchema})

@@ -71,27 +71,6 @@ func (s *Server) resolveHostLocalAgentBinding(projectID, requested string) (stri
 	return candidates[0], bindings[candidates[0]], nil
 }
 
-func (s *Server) resolveDebugAgent(projectID, requested string) (canonicalAgentTarget, error) {
-	agentID, binding, err := s.resolveHostLocalAgentBinding(projectID, requested)
-	if err != nil {
-		return canonicalAgentTarget{}, err
-	}
-	return canonicalAgentTarget{
-		Agent: model.Agent{
-			ProjectID: projectID,
-			AgentID:   agentID,
-			Role:      model.AgentRoleCoding,
-			Enabled:   true,
-		},
-		Resolved: service.ResolvedAgent{
-			ProjectID:  projectID,
-			AgentID:    agentID,
-			SessionKey: binding.SessionKey,
-			Profile:    binding.Profile,
-		},
-	}, nil
-}
-
 func (s *Server) resolveCanonicalAgent(ctx context.Context, projectID, requested string, requireEnabled bool) (canonicalAgentTarget, error) {
 	if requested != "" {
 		if model.ValidateObjectIdentifier(requested) != nil {

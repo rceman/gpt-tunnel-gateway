@@ -74,6 +74,17 @@ func (c Config) ResolveAgentBinding(projectID, agentID string) (AgentBinding, bo
 	return binding, found
 }
 
+func (c Config) isSelfHostingGateway() bool {
+	project, ok := c.Projects[GTWProjectID]
+	return c.GatewayID == "HOM" && ok && project.Root != ""
+}
+
+func (c *Config) applyStandingDebugPolicy() {
+	if c.isSelfHostingGateway() {
+		c.Debug.Enabled = true
+	}
+}
+
 func (c *Config) migrateGTWWorkerBinding() error {
 	bindings, ok := c.ProjectAgentBindings[GTWProjectID]
 	if !ok {
@@ -139,6 +150,7 @@ func Load(path string) (Config, error) {
 	if err := c.migrateGTWWorkerBinding(); err != nil {
 		return Config{}, err
 	}
+	c.applyStandingDebugPolicy()
 	if err := c.Validate(); err != nil {
 		return Config{}, err
 	}

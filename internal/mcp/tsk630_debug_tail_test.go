@@ -1,18 +1,16 @@
 package mcp
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
-func TestTSK630DebugTailUsesLogicalAgentAndBoundedRecoverySelector(t *testing.T) {
+func TestTSK630DebugTailUsesDirectAgentRefAndBoundedRecoverySelector(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "args")
 	script := filepath.Join(dir, "airelay")
@@ -22,7 +20,6 @@ func TestTSK630DebugTailUsesLogicalAgentAndBoundedRecoverySelector(t *testing.T)
 	}
 	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleWorker}, true, true)
 	fixture.server.Service.Config.Debug.Enabled = true
-	fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID][fixture.agentID] = config.AgentBinding{SessionKey: "debug_session", Profile: "coding"}
 	fixture.addSession(t, fixture.projectID, "EXM", durableSession.RoleWorker, "debug_session")
 	fixture.server.Service.Airelay.Command = script
 	fixture.server.Service.Config.AirelayCommand = script
@@ -32,7 +29,7 @@ func TestTSK630DebugTailUsesLogicalAgentAndBoundedRecoverySelector(t *testing.T)
 	if entry.Authority != nil || !entry.LocalReadOnly || !entry.LocalReceiptOnly || !entry.SessionBound || !entry.SessionRequired {
 		t.Fatalf("debug/tail contract=%#v", entry)
 	}
-	if entry.AuthorityRole != durableSession.RolePlanner {
+	if entry.AuthorityRole != actionRolePlannerOrLead {
 		t.Fatalf("debug/tail authority role=%q", entry.AuthorityRole)
 	}
 	planner := fixture.sessions[durableSession.RolePlanner]
@@ -53,7 +50,7 @@ func TestTSK630DebugTailUsesLogicalAgentAndBoundedRecoverySelector(t *testing.T)
 			t.Fatalf("debug/tail failed for %v: %#v", input, structured)
 		}
 		result := structured["result"].(map[string]any)
-		if result["status"] != "ok" || result["agent"] != fixture.agentID || result["exit_code"] != float64(0) {
+		if result["status"] != "ok" || result["agent_ref"] != "debug_session" || result["exit_code"] != float64(0) {
 			t.Fatalf("debug/tail evidence=%#v", result)
 		}
 		lines, ok := result["lines"].([]any)
@@ -69,15 +66,15 @@ func TestTSK630DebugTailUsesLogicalAgentAndBoundedRecoverySelector(t *testing.T)
 			t.Fatalf("tail argv=%q want %q", args, wantArgs)
 		}
 	}
-	check(map[string]any{"agent": fixture.agentID}, 20, "line-131")
-	check(map[string]any{"agent": fixture.agentID, "lines": 1}, 1, "line-150")
-	check(map[string]any{"agent": fixture.agentID, "lines": 100}, 100, "line-51")
+	check(map[string]any{"agent_ref": "debug_session"}, 20, "line-131")
+	check(map[string]any{"agent_ref": "debug_session", "lines": 1}, 1, "line-150")
+	check(map[string]any{"agent_ref": "debug_session", "lines": 100}, 100, "line-51")
 	before, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, lines := range []int{0, 101} {
-		structured := call(map[string]any{"agent": fixture.agentID, "lines": lines})
+		structured := call(map[string]any{"agent_ref": "debug_session", "lines": lines})
 		if structured["ok"] != false {
 			t.Fatalf("invalid debug/tail line count %d was accepted: %#v", lines, structured)
 		}
@@ -104,29 +101,22 @@ func TestTSK630DebugTailAllowsPlannerAndLeadDurableSessions(t *testing.T) {
 	fixture.server.Service.Airelay.Timeout = 5 * time.Second
 	fixture.server.Service.Config.AirelayCommand = script
 
+	fixture.server.Service.Config.ProjectAgentBindings = nil
 	runtimes := []struct {
-		agent   string
-		runtime string
-		role    string
+		agentRef string
+		role     string
 	}{
-		{agent: "coding-planner", runtime: "runtime-tsk630-planner", role: durableSession.RolePlanner},
-		{agent: "coding-lead", runtime: "runtime-tsk630-lead", role: durableSession.RoleLead},
-		{agent: "coding-advisor", runtime: "runtime-tsk630-advisor", role: durableSession.RoleAdvisor},
-		{agent: "coding-worker", runtime: "runtime-tsk630-worker", role: durableSession.RoleWorker},
-	}
-	fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID] = map[string]config.AgentBinding{}
-	revision, err := fixture.server.Service.Hub.RemoteRevision(context.Background())
-	if err != nil {
-		t.Fatal(err)
+		{agentRef: "runtime-tsk630-planner", role: durableSession.RolePlanner},
+		{agentRef: "runtime-tsk630-lead", role: durableSession.RoleLead},
+		{agentRef: "runtime-tsk630-advisor", role: durableSession.RoleAdvisor},
+		{agentRef: "runtime-tsk630-worker", role: durableSession.RoleWorker},
 	}
 	for _, item := range runtimes {
-		revision = seedTSK571Agent(t, fixture.server.Service, revision, item.agent, true)
-		fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID][item.agent] = config.AgentBinding{SessionKey: item.runtime, Profile: "coding"}
-		fixture.sessions[item.role] = fixture.addSession(t, fixture.projectID, "EXM", item.role, item.runtime)
+		fixture.sessions[item.role] = fixture.addSession(t, fixture.projectID, "EXM", item.role, item.agentRef)
 	}
 	for _, item := range runtimes {
-		result := fixture.call(t, fixture.sessions[item.role], "debug/tail", map[string]any{"agent": item.agent, "lines": 1})
-		allowed := item.role == durableSession.RolePlanner
+		result := fixture.call(t, fixture.sessions[item.role], "debug/tail", map[string]any{"agent_ref": item.agentRef, "lines": 1})
+		allowed := item.role == durableSession.RolePlanner || item.role == durableSession.RoleLead
 		if (result["ok"] == true) != allowed {
 			t.Fatalf("debug/tail role=%s durable_session=%s allowed=%v result=%#v", item.role, fixture.sessions[item.role], allowed, result)
 		}

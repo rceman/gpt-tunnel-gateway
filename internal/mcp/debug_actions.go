@@ -5,17 +5,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/airelay"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	debugdomain "github.com/rceman/gpt-tunnel-gateway/internal/debug"
-	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 const (
-	gatewaySourceProjectID = "gpt-tunnel-gateway"
-	debugTailDefaultLines  = 20
-	debugTailMaxLines      = 100
+	gatewaySourceProjectID    = "gpt-tunnel-gateway"
+	debugTailDefaultLines     = 20
+	debugTailMaxLines         = 100
+	debugAwaitDefaultSeconds  = 50
+	debugAwaitFinalReadBudget = time.Second
+	debugAwaitMaxSeconds      = 600
 )
 
 var debugActivationAcceptFn = func(c config.Config, configPath, sourceHead string, release func(func())) (debugdomain.ActivationResult, error) {
@@ -44,7 +48,7 @@ func (s *Server) registerDebugActions() error {
 			ReadOnlyHint:   true,
 			IdempotentHint: true,
 		},
-		AuthorityRole:    durableSession.RolePlanner,
+		AuthorityRole:    actionRolePlannerOrLead,
 		LocalReadOnly:    true,
 		LocalReceiptOnly: true,
 		SessionBound:     true,
@@ -64,43 +68,38 @@ func (s *Server) registerDebugActions() error {
 	}
 	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "debug/prompt",
-		Description:  "Send one bounded direct prompt to a server-selected Agent.",
+		Description:  "Send one bounded prompt directly to an explicit debug Agent reference.",
 		InputSchema:  debugPromptInputSchema(),
 		OutputSchema: debugPromptOutputSchema(),
 		Annotations: ToolAnnotations{
 			DestructiveHint: true,
 			IdempotentHint:  false,
 		},
-		AuthorityRole:    durableSession.RolePlanner,
+		AuthorityRole:    actionRolePlannerOrLead,
 		LocalReceiptOnly: true,
 		SessionBound:     true,
 		SessionRequired:  true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
-				Agent   string `json:"agent"`
-				Message string `json:"message"`
+				AgentRef string `json:"agent_ref"`
+				Message  string `json:"message"`
 			}
 			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			if err := validateDebugAgentRef(in.AgentRef); err != nil {
 				return nil, err
 			}
 			if err := validateCanonicalAgentMessage(in.Message); err != nil {
 				return nil, err
 			}
-			projectID, err := s.boundAgentProject(ctx)
-			if err != nil {
-				return nil, err
-			}
-			target, err := s.resolveDebugAgent(projectID, in.Agent)
-			if err != nil {
-				return nil, err
-			}
-			result, err := s.Service.Airelay.Prompt(ctx, target.Resolved.SessionKey, in.Message)
+			result, err := s.Service.Airelay.Prompt(ctx, in.AgentRef, in.Message)
 			if err != nil {
 				return nil, err
 			}
 			return map[string]any{
 				"status":    "accepted",
-				"agent":     target.Agent.AgentID,
+				"agent_ref": in.AgentRef,
 				"exit_code": result.ExitCode,
 			}, nil
 		},
@@ -109,24 +108,27 @@ func (s *Server) registerDebugActions() error {
 	}
 	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "debug/tail",
-		Description:  "Read a bounded transcript tail from a server-selected Agent.",
+		Description:  "Read a bounded transcript tail from an explicit debug Agent reference.",
 		InputSchema:  debugTailInputSchema(),
 		OutputSchema: debugTailOutputSchema(),
 		Annotations: ToolAnnotations{
 			ReadOnlyHint:   true,
 			IdempotentHint: true,
 		},
-		AuthorityRole:    durableSession.RolePlanner,
+		AuthorityRole:    actionRolePlannerOrLead,
 		LocalReadOnly:    true,
 		LocalReceiptOnly: true,
 		SessionBound:     true,
 		SessionRequired:  true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
-				Agent string `json:"agent"`
-				Lines *int   `json:"lines"`
+				AgentRef string `json:"agent_ref"`
+				Lines    *int   `json:"lines"`
 			}
 			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			if err := validateDebugAgentRef(in.AgentRef); err != nil {
 				return nil, err
 			}
 			lines := debugTailDefaultLines
@@ -136,32 +138,36 @@ func (s *Server) registerDebugActions() error {
 			if lines < 1 || lines > debugTailMaxLines {
 				return nil, fmt.Errorf("debug tail line count must be between 1 and %d", debugTailMaxLines)
 			}
-			projectID, err := s.boundAgentProject(ctx)
+			result, err := s.Service.Airelay.Tail(ctx, in.AgentRef, lines)
 			if err != nil {
 				return nil, err
-			}
-			target, err := s.resolveDebugAgent(projectID, in.Agent)
-			if err != nil {
-				return nil, err
-			}
-			result, err := s.Service.Airelay.Tail(ctx, target.Resolved.SessionKey, lines)
-			if err != nil {
-				return nil, err
-			}
-			transcript := strings.TrimRight(result.Stdout, "\r\n")
-			transcriptLines := []string{}
-			if transcript != "" {
-				transcriptLines = strings.Split(transcript, "\n")
-				if len(transcriptLines) > lines {
-					transcriptLines = transcriptLines[len(transcriptLines)-lines:]
-				}
 			}
 			return map[string]any{
 				"status":    "ok",
-				"agent":     target.Agent.AgentID,
-				"lines":     transcriptLines,
+				"agent_ref": in.AgentRef,
+				"lines":     debugTranscriptLines(result.Stdout, lines),
 				"exit_code": result.ExitCode,
 			}, nil
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "debug/await",
+		Description:  "Supervise an explicit debug Agent reference for a bounded interval.",
+		InputSchema:  debugAwaitInputSchema(),
+		OutputSchema: debugAwaitOutputSchema(),
+		Annotations: ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+		},
+		AuthorityRole:    actionRolePlannerOrLead,
+		LocalReadOnly:    true,
+		LocalReceiptOnly: true,
+		SessionBound:     true,
+		SessionRequired:  true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			return s.debugAwaitAction(ctx, raw)
 		},
 	}); err != nil {
 		return err
@@ -175,7 +181,7 @@ func (s *Server) registerDebugActions() error {
 			DestructiveHint: true,
 			IdempotentHint:  true,
 		},
-		AuthorityRole:    durableSession.RolePlanner,
+		AuthorityRole:    actionRolePlannerOrLead,
 		LocalReceiptOnly: true,
 		SessionBound:     true,
 		SessionRequired:  true,
@@ -217,22 +223,60 @@ func decodeDebugEmptyInput(raw json.RawMessage) (struct{}, error) {
 
 func debugStatusInputSchema() map[string]any { return obj(map[string]any{}) }
 
+func debugAgentRefSchema() map[string]any {
+	ref := str("Direct existing Airelay Agent reference for break-glass recovery.")
+	ref["minLength"], ref["maxLength"] = 1, 128
+	ref["pattern"] = `^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`
+	return ref
+}
+
+func validateDebugAgentRef(ref string) error {
+	if err := model.ValidateObjectIdentifier(ref); err != nil {
+		return fmt.Errorf("invalid debug agent_ref")
+	}
+	return nil
+}
+
+func debugTranscriptLines(stdout string, lines int) []string {
+	transcript := strings.TrimRight(stdout, "\x0d\x0a")
+	if transcript == "" {
+		return []string{}
+	}
+	result := strings.Split(transcript, "\n")
+	if len(result) > lines {
+		result = result[len(result)-lines:]
+	}
+	return result
+}
+
 func debugPromptInputSchema() map[string]any {
 	message := str("Bounded direct Agent prompt message.")
 	message["minLength"], message["maxLength"] = 1, airelay.MaxPromptBytes
 	return obj(map[string]any{
-		"agent":   canonicalAgentSelectorSchema(),
-		"message": message,
-	}, "agent", "message")
+		"agent_ref": debugAgentRefSchema(),
+		"message":   message,
+	}, "agent_ref", "message")
 }
 
 func debugTailInputSchema() map[string]any {
 	lines := integer("Maximum transcript lines to return.", 1, debugTailMaxLines)
 	lines["default"] = debugTailDefaultLines
 	return obj(map[string]any{
-		"agent": canonicalAgentSelectorSchema(),
-		"lines": lines,
-	}, "agent")
+		"agent_ref": debugAgentRefSchema(),
+		"lines":     lines,
+	}, "agent_ref")
+}
+
+func debugAwaitInputSchema() map[string]any {
+	seconds := integer("Maximum seconds to supervise a direct Agent reference.", 1, debugAwaitMaxSeconds)
+	seconds["default"] = debugAwaitDefaultSeconds
+	lines := integer("Maximum transcript lines to return.", 1, debugTailMaxLines)
+	lines["default"] = debugTailDefaultLines
+	return obj(map[string]any{
+		"agent_ref": debugAgentRefSchema(),
+		"seconds":   seconds,
+		"lines":     lines,
+	}, "agent_ref")
 }
 
 func debugTailOutputSchema() map[string]any {
@@ -242,10 +286,85 @@ func debugTailOutputSchema() map[string]any {
 	lines["maxItems"] = debugTailMaxLines
 	return closedOutput(map[string]any{
 		"status":    outputEnum("ok"),
-		"agent":     outputString(),
+		"agent_ref": outputString(),
 		"lines":     lines,
 		"exit_code": integer("Direct Agent exit code.", -1, 1<<31-1),
-	}, "status", "agent", "lines", "exit_code")
+	}, "status", "agent_ref", "lines", "exit_code")
+}
+
+func debugAwaitOutputSchema() map[string]any {
+	line := outputString()
+	line["maxLength"] = airelay.MaxTransportMessageBytes
+	lines := outputArray(line)
+	lines["maxItems"] = debugTailMaxLines
+	return closedOutput(map[string]any{
+		"status":               outputEnum("idle", "running", "waiting", "error"),
+		"agent_ref":            outputString(),
+		"controller_reachable": outputBoolean(),
+		"lines":                lines,
+		"exit_code":            integer("Direct Agent exit code.", -1, 1<<31-1),
+	}, "status", "agent_ref", "controller_reachable", "lines", "exit_code")
+}
+
+func (s *Server) debugAwaitAction(ctx context.Context, raw json.RawMessage) (any, error) {
+	actionStarted := time.Now()
+	var in struct {
+		AgentRef string `json:"agent_ref"`
+		Seconds  *int   `json:"seconds"`
+		Lines    *int   `json:"lines"`
+	}
+	if err := decode(raw, &in); err != nil {
+		return nil, err
+	}
+	if err := validateDebugAgentRef(in.AgentRef); err != nil {
+		return nil, err
+	}
+	seconds := debugAwaitDefaultSeconds
+	if in.Seconds != nil {
+		seconds = *in.Seconds
+	}
+	if seconds < 1 || seconds > debugAwaitMaxSeconds {
+		return nil, fmt.Errorf("debug await seconds must be between 1 and %d", debugAwaitMaxSeconds)
+	}
+	lines := debugTailDefaultLines
+	if in.Lines != nil {
+		lines = *in.Lines
+	}
+	if lines < 1 || lines > debugTailMaxLines {
+		return nil, fmt.Errorf("debug await line count must be between 1 and %d", debugTailMaxLines)
+	}
+	awaitDeadline := actionStarted.Add(time.Duration(seconds) * time.Second)
+	awaitCtx, cancel := context.WithDeadline(ctx, awaitDeadline)
+	defer cancel()
+	finalReadAt := awaitDeadline.Add(-debugAwaitFinalReadBudget)
+	if wait := time.Until(finalReadAt); wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-awaitCtx.Done():
+			return nil, awaitCtx.Err()
+		}
+	} else if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	status, err := s.Service.Airelay.Status(awaitCtx, in.AgentRef)
+	if err != nil {
+		return nil, err
+	}
+	tail, err := s.Service.Airelay.Tail(awaitCtx, in.AgentRef, lines)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"status":               status.State,
+		"agent_ref":            in.AgentRef,
+		"controller_reachable": status.ControllerReachable,
+		"lines":                debugTranscriptLines(tail.Stdout, lines),
+		"exit_code":            tail.ExitCode,
+	}, nil
 }
 
 func debugActivateInputSchema() map[string]any {
@@ -293,8 +412,8 @@ func debugRuntimeOutputSchema() map[string]any {
 
 func debugPromptOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"status": outputEnum("accepted"), "agent": outputString(), "exit_code": integer("Direct Agent exit code.", -1, 1<<31-1),
-	}, "status", "agent", "exit_code")
+		"status": outputEnum("accepted"), "agent_ref": outputString(), "exit_code": integer("Direct Agent exit code.", -1, 1<<31-1),
+	}, "status", "agent_ref", "exit_code")
 }
 
 func debugActivateOutputSchema() map[string]any {

@@ -98,6 +98,48 @@ func TestLoadDefaultsDebugRecoveryDisabledWhenOmitted(t *testing.T) {
 	}
 }
 
+func TestLoadEnablesStandingDebugPolicyForSelfHostingGateway(t *testing.T) {
+	dir := t.TempDir()
+	c := baseConfig(dir)
+	c.Projects[GTWProjectID] = ProjectConfig{
+		Root:              t.TempDir(),
+		Mirror:            filepath.Join(dir, "mirror.git"),
+		Remote:            "origin",
+		DefaultBranch:     "main",
+		AirelaySessionKey: "gpt-tunnel-gateway_master",
+	}
+	c.Debug.Enabled = false
+	data, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.Debug.Enabled {
+		t.Fatal("self-hosting debug policy was not enabled")
+	}
+	data, err = json.Marshal(loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !restarted.Debug.Enabled {
+		t.Fatal("self-hosting debug policy reverted after restart")
+	}
+}
+
 func TestLoadRejectsNonBooleanDebugEnabled(t *testing.T) {
 	dir := t.TempDir()
 	c := baseConfig(dir)

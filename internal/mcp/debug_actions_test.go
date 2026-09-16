@@ -20,7 +20,7 @@ func TestDebugDomainIsAbsentWhenDisabled(t *testing.T) {
 	s, _ := mcpServiceWithSQLite(t, config.Config{StateDir: t.TempDir()})
 	server := &Server{Service: s}
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"debug/status", "debug/prompt", "debug/tail", "debug/activate"} {
+	for _, path := range []string{"debug/status", "debug/prompt", "debug/tail", "debug/await", "debug/activate"} {
 		if _, ok := entries[path]; ok {
 			t.Fatalf("disabled debug action %q was registered", path)
 		}
@@ -55,7 +55,7 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 	})
 	server := &Server{Service: s}
 	entries := server.genericActionRegistry(server.tools())
-	want := map[string]bool{"debug/status": true, "debug/prompt": true, "debug/tail": true, "debug/activate": true}
+	want := map[string]bool{"debug/status": true, "debug/prompt": true, "debug/tail": true, "debug/await": true, "debug/activate": true}
 	got := map[string]bool{}
 	for path := range entries {
 		if strings.HasPrefix(path, "debug/") {
@@ -73,7 +73,7 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 			t.Fatalf("enabled debug actions omitted %q: %v", path, got)
 		}
 		entry := entries[path]
-		if entry.AuthorityRole != durableSession.RolePlanner || !entry.SessionBound || !entry.SessionRequired {
+		if entry.AuthorityRole != actionRolePlannerOrLead || !entry.SessionBound || !entry.SessionRequired {
 			t.Fatalf("debug action %q authority/session contract=%#v", path, entry)
 		}
 		if path == "debug/activate" && !entry.Annotations.IdempotentHint {
@@ -113,6 +113,51 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 	for _, action := range actions {
 		if !want[action["path"].(string)] {
 			t.Fatalf("unexpected debug schema action=%#v", action)
+		}
+	}
+}
+
+func TestDebugAgentRefIsIsolatedToDebugDomain(t *testing.T) {
+	s, _ := mcpServiceWithSQLite(t, config.Config{
+		Debug:    config.DebugConfig{Enabled: true},
+		StateDir: t.TempDir(),
+	})
+	server := &Server{Service: s}
+	entries := server.genericActionRegistry(server.tools())
+	var containsKey func(any, string) bool
+	containsKey = func(value any, want string) bool {
+		switch current := value.(type) {
+		case map[string]any:
+			for key, child := range current {
+				if key == want || containsKey(child, want) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range current {
+				if containsKey(child, want) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for path, entry := range entries {
+		if strings.HasPrefix(path, "debug/") {
+			continue
+		}
+		if containsKey(entry.InputSchema, "agent_ref") || containsKey(entry.OutputSchema, "agent_ref") {
+			t.Fatalf("ordinary action %s exposes debug-only agent_ref", path)
+		}
+	}
+	for _, path := range []string{"debug/prompt", "debug/tail", "debug/await"} {
+		entry := entries[path]
+		properties := entry.InputSchema["properties"].(map[string]any)
+		if _, ok := properties["agent"]; ok {
+			t.Fatalf("%s retained logical Agent selector", path)
+		}
+		if _, ok := properties["agent_ref"]; !ok || !containsRequired(stringList(entry.InputSchema["required"]), "agent_ref") {
+			t.Fatalf("%s does not require direct agent_ref", path)
 		}
 	}
 }
@@ -217,7 +262,7 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 
 func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 	script := filepath.Join(t.TempDir(), "airelay")
-	contents := "#!/bin/sh\nif [ \"$1\" = prompt ] && [ \"$2\" = runtime-tsk571 ] && [ \"$3\" = \"[GTW] recovery message\" ]; then exit 0; fi\nif [ \"$1\" = tail ] && [ \"$2\" = runtime-tsk571 ] && [ \"$3\" = --lines ] && [ \"$4\" = 2 ]; then printf 'break-glass tail\\n'; exit 0; fi\nexit 1\n"
+	contents := "#!/bin/sh\nif [ \"$1\" = prompt ] && [ \"$2\" = runtime-tsk571 ] && [ \"$3\" = \"[GTW] recovery message\" ]; then exit 0; fi\nif [ \"$1\" = tail ] && [ \"$2\" = runtime-tsk571 ] && [ \"$3\" = --lines ] && [ \"$4\" = 2 ]; then printf 'break-glass tail\\n'; exit 0; fi\nif [ \"$1\" = session-status ] && [ \"$2\" = runtime-tsk571 ]; then printf 'Controller: reachable\\nState: idle\\n'; exit 0; fi\nexit 1\n"
 	if err := os.WriteFile(script, []byte(contents), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -227,6 +272,7 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 	fixture.server.Service.Config.AirelayCommand = script
 	fixture.server.Service.Airelay.Timeout = 5 * time.Second
 	fixture.server.Service.Durability.Shared = nil
+	fixture.server.Service.Config.ProjectAgentBindings = nil
 	hubLock, err := lockfile.Acquire(filepath.Join(fixture.server.Service.Config.StateDir, "locks"), "hub-repository")
 	if err != nil {
 		t.Fatal(err)
@@ -238,7 +284,7 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{
 			"session": recordID, "action": "debug/prompt", "input": map[string]any{
-				"agent": fixture.agentID, "message": "recovery message",
+				"agent_ref": "runtime-tsk571", "message": "recovery message",
 			},
 		}},
 	}))
@@ -247,13 +293,13 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 		t.Fatalf("direct debug/prompt failed: %#v", response)
 	}
 	result := structured["result"].(map[string]any)
-	if result["status"] != "accepted" || result["agent"] != fixture.agentID {
+	if result["status"] != "accepted" || result["agent_ref"] != "runtime-tsk571" {
 		t.Fatalf("unexpected direct debug/prompt result: %#v", result)
 	}
 	tailResponse := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{
-			"session": recordID, "action": "debug/tail", "input": map[string]any{"agent": fixture.agentID, "lines": 2},
+			"session": recordID, "action": "debug/tail", "input": map[string]any{"agent_ref": "runtime-tsk571", "lines": 2},
 		}},
 	}))
 	tailStructured := typedStructured(t, tailResponse)
@@ -261,22 +307,37 @@ func TestDebugPromptUsesDirectAirelayUnderBrokenNormalAuthority(t *testing.T) {
 		t.Fatalf("direct debug/tail failed while normal routing was unavailable: %#v", tailResponse)
 	}
 	tailResult := tailStructured["result"].(map[string]any)
-	if tailResult["agent"] != fixture.agentID || tailResult["status"] != "ok" {
+	if tailResult["agent_ref"] != "runtime-tsk571" || tailResult["status"] != "ok" {
 		t.Fatalf("unexpected direct debug/tail result: %#v", tailResult)
+	}
+	awaitResponse := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session": recordID, "action": "debug/await", "input": map[string]any{"agent_ref": "runtime-tsk571", "seconds": 1, "lines": 2},
+		}},
+	}))
+	awaitStructured := typedStructured(t, awaitResponse)
+	if awaitStructured["ok"] != true {
+		t.Fatalf("direct debug/await failed while normal routing was unavailable: %#v", awaitResponse)
+	}
+	awaitResult := awaitStructured["result"].(map[string]any)
+	if awaitResult["agent_ref"] != "runtime-tsk571" || awaitResult["status"] != "idle" {
+		t.Fatalf("unexpected direct debug/await result: %#v", awaitResult)
 	}
 	entry := server.genericActionRegistry(server.tools())["debug/prompt"]
 	if entry.Authority != nil || !entry.LocalReceiptOnly || !entry.SessionBound || !entry.SessionRequired {
 		t.Fatalf("debug/prompt contract changed: %#v", entry)
 	}
-	if entry.AuthorityRole != durableSession.RolePlanner {
+	if entry.AuthorityRole != actionRolePlannerOrLead {
 		t.Fatalf("debug/prompt authority role=%q want %q", entry.AuthorityRole, durableSession.RolePlanner)
 	}
 }
 
-func TestDebugActionsRejectNonPlannerSessions(t *testing.T) {
+func TestDebugActionsAuthorizePlannerAndLeadSessions(t *testing.T) {
 	s, _ := mcpServiceWithSQLite(t, config.Config{
 		Debug:    config.DebugConfig{Enabled: true},
 		StateDir: t.TempDir(),
+		Projects: map[string]config.ProjectConfig{gatewaySourceProjectID: {Root: t.TempDir()}},
 	})
 	server := &Server{
 		Service:          s,
@@ -300,8 +361,9 @@ func TestDebugActionsRejectNonPlannerSessions(t *testing.T) {
 			}},
 		}))
 		structured := typedStructured(t, response)
-		if structured["ok"] != false {
-			t.Fatalf("debug/status accepted %s session: %#v", role, response)
+		allowed := role == durableSession.RolePlanner || role == durableSession.RoleLead
+		if (structured["ok"] == true) != allowed {
+			t.Fatalf("debug/status role=%s allowed=%v response=%#v", role, allowed, response)
 		}
 	}
 }
