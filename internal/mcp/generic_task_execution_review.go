@@ -41,7 +41,7 @@ func taskExecutionReviewOutputSchema() map[string]any {
 func (s *Server) registerTaskExecutionReviewActions() error {
 	register := func(action GenericAction) error {
 		action.AuthorityRole = "planner"
-		if action.Path == "task/review" || action.Path == "task/block" || action.Path == "task/resume" {
+		if action.Path == "task/review" || action.Path == "task/block" || action.Path == "task/resume" || action.Path == "task/refresh" {
 			action.AuthorityRole = actionRolePlannerOrLead
 		}
 		action.SessionBound = true
@@ -119,6 +119,30 @@ func (s *Server) registerTaskExecutionReviewActions() error {
 				return nil, err
 			}
 			return s.Service.TaskExecutionRework(ctx, service.TaskExecutionReworkInput{ProjectID: in.ProjectID, Key: in.Key, Stage: in.Stage, Comment: in.Comment})
+		},
+	}); err != nil {
+		return err
+	}
+	if err := register(GenericAction{
+		Path:                 "task/refresh",
+		Description:          "Refresh one safe Task lane onto the exact current canonical main.",
+		InputSchema:          taskExecutionParkSchema(),
+		ExecutionInputSchema: adrExecutionSchema(taskExecutionParkSchema()),
+		OutputSchema:         taskExecutionParkOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				ProjectID string `json:"project_id"`
+				Key       string `json:"key"`
+				Reason    string `json:"reason"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.TaskExecutionRefresh(ctx, service.TaskExecutionRefreshInput{ProjectID: in.ProjectID, Key: in.Key, Reason: in.Reason})
 		},
 	}); err != nil {
 		return err

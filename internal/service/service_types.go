@@ -41,6 +41,7 @@ type Service struct {
 	gateExecutorWithProjectCommands         func(context.Context, string, []string, model.ProjectGateCommands, string) ([]model.CompletionGateResult, error)
 	gateExecutorWithProjectCommandsAndScope func(context.Context, string, []string, model.ProjectGateCommands, string, gates.TestScope) ([]model.CompletionGateResult, error)
 	taskIntegrationFaultHook                func(context.Context, string) error
+	taskExecutionRefreshFaultHook           func(context.Context, string) error
 	taskIntegrationWriteAhead               func(context.Context, taskExecutionIntegrationCapture) error
 	formatExecutor                          func(context.Context, string, []string) error
 	verifyWorktreeFingerprint               func(context.Context, string) (string, error)

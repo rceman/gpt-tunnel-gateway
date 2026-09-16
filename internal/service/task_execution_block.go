@@ -102,7 +102,13 @@ func (s *Service) TaskExecutionResume(ctx context.Context, in TaskExecutionResum
 		}
 		return TaskExecutionPublicOutput{}, fmt.Errorf("Task has no execution state")
 	}
-	phase, phaseErr := s.latestTaskExecutionPhase(ctx, state)
+	var phase sqlitestore.TaskExecutionPhase
+	var phaseErr error
+	if state.Status == model.TaskExecutionBlocked {
+		phase, phaseErr = s.taskExecutionBlockedPhase(ctx, state)
+	} else {
+		phase, phaseErr = s.latestTaskExecutionParkPhase(ctx, state)
+	}
 	if phaseErr != nil {
 		return TaskExecutionPublicOutput{}, phaseErr
 	}
@@ -114,7 +120,7 @@ func (s *Service) TaskExecutionResume(ctx context.Context, in TaskExecutionResum
 		}
 		return TaskExecutionPublicOutput{}, fmt.Errorf("Task execution is not blocked")
 	}
-	if phase.EventKind != "block" || phase.Status != model.TaskExecutionBlocked || phase.Decision == "" || !model.IsTaskExecutionAgentActionable(phase.Decision, phase.Stage) || phase.Stage != state.Stage || phase.Head != state.Head || phase.Branch != state.Branch {
+	if phase.EventKind != "block" || phase.Status != model.TaskExecutionBlocked || phase.Decision == "" || !model.IsTaskExecutionAgentActionable(phase.Decision, phase.Stage) || phase.Stage != state.Stage || phase.Branch != state.Branch {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("Task blocked state has invalid resume authority")
 	}
 	if err := s.ensureNoInFlightWorkerTurn(ctx, state); err != nil {
@@ -171,29 +177,45 @@ func (s *Service) taskExecutionBlockedReason(ctx context.Context, state model.Ta
 }
 
 func (s *Service) taskExecutionBlockedPhase(ctx context.Context, state model.TaskExecutionState) (sqlitestore.TaskExecutionPhase, error) {
-	phase, err := s.latestTaskExecutionPhase(ctx, state)
+	phase, err := s.latestTaskExecutionParkPhase(ctx, state)
 	if err != nil {
 		return sqlitestore.TaskExecutionPhase{}, err
 	}
-	if phase.EventKind != "block" || phase.Status != model.TaskExecutionBlocked || phase.Stage != state.Stage || phase.Head != state.Head || phase.Branch != state.Branch || phase.Decision == "" || !model.IsTaskExecutionAgentActionable(phase.Decision, phase.Stage) || strings.TrimSpace(phase.Comment) == "" {
+	if phase.EventKind != "block" || phase.Status != model.TaskExecutionBlocked || phase.Stage != state.Stage || phase.Branch != state.Branch || phase.Decision == "" || !model.IsTaskExecutionAgentActionable(phase.Decision, phase.Stage) || strings.TrimSpace(phase.Comment) == "" {
 		return sqlitestore.TaskExecutionPhase{}, fmt.Errorf("Task blocked state has no valid durable block evidence")
+	}
+	if phase.Head != state.Head || phase.ExecutionRevision != state.ExecutionRevision {
+		if err := s.ensureTaskExecutionRefreshChain(ctx, state); err != nil {
+			return sqlitestore.TaskExecutionPhase{}, err
+		}
 	}
 	return phase, nil
 }
 
-func (s *Service) latestTaskExecutionPhase(ctx context.Context, state model.TaskExecutionState) (sqlitestore.TaskExecutionPhase, error) {
+func (s *Service) ensureTaskExecutionRefreshChain(ctx context.Context, state model.TaskExecutionState) error {
+	phases, err := s.Durability.ReadTaskExecutionPhases(ctx, state.ProjectID, state.TaskID, state.Stage)
+	if err != nil {
+		return err
+	}
+	if _, err := validateTaskExecutionRefreshChain(state, phases); err != nil {
+		return fmt.Errorf("Task blocked state has invalid refresh authority: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) latestTaskExecutionParkPhase(ctx context.Context, state model.TaskExecutionState) (sqlitestore.TaskExecutionPhase, error) {
 	if s.Durability == nil {
 		return sqlitestore.TaskExecutionPhase{}, fmt.Errorf("shared durability is unavailable")
 	}
-	phase, found, err := s.Durability.ReadLatestTaskExecutionPhase(ctx, state.ProjectID, state.TaskID, state.Stage)
+	phase, found, err := s.Durability.ReadLatestTaskExecutionParkPhase(ctx, state.ProjectID, state.TaskID, state.Stage)
 	if err != nil {
 		return sqlitestore.TaskExecutionPhase{}, err
 	}
 	wantRevision := state.ExecutionRevision - 1
-	if state.Status == model.TaskExecutionBlocked || phase.EventKind == "resume" {
-		wantRevision = state.ExecutionRevision
+	if phase.EventKind == "resume" || (state.Status == model.TaskExecutionBlocked && phase.EventKind == "block" && phase.ExecutionRevision <= state.ExecutionRevision) {
+		wantRevision = phase.ExecutionRevision
 	}
-	if !found || phase.ProjectID != state.ProjectID || phase.TaskID != state.TaskID || phase.ExecutionRevision != wantRevision || phase.TaskRevisionSHA256 != state.TaskRevisionSHA256 {
+	if !found || phase.ProjectID != state.ProjectID || phase.TaskID != state.TaskID || phase.ExecutionRevision != wantRevision || phase.ExecutionRevision > state.ExecutionRevision || phase.TaskRevisionSHA256 != state.TaskRevisionSHA256 {
 		return sqlitestore.TaskExecutionPhase{}, fmt.Errorf("Task execution phase history is not consistent with the durable state")
 	}
 	return phase, nil

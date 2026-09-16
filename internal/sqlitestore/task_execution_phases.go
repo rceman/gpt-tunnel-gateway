@@ -100,6 +100,10 @@ func (d *Databases) ReadLatestAcceptedTaskExecutionPhase(ctx context.Context, pr
 	return d.readTaskExecutionPhaseWhere(ctx, projectID, taskID, stage, `decision='accept'`)
 }
 
+func (d *Databases) ReadLatestTaskExecutionParkPhase(ctx context.Context, projectID, taskID, stage string) (TaskExecutionPhase, bool, error) {
+	return d.readTaskExecutionPhaseWhere(ctx, projectID, taskID, stage, `event_kind IN ('block','resume')`)
+}
+
 func (d *Databases) readTaskExecutionPhaseWhere(ctx context.Context, projectID, taskID, stage, predicate string) (TaskExecutionPhase, bool, error) {
 	rows, err := d.Shared.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM shared_task_execution_phases WHERE project_id=? AND task_id=? AND stage=? AND `+predicate+` ORDER BY id DESC LIMIT 1`, projectID, taskID, stage)
 	if err != nil {
@@ -183,12 +187,16 @@ func validateTaskExecutionPhase(phase TaskExecutionPhase) error {
 	if model.ValidateProjectIdentifier(phase.ProjectID) != nil || model.ValidateCanonicalTaskID(phase.TaskID) != nil || phase.Stage == "" || phase.Status == "" || phase.ExecutionRevision < 1 || phase.Head == "" || phase.Branch == "" || phase.TaskRevisionSHA256 == "" {
 		return fmt.Errorf("incomplete Task execution phase")
 	}
-	if phase.EventKind != "submission" && phase.EventKind != "review" && phase.EventKind != "rework" && phase.EventKind != "integration" && phase.EventKind != "block" && phase.EventKind != "resume" {
+	if phase.EventKind != "submission" && phase.EventKind != "review" && phase.EventKind != "rework" && phase.EventKind != "integration" && phase.EventKind != "block" && phase.EventKind != "resume" && phase.EventKind != "refresh" {
 		return fmt.Errorf("invalid Task execution phase event kind")
 	}
 	if phase.EventKind == "block" || phase.EventKind == "resume" {
 		if phase.Stage == "integration" || !model.IsTaskExecutionAgentActionable(phase.Decision, phase.Stage) {
 			return fmt.Errorf("invalid Task execution parked status")
+		}
+	} else if phase.EventKind == "refresh" {
+		if phase.Stage == "integration" || phase.Decision != "" || strings.TrimSpace(phase.Comment) == "" {
+			return fmt.Errorf("invalid Task execution refresh evidence")
 		}
 	} else if phase.Decision != "" && phase.Decision != "accept" && phase.Decision != "reject" {
 		return fmt.Errorf("invalid Task execution phase decision")
