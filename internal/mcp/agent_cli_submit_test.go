@@ -373,26 +373,50 @@ func TestTSK640AgentCLISubmitRequiresOneActiveWorkerSession(t *testing.T) {
 	})
 }
 
-func TestTSK640AgentCLISubmitRequiresPortableWorkerIdentity(t *testing.T) {
+func TestTSK640AgentCLISubmitAcceptsLegacyAgentWithoutPortableRole(t *testing.T) {
 	t.Setenv("GPT_TUNNEL_SESSION", "")
-	for name, workflowRole := range map[string]string{"legacy empty role": "", "wrong portable role": durableSession.RoleLead} {
-		t.Run(name, func(t *testing.T) {
-			server, runtimeKey := newTSK640SubmitServer(t, workflowRole)
-			tsk640WorkerSession(t, server, "example", "EXM", runtimeKey)
-			httpServer := httptest.NewServer(server.Router())
-			t.Cleanup(httpServer.Close)
-			task := tsk640CreateDispatchedTask(t, server, "tsk640-portable-role-task")
-			status, body := tsk640SubmitPost(t, httpServer, agentCLISubmitCodePath, runtimeKey)
-			if status != http.StatusForbidden {
-				t.Fatalf("status=%d body=%#v", status, body)
-			}
-			if _, message := tsk640SubmitError(t, body); !strings.Contains(message, "portable Worker identity") {
-				t.Fatalf("message=%q", message)
-			}
-			if state := tsk640ExecutionStatus(t, server, task.ID); state.Status != model.TaskExecutionDispatched {
-				t.Fatalf("rejected identity changed Task state: %#v", state)
-			}
-		})
+	server, runtimeKey := newTSK640SubmitServer(t, "")
+	tsk640WorkerSession(t, server, "example", "EXM", runtimeKey)
+	httpServer := httptest.NewServer(server.Router())
+	t.Cleanup(httpServer.Close)
+	task := tsk640CreateDispatchedTask(t, server, "tsk640-legacy-role-task")
+	dispatched := tsk640ExecutionStatus(t, server, task.ID)
+
+	status, body := tsk640SubmitPost(t, httpServer, agentCLISubmitCodePath, runtimeKey)
+	if status != http.StatusOK || body["ok"] != true {
+		t.Fatalf("legacy empty workflow role submission status=%d body=%#v", status, body)
+	}
+	result, ok := body["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("legacy empty workflow role result=%#v", body["result"])
+	}
+	if result["key"] != task.ID || result["stage"] != "code" || result["status"] != model.TaskExecutionAwaitingReview {
+		t.Fatalf("legacy empty workflow role result=%#v", result)
+	}
+	state := tsk640ExecutionStatus(t, server, task.ID)
+	if state.Status != model.TaskExecutionAwaitingReview || state.ExecutionRevision != dispatched.ExecutionRevision+1 {
+		t.Fatalf("legacy empty workflow role did not advance canonical state: %#v", state)
+	}
+}
+
+func TestTSK640AgentCLISubmitRejectsWrongPortableRole(t *testing.T) {
+	t.Setenv("GPT_TUNNEL_SESSION", "")
+	server, runtimeKey := newTSK640SubmitServer(t, durableSession.RoleLead)
+	tsk640WorkerSession(t, server, "example", "EXM", runtimeKey)
+	httpServer := httptest.NewServer(server.Router())
+	t.Cleanup(httpServer.Close)
+	task := tsk640CreateDispatchedTask(t, server, "tsk640-wrong-role-task")
+
+	status, body := tsk640SubmitPost(t, httpServer, agentCLISubmitCodePath, runtimeKey)
+	if status != http.StatusForbidden {
+		t.Fatalf("status=%d body=%#v", status, body)
+	}
+	code, message := tsk640SubmitError(t, body)
+	if code != "RUNTIME_ROLE_UNAUTHORIZED" || !strings.Contains(message, "portable Worker identity") {
+		t.Fatalf("wrong portable role code=%q message=%q", code, message)
+	}
+	if state := tsk640ExecutionStatus(t, server, task.ID); state.Status != model.TaskExecutionDispatched {
+		t.Fatalf("rejected identity changed Task state: %#v", state)
 	}
 }
 

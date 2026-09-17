@@ -86,7 +86,7 @@ func decodeAgentCLISubmitRequest(r *http.Request) (agentCLISubmitRequest, error)
 }
 
 func validateAgentCLISubmitWorkerAuthority(resolved service.RuntimeRoleSession) error {
-	if resolved.Agent.WorkflowRole != durableSession.RoleWorker {
+	if resolved.Agent.WorkflowRole != "" && resolved.Agent.WorkflowRole != durableSession.RoleWorker {
 		return fmt.Errorf("RUNTIME_ROLE_UNAUTHORIZED: resolved Agent is not the portable Worker identity")
 	}
 	if !resolved.Agent.Enabled || resolved.Agent.ProjectID != resolved.ProjectID {
