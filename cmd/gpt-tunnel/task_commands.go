@@ -39,8 +39,14 @@ func task(ctx context.Context, s *service.Service, args []string) {
 			fatal(err)
 		}
 		output(result)
-	case "current", "submit-code", "submit-tests", "submit-rebase":
-		result, err := taskExecutionGatewayCall(ctx, s, args[0])
+	case "current":
+		result, err := taskExecutionGatewayCall(ctx, s)
+		if err != nil {
+			fatal(err)
+		}
+		output(result)
+	case "submit-code", "submit-tests", "submit-rebase":
+		result, err := taskSubmitGatewayCall(ctx, s, args[0])
 		if err != nil {
 			fatal(err)
 		}
@@ -107,18 +113,12 @@ func taskReadGatewayCall(ctx context.Context, s *service.Service, key string) (a
 	return result, nil
 }
 
-func taskExecutionGatewayCall(ctx context.Context, s *service.Service, command string) (any, error) {
+func taskExecutionGatewayCall(ctx context.Context, s *service.Service) (any, error) {
 	session := strings.TrimSpace(os.Getenv("AIRELAY_SESSION_KEY"))
 	if session == "" {
 		return nil, fmt.Errorf("Gateway session authority is required; run this Agent command from a managed Airelay runtime")
 	}
-	action := "task/status"
-	if command != "current" {
-		action = "task/" + strings.Replace(command, "submit-", "submit-", 1)
-	} else {
-		action = "task/current"
-	}
-	payload, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": session, "action": action, "input": map[string]any{}}}})
+	payload, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": session, "action": "task/current", "input": map[string]any{}}}})
 	if err != nil {
 		return nil, err
 	}
@@ -152,4 +152,47 @@ func taskExecutionGatewayCall(ctx context.Context, s *service.Service, command s
 		return nil, fmt.Errorf("Gateway Task action failed")
 	}
 	return result, nil
+}
+
+var agentCLISubmitEndpoints = map[string]string{
+	"submit-code":   "/agent-cli/task/submit-code",
+	"submit-tests":  "/agent-cli/task/submit-tests",
+	"submit-rebase": "/agent-cli/task/submit-rebase",
+}
+
+func taskSubmitGatewayCall(ctx context.Context, s *service.Service, command string) (any, error) {
+	endpoint, ok := agentCLISubmitEndpoints[command]
+	if !ok {
+		return nil, fmt.Errorf("unsupported Gateway Task submission %q", command)
+	}
+	runtime := os.Getenv("AIRELAY_SESSION_KEY")
+	if runtime == "" || strings.TrimSpace(runtime) != runtime {
+		return nil, fmt.Errorf("managed Airelay runtime identity is required; run this Agent command from a managed Airelay runtime")
+	}
+	body, err := json.Marshal(map[string]any{"runtime": runtime})
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+s.Config.ListenAddr+endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("Gateway Task submission request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("Gateway Task submission request failed: %w", err)
+	}
+	defer response.Body.Close()
+	var envelope map[string]any
+	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&envelope); err != nil {
+		return nil, fmt.Errorf("Gateway Task submission returned HTTP %d", response.StatusCode)
+	}
+	if envelope["ok"] == false {
+		return nil, fmt.Errorf("Gateway Task submission failed: %v", envelope["error"])
+	}
+	value, ok := envelope["result"]
+	if !ok {
+		return nil, fmt.Errorf("Gateway Task submission returned no result")
+	}
+	return value, nil
 }
