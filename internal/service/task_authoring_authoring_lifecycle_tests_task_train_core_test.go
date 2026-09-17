@@ -17,7 +17,7 @@ func TestTaskAuthoringServiceWiresADRReadiness(t *testing.T) {
 	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
 	syncTSK409SharedConfigurationFromHub(t, s)
 	adrResult, err := s.ADRCreate(context.Background(), ADRCreateInput{
-		ADR: model.ADR{ProjectID: "example", Title: "Accepted decision", Status: model.ADRStatusProposed, Context: "context", Decision: "decision", Consequences: "consequences"},
+		ADR: model.ADR{ProjectID: "example", Title: "Accepted decision", Summary: "Bounded accepted decision summary", Status: model.ADRStatusProposed, Context: "context", Decision: "decision", Consequences: "consequences"},
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: hubRevision,
 		},

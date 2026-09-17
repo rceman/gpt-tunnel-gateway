@@ -112,6 +112,7 @@ type ADR struct {
 	Revision      int        `json:"revision,omitempty"`
 	RevisionCount int        `json:"revision_count,omitempty"`
 	Title         string     `json:"title"`
+	Summary       string     `json:"summary,omitempty"`
 	Status        string     `json:"status"`
 	Context       string     `json:"context"`
 	Decision      string     `json:"decision"`

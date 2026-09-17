@@ -71,7 +71,7 @@ func (s *Service) ADRReadRevision(ctx context.Context, project, selector string,
 	if recordedAt := parseADRTime(record.RecordedAt); !recordedAt.IsZero() {
 		adr.UpdatedAt = recordedAt
 	}
-	if err := model.ValidateADR(adr); err != nil {
+	if err := model.ValidateADRRevision(adr, true); err != nil {
 		return model.ADR{}, err
 	}
 	return adr, nil
@@ -92,43 +92,42 @@ func (s *Service) ADRHistoryPage(ctx context.Context, project, selector string, 
 	if err := s.requireLocalTaskAuthoring(ctx, project); err != nil {
 		return ADRHistoryResult{}, err
 	}
-	limit := sqlitestore.SharedLifecycleQueryMaxRows
-	afterRevision := int64(0)
+	kind := "adr-history:" + project + ":" + id
+	after := sqlitestore.SharedLifecycleHistoryCursor{}
 	if in.Cursor != "" {
-		cursorKind := "adr-history:" + project + ":" + id
-		var cursorKey string
-		cursorKey, err = pagination.DecodeOpaqueKeyset(in.Cursor, cursorKind)
-		if err != nil {
+		key, decodeErr := pagination.DecodeOpaqueKeyset(in.Cursor, kind)
+		if decodeErr != nil {
 			return ADRHistoryResult{}, fmt.Errorf("invalid ADR history cursor")
 		}
-		afterRevision, err = strconv.ParseInt(cursorKey, 10, 64)
-		if err != nil || afterRevision < 0 {
+		decoded, decodeErr := sqlitestore.DecodeSharedLifecycleHistoryCursor(key)
+		if decodeErr != nil {
 			return ADRHistoryResult{}, fmt.Errorf("invalid ADR history cursor")
 		}
+		after = decoded
 	}
-	page, err := s.Durability.ListSharedHistoryPage(ctx, "adr", project, id, afterRevision, limit)
+	page, err := s.Durability.ListSharedLifecycleHistoryPage(ctx, "adr", project, id, after, sqlitestore.SharedLifecycleQueryMaxRows)
 	if err != nil {
 		return ADRHistoryResult{}, err
 	}
 	result := ADRHistoryResult{
-		ADRID:      id,
+		Key:        id,
 		ProjectID:  project,
-		Revisions:  make([]model.ADRHistoryEntry, 0, len(page.Records)),
-		CursorKind: "adr-history:" + project + ":" + id,
+		Items:      make([]model.ADRHistoryEntry, 0, len(page.Records)),
+		CursorKind: kind,
 	}
 	for _, record := range page.Records {
 		if record.EntityID != id || record.ProjectID != project {
 			return ADRHistoryResult{}, fmt.Errorf("ADR history ownership mismatch")
 		}
-		result.Revisions = append(result.Revisions, model.ADRHistoryEntry{SchemaVersion: model.ADRRevisionSchemaVersion, ADRID: id, ProjectID: project, Revision: int(record.Revision), MutationKind: record.MutationKind, Actor: record.Actor, Reason: record.Reason, ChangedFields: append([]string(nil), record.ChangedFields...), RecordedAt: parseADRTime(record.RecordedAt)})
+		result.Items = append(result.Items, model.ADRHistoryEntry{SchemaVersion: model.ADRRevisionSchemaVersion, Key: id, ProjectID: project, Revision: int(record.Revision), MutationKind: record.MutationKind, Actor: record.Actor, Reason: record.Reason, ChangedFields: append([]string(nil), record.ChangedFields...), RecordedAt: parseADRTime(record.RecordedAt)})
 	}
 	if reverse {
-		for left, right := 0, len(result.Revisions)-1; left < right; left, right = left+1, right-1 {
-			result.Revisions[left], result.Revisions[right] = result.Revisions[right], result.Revisions[left]
+		for left, right := 0, len(result.Items)-1; left < right; left, right = left+1, right-1 {
+			result.Items[left], result.Items[right] = result.Items[right], result.Items[left]
 		}
 	}
 	if page.HasMore {
-		result.NextCursor = pagination.EncodeServerCursor("adr-history:"+project+":"+id, strconv.FormatInt(page.NextRevision, 10))
+		result.NextCursor = page.NextCursor
 		result.HasMore = true
 	}
 	return result, nil
@@ -144,7 +143,7 @@ func (s *Service) ADRLegacyRelations(ctx context.Context, project, selector, cur
 	if err := s.requireLocalTaskAuthoring(ctx, project); err != nil {
 		return ADRLegacyRelationsResult{}, err
 	}
-	result := ADRLegacyRelationsResult{Relations: make([]ADRLegacyRelation, 0)}
+	result := ADRLegacyRelationsResult{Items: make([]ADRLegacyRelation, 0)}
 	seen := make(map[string]struct{})
 	appendRelation := func(adr model.ADR, revision int) {
 		adr = normalizeADR(adr)
@@ -156,8 +155,8 @@ func (s *Service) ADRLegacyRelations(ctx context.Context, project, selector, cur
 			return
 		}
 		seen[key] = struct{}{}
-		result.Relations = append(result.Relations, ADRLegacyRelation{
-			ADR:        adr.ID,
+		result.Items = append(result.Items, ADRLegacyRelation{
+			Key:        adr.ID,
 			Revision:   revision,
 			Supersedes: adr.Supersedes,
 		})
@@ -268,21 +267,24 @@ func parseADRTime(value string) (resultTime time.Time) {
 	return resultTime
 }
 
-func changedADRFields(in ADRUpdateInput) []string {
-	fields := make([]string, 0, 5)
-	if in.Title != nil {
+func changedADRFields(in ADRUpdateInput, previous model.ADR) []string {
+	fields := make([]string, 0, 6)
+	if in.Title != nil && *in.Title != previous.Title {
 		fields = append(fields, "title")
 	}
-	if in.Context != nil {
+	if in.Summary != nil && *in.Summary != previous.Summary {
+		fields = append(fields, "summary")
+	}
+	if in.Context != nil && *in.Context != previous.Context {
 		fields = append(fields, "context")
 	}
-	if in.Decision != nil {
+	if in.Decision != nil && *in.Decision != previous.Decision {
 		fields = append(fields, "decision")
 	}
-	if in.Consequences != nil {
+	if in.Consequences != nil && *in.Consequences != previous.Consequences {
 		fields = append(fields, "consequences")
 	}
-	if in.Status != nil {
+	if in.Status != nil && *in.Status != previous.Status {
 		fields = append(fields, "status")
 	}
 	return fields

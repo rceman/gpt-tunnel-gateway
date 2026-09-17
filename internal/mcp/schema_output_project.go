@@ -71,10 +71,10 @@ func planRenderOutputSchema() map[string]any {
 
 func adrOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"adr": outputString(), "revision": outputInteger(), "title": outputString(), "status": outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", false)...),
+		"key": outputString(), "revision": outputInteger(), "title": outputString(), "summary": outputString(), "status": outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", false)...),
 		"context": outputString(), "decision": outputString(), "consequences": outputString(), "created_at": outputDateTime(),
 		"updated_at": outputDateTime(), "revision_reason": outputString(),
-	}, "adr", "revision", "title", "status", "context", "decision", "consequences", "created_at")
+	}, "key", "revision", "title", "status", "context", "decision", "consequences", "created_at")
 }
 
 func taskOutputSchema() map[string]any {

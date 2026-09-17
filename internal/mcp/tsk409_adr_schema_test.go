@@ -10,13 +10,13 @@ func TestTSK409ADRPublicSchemasAreClosedAndTransportNeutral(t *testing.T) {
 	server.ensureADRActions()
 	entries := server.genericActionRegistry(nil)
 	want := map[string][]string{
-		"adr/create":  {"title", "context", "decision", "consequences", "status"},
-		"adr/read":    {"adr", "revision"},
-		"adr/update":  {"adr", "reason", "title", "context", "decision", "consequences", "status"},
+		"adr/create":  {"title", "summary", "context", "decision", "consequences", "status"},
+		"adr/read":    {"key", "revision"},
+		"adr/update":  {"key", "reason", "title", "summary", "context", "decision", "consequences", "status"},
 		"adr/list":    {"cursor", "include_archived"},
 		"adr/query":   {"cursor", "text", "status"},
-		"adr/archive": {"adr", "reason"},
-		"adr/history": {"adr", "cursor"},
+		"adr/archive": {"key", "reason"},
+		"adr/history": {"key", "cursor"},
 	}
 	for path, fields := range want {
 		entry, ok := entries[path]
@@ -24,7 +24,7 @@ func TestTSK409ADRPublicSchemasAreClosedAndTransportNeutral(t *testing.T) {
 			t.Fatalf("missing action %s", path)
 		}
 		assertTSK409ClosedSchema(t, path+" input", entry.InputSchema, fields)
-		forbidden := []string{"project", "project_id", "actor", "limit", "page_size", "expected_revision", "supersedes", "replaced_by", "_pagination", "_metrics"}
+		forbidden := []string{"project", "project_id", "actor", "limit", "page_size", "expected_revision", "supersedes", "replaced_by", "_pagination", "_metrics", "adr", "adr_id", "adr_key", "id", "adrs", "revisions", "relations"}
 		for _, name := range forbidden {
 			if _, exists := tsk409SchemaProperties(entry.InputSchema)[name]; exists {
 				t.Fatalf("%s exposes forbidden input %q", path, name)
@@ -41,9 +41,30 @@ func TestTSK409ADRPublicSchemasAreClosedAndTransportNeutral(t *testing.T) {
 	}
 	for _, path := range []string{"adr/create", "adr/update", "adr/archive"} {
 		props := tsk409SchemaProperties(entries[path].OutputSchema)
-		if !reflect.DeepEqual(tsk409SortedSchemaKeys(props), []string{"adr", "revision"}) {
+		if !reflect.DeepEqual(tsk409SortedSchemaKeys(props), []string{"key", "revision"}) {
 			t.Fatalf("%s output properties=%v", path, tsk409SortedSchemaKeys(props))
 		}
+	}
+	for _, path := range []string{"adr/list", "adr/query"} {
+		props := tsk409SchemaProperties(entries[path].OutputSchema)
+		if !reflect.DeepEqual(tsk409SortedSchemaKeys(props), []string{"items"}) {
+			t.Fatalf("%s output properties=%v", path, tsk409SortedSchemaKeys(props))
+		}
+	}
+	if !reflect.DeepEqual(tsk409SortedSchemaKeys(tsk409SchemaProperties(entries["adr/history"].OutputSchema)), []string{"items", "key"}) {
+		t.Fatalf("adr/history output properties=%v", tsk409SortedSchemaKeys(tsk409SchemaProperties(entries["adr/history"].OutputSchema)))
+	}
+	createProps := tsk409SchemaProperties(entries["adr/create"].InputSchema)
+	title := createProps["title"].(map[string]any)
+	summary := createProps["summary"].(map[string]any)
+	if title["maxLength"] != 128 {
+		t.Fatalf("ADR title maxLength=%#v", title["maxLength"])
+	}
+	if summary["minLength"] != 1 || summary["maxLength"] != 256 {
+		t.Fatalf("ADR summary bounds=%#v", summary)
+	}
+	if !reflect.DeepEqual(createProps["summary"], entries["adr/update"].InputSchema["properties"].(map[string]any)["summary"]) {
+		t.Fatal("ADR summary bounds differ between create and update")
 	}
 	queryStatus := tsk409SchemaProperties(entries["adr/query"].InputSchema)["status"].(map[string]any)
 	if !reflect.DeepEqual(queryStatus["enum"], []any{"proposed", "accepted", "superseded", "archived"}) {

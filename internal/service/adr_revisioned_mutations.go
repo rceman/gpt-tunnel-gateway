@@ -77,7 +77,7 @@ func (s *Service) ADRUpdate(ctx context.Context, in ADRUpdateInput) (OperationRe
 	if in.ExpectedRevision < 1 || !validADRMutationReason(in.Reason) || strings.TrimSpace(in.UpdatedBy) == "" {
 		return OperationResult{}, fmt.Errorf("ADR update requires expected_revision, reason, and updated_by")
 	}
-	if in.Title == nil && in.Context == nil && in.Decision == nil && in.Consequences == nil && in.Status == nil {
+	if in.Title == nil && in.Summary == nil && in.Context == nil && in.Decision == nil && in.Consequences == nil && in.Status == nil {
 		return OperationResult{}, fmt.Errorf("ADR update requires at least one mutable content field")
 	}
 	id, _, err := parseADRSelector(in.ADRID, 0)
@@ -97,26 +97,119 @@ func (s *Service) ADRUpdate(ctx context.Context, in ADRUpdateInput) (OperationRe
 	if current.ProjectID != in.ProjectID || current.ID != id {
 		return OperationResult{}, fmt.Errorf("ADR ownership mismatch")
 	}
+	if err := model.ValidateADR(previous); err != nil {
+		return OperationResult{}, err
+	}
 	if current.Revision != in.ExpectedRevision {
 		return OperationResult{}, fmt.Errorf("ADR revision conflict expected=%d actual=%d", in.ExpectedRevision, current.Revision)
 	}
 	if current.Status == model.ADRStatusArchived {
 		return OperationResult{}, fmt.Errorf("archived ADR cannot be updated")
 	}
-	if in.Title != nil {
+	contentChanged := false
+	if in.Title != nil && *in.Title != previous.Title {
+		contentChanged = true
 		current.Title = *in.Title
 	}
-	if in.Context != nil {
+	if in.Summary != nil && *in.Summary != previous.Summary {
+		contentChanged = true
+		current.Summary = *in.Summary
+	}
+	if in.Context != nil && *in.Context != previous.Context {
+		contentChanged = true
 		current.Context = *in.Context
 	}
-	if in.Decision != nil {
+	if in.Decision != nil && *in.Decision != previous.Decision {
+		contentChanged = true
 		current.Decision = *in.Decision
 	}
-	if in.Consequences != nil {
+	if in.Consequences != nil && *in.Consequences != previous.Consequences {
+		contentChanged = true
 		current.Consequences = *in.Consequences
 	}
-	if in.Status != nil {
+	if in.Status != nil && *in.Status != previous.Status {
 		current.Status = *in.Status
+	}
+	statusChanged := current.Status != previous.Status
+	if !contentChanged && !statusChanged {
+		opID := durableMutationOperationID(ctx)
+		if opID == "" {
+			opID, err = s.adrRevisionOperationID("update", in)
+			if err != nil {
+				return OperationResult{}, err
+			}
+		}
+		return OperationResult{
+			OperationID: opID,
+			ProjectID:   in.ProjectID,
+			EntityKey:   id,
+			Revision:    previous.Revision,
+			Status:      "unchanged",
+			Hub:         hub.TransactionResult{Paths: []string{}},
+		}, nil
+	}
+	if statusChanged {
+		if contentChanged {
+			current.Revision++
+		}
+		current.RevisionCount = current.Revision
+		current.UpdatedBy = strings.TrimSpace(in.UpdatedBy)
+		current.UpdatedAt = s.durableNow()
+		current.LastReason = strings.TrimSpace(in.Reason)
+		if err := model.ValidateADR(current); err != nil {
+			return OperationResult{}, err
+		}
+		payload, err := json.Marshal(current)
+		if err != nil {
+			return OperationResult{}, err
+		}
+		seed, err := s.adrHistorySeed(ctx, in.ProjectID, id, in.ExpectedRevision, previous, entity.Payload)
+		if err != nil {
+			return OperationResult{}, err
+		}
+		opID := durableMutationOperationID(ctx)
+		if opID == "" {
+			opID, err = s.adrRevisionOperationID("update", in)
+			if err != nil {
+				return OperationResult{}, err
+			}
+		}
+		contract, err := adrLifecycleContract(previous, current, entity.Payload, payload, in.ExpectedRevision)
+		if err != nil {
+			return OperationResult{}, err
+		}
+		if _, err := s.Durability.CommitSharedLifecycleEvent(ctx, sqlitestore.SharedLifecycleEventRequest{
+			OperationID:           opID,
+			EntityType:            "adr",
+			ProjectID:             in.ProjectID,
+			EntityID:              id,
+			ExpectedRevision:      int64(in.ExpectedRevision),
+			ExpectedStoreRevision: entity.Revision,
+			ExpectedPayload:       entity.Payload,
+			Revision:              int64(current.Revision),
+			Kind:                  "adr-update",
+			EventKind:             sqlitestore.SharedLifecycleEventKindStatus,
+			HistoryMutationKind:   "update",
+			FromStatus:            previous.Status,
+			ToStatus:              current.Status,
+			Payload:               payload,
+			Actor:                 current.UpdatedBy,
+			Reason:                current.LastReason,
+			ChangedFields:         changedADRFields(in, previous),
+			Contract:              contract,
+			CreatedAt:             current.UpdatedAt,
+			PreviousHistory:       seed,
+		}); err != nil {
+			return OperationResult{}, err
+		}
+		return OperationResult{
+			OperationID: opID,
+			ProjectID:   in.ProjectID,
+			EntityKey:   id,
+			Revision:    current.Revision,
+			Status:      "updated",
+			Hub:         hub.TransactionResult{Paths: []string{}},
+		}, nil
 	}
 	current.Revision++
 	current.RevisionCount = current.Revision
@@ -141,7 +234,7 @@ func (s *Service) ADRUpdate(ctx context.Context, in ADRUpdateInput) (OperationRe
 			return OperationResult{}, err
 		}
 	}
-	if _, err := s.Durability.CommitSharedLifecycleRevision(ctx, sqlitestore.SharedLifecycleRevision{OperationID: opID, EntityType: "adr", ProjectID: in.ProjectID, EntityID: id, ExpectedRevision: int64(in.ExpectedRevision), ExpectedStoreRevision: entity.Revision, Revision: int64(current.Revision), Kind: "adr-update", HistoryMutationKind: "update", Payload: payload, Actor: current.UpdatedBy, Reason: current.LastReason, ChangedFields: changedADRFields(in), CreatedAt: current.UpdatedAt, PreviousHistory: seed}); err != nil {
+	if _, err := s.Durability.CommitSharedLifecycleRevision(ctx, sqlitestore.SharedLifecycleRevision{OperationID: opID, EntityType: "adr", ProjectID: in.ProjectID, EntityID: id, ExpectedRevision: int64(in.ExpectedRevision), ExpectedStoreRevision: entity.Revision, Revision: int64(current.Revision), Kind: "adr-update", HistoryMutationKind: "update", Payload: payload, Actor: current.UpdatedBy, Reason: current.LastReason, ChangedFields: changedADRFields(in, previous), CreatedAt: current.UpdatedAt, PreviousHistory: seed}); err != nil {
 		return OperationResult{}, err
 	}
 	return OperationResult{
@@ -152,6 +245,19 @@ func (s *Service) ADRUpdate(ctx context.Context, in ADRUpdateInput) (OperationRe
 		Status:      "updated",
 		Hub:         hub.TransactionResult{Paths: []string{}},
 	}, nil
+}
+
+func adrLifecycleContract(previous, current model.ADR, previousPayload, payload []byte, expectedRevision int) ([]byte, error) {
+	previousDigest := sha256.Sum256(previousPayload)
+	payloadDigest := sha256.Sum256(payload)
+	return json.Marshal(struct {
+		ExpectedRevision int    `json:"expected_revision"`
+		Revision         int    `json:"revision"`
+		FromStatus       string `json:"from_status"`
+		ToStatus         string `json:"to_status"`
+		PreviousSHA256   string `json:"previous_sha256"`
+		PayloadSHA256    string `json:"payload_sha256"`
+	}{expectedRevision, current.Revision, previous.Status, current.Status, hex.EncodeToString(previousDigest[:]), hex.EncodeToString(payloadDigest[:])})
 }
 
 func (s *Service) ADRArchive(ctx context.Context, in ADRArchiveInput) (OperationResult, error) {
@@ -189,7 +295,6 @@ func (s *Service) ADRArchive(ctx context.Context, in ADRArchiveInput) (Operation
 	}
 	now := s.durableNow()
 	current.Status = model.ADRStatusArchived
-	current.Revision++
 	current.RevisionCount = current.Revision
 	current.UpdatedBy = strings.TrimSpace(in.ArchivedBy)
 	current.UpdatedAt = now
@@ -215,7 +320,31 @@ func (s *Service) ADRArchive(ctx context.Context, in ADRArchiveInput) (Operation
 			return OperationResult{}, err
 		}
 	}
-	if _, err := s.Durability.CommitSharedLifecycleArchive(ctx, sqlitestore.SharedLifecycleArchive{SharedLifecycleRevision: sqlitestore.SharedLifecycleRevision{OperationID: opID, EntityType: "adr", ProjectID: in.ProjectID, EntityID: id, ExpectedRevision: int64(in.ExpectedRevision), ExpectedStoreRevision: entity.Revision, Revision: int64(current.Revision), Payload: payload, Actor: current.UpdatedBy, Reason: current.LastReason, ChangedFields: []string{"status", "archived_at", "archived_by", "archive_reason"}, CreatedAt: now, PreviousHistory: seed}}); err != nil {
+	contract, err := adrLifecycleContract(previous, current, entity.Payload, payload, in.ExpectedRevision)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if _, err := s.Durability.CommitSharedLifecycleEvent(ctx, sqlitestore.SharedLifecycleEventRequest{
+		OperationID:           opID,
+		EntityType:            "adr",
+		ProjectID:             in.ProjectID,
+		EntityID:              id,
+		ExpectedRevision:      int64(in.ExpectedRevision),
+		ExpectedStoreRevision: entity.Revision,
+		ExpectedPayload:       entity.Payload,
+		Revision:              int64(current.Revision),
+		Kind:                  "adr-archive",
+		EventKind:             sqlitestore.SharedLifecycleEventKindArchive,
+		FromStatus:            previous.Status,
+		ToStatus:              current.Status,
+		Payload:               payload,
+		Actor:                 current.UpdatedBy,
+		Reason:                current.LastReason,
+		ChangedFields:         []string{"status", "archived_at", "archived_by", "archive_reason"},
+		Contract:              contract,
+		CreatedAt:             now,
+		PreviousHistory:       seed,
+	}); err != nil {
 		return OperationResult{}, err
 	}
 	return OperationResult{

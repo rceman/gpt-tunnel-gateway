@@ -38,6 +38,7 @@ func (s *Server) registerADRActions() error {
 			var in struct {
 				ProjectID    string `json:"project_id"`
 				Title        string `json:"title"`
+				Summary      string `json:"summary"`
 				Context      string `json:"context"`
 				Decision     string `json:"decision"`
 				Consequences string `json:"consequences"`
@@ -50,7 +51,7 @@ func (s *Server) registerADRActions() error {
 			if actor == "" {
 				return nil, fmt.Errorf("authorized session actor is unavailable")
 			}
-			v, err := s.Service.ADRCreate(ctx, service.ADRCreateInput{ADR: model.ADR{ProjectID: in.ProjectID, Title: in.Title, Context: in.Context, Decision: in.Decision, Consequences: in.Consequences, Status: in.Status, CreatedBy: actor, UpdatedBy: actor}})
+			v, err := s.Service.ADRCreate(ctx, service.ADRCreateInput{ADR: model.ADR{ProjectID: in.ProjectID, Title: in.Title, Summary: in.Summary, Context: in.Context, Decision: in.Decision, Consequences: in.Consequences, Status: in.Status, CreatedBy: actor, UpdatedBy: actor}})
 			if err != nil {
 				return nil, err
 			}
@@ -72,13 +73,13 @@ func (s *Server) registerADRActions() error {
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				ProjectID string `json:"project_id"`
-				ADR       string `json:"adr"`
+				Key       string `json:"key"`
 				Revision  int    `json:"revision"`
 			}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			v, err := s.Service.ADRReadRevision(ctx, in.ProjectID, in.ADR, in.Revision)
+			v, err := s.Service.ADRReadRevision(ctx, in.ProjectID, in.Key, in.Revision)
 			if err != nil {
 				return nil, err
 			}
@@ -100,8 +101,9 @@ func (s *Server) registerADRActions() error {
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				ProjectID    string  `json:"project_id"`
-				ADR          string  `json:"adr"`
+				Key          string  `json:"key"`
 				Title        *string `json:"title,omitempty"`
+				Summary      *string `json:"summary,omitempty"`
 				Context      *string `json:"context,omitempty"`
 				Decision     *string `json:"decision,omitempty"`
 				Consequences *string `json:"consequences,omitempty"`
@@ -115,7 +117,7 @@ func (s *Server) registerADRActions() error {
 			if actor == "" {
 				return nil, fmt.Errorf("authorized session actor is unavailable")
 			}
-			v, err := s.Service.ADRUpdateCurrent(ctx, service.ADRUpdateInput{ProjectID: in.ProjectID, ADRID: in.ADR, Title: in.Title, Context: in.Context, Decision: in.Decision, Consequences: in.Consequences, Status: in.Status, Reason: in.Reason, UpdatedBy: actor})
+			v, err := s.Service.ADRUpdateCurrent(ctx, service.ADRUpdateInput{ProjectID: in.ProjectID, ADRID: in.Key, Title: in.Title, Summary: in.Summary, Context: in.Context, Decision: in.Decision, Consequences: in.Consequences, Status: in.Status, Reason: in.Reason, UpdatedBy: actor})
 			if err != nil {
 				return nil, err
 			}
@@ -194,7 +196,7 @@ func (s *Server) registerADRActions() error {
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				ProjectID string `json:"project_id"`
-				ADR       string `json:"adr"`
+				Key       string `json:"key"`
 				Reason    string `json:"reason"`
 			}
 			if err := decode(raw, &in); err != nil {
@@ -204,7 +206,7 @@ func (s *Server) registerADRActions() error {
 			if actor == "" {
 				return nil, fmt.Errorf("authorized session actor is unavailable")
 			}
-			v, err := s.Service.ADRArchiveCurrent(ctx, service.ADRArchiveInput{ProjectID: in.ProjectID, ADRID: in.ADR, Reason: in.Reason, ArchivedBy: actor})
+			v, err := s.Service.ADRArchiveCurrent(ctx, service.ADRArchiveInput{ProjectID: in.ProjectID, ADRID: in.Key, Reason: in.Reason, ArchivedBy: actor})
 			if err != nil {
 				return nil, err
 			}
@@ -226,13 +228,13 @@ func (s *Server) registerADRActions() error {
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
 				ProjectID string `json:"project_id"`
-				ADR       string `json:"adr"`
+				Key       string `json:"key"`
 				Cursor    string `json:"cursor,omitempty"`
 			}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			p, err := s.Service.ADRHistoryPage(ctx, in.ProjectID, in.ADR, service.CollectionPageInput{Limit: service.DefaultPublicCollectionLimit, Cursor: in.Cursor}, false)
+			p, err := s.Service.ADRHistoryPage(ctx, in.ProjectID, in.Key, service.CollectionPageInput{Limit: service.DefaultPublicCollectionLimit, Cursor: in.Cursor}, false)
 			if err != nil {
 				return nil, err
 			}

@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
@@ -13,8 +12,9 @@ import (
 func adrActionProperties() map[string]any {
 	statuses := outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", false)...)
 	return map[string]any{
-		"adr": str("Stable ADR reference."), "revision": integer("Exact historical ADR revision.", 1, 1000000),
-		"title": boundedADRString("ADR title.", 3, 300), "context": boundedADRString("ADR context.", 0, 100000), "decision": boundedADRString("ADR decision.", 0, 100000),
+		"key": str("Stable ADR reference."), "revision": integer("Exact historical ADR revision.", 1, 1000000),
+		"title": boundedADRString("ADR title.", 3, 128), "summary": boundedADRString("Bounded ADR summary.", 1, 256),
+		"context": boundedADRString("ADR context.", 0, 100000), "decision": boundedADRString("ADR decision.", 0, 100000),
 		"consequences": boundedADRString("ADR consequences.", 0, 100000), "status": statuses,
 		"reason": boundedADRString("Bounded mutation reason.", 1, 1024), "include_archived": map[string]any{"type": "boolean"},
 		"text": str("Case-insensitive text matched across ADR content."), "cursor": str("Opaque server-owned continuation token."),
@@ -29,11 +29,11 @@ func boundedADRString(description string, min, max int) map[string]any {
 
 func adrCreateSchema() map[string]any {
 	p := adrActionProperties()
-	return obj(map[string]any{"title": p["title"], "context": p["context"], "decision": p["decision"], "consequences": p["consequences"], "status": outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", true)...)}, "title", "context", "decision", "consequences")
+	return obj(map[string]any{"title": p["title"], "summary": p["summary"], "context": p["context"], "decision": p["decision"], "consequences": p["consequences"], "status": outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", true)...)}, "title", "summary", "context", "decision", "consequences")
 }
 func adrReadSchema() map[string]any {
 	p := adrActionProperties()
-	return obj(map[string]any{"adr": p["adr"], "revision": p["revision"]}, "adr")
+	return obj(map[string]any{"key": p["key"], "revision": p["revision"]}, "key")
 }
 func adrListSchema() map[string]any {
 	p := adrActionProperties()
@@ -45,23 +45,23 @@ func adrQuerySchema() map[string]any {
 }
 func adrUpdateSchema() map[string]any {
 	p := adrActionProperties()
-	return obj(map[string]any{"adr": p["adr"], "title": p["title"], "context": p["context"], "decision": p["decision"], "consequences": p["consequences"], "status": outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", false)...), "reason": p["reason"]}, "adr", "reason")
+	return obj(map[string]any{"key": p["key"], "title": p["title"], "summary": p["summary"], "context": p["context"], "decision": p["decision"], "consequences": p["consequences"], "status": outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", false)...), "reason": p["reason"]}, "key", "reason")
 }
 func adrArchiveSchema() map[string]any {
 	p := adrActionProperties()
-	return obj(map[string]any{"adr": p["adr"], "reason": p["reason"]}, "adr", "reason")
+	return obj(map[string]any{"key": p["key"], "reason": p["reason"]}, "key", "reason")
 }
 func adrHistorySchema() map[string]any {
 	p := adrActionProperties()
-	return obj(map[string]any{"adr": p["adr"], "cursor": p["cursor"]}, "adr")
+	return obj(map[string]any{"key": p["key"], "cursor": p["cursor"]}, "key")
 }
 func adrLegacyRelationsSchema() map[string]any {
 	p := adrActionProperties()
-	return obj(map[string]any{"adr": p["adr"], "cursor": p["cursor"]})
+	return obj(map[string]any{"key": p["key"], "cursor": p["cursor"]})
 }
 func adrLegacyRelationsOutputSchema() map[string]any {
-	relation := closedOutput(map[string]any{"adr": outputString(), "revision": outputInteger(), "supersedes": outputString()}, "adr", "revision", "supersedes")
-	return closedOutput(map[string]any{"relations": outputArray(relation)}, "relations")
+	relation := closedOutput(map[string]any{"key": outputString(), "revision": outputInteger(), "supersedes": outputString()}, "key", "revision", "supersedes")
+	return closedOutput(map[string]any{"items": outputArray(relation)}, "items")
 }
 func adrExecutionSchema(public map[string]any) map[string]any {
 	props := map[string]any{"project_id": str("Session-derived project identity.")}
@@ -77,39 +77,46 @@ func adrExecutionSchema(public map[string]any) map[string]any {
 	return closedOutput(props, req...)
 }
 func adrMutationOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"adr": outputString(), "revision": outputInteger()}, "adr", "revision")
+	return closedOutput(map[string]any{"key": outputString(), "revision": outputInteger()}, "key", "revision")
 }
 func adrHistoryOutputSchema() map[string]any {
 	r := closedOutput(map[string]any{"revision": outputInteger(), "mutation_kind": outputString(), "actor": outputString(), "reason": outputString(), "changed_fields": outputArray(outputString()), "recorded_at": outputDateTime()}, "revision", "mutation_kind", "actor", "reason", "recorded_at")
-	return closedOutput(map[string]any{"adr": outputString(), "revisions": outputArray(r)}, "adr", "revisions")
+	return closedOutput(map[string]any{"key": outputString(), "items": outputArray(r)}, "key", "items")
 }
 func adrListOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"adrs": outputArray(adrSummaryOutputSchema())}, "adrs")
+	return closedOutput(map[string]any{"items": outputArray(adrSummaryOutputSchema())}, "items")
 }
 func adrSummaryOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"adr": outputString(), "title": outputString(), "status": outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", false)...), "revision": outputInteger(), "updated_at": outputDateTime()}, "adr", "title", "status", "revision")
+	return closedOutput(map[string]any{"key": outputString(), "title": outputString(), "summary": outputString(), "status": outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", false)...), "revision": outputInteger(), "updated_at": outputDateTime()}, "key", "title", "summary", "status", "revision")
 }
+func adrPublicUpdateVisible(v model.ADR) bool {
+	return !v.UpdatedAt.IsZero() && !v.UpdatedAt.Equal(v.CreatedAt)
+}
+
 func adrPublicProjection(v model.ADR) map[string]any {
-	result := map[string]any{"adr": v.ID, "revision": v.Revision, "title": v.Title, "status": v.Status, "context": v.Context, "decision": v.Decision, "consequences": v.Consequences, "created_at": v.CreatedAt}
-	if v.Revision >= 2 {
+	result := map[string]any{"key": v.ID, "revision": v.Revision, "title": v.Title, "status": v.Status, "context": v.Context, "decision": v.Decision, "consequences": v.Consequences, "created_at": v.CreatedAt}
+	if v.Summary != "" {
+		result["summary"] = v.Summary
+	}
+	if adrPublicUpdateVisible(v) {
 		result["updated_at"], result["revision_reason"] = v.UpdatedAt, v.LastReason
 	}
 	return result
 }
 func adrMutationPublicValue(v service.OperationResult) map[string]any {
-	return map[string]any{"adr": v.EntityKey, "revision": v.Revision}
+	return map[string]any{"key": v.EntityKey, "revision": v.Revision}
 }
 
 func adrPublicPageCandidate(p service.ADRListPageResult, count int) (map[string]any, error) {
 	items := make([]any, 0, count)
 	for _, v := range p.ADRs[:count] {
-		item := map[string]any{"adr": v.ID, "title": v.Title, "status": v.Status, "revision": v.Revision}
-		if v.Revision >= 2 {
+		item := map[string]any{"key": v.ID, "title": v.Title, "summary": v.Summary, "status": v.Status, "revision": v.Revision}
+		if adrPublicUpdateVisible(v) {
 			item["updated_at"] = v.UpdatedAt
 		}
 		items = append(items, item)
 	}
-	result := map[string]any{"adrs": items}
+	result := map[string]any{"items": items}
 	if p.HasMore || count < len(p.ADRs) {
 		next := p.NextCursor
 		if count < len(p.ADRs) {
@@ -125,23 +132,23 @@ func adrPublicPageCandidate(p service.ADRListPageResult, count int) (map[string]
 
 func adrHistoryPageCandidate(p service.ADRHistoryResult, count int) (map[string]any, error) {
 	items := make([]any, 0, count)
-	for _, v := range p.Revisions[:count] {
+	for _, v := range p.Items[:count] {
 		item := map[string]any{"revision": v.Revision, "mutation_kind": v.MutationKind, "actor": v.Actor, "reason": v.Reason, "recorded_at": v.RecordedAt}
 		if len(v.ChangedFields) > 0 {
 			item["changed_fields"] = v.ChangedFields
 		}
 		items = append(items, item)
 	}
-	result := map[string]any{"adr": p.ADRID, "revisions": items}
-	if p.HasMore || count < len(p.Revisions) {
+	result := map[string]any{"key": p.Key, "items": items}
+	if p.HasMore || count < len(p.Items) {
 		next := p.NextCursor
-		if count < len(p.Revisions) {
-			next = pagination.EncodeServerCursor(p.CursorKind, strconv.Itoa(p.Revisions[count-1].Revision))
+		if count < len(p.Items) {
+			return nil, fmt.Errorf("ADR history pagination invariant: continuation is not server-owned")
 		}
 		if next == "" {
 			return nil, fmt.Errorf("ADR history pagination invariant: continuation is empty")
 		}
-		result["_pagination"] = map[string]any{"next_cursor": next}
+		result["_pagination"] = map[string]any{"next_cursor": pagination.EncodeOpaqueKeyset(p.CursorKind, next)}
 	}
 	return result, nil
 }
@@ -151,7 +158,7 @@ func adrPublicPageValue(p service.ADRListPageResult) (map[string]any, error) {
 		if p.HasMore {
 			return nil, fmt.Errorf("ADR pagination invariant: empty page has continuation")
 		}
-		return map[string]any{"adrs": []any{}}, nil
+		return map[string]any{"items": []any{}}, nil
 	}
 	count, err := service.LargestPublicPageSize(len(p.ADRs), func(count int) (bool, error) {
 		candidate, err := adrPublicPageCandidate(p, count)
@@ -170,24 +177,11 @@ func adrPublicPageValue(p service.ADRListPageResult) (map[string]any, error) {
 }
 
 func adrHistoryPageValue(p service.ADRHistoryResult) (map[string]any, error) {
-	if len(p.Revisions) == 0 {
+	if len(p.Items) == 0 {
 		if p.HasMore {
 			return nil, fmt.Errorf("ADR history pagination invariant: empty page has continuation")
 		}
-		return map[string]any{"adr": p.ADRID, "revisions": []any{}}, nil
+		return map[string]any{"key": p.Key, "items": []any{}}, nil
 	}
-	count, err := service.LargestPublicPageSize(len(p.Revisions), func(count int) (bool, error) {
-		candidate, err := adrHistoryPageCandidate(p, count)
-		if err != nil {
-			return false, err
-		}
-		return service.PublicPageFitsTokenBudget(candidate)
-	})
-	if err != nil {
-		return nil, err
-	}
-	if count == 0 {
-		return nil, fmt.Errorf("ADR history semantic unit exceeds the token budget")
-	}
-	return adrHistoryPageCandidate(p, count)
+	return adrHistoryPageCandidate(p, len(p.Items))
 }

@@ -15,7 +15,7 @@ func adr(ctx context.Context, s *service.Service, args []string) {
 		if e != nil {
 			fatal(e)
 		}
-		output(map[string]any{"adrs": v})
+		output(map[string]any{"items": v})
 	case "read":
 		require(args, 3)
 		v, e := s.ADRRead(ctx, args[1], args[2])

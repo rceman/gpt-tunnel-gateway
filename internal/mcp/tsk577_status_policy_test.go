@@ -31,40 +31,55 @@ func TestTSK577ADRStatusSchemasAndRuntimeUseDescriptorPolicy(t *testing.T) {
 			}},
 		})))
 	}
-	created := call(1, "adr/create", map[string]any{"title": "Policy ADR", "context": "context", "decision": "decision", "consequences": "consequences", "status": "proposed"})
+	created := call(1, "adr/create", map[string]any{"title": "Policy ADR", "summary": "Bounded policy summary", "context": "context", "decision": "decision", "consequences": "consequences", "status": "proposed"})
 	createdResult := created["result"].(map[string]any)
-	adrID := createdResult["adr"].(string)
+	adrID := createdResult["key"].(string)
 	if createdResult["revision"] != float64(1) {
 		t.Fatalf("create result=%#v", createdResult)
 	}
-	omittedStatus := call(2, "adr/create", map[string]any{"title": "Defaulted ADR", "context": "context", "decision": "decision", "consequences": "consequences"})
+	omittedStatus := call(2, "adr/create", map[string]any{"title": "Defaulted ADR", "summary": "Bounded defaulted summary", "context": "context", "decision": "decision", "consequences": "consequences"})
 	if omittedStatus["is_error"] == true {
 		t.Fatalf("ADR create omitted status=%#v, want proposed", omittedStatus)
 	}
 	omittedResult := omittedStatus["result"].(map[string]any)
-	omittedID := omittedResult["adr"].(string)
-	omittedRead := call(3, "adr/read", map[string]any{"adr": omittedID})
+	omittedID := omittedResult["key"].(string)
+	omittedRead := call(3, "adr/read", map[string]any{"key": omittedID})
 	if omittedRead["is_error"] == true || omittedRead["result"].(map[string]any)["status"] != "proposed" {
 		t.Fatalf("ADR create omitted status=%#v, want proposed", omittedRead)
 	}
-	accepted := call(3, "adr/create", map[string]any{"title": "Rejected ADR", "context": "context", "decision": "decision", "consequences": "consequences", "status": "accepted"})
+	accepted := call(4, "adr/create", map[string]any{"title": "Rejected ADR", "summary": "Bounded rejected summary", "context": "context", "decision": "decision", "consequences": "consequences", "status": "accepted"})
 	if accepted["is_error"] != true {
 		t.Fatalf("ADR create accepted disallowed status: %#v", accepted)
 	}
-	updated := call(4, "adr/update", map[string]any{"adr": adrID, "status": "accepted", "reason": "accepted by owner"})
+	updated := call(5, "adr/update", map[string]any{"key": adrID, "status": "accepted", "reason": "accepted by owner"})
 	if updated["is_error"] == true {
 		t.Fatalf("ADR update status transition failed: %#v", updated)
 	}
-	if result := updated["result"].(map[string]any); result["revision"] != float64(2) {
-		t.Fatalf("update result=%#v", result)
+	if result := updated["result"].(map[string]any); result["revision"] != float64(1) {
+		t.Fatalf("status-only update result=%#v, want unchanged content revision", result)
 	}
-	readOne := call(5, "adr/read", map[string]any{"adr": adrID, "revision": 1})
+	readCurrent := call(6, "adr/read", map[string]any{"key": adrID})
+	if result := readCurrent["result"].(map[string]any); result["status"] != "accepted" || result["revision"] != float64(1) {
+		t.Fatalf("current ADR revision=%#v", result)
+	}
+	readOne := call(7, "adr/read", map[string]any{"key": adrID, "revision": 1})
 	if result := readOne["result"].(map[string]any); result["status"] != "proposed" {
 		t.Fatalf("historical ADR revision=%#v", result)
 	}
-	readTwo := call(6, "adr/read", map[string]any{"adr": adrID, "revision": 2})
-	if result := readTwo["result"].(map[string]any); result["status"] != "accepted" {
-		t.Fatalf("current ADR revision=%#v", result)
+	history := call(8, "adr/history", map[string]any{"key": adrID})
+	if history["is_error"] == true {
+		t.Fatalf("ADR history failed: %#v", history)
+	}
+	historyResult := history["result"].(map[string]any)
+	if historyResult["key"] != adrID {
+		t.Fatalf("ADR history key=%#v", historyResult)
+	}
+	items := historyResult["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("ADR history items=%#v, want immutable content plus lifecycle event", items)
+	}
+	if event := items[1].(map[string]any); event["mutation_kind"] != "status" || event["revision"] != float64(1) {
+		t.Fatalf("ADR lifecycle event=%#v", event)
 	}
 	if got := sqlitestore.SharedLifecycleStatusValues("task", true); len(got) != 1 || got[0] != "planned" {
 		t.Fatalf("Task create status policy=%#v, want [planned]", got)

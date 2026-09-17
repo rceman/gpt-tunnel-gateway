@@ -18,6 +18,7 @@ func TestADRCreateAsyncIsBoundedAndIdempotent(t *testing.T) {
 		ADR: model.ADR{
 			ProjectID:    "example",
 			Title:        "Async decision",
+			Summary:      "Bounded async decision summary",
 			Status:       model.ADRStatusProposed,
 			Context:      "context",
 			Decision:     "decision",

@@ -213,6 +213,10 @@ const (
 	sharedTaskExecutionVerificationMigrationName          = "create task execution verification receipts"
 	sharedTaskLifecycleMigrationVersion             int64 = 202609111312
 	sharedTaskLifecycleMigrationName                      = "create task lifecycle events"
+	sharedADRSummaryMigrationVersion                int64 = 202609111600
+	sharedADRSummaryMigrationName                         = "migrate retained adr summaries"
+	sharedLifecycleEventMigrationVersion            int64 = 202609111700
+	sharedLifecycleEventMigrationName                     = "create shared lifecycle events"
 	localBaselineVersion                            int64 = 202609080505
 	localBaselineName                                     = "create local baseline"
 	localTokenUsageMigrationVersion                 int64 = 202609102010

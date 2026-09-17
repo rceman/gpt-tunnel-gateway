@@ -213,29 +213,29 @@ type ProjectListPageResult struct {
 }
 
 type ADRListPageResult struct {
-	ADRs       []model.ADR `json:"adrs"`
+	ADRs       []model.ADR `json:"items"`
 	NextCursor string      `json:"next_cursor"`
 	HasMore    bool        `json:"has_more"`
 	CursorKind string      `json:"-"`
 }
 
 type ADRHistoryResult struct {
-	ADRID      string                  `json:"adr_id"`
+	Key        string                  `json:"key"`
 	ProjectID  string                  `json:"project_id"`
-	Revisions  []model.ADRHistoryEntry `json:"revisions"`
+	Items      []model.ADRHistoryEntry `json:"items"`
 	NextCursor string                  `json:"next_cursor"`
 	HasMore    bool                    `json:"has_more"`
 	CursorKind string                  `json:"-"`
 }
 
 type ADRLegacyRelation struct {
-	ADR        string `json:"adr"`
+	Key        string `json:"key"`
 	Revision   int    `json:"revision"`
 	Supersedes string `json:"supersedes"`
 }
 
 type ADRLegacyRelationsResult struct {
-	Relations  []ADRLegacyRelation `json:"relations"`
+	Items      []ADRLegacyRelation `json:"items"`
 	NextCursor string              `json:"-"`
 	HasMore    bool                `json:"-"`
 }

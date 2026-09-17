@@ -189,7 +189,7 @@ func TestSharedTaskAndADRQueriesDoNotUseHub(t *testing.T) {
 	if err := db.PutSharedProjection(context.Background(), "task", sqlitestore.SharedEntity{ID: task.ID, Revision: int64(task.Revision), Payload: taskPayload, UpdatedAt: task.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
 		t.Fatal(err)
 	}
-	adr := model.ADR{SchemaVersion: model.SchemaVersion, ID: "EXM-ADR901", ProjectID: "example", Title: "Shared ADR", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: time.Now().UTC()}
+	adr := model.ADR{SchemaVersion: model.SchemaVersion, ID: "EXM-ADR901", ProjectID: "example", Title: "Shared ADR", Summary: "Bounded shared ADR summary", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: time.Now().UTC()}
 	adrPayload, err := json.Marshal(adr)
 	if err != nil {
 		t.Fatal(err)

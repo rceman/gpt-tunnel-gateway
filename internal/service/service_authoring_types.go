@@ -41,8 +41,9 @@ type ADRCreateInput struct {
 
 type ADRUpdateInput struct {
 	ProjectID        string  `json:"project_id"`
-	ADRID            string  `json:"adr_id"`
+	ADRID            string  `json:"key"`
 	Title            *string `json:"title,omitempty"`
+	Summary          *string `json:"summary,omitempty"`
 	Context          *string `json:"context,omitempty"`
 	Decision         *string `json:"decision,omitempty"`
 	Consequences     *string `json:"consequences,omitempty"`
@@ -54,7 +55,7 @@ type ADRUpdateInput struct {
 
 type ADRArchiveInput struct {
 	ProjectID        string `json:"project_id"`
-	ADRID            string `json:"adr_id"`
+	ADRID            string `json:"key"`
 	ExpectedRevision int    `json:"-"`
 	Reason           string `json:"reason"`
 	ArchivedBy       string `json:"archived_by"`

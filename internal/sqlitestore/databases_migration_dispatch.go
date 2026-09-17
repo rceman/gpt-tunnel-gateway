@@ -57,11 +57,23 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 			return err
 		}
 	}
+	adrSummary := migrate.Migration{Version: sharedADRSummaryMigrationVersion, Name: sharedADRSummaryMigrationName, Statements: []upstream.Statement{{SQL: "SELECT 1"}}}
+	if name, applied := markers[sharedADRSummaryMigrationVersion]; applied {
+		if name != sharedADRSummaryMigrationName {
+			return fmt.Errorf("unsupported migration marker %d/%q", sharedADRSummaryMigrationVersion, name)
+		}
+	} else {
+		adrSummary, err = sharedADRSummaryMigration(ctx, db)
+		if err != nil {
+			return err
+		}
+	}
 	execution := sharedTaskExecutionMigration()
 	phases := sharedTaskExecutionPhasesMigration()
 	verification := sharedTaskExecutionVerificationMigration()
 	lifecycle := sharedTaskLifecycleMigration()
-	return applyActiveMigrations(ctx, db, baseline, summary, sequence, execution, phases, verification, lifecycle)
+	lifecycleEvents := sharedLifecycleEventMigration()
+	return applyActiveMigrations(ctx, db, baseline, summary, sequence, execution, phases, verification, lifecycle, adrSummary, lifecycleEvents)
 }
 
 func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {

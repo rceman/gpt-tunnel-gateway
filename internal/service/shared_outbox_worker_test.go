@@ -48,7 +48,7 @@ func TestSharedOutboxEqualTaskADRAndConfigurationAreTerminalNoOps(t *testing.T) 
 		t.Fatalf("equal Task publication error=%v, want terminal no-op", err)
 	}
 
-	adr := model.ADR{SchemaVersion: model.SchemaVersion, ID: "EXM-ADR565", ProjectID: "example", Revision: 1, RevisionCount: 1, Title: "No-op ADR", Status: model.ADRStatusAccepted, Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: now, UpdatedAt: now}
+	adr := model.ADR{SchemaVersion: model.SchemaVersion, ID: "EXM-ADR565", ProjectID: "example", Revision: 1, RevisionCount: 1, Title: "No-op ADR", Summary: "Bounded no-op ADR summary", Status: model.ADRStatusAccepted, Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: now, UpdatedAt: now}
 	adrPayload, err := json.Marshal(adr)
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +82,7 @@ func TestSharedOutboxNewADRRevisionPublishesAndFailuresRemainRetryable(t *testin
 	s, _, _ := testServiceWithoutIdentifiersSetup(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
-	adr := model.ADR{SchemaVersion: model.SchemaVersion, ID: "EXM-ADR566", ProjectID: "example", Revision: 1, RevisionCount: 1, Title: "Revision one", Status: model.ADRStatusAccepted, Context: "context", Decision: "old decision", Consequences: "consequences", CreatedAt: now, UpdatedAt: now}
+	adr := model.ADR{SchemaVersion: model.SchemaVersion, ID: "EXM-ADR566", ProjectID: "example", Revision: 1, RevisionCount: 1, Title: "Revision one", Summary: "Bounded revision one summary", Status: model.ADRStatusAccepted, Context: "context", Decision: "old decision", Consequences: "consequences", CreatedAt: now, UpdatedAt: now}
 	firstPayload, err := json.Marshal(adr)
 	if err != nil {
 		t.Fatal(err)

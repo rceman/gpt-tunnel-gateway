@@ -43,7 +43,7 @@ func TestSharedQueriesScopeBeforeGlobalPageLimit(t *testing.T) {
 	if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_tasks(id,revision,payload,updated_at) VALUES(?,?,?,?)`, task.ID, task.Revision, taskPayload, now); err != nil {
 		t.Fatal(err)
 	}
-	adr := model.ADR{SchemaVersion: model.SchemaVersion, ID: "EXM-ADR903", ProjectID: "example", Title: "After page", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: time.Now().UTC()}
+	adr := model.ADR{SchemaVersion: model.SchemaVersion, ID: "EXM-ADR903", ProjectID: "example", Title: "After page", Summary: "Bounded after-page summary", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: time.Now().UTC()}
 	adrPayload, err := json.Marshal(adr)
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestSharedADRPublishConvergesAfterRestart(t *testing.T) {
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
-	adr := model.ADR{SchemaVersion: model.SchemaVersion, ID: "EXM-ADR1", ProjectID: "example", Title: "Local ADR", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: time.Now().UTC()}
+	adr := model.ADR{SchemaVersion: model.SchemaVersion, ID: "EXM-ADR1", ProjectID: "example", Title: "Local ADR", Summary: "Bounded local ADR summary", Status: "accepted", Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: time.Now().UTC()}
 	payload, err := json.Marshal(adr)
 	if err != nil {
 		t.Fatal(err)

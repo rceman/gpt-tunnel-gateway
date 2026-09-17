@@ -85,7 +85,24 @@ func ValidatePlanSection(v PlanSection) error {
 	return nil
 }
 
+const (
+	ADRTitleMaxRunes       = 128
+	ADRLegacyTitleMaxRunes = 300
+	ADRSummaryMaxRunes     = 256
+)
+
 func ValidateADR(v ADR) error {
+	return validateADR(v, true, ADRTitleMaxRunes)
+}
+
+func ValidateADRRevision(v ADR, historical bool) error {
+	if historical {
+		return validateADR(v, false, ADRLegacyTitleMaxRunes)
+	}
+	return validateADR(v, true, ADRTitleMaxRunes)
+}
+
+func validateADR(v ADR, requireSummary bool, titleMaxRunes int) error {
 	if v.SchemaVersion != SchemaVersion || !idRE.MatchString(v.ProjectID) {
 		return fmt.Errorf("invalid ADR identity")
 	}
@@ -102,8 +119,11 @@ func ValidateADR(v ADR) error {
 			return fmt.Errorf("invalid replaced_by: %w", err)
 		}
 	}
-	if len(v.Title) < 3 || len(v.Title) > 300 || len(v.Context) > 100000 || len(v.Decision) > 100000 || len(v.Consequences) > 100000 {
+	if len([]rune(v.Title)) < 3 || len([]rune(v.Title)) > titleMaxRunes || len(v.Context) > 100000 || len(v.Decision) > 100000 || len(v.Consequences) > 100000 {
 		return fmt.Errorf("invalid ADR content")
+	}
+	if (requireSummary && strings.TrimSpace(v.Summary) == "") || len([]rune(v.Summary)) > ADRSummaryMaxRunes {
+		return fmt.Errorf("invalid ADR summary")
 	}
 	if v.Status != ADRStatusProposed && v.Status != ADRStatusAccepted && v.Status != ADRStatusSuperseded && v.Status != ADRStatusArchived {
 		return fmt.Errorf("invalid ADR status")

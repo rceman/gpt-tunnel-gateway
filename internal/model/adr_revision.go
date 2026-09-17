@@ -13,7 +13,7 @@ const (
 
 type ADRHistoryEntry struct {
 	SchemaVersion int       `json:"schema_version"`
-	ADRID         string    `json:"adr_id"`
+	Key           string    `json:"key"`
 	ProjectID     string    `json:"project_id"`
 	Revision      int       `json:"revision"`
 	MutationKind  string    `json:"mutation_kind"`

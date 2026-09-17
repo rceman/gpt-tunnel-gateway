@@ -151,7 +151,7 @@ func (s *Service) adrCreateShared(ctx context.Context, in ADRCreateInput) (Opera
 		HistoryMutationKind: "create",
 		Actor:               firstNonEmpty(in.ADR.CreatedBy, "server"),
 		Reason:              "create",
-		ChangedFields:       []string{"title", "context", "decision", "consequences"},
+		ChangedFields:       []string{"title", "summary", "context", "decision", "consequences"},
 		CreatedAt:           time.Now().UTC(),
 		BuildPayload: func(adrID string) ([]byte, error) {
 			created = in.ADR
