@@ -53,7 +53,7 @@ func assertFreshSharedMigrationMarkers(t *testing.T, db *upstream.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := [][2]any{{sharedBaselineVersion, sharedBaselineName}, {sharedTaskSummaryMigrationVersion, sharedTaskSummaryMigrationName}, {sharedTaskSequenceMigrationVersion, sharedTaskSequenceMigrationName}, {sharedTaskExecutionMigrationVersion, sharedTaskExecutionMigrationName}, {sharedTaskExecutionPhaseMigrationVersion, sharedTaskExecutionPhaseMigrationName}, {sharedTaskExecutionVerificationMigrationVersion, sharedTaskExecutionVerificationMigrationName}, {sharedTaskLifecycleMigrationVersion, sharedTaskLifecycleMigrationName}, {sharedADRSummaryMigrationVersion, sharedADRSummaryMigrationName}, {sharedLifecycleEventMigrationVersion, sharedLifecycleEventMigrationName}}
+	want := [][2]any{{sharedBaselineVersion, sharedBaselineName}, {sharedTaskSummaryMigrationVersion, sharedTaskSummaryMigrationName}, {sharedTaskSequenceMigrationVersion, sharedTaskSequenceMigrationName}, {sharedTaskExecutionMigrationVersion, sharedTaskExecutionMigrationName}, {sharedTaskExecutionPhaseMigrationVersion, sharedTaskExecutionPhaseMigrationName}, {sharedTaskExecutionVerificationMigrationVersion, sharedTaskExecutionVerificationMigrationName}, {sharedTaskLifecycleMigrationVersion, sharedTaskLifecycleMigrationName}, {sharedADRSummaryMigrationVersion, sharedADRSummaryMigrationName}, {sharedLifecycleEventMigrationVersion, sharedLifecycleEventMigrationName}, {sharedTaskLifecycleHardCutMigrationVersion, sharedTaskLifecycleHardCutMigrationName}}
 	if len(rows.Rows) != len(want) {
 		t.Fatalf("fresh Shared migration markers=%#v, want=%#v", rows.Rows, want)
 	}

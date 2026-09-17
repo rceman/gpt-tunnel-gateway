@@ -172,20 +172,20 @@ func (s *Service) TaskLifecycleHistory(ctx context.Context, projectID, taskID, c
 	if err := s.requireLocalTaskAuthoring(ctx, projectID); err != nil {
 		return sqlitestore.SharedHistoryPage{}, err
 	}
-	after := sqlitestore.TaskHistoryCursor{}
+	after := sqlitestore.SharedLifecycleHistoryCursor{}
 	kind := "task-history:" + projectID + ":" + taskID
 	if cursor != "" {
 		key, err := pagination.DecodeOpaqueKeyset(cursor, kind)
 		if err != nil {
 			return sqlitestore.SharedHistoryPage{}, fmt.Errorf("invalid task history cursor")
 		}
-		decoded, err := sqlitestore.DecodeTaskHistoryCursor(key)
+		decoded, err := sqlitestore.DecodeSharedLifecycleHistoryCursor(key)
 		if err != nil {
 			return sqlitestore.SharedHistoryPage{}, fmt.Errorf("invalid task history cursor")
 		}
 		after = decoded
 	}
-	return s.Durability.ListTaskHistoryPage(ctx, projectID, taskID, after, sqlitestore.SharedLifecycleQueryMaxRows)
+	return s.Durability.ListSharedLifecycleHistoryPage(ctx, "task", projectID, taskID, after, sqlitestore.SharedLifecycleQueryMaxRows)
 }
 
 func taskAuthoringChangedFields(in TaskAuthoringUpdateInput) []string {

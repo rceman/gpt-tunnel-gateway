@@ -217,6 +217,8 @@ const (
 	sharedADRSummaryMigrationName                         = "migrate retained adr summaries"
 	sharedLifecycleEventMigrationVersion            int64 = 202609111700
 	sharedLifecycleEventMigrationName                     = "create shared lifecycle events"
+	sharedTaskLifecycleHardCutMigrationVersion      int64 = 202609111800
+	sharedTaskLifecycleHardCutMigrationName               = "move retained task lifecycle events into shared lifecycle events"
 	localBaselineVersion                            int64 = 202609080505
 	localBaselineName                                     = "create local baseline"
 	localTokenUsageMigrationVersion                 int64 = 202609102010

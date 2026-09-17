@@ -25,7 +25,7 @@ func taskLifecycleValue(task model.TaskAuthoring) map[string]any {
 	if task.Metadata != nil {
 		value["metadata"] = task.Metadata
 	}
-	if task.Revision >= 2 {
+	if task.Revision >= 2 || !task.UpdatedAt.IsZero() && !task.UpdatedAt.Equal(task.CreatedAt) {
 		value["updated_at"] = task.UpdatedAt
 	}
 	return value
@@ -274,7 +274,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 			for _, record := range page.Records {
 				rows = append(rows, map[string]any{"revision": record.Revision, "mutation_kind": record.MutationKind, "actor": record.Actor, "reason": record.Reason, "changed_fields": record.ChangedFields, "recorded_at": record.RecordedAt})
 			}
-			result := map[string]any{"key": in.Key, "revisions": rows}
+			result := map[string]any{"key": in.Key, "items": rows}
 			if page.HasMore {
 				if page.NextCursor == "" {
 					return nil, fmt.Errorf("task history continuation cursor is required")
@@ -316,7 +316,7 @@ func taskPageValue(page service.TaskLifecyclePage) map[string]any {
 	tasks := make([]any, 0, len(page.Tasks))
 	for _, task := range page.Tasks {
 		item := map[string]any{"key": task.ID, "title": task.Title, "summary": task.Summary, "status": task.Status, "revision": task.Revision}
-		if task.Revision >= 2 {
+		if task.Revision >= 2 || !task.UpdatedAt.IsZero() && !task.UpdatedAt.Equal(task.CreatedAt) {
 			item["updated_at"] = task.UpdatedAt
 		}
 		tasks = append(tasks, item)

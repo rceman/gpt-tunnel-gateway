@@ -1,6 +1,7 @@
 package sqlitestore
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -44,26 +45,28 @@ recorded_at TEXT NOT NULL
 }
 
 type SharedLifecycleEvent struct {
-	ID          int64
-	OperationID string
-	EntityType  string
-	ProjectID   string
-	EntityID    string
-	Revision    int64
-	EventKind   string
-	FromStatus  string
-	ToStatus    string
-	Actor       string
-	Reason      string
-	Contract    []byte
-	RecordedAt  time.Time
+	ID            int64
+	OperationID   string
+	EntityType    string
+	ProjectID     string
+	EntityID      string
+	Revision      int64
+	EventKind     string
+	MutationKind  string
+	FromStatus    string
+	ToStatus      string
+	Actor         string
+	Reason        string
+	Contract      []byte
+	ChangedFields []string
+	RecordedAt    time.Time
 }
 
-const sharedLifecycleEventColumns = `SELECT id,operation_id,entity_type,project_id,entity_id,revision,event_kind,from_status,to_status,actor,reason,contract,recorded_at FROM shared_lifecycle_events`
+const sharedLifecycleEventColumns = `SELECT id,operation_id,entity_type,project_id,entity_id,revision,event_kind,from_status,to_status,actor,reason,contract,recorded_at,mutation_kind,changed_fields FROM shared_lifecycle_events`
 
 func decodeSharedLifecycleEvent(row []any) (SharedLifecycleEvent, error) {
 	var event SharedLifecycleEvent
-	if len(row) != 13 {
+	if len(row) != 15 {
 		return event, fmt.Errorf("invalid shared lifecycle event row")
 	}
 	text := func(i int) (string, error) {
@@ -124,6 +127,16 @@ func decodeSharedLifecycleEvent(row []any) (SharedLifecycleEvent, error) {
 	if event.Reason, err = text(10); err != nil {
 		return event, err
 	}
+	if event.MutationKind, err = text(13); err != nil {
+		return event, err
+	}
+	changedFields, ok := row[14].([]byte)
+	if !ok {
+		return event, fmt.Errorf("invalid shared lifecycle event changed fields")
+	}
+	if event.ChangedFields, err = decodeSharedLifecycleChangedFields(changedFields); err != nil {
+		return event, err
+	}
 	definition, ok := sharedLifecycle(event.EntityType)
 	if event.ID < 1 || event.Revision < 1 || !ok || definition.DefaultCreateStatus == "" ||
 		event.OperationID == "" || event.ProjectID == "" || event.EntityID == "" ||
@@ -131,12 +144,44 @@ func decodeSharedLifecycleEvent(row []any) (SharedLifecycleEvent, error) {
 		event.FromStatus == event.ToStatus ||
 		!containsString(definition.AllowedStatuses, event.FromStatus) || !containsString(definition.AllowedStatuses, event.ToStatus) ||
 		!containsString(definition.AllowedTransitions[event.FromStatus], event.ToStatus) ||
+		validateSharedLifecycleEventKind(definition, event.EventKind, event.ToStatus) != nil ||
+		event.MutationKind != sharedLifecycleMutationKind(definition, event.EventKind) ||
 		event.Actor == "" || strings.ContainsRune(event.Actor, 0) || len([]rune(event.Actor)) > 256 ||
 		!validSharedHistoryReason(event.Reason) ||
 		len(event.Contract) == 0 {
 		return event, fmt.Errorf("invalid shared lifecycle event identity")
 	}
 	return event, nil
+}
+
+func decodeSharedLifecycleChangedFields(raw []byte) ([]string, error) {
+	var fields []string
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&fields); err != nil {
+		return nil, fmt.Errorf("invalid shared lifecycle event changed fields")
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, fmt.Errorf("invalid shared lifecycle event changed fields")
+	}
+	if err := validateSharedLifecycleChangedFields(fields); err != nil {
+		return nil, err
+	}
+	return fields, nil
+}
+
+func validateSharedLifecycleChangedFields(fields []string) error {
+	if len(fields) < 1 || len(fields) > 16 {
+		return fmt.Errorf("invalid shared lifecycle event changed fields")
+	}
+	seen := make(map[string]bool, len(fields))
+	for _, field := range fields {
+		if field == "" || len([]rune(field)) > 64 || strings.ContainsRune(field, 0) || seen[field] {
+			return fmt.Errorf("invalid shared lifecycle event changed fields")
+		}
+		seen[field] = true
+	}
+	return nil
 }
 
 func (d *Databases) ListSharedLifecycleEvents(ctx context.Context, entityType, projectID, entityID string, limit int) ([]SharedLifecycleEvent, error) {
@@ -147,9 +192,20 @@ func (d *Databases) ListSharedLifecycleEvents(ctx context.Context, entityType, p
 	if projectID == "" || entityID == "" || limit < 1 || limit > SharedLifecycleQueryMaxRows {
 		return nil, fmt.Errorf("invalid shared %s lifecycle event limit", entityType)
 	}
-	rows, err := d.Shared.Query(ctx, sharedLifecycleEventColumns+` WHERE entity_type=? AND project_id=? AND entity_id=? ORDER BY id ASC LIMIT ?`, entityType, projectID, entityID, int64(limit))
+	events, err := d.readSharedLifecycleChain(ctx, definition, projectID, entityID, limit)
 	if err != nil {
 		return nil, err
+	}
+	return events, nil
+}
+
+func (d *Databases) readSharedLifecycleChain(ctx context.Context, definition sharedLifecycleDefinition, projectID, entityID string, limit int) ([]SharedLifecycleEvent, error) {
+	rows, err := d.Shared.Query(ctx, sharedLifecycleEventColumns+` WHERE entity_type=? AND project_id=? AND entity_id=? ORDER BY id ASC LIMIT ?`, definition.EntityType, projectID, entityID, int64(limit)+1)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows.Rows) > limit {
+		return nil, fmt.Errorf("shared %s lifecycle chain exceeds bounded maximum %d", definition.EntityType, limit)
 	}
 	events := make([]SharedLifecycleEvent, 0, len(rows.Rows))
 	for _, row := range rows.Rows {
@@ -159,7 +215,42 @@ func (d *Databases) ListSharedLifecycleEvents(ctx context.Context, entityType, p
 		}
 		events = append(events, event)
 	}
+	if err := d.validateSharedLifecycleChain(ctx, definition, projectID, entityID, events); err != nil {
+		return nil, err
+	}
 	return events, nil
+}
+
+func (d *Databases) validateSharedLifecycleChain(ctx context.Context, definition sharedLifecycleDefinition, projectID, entityID string, events []SharedLifecycleEvent) error {
+	for index := 1; index < len(events); index++ {
+		if events[index].FromStatus != events[index-1].ToStatus {
+			return fmt.Errorf("shared %s lifecycle chain is discontinuous at event %d", definition.EntityType, events[index].ID)
+		}
+	}
+	if len(events) == 0 {
+		return nil
+	}
+	rows, err := d.Shared.Query(ctx, fmt.Sprintf("SELECT payload FROM %s WHERE id=?", definition.StateTable), entityID)
+	if err != nil {
+		return err
+	}
+	if len(rows.Rows) != 1 {
+		return fmt.Errorf("shared %s lifecycle chain has no current state", definition.EntityType)
+	}
+	payload, ok := rows.Rows[0][0].([]byte)
+	if !ok {
+		return fmt.Errorf("invalid shared %s lifecycle state payload", definition.EntityType)
+	}
+	var current struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(payload, &current); err != nil {
+		return fmt.Errorf("invalid shared %s lifecycle state payload", definition.EntityType)
+	}
+	if current.Status != events[len(events)-1].ToStatus {
+		return fmt.Errorf("shared %s lifecycle chain does not agree with the current state status", definition.EntityType)
+	}
+	return nil
 }
 
 type SharedLifecycleEventRequest struct {
@@ -183,6 +274,7 @@ type SharedLifecycleEventRequest struct {
 	Contract              []byte
 	CreatedAt             time.Time
 	PreviousHistory       *SharedHistorySeed
+	ExtraStatements       []upstream.Statement
 }
 
 func (d *Databases) CommitSharedLifecycleEvent(ctx context.Context, request SharedLifecycleEventRequest) (SharedMutationReceipt, error) {
@@ -221,8 +313,25 @@ func (d *Databases) CommitSharedLifecycleEvent(ctx context.Context, request Shar
 	if previous.Status == next.Status || previous.Status != request.FromStatus || next.Status != request.ToStatus {
 		return SharedMutationReceipt{}, fmt.Errorf("invalid shared %s lifecycle transition", request.EntityType)
 	}
+	if err := validateSharedLifecycleEventKind(definition, request.EventKind, request.ToStatus); err != nil {
+		return SharedMutationReceipt{}, err
+	}
+	if request.HistoryMutationKind != sharedLifecycleMutationKind(definition, request.EventKind) {
+		return SharedMutationReceipt{}, fmt.Errorf("invalid shared %s lifecycle mutation kind", request.EntityType)
+	}
+	if err := validateSharedLifecycleChangedFields(request.ChangedFields); err != nil {
+		return SharedMutationReceipt{}, err
+	}
 	if request.PreviousHistory != nil && request.PreviousHistory.Revision != request.ExpectedRevision {
 		return SharedMutationReceipt{}, fmt.Errorf("invalid shared %s history seed", request.EntityType)
+	}
+	if len(request.ExtraStatements) > 4 {
+		return SharedMutationReceipt{}, fmt.Errorf("invalid shared %s lifecycle side effects", request.EntityType)
+	}
+	for _, statement := range request.ExtraStatements {
+		if strings.TrimSpace(statement.SQL) == "" || statement.RequireRowsAffected < 1 {
+			return SharedMutationReceipt{}, fmt.Errorf("invalid shared %s lifecycle side effect", request.EntityType)
+		}
 	}
 	recorded := request.CreatedAt.UTC().Format(time.RFC3339Nano)
 	if request.CreatedAt.IsZero() {
@@ -257,21 +366,18 @@ func (d *Databases) CommitSharedLifecycleEvent(ctx context.Context, request Shar
 	}
 	stateCAS := fmt.Sprintf("id=? AND revision=? AND payload=? AND COALESCE(CAST(json_extract(payload, '$.revision') AS INTEGER), 1)=?")
 	if contentChanged {
-		historyKind := request.HistoryMutationKind
-		if historyKind == "" {
-			historyKind = "update"
-		}
 		statements = append(statements,
 			upstream.Statement{SQL: fmt.Sprintf("UPDATE %s SET revision=?,payload=?,updated_at=? WHERE %s", definition.StateTable, stateCAS), Args: []any{request.Revision, request.Payload, recorded, request.EntityID, request.ExpectedStoreRevision, request.ExpectedPayload, request.ExpectedRevision}, RequireRowsAffected: 1},
-			sharedHistoryInsertStatement(definition, request.EntityID, request.ProjectID, request.Revision, historyKind, request.Actor, request.Reason, changedFields, request.Payload, recorded),
+			sharedHistoryInsertStatement(definition, request.EntityID, request.ProjectID, request.Revision, "update", request.Actor, request.Reason, changedFields, request.Payload, recorded),
 		)
 	} else {
 		statements = append(statements,
 			upstream.Statement{SQL: fmt.Sprintf("UPDATE %s SET payload=?,updated_at=? WHERE %s", definition.StateTable, stateCAS), Args: []any{request.Payload, recorded, request.EntityID, request.ExpectedStoreRevision, request.ExpectedPayload, request.ExpectedRevision}, RequireRowsAffected: 1},
 		)
 	}
+	statements = append(statements, request.ExtraStatements...)
 	statements = append(statements,
-		upstream.Statement{SQL: `INSERT INTO shared_lifecycle_events(operation_id,entity_type,project_id,entity_id,revision,event_kind,from_status,to_status,actor,reason,contract,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, Args: []any{request.OperationID, request.EntityType, request.ProjectID, request.EntityID, request.Revision, request.EventKind, request.FromStatus, request.ToStatus, request.Actor, request.Reason, request.Contract, recorded}, RequireRowsAffected: 1},
+		upstream.Statement{SQL: `INSERT INTO shared_lifecycle_events(operation_id,entity_type,project_id,entity_id,revision,event_kind,from_status,to_status,actor,reason,contract,recorded_at,mutation_kind,changed_fields) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, Args: []any{request.OperationID, request.EntityType, request.ProjectID, request.EntityID, request.Revision, request.EventKind, request.FromStatus, request.ToStatus, request.Actor, request.Reason, request.Contract, recorded, request.HistoryMutationKind, changedFields}, RequireRowsAffected: 1},
 		upstream.Statement{SQL: `INSERT INTO hub_outbox(id,entity_type,entity_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?)`, Args: []any{request.OperationID, request.EntityType, request.EntityID, request.Revision, request.Kind, request.Payload, recorded}, RequireRowsAffected: 1},
 	)
 	if _, err := d.Shared.Batch(ctx, statements); err != nil {
@@ -364,6 +470,9 @@ func (d *Databases) ListSharedLifecycleHistoryPage(ctx context.Context, entityTy
 	if err := validateSharedLifecycleHistoryCursor(after, true); err != nil {
 		return SharedHistoryPage{}, err
 	}
+	if _, err := d.readSharedLifecycleChain(ctx, definition, projectID, entityID, SharedLifecycleQueryMaxRows); err != nil {
+		return SharedHistoryPage{}, err
+	}
 	type keyed struct {
 		record   SharedRevisionRecord
 		revision int64
@@ -415,19 +524,15 @@ func (d *Databases) ListSharedLifecycleHistoryPage(ctx context.Context, entityTy
 		if event.EntityType != entityType || event.ProjectID != projectID || event.EntityID != entityID {
 			return SharedHistoryPage{}, fmt.Errorf("shared lifecycle event ownership mismatch")
 		}
-		changedFields := []string{"status"}
-		if event.EventKind == SharedLifecycleEventKindArchive {
-			changedFields = append(changedFields, "archived_at", "archived_by", "archive_reason")
-		}
 		merged = append(merged, keyed{
 			record: SharedRevisionRecord{
 				EntityID:      event.EntityID,
 				ProjectID:     event.ProjectID,
 				Revision:      event.Revision,
-				MutationKind:  event.EventKind,
+				MutationKind:  event.MutationKind,
 				Actor:         event.Actor,
 				Reason:        event.Reason,
-				ChangedFields: changedFields,
+				ChangedFields: append([]string(nil), event.ChangedFields...),
 				Payload:       append([]byte(nil), event.Contract...),
 				RecordedAt:    event.RecordedAt.UTC().Format(time.RFC3339Nano),
 			},

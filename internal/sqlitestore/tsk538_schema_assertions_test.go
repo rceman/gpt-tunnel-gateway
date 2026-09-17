@@ -77,8 +77,9 @@ func assertFinalSharedSchema(t *testing.T, db *upstream.Store) {
 	for _, table := range sharedSchemaTables() {
 		assertColumns(t, db, table.name, table.columns)
 	}
-	assertColumns(t, db, "shared_task_lifecycle_events", []string{"id", "operation_id", "project_id", "task_id", "revision", "event_kind", "from_status", "to_status", "actor", "reason", "contract", "recorded_at"})
-	assertObjects(t, db, "index", []string{"shared_task_lifecycle_events_task_idx", "hub_outbox_pending_idx", "hub_outbox_due_idx", "hub_outbox_operation_idx", "hub_outbox_retry_idx", "shared_operations_entity_idx", "shared_train_task_admissions_train_idx", "shared_entity_revisions_project_idx"})
+	assertColumns(t, db, "shared_lifecycle_events", []string{"id", "operation_id", "entity_type", "project_id", "entity_id", "revision", "event_kind", "from_status", "to_status", "actor", "reason", "contract", "recorded_at", "mutation_kind", "changed_fields"})
+	assertAbsentObjects(t, db, []string{"shared_task_lifecycle_events", "shared_task_lifecycle_events_task_idx"})
+	assertObjects(t, db, "index", []string{"shared_lifecycle_events_entity_idx", "hub_outbox_pending_idx", "hub_outbox_due_idx", "hub_outbox_operation_idx", "hub_outbox_retry_idx", "shared_operations_entity_idx", "shared_train_task_admissions_train_idx", "shared_entity_revisions_project_idx"})
 	assertObjects(t, db, "trigger", []string{"shared_train_task_admission_conflict", "shared_train_task_admission_update_conflict"})
 }
 

@@ -423,7 +423,7 @@ func TestTSK585TaskCompleteAtomicFaultRollsBack(t *testing.T) {
 	entityBefore, _ := db.ReadSharedTask(ctx, task.ID)
 	histBefore, _ := db.ListSharedHistoryPage(ctx, "task", "example", task.ID, 0, 64)
 	outboxBefore, _ := db.Shared.Query(ctx, `SELECT id FROM hub_outbox WHERE entity_id=?`, task.ID)
-	if _, err := db.Shared.Exec(ctx, `CREATE TRIGGER fail_task_completion_event BEFORE INSERT ON shared_task_lifecycle_events BEGIN SELECT RAISE(ABORT,'injected completion event failure'); END`); err != nil {
+	if _, err := db.Shared.Exec(ctx, `CREATE TRIGGER fail_task_completion_event BEFORE INSERT ON shared_lifecycle_events BEGIN SELECT RAISE(ABORT,'injected completion event failure'); END`); err != nil {
 		t.Fatalf("install trigger: %v", err)
 	}
 	sessionID := tsk585PlannerSession(t, s)
@@ -740,7 +740,11 @@ func TestTSK585TaskHistoryServicePageBoundary(t *testing.T) {
 	contract := []byte(`{"schema_version":1,"mode":"non_code","reason":"ok","task_revision":1,"task_revision_sha256":"` + current.RevisionSHA256 + `","acceptance":[{"criterion":1,"evidence":["EXM-JRN1"]}]}`)
 	opSum := sha256.Sum256(append([]byte("example"+string(rune(0))+task.ID+string(rune(0))), contract...))
 	opID := "task-complete-" + hex.EncodeToString(opSum[:])
-	if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_task_lifecycle_events(operation_id,project_id,task_id,revision,event_kind,from_status,to_status,actor,reason,contract,recorded_at) VALUES(?,?,?,?,'complete','planned','done','planner','done',?,?)`, opID, "example", task.ID, int64(1), contract, lifecycleAt.UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_lifecycle_events(operation_id,entity_type,project_id,entity_id,revision,event_kind,from_status,to_status,actor,reason,contract,recorded_at,mutation_kind,changed_fields) VALUES(?,?,?,?,?,'status','planned','done','planner','done',?,?,'complete',CAST('["status"]' AS BLOB))`, opID, "task", "example", task.ID, int64(1), contract, lifecycleAt.UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	completedState := []byte(`{"id":"` + task.ID + `","project_id":"example","revision":1,"status":"done"}`)
+	if _, err := db.Shared.Exec(ctx, `UPDATE shared_tasks SET payload=? WHERE id=?`, completedState, task.ID); err != nil {
 		t.Fatal(err)
 	}
 	first, err := s.TaskLifecycleHistory(ctx, "example", task.ID, "")
@@ -1050,7 +1054,7 @@ func TestTSK585TaskArchiveStatusOnly(t *testing.T) {
 }
 func TestTSK585TaskArchiveAtomicRollback(t *testing.T) {
 	for _, trigger := range []struct{ name, sql string }{
-		{"lifecycle", `CREATE TRIGGER fail_task_archive_event BEFORE INSERT ON shared_task_lifecycle_events BEGIN SELECT RAISE(ABORT,'injected archive event failure'); END`},
+		{"lifecycle", `CREATE TRIGGER fail_task_archive_event BEFORE INSERT ON shared_lifecycle_events BEGIN SELECT RAISE(ABORT,'injected archive event failure'); END`},
 		{"outbox", `CREATE TRIGGER fail_task_archive_outbox BEFORE INSERT ON hub_outbox BEGIN SELECT RAISE(ABORT,'injected archive outbox failure'); END`},
 	} {
 		t.Run(trigger.name, func(t *testing.T) {

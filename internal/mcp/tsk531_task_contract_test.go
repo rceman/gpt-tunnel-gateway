@@ -113,6 +113,90 @@ func TestTSK531CanonicalTaskSurfaceAndLegacyEvidenceContract(t *testing.T) {
 	}
 }
 
+func TestTSK531TaskHistoryOutputIsUniversalKeyAndItems(t *testing.T) {
+	server := newSessionTestServer(t)
+	entries := server.genericActionRegistry(server.tools())
+	schema := entries["task/history"].OutputSchema
+	properties := schemaProperties(schema)
+	if len(properties) != 3 {
+		t.Fatalf("task/history output properties=%v", properties)
+	}
+	for _, key := range []string{"key", "items", "next_cursor"} {
+		if _, ok := properties[key]; !ok {
+			t.Fatalf("task/history output missing %q: %v", key, properties)
+		}
+	}
+	for _, alias := range []string{"revisions", "task", "task_id", "task_key", "id"} {
+		if _, ok := properties[alias]; ok {
+			t.Fatalf("task/history output exposed the retired %q alias: %v", alias, properties)
+		}
+	}
+	if schema["additionalProperties"] != false {
+		t.Fatalf("task/history output is not closed: %#v", schema)
+	}
+	required := stringList(schema["required"])
+	if len(required) != 2 || required[0] != "key" || required[1] != "items" {
+		t.Fatalf("task/history required=%v", required)
+	}
+	row := properties["items"].(map[string]any)["items"].(map[string]any)
+	rowProperties := schemaProperties(row)
+	if len(rowProperties) != 6 {
+		t.Fatalf("task/history item properties=%v", rowProperties)
+	}
+	for _, key := range []string{"revision", "mutation_kind", "actor", "reason", "changed_fields", "recorded_at"} {
+		if _, ok := rowProperties[key]; !ok {
+			t.Fatalf("task/history item missing %q: %v", key, rowProperties)
+		}
+	}
+	for _, alias := range []string{"id", "task", "task_id", "task_key", "key"} {
+		if _, ok := rowProperties[alias]; ok {
+			t.Fatalf("task/history item exposed the retired %q alias: %v", alias, rowProperties)
+		}
+	}
+}
+
+func TestTSK531TaskHistoryReadsSharedLifecycleAuthority(t *testing.T) {
+	server := newSessionTestServer(t)
+	server.AuthorityContext = authority.WithPlanner(context.Background())
+	sessionID := genericSession(t, server.Service, "example")
+	call := func(id int, action string, input map[string]any) map[string]any {
+		t.Helper()
+		return genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+			"jsonrpc": "2.0", "id": id, "method": "tools/call",
+			"params": map[string]any{"name": "call", "arguments": map[string]any{
+				"session_id": sessionID, "action": action, "input": input,
+			}},
+		})))
+	}
+	created := call(1, "task/create", map[string]any{
+		"title": "Shared history Task", "summary": "Shared history summary.", "objective": "Read shared history.", "adr_relation": "no_adr_required",
+	})
+	key := created["result"].(map[string]any)["key"].(string)
+	if _, err := server.Service.TaskLifecycleArchive(context.Background(), "example", key, "planner", "retire"); err != nil {
+		t.Fatal(err)
+	}
+	history := call(2, "task/history", map[string]any{"key": key})
+	result := history["result"].(map[string]any)
+	if result["key"] != key {
+		t.Fatalf("task/history key=%#v", result)
+	}
+	items, ok := result["items"].([]any)
+	if !ok || len(items) != 2 {
+		t.Fatalf("task/history items=%#v", result)
+	}
+	if _, ok := result["revisions"]; ok {
+		t.Fatalf("task/history leaked the retired revisions alias: %#v", result)
+	}
+	last := items[len(items)-1].(map[string]any)
+	if last["mutation_kind"] != "archive" || last["revision"] != float64(1) {
+		t.Fatalf("task/history archive row=%#v", last)
+	}
+	rows, err := server.Service.Durability.ListTaskLifecycleEvents(context.Background(), "example", key, 64)
+	if err != nil || len(rows) != 1 || rows[0].EventKind != "archive" {
+		t.Fatalf("shared task lifecycle authority=%#v err=%v", rows, err)
+	}
+}
+
 func TestTSK531LegacyRevisionHelpersRemainAvailableWithoutPublicActions(t *testing.T) {
 	server := newSessionTestServer(t)
 	ctx := authority.WithPlanner(context.Background())

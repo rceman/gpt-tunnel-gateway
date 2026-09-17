@@ -73,7 +73,21 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 	verification := sharedTaskExecutionVerificationMigration()
 	lifecycle := sharedTaskLifecycleMigration()
 	lifecycleEvents := sharedLifecycleEventMigration()
-	return applyActiveMigrations(ctx, db, baseline, summary, sequence, execution, phases, verification, lifecycle, adrSummary, lifecycleEvents)
+	released := []migrate.Migration{baseline, summary, sequence, execution, phases, verification, lifecycle, adrSummary, lifecycleEvents}
+	if name, applied := markers[sharedTaskLifecycleHardCutMigrationVersion]; applied {
+		if name != sharedTaskLifecycleHardCutMigrationName {
+			return fmt.Errorf("unsupported migration marker %d/%q", sharedTaskLifecycleHardCutMigrationVersion, name)
+		}
+		return applyActiveMigrations(ctx, db, append(append([]migrate.Migration(nil), released...), sharedTaskLifecycleHardCutMigrationMarker())...)
+	}
+	if err := applyActiveMigrations(ctx, db, released...); err != nil {
+		return err
+	}
+	hardCut, err := sharedTaskLifecycleHardCutMigration(ctx, db)
+	if err != nil {
+		return err
+	}
+	return applyActiveMigrations(ctx, db, append(append([]migrate.Migration(nil), released...), hardCut)...)
 }
 
 func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {

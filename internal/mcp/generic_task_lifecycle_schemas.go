@@ -48,5 +48,5 @@ func taskLifecycleListOutputSchema() map[string]any {
 }
 func taskLifecycleHistoryOutputSchema() map[string]any {
 	row := closedOutput(map[string]any{"revision": outputInteger(), "mutation_kind": outputString(), "actor": outputString(), "reason": outputString(), "changed_fields": outputArray(outputString()), "recorded_at": outputDateTime()}, "revision", "mutation_kind", "actor", "reason", "recorded_at")
-	return closedOutput(map[string]any{"key": outputString(), "revisions": outputArray(row), "next_cursor": outputString()}, "key", "revisions")
+	return closedOutput(map[string]any{"key": outputString(), "items": outputArray(row), "next_cursor": outputString()}, "key", "items")
 }

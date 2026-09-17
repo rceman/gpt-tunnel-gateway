@@ -110,23 +110,23 @@ func TestTSK585TaskCompletionStoreValidation(t *testing.T) {
 }
 func TestTSK585TaskHistoryCursor(t *testing.T) {
 	at := time.Date(2026, 9, 12, 10, 0, 0, 123456789, time.UTC).Format(time.RFC3339Nano)
-	cursor := TaskHistoryCursor{
+	cursor := SharedLifecycleHistoryCursor{
 		RecordedAt: at,
 		Source:     1,
 		ID:         7,
 	}
-	if _, err := EncodeTaskHistoryCursor(TaskHistoryCursor{}); err == nil {
+	if _, err := EncodeSharedLifecycleHistoryCursor(SharedLifecycleHistoryCursor{}); err == nil {
 		t.Fatal("zero cursor must not encode")
 	}
-	raw, err := EncodeTaskHistoryCursor(cursor)
+	raw, err := EncodeSharedLifecycleHistoryCursor(cursor)
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := EncodeTaskHistoryCursor(cursor)
+	again, err := EncodeSharedLifecycleHistoryCursor(cursor)
 	if err != nil || again != raw {
 		t.Fatal("cursor encoding must be deterministic")
 	}
-	decoded, err := DecodeTaskHistoryCursor(raw)
+	decoded, err := DecodeSharedLifecycleHistoryCursor(raw)
 	if err != nil || decoded != cursor {
 		t.Fatalf("roundtrip=%#v err=%v", decoded, err)
 	}
@@ -138,7 +138,7 @@ func TestTSK585TaskHistoryCursor(t *testing.T) {
 		"source range":    `{"recorded_at":"` + at + `","source":2,"id":7}`,
 		"bad id":          `{"recorded_at":"` + at + `","source":1,"id":0}`,
 	} {
-		if _, err := DecodeTaskHistoryCursor(mutated); err == nil {
+		if _, err := DecodeSharedLifecycleHistoryCursor(mutated); err == nil {
 			t.Fatalf("%s must reject", name)
 		}
 	}
@@ -165,22 +165,30 @@ func TestTSK621TaskHistoryOrdersByRevisionAcrossClockInversion(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	state, err := json.Marshal(map[string]any{"id": taskID, "project_id": "example", "revision": 3, "status": "archived"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_tasks(id,revision,payload,updated_at) VALUES(?,?,?,?)`, taskID, int64(3), state, "2026-09-15T10:00:02.000000001Z"); err != nil {
+		t.Fatal(err)
+	}
 	for _, row := range []struct {
-		opID       string
-		revision   int64
-		kind       string
-		fromStatus string
-		toStatus   string
-		recorded   string
+		opID         string
+		revision     int64
+		kind         string
+		mutationKind string
+		fromStatus   string
+		toStatus     string
+		recorded     string
 	}{
-		{opID: "task-history-complete", revision: 1, kind: "complete", fromStatus: "planned", toStatus: "done", recorded: "2026-09-15T09:00:00Z"},
-		{opID: "task-history-archive", revision: 2, kind: "archive", fromStatus: "done", toStatus: "archived", recorded: "2026-09-15T10:00:02Z"},
+		{opID: "task-history-complete", revision: 1, kind: SharedLifecycleEventKindStatus, mutationKind: "complete", fromStatus: "planned", toStatus: "done", recorded: "2026-09-15T09:00:00Z"},
+		{opID: "task-history-archive", revision: 2, kind: SharedLifecycleEventKindArchive, mutationKind: "archive", fromStatus: "done", toStatus: "archived", recorded: "2026-09-15T10:00:02Z"},
 	} {
-		if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_task_lifecycle_events(operation_id,project_id,task_id,revision,event_kind,from_status,to_status,actor,reason,contract,recorded_at) VALUES(?,?,?, ?,?,?,?,'planner','history',?,?)`, row.opID, "example", taskID, row.revision, row.kind, row.fromStatus, row.toStatus, payload, row.recorded); err != nil {
+		if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_lifecycle_events(operation_id,entity_type,project_id,entity_id,revision,event_kind,from_status,to_status,actor,reason,contract,recorded_at,mutation_kind,changed_fields) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,CAST('["status"]' AS BLOB))`, row.opID, "task", "example", taskID, row.revision, row.kind, row.fromStatus, row.toStatus, "planner", "history", payload, row.recorded, row.mutationKind); err != nil {
 			t.Fatal(err)
 		}
 	}
-	var after TaskHistoryCursor
+	var after SharedLifecycleHistoryCursor
 	want := []struct {
 		revision int64
 		kind     string
@@ -194,7 +202,7 @@ func TestTSK621TaskHistoryOrdersByRevisionAcrossClockInversion(t *testing.T) {
 		{revision: 3, kind: "update", source: 0, recorded: "2026-09-15T10:00:02.000000001Z"},
 	}
 	for i, expected := range want {
-		page, pageErr := db.ListTaskHistoryPage(ctx, "example", taskID, after, 1)
+		page, pageErr := db.ListSharedLifecycleHistoryPage(ctx, "task", "example", taskID, after, 1)
 		if pageErr != nil {
 			t.Fatal(pageErr)
 		}
@@ -207,7 +215,7 @@ func TestTSK621TaskHistoryOrdersByRevisionAcrossClockInversion(t *testing.T) {
 			}
 			break
 		}
-		cursor, cursorErr := DecodeTaskHistoryCursor(page.NextCursor)
+		cursor, cursorErr := DecodeSharedLifecycleHistoryCursor(page.NextCursor)
 		if cursorErr != nil {
 			t.Fatal(cursorErr)
 		}
@@ -227,8 +235,17 @@ func TestTSK585TaskLifecycleEventTransitions(t *testing.T) {
 	ctx := context.Background()
 	recorded := time.Now().UTC().Format(time.RFC3339Nano)
 	insert := func(op, kind, from, to string) error {
-		_, err := db.Shared.Exec(ctx, `INSERT INTO shared_task_lifecycle_events(operation_id,project_id,task_id,revision,event_kind,from_status,to_status,actor,reason,contract,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, op, "example", "EXM-TSK1", 1, kind, from, to, "planner", "ok", []byte(`{"schema_version":1}`), recorded)
+		sharedKind := SharedLifecycleEventKindArchive
+		mutationKind := "archive"
+		if kind == TaskLifecycleEventKindComplete {
+			sharedKind = SharedLifecycleEventKindStatus
+			mutationKind = "complete"
+		}
+		_, err := db.Shared.Exec(ctx, `INSERT INTO shared_lifecycle_events(operation_id,entity_type,project_id,entity_id,revision,event_kind,from_status,to_status,actor,reason,contract,recorded_at,mutation_kind,changed_fields) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,CAST('["status"]' AS BLOB))`, op, "task", "example", "EXM-TSK1", 1, sharedKind, from, to, "planner", "ok", []byte(`{"schema_version":1}`), recorded, mutationKind)
 		return err
+	}
+	if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_tasks(id,revision,payload,updated_at) VALUES('EXM-TSK1',1,?,?)`, []byte(`{"id":"EXM-TSK1","project_id":"example","revision":1,"status":"archived"}`), recorded); err != nil {
+		t.Fatal(err)
 	}
 	if err := insert("op-archive-done", "archive", "done", "archived"); err != nil {
 		t.Fatal(err)
@@ -237,7 +254,7 @@ func TestTSK585TaskLifecycleEventTransitions(t *testing.T) {
 	if err != nil || len(events) != 1 {
 		t.Fatalf("archive-from-done must decode: %v %v", events, err)
 	}
-	if _, err := db.Shared.Exec(ctx, `DELETE FROM shared_task_lifecycle_events`); err != nil {
+	if _, err := db.Shared.Exec(ctx, `DELETE FROM shared_lifecycle_events`); err != nil {
 		t.Fatal(err)
 	}
 	for name, tc := range map[string][3]string{
@@ -257,7 +274,7 @@ func TestTSK585TaskLifecycleEventTransitions(t *testing.T) {
 		if _, err := db.ListTaskLifecycleEvents(ctx, "example", "EXM-TSK1", 256); err == nil {
 			t.Fatalf("%s must fail closed", name)
 		}
-		if _, err := db.Shared.Exec(ctx, `DELETE FROM shared_task_lifecycle_events WHERE operation_id=?`, tc[0]); err != nil {
+		if _, err := db.Shared.Exec(ctx, `DELETE FROM shared_lifecycle_events WHERE operation_id=?`, tc[0]); err != nil {
 			t.Fatal(err)
 		}
 	}

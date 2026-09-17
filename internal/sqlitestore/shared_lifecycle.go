@@ -31,6 +31,9 @@ type sharedLifecycleDefinition struct {
 	AllowedCreateStatuses []string
 	AllowedStatuses       []string
 	AllowedTransitions    map[string][]string
+	ArchiveStatus         string
+	StatusMutationKind    string
+	ArchiveMutationKind   string
 }
 
 var sharedLifecycleRegistry = map[string]sharedLifecycleDefinition{
@@ -50,7 +53,10 @@ var sharedLifecycleRegistry = map[string]sharedLifecycleDefinition{
 		DefaultCreateStatus:   "planned",
 		AllowedCreateStatuses: []string{"planned"},
 		AllowedStatuses:       []string{"planned", "ready", "done", "archived"},
-		AllowedTransitions:    map[string][]string{"planned": {"ready", "done", "archived"}, "ready": {"done", "archived"}},
+		AllowedTransitions:    map[string][]string{"planned": {"ready", "done", "archived"}, "ready": {"done", "archived"}, "done": {"archived"}},
+		ArchiveStatus:         "archived",
+		StatusMutationKind:    "complete",
+		ArchiveMutationKind:   "archive",
 	},
 	"train": {
 		EntityType:   "train",
@@ -75,6 +81,9 @@ var sharedLifecycleRegistry = map[string]sharedLifecycleDefinition{
 		AllowedCreateStatuses: []string{"proposed"},
 		AllowedStatuses:       []string{"proposed", "accepted", "superseded", "archived"},
 		AllowedTransitions:    map[string][]string{"proposed": {"accepted", "archived"}, "accepted": {"superseded", "archived"}, "superseded": {"archived"}},
+		ArchiveStatus:         "archived",
+		StatusMutationKind:    "status",
+		ArchiveMutationKind:   "archive",
 	},
 	"rule": {
 		EntityType:   "rule",

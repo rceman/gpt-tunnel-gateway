@@ -173,6 +173,7 @@ func TestTSK409Rev7LifecycleEventStatusOnlyKeepsRevisionAndCommitsAtomically(t *
 		Revision:              1,
 		Kind:                  "adr-update",
 		EventKind:             SharedLifecycleEventKindStatus,
+		HistoryMutationKind:   "status",
 		FromStatus:            model.ADRStatusProposed,
 		ToStatus:              model.ADRStatusAccepted,
 		Payload:               nextPayload,
@@ -237,6 +238,7 @@ func TestTSK409Rev7LifecycleEventContentTransitionIncrementsOnce(t *testing.T) {
 		Revision:              2,
 		Kind:                  "adr-update",
 		EventKind:             SharedLifecycleEventKindStatus,
+		HistoryMutationKind:   "status",
 		FromStatus:            model.ADRStatusProposed,
 		ToStatus:              model.ADRStatusAccepted,
 		Payload:               mustJSON(t, next),
@@ -290,6 +292,7 @@ func TestTSK409Rev7LifecycleEventCASAndHistoryConflictFailClosed(t *testing.T) {
 		Revision:              1,
 		Kind:                  "adr-update",
 		EventKind:             SharedLifecycleEventKindStatus,
+		HistoryMutationKind:   "status",
 		FromStatus:            model.ADRStatusProposed,
 		ToStatus:              model.ADRStatusAccepted,
 		Payload:               nextPayload,
@@ -355,6 +358,7 @@ func TestTSK409Rev7LifecycleEventReuseIsIdempotent(t *testing.T) {
 		Revision:              1,
 		Kind:                  "adr-update",
 		EventKind:             SharedLifecycleEventKindStatus,
+		HistoryMutationKind:   "status",
 		FromStatus:            model.ADRStatusProposed,
 		ToStatus:              model.ADRStatusAccepted,
 		Payload:               mustJSON(t, next),
@@ -394,6 +398,7 @@ func TestTSK409Rev7LifecycleHistoryMergesEventsAndPaginates(t *testing.T) {
 		payload.Revision = revision
 		payload.RevisionCount = revision
 		payload.Decision = "decision " + time.Duration(revision).String()
+		payload.Status = model.ADRStatusSuperseded
 		recordedAt := now.Add(time.Duration(revision) * time.Minute).Format(time.RFC3339Nano)
 		if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_entity_revisions(entity_type,entity_id,project_id,revision,mutation_kind,actor,reason,changed_fields,payload,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, "adr", adr.ID, adr.ProjectID, revision, "update", "planner", "update", []byte(`["decision"]`), mustJSON(t, payload), recordedAt); err != nil {
 			t.Fatal(err)
@@ -407,7 +412,7 @@ func TestTSK409Rev7LifecycleHistoryMergesEventsAndPaginates(t *testing.T) {
 		from, to   string
 		recordedAt time.Time
 	}{{1, model.ADRStatusProposed, model.ADRStatusAccepted, now.Add(time.Minute)}, {2, model.ADRStatusAccepted, model.ADRStatusSuperseded, now.Add(2 * time.Minute)}} {
-		if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_lifecycle_events(operation_id,entity_type,project_id,entity_id,revision,event_kind,from_status,to_status,actor,reason,contract,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, "rev7-event-"+time.Duration(event.revision).String(), "adr", adr.ProjectID, adr.ID, event.revision, SharedLifecycleEventKindStatus, event.from, event.to, "planner", "transition", []byte(`{"contract":true}`), event.recordedAt.Format(time.RFC3339Nano)); err != nil {
+		if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_lifecycle_events(operation_id,entity_type,project_id,entity_id,revision,event_kind,from_status,to_status,actor,reason,contract,recorded_at,mutation_kind,changed_fields) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'status',CAST('["status"]' AS BLOB))`, "rev7-event-"+time.Duration(event.revision).String(), "adr", adr.ProjectID, adr.ID, event.revision, SharedLifecycleEventKindStatus, event.from, event.to, "planner", "transition", []byte(`{"contract":true}`), event.recordedAt.Format(time.RFC3339Nano)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -571,6 +576,7 @@ func TestTSK409Rev7LifecycleEventCorruptTransitionFailsClosed(t *testing.T) {
 		Revision:              1,
 		Kind:                  "adr-update",
 		EventKind:             SharedLifecycleEventKindStatus,
+		HistoryMutationKind:   "status",
 		FromStatus:            "bogus",
 		ToStatus:              model.ADRStatusAccepted,
 		Payload:               mustJSON(t, next),
@@ -635,6 +641,7 @@ func TestTSK409Rev7LifecycleEventCorruptRowFailsClosedOnRead(t *testing.T) {
 		Revision:              1,
 		Kind:                  "adr-update",
 		EventKind:             SharedLifecycleEventKindStatus,
+		HistoryMutationKind:   "status",
 		FromStatus:            model.ADRStatusProposed,
 		ToStatus:              model.ADRStatusAccepted,
 		Payload:               mustJSON(t, next),
@@ -705,6 +712,7 @@ func TestTSK409Rev7LifecycleEventSeamIsEntityNeutralReuse(t *testing.T) {
 		Revision:              1,
 		Kind:                  "adr-update",
 		EventKind:             SharedLifecycleEventKindStatus,
+		HistoryMutationKind:   "status",
 		FromStatus:            model.ADRStatusProposed,
 		ToStatus:              model.ADRStatusAccepted,
 		Payload:               mustJSON(t, next),
@@ -766,6 +774,7 @@ func TestTSK409Rev7StateEventOutboxSurviveRestart(t *testing.T) {
 		Revision:              1,
 		Kind:                  "adr-archive",
 		EventKind:             SharedLifecycleEventKindArchive,
+		HistoryMutationKind:   "archive",
 		FromStatus:            model.ADRStatusProposed,
 		ToStatus:              model.ADRStatusArchived,
 		Payload:               mustJSON(t, next),

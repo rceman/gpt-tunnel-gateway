@@ -48,6 +48,33 @@ func validateSharedLifecycleStatus(definition sharedLifecycleDefinition, previou
 	return nil
 }
 
+func validateSharedLifecycleEventKind(definition sharedLifecycleDefinition, eventKind, toStatus string) error {
+	if definition.ArchiveStatus == "" {
+		return nil
+	}
+	switch eventKind {
+	case SharedLifecycleEventKindArchive:
+		if toStatus == definition.ArchiveStatus {
+			return nil
+		}
+	case SharedLifecycleEventKindStatus:
+		if toStatus != definition.ArchiveStatus {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid shared %s %s lifecycle event target status", definition.EntityType, eventKind)
+}
+
+func sharedLifecycleMutationKind(definition sharedLifecycleDefinition, eventKind string) string {
+	switch eventKind {
+	case SharedLifecycleEventKindStatus:
+		return definition.StatusMutationKind
+	case SharedLifecycleEventKindArchive:
+		return definition.ArchiveMutationKind
+	}
+	return ""
+}
+
 // ApplySharedLifecycleCreateDefaults applies the descriptor-owned create
 // status before an entity-specific validator runs.
 func ApplySharedLifecycleCreateDefaults(entityType string, payload []byte) ([]byte, error) {
