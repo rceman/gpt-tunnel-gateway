@@ -51,13 +51,26 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 	if model.ValidateCommitSHA(target.DiffBase) != nil {
 		return CodeDiffResult{}, fmt.Errorf("code diff has no valid comparison base")
 	}
+	head8 := ""
+	if in.Head != "" {
+		if in.Live {
+			return CodeDiffResult{}, fmt.Errorf("code diff head cannot be combined with live observation")
+		}
+		resolved, resolveErr := s.resolveCodeDiffHead(ctx, target, in.Head)
+		if resolveErr != nil {
+			return CodeDiffResult{}, resolveErr
+		}
+		target.DiffHead = resolved
+		target.CurrentHead = resolved
+		head8 = strings.ToLower(resolved[:8])
+	}
 	diffBase8 := strings.ToLower(target.DiffBase[:8])
 	paths, err := validateLocalCodePaths(in.Paths, false)
 	if err != nil {
 		return CodeDiffResult{}, err
 	}
 	offset := int64(0)
-	kind := codeCursorKind("code-diff", target, strings.Join(paths, "\x00")+"|"+strconv.FormatBool(target.Live))
+	kind := codeCursorKind("code-diff", target, strings.Join(paths, "\x00")+"|"+strconv.FormatBool(target.Live)+"|"+head8)
 	if in.Cursor != "" {
 		var decodeErr error
 		offset, decodeErr = pagination.DecodeOffset(in.Cursor, kind)
@@ -101,9 +114,12 @@ func (s *Service) CodeDiff(ctx context.Context, in CodeDiffInput) (CodeDiffResul
 		return nil
 	}
 	var continuation bool
-	if target.Live {
+	switch {
+	case target.DiffHead != "":
+		continuation, err = s.Git.VisitDiffLocalCommits(ctx, target.ProjectWorktree, target.DiffBase, target.DiffHead, paths, offset, visit)
+	case target.Live:
 		continuation, err = s.Git.VisitDiffWorkingFromBase(ctx, target.ProjectWorktree, target.DiffBase, paths, offset, visit)
-	} else {
+	default:
 		continuation, err = s.Git.VisitDiffLocalCommits(ctx, target.ProjectWorktree, target.DiffBase, target.CurrentHead, paths, offset, visit)
 	}
 	if err != nil {

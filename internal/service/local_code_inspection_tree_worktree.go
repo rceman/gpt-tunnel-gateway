@@ -110,6 +110,7 @@ type CodeDiffInput struct {
 	Worktree  string   `json:"worktree"`
 	Paths     []string `json:"paths"`
 	Base      string   `json:"base"`
+	Head      string   `json:"head"`
 	Cursor    string   `json:"cursor"`
 	Live      bool     `json:"live"`
 }
@@ -226,6 +227,7 @@ type localCodeTarget struct {
 	TrainID         string
 	TaskID          string
 	DiffBase        string
+	DiffHead        string
 }
 
 type codeWorktreeCandidate struct {

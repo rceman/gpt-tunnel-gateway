@@ -125,7 +125,7 @@ func (s *Server) registerCodeActions() error {
 
 	return s.RegisterGenericAction(GenericAction{
 		Path:            "code/diff",
-		Description:     "Read a bounded diff from an authoritative local worktree base.",
+		Description:     "Read a bounded diff from an authoritative local worktree base to the current head or an optional authoritative recorded head.",
 		InputSchema:     codeDiffInputSchema(),
 		OutputSchema:    codeDiffOutputSchema(),
 		Annotations:     readOnlyAnnotations(),
@@ -216,7 +216,9 @@ func codeSearchInputSchema() map[string]any {
 func codeDiffInputSchema() map[string]any {
 	paths := array(str("Optional repository-relative diff path."))
 	paths["maxItems"] = service.LocalCodeMaxPaths
-	return obj(map[string]any{"worktree": codeSelectorSchema(), "paths": paths, "base": taskExecutionPublicHeadSchema(), "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree")
+	head := taskExecutionPublicHeadSchema()
+	head["description"] = "Optional authoritative recorded Task head sha8; diffs base to that exact head. Rejected with live=true."
+	return obj(map[string]any{"worktree": codeSelectorSchema(), "paths": paths, "base": taskExecutionPublicHeadSchema(), "head": head, "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree")
 }
 
 func codePaginationOutputSchema() map[string]any {
