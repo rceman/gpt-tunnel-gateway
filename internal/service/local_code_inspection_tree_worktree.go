@@ -241,10 +241,8 @@ func codeWorktreeKindRank(kind string) int {
 	switch kind {
 	case "main":
 		return 0
-	case "hotfix":
-		return 1
 	case "task":
-		return 2
+		return 1
 	default:
 		return 3
 	}
@@ -271,16 +269,6 @@ func codeSelector(head string) (string, error) {
 		return "", fmt.Errorf("invalid worktree HEAD")
 	}
 	return "WT-MAIN-" + strings.ToLower(head[:8]), nil
-}
-
-func codeHotfixSelector(slug, head string) (string, error) {
-	if err := model.ValidateTaskSlug(slug); err != nil {
-		return "", err
-	}
-	if len(head) < 8 || model.ValidateCommitSHA(head) != nil {
-		return "", fmt.Errorf("invalid worktree HEAD")
-	}
-	return "WT-FIX-" + slug + "-" + strings.ToLower(head[:8]), nil
 }
 
 func (s *Service) validateCodeSelectorIdentity(ctx context.Context, worktree config.ProjectConfig, head string) error {

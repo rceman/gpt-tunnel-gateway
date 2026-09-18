@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 func parseCodeSelector(selector string) (string, uint64, string, error) {
@@ -15,18 +13,6 @@ func parseCodeSelector(selector string) (string, uint64, string, error) {
 			return "", 0, "", fmt.Errorf("invalid worktree selector")
 		}
 		return "main", 0, prefix, nil
-	}
-	if strings.HasPrefix(selector, "WT-FIX-") {
-		rest := strings.TrimPrefix(selector, "WT-FIX-")
-		separator := strings.LastIndexByte(rest, '-')
-		if separator < 1 || separator == len(rest)-1 {
-			return "", 0, "", fmt.Errorf("invalid worktree selector")
-		}
-		slug, prefix := rest[:separator], rest[separator+1:]
-		if model.ValidateTaskSlug(slug) != nil || !validSelectorPrefix(prefix) {
-			return "", 0, "", fmt.Errorf("invalid worktree selector")
-		}
-		return "hotfix", 0, slug, nil
 	}
 	if strings.HasPrefix(selector, "WT-TSK") {
 		parts := strings.Split(strings.TrimPrefix(selector, "WT-TSK"), "-")

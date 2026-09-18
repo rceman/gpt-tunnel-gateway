@@ -12,7 +12,6 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
@@ -85,24 +84,28 @@ func newPublicCodeE2EFixture(t *testing.T) publicCodeE2EFixture {
 		t.Fatal(err)
 	}
 
-	hotfixPath := filepath.Join(stateDir, "hotfix-worktrees", "example", "fixture")
-	if err := os.MkdirAll(filepath.Dir(hotfixPath), 0o700); err != nil {
+	taskPath := filepath.Join(stateDir, "task-worktrees", "example", "EXM-TSK1")
+	if err := os.MkdirAll(filepath.Dir(taskPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	branch := "hotfix/fixture"
+	branch := "task/EXM-TSK1-lane"
 	testutil.Git(t, root, "branch", branch, currentHead)
 	t.Cleanup(func() {
-		testutil.Git(t, root, "worktree", "remove", "--force", hotfixPath)
+		testutil.Git(t, root, "worktree", "remove", "--force", taskPath)
 		testutil.Git(t, root, "branch", "-D", branch)
 	})
-	testutil.Git(t, root, "worktree", "add", hotfixPath, branch)
-	if err := os.WriteFile(filepath.Join(hotfixPath, "fixture-hotfix.txt"), []byte("fixture hotfix\n"), 0o600); err != nil {
+	testutil.Git(t, root, "worktree", "add", taskPath, branch)
+	if err := os.WriteFile(filepath.Join(taskPath, "fixture-task.txt"), []byte("fixture task\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	testutil.Git(t, hotfixPath, "add", "fixture-hotfix.txt")
-	testutil.Git(t, hotfixPath, "commit", "-m", "code inspection hotfix fixture")
-	if err := s.Git.RecordHotfixIdentity(stateDir, gitx.HotfixIdentity{
-		ProjectID: "example", HotfixRef: "refs/heads/" + branch, TaskID: "EXM-TSK1", BaseSHA: currentHead, CreatedAt: time.Now().UTC(),
+	testutil.Git(t, taskPath, "add", "fixture-task.txt")
+	testutil.Git(t, taskPath, "commit", "-m", "code inspection task fixture")
+	taskHead := strings.TrimSpace(testutil.Git(t, taskPath, "rev-parse", "HEAD"))
+	if err := db.CreateTaskExecutionState(context.Background(), model.TaskExecutionState{
+		TaskID: "EXM-TSK1", ProjectID: "example", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("a", 64),
+		Status: model.TaskExecutionInProgress, Stage: "code", Worktree: "WT-TSK1-" + strings.ToLower(taskHead[:8]),
+		BaseHead: currentHead, Head: taskHead, Branch: branch, Agent: "gtw-worker",
+		ExecutionRevision: 1, UpdatedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
 	}

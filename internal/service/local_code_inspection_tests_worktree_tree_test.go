@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
@@ -216,12 +216,11 @@ func TestCodeWorktreeRefreshesCanonicalMainWhenConfiguredWorktreeIsStale(t *test
 	}
 }
 
-func TestCodeWorktreeUsesDistinctHotfixSelectorWhenHeadMatchesMain(t *testing.T) {
+func TestCodeWorktreeUsesDistinctTaskSelectorWhenHeadMatchesMain(t *testing.T) {
 	f := newLocalCodeFixture(t)
-	runner := gitx.Runner{StateDir: f.service.Config.StateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
-	slug := "same-head"
-	branch := "hotfix/" + slug
-	lane := filepath.Join(f.service.Config.StateDir, "hotfix-worktrees", "example", slug)
+	taskID := "EXM-TSK8"
+	branch := "task/" + taskID + "-lane"
+	lane := filepath.Join(f.service.Config.StateDir, "task-worktrees", "example", taskID)
 	if err := os.MkdirAll(filepath.Dir(lane), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -231,14 +230,13 @@ func TestCodeWorktreeUsesDistinctHotfixSelectorWhenHeadMatchesMain(t *testing.T)
 		testutil.Git(t, f.root, "worktree", "remove", "--force", lane)
 		testutil.Git(t, f.root, "branch", "-D", branch)
 	})
-	if err := os.WriteFile(filepath.Join(lane, "same-head.txt"), []byte("unmerged hotfix\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	testutil.Git(t, lane, "add", "same-head.txt")
-	testutil.Git(t, lane, "commit", "-m", "unmerged same-head fixture")
-	hotfixHead := strings.TrimSpace(testutil.Git(t, lane, "rev-parse", "HEAD"))
-	if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{
-		ProjectID: "example", HotfixRef: "refs/heads/" + branch, TaskID: "EXM-TSK1", BaseSHA: f.base, CreatedAt: time.Now().UTC(),
+	head := strings.TrimSpace(testutil.Git(t, lane, "rev-parse", "HEAD"))
+	selector := "WT-TSK8-" + strings.ToLower(head[:8])
+	if err := f.service.Durability.CreateTaskExecutionState(context.Background(), model.TaskExecutionState{
+		TaskID: taskID, ProjectID: "example", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("a", 64),
+		Status: model.TaskExecutionInProgress, Stage: "code", Worktree: selector,
+		BaseHead: f.base, Head: head, Branch: branch, Agent: "gtw-worker",
+		ExecutionRevision: 1, UpdatedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -253,8 +251,7 @@ func TestCodeWorktreeUsesDistinctHotfixSelectorWhenHeadMatchesMain(t *testing.T)
 	if result.Items[0].Selector != "WT-MAIN-"+f.current[:8] {
 		t.Fatalf("main selector = %q", result.Items[0].Selector)
 	}
-	wantHotfix := "WT-FIX-" + slug + "-" + hotfixHead[:8]
-	if result.Items[1].Selector != wantHotfix {
-		t.Fatalf("hotfix selector = %q, want %q", result.Items[1].Selector, wantHotfix)
+	if result.Items[1].Selector != selector || result.Items[1].Kind != "task" {
+		t.Fatalf("task selector = %q kind=%q, want %q", result.Items[1].Selector, result.Items[1].Kind, selector)
 	}
 }

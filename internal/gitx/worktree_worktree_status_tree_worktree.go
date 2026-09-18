@@ -66,29 +66,6 @@ func (i WorktreeInventory) Resolve(ref string) (config.ProjectConfig, error) {
 	return worktree, nil
 }
 
-// ResolveHotfixWorktreeFromInventory applies the server-owned hotfix path
-// check to an already-loaded Git inventory.
-func (r Runner) ResolveHotfixWorktreeFromInventory(inventory WorktreeInventory, stateDir, projectID, ref string) (config.ProjectConfig, error) {
-	slug, err := hotfixSlugFromRef(ref)
-	if err != nil {
-		return config.ProjectConfig{}, err
-	}
-	expected, _, err := hotfixWorktreePath(stateDir, projectID, slug)
-	if err != nil {
-		return config.ProjectConfig{}, err
-	}
-	worktree, err := inventory.Resolve(ref)
-	if err != nil {
-		return config.ProjectConfig{}, err
-	}
-	actual, err := filepath.Abs(worktree.Root)
-	if err != nil || filepath.Clean(actual) != filepath.Clean(expected) {
-		return config.ProjectConfig{}, fmt.Errorf("hotfix worktree is not server-owned")
-	}
-	worktree.Root = actual
-	return worktree, nil
-}
-
 // ListWorktrees returns the bounded, Git-owned worktree inventory for a
 // configured repository. It performs no network or mirror operation.
 func (r Runner) ListWorktrees(ctx context.Context, p config.ProjectConfig) ([]WorktreeInfo, error) {

@@ -8,13 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
-func TestCodeWorktreeKeepsOldBaseHotfixVisibleAndCodeReadResolvesIt(t *testing.T) {
+func TestCodeWorktreeIgnoresHistoricalHotfixLane(t *testing.T) {
 	f := newLocalCodeFixture(t)
-	runner := gitx.Runner{StateDir: f.service.Config.StateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
 	slug := "old-base"
 	branch := "hotfix/" + slug
 	lane := filepath.Join(f.service.Config.StateDir, "hotfix-worktrees", "example", slug)
@@ -27,38 +26,15 @@ func TestCodeWorktreeKeepsOldBaseHotfixVisibleAndCodeReadResolvesIt(t *testing.T
 		testutil.Git(t, f.root, "worktree", "remove", "--force", lane)
 		testutil.Git(t, f.root, "branch", "-D", branch)
 	})
-	if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{
-		ProjectID: "example", HotfixRef: "refs/heads/" + branch, TaskID: "EXM-TSK1", BaseSHA: f.base, CreatedAt: time.Now().UTC(),
-	}); err != nil {
-		t.Fatal(err)
-	}
 
 	worktrees, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var selector string
 	for _, item := range worktrees.Items {
-		if item.Kind == "hotfix" && item.Label == slug {
-			selector = item.Selector
-			if item.Head != f.base {
-				t.Fatalf("old-base hotfix head=%q, want %q", item.Head, f.base)
-			}
+		if item.Kind == "hotfix" || item.Label == slug {
+			t.Fatalf("historical hotfix lane was enumerated as a live lane: %#v", item)
 		}
-	}
-	if selector == "" {
-		t.Fatalf("old-base hotfix was omitted: %#v", worktrees.Items)
-	}
-	read, err := f.service.CodeRead(context.Background(), CodeReadInput{
-		ProjectID: "example",
-		Worktree:  selector,
-		Path:      "tracked.txt",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if read.CurrentHead != strings.ToLower(f.base[:8]) || read.Content != "base tracked content\n" {
-		t.Fatalf("old-base code/read=%#v", read)
 	}
 }
 
@@ -68,21 +44,17 @@ func TestCodeSelectorsRemainDistinctWhenHeadsMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hotfixSelector, err := codeHotfixSelector("same-head", head)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if mainSelector == hotfixSelector {
-		t.Fatalf("main and hotfix selectors collided: %q", mainSelector)
+	taskSelector := "WT-TSK1-" + strings.ToLower(head[:8])
+	if mainSelector == taskSelector {
+		t.Fatalf("main and task selectors collided: %q", mainSelector)
 	}
 }
 
-func TestCodeActionsResolveDirtyManagedHotfixLive(t *testing.T) {
+func TestCodeActionsResolveDirtyManagedTaskLive(t *testing.T) {
 	f := newLocalCodeFixture(t)
-	runner := gitx.Runner{StateDir: f.service.Config.StateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20, MaxListItems: 100}
-	slug := "agent-live"
-	branch := "hotfix/" + slug
-	lane := filepath.Join(f.service.Config.StateDir, "hotfix-worktrees", "example", slug)
+	taskID := "EXM-TSK7"
+	branch := "task/" + taskID + "-lane"
+	lane := filepath.Join(f.service.Config.StateDir, "task-worktrees", "example", taskID)
 	if err := os.MkdirAll(filepath.Dir(lane), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -92,38 +64,26 @@ func TestCodeActionsResolveDirtyManagedHotfixLive(t *testing.T) {
 		testutil.Git(t, f.root, "worktree", "remove", "--force", lane)
 		testutil.Git(t, f.root, "branch", "-D", branch)
 	})
-	if err := os.WriteFile(filepath.Join(lane, "committed.txt"), []byte("managed hotfix\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(lane, "committed.txt"), []byte("managed task\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	testutil.Git(t, lane, "add", "committed.txt")
-	testutil.Git(t, lane, "commit", "-m", "managed hotfix")
-	if err := runner.RecordHotfixIdentity(f.service.Config.StateDir, gitx.HotfixIdentity{
-		ProjectID: "example", HotfixRef: "refs/heads/" + branch, TaskID: "EXM-TSK1", BaseSHA: f.current, CreatedAt: time.Now().UTC(),
+	testutil.Git(t, lane, "commit", "-m", "managed task")
+	head := strings.TrimSpace(testutil.Git(t, lane, "rev-parse", "HEAD"))
+	selector := "WT-TSK7-" + strings.ToLower(head[:8])
+	if err := f.service.Durability.CreateTaskExecutionState(context.Background(), model.TaskExecutionState{
+		TaskID: taskID, ProjectID: "example", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("a", 64),
+		Status: model.TaskExecutionInProgress, Stage: "code", Worktree: selector,
+		BaseHead: f.base, Head: head, Branch: branch, Agent: "gtw-worker",
+		ExecutionRevision: 1, UpdatedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(lane, "dirty.txt"), []byte("live-hotfix-marker\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(lane, "dirty.txt"), []byte("live-task-marker\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(lane, "untracked.txt"), []byte("live-untracked-marker\n"), 0o600); err != nil {
 		t.Fatal(err)
-	}
-
-	worktrees, err := f.service.CodeWorktree(context.Background(), CodeWorktreeInput{ProjectID: "example"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var selector, head string
-	for _, item := range worktrees.Items {
-		if item.Kind == "hotfix" && item.Label == slug {
-			selector, head = item.Selector, item.Head
-			if !item.Dirty {
-				t.Fatal("managed hotfix was not reported dirty")
-			}
-		}
-	}
-	if selector == "" {
-		t.Fatalf("managed hotfix %q not present in CodeWorktree result: %#v", slug, worktrees.Items)
 	}
 
 	read, err := f.service.CodeRead(context.Background(), CodeReadInput{
@@ -135,13 +95,13 @@ func TestCodeActionsResolveDirtyManagedHotfixLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read.CurrentHead != head[:8] || read.Content != "live-hotfix-marker\n" {
+	if read.CurrentHead != head[:8] || read.Content != "live-task-marker\n" {
 		t.Fatalf("CodeRead resolved a different live target: %#v", read)
 	}
 	search, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
 		ProjectID: "example",
 		Worktree:  selector,
-		Query:     "live-hotfix-marker",
+		Query:     "live-task-marker",
 		Paths:     []string{"dirty.txt"},
 		Live:      true,
 	})
@@ -177,7 +137,7 @@ func TestCodeActionsResolveDirtyManagedHotfixLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if diff.CurrentHead != head || !strings.Contains(diff.Diff, "live-hotfix-marker") || !strings.Contains(diff.Diff, "live-untracked-marker") {
+	if diff.CurrentHead != head || !strings.Contains(diff.Diff, "live-task-marker") || !strings.Contains(diff.Diff, "live-untracked-marker") {
 		t.Fatalf("CodeDiff did not expose the same live target: %#v", diff)
 	}
 	if _, err := f.service.CodeRead(context.Background(), CodeReadInput{
@@ -185,7 +145,7 @@ func TestCodeActionsResolveDirtyManagedHotfixLive(t *testing.T) {
 		Worktree:  selector,
 		Path:      "dirty.txt",
 	}); err == nil {
-		t.Fatal("CodeRead live=false unexpectedly accepted dirty managed hotfix")
+		t.Fatal("CodeRead live=false unexpectedly accepted dirty managed task")
 	}
 }
 

@@ -29,8 +29,6 @@ type Server struct {
 	systemAwaitActionErr   error
 	codeActions            sync.Once
 	codeActionErr          error
-	hotfixActions          sync.Once
-	hotfixActionErr        error
 	callbackActions        sync.Once
 	callbackActionErr      error
 	debugActions           sync.Once
@@ -102,7 +100,6 @@ func (s *Server) tools() map[string]Tool {
 	s.ensureRuntimeLogActions()
 	s.ensureSystemAwaitActions()
 	s.ensureCodeActions()
-	s.ensureHotfixActions()
 	s.ensureCallbackActions()
 	s.ensureDebugActions()
 	s.ensureADRActions()

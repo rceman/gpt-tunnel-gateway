@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
@@ -24,8 +25,8 @@ func newDefaultBranchSyncFixture(t *testing.T) (Runner, string, string, string) 
 	testutil.Git(t, writer, "commit", "-m", "advance canonical main")
 	testutil.Git(t, writer, "push", "origin", "main")
 	state := t.TempDir()
-	project := hotfixTestProject(source, filepath.Join(state, "mirror.git"))
-	runner := hotfixTestRunner(state)
+	project := managedTestProject(source, filepath.Join(state, "mirror.git"))
+	runner := managedTestRunner(state)
 	canonical, err := runner.RefreshDefaultBranch(context.Background(), project)
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +39,7 @@ func newDefaultBranchSyncFixture(t *testing.T) (Runner, string, string, string) 
 
 func TestSynchronizeDefaultBranchWorktreeStrictFastForwardAndIdempotence(t *testing.T) {
 	runner, source, canonical, oldHead := newDefaultBranchSyncFixture(t)
-	project := hotfixTestProject(source, filepath.Join(runner.StateDir, "mirror.git"))
+	project := managedTestProject(source, filepath.Join(runner.StateDir, "mirror.git"))
 	if _, err := runner.Resolve(context.Background(), source, canonical); err == nil {
 		t.Fatal("source unexpectedly had canonical object before synchronization")
 	}
@@ -66,7 +67,7 @@ func TestSynchronizeDefaultBranchWorktreeStrictFastForwardAndIdempotence(t *test
 func TestSynchronizeDefaultBranchWorktreeRejectsDirtyWrongBranchAndDivergence(t *testing.T) {
 	t.Run("dirty", func(t *testing.T) {
 		runner, source, canonical, _ := newDefaultBranchSyncFixture(t)
-		project := hotfixTestProject(source, filepath.Join(t.TempDir(), "mirror.git"))
+		project := managedTestProject(source, filepath.Join(t.TempDir(), "mirror.git"))
 		if err := os.WriteFile(filepath.Join(source, "dirty.txt"), []byte("dirty\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -80,7 +81,7 @@ func TestSynchronizeDefaultBranchWorktreeRejectsDirtyWrongBranchAndDivergence(t 
 	})
 	t.Run("wrong branch", func(t *testing.T) {
 		runner, source, canonical, _ := newDefaultBranchSyncFixture(t)
-		project := hotfixTestProject(source, filepath.Join(t.TempDir(), "mirror.git"))
+		project := managedTestProject(source, filepath.Join(t.TempDir(), "mirror.git"))
 		testutil.Git(t, source, "switch", "-c", "feature")
 		if _, err := runner.SynchronizeDefaultBranchWorktree(context.Background(), project, canonical); err == nil {
 			t.Fatal("wrong branch was synchronized")
@@ -88,7 +89,7 @@ func TestSynchronizeDefaultBranchWorktreeRejectsDirtyWrongBranchAndDivergence(t 
 	})
 	t.Run("diverged", func(t *testing.T) {
 		runner, source, canonical, _ := newDefaultBranchSyncFixture(t)
-		project := hotfixTestProject(source, filepath.Join(t.TempDir(), "mirror.git"))
+		project := managedTestProject(source, filepath.Join(t.TempDir(), "mirror.git"))
 		if err := os.WriteFile(filepath.Join(source, "diverged.txt"), []byte("diverged\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -98,4 +99,17 @@ func TestSynchronizeDefaultBranchWorktreeRejectsDirtyWrongBranchAndDivergence(t 
 			t.Fatal("diverged default branch was synchronized")
 		}
 	})
+}
+
+func managedTestRunner(stateDir string) Runner {
+	return Runner{
+		MaxReadBytes: 1 << 20,
+		MaxDiffBytes: 1 << 20,
+		MaxListItems: 100,
+		StateDir:     stateDir,
+	}
+}
+
+func managedTestProject(work, mirror string) config.ProjectConfig {
+	return config.ProjectConfig{Root: work, Mirror: mirror, Remote: "origin", DefaultBranch: "main", AirelaySessionKey: "test_master"}
 }

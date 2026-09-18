@@ -62,11 +62,7 @@ func (s *Service) codeWorktreeCandidatesStream(ctx context.Context, projectID st
 		}
 		var selector string
 		var selectorErr error
-		if kind == "hotfix" {
-			selector, selectorErr = codeHotfixSelector(label, status.Head)
-		} else {
-			selector, selectorErr = codeSelector(status.Head)
-		}
+		selector, selectorErr = codeSelector(status.Head)
 		if selectorErr != nil {
 			return selectorErr
 		}
@@ -97,9 +93,6 @@ func (s *Service) codeWorktreeCandidatesStream(ctx context.Context, projectID st
 		return nil
 	}
 	if err := addCandidate(project, mainStatus, "main", "main", mainStatus.Head, time.Time{}, "main"); err != nil {
-		return nil, err
-	}
-	if err := s.codeWorktreeHotfixCandidates(ctx, projectID, worktreeInventory, addCandidate); err != nil {
 		return nil, err
 	}
 	if err := s.codeWorktreeTaskCandidates(ctx, projectID, worktreeInventory, seen, emit, &candidates); err != nil {
@@ -181,9 +174,6 @@ func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selecto
 	if strings.HasPrefix(selector, "WT-TSK") {
 		return s.resolveExactTaskCodeTarget(ctx, projectID, selector, live)
 	}
-	if kind, _, slug, parseErr := parseCodeSelector(selector); parseErr == nil && kind == "hotfix" {
-		return s.resolveExactHotfixCodeTarget(ctx, projectID, selector, slug, live)
-	}
 	if !live {
 		if kind, _, prefix, parseErr := parseCodeSelector(selector); parseErr == nil && kind == "main" {
 			return s.resolveCleanMainCodeTarget(ctx, projectID, selector, prefix)
@@ -200,21 +190,12 @@ func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selecto
 		if !live && candidate.Dirty {
 			return localCodeTarget{}, fmt.Errorf("worktree selector %q is dirty; set live=true for bounded observation", selector)
 		}
-		if candidate.Kind == "hotfix" && candidate.DiffBase == "" {
-			return localCodeTarget{}, fmt.Errorf("worktree selector %q has no authoritative base", selector)
-		}
 		candidate.Live = live
-		if candidate.Kind == "hotfix" {
-			ancestor, ancestorErr := s.Git.IsAncestor(ctx, candidate.ProjectWorktree.Root, candidate.DiffBase, candidate.CurrentHead)
-			if ancestorErr != nil || !ancestor {
-				return localCodeTarget{}, fmt.Errorf("worktree selector %q has an invalid authoritative base", selector)
-			}
-		}
 		return candidate.localCodeTarget, nil
 	}
-	if kind, _, prefix, parseErr := parseCodeSelector(selector); parseErr == nil {
+	if kind, _, _, parseErr := parseCodeSelector(selector); parseErr == nil {
 		for _, candidate := range candidates {
-			if candidate.Kind != kind || (kind == "hotfix" && candidate.SortID != prefix) {
+			if candidate.Kind != kind {
 				continue
 			}
 			return localCodeTarget{}, &CodeSelectorError{
@@ -228,57 +209,4 @@ func (s *Service) resolveLocalCodeTarget(ctx context.Context, projectID, selecto
 		Kind:     CodeSelectorNotFound,
 		Selector: selector,
 	}
-}
-
-func (s *Service) resolveExactHotfixCodeTargetDetached(ctx context.Context, projectID, selector, slug string, live bool) (localCodeTarget, error) {
-	project, err := s.EffectiveProjectConfig(projectID)
-	if err != nil {
-		return localCodeTarget{}, err
-	}
-	ref := "refs/heads/hotfix/" + slug
-	identity, err := s.Git.ReadHotfixIdentity(s.Config.StateDir, projectID, ref)
-	if err != nil {
-		return localCodeTarget{}, &CodeSelectorError{
-			Kind:     CodeSelectorNotFound,
-			Selector: selector,
-		}
-	}
-	worktree, err := s.Git.ResolveHotfixWorktree(ctx, project, s.Config.StateDir, projectID, identity.HotfixRef)
-	if err != nil {
-		return localCodeTarget{}, fmt.Errorf("resolve managed hotfix %s worktree: %w", identity.HotfixRef, err)
-	}
-	status, err := s.Git.WorktreeStatus(ctx, worktree)
-	if err != nil {
-		return localCodeTarget{}, fmt.Errorf("read managed hotfix %s worktree status: %w", identity.HotfixRef, err)
-	}
-	currentSelector, err := codeHotfixSelector(slug, status.Head)
-	if err != nil {
-		return localCodeTarget{}, err
-	}
-	if currentSelector != selector {
-		return localCodeTarget{}, &CodeSelectorError{
-			Kind:     CodeSelectorStale,
-			Selector: selector,
-			Current:  currentSelector,
-		}
-	}
-	if !live && !status.Clean {
-		return localCodeTarget{}, fmt.Errorf("worktree selector %q is dirty; set live=true for bounded observation", selector)
-	}
-	ancestor, err := s.Git.IsAncestor(ctx, worktree.Root, identity.BaseSHA, status.Head)
-	if err != nil || !ancestor {
-		return localCodeTarget{}, fmt.Errorf("worktree selector %q has an invalid authoritative hotfix base", selector)
-	}
-	return localCodeTarget{
-		CodeIdentity: CodeIdentity{
-			ProjectID:   projectID,
-			Worktree:    selector,
-			Dirty:       !status.Clean,
-			CurrentHead: status.Head,
-			Live:        live,
-		},
-		ProjectWorktree: worktree,
-		Kind:            "hotfix",
-		DiffBase:        identity.BaseSHA,
-	}, nil
 }
