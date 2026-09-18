@@ -134,7 +134,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		}
 	}
 
-	rules := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}}}}))
+	rules := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rule/effective", "input": map[string]any{}}}}))
 	rulesResult := genericStructured(t, rules)
 	if rulesResult["is_error"] != false {
 		t.Fatalf("session-bound project rules read failed: %#v", rules)

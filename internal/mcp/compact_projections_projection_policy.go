@@ -30,7 +30,9 @@ var projectionClasses = map[string]projectionClass{
 	"operation/await": projectionClosedDefault, "operation/read": projectionClosedDefault, "operator/checkpoint": projectionCompactDefault, "operator/history": projectionIntentionalPayload, "operator/record": projectionCompactDefault,
 	"project/status":  projectionClosedDefault,
 	"relation/create": projectionCompactDefault, "relation/list": projectionClosedDefault,
-	"rules/read": projectionIntentionalPayload, "runtime/logs": projectionIntentionalPayload, "runtime/restart": projectionCompactDefault,
+	"rule/archive": projectionCompactDefault, "rule/create": projectionCompactDefault, "rule/effective": projectionIntentionalPayload, "rule/history": projectionClosedDefault,
+	"rule/list": projectionClosedDefault, "rule/query": projectionClosedDefault, "rule/read": projectionIntentionalPayload, "rule/update": projectionCompactDefault,
+	"runtime/logs": projectionIntentionalPayload, "runtime/restart": projectionCompactDefault,
 	"session/end": projectionClosedDefault, "session/info": projectionClosedDefault, "session/list": projectionClosedDefault, "session/start": projectionClosedDefault, "system/await": projectionClosedDefault,
 	"system/call": projectionClosedDefault, "system/schema": projectionClosedDefault,
 	"task/archive": projectionClosedDefault, "task/create": projectionClosedDefault, "task/integrate": projectionClosedDefault,
@@ -44,8 +46,7 @@ var projectionClasses = map[string]projectionClass{
 	"train/attempt-finalize": projectionCompactDefault, "train/attempt-proof-recover": projectionCompactDefault, "train/attempt-review": projectionCompactDefault, "train/review-resolve": projectionCompactDefault,
 	"train/create": projectionCompactDefault, "train/cutover": projectionCompactDefault, "train/full-proof": projectionCompactDefault, "train/review-backfill": projectionCompactDefault,
 	"train/integrate": projectionCompactDefault, "train/list": projectionCompactDefault, "train/read": projectionCompactDefault,
-	"train/start":    projectionCompactDefault,
-	"workflow/rules": projectionIntentionalPayload,
+	"train/start": projectionCompactDefault,
 }
 
 func compactProjectionAction(path string) bool {

@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -72,7 +70,6 @@ type ProjectOperationalIntegration struct {
 }
 
 type ProjectOperationalRules struct {
-	Revision     int    `json:"revision"`
 	Digest       string `json:"-"`
 	Acknowledged bool   `json:"acknowledged"`
 	Fresh        bool   `json:"fresh"`
@@ -96,7 +93,7 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 	}
 	projectID := session.ProjectID
 	var projectCode string
-	var policy model.ProjectWorkflowPolicy
+	var rulesDigest string
 	var local config.ProjectConfig
 	if s.Durability != nil {
 		local, err = s.projectConfig(projectID)
@@ -107,7 +104,7 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 			return ProjectOperationalStatus{}, fmt.Errorf("project %q has no valid local project code", projectID)
 		}
 		projectCode = local.ProjectCode
-		policy, err = s.ProjectWorkflowPolicyReadFast(ctx, projectID)
+		rulesDigest, err = s.ProjectRuleEffectiveDigest(ctx, projectID)
 		if err != nil {
 			return ProjectOperationalStatus{}, err
 		}
@@ -124,12 +121,11 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 			return ProjectOperationalStatus{}, identifiersErr
 		}
 		projectCode = identifiers.ProjectCode
-		policy, err = s.ProjectWorkflowPolicyRead(ctx, projectID)
+		rulesDigest, err = s.ProjectRuleEffectiveDigest(ctx, projectID)
 		if err != nil {
 			return ProjectOperationalStatus{}, err
 		}
 	}
-	rulesDigest := projectOperationalDigest(policy)
 	result := ProjectOperationalStatus{
 		Project: ProjectOperationalIdentity{
 			ID:   projectID,
@@ -144,7 +140,6 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 			State: "unknown",
 		},
 		Rules: ProjectOperationalRules{
-			Revision:     policy.Revision,
 			Digest:       rulesDigest,
 			Acknowledged: false,
 			Fresh:        false,
@@ -164,7 +159,7 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 	}
 	if sessionID := AgentSessionID(ctx); sessionID != "" {
 		if session, sessionErr := s.SessionInfo(ctx, sessionID); sessionErr == nil {
-			result.Rules.Acknowledged = session.Session.ProjectRulesRevision == policy.Revision && session.Session.ProjectRulesDigest == rulesDigest
+			result.Rules.Acknowledged = rulesDigest != "" && session.Session.ProjectRulesDigest == rulesDigest
 			result.Rules.Fresh = result.Rules.Acknowledged
 		}
 	}
@@ -314,10 +309,4 @@ func (s *Service) readProjectOperationalTrains(ctx context.Context, projectID st
 		trains = append(trains, train)
 	}
 	return trains, nil
-}
-
-func projectOperationalDigest(value any) string {
-	b, _ := json.Marshal(value)
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:])
 }

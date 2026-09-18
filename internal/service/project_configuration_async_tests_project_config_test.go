@@ -181,6 +181,9 @@ func TestProjectConfigurationReadUsesSharedWhenHubUnavailable(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SeedSharedRulesFromConfiguration(ctx, configuration, "EXM"); err != nil {
+		t.Fatal(err)
+	}
 	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
 	legacyReads := 0
 	s.legacyWorkflowPolicyRead = func(context.Context, string, *model.ProjectWorkflowPolicy) error {
@@ -221,6 +224,9 @@ func TestProjectConfigurationUpdateUsesSharedCASAndOutbox(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SeedSharedRulesFromConfiguration(ctx, configuration, "EXM"); err != nil {
+		t.Fatal(err)
+	}
 	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
 	routing := configuration.AgentRouting
 	routing.SingletonRecommendedReasoning = model.ReasoningMedium
@@ -238,11 +244,20 @@ func TestProjectConfigurationUpdateUsesSharedCASAndOutbox(t *testing.T) {
 	if updated.Revision != configuration.Revision+1 || operation.OperationID == "" {
 		t.Fatalf("unexpected Shared project update: updated=%#v operation=%#v", updated, operation)
 	}
-	entries, err := db.PendingOutbox(ctx, 10)
+	entries, err := db.PendingOutbox(ctx, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].EntityType != "project_configuration" || entries[0].EntityID != "example" {
+	configEntries := 0
+	for _, entry := range entries {
+		if entry.EntityType == "project_configuration" {
+			configEntries++
+			if entry.EntityID != "example" {
+				t.Fatalf("project configuration outbox=%#v", entries)
+			}
+		}
+	}
+	if configEntries != 1 {
 		t.Fatalf("project configuration outbox=%#v", entries)
 	}
 	if _, _, err := s.ProjectConfigurationUpdate(ctx, ProjectConfigurationUpdateInput{
@@ -277,6 +292,9 @@ func TestProjectConfigurationUpdateUsesSharedActiveTrainGuard(t *testing.T) {
 	if err := db.PutSharedProjection(ctx, "project_configuration", sqlitestore.SharedEntity{
 		ID: configuration.ProjectID, Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SeedSharedRulesFromConfiguration(ctx, configuration, "EXM"); err != nil {
 		t.Fatal(err)
 	}
 	active := staleTrainV2ForRetirementTest(time.Now().UTC())

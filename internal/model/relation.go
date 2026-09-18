@@ -71,10 +71,8 @@ func RelationFamilyOf(id string) (string, error) {
 // target family. Relation state never stores a copy of these titles.
 func RelationTitleField(family string) (string, error) {
 	switch family {
-	case RelationFamilyTask, RelationFamilyADR:
+	case RelationFamilyTask, RelationFamilyADR, RelationFamilyRule:
 		return "title", nil
-	case RelationFamilyRule:
-		return "name", nil
 	default:
 		return "", fmt.Errorf("relation family %q has no live-title field", family)
 	}

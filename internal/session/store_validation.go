@@ -45,7 +45,7 @@ func validateRecordShape(r Record) error {
 	if sessionIDProjectCode(r.ID) != r.ProjectCode {
 		return fmt.Errorf("%w: session project code does not match session ID", ErrInvalidSession)
 	}
-	if strings.TrimSpace(r.ProjectID) == "" && r.ProjectRulesRevision != 0 {
+	if strings.TrimSpace(r.ProjectID) == "" && r.ProjectRulesDigest != "" {
 		return fmt.Errorf("%w: unbound session has project rules acknowledgement", ErrInvalidSession)
 	}
 	if strings.TrimSpace(r.ProjectID) == "" {

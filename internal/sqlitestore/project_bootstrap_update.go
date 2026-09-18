@@ -22,8 +22,12 @@ type ProjectBootstrapUpdate struct {
 	Configuration       model.ProjectConfiguration
 }
 
-// ReconcileProjectBootstrap is the typed Shared authority for correcting a
-// virgin project's code. It never publishes an outbox mutation.
+// ReconcileProjectBootstrap is the typed Shared authority for establishing a
+// virgin project's identifiers and configuration projection. It never
+// publishes an outbox mutation for the identifiers or configuration; the
+// canonical workflow-policy leaf Rules seeded in the same batch record their
+// own rule-create outbox entries so the effective set is never vacuous for a
+// configured project.
 func (d *Databases) ReconcileProjectBootstrap(ctx context.Context, in ProjectBootstrapUpdate) error {
 	if d == nil || d.Shared == nil {
 		return fmt.Errorf("shared store is unavailable")
@@ -126,6 +130,21 @@ func (d *Databases) ReconcileProjectBootstrap(ctx context.Context, in ProjectBoo
 	if !configurationPresent {
 		statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_project_configurations(id,revision,payload,updated_at) VALUES(?,?,?,?)`, Args: []any{in.ProjectID, in.Configuration.Revision, payload, in.Configuration.UpdatedAt.UTC().Format(time.RFC3339Nano)}, RequireRowsAffected: 1})
 	}
+	// The canonical machine-policy leaves are seeded as accepted named Rules
+	// inside the same atomic batch: a configured project must never have a
+	// vacuous effective set. The bootstrap-only guard above already proved
+	// shared_rules has no rows for this project code, and the unique
+	// (project_id, name) index fails the whole batch closed if machine leaves
+	// ever exist under an older code.
+	ruleDefinition, ok := sharedLifecycle("rule")
+	if !ok || ruleDefinition.StateTable == "" || ruleDefinition.HistoryTable == "" || ruleDefinition.SequenceTable == "" {
+		return fmt.Errorf("shared rule lifecycle descriptor is unavailable")
+	}
+	ruleSeeds, err := sharedRuleSeedStatements(ruleDefinition, in.Configuration, in.ProjectCode)
+	if err != nil {
+		return err
+	}
+	statements = append(statements, ruleSeeds...)
 	_, err = d.Shared.Batch(ctx, statements)
 	return err
 }
@@ -167,7 +186,7 @@ func readBootstrapIdentifiers(ctx context.Context, d *Databases, projectID strin
 }
 
 func readBootstrapSequences(ctx context.Context, d *Databases, projectID string) ([]bootstrapSequence, error) {
-	rows, err := d.Shared.Query(ctx, `SELECT entity_type,project_code,next_number FROM shared_entity_sequences WHERE project_id=? AND entity_type IN ('task','adr') ORDER BY entity_type`, projectID)
+	rows, err := d.Shared.Query(ctx, `SELECT entity_type,project_code,next_number FROM shared_entity_sequences WHERE project_id=? AND entity_type IN ('task','adr','rule') ORDER BY entity_type`, projectID)
 	if err != nil {
 		return nil, err
 	}

@@ -34,9 +34,17 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 	}
 	status := "adopted"
 	if configurationErr == nil {
-		current, err := workflowPolicyFromConfiguration(configuration)
+		current, err := s.workflowPolicyFromAuthority(ctx, configuration)
 		if err != nil {
 			return model.ProjectWorkflowPolicy{}, OperationResult{}, err
+		}
+		// Under Shared durability the six machine leaves are governed by the
+		// named-rule effective set: this legacy path may only write the
+		// non-rule configuration fields and provenance metadata. A policy
+		// that diverges from rule authority is rejected — leaf changes must
+		// be routed through rule/update.
+		if s.Durability != nil && !workflowPolicyLeavesEquivalent(current, policy) {
+			return model.ProjectWorkflowPolicy{}, OperationResult{}, fmt.Errorf("workflow policy leaf fields are governed by durable rules; change them through rule/update")
 		}
 		if configuration.Revision != policy.Revision && configuration.Revision+1 != policy.Revision {
 			return model.ProjectWorkflowPolicy{}, OperationResult{}, fmt.Errorf("workflow policy revision must advance from %d to %d", configuration.Revision, policy.Revision)
@@ -49,6 +57,12 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 			status = "updated"
 		}
 	} else {
+		if s.Durability != nil {
+			// Under Shared durability this legacy path cannot establish a
+			// configuration without the seeded machine-policy leaf Rules —
+			// a configured project must never have a vacuous effective set.
+			return model.ProjectWorkflowPolicy{}, OperationResult{}, configurationErr
+		}
 		if policy.Revision != 1 && policy.Revision < 1 {
 			return model.ProjectWorkflowPolicy{}, OperationResult{}, fmt.Errorf("initial workflow policy revision must be 1")
 		}
@@ -57,6 +71,9 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 	configuration.SchemaVersion = model.ProjectConfigurationSchemaVersion
 	configuration.ProjectID = policy.ProjectID
 	configuration.Revision = policy.Revision
+	// The workflow leaf fields written here are provenance only under Shared
+	// durability (the named-rule effective set is the authority); under the
+	// legacy-compatibility path they remain the leaf authority.
 	configuration.Workflow.WorkflowStage = policy.WorkflowStage
 	configuration.Workflow.IntegrationBranch = policy.IntegrationBranch
 	configuration.Workflow.CI = policy.CI

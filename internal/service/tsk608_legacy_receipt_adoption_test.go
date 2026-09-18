@@ -161,6 +161,29 @@ func TestTSK608AdoptsLegacyTaskCreateReceipt(t *testing.T) {
 	}
 }
 
+// waitSharedOutboxDrained blocks until every shared outbox entry is
+// published. The standalone-startup tests never stop the restarted service's
+// background workers, so the test must not return while a publish transact
+// can still write under the TempDir state directory — count unpublished rows
+// directly so deferred retries cannot hide in-flight work.
+func waitSharedOutboxDrained(t *testing.T, db *sqlitestore.Databases) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		rows, err := db.Shared.Query(context.Background(), `SELECT COUNT(*) FROM hub_outbox WHERE published_at IS NULL`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows.Rows) == 1 && len(rows.Rows[0]) == 1 && rows.Rows[0][0] == int64(0) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("shared outbox did not drain within 10s: %#v", rows.Rows)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestTSK608LegacyDurableReceiptAdoptsOnStandaloneStartup(t *testing.T) {
 	s, db := tsk585Setup(t)
 	defer db.Close()
@@ -222,6 +245,7 @@ func TestTSK608LegacyDurableReceiptAdoptsOnStandaloneStartup(t *testing.T) {
 	if _, err := restarted.readDurableMutation(legacyID); err != nil {
 		t.Fatalf("legacy receipt was not retained as readable history: %v", err)
 	}
+	waitSharedOutboxDrained(t, db)
 }
 
 func TestTSK608LegacyTaskCreateReceiptAdoptsOnStandaloneStartup(t *testing.T) {
@@ -293,4 +317,5 @@ func TestTSK608LegacyTaskCreateReceiptAdoptsOnStandaloneStartup(t *testing.T) {
 	if _, err := restarted.TaskCreateOperationRead(context.Background(), legacyID); err != nil {
 		t.Fatalf("legacy task/create receipt was not retained as readable history: %v", err)
 	}
+	waitSharedOutboxDrained(t, db)
 }

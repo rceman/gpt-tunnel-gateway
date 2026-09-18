@@ -44,6 +44,9 @@ func newSessionTestServer(t *testing.T) *Server {
 	if err := db.PutSharedProjection(context.Background(), "project_configuration", sqlitestore.SharedEntity{ID: configuration.ProjectID, Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.Format(time.RFC3339Nano)}); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SeedSharedRulesFromConfiguration(context.Background(), configuration, "EXM"); err != nil {
+		t.Fatal(err)
+	}
 	revision, err := s.Hub.RemoteRevision(context.Background())
 	if err != nil {
 		t.Fatal(err)

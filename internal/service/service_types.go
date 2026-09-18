@@ -228,6 +228,22 @@ type ADRHistoryResult struct {
 	CursorKind string                  `json:"-"`
 }
 
+type RuleListPageResult struct {
+	Rules      []model.Rule `json:"items"`
+	NextCursor string       `json:"next_cursor"`
+	HasMore    bool         `json:"has_more"`
+	CursorKind string       `json:"-"`
+}
+
+type RuleHistoryResult struct {
+	Key        string                   `json:"key"`
+	ProjectID  string                   `json:"project_id"`
+	Items      []model.RuleHistoryEntry `json:"items"`
+	NextCursor string                   `json:"next_cursor"`
+	HasMore    bool                     `json:"has_more"`
+	CursorKind string                   `json:"-"`
+}
+
 type ADRLegacyRelation struct {
 	Key        string `json:"key"`
 	Revision   int    `json:"revision"`

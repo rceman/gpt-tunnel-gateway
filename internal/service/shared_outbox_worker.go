@@ -64,6 +64,7 @@ func (s *Service) publishSharedOutboxEntry(ctx context.Context, entry sqlitestor
 var sharedOutboxPublishers = map[string]func(*Service, context.Context, sqlitestore.OutboxEntry) error{
 	"task":                  (*Service).publishSharedTaskOutbox,
 	"adr":                   (*Service).publishSharedADROutbox,
+	"rule":                  (*Service).publishSharedRuleOutbox,
 	"project_configuration": (*Service).publishSharedProjectConfigurationOutbox,
 }
 
@@ -138,6 +139,35 @@ func (s *Service) publishSharedADROutbox(ctx context.Context, entry sqlitestore.
 			return nil, readErr
 		}
 		if err := hub.WriteJSON(worktree, path, adr); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	return err
+}
+
+func (s *Service) publishSharedRuleOutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {
+	var rule model.Rule
+	if err := json.Unmarshal(entry.Payload, &rule); err != nil {
+		return err
+	}
+	if err := model.ValidateRule(rule); err != nil {
+		return err
+	}
+	if entry.EntityType != "rule" || entry.EntityID != rule.ID || entry.Revision != int64(rule.Revision) {
+		return fmt.Errorf("shared rule outbox entry identity mismatch")
+	}
+	path := s.rulePath(rule.ProjectID, rule.ID)
+	_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared rule "+rule.ID, func(worktree string) ([]string, error) {
+		var latest model.Rule
+		if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
+			if latest.ID == rule.ID && latest.Revision == rule.Revision && reflect.DeepEqual(latest, rule) {
+				return nil, errSharedOutboxNoop
+			}
+		} else if !IsNotFound(readErr) {
+			return nil, readErr
+		}
+		if err := hub.WriteJSON(worktree, path, rule); err != nil {
 			return nil, err
 		}
 		return []string{path}, nil

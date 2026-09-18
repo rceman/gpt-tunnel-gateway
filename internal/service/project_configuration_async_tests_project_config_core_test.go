@@ -32,6 +32,9 @@ func TestProjectConfigurationUpdateSameOperationRetryReusesCommittedResult(t *te
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SeedSharedRulesFromConfiguration(ctx, configuration, "EXM"); err != nil {
+		t.Fatal(err)
+	}
 	operationCtx := withDurableMutationOperationID(ctx, "mutation-project-configuration-retry")
 	routing := configuration.AgentRouting
 	routing.SingletonRecommendedReasoning = model.ReasoningMedium
@@ -67,11 +70,21 @@ func TestProjectConfigurationUpdateSameOperationRetryReusesCommittedResult(t *te
 	if firstOperation.OperationID != secondOperation.OperationID || !reflect.DeepEqual(firstOperation.Hub, secondOperation.Hub) {
 		t.Fatalf("same operation retry changed receipt: first=%#v second=%#v", firstOperation, secondOperation)
 	}
-	entries, err := db.PendingOutbox(ctx, 10)
+	entries, err := db.PendingOutbox(ctx, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Revision != int64(first.Revision) {
+	configEntries := 0
+	for _, entry := range entries {
+		if entry.EntityType != "project_configuration" {
+			continue
+		}
+		configEntries++
+		if entry.Revision != int64(first.Revision) {
+			t.Fatalf("same operation retry duplicated or changed outbox: %#v", entries)
+		}
+	}
+	if configEntries != 1 {
 		t.Fatalf("same operation retry duplicated or changed outbox: %#v", entries)
 	}
 }

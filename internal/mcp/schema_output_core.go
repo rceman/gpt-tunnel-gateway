@@ -22,7 +22,7 @@ func projectOperationalStatusOutputSchema() map[string]any {
 		}, "expected", "state", "session_ready", "last_activity_age_seconds"),
 		"operation":   closedOutput(map[string]any{"kind": outputString(), "operation_id": outputString(), "status": outputString()}, "kind", "operation_id", "status"),
 		"integration": closedOutput(map[string]any{"state": outputString(), "candidate_head": outputString(), "runtime_source_sha": outputString(), "ready": outputBoolean(), "version_match": outputBoolean(), "exact_source_match": outputBoolean()}, "state", "ready", "version_match", "exact_source_match"),
-		"rules":       closedOutput(map[string]any{"revision": outputInteger(), "acknowledged": outputBoolean(), "fresh": outputBoolean()}, "revision", "acknowledged", "fresh"),
+		"rules":       closedOutput(map[string]any{"acknowledged": outputBoolean(), "fresh": outputBoolean()}, "acknowledged", "fresh"),
 		"release_ci":  closedOutput(map[string]any{"state": outputString(), "tag": outputString(), "sha": outputString(), "status": outputString()}, "state"),
 		"shared_sync": closedOutput(map[string]any{"state": outputString(), "pending": outputInteger(), "retrying": outputInteger(), "last_error": outputString()}, "state", "pending", "retrying"),
 		"blocker":     outputString(), "recommended_next_action": outputString(),
@@ -50,7 +50,6 @@ func coreToolOutputSchemas() map[string]map[string]any {
 		"status":        statusPublicOutputSchema(),
 		"guide":         guidePublicOutputSchema(),
 		"projects":      projectsPublicOutputSchema(),
-		"rules":         workflowPolicyOutputSchema(),
 		"session":       sessionOutputSchema(),
 		"system_ping": closedOutput(map[string]any{
 			"service": outputString(), "version": outputString(), "gateway_id": outputString(), "time": outputDateTime(),

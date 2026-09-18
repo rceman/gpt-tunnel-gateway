@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
@@ -44,7 +45,7 @@ func (s *Service) ProjectWorkflowPolicyReadFast(ctx context.Context, projectID s
 		if err != nil {
 			return model.ProjectWorkflowPolicy{}, err
 		}
-		return workflowPolicyFromConfiguration(configuration)
+		return s.workflowPolicyFromAuthority(ctx, configuration)
 	}
 	if policy, err := s.CachedProjectWorkflowPolicy(projectID); err == nil {
 		return policy, nil
@@ -52,6 +53,13 @@ func (s *Service) ProjectWorkflowPolicyReadFast(ctx context.Context, projectID s
 	return s.ProjectWorkflowPolicyRead(ctx, projectID)
 }
 
+// workflowPolicyFromConfiguration derives the workflow policy directly from
+// the configuration document. It is the legacy-compatibility path used when
+// Shared durability is absent. Under Shared durability the configuration
+// document's workflow leaf fields (workflow_stage, integration_branch,
+// agent.wait_for_ci, ci.release, ci.task, ci.task_merge) are provenance
+// retained for the seed migration — the named-rule effective set is the only
+// authority for them.
 func workflowPolicyFromConfiguration(configuration model.ProjectConfiguration) (model.ProjectWorkflowPolicy, error) {
 	policy := model.ProjectWorkflowPolicy{
 		SchemaVersion:     model.SchemaVersion,
@@ -69,6 +77,81 @@ func workflowPolicyFromConfiguration(configuration model.ProjectConfiguration) (
 		return model.ProjectWorkflowPolicy{}, err
 	}
 	return policy, nil
+}
+
+// workflowPolicyFromAuthority derives the effective workflow policy for a
+// configured project. Under Shared durability the six machine-policy leaves
+// are sourced exclusively from the named-rule effective set; the
+// configuration document contributes only non-rule fields (gates,
+// revision/updated provenance). Without Shared durability the configuration
+// document remains the leaf authority.
+func (s *Service) workflowPolicyFromAuthority(ctx context.Context, configuration model.ProjectConfiguration) (model.ProjectWorkflowPolicy, error) {
+	if s.Durability == nil {
+		return workflowPolicyFromConfiguration(configuration)
+	}
+	effective, _, err := s.ruleEffectiveSetShared(ctx, configuration.ProjectID)
+	if err != nil {
+		return model.ProjectWorkflowPolicy{}, err
+	}
+	return workflowPolicyFromEffectiveRules(configuration, effective)
+}
+
+// workflowPolicyFromEffectiveRules composes the effective workflow policy
+// from the named-rule effective set. Every machine leaf is required; a
+// missing or invalid leaf fails closed so a configured project can never run
+// on a vacuous or half-seeded effective set.
+func workflowPolicyFromEffectiveRules(configuration model.ProjectConfiguration, effective []model.Rule) (model.ProjectWorkflowPolicy, error) {
+	leaves := make(map[string]json.RawMessage, len(effective))
+	for _, rule := range effective {
+		leaves[rule.Name] = rule.Value
+	}
+	policy := model.ProjectWorkflowPolicy{
+		SchemaVersion: model.SchemaVersion,
+		ProjectID:     configuration.ProjectID,
+		Revision:      configuration.Revision,
+		Gates:         append([]string{}, configuration.Workflow.Gates...),
+		UpdatedBy:     configuration.UpdatedBy,
+		UpdatedAt:     configuration.UpdatedAt,
+	}
+	decode := func(name string, target any) error {
+		raw, ok := leaves[name]
+		if !ok {
+			return fmt.Errorf("required effective rule %q is missing", name)
+		}
+		if err := json.Unmarshal(raw, target); err != nil {
+			return fmt.Errorf("required effective rule %q is invalid: %w", name, err)
+		}
+		return nil
+	}
+	if err := decode("workflow_stage", &policy.WorkflowStage); err != nil {
+		return model.ProjectWorkflowPolicy{}, err
+	}
+	if err := decode("integration_branch", &policy.IntegrationBranch); err != nil {
+		return model.ProjectWorkflowPolicy{}, err
+	}
+	if err := decode("agent.wait_for_ci", &policy.Agent.WaitForCI); err != nil {
+		return model.ProjectWorkflowPolicy{}, err
+	}
+	if err := decode("ci.release", &policy.CI.Release); err != nil {
+		return model.ProjectWorkflowPolicy{}, err
+	}
+	if err := decode("ci.task", &policy.CI.Task); err != nil {
+		return model.ProjectWorkflowPolicy{}, err
+	}
+	if err := decode("ci.task_merge", &policy.CI.TaskMerge); err != nil {
+		return model.ProjectWorkflowPolicy{}, err
+	}
+	if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
+		return model.ProjectWorkflowPolicy{}, err
+	}
+	return policy, nil
+}
+
+// workflowPolicyLeavesEquivalent compares the six rule-governed machine
+// leaves between two policies; provenance fields (gates, revision, updated
+// metadata) are excluded.
+func workflowPolicyLeavesEquivalent(left, right model.ProjectWorkflowPolicy) bool {
+	return left.WorkflowStage == right.WorkflowStage && left.IntegrationBranch == right.IntegrationBranch && left.Agent.WaitForCI == right.Agent.WaitForCI && left.CI == right.CI
 }
 
 func workflowPoliciesEquivalent(left, right model.ProjectWorkflowPolicy) bool {
@@ -96,9 +179,9 @@ func (s *Service) projectWorkflowPolicyReadDetailed(ctx context.Context, project
 	var canonical model.ProjectWorkflowPolicy
 	if configurationErr == nil {
 		var err error
-		canonical, err = workflowPolicyFromConfiguration(configuration)
+		canonical, err = s.workflowPolicyFromAuthority(ctx, configuration)
 		if err != nil {
-			return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("project configuration workflow is invalid: %w", err)
+			return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("project workflow authority is invalid: %w", err)
 		}
 		if s.Durability != nil {
 			return canonical, "project_configuration", nil

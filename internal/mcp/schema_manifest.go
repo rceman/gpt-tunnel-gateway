@@ -50,7 +50,6 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	result["session_update"] = idempotentMutationAnnotations()
 	result["call"] = additiveExternalAnnotations()
 	result["status"] = readOnlyAnnotations()
-	result["rules"] = readOnlyAnnotations()
 	result["session"] = destructiveExternalAnnotations()
 	for _, name := range []string{
 		"system_ping", "gateway_capabilities",

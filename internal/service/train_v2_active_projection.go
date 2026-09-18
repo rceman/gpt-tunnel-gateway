@@ -76,7 +76,13 @@ func (s *Service) trainV2ActiveAttemptLocal(ctx context.Context, projectID strin
 		return activeTrainAttempt{}, false, err
 	}
 	integrationBranch := local.DefaultBranch
-	if configuration, configurationErr := s.ProjectConfigurationRead(ctx, projectID); configurationErr == nil && configuration.Workflow.IntegrationBranch != "" {
+	if s.Durability != nil {
+		// The integration_branch leaf is governed by the named-rule
+		// effective set; the derived policy is the only authority.
+		if policy, _, policyErr := s.projectWorkflowPolicyReadDetailed(ctx, projectID); policyErr == nil && policy.IntegrationBranch != "" {
+			integrationBranch = policy.IntegrationBranch
+		}
+	} else if configuration, configurationErr := s.ProjectConfigurationRead(ctx, projectID); configurationErr == nil && configuration.Workflow.IntegrationBranch != "" {
 		integrationBranch = configuration.Workflow.IntegrationBranch
 	}
 	for _, train := range trains {

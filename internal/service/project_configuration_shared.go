@@ -91,6 +91,25 @@ func (s *Service) projectConfigurationUpdateShared(ctx context.Context, in Proje
 	if active && projectConfigurationPatchIsExecutionSensitive(in.Patch) {
 		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("execution-sensitive project configuration cannot change while an active Train Attempt exists")
 	}
+	// The workflow leaf fields (workflow_stage, integration_branch,
+	// agent.wait_for_ci, ci.release, ci.task, ci.task_merge) are governed by
+	// the named-rule effective set; the configuration document only stores
+	// them as seed provenance. A patch that would diverge them from rule
+	// authority is rejected — leaf changes must go through rule/update.
+	if in.Patch.Workflow != nil {
+		effective, _, leafErr := s.ruleEffectiveSetShared(ctx, in.ProjectID)
+		if leafErr != nil {
+			return model.ProjectConfiguration{}, OperationResult{}, leafErr
+		}
+		governed, leafErr := workflowPolicyFromEffectiveRules(current, effective)
+		if leafErr != nil {
+			return model.ProjectConfiguration{}, OperationResult{}, leafErr
+		}
+		patched := *in.Patch.Workflow
+		if patched.WorkflowStage != governed.WorkflowStage || patched.IntegrationBranch != governed.IntegrationBranch || patched.WaitForCI != governed.Agent.WaitForCI || patched.CI != governed.CI {
+			return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("workflow leaf fields are governed by durable rules; change them through rule/update")
+		}
+	}
 	updated := current
 	applyProjectConfigurationPatch(&updated, in.Patch)
 	updated.Revision = current.Revision + 1

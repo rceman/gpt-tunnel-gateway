@@ -1,6 +1,10 @@
 package service
 
-import "github.com/rceman/gpt-tunnel-gateway/internal/model"
+import (
+	"encoding/json"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+)
 
 type PlanUpdateInput struct {
 	ProjectID        string    `json:"project_id"`
@@ -41,6 +45,13 @@ type ADRCreateInput struct {
 	WriteOptions
 }
 
+type RuleCreateInput struct {
+	Rule           model.Rule `json:"rule"`
+	RelationType   string     `json:"relation_type,omitempty"`
+	RelationTarget string     `json:"relation_target,omitempty"`
+	WriteOptions
+}
+
 type ADRUpdateInput struct {
 	ProjectID        string  `json:"project_id"`
 	ADRID            string  `json:"key"`
@@ -69,6 +80,39 @@ type ADRListInput struct {
 }
 
 type ADRQueryInput struct {
+	CollectionPageInput
+	Text            string `json:"text,omitempty"`
+	Status          string `json:"status,omitempty"`
+	IncludeArchived bool   `json:"include_archived,omitempty"`
+}
+
+type RuleUpdateInput struct {
+	ProjectID        string           `json:"project_id"`
+	RuleID           string           `json:"key"`
+	Title            *string          `json:"title,omitempty"`
+	Summary          *string          `json:"summary,omitempty"`
+	Value            *json.RawMessage `json:"value,omitempty"`
+	Description      *string          `json:"description,omitempty"`
+	Status           *string          `json:"status,omitempty"`
+	ExpectedRevision int              `json:"-"`
+	Reason           string           `json:"reason"`
+	UpdatedBy        string           `json:"updated_by"`
+}
+
+type RuleArchiveInput struct {
+	ProjectID        string `json:"project_id"`
+	RuleID           string `json:"key"`
+	ExpectedRevision int    `json:"-"`
+	Reason           string `json:"reason"`
+	ArchivedBy       string `json:"archived_by"`
+}
+
+type RuleListInput struct {
+	CollectionPageInput
+	IncludeArchived bool `json:"include_archived,omitempty"`
+}
+
+type RuleQueryInput struct {
 	CollectionPageInput
 	Text            string `json:"text,omitempty"`
 	Status          string `json:"status,omitempty"`

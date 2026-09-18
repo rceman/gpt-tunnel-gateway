@@ -209,6 +209,10 @@ func testServiceWithDurability(t *testing.T, s *Service) *sqlitestore.Databases 
 		db.Close()
 		t.Fatal(err)
 	}
+	if err := db.SeedSharedRulesFromConfiguration(context.Background(), configuration, project.ProjectCode); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
 	if identifiersErr == nil {
 		if _, err := db.Shared.Exec(context.Background(), `INSERT OR IGNORE INTO shared_project_identifiers(project_id,project_code,next_task_number,next_adr_number,next_rule_number,next_journal_number,next_train_number) VALUES(?,?,?,?,?,?,?)`, "example", identifiers.ProjectCode, identifiers.NextTaskNumber, identifiers.NextADRNumber, 1, 1, 1); err != nil {
 			db.Close()

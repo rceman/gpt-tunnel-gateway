@@ -73,7 +73,7 @@ type sessionActionInput struct {
 
 func publicSessionRecord(record durableSession.Record) map[string]any {
 	result := normalizeObject(record)
-	for _, key := range []string{"session_ref", "global_rules_revision", "global_rules_digest", "project_rules_revision", "project_rules_digest"} {
+	for _, key := range []string{"session_ref", "global_rules_revision", "global_rules_digest", "project_rules_digest"} {
 		delete(result, key)
 	}
 	return result

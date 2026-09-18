@@ -21,23 +21,22 @@ const (
 )
 
 type Record struct {
-	SchemaVersion        int        `json:"schema_version"`
-	ID                   string     `json:"session_id"`
-	ProjectID            string     `json:"project_id,omitempty"`
-	ProjectCode          string     `json:"project_code,omitempty"`
-	Role                 string     `json:"role"`
-	SessionType          string     `json:"session_type"`
-	SessionRef           *string    `json:"session_ref,omitempty"`
-	Label                *string    `json:"label,omitempty"`
-	Status               string     `json:"status"`
-	CreatedAt            time.Time  `json:"created_at"`
-	StartedAt            time.Time  `json:"started_at"`
-	EndedAt              *time.Time `json:"ended_at,omitempty"`
-	UpdatedAt            time.Time  `json:"updated_at"`
-	GlobalRulesRevision  string     `json:"global_rules_revision,omitempty"`
-	GlobalRulesDigest    string     `json:"global_rules_digest,omitempty"`
-	ProjectRulesRevision int        `json:"project_rules_revision,omitempty"`
-	ProjectRulesDigest   string     `json:"project_rules_digest,omitempty"`
+	SchemaVersion       int        `json:"schema_version"`
+	ID                  string     `json:"session_id"`
+	ProjectID           string     `json:"project_id,omitempty"`
+	ProjectCode         string     `json:"project_code,omitempty"`
+	Role                string     `json:"role"`
+	SessionType         string     `json:"session_type"`
+	SessionRef          *string    `json:"session_ref,omitempty"`
+	Label               *string    `json:"label,omitempty"`
+	Status              string     `json:"status"`
+	CreatedAt           time.Time  `json:"created_at"`
+	StartedAt           time.Time  `json:"started_at"`
+	EndedAt             *time.Time `json:"ended_at,omitempty"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+	GlobalRulesRevision string     `json:"global_rules_revision,omitempty"`
+	GlobalRulesDigest   string     `json:"global_rules_digest,omitempty"`
+	ProjectRulesDigest  string     `json:"project_rules_digest,omitempty"`
 }
 type CreateInput struct {
 	ProjectID, ProjectCode, Role, SessionType string
@@ -144,7 +143,6 @@ func (s Store) Bind(id, projectID string, sessionRef *string) (Record, error) {
 	}
 	if record.ProjectID == "" {
 		record.ProjectID = projectID
-		record.ProjectRulesRevision = 0
 		record.ProjectRulesDigest = ""
 	}
 	if sessionRef != nil {
@@ -156,7 +154,7 @@ func (s Store) Bind(id, projectID string, sessionRef *string) (Record, error) {
 	}
 	return record, s.updateLocal(old, record)
 }
-func (s Store) AcknowledgeRules(id, globalRevision, globalDigest string, projectRevision int, projectDigest string) (Record, error) {
+func (s Store) AcknowledgeRules(id, globalRevision, globalDigest, projectDigest string) (Record, error) {
 	if err := s.requireLocal(); err != nil {
 		return Record{}, err
 	}
@@ -168,11 +166,11 @@ func (s Store) AcknowledgeRules(id, globalRevision, globalDigest string, project
 	if record.Status != StatusActive {
 		return Record{}, ErrAlreadyEnded
 	}
-	if record.ProjectID == "" && projectRevision != 0 {
+	if record.ProjectID == "" && projectDigest != "" {
 		return Record{}, fmt.Errorf("%w: cannot acknowledge project rules before binding", ErrInvalidSession)
 	}
 	record.GlobalRulesRevision, record.GlobalRulesDigest = globalRevision, globalDigest
-	record.ProjectRulesRevision, record.ProjectRulesDigest = projectRevision, projectDigest
+	record.ProjectRulesDigest = projectDigest
 	record.UpdatedAt = time.Now().UTC()
 	if err := record.Validate(); err != nil {
 		return Record{}, err

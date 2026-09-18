@@ -41,6 +41,13 @@ func mcpSeedProjectConfiguration(t *testing.T, svc *service.Service, projectID s
 	}); err != nil {
 		t.Fatal(err)
 	}
+	projectCode := "EXM"
+	if project, ok := svc.Config.Projects[projectID]; ok && project.ProjectCode != "" {
+		projectCode = project.ProjectCode
+	}
+	if err := svc.Durability.SeedSharedRulesFromConfiguration(context.Background(), configuration, projectCode); err != nil {
+		t.Fatal(err)
+	}
 }
 
 /*

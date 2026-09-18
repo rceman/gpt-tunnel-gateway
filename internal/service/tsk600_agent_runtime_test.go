@@ -41,6 +41,9 @@ func newTSK600AgentMutationFixture(t *testing.T) (*Service, *sqlitestore.Databas
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SeedSharedRulesFromConfiguration(ctx, configuration, "EXM"); err != nil {
+		t.Fatal(err)
+	}
 	agentPayload, err := json.Marshal(agent)
 	if err != nil {
 		t.Fatal(err)

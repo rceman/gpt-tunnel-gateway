@@ -178,57 +178,18 @@ func publicSessionRules() map[string]any {
 	}
 }
 
-func workflowWithDigest(workflow map[string]any, digest string) map[string]any {
-	result := make(map[string]any, len(workflow)+1)
-	for key, value := range workflow {
-		result[key] = value
-	}
-	result["digest"] = digest
-	return result
-}
-
-func (s *Server) rulesReadAction(ctx context.Context, raw json.RawMessage) (any, error) {
-	id := service.AgentSessionID(ctx)
-	if id == "" {
-		return nil, fmt.Errorf("SESSION_REQUIRED: provide the public session field")
-	}
-	info, err := s.Service.SessionInfo(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if info.Session.ProjectID == "" {
-		return nil, fmt.Errorf("PROJECT_BINDING_REQUIRED: bind the session before reading project rules")
-	}
-	policy, err := s.Service.ProjectWorkflowPolicyReadFast(ctx, info.Session.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	digest := digestJSON(policy)
-	updated, err := durableSession.NewStoreWithDurability(s.Service.Durability).AcknowledgeRules(id, globalWorkflowRevision, globalWorkflowDigest(), policy.Revision, digest)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{"rules": policy, "session": updated.ID, "project_rules_revision": updated.ProjectRulesRevision, "project_rules_digest": updated.ProjectRulesDigest}, nil
-}
-
-func digestJSON(value any) string {
-	b, _ := json.Marshal(value)
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:])
-}
-
 func (s *Server) validateSessionRules(ctx context.Context, record durableSession.Record, action string) error {
-	if record.ProjectID == "" || record.GlobalRulesRevision == "" || action == "rules/read" || action == "session/info" || action == "session/end" || action == "project/list" {
+	if record.ProjectID == "" || record.GlobalRulesRevision == "" || action == "rule/effective" || action == "session/info" || action == "session/end" || action == "project/list" {
 		return nil
 	}
 	if record.GlobalRulesRevision != globalWorkflowRevision || record.GlobalRulesDigest != globalWorkflowDigest() {
 		return fmt.Errorf("RULES_REFRESH_REQUIRED: global workflow rules changed")
 	}
-	policy, err := s.Service.CachedProjectWorkflowPolicy(record.ProjectID)
+	digest, err := s.Service.ProjectRuleEffectiveDigest(ctx, record.ProjectID)
 	if err != nil {
 		return fmt.Errorf("RULES_REFRESH_REQUIRED: project rules unavailable")
 	}
-	if record.ProjectRulesRevision != policy.Revision || record.ProjectRulesDigest != digestJSON(policy) {
+	if record.ProjectRulesDigest != digest {
 		return fmt.Errorf("RULES_REFRESH_REQUIRED: read current project rules")
 	}
 	return nil

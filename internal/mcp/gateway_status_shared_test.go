@@ -37,6 +37,9 @@ func TestGatewayStatusUsesSharedProjectProjectionWithoutHub(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SeedSharedRulesFromConfiguration(context.Background(), configuration, "EXM"); err != nil {
+		t.Fatal(err)
+	}
 
 	c := config.Config{
 		GatewayID: "HOM",

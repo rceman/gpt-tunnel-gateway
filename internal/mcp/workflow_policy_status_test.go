@@ -39,6 +39,7 @@ func newWorkflowPolicyStatusService(t *testing.T) (*service.Service, string) {
 		t.Fatal(err)
 	}
 	policy := model.ProjectWorkflowPolicy{SchemaVersion: model.SchemaVersion, ProjectID: "example", Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", Agent: model.WorkflowPolicyAgent{WaitForCI: false}, CI: model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeRequire}, UpdatedBy: "test", UpdatedAt: time.Now().UTC()}
+	syncTestWorkflowRuleLeaves(t, s, "example", policy)
 	_, operation, err := s.ProjectWorkflowPolicyAdopt(service.WithPlannerWorkflowPolicyAuthority(context.Background()), service.ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
 	if err != nil {
 		t.Fatal(err)

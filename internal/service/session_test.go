@@ -60,6 +60,9 @@ func TestServiceSessionLifecycleUsesRegisteredProject(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SeedSharedRulesFromConfiguration(context.Background(), configuration, "EXM"); err != nil {
+		t.Fatal(err)
+	}
 	started, err := s.SessionStart(authority.WithPlanner(context.Background()), SessionStartInput{
 		ProjectID:   "example",
 		ProjectCode: "EXM",

@@ -11,20 +11,8 @@ const (
 	MessageIDPattern    = `^[A-Z]{3}-MSG(` + OperatorJournalNumberPattern + `)$`
 	JournalIDPattern    = `^[A-Z]{3}-JRN(` + OperatorJournalNumberPattern + `)$`
 	MaxRuleNameBytes    = 256
-	MaxRuleTextBytes    = 8192
 	MaxMessageTextBytes = 16384
 )
-
-type Rule struct {
-	SchemaVersion int       `json:"schema_version"`
-	ID            string    `json:"id"`
-	ProjectID     string    `json:"project_id"`
-	Name          string    `json:"name"`
-	Description   string    `json:"description"`
-	Enabled       bool      `json:"enabled"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
-}
 
 type Message struct {
 	SchemaVersion int       `json:"schema_version"`
@@ -59,19 +47,6 @@ func ParseJournalID(value string) (string, uint64, error) { return parseEntityID
 func ValidateRuleID(value string) error    { _, _, err := ParseRuleID(value); return err }
 func ValidateMessageID(value string) error { _, _, err := ParseMessageID(value); return err }
 func ValidateJournalID(value string) error { _, _, err := ParseJournalID(value); return err }
-
-func ValidateRule(v Rule) error {
-	if v.SchemaVersion != SchemaVersion || ValidateProjectIdentifier(v.ProjectID) != nil || ValidateRuleID(v.ID) != nil {
-		return fmt.Errorf("invalid rule identity")
-	}
-	if len(v.Name) == 0 || len(v.Name) > MaxRuleNameBytes || strings.TrimSpace(v.Name) != v.Name || len(v.Description) > MaxRuleTextBytes || strings.ContainsRune(v.Description, 0) {
-		return fmt.Errorf("invalid rule content")
-	}
-	if v.CreatedAt.IsZero() || v.UpdatedAt.IsZero() || v.CreatedAt.After(v.UpdatedAt) {
-		return fmt.Errorf("invalid rule timestamps")
-	}
-	return nil
-}
 
 func ValidateMessage(v Message) error {
 	if v.SchemaVersion != SchemaVersion || ValidateProjectIdentifier(v.ProjectID) != nil || ValidateMessageID(v.ID) != nil {

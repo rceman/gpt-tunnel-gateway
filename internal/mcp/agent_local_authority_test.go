@@ -67,6 +67,9 @@ func TestCanonicalAgentAwaitUsesLocalAuthorityWhenHubUnavailableAndLocked(t *tes
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SeedSharedRulesFromConfiguration(ctx, configuration, "EXM"); err != nil {
+		t.Fatal(err)
+	}
 	agent := model.Agent{
 		SchemaVersion:        model.AgentSchemaVersion,
 		ProjectID:            "example",

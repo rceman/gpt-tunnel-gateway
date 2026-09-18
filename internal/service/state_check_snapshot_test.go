@@ -96,6 +96,9 @@ func TestStateCheckUsesLocalSQLiteWhenHubUnavailableAndLocked(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SeedSharedRulesFromConfiguration(context.Background(), configuration, "EXM"); err != nil {
+		t.Fatal(err)
+	}
 	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
 	hubLock, err := lockfile.Acquire(filepath.Join(s.Config.StateDir, "locks"), "hub-repository")
 	if err != nil {
@@ -163,6 +166,9 @@ func TestStateCheckReportsDuplicateTrainTaskOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.PutSharedProjection(context.Background(), "project_configuration", sqlitestore.SharedEntity{ID: "example", Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SeedSharedRulesFromConfiguration(context.Background(), configuration, "EXM"); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()

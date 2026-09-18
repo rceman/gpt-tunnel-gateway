@@ -52,7 +52,7 @@ func tsk511SeedEntities(t *testing.T, db *sqlitestore.Databases) {
 	tsk511InsertEntity(t, db, "shared_adrs", "EXM-ADR2", "title", "Second ADR")
 	tsk511InsertEntity(t, db, "shared_tasks", "EXM-TSK1", "title", "First Task")
 	tsk511InsertEntity(t, db, "shared_tasks", "EXM-TSK2", "title", "Second Task")
-	tsk511InsertEntity(t, db, "shared_rules", "EXM-RUL1", "name", "First Rule")
+	tsk511InsertEntity(t, db, "shared_rules", "EXM-RUL1", "title", "First Rule")
 	for entityType, next := range map[string]int64{"task": 3, "adr": 3, "rule": 2} {
 		if _, err := db.Shared.Exec(context.Background(), `INSERT INTO shared_entity_sequences(entity_type,project_id,project_code,next_number) VALUES(?,?,?,?) ON CONFLICT(entity_type,project_id) DO UPDATE SET next_number=excluded.next_number`, entityType, "example", "EXM", next); err != nil {
 			t.Fatal(err)

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -39,9 +40,12 @@ func TestRuleAndMessageValidationIsBounded(t *testing.T) {
 		SchemaVersion: SchemaVersion,
 		ID:            "EXM-RUL1",
 		ProjectID:     "example",
+		Revision:      1,
+		Title:         "gate",
+		Summary:       "bounded",
+		Status:        RuleStatusAccepted,
 		Name:          "gate",
-		Description:   "bounded",
-		Enabled:       true,
+		Value:         json.RawMessage(`true`),
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}

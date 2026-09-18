@@ -726,12 +726,12 @@ func TestTSK409Rev7LifecycleEventSeamIsEntityNeutralReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	stateless := request
-	stateless.EntityType = "rule"
-	stateless.OperationID = "rule-update-rev7-neutral"
+	stateless.EntityType = "project_configuration"
+	stateless.OperationID = "config-update-rev7-neutral"
 	if _, err := db.CommitSharedLifecycleEvent(ctx, stateless); err == nil {
 		t.Fatal("statusless entity type was accepted by the lifecycle seam")
 	}
-	if _, err := db.ListSharedLifecycleEvents(ctx, "rule", adr.ProjectID, adr.ID, 10); err == nil {
+	if _, err := db.ListSharedLifecycleEvents(ctx, "project_configuration", adr.ProjectID, adr.ID, 10); err == nil {
 		t.Fatal("statusless entity type was accepted by the lifecycle event reader")
 	}
 	events, err := db.ListSharedLifecycleEvents(ctx, "adr", adr.ProjectID, adr.ID, 10)

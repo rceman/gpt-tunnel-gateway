@@ -81,11 +81,15 @@ func TestProjectUpdateBootstrapCorrectionPreservesAuthoritiesAndCounters(t *test
 		t.Fatalf("unexpected Hub identifiers: %#v %v", ids, err)
 	}
 	rows, err := f.d.Shared.Query(context.Background(), `SELECT entity_type,project_code,next_number FROM shared_entity_sequences WHERE project_id='example' ORDER BY entity_type`)
-	if err != nil || len(rows.Rows) != 2 {
+	if err != nil || len(rows.Rows) != 3 {
 		t.Fatalf("unexpected Shared sequences: %#v %v", rows.Rows, err)
 	}
 	for _, row := range rows.Rows {
-		if row[1] != "MCP" || row[2] != int64(1) {
+		want := int64(1)
+		if row[0] == "rule" {
+			want = 7
+		}
+		if row[1] != "MCP" || row[2] != want {
 			t.Fatalf("unexpected Shared sequence: %#v", row)
 		}
 	}
@@ -102,6 +106,34 @@ func TestProjectUpdateBootstrapCorrectionPreservesAuthoritiesAndCounters(t *test
 	}
 	if !sameProjectConfiguration(shared, hubConfig) {
 		t.Fatalf("Shared configuration differs from Hub: shared=%#v hub=%#v", shared, hubConfig)
+	}
+	// The bootstrap batch atomically seeds the six canonical machine-policy
+	// leaves as accepted named rules so the effective set is never vacuous.
+	effective, digest, err := f.s.RuleEffectiveSet(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(effective) != 6 || digest == "" {
+		t.Fatalf("bootstrap did not seed the six machine-policy leaves: rules=%d digest=%q", len(effective), digest)
+	}
+	names := map[string]bool{}
+	for _, rule := range effective {
+		names[rule.Name] = true
+		if rule.Status != model.RuleStatusAccepted || rule.ProjectID != "example" || !strings.HasPrefix(rule.ID, "MCP-RUL") {
+			t.Fatalf("unexpected seeded rule: %#v", rule)
+		}
+	}
+	for _, name := range []string{"agent.wait_for_ci", "ci.release", "ci.task", "ci.task_merge", "integration_branch", "workflow_stage"} {
+		if !names[name] {
+			t.Fatalf("bootstrap seed missing leaf %q", name)
+		}
+	}
+	policy, err := f.s.ProjectWorkflowPolicyRead(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policy.IntegrationBranch != shared.Workflow.IntegrationBranch || policy.CI != shared.Workflow.CI || policy.Agent.WaitForCI != shared.Workflow.WaitForCI || policy.WorkflowStage != shared.Workflow.WorkflowStage {
+		t.Fatalf("derived policy does not track the seeded leaf rules: policy=%#v", policy)
 	}
 }
 

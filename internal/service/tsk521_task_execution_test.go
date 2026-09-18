@@ -48,6 +48,9 @@ func TestTSK521TaskDispatchCreatesOneFrozenTaskLane(t *testing.T) {
 	if err := db.PutSharedProjection(ctx, "project_configuration", sqlitestore.SharedEntity{ID: "example", Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SeedSharedRulesFromConfiguration(ctx, configuration, "EXM"); err != nil {
+		t.Fatal(err)
+	}
 	agentPayload, err := json.Marshal(agent)
 	if err != nil {
 		t.Fatal(err)
@@ -209,6 +212,9 @@ func TestTSK521ConcurrentDispatchConvergesToOneLane(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.PutSharedProjection(context.Background(), "project_configuration", sqlitestore.SharedEntity{ID: "example", Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SeedSharedRulesFromConfiguration(context.Background(), configuration, "EXM"); err != nil {
 		t.Fatal(err)
 	}
 	agentPayload, err := json.Marshal(agent)

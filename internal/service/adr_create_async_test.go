@@ -100,6 +100,9 @@ func attachTSK409SharedDurability(t *testing.T, s *Service) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SeedSharedRulesFromConfiguration(context.Background(), configuration, "EXM"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func syncTSK409SharedConfigurationFromHub(t *testing.T, s *Service) {

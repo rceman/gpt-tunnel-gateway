@@ -145,7 +145,7 @@ func normalizeLegacyTransportTestRequest(t *testing.T, body []byte) []byte {
 	case "status", "system_ping":
 		action = "gateway/status"
 	case "rules":
-		action = "workflow/rules"
+		action = "rule/effective"
 	case "project":
 		name, _ = arguments["action"].(string)
 		action = "project/" + name
@@ -187,9 +187,50 @@ func adoptTestWorkflowPolicy(t *testing.T, s *service.Service, projectID, revisi
 	t.Helper()
 	now := time.Now().UTC()
 	policy := model.ProjectWorkflowPolicy{SchemaVersion: model.SchemaVersion, ProjectID: projectID, Revision: 1, WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main", Agent: model.WorkflowPolicyAgent{WaitForCI: false}, CI: model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeObserve, Release: model.WorkflowCIModeObserve}, UpdatedBy: "test", UpdatedAt: now}
+	syncTestWorkflowRuleLeaves(t, s, projectID, policy)
 	_, result, err := s.ProjectWorkflowPolicyAdopt(service.WithPlannerWorkflowPolicyAuthority(context.Background()), service.ProjectWorkflowPolicyInput{Policy: policy, WriteOptions: service.WriteOptions{ExpectedHubRevision: revision}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return result.Hub.After
+}
+
+// syncTestWorkflowRuleLeaves routes the six machine-policy leaves through the
+// canonical rule authority so a fixture's adopted policy stays consistent
+// with the effective set — the leaf divergence guard would otherwise reject
+// the legacy adopt/update path.
+func syncTestWorkflowRuleLeaves(t *testing.T, s *service.Service, projectID string, policy model.ProjectWorkflowPolicy) {
+	t.Helper()
+	if s.Durability == nil {
+		return
+	}
+	leaves := map[string]any{
+		"agent.wait_for_ci":  policy.Agent.WaitForCI,
+		"ci.release":         policy.CI.Release,
+		"ci.task":            policy.CI.Task,
+		"ci.task_merge":      policy.CI.TaskMerge,
+		"integration_branch": policy.IntegrationBranch,
+		"workflow_stage":     policy.WorkflowStage,
+	}
+	page, err := s.RuleListPageWithOptions(context.Background(), projectID, service.RuleListInput{CollectionPageInput: service.CollectionPageInput{}, IncludeArchived: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range page.Rules {
+		want, ok := leaves[rule.Name]
+		if !ok {
+			continue
+		}
+		raw, err := json.Marshal(want)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Equal(bytes.TrimSpace(rule.Value), raw) {
+			continue
+		}
+		value := json.RawMessage(raw)
+		if _, err := s.RuleUpdateCurrent(context.Background(), service.RuleUpdateInput{ProjectID: projectID, RuleID: rule.ID, Value: &value, Reason: "fixture leaf sync", UpdatedBy: "test"}); err != nil {
+			t.Fatal(err)
+		}
+	}
 }

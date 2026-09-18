@@ -63,6 +63,9 @@ func TestProjectOperationalStatusUsesLocalSharedStateWhenHubUnavailable(t *testi
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SeedSharedRulesFromConfiguration(context.Background(), configuration, "EXM"); err != nil {
+		t.Fatal(err)
+	}
 	train := model.TrainV2{
 		SchemaVersion: model.TrainV2SchemaVersion,
 		ID:            "EXM-TRN1",
@@ -121,8 +124,8 @@ func TestProjectOperationalStatusUsesLocalSharedStateWhenHubUnavailable(t *testi
 	if result.Project.ID != projectID || result.Project.Code != configProject.ProjectCode {
 		t.Fatalf("unexpected project identity: %#v", result.Project)
 	}
-	if result.Rules.Revision != configuration.Revision {
-		t.Fatalf("unexpected rules revision: %#v", result.Rules)
+	if result.Rules.Acknowledged || result.Rules.Fresh {
+		t.Fatalf("unexpected rules acknowledgement: %#v", result.Rules)
 	}
 	if result.Agent.AgentID != "gtw-worker" || result.Agent.Expected != "gtw-worker" || !result.Agent.SessionReady {
 		t.Fatalf("Shared active Attempt identity was not projected: %#v", result.Agent)

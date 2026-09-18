@@ -168,19 +168,19 @@ func TestADR84FrozenConnectorContract(t *testing.T) {
 		}
 	}
 	call := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rules/read", "input": map[string]any{}},
+		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "rule/effective", "input": map[string]any{}},
 	}))
 	if call["ok"] != true {
 		t.Fatalf("call failed: %#v", call)
 	}
 	missing := client.request(t, "tools/call", map[string]any{
-		"name": "call", "arguments": map[string]any{"action": "rules/read", "input": map[string]any{}},
+		"name": "call", "arguments": map[string]any{"action": "rule/effective", "input": map[string]any{}},
 	})
 	if missing["error"] == nil {
 		t.Fatalf("missing call session was accepted: %#v", missing)
 	}
 	unknownResponse := client.request(t, "tools/call", map[string]any{
-		"name": "call", "arguments": map[string]any{"session": "SP-INVALID1", "action": "rules/read", "input": map[string]any{}},
+		"name": "call", "arguments": map[string]any{"session": "SP-INVALID1", "action": "rule/effective", "input": map[string]any{}},
 	})
 	unknownResult := frozenResult(t, unknownResponse)
 	if unknownResult["ok"] != false {
