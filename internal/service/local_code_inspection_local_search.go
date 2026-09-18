@@ -173,8 +173,9 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	if err != nil {
 		return CodeSearchResult{}, err
 	}
-	if in.Query == "" || len(in.Query) > LocalCodeMaxQueryBytes || strings.ContainsAny(in.Query, "\x00\r\n") {
-		return CodeSearchResult{}, fmt.Errorf("invalid search query")
+	parsedQuery, err := parseCodeSearchQuery(in.Query, in.CaseInsensitive)
+	if err != nil {
+		return CodeSearchResult{}, err
 	}
 	if in.ContextLines < 0 || in.ContextLines > 3 {
 		return CodeSearchResult{}, fmt.Errorf("context_lines must be between 0 and 3")
@@ -183,7 +184,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 	if err != nil {
 		return CodeSearchResult{}, err
 	}
-	kind := codeCursorKind("code-search", target, in.Query+"|"+strings.Join(selectedPaths, "\x00")+"|"+strings.Join(in.Include, "\x00")+"|"+strings.Join(in.Exclude, "\x00")+"|"+strconv.Itoa(in.ContextLines)+"|"+strconv.FormatBool(target.Live))
+	kind := codeCursorKind("code-search", target, in.Query+"|"+strings.Join(selectedPaths, "\x00")+"|"+strings.Join(in.Include, "\x00")+"|"+strings.Join(in.Exclude, "\x00")+"|"+strconv.Itoa(in.ContextLines)+"|"+strconv.FormatBool(in.CaseInsensitive)+"|"+strconv.FormatBool(target.Live))
 	compactCursor := false
 	if in.Cursor != "" {
 		if _, compactCursor = pagination.ResolveServerCursor(in.Cursor, kind); !compactCursor {
@@ -236,7 +237,8 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		}
 		lines := strings.Split(data, "\n")
 		for lineNumber, line := range lines {
-			if !strings.Contains(line, in.Query) {
+			matchAt, matchLen := parsedQuery.matchLine(line)
+			if matchAt < 0 {
 				continue
 			}
 			if !afterSeen && compactCursor {
@@ -255,7 +257,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 				}
 				continue
 			}
-			snippet := boundedSearchSnippet(lines, lineNumber, in.ContextLines, in.Query)
+			snippet := boundedSearchSnippet(lines, lineNumber, in.ContextLines, matchAt, matchLen)
 			candidate := CodeSearchResult{
 				CodeIdentity: result.CodeIdentity,
 				PathsScanned: pathsScanned,

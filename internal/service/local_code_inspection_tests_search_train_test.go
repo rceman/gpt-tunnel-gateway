@@ -46,7 +46,7 @@ func TestLocalCodeSearchSkipsPreCursorFileContents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	kind := codeCursorKind("code-search", target, "needle|"+strings.Join(paths, "\x00")+"|||0|true")
+	kind := codeCursorKind("code-search", target, "needle|"+strings.Join(paths, "\x00")+"|||0|false|true")
 	cursor := pagination.EncodeSearchCursor(kind, "a-before.txt", 0)
 	result, err := f.service.CodeSearch(context.Background(), CodeSearchInput{
 		ProjectID: "example",

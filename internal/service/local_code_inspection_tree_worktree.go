@@ -93,15 +93,16 @@ type CodeReadInput struct {
 }
 
 type CodeSearchInput struct {
-	ProjectID    string   `json:"-"`
-	Worktree     string   `json:"worktree"`
-	Query        string   `json:"query"`
-	Paths        []string `json:"paths"`
-	Include      []string `json:"include"`
-	Exclude      []string `json:"exclude"`
-	ContextLines int      `json:"context_lines"`
-	Cursor       string   `json:"cursor"`
-	Live         bool     `json:"live"`
+	ProjectID       string   `json:"-"`
+	Worktree        string   `json:"worktree"`
+	Query           string   `json:"query"`
+	Paths           []string `json:"paths"`
+	Include         []string `json:"include"`
+	Exclude         []string `json:"exclude"`
+	ContextLines    int      `json:"context_lines"`
+	CaseInsensitive bool     `json:"case_insensitive"`
+	Cursor          string   `json:"cursor"`
+	Live            bool     `json:"live"`
 }
 
 type CodeDiffInput struct {
@@ -146,7 +147,7 @@ type CodeSearchResult struct {
 	Pagination   *CodePagination   `json:"_pagination,omitempty"`
 }
 
-func boundedSearchSnippet(lines []string, matchLine, contextLines int, query string) string {
+func boundedSearchSnippet(lines []string, matchLine, contextLines, matchAt, matchLen int) string {
 	start := matchLine - contextLines
 	if start < 0 {
 		start = 0
@@ -157,8 +158,7 @@ func boundedSearchSnippet(lines []string, matchLine, contextLines int, query str
 	}
 	matched := lines[matchLine]
 	if len(matched) >= 240 {
-		matchAt := strings.Index(matched, query)
-		if matchAt < 0 || len(query) >= 240 {
+		if matchAt < 0 || matchLen >= 240 {
 			return matched[:240]
 		}
 		matchStart := matchAt

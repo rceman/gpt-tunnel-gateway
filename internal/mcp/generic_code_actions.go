@@ -99,7 +99,7 @@ func (s *Server) registerCodeActions() error {
 
 	if err := s.RegisterGenericAction(GenericAction{
 		Path:            "code/search",
-		Description:     "Search bounded repository-relative files in a server-owned worktree.",
+		Description:     "Search bounded repository-relative files in a server-owned worktree with literal alternatives and optional case-insensitive matching.",
 		InputSchema:     codeSearchInputSchema(),
 		OutputSchema:    codeSearchOutputSchema(),
 		Annotations:     readOnlyAnnotations(),
@@ -202,14 +202,15 @@ func codeReadInputSchema() map[string]any {
 }
 
 func codeSearchInputSchema() map[string]any {
-	query := str("Literal bounded search query.")
+	query := str("Bounded literal query: unescaped | separates literal alternatives, \\| matches a literal pipe, and \\\\ matches a literal backslash. No regular expressions.")
 	query["minLength"], query["maxLength"] = 1, service.LocalCodeMaxQueryBytes
 	paths := array(str("Optional repository-relative path."))
 	paths["maxItems"] = service.LocalCodeMaxPaths
 	patterns := array(str("Optional repository-relative path glob."))
 	patterns["maxItems"] = service.LocalCodeMaxPatterns
 	contextLines := integer("Optional number of surrounding lines per match.", 0, 3)
-	return obj(map[string]any{"worktree": codeSelectorSchema(), "query": query, "paths": paths, "include": patterns, "exclude": patterns, "context_lines": contextLines, "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree", "query")
+	caseInsensitive := map[string]any{"type": "boolean", "default": false, "description": "Match every literal alternative without case sensitivity."}
+	return obj(map[string]any{"worktree": codeSelectorSchema(), "query": query, "paths": paths, "include": patterns, "exclude": patterns, "context_lines": contextLines, "case_insensitive": caseInsensitive, "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree", "query")
 }
 
 func codeDiffInputSchema() map[string]any {
