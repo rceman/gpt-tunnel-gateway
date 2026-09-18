@@ -98,26 +98,26 @@ execute.
 `task/test` owns the complete deterministic correctness proof once for the exact
 candidate. Its project-owned test gate is the canonical uncached runner. It
 discovers every package and shards the large service and MCP packages into
-explicit test-name groups; no test coverage is omitted:
+explicit test-name groups; no deterministic test coverage is omitted. It runs
+deterministic code/logic correctness only — `livee2e`- and
+`liveperformance`-tagged workloads are outside its build:
 
 ```text
 ./scripts/test-full.sh
 ```
 
 Worker must not repeat that full runner immediately before `task/test` unless a
-Task explicitly requires broader pre-submit proof. The distinct live
-performance/E2E lane records environment identity and cold/warm timings:
-
-```text
-python3 scripts/test-performance.py --output <performance-report.json>
-```
-
-`python3 scripts/test-profile.py --output <profile-report.json>` is timing
-and top-slow-contributor evidence, not correctness or performance acceptance.
-Race execution is a separate gate. The full runner is also the only default
-Task verification command. When the Task revision, accepted reviews, base,
-candidate head/tree, branch, and gate profile are unchanged, `task/test` reuses
-the authoritative successful verification receipt instead of rerunning it.
+Task explicitly requires broader pre-submit proof. Specialist workloads are
+separate explicit lanes and are never invoked transitively by full: live
+candidate E2E via `scripts/test-e2e.sh` (`livee2e` tag, `GTW_CANDIDATE_*`
+environment), live performance via `scripts/test-performance.py --output
+<performance-report.json>`, uncached timing/profile evidence via `python3
+scripts/test-profile.py --output <profile-report.json>`, and race detection
+over the same deterministic corpus via `scripts/test-race.sh`. The full runner
+is also the only default Task verification command. When the Task revision,
+accepted reviews, base, candidate head/tree, branch, and gate profile are
+unchanged, `task/test` reuses the authoritative successful verification receipt
+instead of rerunning it.
 
 ## Durable server operations
 

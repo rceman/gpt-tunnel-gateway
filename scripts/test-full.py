@@ -1,8 +1,22 @@
 #!/usr/bin/env python3
-"""Run every repository Go test exactly once with bounded package sharding."""
+"""Run every deterministic repository Go test exactly once with bounded package sharding.
+
+Verification lanes (temporary script-level mapping until TSK602/603 absorb
+project-owned quality profiles, tracked with TSK559):
+
+    full    scripts/test-full.sh        deterministic code/logic correctness only
+    race    scripts/test-race.sh        the same corpus under the Go race detector
+    e2e     scripts/test-e2e.sh         live candidate tests behind the livee2e tag
+    perf    scripts/test-performance.py tagged liveperformance checks
+    profile scripts/test-profile.py     uncached timing/profile evidence
+
+Race, E2E, performance, and profile workloads are never invoked transitively
+by the deterministic full lane; each is an explicit separately runnable lane.
+"""
 
 from __future__ import annotations
 
+import argparse
 import os
 import pathlib
 import re
@@ -105,10 +119,15 @@ def report_failures(failures: list[tuple[list[str], int, str, str]]) -> None:
         print(f"test-full shard failed ({returncode}): {' '.join(command)}", file=sys.stderr)
 
 
-def main() -> int:
-    if len(sys.argv) != 1:
-        print("test-full.py does not accept test-selection arguments", file=sys.stderr)
-        return 2
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--race",
+        action="store_true",
+        help="run the same deterministic corpus under the Go race detector (the explicit race lane)",
+    )
+    args = parser.parse_args(argv)
+    lane_flags = ["-race"] if args.race else []
     root = pathlib.Path.cwd().resolve()
     packages = go_packages(root)
     commands: list[list[str]] = []
@@ -125,18 +144,18 @@ def main() -> int:
             names = [name for name in names if name not in EXCLUSIVE_SERVICE_TESTS]
         shards = shard_names(names, shard_count)
         commands.extend(
-            ["go", "test", package, "-count=1", "-run", regex_for(shard_names)]
+            ["go", "test", package, "-count=1", *lane_flags, "-run", regex_for(shard_names)]
             for shard_names in shards
         )
     if unsharded:
-        commands.append(["go", "test", *unsharded, "-count=1"])
+        commands.append(["go", "test", *unsharded, "-count=1", *lane_flags])
 
     failures = execute_concurrently(root, commands)
     if failures:
         report_failures(failures)
         return 1
     if exclusive:
-        exclusive_command = ["go", "test", "./internal/service", "-count=1", "-run", regex_for(exclusive)]
+        exclusive_command = ["go", "test", "./internal/service", "-count=1", *lane_flags, "-run", regex_for(exclusive)]
         failures = execute_concurrently(root, [exclusive_command])
         if failures:
             report_failures(failures)
@@ -145,4 +164,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

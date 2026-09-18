@@ -1,6 +1,6 @@
 # Test gate separation
 
-The repository has four distinct verification purposes:
+The repository has distinct verification purposes:
 
 1. **Worker correctness:** focused or affected deterministic tests plus the
    cache-aware `scripts/test-fast.py` runner. This lane does not use
@@ -10,19 +10,36 @@ The repository has four distinct verification purposes:
    `scripts/test-full.sh` runner once for the exact reviewed candidate. The
    runner discovers every package, shards the large service and MCP packages
    into bounded test-name groups, and invokes every discovered test with
-   `-count=1`; it does not omit coverage or use Go's test-result cache.
-3. **Live performance/E2E:** `scripts/test-performance.py` runs the tagged
+   `-count=1`; it does not omit coverage or use Go's test-result cache. It
+   exercises deterministic code/logic correctness only: `livee2e`- and
+   `liveperformance`-tagged workloads are outside the default Go build and are
+   never invoked transitively.
+3. **Live E2E:** `scripts/test-e2e.sh` runs the `livee2e`-tagged candidate
+   restart/debug-activation tests, which require `GTW_CANDIDATE_*` environment
+   variables and skip when unset. The deterministic Python `integration_activate`
+   unit suite remains a separate script lane via
+   `scripts/test-integration-activate.sh`.
+4. **Live performance:** `scripts/test-performance.py` runs the tagged
    representative local-code inspection scenario twice with a shared build
    cache, reports cold and warm timings, and records environment identity.
-4. **Timing/profile and race:** `scripts/test-profile.py` reports package/test
-   durations and top slow contributors. Race execution remains a separate
-   correctness-strengthening gate and is not substituted for either runner.
+5. **Timing/profile and race:** `scripts/test-profile.py` reports package/test
+   durations and top slow contributors. `scripts/test-race.sh` runs the same
+   deterministic corpus under the Go race detector. Both remain explicit lanes
+   and are never part of normal full correctness.
 
 Worker does not repeat the canonical full runner immediately before `task/test`
 unless a Task explicitly requires broader pre-submit proof. Task verification
 owns one full run for a materially unchanged exact candidate and reuses a valid
 successful receipt only when the Task revision, accepted reviews, base,
 candidate head/tree, branch, and gate profile all still match.
+
+## Temporary script-level lane mapping
+
+The lane commands above are a script-level mapping: TSK602/TSK603 (tracked
+with TSK559) will absorb the same semantics into project-owned quality
+profiles. The mapping lives only in `scripts/test-full.py` (lane selection and
+this inventory), the thin lane scripts, and this document, so the future
+project-owned profiles can adopt it without duplicating policy.
 
 ## Gate20 inventory and classification
 
@@ -84,6 +101,22 @@ operations and reports each measured operation. The tagged
 public `code/search` latency check outside routine correctness. The explicit
 runner records cold/warm process timings and environment identity and enforces
 the warm 10-second target outside routine correctness.
+
+### Moved to the explicit live E2E lane
+
+`cmd/gpt-tunnel-gatewayd/runtime_restart_candidate_e2e*_test.go` requires a
+built candidate binary through `GTW_CANDIDATE_GATEWAY_BINARY`,
+`GTW_CANDIDATE_SOURCE_SHA`, and `GTW_CANDIDATE_SOURCE_ROOT`, so its two tests
+(`TestCandidateGatewayRestartMCPNetworkE2E`,
+`TestCandidateDebugActivateMCPNetworkE2E`) ran only as env-gated skips in the
+normal corpus. The whole candidate-E2E file group is now behind the `livee2e`
+build tag and runs through `scripts/test-e2e.sh`; assertions are unchanged.
+
+Classification is by semantics, not name substring. Tests whose names contain
+"E2E" but that exercise only in-process deterministic boundaries (`httptest`
+servers, temporary repositories, stub binaries, helper-process re-exec) remain
+in the full deterministic corpus. Only genuinely live/environment-sensitive
+workloads move to explicit lanes.
 
 ### Converted to deterministic functional coverage
 
