@@ -11,7 +11,8 @@ func boundedGuideText(description string) map[string]any {
 
 func canonicalAgentGuideOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"role_authority":     boundedGuideText("The Planner and Agent authority boundary."),
+		"role_authority":     boundedGuideText("The Planner, Lead, and Agent authority boundary."),
+		"delegation":         boundedGuideText("The Milestone Track delegation unit and Worker assignment boundary."),
 		"startup":            boundedGuideText("The exact assigned-worktree startup preflight."),
 		"canonical_state":    boundedGuideText("Supported state authorities and prohibited scans."),
 		"exploration_budget": boundedGuideText("The bounded repository exploration budget."),
@@ -24,14 +25,15 @@ func canonicalAgentGuideOutputSchema() map[string]any {
 		"tail":               boundedGuideText("The canonical agent/tail selector and resolution contract."),
 		"status_await":       boundedGuideText("The canonical agent/status and agent/await selector contract."),
 		"prompt_interrupt":   boundedGuideText("The canonical agent/prompt and agent/interrupt contract."),
-		"authority":          boundedGuideText("The authority and excluded execution-state contract."),
-	}, "role_authority", "startup", "canonical_state", "exploration_budget", "stop_fast", "checkpoints", "testing", "execution_example", "cli_usage", "architecture", "tail", "status_await", "prompt_interrupt", "authority")
+		"authority":          boundedGuideText("The authority, gates, release, and excluded execution-state contract."),
+	}, "role_authority", "delegation", "startup", "canonical_state", "exploration_budget", "stop_fast", "checkpoints", "testing", "execution_example", "cli_usage", "architecture", "tail", "status_await", "prompt_interrupt", "authority")
 }
 
 func canonicalAgentGuide() map[string]any {
 	content := agentguide.Canonical()
 	return map[string]any{
 		"role_authority":     content.RoleAuthority,
+		"delegation":         content.Delegation,
 		"startup":            content.Startup,
 		"canonical_state":    content.CanonicalState,
 		"exploration_budget": content.Exploration,

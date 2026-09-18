@@ -31,7 +31,30 @@ func TestGuideIsZeroStateAndMatchesCanonicalContent(t *testing.T) {
 		t.Fatalf("guide CLI usage omitted exact Task read command: %q", got.CLIUsage)
 	}
 	for _, text := range []string{
-		"Planner owns project context and Task/ADR decisions",
+		"Planner owns WHAT/WHY, architecture, durable semantics, ADR/Task/RULE plus Milestone/Track composition, Task/Track scope, acceptance, dependencies/priority, final Track semantic review, and executable-work curation",
+		"it is not the dispatcher/supervisor/review/test/integrate proxy",
+		"Lead owns HOW: dispatch, Worker supervision, technical review/rework, verification, integration, continuation, and lifecycle decisions",
+		"never mutates Planner semantics",
+		"never creates or updates Planner-owned Tasks, Tracks, ADRs, or Rules",
+		"never hand-mutates lanes or canonical source via shell Git; canonical Task actions own mechanics",
+		"Worker owns implementation/testing and submits only via fixed CLI gpt-tunnel task submit-code|submit-tests|submit-rebase, never native MCP",
+		"ADR138 role-permissive runtime does not transfer semantic authority between PLAW roles or make Worker-owned submit actions Lead-owned",
+		"Lead never proxies a Worker submit or impersonates a Session",
+		"Milestone Track is the Planner-to-Lead delegation unit, not an Agent/Worker/ad-hoc queue and not a Wave",
+		"Track order is planning intent, not FIFO",
+		"Lead weighs membership, dependencies, priority, status, and Worker availability",
+		"Any multiple Workers are assigned at dispatch time",
+		"a sidekick or advisor is advisory only and holds no lane or Task authority",
+		"No task/queue/Agent queue, Planner/Worker impersonation, or alternate-role bypass",
+		"ADR72 Gates 1-20 remain the sole gate taxonomy, including the Gates 9/12/14/19/20 public-response evidence requirements",
+		"there is no parallel gate taxonomy",
+		"standing evidence channels TSK609/619/632/633",
+		"No direct Lead-to-Planner channel exists",
+		"owner/operator relay is only for semantic blockers and completed Track handoff, not execution proxy",
+		"Final project activate/release waits for source-bound Planner Track review",
+		"bounded ADR138 debug break-glass is only approved recovery",
+		"Lead may run authorized non-final staging, disposable E2E, or preflight, including focused post-Task integration checks after risky Tasks, subsets, or Track end",
+		"Keep diagnostics bounded and retries explicit and bounded",
 		"git branch --show-current",
 		"Never scan ~/.local/share/gpt-tunnel-gateway",
 		"roughly 2-3 commands",
@@ -48,6 +71,11 @@ func TestGuideIsZeroStateAndMatchesCanonicalContent(t *testing.T) {
 	} {
 		if !strings.Contains(string(output), text) {
 			t.Fatalf("guide omitted critical text %q", text)
+		}
+	}
+	for _, stale := range []string{"Planner alone", "under Planner authority", "canonical wave", "Agent/Worker queue"} {
+		if strings.Contains(string(output), stale) {
+			t.Fatalf("guide retains stale concept %q: %s", stale, output)
 		}
 	}
 	lower := strings.ToLower(string(output))

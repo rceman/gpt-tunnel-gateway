@@ -49,7 +49,7 @@ func (s *Server) agent_action_set4() error {
 	}
 	if err := register(GenericAction{
 		Path:         "agent/guide",
-		Description:  "Read the bounded canonical Planner and coding Agent supervision contract.",
+		Description:  "Read the bounded canonical Planner, Lead, and coding Agent supervision contract.",
 		InputSchema:  obj(map[string]any{}),
 		OutputSchema: canonicalAgentGuideOutputSchema(),
 		Annotations: ToolAnnotations{
