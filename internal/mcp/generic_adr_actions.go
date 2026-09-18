@@ -36,13 +36,15 @@ func (s *Server) registerADRActions() error {
 		},
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
-				ProjectID    string `json:"project_id"`
-				Title        string `json:"title"`
-				Summary      string `json:"summary"`
-				Context      string `json:"context"`
-				Decision     string `json:"decision"`
-				Consequences string `json:"consequences"`
-				Status       string `json:"status,omitempty"`
+				ProjectID      string `json:"project_id"`
+				Title          string `json:"title"`
+				Summary        string `json:"summary"`
+				Context        string `json:"context"`
+				Decision       string `json:"decision"`
+				Consequences   string `json:"consequences"`
+				Status         string `json:"status,omitempty"`
+				RelationType   string `json:"relation_type,omitempty"`
+				RelationTarget string `json:"relation_target,omitempty"`
 			}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
@@ -51,7 +53,7 @@ func (s *Server) registerADRActions() error {
 			if actor == "" {
 				return nil, fmt.Errorf("authorized session actor is unavailable")
 			}
-			v, err := s.Service.ADRCreate(ctx, service.ADRCreateInput{ADR: model.ADR{ProjectID: in.ProjectID, Title: in.Title, Summary: in.Summary, Context: in.Context, Decision: in.Decision, Consequences: in.Consequences, Status: in.Status, CreatedBy: actor, UpdatedBy: actor}})
+			v, err := s.Service.ADRCreate(ctx, service.ADRCreateInput{ADR: model.ADR{ProjectID: in.ProjectID, Title: in.Title, Summary: in.Summary, Context: in.Context, Decision: in.Decision, Consequences: in.Consequences, Status: in.Status, CreatedBy: actor, UpdatedBy: actor}, RelationType: in.RelationType, RelationTarget: in.RelationTarget})
 			if err != nil {
 				return nil, err
 			}
@@ -83,7 +85,11 @@ func (s *Server) registerADRActions() error {
 			if err != nil {
 				return nil, err
 			}
-			return adrPublicProjection(v), nil
+			relations, err := s.Service.RelationProjection(ctx, in.ProjectID, v.ID)
+			if err != nil {
+				return nil, err
+			}
+			return adrPublicProjection(v, relations), nil
 		},
 	}); err != nil {
 		return err

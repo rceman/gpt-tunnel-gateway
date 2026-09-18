@@ -11,8 +11,8 @@ import (
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
-func taskLifecycleValue(task model.TaskAuthoring) map[string]any {
-	value := map[string]any{"key": task.ID, "revision": task.Revision, "title": task.Title, "status": task.Status, "type": task.Type, "objective": task.Objective, "acceptance_criteria": nonNilTaskStrings(task.AcceptanceCriteria), "constraints": nonNilTaskStrings(task.Constraints), "dependencies": nonNilTaskStrings(task.Dependencies), "preparation_references": nonNilTaskStrings(task.PreparationReferences), "adr_relation": task.ADRRelation, "adr_references": nonNilTaskStrings(task.ADRReferences), "created_at": task.CreatedAt}
+func taskLifecycleValue(task model.TaskAuthoring, relations map[string]map[string]string) map[string]any {
+	value := map[string]any{"key": task.ID, "revision": task.Revision, "title": task.Title, "status": task.Status, "type": task.Type, "objective": task.Objective, "acceptance_criteria": nonNilTaskStrings(task.AcceptanceCriteria), "constraints": nonNilTaskStrings(task.Constraints), "dependencies": nonNilTaskStrings(task.Dependencies), "preparation_references": nonNilTaskStrings(task.PreparationReferences), "adr_relation": task.ADRRelation, "adr_references": nonNilTaskStrings(task.ADRReferences), "relations": relationGroupedValue(relations), "created_at": task.CreatedAt}
 	if task.Summary != "" {
 		value["summary"] = task.Summary
 	}
@@ -76,6 +76,8 @@ func (s *Server) registerTaskAuthoringActions() error {
 				Metadata              map[string]string `json:"metadata,omitempty"`
 				ADRRelation           string            `json:"adr_relation"`
 				ADRReferences         []string          `json:"adr_references,omitempty"`
+				RelationType          string            `json:"relation_type,omitempty"`
+				RelationTarget        string            `json:"relation_target,omitempty"`
 			}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
@@ -84,7 +86,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 			if actor == "" {
 				return nil, fmt.Errorf("authorized session actor is unavailable")
 			}
-			task, _, err := s.Service.TaskLifecycleCreate(ctx, service.TaskAuthoringCreateInput{ProjectID: in.ProjectID, Type: in.Type, Scope: in.Scope, Title: in.Title, Summary: in.Summary, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences, CreatedBy: actor}, "")
+			task, _, err := s.Service.TaskLifecycleCreate(ctx, service.TaskAuthoringCreateInput{ProjectID: in.ProjectID, Type: in.Type, Scope: in.Scope, Title: in.Title, Summary: in.Summary, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences, RelationType: in.RelationType, RelationTarget: in.RelationTarget, CreatedBy: actor}, "")
 			if err != nil {
 				return nil, err
 			}
@@ -116,7 +118,11 @@ func (s *Server) registerTaskAuthoringActions() error {
 			if err != nil {
 				return nil, err
 			}
-			return taskLifecycleValue(task), nil
+			relations, err := s.Service.RelationProjection(ctx, in.ProjectID, task.ID)
+			if err != nil {
+				return nil, err
+			}
+			return taskLifecycleValue(task, relations), nil
 		},
 	}); err != nil {
 		return err

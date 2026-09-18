@@ -36,7 +36,7 @@ func assertFreshLocalMigrationMarkers(t *testing.T, db *upstream.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := [][2]any{{localBaselineVersion, localBaselineName}, {localTokenUsageMigrationVersion, localTokenUsageMigrationName}, {localOperationMigrationVersion, localOperationMigrationName}, {localOperationAdmissionMigrationVersion, localOperationAdmissionMigrationName}}
+	want := [][2]any{{localBaselineVersion, localBaselineName}, {localTokenUsageMigrationVersion, localTokenUsageMigrationName}, {localOperationMigrationVersion, localOperationMigrationName}, {localOperationAdmissionMigrationVersion, localOperationAdmissionMigrationName}, {localRelationMigrationVersion, localRelationMigrationName}}
 	if len(rows.Rows) != len(want) {
 		t.Fatalf("fresh Local migration markers=%#v, want=%#v", rows.Rows, want)
 	}
@@ -53,7 +53,7 @@ func assertFreshSharedMigrationMarkers(t *testing.T, db *upstream.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := [][2]any{{sharedBaselineVersion, sharedBaselineName}, {sharedTaskSummaryMigrationVersion, sharedTaskSummaryMigrationName}, {sharedTaskSequenceMigrationVersion, sharedTaskSequenceMigrationName}, {sharedTaskExecutionMigrationVersion, sharedTaskExecutionMigrationName}, {sharedTaskExecutionPhaseMigrationVersion, sharedTaskExecutionPhaseMigrationName}, {sharedTaskExecutionVerificationMigrationVersion, sharedTaskExecutionVerificationMigrationName}, {sharedTaskLifecycleMigrationVersion, sharedTaskLifecycleMigrationName}, {sharedADRSummaryMigrationVersion, sharedADRSummaryMigrationName}, {sharedLifecycleEventMigrationVersion, sharedLifecycleEventMigrationName}, {sharedTaskLifecycleHardCutMigrationVersion, sharedTaskLifecycleHardCutMigrationName}}
+	want := [][2]any{{sharedBaselineVersion, sharedBaselineName}, {sharedTaskSummaryMigrationVersion, sharedTaskSummaryMigrationName}, {sharedTaskSequenceMigrationVersion, sharedTaskSequenceMigrationName}, {sharedTaskExecutionMigrationVersion, sharedTaskExecutionMigrationName}, {sharedTaskExecutionPhaseMigrationVersion, sharedTaskExecutionPhaseMigrationName}, {sharedTaskExecutionVerificationMigrationVersion, sharedTaskExecutionVerificationMigrationName}, {sharedTaskLifecycleMigrationVersion, sharedTaskLifecycleMigrationName}, {sharedADRSummaryMigrationVersion, sharedADRSummaryMigrationName}, {sharedLifecycleEventMigrationVersion, sharedLifecycleEventMigrationName}, {sharedTaskLifecycleHardCutMigrationVersion, sharedTaskLifecycleHardCutMigrationName}, {sharedRelationMigrationVersion, sharedRelationMigrationName}}
 	if len(rows.Rows) != len(want) {
 		t.Fatalf("fresh Shared migration markers=%#v, want=%#v", rows.Rows, want)
 	}

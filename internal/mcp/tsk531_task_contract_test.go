@@ -71,7 +71,7 @@ func TestTSK531CanonicalTaskSurfaceAndLegacyEvidenceContract(t *testing.T) {
 			}
 		}
 	}
-	assertSchemaKeys("task/create", entries["task/create"].InputSchema, []string{"title", "summary", "objective", "adr_relation", "adr_references", "type", "scope", "acceptance_criteria", "constraints", "priority", "dependencies", "preparation_references", "metadata"})
+	assertSchemaKeys("task/create", entries["task/create"].InputSchema, []string{"title", "summary", "objective", "adr_relation", "adr_references", "type", "scope", "acceptance_criteria", "constraints", "priority", "dependencies", "preparation_references", "metadata", "relation_type", "relation_target"})
 	assertRequired("task/create", entries["task/create"].InputSchema, "title", "summary", "objective", "adr_relation")
 	assertSchemaKeys("task/read", entries["task/read"].InputSchema, []string{"key", "revision"})
 	assertRequired("task/read", entries["task/read"].InputSchema, "key")
@@ -101,7 +101,7 @@ func TestTSK531CanonicalTaskSurfaceAndLegacyEvidenceContract(t *testing.T) {
 			t.Fatalf("%s injected detail into compact items", path)
 		}
 	}
-	assertSchemaKeys("task/read output", entries["task/read"].OutputSchema, []string{"key", "revision", "title", "summary", "status", "type", "scope", "objective", "acceptance_criteria", "constraints", "priority", "dependencies", "preparation_references", "metadata", "adr_relation", "adr_references", "created_at", "updated_at"})
+	assertSchemaKeys("task/read output", entries["task/read"].OutputSchema, []string{"key", "revision", "title", "summary", "status", "type", "scope", "objective", "acceptance_criteria", "constraints", "priority", "dependencies", "preparation_references", "metadata", "adr_relation", "adr_references", "relations", "created_at", "updated_at"})
 	if _, ok := schemaProperties(entries["task/read"].OutputSchema)["detail"]; ok {
 		t.Fatal("task/read output has projection detail")
 	}

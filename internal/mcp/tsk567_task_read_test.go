@@ -19,7 +19,7 @@ func TestTSK567TaskReadAgentContractIsBoundedAndReadOnly(t *testing.T) {
 		t.Fatal("task/read is not available to a bound Agent session")
 	}
 	properties := schemaProperties(entry.OutputSchema)
-	for _, field := range []string{"key", "revision", "title", "summary", "status", "type", "scope", "objective", "acceptance_criteria", "constraints", "priority", "dependencies", "preparation_references", "metadata", "adr_relation", "adr_references", "created_at", "updated_at"} {
+	for _, field := range []string{"key", "revision", "title", "summary", "status", "type", "scope", "objective", "acceptance_criteria", "constraints", "priority", "dependencies", "preparation_references", "metadata", "adr_relation", "adr_references", "relations", "created_at", "updated_at"} {
 		if _, ok := properties[field]; !ok {
 			t.Fatalf("task/read output missing %q: %#v", field, properties)
 		}

@@ -219,6 +219,8 @@ const (
 	sharedLifecycleEventMigrationName                     = "create shared lifecycle events"
 	sharedTaskLifecycleHardCutMigrationVersion      int64 = 202609111800
 	sharedTaskLifecycleHardCutMigrationName               = "move retained task lifecycle events into shared lifecycle events"
+	sharedRelationMigrationVersion                  int64 = 202609181123
+	sharedRelationMigrationName                           = "create canonical relation authority"
 	localBaselineVersion                            int64 = 202609080505
 	localBaselineName                                     = "create local baseline"
 	localTokenUsageMigrationVersion                 int64 = 202609102010
@@ -227,4 +229,6 @@ const (
 	localOperationMigrationName                           = "create local durable operations"
 	localOperationAdmissionMigrationVersion         int64 = 202609161045
 	localOperationAdmissionMigrationName                  = "migrate local operation admission coordinates"
+	localRelationMigrationVersion                   int64 = 202609181124
+	localRelationMigrationName                            = "create local relation authority"
 )

@@ -175,6 +175,10 @@ func (s *Service) taskAuthoringCreateShared(ctx context.Context, operationID str
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
+	extra, err := s.relationCreateSugar(ctx, in.ProjectID, model.RelationFamilyTask, in.RelationType, in.RelationTarget, in.CreatedBy)
+	if err != nil {
+		return model.TaskAuthoring{}, OperationResult{}, err
+	}
 	var created model.TaskAuthoring
 	_, _, payload, err := s.Durability.CommitSharedLifecycleCreate(ctx, sqlitestore.SharedLifecycleCreate{
 		OperationID:         operationID,
@@ -195,6 +199,7 @@ func (s *Service) taskAuthoringCreateShared(ctx context.Context, operationID str
 			}
 			return json.Marshal(created)
 		},
+		ExtraStatements: extra,
 	})
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err

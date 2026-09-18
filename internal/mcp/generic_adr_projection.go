@@ -29,7 +29,8 @@ func boundedADRString(description string, min, max int) map[string]any {
 
 func adrCreateSchema() map[string]any {
 	p := adrActionProperties()
-	return obj(map[string]any{"title": p["title"], "summary": p["summary"], "context": p["context"], "decision": p["decision"], "consequences": p["consequences"], "status": outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", true)...)}, "title", "summary", "context", "decision", "consequences")
+	schema := obj(map[string]any{"title": p["title"], "summary": p["summary"], "context": p["context"], "decision": p["decision"], "consequences": p["consequences"], "status": outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", true)...), "relation_type": outputEnum(model.RelationKindAuthority, model.RelationKindSupersedes), "relation_target": str("Canonical target key for the optional initial relation.")}, "title", "summary", "context", "decision", "consequences")
+	return schema
 }
 func adrReadSchema() map[string]any {
 	p := adrActionProperties()
@@ -93,8 +94,8 @@ func adrPublicUpdateVisible(v model.ADR) bool {
 	return !v.UpdatedAt.IsZero() && !v.UpdatedAt.Equal(v.CreatedAt)
 }
 
-func adrPublicProjection(v model.ADR) map[string]any {
-	result := map[string]any{"key": v.ID, "revision": v.Revision, "title": v.Title, "status": v.Status, "context": v.Context, "decision": v.Decision, "consequences": v.Consequences, "created_at": v.CreatedAt}
+func adrPublicProjection(v model.ADR, relations map[string]map[string]string) map[string]any {
+	result := map[string]any{"key": v.ID, "revision": v.Revision, "title": v.Title, "status": v.Status, "context": v.Context, "decision": v.Decision, "consequences": v.Consequences, "created_at": v.CreatedAt, "relations": relationGroupedValue(relations)}
 	if v.Summary != "" {
 		result["summary"] = v.Summary
 	}

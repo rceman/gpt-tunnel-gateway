@@ -74,11 +74,12 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 	lifecycle := sharedTaskLifecycleMigration()
 	lifecycleEvents := sharedLifecycleEventMigration()
 	released := []migrate.Migration{baseline, summary, sequence, execution, phases, verification, lifecycle, adrSummary, lifecycleEvents}
+	relations := sharedRelationMigration()
 	if name, applied := markers[sharedTaskLifecycleHardCutMigrationVersion]; applied {
 		if name != sharedTaskLifecycleHardCutMigrationName {
 			return fmt.Errorf("unsupported migration marker %d/%q", sharedTaskLifecycleHardCutMigrationVersion, name)
 		}
-		return applyActiveMigrations(ctx, db, append(append([]migrate.Migration(nil), released...), sharedTaskLifecycleHardCutMigrationMarker())...)
+		return applyActiveMigrations(ctx, db, append(append(append([]migrate.Migration(nil), released...), sharedTaskLifecycleHardCutMigrationMarker()), relations)...)
 	}
 	if err := applyActiveMigrations(ctx, db, released...); err != nil {
 		return err
@@ -87,11 +88,12 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 	if err != nil {
 		return err
 	}
-	return applyActiveMigrations(ctx, db, append(append([]migrate.Migration(nil), released...), hardCut)...)
+	return applyActiveMigrations(ctx, db, append(append(append([]migrate.Migration(nil), released...), hardCut), relations)...)
 }
 
 func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {
 	base := []migrate.Migration{localBaselineMigration(), localTokenUsageMigration(), localOperationMigration()}
+	relations := localRelationMigration()
 	exists, markers, err := readMigrationMarkers(ctx, db)
 	if err != nil {
 		return err
@@ -101,7 +103,7 @@ func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {
 			if name != localOperationAdmissionMigrationName {
 				return fmt.Errorf("unsupported migration marker %d/%q", localOperationAdmissionMigrationVersion, name)
 			}
-			migrations := append(append([]migrate.Migration(nil), base...), localOperationAdmissionMigrationMarker())
+			migrations := append(append(append([]migrate.Migration(nil), base...), localOperationAdmissionMigrationMarker()), relations)
 			return applyActiveMigrations(ctx, db, migrations...)
 		}
 	}
@@ -112,7 +114,7 @@ func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {
 	if err != nil {
 		return err
 	}
-	migrations := append(append([]migrate.Migration(nil), base...), admission)
+	migrations := append(append(append([]migrate.Migration(nil), base...), admission), relations)
 	return applyActiveMigrations(ctx, db, migrations...)
 }
 

@@ -69,12 +69,16 @@ func planRenderOutputSchema() map[string]any {
 	}, "schema_version", "project_id", "revision", "title", "summary", "current_objective", "text")
 }
 
+func relationGroupedOutputSchema() map[string]any {
+	return map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "object", "additionalProperties": outputString()}}
+}
+
 func adrOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"key": outputString(), "revision": outputInteger(), "title": outputString(), "summary": outputString(), "status": outputEnum(sqlitestore.SharedLifecycleStatusValues("adr", false)...),
 		"context": outputString(), "decision": outputString(), "consequences": outputString(), "created_at": outputDateTime(),
-		"updated_at": outputDateTime(), "revision_reason": outputString(),
-	}, "key", "revision", "title", "status", "context", "decision", "consequences", "created_at")
+		"updated_at": outputDateTime(), "revision_reason": outputString(), "relations": relationGroupedOutputSchema(),
+	}, "key", "revision", "title", "status", "context", "decision", "consequences", "created_at", "relations")
 }
 
 func taskOutputSchema() map[string]any {

@@ -10,7 +10,7 @@ func TestTSK409ADRPublicSchemasAreClosedAndTransportNeutral(t *testing.T) {
 	server.ensureADRActions()
 	entries := server.genericActionRegistry(nil)
 	want := map[string][]string{
-		"adr/create":  {"title", "summary", "context", "decision", "consequences", "status"},
+		"adr/create":  {"title", "summary", "context", "decision", "consequences", "status", "relation_type", "relation_target"},
 		"adr/read":    {"key", "revision"},
 		"adr/update":  {"key", "reason", "title", "summary", "context", "decision", "consequences", "status"},
 		"adr/list":    {"cursor", "include_archived"},
@@ -24,7 +24,14 @@ func TestTSK409ADRPublicSchemasAreClosedAndTransportNeutral(t *testing.T) {
 			t.Fatalf("missing action %s", path)
 		}
 		assertTSK409ClosedSchema(t, path+" input", entry.InputSchema, fields)
-		forbidden := []string{"project", "project_id", "actor", "limit", "page_size", "expected_revision", "supersedes", "replaced_by", "_pagination", "_metrics", "adr", "adr_id", "adr_key", "id", "adrs", "revisions", "relations"}
+		forbidden := []string{"project", "project_id", "actor", "limit", "page_size", "expected_revision", "supersedes", "replaced_by", "_pagination", "_metrics", "adr", "adr_id", "adr_key", "id", "adrs", "revisions"}
+		for _, name := range []string{"relations", "relation_type", "relation_target"} {
+			if path != "adr/create" {
+				if _, exists := tsk409SchemaProperties(entry.InputSchema)[name]; exists {
+					t.Fatalf("%s exposes forbidden input %q", path, name)
+				}
+			}
+		}
 		for _, name := range forbidden {
 			if _, exists := tsk409SchemaProperties(entry.InputSchema)[name]; exists {
 				t.Fatalf("%s exposes forbidden input %q", path, name)

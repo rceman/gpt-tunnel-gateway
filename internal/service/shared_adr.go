@@ -140,6 +140,10 @@ func (s *Service) adrCreateShared(ctx context.Context, in ADRCreateInput) (Opera
 		digest := sha256.Sum256(encoded)
 		operationID = "adr-shared-" + hex.EncodeToString(digest[:])
 	}
+	extra, err := s.relationCreateSugar(ctx, in.ADR.ProjectID, model.RelationFamilyADR, in.RelationType, in.RelationTarget, in.ADR.CreatedBy)
+	if err != nil {
+		return OperationResult{}, err
+	}
 	var created model.ADR
 	_, id, _, err := s.Durability.CommitSharedLifecycleCreate(ctx, sqlitestore.SharedLifecycleCreate{
 		OperationID:         operationID,
@@ -178,6 +182,7 @@ func (s *Service) adrCreateShared(ctx context.Context, in ADRCreateInput) (Opera
 			}
 			return payload, nil
 		},
+		ExtraStatements: extra,
 	})
 	if err != nil {
 		return OperationResult{}, err

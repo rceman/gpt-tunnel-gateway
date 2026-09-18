@@ -35,7 +35,9 @@ type PlanSectionUpdateInput struct {
 }
 
 type ADRCreateInput struct {
-	ADR model.ADR `json:"adr"`
+	ADR            model.ADR `json:"adr"`
+	RelationType   string    `json:"relation_type,omitempty"`
+	RelationTarget string    `json:"relation_target,omitempty"`
 	WriteOptions
 }
 
@@ -105,6 +107,8 @@ type TaskAuthoringCreateInput struct {
 	Metadata              map[string]string `json:"metadata,omitempty"`
 	ADRRelation           string            `json:"adr_relation"`
 	ADRReferences         []string          `json:"adr_references,omitempty"`
+	RelationType          string            `json:"relation_type,omitempty"`
+	RelationTarget        string            `json:"relation_target,omitempty"`
 	CreatedBy             string            `json:"created_by"`
 	WriteOptions
 }

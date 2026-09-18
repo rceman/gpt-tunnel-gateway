@@ -24,6 +24,10 @@ type SharedLifecycleCreate struct {
 	ChangedFields       []string
 	CreatedAt           time.Time
 	BuildPayload        func(string) ([]byte, error)
+	// ExtraStatements composes additional statements that commit atomically
+	// with the create. It receives the allocated entity ID and must be
+	// deterministic so sequence retries remain safe.
+	ExtraStatements func(entityID string) ([]upstream.Statement, error)
 }
 
 type SharedHistorySeed struct {
@@ -175,6 +179,16 @@ func (d *Databases) commitSharedLifecycleCreateOnce(ctx context.Context, request
 		SQL:  `INSERT INTO hub_outbox(id,entity_type,entity_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?)`,
 		Args: []any{request.OperationID, request.EntityType, entityID, 1, request.Kind, payload, created}, RequireRowsAffected: 1,
 	})
+	if request.ExtraStatements != nil {
+		extra, extraErr := request.ExtraStatements(entityID)
+		if extraErr != nil {
+			return SharedMutationReceipt{}, "", nil, extraErr
+		}
+		if len(extra) > 4 {
+			return SharedMutationReceipt{}, "", nil, fmt.Errorf("shared %s create has too many extra statements", request.EntityType)
+		}
+		statements = append(statements, extra...)
+	}
 	if _, err := d.Shared.Batch(ctx, statements); err != nil {
 		if existing, found, readErr := d.outboxEntry(ctx, request.OperationID); readErr == nil && found {
 			receipt, reuseErr := d.reuseSharedMutation(SharedMutation{
