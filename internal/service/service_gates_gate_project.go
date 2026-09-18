@@ -31,11 +31,7 @@ func (s *Service) ExecuteProjectGates(ctx context.Context, projectID, operationC
 	if err != nil {
 		return nil, err
 	}
-	mode := "train"
-	if operationClass == "" || operationClass == "implementation" || operationClass == "correction" || operationClass == "integration" {
-		mode = "task"
-	}
-	return s.executeProjectGatesWithProjectCommands(ctx, projectID, root, names, mode)
+	return s.executeProjectGatesWithProjectCommands(ctx, projectID, root, names, "task")
 }
 
 func (s *Service) executeProjectGatesWithProjectCommands(ctx context.Context, projectID, root string, names []string, testMode string) ([]model.CompletionGateResult, error) {
@@ -52,16 +48,6 @@ func (s *Service) executeProjectGatesWithProjectCommandsAndScope(ctx context.Con
 	}
 	if testMode == "task" && containsGate(names, model.WorkflowGateTest) {
 		results, err := s.executeProjectTaskGatesWithTestReuse(ctx, projectID, root, names, configuration.Workflow.GateCommands, scope)
-		if err != nil {
-			return results, err
-		}
-		if err := validateProjectGateEvidence(results, names); err != nil {
-			return nil, err
-		}
-		return results, nil
-	}
-	if testMode == "train" {
-		results, err := s.executeProjectTrainGatesWithReceiptReuse(ctx, projectID, root, names, configuration.Workflow.GateCommands, scope)
 		if err != nil {
 			return results, err
 		}
@@ -163,62 +149,6 @@ func validateVerificationSnapshot(before, after verificationGateSnapshot) error 
 	return nil
 }
 
-func (s *Service) executeTrainGatesWithScopedFormat(ctx context.Context, projectID string, project config.ProjectConfig, baseHead, candidateHead string) ([]model.CompletionGateResult, error) {
-	before, err := s.captureVerificationSnapshot(ctx, project)
-	if err != nil {
-		return nil, err
-	}
-	if !before.clean || before.head != candidateHead {
-		return nil, fmt.Errorf("Train gate candidate changed before verification")
-	}
-	changed, err := s.Git.ChangedFiles(ctx, project.Root, baseHead, candidateHead)
-	if err != nil {
-		return nil, err
-	}
-	names, err := s.ResolveProjectGates(ctx, projectID, "integration")
-	if err != nil {
-		return nil, err
-	}
-	started := time.Now()
-	formatResults := make([]model.CompletionGateResult, 0, 1)
-	var gateErr error
-	if containsGate(names, model.WorkflowGateFormat) {
-		if s.formatExecutor == nil {
-			gateErr = fmt.Errorf("canonical formatter is not configured")
-		} else {
-			formatStarted := time.Now()
-			if err := s.formatExecutor(ctx, project.Root, changedGoFiles(changed)); err != nil {
-				gateErr = fmt.Errorf("Train scoped formatting failed: %w", err)
-			} else {
-				formatResults = append(formatResults, model.CompletionGateResult{ID: model.WorkflowGateFormat, ExitCode: 0, Execution: "executed", DurationMS: time.Since(formatStarted).Milliseconds()})
-			}
-		}
-	}
-	remainingNames := withoutFormatGate(names)
-	remaining := make([]model.CompletionGateResult, 0, len(remainingNames))
-	if gateErr == nil && len(remainingNames) > 0 {
-		remaining, gateErr = s.executeProjectGatesWithProjectCommands(ctx, projectID, project.Root, remainingNames, "train")
-	}
-	after, snapshotErr := s.captureVerificationSnapshot(ctx, project)
-	if snapshotErr != nil {
-		return nil, snapshotErr
-	}
-	if err := validateVerificationSnapshot(before, after); err != nil {
-		return nil, err
-	}
-	if gateErr != nil {
-		return nil, gateErr
-	}
-	merged, err := mergeGateResults(names, formatResults, remaining, time.Since(started).Milliseconds())
-	if err != nil {
-		return nil, err
-	}
-	if err := validateProjectGateEvidence(merged, names); err != nil {
-		return nil, err
-	}
-	return merged, nil
-}
-
 func (s *Service) executeTaskFinalizeGatesWithSnapshot(ctx context.Context, projectID string, project config.ProjectConfig, names, changed []string, scope gates.TestScope) ([]model.CompletionGateResult, verificationGateSnapshot, error) {
 	before, err := s.captureVerificationSnapshot(ctx, project)
 	if err != nil {
@@ -262,4 +192,14 @@ func (s *Service) executeTaskFinalizeGatesWithSnapshot(ctx context.Context, proj
 		return nil, verificationGateSnapshot{}, err
 	}
 	return merged, after, nil
+}
+
+func changedGoFiles(paths []string) []string {
+	goPaths := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if strings.HasSuffix(path, ".go") {
+			goPaths = append(goPaths, path)
+		}
+	}
+	return goPaths
 }

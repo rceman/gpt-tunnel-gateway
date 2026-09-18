@@ -3,13 +3,10 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
-	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func (s *Service) taskAuthoringReadyShared(ctx context.Context, operationID string, in TaskAuthoringReadyInput) (model.TaskAuthoring, OperationResult, error) {
@@ -20,7 +17,7 @@ func (s *Service) taskAuthoringReadyShared(ctx context.Context, operationID stri
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	if err := trainv2.CheckRevision(current, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
+	if err := model.CheckRevision(current, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	if current.Status == model.TaskAuthoringReady {
@@ -37,7 +34,7 @@ func (s *Service) taskAuthoringReadyShared(ctx context.Context, operationID stri
 	if err := s.validateTaskDependenciesShared(ctx, in.ProjectID, current); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	ready, err := trainv2.ReadyTask(current, in.ReadyBy, s.durableNow())
+	ready, err := model.ReadyTask(current, in.ReadyBy, s.durableNow())
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
@@ -65,33 +62,19 @@ func containsControl(value string) bool {
 	return false
 }
 
-func (s *Service) sharedTrains(ctx context.Context, projectID string) ([]model.TrainV2, error) {
-	entities, err := s.sharedProjectEntities(ctx, "train", projectID)
-	if err != nil {
-		return nil, err
+// taskHasNonterminalExecutionShared reports whether the Task owns a live
+// canonical execution — the Task-execution state is the only current-task
+// admission authority. Without Shared durability no canonical execution can
+// exist, so the answer is always false.
+func (s *Service) taskHasNonterminalExecutionShared(ctx context.Context, projectID, taskID string) (bool, error) {
+	if s.Durability == nil {
+		return false, nil
 	}
-	trains := make([]model.TrainV2, 0, len(entities))
-	for _, entity := range entities {
-		var train model.TrainV2
-		if err := json.Unmarshal(entity.Payload, &train); err != nil {
-			return nil, fmt.Errorf("decode shared Train %s: %w", entity.ID, err)
-		}
-		if err := model.ValidateTrainV2(train); err != nil {
-			return nil, err
-		}
-		if train.ProjectID == projectID {
-			trains = append(trains, train)
-		}
-	}
-	return trains, nil
-}
-
-func (s *Service) taskAdmittedToNonterminalTrainShared(ctx context.Context, projectID, taskID string) (bool, error) {
-	trains, err := s.sharedTrains(ctx, projectID)
+	state, found, err := s.Durability.ReadTaskExecutionState(ctx, projectID, taskID)
 	if err != nil {
 		return false, err
 	}
-	return trainv2.TaskAdmittedToNonterminal(trains, taskID), nil
+	return found && model.IsTaskExecutionNonTerminal(state.Status), nil
 }
 
 func (s *Service) validateAuthoringADRReferencesShared(ctx context.Context, task model.TaskAuthoring) error {
@@ -117,41 +100,22 @@ func (s *Service) validateAuthoringADRReferencesShared(ctx context.Context, task
 	return nil
 }
 
+// validateTaskDependenciesShared requires every declared dependency to carry
+// canonical integrated evidence: a Task-execution state that reached
+// integrated/done or the task completion lifecycle event.
 func (s *Service) validateTaskDependenciesShared(ctx context.Context, projectID string, task model.TaskAuthoring) error {
-	if len(task.Dependencies) == 0 {
-		return nil
-	}
-	trains, err := s.sharedTrains(ctx, projectID)
-	if err != nil {
-		return err
-	}
 	for _, dependencyID := range task.Dependencies {
 		integrated := false
-		for _, train := range trains {
-			if train.Status != model.TrainV2Completed || train.FullProof == nil {
-				continue
-			}
-			for _, item := range train.Items {
-				if item.TaskID != dependencyID || item.Proof == nil || item.Proof.ImplementationSHA != train.FullProof.CandidateHead {
-					continue
-				}
-				receipt, err := s.Durability.ReadSharedEntity(ctx, "integration_receipt", sqlitestore.SharedIntegrationReceiptID(projectID, train.ID))
-				if err != nil {
-					if errors.Is(err, os.ErrNotExist) {
-						continue
-					}
-					return fmt.Errorf("read local integration receipt for Train %q: %w", train.ID, err)
-				}
-				var integration trainv2.IntegrationReceipt
-				if err := json.Unmarshal(receipt.Payload, &integration); err != nil {
-					return fmt.Errorf("decode local integration receipt for Train %q: %w", train.ID, err)
-				}
-				if err := trainv2.ValidateIntegrationReceipt(integration); err != nil {
-					return fmt.Errorf("invalid local integration receipt for Train %q: %w", train.ID, err)
-				}
-				if integration.ProjectID == projectID && integration.TrainID == train.ID && integration.Status == "completed" && integration.IntegrationHead == train.FullProof.CandidateHead {
-					integrated = true
-				}
+		if state, found, err := s.Durability.ReadTaskExecutionState(ctx, projectID, dependencyID); err != nil {
+			return err
+		} else if found && (state.Status == model.TaskExecutionIntegrated || state.Status == model.TaskExecutionDone) {
+			integrated = true
+		}
+		if !integrated {
+			if _, found, err := s.Durability.ReadTaskCompletionEvent(ctx, projectID, dependencyID); err != nil {
+				return err
+			} else if found {
+				integrated = true
 			}
 		}
 		if !integrated {

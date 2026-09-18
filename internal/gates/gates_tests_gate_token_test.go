@@ -35,7 +35,7 @@ func TestResolveDefaultsToTheThreeStandardGates(t *testing.T) {
 	}
 }
 
-func TestExecuteWithProjectCommandsUsesTaskAndTrainDefinitions(t *testing.T) {
+func TestExecuteWithProjectCommandsUsesTaskDefinitionsAndRejectsTrain(t *testing.T) {
 	var commands [][]string
 	executor := Executor{Command: func(_ context.Context, _ string, name string, args ...string) (int, string, error) {
 		commands = append(commands, append([]string{name}, args...))
@@ -43,14 +43,13 @@ func TestExecuteWithProjectCommandsUsesTaskAndTrainDefinitions(t *testing.T) {
 	}}
 	configured := model.DefaultProjectGateCommands()
 	configured.Test.Task = model.ProjectGateCommand{Command: []string{"./scripts/test-task", "--affected"}}
-	configured.Test.Train = model.ProjectGateCommand{Command: []string{"./scripts/test-train", "--full"}}
 	if _, err := executor.ExecuteWithProjectCommands(context.Background(), "/repo", []string{"format", "check", "test"}, configured, "task"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := executor.ExecuteWithProjectCommands(context.Background(), "/repo", []string{"test"}, configured, "train"); err != nil {
-		t.Fatal(err)
+	if _, err := executor.ExecuteWithProjectCommands(context.Background(), "/repo", []string{"test"}, configured, "train"); err == nil {
+		t.Fatal("train test mode was accepted")
 	}
-	if len(commands) != 4 || commands[2][0] != "./scripts/test-task" || commands[2][1] != "--affected" || commands[3][0] != "./scripts/test-train" || commands[3][1] != "--full" {
+	if len(commands) != 3 || commands[2][0] != "./scripts/test-task" || commands[2][1] != "--affected" {
 		t.Fatalf("project-owned command selection=%v", commands)
 	}
 }
@@ -268,7 +267,7 @@ func TestExecutorUsesScopedAndLegacyFullTestCommands(t *testing.T) {
 	}
 }
 
-func TestProjectAndTrainCommandsUseCanonicalFullRunner(t *testing.T) {
+func TestProjectTaskCommandsUseCanonicalFullRunner(t *testing.T) {
 	var calls [][]string
 	e := Executor{Command: func(_ context.Context, _ string, name string, args ...string) (int, string, error) {
 		calls = append(calls, append([]string{name}, args...))
@@ -281,10 +280,10 @@ func TestProjectAndTrainCommandsUseCanonicalFullRunner(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.ExecuteWithProjectCommandsAndScope(context.Background(), "/repo", []string{"test"}, commands, "train", FullTestScope()); err != nil {
-		t.Fatal(err)
+	if _, err := e.ExecuteWithProjectCommandsAndScope(context.Background(), "/repo", []string{"test"}, commands, "train", FullTestScope()); err == nil {
+		t.Fatal("train test mode was accepted")
 	}
-	if !reflect.DeepEqual(calls[0], []string{"./scripts/test-full.sh"}) || !reflect.DeepEqual(calls[1], []string{"./scripts/test-full.sh"}) {
-		t.Fatalf("project task/train commands=%v", calls)
+	if !reflect.DeepEqual(calls[0], []string{"./scripts/test-full.sh"}) {
+		t.Fatalf("project task commands=%v", calls)
 	}
 }

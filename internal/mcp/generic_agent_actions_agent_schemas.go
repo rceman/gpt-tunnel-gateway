@@ -38,7 +38,6 @@ func canonicalAgentStatusOutputSchema() map[string]any {
 		"agent":  outputString(),
 		"status": outputEnum("idle", "busy", "unavailable", "disabled"),
 		"task":   outputString(),
-		"train":  outputString(),
 		"hotfix": outputString(),
 	}
 	return closedOutput(properties, "agent", "status")
@@ -55,7 +54,6 @@ func canonicalAgentAwaitOutputSchema() map[string]any {
 		"agent":          outputString(),
 		"status":         outputEnum("idle", "busy", "unavailable", "disabled"),
 		"task":           outputString(),
-		"train":          outputString(),
 		"hotfix":         outputString(),
 		"tail":           outputArray(outputString()),
 		"tail_truncated": outputBoolean(),

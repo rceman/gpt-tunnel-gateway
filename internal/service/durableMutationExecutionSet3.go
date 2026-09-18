@@ -39,26 +39,6 @@ func (s *Service) durableMutationExecutionSet3(ctx context.Context, operation du
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"task": task, "operation": result})
-	case "task-work":
-		var input TaskWorkInput
-		if err := json.Unmarshal(operation.Input, &input); err != nil {
-			return nil, err
-		}
-		result, err := s.TaskWork(authority.WithPlanner(ctx), input)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(result)
-	case "task-finalize":
-		var input TaskFinalizeInput
-		if err := json.Unmarshal(operation.Input, &input); err != nil {
-			return nil, err
-		}
-		result, err := s.TaskFinalize(authority.WithPlanner(ctx), input)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(result)
 	}
 	return nil, nil
 }

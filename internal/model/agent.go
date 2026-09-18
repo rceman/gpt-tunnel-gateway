@@ -56,11 +56,7 @@ type AgentAvailabilityStatus struct {
 	State          string `json:"state"`
 	Reason         string `json:"reason"`
 	SessionState   string `json:"session_state,omitempty"`
-	AttemptState   string `json:"attempt_state,omitempty"`
-	TrainID        string `json:"train_id,omitempty"`
-	ItemPosition   int    `json:"item_position,omitempty"`
 	TaskID         string `json:"task_id,omitempty"`
-	AttemptNumber  uint64 `json:"attempt_number,omitempty"`
 	Recoverable    bool   `json:"recoverable,omitempty"`
 	RecoveryReason string `json:"recovery_reason,omitempty"`
 }

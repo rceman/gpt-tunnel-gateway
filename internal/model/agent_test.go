@@ -69,13 +69,9 @@ func TestAgentAvailabilityValidation(t *testing.T) {
 	status.Usable = false
 	status.State = "unavailable"
 	status.SessionState = "error"
-	status.AttemptState = TrainV2AttemptRunning
-	status.TrainID = "GTW-TRN1"
-	status.ItemPosition = 0
 	status.TaskID = "GTW-TSK1"
-	status.AttemptNumber = 1
 	status.Recoverable = true
 	if err := ValidateAgentAvailabilityStatus(status); err != nil {
-		t.Fatalf("recoverable unavailable Attempt status rejected: %v", err)
+		t.Fatalf("recoverable unavailable Task status rejected: %v", err)
 	}
 }

@@ -7,8 +7,8 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-// Correction creation is retired with the Task/Run execution graph. Future
-// correction admission must target an exact TrainItem Attempt.
+// Correction creation is retired with the Task/Run execution graph. Correction
+// admission must target a canonical Task execution.
 func (s *Service) TaskCorrectionCreate(context.Context, TaskCorrectionCreateInput) (model.TaskRevision, OperationResult, error) {
 	return model.TaskRevision{}, OperationResult{}, errRunAuthorityRetired
 }

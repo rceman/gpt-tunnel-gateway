@@ -26,7 +26,6 @@ type ProjectStatus struct {
 	Progress             ProjectProgress             `json:"progress"`
 	WorkflowPolicy       ProjectWorkflowPolicyStatus `json:"workflow_policy"`
 	ProjectConfiguration ProjectConfigurationStatus  `json:"project_configuration"`
-	TrainV2              *TrainV2ProjectStatus       `json:"train_v2,omitempty"`
 }
 
 type ProjectConfigurationStatus struct {

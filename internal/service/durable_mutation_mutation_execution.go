@@ -76,14 +76,12 @@ func (s *Service) processDurableMutation(operationID string) {
 }
 func (s *Service) executeDurableMutation(ctx context.Context, operation durableMutationOperation) (json.RawMessage, error) {
 	switch operation.Kind {
-	case "task-execution-integrate", "task-execution-test", "task-authoring-update", "task-authoring-ready", "train-v2-integrate", "train-v2-full-proof", "train-v2-review-backfill", "train-v2-start", "train-v2-advance", "train-v2-correction-start":
+	case "task-execution-integrate", "task-execution-test", "task-authoring-update", "task-authoring-ready":
 		return s.durableMutationExecutionSet1(ctx, operation)
-	case "adr-create", "agent-prompt", "agent-recover", "agent-interrupt", "agent-update":
+	case "adr-create", "agent-prompt", "agent-interrupt", "agent-update":
 		return s.durableMutationExecutionSet2(ctx, operation)
-	case "agent-disable", "project-configuration-update", "task-supersede", "task-work", "task-finalize":
+	case "agent-disable", "project-configuration-update", "task-supersede":
 		return s.durableMutationExecutionSet3(ctx, operation)
-	case "train-attempt-finalize", "train-v2-create", "train-v2-add", "train-v2-cutover", "train-attempt-review":
-		return s.durableMutationExecutionSet4(ctx, operation)
 	default:
 		return nil, fmt.Errorf("unsupported durable mutation kind %q", operation.Kind)
 	}

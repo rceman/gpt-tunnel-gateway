@@ -55,11 +55,7 @@ host load, package concurrency, cache state, or scheduling. They now retain
 functional receipt, idempotency, and terminal-state assertions without timing
 thresholds:
 
-- `internal/service/train_v2_admission_async_test.go` — train create/add.
-- `internal/service/train_v2_attempt_async_test.go` — attempt finalize/review.
-- `internal/service/train_v2_integrate_async_test.go` — train integrate.
-- `internal/service/train_v2_lifecycle_async_test.go` — train start/advance.
-- `internal/service/train_v2_cutover_async_test.go` — train cutover.
+- `internal/service/task_execution_*_test.go` — canonical Task execution dispatch, review, integrate.
 - `internal/service/task_supersede_async_test.go` — task supersede.
 - `internal/service/task_execution_async_test.go` — task work/finalize.
 - `internal/service/task_create_async_test.go` — task create receipt.

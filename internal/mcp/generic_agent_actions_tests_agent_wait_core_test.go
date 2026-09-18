@@ -46,13 +46,11 @@ func TestCanonicalAgentBusyUsesAirelaySessionState(t *testing.T) {
 	availability := model.AgentAvailabilityStatus{
 		Enabled:      true,
 		State:        "usable",
-		AttemptState: model.TrainV2AttemptRunning,
 		SessionState: "idle",
 	}
 	if got := canonicalAgentAvailabilityState(availability); got != "idle" {
-		t.Fatalf("busy Attempt incorrectly made Agent busy: got %q", got)
+		t.Fatalf("idle session incorrectly made Agent busy: got %q", got)
 	}
-	availability.AttemptState = ""
 	availability.SessionState = "running"
 	if got := canonicalAgentAvailabilityState(availability); got != "busy" {
 		t.Fatalf("running Airelay session was not busy: got %q", got)

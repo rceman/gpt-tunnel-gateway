@@ -22,7 +22,6 @@ import (
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
-	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func tsk585CompleteTask(t *testing.T, s *Service, idem, title string, criteria ...string) model.TaskAuthoring {
@@ -1388,7 +1387,7 @@ func mustPage(t *testing.T, s *Service, text, status string, cursor ...string) T
 }
 func tsk585OutboxTask(t *testing.T, id, status string, updatedAt time.Time) model.TaskAuthoring {
 	t.Helper()
-	task, err := trainv2.NewTask("example", id, trainv2.AuthoringDraft{
+	task, err := model.NewTask("example", id, model.AuthoringDraft{
 		Title: "Outbox task", Summary: "Prove outbox ordering.", Objective: "Prove outbox ordering.", ADRRelation: model.TaskADRNoRequired,
 	}, "planner", updatedAt.Add(-time.Hour))
 	if err != nil {

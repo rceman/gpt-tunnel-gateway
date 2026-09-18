@@ -11,7 +11,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
-func TestExactReadsPreferRegisteredTrainWorktree(t *testing.T) {
+func TestExactReadsPreferRegisteredManagedWorktree(t *testing.T) {
 	_, root, base := testutil.RepoWithBareRemote(t)
 	r := Runner{
 		MaxReadBytes: 1 << 20,
@@ -31,20 +31,22 @@ func TestExactReadsPreferRegisteredTrainWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	trainID := "GTW-TRN999"
-	if err := r.CreateTrainWorktree(ctx, p, r.StateDir, "gpt-tunnel-gateway", trainID, "train/GTW-TRN999", base); err != nil {
+	taskID := "GTW-TSK999"
+	laneRoot := filepath.Join(r.StateDir, "task-worktrees", "gpt-tunnel-gateway", taskID)
+	if err := os.MkdirAll(filepath.Dir(laneRoot), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	trainRoot := filepath.Join(r.StateDir, "train-worktrees", "gpt-tunnel-gateway", trainID)
+	testutil.Git(t, root, "worktree", "add", "-b", "task/"+taskID, laneRoot, base)
+	trainRoot := laneRoot
 	if err := os.WriteFile(filepath.Join(trainRoot, "local-only.txt"), []byte("local\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	testutil.Git(t, trainRoot, "add", "local-only.txt")
-	testutil.Git(t, trainRoot, "commit", "-m", "local Train checkpoint")
+	testutil.Git(t, trainRoot, "commit", "-m", "local managed checkpoint")
 	checkpoint := strings.TrimSpace(testutil.Git(t, trainRoot, "rev-parse", "HEAD"))
 
 	show, err := r.Show(ctx, p, checkpoint)
-	if err != nil || !strings.Contains(show, "local Train checkpoint") {
+	if err != nil || !strings.Contains(show, "local managed checkpoint") {
 		t.Fatalf("local show: err=%v output=%q", err, show)
 	}
 	content, err := r.ReadFile(ctx, p, checkpoint, "local-only.txt")

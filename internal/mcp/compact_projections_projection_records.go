@@ -26,13 +26,11 @@ func compactNestedRecord(key string, value map[string]any) map[string]any {
 	switch key {
 	case "task":
 		return compactTask(value)
-	case "train":
-		return compactTrain(value)
 	case "state":
 		return compactState(value)
 	case "current_revision":
 		return compactRevision(value)
-	case "item", "attempt", "result", "receipt":
+	case "result", "receipt":
 		return compactExecution(value)
 	case "operation":
 		return compactOperation(value)
@@ -54,13 +52,6 @@ func compactNestedRecord(key string, value map[string]any) map[string]any {
 }
 func compactTask(value map[string]any) map[string]any {
 	return selectProjectionFields(value, "id", "project_id", "revision", "revision_sha256", "title", "type", "execution", "scope", "status", "created_at", "updated_at")
-}
-func compactTrain(value map[string]any) map[string]any {
-	result := selectProjectionFields(value, "id", "project_id", "revision", "status", "created_by", "created_at", "updated_at")
-	if items, ok := value["items"].([]any); ok {
-		result["item_count"] = len(items)
-	}
-	return result
 }
 func compactState(value map[string]any) map[string]any {
 	return selectProjectionFields(value, "task_id", "task_sha256", "status", "superseded_by", "reviewed_head", "integration_branch", "integration_head", "updated_at")

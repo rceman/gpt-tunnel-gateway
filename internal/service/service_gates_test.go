@@ -43,7 +43,7 @@ func TestExecuteProjectGatesUsesProjectOwnedTaskModes(t *testing.T) {
 	var modes []string
 	s.gateExecutorWithProjectCommands = func(_ context.Context, _ string, names []string, commands model.ProjectGateCommands, mode string) ([]model.CompletionGateResult, error) {
 		modes = append(modes, mode)
-		if commands.Test.Task.Command[0] == "" || commands.Test.Train.Command[0] == "" {
+		if commands.Test.Task.Command[0] == "" {
 			t.Fatal("missing project-owned test command")
 		}
 		return fakeReceiptResults(names), nil
@@ -84,62 +84,5 @@ func TestProjectTaskGatesPassResolvedScopeAndReuseExactReceipt(t *testing.T) {
 	}
 	if len(scopes) != 1 || scopes[0].Mode != gates.TestScopePackages || len(scopes[0].Packages) != 1 || scopes[0].Packages[0] != "./internal/service" {
 		t.Fatalf("scope execution=%#v", scopes)
-	}
-}
-
-func TestTrainCloseoutReusesTaskFullGateProofWithoutSecondPipeline(t *testing.T) {
-	s, _, _ := testServiceWithoutIdentifiers(t)
-	root := s.Config.Projects["example"].Root
-	calls := 0
-	s.gateExecutorWithProjectCommands = func(ctx context.Context, root string, names []string, commands model.ProjectGateCommands, mode string) ([]model.CompletionGateResult, error) {
-		calls++
-		return s.gateExecutor(ctx, root, names)
-	}
-	full := gates.FullTestScope()
-	if _, err := s.executeProjectGatesWithProjectCommandsAndScope(context.Background(), "example", root, []string{"format", "check", "test"}, "task", full); err != nil {
-		t.Fatal(err)
-	}
-	calls = 0
-	results, err := s.executeProjectGatesWithProjectCommandsAndScope(context.Background(), "example", root, []string{"format", "check", "test"}, "train", full)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if calls != 0 {
-		t.Fatalf("Train closeout reran gates=%d results=%#v", calls, results)
-	}
-	for _, result := range results {
-		if result.Execution != "reused" || result.DurationMS < 0 {
-			t.Fatalf("invalid reused proof=%#v", results)
-		}
-	}
-}
-
-func TestTrainCloseoutExecutesOnlyBroaderOrDifferentTestObligation(t *testing.T) {
-	s, _, _ := testServiceWithoutIdentifiers(t)
-	root := s.Config.Projects["example"].Root
-	var executed [][]string
-	s.gateExecutorWithProjectCommandsAndScope = func(_ context.Context, _ string, names []string, _ model.ProjectGateCommands, _ string, _ gates.TestScope) ([]model.CompletionGateResult, error) {
-		executed = append(executed, append([]string{}, names...))
-		return fakeReceiptResults(names), nil
-	}
-	s.gateExecutorWithProjectCommands = func(_ context.Context, _ string, names []string, _ model.ProjectGateCommands, _ string) ([]model.CompletionGateResult, error) {
-		executed = append(executed, append([]string{}, names...))
-		return fakeReceiptResults(names), nil
-	}
-	scope := gates.TestScope{Mode: gates.TestScopePackages, Packages: []string{"./internal/service"}}
-	if _, err := s.executeProjectGatesWithProjectCommandsAndScope(context.Background(), "example", root, []string{"format", "check", "test"}, "task", scope); err != nil {
-		t.Fatal(err)
-	}
-	trainCommands := model.DefaultProjectGateCommands()
-	trainCommands.Test.Train = model.ProjectGateCommand{Command: []string{"go", "test", "./...", "-count=1", "-run", "TrainOnly"}}
-	results, err := s.executeProjectTrainGatesWithReceiptReuse(context.Background(), "example", root, []string{"format", "check", "test"}, trainCommands, gates.FullTestScope())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(executed) != 2 || len(executed[1]) != 1 || executed[1][0] != "test" {
-		t.Fatalf("broader/different obligation execution=%v results=%#v", executed, results)
-	}
-	if results[0].Execution != "reused" || results[1].Execution != "reused" || results[2].Execution != "executed" {
-		t.Fatalf("delta proof=%#v", results)
 	}
 }

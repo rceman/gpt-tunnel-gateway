@@ -58,12 +58,6 @@ var sharedLifecycleRegistry = map[string]sharedLifecycleDefinition{
 		StatusMutationKind:    "complete",
 		ArchiveMutationKind:   "archive",
 	},
-	"train": {
-		EntityType:   "train",
-		StateTable:   "shared_trains",
-		SearchFields: []string{"id", "title", "summary", "description", "status"},
-		FilterFields: []string{"status"},
-	},
 	"adr": {
 		EntityType:            "adr",
 		StateTable:            "shared_adrs",
@@ -317,7 +311,10 @@ func sharedProjectionTable(entityType string) (string, bool) {
 	if definition, ok := sharedLifecycle(entityType); ok {
 		return definition.StateTable, true
 	}
-	table, ok := sharedProjectionTables[entityType]
+	if table, ok := sharedProjectionTables[entityType]; ok {
+		return table, true
+	}
+	table, ok := sharedEvidenceTables[entityType]
 	return table, ok
 }
 

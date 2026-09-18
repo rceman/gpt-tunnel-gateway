@@ -8,11 +8,10 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
-	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func (s *Service) TaskAuthoringUpdate(ctx context.Context, in TaskAuthoringUpdateInput) (model.TaskAuthoring, OperationResult, error) {
-	if err := requireTrainV2Authoring(ctx, s, in.ProjectID); err != nil {
+	if err := requireCanonicalTaskAuthoring(ctx, s, in.ProjectID); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	if in.ExpectedRevision < 1 || in.UpdatedBy == "" || strings.ContainsAny(in.UpdatedBy, "\x00\r\n") {
@@ -22,15 +21,15 @@ func (s *Service) TaskAuthoringUpdate(ctx context.Context, in TaskAuthoringUpdat
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	if err := trainv2.CheckRevision(current, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
+	if err := model.CheckRevision(current, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	if admitted, err := s.taskAdmittedToNonterminalTrain(ctx, in.ProjectID, in.TaskID); err != nil {
+	if admitted, err := s.taskHasNonterminalExecutionShared(ctx, in.ProjectID, in.TaskID); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	} else if admitted {
-		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("ready Task %q is admitted to a nonterminal Train and cannot be edited", in.TaskID)
+		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("ready Task %q owns a nonterminal execution and cannot be edited", in.TaskID)
 	}
-	updated, changed, err := trainv2.UpdateTask(current, trainv2.AuthoringPatch{Type: in.Type, Scope: in.Scope, Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}, in.UpdatedBy, s.durableNow())
+	updated, changed, err := model.UpdateTask(current, model.AuthoringPatch{Type: in.Type, Scope: in.Scope, Title: in.Title, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}, in.UpdatedBy, s.durableNow())
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
@@ -46,15 +45,15 @@ func (s *Service) TaskAuthoringUpdate(ctx context.Context, in TaskAuthoringUpdat
 		if err := readWorktreeJSON(w, s.taskAuthoringPath(in.ProjectID, in.TaskID), &latest); err != nil {
 			return nil, err
 		}
-		if err := trainv2.CheckRevision(latest, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
+		if err := model.CheckRevision(latest, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
 			return nil, err
 		}
-		admitted, err := taskAdmittedToNonterminalTrainInWorktree(w, s.trainV2Root(in.ProjectID), in.TaskID)
+		admitted, err := s.taskHasNonterminalExecutionShared(ctx, in.ProjectID, in.TaskID)
 		if err != nil {
 			return nil, err
 		}
 		if admitted {
-			return nil, fmt.Errorf("ready Task %q is admitted to a nonterminal Train and cannot be edited", in.TaskID)
+			return nil, fmt.Errorf("ready Task %q owns a nonterminal execution and cannot be edited", in.TaskID)
 		}
 		if err := hub.WriteJSON(w, s.taskAuthoringPath(in.ProjectID, in.TaskID), updated); err != nil {
 			return nil, err
@@ -73,7 +72,7 @@ func (s *Service) TaskAuthoringUpdate(ctx context.Context, in TaskAuthoringUpdat
 }
 
 func (s *Service) TaskAuthoringReady(ctx context.Context, in TaskAuthoringReadyInput) (model.TaskAuthoring, OperationResult, error) {
-	if err := requireTrainV2Authoring(ctx, s, in.ProjectID); err != nil {
+	if err := requireCanonicalTaskAuthoring(ctx, s, in.ProjectID); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	if in.ExpectedRevision < 1 || strings.TrimSpace(in.ReadyBy) == "" || strings.ContainsAny(in.ReadyBy, "\x00\r\n") {
@@ -83,7 +82,7 @@ func (s *Service) TaskAuthoringReady(ctx context.Context, in TaskAuthoringReadyI
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	if err := trainv2.CheckRevision(current, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
+	if err := model.CheckRevision(current, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	if current.Status == model.TaskAuthoringReady {
@@ -99,7 +98,7 @@ func (s *Service) TaskAuthoringReady(ctx context.Context, in TaskAuthoringReadyI
 	if err := s.validateTaskDependencies(ctx, in.ProjectID, current); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	ready, err := trainv2.ReadyTask(current, in.ReadyBy, s.durableNow())
+	ready, err := model.ReadyTask(current, in.ReadyBy, s.durableNow())
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
@@ -108,7 +107,7 @@ func (s *Service) TaskAuthoringReady(ctx context.Context, in TaskAuthoringReadyI
 		if err := readWorktreeJSON(w, s.taskAuthoringPath(in.ProjectID, in.TaskID), &latest); err != nil {
 			return nil, err
 		}
-		if err := trainv2.CheckRevision(latest, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
+		if err := model.CheckRevision(latest, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
 			return nil, err
 		}
 		if latest.Status == model.TaskAuthoringReady {

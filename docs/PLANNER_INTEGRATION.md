@@ -8,17 +8,13 @@ Tasks, ADRs, Rules, and repository-local declarations. The procedures are
 No external planner repository, workflow document, or remote bootstrap is
 required before repository work or release validation.
 
-## Train v2 adoption boundary
+## Canonical execution boundary
 
-Train v2 is an explicit per-project cutover, not an implicit consequence of
-deploying the A-E implementation. The Gateway must smoke the exact active
-runtime before `train/cutover`; the cutover receipt records the project
-configuration revision, source/runtime heads, action-schema revision,
-historical compatibility, and the required Plan materialization decision.
-Until that receipt exists, legacy execution remains the writable authority.
-After it exists, Plan remains readable history only and new work uses the
-branchless Task/Train lifecycle. Historical Tasks, Runs, Reports and Plan
-records are not rewritten.
+New work uses the canonical Task-authoring and Task-execution lifecycle:
+`task/create`, `task/update`, `task/ready`, `task/dispatch`, code/tests/rebase
+submissions, review, and `task/integrate`. Plan remains readable history
+only. Historical Tasks, Runs, Reports, Plan, and Train/Attempt records are
+preserved as evidence and are not rewritten.
 
 ## Release tooling provenance
 

@@ -123,18 +123,13 @@ func TestTaskLifecycleCLIHardCutKeepsOnlyExecutionRoutes(t *testing.T) {
 		{"task", "create", "--file", inputPath},
 		{"task", "list", "example"},
 		{"task", "supersede", "EXM-TSK1", "--file", inputPath},
+		{"task", "work", "EXM-TSK1"},
+		{"task", "finalize", "EXM-TSK1"},
 	} {
 		output, err := run(args...)
 		exitErr, ok := err.(*exec.ExitError)
 		if !ok || exitErr.ExitCode() != 2 || !strings.Contains(output, "usage: gpt-tunnel") {
 			t.Fatalf("retired task route was not rejected: args=%#v err=%v output=%s", args, err, output)
-		}
-	}
-	for _, args := range [][]string{{"task", "work", "EXM-TSK1"}, {"task", "finalize", "EXM-TSK1"}} {
-		output, err := run(args...)
-		exitErr, ok := err.(*exec.ExitError)
-		if !ok || exitErr.ExitCode() == 2 || strings.Contains(output, "usage: gpt-tunnel") {
-			t.Fatalf("execution task route was not recognized: args=%#v err=%v output=%s", args, err, output)
 		}
 	}
 }

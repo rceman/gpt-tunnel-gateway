@@ -37,7 +37,11 @@ func (s *Service) ProjectConfigurationRead(ctx context.Context, projectID string
 	return configuration, nil
 }
 
-func (s *Service) trainV2Enabled(ctx context.Context, projectID string) (bool, error) {
+// canonicalExecutionModel reports whether the project configuration carries
+// the canonical post-cutover execution marker. The stored value "train_v2" is
+// historical provenance for existing configurations; no Train authority
+// remains behind it.
+func (s *Service) canonicalExecutionModel(ctx context.Context, projectID string) (bool, error) {
 	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
 	if err != nil {
 		if IsNotFound(err) {
@@ -48,8 +52,10 @@ func (s *Service) trainV2Enabled(ctx context.Context, projectID string) (bool, e
 	return configuration.ExecutionModel == "train_v2", nil
 }
 
-func (s *Service) TrainV2Enabled(ctx context.Context, projectID string) (bool, error) {
-	return s.trainV2Enabled(ctx, projectID)
+// CanonicalExecutionEnabled reports whether the project runs the canonical
+// post-cutover execution model (the stored "train_v2" marker is provenance).
+func (s *Service) CanonicalExecutionEnabled(ctx context.Context, projectID string) (bool, error) {
+	return s.canonicalExecutionModel(ctx, projectID)
 }
 
 func (s *Service) projectConfigurationStatus(ctx context.Context, projectID string) ProjectConfigurationStatus {
@@ -98,12 +104,12 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 	if err := model.ValidateProjectConfiguration(updated); err != nil {
 		return model.ProjectConfiguration{}, OperationResult{}, err
 	}
-	active, err := s.projectHasActiveTrainAttempt(ctx, in.ProjectID)
+	active, err := s.projectHasActiveTaskExecution(ctx, in.ProjectID)
 	if err != nil {
-		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("inspect active Train Attempt: %w", err)
+		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("inspect active Task execution: %w", err)
 	}
 	if active && projectConfigurationPatchIsExecutionSensitive(in.Patch) {
-		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("execution-sensitive project configuration cannot change while an active Train Attempt exists")
+		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("execution-sensitive project configuration cannot change while an active Task execution exists")
 	}
 	path := s.projectConfigurationPath(in.ProjectID)
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: update project configuration "+in.ProjectID, func(worktree string) ([]string, error) {
@@ -117,13 +123,6 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 		}
 		if latest.Revision != in.ExpectedRevision {
 			return nil, fmt.Errorf("project configuration revision conflict: expected %d, current %d", in.ExpectedRevision, latest.Revision)
-		}
-		active, err := activeTrainAttemptInWorktree(worktree, in.ProjectID)
-		if err != nil {
-			return nil, fmt.Errorf("inspect active Train Attempt: %w", err)
-		}
-		if active && projectConfigurationPatchIsExecutionSensitive(in.Patch) {
-			return nil, fmt.Errorf("execution-sensitive project configuration cannot change while an active Train Attempt exists")
 		}
 		candidate := latest
 		applyProjectConfigurationPatch(&candidate, in.Patch)

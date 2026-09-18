@@ -25,7 +25,7 @@ func projectProgressFromInputs(tasks []TaskRecord, tasksErr error, status airela
 		ExitCode:              status.ExitCode,
 		Tail:                  tail.Stdout,
 		BlockerClassification: "none",
-		RecommendedNextAction: "inspect Train-v2 item attempt",
+		RecommendedNextAction: "inspect Task execution state",
 		ComponentErrors:       []string{},
 	}
 	if statusErr != nil {
@@ -48,8 +48,8 @@ func projectProgressFromInputs(tasks []TaskRecord, tasksErr error, status airela
 }
 
 // projectProgress reads only the current agent/session snapshot. It never
-// traverses Task->Run or reads operational /runs state after the Train-v2
-// cutover.
+// traverses Task->Run or reads operational /runs state after the
+// execution cutover.
 func (s *Service) projectProgress(ctx context.Context, projectID string) (ProjectProgress, error) {
 	local, err := s.projectConfig(projectID)
 	if err != nil {
@@ -70,7 +70,7 @@ func (s *Service) projectProgress(ctx context.Context, projectID string) (Projec
 		ExitCode:              status.ExitCode,
 		Tail:                  tail.Stdout,
 		BlockerClassification: "none",
-		RecommendedNextAction: "inspect Train-v2 item attempt",
+		RecommendedNextAction: "inspect Task execution state",
 		ComponentErrors:       []string{},
 	}
 	if progress.AgentState == "" {

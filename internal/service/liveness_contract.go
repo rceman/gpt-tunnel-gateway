@@ -8,8 +8,8 @@ import (
 )
 
 // ProjectProgress is the bounded, Run-free progress projection used by
-// project_status and agent_status. Train-v2 execution details are exposed by
-// the TrainV2 projection; this type contains only the session snapshot.
+// project_status and agent_status. Task-execution details are exposed by
+// the canonical status projections; this type contains only the session snapshot.
 type ProjectProgress struct {
 	AgentState                       string     `json:"agent_state"`
 	ControllerReachable              bool       `json:"controller_reachable"`

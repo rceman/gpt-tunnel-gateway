@@ -9,56 +9,6 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-func (s *Service) executeProjectTrainGatesWithReceiptReuse(ctx context.Context, projectID, root string, names []string, commands model.ProjectGateCommands, scope gates.TestScope) ([]model.CompletionGateResult, error) {
-	normalized, err := scope.Normalize()
-	if err != nil {
-		return nil, err
-	}
-	tree, _, identityErr := s.currentTestIdentity(ctx, projectID, root)
-	receipt, receiptDigest, receiptErr := s.loadTestPassReceipt(projectID)
-	byID := make(map[string]model.CompletionGateResult, len(names))
-	missing := make([]string, 0, len(names))
-	for _, name := range names {
-		digest, digestErr := gates.ProjectGateCommandDigest(commands, name, "train", normalized)
-		candidate, ok := byReceiptGate(receipt, name)
-		scopeMatches := name != model.WorkflowGateTest || (receipt.ScopeMode == normalized.Mode && reflect.DeepEqual(receipt.ScopePackages, normalized.Packages))
-		if identityErr != nil || receiptErr != nil || digestErr != nil || receipt.ProjectID != projectID || receipt.TreeID != tree || !scopeMatches || receipt.CommandDigests[name] != digest || !ok || candidate.ExitCode != 0 {
-			missing = append(missing, name)
-			continue
-		}
-		candidate.Execution = "reused"
-		candidate.ReceiptDigest = receiptDigest
-		byID[name] = candidate
-	}
-	if len(missing) > 0 {
-		results, execErr := s.executeProjectGatesCommandSet(ctx, root, missing, commands, "train", normalized)
-		if execErr != nil {
-			return results, execErr
-		}
-		for _, result := range annotateExecutedGateResults(results) {
-			byID[result.ID] = result
-		}
-	}
-	results := make([]model.CompletionGateResult, 0, len(names))
-	for _, name := range names {
-		result, ok := byID[name]
-		if !ok {
-			return nil, fmt.Errorf("train gate evidence missing %q", name)
-		}
-		results = append(results, result)
-	}
-	recorded, recordedDigest, err := s.writeProjectGatePassReceiptLocked(ctx, projectID, root, names, commands, "train", normalized, results)
-	if err != nil {
-		return nil, fmt.Errorf("store Train gate pass receipt: %w", err)
-	}
-	for i := range results {
-		results[i].TreeID = recorded.TreeID
-		results[i].ContractDigest = recorded.CommandDigests[results[i].ID]
-		results[i].ReceiptDigest = recordedDigest
-	}
-	return results, nil
-}
-
 func byReceiptGate(receipt testPassReceipt, wanted string) (model.CompletionGateResult, bool) {
 	for _, result := range receipt.GateResults {
 		if result.ID == wanted {

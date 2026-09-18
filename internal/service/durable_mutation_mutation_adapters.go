@@ -14,9 +14,6 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-func (s *Service) enqueueTrainV2Integrate(ctx context.Context, in TrainV2IntegrateInput) (durableMutationOperation, error) {
-	return s.enqueueTypedDurableMutation(ctx, "train-v2-integrate", in.ProjectID, in)
-}
 func (s *Service) enqueueTaskAuthoringReady(ctx context.Context, in TaskAuthoringReadyInput) (durableMutationOperation, error) {
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return durableMutationOperation{}, err

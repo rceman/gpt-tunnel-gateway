@@ -62,3 +62,27 @@ func mcpSQLiteSessionStore(t *testing.T, svc *service.Service) durableSession.St
 	}
 	return durableSession.NewStoreWithDurability(svc.Durability)
 }
+
+func ensureMCPTestProjectIdentifiers(t *testing.T, s *service.Service) string {
+	t.Helper()
+	ctx := context.Background()
+	revision, err := s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identifiers, err := s.ProjectIdentifiersRead(ctx, "example")
+	if err == nil {
+		if identifiers.ProjectCode != "EXM" {
+			t.Fatalf("test project code=%q, want EXM", identifiers.ProjectCode)
+		}
+		return revision
+	}
+	if !service.IsNotFound(err) {
+		t.Fatal(err)
+	}
+	identifiers, operation, err := s.ProjectIdentifiersAdopt(ctx, service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: revision}})
+	if err != nil || identifiers.ProjectCode != "EXM" {
+		t.Fatalf("adopt identifiers: %#v %v", identifiers, err)
+	}
+	return operation.Hub.After
+}

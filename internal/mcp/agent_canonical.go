@@ -214,9 +214,6 @@ func canonicalAgentStatus(ctx context.Context, s *Server, projectID string, targ
 	if availability.TaskID != "" {
 		result["task"] = availability.TaskID
 	}
-	if availability.TrainID != "" {
-		result["train"] = availability.TrainID
-	}
 	return result, nil
 }
 

@@ -267,15 +267,17 @@ func (s *Service) AgentRegistryStatus(ctx context.Context, projectID, agentID st
 			return s.workerAgentRegistryStatus(ctx, projectID, agent, status)
 		}
 	}
-	active, activeFound, activeErr := s.trainV2ActiveAttempt(ctx, projectID)
-	if activeErr == nil && activeFound && active.Attempt.AgentID == agentID {
-		status.AttemptState = active.Attempt.Status
-		status.TrainID = active.Train.ID
-		status.ItemPosition = active.Item.Position
-		status.TaskID = active.Item.TaskID
-		status.AttemptNumber = active.Attempt.Number
-		status.Recoverable = active.Attempt.Status == model.TrainV2AttemptRunning
-		status.RecoveryReason = "durable Train Attempt owns this Agent execution"
+	if s.Durability != nil {
+		if states, statesErr := s.Durability.ListTaskExecutionStates(ctx, projectID); statesErr == nil {
+			for _, state := range states {
+				if state.Agent == agentID && model.IsTaskExecutionAgentOwned(state.Status) {
+					status.TaskID = state.TaskID
+					status.Recoverable = true
+					status.RecoveryReason = "durable Task execution owns this Agent"
+					break
+				}
+			}
+		}
 	}
 	if !agent.Enabled {
 		status.State, status.Reason = "disabled", "agent is disabled"

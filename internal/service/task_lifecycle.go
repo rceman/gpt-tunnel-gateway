@@ -80,10 +80,10 @@ func (s *Service) TaskLifecycleArchive(ctx context.Context, projectID, taskID, a
 	if current.Status == model.TaskAuthoringArchived {
 		return current, nil
 	}
-	if admitted, err := s.taskAdmittedToNonterminalTrainShared(ctx, projectID, taskID); err != nil {
+	if admitted, err := s.taskHasNonterminalExecutionShared(ctx, projectID, taskID); err != nil {
 		return model.TaskAuthoring{}, err
 	} else if admitted {
-		return model.TaskAuthoring{}, fmt.Errorf("Task %q is admitted to a nonterminal Train and cannot be archived", taskID)
+		return model.TaskAuthoring{}, fmt.Errorf("Task %q owns a nonterminal execution and cannot be archived", taskID)
 	}
 	if current.Status != model.TaskAuthoringPlanned && current.Status != model.TaskAuthoringReady && current.Status != model.TaskAuthoringDone {
 		return model.TaskAuthoring{}, fmt.Errorf("Task %q cannot be archived from status %q", taskID, current.Status)

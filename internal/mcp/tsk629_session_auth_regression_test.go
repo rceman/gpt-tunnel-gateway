@@ -245,17 +245,17 @@ func TestTSK629PublicBoundaryInventoryHasNoInternalSelectors(t *testing.T) {
 	if strings.Contains(string(encodedSessionInput), "session_ref") {
 		t.Fatalf("session action schema exposes session_ref: %s", encodedSessionInput)
 	}
-	for _, path := range []string{"train/start", "train/correction-start"} {
+	for _, path := range []string{"agent/prompt", "agent/interrupt"} {
 		entry, ok := entries[path]
 		if !ok {
-			t.Fatalf("missing public Train action %q", path)
+			t.Fatalf("missing public Agent action %q", path)
 		}
 		properties := entry.InputSchema["properties"].(map[string]any)
 		if _, ok := properties["agent_id"]; ok {
-			t.Fatalf("Train action %s retains agent_id targeting", path)
+			t.Fatalf("Agent action %s retains agent_id targeting", path)
 		}
 		if _, ok := properties["agent"]; !ok {
-			t.Fatalf("Train action %s omits logical Agent targeting", path)
+			t.Fatalf("Agent action %s omits logical Agent targeting", path)
 		}
 	}
 }

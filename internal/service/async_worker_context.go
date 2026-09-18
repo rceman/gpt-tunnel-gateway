@@ -10,7 +10,6 @@ import (
 
 const (
 	defaultAsyncMutationTimeout             = 60 * time.Second
-	defaultIntegrationTimeout               = 5 * time.Minute
 	defaultTaskExecutionVerificationTimeout = 30 * time.Minute
 )
 
@@ -20,8 +19,6 @@ func (s *Service) asyncMutationContext(action, operationID string) (context.Cont
 	timeout := defaultAsyncMutationTimeout
 	if configured := s.asyncMutationTimeouts[action]; configured > 0 {
 		timeout = configured
-	} else if action == "train-v2-integrate" {
-		timeout = defaultIntegrationTimeout
 	} else if action == "task-execution-test" {
 		timeout = defaultTaskExecutionVerificationTimeout
 	}

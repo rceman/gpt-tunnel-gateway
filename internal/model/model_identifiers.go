@@ -67,16 +67,8 @@ func ParseTaskID(value string) (string, uint64, error) {
 	return matches[1], number, nil
 }
 
-func FormatTrainV2ID(projectCode string, number uint64) (string, error) {
-	if err := ValidateProjectCode(projectCode); err != nil {
-		return "", err
-	}
-	if err := ValidateCompactIDNumber(number); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%s-TRN%d", projectCode, number), nil
-}
-
+// ParseTrainV2ID decodes historical TRN record identifiers so preserved Train
+// evidence remains readable. No new TRN identifiers are minted.
 func ParseTrainV2ID(value string) (string, uint64, error) {
 	matches := canonicalTrainV2IDRE.FindStringSubmatch(value)
 	if len(matches) != 3 {

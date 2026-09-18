@@ -34,8 +34,8 @@ type Service struct {
 	Git                                     gitx.Runner
 	Airelay                                 airelay.Client
 	clock                                   func() time.Time
-	asyncMutationTimeouts                   map[string]time.Duration
 	durableMutationExecutor                 func(context.Context, durableMutationOperation) (json.RawMessage, error)
+	asyncMutationTimeouts                   map[string]time.Duration
 	gateExecutor                            func(context.Context, string, []string) ([]model.CompletionGateResult, error)
 	gateExecutorWithScope                   func(context.Context, string, []string, gates.TestScope) ([]model.CompletionGateResult, error)
 	gateExecutorWithProjectCommands         func(context.Context, string, []string, model.ProjectGateCommands, string) ([]model.CompletionGateResult, error)
@@ -98,7 +98,6 @@ func newService(c config.Config, durability *sqlitestore.Databases, startWorkers
 		taskExecutionVerifyInFlight: make(map[string]string),
 		durableMutationWake:         make(chan string, 32),
 		durableMutationActive:       make(map[string]struct{}),
-		asyncMutationTimeouts:       map[string]time.Duration{"train-v2-integrate": defaultIntegrationTimeout},
 		gateExecutor: func(ctx context.Context, root string, names []string) ([]model.CompletionGateResult, error) {
 			return executor.Execute(ctx, root, names)
 		},
@@ -170,40 +169,6 @@ type ProjectRegisterInput struct {
 type CollectionPageInput struct {
 	Limit  int    `json:"limit,omitempty"`
 	Cursor string `json:"cursor,omitempty"`
-}
-
-type TaskTrainCreateInput struct {
-	ProjectID       string                 `json:"project_id"`
-	TrainID         string                 `json:"train_id,omitempty"`
-	TaskIDs         []string               `json:"task_ids"`
-	ExecutionGroups []model.ExecutionGroup `json:"execution_groups,omitempty"`
-	BaseRevision    string                 `json:"base_revision,omitempty"`
-	LaneBranch      string                 `json:"lane_branch,omitempty"`
-	CreatedBy       string                 `json:"created_by"`
-	WriteOptions
-}
-
-type TaskTrainPollInput struct {
-	ProjectID string `json:"project_id"`
-	TrainID   string `json:"train_id,omitempty"`
-	Cursor    string `json:"cursor,omitempty"`
-}
-
-type TaskTrainStatus struct {
-	ProjectID            string `json:"project_id"`
-	TrainID              string `json:"train_id"`
-	Status               string `json:"status"`
-	CurrentIndex         int    `json:"current_index"`
-	TaskCount            int    `json:"task_count"`
-	CurrentTaskID        string `json:"current_task_id,omitempty"`
-	CurrentTaskState     string `json:"current_task_state,omitempty"`
-	CurrentAttemptStatus string `json:"current_attempt_status,omitempty"`
-	AgentState           string `json:"agent_state,omitempty"`
-	WaitReason           string `json:"wait_reason,omitempty"`
-	NextTaskID           string `json:"next_task_id,omitempty"`
-	Tail                 string `json:"tail,omitempty"`
-	NextCursor           string `json:"next_cursor,omitempty"`
-	HasMore              bool   `json:"has_more"`
 }
 
 type ProjectListPageResult struct {

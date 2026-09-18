@@ -23,8 +23,7 @@ type ProjectGateCommand struct {
 }
 
 type ProjectTestGateCommands struct {
-	Task  ProjectGateCommand `json:"task"`
-	Train ProjectGateCommand `json:"train"`
+	Task ProjectGateCommand `json:"task"`
 }
 
 // ProjectGateCommands is the complete configurable gate surface. Gateway
@@ -118,15 +117,12 @@ func DefaultProjectGateCommands() ProjectGateCommands {
 			Task: ProjectGateCommand{
 				Command: []string{"./scripts/test-full.sh"},
 			},
-			Train: ProjectGateCommand{
-				Command: []string{"./scripts/test-full.sh"},
-			},
 		},
 	}
 }
 
 func (v ProjectGateCommands) IsZero() bool {
-	return len(v.Format.Command) == 0 && len(v.Check.Command) == 0 && len(v.Test.Task.Command) == 0 && len(v.Test.Train.Command) == 0
+	return len(v.Format.Command) == 0 && len(v.Check.Command) == 0 && len(v.Test.Task.Command) == 0
 }
 
 func (v ProjectGateCommands) Validate() error {
@@ -136,10 +132,7 @@ func (v ProjectGateCommands) Validate() error {
 	if err := v.Check.Validate("check"); err != nil {
 		return err
 	}
-	if err := v.Test.Task.Validate("test.task"); err != nil {
-		return err
-	}
-	return v.Test.Train.Validate("test.train")
+	return v.Test.Task.Validate("test.task")
 }
 
 func (v ProjectGateCommand) Validate(name string) error {

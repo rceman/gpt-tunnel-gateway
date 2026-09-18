@@ -11,7 +11,7 @@ import (
 func TestTaskAuthoringUpdateAsyncIsBoundedIdempotentAndRestartReadable(t *testing.T) {
 	s, hubRevision, _ := testServiceWithoutIdentifiers(t)
 	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)
-	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
+	hubRevision = enableCanonicalExecutionForTest(t, s, hubRevision)
 	_ = testServiceWithDurability(t, s)
 	task, _, err := s.taskAuthoringCreateShared(context.Background(), "EXM-OPR100", TaskAuthoringCreateInput{
 		ProjectID:          "example",

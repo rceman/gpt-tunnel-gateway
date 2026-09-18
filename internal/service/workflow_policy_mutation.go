@@ -87,7 +87,7 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 	configurationPath := s.projectConfigurationPath(policy.ProjectID)
 	legacyPath := s.workflowPolicyPath(policy.ProjectID)
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: adopt workflow policy "+policy.ProjectID, func(worktree string) ([]string, error) {
-		if err := s.rejectActiveWorkflowExecutionInWorktree(worktree, policy.ProjectID); err != nil {
+		if err := s.rejectActiveWorkflowExecution(ctx, policy.ProjectID); err != nil {
 			return nil, err
 		}
 		projectPath := s.projectPath(policy.ProjectID)
@@ -124,23 +124,12 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 }
 
 func (s *Service) rejectActiveWorkflowExecution(ctx context.Context, projectID string) error {
-	active, err := s.projectHasActiveTrainAttempt(ctx, projectID)
+	active, err := s.projectHasActiveTaskExecution(ctx, projectID)
 	if err != nil {
-		return fmt.Errorf("inspect active Train Attempt: %w", err)
+		return fmt.Errorf("inspect active Task execution: %w", err)
 	}
 	if active {
-		return fmt.Errorf("workflow policy cannot change while an active Train Attempt exists")
-	}
-	return nil
-}
-
-func (s *Service) rejectActiveWorkflowExecutionInWorktree(worktree, projectID string) error {
-	active, err := activeTrainAttemptInWorktree(worktree, projectID)
-	if err != nil {
-		return fmt.Errorf("inspect active Train Attempt: %w", err)
-	}
-	if active {
-		return fmt.Errorf("workflow policy cannot change while an active Train Attempt exists")
+		return fmt.Errorf("workflow policy cannot change while an active Task execution exists")
 	}
 	return nil
 }

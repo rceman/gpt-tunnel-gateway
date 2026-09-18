@@ -18,9 +18,9 @@ func TestSortCodeWorktreeCandidatesUsesKindThenNewestCreationAndCanonicalIDDesce
 	candidates := []codeWorktreeCandidate{
 		{localCodeTarget: localCodeTarget{
 			CodeIdentity: CodeIdentity{
-				Worktree: "train-old",
+				Worktree: "task-old",
 			},
-			Kind: "train",
+			Kind: "task",
 		}, CreatedAt: now.Add(-time.Hour), SortID: "GTW-TRN2"},
 		{localCodeTarget: localCodeTarget{
 			CodeIdentity: CodeIdentity{
@@ -36,9 +36,9 @@ func TestSortCodeWorktreeCandidatesUsesKindThenNewestCreationAndCanonicalIDDesce
 		}, SortID: "main"},
 		{localCodeTarget: localCodeTarget{
 			CodeIdentity: CodeIdentity{
-				Worktree: "train-new",
+				Worktree: "task-new",
 			},
-			Kind: "train",
+			Kind: "task",
 		}, CreatedAt: now, SortID: "GTW-TRN3"},
 		{localCodeTarget: localCodeTarget{
 			CodeIdentity: CodeIdentity{
@@ -54,7 +54,7 @@ func TestSortCodeWorktreeCandidatesUsesKindThenNewestCreationAndCanonicalIDDesce
 		}, CreatedAt: now, SortID: "a-fix"},
 	}
 	sortCodeWorktreeCandidates(candidates)
-	want := []string{"main", "hotfix-new", "hotfix-tie-b", "hotfix-tie-a", "train-new", "train-old"}
+	want := []string{"main", "hotfix-new", "hotfix-tie-b", "hotfix-tie-a", "task-new", "task-old"}
 	got := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
 		got = append(got, candidate.CodeIdentity.Worktree)

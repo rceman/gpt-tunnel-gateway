@@ -245,7 +245,7 @@ func proveLegacyBodyPreserved(body string, sections []model.PlanSection) error {
 // plan is rejected so the operation is strictly one-time and never acts as a
 // reader fallback.
 func (s *Service) PlanCutover(ctx context.Context, in PlanCutoverInput) (OperationResult, error) {
-	if err := rejectPlanMutationAfterTrainV2(ctx, s, in.ProjectID); err != nil {
+	if err := rejectPlanMutationAfterCanonicalCutover(ctx, s, in.ProjectID); err != nil {
 		return OperationResult{}, err
 	}
 	if in.ProjectID == "" || in.UpdatedBy == "" {
@@ -314,4 +314,17 @@ func (s *Service) PlanCutover(ctx context.Context, in PlanCutoverInput) (Operati
 		ProjectID: in.ProjectID,
 		Status:    "cut over",
 	}, nil
+}
+
+// rejectPlanMutationAfterCanonicalCutover keeps the Plan surface
+// historical/read-only once the project runs the canonical execution model.
+func rejectPlanMutationAfterCanonicalCutover(ctx context.Context, s *Service, projectID string) error {
+	enabled, err := s.canonicalExecutionModel(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if enabled {
+		return fmt.Errorf("PLAN_AUTHORITY_RETIRED: Plan is historical/read-only under canonical Task execution")
+	}
+	return nil
 }

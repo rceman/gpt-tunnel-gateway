@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestAgentInterruptCurrentAgentDoesNotRequireTrainAttempt(t *testing.T) {
+func TestAgentInterruptCurrentAgentDoesNotRequireExecutionAttempt(t *testing.T) {
 	s, _, _ := testService(t)
 	result, err := s.AgentInterrupt(context.Background(), AgentInterruptInput{
 		OperationID: "interrupt-current-agent",

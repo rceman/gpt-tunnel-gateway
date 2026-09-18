@@ -1,21 +1,19 @@
-package train
+package model
 
 import (
 	"fmt"
 	"reflect"
 	"strings"
 	"time"
-
-	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-// AuthoringDraft is the storage-independent semantic input for one Train v2
-// task. The service adapter owns Hub allocation and persistence; this package
+// AuthoringDraft is the storage-independent semantic input for one
+// canonical task. The service adapter owns Hub allocation and persistence; this package
 // owns the transition rules.
 type AuthoringDraft struct {
-	Type                  model.TaskType
-	Execution             model.TaskExecution
-	Scope                 *model.TaskScope
+	Type                  TaskType
+	Execution             TaskExecution
+	Scope                 *TaskScope
 	Title                 string
 	Summary               string
 	Objective             string
@@ -32,9 +30,9 @@ type AuthoringDraft struct {
 // AuthoringPatch contains only mutable semantic fields. Identity, revision,
 // hash and ready-seal fields are always derived here.
 type AuthoringPatch struct {
-	Type                  *model.TaskType
-	Execution             *model.TaskExecution
-	Scope                 *model.TaskScope
+	Type                  *TaskType
+	Execution             *TaskExecution
+	Scope                 *TaskScope
 	Title                 *string
 	Summary               *string
 	Objective             *string
@@ -52,12 +50,12 @@ type AuthoringPatch struct {
 // a repository, Hub, or generated task identity.
 func ValidateDraft(draft AuthoringDraft) error {
 	now := time.Unix(1, 0).UTC()
-	task := model.TaskAuthoring{
-		SchemaVersion:         model.TaskAuthoringSchemaVersion,
+	task := TaskAuthoring{
+		SchemaVersion:         TaskAuthoringSchemaVersion,
 		ID:                    "AAA-TSK1",
 		ProjectID:             "example",
 		Revision:              1,
-		Type:                  model.DefaultTaskType(draft.Type),
+		Type:                  DefaultTaskType(draft.Type),
 		Execution:             draft.Execution,
 		Scope:                 draft.Scope,
 		RevisionSHA256:        strings.Repeat("a", 64),
@@ -72,51 +70,51 @@ func ValidateDraft(draft AuthoringDraft) error {
 		Metadata:              cloneStringMap(draft.Metadata),
 		ADRRelation:           draft.ADRRelation,
 		ADRReferences:         cloneStrings(draft.ADRReferences),
-		Status:                model.TaskAuthoringPlanned,
+		Status:                TaskAuthoringPlanned,
 		CreatedBy:             "validator",
 		CreatedAt:             now,
 		UpdatedAt:             now,
 	}
-	if err := model.ValidateTaskAuthoring(task); err != nil && !strings.Contains(err.Error(), "revision hash mismatch") {
+	if err := ValidateTaskAuthoring(task); err != nil && !strings.Contains(err.Error(), "revision hash mismatch") {
 		return err
 	}
 	return nil
 }
 
 // NewTask creates and validates a planned task with a derived revision hash.
-func NewTask(projectID, taskID string, draft AuthoringDraft, createdBy string, now time.Time) (model.TaskAuthoring, error) {
-	if err := model.ValidateProjectIdentifier(projectID); err != nil {
-		return model.TaskAuthoring{}, err
+func NewTask(projectID, taskID string, draft AuthoringDraft, createdBy string, now time.Time) (TaskAuthoring, error) {
+	if err := ValidateProjectIdentifier(projectID); err != nil {
+		return TaskAuthoring{}, err
 	}
-	if err := model.ValidateCanonicalTaskID(taskID); err != nil {
-		return model.TaskAuthoring{}, err
+	if err := ValidateCanonicalTaskID(taskID); err != nil {
+		return TaskAuthoring{}, err
 	}
 	if createdBy == "" || strings.ContainsAny(createdBy, "\x00\r\n") {
-		return model.TaskAuthoring{}, fmt.Errorf("created_by is required")
+		return TaskAuthoring{}, fmt.Errorf("created_by is required")
 	}
 	if draft.ADRRelation == "" {
-		draft.ADRRelation = model.TaskADRNoRequired
+		draft.ADRRelation = TaskADRNoRequired
 	}
-	typ, err := model.NormalizeTaskType(draft.Type)
+	typ, err := NormalizeTaskType(draft.Type)
 	if err != nil {
-		return model.TaskAuthoring{}, err
+		return TaskAuthoring{}, err
 	}
 	draft.Type = typ
-	execution, err := model.NormalizeTaskExecution(draft.Execution)
+	execution, err := NormalizeTaskExecution(draft.Execution)
 	if err != nil {
-		return model.TaskAuthoring{}, err
+		return TaskAuthoring{}, err
 	}
 	draft.Execution = execution
-	draft.Scope, err = model.NormalizeTaskScope(draft.Scope)
+	draft.Scope, err = NormalizeTaskScope(draft.Scope)
 	if err != nil {
-		return model.TaskAuthoring{}, err
+		return TaskAuthoring{}, err
 	}
 	if err := ValidateDraft(draft); err != nil {
-		return model.TaskAuthoring{}, err
+		return TaskAuthoring{}, err
 	}
 	now = now.UTC()
-	task := model.TaskAuthoring{
-		SchemaVersion:         model.TaskAuthoringSchemaVersion,
+	task := TaskAuthoring{
+		SchemaVersion:         TaskAuthoringSchemaVersion,
 		ID:                    taskID,
 		ProjectID:             projectID,
 		Revision:              1,
@@ -134,59 +132,59 @@ func NewTask(projectID, taskID string, draft AuthoringDraft, createdBy string, n
 		Metadata:              cloneStringMap(draft.Metadata),
 		ADRRelation:           draft.ADRRelation,
 		ADRReferences:         cloneStrings(draft.ADRReferences),
-		Status:                model.TaskAuthoringPlanned,
+		Status:                TaskAuthoringPlanned,
 		CreatedBy:             createdBy,
 		CreatedAt:             now,
 		UpdatedAt:             now,
 	}
-	task.RevisionSHA256, err = model.HashTaskAuthoring(task)
+	task.RevisionSHA256, err = HashTaskAuthoring(task)
 	if err != nil {
-		return model.TaskAuthoring{}, err
+		return TaskAuthoring{}, err
 	}
-	if err := model.ValidateTaskAuthoring(task); err != nil {
-		return model.TaskAuthoring{}, err
+	if err := ValidateTaskAuthoring(task); err != nil {
+		return TaskAuthoring{}, err
 	}
 	return task, nil
 }
 
 // UpdateTask applies a semantic edit. It returns the original task and false
 // when the patch is empty or does not change the semantic content.
-func UpdateTask(current model.TaskAuthoring, patch AuthoringPatch, updatedBy string, now time.Time) (model.TaskAuthoring, bool, error) {
-	if err := model.ValidateTaskAuthoring(current); err != nil {
-		return model.TaskAuthoring{}, false, err
+func UpdateTask(current TaskAuthoring, patch AuthoringPatch, updatedBy string, now time.Time) (TaskAuthoring, bool, error) {
+	if err := ValidateTaskAuthoring(current); err != nil {
+		return TaskAuthoring{}, false, err
 	}
-	if current.Status != model.TaskAuthoringPlanned && current.Status != model.TaskAuthoringReady {
-		return model.TaskAuthoring{}, false, fmt.Errorf("invalid task authoring status")
+	if current.Status != TaskAuthoringPlanned && current.Status != TaskAuthoringReady {
+		return TaskAuthoring{}, false, fmt.Errorf("invalid task authoring status")
 	}
 	if updatedBy == "" || strings.ContainsAny(updatedBy, "\x00\r\n") {
-		return model.TaskAuthoring{}, false, fmt.Errorf("updated_by is required")
+		return TaskAuthoring{}, false, fmt.Errorf("updated_by is required")
 	}
 	updated := current
-	updated.Type = model.DefaultTaskType(updated.Type)
+	updated.Type = DefaultTaskType(updated.Type)
 	updated.Execution = current.Execution
 	changed := false
 	if patch.Type != nil {
-		typ, err := model.NormalizeTaskType(*patch.Type)
+		typ, err := NormalizeTaskType(*patch.Type)
 		if err != nil {
-			return model.TaskAuthoring{}, false, err
+			return TaskAuthoring{}, false, err
 		}
 		if typ != updated.Type {
 			updated.Type, changed = typ, true
 		}
 	}
 	if patch.Execution != nil {
-		execution, err := model.NormalizeTaskExecution(*patch.Execution)
+		execution, err := NormalizeTaskExecution(*patch.Execution)
 		if err != nil {
-			return model.TaskAuthoring{}, false, err
+			return TaskAuthoring{}, false, err
 		}
 		if execution != updated.Execution {
 			updated.Execution, changed = execution, true
 		}
 	}
 	if patch.Scope != nil {
-		scope, err := model.NormalizeTaskScope(patch.Scope)
+		scope, err := NormalizeTaskScope(patch.Scope)
 		if err != nil {
-			return model.TaskAuthoring{}, false, err
+			return TaskAuthoring{}, false, err
 		}
 		if !reflect.DeepEqual(scope, updated.Scope) {
 			updated.Scope, changed = scope, true
@@ -245,58 +243,63 @@ func UpdateTask(current model.TaskAuthoring, patch AuthoringPatch, updatedBy str
 		ADRReferences:         updated.ADRReferences,
 	}
 	if err := ValidateDraft(draft); err != nil {
-		return model.TaskAuthoring{}, false, err
+		return TaskAuthoring{}, false, err
 	}
 	updated.Revision++
 	updated.RevisionSHA256 = ""
-	updated.Status = model.TaskAuthoringPlanned
+	updated.Status = TaskAuthoringPlanned
 	updated.ReadySeal = nil
 	updated.UpdatedAt = now.UTC()
 	var err error
-	updated.RevisionSHA256, err = model.HashTaskAuthoring(updated)
+	updated.RevisionSHA256, err = HashTaskAuthoring(updated)
 	if err != nil {
-		return model.TaskAuthoring{}, false, err
+		return TaskAuthoring{}, false, err
 	}
-	if err := model.ValidateTaskAuthoring(updated); err != nil {
-		return model.TaskAuthoring{}, false, err
+	if err := ValidateTaskAuthoring(updated); err != nil {
+		return TaskAuthoring{}, false, err
 	}
 	return updated, true, nil
 }
 
 // ReadyTask seals the current revision. Re-sealing an already-ready task is
 // intentionally idempotent and preserves its existing seal.
-func ReadyTask(current model.TaskAuthoring, readyBy string, readyAt time.Time) (model.TaskAuthoring, error) {
-	if err := model.ValidateTaskAuthoring(current); err != nil {
-		return model.TaskAuthoring{}, err
+func ReadyTask(current TaskAuthoring, readyBy string, readyAt time.Time) (TaskAuthoring, error) {
+	if err := ValidateTaskAuthoring(current); err != nil {
+		return TaskAuthoring{}, err
 	}
 	if strings.TrimSpace(readyBy) == "" || strings.ContainsAny(readyBy, "\x00\r\n") {
-		return model.TaskAuthoring{}, fmt.Errorf("ready_by is required")
+		return TaskAuthoring{}, fmt.Errorf("ready_by is required")
 	}
-	if current.Status == model.TaskAuthoringReady {
+	if current.Status == TaskAuthoringReady {
 		return current, nil
 	}
-	current.Status = model.TaskAuthoringReady
-	current.ReadySeal = &model.TaskReadySeal{Revision: current.Revision, RevisionSHA256: current.RevisionSHA256, ReadyBy: readyBy, ReadyAt: readyAt.UTC()}
+	current.Status = TaskAuthoringReady
+	current.ReadySeal = &TaskReadySeal{
+		Revision:       current.Revision,
+		RevisionSHA256: current.RevisionSHA256,
+		ReadyBy:        readyBy,
+		ReadyAt:        readyAt.UTC(),
+	}
 	current.UpdatedAt = readyAt.UTC()
-	if err := model.ValidateTaskAuthoring(current); err != nil {
-		return model.TaskAuthoring{}, err
+	if err := ValidateTaskAuthoring(current); err != nil {
+		return TaskAuthoring{}, err
 	}
 	return current, nil
 }
 
 // ValidateExecutionTask is the exact readiness boundary used immediately
-// before a TrainItem becomes an executing Attempt.
-func ValidateExecutionTask(task model.TaskAuthoring) error {
-	if err := model.ValidateTaskAuthoring(task); err != nil {
+// before a Task becomes a dispatchable execution.
+func ValidateExecutionTask(task TaskAuthoring) error {
+	if err := ValidateTaskAuthoring(task); err != nil {
 		return err
 	}
-	if task.Status != model.TaskAuthoringReady || task.ReadySeal == nil || task.ReadySeal.Revision != task.Revision || task.ReadySeal.RevisionSHA256 != task.RevisionSHA256 {
-		return fmt.Errorf("task %q is not ready for Train Attempt execution", task.ID)
+	if task.Status != TaskAuthoringReady || task.ReadySeal == nil || task.ReadySeal.Revision != task.Revision || task.ReadySeal.RevisionSHA256 != task.RevisionSHA256 {
+		return fmt.Errorf("task %q is not ready for execution", task.ID)
 	}
 	return nil
 }
 
-func CheckRevision(task model.TaskAuthoring, revision int, hash string) error {
+func CheckRevision(task TaskAuthoring, revision int, hash string) error {
 	if task.Revision != revision {
 		return fmt.Errorf("task authoring revision conflict: expected %d, current %d", revision, task.Revision)
 	}

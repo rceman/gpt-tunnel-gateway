@@ -9,7 +9,6 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
-	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func (s *Service) requireLocalTaskAuthoring(ctx context.Context, projectID string) error {
@@ -167,8 +166,8 @@ func (s *Service) taskAuthoringCreateShared(ctx context.Context, operationID str
 	if in.ADRRelation == "" {
 		in.ADRRelation = model.TaskADRNoRequired
 	}
-	draft := trainv2.AuthoringDraft{Type: in.Type, Scope: in.Scope, Title: in.Title, Summary: in.Summary, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}
-	if err := trainv2.ValidateDraft(draft); err != nil {
+	draft := model.AuthoringDraft{Type: in.Type, Scope: in.Scope, Title: in.Title, Summary: in.Summary, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}
+	if err := model.ValidateDraft(draft); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	code, err := s.sharedTaskProjectCode(ctx, in.ProjectID)
@@ -193,7 +192,7 @@ func (s *Service) taskAuthoringCreateShared(ctx context.Context, operationID str
 		CreatedAt:           s.durableNow(),
 		BuildPayload: func(taskID string) ([]byte, error) {
 			var err error
-			created, err = trainv2.NewTask(in.ProjectID, taskID, draft, in.CreatedBy, s.durableNow())
+			created, err = model.NewTask(in.ProjectID, taskID, draft, in.CreatedBy, s.durableNow())
 			if err != nil {
 				return nil, err
 			}
@@ -237,15 +236,15 @@ func (s *Service) taskAuthoringUpdateShared(ctx context.Context, operationID str
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	if err := trainv2.CheckRevision(current, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
+	if err := model.CheckRevision(current, in.ExpectedRevision, in.ExpectedRevisionSHA256); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
-	if admitted, err := s.taskAdmittedToNonterminalTrainShared(ctx, in.ProjectID, in.TaskID); err != nil {
+	if admitted, err := s.taskHasNonterminalExecutionShared(ctx, in.ProjectID, in.TaskID); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	} else if admitted {
-		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("ready Task %q is admitted to a nonterminal Train and cannot be edited", in.TaskID)
+		return model.TaskAuthoring{}, OperationResult{}, fmt.Errorf("ready Task %q owns a nonterminal execution and cannot be edited", in.TaskID)
 	}
-	updated, changed, err := trainv2.UpdateTask(current, trainv2.AuthoringPatch{Type: in.Type, Scope: in.Scope, Title: in.Title, Summary: in.Summary, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}, in.UpdatedBy, s.durableNow())
+	updated, changed, err := model.UpdateTask(current, model.AuthoringPatch{Type: in.Type, Scope: in.Scope, Title: in.Title, Summary: in.Summary, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}, in.UpdatedBy, s.durableNow())
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}

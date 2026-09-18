@@ -10,7 +10,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 )
 
-func (s *Service) codeWorktreeHotfixCandidates(ctx context.Context, projectID string, inventory gitx.WorktreeInventory, add func(config.ProjectConfig, gitx.WorktreeStatus, string, string, string, string, time.Time, string) error) error {
+func (s *Service) codeWorktreeHotfixCandidates(ctx context.Context, projectID string, inventory gitx.WorktreeInventory, add func(config.ProjectConfig, gitx.WorktreeStatus, string, string, string, time.Time, string) error) error {
 	cursor := ""
 	for {
 		identities, info, err := s.Git.ListHotfixIdentitiesPage(s.Config.StateDir, projectID, MaxPublicCollectionLimit, cursor)
@@ -30,7 +30,7 @@ func (s *Service) codeWorktreeHotfixCandidates(ctx context.Context, projectID st
 				return fmt.Errorf("read managed hotfix %s worktree status: %w", identity.HotfixRef, err)
 			}
 			slug := strings.TrimPrefix(identity.HotfixRef, "refs/heads/hotfix/")
-			if err := add(worktree, status, "hotfix", slug, "", identity.BaseSHA, identity.CreatedAt, slug); err != nil {
+			if err := add(worktree, status, "hotfix", slug, identity.BaseSHA, identity.CreatedAt, slug); err != nil {
 				return err
 			}
 		}

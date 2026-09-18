@@ -85,7 +85,7 @@ func TestTaskListQuerySearchStatusLimitAndCursor(t *testing.T) {
 	}
 	if _, err := s.TaskListQuery(ctx, TaskListInput{
 		ProjectID: "example",
-		Execution: model.TaskExecutionTrain,
+		Execution: model.TaskExecutionCanonical,
 	}); err == nil || !strings.Contains(err.Error(), "execution filter is unavailable") {
 		t.Fatalf("legacy execution filter was silently ignored: %v", err)
 	}

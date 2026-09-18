@@ -4,7 +4,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,7 +12,6 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
-	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
@@ -36,53 +34,31 @@ func TestLocalCodeInspectionPerformanceProfile(t *testing.T) {
 	testutil.Git(t, f.root, "push", "origin", "main")
 
 	stateDir := f.service.Config.StateDir
-	trainPath := filepath.Join(stateDir, "work", "EXM", "TRN1")
-	if err := os.MkdirAll(filepath.Dir(trainPath), 0o700); err != nil {
+	taskPath := filepath.Join(stateDir, "task-worktrees", "example", "EXM-TSK1")
+	if err := os.MkdirAll(filepath.Dir(taskPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	testutil.Git(t, f.root, "branch", "train/EXM-TRN1", f.current)
+	testutil.Git(t, f.root, "branch", "task/EXM-TSK1-lane", f.current)
 	t.Cleanup(func() {
-		testutil.Git(t, f.root, "worktree", "remove", "--force", trainPath)
-		testutil.Git(t, f.root, "branch", "-D", "train/EXM-TRN1")
+		testutil.Git(t, f.root, "worktree", "remove", "--force", taskPath)
+		testutil.Git(t, f.root, "branch", "-D", "task/EXM-TSK1-lane")
 	})
-	testutil.Git(t, f.root, "worktree", "add", trainPath, "train/EXM-TRN1")
+	testutil.Git(t, f.root, "worktree", "add", taskPath, "task/EXM-TSK1-lane")
 
 	db := f.service.Durability
 	if db == nil {
 		t.Fatal("performance fixture requires Shared durability")
 	}
 	f.service.Durability = db
-	now := time.Now().UTC()
-	train := model.TrainV2{
-		SchemaVersion: model.TrainV2SchemaVersion,
-		ID:            "EXM-TRN1",
-		ProjectID:     "example",
-		Revision:      1,
-		Status:        model.TrainV2Planned,
-		CreatedBy:     "performance-test",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		Items: []model.TrainV2Item{{
-			Position:           0,
-			TaskID:             "EXM-TSK1",
-			TaskRevision:       1,
-			TaskRevisionSHA256: strings.Repeat("a", 64),
-			Status:             model.TrainV2ItemQueued,
-			AddedAt:            now,
-		}},
+	taskHead := strings.TrimSpace(testutil.Git(t, taskPath, "rev-parse", "HEAD"))
+	if taskHead == "" {
+		taskHead = f.current
 	}
-	payload, err := json.Marshal(train)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.CommitSharedMutation(context.Background(), sqlitestore.SharedMutation{
-		OperationID: "OPR-EXM-PERF-TRAIN1",
-		EntityType:  "train",
-		EntityID:    train.ID,
-		Revision:    1,
-		Kind:        "performance-fixture",
-		Payload:     payload,
-		Create:      true,
+	if err := db.CreateTaskExecutionState(context.Background(), model.TaskExecutionState{
+		TaskID: "EXM-TSK1", ProjectID: "example", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("a", 64),
+		Status: model.TaskExecutionInProgress, Stage: "code", Worktree: "WT-TSK1-" + strings.ToLower(taskHead[:8]),
+		BaseHead: f.base, Head: taskHead, Branch: "task/EXM-TSK1-lane", Agent: "gtw-worker",
+		ExecutionRevision: 1, UpdatedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -84,12 +84,12 @@ func (s *Service) projectConfigurationUpdateShared(ctx context.Context, in Proje
 	if current.Revision != in.ExpectedRevision {
 		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("project configuration revision conflict: expected %d, current %d", in.ExpectedRevision, current.Revision)
 	}
-	active, err := s.projectHasActiveTrainAttempt(ctx, in.ProjectID)
+	active, err := s.projectHasActiveTaskExecution(ctx, in.ProjectID)
 	if err != nil {
-		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("inspect active Train Attempt: %w", err)
+		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("inspect active Task execution: %w", err)
 	}
 	if active && projectConfigurationPatchIsExecutionSensitive(in.Patch) {
-		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("execution-sensitive project configuration cannot change while an active Train Attempt exists")
+		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("execution-sensitive project configuration cannot change while an active Task execution exists")
 	}
 	// The workflow leaf fields (workflow_stage, integration_branch,
 	// agent.wait_for_ci, ci.release, ci.task, ci.task_merge) are governed by

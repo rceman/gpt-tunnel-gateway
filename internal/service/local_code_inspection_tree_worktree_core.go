@@ -25,7 +25,7 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 	nextCursor := ""
 	pageFull := errors.New("code worktree page full")
 	_, streamErr := s.codeWorktreeCandidatesStream(ctx, in.ProjectID, func(candidate codeWorktreeCandidate) error {
-		if query != "" && !strings.Contains(candidate.CodeIdentity.Worktree, query) && !strings.Contains(candidate.Label, query) && !strings.Contains(candidate.TrainID, query) {
+		if query != "" && !strings.Contains(candidate.CodeIdentity.Worktree, query) && !strings.Contains(candidate.Label, query) {
 			return nil
 		}
 		if !cursorFound {
@@ -40,7 +40,6 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 			Dirty:    candidate.Dirty,
 			Head:     candidate.CurrentHead,
 			Label:    candidate.Label,
-			TrainID:  candidate.TrainID,
 		}
 		trial := append(append([]CodeWorktreeItem{}, page...), item)
 		candidateCursor := ""

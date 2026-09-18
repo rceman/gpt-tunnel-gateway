@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,9 +12,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
-	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
-	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func TestCodeWorktreeFailsClosedForAuthoritativeHotfixWithoutManagedBinding(t *testing.T) {
@@ -91,15 +88,12 @@ func TestCodeWorktreeEnumeratesGitWorktreesOnceForMultipleAuthoritativeLanes(t *
 			t.Fatal("hotfix fixture has no head")
 		}
 	}
-	for _, id := range []string{"EXM-TRN1", "EXM-TRN2"} {
-		lane, err := trainv2.CompactWorktreePath(f.service.Config.StateDir, "EXM", id)
-		if err != nil {
-			t.Fatal(err)
-		}
+	for _, id := range []string{"EXM-TSK11", "EXM-TSK12"} {
+		lane := filepath.Join(f.service.Config.StateDir, "task-worktrees", "example", id)
 		if err := os.MkdirAll(filepath.Dir(lane), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		branch := "train/" + id
+		branch := "task/" + id + "-lane"
 		testutil.Git(t, f.root, "branch", branch, f.current)
 		testutil.Git(t, f.root, "worktree", "add", lane, branch)
 		name := id + ".txt"
@@ -112,25 +106,15 @@ func TestCodeWorktreeEnumeratesGitWorktreesOnceForMultipleAuthoritativeLanes(t *
 			testutil.Git(t, f.root, "worktree", "remove", "--force", lane)
 			testutil.Git(t, f.root, "branch", "-D", branch)
 		})
-		finished := now.Add(time.Minute)
-		train := model.TrainV2{SchemaVersion: model.TrainV2SchemaVersion, ID: id, ProjectID: "example", Revision: 1, Status: model.TrainV2ReadyForIntegration, CreatedBy: "inventory-regression", CreatedAt: now, UpdatedAt: now, Items: []model.TrainV2Item{{Position: 0, TaskID: "EXM-TSK1", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("a", 64), Status: model.TrainV2ItemFinalized, AddedAt: now, Attempts: []model.TrainV2Attempt{{Number: 1, Status: model.TrainV2AttemptSucceeded, AgentID: "agent-" + id, AirelaySessionKey: "session-" + id, GatewayID: "gateway-" + id, StartHead: f.base, StartedAt: now, FinishedAt: &finished}}}}}
-		payload, err := json.Marshal(train)
-		if err != nil {
-			t.Fatal(err)
+		head := strings.TrimSpace(testutil.Git(t, lane, "rev-parse", "HEAD"))
+		selector := "WT-TSK" + strings.TrimPrefix(id, "EXM-TSK") + "-" + strings.ToLower(head[:8])
+		state := model.TaskExecutionState{
+			TaskID: id, ProjectID: "example", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("a", 64),
+			Status: model.TaskExecutionInProgress, Stage: "code", Worktree: selector,
+			BaseHead: f.base, Head: head, Branch: branch, Agent: "gtw-worker",
+			ExecutionRevision: 1, UpdatedAt: now,
 		}
-		if _, err := f.service.Durability.CommitSharedMutation(context.Background(), sqlitestore.SharedMutation{OperationID: "OPR-CODE-INVENTORY-" + id, EntityType: "train", EntityID: id, Revision: 1, Kind: "inventory-regression", Payload: payload, Create: true}); err != nil {
-			t.Fatal(err)
-		}
-		runtime := trainv2.RuntimeBinding{SchemaVersion: 1, ProjectID: "example", ProjectCode: "EXM", TrainID: id, WorktreePath: lane, AgentID: "agent-" + id, SessionKey: "session-" + id, TaskID: "EXM-TSK1", AttemptNumber: 1, StartedAt: now}
-		runtimeBytes, err := json.Marshal(runtime)
-		if err != nil {
-			t.Fatal(err)
-		}
-		runtimePath := trainv2.RuntimePath(f.service.Config.StateDir, "example", id)
-		if err := os.MkdirAll(filepath.Dir(runtimePath), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(runtimePath, runtimeBytes, 0o600); err != nil {
+		if err := f.service.Durability.CreateTaskExecutionState(context.Background(), state); err != nil {
 			t.Fatal(err)
 		}
 	}

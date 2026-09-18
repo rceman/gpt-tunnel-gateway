@@ -39,7 +39,7 @@ func taskAuthoringProperties() map[string]any {
 
 func taskExecutionSchema() map[string]any {
 	execution := str("Task execution axis.")
-	execution["enum"] = []string{string(model.TaskExecutionTrain), string(model.TaskExecutionHotfix)}
+	execution["enum"] = []string{string(model.TaskExecutionCanonical), string(model.TaskExecutionHotfix)}
 	return execution
 }
 func taskAuthoringCreateSchema() map[string]any {

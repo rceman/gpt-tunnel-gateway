@@ -38,13 +38,13 @@ func TestTaskExecutionDefaultsAndRejectsUnknownValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	bound := unassigned
-	bound.Execution = TaskExecutionTrain
+	bound.Execution = TaskExecutionCanonical
 	boundHash, err := HashTaskAuthoring(bound)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if unassignedHash == boundHash {
-		t.Fatal("binding a Task to train did not change its revision hash")
+		t.Fatal("binding a Task to canonical execution did not change its revision hash")
 	}
 	if _, err := NormalizeTaskExecution("other"); err == nil {
 		t.Fatal("unknown execution was accepted")

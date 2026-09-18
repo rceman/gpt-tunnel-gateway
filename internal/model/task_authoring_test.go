@@ -21,7 +21,7 @@ func validTaskAuthoringForTest() TaskAuthoring {
 		Constraints:           []string{"no execution identity in the Task"},
 		Priority:              "high",
 		PreparationReferences: []string{"GTW-ADR11"},
-		Metadata:              map[string]string{"mode": "train_v2"},
+		Metadata:              map[string]string{"mode": "canonical"},
 		ADRRelation:           TaskADRImplementsExisting,
 		ADRReferences:         []string{"GTW-ADR11"},
 		Status:                TaskAuthoringPlanned,

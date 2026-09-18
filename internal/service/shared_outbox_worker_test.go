@@ -10,7 +10,6 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
-	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func TestSharedOutboxRetryDelayIsBounded(t *testing.T) {
@@ -30,7 +29,7 @@ func TestSharedOutboxEqualTaskADRAndConfigurationAreTerminalNoOps(t *testing.T) 
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	task, err := trainv2.NewTask("example", "EXM-TSK565", trainv2.AuthoringDraft{
+	task, err := model.NewTask("example", "EXM-TSK565", model.AuthoringDraft{
 		Title: "No-op task", Summary: "Prove equal publication is terminal.", Objective: "Prove equal publication is terminal.", ADRRelation: model.TaskADRNoRequired,
 	}, "planner", now)
 	if err != nil {

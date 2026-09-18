@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
@@ -16,7 +15,7 @@ import (
 
 func TestHotfixLifecycleUsesRecordedBaseAndExactRetryIsNoOp(t *testing.T) {
 	s, hubRevision, base := testService(t)
-	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
+	hubRevision = enableCanonicalExecutionForTest(t, s, hubRevision)
 	task, operation, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:   "example",
 		Title:       "Hotfix-bound Task",
@@ -115,7 +114,7 @@ func TestHotfixCreateRequiresExistingTaskBinding(t *testing.T) {
 
 func TestHotfixCreateRollsBackTaskBindingWhenIdentityWriteFails(t *testing.T) {
 	s, hubRevision, base := testService(t)
-	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
+	hubRevision = enableCanonicalExecutionForTest(t, s, hubRevision)
 	task, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:   "example",
 		Title:       "Hotfix rollback Task",
@@ -153,47 +152,5 @@ func TestHotfixCreateRollsBackTaskBindingWhenIdentityWriteFails(t *testing.T) {
 	laneRoot := filepath.Join(s.Config.StateDir, "hotfix-worktrees", "example", "repair")
 	if _, err := os.Stat(laneRoot); !os.IsNotExist(err) {
 		t.Fatalf("failed hotfix/create left lane at %s: %v", laneRoot, err)
-	}
-}
-
-func TestTaskWorkDeliveredHotfixReceiptAvoidsSecondPrompt(t *testing.T) {
-	s, hubRevision, _ := testService(t)
-	s.Config.ProjectAgentBindings["example"]["coder-example"] = config.AgentBinding{SessionKey: "example_master"}
-	logPath := filepath.Join(t.TempDir(), "prompts")
-	installServiceExecutionSessionFixture(t, s, logPath)
-	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
-	task, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
-		ProjectID:   "example",
-		Title:       "Delivered hotfix receipt",
-		Summary:     "Verify delivered receipt reuse.",
-		Objective:   "Verify repeated Task work does not prompt twice.",
-		ADRRelation: model.TaskADRNoRequired,
-		CreatedBy:   "planner",
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: hubRevision,
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	created, err := s.HotfixCreate(context.Background(), "example", HotfixCreateInput{
-		Slug:   "receipt-retry",
-		TaskID: task.ID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.TaskWork(context.Background(), TaskWorkInput{TaskID: task.ID}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.TaskWork(context.Background(), TaskWorkInput{TaskID: task.ID}); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.Count(string(data), "prompt"); got != 1 {
-		t.Fatalf("repeated delivered hotfix work prompted %d times, want 1 (ref=%s)", got, created.HotfixRef)
 	}
 }

@@ -227,7 +227,7 @@ func (s *Service) ensureNoInFlightWorkerTurn(ctx context.Context, state model.Ta
 		return fmt.Errorf("inspect Worker turn authority: %w", err)
 	}
 	for _, local := range operations {
-		if local.Kind != "agent-prompt" && local.Kind != "agent-interrupt" && local.Kind != "agent-recover" {
+		if local.Kind != "agent-prompt" && local.Kind != "agent-interrupt" {
 			continue
 		}
 		if local.Status != "accepted" && local.Status != "running" && local.Status != "outcome_unknown" {
@@ -258,12 +258,6 @@ func durableWorkerTurnTarget(operation durableMutationOperation) (string, bool, 
 		return input.AgentID, true, nil
 	case "agent-interrupt":
 		var input AgentInterruptInput
-		if err := json.Unmarshal(operation.Input, &input); err != nil {
-			return "", true, err
-		}
-		return input.AgentID, true, nil
-	case "agent-recover":
-		var input AgentRecoverInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {
 			return "", true, err
 		}

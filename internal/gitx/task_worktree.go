@@ -24,7 +24,7 @@ func (r Runner) CreateTaskWorktree(ctx context.Context, p config.ProjectConfig, 
 	if err := r.MaterializeMirrorCommit(ctx, p, p.DefaultBranch, base); err != nil {
 		return config.ProjectConfig{}, "", "", err
 	}
-	if err := r.createTrainWorktree(ctx, p, path, branch, base); err != nil {
+	if err := r.createManagedWorktree(ctx, p, path, branch, base); err != nil {
 		return config.ProjectConfig{}, "", "", err
 	}
 	lane := p
@@ -172,10 +172,10 @@ func (r Runner) RemoveTaskWorktree(ctx context.Context, p config.ProjectConfig, 
 	if err != nil || !clean || actualBranch != branch || head != base {
 		return fmt.Errorf("Task worktree rollback left lane untouched")
 	}
-	if err := r.removeTrainWorktree(ctx, p, path); err != nil {
+	if err := r.removeManagedWorktree(ctx, p, path); err != nil {
 		return err
 	}
-	return r.DeleteTrainBranch(ctx, p, branch, base)
+	return r.DeleteManagedBranch(ctx, p, branch, base)
 }
 
 func (r Runner) RemoveTaskWorktreeAfterIntegration(ctx context.Context, p config.ProjectConfig, stateDir, projectID, taskID string, taskType model.TaskType, title, head, branch string) error {
@@ -186,7 +186,7 @@ func (r Runner) RemoveTaskWorktreeAfterIntegration(ctx context.Context, p config
 	lane := p
 	lane.Root = path
 	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-		return r.DeleteTrainBranch(ctx, p, branch, head)
+		return r.DeleteManagedBranch(ctx, p, branch, head)
 	} else if statErr != nil {
 		return statErr
 	}
@@ -194,10 +194,10 @@ func (r Runner) RemoveTaskWorktreeAfterIntegration(ctx context.Context, p config
 	if err != nil || !clean || actualBranch != branch || actual != head {
 		return fmt.Errorf("Task worktree cleanup authority is invalid")
 	}
-	if err := r.removeTrainWorktree(ctx, p, path); err != nil {
+	if err := r.removeManagedWorktree(ctx, p, path); err != nil {
 		return err
 	}
-	return r.DeleteTrainBranch(ctx, p, branch, head)
+	return r.DeleteManagedBranch(ctx, p, branch, head)
 }
 
 func taskWorktreePath(stateDir, projectID, taskID string, taskType model.TaskType, title string) (string, string, error) {

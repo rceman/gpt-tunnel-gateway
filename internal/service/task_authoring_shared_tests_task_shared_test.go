@@ -9,13 +9,12 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
-	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
 	revision = adoptAuthoringIdentifiersForTest(t, s, revision)
-	revision = enableTrainV2ForTest(t, s, revision)
+	revision = enableCanonicalExecutionForTest(t, s, revision)
 	db, err := sqlitestore.Open(s.Config.StateDir)
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +44,7 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 	}
 	trainTasks, err := s.TaskAuthoringList(context.Background(), TaskAuthoringListInput{
 		ProjectID: "example",
-		Execution: model.TaskExecutionTrain,
+		Execution: model.TaskExecutionCanonical,
 		Limit:     MaxTaskListLimit,
 	})
 	if err != nil || len(trainTasks.Tasks) != 0 {
@@ -149,7 +148,7 @@ func TestTaskAuthoringReadUsesSharedBeforeHub(t *testing.T) {
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
-	created, err := trainv2.NewTask("example", "EXM-TSK900", trainv2.AuthoringDraft{Title: "Shared read", Summary: "Read shared state locally.", Objective: "Read locally", ADRRelation: model.TaskADRNoRequired}, "planner", time.Now().UTC())
+	created, err := model.NewTask("example", "EXM-TSK900", model.AuthoringDraft{Title: "Shared read", Summary: "Read shared state locally.", Objective: "Read locally", ADRRelation: model.TaskADRNoRequired}, "planner", time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +177,7 @@ func TestSharedTaskAndADRQueriesDoNotUseHub(t *testing.T) {
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
-	task, err := trainv2.NewTask("example", "EXM-TSK901", trainv2.AuthoringDraft{Title: "Shared query", Summary: "Query shared state locally.", Objective: "Query locally", ADRRelation: model.TaskADRNoRequired}, "planner", time.Now().UTC())
+	task, err := model.NewTask("example", "EXM-TSK901", model.AuthoringDraft{Title: "Shared query", Summary: "Query shared state locally.", Objective: "Query locally", ADRRelation: model.TaskADRNoRequired}, "planner", time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}

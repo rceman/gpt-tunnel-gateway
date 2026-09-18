@@ -87,13 +87,6 @@ type SharedEntity struct {
 	UpdatedAt string
 }
 
-type SharedIntegrationReceipt struct {
-	ID        string
-	Revision  int64
-	Payload   []byte
-	UpdatedAt string
-}
-
 type SharedBootstrapMarker struct {
 	ProjectID   string
 	HubRevision string
@@ -102,7 +95,6 @@ type SharedBootstrapMarker struct {
 
 var sharedEntityTables = map[string]string{
 	"task":                  "shared_tasks",
-	"train":                 "shared_trains",
 	"adr":                   "shared_adrs",
 	"rule":                  "shared_rules",
 	"journal":               "shared_journals",
@@ -111,12 +103,18 @@ var sharedEntityTables = map[string]string{
 
 var sharedProjectionTables = map[string]string{
 	"task":                  "shared_tasks",
-	"train":                 "shared_trains",
 	"adr":                   "shared_adrs",
 	"rule":                  "shared_rules",
 	"journal":               "shared_journals",
-	"integration_receipt":   "shared_integration_receipts",
 	"project_configuration": "shared_project_configurations",
+}
+
+// sharedEvidenceTables maps retired entity types to their preserved tables.
+// Reads resolve through it so historical Train/Attempt records stay readable
+// as evidence; no write path consults it.
+var sharedEvidenceTables = map[string]string{
+	"train":               "shared_trains",
+	"integration_receipt": "shared_integration_receipts",
 }
 
 func (d *Databases) CommitSharedMutation(ctx context.Context, mutation SharedMutation) (SharedMutationReceipt, error) {

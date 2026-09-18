@@ -124,3 +124,10 @@ func IsTaskExecutionReworkable(status string) bool {
 		return false
 	}
 }
+
+func ValidateSHA256(value string) error {
+	if !sha256RE(value) {
+		return fmt.Errorf("invalid SHA-256 digest")
+	}
+	return nil
+}

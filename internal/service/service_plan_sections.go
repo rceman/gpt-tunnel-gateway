@@ -25,7 +25,7 @@ func (s *Service) transactSectionWrite(ctx context.Context, expected, subject st
 }
 
 func (s *Service) PlanSectionCreate(ctx context.Context, in PlanSectionCreateInput) (OperationResult, error) {
-	if err := rejectPlanMutationAfterTrainV2(ctx, s, in.ProjectID); err != nil {
+	if err := rejectPlanMutationAfterCanonicalCutover(ctx, s, in.ProjectID); err != nil {
 		return OperationResult{}, err
 	}
 	plan, err := s.PlanRead(ctx, in.ProjectID)
@@ -83,7 +83,7 @@ func (s *Service) PlanSectionCreate(ctx context.Context, in PlanSectionCreateInp
 }
 
 func (s *Service) PlanSectionUpdate(ctx context.Context, in PlanSectionUpdateInput) (OperationResult, error) {
-	if err := rejectPlanMutationAfterTrainV2(ctx, s, in.ProjectID); err != nil {
+	if err := rejectPlanMutationAfterCanonicalCutover(ctx, s, in.ProjectID); err != nil {
 		return OperationResult{}, err
 	}
 	if in.ExpectedSectionRevision < 1 {

@@ -31,16 +31,6 @@ func TestAgentIPCMutationsReturnBoundedReceipts(t *testing.T) {
 			})
 			return receipt.OperationID, err
 		}},
-		{kind: "agent-recover", call: func() (string, error) {
-			receipt, err := s.AgentRecoveryAsync(ctx, AgentRecoverInput{
-				ProjectID:     "example",
-				TrainID:       "invalid",
-				TaskID:        "EXM-TSK1",
-				AgentID:       "EXM-AGT1",
-				AttemptNumber: 1,
-			})
-			return receipt.OperationID, err
-		}},
 		{kind: "agent-interrupt", call: func() (string, error) {
 			receipt, err := s.AgentInterruptAsync(ctx, AgentInterruptInput{
 				ProjectID:  "example",
@@ -85,16 +75,6 @@ func TestRepeatableAgentCommandsCreateFreshTurnsAfterTerminalHistory(t *testing.
 		kind string
 		call func() (string, error)
 	}{
-		{kind: "agent-recover", call: func() (string, error) {
-			receipt, err := s.AgentRecoveryAsync(ctx, AgentRecoverInput{
-				ProjectID:     "example",
-				TrainID:       "invalid",
-				TaskID:        "EXM-TSK1",
-				AgentID:       "EXM-AGT1",
-				AttemptNumber: 1,
-			})
-			return receipt.OperationID, err
-		}},
 		{kind: "agent-interrupt", call: func() (string, error) {
 			receipt, err := s.AgentInterruptAsync(ctx, AgentInterruptInput{
 				ProjectID:  "example",
@@ -121,8 +101,8 @@ func TestRepeatableAgentCommandsCreateFreshTurnsAfterTerminalHistory(t *testing.
 			waitAgentCommandTerminal(t, s, second, test.kind)
 		})
 	}
-	if got := executions.Load(); got != 4 {
-		t.Fatalf("fresh recovery/interrupt turns=%d, want 4", got)
+	if got := executions.Load(); got != 2 {
+		t.Fatalf("fresh interrupt turns=%d, want 2", got)
 	}
 }
 
@@ -782,8 +762,6 @@ func waitAgentCommandTerminal(t *testing.T, s *Service, operationID, kind string
 func agentIPCReceiptTerminal(value any) bool {
 	switch receipt := value.(type) {
 	case AgentPromptReceipt:
-		return receipt.Status == "completed" || receipt.Status == "failed"
-	case AgentRecoveryReceipt:
 		return receipt.Status == "completed" || receipt.Status == "failed"
 	case AgentInterruptReceipt:
 		return receipt.Status == "completed" || receipt.Status == "failed"

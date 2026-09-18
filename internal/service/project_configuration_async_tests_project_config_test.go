@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -272,7 +273,7 @@ func TestProjectConfigurationUpdateUsesSharedCASAndOutbox(t *testing.T) {
 	}
 }
 
-func TestProjectConfigurationUpdateUsesSharedActiveTrainGuard(t *testing.T) {
+func TestProjectConfigurationUpdateUsesSharedActiveExecutionGuard(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
 	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
 	configuration, err := s.ProjectConfigurationRead(ctx, "example")
@@ -297,17 +298,12 @@ func TestProjectConfigurationUpdateUsesSharedActiveTrainGuard(t *testing.T) {
 	if err := db.SeedSharedRulesFromConfiguration(ctx, configuration, "EXM"); err != nil {
 		t.Fatal(err)
 	}
-	active := staleTrainV2ForRetirementTest(time.Now().UTC())
-	active.Status = model.TrainV2Running
-	active.Items[0].Status = model.TrainV2ItemRunning
-	active.Items[0].Attempts[0].Status = model.TrainV2AttemptRunning
-	active.Items[0].Attempts[0].FinishedAt = nil
-	trainPayload, err := json.Marshal(active)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.PutSharedProjection(ctx, "train", sqlitestore.SharedEntity{
-		ID: active.ID, Revision: int64(active.Revision), Payload: trainPayload, UpdatedAt: active.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	head := strings.Repeat("b", 40)
+	if err := db.CreateTaskExecutionState(ctx, model.TaskExecutionState{
+		TaskID: "EXM-TSK1", ProjectID: "example", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("a", 64),
+		Status: model.TaskExecutionInProgress, Stage: "code", Worktree: "WT-TSK1-" + head[:8],
+		BaseHead: strings.Repeat("a", 40), Head: head, Branch: "task/EXM-TSK1-lane", Agent: "gtw-worker",
+		ExecutionRevision: 1, UpdatedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -320,6 +316,6 @@ func TestProjectConfigurationUpdateUsesSharedActiveTrainGuard(t *testing.T) {
 		},
 		UpdatedBy: "planner",
 	}); err == nil {
-		t.Fatal("execution-sensitive project update passed with active Shared Train Attempt")
+		t.Fatal("execution-sensitive project update passed with active Task execution")
 	}
 }

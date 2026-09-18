@@ -37,7 +37,7 @@ func TestProjectStatusAggregatesProgressWithoutSessionIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Progress.AgentState != "idle" || status.Progress.Tail != "Idle prompt ready\n" || status.Progress.RecommendedNextAction != "inspect Train-v2 item attempt" {
+	if status.Progress.AgentState != "idle" || status.Progress.Tail != "Idle prompt ready\n" || status.Progress.RecommendedNextAction != "inspect Task execution state" {
 		t.Fatalf("unexpected progress: %#v", status.Progress)
 	}
 	data, err := json.Marshal(status)

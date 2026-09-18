@@ -10,9 +10,9 @@ import (
 
 func TestTSK646TaskTestFullProfileUsesOnlyDeterministicRunner(t *testing.T) {
 	commands := model.DefaultProjectGateCommands()
-	for _, argv := range [][]string{commands.Test.Task.Command, commands.Test.Train.Command} {
+	for _, argv := range [][]string{commands.Test.Task.Command} {
 		if len(argv) != 1 || argv[0] != "./scripts/test-full.sh" {
-			t.Fatalf("default task/train test gate command=%v, want the deterministic ./scripts/test-full.sh runner", argv)
+			t.Fatalf("default task test gate command=%v, want the deterministic ./scripts/test-full.sh runner", argv)
 		}
 		for _, arg := range argv {
 			if arg == "-race" || arg == "-tags" || arg == "-tags=livee2e" || arg == "-tags=liveperformance" {

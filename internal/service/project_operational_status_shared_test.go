@@ -66,40 +66,12 @@ func TestProjectOperationalStatusUsesLocalSharedStateWhenHubUnavailable(t *testi
 	if err := db.SeedSharedRulesFromConfiguration(context.Background(), configuration, "EXM"); err != nil {
 		t.Fatal(err)
 	}
-	train := model.TrainV2{
-		SchemaVersion: model.TrainV2SchemaVersion,
-		ID:            "EXM-TRN1",
-		ProjectID:     projectID,
-		Revision:      1,
-		Status:        model.TrainV2Running,
-		CreatedBy:     "planner",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		Items: []model.TrainV2Item{{
-			Position:            0,
-			TaskID:              "EXM-TSK1",
-			TaskRevision:        1,
-			TaskRevisionSHA256:  strings.Repeat("a", 64),
-			Status:              model.TrainV2ItemRunning,
-			AddedAt:             now,
-			ActiveAttemptNumber: 1,
-			Attempts: []model.TrainV2Attempt{{
-				Number:            1,
-				Status:            model.TrainV2AttemptRunning,
-				AgentID:           "gtw-worker",
-				AirelaySessionKey: "gpt-tunnel-gateway_master",
-				GatewayID:         "gateway-one",
-				StartHead:         strings.Repeat("b", 40),
-				StartedAt:         now,
-			}},
-		}},
-	}
-	trainPayload, err := json.Marshal(train)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.PutSharedProjection(context.Background(), "train", sqlitestore.SharedEntity{
-		ID: "EXM-TRN1", Revision: 1, Payload: trainPayload, UpdatedAt: now.Format(time.RFC3339Nano),
+	head := strings.Repeat("b", 40)
+	if err := db.CreateTaskExecutionState(context.Background(), model.TaskExecutionState{
+		TaskID: "EXM-TSK1", ProjectID: projectID, TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("a", 64),
+		Status: model.TaskExecutionInProgress, Stage: "code", Worktree: "WT-TSK1-" + head[:8],
+		BaseHead: strings.Repeat("a", 40), Head: head, Branch: "task/EXM-TSK1-lane", Agent: "gtw-worker",
+		ExecutionRevision: 1, UpdatedAt: now,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -127,28 +99,10 @@ func TestProjectOperationalStatusUsesLocalSharedStateWhenHubUnavailable(t *testi
 	if result.Rules.Acknowledged || result.Rules.Fresh {
 		t.Fatalf("unexpected rules acknowledgement: %#v", result.Rules)
 	}
-	if result.Agent.AgentID != "gtw-worker" || result.Agent.Expected != "gtw-worker" || !result.Agent.SessionReady {
-		t.Fatalf("Shared active Attempt identity was not projected: %#v", result.Agent)
+	if result.Agent.State != "unavailable" || result.Agent.AgentID != "" {
+		t.Fatalf("worker identity resolved without Hub project authority: %#v", result.Agent)
 	}
-	finished := now.Add(time.Minute)
-	train.Status = model.TrainV2Completed
-	train.Items[0].Status = model.TrainV2ItemFinalized
-	train.Items[0].Attempts[0].Status = model.TrainV2AttemptSucceeded
-	train.Items[0].Attempts[0].FinishedAt = &finished
-	trainPayload, err = json.Marshal(train)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.PutSharedProjection(context.Background(), "train", sqlitestore.SharedEntity{
-		ID: "EXM-TRN1", Revision: 2, Payload: trainPayload, UpdatedAt: finished.Format(time.RFC3339Nano),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	result, err = s.ProjectOperationalStatus(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Agent.AgentID != "" || result.Agent.Expected != "coding" || result.Agent.SessionReady {
-		t.Fatalf("local watcher identity leaked without active Shared Attempt: %#v", result.Agent)
+	if result.TaskID != "" {
+		t.Fatalf("Task projection leaked without worker identity: %#v", result.TaskID)
 	}
 }

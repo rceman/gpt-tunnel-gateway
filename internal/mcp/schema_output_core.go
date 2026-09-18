@@ -15,8 +15,8 @@ func projectStatusOutputSchema() map[string]any {
 func projectOperationalStatusOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"project": closedOutput(map[string]any{"project_id": outputString(), "project_code": outputString()}, "project_id", "project_code"),
-		"state":   outputString(), "task_id": outputString(), "train_id": outputString(), "item_position": outputInteger(), "attempt_number": outputInteger(),
-		"task_state": outputString(), "train_state": outputString(), "item_state": outputString(), "attempt_state": outputString(),
+		"state":   outputString(), "task_id": outputString(),
+		"task_state": outputString(),
 		"agent": closedOutput(map[string]any{
 			"agent_id": outputString(), "expected": outputString(), "state": outputString(), "session_ready": outputBoolean(), "last_activity": outputDateTime(), "last_activity_age_seconds": outputInteger(),
 		}, "expected", "state", "session_ready", "last_activity_age_seconds"),

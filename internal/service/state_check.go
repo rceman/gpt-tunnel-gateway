@@ -2,10 +2,7 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"sort"
-
-	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
@@ -42,7 +39,7 @@ func (s *Service) stateCheckLocalWithoutDurability(result StateCheckResult, conf
 	}
 	sort.Strings(result.DurableProjectIDs)
 	// Plan files remain immutable history and are intentionally not part of
-	// current-state validation after the Train-v2 cutover. A controller-side
+	// current-state validation after the execution cutover. A controller-side
 	// check has no SQLite owner, so live graph validation is performed by the
 	// daemon's Local/Shared path above.
 	result.Valid = len(result.Issues) == 0
@@ -72,32 +69,6 @@ func (s *Service) stateCheckLocal(ctx context.Context, configuredIDs []string) (
 			continue
 		}
 		result.DurableProjectIDs = append(result.DurableProjectIDs, projectID)
-		trains, trainErr := s.sharedTrains(ctx, projectID)
-		if trainErr != nil {
-			result.Issues = append(result.Issues, stateIssue("TRAIN_V2_UNAVAILABLE", projectID, "", s.trainV2Root(projectID), trainErr.Error()))
-			continue
-		}
-		owners := make(map[string]string)
-		reported := make(map[string]bool)
-		for _, train := range trains {
-			if train.Historical != nil {
-				continue
-			}
-			trainPath := s.trainV2Path(projectID, train.ID)
-			for _, item := range train.Items {
-				if owner, exists := owners[item.TaskID]; exists {
-					if !reported[item.TaskID] {
-						result.Issues = append(result.Issues, stateIssue("DUPLICATE_TRAIN_TASK_MEMBERSHIP", projectID, item.TaskID, trainPath, fmt.Sprintf("Task %q belongs to Trains %q and %q", item.TaskID, owner, train.ID)))
-						reported[item.TaskID] = true
-					}
-					continue
-				}
-				owners[item.TaskID] = train.ID
-				if item.Status != model.TrainV2ItemQueued && len(item.Attempts) == 0 {
-					result.Issues = append(result.Issues, stateIssue("TRAIN_V2_ATTEMPT_MISSING", projectID, item.TaskID, trainPath, fmt.Sprintf("Train item %s has no item-local attempt", item.TaskID)))
-				}
-			}
-		}
 	}
 	sort.Strings(result.DurableProjectIDs)
 	result.Valid = len(result.Issues) == 0

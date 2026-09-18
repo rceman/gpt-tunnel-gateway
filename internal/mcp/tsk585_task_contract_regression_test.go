@@ -16,7 +16,6 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
-	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func TestTSK585TaskCompleteMCPSchema(t *testing.T) {
@@ -145,7 +144,7 @@ func tsk585BrowseFixture(t *testing.T) *Server {
 	statuses := []string{model.TaskAuthoringPlanned, model.TaskAuthoringDone, model.TaskAuthoringReady, model.TaskAuthoringArchived}
 	now := time.Now().UTC()
 	for i := 0; i < 8; i++ {
-		task, err := trainv2.NewTask("example", fmt.Sprintf("EXM-TSK9%03d", i+1), trainv2.AuthoringDraft{
+		task, err := model.NewTask("example", fmt.Sprintf("EXM-TSK9%03d", i+1), model.AuthoringDraft{
 			Title: fmt.Sprintf("Browse %02d", i), Summary: "Browse summary.", Objective: "Browse objective.", ADRRelation: model.TaskADRNoRequired,
 		}, "planner", now)
 		if err != nil {

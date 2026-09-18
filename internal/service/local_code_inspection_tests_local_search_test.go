@@ -64,7 +64,7 @@ func TestCodeWorktreeKeepsOldBaseHotfixVisibleAndCodeReadResolvesIt(t *testing.T
 
 func TestCodeSelectorsRemainDistinctWhenHeadsMatch(t *testing.T) {
 	head := strings.Repeat("a", 40)
-	mainSelector, err := codeSelector("", head)
+	mainSelector, err := codeSelector(head)
 	if err != nil {
 		t.Fatal(err)
 	}

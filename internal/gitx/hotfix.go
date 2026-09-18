@@ -59,7 +59,7 @@ func (r Runner) CreateHotfixWorktree(ctx context.Context, p config.ProjectConfig
 	if err := r.MaterializeMirrorCommit(ctx, p, p.DefaultBranch, base); err != nil {
 		return config.ProjectConfig{}, err
 	}
-	if err := r.createTrainWorktree(ctx, p, path, branch, base); err != nil {
+	if err := r.createManagedWorktree(ctx, p, path, branch, base); err != nil {
 		return config.ProjectConfig{}, err
 	}
 	result := p
@@ -122,10 +122,10 @@ func (r Runner) RemoveHotfixWorktree(ctx context.Context, p config.ProjectConfig
 	if !clean || actualBranch != branch || head != expectedHead {
 		return fmt.Errorf("hotfix rollback left lane untouched: lane is not clean at its create head")
 	}
-	if err := r.removeTrainWorktree(ctx, p, path); err != nil {
+	if err := r.removeManagedWorktree(ctx, p, path); err != nil {
 		return err
 	}
-	return r.DeleteTrainBranch(ctx, p, branch, expectedHead)
+	return r.DeleteManagedBranch(ctx, p, branch, expectedHead)
 }
 
 // ResolveHotfixWorktree accepts only a server-derived hotfix branch and its

@@ -6,10 +6,13 @@ import (
 )
 
 const (
-	TaskExecutionTrain    TaskExecution = "train"
-	TaskExecutionHotfix   TaskExecution = "hotfix"
-	MaxTaskScopeItems                   = 128
-	MaxTaskScopeItemBytes               = 1024
+	// TaskExecutionCanonical marks a Task bound to canonical execution. The
+	// stored value "train" is the historical enum spelling kept so existing
+	// Task records remain valid; no Train authority remains behind it.
+	TaskExecutionCanonical TaskExecution = "train"
+	TaskExecutionHotfix    TaskExecution = "hotfix"
+	MaxTaskScopeItems                    = 128
+	MaxTaskScopeItemBytes                = 1024
 )
 
 type TaskExecution string
@@ -19,7 +22,7 @@ func NormalizeTaskExecution(value TaskExecution) (TaskExecution, error) {
 		return "", nil
 	}
 	switch value {
-	case TaskExecutionTrain, TaskExecutionHotfix:
+	case TaskExecutionCanonical, TaskExecutionHotfix:
 		return value, nil
 	default:
 		return "", fmt.Errorf("invalid task execution %q", value)

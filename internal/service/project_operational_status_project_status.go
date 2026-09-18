@@ -2,9 +2,7 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -14,8 +12,6 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
-const maxProjectStatusTrainRecords = 1000
-
 // ProjectOperationalStatus is the compact, session-bound operator projection.
 // It deliberately contains identifiers and lifecycle facts, never full durable
 // records, reports, histories, or Agent transcript output.
@@ -23,13 +19,7 @@ type ProjectOperationalStatus struct {
 	Project               ProjectOperationalIdentity    `json:"project"`
 	State                 string                        `json:"state"`
 	TaskID                string                        `json:"task_id,omitempty"`
-	TrainID               string                        `json:"train_id,omitempty"`
-	ItemPosition          int                           `json:"item_position,omitempty"`
-	AttemptNumber         uint64                        `json:"attempt_number,omitempty"`
 	TaskState             string                        `json:"task_state,omitempty"`
-	TrainState            string                        `json:"train_state,omitempty"`
-	ItemState             string                        `json:"item_state,omitempty"`
-	AttemptState          string                        `json:"attempt_state,omitempty"`
 	Agent                 ProjectOperationalAgent       `json:"agent"`
 	Operation             *ProjectOperationalOperation  `json:"operation,omitempty"`
 	Integration           ProjectOperationalIntegration `json:"integration"`
@@ -168,7 +158,6 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 		result.State = "working"
 		result.RecommendedNextAction = "supervise current operation"
 	}
-	trains, trainsErr := s.readProjectOperationalTrains(ctx, projectID)
 	var taskStates []model.TaskExecutionState
 	var taskStatesErr error
 	workerContract := false
@@ -192,53 +181,35 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 				result.Agent.State = "working"
 			}
 		}
-	} else if s.Durability != nil {
-		agentID, sessionKey := sharedOperationalAgentIdentity(trains)
-		result.Agent.AgentID = agentID
-		if agentID != "" {
-			result.Agent.Expected = agentID
-		}
-		if sessionKey != "" {
-			probe, probeErr := s.Airelay.Status(ctx, sessionKey)
-			result.Agent.SessionReady = probeErr == nil && probe.ControllerReachable
-			result.Agent.State = "idle"
-			if probe.State == "busy" || probe.State == "working" {
-				result.Agent.State = "working"
-			}
-			if probeErr != nil || !probe.ControllerReachable {
-				result.Agent.State = "unavailable"
-			}
-		}
-	} else if agents, listErr := s.AgentList(ctx, projectID); listErr == nil {
-		for _, agent := range agents {
-			if agent.Role != model.AgentRoleCoding {
-				continue
-			}
-			result.Agent.AgentID = agent.AgentID
-			result.Agent.Expected = agent.AgentID
-			if !agent.Enabled {
-				result.Agent.State = "unavailable"
+	} else if s.Durability == nil {
+		if agents, listErr := s.AgentList(ctx, projectID); listErr == nil {
+			for _, agent := range agents {
+				if agent.Role != model.AgentRoleCoding {
+					continue
+				}
+				result.Agent.AgentID = agent.AgentID
+				result.Agent.Expected = agent.AgentID
+				if !agent.Enabled {
+					result.Agent.State = "unavailable"
+					break
+				}
+				binding, bound := s.agentBinding(projectID, agent.AgentID)
+				if !bound || binding.Validate() != nil {
+					result.Agent.State = "unavailable"
+					break
+				}
+				probe, probeErr := s.Airelay.Status(ctx, binding.SessionKey)
+				result.Agent.SessionReady = probeErr == nil && probe.ControllerReachable
+				result.Agent.State = "idle"
+				if probe.State == "busy" || probe.State == "working" {
+					result.Agent.State = "working"
+				}
+				if probeErr != nil || !probe.ControllerReachable {
+					result.Agent.State = "unavailable"
+				}
 				break
 			}
-			binding, bound := s.agentBinding(projectID, agent.AgentID)
-			if !bound || binding.Validate() != nil {
-				result.Agent.State = "unavailable"
-				break
-			}
-			probe, probeErr := s.Airelay.Status(ctx, binding.SessionKey)
-			result.Agent.SessionReady = probeErr == nil && probe.ControllerReachable
-			result.Agent.State = "idle"
-			if probe.State == "busy" || probe.State == "working" {
-				result.Agent.State = "working"
-			}
-			if probeErr != nil || !probe.ControllerReachable {
-				result.Agent.State = "unavailable"
-			}
-			break
 		}
-	}
-	if trainsErr == nil {
-		s.populateProjectOperationalTrain(&result, trains)
 	}
 	if workerContract && result.Agent.AgentID != "" {
 		s.populateProjectOperationalTask(&result, taskStates, result.Agent.AgentID)
@@ -265,48 +236,4 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 		result.RecommendedNextAction = "start Agent"
 	}
 	return result, nil
-}
-
-func sharedOperationalAgentIdentity(trains []model.TrainV2) (string, string) {
-	sort.Slice(trains, func(i, j int) bool { return trains[i].UpdatedAt.After(trains[j].UpdatedAt) })
-	for _, train := range trains {
-		if train.Historical != nil || train.Status == model.TrainV2Completed || train.Status == model.TrainV2ReadyForIntegration || train.Status == model.TrainV2Retired {
-			continue
-		}
-		for _, item := range train.Items {
-			if item.ActiveAttemptNumber == 0 || item.ActiveAttemptNumber > uint64(len(item.Attempts)) {
-				continue
-			}
-			attempt := item.Attempts[item.ActiveAttemptNumber-1]
-			if attempt.Status == model.TrainV2AttemptRunning {
-				return attempt.AgentID, attempt.AirelaySessionKey
-			}
-		}
-	}
-	return "", ""
-}
-
-func (s *Service) readProjectOperationalTrains(ctx context.Context, projectID string) ([]model.TrainV2, error) {
-	if s.Durability == nil {
-		return s.readTrainV2Records(ctx, projectID)
-	}
-	entities, err := s.Durability.ListSharedEntities(ctx, "train", maxProjectStatusTrainRecords)
-	if err != nil {
-		return nil, err
-	}
-	trains := make([]model.TrainV2, 0, len(entities))
-	for _, entity := range entities {
-		var train model.TrainV2
-		if err := json.Unmarshal(entity.Payload, &train); err != nil {
-			return nil, fmt.Errorf("decode Shared Train %q: %w", entity.ID, err)
-		}
-		if train.ProjectID != projectID {
-			continue
-		}
-		if err := model.ValidateTrainV2(train); err != nil {
-			return nil, err
-		}
-		trains = append(trains, train)
-	}
-	return trains, nil
 }

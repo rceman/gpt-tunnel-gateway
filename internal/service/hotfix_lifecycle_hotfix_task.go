@@ -12,7 +12,6 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
-	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 type HotfixCreateInput struct {
@@ -128,7 +127,7 @@ func (s *Service) bindTaskToHotfix(ctx context.Context, task model.TaskAuthoring
 		}
 		return s.updateTaskExecutionHub(ctx, task, execution, "hotfix/create", expected)
 	}
-	updated, _, err := trainv2.UpdateTask(task, trainv2.AuthoringPatch{Execution: &execution}, "hotfix/create", s.durableNow())
+	updated, _, err := model.UpdateTask(task, model.AuthoringPatch{Execution: &execution}, "hotfix/create", s.durableNow())
 	if err != nil {
 		return model.TaskAuthoring{}, err
 	}
@@ -161,7 +160,7 @@ func (s *Service) unbindTaskFromHotfix(ctx context.Context, task model.TaskAutho
 		_, err = s.updateTaskExecutionHub(ctx, task, empty, "hotfix/create-rollback", expected)
 		return err
 	}
-	updated, changed, err := trainv2.UpdateTask(task, trainv2.AuthoringPatch{Execution: &empty}, "hotfix/create-rollback", s.durableNow())
+	updated, changed, err := model.UpdateTask(task, model.AuthoringPatch{Execution: &empty}, "hotfix/create-rollback", s.durableNow())
 	if err != nil {
 		return err
 	}
@@ -183,7 +182,7 @@ func (s *Service) unbindTaskFromHotfix(ctx context.Context, task model.TaskAutho
 }
 
 func (s *Service) updateTaskExecutionHub(ctx context.Context, task model.TaskAuthoring, execution model.TaskExecution, updatedBy, expectedHubRevision string) (model.TaskAuthoring, error) {
-	updated, changed, err := trainv2.UpdateTask(task, trainv2.AuthoringPatch{Execution: &execution}, updatedBy, s.durableNow())
+	updated, changed, err := model.UpdateTask(task, model.AuthoringPatch{Execution: &execution}, updatedBy, s.durableNow())
 	if err != nil {
 		return model.TaskAuthoring{}, err
 	}
@@ -196,15 +195,15 @@ func (s *Service) updateTaskExecutionHub(ctx context.Context, task model.TaskAut
 		if err := readWorktreeJSON(worktree, path, &latest); err != nil {
 			return nil, err
 		}
-		if err := trainv2.CheckRevision(latest, task.Revision, task.RevisionSHA256); err != nil {
+		if err := model.CheckRevision(latest, task.Revision, task.RevisionSHA256); err != nil {
 			return nil, err
 		}
-		admitted, err := taskAdmittedToNonterminalTrainInWorktree(worktree, s.trainV2Root(task.ProjectID), task.ID)
+		admitted, err := s.taskHasNonterminalExecutionShared(ctx, task.ProjectID, task.ID)
 		if err != nil {
 			return nil, err
 		}
 		if admitted {
-			return nil, fmt.Errorf("ready Task %q is admitted to a nonterminal Train and cannot change execution", task.ID)
+			return nil, fmt.Errorf("ready Task %q owns a nonterminal execution and cannot change execution", task.ID)
 		}
 		if err := hub.WriteJSON(worktree, path, updated); err != nil {
 			return nil, err

@@ -5,14 +5,14 @@ func compactRevision(value map[string]any) map[string]any {
 }
 func compactExecution(value map[string]any) map[string]any {
 	return selectProjectionFields(value,
-		"id", "status", "phase", "operation_id", "project_id", "task_id", "train_id", "item_position", "attempt_number", "attempt_status",
+		"id", "status", "phase", "operation_id", "project_id", "task_id",
 		"agent_id", "delivered", "exit_code", "outcome", "interrupt_outcome", "prompt_outcome", "requested", "prompt_delivered", "elapsed_ms",
 		"session_state", "controller_reachable", "recoverable", "state", "count", "has_new_info", "overflow", "history_truncated",
 		"created_at", "updated_at", "error", "reason",
 	)
 }
 func compactOperation(value map[string]any) map[string]any {
-	result := selectProjectionFields(value, "operation_id", "status", "kind", "project_id", "task_id", "train_id", "error", "created_at", "updated_at")
+	result := selectProjectionFields(value, "operation_id", "status", "kind", "project_id", "task_id", "error", "created_at", "updated_at")
 	if hub, ok := value["hub"].(map[string]any); ok {
 		result["hub"] = selectProjectionFields(hub, "before", "after", "remote", "branch", "paths")
 	}

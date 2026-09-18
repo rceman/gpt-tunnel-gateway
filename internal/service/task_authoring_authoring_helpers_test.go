@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
@@ -33,7 +34,7 @@ func TestTaskAuthoringFindSkipsEarlierLegacyProject(t *testing.T) {
 	}
 	hubRevision = registered.Hub.After
 	hubRevision = adoptAuthoringIdentifiersForTest(t, s, hubRevision)
-	hubRevision = enableTrainV2ForTest(t, s, hubRevision)
+	hubRevision = enableCanonicalExecutionForTest(t, s, hubRevision)
 	task, _, err := s.TaskAuthoringCreate(context.Background(), TaskAuthoringCreateInput{
 		ProjectID:   "example",
 		Title:       "Canonical task",
@@ -77,4 +78,44 @@ func adoptAuthoringIdentifiersForTest(t *testing.T, s *Service, hubRevision stri
 		t.Fatalf("unexpected identifiers: %#v %#v %v", result, operation, err)
 	}
 	return operation.Hub.After
+}
+
+// enableCanonicalExecutionForTest establishes the stored canonical execution
+// marker. The stored "train_v2" value is the provenance spelling existing
+// configurations carry; CanonicalExecutionEnabled reads it.
+func enableCanonicalExecutionForTest(t *testing.T, s *Service, hubRevision string) string {
+	t.Helper()
+	configuration, err := s.ProjectConfigurationRead(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := hubRevision
+	tx, err := s.Hub.Transact(context.Background(), expected, "test: seed canonical execution authority", func(worktree string) ([]string, error) {
+		var latest model.ProjectConfiguration
+		if err := readWorktreeJSON(worktree, s.projectConfigurationPath("example"), &latest); err != nil {
+			return nil, err
+		}
+		latest.ExecutionModel = "train_v2"
+		latest.Revision = configuration.Revision + 1
+		if err := model.ValidateProjectConfiguration(latest); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(worktree, s.projectConfigurationPath("example"), latest); err != nil {
+			return nil, err
+		}
+		return []string{s.projectConfigurationPath("example")}, nil
+	})
+	if err != nil {
+		t.Fatalf("seed canonical execution configuration: %v", err)
+	}
+	return tx.After
+}
+
+func mustHubRevision(t *testing.T, s *Service) string {
+	t.Helper()
+	revision, err := s.hubRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return revision
 }

@@ -11,6 +11,9 @@ import (
 func (d *Databases) ReadSharedEntity(ctx context.Context, entityType, entityID string) (SharedEntity, error) {
 	table, ok := sharedProjectionTables[entityType]
 	if !ok {
+		table, ok = sharedEvidenceTables[entityType]
+	}
+	if !ok {
 		return SharedEntity{}, fmt.Errorf("unsupported shared entity type %q", entityType)
 	}
 	if d == nil || d.Shared == nil {
@@ -41,10 +44,6 @@ func (d *Databases) ReadSharedEntity(ctx context.Context, entityType, entityID s
 	}, nil
 }
 
-func SharedIntegrationReceiptID(projectID, trainID string) string {
-	return projectID + "\x00" + trainID
-}
-
 func (d *Databases) PutSharedProjection(ctx context.Context, entityType string, entity SharedEntity) error {
 	table, ok := sharedProjectionTables[entityType]
 	if !ok {
@@ -58,15 +57,6 @@ func (d *Databases) PutSharedProjection(ctx context.Context, entityType string, 
 	}
 	_, err := d.Shared.Exec(ctx, fmt.Sprintf(`INSERT INTO %s(id,revision,payload,updated_at) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload,updated_at=excluded.updated_at WHERE excluded.revision >= %s.revision`, table, table), entity.ID, entity.Revision, entity.Payload, entity.UpdatedAt)
 	return err
-}
-
-func (d *Databases) PutSharedIntegrationReceipt(ctx context.Context, receipt SharedIntegrationReceipt) error {
-	return d.PutSharedProjection(ctx, "integration_receipt", SharedEntity{
-		ID:        receipt.ID,
-		Revision:  receipt.Revision,
-		Payload:   receipt.Payload,
-		UpdatedAt: receipt.UpdatedAt,
-	})
 }
 
 func (d *Databases) ListSharedEntities(ctx context.Context, entityType string, limit int) ([]SharedEntity, error) {
@@ -86,6 +76,9 @@ func (d *Databases) ListSharedEntitiesAfter(ctx context.Context, entityType, aft
 
 func (d *Databases) listSharedEntitiesQuery(ctx context.Context, entityType, queryFormat string, args ...any) ([]SharedEntity, error) {
 	table, ok := sharedEntityTables[entityType]
+	if !ok {
+		table, ok = sharedEvidenceTables[entityType]
+	}
 	if !ok {
 		return nil, fmt.Errorf("unsupported shared entity type %q", entityType)
 	}

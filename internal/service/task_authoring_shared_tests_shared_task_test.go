@@ -10,7 +10,6 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
-	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func TestSharedQueriesScopeBeforeGlobalPageLimit(t *testing.T) {
@@ -32,7 +31,7 @@ func TestSharedQueriesScopeBeforeGlobalPageLimit(t *testing.T) {
 	if _, err := db.Shared.Exec(ctx, `WITH RECURSIVE numbers(n) AS (SELECT 0 UNION ALL SELECT n+1 FROM numbers WHERE n < 1000) INSERT INTO shared_adrs(id,revision,payload,updated_at) SELECT printf('AAA-ADR%04d', n), 1, CAST('{"project_id":"other"}' AS BLOB), ? FROM numbers`, now); err != nil {
 		t.Fatal(err)
 	}
-	task, err := trainv2.NewTask("example", "EXM-TSK903", trainv2.AuthoringDraft{Title: "After page", Summary: "Remain visible after pagination.", Objective: "Remain visible", ADRRelation: model.TaskADRNoRequired}, "planner", time.Now().UTC())
+	task, err := model.NewTask("example", "EXM-TSK903", model.AuthoringDraft{Title: "After page", Summary: "Remain visible after pagination.", Objective: "Remain visible", ADRRelation: model.TaskADRNoRequired}, "planner", time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +126,7 @@ func TestSharedADRPublishConvergesAfterRestart(t *testing.T) {
 func TestTaskAuthoringAsyncMutationsCommitSharedWhenHubUnavailable(t *testing.T) {
 	s, revision, _ := testServiceWithoutIdentifiers(t)
 	revision = adoptAuthoringIdentifiersForTest(t, s, revision)
-	revision = enableTrainV2ForTest(t, s, revision)
+	revision = enableCanonicalExecutionForTest(t, s, revision)
 	db, err := sqlitestore.Open(s.Config.StateDir)
 	if err != nil {
 		t.Fatal(err)
@@ -200,7 +199,7 @@ func TestTaskAuthoringAsyncMutationsCommitSharedWhenHubUnavailable(t *testing.T)
 	}
 }
 
-func TestTaskAuthoringReadySharedRequiresLocalIntegrationReceipt(t *testing.T) {
+func TestTaskAuthoringReadySharedRequiresCanonicalIntegrationEvidence(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
 	db, err := sqlitestore.Open(s.Config.StateDir)
 	if err != nil {
@@ -214,7 +213,7 @@ func TestTaskAuthoringReadySharedRequiresLocalIntegrationReceipt(t *testing.T) {
 	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
 
 	dependencyID := "GTW-TSK324"
-	task, err := trainv2.NewTask("example", "EXM-TSK330", trainv2.AuthoringDraft{
+	task, err := model.NewTask("example", "EXM-TSK330", model.AuthoringDraft{
 		Title: "Dependent task", Summary: "Require a locally proven integration.", Objective: "Require a locally proven integration.",
 		AcceptanceCriteria: []string{"local receipt is required"}, Dependencies: []string{dependencyID},
 		ADRRelation: model.TaskADRNoRequired,
@@ -229,14 +228,6 @@ func TestTaskAuthoringReadySharedRequiresLocalIntegrationReceipt(t *testing.T) {
 	if err := db.SeedSharedTask(context.Background(), sqlitestore.SharedTask{ID: task.ID, Revision: int64(task.Revision), Payload: payload, UpdatedAt: task.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
 		t.Fatal(err)
 	}
-	train, integration := dependencyIntegrationFixture(model.TrainV2Completed)
-	trainPayload, err := json.Marshal(train)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Shared.Exec(context.Background(), `INSERT INTO shared_trains(id,revision,payload,updated_at) VALUES(?,?,?,?)`, train.ID, train.Revision, trainPayload, train.UpdatedAt.UTC().Format(time.RFC3339Nano)); err != nil {
-		t.Fatal(err)
-	}
 	readyInput := TaskAuthoringReadyInput{
 		ProjectID:              "example",
 		TaskID:                 task.ID,
@@ -245,18 +236,20 @@ func TestTaskAuthoringReadySharedRequiresLocalIntegrationReceipt(t *testing.T) {
 		ReadyBy:                "planner",
 	}
 	if _, _, err := s.taskAuthoringReadyShared(context.Background(), "op-missing-receipt", readyInput); err == nil || !strings.Contains(err.Error(), "dependency-not-integrated") {
-		t.Fatalf("missing local integration receipt error=%v", err)
+		t.Fatalf("missing canonical integration evidence error=%v", err)
 	}
-	integrationPayload, err := json.Marshal(integration)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.PutSharedIntegrationReceipt(context.Background(), sqlitestore.SharedIntegrationReceipt{ID: sqlitestore.SharedIntegrationReceiptID("example", train.ID), Revision: 1, Payload: integrationPayload, UpdatedAt: integration.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+	head := strings.Repeat("b", 40)
+	if err := db.CreateTaskExecutionState(context.Background(), model.TaskExecutionState{
+		TaskID: dependencyID, ProjectID: "example", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("a", 64),
+		Status: model.TaskExecutionIntegrated, Stage: "rebase", Worktree: "WT-TSK324-" + head[:8],
+		BaseHead: strings.Repeat("a", 40), Head: head, Branch: "task/" + dependencyID + "-lane", Agent: "gtw-worker",
+		ExecutionRevision: 4, UpdatedAt: time.Now().UTC(),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	ready, _, err := s.taskAuthoringReadyShared(context.Background(), "op-with-receipt", readyInput)
 	if err != nil {
-		t.Fatalf("ready with local integration receipt: %v", err)
+		t.Fatalf("ready with canonical integration evidence: %v", err)
 	}
 	if ready.Status != model.TaskAuthoringReady {
 		t.Fatalf("ready task status=%q", ready.Status)

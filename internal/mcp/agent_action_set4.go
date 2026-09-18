@@ -229,7 +229,7 @@ func sparseAgentStatusProjection(full map[string]any) map[string]any {
 	if value, ok := full["error"].(string); ok && value != "" {
 		sparse["error"] = value
 	}
-	for _, field := range []string{"attempt_state", "train_id", "task_id", "attempt_number", "item_position", "recoverable", "recovery_reason"} {
+	for _, field := range []string{"task_id", "recoverable", "recovery_reason"} {
 		if value, ok := full[field]; ok {
 			sparse[field] = value
 		}

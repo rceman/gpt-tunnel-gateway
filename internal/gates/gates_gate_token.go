@@ -166,7 +166,7 @@ func (e Executor) ExecuteWithProjectCommandsAndScope(ctx context.Context, root s
 	if err := commands.Validate(); err != nil {
 		return nil, err
 	}
-	if testMode != "task" && testMode != "train" {
+	if testMode != "task" {
 		return nil, fmt.Errorf("invalid project test mode %q", testMode)
 	}
 	if e.Command == nil {
@@ -201,7 +201,7 @@ func ProjectGateCommandArgs(commands model.ProjectGateCommands, gate, testMode s
 	if err := commands.Validate(); err != nil {
 		return nil, err
 	}
-	if testMode != "task" && testMode != "train" {
+	if testMode != "task" {
 		return nil, fmt.Errorf("invalid project test mode %q", testMode)
 	}
 	normalized, err := scope.Normalize()
@@ -213,11 +213,7 @@ func ProjectGateCommandArgs(commands model.ProjectGateCommands, gate, testMode s
 	case model.WorkflowGateCheck:
 		command = commands.Check
 	case model.WorkflowGateTest:
-		if testMode == "task" {
-			command = commands.Test.Task
-		} else {
-			command = commands.Test.Train
-		}
+		command = commands.Test.Task
 	case model.WorkflowGateFormat:
 	default:
 		return nil, fmt.Errorf("unsupported workflow gate %q", gate)

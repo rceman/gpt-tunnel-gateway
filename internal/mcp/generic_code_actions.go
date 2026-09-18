@@ -226,7 +226,7 @@ func codePaginationOutputSchema() map[string]any {
 }
 
 func codeWorktreeOutputSchema() map[string]any {
-	item := closedOutput(map[string]any{"selector": outputString(), "kind": outputString(), "dirty": outputBoolean(), "head": outputString(), "label": outputString(), "train_id": outputString()}, "selector", "kind", "dirty", "head")
+	item := closedOutput(map[string]any{"selector": outputString(), "kind": outputString(), "dirty": outputBoolean(), "head": outputString(), "label": outputString()}, "selector", "kind", "dirty", "head")
 	return closedOutput(map[string]any{"items": outputArray(item), "_pagination": codePaginationOutputSchema()}, "items")
 }
 

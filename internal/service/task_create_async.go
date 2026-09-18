@@ -14,7 +14,6 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/fsutil"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
-	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 const taskCreateOperationSchemaVersion = 1
@@ -145,14 +144,14 @@ func normalizeTaskCreateInput(in TaskAuthoringCreateInput) (TaskAuthoringCreateI
 	if in.ADRRelation == "" {
 		in.ADRRelation = model.TaskADRNoRequired
 	}
-	draft := trainv2.AuthoringDraft{
+	draft := model.AuthoringDraft{
 		Type: in.Type, Scope: in.Scope,
 		Title: in.Title, Summary: in.Summary, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria,
 		Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies,
 		PreparationReferences: in.PreparationReferences, Metadata: in.Metadata,
 		ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences,
 	}
-	if err := trainv2.ValidateDraft(draft); err != nil {
+	if err := model.ValidateDraft(draft); err != nil {
 		return TaskAuthoringCreateInput{}, err
 	}
 	return in, nil

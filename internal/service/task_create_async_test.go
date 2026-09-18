@@ -15,7 +15,7 @@ func TestTaskAuthoringCreateAsyncIsDurableAndIdempotent(t *testing.T) {
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
 	revision = adoptAuthoringIdentifiersForTest(t, s, revision)
-	revision = enableTrainV2ForTest(t, s, revision)
+	revision = enableCanonicalExecutionForTest(t, s, revision)
 	db, err := sqlitestore.Open(s.Config.StateDir)
 	if err != nil {
 		t.Fatal(err)

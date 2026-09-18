@@ -42,23 +42,13 @@ var projectionClasses = map[string]projectionClass{
 	"task/read":  projectionClosedDefault, "task/review": projectionClosedDefault, "task/review_decide": projectionClosedDefault, "task/rework": projectionClosedDefault, "task/block": projectionClosedDefault, "task/resume": projectionClosedDefault, "task/refresh": projectionClosedDefault,
 	"task/submit-code": projectionClosedDefault, "task/submit-rebase": projectionClosedDefault, "task/submit-tests": projectionClosedDefault,
 	"task/status": projectionClosedDefault, "task/update": projectionClosedDefault,
-	"train/add": projectionCompactDefault, "train/advance": projectionCompactDefault, "train/correction-start": projectionCompactDefault,
-	"train/attempt-finalize": projectionCompactDefault, "train/attempt-proof-recover": projectionCompactDefault, "train/attempt-review": projectionCompactDefault, "train/review-resolve": projectionCompactDefault,
-	"train/create": projectionCompactDefault, "train/cutover": projectionCompactDefault, "train/full-proof": projectionCompactDefault, "train/review-backfill": projectionCompactDefault,
-	"train/integrate": projectionCompactDefault, "train/list": projectionCompactDefault, "train/read": projectionCompactDefault,
-	"train/start": projectionCompactDefault,
 }
 
 func compactProjectionAction(path string) bool {
 	return projectionClasses[path] == projectionCompactDefault
 }
 func projectionDetailAction(path string) bool {
-	switch path {
-	case "train/list", "train/read":
-		return true
-	default:
-		return false
-	}
+	return false
 }
 func withProjectionDetail(schema map[string]any) map[string]any {
 	if schema == nil {
@@ -123,10 +113,6 @@ func compactActionResult(action string, value map[string]any, detail bool) map[s
 		return compactTaskListResult(value)
 	case "task/read":
 		return compactTaskReadResult(value)
-	case "train/list":
-		return compactTrainListResult(value)
-	case "train/read":
-		return compactTrainReadResult(value)
 	default:
 		return compactMutationResult(action, value)
 	}

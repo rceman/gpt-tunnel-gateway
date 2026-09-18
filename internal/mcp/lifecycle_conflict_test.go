@@ -8,14 +8,14 @@ import (
 
 func TestGenericTransportPreservesStructuredLifecycleConflict(t *testing.T) {
 	err := &service.LifecycleConflictError{
-		Code:    "TRAIN_REVISION_STATUS_CONFLICT",
+		Code:    "TASK_REVISION_STATUS_CONFLICT",
 		Phase:   "transaction",
 		Details: map[string]any{"guard": "revision", "expected_revision": 6, "current_revision": 7},
 	}
-	response := genericActionError("train/add", err)
+	response := genericActionError("task/update", err)
 	result := response["result"].(map[string]any)
 	structured := result["error"].(map[string]any)
-	if structured["code"] != "TRAIN_REVISION_STATUS_CONFLICT" || structured["phase"] != "transaction" {
+	if structured["code"] != "TASK_REVISION_STATUS_CONFLICT" || structured["phase"] != "transaction" {
 		t.Fatalf("structured error=%#v", structured)
 	}
 	if _, ok := structured["details"].(map[string]any); !ok {

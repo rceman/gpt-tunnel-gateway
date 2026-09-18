@@ -57,14 +57,14 @@ func (r Runner) localRevisionRoot(ctx context.Context, p config.ProjectConfig, r
 		return "", false, err
 	}
 	if int64(len(out)) > r.MaxReadBytes {
-		return "", false, fmt.Errorf("local Train worktree listing exceeds read limit")
+		return "", false, fmt.Errorf("local managed worktree listing exceeds read limit")
 	}
 	for _, line := range strings.Split(string(out), "\n") {
 		if !strings.HasPrefix(line, "worktree ") {
 			continue
 		}
 		root := filepath.Clean(strings.TrimPrefix(line, "worktree "))
-		if !isManagedTrainWorktree(r.StateDir, root) {
+		if !isManagedWorktree(r.StateDir, root) {
 			continue
 		}
 		ok, err := r.localWorktreeContains(ctx, root, revisions)
@@ -78,13 +78,13 @@ func (r Runner) localRevisionRoot(ctx context.Context, p config.ProjectConfig, r
 	return "", false, nil
 }
 
-func isManagedTrainWorktree(stateDir, root string) bool {
+func isManagedWorktree(stateDir, root string) bool {
 	rel, err := filepath.Rel(filepath.Clean(stateDir), filepath.Clean(root))
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return false
 	}
 	parts := strings.Split(filepath.ToSlash(rel), "/")
-	return len(parts) >= 3 && (parts[0] == "train-worktrees" || parts[0] == "work")
+	return len(parts) >= 3 && (parts[0] == "task-worktrees" || parts[0] == "train-worktrees" || parts[0] == "work")
 }
 
 func (r Runner) localWorktreeContains(ctx context.Context, root string, revisions []string) (bool, error) {

@@ -38,22 +38,17 @@ Policy reads remain available without write authorization.
 
 Remote tools mirror typed CLI operations except `run_finalize`, which remains local-agent-only. No generic shell, generic Git, arbitrary path, or unrestricted file tool exists.
 
-## Train v2 authority
+## Canonical Task-execution authority
 
-The project configuration starts in `legacy` mode. A single planner/delivery
-authorized `train/cutover` action changes it to `train_v2` only after the
-Gateway has validated the A-E action surface, clean synchronized integration
-state, active/version-matched runtime, historical compatibility, and explicit
-roadmap materialization and Plan-retirement acknowledgements. The cutover
-writes configuration and its receipt in one Hub transaction and is idempotent.
-
-In `train_v2`, `task/create`, `task/update`, `task/ready`, `train/create`,
-`train/add`, `train/start`, and `train/integrate` are the normal application
-path. The execution packet is Task/Train/Run-owned and does not require a
-global Plan summary. Project status is a bounded projection of Task and Train
-records. Plan reads and history remain available for audit, while Plan
-mutations and standalone legacy dispatch/integrate fail closed for new Train
-v2 work. Historical workflow-v1 records retain their original meaning.
+`task/create`, `task/update`, `task/ready`, `task/dispatch`, `task/submit-*`,
+`task/review*`, `task/integrate`, and `task/complete` are the normal
+application path. The execution packet is Task/Task-execution-state-owned and
+does not require a global Plan summary. Project status is a bounded
+projection of Task and Task-execution records. Plan reads and history remain
+available for audit, while Plan mutations and standalone legacy
+dispatch/integrate fail closed for projects on the canonical execution model.
+Historical Train/Attempt and workflow-v1 records are preserved as readable
+evidence and retain their original meaning; they carry no live authority.
 
 The v0.6.0 direct project-session tools are:
 

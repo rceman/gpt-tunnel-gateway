@@ -116,7 +116,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 				_ = json.Unmarshal(args["project_id"], &projectID)
 			}
 		}
-		enabled, err := s.Service.TrainV2Enabled(ctx, projectID)
+		enabled, err := s.Service.CanonicalExecutionEnabled(ctx, projectID)
 		if err != nil {
 			return genericActionError(action, err.Error()), nil
 		}

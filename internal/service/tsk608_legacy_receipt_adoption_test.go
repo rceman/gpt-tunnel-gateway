@@ -26,7 +26,10 @@ func TestTSK608AdoptsLegacyDurableMutationReceipt(t *testing.T) {
 			defer db.Close()
 			session := tsk585PlannerSession(t, s)
 			ctx := WithAgentSessionID(context.Background(), session)
-			in := TrainV2IntegrateInput{
+			in := struct {
+				ProjectID string `json:"project_id"`
+				TrainID   string `json:"train_id"`
+			}{
 				ProjectID: "example",
 				TrainID:   "GTW-TRN999",
 			}
@@ -62,7 +65,7 @@ func TestTSK608AdoptsLegacyDurableMutationReceipt(t *testing.T) {
 				return json.RawMessage(`{"adopted":true}`), nil
 			}
 
-			adopted, err := s.enqueueTrainV2Integrate(ctx, in)
+			adopted, err := s.enqueueTypedDurableMutation(ctx, "train-v2-integrate", "example", in)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -188,7 +191,10 @@ func TestTSK608LegacyDurableReceiptAdoptsOnStandaloneStartup(t *testing.T) {
 	s, db := tsk585Setup(t)
 	defer db.Close()
 	session := tsk585PlannerSession(t, s)
-	in := TrainV2IntegrateInput{
+	in := struct {
+		ProjectID string `json:"project_id"`
+		TrainID   string `json:"train_id"`
+	}{
 		ProjectID: "example",
 		TrainID:   "GTW-TRN999",
 	}
@@ -318,4 +324,20 @@ func TestTSK608LegacyTaskCreateReceiptAdoptsOnStandaloneStartup(t *testing.T) {
 		t.Fatalf("legacy task/create receipt was not retained as readable history: %v", err)
 	}
 	waitSharedOutboxDrained(t, db)
+}
+
+func waitDurableMutationTerminal(t *testing.T, s *Service, operationID string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		operation, err := s.readDurableMutation(operationID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if operation.Status == "completed" || operation.Status == "failed" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("durable mutation %s did not reach a terminal status", operationID)
 }

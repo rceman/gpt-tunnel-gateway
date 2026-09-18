@@ -30,16 +30,6 @@ func (s *Service) durableMutationExecutionSet2(ctx context.Context, operation du
 			return nil, err
 		}
 		return json.Marshal(result)
-	case "agent-recover":
-		var input AgentRecoverInput
-		if err := json.Unmarshal(operation.Input, &input); err != nil {
-			return nil, err
-		}
-		result, err := s.AgentRecover(authority.WithPlanner(ctx), input)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(result)
 	case "agent-interrupt":
 		var input AgentInterruptInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {

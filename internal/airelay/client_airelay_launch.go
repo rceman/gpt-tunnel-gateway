@@ -58,7 +58,7 @@ func DeriveExecutionSessionKey(baseSessionKey, profile, identity string) (string
 
 // ValidateExecutionSession verifies an existing lane session without
 // launching, relaunching, or retargeting anything. It is required for an
-// already-running legacy Train Attempt.
+// already-running Task execution.
 func (c Client) ValidateExecutionSession(ctx context.Context, in ExecutionSessionRequest) error {
 	if !sessionRE.MatchString(in.BaseSessionKey) || in.WorktreePath == "" || filepath.Clean(in.WorktreePath) != in.WorktreePath || !filepath.IsAbs(in.WorktreePath) {
 		return fmt.Errorf("invalid execution session authority")

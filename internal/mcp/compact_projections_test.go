@@ -11,27 +11,6 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-func TestTrainActionsAdvertiseOptionalDetailProjection(t *testing.T) {
-	server := &Server{
-		Service:          service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}),
-		AuthorityContext: authority.WithPlanner(context.Background()),
-	}
-	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"train/list", "train/read"} {
-		entry, ok := entries[path]
-		if !ok {
-			t.Fatalf("missing action %s", path)
-		}
-		properties, ok := entry.InputSchema["properties"].(map[string]any)
-		if !ok {
-			t.Fatalf("action %s has no closed properties", path)
-		}
-		if _, ok := properties["detail"]; !ok {
-			t.Fatalf("action %s does not advertise detail", path)
-		}
-	}
-}
-
 func TestControlAndReceiptActionsDoNotAdvertiseDetailProjection(t *testing.T) {
 	server := &Server{
 		Service:          service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}),

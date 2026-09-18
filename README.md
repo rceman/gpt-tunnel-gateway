@@ -37,20 +37,19 @@ The bootstrap verifies `SHA256SUMS` before handing off to the target controller.
 
 ## Canonical workflow
 
-For projects whose durable execution model is `train_v2`, new work follows
-the branchless Task-authoring and Train lifecycle:
+New work follows the canonical Task-authoring and Task-execution
+lifecycle:
 
 ```text
 task/create -> task/update -> task/ready
--> train/create|train/add -> train/start -> Train proof/review -> train/integrate
+-> task/dispatch -> Task code/tests/rebase submissions -> task/integrate
 ```
 
-The explicit project cutover is the only authority switch. Before cutover,
-legacy Task/Run/Plan behavior remains readable and executable; after cutover,
-Plan is historical/read-only, project status is derived from Tasks and Trains,
-and standalone dispatch/integrate is rejected for new Train v2 work. The
-Gateway owns Train execution context, worktree and session bindings; callers
-provide no host-local paths.
+Plan is historical/read-only, project status is derived from Tasks and their
+Task-execution states, and standalone dispatch/integrate is rejected for
+canonical work. The Gateway owns Task-execution context, worktree and session
+bindings; callers provide no host-local paths. Historical Train/Attempt
+records remain readable evidence only.
 
 ```text
 task create

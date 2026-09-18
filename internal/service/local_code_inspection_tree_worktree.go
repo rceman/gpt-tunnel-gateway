@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
-	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 const (
@@ -59,7 +57,6 @@ type CodeWorktreeItem struct {
 	Dirty    bool   `json:"dirty"`
 	Head     string `json:"head"`
 	Label    string `json:"label,omitempty"`
-	TrainID  string `json:"train_id,omitempty"`
 }
 
 type CodeWorktreeResult struct {
@@ -224,7 +221,6 @@ type localCodeTarget struct {
 	CodeIdentity
 	ProjectWorktree config.ProjectConfig
 	Kind            string
-	TrainID         string
 	TaskID          string
 	DiffBase        string
 	DiffHead        string
@@ -237,40 +233,8 @@ type codeWorktreeCandidate struct {
 	SortID    string
 }
 
-func codeTrainWorktreePath(stateDir, projectID string, project config.ProjectConfig, trainID string, runtime *trainv2.RuntimeBinding) (string, error) {
-	if err := model.ValidateProjectCode(project.ProjectCode); err != nil {
-		return "", fmt.Errorf("project %q has no valid managed project code: %w", projectID, err)
-	}
-	expected, err := trainv2.CompactWorktreePath(stateDir, project.ProjectCode, trainID)
-	if err != nil {
-		return "", err
-	}
-	if runtime != nil {
-		if runtime.ProjectID != projectID || runtime.TrainID != trainID || runtime.ProjectCode != project.ProjectCode || filepath.Clean(runtime.WorktreePath) != filepath.Clean(expected) {
-			return "", fmt.Errorf("managed Train %s has an invalid runtime worktree binding", trainID)
-		}
-	}
-	return expected, nil
-}
-
 func codeCursorKind(operation string, target localCodeTarget, suffix string) string {
 	return operation + "|" + target.ProjectID + "|" + target.CodeIdentity.Worktree + "|" + target.CurrentHead + "|" + target.DiffBase + "|" + suffix
-}
-
-func (s *Service) codeTrainRecords(ctx context.Context, projectID string) ([]model.TrainV2, error) {
-	if s.Durability == nil {
-		return nil, fmt.Errorf("Shared durability unavailable for code worktree discovery")
-	}
-	return s.sharedTrains(ctx, projectID)
-}
-
-func activeCodeTrainStatus(status string) bool {
-	switch status {
-	case model.TrainV2Running, model.TrainV2Paused, model.TrainV2Blocked, model.TrainV2ReadyForIntegration:
-		return true
-	default:
-		return false
-	}
 }
 
 func codeWorktreeKindRank(kind string) int {
@@ -279,7 +243,7 @@ func codeWorktreeKindRank(kind string) int {
 		return 0
 	case "hotfix":
 		return 1
-	case "train":
+	case "task":
 		return 2
 	default:
 		return 3
@@ -302,18 +266,11 @@ func sortCodeWorktreeCandidates(candidates []codeWorktreeCandidate) {
 	})
 }
 
-func codeSelector(trainID, head string) (string, error) {
+func codeSelector(head string) (string, error) {
 	if len(head) < 8 || model.ValidateCommitSHA(head) != nil {
 		return "", fmt.Errorf("invalid worktree HEAD")
 	}
-	if trainID == "" {
-		return "WT-MAIN-" + strings.ToLower(head[:8]), nil
-	}
-	_, number, err := model.ParseTrainV2ID(trainID)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("WT-TRN%d-%s", number, strings.ToLower(head[:8])), nil
+	return "WT-MAIN-" + strings.ToLower(head[:8]), nil
 }
 
 func codeHotfixSelector(slug, head string) (string, error) {

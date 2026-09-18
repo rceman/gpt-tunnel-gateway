@@ -57,9 +57,9 @@ func TestPublicSchemaFiltersActionsByImmutableSessionRole(t *testing.T) {
 	if !plannerRuntime["runtime/logs"] || !plannerRuntime["runtime/restart"] {
 		t.Fatalf("planner runtime schema=%#v", plannerRuntime)
 	}
-	plannerTrain := actions(plannerID, "train")
-	if !plannerTrain["train/review-resolve"] {
-		t.Fatalf("planner train schema omitted planner action: %#v", plannerTrain)
+	plannerTask := actions(plannerID, "task")
+	if !plannerTask["task/review_decide"] {
+		t.Fatalf("planner task schema omitted planner action: %#v", plannerTask)
 	}
 
 	root := schema(plannerID, "")
@@ -74,7 +74,7 @@ func TestPublicSchemaFiltersActionsByImmutableSessionRole(t *testing.T) {
 	}
 	unauthorized := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "schema", "arguments": map[string]any{"session": agentID, "path": "train/review-resolve"}},
+		"params": map[string]any{"name": "schema", "arguments": map[string]any{"session": agentID, "path": "task/review_decide"}},
 	}))
 	result, ok := unauthorized["result"].(map[string]any)
 	if !ok || result["isError"] != false {

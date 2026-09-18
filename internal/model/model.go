@@ -167,9 +167,9 @@ const (
 	TaskADRSupersedesExisting  = "supersedes_existing_adr"
 )
 
-// TaskAuthoring is the train_v2 planning specification. It intentionally has
-// no executable Git, worktree, lane, Agent, or session identity; those belong
-// to Train/TrainItem execution records introduced by later migration slices.
+// TaskAuthoring is the canonical planning specification. It intentionally
+// has no executable Git, worktree, lane, Agent, or session identity; those
+// belong to the Task-execution state introduced by later migration slices.
 type TaskAuthoring struct {
 	SchemaVersion         int               `json:"schema_version"`
 	ID                    string            `json:"id"`

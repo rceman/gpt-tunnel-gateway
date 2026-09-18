@@ -9,19 +9,18 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
-	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
-func requireTrainV2Authoring(ctx context.Context, s *Service, projectID string) error {
+func requireCanonicalTaskAuthoring(ctx context.Context, s *Service, projectID string) error {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return err
 	}
-	enabled, err := s.trainV2Enabled(ctx, projectID)
+	enabled, err := s.canonicalExecutionModel(ctx, projectID)
 	if err != nil {
 		return err
 	}
 	if !enabled {
-		return fmt.Errorf("train_v2 task authoring is not active for project %q", projectID)
+		return fmt.Errorf("canonical task authoring is not active for project %q", projectID)
 	}
 	return nil
 }
@@ -102,7 +101,7 @@ func (s *Service) TaskAuthoringCreate(ctx context.Context, in TaskAuthoringCreat
 }
 
 func (s *Service) taskAuthoringCreateOnce(ctx context.Context, in TaskAuthoringCreateInput) (model.TaskAuthoring, OperationResult, error) {
-	if err := requireTrainV2Authoring(ctx, s, in.ProjectID); err != nil {
+	if err := requireCanonicalTaskAuthoring(ctx, s, in.ProjectID); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	if in.CreatedBy == "" || strings.ContainsAny(in.CreatedBy, "\x00\r\n") {
@@ -111,8 +110,8 @@ func (s *Service) taskAuthoringCreateOnce(ctx context.Context, in TaskAuthoringC
 	if in.ADRRelation == "" {
 		in.ADRRelation = model.TaskADRNoRequired
 	}
-	draft := trainv2.AuthoringDraft{Type: in.Type, Scope: in.Scope, Title: in.Title, Summary: in.Summary, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}
-	if err := trainv2.ValidateDraft(draft); err != nil {
+	draft := model.AuthoringDraft{Type: in.Type, Scope: in.Scope, Title: in.Title, Summary: in.Summary, Objective: in.Objective, AcceptanceCriteria: in.AcceptanceCriteria, Constraints: in.Constraints, Priority: in.Priority, Dependencies: in.Dependencies, PreparationReferences: in.PreparationReferences, Metadata: in.Metadata, ADRRelation: in.ADRRelation, ADRReferences: in.ADRReferences}
+	if err := model.ValidateDraft(draft); err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
@@ -127,7 +126,7 @@ func (s *Service) taskAuthoringCreateOnce(ctx context.Context, in TaskAuthoringC
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}
 	now := s.durableNow()
-	task, err := trainv2.NewTask(in.ProjectID, id, draft, in.CreatedBy, now)
+	task, err := model.NewTask(in.ProjectID, id, draft, in.CreatedBy, now)
 	if err != nil {
 		return model.TaskAuthoring{}, OperationResult{}, err
 	}

@@ -17,7 +17,6 @@ import (
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
-	trainv2 "github.com/rceman/gpt-tunnel-gateway/internal/train"
 )
 
 func tsk585Setup(t *testing.T) (*Service, *sqlitestore.Databases) {
@@ -788,7 +787,7 @@ func TestTSK585FrozenTaskMutationDuringGates(t *testing.T) {
 		t.Fatal(err)
 	}
 	title := "Mutated title while verifying"
-	mutated, changed, err := trainv2.UpdateTask(stored, trainv2.AuthoringPatch{Title: &title}, "intruder", time.Now().UTC())
+	mutated, changed, err := model.UpdateTask(stored, model.AuthoringPatch{Title: &title}, "intruder", time.Now().UTC())
 	if err != nil || !changed {
 		t.Fatalf("mutation setup: changed=%v err=%v", changed, err)
 	}

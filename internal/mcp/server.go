@@ -23,8 +23,6 @@ type Server struct {
 	agentActionErr         error
 	taskAuthoringActions   sync.Once
 	taskAuthoringActionErr error
-	trainV2Actions         sync.Once
-	trainV2ActionErr       error
 	runtimeLogActions      sync.Once
 	runtimeLogActionErr    error
 	systemAwaitActions     sync.Once
@@ -101,7 +99,6 @@ func (t Tool) MarshalJSON() ([]byte, error) {
 func (s *Server) tools() map[string]Tool {
 	s.ensureAgentActions()
 	s.ensureTaskAuthoringActions()
-	s.ensureTrainV2Actions()
 	s.ensureRuntimeLogActions()
 	s.ensureSystemAwaitActions()
 	s.ensureCodeActions()
@@ -129,7 +126,6 @@ func (s *Server) tools() map[string]Tool {
 	})
 	s.addCoreTools(add)
 	s.addTaskTools(add)
-	s.addTaskTrainTools(add)
 	addOperatorJournalTools(add, s)
 	addGitTools(add, s)
 	addMCP7BootstrapTools(add, s)

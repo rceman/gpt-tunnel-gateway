@@ -17,7 +17,7 @@ func compactTaskListResult(value map[string]any) map[string]any {
 }
 func compactTaskReadResult(value map[string]any) map[string]any {
 	result := copyProjectionMap(value)
-	for _, key := range []string{"task", "state", "current_revision", "workflow_policy", "train", "item", "attempt"} {
+	for _, key := range []string{"task", "state", "current_revision", "workflow_policy"} {
 		if object, ok := value[key].(map[string]any); ok {
 			result[key] = compactNestedRecord(key, object)
 		}
@@ -27,33 +27,9 @@ func compactTaskReadResult(value map[string]any) map[string]any {
 	}
 	return result
 }
-func compactTrainListResult(value map[string]any) map[string]any {
-	result := copyProjectionMap(value)
-	if trains, ok := value["trains"].([]any); ok {
-		compact := make([]any, len(trains))
-		for i, train := range trains {
-			if object, ok := train.(map[string]any); ok {
-				compact[i] = compactTrain(object)
-			} else {
-				compact[i] = train
-			}
-		}
-		result["trains"] = compact
-	}
-	return result
-}
-func compactTrainReadResult(value map[string]any) map[string]any {
-	result := copyProjectionMap(value)
-	if train, ok := value["train"].(map[string]any); ok {
-		result["train"] = compactTrain(train)
-	} else if _, ok := value["items"]; ok {
-		return compactTrain(value)
-	}
-	return result
-}
 func compactMutationResult(action string, value map[string]any) map[string]any {
 	result := copyProjectionMap(value)
-	for _, key := range []string{"task", "train", "result", "receipt", "operation", "item", "attempt", "agent", "guide", "configuration", "policy", "identifiers", "adr"} {
+	for _, key := range []string{"task", "result", "receipt", "operation", "agent", "guide", "configuration", "policy", "identifiers", "adr"} {
 		if object, ok := value[key].(map[string]any); ok {
 			if key == "result" && action == "agent/prompt" {
 				if delivered, ok := object["delivered"].(bool); ok && delivered {
