@@ -17,6 +17,7 @@ gpt-tunnel/v1/
     runs/<run-id>/review-report.json
     operator-journal/counter.json
     operator-journal/events/<PROJECT-CODE>-OPR<N>.json
+    journals/<PROJECT-CODE>-JRN<N>.json
 ```
 
 The Agent completion report and Delivery review report are separate

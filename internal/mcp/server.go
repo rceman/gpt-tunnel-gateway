@@ -37,6 +37,8 @@ type Server struct {
 	adrActionErr           error
 	ruleActions            sync.Once
 	ruleActionErr          error
+	journalActions         sync.Once
+	journalActionErr       error
 	relationActions        sync.Once
 	relationActionErr      error
 }
@@ -104,6 +106,7 @@ func (s *Server) tools() map[string]Tool {
 	s.ensureDebugActions()
 	s.ensureADRActions()
 	s.ensureRuleActions()
+	s.ensureJournalActions()
 	s.ensureRelationActions()
 	t := map[string]Tool{}
 	add := toolAdder(func(name, description string, schema map[string]any, fn func(context.Context, json.RawMessage) (any, error)) {

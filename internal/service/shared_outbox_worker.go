@@ -65,6 +65,7 @@ var sharedOutboxPublishers = map[string]func(*Service, context.Context, sqlitest
 	"task":                  (*Service).publishSharedTaskOutbox,
 	"adr":                   (*Service).publishSharedADROutbox,
 	"rule":                  (*Service).publishSharedRuleOutbox,
+	"journal":               (*Service).publishSharedJournalOutbox,
 	"project_configuration": (*Service).publishSharedProjectConfigurationOutbox,
 }
 
@@ -181,4 +182,33 @@ func (s *Service) publishSharedProjectConfigurationOutbox(ctx context.Context, e
 		return err
 	}
 	return s.publishSharedProjectConfiguration(ctx, configuration)
+}
+
+func (s *Service) publishSharedJournalOutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {
+	var journal model.JournalEntry
+	if err := json.Unmarshal(entry.Payload, &journal); err != nil {
+		return err
+	}
+	if err := model.ValidateJournalEntry(journal); err != nil {
+		return err
+	}
+	if entry.EntityType != "journal" || entry.EntityID != journal.ID || entry.Revision != 1 {
+		return fmt.Errorf("shared journal outbox entry identity mismatch")
+	}
+	path := s.journalPath(journal.ProjectID, journal.ID)
+	_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared journal "+journal.ID, func(worktree string) ([]string, error) {
+		var latest model.JournalEntry
+		if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
+			if latest.ID == journal.ID && reflect.DeepEqual(latest, journal) {
+				return nil, errSharedOutboxNoop
+			}
+		} else if !IsNotFound(readErr) {
+			return nil, readErr
+		}
+		if err := hub.WriteJSON(worktree, path, journal); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	return err
 }

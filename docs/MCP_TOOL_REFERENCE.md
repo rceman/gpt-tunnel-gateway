@@ -83,6 +83,21 @@ project-scoped cursor and exact kind filtering, and preserves correction
 links. Prompts, hidden reasoning, secrets, paths, and unbounded logs are not
 accepted.
 
+## Canonical journal streams (ADR56 rev2)
+
+The session-bound workflow actions `journal/contract`, `journal/add`,
+`journal/list`, and `journal/read` implement the ADR56 rev2 stream surface on
+the SharedLifecycle journal entity (`shared_journals`, `CODE-JRN<N>` keys,
+immutable `published` status, append-only revision 1). The stream registry is
+server-owned and closed: `planner-notes` (Planner writer),
+`worker-lessons` (Lead or Worker writer), and `lead-friction` (Lead writer).
+`journal/add` validates the exact stream data contract before commit and
+returns structured per-path violations on failure; it writes nothing on
+invalid input. Provenance (project, actor, role, session, sequence,
+timestamp) is server-owned. Historical operator-journal records remain
+readable through `operator_history`; `operator_record`,
+`operator_checkpoint`, and `operator_history` keep working unchanged.
+
 ## Project compact identifiers
 
 Read the current allocation record with:

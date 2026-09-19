@@ -95,9 +95,9 @@ var descriptorTable = map[Family]Descriptor{
 		Suffix:       ".json",
 		ProjectScope: true,
 		Order:        "id_asc",
-		Fields:       []string{"id", "project_id", "kind", "summary", "actor", "session_id", "occurred_at", "recorded_at"},
-		Default:      []string{"id", "kind", "summary", "recorded_at"}, Searchable: []string{"id", "kind", "summary", "actor"},
-		Filterable: []string{"id", "kind", "actor", "session_id"}, Sortable: []string{"id", "occurred_at", "recorded_at", "kind"}, Operators: []string{"=", "in", "contains"},
+		Fields:       []string{"id", "project_id", "stream", "actor", "role", "session_id", "sequence", "created_at"},
+		Default:      []string{"id", "stream", "actor", "created_at"}, Searchable: []string{"id", "stream", "actor", "role"},
+		Filterable: []string{"id", "stream", "actor", "session_id"}, Sortable: []string{"id", "sequence", "created_at", "stream"}, Operators: []string{"=", "in", "contains"},
 	},
 }
 

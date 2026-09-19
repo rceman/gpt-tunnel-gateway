@@ -100,11 +100,26 @@ var sharedLifecycleRegistry = map[string]sharedLifecycleDefinition{
 		StatusMutationKind:    "status",
 		ArchiveMutationKind:   "archive",
 	},
+	// Journal entries are immutable, append-only, and published-only: the
+	// empty transition map keeps published terminal and there is no archive
+	// status or mutation kind for the stream surface.
 	"journal": {
-		EntityType:   "journal",
-		StateTable:   "shared_journals",
-		SearchFields: []string{"id", "title", "summary", "description", "status", "kind"},
-		FilterFields: []string{"status", "kind"},
+		EntityType:            "journal",
+		StateTable:            "shared_journals",
+		SequenceTable:         "shared_entity_sequences",
+		SequenceEntityColumn:  "entity_type",
+		SequenceCodeColumn:    "project_code",
+		SequenceNumberColumn:  "next_number",
+		IDToken:               "JRN",
+		HistoryTable:          "shared_entity_revisions",
+		HistoryEntityColumn:   "entity_type",
+		HistoryIDColumn:       "entity_id",
+		SearchFields:          []string{"id", "stream", "actor", "role", "status"},
+		FilterFields:          []string{"status", "stream"},
+		DefaultCreateStatus:   "published",
+		AllowedCreateStatuses: []string{"published"},
+		AllowedStatuses:       []string{"published"},
+		AllowedTransitions:    map[string][]string{},
 	},
 	"project_configuration": {
 		EntityType:   "project_configuration",
