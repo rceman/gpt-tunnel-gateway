@@ -38,6 +38,7 @@ type Record struct {
 	GlobalRulesRevision string     `json:"global_rules_revision,omitempty"`
 	GlobalRulesDigest   string     `json:"global_rules_digest,omitempty"`
 	ProjectRulesDigest  string     `json:"project_rules_digest,omitempty"`
+	rawPayload          []byte
 }
 type CreateInput struct {
 	ProjectID, ProjectCode, Role, SessionType string
@@ -317,9 +318,13 @@ func (s Store) List() ([]Record, error) {
 	return result, nil
 }
 func (s Store) updateLocal(old, record Record) error {
-	oldPayload, err := json.Marshal(old)
-	if err != nil {
-		return err
+	oldPayload := old.rawPayload
+	if len(oldPayload) == 0 {
+		var err error
+		oldPayload, err = json.Marshal(old)
+		if err != nil {
+			return err
+		}
 	}
 	newPayload, err := json.Marshal(record)
 	if err != nil {
@@ -335,5 +340,6 @@ func decodeLocal(row sqlitestore.LocalSession) (Record, error) {
 	if err := record.Validate(); err != nil || record.ID != row.ID || record.Status != row.Status {
 		return Record{}, fmt.Errorf("invalid local session record")
 	}
+	record.rawPayload = append([]byte(nil), row.Payload...)
 	return record, nil
 }
