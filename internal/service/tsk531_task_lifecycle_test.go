@@ -26,6 +26,7 @@ func TestTSK531SharedTaskLifecycleContract(t *testing.T) {
 		Summary:            "Searchable compact summary.",
 		Objective:          "A bounded objective sentence.",
 		AcceptanceCriteria: []string{"history"},
+		Priority:           model.TaskPriorityP2,
 		ADRRelation:        model.TaskADRNoRequired,
 		CreatedBy:          "planner",
 	})
@@ -136,6 +137,7 @@ func TestTSK531ReadyArchiveClearsSealAndRecordsIt(t *testing.T) {
 		Summary:            "Ready archive summary.",
 		Objective:          "Archive a ready Task safely.",
 		AcceptanceCriteria: []string{"ready seal is cleared"},
+		Priority:           model.TaskPriorityP2,
 		ADRRelation:        model.TaskADRNoRequired,
 		CreatedBy:          "planner",
 	})

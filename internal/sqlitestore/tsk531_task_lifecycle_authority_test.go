@@ -568,7 +568,7 @@ func TestTSK531ReadyTaskArchiveRecordsSealTransition(t *testing.T) {
 	prev := model.TaskAuthoring{
 		SchemaVersion: model.TaskAuthoringSchemaVersion, ID: "EXM-TSK9", ProjectID: "example",
 		Type: model.TaskTypeTask, Title: "Ready task", Summary: "Ready summary.", Objective: "Archive a ready task.",
-		ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
+		Priority: model.TaskPriorityP2, ADRRelation: model.TaskADRNoRequired, CreatedBy: "planner",
 		Status: model.TaskAuthoringReady, Revision: 2, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Minute),
 	}
 	prev.RevisionSHA256, _ = model.HashTaskAuthoring(prev)

@@ -19,7 +19,7 @@ func validTaskAuthoringForTest() TaskAuthoring {
 		Objective:             "Validate the planned and ready task contract.",
 		AcceptanceCriteria:    []string{"planned state is durable", "ready seal is exact"},
 		Constraints:           []string{"no execution identity in the Task"},
-		Priority:              "high",
+		Priority:              TaskPriorityP2,
 		PreparationReferences: []string{"GTW-ADR11"},
 		Metadata:              map[string]string{"mode": "canonical"},
 		ADRRelation:           TaskADRImplementsExisting,
@@ -63,7 +63,9 @@ func TestTaskAuthoringValidationAndReadySeal(t *testing.T) {
 
 func TestTaskAuthoringScopeAndExecutionAreHashedAndValidated(t *testing.T) {
 	task := validTaskAuthoringForTest()
+	task.Type = TaskTypeBug
 	task.Execution = TaskExecutionHotfix
+	task.Priority = TaskPriorityP4
 	task.Scope = &TaskScope{
 		Files:   []string{"internal/service/task_authoring.go"},
 		Modules: []string{"gateway"},

@@ -81,6 +81,7 @@ func tsk585Task(t *testing.T, s *Service, idem, title string) model.TaskAuthorin
 		Title:       title,
 		Summary:     "Verification summary.",
 		Objective:   "Run task/test.",
+		Priority:    model.TaskPriorityP2,
 		ADRRelation: model.TaskADRNoRequired,
 		CreatedBy:   "planner",
 	})

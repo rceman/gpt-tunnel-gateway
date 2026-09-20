@@ -144,6 +144,7 @@ func TestTaskAuthoringAsyncMutationsCommitSharedWhenHubUnavailable(t *testing.T)
 		Summary:            "Commit shared state without Hub.",
 		Objective:          "Commit without Hub availability.",
 		AcceptanceCriteria: []string{"create", "update", "ready"},
+		Priority:           model.TaskPriorityP2,
 		ADRRelation:        model.TaskADRNoRequired,
 		CreatedBy:          "planner",
 	})
@@ -215,7 +216,7 @@ func TestTaskAuthoringReadySharedRequiresCanonicalIntegrationEvidence(t *testing
 	dependencyID := "GTW-TSK324"
 	task, err := model.NewTask("example", "EXM-TSK330", model.AuthoringDraft{
 		Title: "Dependent task", Summary: "Require a locally proven integration.", Objective: "Require a locally proven integration.",
-		AcceptanceCriteria: []string{"local receipt is required"}, Dependencies: []string{dependencyID},
+		AcceptanceCriteria: []string{"local receipt is required"}, Dependencies: []string{dependencyID}, Priority: model.TaskPriorityP2,
 		ADRRelation: model.TaskADRNoRequired,
 	}, "planner", time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC))
 	if err != nil {

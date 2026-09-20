@@ -13,8 +13,7 @@ func (s *Server) ensureTaskAuthoringActions() {
 	}
 }
 func taskAuthoringProperties() map[string]any {
-	priority := str("Bounded authoring priority.")
-	priority["maxLength"] = 32
+	priority := taskPrioritySchema()
 	scopeItem := str("Task-scoped file or module identifier.")
 	scope := obj(map[string]any{
 		"files": array(scopeItem), "modules": array(scopeItem),
@@ -35,6 +34,12 @@ func taskAuthoringProperties() map[string]any {
 		"expected_revision_sha256": str("Optional exact authoring revision hash."),
 		"expected_hub_revision":    str("Optimistic Hub revision."),
 	}
+}
+
+func taskPrioritySchema() map[string]any {
+	priority := str("Task priority P0 through P4.")
+	priority["enum"] = model.TaskPriorities()
+	return priority
 }
 
 func taskExecutionSchema() map[string]any {

@@ -15,6 +15,9 @@ func (s *Service) taskAuthoringReadForExecution(ctx context.Context, projectID, 
 	if task.Status == model.TaskAuthoringArchived || (task.Status != model.TaskAuthoringPlanned && task.Status != model.TaskAuthoringReady) {
 		return model.TaskAuthoring{}, fmt.Errorf("Task is not dispatchable in status %q", task.Status)
 	}
+	if err := model.ValidateTaskPriority(task.Priority, true); err != nil {
+		return model.TaskAuthoring{}, err
+	}
 	hash, err := model.HashTaskAuthoring(task)
 	if err != nil || hash != task.RevisionSHA256 {
 		return model.TaskAuthoring{}, fmt.Errorf("Task authoring revision hash is invalid")

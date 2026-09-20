@@ -223,6 +223,8 @@ const (
 	sharedRelationMigrationName                           = "create canonical relation authority"
 	sharedRuleSeedMigrationVersion                  int64 = 202609181400
 	sharedRuleSeedMigrationName                           = "seed canonical rules from project workflow policy"
+	sharedTaskPriorityMigrationVersion              int64 = 202609201930
+	sharedTaskPriorityMigrationName                       = "re-audit active task priorities"
 	localBaselineVersion                            int64 = 202609080505
 	localBaselineName                                     = "create local baseline"
 	localTokenUsageMigrationVersion                 int64 = 202609102010

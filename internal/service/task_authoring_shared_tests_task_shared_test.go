@@ -31,6 +31,7 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 		Summary:            "Commit task state locally.",
 		Objective:          "Commit task state locally first.",
 		AcceptanceCriteria: []string{"one shared task"},
+		Priority:           model.TaskPriorityP2,
 		Scope:              &model.TaskScope{Files: []string{"internal/service/task_authoring_shared.go"}, Modules: []string{"gateway"}},
 		ADRRelation:        model.TaskADRNoRequired,
 		CreatedBy:          "planner",

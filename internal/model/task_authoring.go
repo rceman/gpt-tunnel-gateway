@@ -32,17 +32,17 @@ func HashTaskAuthoring(v TaskAuthoring) (string, error) {
 }
 
 func ValidateTaskAuthoring(v TaskAuthoring) error {
-	return validateTaskAuthoring(v, true)
+	return validateTaskAuthoring(v, true, false)
 }
 
 // ValidateTaskAuthoringRevision validates immutable historical payloads. A
 // pre-summary revision may omit Summary; current state and new revisions may
 // not.
 func ValidateTaskAuthoringRevision(v TaskAuthoring, historical bool) error {
-	return validateTaskAuthoring(v, !historical)
+	return validateTaskAuthoring(v, !historical, historical)
 }
 
-func validateTaskAuthoring(v TaskAuthoring, requireSummary bool) error {
+func validateTaskAuthoring(v TaskAuthoring, requireSummary, allowLegacyPriority bool) error {
 	if v.SchemaVersion != TaskAuthoringSchemaVersion || ValidateCanonicalTaskID(v.ID) != nil || ValidateProjectIdentifier(v.ProjectID) != nil {
 		return fmt.Errorf("invalid task authoring identity")
 	}
@@ -69,8 +69,12 @@ func validateTaskAuthoring(v TaskAuthoring, requireSummary bool) error {
 			return fmt.Errorf("invalid task authoring entry")
 		}
 	}
-	if v.Priority != "" && (len(v.Priority) > 32 || strings.ContainsAny(v.Priority, "\x00\r\n")) {
-		return fmt.Errorf("invalid task authoring priority")
+	if allowLegacyPriority || v.Status == TaskAuthoringDone || v.Status == TaskAuthoringArchived {
+		if v.Priority != "" && (len(v.Priority) > 32 || strings.ContainsAny(v.Priority, "\x00\r\n")) {
+			return fmt.Errorf("invalid task authoring priority")
+		}
+	} else if err := ValidateTaskPriority(v.Priority, v.Status == TaskAuthoringReady); err != nil {
+		return err
 	}
 	for key, value := range v.Metadata {
 		if strings.TrimSpace(key) == "" || len(key) > 64 || len(value) > 1024 || strings.ContainsAny(key+value, "\x00\r\n") {

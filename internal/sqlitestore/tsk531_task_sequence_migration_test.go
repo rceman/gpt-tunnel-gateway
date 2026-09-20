@@ -151,7 +151,7 @@ func assertTaskSequence(t *testing.T, db *upstream.Store, projectID, projectCode
 
 func newTaskAuthoring(id, projectID string) model.TaskAuthoring {
 	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
-	task := model.TaskAuthoring{SchemaVersion: model.TaskAuthoringSchemaVersion, ID: id, ProjectID: projectID, Revision: 1, Title: "Sequence fixture", Summary: "A bounded sequence fixture.", Objective: "A bounded sequence objective.", ADRRelation: model.TaskADRNoRequired, Status: model.TaskAuthoringPlanned, CreatedBy: "planner", CreatedAt: now, UpdatedAt: now}
+	task := model.TaskAuthoring{SchemaVersion: model.TaskAuthoringSchemaVersion, ID: id, ProjectID: projectID, Revision: 1, Title: "Sequence fixture", Summary: "A bounded sequence fixture.", Objective: "A bounded sequence objective.", Priority: model.TaskPriorityP2, ADRRelation: model.TaskADRNoRequired, Status: model.TaskAuthoringPlanned, CreatedBy: "planner", CreatedAt: now, UpdatedAt: now}
 	task.RevisionSHA256, _ = model.HashTaskAuthoring(task)
 	return task
 }

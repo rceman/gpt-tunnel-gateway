@@ -51,6 +51,7 @@ func newTSK571HTTPFixture(t *testing.T, roles []string, bind, enabled bool) *tsk
 		Title:       "TSK571 durable Session task",
 		Summary:     "Task used by durable Session transport tests.",
 		Objective:   "Exercise role-bound durable Session dispatch.",
+		Priority:    model.TaskPriorityP2,
 		ADRRelation: model.TaskADRNoRequired,
 		CreatedBy:   "planner",
 	}, "tsk571-http-task")

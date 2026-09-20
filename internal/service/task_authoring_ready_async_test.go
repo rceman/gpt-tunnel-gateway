@@ -19,6 +19,7 @@ func TestTaskAuthoringReadyAsyncIsBoundedAndIdempotent(t *testing.T) {
 		Summary:            "Persist a readiness intent.",
 		Objective:          "Persist a readiness intent before Hub work.",
 		AcceptanceCriteria: []string{"one durable readiness seal"},
+		Priority:           model.TaskPriorityP2,
 		ADRRelation:        model.TaskADRNoRequired,
 		CreatedBy:          "planner",
 		WriteOptions: WriteOptions{

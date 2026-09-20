@@ -145,7 +145,7 @@ func tsk585BrowseFixture(t *testing.T) *Server {
 	now := time.Now().UTC()
 	for i := 0; i < 8; i++ {
 		task, err := model.NewTask("example", fmt.Sprintf("EXM-TSK9%03d", i+1), model.AuthoringDraft{
-			Title: fmt.Sprintf("Browse %02d", i), Summary: "Browse summary.", Objective: "Browse objective.", ADRRelation: model.TaskADRNoRequired,
+			Title: fmt.Sprintf("Browse %02d", i), Summary: "Browse summary.", Objective: "Browse objective.", Priority: model.TaskPriorityP2, ADRRelation: model.TaskADRNoRequired,
 		}, "planner", now)
 		if err != nil {
 			t.Fatal(err)

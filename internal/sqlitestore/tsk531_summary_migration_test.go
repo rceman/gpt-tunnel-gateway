@@ -201,7 +201,7 @@ func TestTSK531SummaryMigrationRejectsConflictingHistory(t *testing.T) {
 }
 
 func summaryMigrationFixture(id, objective string, now time.Time) model.TaskAuthoring {
-	task := model.TaskAuthoring{SchemaVersion: model.TaskAuthoringSchemaVersion, ID: id, ProjectID: "example", Revision: 1, Title: "Migration fixture", Objective: objective, AcceptanceCriteria: []string{"preserve"}, ADRRelation: model.TaskADRNoRequired, Status: model.TaskAuthoringPlanned, CreatedBy: "planner", CreatedAt: now, UpdatedAt: now}
+	task := model.TaskAuthoring{SchemaVersion: model.TaskAuthoringSchemaVersion, ID: id, ProjectID: "example", Revision: 1, Title: "Migration fixture", Objective: objective, AcceptanceCriteria: []string{"preserve"}, Priority: model.TaskPriorityP2, ADRRelation: model.TaskADRNoRequired, Status: model.TaskAuthoringPlanned, CreatedBy: "planner", CreatedAt: now, UpdatedAt: now}
 	task.Summary = "Already valid summary."
 	task.RevisionSHA256, _ = model.HashTaskAuthoring(task)
 	return task

@@ -270,6 +270,9 @@ func ReadyTask(current TaskAuthoring, readyBy string, readyAt time.Time) (TaskAu
 	if strings.TrimSpace(readyBy) == "" || strings.ContainsAny(readyBy, "\x00\r\n") {
 		return TaskAuthoring{}, fmt.Errorf("ready_by is required")
 	}
+	if err := ValidateTaskPriority(current.Priority, true); err != nil {
+		return TaskAuthoring{}, err
+	}
 	if current.Status == TaskAuthoringReady {
 		return current, nil
 	}

@@ -63,6 +63,7 @@ func TestTSK521TaskDispatchCreatesOneFrozenTaskLane(t *testing.T) {
 		Title:       "Dispatch Task",
 		Summary:     "Dispatch summary.",
 		Objective:   "Dispatch this Task in one lane.",
+		Priority:    model.TaskPriorityP2,
 		ADRRelation: model.TaskADRNoRequired,
 		CreatedBy:   "planner",
 	})
@@ -229,6 +230,7 @@ func TestTSK521ConcurrentDispatchConvergesToOneLane(t *testing.T) {
 		Title:       "Concurrent dispatch",
 		Summary:     "Concurrent dispatch summary.",
 		Objective:   "Dispatch concurrently.",
+		Priority:    model.TaskPriorityP2,
 		ADRRelation: model.TaskADRNoRequired,
 		CreatedBy:   "planner",
 	})

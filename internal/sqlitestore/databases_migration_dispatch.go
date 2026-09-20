@@ -75,6 +75,17 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 	lifecycleEvents := sharedLifecycleEventMigration()
 	released := []migrate.Migration{baseline, summary, sequence, execution, phases, verification, lifecycle, adrSummary, lifecycleEvents}
 	relations := sharedRelationMigration()
+	priority := migrate.Migration{Version: sharedTaskPriorityMigrationVersion, Name: sharedTaskPriorityMigrationName, Statements: []upstream.Statement{{SQL: "SELECT 1"}}}
+	if name, applied := markers[sharedTaskPriorityMigrationVersion]; applied {
+		if name != sharedTaskPriorityMigrationName {
+			return fmt.Errorf("unsupported migration marker %d/%q", sharedTaskPriorityMigrationVersion, name)
+		}
+	} else {
+		priority, err = sharedTaskPriorityMigration(ctx, db)
+		if err != nil {
+			return err
+		}
+	}
 	ruleSeed := migrate.Migration{Version: sharedRuleSeedMigrationVersion, Name: sharedRuleSeedMigrationName, Statements: []upstream.Statement{{SQL: "SELECT 1"}}}
 	ruleSeedApplied := false
 	if name, applied := markers[sharedRuleSeedMigrationVersion]; applied {
@@ -93,7 +104,7 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 				return err
 			}
 		}
-		return applyActiveMigrations(ctx, db, append(append(append(append([]migrate.Migration(nil), released...), sharedTaskLifecycleHardCutMigrationMarker()), relations), ruleSeed)...)
+		return applyActiveMigrations(ctx, db, append(append(append(append(append([]migrate.Migration(nil), released...), sharedTaskLifecycleHardCutMigrationMarker()), relations), ruleSeed), priority)...)
 	}
 	if err := applyActiveMigrations(ctx, db, released...); err != nil {
 		return err
@@ -108,7 +119,7 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 			return err
 		}
 	}
-	return applyActiveMigrations(ctx, db, append(append(append(append([]migrate.Migration(nil), released...), hardCut), relations), ruleSeed)...)
+	return applyActiveMigrations(ctx, db, append(append(append(append(append([]migrate.Migration(nil), released...), hardCut), relations), ruleSeed), priority)...)
 }
 
 func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {

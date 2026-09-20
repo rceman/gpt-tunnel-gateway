@@ -32,6 +32,7 @@ func tsk585CompleteTask(t *testing.T, s *Service, idem, title string, criteria .
 		Summary:            "Completion summary.",
 		Objective:          "Complete task safely.",
 		AcceptanceCriteria: criteria,
+		Priority:           model.TaskPriorityP2,
 		ADRRelation:        model.TaskADRNoRequired,
 		CreatedBy:          "planner",
 	})
@@ -1381,7 +1382,7 @@ func mustPage(t *testing.T, s *Service, text, status string, cursor ...string) T
 func tsk585OutboxTask(t *testing.T, id, status string, updatedAt time.Time) model.TaskAuthoring {
 	t.Helper()
 	task, err := model.NewTask("example", id, model.AuthoringDraft{
-		Title: "Outbox task", Summary: "Prove outbox ordering.", Objective: "Prove outbox ordering.", ADRRelation: model.TaskADRNoRequired,
+		Title: "Outbox task", Summary: "Prove outbox ordering.", Objective: "Prove outbox ordering.", Priority: model.TaskPriorityP2, ADRRelation: model.TaskADRNoRequired,
 	}, "planner", updatedAt.Add(-time.Hour))
 	if err != nil {
 		t.Fatal(err)

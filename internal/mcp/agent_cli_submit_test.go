@@ -103,6 +103,7 @@ func tsk640CreateDispatchedTask(t *testing.T, server *Server, idempotencyKey str
 		Title:       "TSK640 Agent CLI submit task",
 		Summary:     "Task used by the Agent CLI Task submission transport tests.",
 		Objective:   "Exercise server-derived durable Session submission.",
+		Priority:    model.TaskPriorityP2,
 		ADRRelation: model.TaskADRNoRequired,
 		CreatedBy:   "planner",
 	}, idempotencyKey)

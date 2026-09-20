@@ -73,6 +73,7 @@ func tsk574CreateTask(t *testing.T, fixture *tsk571HTTPFixture, idempotencyKey s
 		Title:       "TSK574 Worker binding task " + idempotencyKey,
 		Summary:     "Task used by the Worker binding lifecycle tests.",
 		Objective:   "Exercise persistent Worker lane authority.",
+		Priority:    model.TaskPriorityP2,
 		ADRRelation: model.TaskADRNoRequired,
 		CreatedBy:   "planner",
 	}, idempotencyKey)
