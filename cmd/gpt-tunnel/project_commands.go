@@ -14,12 +14,7 @@ func project(ctx context.Context, s *service.Service, args []string) {
 	case "onboard":
 		input, err := parseProjectOnboardArgs(args[1:])
 		if err != nil {
-			if err == errInteractiveOnboard {
-				input, err = promptProjectOnboard()
-			}
-			if err != nil {
-				fatal(err)
-			}
+			fatal(err)
 		}
 		db, err := sqlitestore.Open(s.Config.StateDir)
 		if err != nil {

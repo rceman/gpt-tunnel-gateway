@@ -1,16 +1,11 @@
 package main
 
 import (
-	"bufio"
-	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
-
-var errInteractiveOnboard = errors.New("interactive project onboarding")
 
 type projectOnboardOutput struct {
 	Status string                `json:"status"`
@@ -26,65 +21,11 @@ func renderProjectOnboard(result service.ProjectOnboardResult) projectOnboardOut
 }
 
 func parseProjectOnboardArgs(args []string) (service.ProjectOnboardInput, error) {
-	if len(args) == 0 {
-		return service.ProjectOnboardInput{}, errInteractiveOnboard
+	if len(args) == 2 && !strings.HasPrefix(args[0], "-") && !strings.HasPrefix(args[1], "-") && args[0] != "" && args[1] != "" {
+		return service.ProjectOnboardInput{ProjectCode: args[0], WorkerRelay: args[1]}, nil
 	}
-	var input service.ProjectOnboardInput
-	seen := map[string]bool{}
-	for i := 0; i < len(args); i++ {
-		if i+1 >= len(args) {
-			return service.ProjectOnboardInput{}, fmt.Errorf("project onboard flag %q requires a value", args[i])
-		}
-		name, value := args[i], args[i+1]
-		if value == "" || seen[name] {
-			return service.ProjectOnboardInput{}, fmt.Errorf("invalid or repeated project onboard flag %q", name)
-		}
-		seen[name] = true
-		switch name {
-		case "--code":
-			input.ProjectCode = value
-		case "--root":
-			input.Root = value
-		case "--worker-relay":
-			input.WorkerRelay = value
-		case "--lead-relay":
-			input.LeadRelay = value
-		default:
-			return service.ProjectOnboardInput{}, fmt.Errorf("unknown project onboard flag %q", name)
-		}
-		i++
+	if len(args) == 4 && args[0] == "--root" && args[1] != "" && args[2] != "" && args[3] != "" && !strings.HasPrefix(args[2], "-") && !strings.HasPrefix(args[3], "-") {
+		return service.ProjectOnboardInput{Root: args[1], ProjectCode: args[2], WorkerRelay: args[3]}, nil
 	}
-	if input.ProjectCode == "" {
-		return service.ProjectOnboardInput{}, fmt.Errorf("project onboard requires --code CODE")
-	}
-	return input, nil
-}
-
-func promptProjectOnboard() (service.ProjectOnboardInput, error) {
-	reader := bufio.NewReader(os.Stdin)
-	read := func(label string, optional bool) (string, error) {
-		if optional {
-			fmt.Fprint(os.Stderr, label+" (optional): ")
-		} else {
-			fmt.Fprint(os.Stderr, label+": ")
-		}
-		line, err := reader.ReadString('\n')
-		if err != nil && len(line) == 0 {
-			return "", err
-		}
-		return strings.TrimSpace(line), nil
-	}
-	code, err := read("Project code", false)
-	if err != nil {
-		return service.ProjectOnboardInput{}, err
-	}
-	worker, err := read("Worker relay", true)
-	if err != nil {
-		return service.ProjectOnboardInput{}, err
-	}
-	lead, err := read("Lead relay", true)
-	if err != nil {
-		return service.ProjectOnboardInput{}, err
-	}
-	return service.ProjectOnboardInput{ProjectCode: code, WorkerRelay: worker, LeadRelay: lead}, nil
+	return service.ProjectOnboardInput{}, fmt.Errorf("project onboard requires <PROJECT_CODE> <WORKER_RELAY>")
 }

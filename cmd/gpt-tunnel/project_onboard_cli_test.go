@@ -2,34 +2,35 @@ package main
 
 import (
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-func TestProjectOnboardInteractiveInputMapsToCanonicalPrimitives(t *testing.T) {
-	original := os.Stdin
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
+func TestProjectOnboardPositionalArgsMapToCanonicalWorkerBinding(t *testing.T) {
+	input, err := parseProjectOnboardArgs([]string{"AIR", "agentir_worker"})
+	if err != nil || input.ProjectCode != "AIR" || input.WorkerRelay != "agentir_worker" || input.Root != "" || input.LeadRelay != "" {
+		t.Fatalf("positional input=%#v err=%v", input, err)
 	}
-	os.Stdin = reader
-	t.Cleanup(func() {
-		os.Stdin = original
-		_ = reader.Close()
-	})
-	if _, err := writer.WriteString("RDX\n\nrepodex_lead\n"); err != nil {
-		t.Fatal(err)
+	input, err = parseProjectOnboardArgs([]string{"--root", "/tmp/agentir", "AIR", "agentir_worker"})
+	if err != nil || input.Root != "/tmp/agentir" || input.ProjectCode != "AIR" || input.WorkerRelay != "agentir_worker" || input.LeadRelay != "" {
+		t.Fatalf("root override input=%#v err=%v", input, err)
 	}
-	_ = writer.Close()
-	input, err := promptProjectOnboard()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if input.ProjectCode != "RDX" || input.WorkerRelay != "" || input.LeadRelay != "repodex_lead" {
-		t.Fatalf("interactive input=%#v", input)
+}
+
+func TestProjectOnboardRejectsMissingExtraAndLegacyArguments(t *testing.T) {
+	for _, args := range [][]string{
+		{},
+		{"AIR"},
+		{"AIR", "agentir_worker", "extra"},
+		{"--code", "AIR", "--worker-relay", "agentir_worker"},
+		{"AIR", "--worker-relay"},
+		{"--root", "/tmp/agentir", "AIR"},
+	} {
+		if _, err := parseProjectOnboardArgs(args); err == nil {
+			t.Fatalf("invalid project onboard arguments accepted: %#v", args)
+		}
 	}
 }
 
