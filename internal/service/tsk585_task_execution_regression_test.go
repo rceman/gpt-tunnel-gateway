@@ -1407,20 +1407,10 @@ func TestTSK585IntegrateConfirmedPublicationThenReplacementHolds(t *testing.T) {
 		t.Fatalf("prepared C must remain an exact child of B with the candidate tree: tree=%s parents=%v", tree, parents)
 	}
 }
-func tsk585PlannerSession(t *testing.T, s *Service) string {
+func tsk585SettleSession(t *testing.T, s *Service, sessionID string) {
 	t.Helper()
-	rec, err := durableSession.NewStoreWithDurability(s.Durability).Create(durableSession.CreateInput{
-		ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RolePlanner, SessionType: durableSession.SessionTypeChatGPT,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Fixture sessions model pre-existing Planner authority. Give the record a
-	// settled creation margin so a transient backward wall-clock step between
-	// session creation and the Journal write cannot invert the durable
-	// ordering the admission check must verify.
 	ctx := context.Background()
-	row, err := s.Durability.ReadLocalSession(ctx, rec.ID)
+	row, err := s.Durability.ReadLocalSession(ctx, sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1431,30 +1421,39 @@ func tsk585PlannerSession(t *testing.T, s *Service) string {
 	settled := stored.CreatedAt.Add(-time.Minute)
 	stored.CreatedAt = settled
 	stored.StartedAt = settled
+	stored.UpdatedAt = settled
 	payload, err := json.Marshal(stored)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Durability.UpdateLocalSession(ctx, rec.ID, row.Payload, payload, stored.UpdatedAt.UTC().Format(time.RFC3339Nano), stored.Status); err != nil {
+	if err := s.Durability.UpdateLocalSession(ctx, sessionID, row.Payload, payload, settled.UTC().Format(time.RFC3339Nano), stored.Status); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func tsk585PlannerSession(t *testing.T, s *Service) string {
+	t.Helper()
+	rec, err := durableSession.NewStoreWithDurability(s.Durability).Create(durableSession.CreateInput{
+		ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RolePlanner, SessionType: durableSession.SessionTypeChatGPT,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tsk585SettleSession(t, s, rec.ID)
 	return rec.ID
 }
 func tsk585JournalEvidence(t *testing.T, s *Service, taskID string, commits, facts []string) model.OperatorJournalEvent {
 	t.Helper()
 	sessionID := tsk585PlannerSession(t, s)
-	event, _, err := s.OperatorRecord(context.Background(), OperatorRecordInput{
-		ProjectID:  "example",
-		SessionID:  &sessionID,
-		Kind:       model.OperatorTaskReview,
-		Summary:    "historical integration proof",
-		Content:    model.OperatorJournalContent{Facts: facts},
-		References: model.OperatorJournalReferences{Tasks: []string{taskID}, Commits: commits},
-		Actor:      "owner",
+	event := tsk566SeedOperatorEvent(t, s, operatorEvidenceSeed{
+		projectID:  "example",
+		sessionID:  &sessionID,
+		kind:       model.OperatorTaskReview,
+		summary:    "historical integration proof",
+		content:    model.OperatorJournalContent{Facts: facts},
+		references: model.OperatorJournalReferences{Tasks: []string{taskID}, Commits: commits},
+		actor:      "owner",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	return event
 }
 func tsk585HistoricalIntegrate(t *testing.T, s *Service, in TaskExecutionIntegrateInput) durableMutationOperation {
@@ -1687,17 +1686,14 @@ func TestTSK585HistoricalSessionAuthority(t *testing.T) {
 	tsk585SetRemoteMain(t, s, integration)
 	record := func(sessionID *string, actor string) string {
 		t.Helper()
-		event, _, err := s.OperatorRecord(ctx, OperatorRecordInput{
-			ProjectID:  "example",
-			SessionID:  sessionID,
-			Kind:       model.OperatorTaskReview,
-			Summary:    "evidence",
-			References: model.OperatorJournalReferences{Tasks: []string{task.ID}, Commits: []string{integration}},
-			Actor:      actor,
+		event := tsk566SeedOperatorEvent(t, s, operatorEvidenceSeed{
+			projectID:  "example",
+			sessionID:  sessionID,
+			kind:       model.OperatorTaskReview,
+			summary:    "evidence",
+			references: model.OperatorJournalReferences{Tasks: []string{task.ID}, Commits: []string{integration}},
+			actor:      actor,
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
 		return event.ID
 	}
 	store := durableSession.NewStoreWithDurability(s.Durability)
@@ -1724,17 +1720,14 @@ func TestTSK585HistoricalSessionAuthority(t *testing.T) {
 	ended := record(&endedSession.ID, "planner")
 	cross := record(&crossProject.ID, "planner")
 	validSession := tsk585PlannerSession(t, s)
-	ownerActorEvent, _, err := s.OperatorRecord(ctx, OperatorRecordInput{
-		ProjectID:  "example",
-		SessionID:  &validSession,
-		Kind:       model.OperatorTaskReview,
-		Summary:    "evidence",
-		References: model.OperatorJournalReferences{Tasks: []string{task.ID}, Commits: []string{integration}},
-		Actor:      "owner",
+	ownerActorEvent := tsk566SeedOperatorEvent(t, s, operatorEvidenceSeed{
+		projectID:  "example",
+		sessionID:  &validSession,
+		kind:       model.OperatorTaskReview,
+		summary:    "evidence",
+		references: model.OperatorJournalReferences{Tasks: []string{task.ID}, Commits: []string{integration}},
+		actor:      "owner",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	reject := func(name, evidenceID string) {
 		t.Helper()
 		receipt, err := s.TaskExecutionIntegrateAsync(ctx, TaskExecutionIntegrateInput{

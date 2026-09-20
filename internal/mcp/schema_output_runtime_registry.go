@@ -2,9 +2,6 @@ package mcp
 
 func runtimeToolOutputSchemas() map[string]map[string]any {
 	return map[string]map[string]any{
-		"operator_record":     operatorJournalWriteOutputSchema(),
-		"operator_history":    operatorJournalHistoryOutputSchema(),
-		"operator_checkpoint": operatorJournalWriteOutputSchema(),
 		"git_refresh":         closedOutput(map[string]any{"project_id": outputString(), "refreshed": outputBoolean()}, "project_id", "refreshed"),
 		"git_refs":            closedOutput(map[string]any{"refs": outputArray(refOutputSchema()), "next_cursor": outputString(), "has_more": outputBoolean()}, "refs", "next_cursor", "has_more"),
 		"git_log":             closedOutput(map[string]any{"commits": outputArray(commitOutputSchema()), "next_cursor": outputString(), "has_more": outputBoolean()}, "commits", "next_cursor", "has_more"),

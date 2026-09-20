@@ -365,6 +365,9 @@ func (s *Service) taskCompleteCommittedReplay(ctx context.Context, in TaskComple
 }
 
 func (s *Service) taskCompleteReviewProof(ctx context.Context, in TaskCompleteInput, task model.TaskAuthoring, projectCode string) error {
+	if entry, err := s.readSharedJournalEntry(ctx, in.Review); err == nil {
+		return s.taskCompleteCanonicalReviewProof(ctx, in, task, projectCode, entry)
+	}
 	registry := s.entityRegistry(in.ProjectID)
 	type admitted struct {
 		record entity.Record
@@ -414,6 +417,35 @@ func (s *Service) taskCompleteReviewProof(ctx context.Context, in TaskCompleteIn
 	}
 	if !stable {
 		return fmt.Errorf("Task completion review Journal record disappeared during admission")
+	}
+	return nil
+}
+
+func (s *Service) taskCompleteCanonicalReviewProof(ctx context.Context, in TaskCompleteInput, task model.TaskAuthoring, projectCode string, entry model.JournalEntry) error {
+	if entry.ProjectID != in.ProjectID {
+		return fmt.Errorf("Task completion review Journal entry is outside the project")
+	}
+	if entry.Stream != model.JournalStreamPlannerNotes {
+		return fmt.Errorf("Task completion review Journal entry is not a planner-notes record")
+	}
+	if entry.Role != durableSession.RolePlanner {
+		return fmt.Errorf("Task completion review Journal entry lacks Planner provenance")
+	}
+	session, err := durableSession.NewStoreWithDurability(s.Durability).Get(entry.SessionID)
+	if err != nil {
+		return fmt.Errorf("Task completion evidence Planner Session authority could not be read: %w", err)
+	}
+	if session.Role != durableSession.RolePlanner || session.Status != durableSession.StatusActive || session.ProjectID != in.ProjectID || session.ProjectCode != projectCode {
+		return fmt.Errorf("Task completion evidence does not carry durable active Planner Session authority for this project")
+	}
+	var data struct {
+		References []string `json:"references"`
+	}
+	if err := json.Unmarshal(entry.Data, &data); err != nil {
+		return fmt.Errorf("Task completion review Journal entry data: %w", err)
+	}
+	if !slices.Contains(data.References, task.ID) {
+		return fmt.Errorf("Task completion review does not reference the Task")
 	}
 	return nil
 }

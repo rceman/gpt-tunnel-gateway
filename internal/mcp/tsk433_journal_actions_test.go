@@ -24,9 +24,9 @@ func TestTSK433JournalActionSurfaceIsCanonicalAndSessionBound(t *testing.T) {
 			t.Fatalf("journal action %q is not session-bound", path)
 		}
 	}
-	for _, retired := range []string{"journal/create", "journal/update", "journal/archive", "journal/delete", "journal/kind"} {
+	for _, retired := range []string{"journal/create", "journal/update", "journal/archive", "journal/delete", "journal/kind", "operator_record", "operator_history", "operator_checkpoint"} {
 		if _, ok := entries[retired]; ok {
-			t.Fatalf("unapproved journal action %q is registered", retired)
+			t.Fatalf("retired journal action %q is registered", retired)
 		}
 	}
 	add := entries["journal/add"].InputSchema

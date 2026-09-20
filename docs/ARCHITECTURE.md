@@ -111,13 +111,14 @@ and caller-supplied session keys and generic shell execution are impossible.
 ## Identifier allocation
 
 Operational identifiers are canonical compact values: `CODE-TSK<N>` for tasks,
-`CODE-TSK<N>-RUN<M>` for runs, `CODE-ADR<N>` for ADRs, and `CODE-OPR<N>` for
-operator records and corrections. Project adoption initializes the task and
-ADR allocation records; run and operator counters are maintained with their
-own optimistic hub transactions. All counters are bounded by the positive
-JavaScript-safe integer maximum, so the maximum value may be allocated once
-but can never be reused. Unpinned conflicts retry within the shared bounded
-allocator limit, while pinned writes fail immediately.
+`CODE-TSK<N>-RUN<M>` for runs, `CODE-ADR<N>` for ADRs, and `CODE-JRN<N>` for
+canonical journal entries. Project adoption initializes task, ADR, and journal
+allocation records. Historical `CODE-OPR<N>`/`CODE-JRN<N>` operator-journal
+records remain immutable evidence and are not a current write authority. All
+counters are bounded by the positive JavaScript-safe integer maximum, so the
+maximum value may be allocated once but can never be reused. Unpinned conflicts
+retry within the shared bounded allocator limit, while pinned writes fail
+immediately.
 
 Task creation requires a validated slug. The gateway derives the task branch
 from the allocated task ID and slug and resolves the task base from the

@@ -126,7 +126,6 @@ func (s *Server) tools() map[string]Tool {
 	})
 	s.addCoreTools(add)
 	s.addTaskTools(add)
-	addOperatorJournalTools(add, s)
 	addGitTools(add, s)
 	addMCP7BootstrapTools(add, s)
 	legacyTools := make(map[string]Tool, len(t))

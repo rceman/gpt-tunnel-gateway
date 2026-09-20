@@ -46,18 +46,15 @@ func tsk585ReviewRationale(t *testing.T, task model.TaskAuthoring, criterion int
 }
 func tsk585CompleteEvidence(t *testing.T, s *Service, task model.TaskAuthoring, sessionID *string, kind model.OperatorJournalKind, facts []string, commits []string) model.OperatorJournalEvent {
 	t.Helper()
-	event, _, err := s.OperatorRecord(context.Background(), OperatorRecordInput{
-		ProjectID:  "example",
-		SessionID:  sessionID,
-		Kind:       kind,
-		Summary:    "final Task review",
-		Content:    model.OperatorJournalContent{Facts: facts},
-		References: model.OperatorJournalReferences{Tasks: []string{task.ID}, Commits: commits},
-		Actor:      "owner",
+	event := tsk566SeedOperatorEvent(t, s, operatorEvidenceSeed{
+		projectID:  "example",
+		sessionID:  sessionID,
+		kind:       kind,
+		summary:    "final Task review",
+		content:    model.OperatorJournalContent{Facts: facts},
+		references: model.OperatorJournalReferences{Tasks: []string{task.ID}, Commits: commits},
+		actor:      "owner",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	return event
 }
 func tsk585CompletionInput(task model.TaskAuthoring, mode, reason, review string) TaskCompleteInput {
@@ -334,6 +331,7 @@ func TestTSK610TaskCompleteReviewAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	tsk585SettleSession(t, s, ended.ID)
 	if _, err := store.End(ended.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -355,17 +353,15 @@ func TestTSK610TaskCompleteReviewAuthority(t *testing.T) {
 	cases["no task ref"] = tsk585CompleteEvidence(t, s, otherTask, ptr(tsk585PlannerSession(t, s)), model.OperatorTaskReview, []string{fact}, nil).ID
 	superseded := tsk585CompleteEvidence(t, s, task, ptr(tsk585PlannerSession(t, s)), model.OperatorTaskReview, []string{fact}, nil)
 	supSession := tsk585PlannerSession(t, s)
-	if _, _, err := s.OperatorRecord(ctx, OperatorRecordInput{
-		ProjectID:         "example",
-		SessionID:         &supSession,
-		Kind:              model.OperatorCorrection,
-		Summary:           "correction",
-		SupersedesEventID: superseded.ID,
-		Actor:             "planner",
-		References:        model.OperatorJournalReferences{Tasks: []string{task.ID}},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	tsk566SeedOperatorEvent(t, s, operatorEvidenceSeed{
+		projectID:         "example",
+		sessionID:         &supSession,
+		kind:              model.OperatorCorrection,
+		summary:           "correction",
+		supersedesEventID: superseded.ID,
+		actor:             "planner",
+		references:        model.OperatorJournalReferences{Tasks: []string{task.ID}},
+	})
 	cases["superseded"] = superseded.ID
 	postDatedID := "HOM_EXM_P_zzzzz"
 	postDated := tsk585CompleteEvidence(t, s, task, &postDatedID, model.OperatorTaskReview, []string{fact}, nil)
@@ -377,18 +373,15 @@ func TestTSK610TaskCompleteReviewAuthority(t *testing.T) {
 	}
 	cases["post-dated session"] = postDated.ID
 	validSession := tsk585PlannerSession(t, s)
-	wrongProjectReview, _, err := s.OperatorRecord(ctx, OperatorRecordInput{
-		ProjectID:  "example",
-		SessionID:  &validSession,
-		Kind:       model.OperatorTaskReview,
-		Summary:    "final Task review",
-		Content:    model.OperatorJournalContent{Facts: []string{"ACCEPT: wrong-project review fixture"}},
-		References: model.OperatorJournalReferences{Tasks: []string{task.ID}},
-		Actor:      "owner",
+	wrongProjectReview := tsk566SeedOperatorEvent(t, s, operatorEvidenceSeed{
+		projectID:  "example",
+		sessionID:  &validSession,
+		kind:       model.OperatorTaskReview,
+		summary:    "final Task review",
+		content:    model.OperatorJournalContent{Facts: []string{"ACCEPT: wrong-project review fixture"}},
+		references: model.OperatorJournalReferences{Tasks: []string{task.ID}},
+		actor:      "owner",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	wrongProjectReview.ProjectID = "other"
 	if _, err := s.Hub.Transact(ctx, mustHubRevision(t, s), "test: seed wrong-project review", func(worktree string) ([]string, error) {
 		path := s.operatorEventPath("example", wrongProjectReview.ID)

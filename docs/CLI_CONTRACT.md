@@ -54,7 +54,8 @@ gpt-tunnel run finalize <run-id> [--completion-file <gateway-owned-run-path>]
 
 New operational identifiers are compact and project-coded: tasks use
 `CODE-TSK<N>`, runs use `CODE-TSK<N>-RUN<M>`, ADRs use `CODE-ADR<N>`, and
-operator journal events/corrections use `CODE-OPR<N>`. Each counter is a
+canonical journal entries use `CODE-JRN<N>`. Historical operator-journal
+`CODE-OPR<N>` records remain immutable evidence only. Each counter is a
 positive safe integer owned by the adopted project. Task-create JSON requires
 `slug`; the gateway derives `task/<task-id>-<slug>` and the exact remote
 default-branch `base_revision`, so `branch` and `base_revision` are not caller
@@ -119,19 +120,21 @@ implementation, merge, release, or deployment. “Implement the next feature”,
 “merge and release this branch”, “deploy this”, and “continue the roadmap” are
 misuse examples, not valid task control.
 
-## Operator journal bootstrap
+## Journal migration (TSK566 cutover)
 
 ```text
-gpt-tunnel operator record --file <input.json>
-gpt-tunnel operator history <project-id> [--after-event-id <CODE-OPR1>] [--kind <kind>] [--limit N]
-gpt-tunnel operator checkpoint --file <input.json>
+gpt-tunnel journal migrate --file <plan.json>
 ```
 
-The journal is append-only. Bootstrap `operator record` accepts only
-`user_talk`, `reasoning_summary`, `task_plan`, `task_review`, and
-`correction`; `operation` and `checkpoint` are reserved for later mutation
-recording and the explicit checkpoint command. Records contain concise
-structured context, not prompts or transcripts.
+The trusted internal migration re-expresses explicitly curated legacy
+operator-journal events as canonical `planner-notes` entries with
+`references[]` pointing at the original `CODE-OPR<N>`/`CODE-JRN<N>` records,
+drains standing Task `metadata.lesson_*`/`metadata.lead_feedback_*` inboxes
+into `worker-lessons`/`lead-friction`, and archives the source Tasks.
+Provenance is the `journal-migration` system path, never a historical role
+identity. Historical operator-journal records stay immutable in their
+project-tree store as evidence; `operator_record`, `operator_history`, and
+`operator_checkpoint` are retired.
 
 `run report` reads only the canonical workflow-2.0 report. Protocol-v1 runs
 remain visible through bounded `run list`/`run read` history with legacy local

@@ -48,7 +48,7 @@ func TestGuideIsZeroStateAndMatchesCanonicalContent(t *testing.T) {
 		"No task/queue/Agent queue, Planner/Worker impersonation, or alternate-role bypass",
 		"ADR72 Gates 1-20 remain the sole gate taxonomy, including the Gates 9/12/14/19/20 public-response evidence requirements",
 		"there is no parallel gate taxonomy",
-		"standing evidence channels TSK609/619/632/633",
+		"journal/contract is the sole stream-rules authority",
 		"No direct Lead-to-Planner channel exists",
 		"owner/operator relay is only for semantic blockers and completed Track handoff, not execution proxy",
 		"Final project activate/release waits for source-bound Planner Track review",

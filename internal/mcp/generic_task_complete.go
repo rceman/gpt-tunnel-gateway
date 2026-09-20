@@ -39,7 +39,7 @@ func taskCompleteOutputSchema() map[string]any {
 func (s *Server) registerTaskCompleteAction() error {
 	return s.RegisterGenericAction(GenericAction{
 		Path:                 "task/complete",
-		Description:          "Complete one canonical Task with one final Planner task-review Journal reference.",
+		Description:          "Complete one canonical Task with one final Planner planner-notes journal reference.",
 		AuthorityRole:        "planner",
 		SessionBound:         true,
 		LocalReceiptOnly:     true,

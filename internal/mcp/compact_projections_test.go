@@ -101,7 +101,7 @@ func TestCompactMutationDoesNotLeakNestedDurablePayloads(t *testing.T) {
 		"identifiers":   map[string]any{"project_id": "example", "project_code": "EXM", "next_task_number": float64(2), "secret": "counter-detail"},
 		"adr":           map[string]any{"id": "GTW-ADR1", "title": "ADR", "context": "full context"},
 	}
-	compact := compactActionResult("operator/checkpoint", value, false)
+	compact := compactActionResult("journal/add", value, false)
 	for key, forbidden := range map[string]string{
 		"agent": "secret", "guide": "content", "configuration": "gate_commands", "policy": "secret", "identifiers": "secret", "adr": "context",
 	} {

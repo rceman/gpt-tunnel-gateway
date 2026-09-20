@@ -58,9 +58,6 @@ var toolAnnotations = func() map[string]ToolAnnotations {
 	} {
 		result[name] = readOnlyAnnotations()
 	}
-	result["operator_record"] = additiveExternalAnnotations()
-	result["operator_checkpoint"] = additiveExternalAnnotations()
-	result["operator_history"] = readOnlyAnnotations()
 	result["git_refresh"] = ToolAnnotations{
 		ReadOnlyHint:    false,
 		DestructiveHint: false,

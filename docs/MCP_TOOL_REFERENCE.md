@@ -71,17 +71,13 @@ Delivery report records are never rewritten. Revision-aware Runs use
 `<TASK-ID>.REV<N>-RUN<M>` and carry the revision digest, while legacy REV1
 records remain readable through their existing paths.
 
-## Operator journal bootstrap
+## Operator journal (retired)
 
-The immutable bootstrap tools are `operator_record`, `operator_history`, and
-`operator_checkpoint`. They store concise structured context under each
-adopted project's journal. `operator_record` accepts only
-`user_talk`, `reasoning_summary`, `task_plan`, `task_review`, and `correction`;
-reserved `operation` and `checkpoint` kinds are not caller-created through
-that endpoint. History is numeric by event number, supports an exclusive
-project-scoped cursor and exact kind filtering, and preserves correction
-links. Prompts, hidden reasoning, secrets, paths, and unbounded logs are not
-accepted.
+The legacy bootstrap tools `operator_record`, `operator_history`, and
+`operator_checkpoint` are retired and expose no read-only alias. Historical
+kind-based journal records remain immutable evidence in the project-tree
+store and stay readable through historical receipt replay and the trusted
+`gpt-tunnel journal migrate` cutover path.
 
 ## Canonical journal streams (ADR56 rev2)
 
@@ -94,9 +90,8 @@ server-owned and closed: `planner-notes` (Planner writer),
 `journal/add` validates the exact stream data contract before commit and
 returns structured per-path violations on failure; it writes nothing on
 invalid input. Provenance (project, actor, role, session, sequence,
-timestamp) is server-owned. Historical operator-journal records remain
-readable through `operator_history`; `operator_record`,
-`operator_checkpoint`, and `operator_history` keep working unchanged.
+timestamp) is server-owned. Canonical `journal/*` is the only journal
+authority; the retired `operator_*` tools expose no alias.
 
 ## Project compact identifiers
 

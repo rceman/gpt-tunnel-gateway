@@ -121,7 +121,7 @@ The audit of public read-many actions is:
 | `task_list` | default/max 10 | compact server-owned cursor (legacy input accepted) |
 | `project_list`, `run_list`, `adr_list`, `git_refs`, `git_tree` | default 20/max 100 | compact server-owned cursor (legacy input accepted) |
 | `git_log`, `plan_history`, `task_revision_list`, `delivery_handoff_list`, `planner_report_list` | default 20/max 100 | compact server-owned cursor (legacy input accepted) |
-| `operator_history` | existing bounded service limit | existing `after` continuation |
+| `journal/list` | default 64/max 256 | keyset cursor (`_pagination.next_cursor`) |
 
 Singleton reads such as `project_read`, `task_read`, `run_read`, `adr_read`,
 `plan_read`, and `git_read_file` do not accept collection limits.
