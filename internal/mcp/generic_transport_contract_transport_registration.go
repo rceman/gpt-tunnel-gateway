@@ -84,10 +84,13 @@ func (s *Server) RegisterGenericAction(action GenericAction) error {
 }
 func validGenericActionPath(path string) bool {
 	parts := strings.Split(path, "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	if len(parts) < 2 || len(parts) > 3 || parts[0] == "" || parts[1] == "" || (len(parts) == 3 && parts[0] != "admin") {
 		return false
 	}
 	for _, part := range parts {
+		if part == "" {
+			return false
+		}
 		for i, r := range part {
 			if i == 0 {
 				if r < 'a' || r > 'z' {
@@ -192,7 +195,7 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 			}
 			entries[path] = entry
 		}
-		entry.SessionRequired = entry.SessionBound
+		entry.SessionRequired = entry.SessionRequired || entry.SessionBound
 		entries[path] = entry
 	}
 	s.addBootstrapActions(entries, legacy)

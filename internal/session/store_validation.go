@@ -8,6 +8,7 @@ import (
 )
 
 var sessionIDRE = regexp.MustCompile(`^[A-Z]{3}_[A-Z]{3}_[PLAW]_[a-z0-9]{5}$`)
+var adminSessionIDRE = regexp.MustCompile(`^[A-Z]{3}_ADM_[a-z0-9]{32}$`)
 var sessionGatewayKeyRE = regexp.MustCompile(`^[A-Z]{3}$`)
 var sessionProjectCodeRE = regexp.MustCompile(`^[A-Z]{3}$`)
 
@@ -19,12 +20,22 @@ var (
 
 // IsCanonicalSessionID reports whether value uses the durable workflow Session identity format.
 func IsCanonicalSessionID(value string) bool {
-	return sessionIDRE.MatchString(value)
+	return sessionIDRE.MatchString(value) || adminSessionIDRE.MatchString(value)
+}
+
+func IsAdminSessionID(value string) bool {
+	return adminSessionIDRE.MatchString(value)
 }
 
 func (r Record) Validate() error {
 	if err := validateRecordShape(r); err != nil {
 		return err
+	}
+	if r.Role == RoleAdmin {
+		if !IsAdminSessionID(r.ID) || r.ProjectID != "" || r.ProjectCode != "" || r.SessionRef != nil {
+			return fmt.Errorf("%w: invalid admin session record", ErrInvalidSession)
+		}
+		return nil
 	}
 	if !sessionIDMatchesRole(r.ID, r.Role) || !validRole(r.Role) {
 		return fmt.Errorf("%w: invalid session record", ErrInvalidSession)
@@ -35,6 +46,15 @@ func (r Record) Validate() error {
 func validateRecordShape(r Record) error {
 	if r.SchemaVersion != SchemaVersion || !IsCanonicalSessionID(r.ID) || !validSessionType(r.SessionType) {
 		return fmt.Errorf("%w: invalid session record", ErrInvalidSession)
+	}
+	if r.Role == RoleAdmin {
+		if r.SessionType != SessionTypeAdmin || r.ProjectID != "" || r.ProjectCode != "" {
+			return fmt.Errorf("%w: invalid admin session record", ErrInvalidSession)
+		}
+		if err := validateSessionTimestamps(r); err != nil {
+			return err
+		}
+		return validateOptionalText(r.Label, "label")
 	}
 	if r.ProjectCode == "" {
 		return fmt.Errorf("%w: bound session project code is required", ErrInvalidSession)
@@ -51,6 +71,19 @@ func validateRecordShape(r Record) error {
 	if strings.TrimSpace(r.ProjectID) == "" {
 		return fmt.Errorf("%w: bound session project is required", ErrInvalidSession)
 	}
+	if err := validateSessionTimestamps(r); err != nil {
+		return err
+	}
+	if WorkflowRoleRequiresRef(r.Role) && (r.SessionRef == nil || strings.TrimSpace(*r.SessionRef) == "") {
+		return fmt.Errorf("%w: managed role requires a server-owned binding", ErrInvalidSession)
+	}
+	if err := validateOptionalText(r.SessionRef, "session_ref"); err != nil {
+		return err
+	}
+	return validateOptionalText(r.Label, "label")
+}
+
+func validateSessionTimestamps(r Record) error {
 	if r.Status != StatusActive && r.Status != StatusEnded {
 		return fmt.Errorf("%w: invalid session status", ErrInvalidSession)
 	}
@@ -63,13 +96,7 @@ func validateRecordShape(r Record) error {
 	if r.Status == StatusEnded && (r.EndedAt == nil || r.EndedAt.Before(r.StartedAt)) {
 		return fmt.Errorf("%w: ended session has invalid ended_at", ErrInvalidSession)
 	}
-	if WorkflowRoleRequiresRef(r.Role) && (r.SessionRef == nil || strings.TrimSpace(*r.SessionRef) == "") {
-		return fmt.Errorf("%w: managed role requires a server-owned binding", ErrInvalidSession)
-	}
-	if err := validateOptionalText(r.SessionRef, "session_ref"); err != nil {
-		return err
-	}
-	return validateOptionalText(r.Label, "label")
+	return nil
 }
 
 func validateGatewayKey(value string) error {
@@ -95,7 +122,7 @@ func sessionIDProjectCode(id string) string {
 }
 
 func validRole(role string) bool {
-	return IsWorkflowRole(role)
+	return IsWorkflowRole(role) || role == RoleAdmin
 }
 
 func sessionIDMatchesRole(id, role string) bool {
@@ -107,7 +134,9 @@ func sessionIDMatchesRole(id, role string) bool {
 	return ok && workflowRole.Key == role
 }
 
-func validSessionType(value string) bool { return value == SessionTypeChatGPT }
+func validSessionType(value string) bool {
+	return value == SessionTypeChatGPT || value == SessionTypeAdmin
+}
 
 func validateCreateInput(input CreateInput, requireProject bool) error {
 	if (requireProject && strings.TrimSpace(input.ProjectID) == "") || !validRole(input.Role) || !validSessionType(input.SessionType) {

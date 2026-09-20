@@ -9,6 +9,7 @@ const (
 	RoleLead    = workflowrole.RoleLead
 	RoleAdvisor = workflowrole.RoleAdvisor
 	RoleWorker  = workflowrole.RoleWorker
+	RoleAdmin   = "admin"
 )
 
 func WorkflowRoles() []WorkflowRole {

@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
+
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 func (s *Server) genericSchema(legacy map[string]Tool, raw json.RawMessage) (any, error) {
@@ -75,16 +78,27 @@ func (s *Server) genericSchemaPublic(ctx context.Context, legacy map[string]Tool
 	if err != nil {
 		return nil, fmt.Errorf("schema session authority is invalid: %w", err)
 	}
-	if record.ProjectID == "" {
+	if record.ProjectID == "" && record.Role != durableSession.RoleAdmin {
 		return nil, fmt.Errorf("PROJECT_BINDING_REQUIRED: bind the session before schema discovery")
 	}
-	if _, err := existingSessionRoleContext(ctx, record.Role); err != nil {
-		return nil, fmt.Errorf("schema session authority is invalid: %w", err)
+	if record.Role != durableSession.RoleAdmin {
+		if _, err := existingSessionRoleContext(ctx, record.Role); err != nil {
+			return nil, fmt.Errorf("schema session authority is invalid: %w", err)
+		}
 	}
 	return genericSchemaV2(schemaEntriesForSessionRole(entries, record.Role), input.Path)
 }
 
 func schemaEntriesForSessionRole(entries map[string]genericActionEntry, role string) map[string]genericActionEntry {
+	if role == durableSession.RoleAdmin {
+		available := make(map[string]genericActionEntry)
+		for path, entry := range entries {
+			if strings.HasPrefix(path, "admin/") {
+				available[path] = entry
+			}
+		}
+		return available
+	}
 	if !actionAuthorityAllowsSessionRole("", role) {
 		return map[string]genericActionEntry{}
 	}

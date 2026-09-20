@@ -13,6 +13,7 @@ import (
 const (
 	SchemaVersion      = 1
 	SessionTypeChatGPT = "chatgpt"
+	SessionTypeAdmin   = "admin"
 	StatusActive       = "active"
 	StatusEnded        = "ended"
 	maxRecordBytes     = 64 << 10
@@ -50,6 +51,7 @@ type Store struct {
 	GatewayID        string
 	IDGenerator      func() (string, error)
 	TypedIDGenerator func(string) (string, error)
+	AdminIDGenerator func() (string, error)
 }
 
 func NewStoreWithDurability(durability *sqlitestore.Databases) Store {
@@ -71,6 +73,51 @@ func (s Store) requireLocal() error {
 func (s Store) Create(input CreateInput) (Record, error) { return s.create(input, true) }
 func (s Store) CreateUnbound(role string, label *string) (Record, error) {
 	return Record{}, fmt.Errorf("%w: unbound sessions are not supported", ErrInvalidSession)
+}
+func (s Store) CreateAdmin(label *string) (Record, error) {
+	if err := validateOptionalText(label, "label"); err != nil {
+		return Record{}, err
+	}
+	if err := validateGatewayKey(s.GatewayID); err != nil {
+		return Record{}, err
+	}
+	if err := s.requireLocal(); err != nil {
+		return Record{}, err
+	}
+	for attempt := 0; attempt < maxCreateAttempts; attempt++ {
+		id, err := s.nextAdminID()
+		if err != nil {
+			return Record{}, err
+		}
+		now := time.Now().UTC()
+		record := Record{
+			SchemaVersion: SchemaVersion,
+			ID:            id,
+			Role:          RoleAdmin,
+			SessionType:   SessionTypeAdmin,
+			Label:         cloneString(label),
+			Status:        StatusActive,
+			CreatedAt:     now,
+			StartedAt:     now,
+			UpdatedAt:     now,
+		}
+		if err := record.Validate(); err != nil {
+			return Record{}, err
+		}
+		payload, err := json.Marshal(record)
+		if err != nil {
+			return Record{}, err
+		}
+		err = s.Durability.CreateLocalSession(context.Background(), sqlitestore.LocalSession{ID: id, Payload: payload, UpdatedAt: now.Format(time.RFC3339Nano), Status: record.Status})
+		if errors.Is(err, sqlitestore.ErrLocalSessionExists) {
+			continue
+		}
+		if err != nil {
+			return Record{}, err
+		}
+		return record, nil
+	}
+	return Record{}, fmt.Errorf("admin session ID allocation exhausted after %d attempts", maxCreateAttempts)
 }
 func (s Store) create(input CreateInput, requireProject bool) (Record, error) {
 	if err := validateCreateInput(input, requireProject); err != nil {
@@ -178,7 +225,7 @@ func (s Store) AcknowledgeRules(id, globalRevision, globalDigest, projectDigest 
 	return record, s.updateLocal(old, record)
 }
 func (s Store) Get(id string) (Record, error) {
-	if !sessionIDRE.MatchString(id) {
+	if !IsCanonicalSessionID(id) {
 		return Record{}, fmt.Errorf("%w: invalid session ID", ErrInvalidSession)
 	}
 	if err := s.requireLocal(); err != nil {

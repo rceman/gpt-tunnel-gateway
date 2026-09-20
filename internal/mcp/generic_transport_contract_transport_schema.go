@@ -96,8 +96,8 @@ func genericCallInputSchema() map[string]any {
 	return schema
 }
 func genericActionParts(path string) (string, string, bool) {
-	if parts := strings.Split(path, "/"); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-		return parts[0], parts[1], true
+	if parts := strings.Split(path, "/"); (len(parts) == 2 || (len(parts) == 3 && parts[0] == "admin")) && parts[0] != "" && parts[1] != "" && (len(parts) == 2 || parts[2] != "") {
+		return parts[0], strings.Join(parts[1:], "/"), true
 	}
 	return "", "", false
 }

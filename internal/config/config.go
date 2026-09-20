@@ -26,8 +26,15 @@ type Config struct {
 	Hub                    HubConfig                          `json:"hub"`
 	Controller             ControllerConfig                   `json:"controller"`
 	Debug                  DebugConfig                        `json:"debug"`
+	Admin                  AdminConfig                        `json:"admin,omitempty"`
 	ProjectAgentBindings   map[string]map[string]AgentBinding `json:"project_agent_bindings,omitempty"`
 	Projects               map[string]ProjectConfig           `json:"projects"`
+}
+
+type AdminConfig struct {
+	OnboardingRoot      string   `json:"onboarding_root,omitempty"`
+	GitHubAllowedOwners []string `json:"github_allowed_owners,omitempty"`
+	WorkerHarnesses     []string `json:"worker_harnesses,omitempty"`
 }
 
 // DebugConfig is host-local break-glass configuration. Its zero value keeps
@@ -314,6 +321,7 @@ func Restore(path string, original []byte) error {
 }
 func (c *Config) expand() {
 	c.StateDir = expand(c.StateDir)
+	c.Admin.OnboardingRoot = expand(c.Admin.OnboardingRoot)
 	c.Controller.GatewayBinary = expand(c.Controller.GatewayBinary)
 	c.Controller.TunnelClientBinary = expand(c.Controller.TunnelClientBinary)
 	c.Controller.TunnelEnvFile = expand(c.Controller.TunnelEnvFile)

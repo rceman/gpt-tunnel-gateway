@@ -7,6 +7,30 @@ import (
 
 const sessionIDAlphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
 
+func (s Store) nextAdminID() (string, error) {
+	if s.AdminIDGenerator != nil {
+		return s.AdminIDGenerator()
+	}
+	if err := validateGatewayKey(s.GatewayID); err != nil {
+		return "", err
+	}
+	var suffix [32]byte
+	for i := range suffix {
+		for {
+			var raw [1]byte
+			if _, err := rand.Read(raw[:]); err != nil {
+				return "", fmt.Errorf("generate admin session ID: %w", err)
+			}
+			if raw[0] >= 252 {
+				continue
+			}
+			suffix[i] = sessionIDAlphabet[int(raw[0])%len(sessionIDAlphabet)]
+			break
+		}
+	}
+	return fmt.Sprintf("%s_ADM_%s", s.GatewayID, string(suffix[:])), nil
+}
+
 func (s Store) nextID(role, projectCode string) (string, error) {
 	if s.IDGenerator != nil {
 		return s.IDGenerator()

@@ -41,6 +41,19 @@ func (c Config) Validate() error {
 	if err := validateLoopbackAddress("controller.tunnel_health_listen_addr", c.Controller.TunnelHealthListenAddr); err != nil {
 		return err
 	}
+	if c.Admin.OnboardingRoot != "" && (!filepath.IsAbs(c.Admin.OnboardingRoot) || filepath.Clean(c.Admin.OnboardingRoot) != c.Admin.OnboardingRoot || strings.ContainsAny(c.Admin.OnboardingRoot, "\x00\r\n")) {
+		return fmt.Errorf("invalid admin onboarding_root")
+	}
+	for _, owner := range c.Admin.GitHubAllowedOwners {
+		if !githubOwnerRE.MatchString(owner) {
+			return fmt.Errorf("invalid admin GitHub owner")
+		}
+	}
+	for _, harness := range c.Admin.WorkerHarnesses {
+		if !adminHarnessRE.MatchString(harness) {
+			return fmt.Errorf("invalid admin Worker harness")
+		}
+	}
 	for projectID, bindings := range c.ProjectAgentBindings {
 		if !regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`).MatchString(projectID) {
 			return fmt.Errorf("invalid project agent binding project id %q", projectID)
@@ -76,6 +89,9 @@ func (c Config) Validate() error {
 	}
 	return nil
 }
+
+var githubOwnerRE = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$`)
+var adminHarnessRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
 func validateRepositoryURL(value string) error {
 	if value == "" || len(value) > 2048 || strings.ContainsAny(value, "\x00\r\n") {

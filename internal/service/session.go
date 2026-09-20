@@ -150,7 +150,7 @@ func (s *Service) SessionList() (SessionListResult, error) {
 	}
 	items := make([]SessionListItem, 0, len(records))
 	for _, record := range records {
-		if record.Status != durableSession.StatusActive {
+		if record.Status != durableSession.StatusActive || record.Role == durableSession.RoleAdmin {
 			continue
 		}
 		ref := cloneSessionString(record.SessionRef)

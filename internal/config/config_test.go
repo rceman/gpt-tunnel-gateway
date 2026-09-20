@@ -288,3 +288,27 @@ func TestGTWWorkerBindingKeepsCanonicalRuntimeIdentity(t *testing.T) {
 		t.Fatalf("duplicate Worker Agent bindings=%#v", c.ProjectAgentBindings["gpt-tunnel-gateway"])
 	}
 }
+
+func TestValidateAdminOnboardingPolicy(t *testing.T) {
+	c := baseConfig(t.TempDir())
+	c.Admin = AdminConfig{
+		OnboardingRoot:      filepath.Join(t.TempDir(), "git"),
+		GitHubAllowedOwners: []string{"acme"},
+		WorkerHarnesses:     []string{"codex", "devin"},
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	cases := []func(*Config){
+		func(value *Config) { value.Admin.OnboardingRoot = "relative" },
+		func(value *Config) { value.Admin.GitHubAllowedOwners = []string{"-acme"} },
+		func(value *Config) { value.Admin.WorkerHarnesses = []string{"codex\n"} },
+	}
+	for i, mutate := range cases {
+		mutated := c
+		mutate(&mutated)
+		if err := mutated.Validate(); err == nil {
+			t.Fatalf("invalid Admin policy case %d was accepted", i)
+		}
+	}
+}

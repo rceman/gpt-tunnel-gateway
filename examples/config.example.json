@@ -26,6 +26,11 @@
   "debug": {
     "enabled": false
   },
+  "admin": {
+    "onboarding_root": "~/git",
+    "github_allowed_owners": ["rceman"],
+    "worker_harnesses": ["codex"]
+  },
   "project_agent_bindings": {
     "gpt-tunnel-gateway": {
       "gtw-worker": {

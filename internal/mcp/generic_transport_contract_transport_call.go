@@ -106,6 +106,9 @@ func sessionlessActionPath(path string) bool {
 	}
 }
 func unboundActionAllowed(path string) bool {
+	if strings.HasPrefix(path, "admin/") {
+		return true
+	}
 	switch path {
 	case "gateway/status", "project/list", "session/list", "session/info", "session/end", "debug/status", "debug/prompt", "debug/activate":
 		return true
@@ -181,6 +184,12 @@ func genericSchemaOutputSchema() map[string]any {
 	return map[string]any{"type": "object", "oneOf": []any{root, domain, actionResult}}
 }
 func (s *Server) authenticateSession(ctx context.Context, entries map[string]genericActionEntry, record durableSession.Record, action string) (context.Context, error) {
+	if record.Role == durableSession.RoleAdmin && action != "" && action != "admin" && !strings.HasPrefix(action, "admin/") {
+		return nil, fmt.Errorf("Admin Session may invoke only admin/* actions")
+	}
+	if record.Role != durableSession.RoleAdmin && (action == "admin" || strings.HasPrefix(action, "admin/")) {
+		return nil, fmt.Errorf("Admin Session is required for action %q", action)
+	}
 	contract := actionAuthorityContract{}
 	if entry, ok := entries[action]; ok {
 		contract = actionAuthorityContract{

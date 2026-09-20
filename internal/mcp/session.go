@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
@@ -20,6 +21,9 @@ func (s *Server) activeSession(id string) (durableSession.Record, error) {
 	record, err := durableSession.NewStoreWithDurability(s.Service.Durability).Get(id)
 	if err != nil {
 		return durableSession.Record{}, err
+	}
+	if record.Role == durableSession.RoleAdmin && s.Service.Config.GatewayID != "" && !strings.HasPrefix(record.ID, s.Service.Config.GatewayID+"_") {
+		return durableSession.Record{}, fmt.Errorf("Admin Session belongs to another Gateway")
 	}
 	if record.Status != durableSession.StatusActive {
 		return durableSession.Record{}, fmt.Errorf("session is not active")

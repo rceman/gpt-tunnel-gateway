@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -41,7 +42,7 @@ func actionAuthorityContractFor(toolName string) actionAuthorityContract {
 
 func validateActionAuthorityRole(role string) error {
 	switch role {
-	case "", actionRoleWorkflow, actionRolePlannerOrLead:
+	case "", actionRoleWorkflow, actionRolePlannerOrLead, durableSession.RoleAdmin:
 		return nil
 	default:
 		if durableSession.IsWorkflowRole(role) {
@@ -200,6 +201,15 @@ func authorizeAuthenticatedAction(ctx context.Context, actionPath string) error 
 	if !ok {
 		return fmt.Errorf("durable Session authentication is required for action %q", actionPath)
 	}
+	if resolved.Session.Role == durableSession.RoleAdmin {
+		if actionPath == "admin" || strings.HasPrefix(actionPath, "admin/") {
+			return nil
+		}
+		return fmt.Errorf("Admin Session may invoke only admin/* actions")
+	}
+	if actionPath == "admin" || strings.HasPrefix(actionPath, "admin/") {
+		return fmt.Errorf("Admin Session is required for action %q", actionPath)
+	}
 	if !durableSession.IsWorkflowRole(resolved.Session.Role) {
 		return fmt.Errorf("unsupported authenticated Session role %q", resolved.Session.Role)
 	}
@@ -209,6 +219,12 @@ func authorizeAuthenticatedAction(ctx context.Context, actionPath string) error 
 func (s *Server) resolveSessionAuthority(ctx context.Context, record durableSession.Record, contract actionAuthorityContract) (context.Context, error) {
 	if record.ID == "" {
 		return ctx, nil
+	}
+	if record.Role == durableSession.RoleAdmin {
+		if contract.Role != "" && contract.Role != durableSession.RoleAdmin {
+			return nil, fmt.Errorf("Admin Session is not authorized for this action")
+		}
+		return withResolvedSessionAuthority(ctx, resolvedSessionAuthority{Session: record}), nil
 	}
 	if !durableSession.IsWorkflowRole(record.Role) {
 		return nil, fmt.Errorf("unsupported persisted session role %q", record.Role)
