@@ -39,6 +39,9 @@ func (d *Databases) CommitSharedLifecycleRevision(ctx context.Context, request S
 	if err := validateSharedLifecycleStatus(definition, currentPayload, request.Payload, false); err != nil {
 		return SharedMutationReceipt{}, err
 	}
+	if err := validateMilestoneMutation(definition, currentPayload, request.Payload, request.Kind, request.HistoryMutationKind); err != nil {
+		return SharedMutationReceipt{}, err
+	}
 	recorded := request.CreatedAt.UTC().Format(time.RFC3339Nano)
 	if request.CreatedAt.IsZero() {
 		recorded = time.Now().UTC().Format(time.RFC3339Nano)

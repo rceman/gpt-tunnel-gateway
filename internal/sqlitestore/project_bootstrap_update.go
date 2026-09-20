@@ -108,7 +108,7 @@ func (d *Databases) ReconcileProjectBootstrap(ctx context.Context, in ProjectBoo
 			statements = append(statements, upstream.Statement{SQL: `UPDATE shared_entity_sequences SET project_code=? WHERE entity_type=? AND project_id=? AND project_code=?`, Args: []any{in.ProjectCode, sequence.entityType, in.ProjectID, sequence.projectCode}, RequireRowsAffected: 1})
 		}
 	}
-	for _, entityType := range []string{"task", "adr"} {
+	for _, entityType := range []string{"task", "adr", "milestone"} {
 		if !hasBootstrapSequence(sequences, entityType) {
 			statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_entity_sequences(entity_type,project_id,project_code,next_number) VALUES(?,?,?,?)`, Args: []any{entityType, in.ProjectID, in.ProjectCode, maxBootstrapNext(sequences, entityType, sequenceFallback(entityType, identifiers, in.HubIdentifiers))}, RequireRowsAffected: 1})
 		}
@@ -166,7 +166,7 @@ func (d *Databases) ReadSharedProjectIdentifiers(ctx context.Context, projectID 
 }
 
 func validateBootstrapEntityRows(ctx context.Context, d *Databases, in ProjectBootstrapUpdate) error {
-	for _, table := range []string{"shared_tasks", "shared_adrs", "shared_trains", "shared_journals", "shared_rules"} {
+	for _, table := range []string{"shared_tasks", "shared_adrs", "shared_milestones", "shared_trains", "shared_journals", "shared_rules"} {
 		rows, err := d.Shared.Query(ctx, "SELECT id,payload FROM "+table+" WHERE id LIKE ? ORDER BY id", in.ProjectCode+"-%")
 		if err != nil {
 			return err
@@ -233,7 +233,7 @@ func readBootstrapIdentifiers(ctx context.Context, d *Databases, projectID strin
 }
 
 func readBootstrapSequences(ctx context.Context, d *Databases, projectID string) ([]bootstrapSequence, error) {
-	rows, err := d.Shared.Query(ctx, `SELECT entity_type,project_code,next_number FROM shared_entity_sequences WHERE project_id=? AND entity_type IN ('task','adr','rule') ORDER BY entity_type`, projectID)
+	rows, err := d.Shared.Query(ctx, `SELECT entity_type,project_code,next_number FROM shared_entity_sequences WHERE project_id=? AND entity_type IN ('task','adr','milestone','rule') ORDER BY entity_type`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -261,6 +261,9 @@ func hasBootstrapSequence(rows []bootstrapSequence, typ string) bool {
 	return false
 }
 func sequenceFallback(typ string, ids bootstrapIdentifiers, hubIDs model.ProjectIdentifiers) int64 {
+	if typ == "milestone" {
+		return 1
+	}
 	if typ == "adr" && ids.nextADR > 0 {
 		return ids.nextADR
 	}

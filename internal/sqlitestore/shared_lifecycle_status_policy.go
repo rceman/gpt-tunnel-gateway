@@ -3,6 +3,8 @@ package sqlitestore
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 // SharedLifecycleStatusValues exposes the descriptor-owned status vocabulary
@@ -29,6 +31,12 @@ func validateSharedLifecycleStatus(definition sharedLifecycleDefinition, previou
 	}
 	if err := json.Unmarshal(payload, &next); err != nil || next.Status == "" || !containsString(definition.AllowedStatuses, next.Status) {
 		return fmt.Errorf("invalid shared %s status", definition.EntityType)
+	}
+	if definition.EntityType == "milestone" {
+		var milestone model.Milestone
+		if err := json.Unmarshal(payload, &milestone); err != nil || model.ValidateMilestone(milestone) != nil {
+			return fmt.Errorf("invalid shared milestone payload")
+		}
 	}
 	if creating {
 		if !containsString(definition.AllowedCreateStatuses, next.Status) {

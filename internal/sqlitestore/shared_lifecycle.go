@@ -37,6 +37,27 @@ type sharedLifecycleDefinition struct {
 }
 
 var sharedLifecycleRegistry = map[string]sharedLifecycleDefinition{
+	"milestone": {
+		EntityType:            "milestone",
+		StateTable:            "shared_milestones",
+		SequenceTable:         "shared_entity_sequences",
+		SequenceEntityColumn:  "entity_type",
+		SequenceCodeColumn:    "project_code",
+		SequenceNumberColumn:  "next_number",
+		IDToken:               "MIL",
+		HistoryTable:          "shared_entity_revisions",
+		HistoryEntityColumn:   "entity_type",
+		HistoryIDColumn:       "entity_id",
+		SearchFields:          []string{"id", "title", "summary", "status", "tasks"},
+		FilterFields:          []string{"status"},
+		DefaultCreateStatus:   "planned",
+		AllowedCreateStatuses: []string{"planned"},
+		AllowedStatuses:       []string{"planned", "active", "completed", "archived"},
+		AllowedTransitions:    map[string][]string{"planned": {"active"}, "active": {"completed"}, "completed": {"archived"}},
+		ArchiveStatus:         "archived",
+		StatusMutationKind:    "status",
+		ArchiveMutationKind:   "archive",
+	},
 	"task": {
 		EntityType:            "task",
 		StateTable:            "shared_tasks",

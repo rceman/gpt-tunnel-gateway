@@ -27,6 +27,7 @@ var projectionClasses = map[string]projectionClass{
 	"code/tree": projectionIntentionalPayload, "code/worktree": projectionCompactDefault,
 	"gateway/capabilities": projectionClosedDefault, "gateway/status": projectionClosedDefault,
 	"journal/add": projectionCompactDefault, "journal/contract": projectionClosedDefault, "journal/list": projectionClosedDefault, "journal/read": projectionIntentionalPayload,
+	"milestone/activate": projectionCompactDefault, "milestone/archive": projectionCompactDefault, "milestone/complete": projectionCompactDefault, "milestone/create": projectionCompactDefault, "milestone/history": projectionClosedDefault, "milestone/list": projectionClosedDefault, "milestone/query": projectionClosedDefault, "milestone/read": projectionIntentionalPayload, "milestone/update": projectionCompactDefault,
 	"operation/await": projectionClosedDefault, "operation/read": projectionClosedDefault, "project/status": projectionClosedDefault,
 	"relation/create": projectionCompactDefault, "relation/list": projectionClosedDefault,
 	"rule/archive": projectionCompactDefault, "rule/create": projectionCompactDefault, "rule/effective": projectionIntentionalPayload, "rule/history": projectionClosedDefault,

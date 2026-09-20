@@ -81,7 +81,7 @@ func TestProjectUpdateBootstrapCorrectionPreservesAuthoritiesAndCounters(t *test
 		t.Fatalf("unexpected Hub identifiers: %#v %v", ids, err)
 	}
 	rows, err := f.d.Shared.Query(context.Background(), `SELECT entity_type,project_code,next_number FROM shared_entity_sequences WHERE project_id='example' ORDER BY entity_type`)
-	if err != nil || len(rows.Rows) != 3 {
+	if err != nil || len(rows.Rows) != 4 {
 		t.Fatalf("unexpected Shared sequences: %#v %v", rows.Rows, err)
 	}
 	for _, row := range rows.Rows {

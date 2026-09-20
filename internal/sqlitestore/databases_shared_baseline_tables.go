@@ -3,6 +3,7 @@ package sqlitestore
 func sharedSchemaTables() []migrationTableSpec {
 	return []migrationTableSpec{
 		{name: "shared_tasks", create: `CREATE TABLE IF NOT EXISTS shared_tasks (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`, columns: []string{"id", "revision", "payload", "updated_at"}},
+		{name: "shared_milestones", create: `CREATE TABLE IF NOT EXISTS shared_milestones (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`, columns: []string{"id", "revision", "payload", "updated_at"}},
 		{name: "shared_trains", create: `CREATE TABLE IF NOT EXISTS shared_trains (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`, columns: []string{"id", "revision", "payload", "updated_at"}},
 		{name: "shared_adrs", create: `CREATE TABLE IF NOT EXISTS shared_adrs (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`, columns: []string{"id", "revision", "payload", "updated_at"}},
 		{name: "shared_rules", create: `CREATE TABLE IF NOT EXISTS shared_rules (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL)`, columns: []string{"id", "revision", "payload", "updated_at"}},

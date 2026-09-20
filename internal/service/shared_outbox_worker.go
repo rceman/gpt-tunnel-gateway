@@ -62,11 +62,41 @@ func (s *Service) publishSharedOutboxEntry(ctx context.Context, entry sqlitestor
 }
 
 var sharedOutboxPublishers = map[string]func(*Service, context.Context, sqlitestore.OutboxEntry) error{
+	"milestone":             (*Service).publishSharedMilestoneOutbox,
 	"task":                  (*Service).publishSharedTaskOutbox,
 	"adr":                   (*Service).publishSharedADROutbox,
 	"rule":                  (*Service).publishSharedRuleOutbox,
 	"journal":               (*Service).publishSharedJournalOutbox,
 	"project_configuration": (*Service).publishSharedProjectConfigurationOutbox,
+}
+
+func (s *Service) publishSharedMilestoneOutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {
+	var milestone model.Milestone
+	if err := json.Unmarshal(entry.Payload, &milestone); err != nil {
+		return err
+	}
+	if err := model.ValidateMilestone(milestone); err != nil {
+		return err
+	}
+	if entry.EntityType != "milestone" || entry.EntityID != milestone.ID || entry.Revision != int64(milestone.Revision) {
+		return fmt.Errorf("shared milestone outbox entry identity mismatch")
+	}
+	path := s.milestonePath(milestone.ProjectID, milestone.ID)
+	_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared milestone "+milestone.ID, func(worktree string) ([]string, error) {
+		var latest model.Milestone
+		if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
+			if latest.ID == milestone.ID && latest.Revision == milestone.Revision && reflect.DeepEqual(latest, milestone) {
+				return nil, errSharedOutboxNoop
+			}
+		} else if !IsNotFound(readErr) {
+			return nil, readErr
+		}
+		if err := hub.WriteJSON(worktree, path, milestone); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	})
+	return err
 }
 
 func (s *Service) publishSharedTaskOutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {

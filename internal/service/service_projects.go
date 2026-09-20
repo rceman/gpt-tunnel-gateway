@@ -49,6 +49,13 @@ func (s *Service) adrPath(project, id string) string {
 	return s.projectPrefix(project) + "/adrs/" + id + ".json"
 }
 
+func (s *Service) milestonePath(project, id string) string {
+	if model.ValidateProjectIdentifier(project) != nil || model.ValidateMilestoneID(id) != nil {
+		return "../invalid-milestone-id"
+	}
+	return s.projectPrefix(project) + "/milestones/" + id + ".json"
+}
+
 func (s *Service) rulePath(project, id string) string {
 	if model.ValidateProjectIdentifier(project) != nil || model.ValidateRuleID(id) != nil {
 		return "../invalid-rule-id"

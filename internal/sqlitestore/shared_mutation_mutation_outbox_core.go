@@ -94,6 +94,7 @@ type SharedBootstrapMarker struct {
 }
 
 var sharedEntityTables = map[string]string{
+	"milestone":             "shared_milestones",
 	"task":                  "shared_tasks",
 	"adr":                   "shared_adrs",
 	"rule":                  "shared_rules",
@@ -102,6 +103,7 @@ var sharedEntityTables = map[string]string{
 }
 
 var sharedProjectionTables = map[string]string{
+	"milestone":             "shared_milestones",
 	"task":                  "shared_tasks",
 	"adr":                   "shared_adrs",
 	"rule":                  "shared_rules",
