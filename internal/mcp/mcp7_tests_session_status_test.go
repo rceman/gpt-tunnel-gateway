@@ -1,10 +1,7 @@
 package mcp
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -48,123 +45,82 @@ func TestStatusReturnsCompactRuntimeProjects(t *testing.T) {
 	}
 }
 
-func TestPublicSessionStartGatewaySelectionContract(t *testing.T) {
+func TestPublicSessionStartTokenContract(t *testing.T) {
 	server := newSessionTestServer(t)
-	server.Service.Config.MaxListItems = 2000
-
-	call := func(arguments map[string]any) map[string]any {
-		t.Helper()
-		return callMCPRaw(t, server, mustJSON(t, map[string]any{
-			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+	grant := adr84PlannerToken(t, server)
+	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"token": grant}},
+	}))
+	result := response["result"].(map[string]any)
+	structured := result["structuredContent"].(map[string]any)
+	if result["isError"] == true || structured["role"] != durableSession.RolePlanner {
+		t.Fatalf("token session_start failed: %#v", response)
+	}
+	if structured["gateway"].(map[string]any)["key"] != "HOM" {
+		t.Fatalf("token did not resolve server Gateway: %#v", structured)
+	}
+	for _, arguments := range []map[string]any{
+		{"token": grant, "gateway": "BAD"},
+		{"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner},
+	} {
+		invalid := callMCPRaw(t, server, mustJSON(t, map[string]any{
+			"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 			"params": map[string]any{"name": "session_start", "arguments": arguments},
 		}))
-	}
-	assertStarted := func(response map[string]any, wantGateway, wantLabel string) {
-		t.Helper()
-		result, ok := response["result"].(map[string]any)
-		if !ok || result["isError"] == true {
-			t.Fatalf("session_start failed: %#v", response)
+		if invalid["error"] == nil {
+			if invalidResult, ok := invalid["result"].(map[string]any); !ok || invalidResult["isError"] != true {
+				t.Fatalf("caller-selected session_start fields were accepted: %#v", invalid)
+			}
 		}
-		structured, ok := result["structuredContent"].(map[string]any)
-		if !ok {
-			t.Fatalf("session_start omitted structured content: %#v", response)
-		}
-		gateway, ok := structured["gateway"].(map[string]any)
-		if !ok || gateway["key"] != wantGateway {
-			t.Fatalf("session_start gateway=%#v want=%q", structured["gateway"], wantGateway)
-		}
-		if structured["label"] != wantLabel {
-			t.Fatalf("session_start label=%#v want=%q", structured["label"], wantLabel)
-		}
-	}
-
-	assertStarted(call(map[string]any{
-		"project": "EXM", "role": durableSession.RolePlanner, "label": "default",
-	}), "HOM", "default")
-	assertStarted(call(map[string]any{
-		"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner, "label": "explicit",
-	}), "HOM", "explicit")
-
-	unknown := call(map[string]any{
-		"gateway": "BAD", "project": "EXM", "role": durableSession.RolePlanner,
-	})
-	unknownResult, ok := unknown["result"].(map[string]any)
-	if !ok || unknownResult["isError"] != true {
-		t.Fatalf("unknown explicit gateway was not rejected: %#v", unknown)
-	}
-	unknownContent, ok := unknownResult["content"].([]any)
-	if !ok || len(unknownContent) != 1 {
-		t.Fatalf("unknown explicit gateway omitted error content: %#v", unknown)
-	}
-	unknownText, ok := unknownContent[0].(map[string]any)["text"].(string)
-	if !ok || !strings.Contains(unknownText, "unknown gateway") || !strings.Contains(unknownText, "BAD") {
-		t.Fatalf("unknown explicit gateway error=%q", unknownText)
-	}
-
-	server.gatewayInventoryFn = func() []string { return []string{"OTH", "HOM"} }
-	ambiguous := call(map[string]any{
-		"project": "EXM", "role": durableSession.RolePlanner,
-	})
-	ambiguousResult, ok := ambiguous["result"].(map[string]any)
-	if !ok || ambiguousResult["isError"] != true {
-		t.Fatalf("omitted gateway was accepted for ambiguous inventory: %#v", ambiguous)
-	}
-	ambiguousText := ambiguousResult["content"].([]any)[0].(map[string]any)["text"].(string)
-	if !strings.Contains(ambiguousText, "gateway selection required") || !strings.Contains(ambiguousText, "HOM, OTH") {
-		t.Fatalf("ambiguous gateway error was not deterministic/bounded: %q", ambiguousText)
 	}
 }
 
-func TestPublicSessionStartRejectsDeliveryRole(t *testing.T) {
+func TestPublicSessionStartRejectsCallerSelectedRole(t *testing.T) {
 	server := newSessionTestServer(t)
-	roleSchema := sessionStartPublicInputSchema()["properties"].(map[string]any)["role"].(map[string]any)
-	if roleSchema["type"] != "string" || roleSchema["minLength"] != 1 || roleSchema["maxLength"] != 16 {
-		t.Fatalf("public session_start role schema=%#v", roleSchema)
+	properties := sessionStartPublicInputSchema()["properties"].(map[string]any)
+	if len(properties) != 1 || properties["token"] == nil {
+		t.Fatalf("public session_start schema=%#v", properties)
 	}
-	enum, ok := roleSchema["enum"].([]any)
-	if !ok || len(enum) != len(durableSession.WorkflowRoles()) {
-		t.Fatalf("public session_start role schema is not registry-backed: %#v", roleSchema)
+	before, err := mcpSQLiteSessionStore(t, server.Service).List()
+	if err != nil {
+		t.Fatal(err)
 	}
-	sessionsDir := filepath.Join(server.Service.Config.StateDir, "sessions")
-	countSessions := func() int {
-		entries, err := os.ReadDir(sessionsDir)
-		if errors.Is(err, os.ErrNotExist) {
-			return 0
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		return len(entries)
-	}
-	before := countSessions()
-	for _, role := range []string{"delivery", "watcher"} {
+	for _, arguments := range []map[string]any{
+		{"gateway": "HOM", "project": "EXM", "role": "delivery"},
+		{"token": adr84PlannerToken(t, server), "role": "worker"},
+	} {
 		response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-			"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": role}},
+			"params": map[string]any{"name": "session_start", "arguments": arguments},
 		}))
 		if response["error"] == nil {
 			result, _ := response["result"].(map[string]any)
 			if result["isError"] != true {
-				t.Fatalf("%s session_start was accepted: %#v", role, response)
+				t.Fatalf("caller-selected session_start was accepted: %#v", response)
 			}
 		}
-		after := countSessions()
-		if after != before {
-			t.Fatalf("rejected %s session_start created a session: before=%d after=%d", role, before, after)
-		}
+	}
+	after, err := mcpSQLiteSessionStore(t, server.Service).List()
+	if err != nil || len(after) != len(before) {
+		t.Fatalf("rejected session_start changed durable sessions: before=%d after=%d err=%v", len(before), len(after), err)
 	}
 }
 
 func TestPublicSessionStartAfterTerminationIsFreshAndBoundCallWorks(t *testing.T) {
 	server := newSessionTestServer(t)
+	token := adr84PlannerToken(t, server)
 	start := func(role, label string) string {
+		if role != durableSession.RolePlanner {
+			t.Fatalf("token bootstrap role=%q", role)
+		}
 		result := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-			"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": role, "label": label}},
+			"params": map[string]any{"name": "session_start", "arguments": map[string]any{"token": token}},
 		})))
 		project := result["project"].(map[string]any)
-		if result["role"] != role || result["session"] == "" || project["key"] != "EXM" || project["name"] != "example" || result["label"] != label {
-			t.Fatalf("session_start(%q) result=%#v", role, result)
+		if result["role"] != role || result["session"] == "" || project["key"] != "EXM" || project["name"] != "example" {
+			t.Fatalf("session_start(%q,%q) result=%#v", role, label, result)
 		}
 		return result["session"].(string)
 	}
@@ -189,8 +145,8 @@ func TestPublicSessionStartAfterTerminationIsFreshAndBoundCallWorks(t *testing.T
 		t.Fatalf("fresh session reused terminated ID %q", b)
 	}
 	bound, err := mcpSQLiteSessionStore(t, server.Service).Get(b)
-	if err != nil || bound.ProjectID != "example" || bound.Label == nil || *bound.Label != "fresh" {
-		t.Fatalf("fresh session did not bind label at creation: %#v err=%v", bound, err)
+	if err != nil || bound.ProjectID != "example" || bound.Label != nil {
+		t.Fatalf("fresh token session unexpectedly carried a caller label: %#v err=%v", bound, err)
 	}
 	status := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",

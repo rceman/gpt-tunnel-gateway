@@ -136,7 +136,7 @@ func (s *Server) sessionAction(ctx context.Context, raw json.RawMessage) (any, e
 		}
 		return publicSessionResult(result), nil
 	case "list":
-		result, err := s.Service.SessionList()
+		result, err := s.Service.SessionList(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -144,6 +144,9 @@ func (s *Server) sessionAction(ctx context.Context, raw json.RawMessage) (any, e
 	case "info":
 		if input.SessionID == "" {
 			return nil, fmt.Errorf("session_id is required")
+		}
+		if err := s.requireSessionProjectScope(ctx, input.SessionID); err != nil {
+			return nil, err
 		}
 		result, err := s.Service.SessionInfo(ctx, input.SessionID)
 		if err != nil {
@@ -156,6 +159,9 @@ func (s *Server) sessionAction(ctx context.Context, raw json.RawMessage) (any, e
 	case "update":
 		if input.SessionID == "" {
 			return nil, fmt.Errorf("session_id is required")
+		}
+		if err := s.requireSessionProjectScope(ctx, input.SessionID); err != nil {
+			return nil, err
 		}
 		info, err := s.Service.SessionInfo(ctx, input.SessionID)
 		if err != nil {
@@ -189,6 +195,9 @@ func (s *Server) sessionAction(ctx context.Context, raw json.RawMessage) (any, e
 	case "end":
 		if input.SessionID == "" {
 			return nil, fmt.Errorf("session_id is required")
+		}
+		if err := s.requireSessionProjectScope(ctx, input.SessionID); err != nil {
+			return nil, err
 		}
 		info, err := s.Service.SessionInfo(ctx, input.SessionID)
 		if err != nil {

@@ -143,14 +143,26 @@ func (s *Service) SessionInfo(ctx context.Context, sessionID string) (SessionRes
 	}, nil
 }
 
-func (s *Service) SessionList() (SessionListResult, error) {
-	records, err := durableSession.NewStoreWithGateway(s.Durability, s.Config.GatewayID).List()
+func (s *Service) SessionList(ctx context.Context) (SessionListResult, error) {
+	store := durableSession.NewStoreWithGateway(s.Durability, s.Config.GatewayID)
+	records, err := store.List()
 	if err != nil {
 		return SessionListResult{}, err
 	}
+	projectID := ""
+	if sessionID := AgentSessionID(ctx); sessionID != "" {
+		current, err := store.Get(sessionID)
+		if err != nil {
+			return SessionListResult{}, fmt.Errorf("session discovery authority is unavailable: %w", err)
+		}
+		if current.ProjectID == "" || current.Role == durableSession.RoleAdmin {
+			return SessionListResult{}, fmt.Errorf("project-bound session discovery is required")
+		}
+		projectID = current.ProjectID
+	}
 	items := make([]SessionListItem, 0, len(records))
 	for _, record := range records {
-		if record.Status != durableSession.StatusActive || record.Role == durableSession.RoleAdmin {
+		if record.Status != durableSession.StatusActive || record.Role == durableSession.RoleAdmin || projectID != "" && record.ProjectID != projectID {
 			continue
 		}
 		ref := cloneSessionString(record.SessionRef)

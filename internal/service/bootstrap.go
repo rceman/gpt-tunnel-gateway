@@ -65,6 +65,9 @@ func (s *Service) ProjectOnboard(ctx context.Context, in ProjectOnboardInput) (P
 		if err := s.verifyOnboardedProject(ctx, identity.projectID, in.ProjectCode); err != nil {
 			return ProjectOnboardResult{}, err
 		}
+		if err := s.ensureOnboardSessionBootstrapGrant(ctx, identity.projectID, in.ProjectCode); err != nil {
+			return ProjectOnboardResult{}, err
+		}
 		result := identity.result("already_registered")
 		return s.registerOnboardAgents(ctx, result, in.WorkerRelay, in.LeadRelay)
 	}
@@ -104,6 +107,9 @@ func (s *Service) ProjectOnboard(ctx context.Context, in ProjectOnboardInput) (P
 		return ProjectOnboardResult{}, fmt.Errorf("publish managed project registry: %w", err)
 	}
 	if err := s.reconcileOnboardedProjectShared(ctx, identity.projectID, in.ProjectCode); err != nil {
+		return ProjectOnboardResult{}, err
+	}
+	if err := s.ensureOnboardSessionBootstrapGrant(ctx, identity.projectID, in.ProjectCode); err != nil {
 		return ProjectOnboardResult{}, err
 	}
 	result := identity.result("onboarded")

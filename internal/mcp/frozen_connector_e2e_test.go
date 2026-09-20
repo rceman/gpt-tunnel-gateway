@@ -143,12 +143,16 @@ func TestADR84FrozenConnectorContract(t *testing.T) {
 	if _, ok := status["ready"].(bool); !ok || len(status["gateways"].([]any)) != 1 || status["captured_at"] == "" {
 		t.Fatalf("status is incomplete: %#v", status)
 	}
+	grant, grantErr := server.Service.EnsureProjectSessionBootstrapGrant(context.Background(), "example", "EXM")
+	if grantErr != nil {
+		t.Fatal(grantErr)
+	}
 	started := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner, "label": "connector"},
+		"name": "session_start", "arguments": map[string]any{"token": grant.Token},
 	}))
 	sessionID := started["session"].(string)
 	record, err := mcpSQLiteSessionStore(t, server.Service).Get(sessionID)
-	if err != nil || record.ProjectID != "example" || record.Role != durableSession.RolePlanner || record.Status != durableSession.StatusActive || record.SessionRef != nil || record.Label == nil || *record.Label != "connector" {
+	if err != nil || record.ProjectID != "example" || record.Role != durableSession.RolePlanner || record.Status != durableSession.StatusActive || record.SessionRef != nil || record.Label != nil {
 		t.Fatalf("session_start did not create the bound Planner session: %#v err=%v", record, err)
 	}
 	for _, path := range []string{"", "project", "project/status"} {
@@ -222,7 +226,11 @@ func TestADR84RuntimeActionDoesNotRefreshConnector(t *testing.T) {
 	}
 	client.notify(t, "notifications/initialized")
 	client.request(t, "tools/list", map[string]any{})
-	started := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner}}))
+	grant, grantErr := server.Service.EnsureProjectSessionBootstrapGrant(context.Background(), "example", "EXM")
+	if grantErr != nil {
+		t.Fatal(grantErr)
+	}
+	started := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "session_start", "arguments": map[string]any{"token": grant.Token}}))
 	sessionID := started["session"].(string)
 	connectionsBefore := connections.Load()
 	if err := server.RegisterGenericAction(GenericAction{

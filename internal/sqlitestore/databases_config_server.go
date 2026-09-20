@@ -235,4 +235,6 @@ const (
 	localOperationAdmissionMigrationName                  = "migrate local operation admission coordinates"
 	localRelationMigrationVersion                   int64 = 202609181124
 	localRelationMigrationName                            = "create local relation authority"
+	localSessionBootstrapMigrationVersion           int64 = 202609202143
+	localSessionBootstrapMigrationName                    = "create local session bootstrap grants"
 )

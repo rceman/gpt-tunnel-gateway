@@ -29,6 +29,7 @@ Commands
   gpt-tunnel project list
   gpt-tunnel project read <PROJECT_ID>
   gpt-tunnel project status <PROJECT_ID>
+  gpt-tunnel session token <PROJECT_CODE>
   gpt-tunnel guide
   gpt-tunnel agent register --relay <SESSION>
   gpt-tunnel task <read|work|finalize|submit-code|submit-tests|submit-rebase> ...

@@ -36,7 +36,7 @@ func assertFreshLocalMigrationMarkers(t *testing.T, db *upstream.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := [][2]any{{localBaselineVersion, localBaselineName}, {localTokenUsageMigrationVersion, localTokenUsageMigrationName}, {localOperationMigrationVersion, localOperationMigrationName}, {localOperationAdmissionMigrationVersion, localOperationAdmissionMigrationName}, {localRelationMigrationVersion, localRelationMigrationName}}
+	want := [][2]any{{localBaselineVersion, localBaselineName}, {localTokenUsageMigrationVersion, localTokenUsageMigrationName}, {localOperationMigrationVersion, localOperationMigrationName}, {localOperationAdmissionMigrationVersion, localOperationAdmissionMigrationName}, {localRelationMigrationVersion, localRelationMigrationName}, {localSessionBootstrapMigrationVersion, localSessionBootstrapMigrationName}}
 	if len(rows.Rows) != len(want) {
 		t.Fatalf("fresh Local migration markers=%#v, want=%#v", rows.Rows, want)
 	}

@@ -224,14 +224,16 @@ func TestTSK629PublicBoundaryInventoryHasNoInternalSelectors(t *testing.T) {
 		}
 	}
 	sessionStartInput := sessionStartPublicInputSchema()["properties"].(map[string]any)
-	if _, ok := sessionStartInput["ref"]; ok {
-		t.Fatal("session_start retains the public ref alias")
+	if len(sessionStartInput) != 1 {
+		t.Fatalf("session_start exposes caller-selected fields: %#v", sessionStartInput)
 	}
-	if _, ok := sessionStartInput["agent"]; !ok {
-		t.Fatal("session_start omits the logical Agent selector")
+	if _, ok := sessionStartInput["token"]; !ok {
+		t.Fatal("session_start omits the bootstrap token")
 	}
-	if _, ok := sessionStartInput["label"]; !ok {
-		t.Fatal("session_start omits bounded Session labels")
+	for _, forbidden := range []string{"gateway", "project", "role", "agent", "label"} {
+		if _, ok := sessionStartInput[forbidden]; ok {
+			t.Fatalf("session_start exposes caller-selected %q", forbidden)
+		}
 	}
 	outputProperties := sessionStartPublicOutputSchema()["properties"].(map[string]any)
 	if _, ok := outputProperties["ref"]; ok {
@@ -260,29 +262,27 @@ func TestTSK629PublicBoundaryInventoryHasNoInternalSelectors(t *testing.T) {
 	}
 }
 
-func TestTSK629PublicSessionBootstrapRejectsBindingAliases(t *testing.T) {
+func TestTSK629PublicSessionBootstrapIsTokenOnly(t *testing.T) {
 	server := newSessionTestServer(t)
 	tool := server.tools()["session_start"]
 	if _, err := tool.Execute(server.AuthorityContext, mustJSON(t, map[string]any{"gateway": "HOM", "project": "EXM", "role": durableSession.RoleWorker, "ref": "runtime-worker"})); err == nil {
-		t.Fatal("session_start accepted the removed ref alias")
+		t.Fatal("session_start accepted caller-selected binding fields")
 	}
-	if _, err := tool.Execute(server.AuthorityContext, mustJSON(t, map[string]any{"gateway": "HOM", "project": "EXM", "role": durableSession.RoleWorker})); err == nil {
-		t.Fatal("managed session_start accepted without a logical Agent")
+	if _, err := tool.Execute(server.AuthorityContext, mustJSON(t, map[string]any{})); err == nil {
+		t.Fatal("session_start accepted without a bootstrap token")
 	}
-	value, err := tool.Execute(server.AuthorityContext, mustJSON(t, map[string]any{"gateway": "HOM", "project": "EXM", "role": durableSession.RoleWorker, "agent": "coding-example", "label": "worker-session"}))
+	token := adr84PlannerToken(t, server)
+	value, err := tool.Execute(server.AuthorityContext, mustJSON(t, map[string]any{"token": token}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	projected := normalizeObject(value)
-	if _, ok := projected["ref"]; ok {
-		t.Fatalf("session_start exposed ref: %#v", projected)
-	}
-	if projected["label"] != "worker-session" {
-		t.Fatalf("session_start did not preserve label: %#v", projected)
+	if _, ok := projected["token"]; ok {
+		t.Fatalf("session_start echoed token: %#v", projected)
 	}
 	recordID := projected["session"].(string)
 	record, err := mcpSQLiteSessionStore(t, server.Service).Get(recordID)
-	if err != nil || record.SessionRef == nil || *record.SessionRef != "runtime-worker" || record.Label == nil || *record.Label != "worker-session" {
-		t.Fatalf("server did not store the resolved binding and label: record=%#v err=%v", record, err)
+	if err != nil || record.Role != durableSession.RolePlanner || record.SessionRef != nil || record.Label != nil {
+		t.Fatalf("server did not create the server-resolved Planner session: record=%#v err=%v", record, err)
 	}
 }

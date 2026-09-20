@@ -14,9 +14,9 @@ func TestTSK578RoleRegistryFeedsPublicSchemasAndProjections(t *testing.T) {
 		wantAny[i] = role
 	}
 
-	roleSchema := sessionStartPublicInputSchema()["properties"].(map[string]any)["role"].(map[string]any)
-	if got := roleSchema["enum"]; !reflect.DeepEqual(got, wantAny) {
-		t.Fatalf("session_start role enum=%#v want registry=%#v", got, wantAny)
+	startProperties := sessionStartPublicInputSchema()["properties"].(map[string]any)
+	if len(startProperties) != 1 || startProperties["token"] == nil {
+		t.Fatalf("session_start bootstrap schema=%#v", startProperties)
 	}
 	if got := sessionRecordSchema()["properties"].(map[string]any)["role"].(map[string]any)["enum"]; !reflect.DeepEqual(got, wantAny) {
 		t.Fatalf("session record role enum=%#v want registry=%#v", got, wantAny)

@@ -64,6 +64,8 @@ func main() {
 		task(ctx, s, args)
 	case "agent":
 		agent(ctx, s, args)
+	case "session":
+		session(ctx, s, args)
 	case "journal":
 		journal(ctx, s, args)
 	case "git":
@@ -77,11 +79,12 @@ func main() {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {help|guide|format|check|test|verify|work|project|plan|adr|task|agent|journal|git|query|admin|daemon} [args]")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {help|guide|format|check|test|verify|work|project|plan|adr|task|agent|session|journal|git|query|admin|daemon} [args]")
 	fmt.Fprintln(os.Stderr, "new operational IDs: CODE-TSK<N>, CODE-TSK<N>-RUN<M>, CODE-ADR<N>, CODE-JRN<N>")
 	fmt.Fprintln(os.Stderr, "project onboard [--root ROOT] <PROJECT_CODE> <WORKER_RELAY>")
 	fmt.Fprintln(os.Stderr, "admin session {mint [--label LABEL]|revoke SESSION}")
 	fmt.Fprintln(os.Stderr, "agent register --relay SESSION [--role ROLE] [--code AGENT_CODE]")
+	fmt.Fprintln(os.Stderr, "session token <PROJECT_CODE>")
 	fmt.Fprintln(os.Stderr, "Agent Task execution commands use the managed Airelay runtime identity")
 	fmt.Fprintln(os.Stderr, "pre-cutover IDs remain read-only history and are not accepted by operational mutations")
 	os.Exit(2)

@@ -125,6 +125,7 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {
 	base := []migrate.Migration{localBaselineMigration(), localTokenUsageMigration(), localOperationMigration()}
 	relations := localRelationMigration()
+	bootstrap := localSessionBootstrapMigration()
 	exists, markers, err := readMigrationMarkers(ctx, db)
 	if err != nil {
 		return err
@@ -134,7 +135,7 @@ func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {
 			if name != localOperationAdmissionMigrationName {
 				return fmt.Errorf("unsupported migration marker %d/%q", localOperationAdmissionMigrationVersion, name)
 			}
-			migrations := append(append(append([]migrate.Migration(nil), base...), localOperationAdmissionMigrationMarker()), relations)
+			migrations := append(append(append(append([]migrate.Migration(nil), base...), localOperationAdmissionMigrationMarker()), relations), bootstrap)
 			return applyActiveMigrations(ctx, db, migrations...)
 		}
 	}
@@ -145,7 +146,7 @@ func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {
 	if err != nil {
 		return err
 	}
-	migrations := append(append(append([]migrate.Migration(nil), base...), admission), relations)
+	migrations := append(append(append(append([]migrate.Migration(nil), base...), admission), relations), bootstrap)
 	return applyActiveMigrations(ctx, db, migrations...)
 }
 

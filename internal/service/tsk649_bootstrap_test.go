@@ -32,6 +32,10 @@ func TestTSK649ProjectOnboardEstablishesCompleteSharedBootstrap(t *testing.T) {
 		t.Fatalf("onboard result=%#v", result)
 	}
 	assertTSK649SharedBootstrap(t, s, db, filepath.Base(root), code)
+	grant, err := db.ReadSessionBootstrapGrant(context.Background(), filepath.Base(root))
+	if err != nil || grant.ProjectCode != code || grant.Role != "planner" || grant.Token == "" {
+		t.Fatalf("onboard bootstrap grant=%#v err=%v", grant, err)
+	}
 }
 
 func TestTSK649ProjectOnboardRepairsPartialSharedBootstrapWithoutReplacingRules(t *testing.T) {

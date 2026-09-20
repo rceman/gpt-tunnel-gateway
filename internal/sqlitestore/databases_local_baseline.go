@@ -21,6 +21,7 @@ func localSchemaPlan() migrationSchemaPlan {
 			{name: "local_callback_epochs", create: `CREATE TABLE IF NOT EXISTS local_callback_epochs (epoch_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, agent_id TEXT NOT NULL DEFAULT '', session_key TEXT NOT NULL, armed_at TEXT NOT NULL, busy_seen INTEGER NOT NULL DEFAULT 0, idle_observations INTEGER NOT NULL DEFAULT 0, emitted_at TEXT)`, columns: []string{"epoch_id", "project_id", "agent_id", "session_key", "armed_at", "busy_seen", "idle_observations", "emitted_at"}},
 			{name: "local_agents", create: `CREATE TABLE IF NOT EXISTS local_agents (project_id TEXT NOT NULL, agent_id TEXT NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(project_id,agent_id))`, columns: []string{"project_id", "agent_id", "payload", "updated_at"}},
 			{name: "local_sessions", create: `CREATE TABLE IF NOT EXISTS local_sessions (session_id TEXT PRIMARY KEY, payload BLOB NOT NULL, updated_at TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('active','ended')))`, columns: []string{"session_id", "payload", "updated_at", "status"}},
+			{name: "local_session_bootstrap_grants", create: `CREATE TABLE IF NOT EXISTS local_session_bootstrap_grants (project_id TEXT PRIMARY KEY, project_code TEXT NOT NULL, gateway_id TEXT NOT NULL, role TEXT NOT NULL, agent_id TEXT NOT NULL DEFAULT '', token TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`, columns: []string{"project_id", "project_code", "gateway_id", "role", "agent_id", "token", "created_at", "updated_at"}},
 		},
 		statements: []upstream.Statement{
 			{SQL: `CREATE UNIQUE INDEX IF NOT EXISTS local_operations_mutation_idx ON local_operations(mutation_id)`},
@@ -36,6 +37,7 @@ func localSchemaPlan() migrationSchemaPlan {
 			{SQL: `CREATE INDEX IF NOT EXISTS local_callback_epochs_pending_idx ON local_callback_epochs(emitted_at,armed_at,epoch_id)`},
 			{SQL: `CREATE INDEX IF NOT EXISTS local_agents_project_idx ON local_agents(project_id,agent_id)`},
 			{SQL: `CREATE INDEX IF NOT EXISTS local_sessions_updated_idx ON local_sessions(updated_at,session_id)`},
+			{SQL: `CREATE UNIQUE INDEX IF NOT EXISTS local_session_bootstrap_grants_token_idx ON local_session_bootstrap_grants(token)`},
 		},
 	}
 }

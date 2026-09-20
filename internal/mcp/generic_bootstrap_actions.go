@@ -48,7 +48,7 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		return s.Service.ProjectOperationalStatus(ctx)
 	})
 	add("session/list", "List active durable sessions.", obj(map[string]any{}), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
-		result, err := s.Service.SessionList()
+		result, err := s.Service.SessionList(ctx)
 		if err != nil {
 			return nil, err
 		}

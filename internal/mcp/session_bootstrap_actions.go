@@ -29,29 +29,10 @@ func globalWorkflowDigest() string {
 }
 
 func sessionStartPublicInputSchema() map[string]any {
-	agent := str("Logical Agent key used for server-side managed-role binding.")
-	agent["minLength"] = 1
-	agent["maxLength"] = 128
-	gateway := str("Canonical registered Gateway key.")
-	gateway["pattern"] = `^[A-Z]{3}$`
-	project := str("Canonical registered project code.")
-	project["pattern"] = `^[A-Z]{3}$`
-	role := durableSession.WorkflowRoleSchema("Server-authorized durable session role.")
-	label := str("Optional bounded durable Session label.")
-	label["maxLength"] = 256
-	schema := obj(map[string]any{
-		"agent":   agent,
-		"gateway": gateway,
-		"label":   label,
-		"project": project,
-		"role":    role,
-	}, "project", "role")
-	schema["if"] = map[string]any{
-		"properties": map[string]any{"role": map[string]any{"enum": []any{durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker}}},
-		"required":   []string{"role"},
-	}
-	schema["then"] = map[string]any{"required": []string{"agent"}}
-	return schema
+	token := str("Host-local per-project Planner bootstrap grant. Retrieve it with gpt-tunnel session token <PROJECT_CODE>.")
+	token["minLength"] = 24
+	token["maxLength"] = 256
+	return obj(map[string]any{"token": token}, "token")
 }
 
 func sessionStartPublicOutputSchema() map[string]any {
@@ -84,84 +65,47 @@ func sessionStartPublicOutputSchema() map[string]any {
 
 func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (any, error) {
 	var in struct {
-		Agent   string  `json:"agent"`
-		Gateway string  `json:"gateway"`
-		Label   *string `json:"label"`
-		Project string  `json:"project"`
-		Role    string  `json:"role"`
+		Token string `json:"token"`
 	}
 	if err := decode(raw, &in); err != nil {
 		return nil, err
 	}
-	if in.Project == "" || in.Role == "" {
-		return nil, fmt.Errorf("project and role are required")
-	}
-	resolvedGateway, err := s.resolvePublicGateway(in.Gateway)
+	resolution, err := s.Service.ResolveSessionBootstrapToken(ctx, in.Token)
 	if err != nil {
 		return nil, err
 	}
-	in.Gateway = resolvedGateway
-	resolution, err := s.Service.EffectiveProjectSnapshot()
-	if err != nil {
-		return nil, fmt.Errorf("project registry unavailable: %w", err)
-	}
-	projectID, project, err := resolvePublicProject(resolution, in.Project)
-	if err != nil {
-		return nil, err
-	}
-	workflowRole, ok := durableSession.WorkflowRoleByKey(in.Role)
-	if !ok {
-		return nil, fmt.Errorf("unsupported session role %q", in.Role)
-	}
-	var sessionRef *string
-	if workflowRole.RefRequired {
-		if in.Agent == "" {
-			return nil, fmt.Errorf("managed role logical Agent is required")
-		}
-		bindingAgent, binding, bindingErr := s.resolveHostLocalAgentBinding(projectID, in.Agent)
-		if bindingErr != nil {
-			return nil, bindingErr
-		}
-		if bindingAgent != in.Agent {
-			return nil, fmt.Errorf("managed role logical Agent binding mismatch")
-		}
-		ref := binding.SessionKey
-		sessionRef = &ref
-	} else if in.Agent != "" {
-		return nil, fmt.Errorf("logical Agent is only valid for managed workflow roles")
-	}
+	grant := resolution.Grant
 	bootstrapContext, err := authority.BootstrapSessionAuthority(ctx)
 	if err != nil {
 		return nil, err
 	}
-	sessionContext, err := withRoleAuthority(bootstrapContext, in.Role)
+	sessionContext, err := withRoleAuthority(bootstrapContext, grant.Role)
 	if err != nil {
 		return nil, err
 	}
 	started, err := s.Service.SessionStart(sessionContext, service.SessionStartInput{
-		ProjectID:   projectID,
-		ProjectCode: project.ProjectCode,
-		Role:        in.Role,
+		ProjectID:   grant.ProjectID,
+		ProjectCode: grant.ProjectCode,
+		Role:        grant.Role,
 		SessionType: durableSession.SessionTypeChatGPT,
-		SessionRef:  sessionRef,
-		Label:       in.Label,
+		SessionRef:  resolution.SessionRef,
 	})
 	if err != nil {
 		return nil, err
 	}
-	rules := publicSessionRules()
+	project, err := s.Service.EffectiveProjectConfig(grant.ProjectID)
+	if err != nil {
+		return nil, err
+	}
 	result := map[string]any{
 		"session": started.Session.ID,
-		"gateway": map[string]any{"key": in.Gateway},
-		"project": map[string]any{"key": project.ProjectCode, "name": projectID},
+		"gateway": map[string]any{"key": grant.GatewayID},
+		"project": map[string]any{"key": project.ProjectCode, "name": grant.ProjectID},
 		"role":    started.Session.Role,
-		"rules":   rules,
+		"rules":   publicSessionRules(),
 	}
-	if in.Agent != "" {
-		result["agent"] = in.Agent
-	}
-	if started.Session.Label != nil {
-		result["label"] = *started.Session.Label
+	if grant.AgentID != "" {
+		result["agent"] = grant.AgentID
 	}
 	return result, nil
 }

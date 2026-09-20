@@ -78,16 +78,15 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 		t.Fatalf("top-level tool count=%d, want 6", len(toolList))
 	}
 
+	grant, err := s.EnsureProjectSessionBootstrapGrant(context.Background(), "example", "EXM")
+	if err != nil {
+		t.Fatal(err)
+	}
 	started := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "session_start",
-		"arguments": map[string]any{
-			"gateway": "HOM",
-			"project": "EXM",
-			"role":    "worker",
-			"agent":   "coding-example",
-		},
+		"name":      "session_start",
+		"arguments": map[string]any{"token": grant.Token},
 	}))
-	if started["role"] != durableSession.RoleWorker {
+	if started["role"] != durableSession.RolePlanner {
 		t.Fatalf("Agent session_start returned %#v", started)
 	}
 	if session, ok := started["session"].(string); !ok || session == "" {

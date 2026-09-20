@@ -93,7 +93,7 @@ func TestProjectBoundSessionFlowUsesCodeAndSessionDerivedProject(t *testing.T) {
 	server := newSessionTestServer(t)
 	started := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner}},
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"token": adr84PlannerToken(t, server)}},
 	})))
 	sessionID := started["session"].(string)
 	if !strings.HasPrefix(sessionID, "HOM_EXM_P_") || len(sessionID) != 15 {
@@ -111,14 +111,14 @@ func TestProjectBoundSessionFlowUsesCodeAndSessionDerivedProject(t *testing.T) {
 	}
 	bad := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "EXM", "role": "invalid"}},
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"token": "invalid-bootstrap-token-value"}},
 	}))
 	if bad["error"] == nil && bad["result"].(map[string]any)["isError"] != true {
 		t.Fatalf("invalid role was accepted: %#v", bad)
 	}
 	legacyProject := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 5, "method": "tools/call",
-		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"gateway": "HOM", "project": "example", "role": durableSession.RolePlanner}},
+		"params": map[string]any{"name": "session_start", "arguments": map[string]any{"token": "example-is-not-a-bootstrap-token"}},
 	}))
 	if legacyProject["error"] == nil && legacyProject["result"].(map[string]any)["isError"] != true {
 		t.Fatalf("internal project ID was accepted as a public alias: %#v", legacyProject)

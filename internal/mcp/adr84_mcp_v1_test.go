@@ -1,11 +1,21 @@
 package mcp
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
+
+func adr84PlannerToken(t *testing.T, server *Server) string {
+	t.Helper()
+	grant, err := server.Service.EnsureProjectSessionBootstrapGrant(context.Background(), "example", "EXM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return grant.Token
+}
 
 func TestADR84PublicMCPBoundaryIsSixToolsAndBounded(t *testing.T) {
 	server := newSessionTestServer(t)
@@ -82,9 +92,7 @@ func TestADR84PublicBootstrapAndBoundCallUseExactEnvelopes(t *testing.T) {
 	if len(listedProjects) != 1 || listedProjects[0].(map[string]any)["key"] != "EXM" || listedProjects[0].(map[string]any)["name"] != "example" {
 		t.Fatalf("projects did not expose compact identity: %#v", projects)
 	}
-	started := call(4, "session_start", map[string]any{
-		"gateway": "HOM", "project": "EXM", "role": durableSession.RolePlanner,
-	})
+	started := call(4, "session_start", map[string]any{"token": adr84PlannerToken(t, server)})
 	if len(started) != 5 || started["session"] == nil || started["gateway"] == nil || started["project"] == nil || started["rules"] == nil {
 		t.Fatalf("session_start is not ADR84-shaped: %#v", started)
 	}
@@ -130,7 +138,7 @@ func TestADR84ApplicationDomainsRemainBehindSchemaAndCall(t *testing.T) {
 		response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": path, "method": "tools/call",
 			"params": map[string]any{"name": "session_start", "arguments": map[string]any{
-				"gateway": server.Service.Config.GatewayID, "project": "EXM", "role": durableSession.RolePlanner,
+				"token": adr84PlannerToken(t, server),
 			}},
 		}))
 		return response["result"].(map[string]any)["structuredContent"].(map[string]any)

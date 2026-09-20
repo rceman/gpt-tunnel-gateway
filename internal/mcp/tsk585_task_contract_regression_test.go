@@ -350,10 +350,16 @@ func TestTSK585TaskGuideMCPTransport(t *testing.T) {
 		Service:          svc,
 		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
+	grant, err := svc.EnsureProjectSessionBootstrapGrant(context.Background(), "example", "EXM")
+	if err != nil {
+		t.Fatal(err)
+	}
 	start := func(role string) string {
 		t.Helper()
-		args := map[string]any{"gateway": "HOM", "project": "EXM", "role": role}
-		value, err := tsk585TrustedTool(t, server, "session_start", args)
+		if role != "planner" {
+			t.Fatalf("token bootstrap only mints Planner sessions, got %q", role)
+		}
+		value, err := tsk585TrustedTool(t, server, "session_start", map[string]any{"token": grant.Token})
 		if err != nil {
 			t.Fatal(err)
 		}
