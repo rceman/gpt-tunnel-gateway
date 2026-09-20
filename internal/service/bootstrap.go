@@ -11,6 +11,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	workflowSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/workflowrole"
 )
 
@@ -58,6 +59,9 @@ func (s *Service) ProjectOnboard(ctx context.Context, in ProjectOnboardInput) (P
 		if err := validateOnboardEntry(identity.projectID, existing, identity.entry); err != nil {
 			return ProjectOnboardResult{}, err
 		}
+		if err := s.reconcileOnboardedProjectShared(ctx, identity.projectID, in.ProjectCode); err != nil {
+			return ProjectOnboardResult{}, err
+		}
 		if err := s.verifyOnboardedProject(ctx, identity.projectID, in.ProjectCode); err != nil {
 			return ProjectOnboardResult{}, err
 		}
@@ -98,6 +102,9 @@ func (s *Service) ProjectOnboard(ctx context.Context, in ProjectOnboardInput) (P
 	if _, err := config.WriteManagedProjectRegistry(s.Config.StateDir, identity.digest, identity.nextRegistry); err != nil {
 		_ = s.rollbackOnboardHub(ctx, adopted.Hub.After, identity.projectID)
 		return ProjectOnboardResult{}, fmt.Errorf("publish managed project registry: %w", err)
+	}
+	if err := s.reconcileOnboardedProjectShared(ctx, identity.projectID, in.ProjectCode); err != nil {
+		return ProjectOnboardResult{}, err
 	}
 	result := identity.result("onboarded")
 	return s.registerOnboardAgents(ctx, result, in.WorkerRelay, in.LeadRelay)
@@ -219,6 +226,37 @@ func validateOnboardEntry(projectID string, actual, expected config.ManagedProje
 	return nil
 }
 
+func (s *Service) reconcileOnboardedProjectShared(ctx context.Context, projectID, code string) error {
+	if s.Durability == nil {
+		return nil
+	}
+	identifiers, err := s.ProjectIdentifiersRead(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("read Hub project identifiers: %w", err)
+	}
+	if identifiers.ProjectCode != code {
+		return fmt.Errorf("Hub project code %q conflicts with requested %q", identifiers.ProjectCode, code)
+	}
+	var configuration model.ProjectConfiguration
+	if err := s.Hub.ReadJSON(ctx, s.projectConfigurationPath(projectID), &configuration); err != nil {
+		return fmt.Errorf("read Hub project configuration: %w", err)
+	}
+	normalizeProjectConfiguration(&configuration)
+	if err := model.ValidateProjectConfiguration(configuration); err != nil {
+		return fmt.Errorf("validate Hub project configuration: %w", err)
+	}
+	if configuration.ProjectID != projectID {
+		return fmt.Errorf("Hub project configuration project_id mismatch")
+	}
+	if err := s.Durability.ReconcileProjectBootstrap(ctx, sqlitestore.ProjectBootstrapUpdate{
+		ProjectID: projectID, PreviousProjectCode: code, ProjectCode: code,
+		HubIdentifiers: identifiers, Configuration: configuration,
+	}); err != nil {
+		return fmt.Errorf("reconcile Shared project bootstrap: %w", err)
+	}
+	return nil
+}
+
 func (s *Service) verifyOnboardedProject(ctx context.Context, projectID, code string) error {
 	project, err := s.ProjectRead(ctx, projectID)
 	if err != nil {
@@ -233,6 +271,24 @@ func (s *Service) verifyOnboardedProject(ctx context.Context, projectID, code st
 	}
 	if identifiers.ProjectCode != code {
 		return fmt.Errorf("durable project code %q conflicts with requested %q", identifiers.ProjectCode, code)
+	}
+	if _, err := s.EffectiveProjectConfig(projectID); err != nil {
+		return fmt.Errorf("managed project %q has no effective local configuration: %w", projectID, err)
+	}
+	if s.Durability != nil {
+		sharedIdentifiers, err := s.Durability.ReadSharedProjectIdentifiers(ctx, projectID)
+		if err != nil {
+			return fmt.Errorf("Shared project identifiers are unavailable: %w", err)
+		}
+		if sharedIdentifiers.ProjectCode != code {
+			return fmt.Errorf("Shared project code %q conflicts with requested %q", sharedIdentifiers.ProjectCode, code)
+		}
+		if _, err := s.ProjectConfigurationRead(ctx, projectID); err != nil {
+			return fmt.Errorf("Shared project configuration is unavailable: %w", err)
+		}
+		if _, err := s.ProjectWorkflowPolicyRead(ctx, projectID); err != nil {
+			return fmt.Errorf("Shared workflow policy is unavailable: %w", err)
+		}
 	}
 	return nil
 }

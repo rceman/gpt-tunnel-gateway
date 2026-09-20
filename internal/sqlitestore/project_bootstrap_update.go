@@ -47,9 +47,6 @@ func (d *Databases) ReconcileProjectBootstrap(ctx context.Context, in ProjectBoo
 	if in.HubIdentifiers.ProjectID != in.ProjectID || in.HubIdentifiers.ProjectCode != in.PreviousProjectCode {
 		return fmt.Errorf("Hub identifier identity mismatch")
 	}
-	if in.PreviousProjectCode == in.ProjectCode {
-		return fmt.Errorf("project code is unchanged")
-	}
 	if in.Configuration.ProjectID != in.ProjectID {
 		return fmt.Errorf("project configuration identity mismatch")
 	}
@@ -85,21 +82,8 @@ func (d *Databases) ReconcileProjectBootstrap(ctx context.Context, in ProjectBoo
 			return fmt.Errorf("Shared %s sequence counter is invalid", sequence.entityType)
 		}
 	}
-	for _, table := range []string{"shared_tasks", "shared_adrs", "shared_trains", "shared_journals", "shared_rules"} {
-		rows, err := d.Shared.Query(ctx, "SELECT COUNT(*) FROM "+table+" WHERE id LIKE ?", in.ProjectCode+"-%")
-		if err != nil {
-			return err
-		}
-		if len(rows.Rows) != 1 || len(rows.Rows[0]) != 1 {
-			return fmt.Errorf("invalid Shared %s count", table)
-		}
-		count, ok := rows.Rows[0][0].(int64)
-		if !ok {
-			return fmt.Errorf("invalid Shared %s count", table)
-		}
-		if count != 0 {
-			return fmt.Errorf("project %q is not bootstrap-only: Shared %s already exists", in.ProjectID, table)
-		}
+	if err := validateBootstrapEntityRows(ctx, d, in); err != nil {
+		return err
 	}
 	configurationPresent := false
 	if entity, err := d.ReadSharedEntity(ctx, "project_configuration", in.ProjectID); err == nil {
@@ -114,13 +98,15 @@ func (d *Databases) ReconcileProjectBootstrap(ctx context.Context, in ProjectBoo
 		return err
 	}
 	statements := make([]upstream.Statement, 0, 7)
-	if identifiers.found {
+	if identifiers.found && identifiers.projectCode != in.ProjectCode {
 		statements = append(statements, upstream.Statement{SQL: `UPDATE shared_project_identifiers SET project_code=? WHERE project_id=? AND project_code=?`, Args: []any{in.ProjectCode, in.ProjectID, identifiers.projectCode}, RequireRowsAffected: 1})
-	} else {
+	} else if !identifiers.found {
 		statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_project_identifiers(project_id,project_code,next_task_number,next_adr_number,next_rule_number,next_journal_number,next_train_number) VALUES(?,?,?,?,?,?,?)`, Args: []any{in.ProjectID, in.ProjectCode, in.HubIdentifiers.NextTaskNumber, in.HubIdentifiers.NextADRNumber, 1, 1, 1}, RequireRowsAffected: 1})
 	}
 	for _, sequence := range sequences {
-		statements = append(statements, upstream.Statement{SQL: `UPDATE shared_entity_sequences SET project_code=? WHERE entity_type=? AND project_id=? AND project_code=?`, Args: []any{in.ProjectCode, sequence.entityType, in.ProjectID, sequence.projectCode}, RequireRowsAffected: 1})
+		if sequence.projectCode != in.ProjectCode {
+			statements = append(statements, upstream.Statement{SQL: `UPDATE shared_entity_sequences SET project_code=? WHERE entity_type=? AND project_id=? AND project_code=?`, Args: []any{in.ProjectCode, sequence.entityType, in.ProjectID, sequence.projectCode}, RequireRowsAffected: 1})
+		}
 	}
 	for _, entityType := range []string{"task", "adr"} {
 		if !hasBootstrapSequence(sequences, entityType) {
@@ -132,21 +118,82 @@ func (d *Databases) ReconcileProjectBootstrap(ctx context.Context, in ProjectBoo
 	}
 	// The canonical machine-policy leaves are seeded as accepted named Rules
 	// inside the same atomic batch: a configured project must never have a
-	// vacuous effective set. The bootstrap-only guard above already proved
-	// shared_rules has no rows for this project code, and the unique
-	// (project_id, name) index fails the whole batch closed if machine leaves
-	// ever exist under an older code.
+	// vacuous effective set. Existing machine leaves are preserved and only
+	// missing leaves are added; target-code rows remain a conflict during a
+	// project-code correction, while the unique (project_id, name) index keeps
+	// concurrent or cross-project collisions fail-closed.
 	ruleDefinition, ok := sharedLifecycle("rule")
 	if !ok || ruleDefinition.StateTable == "" || ruleDefinition.HistoryTable == "" || ruleDefinition.SequenceTable == "" {
 		return fmt.Errorf("shared rule lifecycle descriptor is unavailable")
 	}
-	ruleSeeds, err := sharedRuleSeedStatements(ruleDefinition, in.Configuration, in.ProjectCode)
+	ruleSeeds, err := sharedRuleSeedMissingStatements(ctx, d, ruleDefinition, in.Configuration, in.ProjectCode)
 	if err != nil {
 		return err
 	}
 	statements = append(statements, ruleSeeds...)
 	_, err = d.Shared.Batch(ctx, statements)
 	return err
+}
+
+func (d *Databases) ReadSharedProjectIdentifiers(ctx context.Context, projectID string) (model.ProjectIdentifiers, error) {
+	if d == nil || d.Shared == nil {
+		return model.ProjectIdentifiers{}, fmt.Errorf("shared store is unavailable")
+	}
+	if err := model.ValidateProjectIdentifier(projectID); err != nil {
+		return model.ProjectIdentifiers{}, err
+	}
+	rows, err := d.Shared.Query(ctx, `SELECT project_code,next_task_number,next_adr_number FROM shared_project_identifiers WHERE project_id=?`, projectID)
+	if err != nil {
+		return model.ProjectIdentifiers{}, err
+	}
+	if len(rows.Rows) == 0 {
+		return model.ProjectIdentifiers{}, fmt.Errorf("shared project identifiers %q: %w", projectID, os.ErrNotExist)
+	}
+	if len(rows.Rows) != 1 || len(rows.Rows[0]) != 3 {
+		return model.ProjectIdentifiers{}, fmt.Errorf("invalid Shared project identifiers row")
+	}
+	code, codeOK := rows.Rows[0][0].(string)
+	task, taskOK := rows.Rows[0][1].(int64)
+	adr, adrOK := rows.Rows[0][2].(int64)
+	if !codeOK || !taskOK || !adrOK || task < 1 || adr < 1 {
+		return model.ProjectIdentifiers{}, fmt.Errorf("invalid Shared project identifiers values")
+	}
+	identifiers := model.ProjectIdentifiers{SchemaVersion: model.SchemaVersion, ProjectID: projectID, ProjectCode: code, NextTaskNumber: uint64(task), NextADRNumber: uint64(adr)}
+	if err := model.ValidateProjectIdentifiers(identifiers); err != nil {
+		return model.ProjectIdentifiers{}, err
+	}
+	return identifiers, nil
+}
+
+func validateBootstrapEntityRows(ctx context.Context, d *Databases, in ProjectBootstrapUpdate) error {
+	for _, table := range []string{"shared_tasks", "shared_adrs", "shared_trains", "shared_journals", "shared_rules"} {
+		rows, err := d.Shared.Query(ctx, "SELECT id,payload FROM "+table+" WHERE id LIKE ? ORDER BY id", in.ProjectCode+"-%")
+		if err != nil {
+			return err
+		}
+		if in.PreviousProjectCode != in.ProjectCode {
+			if len(rows.Rows) != 0 {
+				return fmt.Errorf("project %q is not bootstrap-only: Shared %s already exists", in.ProjectID, table)
+			}
+			continue
+		}
+		for _, row := range rows.Rows {
+			if len(row) != 2 {
+				return fmt.Errorf("invalid Shared %s row", table)
+			}
+			payload, ok := row[1].([]byte)
+			if !ok {
+				return fmt.Errorf("invalid Shared %s payload", table)
+			}
+			var identity struct {
+				ProjectID string `json:"project_id"`
+			}
+			if err := json.Unmarshal(payload, &identity); err != nil || identity.ProjectID != in.ProjectID {
+				return fmt.Errorf("Shared %s row conflicts with project %q", table, in.ProjectID)
+			}
+		}
+	}
+	return nil
 }
 
 type bootstrapIdentifiers struct {

@@ -18,6 +18,7 @@ const sharedRuleSeedMaxProjects = 64
 // document metadata (project_id, revision, schema_version, updated_*) stays
 // provenance only.
 type sharedRuleSeedLeaf struct {
+	number  int
 	name    string
 	summary string
 	value   any
@@ -26,12 +27,12 @@ type sharedRuleSeedLeaf struct {
 func sharedRuleSeedLeaves(configuration model.ProjectConfiguration) []sharedRuleSeedLeaf {
 	workflow := configuration.Workflow
 	return []sharedRuleSeedLeaf{
-		{name: "agent.wait_for_ci", summary: "Agent may wait for CI", value: workflow.WaitForCI},
-		{name: "ci.release", summary: "Release CI mode", value: workflow.CI.Release},
-		{name: "ci.task", summary: "Task CI mode", value: workflow.CI.Task},
-		{name: "ci.task_merge", summary: "Integration CI mode", value: workflow.CI.TaskMerge},
-		{name: "integration_branch", summary: "Integration branch", value: workflow.IntegrationBranch},
-		{name: "workflow_stage", summary: "Workflow stage", value: workflow.WorkflowStage},
+		{number: 1, name: "agent.wait_for_ci", summary: "Agent may wait for CI", value: workflow.WaitForCI},
+		{number: 2, name: "ci.release", summary: "Release CI mode", value: workflow.CI.Release},
+		{number: 3, name: "ci.task", summary: "Task CI mode", value: workflow.CI.Task},
+		{number: 4, name: "ci.task_merge", summary: "Integration CI mode", value: workflow.CI.TaskMerge},
+		{number: 5, name: "integration_branch", summary: "Integration branch", value: workflow.IntegrationBranch},
+		{number: 6, name: "workflow_stage", summary: "Workflow stage", value: workflow.WorkflowStage},
 	}
 }
 
@@ -139,6 +140,11 @@ func readSharedRuleSeedExisting(ctx context.Context, db *upstream.Store) (map[st
 }
 
 func sharedRuleSeedStatements(definition sharedLifecycleDefinition, configuration model.ProjectConfiguration, projectCode string) ([]upstream.Statement, error) {
+	leaves := sharedRuleSeedLeaves(configuration)
+	return sharedRuleSeedStatementsForLeaves(definition, configuration, projectCode, leaves, len(leaves))
+}
+
+func sharedRuleSeedStatementsForLeaves(definition sharedLifecycleDefinition, configuration model.ProjectConfiguration, projectCode string, leaves []sharedRuleSeedLeaf, reservedLeaves int) ([]upstream.Statement, error) {
 	projectID := configuration.ProjectID
 	recorded := configuration.UpdatedAt.UTC().Format(time.RFC3339Nano)
 	if configuration.UpdatedAt.IsZero() {
@@ -149,7 +155,6 @@ func sharedRuleSeedStatements(definition sharedLifecycleDefinition, configuratio
 		return nil, err
 	}
 	statements := make([]upstream.Statement, 0, 19)
-	leaves := sharedRuleSeedLeaves(configuration)
 	for index, leaf := range leaves {
 		if err := model.ValidateRuleName(leaf.name); err != nil {
 			return nil, err
@@ -161,7 +166,11 @@ func sharedRuleSeedStatements(definition sharedLifecycleDefinition, configuratio
 		if err := model.ValidateRuleValue(rawValue); err != nil {
 			return nil, err
 		}
-		entityID := fmt.Sprintf("%s-RUL%d", projectCode, index+1)
+		number := leaf.number
+		if number == 0 {
+			number = index + 1
+		}
+		entityID := fmt.Sprintf("%s-RUL%d", projectCode, number)
 		rule := model.Rule{
 			SchemaVersion: model.SchemaVersion,
 			ID:            entityID,
@@ -199,8 +208,47 @@ func sharedRuleSeedStatements(definition sharedLifecycleDefinition, configuratio
 	// rule sequence already exists (for example a project that authored
 	// narrative rules before its machine leaves were seeded) the conflict
 	// clause keeps the correct code and lifts next_number past the seeded ids.
-	statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_entity_sequences(entity_type,project_id,project_code,next_number) VALUES(?,?,?,?) ON CONFLICT(entity_type,project_id) DO UPDATE SET project_code=excluded.project_code, next_number=MAX(shared_entity_sequences.next_number, excluded.next_number)`, Args: []any{"rule", projectID, projectCode, int64(len(leaves) + 1)}})
+	statements = append(statements, upstream.Statement{SQL: `INSERT INTO shared_entity_sequences(entity_type,project_id,project_code,next_number) VALUES(?,?,?,?) ON CONFLICT(entity_type,project_id) DO UPDATE SET project_code=excluded.project_code, next_number=MAX(shared_entity_sequences.next_number, excluded.next_number)`, Args: []any{"rule", projectID, projectCode, int64(reservedLeaves + 1)}})
 	return statements, nil
+}
+
+func sharedRuleSeedMissingStatements(ctx context.Context, d *Databases, definition sharedLifecycleDefinition, configuration model.ProjectConfiguration, projectCode string) ([]upstream.Statement, error) {
+	rows, err := d.Shared.Query(ctx, `SELECT payload FROM shared_rules WHERE json_extract(payload,'$.project_id')=? AND json_extract(payload,'$.name') IS NOT NULL`, configuration.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("read existing Shared machine-policy Rules: %w", err)
+	}
+	leaves := sharedRuleSeedLeaves(configuration)
+	leafNames := make(map[string]bool, len(leaves))
+	for _, leaf := range leaves {
+		leafNames[leaf.name] = true
+	}
+	existing := make(map[string]bool, len(rows.Rows))
+	for _, row := range rows.Rows {
+		if len(row) != 1 {
+			return nil, fmt.Errorf("invalid Shared machine-policy Rule row")
+		}
+		payload, ok := row[0].([]byte)
+		if !ok {
+			return nil, fmt.Errorf("invalid Shared machine-policy Rule payload")
+		}
+		var rule model.Rule
+		if err := json.Unmarshal(payload, &rule); err != nil {
+			return nil, fmt.Errorf("decode existing Shared machine-policy Rule: %w", err)
+		}
+		if err := model.ValidateRule(rule); err != nil {
+			return nil, fmt.Errorf("existing Shared machine-policy Rule %q is invalid: %w", rule.ID, err)
+		}
+		if leafNames[rule.Name] {
+			existing[rule.Name] = true
+		}
+	}
+	missing := make([]sharedRuleSeedLeaf, 0, len(leaves))
+	for _, leaf := range leaves {
+		if !existing[leaf.name] {
+			missing = append(missing, leaf)
+		}
+	}
+	return sharedRuleSeedStatementsForLeaves(definition, configuration, projectCode, missing, len(leaves))
 }
 
 // SeedSharedRulesFromConfiguration applies the canonical workflow-policy leaf
