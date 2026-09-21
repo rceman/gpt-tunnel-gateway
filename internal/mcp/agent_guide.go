@@ -17,7 +17,7 @@ func canonicalAgentGuideOutputSchema() map[string]any {
 		"canonical_state":    boundedGuideText("Supported state authorities and prohibited scans."),
 		"exploration_budget": boundedGuideText("The bounded repository exploration budget."),
 		"stop_fast":          boundedGuideText("Fail-closed stop conditions."),
-		"checkpoints":        boundedGuideText("Production and tests-only checkpoint discipline."),
+		"checkpoints":        boundedGuideText("One-candidate checkpoint discipline."),
 		"testing":            boundedGuideText("ADR118 rev2 deterministic testing guidance."),
 		"execution_example":  boundedGuideText("A concise good example and explicit wasteful bad example."),
 		"cli_usage":          boundedGuideText("Supported zero-state and safe read-only CLI examples."),

@@ -53,7 +53,7 @@ func ValidateTaskExecutionVerification(v TaskExecutionVerification) error {
 	if err := ValidateBranch(v.Branch); err != nil || !strings.HasPrefix(v.Branch, "task/"+v.TaskID+"-") {
 		return fmt.Errorf("invalid Task verification branch")
 	}
-	if v.TaskRevision < 1 || v.AttemptRevision < 1 || v.CodeReviewID < 1 || v.TestsReviewID < 1 || v.RebaseReviewID < 0 {
+	if v.TaskRevision < 1 || v.AttemptRevision < 1 || v.CodeReviewID < 1 || v.TestsReviewID < 0 || v.RebaseReviewID < 0 {
 		return fmt.Errorf("incomplete Task verification revision authority")
 	}
 	if v.StartedAt.IsZero() || v.CompletedAt.IsZero() || v.StartedAt.Location() != time.UTC || v.CompletedAt.Location() != time.UTC {

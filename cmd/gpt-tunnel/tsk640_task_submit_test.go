@@ -16,7 +16,6 @@ func TestTSK640TaskSubmitUsesFixedAgentCLIEndpoints(t *testing.T) {
 	const runtimeKey = "SA-EXAMPLE01"
 	for command, endpoint := range map[string]string{
 		"submit-code":   "/agent-cli/task/submit-code",
-		"submit-tests":  "/agent-cli/task/submit-tests",
 		"submit-rebase": "/agent-cli/task/submit-rebase",
 	} {
 		var method, path string
@@ -86,15 +85,33 @@ func TestTSK640TaskSubmitRejectsMalformedRuntimeIdentityBeforeTransport(t *testi
 
 func TestTSK640TaskSubmitSurfacesCanonicalActionFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"code": "ACTION_FAILED", "message": "Task is not accepting a tests submission"}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"code": "ACTION_FAILED", "message": "Task is not accepting a rebase submission"}})
 	}))
 	defer server.Close()
 	t.Setenv("GPT_TUNNEL_SESSION", "")
 	t.Setenv("AIRELAY_SESSION_KEY", "SA-EXAMPLE01")
 	s := &service.Service{Config: config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://")}}
-	_, err := taskSubmitGatewayCall(context.Background(), s, "submit-tests")
-	if err == nil || !strings.Contains(err.Error(), "Task is not accepting a tests submission") {
+	_, err := taskSubmitGatewayCall(context.Background(), s, "submit-rebase")
+	if err == nil || !strings.Contains(err.Error(), "Task is not accepting a rebase submission") {
 		t.Fatalf("canonical failure error=%v", err)
+	}
+}
+
+func TestTSK656TaskSubmitTestsIsUnreachable(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{}})
+	}))
+	defer server.Close()
+	t.Setenv("GPT_TUNNEL_SESSION", "")
+	t.Setenv("AIRELAY_SESSION_KEY", "SA-EXAMPLE01")
+	s := &service.Service{Config: config.Config{ListenAddr: strings.TrimPrefix(server.URL, "http://")}}
+	if _, err := taskSubmitGatewayCall(context.Background(), s, "submit-tests"); err == nil || !strings.Contains(err.Error(), "unsupported Gateway Task submission") {
+		t.Fatalf("submit-tests must fail before transport: %v", err)
+	}
+	if requests != 0 {
+		t.Fatalf("submit-tests reached transport: requests=%d", requests)
 	}
 }
 

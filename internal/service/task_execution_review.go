@@ -49,10 +49,6 @@ func (s *Service) TaskExecutionSubmitCode(ctx context.Context, projectID, key st
 	return s.submitTaskExecution(ctx, projectID, key, "code")
 }
 
-func (s *Service) TaskExecutionSubmitTests(ctx context.Context, projectID, key string) (TaskExecutionPublicOutput, error) {
-	return s.submitTaskExecution(ctx, projectID, key, "tests")
-}
-
 func (s *Service) TaskExecutionSubmitRebase(ctx context.Context, projectID, key string) (TaskExecutionPublicOutput, error) {
 	return s.submitTaskExecution(ctx, projectID, key, "rebase")
 }
@@ -103,7 +99,11 @@ func (s *Service) submitTaskExecution(ctx context.Context, projectID, key, stage
 	if stage != "code" {
 		previousStage := "code"
 		if stage == "rebase" {
-			previousStage = "tests"
+			if _, testsAccepted, testsErr := s.Durability.ReadLatestAcceptedTaskExecutionPhase(ctx, projectID, key, "tests"); testsErr != nil {
+				return TaskExecutionPublicOutput{}, testsErr
+			} else if testsAccepted {
+				previousStage = "tests"
+			}
 		}
 		accepted, acceptedFound, acceptedErr := s.Durability.ReadLatestTaskExecutionPhase(ctx, projectID, key, previousStage)
 		if acceptedErr != nil || !acceptedFound || accepted.Decision != "accept" || accepted.EventKind != "review" {
@@ -192,8 +192,6 @@ func (s *Service) TaskExecutionReviewDecide(ctx context.Context, in TaskExecutio
 	nextStage, nextStatus := state.Stage, state.Status
 	if in.Decision == "reject" {
 		nextStatus = model.TaskExecutionChangesRequested
-	} else if in.Stage == "code" {
-		nextStage, nextStatus = "tests", model.TaskExecutionDispatched
 	} else {
 		nextStatus = model.TaskExecutionReadyForVerification
 	}

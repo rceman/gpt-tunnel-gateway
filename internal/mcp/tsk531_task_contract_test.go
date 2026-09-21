@@ -25,7 +25,7 @@ func TestTSK531CanonicalTaskSurfaceAndLegacyEvidenceContract(t *testing.T) {
 		}
 	}
 	for _, path := range []string{
-		"task/ready", "task/revision_list", "task/revision_read", "task/correction_create", "task/supersede",
+		"task/ready", "task/revision_list", "task/revision_read", "task/correction_create", "task/supersede", "task/submit-tests",
 		"task/_ready", "task/_revision_list", "task/_revision_read", "task/_correction_create", "task/_supersede",
 		"task/work", "task/finalize",
 	} {

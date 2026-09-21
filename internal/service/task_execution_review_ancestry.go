@@ -44,18 +44,19 @@ func (s *Service) taskExecutionReviewSelection(ctx context.Context, projectID, k
 	if stage != "code" {
 		previous := "code"
 		if stage == "rebase" {
-			previous = "tests"
+			if _, testsAccepted, testsErr := s.Durability.ReadLatestAcceptedTaskExecutionPhase(ctx, projectID, key, "tests"); testsErr != nil {
+				return sqlitestore.TaskExecutionPhase{}, "", testsErr
+			} else if testsAccepted {
+				previous = "tests"
+			}
 		}
 		accepted, acceptedFound, acceptedErr := s.Durability.ReadLatestAcceptedTaskExecutionPhase(ctx, projectID, key, previous)
 		if acceptedErr != nil {
 			return sqlitestore.TaskExecutionPhase{}, "", acceptedErr
 		}
-		wantStatus := model.TaskExecutionDispatched
-		if previous == "tests" {
-			wantStatus = model.TaskExecutionReadyForVerification
-		}
+		acceptedStatus := accepted.Status == model.TaskExecutionReadyForVerification || (previous == "code" && accepted.Status == model.TaskExecutionDispatched)
 		if !acceptedFound || accepted.ProjectID != projectID || accepted.TaskID != key || accepted.Stage != previous ||
-			accepted.EventKind != "review" || accepted.Decision != "accept" || accepted.Status != wantStatus ||
+			accepted.EventKind != "review" || accepted.Decision != "accept" || !acceptedStatus ||
 			accepted.ExecutionRevision >= phase.ExecutionRevision || accepted.CreatedAt.After(phase.CreatedAt) ||
 			accepted.TaskRevisionSHA256 != state.TaskRevisionSHA256 || model.ValidateCommitSHA(accepted.Head) != nil || accepted.Branch != state.Branch {
 			return sqlitestore.TaskExecutionPhase{}, "", fmt.Errorf("accepted %s submission is required for review", previous)

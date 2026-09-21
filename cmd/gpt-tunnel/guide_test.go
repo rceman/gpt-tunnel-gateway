@@ -31,13 +31,16 @@ func TestGuideIsZeroStateAndMatchesCanonicalContent(t *testing.T) {
 		t.Fatalf("guide CLI usage omitted exact Task read command: %q", got.CLIUsage)
 	}
 	for _, text := range []string{
-		"Planner owns WHAT/WHY, architecture, durable semantics, ADR/Task/RULE plus Milestone/Track composition, Task/Track scope, acceptance, dependencies/priority, final Track semantic review, and executable-work curation",
+		"Planner owns WHAT/WHY, architecture, durable semantics, ADR/Task/RULE plus Milestone/Track composition and scope, acceptance, dependencies/priority, final Track semantic review, and executable-work curation",
 		"it is not the dispatcher/supervisor/review/test/integrate proxy",
-		"Lead owns HOW: dispatch, Worker supervision, technical review/rework, verification, integration, continuation, and lifecycle decisions",
+		"Lead owns HOW: dispatch, Worker supervision, technical review/rework, verification, integration, continuation and lifecycle decisions",
 		"never mutates Planner semantics",
 		"never creates or updates Planner-owned Tasks, Tracks, ADRs, or Rules",
 		"never hand-mutates lanes or canonical source via shell Git; canonical Task actions own mechanics",
-		"Worker owns implementation/testing and submits only via fixed CLI gpt-tunnel task submit-code|submit-tests|submit-rebase, never native MCP",
+		"Worker owns implementation/testing and submits one production+tests candidate only via CLI gpt-tunnel task submit-code|submit-rebase, never native MCP",
+		"Before submit-code, Worker runs only focused/affected deterministic tests plus cache-aware scripts/test-fast.py",
+		"Do not run go test ./..., scripts/test-full.sh, race, performance, profile, or live E2E",
+		"Lead owns task/test full verification",
 		"ADR138 role-permissive runtime does not transfer semantic authority between PLAW roles or make Worker-owned submit actions Lead-owned",
 		"Lead never proxies a Worker submit or impersonates a Session",
 		"Milestone Track is the Planner-to-Lead delegation unit, not an Agent/Worker/ad-hoc queue and not a Wave",

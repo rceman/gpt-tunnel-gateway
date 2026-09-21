@@ -86,8 +86,8 @@ deterministic code/logic correctness only — `livee2e`- and
 ./scripts/test-full.sh
 ```
 
-Worker must not repeat that full runner immediately before `task/test` unless a
-Task explicitly requires broader pre-submit proof. Specialist workloads are
+Worker never runs that full runner before `submit-code`; the code candidate
+carries production and focused test changes together. Specialist workloads are
 separate explicit lanes and are never invoked transitively by full: live
 candidate E2E via `scripts/test-e2e.sh` (`livee2e` tag, `GTW_CANDIDATE_*`
 environment), live performance via `scripts/test-performance.py --output

@@ -260,7 +260,7 @@ func (s *Service) computeTaskExecutionVerificationAdmission(ctx context.Context,
 func (s *Service) taskExecutionVerificationReviews(ctx context.Context, projectID, key string, state model.TaskExecutionState) (taskExecutionVerificationReviews, error) {
 	var reviews taskExecutionVerificationReviews
 	for _, stage := range []string{"code", "tests", "rebase"} {
-		if stage == "rebase" && state.Stage != "rebase" {
+		if (stage == "tests" && state.Stage != "tests") || (stage == "rebase" && state.Stage != "rebase") {
 			continue
 		}
 		phase, found, err := s.Durability.ReadLatestAcceptedTaskExecutionPhase(ctx, projectID, key, stage)
@@ -522,7 +522,7 @@ func taskExecutionCapturedIdentity(raw string) (taskExecutionTestIdentity, error
 	if !strings.HasPrefix(captured.Worktree, "WT-TSK") || !strings.HasSuffix(captured.Worktree, "-"+strings.ToLower(captured.Head[:8])) {
 		return taskExecutionTestIdentity{}, fmt.Errorf("durable Task verification snapshot is invalid")
 	}
-	if captured.Branch == "" || captured.Agent == "" || captured.Worktree == "" || captured.CodeReviewID < 1 || captured.TestsReviewID < 1 || captured.RebaseReviewID < 0 {
+	if captured.Branch == "" || captured.Agent == "" || captured.Worktree == "" || captured.CodeReviewID < 1 || captured.TestsReviewID < 0 || captured.RebaseReviewID < 0 || (captured.Stage == "tests" && captured.TestsReviewID < 1) {
 		return taskExecutionTestIdentity{}, fmt.Errorf("durable Task verification snapshot is invalid")
 	}
 	return captured, nil

@@ -176,28 +176,24 @@ func TestTSK640AgentCLISubmitEndpointsDispatchCanonicalStageActions(t *testing.T
 	t.Cleanup(httpServer.Close)
 	task := tsk640CreateDispatchedTask(t, server, "tsk640-mapping-task")
 
-	for _, stage := range []struct {
-		path  string
-		stage string
-	}{
-		{path: agentCLISubmitTestsPath, stage: "tests"},
-		{path: agentCLISubmitRebasePath, stage: "rebase"},
-	} {
-		status, body := tsk640SubmitPost(t, httpServer, stage.path, runtimeKey)
-		if status != http.StatusOK {
-			t.Fatalf("%s HTTP status=%d body=%#v", stage.path, status, body)
-		}
-		code, message := tsk640SubmitError(t, body)
-		if code != "ACTION_FAILED" || !strings.Contains(message, "not accepting a "+stage.stage+" submission") {
-			t.Fatalf("%s did not dispatch its canonical action: code=%q message=%q", stage.path, code, message)
-		}
+	status, payload := tsk640SubmitRequest(t, httpServer, http.MethodPost, "/agent-cli/task/submit-tests", `{"runtime":`+string(mustJSON(t, runtimeKey))+`}`)
+	if status != http.StatusNotFound {
+		t.Fatalf("submit-tests HTTP status=%d payload=%s", status, payload)
+	}
+	status, body := tsk640SubmitPost(t, httpServer, agentCLISubmitRebasePath, runtimeKey)
+	if status != http.StatusOK {
+		t.Fatalf("submit-rebase HTTP status=%d body=%#v", status, body)
+	}
+	code, message := tsk640SubmitError(t, body)
+	if code != "ACTION_FAILED" || !strings.Contains(message, "not accepting a rebase submission") {
+		t.Fatalf("submit-rebase did not dispatch its canonical action: code=%q message=%q", code, message)
 	}
 	if state := tsk640ExecutionStatus(t, server, task.ID); state.Status != model.TaskExecutionDispatched || state.Stage != "code" {
 		t.Fatalf("stage rejection changed Task state: %#v", state)
 	}
 	dispatched := tsk640ExecutionStatus(t, server, task.ID)
 
-	status, body := tsk640SubmitPost(t, httpServer, agentCLISubmitCodePath, runtimeKey)
+	status, body = tsk640SubmitPost(t, httpServer, agentCLISubmitCodePath, runtimeKey)
 	if status != http.StatusOK || body["ok"] != true {
 		t.Fatalf("submit-code status=%d body=%#v", status, body)
 	}

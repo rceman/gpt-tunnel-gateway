@@ -27,14 +27,6 @@ func (s *Service) TaskExecutionSubmitCodeForAgent(ctx context.Context, projectID
 	return s.TaskExecutionSubmitCode(ctx, projectID, key)
 }
 
-func (s *Service) TaskExecutionSubmitTestsForAgent(ctx context.Context, projectID string) (TaskExecutionPublicOutput, error) {
-	key, err := s.resolveTaskExecutionTaskForAgent(ctx, projectID)
-	if err != nil {
-		return TaskExecutionPublicOutput{}, err
-	}
-	return s.TaskExecutionSubmitTests(ctx, projectID, key)
-}
-
 func (s *Service) TaskExecutionSubmitRebaseForAgent(ctx context.Context, projectID string) (TaskExecutionPublicOutput, error) {
 	key, err := s.resolveTaskExecutionTaskForAgent(ctx, projectID)
 	if err != nil {

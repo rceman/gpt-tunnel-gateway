@@ -16,14 +16,12 @@ import (
 
 const (
 	agentCLISubmitCodePath   = "/agent-cli/task/submit-code"
-	agentCLISubmitTestsPath  = "/agent-cli/task/submit-tests"
 	agentCLISubmitRebasePath = "/agent-cli/task/submit-rebase"
 	maxAgentCLISubmitBody    = 4 << 10
 )
 
 var agentCLISubmitActions = map[string]string{
 	agentCLISubmitCodePath:   "task/submit-code",
-	agentCLISubmitTestsPath:  "task/submit-tests",
 	agentCLISubmitRebasePath: "task/submit-rebase",
 }
 

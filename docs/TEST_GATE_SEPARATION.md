@@ -27,8 +27,8 @@ The repository has distinct verification purposes:
    deterministic corpus under the Go race detector. Both remain explicit lanes
    and are never part of normal full correctness.
 
-Worker does not repeat the canonical full runner immediately before `task/test`
-unless a Task explicitly requires broader pre-submit proof. Task verification
+Worker does not run the canonical full runner before `submit-code`; the code
+candidate carries production and focused test changes together. Task verification
 owns one full run for a materially unchanged exact candidate and reuses a valid
 successful receipt only when the Task revision, accepted reviews, base,
 candidate head/tree, branch, and gate profile all still match.

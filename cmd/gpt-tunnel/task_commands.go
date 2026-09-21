@@ -31,7 +31,7 @@ func task(ctx context.Context, s *service.Service, args []string) {
 			fatal(err)
 		}
 		output(result)
-	case "submit-code", "submit-tests", "submit-rebase":
+	case "submit-code", "submit-rebase":
 		result, err := taskSubmitGatewayCall(ctx, s, args[0])
 		if err != nil {
 			fatal(err)
@@ -142,7 +142,6 @@ func taskExecutionGatewayCall(ctx context.Context, s *service.Service) (any, err
 
 var agentCLISubmitEndpoints = map[string]string{
 	"submit-code":   "/agent-cli/task/submit-code",
-	"submit-tests":  "/agent-cli/task/submit-tests",
 	"submit-rebase": "/agent-cli/task/submit-rebase",
 }
 

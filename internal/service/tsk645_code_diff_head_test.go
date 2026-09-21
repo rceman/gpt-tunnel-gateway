@@ -43,8 +43,9 @@ func tsk645DiffHeadFixture(t *testing.T) (*Service, tsk645DiffHeadCandidates) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	tsk622SetExecutionStatus(t, db, task.ID, "dispatched", "tests")
 	tsk585LaneWrite(t, s, task.ID, "tests.txt", "tests candidate line\n")
-	if _, err := s.TaskExecutionSubmitTests(ctx, "example", task.ID); err != nil {
+	if _, err := s.submitTaskExecution(ctx, "example", task.ID, "tests"); err != nil {
 		t.Fatal(err)
 	}
 	state, found, err = db.ReadTaskExecutionState(ctx, "example", task.ID)

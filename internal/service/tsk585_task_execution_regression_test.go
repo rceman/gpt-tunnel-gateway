@@ -378,12 +378,16 @@ func TestTSK622ActionableTransitionsSurviveDurabilityRestart(t *testing.T) {
 			Stage:     "code",
 			Decision:  "accept",
 			Comment:   "restart accept",
-		}); err == nil {
-			t.Fatal("code review acceptance after restart created a second actionable Task")
+		}); err != nil {
+			t.Fatalf("code review acceptance after restart: %v", err)
 		}
 		state, found, err := reopened.ReadTaskExecutionState(context.Background(), "example", first.ID)
-		if err != nil || !found || state.Status != model.TaskExecutionAwaitingReview {
-			t.Fatalf("rejected restart acceptance mutated first Task: state=%#v found=%v err=%v", state, found, err)
+		if err != nil || !found || state.Stage != "code" || state.Status != model.TaskExecutionReadyForVerification || model.IsTaskExecutionAgentActionable(state.Status, state.Stage) {
+			t.Fatalf("accepted restart code state=%#v found=%v err=%v", state, found, err)
+		}
+		secondState, found, err := reopened.ReadTaskExecutionState(context.Background(), "example", second.ID)
+		if err != nil || !found || secondState.Stage != "code" || secondState.Status != model.TaskExecutionDispatched || !model.IsTaskExecutionAgentActionable(secondState.Status, secondState.Stage) {
+			t.Fatalf("second restart Task state=%#v found=%v err=%v", secondState, found, err)
 		}
 	})
 }
@@ -410,16 +414,57 @@ func tsk585DriveToVerification(t *testing.T, s *Service, key string) {
 	}); err != nil {
 		t.Fatalf("accept code: %v", err)
 	}
-	if _, err := s.TaskExecutionSubmitTests(ctx, "example", key); err != nil {
-		t.Fatalf("submit tests: %v", err)
-	}
-	if _, err := s.TaskExecutionReviewDecide(ctx, TaskExecutionReviewDecisionInput{
+}
+func TestTSK656CodeAcceptReachesVerificationWithTestsInCandidate(t *testing.T) {
+	s, db := tsk585Setup(t)
+	defer db.Close()
+	ctx := context.Background()
+	task := tsk585Task(t, s, "tsk656-one-submit", "One submit Task")
+	tsk585Dispatch(t, s, task.ID)
+	tsk585LaneWrite(t, s, task.ID, "implementation.go", "package fixture\n")
+	tsk585LaneWrite(t, s, task.ID, "implementation_test.go", "package fixture\n")
+	if _, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
 		ProjectID: "example",
-		Key:       key,
-		Stage:     "tests",
+		Key:       task.ID,
+	}); err == nil || !strings.Contains(err.Error(), "not ready for verification") {
+		t.Fatalf("task/test before acceptance error=%v", err)
+	}
+	if _, err := s.TaskExecutionSubmitCode(ctx, "example", task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
+		ProjectID: "example",
+		Key:       task.ID,
+	}); err == nil || !strings.Contains(err.Error(), "not ready for verification") {
+		t.Fatalf("task/test during code review error=%v", err)
+	}
+	accepted, err := s.TaskExecutionReviewDecide(ctx, TaskExecutionReviewDecisionInput{
+		ProjectID: "example",
+		Key:       task.ID,
+		Stage:     "code",
 		Decision:  "accept",
-	}); err != nil {
-		t.Fatalf("accept tests: %v", err)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted.Stage != "code" || accepted.Status != model.TaskExecutionReadyForVerification {
+		t.Fatalf("accepted code output=%#v", accepted)
+	}
+	state, found, err := db.ReadTaskExecutionState(ctx, "example", task.ID)
+	if err != nil || !found || state.Stage != "code" || state.Status != model.TaskExecutionReadyForVerification {
+		t.Fatalf("accepted code state=%#v found=%v err=%v", state, found, err)
+	}
+	testsPhases, err := db.ReadTaskExecutionPhases(ctx, "example", task.ID, "tests")
+	if err != nil || len(testsPhases) != 0 {
+		t.Fatalf("ordinary code acceptance created tests phases=%#v err=%v", testsPhases, err)
+	}
+	operation := tsk585VerifyTask(t, s, task.ID)
+	if operation.Status != "completed" {
+		t.Fatalf("task/test after code acceptance status=%q error=%q", operation.Status, operation.Error)
+	}
+	receipt, receiptFound, err := db.ReadLatestTaskExecutionVerification(ctx, "example", task.ID)
+	if err != nil || !receiptFound || receipt.TestsReviewID != 0 || receipt.CodeReviewID < 1 {
+		t.Fatalf("single-candidate verification receipt=%#v found=%v err=%v", receipt, receiptFound, err)
 	}
 }
 func tsk585WaitOperation(t *testing.T, s *Service, operationID string) durableMutationOperation {
@@ -471,7 +516,7 @@ func TestTSK585TaskTestEndToEnd(t *testing.T) {
 	if err != nil || !found || latest.Outcome != model.TaskExecutionVerificationSucceeded || latest.OperationID != operation.OperationID {
 		t.Fatalf("latest receipt=%#v found=%v err=%v", latest, found, err)
 	}
-	if latest.CandidateHead != state.Head || latest.BaseHead != state.BaseHead || latest.TaskRevisionSHA256 != state.TaskRevisionSHA256 || latest.CodeReviewID < 1 || latest.TestsReviewID < 1 || len(latest.GateProfileSHA256) != 64 || len(latest.Gates) == 0 {
+	if latest.CandidateHead != state.Head || latest.BaseHead != state.BaseHead || latest.TaskRevisionSHA256 != state.TaskRevisionSHA256 || latest.CodeReviewID < 1 || latest.TestsReviewID != 0 || len(latest.GateProfileSHA256) != 64 || len(latest.Gates) == 0 {
 		t.Fatalf("receipt binding=%#v state=%#v", latest, state)
 	}
 	status, err := s.TaskExecutionStatus(ctx, "example", task.ID)
@@ -1858,8 +1903,9 @@ func tsk585ReviewBases(t *testing.T, s *Service, key string) string {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	tsk622SetExecutionStatus(t, s.Durability, key, model.TaskExecutionDispatched, "tests")
 	tsk585LaneCommit(t, s, key, "tests work")
-	if _, err := s.TaskExecutionSubmitTests(ctx, "example", key); err != nil {
+	if _, err := s.submitTaskExecution(ctx, "example", key, "tests"); err != nil {
 		t.Fatal(err)
 	}
 	review, err = s.TaskExecutionReview(ctx, TaskExecutionReviewInput{
@@ -2072,8 +2118,9 @@ func tsk585AwaitingTestsReview(t *testing.T, idem string) (*Service, *sqlitestor
 	}); err != nil {
 		t.Fatal(err)
 	}
+	tsk622SetExecutionStatus(t, db, task.ID, model.TaskExecutionDispatched, "tests")
 	tsk585LaneCommit(t, s, task.ID, "tests work")
-	if _, err := s.TaskExecutionSubmitTests(ctx, "example", task.ID); err != nil {
+	if _, err := s.submitTaskExecution(ctx, "example", task.ID, "tests"); err != nil {
 		t.Fatal(err)
 	}
 	state, _, _ := db.ReadTaskExecutionState(ctx, "example", task.ID)
@@ -2259,8 +2306,9 @@ func TestTSK585CodeDiffAuthorizedBase(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	tsk622SetExecutionStatus(t, db, task.ID, model.TaskExecutionDispatched, "tests")
 	tsk585LaneWrite(t, s, task.ID, "tests.txt", strings.Join(append([]string{"tests"}, lines[80:]...), "\n"))
-	if _, err := s.TaskExecutionSubmitTests(ctx, "example", task.ID); err != nil {
+	if _, err := s.submitTaskExecution(ctx, "example", task.ID, "tests"); err != nil {
 		t.Fatal(err)
 	}
 	testsReview, err := s.TaskExecutionReview(ctx, TaskExecutionReviewInput{
