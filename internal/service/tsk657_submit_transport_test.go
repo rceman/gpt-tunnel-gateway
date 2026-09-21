@@ -208,3 +208,42 @@ func TestTSK657SubmitAdmissionRetriesOnlyAfterNotLandedProof(t *testing.T) {
 		t.Fatalf("retried submit state=%#v found=%v err=%v", state, found, err)
 	}
 }
+
+func TestTSK659SubmitAdmissionScopesOperationToExecutionRevision(t *testing.T) {
+	s, db := tsk585Setup(t)
+	defer db.Close()
+	task := tsk585Task(t, s, "tsk659-rework-resubmit", "Rework resubmit")
+	tsk585Dispatch(t, s, task.ID)
+	tsk585LaneCommit(t, s, task.ID, "first candidate")
+	workerCtx := tsk657WorkerContext(t, s)
+
+	firstReceipt, err := s.TaskExecutionSubmitAsync(workerCtx, "example", "code")
+	if err != nil || firstReceipt.OperationID == "" {
+		t.Fatalf("first submit receipt=%#v err=%v", firstReceipt, err)
+	}
+	tsk657WaitSubmitOperation(t, s, firstReceipt.OperationID, "completed")
+
+	if _, err := s.TaskExecutionRework(context.Background(), TaskExecutionReworkInput{
+		ProjectID: "example",
+		Key:       task.ID,
+		Stage:     "code",
+		Comment:   "rework for resubmit admission proof",
+	}); err != nil {
+		t.Fatalf("rework failed: %v", err)
+	}
+	tsk585LaneCommit(t, s, task.ID, "reworked candidate")
+
+	secondReceipt, err := s.TaskExecutionSubmitAsync(workerCtx, "example", "code")
+	if err != nil || secondReceipt.OperationID == "" || secondReceipt.OperationID == firstReceipt.OperationID {
+		t.Fatalf("rework resubmit reused prior operation: first=%#v second=%#v err=%v", firstReceipt, secondReceipt, err)
+	}
+	secondOperation := tsk657WaitSubmitOperation(t, s, secondReceipt.OperationID, "completed")
+	var secondInput taskExecutionSubmitInput
+	if err := json.Unmarshal(secondOperation.Input, &secondInput); err != nil || secondInput.TaskID != task.ID || secondInput.ExecutionRevision < 2 {
+		t.Fatalf("resubmit operation input=%#v err=%v", secondInput, err)
+	}
+	state, found, err := db.ReadTaskExecutionState(context.Background(), "example", task.ID)
+	if err != nil || !found || state.Status != model.TaskExecutionAwaitingReview {
+		t.Fatalf("rework resubmit state=%#v found=%v err=%v", state, found, err)
+	}
+}

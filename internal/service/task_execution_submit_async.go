@@ -15,8 +15,9 @@ import (
 const taskExecutionSubmitKind = "task-execution-submit"
 
 type taskExecutionSubmitInput struct {
-	Stage  string `json:"stage"`
-	TaskID string `json:"task"`
+	Stage             string `json:"stage"`
+	TaskID            string `json:"task"`
+	ExecutionRevision int    `json:"execution_revision,omitempty"`
 }
 
 type taskExecutionSubmitCapture struct {
@@ -110,8 +111,9 @@ func (s *Service) TaskExecutionSubmitAsync(ctx context.Context, projectID, stage
 		return TaskExecutionSubmitReceipt{}, fmt.Errorf("Task has not been dispatched")
 	}
 	input := taskExecutionSubmitInput{
-		Stage:  stage,
-		TaskID: key,
+		Stage:             stage,
+		TaskID:            key,
+		ExecutionRevision: state.ExecutionRevision,
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {
