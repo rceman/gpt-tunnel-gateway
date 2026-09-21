@@ -22,7 +22,7 @@ func TestTSK655LiveGatewayOwnerLockAndCanonicalOperatorPath(t *testing.T) {
 		t.Fatal("live gateway did not retain daemon SQLite ownership")
 	}
 
-	direct := gateway.RunCLI(testutil.LiveCommandOptions{}, "session", "token", "AIR")
+	direct := gateway.RunCLI(testutil.LiveCommandOptions{}, "project", "onboard", "AIR", "agentir_worker")
 	if direct.Err == nil || !strings.Contains(direct.Stderr, "already has an owner") {
 		t.Fatalf("direct durability CLI did not hit the owner boundary: stderr=%q err=%v", direct.Stderr, direct.Err)
 	}
@@ -49,7 +49,7 @@ func TestTSK655LiveGatewayOwnerLockAndCanonicalOperatorPath(t *testing.T) {
 		"cli_executable":               gateway.OperatorBinary,
 		"owner_lock_active":            gateway.OwnerLockActive(),
 		"daemon_running":               gateway.DaemonRunning(),
-		"old_direct_path":              "session token AIR",
+		"old_direct_path":              "project onboard AIR agentir_worker",
 		"old_direct_path_error":        "already has an owner",
 		"canonical_operator_path":      "project list",
 	})

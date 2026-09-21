@@ -120,6 +120,13 @@ func writeLiveConfig(path string, cfg config.Config) error {
 	return os.WriteFile(path, data, 0o600)
 }
 
+func (g *LiveGateway) WriteConfig(t *testing.T) {
+	t.Helper()
+	if err := writeLiveConfig(g.ConfigPath, g.Config); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func (g *LiveGateway) WriteOperatorConfig(t *testing.T, listenAddr string) string {
 	t.Helper()
 	cfg := g.Config
@@ -243,6 +250,12 @@ func (g *LiveGateway) Stop() {
 	case <-g.daemonDone:
 	case <-time.After(5 * time.Second):
 	}
+}
+
+func (g *LiveGateway) Restart(t *testing.T) {
+	t.Helper()
+	g.Stop()
+	g.start(t)
 }
 
 func (g *LiveGateway) buildBinaries(t *testing.T) {

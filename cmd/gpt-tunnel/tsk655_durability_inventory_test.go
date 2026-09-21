@@ -22,11 +22,10 @@ func TestTSK655Gate20OperatorCLIDurabilityInventory(t *testing.T) {
 		calls  int
 		routes []string
 	}{
-		"admin":        {calls: 1, routes: []string{"admin session mint", "admin session revoke"}},
-		"agent":        {calls: 1, routes: []string{"agent register"}},
-		"journal":      {calls: 1, routes: []string{"journal migrate"}},
-		"project":      {calls: 2, routes: []string{"project onboard", "project update"}},
-		"sessionToken": {calls: 1, routes: []string{"session token"}},
+		"admin":   {calls: 1, routes: []string{"admin session mint", "admin session revoke"}},
+		"agent":   {calls: 1, routes: []string{"agent register"}},
+		"journal": {calls: 1, routes: []string{"journal migrate"}},
+		"project": {calls: 2, routes: []string{"project onboard", "project update"}},
 	}
 	directCalls := tsk655DirectDurabilityCalls(t)
 	if len(directCalls) != len(expectedDirect) {
@@ -38,6 +37,7 @@ func TestTSK655Gate20OperatorCLIDurabilityInventory(t *testing.T) {
 		{Path: "task submit-code", Boundary: "durable gateway HTTP admission", Classification: "daemon-safe"},
 		{Path: "task submit-rebase", Boundary: "durable gateway HTTP admission", Classification: "daemon-safe"},
 		{Path: "project list", Boundary: "Hub read-only", Classification: "daemon-safe"},
+		{Path: "project token", Boundary: "operator-authenticated gateway HTTP", Classification: "daemon-safe"},
 	}
 	for function, expected := range expectedDirect {
 		if len(directCalls[function]) != expected.calls {

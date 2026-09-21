@@ -40,34 +40,6 @@ func (s *Service) EnsureProjectSessionBootstrapGrant(ctx context.Context, projec
 	})
 }
 
-func (s *Service) SessionBootstrapToken(ctx context.Context, projectCode string) (string, error) {
-	if err := model.ValidateProjectCode(projectCode); err != nil {
-		return "", err
-	}
-	if s.Durability == nil || s.Durability.Local == nil {
-		return "", fmt.Errorf("local session bootstrap grant store is unavailable")
-	}
-	ids, err := s.EffectiveProjectIDs()
-	if err != nil {
-		return "", fmt.Errorf("project registry unavailable: %w", err)
-	}
-	for _, projectID := range ids {
-		project, readErr := s.EffectiveProjectConfig(projectID)
-		if readErr != nil {
-			continue
-		}
-		if project.ProjectCode != projectCode {
-			continue
-		}
-		grant, readErr := s.Durability.ReadSessionBootstrapGrant(ctx, projectID)
-		if readErr != nil || grant.ProjectCode != project.ProjectCode || grant.GatewayID != s.Config.GatewayID || grant.Role != durableSession.RolePlanner {
-			return "", fmt.Errorf("project bootstrap token is unavailable")
-		}
-		return grant.Token, nil
-	}
-	return "", fmt.Errorf("unknown project code %q", projectCode)
-}
-
 func (s *Service) ResolveSessionBootstrapToken(ctx context.Context, token string) (SessionBootstrapResolution, error) {
 	if s.Durability == nil || s.Durability.Local == nil {
 		return SessionBootstrapResolution{}, fmt.Errorf("local session bootstrap grant store is unavailable")

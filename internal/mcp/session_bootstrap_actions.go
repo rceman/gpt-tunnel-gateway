@@ -29,7 +29,7 @@ func globalWorkflowDigest() string {
 }
 
 func sessionStartPublicInputSchema() map[string]any {
-	token := str("Host-local per-project Planner bootstrap grant. Retrieve it with gpt-tunnel session token <PROJECT_CODE>.")
+	token := str("Per-project Planner bootstrap grant returned by the authenticated gpt-tunnel project token operator command.")
 	token["minLength"] = 24
 	token["maxLength"] = 256
 	return obj(map[string]any{"token": token}, "token")

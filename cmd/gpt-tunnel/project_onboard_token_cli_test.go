@@ -85,10 +85,6 @@ func TestProjectOnboardCLIExposesDurablePlannerToken(t *testing.T) {
 	if retry["status"] != "already_registered" || retry["token"] != token || retry["token_usage"] != service.ProjectOnboardTokenUsage {
 		t.Fatal("repeat onboarding did not return the stable token contract")
 	}
-	if got := strings.TrimSpace(run("session", "token", "AIR")); got != token {
-		t.Fatalf("session token did not return the durable onboarding grant")
-	}
-
 	loaded, err := config.Load(configPath)
 	if err != nil {
 		t.Fatal(err)

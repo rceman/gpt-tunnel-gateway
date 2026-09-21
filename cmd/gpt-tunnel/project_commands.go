@@ -27,6 +27,15 @@ func project(ctx context.Context, s *service.Service, args []string) {
 			fatal(err)
 		}
 		output(renderProjectOnboard(result))
+	case "token":
+		if len(args) != 1 {
+			usage()
+		}
+		token, e := projectTokenGatewayCall(ctx, s)
+		if e != nil {
+			fatal(e)
+		}
+		fmt.Println(token)
 	case "list":
 		v, e := s.ProjectList(ctx)
 		if e != nil {

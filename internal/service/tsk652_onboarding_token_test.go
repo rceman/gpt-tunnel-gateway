@@ -60,7 +60,12 @@ func TestTSK652ProjectOnboardReturnsStablePlannerBootstrapToken(t *testing.T) {
 	}
 	defer reopened.Close()
 	s.Durability = reopened
-	if token, err := s.SessionBootstrapToken(ctx, "AIR"); err != nil || token != first.Token {
+	identityRemote := testutil.Git(t, root, "remote", "get-url", "origin")
+	retrieved, err := s.ProjectToken(ctx, ProjectTokenInput{
+		Root:   root,
+		Remote: identityRemote,
+	})
+	if err != nil || retrieved.Token != first.Token {
 		t.Fatalf("restart token retrieval failed or changed: err=%v", err)
 	}
 	resolution, err := s.ResolveSessionBootstrapToken(ctx, first.Token)
@@ -129,6 +134,6 @@ func TestTSK652ProjectOnboardReturnsStablePlannerBootstrapToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(encoded), first.Token) {
-		t.Fatal("project bootstrap token leaked outside onboarding and session token retrieval")
+		t.Fatal("project bootstrap token leaked outside onboarding and authenticated project token retrieval")
 	}
 }

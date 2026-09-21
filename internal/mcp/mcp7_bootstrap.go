@@ -23,7 +23,7 @@ func addMCP7BootstrapTools(add func(string, string, map[string]any, func(context
 			"roles": publicWorkflowRoles(),
 			"steps": []string{
 				"Use status to confirm Gateway ingress and readiness.",
-				"Retrieve the host-local project Planner bootstrap token with gpt-tunnel session token <PROJECT_CODE>; MCP never mints or lists it.",
+				"Retrieve the project Planner bootstrap token only through the authenticated gpt-tunnel project token operator command; MCP never mints or lists it.",
 				"Start a session with session_start using {token}; the Gateway resolves its Gateway, project, and Planner role server-side.",
 				"Use schema with the bound session to discover an action contract.",
 				"Use call with the same session to execute a server-owned action.",

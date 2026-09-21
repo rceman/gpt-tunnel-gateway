@@ -29,6 +29,7 @@ func (s *Server) Router() http.Handler {
 	})
 	mux.Handle("/mcp", s.responseBoundary(http.HandlerFunc(s.handle)))
 	s.registerAgentCLISubmitRoutes(mux)
+	s.registerOperatorProjectTokenRoute(mux)
 	return s.security(mux)
 }
 
