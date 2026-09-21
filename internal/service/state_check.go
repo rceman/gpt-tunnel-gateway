@@ -3,6 +3,9 @@ package service
 import (
 	"context"
 	"sort"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
@@ -31,7 +34,19 @@ func (s *Service) StateCheck(ctx context.Context) (StateCheckResult, error) {
 func (s *Service) stateCheckLocalWithoutDurability(result StateCheckResult, configuredIDs []string, resolution ProjectResolution) (StateCheckResult, error) {
 	for _, projectID := range configuredIDs {
 		project, ok := resolution.Projects[projectID]
-		if !ok || project.Root == "" || project.Mirror == "" || project.DefaultBranch == "" || project.AirelaySessionKey == "" {
+		if !ok {
+			result.Issues = append(result.Issues, stateIssue("CONFIGURED_PROJECT_INVALID", projectID, "", "", "local project configuration is incomplete"))
+			continue
+		}
+		if managed, found := resolution.ManagedProjects[projectID]; found {
+			if !s.stateCheckManagedProjectConfigured(projectID, project, managed) {
+				result.Issues = append(result.Issues, stateIssue("CONFIGURED_PROJECT_INVALID", projectID, "", "", "managed project registry configuration is incomplete"))
+				continue
+			}
+			result.DurableProjectIDs = append(result.DurableProjectIDs, projectID)
+			continue
+		}
+		if project.Root == "" || project.Mirror == "" || project.DefaultBranch == "" || project.AirelaySessionKey == "" {
 			result.Issues = append(result.Issues, stateIssue("CONFIGURED_PROJECT_INVALID", projectID, "", "", "local project configuration is incomplete"))
 			continue
 		}
@@ -44,6 +59,20 @@ func (s *Service) stateCheckLocalWithoutDurability(result StateCheckResult, conf
 	// daemon's Local/Shared path above.
 	result.Valid = len(result.Issues) == 0
 	return result, nil
+}
+
+func (s *Service) stateCheckManagedProjectConfigured(projectID string, project config.ProjectConfig, managed config.ManagedProjectEntry) bool {
+	if err := managed.Validate(projectID); err != nil {
+		return false
+	}
+	if err := model.ValidateProjectCode(managed.ProjectCode); err != nil {
+		return false
+	}
+	return project.Root == managed.Root &&
+		project.Mirror == config.ManagedProjectMirrorPath(s.Config.StateDir, projectID) &&
+		project.Remote == managed.Remote &&
+		project.DefaultBranch == managed.DefaultBranch &&
+		project.ProjectCode == managed.ProjectCode
 }
 
 // stateCheckLocal validates the live durable graph from Local/Shared SQLite.

@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -11,6 +12,7 @@ import (
 // project graph for a single service operation.
 type ProjectResolution struct {
 	Projects                map[string]config.ProjectConfig
+	ManagedProjects         map[string]config.ManagedProjectEntry
 	ManagedRegistryDigest   string
 	ManagedRegistryRevision uint64
 }
@@ -33,6 +35,7 @@ func (s *Service) resolveProjects() (ProjectResolution, error) {
 	}
 	return ProjectResolution{
 		Projects:                projects,
+		ManagedProjects:         maps.Clone(managed.Projects),
 		ManagedRegistryDigest:   digest,
 		ManagedRegistryRevision: managed.Revision,
 	}, nil
