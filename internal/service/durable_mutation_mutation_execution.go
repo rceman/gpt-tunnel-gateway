@@ -76,7 +76,7 @@ func (s *Service) processDurableMutation(operationID string) {
 }
 func (s *Service) executeDurableMutation(ctx context.Context, operation durableMutationOperation) (json.RawMessage, error) {
 	switch operation.Kind {
-	case "task-execution-integrate", "task-execution-test", "task-authoring-update", "task-authoring-ready":
+	case taskExecutionSubmitKind, "task-execution-integrate", "task-execution-test", "task-authoring-update", "task-authoring-ready":
 		return s.durableMutationExecutionSet1(ctx, operation)
 	case "adr-create", "agent-prompt", "agent-interrupt", "agent-update":
 		return s.durableMutationExecutionSet2(ctx, operation)

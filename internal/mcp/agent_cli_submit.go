@@ -8,16 +8,17 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 const (
-	agentCLISubmitCodePath   = "/agent-cli/task/submit-code"
-	agentCLISubmitRebasePath = "/agent-cli/task/submit-rebase"
-	maxAgentCLISubmitBody    = 4 << 10
+	agentCLISubmitCodePath       = "/agent-cli/task/submit-code"
+	agentCLISubmitRebasePath     = "/agent-cli/task/submit-rebase"
+	maxAgentCLISubmitBody        = 4 << 10
+	agentCLISubmitResponseBudget = 10 * time.Second
 )
 
 var agentCLISubmitActions = map[string]string{
@@ -62,12 +63,12 @@ func (s *Server) handleAgentCLISubmit(w http.ResponseWriter, r *http.Request, ac
 		writeAgentCLISubmitFailure(w, http.StatusForbidden, "RUNTIME_ROLE_UNAUTHORIZED", err.Error())
 		return
 	}
-	value, err := s.dispatchAgentCLISubmit(r.Context(), action, resolved.Session.ID)
+	value, err := s.dispatchAgentCLISubmit(r.Context(), action, resolved)
 	if err != nil {
-		writeAgentCLISubmitFailure(w, http.StatusInternalServerError, "CALL_FAILED", err.Error())
+		writeAgentCLISubmitFailure(w, http.StatusOK, "ACTION_FAILED", err.Error())
 		return
 	}
-	writeAgentCLISubmitJSON(w, http.StatusOK, value)
+	writeAgentCLISubmitJSON(w, http.StatusOK, map[string]any{"ok": true, "result": value})
 }
 
 func decodeAgentCLISubmitRequest(r *http.Request) (agentCLISubmitRequest, error) {
@@ -99,16 +100,39 @@ func validateAgentCLISubmitWorkerAuthority(resolved service.RuntimeRoleSession) 
 	return nil
 }
 
-func (s *Server) dispatchAgentCLISubmit(ctx context.Context, action, sessionID string) (any, error) {
-	call, ok := s.publicTools()["call"]
-	if !ok || call.Execute == nil {
-		return nil, fmt.Errorf("canonical Gateway action transport is unavailable")
-	}
-	raw, err := json.Marshal(map[string]any{"session": sessionID, "action": action, "input": map[string]any{}})
+func (s *Server) dispatchAgentCLISubmit(ctx context.Context, action string, resolved service.RuntimeRoleSession) (any, error) {
+	stage := strings.TrimPrefix(action, "task/submit-")
+	workerCtx := service.WithAgentSessionID(ctx, resolved.Session.ID)
+	admissionCtx, cancelAdmission := context.WithTimeout(context.WithoutCancel(ctx), agentCLISubmitResponseBudget)
+	admissionCtx = service.WithAgentSessionID(admissionCtx, resolved.Session.ID)
+	receipt, err := s.Service.TaskExecutionSubmitAsync(admissionCtx, resolved.ProjectID, stage)
+	cancelAdmission()
 	if err != nil {
 		return nil, err
 	}
-	return call.Execute(authority.Attach(ctx, s.AuthorityContext), raw)
+	deadline := time.NewTimer(agentCLISubmitResponseBudget)
+	defer deadline.Stop()
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if receipt.Result != nil {
+			return *receipt.Result, nil
+		}
+		if receipt.Status == "failed" || receipt.Status == "outcome_unknown" {
+			return nil, fmt.Errorf("Task submission operation %s ended %s: %s", receipt.OperationID, receipt.Status, receipt.Error)
+		}
+		select {
+		case <-ctx.Done():
+			return receipt, nil
+		case <-deadline.C:
+			return receipt, nil
+		case <-ticker.C:
+			receipt, err = s.Service.TaskExecutionSubmitOperationStatus(workerCtx, receipt.OperationID)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 }
 
 func writeAgentCLISubmitJSON(w http.ResponseWriter, status int, value any) {

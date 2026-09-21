@@ -3,12 +3,31 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 func (s *Service) durableMutationExecutionSet1(ctx context.Context, operation durableMutationOperation) (json.RawMessage, error) {
 	switch operation.Kind {
+	case taskExecutionSubmitKind:
+		var input taskExecutionSubmitInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return nil, err
+		}
+		var result TaskExecutionPublicOutput
+		var err error
+		if input.Stage == "code" {
+			result, err = s.TaskExecutionSubmitCodeForAgent(ctx, operation.ProjectID)
+		} else if input.Stage == "rebase" {
+			result, err = s.TaskExecutionSubmitRebaseForAgent(ctx, operation.ProjectID)
+		} else {
+			err = fmt.Errorf("unsupported Task submission stage %q", input.Stage)
+		}
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(result)
 	case "task-execution-integrate":
 		var input TaskExecutionIntegrateInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {

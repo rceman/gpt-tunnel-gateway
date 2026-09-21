@@ -165,7 +165,7 @@ func taskSubmitGatewayCall(ctx context.Context, s *service.Service, command stri
 	request.Header.Set("Content-Type", "application/json")
 	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("Gateway Task submission request failed: %w", err)
+		return nil, fmt.Errorf("Gateway Task submission request failed; rerun the same submit command to reconcile the durable outcome: %w", err)
 	}
 	defer response.Body.Close()
 	var envelope map[string]any
