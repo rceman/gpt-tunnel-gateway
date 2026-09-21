@@ -76,6 +76,7 @@ func TestGuideIsZeroStateAndMatchesCanonicalContent(t *testing.T) {
 			t.Fatalf("guide omitted critical text %q", text)
 		}
 	}
+	assertTSK658GuideSingleSubmitWorkflow(t, string(output))
 	for _, stale := range []string{"Planner alone", "under Planner authority", "canonical wave", "Agent/Worker queue"} {
 		if strings.Contains(string(output), stale) {
 			t.Fatalf("guide retains stale concept %q: %s", stale, output)
@@ -120,6 +121,34 @@ func TestGuideDocumentsBoundedAlternativeWhenRGIsUnavailable(t *testing.T) {
 	lower := strings.ToLower(text)
 	if strings.Contains(text, "rg --files") || strings.Contains(lower, "fallback") || strings.Contains(lower, "install rg") || strings.Contains(lower, "sudo ") || strings.Contains(lower, "package manager") {
 		t.Fatalf("no-rg guide contains an unavailable or prohibited instruction: %s", text)
+	}
+}
+
+func assertTSK658GuideSingleSubmitWorkflow(t *testing.T, text string) {
+	t.Helper()
+	for _, required := range []string{
+		"submit-code",
+		"submit-rebase",
+		"production+tests",
+		"focused/affected",
+		"scripts/test-fast.py",
+		"go test ./...",
+		"scripts/test-full.sh",
+		"race",
+		"performance",
+		"profile",
+		"E2E",
+		"Lead owns task/test full verification",
+		"stop for Lead review",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("guide omitted single-submit invariant %q", required)
+		}
+	}
+	for _, stale := range []string{"submit-tests", "submit tests", "production-first", "production first", "tests-only checkpoint", "test artifact", "tests artifact", "separate test", "separate tests", "distinct test", "distinct tests", "mandatory tests"} {
+		if strings.Contains(strings.ToLower(text), stale) {
+			t.Fatalf("guide retains stale submit workflow %q", stale)
+		}
 	}
 }
 

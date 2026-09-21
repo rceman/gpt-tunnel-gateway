@@ -43,7 +43,12 @@ func TestHelpQuickStartPrecedesCommandInventoryAndAvoidsStaleOnboardingUX(t *tes
 		}
 		previous = position
 	}
-	for _, stale := range []string{"--code", "--worker-relay", "--lead-relay", "admin/project/onboard"} {
+	for _, required := range []string{"one production+tests candidate", "focused/affected checks", "scripts/test-fast.py", "Lead owns task/test full verification"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("help omitted single-submit workflow text %q: %q", required, text)
+		}
+	}
+	for _, stale := range []string{"--code", "--worker-relay", "--lead-relay", "admin/project/onboard", "submit-tests"} {
 		if strings.Contains(text, stale) {
 			t.Fatalf("help advertises stale or frozen syntax %q: %q", stale, text)
 		}

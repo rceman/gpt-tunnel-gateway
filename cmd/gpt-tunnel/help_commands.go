@@ -34,6 +34,9 @@ Commands
   gpt-tunnel guide
   gpt-tunnel agent register --relay <SESSION>
   gpt-tunnel task <read|work|finalize|submit-code|submit-rebase> ...
+
+Worker Task submission is one production+tests candidate through submit-code after focused/affected checks and scripts/test-fast.py; Lead owns task/test full verification.
+
   gpt-tunnel {format|check|test|verify|work|plan|adr|journal|git|query|daemon} ...
 `)
 }
