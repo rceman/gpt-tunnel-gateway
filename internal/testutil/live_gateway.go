@@ -2,7 +2,9 @@ package testutil
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -16,7 +18,9 @@ import (
 	"testing"
 	"time"
 
+	upstream "github.com/rceman/go-sqlite-store/store"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 const liveGatewayReadyTimeout = 10 * time.Second
@@ -150,7 +154,69 @@ func (g *LiveGateway) RunCLI(options LiveCommandOptions, args ...string) LiveCom
 	}
 }
 
+func (g *LiveGateway) MustCLI(t *testing.T, options LiveCommandOptions, args ...string) LiveCommandResult {
+	t.Helper()
+	result := g.RunCLI(options, args...)
+	if result.Err != nil {
+		t.Fatalf("gpt-tunnel %v failed: %v\nstderr=%s", args, result.Err, result.Stderr)
+	}
+	return result
+}
+
+func (g *LiveGateway) MCPCall(ctx context.Context, name string, arguments map[string]any) (map[string]any, error) {
+	payload, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      name,
+			"arguments": arguments,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+g.ListenAddr()+"/mcp", bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := (&http.Client{Timeout: 10 * time.Second}).Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	var envelope map[string]any
+	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&envelope); err != nil {
+		return nil, err
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("MCP HTTP status %d: %v", response.StatusCode, envelope)
+	}
+	result, ok := envelope["result"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("MCP result missing: %v", envelope)
+	}
+	if result["isError"] == true {
+		return nil, fmt.Errorf("MCP call failed: %v", result)
+	}
+	structured, ok := result["structuredContent"].(map[string]any)
+	if !ok {
+		return result, nil
+	}
+	return structured, nil
+}
+
 func (g *LiveGateway) ListenAddr() string { return g.Config.ListenAddr }
+
+func (g *LiveGateway) OwnerLockActive() bool {
+	db, err := sqlitestore.Open(g.StateDir)
+	if err == nil {
+		_ = db.Close()
+		return false
+	}
+	return errors.Is(err, upstream.ErrAlreadyOpen) || strings.Contains(err.Error(), "already has an owner")
+}
 func (g *LiveGateway) DaemonStderr() string {
 	return g.stderr.String()
 }
