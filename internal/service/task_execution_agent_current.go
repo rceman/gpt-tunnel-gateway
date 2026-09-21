@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
+
+var errNoCurrentTask = errors.New("no current Task is assigned to this Worker")
 
 func (s *Service) TaskExecutionCurrent(ctx context.Context, projectID string) (TaskExecutionPublicOutput, error) {
 	key, err := s.resolveTaskExecutionTaskForAgent(ctx, projectID)
@@ -65,7 +68,7 @@ func (s *Service) resolveTaskExecutionTaskForAgent(ctx context.Context, projectI
 		selected = state.TaskID
 	}
 	if selected == "" {
-		return "", fmt.Errorf("no current Task is assigned to this Worker")
+		return "", errNoCurrentTask
 	}
 	return selected, nil
 }

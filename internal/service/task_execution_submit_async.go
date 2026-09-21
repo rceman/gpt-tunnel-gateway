@@ -1,8 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,7 +15,8 @@ import (
 const taskExecutionSubmitKind = "task-execution-submit"
 
 type taskExecutionSubmitInput struct {
-	Stage string `json:"stage"`
+	Stage  string `json:"stage"`
+	TaskID string `json:"task"`
 }
 
 type taskExecutionSubmitCapture struct {
@@ -74,12 +77,43 @@ func (s *Service) TaskExecutionSubmitAsync(ctx context.Context, projectID, stage
 	if sessionID == "" {
 		return TaskExecutionSubmitReceipt{}, fmt.Errorf("Task submission requires an active Worker Session")
 	}
-	input := taskExecutionSubmitInput{Stage: stage}
-	raw, err := json.Marshal(input)
+	projectCode, err := s.localOperationProjectCode(ctx, projectID)
 	if err != nil {
 		return TaskExecutionSubmitReceipt{}, err
 	}
-	projectCode, err := s.localOperationProjectCode(ctx, projectID)
+	key, resolveErr := s.resolveTaskExecutionTaskForAgent(ctx, projectID)
+	if resolveErr != nil {
+		if !errors.Is(resolveErr, errNoCurrentTask) {
+			return TaskExecutionSubmitReceipt{}, resolveErr
+		}
+		latest, found, findErr := s.findLatestTaskExecutionSubmitOperation(ctx, projectID, projectCode, sessionID, stage)
+		if findErr != nil {
+			return TaskExecutionSubmitReceipt{}, findErr
+		}
+		if !found {
+			return TaskExecutionSubmitReceipt{}, resolveErr
+		}
+		if latest.Status == "accepted" || latest.Status == "running" {
+			return taskExecutionSubmitReceipt(latest), nil
+		}
+		reconciled, _, reconcileErr := s.reconcileTaskExecutionSubmitOperation(ctx, latest)
+		if reconcileErr != nil {
+			return TaskExecutionSubmitReceipt{}, reconcileErr
+		}
+		return taskExecutionSubmitReceipt(reconciled), nil
+	}
+	state, foundState, err := s.Durability.ReadTaskExecutionState(ctx, projectID, key)
+	if err != nil {
+		return TaskExecutionSubmitReceipt{}, err
+	}
+	if !foundState {
+		return TaskExecutionSubmitReceipt{}, fmt.Errorf("Task has not been dispatched")
+	}
+	input := taskExecutionSubmitInput{
+		Stage:  stage,
+		TaskID: key,
+	}
+	raw, err := json.Marshal(input)
 	if err != nil {
 		return TaskExecutionSubmitReceipt{}, err
 	}
@@ -99,24 +133,9 @@ func (s *Service) TaskExecutionSubmitAsync(ctx context.Context, projectID, stage
 		if landed {
 			return taskExecutionSubmitReceipt(latest), nil
 		}
-		if latest.Status == "completed" || latest.Status == "failed" {
-			if _, currentErr := s.resolveTaskExecutionTaskForAgent(ctx, projectID); currentErr != nil {
-				return taskExecutionSubmitReceipt(latest), nil
-			}
-		} else if latest.Status == "outcome_unknown" {
+		if latest.Status == "outcome_unknown" {
 			return taskExecutionSubmitReceipt(latest), nil
 		}
-	}
-	key, err := s.resolveTaskExecutionTaskForAgent(ctx, projectID)
-	if err != nil {
-		return TaskExecutionSubmitReceipt{}, err
-	}
-	state, foundState, err := s.Durability.ReadTaskExecutionState(ctx, projectID, key)
-	if err != nil {
-		return TaskExecutionSubmitReceipt{}, err
-	}
-	if !foundState {
-		return TaskExecutionSubmitReceipt{}, fmt.Errorf("Task has not been dispatched")
 	}
 	operation, err := s.enqueueRepeatableAgentMutation(ctx, taskExecutionSubmitKind, projectID, input)
 	if err != nil {
@@ -147,6 +166,62 @@ func (s *Service) TaskExecutionSubmitAsync(ctx context.Context, projectID, stage
 		return TaskExecutionSubmitReceipt{}, readErr
 	}
 	return taskExecutionSubmitReceipt(operation), nil
+}
+
+func (s *Service) findLatestTaskExecutionSubmitOperation(ctx context.Context, projectID, projectCode, sessionID, stage string) (durableMutationOperation, bool, error) {
+	localOperations, err := s.Durability.ListLocalOperations(ctx, projectID)
+	if err != nil {
+		return durableMutationOperation{}, false, err
+	}
+	var latest durableMutationOperation
+	found := false
+	for _, local := range localOperations {
+		if local.Kind != taskExecutionSubmitKind || local.AdmissionSessionID != sessionID || local.AdmissionInputSHA256 == "" {
+			continue
+		}
+		if local.ProjectCode != projectCode {
+			return durableMutationOperation{}, false, fmt.Errorf("Task submission Local operation %s project code mismatch", local.OperationID)
+		}
+		operation, readErr := s.readDurableMutation(local.OperationID)
+		if readErr != nil {
+			return durableMutationOperation{}, false, fmt.Errorf("Task submission Local operation %s is corrupt: %w", local.OperationID, readErr)
+		}
+		operationCode, operationNumber, parseErr := model.ParseOperationID(operation.OperationID)
+		if parseErr != nil || operationCode != local.ProjectCode || operationNumber != local.OperationNumber || operation.OperationID != local.OperationID || operation.ProjectID != local.ProjectID || operation.Kind != local.Kind || operation.RequestSHA256 != local.MutationID {
+			return durableMutationOperation{}, false, fmt.Errorf("Task submission Local operation %s identity mismatch", local.OperationID)
+		}
+		if operation.SessionID != sessionID {
+			return durableMutationOperation{}, false, fmt.Errorf("Task submission Local operation %s session coordinate mismatch", local.OperationID)
+		}
+		if local.AdmissionInputSHA256 != durableMutationInputSHA256(operation.Input) {
+			return durableMutationOperation{}, false, fmt.Errorf("Task submission Local operation %s input coordinate mismatch", local.OperationID)
+		}
+		var compactInput bytes.Buffer
+		if err := json.Compact(&compactInput, operation.Input); err != nil {
+			return durableMutationOperation{}, false, fmt.Errorf("Task submission Local operation %s input is corrupt: %w", local.OperationID, err)
+		}
+		if operation.RequestSHA256 != durableMutationDigest(taskExecutionSubmitKind, sessionID, compactInput.Bytes()) {
+			return durableMutationOperation{}, false, fmt.Errorf("Task submission Local operation %s request identity mismatch", local.OperationID)
+		}
+		if !durableMutationKnownStatus(operation.Status) {
+			return durableMutationOperation{}, false, fmt.Errorf("Task submission Local operation %s has invalid status", local.OperationID)
+		}
+		var input taskExecutionSubmitInput
+		if err := json.Unmarshal(operation.Input, &input); err != nil {
+			return durableMutationOperation{}, false, fmt.Errorf("Task submission Local operation %s input is corrupt: %w", local.OperationID, err)
+		}
+		if input.Stage != stage || input.TaskID == "" {
+			continue
+		}
+		if err := model.ValidateTaskIDForProject(input.TaskID, projectCode); err != nil {
+			return durableMutationOperation{}, false, fmt.Errorf("Task submission Local operation %s has invalid Task input: %w", local.OperationID, err)
+		}
+		if !found || durableMutationTurnAfter(operation, latest) {
+			latest = operation
+			found = true
+		}
+	}
+	return latest, found, nil
 }
 
 // TaskExecutionSubmitOperationStatus returns a Task submission operation only

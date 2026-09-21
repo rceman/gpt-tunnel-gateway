@@ -89,6 +89,49 @@ func TestTSK657SubmitAdmissionReconcilesStillExecutingAndCompletedRepeat(t *test
 	}
 }
 
+func TestTSK654SubmitAdmissionScopesOperationToResolvedTask(t *testing.T) {
+	s, db := tsk585Setup(t)
+	defer db.Close()
+	firstTask := tsk585Task(t, s, "tsk654-submit-first", "First scoped submit")
+	tsk585Dispatch(t, s, firstTask.ID)
+	tsk585LaneCommit(t, s, firstTask.ID, "first scoped candidate")
+	workerCtx := tsk657WorkerContext(t, s)
+
+	firstReceipt, err := s.TaskExecutionSubmitAsync(workerCtx, "example", "code")
+	if err != nil || firstReceipt.OperationID == "" {
+		t.Fatalf("first submit receipt=%#v err=%v", firstReceipt, err)
+	}
+	firstOperation := tsk657WaitSubmitOperation(t, s, firstReceipt.OperationID, "completed")
+	var firstInput taskExecutionSubmitInput
+	if err := json.Unmarshal(firstOperation.Input, &firstInput); err != nil || firstInput.Stage != "code" || firstInput.TaskID != firstTask.ID {
+		t.Fatalf("first operation input=%#v err=%v", firstInput, err)
+	}
+	var firstCapture taskExecutionSubmitCapture
+	if err := json.Unmarshal([]byte(firstOperation.CapturedState), &firstCapture); err != nil || firstCapture.TaskID != firstTask.ID {
+		t.Fatalf("first operation capture=%#v err=%v", firstCapture, err)
+	}
+
+	secondTask := tsk585Task(t, s, "tsk654-submit-second", "Second scoped submit")
+	tsk585Dispatch(t, s, secondTask.ID)
+	tsk585LaneCommit(t, s, secondTask.ID, "second scoped candidate")
+	secondReceipt, err := s.TaskExecutionSubmitAsync(workerCtx, "example", "code")
+	if err != nil || secondReceipt.OperationID == "" || secondReceipt.OperationID == firstReceipt.OperationID {
+		t.Fatalf("second submit reused first operation: first=%#v second=%#v err=%v", firstReceipt, secondReceipt, err)
+	}
+	secondOperation := tsk657WaitSubmitOperation(t, s, secondReceipt.OperationID, "completed")
+	var secondInput taskExecutionSubmitInput
+	if err := json.Unmarshal(secondOperation.Input, &secondInput); err != nil || secondInput.Stage != "code" || secondInput.TaskID != secondTask.ID {
+		t.Fatalf("second operation input=%#v err=%v", secondInput, err)
+	}
+	if secondOperation.Result == nil {
+		t.Fatalf("second operation has no durable result: %#v", secondOperation)
+	}
+	var secondResult TaskExecutionPublicOutput
+	if err := json.Unmarshal(secondOperation.Result, &secondResult); err != nil || secondResult.Key != secondTask.ID {
+		t.Fatalf("second operation result=%#v err=%v", secondResult, err)
+	}
+}
+
 func TestTSK657SubmitAdmissionReconcilesLandedOutcomeUnknown(t *testing.T) {
 	s, db := tsk585Setup(t)
 	defer db.Close()
