@@ -8,12 +8,20 @@ import (
 )
 
 type projectOnboardOutput struct {
-	Status string                `json:"status"`
-	Agents []agentRegisterOutput `json:"agents,omitempty"`
+	Status     string                `json:"status"`
+	Token      string                `json:"token,omitempty"`
+	TokenUsage string                `json:"token_usage,omitempty"`
+	Agents     []agentRegisterOutput `json:"agents,omitempty"`
 }
 
 func renderProjectOnboard(result service.ProjectOnboardResult) projectOnboardOutput {
-	projected := projectOnboardOutput{Status: result.Status}
+	projected := projectOnboardOutput{
+		Status: result.Status,
+		Token:  result.Token,
+	}
+	if result.Token != "" {
+		projected.TokenUsage = service.ProjectOnboardTokenUsage
+	}
 	for _, agent := range result.Agents {
 		projected.Agents = append(projected.Agents, renderAgentRegister(agent))
 	}

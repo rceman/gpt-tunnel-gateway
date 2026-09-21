@@ -15,12 +15,11 @@ type SessionBootstrapResolution struct {
 	SessionRef *string
 }
 
-func (s *Service) ensureOnboardSessionBootstrapGrant(ctx context.Context, projectID, projectCode string) error {
+func (s *Service) ensureOnboardSessionBootstrapGrant(ctx context.Context, projectID, projectCode string) (sqlitestore.SessionBootstrapGrant, error) {
 	if s.Durability == nil || s.Durability.Local == nil {
-		return nil
+		return sqlitestore.SessionBootstrapGrant{}, nil
 	}
-	_, err := s.EnsureProjectSessionBootstrapGrant(ctx, projectID, projectCode)
-	return err
+	return s.EnsureProjectSessionBootstrapGrant(ctx, projectID, projectCode)
 }
 
 func (s *Service) EnsureProjectSessionBootstrapGrant(ctx context.Context, projectID, projectCode string) (sqlitestore.SessionBootstrapGrant, error) {

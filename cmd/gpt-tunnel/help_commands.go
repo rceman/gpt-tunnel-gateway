@@ -20,6 +20,7 @@ func help(args []string) {
 4. Bind that saved relay to the project:
    gpt-tunnel project onboard AIR agentir_worker
 5. The canonical Worker Agent identity is AIR-WORKER.
+6. Copy the printed token into the project chat and call session_start with {token}; retrieve the same value later with gpt-tunnel session token AIR.
 
 GPT Tunnel only binds the existing saved relay key. It does not automate Airelay trust, bypass approval, model selection, native-session creation or discovery, or runtime startup.
 

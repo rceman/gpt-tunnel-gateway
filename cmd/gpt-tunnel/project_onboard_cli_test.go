@@ -53,6 +53,7 @@ func TestProjectOnboardCLIOutputIsBoundedActionProjection(t *testing.T) {
 		Remote:        "origin",
 		DefaultBranch: "main",
 		Status:        "onboarded",
+		Token:         "gtwbt_project_token",
 		Agents: []service.AgentBootstrapResult{
 			{ProjectID: "gpt-tunnel-gateway", AgentID: "GTW-WORKER", Role: "worker", Relay: "gtw_master", Status: "registered"},
 			{ProjectID: "gpt-tunnel-gateway", AgentID: "GTW-LEAD", Role: "lead", Relay: "gtw_lead", Status: "already_registered"},
@@ -61,7 +62,7 @@ func TestProjectOnboardCLIOutputIsBoundedActionProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"status":"onboarded","agents":[{"agent":"GTW-WORKER","status":"registered"},{"agent":"GTW-LEAD","status":"already_registered"}]}`
+	want := `{"status":"onboarded","token":"gtwbt_project_token","token_usage":"Use this project token to start new Planner Sessions. It grants the highest project-scoped semantic authority for this project; keep it secret.","agents":[{"agent":"GTW-WORKER","status":"registered"},{"agent":"GTW-LEAD","status":"already_registered"}]}`
 	if string(data) != want {
 		t.Fatalf("project onboard CLI projection drifted:\n got %s\nwant %s", data, want)
 	}

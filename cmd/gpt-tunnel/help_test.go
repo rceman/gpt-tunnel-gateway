@@ -31,6 +31,8 @@ func TestHelpQuickStartPrecedesCommandInventoryAndAvoidsStaleOnboardingUX(t *tes
 		"Save the existing airelay session as <folder>_worker",
 		"gpt-tunnel project onboard AIR agentir_worker",
 		"AIR-WORKER",
+		"printed token into the project chat",
+		"session_start with {token}",
 		"Commands",
 	}
 	previous := -1

@@ -22,6 +22,8 @@ type ProjectOnboardInput struct {
 	LeadRelay   string `json:"lead_relay,omitempty"`
 }
 
+const ProjectOnboardTokenUsage = "Use this project token to start new Planner Sessions. It grants the highest project-scoped semantic authority for this project; keep it secret."
+
 type ProjectOnboardResult struct {
 	ProjectID     string                 `json:"project_id"`
 	ProjectCode   string                 `json:"project_code"`
@@ -29,6 +31,8 @@ type ProjectOnboardResult struct {
 	Remote        string                 `json:"remote"`
 	DefaultBranch string                 `json:"default_branch"`
 	Status        string                 `json:"status"`
+	Token         string                 `json:"token,omitempty"`
+	TokenUsage    string                 `json:"token_usage,omitempty"`
 	Agents        []AgentBootstrapResult `json:"agents,omitempty"`
 }
 
@@ -65,10 +69,15 @@ func (s *Service) ProjectOnboard(ctx context.Context, in ProjectOnboardInput) (P
 		if err := s.verifyOnboardedProject(ctx, identity.projectID, in.ProjectCode); err != nil {
 			return ProjectOnboardResult{}, err
 		}
-		if err := s.ensureOnboardSessionBootstrapGrant(ctx, identity.projectID, in.ProjectCode); err != nil {
+		grant, err := s.ensureOnboardSessionBootstrapGrant(ctx, identity.projectID, in.ProjectCode)
+		if err != nil {
 			return ProjectOnboardResult{}, err
 		}
 		result := identity.result("already_registered")
+		result.Token = grant.Token
+		if grant.Token != "" {
+			result.TokenUsage = ProjectOnboardTokenUsage
+		}
 		return s.registerOnboardAgents(ctx, result, in.WorkerRelay, in.LeadRelay)
 	}
 	if static, ok := s.Config.Projects[identity.projectID]; ok {
@@ -109,10 +118,15 @@ func (s *Service) ProjectOnboard(ctx context.Context, in ProjectOnboardInput) (P
 	if err := s.reconcileOnboardedProjectShared(ctx, identity.projectID, in.ProjectCode); err != nil {
 		return ProjectOnboardResult{}, err
 	}
-	if err := s.ensureOnboardSessionBootstrapGrant(ctx, identity.projectID, in.ProjectCode); err != nil {
+	grant, err := s.ensureOnboardSessionBootstrapGrant(ctx, identity.projectID, in.ProjectCode)
+	if err != nil {
 		return ProjectOnboardResult{}, err
 	}
 	result := identity.result("onboarded")
+	result.Token = grant.Token
+	if grant.Token != "" {
+		result.TokenUsage = ProjectOnboardTokenUsage
+	}
 	return s.registerOnboardAgents(ctx, result, in.WorkerRelay, in.LeadRelay)
 }
 
