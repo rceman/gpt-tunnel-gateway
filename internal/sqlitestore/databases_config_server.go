@@ -239,4 +239,8 @@ const (
 	localRelationMigrationName                            = "create local relation authority"
 	localSessionBootstrapMigrationVersion           int64 = 202609202143
 	localSessionBootstrapMigrationName                    = "create local session bootstrap grants"
+	localMessageMigrationVersion                    int64 = 202609211000
+	localMessageMigrationName                             = "create PLAW message authority"
+	localMessageCancellationMigrationVersion        int64 = 202609211010
+	localMessageCancellationMigrationName                 = "add PLAW message cancellation actor"
 )

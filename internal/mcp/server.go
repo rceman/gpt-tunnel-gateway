@@ -21,6 +21,8 @@ type Server struct {
 	genericActions         map[string]GenericAction
 	agentActions           sync.Once
 	agentActionErr         error
+	messageActions         sync.Once
+	messageActionErr       error
 	taskAuthoringActions   sync.Once
 	taskAuthoringActionErr error
 	runtimeLogActions      sync.Once
@@ -102,6 +104,7 @@ func (t Tool) MarshalJSON() ([]byte, error) {
 
 func (s *Server) tools() map[string]Tool {
 	s.ensureAgentActions()
+	s.ensureMessageActions()
 	s.ensureTaskAuthoringActions()
 	s.ensureRuntimeLogActions()
 	s.ensureSystemAwaitActions()

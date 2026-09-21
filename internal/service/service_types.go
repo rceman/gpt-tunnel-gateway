@@ -43,6 +43,7 @@ type Service struct {
 	taskIntegrationFaultHook                func(context.Context, string) error
 	taskExecutionRefreshFaultHook           func(context.Context, string) error
 	taskIntegrationWriteAhead               func(context.Context, taskExecutionIntegrationCapture) error
+	messageNotifier                         func(context.Context, MessageNotification) error
 	formatExecutor                          func(context.Context, string, []string) error
 	verifyWorktreeFingerprint               func(context.Context, string) (string, error)
 	workCheckpointExecutor                  func(context.Context, string, string, []string, []string) ([]model.CompletionGateResult, error)
