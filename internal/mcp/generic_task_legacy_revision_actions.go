@@ -57,10 +57,7 @@ func (s *Server) registerTaskLegacyRevisionActions() error {
 				})
 			}
 			result := map[string]any{"task": in.Task, "revisions": items}
-			if page.HasMore && page.NextCursor != "" {
-				result["next_cursor"] = page.NextCursor
-			}
-			return result, nil
+			return genericActionPageResult(result, page.HasMore, page.NextCursor)
 		},
 	}); err != nil {
 		return err
@@ -135,7 +132,7 @@ func taskLegacyRevisionListOutputSchema() map[string]any {
 		"title": outputString(), "status": outputString(), "created_at": outputDateTime(),
 	}, "revision_id", "revision", "revision_sha256", "title", "status", "created_at")
 	return closedOutput(map[string]any{
-		"task": outputString(), "revisions": outputArray(item), "next_cursor": outputString(),
+		"task": outputString(), "revisions": outputArray(item),
 	}, "task", "revisions")
 }
 

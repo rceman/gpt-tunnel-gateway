@@ -28,6 +28,42 @@ func genericActionError(_ string, message any) map[string]any {
 	}
 	return map[string]any{"result": map[string]any{"error": fmt.Sprint(message)}, "is_error": true}
 }
+
+type genericActionContinuation struct {
+	Result     map[string]any
+	Pagination map[string]any
+}
+
+func genericActionResultWithCursor(result map[string]any, cursor string) genericActionContinuation {
+	var pagination map[string]any
+	if strings.TrimSpace(cursor) != "" {
+		pagination = map[string]any{"next_cursor": cursor}
+	}
+	return genericActionContinuation{
+		Result:     result,
+		Pagination: pagination,
+	}
+}
+
+func genericActionPageResult(result map[string]any, hasMore bool, cursor string) (genericActionContinuation, error) {
+	if !hasMore {
+		cursor = ""
+	} else if strings.TrimSpace(cursor) == "" {
+		return genericActionContinuation{}, fmt.Errorf("collection continuation cursor is required")
+	}
+	return genericActionResultWithCursor(result, cursor), nil
+}
+
+func genericActionValue(value any) (map[string]any, map[string]any, error) {
+	if actionResult, ok := value.(genericActionContinuation); ok {
+		if actionResult.Result == nil {
+			return nil, nil, fmt.Errorf("action returned no object result")
+		}
+		return normalizeObject(actionResult.Result), actionResult.Pagination, nil
+	}
+	return normalizeObject(value), nil, nil
+}
+
 func genericActionSuccess(result map[string]any) map[string]any {
 	return map[string]any{"result": result, "is_error": false}
 }

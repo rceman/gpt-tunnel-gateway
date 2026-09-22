@@ -87,7 +87,7 @@ func TestTSK531CanonicalTaskSurfaceAndLegacyEvidenceContract(t *testing.T) {
 		assertSchemaKeys(path+" output", entries[path].OutputSchema, []string{"key", "revision"})
 	}
 	for _, path := range []string{"task/list", "task/query"} {
-		assertSchemaKeys(path+" output", entries[path].OutputSchema, []string{"items", "next_cursor"})
+		assertSchemaKeys(path+" output", entries[path].OutputSchema, []string{"items"})
 		items := entries[path].OutputSchema["properties"].(map[string]any)["items"].(map[string]any)
 		item := items["items"].(map[string]any)
 		assertSchemaKeys(path+" item", item, []string{"key", "title", "summary", "status", "revision", "updated_at"})
@@ -118,10 +118,10 @@ func TestTSK531TaskHistoryOutputIsUniversalKeyAndItems(t *testing.T) {
 	entries := server.genericActionRegistry(server.tools())
 	schema := entries["task/history"].OutputSchema
 	properties := schemaProperties(schema)
-	if len(properties) != 3 {
+	if len(properties) != 2 {
 		t.Fatalf("task/history output properties=%v", properties)
 	}
-	for _, key := range []string{"key", "items", "next_cursor"} {
+	for _, key := range []string{"key", "items"} {
 		if _, ok := properties[key]; !ok {
 			t.Fatalf("task/history output missing %q: %v", key, properties)
 		}

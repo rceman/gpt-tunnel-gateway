@@ -102,16 +102,16 @@ func milestoneReadOutputSchema() map[string]any {
 
 func milestoneSummaryOutputSchema() map[string]any {
 	p := milestoneProperties()
-	return closedOutput(map[string]any{"key": p["key"], "revision": p["revision"], "title": p["title"], "summary": p["summary"], "status": p["status"], "tasks": outputArray(milestoneTaskOutputSchema()), "report": outputString(), "updated_at": outputDateTime()}, "key", "revision", "title", "status", "tasks", "report")
+	return closedOutput(map[string]any{"key": p["key"], "revision": p["revision"], "title": p["title"], "summary": p["summary"], "status": p["status"], "updated_at": outputDateTime()}, "key", "revision", "title", "status")
 }
 
 func milestoneListOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"items": outputArray(milestoneSummaryOutputSchema()), "next_cursor": outputString()}, "items")
+	return closedOutput(map[string]any{"items": outputArray(milestoneSummaryOutputSchema())}, "items")
 }
 
 func milestoneHistoryOutputSchema() map[string]any {
 	row := closedOutput(map[string]any{"revision": outputInteger(), "mutation_kind": outputString(), "actor": outputString(), "reason": outputString(), "changed_fields": outputArray(outputString()), "recorded_at": outputDateTime()}, "revision", "mutation_kind", "actor", "reason", "recorded_at")
-	return closedOutput(map[string]any{"key": outputString(), "items": outputArray(row), "next_cursor": outputString()}, "key", "items")
+	return closedOutput(map[string]any{"key": outputString(), "items": outputArray(row)}, "key", "items")
 }
 
 func milestoneViewValue(view service.MilestoneView) map[string]any {
@@ -141,10 +141,14 @@ func milestoneViewValue(view service.MilestoneView) map[string]any {
 }
 
 func milestoneSummaryValue(view service.MilestoneView) map[string]any {
-	value := milestoneViewValue(view)
-	delete(value, "created_at")
-	delete(value, "completion_evidence")
-	delete(value, "completion_evidence_refs")
+	milestone := view.Milestone
+	value := map[string]any{"key": milestone.ID, "revision": milestone.Revision, "title": milestone.Title, "status": milestone.Status}
+	if milestone.Summary != "" {
+		value["summary"] = milestone.Summary
+	}
+	if milestone.Revision > 1 || !milestone.UpdatedAt.Equal(milestone.CreatedAt) {
+		value["updated_at"] = milestone.UpdatedAt
+	}
 	return value
 }
 
@@ -341,7 +345,7 @@ func (s *Server) registerMilestoneActions() error {
 			if err != nil {
 				return nil, err
 			}
-			return milestonePageValue(page), nil
+			return milestonePageValue(page)
 		},
 	}); err != nil {
 		return err
@@ -370,7 +374,7 @@ func (s *Server) registerMilestoneActions() error {
 			if err != nil {
 				return nil, err
 			}
-			return milestonePageValue(page), nil
+			return milestonePageValue(page)
 		},
 	}); err != nil {
 		return err
@@ -436,10 +440,8 @@ func (s *Server) registerMilestoneActions() error {
 				items = append(items, map[string]any{"revision": record.Revision, "mutation_kind": record.MutationKind, "actor": record.Actor, "reason": record.Reason, "changed_fields": record.ChangedFields, "recorded_at": record.RecordedAt})
 			}
 			result["items"] = items
-			if page.HasMore {
-				result["next_cursor"] = pagination.EncodeOpaqueKeyset("milestone-history:"+in.ProjectID+":"+in.Key, page.NextCursor)
-			}
-			return result, nil
+			cursor := pagination.EncodeOpaqueKeyset("milestone-history:"+in.ProjectID+":"+in.Key, page.NextCursor)
+			return genericActionPageResult(result, page.HasMore, cursor)
 		},
 	}); err != nil {
 		return err
@@ -511,14 +513,11 @@ func (s *Server) registerMilestoneActions() error {
 	return nil
 }
 
-func milestonePageValue(page service.MilestonePage) map[string]any {
+func milestonePageValue(page service.MilestonePage) (genericActionContinuation, error) {
 	items := make([]any, 0, len(page.Milestones))
 	for _, view := range page.Milestones {
 		items = append(items, milestoneSummaryValue(view))
 	}
 	result := map[string]any{"items": items}
-	if page.HasMore {
-		result["next_cursor"] = page.NextCursor
-	}
-	return result
+	return genericActionPageResult(result, page.HasMore, page.NextCursor)
 }

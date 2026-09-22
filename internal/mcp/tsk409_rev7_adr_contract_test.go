@@ -341,32 +341,34 @@ func TestTSK409Rev7ADRListProjectionPaginatesWithServerOwnedCursor(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	items, ok := page["items"].([]any)
+	items, ok := page.Result["items"].([]any)
 	if !ok || len(items) == 0 || len(items) >= len(adrs) {
 		t.Fatalf("truncated page items=%d err=%v", len(items), err)
 	}
-	paginationValue, ok := page["_pagination"].(map[string]any)
-	if !ok {
-		t.Fatalf("truncated page omitted pagination: %#v", page)
+	cursor, ok := page.Pagination["next_cursor"].(string)
+	if !ok || cursor == "" {
+		t.Fatalf("truncated page omitted outer pagination: %#v", page)
 	}
-	cursor := paginationValue["next_cursor"].(string)
 	last := items[len(items)-1].(map[string]any)["key"].(string)
 	decoded, ok := pagination.ResolveServerCursor(cursor, kind)
 	if !ok || decoded != last {
 		t.Fatalf("cursor resolved=%q ok=%v want %q", decoded, ok, last)
 	}
-	if _, exists := page["adrs"]; exists {
-		t.Fatalf("truncated page exposed adrs: %#v", page)
+	if _, exists := page.Result["adrs"]; exists {
+		t.Fatalf("truncated page exposed adrs: %#v", page.Result)
+	}
+	if _, exists := page.Result["_pagination"]; exists {
+		t.Fatalf("truncated page exposed private pagination: %#v", page.Result)
 	}
 
 	final, err := adrPublicPageValue(service.ADRListPageResult{ADRs: adrs[:3], CursorKind: kind})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, exists := final["_pagination"]; exists {
+	if final.Pagination != nil {
 		t.Fatalf("terminal page exposed pagination: %#v", final)
 	}
-	if terminalItems := final["items"].([]any); len(terminalItems) != 3 {
+	if terminalItems := final.Result["items"].([]any); len(terminalItems) != 3 {
 		t.Fatalf("terminal page items=%d want 3", len(terminalItems))
 	}
 	remaining := adrs[len(items):]
@@ -376,7 +378,7 @@ func TestTSK409Rev7ADRListProjectionPaginatesWithServerOwnedCursor(t *testing.T)
 		if err != nil {
 			t.Fatal(err)
 		}
-		count := len(next["items"].([]any))
+		count := len(next.Result["items"].([]any))
 		if count == 0 || count > len(remaining) {
 			t.Fatalf("page walk stalled: count=%d remaining=%d", count, len(remaining))
 		}

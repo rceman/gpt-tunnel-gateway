@@ -108,7 +108,7 @@ func adrMutationPublicValue(v service.OperationResult) map[string]any {
 	return map[string]any{"key": v.EntityKey, "revision": v.Revision}
 }
 
-func adrPublicPageCandidate(p service.ADRListPageResult, count int) (map[string]any, error) {
+func adrPublicPageCandidate(p service.ADRListPageResult, count int) (map[string]any, string, error) {
 	items := make([]any, 0, count)
 	for _, v := range p.ADRs[:count] {
 		item := map[string]any{"key": v.ID, "title": v.Title, "summary": v.Summary, "status": v.Status, "revision": v.Revision}
@@ -124,14 +124,14 @@ func adrPublicPageCandidate(p service.ADRListPageResult, count int) (map[string]
 			next = pagination.EncodeServerCursor(p.CursorKind, p.ADRs[count-1].ID)
 		}
 		if next == "" {
-			return nil, fmt.Errorf("ADR pagination invariant: continuation is empty")
+			return nil, "", fmt.Errorf("ADR pagination invariant: continuation is empty")
 		}
-		result["_pagination"] = map[string]any{"next_cursor": next}
+		return result, next, nil
 	}
-	return result, nil
+	return result, "", nil
 }
 
-func adrHistoryPageCandidate(p service.ADRHistoryResult, count int) (map[string]any, error) {
+func adrHistoryPageCandidate(p service.ADRHistoryResult, count int) (map[string]any, string, error) {
 	items := make([]any, 0, count)
 	for _, v := range p.Items[:count] {
 		item := map[string]any{"revision": v.Revision, "mutation_kind": v.MutationKind, "actor": v.Actor, "reason": v.Reason, "recorded_at": v.RecordedAt}
@@ -144,45 +144,53 @@ func adrHistoryPageCandidate(p service.ADRHistoryResult, count int) (map[string]
 	if p.HasMore || count < len(p.Items) {
 		next := p.NextCursor
 		if count < len(p.Items) {
-			return nil, fmt.Errorf("ADR history pagination invariant: continuation is not server-owned")
+			return nil, "", fmt.Errorf("ADR history pagination invariant: continuation is not server-owned")
 		}
 		if next == "" {
-			return nil, fmt.Errorf("ADR history pagination invariant: continuation is empty")
+			return nil, "", fmt.Errorf("ADR history pagination invariant: continuation is empty")
 		}
-		result["_pagination"] = map[string]any{"next_cursor": pagination.EncodeOpaqueKeyset(p.CursorKind, next)}
+		return result, pagination.EncodeOpaqueKeyset(p.CursorKind, next), nil
 	}
-	return result, nil
+	return result, "", nil
 }
 
-func adrPublicPageValue(p service.ADRListPageResult) (map[string]any, error) {
+func adrPublicPageValue(p service.ADRListPageResult) (genericActionContinuation, error) {
 	if len(p.ADRs) == 0 {
 		if p.HasMore {
-			return nil, fmt.Errorf("ADR pagination invariant: empty page has continuation")
+			return genericActionContinuation{}, fmt.Errorf("ADR pagination invariant: empty page has continuation")
 		}
-		return map[string]any{"items": []any{}}, nil
+		return genericActionPageResult(map[string]any{"items": []any{}}, false, "")
 	}
 	count, err := service.LargestPublicPageSize(len(p.ADRs), func(count int) (bool, error) {
-		candidate, err := adrPublicPageCandidate(p, count)
+		candidate, _, err := adrPublicPageCandidate(p, count)
 		if err != nil {
 			return false, err
 		}
 		return service.PublicPageFitsTokenBudget(candidate)
 	})
 	if err != nil {
-		return nil, err
+		return genericActionContinuation{}, err
 	}
 	if count == 0 {
-		return nil, fmt.Errorf("ADR semantic unit exceeds the token budget")
+		return genericActionContinuation{}, fmt.Errorf("ADR semantic unit exceeds the token budget")
 	}
-	return adrPublicPageCandidate(p, count)
+	candidate, cursor, err := adrPublicPageCandidate(p, count)
+	if err != nil {
+		return genericActionContinuation{}, err
+	}
+	return genericActionPageResult(candidate, p.HasMore || count < len(p.ADRs), cursor)
 }
 
-func adrHistoryPageValue(p service.ADRHistoryResult) (map[string]any, error) {
+func adrHistoryPageValue(p service.ADRHistoryResult) (genericActionContinuation, error) {
 	if len(p.Items) == 0 {
 		if p.HasMore {
-			return nil, fmt.Errorf("ADR history pagination invariant: empty page has continuation")
+			return genericActionContinuation{}, fmt.Errorf("ADR history pagination invariant: empty page has continuation")
 		}
-		return map[string]any{"key": p.Key, "items": []any{}}, nil
+		return genericActionPageResult(map[string]any{"key": p.Key, "items": []any{}}, false, "")
 	}
-	return adrHistoryPageCandidate(p, len(p.Items))
+	result, cursor, err := adrHistoryPageCandidate(p, len(p.Items))
+	if err != nil {
+		return genericActionContinuation{}, err
+	}
+	return genericActionPageResult(result, p.HasMore, cursor)
 }

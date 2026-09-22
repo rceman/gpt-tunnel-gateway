@@ -30,7 +30,7 @@ func TestTaskListSchemaUsesCanonicalBoundedSurface(t *testing.T) {
 		t.Fatalf("task_list output is not closed: %#v", output)
 	}
 	outputProperties := output["properties"].(map[string]any)
-	for _, name := range []string{"items", "next_cursor"} {
+	for _, name := range []string{"items"} {
 		if _, ok := outputProperties[name]; !ok {
 			t.Fatalf("task_list output missing %q: %#v", name, outputProperties)
 		}

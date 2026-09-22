@@ -107,10 +107,7 @@ func (s *Server) registerRelationActions() error {
 				return nil, err
 			}
 			value := map[string]any{"source": result.Source, "relations": relationGroupedValue(result.Relations)}
-			if result.NextCursor != "" {
-				value["_pagination"] = map[string]any{"next_cursor": result.NextCursor}
-			}
-			return value, nil
+			return genericActionPageResult(value, result.HasMore, result.NextCursor)
 		},
 	})
 }

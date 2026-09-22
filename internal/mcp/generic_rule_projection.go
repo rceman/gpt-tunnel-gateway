@@ -107,7 +107,7 @@ func ruleMutationPublicValue(v service.OperationResult) map[string]any {
 	return map[string]any{"key": v.EntityKey, "revision": v.Revision}
 }
 
-func rulePublicPageCandidate(p service.RuleListPageResult, count int) (map[string]any, error) {
+func rulePublicPageCandidate(p service.RuleListPageResult, count int) (map[string]any, string, error) {
 	items := make([]any, 0, count)
 	for _, v := range p.Rules[:count] {
 		item := map[string]any{"key": v.ID, "title": v.Title, "summary": v.Summary, "status": v.Status, "revision": v.Revision}
@@ -126,14 +126,14 @@ func rulePublicPageCandidate(p service.RuleListPageResult, count int) (map[strin
 			next = pagination.EncodeServerCursor(p.CursorKind, p.Rules[count-1].ID)
 		}
 		if next == "" {
-			return nil, fmt.Errorf("rule pagination invariant: continuation is empty")
+			return nil, "", fmt.Errorf("rule pagination invariant: continuation is empty")
 		}
-		result["_pagination"] = map[string]any{"next_cursor": next}
+		return result, next, nil
 	}
-	return result, nil
+	return result, "", nil
 }
 
-func ruleHistoryPageCandidate(p service.RuleHistoryResult, count int) (map[string]any, error) {
+func ruleHistoryPageCandidate(p service.RuleHistoryResult, count int) (map[string]any, string, error) {
 	items := make([]any, 0, count)
 	for _, v := range p.Items[:count] {
 		item := map[string]any{"revision": v.Revision, "mutation_kind": v.MutationKind, "actor": v.Actor, "reason": v.Reason, "recorded_at": v.RecordedAt}
@@ -146,45 +146,53 @@ func ruleHistoryPageCandidate(p service.RuleHistoryResult, count int) (map[strin
 	if p.HasMore || count < len(p.Items) {
 		next := p.NextCursor
 		if count < len(p.Items) {
-			return nil, fmt.Errorf("rule history pagination invariant: continuation is not server-owned")
+			return nil, "", fmt.Errorf("rule history pagination invariant: continuation is not server-owned")
 		}
 		if next == "" {
-			return nil, fmt.Errorf("rule history pagination invariant: continuation is empty")
+			return nil, "", fmt.Errorf("rule history pagination invariant: continuation is empty")
 		}
-		result["_pagination"] = map[string]any{"next_cursor": pagination.EncodeOpaqueKeyset(p.CursorKind, next)}
+		return result, pagination.EncodeOpaqueKeyset(p.CursorKind, next), nil
 	}
-	return result, nil
+	return result, "", nil
 }
 
-func rulePublicPageValue(p service.RuleListPageResult) (map[string]any, error) {
+func rulePublicPageValue(p service.RuleListPageResult) (genericActionContinuation, error) {
 	if len(p.Rules) == 0 {
 		if p.HasMore {
-			return nil, fmt.Errorf("rule pagination invariant: empty page has continuation")
+			return genericActionContinuation{}, fmt.Errorf("rule pagination invariant: empty page has continuation")
 		}
-		return map[string]any{"items": []any{}}, nil
+		return genericActionPageResult(map[string]any{"items": []any{}}, false, "")
 	}
 	count, err := service.LargestPublicPageSize(len(p.Rules), func(count int) (bool, error) {
-		candidate, err := rulePublicPageCandidate(p, count)
+		candidate, _, err := rulePublicPageCandidate(p, count)
 		if err != nil {
 			return false, err
 		}
 		return service.PublicPageFitsTokenBudget(candidate)
 	})
 	if err != nil {
-		return nil, err
+		return genericActionContinuation{}, err
 	}
 	if count == 0 {
-		return nil, fmt.Errorf("rule semantic unit exceeds the token budget")
+		return genericActionContinuation{}, fmt.Errorf("rule semantic unit exceeds the token budget")
 	}
-	return rulePublicPageCandidate(p, count)
+	candidate, cursor, err := rulePublicPageCandidate(p, count)
+	if err != nil {
+		return genericActionContinuation{}, err
+	}
+	return genericActionPageResult(candidate, p.HasMore || count < len(p.Rules), cursor)
 }
 
-func ruleHistoryPageValue(p service.RuleHistoryResult) (map[string]any, error) {
+func ruleHistoryPageValue(p service.RuleHistoryResult) (genericActionContinuation, error) {
 	if len(p.Items) == 0 {
 		if p.HasMore {
-			return nil, fmt.Errorf("rule history pagination invariant: empty page has continuation")
+			return genericActionContinuation{}, fmt.Errorf("rule history pagination invariant: empty page has continuation")
 		}
-		return map[string]any{"key": p.Key, "items": []any{}}, nil
+		return genericActionPageResult(map[string]any{"key": p.Key, "items": []any{}}, false, "")
 	}
-	return ruleHistoryPageCandidate(p, len(p.Items))
+	result, cursor, err := ruleHistoryPageCandidate(p, len(p.Items))
+	if err != nil {
+		return genericActionContinuation{}, err
+	}
+	return genericActionPageResult(result, p.HasMore, cursor)
 }

@@ -186,7 +186,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 			if err != nil {
 				return nil, err
 			}
-			return taskPageValue(page), nil
+			return taskPageValue(page)
 		},
 	}); err != nil {
 		return err
@@ -216,7 +216,7 @@ func (s *Server) registerTaskAuthoringActions() error {
 			if err != nil {
 				return nil, err
 			}
-			return taskPageValue(page), nil
+			return taskPageValue(page)
 		},
 	}); err != nil {
 		return err
@@ -281,13 +281,8 @@ func (s *Server) registerTaskAuthoringActions() error {
 				rows = append(rows, map[string]any{"revision": record.Revision, "mutation_kind": record.MutationKind, "actor": record.Actor, "reason": record.Reason, "changed_fields": record.ChangedFields, "recorded_at": record.RecordedAt})
 			}
 			result := map[string]any{"key": in.Key, "items": rows}
-			if page.HasMore {
-				if page.NextCursor == "" {
-					return nil, fmt.Errorf("task history continuation cursor is required")
-				}
-				result["next_cursor"] = pagination.EncodeOpaqueKeyset("task-history:"+in.ProjectID+":"+in.Key, page.NextCursor)
-			}
-			return result, nil
+			cursor := pagination.EncodeOpaqueKeyset("task-history:"+in.ProjectID+":"+in.Key, page.NextCursor)
+			return genericActionPageResult(result, page.HasMore, cursor)
 		},
 	}); err != nil {
 		return err
@@ -318,7 +313,7 @@ func reasonFromTaskRaw(raw json.RawMessage) string {
 	_ = json.Unmarshal(raw, &value)
 	return value.Reason
 }
-func taskPageValue(page service.TaskLifecyclePage) map[string]any {
+func taskPageValue(page service.TaskLifecyclePage) (genericActionContinuation, error) {
 	tasks := make([]any, 0, len(page.Tasks))
 	for _, task := range page.Tasks {
 		item := map[string]any{"key": task.ID, "title": task.Title, "summary": task.Summary, "status": task.Status, "revision": task.Revision}
@@ -328,8 +323,5 @@ func taskPageValue(page service.TaskLifecyclePage) map[string]any {
 		tasks = append(tasks, item)
 	}
 	result := map[string]any{"items": tasks}
-	if page.HasMore && page.NextCursor != "" {
-		result["next_cursor"] = page.NextCursor
-	}
-	return result
+	return genericActionPageResult(result, page.HasMore, page.NextCursor)
 }

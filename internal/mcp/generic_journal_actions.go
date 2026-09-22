@@ -89,10 +89,7 @@ func (s *Server) registerJournalActions() error {
 				items = append(items, journalEntryPublicProjection(entry))
 			}
 			result := map[string]any{"items": items}
-			if page.HasMore && page.NextCursor != "" {
-				result["_pagination"] = map[string]any{"next_cursor": page.NextCursor}
-			}
-			return result, nil
+			return genericActionPageResult(result, page.HasMore, page.NextCursor)
 		},
 	}); err != nil {
 		return err
@@ -218,9 +215,7 @@ func journalAddOutputSchema() map[string]any {
 }
 
 func journalListOutputSchema() map[string]any {
-	properties := map[string]any{"items": outputArray(journalEntryOutputSchema())}
-	properties["_pagination"] = map[string]any{"type": "object", "properties": map[string]any{"next_cursor": outputString()}}
-	return map[string]any{"type": "object", "properties": properties, "required": []string{"items"}}
+	return closedOutput(map[string]any{"items": outputArray(journalEntryOutputSchema())}, "items")
 }
 
 func journalReadOutputSchema() map[string]any {

@@ -178,7 +178,11 @@ func tsk585ExecuteGeneric(t *testing.T, server *Server, path string, arguments m
 	if err != nil {
 		t.Fatal(err)
 	}
-	return action.Execute(context.Background(), raw)
+	value, err := action.Execute(context.Background(), raw)
+	if continuation, ok := value.(genericActionContinuation); ok {
+		return continuation.Result, err
+	}
+	return value, err
 }
 func tsk585BrowseStatuses(t *testing.T, value any) []string {
 	t.Helper()

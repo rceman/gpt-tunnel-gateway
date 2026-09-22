@@ -46,9 +46,9 @@ func taskLifecycleSummarySchema() map[string]any {
 	return closedOutput(map[string]any{"key": outputString(), "title": outputString(), "summary": outputString(), "status": outputEnum(model.TaskAuthoringPlanned, model.TaskAuthoringReady, model.TaskAuthoringDone, model.TaskAuthoringArchived), "revision": outputInteger(), "updated_at": outputDateTime()}, "key", "title", "summary", "status", "revision")
 }
 func taskLifecycleListOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"items": outputArray(taskLifecycleSummarySchema()), "next_cursor": outputString()}, "items")
+	return closedOutput(map[string]any{"items": outputArray(taskLifecycleSummarySchema())}, "items")
 }
 func taskLifecycleHistoryOutputSchema() map[string]any {
 	row := closedOutput(map[string]any{"revision": outputInteger(), "mutation_kind": outputString(), "actor": outputString(), "reason": outputString(), "changed_fields": outputArray(outputString()), "recorded_at": outputDateTime()}, "revision", "mutation_kind", "actor", "reason", "recorded_at")
-	return closedOutput(map[string]any{"key": outputString(), "items": outputArray(row), "next_cursor": outputString()}, "key", "items")
+	return closedOutput(map[string]any{"key": outputString(), "items": outputArray(row)}, "key", "items")
 }

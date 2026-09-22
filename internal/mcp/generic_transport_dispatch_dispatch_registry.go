@@ -49,6 +49,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		ctx = runtime_log.WithOperationID(ctx, operationID)
 	}
 	started := false
+	var continuation map[string]any
 	defer func() {
 		if !started {
 			return
@@ -131,8 +132,17 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 			if err != nil {
 				return genericActionError(action, err.Error()), nil
 			}
-			result := compactActionResult(action, normalizeObject(value), detail)
-			publicResult, continuation, err := detachPrivateTransportMetadata(result)
+			result, continuation, err := genericActionValue(value)
+			if err != nil {
+				return genericActionError(action, err.Error()), nil
+			}
+			result = compactActionResult(action, result, detail)
+			var publicResult map[string]any
+			if continuation == nil {
+				publicResult, continuation, err = detachPrivateTransportMetadata(result)
+			} else {
+				publicResult = result
+			}
 			if err != nil {
 				return genericActionError(action, err.Error()), nil
 			}
@@ -173,11 +183,20 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	if err != nil {
 		return genericActionError(action, err), nil
 	}
-	result = compactActionResult(action, normalizeObject(value), detail)
+	result, continuation, err = genericActionValue(value)
+	if err != nil {
+		return genericActionError(action, err), nil
+	}
+	result = compactActionResult(action, result, detail)
 	if err := enforceCodeOutputTokenBudget(action, result); err != nil {
 		return genericActionError(action, err), nil
 	}
-	publicResult, continuation, err := detachPrivateTransportMetadata(result)
+	var publicResult map[string]any
+	if continuation == nil {
+		publicResult, continuation, err = detachPrivateTransportMetadata(result)
+	} else {
+		publicResult = result
+	}
 	if err != nil {
 		return genericActionError(action, err.Error()), nil
 	}

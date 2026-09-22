@@ -99,12 +99,12 @@ func trackReviewMutationOutputSchema() map[string]any {
 }
 
 func trackListOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"items": outputArray(trackSummaryOutputSchema()), "next_cursor": outputString()}, "items")
+	return closedOutput(map[string]any{"items": outputArray(trackSummaryOutputSchema())}, "items")
 }
 
 func trackHistoryOutputSchema() map[string]any {
 	row := closedOutput(map[string]any{"revision": outputInteger(), "mutation_kind": outputString(), "actor": outputString(), "reason": outputString(), "changed_fields": outputArray(outputString()), "recorded_at": outputDateTime()}, "revision", "mutation_kind", "actor", "reason", "recorded_at")
-	return closedOutput(map[string]any{"key": outputString(), "items": outputArray(row), "next_cursor": outputString()}, "key", "items")
+	return closedOutput(map[string]any{"key": outputString(), "items": outputArray(row)}, "key", "items")
 }
 
 func trackReviewValue(review *model.TrackReview) any {
@@ -476,7 +476,7 @@ func (s *Server) registerTrackActions() error {
 			if err != nil {
 				return nil, err
 			}
-			return trackPageValue(page), nil
+			return trackPageValue(page)
 		},
 	}); err != nil {
 		return err
@@ -506,7 +506,7 @@ func (s *Server) registerTrackActions() error {
 			if err != nil {
 				return nil, err
 			}
-			return trackPageValue(page), nil
+			return trackPageValue(page)
 		},
 	}); err != nil {
 		return err
@@ -540,22 +540,17 @@ func (s *Server) registerTrackActions() error {
 				items = append(items, map[string]any{"revision": record.Revision, "mutation_kind": record.MutationKind, "actor": record.Actor, "reason": record.Reason, "changed_fields": record.ChangedFields, "recorded_at": record.RecordedAt})
 			}
 			result["items"] = items
-			if page.HasMore {
-				result["next_cursor"] = pagination.EncodeOpaqueKeyset("track-history:"+in.ProjectID+":"+in.Key, page.NextCursor)
-			}
-			return result, nil
+			cursor := pagination.EncodeOpaqueKeyset("track-history:"+in.ProjectID+":"+in.Key, page.NextCursor)
+			return genericActionPageResult(result, page.HasMore, cursor)
 		},
 	})
 }
 
-func trackPageValue(page service.TrackPage) map[string]any {
+func trackPageValue(page service.TrackPage) (genericActionContinuation, error) {
 	items := make([]any, 0, len(page.Tracks))
 	for _, view := range page.Tracks {
 		items = append(items, trackSummaryValue(view))
 	}
 	result := map[string]any{"items": items}
-	if page.HasMore {
-		result["next_cursor"] = page.NextCursor
-	}
-	return result
+	return genericActionPageResult(result, page.HasMore, page.NextCursor)
 }
