@@ -35,7 +35,7 @@ func (d *Databases) EnsureSharedLifecycleHistory(ctx context.Context, entityType
 		}
 		return nil
 	}
-	if existing, readErr := d.ReadSharedRevision(ctx, entityType, record.ProjectID, record.EntityID, record.Revision); readErr == nil {
+	if existing, readErr := d.readStoredSharedRevision(ctx, entityType, record.ProjectID, record.EntityID, record.Revision); readErr == nil {
 		return compare(existing)
 	} else if !errors.Is(readErr, os.ErrNotExist) {
 		return readErr
@@ -43,7 +43,7 @@ func (d *Databases) EnsureSharedLifecycleHistory(ctx context.Context, entityType
 	insert := fmt.Sprintf("INSERT INTO %s(%s,%s,project_id,revision,mutation_kind,actor,reason,changed_fields,payload,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?)", definition.HistoryTable, definition.HistoryEntityColumn, definition.HistoryIDColumn)
 	if _, insertErr := d.Shared.Exec(ctx, insert, definition.EntityType, record.EntityID, record.ProjectID, record.Revision, record.MutationKind, record.Actor, record.Reason, changedFields, record.Payload, record.RecordedAt); insertErr == nil {
 		return nil
-	} else if existing, readErr := d.ReadSharedRevision(ctx, entityType, record.ProjectID, record.EntityID, record.Revision); readErr == nil {
+	} else if existing, readErr := d.readStoredSharedRevision(ctx, entityType, record.ProjectID, record.EntityID, record.Revision); readErr == nil {
 		return compare(existing)
 	} else {
 		return insertErr
@@ -120,6 +120,32 @@ func (d *Databases) PutSharedSequence(ctx context.Context, entityType, projectID
 }
 
 func (d *Databases) ReadSharedRevision(ctx context.Context, entityType, projectID, entityID string, revision int64) (SharedRevisionRecord, error) {
+	record, err := d.readStoredSharedRevision(ctx, entityType, projectID, entityID, revision)
+	if err == nil || !errors.Is(err, os.ErrNotExist) {
+		return record, err
+	}
+	current, currentErr := d.ReadSharedEntity(ctx, entityType, entityID)
+	if currentErr != nil || current.Revision != revision {
+		return record, err
+	}
+	var identity struct {
+		ProjectID string `json:"project_id"`
+	}
+	if unmarshalErr := json.Unmarshal(current.Payload, &identity); unmarshalErr != nil {
+		return SharedRevisionRecord{}, fmt.Errorf("invalid shared %s current payload: %w", entityType, unmarshalErr)
+	}
+	if identity.ProjectID != projectID {
+		return SharedRevisionRecord{}, fmt.Errorf("shared %s current state ownership mismatch", entityType)
+	}
+	return SharedRevisionRecord{
+		EntityID:  current.ID,
+		ProjectID: projectID,
+		Revision:  current.Revision,
+		Payload:   append([]byte(nil), current.Payload...),
+	}, nil
+}
+
+func (d *Databases) readStoredSharedRevision(ctx context.Context, entityType, projectID, entityID string, revision int64) (SharedRevisionRecord, error) {
 	definition, ok := sharedLifecycle(entityType)
 	if !ok || definition.HistoryTable == "" {
 		return SharedRevisionRecord{}, fmt.Errorf("shared lifecycle %q has no revision history", entityType)
