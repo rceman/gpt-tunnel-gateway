@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -116,7 +117,7 @@ func NewMilestone(projectID, id, title, summary string, tasks []string, createdB
 		Title:         title,
 		Summary:       summary,
 		Status:        MilestonePlanned,
-		Tasks:         append([]string{}, tasks...),
+		Tasks:         CanonicalMilestoneTasks(tasks),
 		CreatedBy:     createdBy,
 		CreatedAt:     now.UTC(),
 		UpdatedBy:     createdBy,
@@ -126,6 +127,14 @@ func NewMilestone(projectID, id, title, summary string, tasks []string, createdB
 		return Milestone{}, err
 	}
 	return milestone, nil
+}
+
+// CanonicalMilestoneTasks returns the unordered membership representation used
+// in durable Milestone payloads. Callers receive a detached sorted copy.
+func CanonicalMilestoneTasks(tasks []string) []string {
+	result := append([]string(nil), tasks...)
+	sort.Strings(result)
+	return result
 }
 
 func ValidateMilestoneEvidence(projectID, evidence string, refs []string) error {

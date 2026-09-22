@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -168,15 +169,11 @@ func (s *Service) MilestoneLifecycleUpdate(ctx context.Context, in MilestoneUpda
 	if err := s.requireLocalTaskAuthoring(ctx, in.ProjectID); err != nil {
 		return model.Milestone{}, OperationResult{}, err
 	}
-	if in.UpdatedBy == "" || in.Reason == "" || in.ExpectedRevision < 1 || in.Tasks == nil {
-		return model.Milestone{}, OperationResult{}, fmt.Errorf("milestone update requires actor, reason, expected revision, and full tasks")
+	if in.UpdatedBy == "" || in.Reason == "" || in.ExpectedRevision < 1 {
+		return model.Milestone{}, OperationResult{}, fmt.Errorf("milestone update requires actor, reason, and expected revision")
 	}
-	code, err := s.sharedTaskProjectCode(ctx, in.ProjectID)
-	if err != nil {
-		return model.Milestone{}, OperationResult{}, err
-	}
-	if err := s.validateMilestoneTasks(ctx, in.ProjectID, code, in.Tasks); err != nil {
-		return model.Milestone{}, OperationResult{}, err
+	if in.Tasks != nil {
+		return model.Milestone{}, OperationResult{}, fmt.Errorf("milestone update is metadata-only; tasks membership uses append_task or remove_task")
 	}
 	current, err := s.MilestoneLifecycleRead(ctx, in.ProjectID, in.Key, 0)
 	if err != nil {
@@ -188,6 +185,14 @@ func (s *Service) MilestoneLifecycleUpdate(ctx context.Context, in MilestoneUpda
 	if current.Revision != in.ExpectedRevision {
 		return model.Milestone{}, OperationResult{}, fmt.Errorf("milestone revision conflict: expected %d, current %d", in.ExpectedRevision, current.Revision)
 	}
+	if in.Title == nil && in.Summary == nil {
+		return current, OperationResult{
+			ProjectID: current.ProjectID,
+			EntityKey: current.ID,
+			Revision:  current.Revision,
+			Status:    current.Status,
+		}, nil
+	}
 	updated := current
 	if in.Title != nil {
 		updated.Title = *in.Title
@@ -195,7 +200,6 @@ func (s *Service) MilestoneLifecycleUpdate(ctx context.Context, in MilestoneUpda
 	if in.Summary != nil {
 		updated.Summary = *in.Summary
 	}
-	updated.Tasks = append([]string{}, in.Tasks...)
 	updated.Revision++
 	updated.UpdatedBy = in.UpdatedBy
 	updated.UpdatedAt = s.durableNow().UTC()
@@ -214,7 +218,7 @@ func (s *Service) MilestoneLifecycleUpdate(ctx context.Context, in MilestoneUpda
 		return model.Milestone{}, OperationResult{}, err
 	}
 	operationID := "milestone-update-" + in.Key + "-r" + strconv.Itoa(updated.Revision)
-	changed := []string{"tasks"}
+	changed := make([]string, 0, 2)
 	if in.Title != nil {
 		changed = append(changed, "title")
 	}
@@ -253,6 +257,9 @@ func (s *Service) MilestoneLifecycleComplete(ctx context.Context, in MilestoneCo
 	}
 	if current.Status != model.MilestoneActive {
 		return model.Milestone{}, fmt.Errorf("milestone %q cannot be completed from status %q", in.Key, current.Status)
+	}
+	if err := s.requireMilestoneHasNoNonterminalTracks(ctx, current.ProjectID, current.ID); err != nil {
+		return model.Milestone{}, err
 	}
 	if err := s.requireMilestoneTasksDone(ctx, current); err != nil {
 		return model.Milestone{}, err
@@ -298,6 +305,9 @@ func (s *Service) MilestoneLifecycleArchive(ctx context.Context, projectID, key,
 	}
 	if current.Status != model.MilestoneCompleted {
 		return model.Milestone{}, fmt.Errorf("milestone %q cannot be archived from status %q", key, current.Status)
+	}
+	if err := s.requireMilestoneHasNoNonterminalTracks(ctx, current.ProjectID, current.ID); err != nil {
+		return model.Milestone{}, err
 	}
 	entity, err := s.Durability.ReadSharedEntity(ctx, "milestone", key)
 	if err != nil {
@@ -481,6 +491,20 @@ func (s *Service) milestoneView(ctx context.Context, milestone model.Milestone) 
 			Priority: task.Priority,
 		})
 	}
+	sort.SliceStable(tasks, func(i, j int) bool {
+		rank := func(priority string) int {
+			value, err := model.TaskPriorityRank(priority)
+			if err != nil {
+				return len(model.TaskPriorities()) + 1
+			}
+			return value
+		}
+		left, right := rank(tasks[i].Priority), rank(tasks[j].Priority)
+		if left != right {
+			return left < right
+		}
+		return tasks[i].Key < tasks[j].Key
+	})
 	report, err := renderMilestoneReport(milestone, tasks)
 	if err != nil {
 		return MilestoneView{}, err

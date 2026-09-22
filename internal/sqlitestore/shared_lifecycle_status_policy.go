@@ -38,6 +38,12 @@ func validateSharedLifecycleStatus(definition sharedLifecycleDefinition, previou
 			return fmt.Errorf("invalid shared milestone payload")
 		}
 	}
+	if definition.EntityType == "track" {
+		var track model.Track
+		if err := json.Unmarshal(payload, &track); err != nil || model.ValidateTrack(track) != nil {
+			return fmt.Errorf("invalid shared Track payload")
+		}
+	}
 	if creating {
 		if !containsString(definition.AllowedCreateStatuses, next.Status) {
 			return fmt.Errorf("invalid shared %s create status", definition.EntityType)

@@ -6,6 +6,9 @@ import (
 )
 
 func validateMilestoneMutation(definition sharedLifecycleDefinition, previousPayload, payload []byte, kind, historyKind string) error {
+	if definition.EntityType == "track" {
+		return validateTrackMutation(previousPayload, payload, kind)
+	}
 	if definition.EntityType != "milestone" {
 		return nil
 	}

@@ -93,6 +93,13 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 		}
 		milestone.Statements = []upstream.Statement{{SQL: "SELECT 1"}}
 	}
+	track := sharedTrackMigration()
+	if name, applied := markers[sharedTrackMigrationVersion]; applied {
+		if name != sharedTrackMigrationName {
+			return fmt.Errorf("unsupported migration marker %d/%q", sharedTrackMigrationVersion, name)
+		}
+		track.Statements = []upstream.Statement{{SQL: "SELECT 1"}}
+	}
 	ruleSeed := migrate.Migration{Version: sharedRuleSeedMigrationVersion, Name: sharedRuleSeedMigrationName, Statements: []upstream.Statement{{SQL: "SELECT 1"}}}
 	ruleSeedApplied := false
 	if name, applied := markers[sharedRuleSeedMigrationVersion]; applied {
@@ -111,7 +118,7 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 				return err
 			}
 		}
-		return applyActiveMigrations(ctx, db, append(append(append(append(append(append([]migrate.Migration(nil), released...), sharedTaskLifecycleHardCutMigrationMarker()), relations), ruleSeed), priority), milestone)...)
+		return applyActiveMigrations(ctx, db, append(append(append(append(append(append(append([]migrate.Migration(nil), released...), sharedTaskLifecycleHardCutMigrationMarker()), relations), ruleSeed), priority), milestone), track)...)
 	}
 	if err := applyActiveMigrations(ctx, db, released...); err != nil {
 		return err
@@ -126,7 +133,7 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 			return err
 		}
 	}
-	return applyActiveMigrations(ctx, db, append(append(append(append(append(append([]migrate.Migration(nil), released...), hardCut), relations), ruleSeed), priority), milestone)...)
+	return applyActiveMigrations(ctx, db, append(append(append(append(append(append(append([]migrate.Migration(nil), released...), hardCut), relations), ruleSeed), priority), milestone), track)...)
 }
 
 func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {

@@ -227,6 +227,8 @@ const (
 	sharedTaskPriorityMigrationName                       = "re-audit active task priorities"
 	sharedMilestoneMigrationVersion                 int64 = 202609202200
 	sharedMilestoneMigrationName                          = "create shared milestones"
+	sharedTrackMigrationVersion                     int64 = 202609221000
+	sharedTrackMigrationName                              = "create shared tracks"
 	localBaselineVersion                            int64 = 202609080505
 	localBaselineName                                     = "create local baseline"
 	localTokenUsageMigrationVersion                 int64 = 202609102010

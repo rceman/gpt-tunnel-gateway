@@ -45,6 +45,8 @@ type Server struct {
 	relationActionErr      error
 	milestoneActions       sync.Once
 	milestoneActionErr     error
+	trackActions           sync.Once
+	trackActionErr         error
 	adminActions           sync.Once
 	adminActionErr         error
 }
@@ -116,6 +118,7 @@ func (s *Server) tools() map[string]Tool {
 	s.ensureJournalActions()
 	s.ensureRelationActions()
 	s.ensureMilestoneActions()
+	s.ensureTrackActions()
 	t := map[string]Tool{}
 	add := toolAdder(func(name, description string, schema map[string]any, fn func(context.Context, json.RawMessage) (any, error)) {
 		output, outputOK := toolOutputSchemas[name]

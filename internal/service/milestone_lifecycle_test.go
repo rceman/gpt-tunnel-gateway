@@ -57,7 +57,6 @@ func TestMilestoneLifecycleCASMembershipCompletionAndArchive(t *testing.T) {
 		ProjectID:        "example",
 		Key:              created.ID,
 		Title:            &newTitle,
-		Tasks:            []string{"EXM-TSK1"},
 		ExpectedRevision: 1,
 		UpdatedBy:        "planner",
 		Reason:           "refine",
@@ -71,7 +70,6 @@ func TestMilestoneLifecycleCASMembershipCompletionAndArchive(t *testing.T) {
 	if _, _, err := s.MilestoneLifecycleUpdate(ctx, MilestoneUpdateInput{
 		ProjectID:        "example",
 		Key:              created.ID,
-		Tasks:            []string{"EXM-TSK1"},
 		ExpectedRevision: 1,
 		UpdatedBy:        "planner",
 		Reason:           "stale",

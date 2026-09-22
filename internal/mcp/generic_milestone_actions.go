@@ -42,7 +42,7 @@ func milestoneProperties() map[string]any {
 
 func milestoneCreateSchema() map[string]any {
 	p := milestoneProperties()
-	return obj(map[string]any{"title": p["title"], "summary": p["summary"], "tasks": p["tasks"]}, "title", "tasks")
+	return obj(map[string]any{"title": p["title"], "summary": p["summary"], "tasks": p["tasks"]}, "title")
 }
 
 func milestoneReadSchema() map[string]any {
@@ -52,7 +52,12 @@ func milestoneReadSchema() map[string]any {
 
 func milestoneUpdateSchema() map[string]any {
 	p := milestoneProperties()
-	return obj(map[string]any{"key": p["key"], "title": p["title"], "summary": p["summary"], "tasks": p["tasks"], "reason": p["reason"]}, "key", "tasks", "reason")
+	return obj(map[string]any{"key": p["key"], "title": p["title"], "summary": p["summary"], "reason": p["reason"]}, "key", "reason")
+}
+
+func milestoneMembershipSchema() map[string]any {
+	p := milestoneProperties()
+	return obj(map[string]any{"key": p["key"], "tasks": p["tasks"], "reason": p["reason"]}, "key", "tasks", "reason")
 }
 
 func milestoneListSchema() map[string]any {
@@ -165,7 +170,7 @@ func (s *Server) registerMilestoneActions() error {
 	}
 	if err := registerPlanner(GenericAction{
 		Path:                 "milestone/create",
-		Description:          "Create one planned Milestone with an ordered Task membership.",
+		Description:          "Create one planned Milestone with an unordered Task membership set.",
 		InputSchema:          milestoneCreateSchema(),
 		ExecutionInputSchema: adrExecutionSchema(milestoneCreateSchema()),
 		OutputSchema:         milestoneMutationOutputSchema(),
@@ -226,7 +231,7 @@ func (s *Server) registerMilestoneActions() error {
 	}
 	if err := registerPlanner(GenericAction{
 		Path:                 "milestone/update",
-		Description:          "Replace a Milestone's full ordered Task membership and mutable content.",
+		Description:          "Update Milestone metadata without changing Task membership.",
 		InputSchema:          milestoneUpdateSchema(),
 		ExecutionInputSchema: adrExecutionSchema(milestoneUpdateSchema()),
 		OutputSchema:         milestoneMutationOutputSchema(),
@@ -236,12 +241,11 @@ func (s *Server) registerMilestoneActions() error {
 		},
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in struct {
-				ProjectID string   `json:"project_id"`
-				Key       string   `json:"key"`
-				Reason    string   `json:"reason"`
-				Title     *string  `json:"title,omitempty"`
-				Summary   *string  `json:"summary,omitempty"`
-				Tasks     []string `json:"tasks"`
+				ProjectID string  `json:"project_id"`
+				Key       string  `json:"key"`
+				Reason    string  `json:"reason"`
+				Title     *string `json:"title,omitempty"`
+				Summary   *string `json:"summary,omitempty"`
 			}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
@@ -254,7 +258,7 @@ func (s *Server) registerMilestoneActions() error {
 			if err != nil {
 				return nil, err
 			}
-			m, result, err := s.Service.MilestoneLifecycleUpdate(ctx, service.MilestoneUpdateInput{ProjectID: in.ProjectID, Key: in.Key, Title: in.Title, Summary: in.Summary, Tasks: in.Tasks, ExpectedRevision: current.Revision, UpdatedBy: actor, Reason: in.Reason})
+			m, result, err := s.Service.MilestoneLifecycleUpdate(ctx, service.MilestoneUpdateInput{ProjectID: in.ProjectID, Key: in.Key, Title: in.Title, Summary: in.Summary, ExpectedRevision: current.Revision, UpdatedBy: actor, Reason: in.Reason})
 			if err != nil {
 				return nil, err
 			}
@@ -262,6 +266,57 @@ func (s *Server) registerMilestoneActions() error {
 		},
 	}); err != nil {
 		return err
+	}
+	for _, membership := range []struct {
+		path        string
+		description string
+		appendTasks bool
+	}{
+		{path: "milestone/append_task", description: "Add a batch of canonical Tasks to an unordered Milestone set.", appendTasks: true},
+		{path: "milestone/remove_task", description: "Remove a batch of canonical Tasks from an unordered Milestone set.", appendTasks: false},
+	} {
+		membership := membership
+		if err := registerPlanner(GenericAction{
+			Path:                 membership.path,
+			Description:          membership.description,
+			InputSchema:          milestoneMembershipSchema(),
+			ExecutionInputSchema: adrExecutionSchema(milestoneMembershipSchema()),
+			OutputSchema:         milestoneMutationOutputSchema(),
+			Annotations: ToolAnnotations{
+				DestructiveHint: true,
+				IdempotentHint:  true,
+			},
+			Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var in struct {
+					ProjectID string   `json:"project_id"`
+					Key       string   `json:"key"`
+					Tasks     []string `json:"tasks"`
+					Reason    string   `json:"reason"`
+				}
+				if err := decode(raw, &in); err != nil {
+					return nil, err
+				}
+				actor := service.AgentSessionID(ctx)
+				if actor == "" {
+					return nil, fmt.Errorf("authorized session actor is unavailable")
+				}
+				input := service.MilestoneMembershipInput{ProjectID: in.ProjectID, Key: in.Key, Tasks: in.Tasks, Actor: actor, Reason: in.Reason}
+				var milestone model.Milestone
+				var result service.OperationResult
+				var err error
+				if membership.appendTasks {
+					milestone, result, err = s.Service.MilestoneLifecycleAppendTasks(ctx, input)
+				} else {
+					milestone, result, err = s.Service.MilestoneLifecycleRemoveTasks(ctx, input)
+				}
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{"key": milestone.ID, "revision": result.Revision}, nil
+			},
+		}); err != nil {
+			return err
+		}
 	}
 	if err := registerRead(GenericAction{
 		Path:                 "milestone/list",

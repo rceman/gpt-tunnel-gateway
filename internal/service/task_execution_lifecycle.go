@@ -90,6 +90,9 @@ func (s *Service) TaskExecutionDispatch(ctx context.Context, in TaskExecutionDis
 		_ = s.Git.RemoveTaskWorktree(ctx, project, s.Config.StateDir, in.ProjectID, in.Key, task.Type, task.Title, base)
 		return TaskExecutionPublicOutput{}, err
 	}
+	if err := s.recordTrackTaskDispatch(ctx, in.ProjectID, in.Key); err != nil {
+		return TaskExecutionPublicOutput{}, err
+	}
 	return taskExecutionPublicOutput(state), nil
 }
 
