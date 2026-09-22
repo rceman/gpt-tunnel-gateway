@@ -35,6 +35,7 @@ type CodeSelectorError struct {
 }
 
 var errCodePageDone = errors.New("code page complete")
+var errCodeWorktreePageFull = errors.New("code worktree page full")
 
 var errCodeScanLimit = errors.New("code scan budget reached")
 

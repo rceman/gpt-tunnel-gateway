@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
@@ -98,6 +99,89 @@ func TestCodeWorktreePagePacksByTokensAndPreservesOrder(t *testing.T) {
 		if got[index] != item.Selector {
 			t.Fatalf("item %d=%q want %q", index, got[index], item.Selector)
 		}
+	}
+}
+
+func TestCodeWorktreePaginatesOverMoreThan100ManagedIdentitiesAndKeepsExactSelectors(t *testing.T) {
+	f := newLocalCodeFixture(t)
+	ctx := context.Background()
+	const identityCount = 101
+	now := time.Now().UTC().Truncate(time.Nanosecond)
+	selectors := make([]string, 0, identityCount)
+	for index := 1; index <= identityCount; index++ {
+		taskID := fmt.Sprintf("EXM-TSK%d", index)
+		lane := filepath.Join(f.service.Config.StateDir, "task-worktrees", "example", taskID)
+		if err := os.MkdirAll(filepath.Dir(lane), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		branch := "task/" + taskID + "-lane"
+		testutil.Git(t, f.root, "branch", branch, f.current)
+		testutil.Git(t, f.root, "worktree", "add", lane, branch)
+		t.Cleanup(func() {
+			testutil.Git(t, f.root, "worktree", "remove", "--force", lane)
+			testutil.Git(t, f.root, "branch", "-D", branch)
+		})
+		head := strings.TrimSpace(testutil.Git(t, lane, "rev-parse", "HEAD"))
+		selector := fmt.Sprintf("WT-TSK%d-%s", index, strings.ToLower(head[:8]))
+		selectors = append(selectors, selector)
+		if err := f.service.Durability.CreateTaskExecutionState(ctx, model.TaskExecutionState{
+			TaskID: taskID, ProjectID: "example", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("a", 64),
+			Status: model.TaskExecutionInProgress, Stage: "code", Worktree: selector,
+			BaseHead: f.base, Head: head, Branch: branch, Agent: "gtw-worker",
+			ExecutionRevision: 1, UpdatedAt: now.Add(time.Duration(index) * time.Second),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, err := f.service.CodeWorktree(ctx, CodeWorktreeInput{ProjectID: "example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Pagination == nil || first.Pagination.NextCursor == "" || len(first.Items) < 2 || first.Items[0].Kind != "main" {
+		t.Fatalf("first bounded page=%#v", first)
+	}
+	if _, err := f.service.CodeTree(ctx, CodeTreeInput{
+		ProjectID: "example",
+		Worktree:  selectors[identityCount-1],
+	}); err != nil {
+		t.Fatalf("exact selector failed alongside collection paging: %v", err)
+	}
+
+	seen := make(map[string]struct{}, identityCount+1)
+	for _, item := range first.Items {
+		if _, duplicate := seen[item.Selector]; duplicate {
+			t.Fatalf("duplicate selector on first page: %q", item.Selector)
+		}
+		seen[item.Selector] = struct{}{}
+	}
+	pages := 1
+	cursor := first.Pagination.NextCursor
+	for cursor != "" {
+		page, pageErr := f.service.CodeWorktree(ctx, CodeWorktreeInput{
+			ProjectID: "example",
+			Cursor:    cursor,
+		})
+		if pageErr != nil {
+			t.Fatalf("page %d: %v", pages+1, pageErr)
+		}
+		pages++
+		for _, item := range page.Items {
+			if _, duplicate := seen[item.Selector]; duplicate {
+				t.Fatalf("selector repeated across pages: %q", item.Selector)
+			}
+			seen[item.Selector] = struct{}{}
+		}
+		cursor = ""
+		if page.Pagination != nil {
+			cursor = page.Pagination.NextCursor
+		}
+		if pages > identityCount+1 {
+			t.Fatal("worktree pagination did not terminate")
+		}
+	}
+	if pages < 2 || len(seen) != identityCount+1 {
+		t.Fatalf("paged identities=%d pages=%d want identities=%d and multiple pages", len(seen), pages, identityCount+1)
 	}
 }
 

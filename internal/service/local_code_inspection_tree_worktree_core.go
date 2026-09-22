@@ -20,20 +20,14 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 		return CodeWorktreeResult{}, fmt.Errorf("invalid worktree query")
 	}
 	kind := "code-worktree|" + in.ProjectID + "|" + query
-	cursorFound := in.Cursor == ""
+	after, afterMain, cursorErr := decodeCodeWorktreePageCursor(in.Cursor, kind)
+	if cursorErr != nil {
+		return CodeWorktreeResult{}, cursorErr
+	}
 	page := make([]CodeWorktreeItem, 0)
 	nextCursor := ""
-	pageFull := errors.New("code worktree page full")
-	_, streamErr := s.codeWorktreeCandidatesStream(ctx, in.ProjectID, func(candidate codeWorktreeCandidate) error {
-		if query != "" && !strings.Contains(candidate.CodeIdentity.Worktree, query) && !strings.Contains(candidate.Label, query) {
-			return nil
-		}
-		if !cursorFound {
-			if codeWorktreeCursorMatches(in.Cursor, kind, candidate.CodeIdentity.Worktree) {
-				cursorFound = true
-			}
-			return nil
-		}
+	var lastAccepted *codeWorktreeCandidate
+	streamHasMore, lastCandidate, streamErr := s.codeWorktreeCandidatesPageStream(ctx, in.ProjectID, query, after, afterMain, func(candidate codeWorktreeCandidate) error {
 		item := CodeWorktreeItem{
 			Selector: candidate.CodeIdentity.Worktree,
 			Kind:     candidate.Kind,
@@ -41,11 +35,8 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 			Head:     candidate.CurrentHead,
 			Label:    candidate.Label,
 		}
+		candidateCursor := encodeCodeWorktreePageCursor(kind, candidate)
 		trial := append(append([]CodeWorktreeItem{}, page...), item)
-		candidateCursor := ""
-		if len(trial) > 0 {
-			candidateCursor = pagination.Encode(kind, item.Selector)
-		}
 		fits, fitErr := codePageFits(CodeWorktreeResult{
 			Items:      trial,
 			Pagination: codePagination(candidateCursor),
@@ -57,17 +48,22 @@ func (s *Service) CodeWorktree(ctx context.Context, in CodeWorktreeInput) (CodeW
 			if len(page) == 0 {
 				return fmt.Errorf("code worktree item exceeds %d tokenizer tokens", CodePageTokenBudget)
 			}
-			nextCursor = pagination.Encode(kind, page[len(page)-1].Selector)
-			return pageFull
+			nextCursor = encodeCodeWorktreePageCursor(kind, *lastAccepted)
+			return errCodeWorktreePageFull
 		}
 		page = trial
+		copy := candidate
+		lastAccepted = &copy
 		return nil
 	})
-	if streamErr != nil && !errors.Is(streamErr, pageFull) {
+	if streamErr != nil {
 		return CodeWorktreeResult{}, streamErr
 	}
-	if in.Cursor != "" && !cursorFound {
-		return CodeWorktreeResult{}, fmt.Errorf("continuation cursor is no longer valid")
+	if streamHasMore && nextCursor == "" {
+		if lastCandidate == nil {
+			return CodeWorktreeResult{}, fmt.Errorf("code worktree continuation has no last identity")
+		}
+		nextCursor = encodeCodeWorktreePageCursor(kind, *lastCandidate)
 	}
 	if nextCursor == "" {
 		result := CodeWorktreeResult{Items: page}
