@@ -1,0 +1,411 @@
+{
+  "task": {
+    "key": "GTW-TSK595",
+    "revision": 10,
+    "worktree": "WT-TSK595-78c693d9",
+    "base": "78c693d9",
+    "kind": "audit-freeze",
+    "public_runtime_behavior_change": false
+  },
+  "authority": {
+    "contract": "The dispatched GTW-TSK595 rev10 and its stated current authority govern this inventory. ADR Shared reads returned 'ADR Shared durability is unavailable'; this artifact does not claim to reproduce unread ADR text.",
+    "successor_tasks_read": [
+      {
+        "key": "GTW-TSK597",
+        "bounded_scope": "Build the one canonical YAML Action Contract DSL/compiler, typed compiled model, validation core, and shared definitions for PLAW roles, semantic entity refs, Track/Milestone, ADR84 cursors, compact fingerprints/handles, timestamps, bounded durations, revisions, reasons, Operation kinds/states, Track review, Task execution/verification, and ADR140 output invariants. Derive Operation kinds from current durable producers; resolve canonical ADR140 authority before encoding it rather than guessing. Include approved defaults/default_overrides. This foundation changes no public behavior or wire schema."
+      },
+      {
+        "key": "GTW-TSK598",
+        "bounded_scope": "Migrate exactly this frozen inventory to generated schemas, runtime input/output validation, compact discovery, and handler parity; hard-cut selectors and aliases only as listed here."
+      },
+      {
+        "key": "GTW-TSK599",
+        "bounded_scope": "After TSK598 parity, remove superseded hand-authored schema builders, duplicate registries, transitional bridges, and dead retired-action fragments; preserve immutable historical data."
+      }
+    ],
+    "principles": [
+      "Track and Milestone are first-class durable entities.",
+      "ADR84: collection continuation is only outer call.pagination.next_cursor.",
+      "ADR100: public Git fingerprints are compact; full Git/CAS/review/verification authority remains internal.",
+      "ADR83: exact typed-path selectors use key; cross-domain references use semantic nouns; operation/read and operation/await use key only.",
+      "ADR128 rev5: normal Worker handoff is one submit-code; normal submit-tests is not a required Worker contract.",
+      "Guide/RUL owns operational sequencing; action descriptions state local action purpose only."
+    ]
+  },
+  "execution_evidence": {
+    "task_status_read": {"key": "GTW-TSK595", "stage": "code", "status": "dispatched", "head": "78c693d9", "worktree": "WT-TSK595-78c693d9"},
+    "worktree_read": {"selector": "WT-TSK595-78c693d9", "kind": "task", "head": "78c693d9", "dirty": true},
+    "failed_calls": [
+      {"tool": "call", "action": "code/diff", "input": {"worktree": "WT-TSK595-78c693d9", "base": "78c693d9", "live": true}, "result": "Task is not awaiting code review", "handling": "No retry and no gate bypass; recorded as unavailable pre-submit diff evidence."}
+    ],
+    "evidence_used": "The registry/schema inventory dump, durable action schemas, focused inventory regressions, and schema/token measurements provide the requested audit evidence. This is not represented as a substitute for the blocked typed code/diff call."
+  },
+  "public_transport_tools": {
+    "decision": "KEEP",
+    "observed_count": 6,
+    "names": ["status", "guide", "projects", "session_start", "schema", "call"],
+    "pagination": "call.pagination.next_cursor is the only public continuation output location."
+  },
+  "normal_action_inventory": {
+    "observed_count": 106,
+    "keep": [
+      "adr/archive", "adr/create", "adr/guide", "adr/history", "adr/list", "adr/query", "adr/read", "adr/update",
+      "agent/guide", "agent/list",
+      "callback/events", "callback/list", "callback/register",
+      "code/diff", "code/read", "code/search", "code/tree", "code/worktree",
+      "journal/add", "journal/contract", "journal/guide", "journal/list", "journal/read",
+      "message/create", "message/list",
+      "milestone/activate", "milestone/append_task", "milestone/archive", "milestone/complete", "milestone/create", "milestone/guide", "milestone/history", "milestone/list", "milestone/query", "milestone/read", "milestone/remove_task", "milestone/update",
+      "project/guide_bind",
+      "relation/create", "relation/list",
+      "rule/archive", "rule/create", "rule/effective", "rule/guide", "rule/history", "rule/list", "rule/query", "rule/read", "rule/update",
+      "session/start",
+      "task/archive", "task/block", "task/complete", "task/create", "task/guide", "task/history", "task/list", "task/query", "task/read", "task/refresh", "task/resume", "task/review", "task/update",
+      "track/accept", "track/append_task", "track/archive", "track/cancel", "track/create", "track/guide", "track/history", "track/list", "track/query", "track/read", "track/remove_task", "track/submit", "track/update"
+    ],
+    "change": [
+      "agent/await", "agent/interrupt", "agent/prompt", "agent/status", "agent/tail",
+      "callback/remove",
+      "gateway/capabilities", "gateway/status",
+      "message/cancel", "message/read",
+      "operation/await", "operation/read",
+      "project/status",
+      "runtime/logs", "runtime/restart",
+      "session/end", "session/info", "session/list",
+      "system/await",
+      "task/current", "task/dispatch", "task/integrate", "task/review_decide", "task/rework", "task/status", "task/submit-code", "task/submit-rebase", "task/test"
+    ],
+    "remove": ["system/call", "system/schema"],
+    "change_details": [
+      {
+        "paths": ["agent/await", "agent/interrupt", "agent/prompt", "agent/status", "agent/tail"],
+        "current_selector": "agent",
+        "target_selector": "key",
+        "why": "These paths select one Agent; the typed path supplies the entity family."
+      },
+      {
+        "paths": ["callback/remove"],
+        "current_selector": "callback",
+        "target_selector": "key",
+        "why": "This path selects one existing Callback. callback/register remains a creation field, not a selector."
+      },
+      {
+        "paths": ["message/cancel", "message/read"],
+        "current_selector": "message",
+        "target_selector": "key",
+        "why": "These paths select one Message. Semantic Message references elsewhere remain message."
+      },
+      {
+        "paths": ["operation/read", "operation/await"],
+        "current_selector": "operation_id",
+        "target_selector": "key",
+        "rejected_aliases": ["operation_id", "operation", "id"],
+        "output_fields": {"operation_id": "key", "project_id": "project"},
+        "why": "The action path fixes Operation and selects exactly one durable Operation; no selector aliases survive."
+      },
+      {
+        "paths": ["system/await"],
+        "current_selector": "on_complete_input.agent_id",
+        "target_selector": "on_complete_input.key",
+        "why": "The allowlisted continuation is agent/status, whose nested selector is an exact Agent selector."
+      },
+      {
+        "paths": ["runtime/logs"],
+        "field_migrations": {"operation_id": "operation", "project_id": "project", "session_id": "session", "request_id": "request"},
+        "why": "These are cross-domain correlation/filter references, not selectors for an Operation, Project, Session, or Request action."
+      },
+      {
+        "paths": ["runtime/restart"],
+        "field_migrations": {"operation_id": "operation"},
+        "why": "The field is a retry/idempotency reference on a runtime action, not an Operation-path selector."
+      },
+      {
+        "paths": ["session/end", "session/info", "session/list"],
+        "field_migrations": {"session_id": "key", "project_id": "project"},
+        "why": "A Session record owns key; its Project relationship uses the semantic cross-domain noun project."
+      },
+      {
+        "paths": ["project/status"],
+        "field_migrations": {
+          "project.project_id": "project.key",
+          "task_id": "task",
+          "agent.agent_id": "agent.key",
+          "operation.operation_id": "operation.key"
+        },
+        "why": "Nested typed entity projections use key for their own identity; the separate Task reference uses task."
+      },
+      {
+        "paths": ["gateway/capabilities", "gateway/status"],
+        "field_migrations": {"gateway_id": "gateway", "project_id": "project", "task_id": "task", "agent_id": "agent", "operation_id": "operation"},
+        "why": "Use semantic names in Gateway status/capability projections and close the current permissive gateway/status output contract. Preserve authoritative runtime state."
+      },
+      {
+        "paths": ["task/current", "task/dispatch", "task/review_decide", "task/rework", "task/status", "task/submit-code", "task/submit-rebase"],
+        "field_migrations": {"verification.operation_id": "verification.operation"},
+        "why": "Verification references an Operation cross-domain from a Task execution projection."
+      },
+      {
+        "paths": ["task/integrate", "task/test"],
+        "field_migrations": {"operation_id": "operation", "result.verification.operation_id": "result.verification.operation"},
+        "why": "These Task actions return durable Operation references; the action path does not select an Operation."
+      },
+      {
+        "paths": ["task/test"],
+        "description_change": "Replace procedure/sequence prose with a concise action-local description. Guide/RUL owns the verification sequence and gate policy."
+      }
+    ],
+    "current_declared_identity_aliases": [
+      "gateway/capabilities.output.properties.gateway_id",
+      "operation/await.input.properties.operation_id",
+      "operation/await.output.properties.operation_id",
+      "operation/await.output.properties.project_id",
+      "operation/read.input.properties.operation_id",
+      "operation/read.output.properties.operation_id",
+      "operation/read.output.properties.project_id",
+      "project/status.output.properties.operation.properties.operation_id",
+      "project/status.output.properties.project.properties.project_id",
+      "project/status.output.properties.agent.properties.agent_id",
+      "project/status.output.properties.task_id",
+      "runtime/logs.input.properties.request_id",
+      "runtime/logs.input.properties.session_id",
+      "runtime/logs.input.properties.operation_id",
+      "runtime/logs.input.properties.project_id",
+      "runtime/logs.output.properties.events.items.properties.operation_id",
+      "runtime/logs.output.properties.events.items.properties.project_id",
+      "runtime/logs.output.properties.events.items.properties.request_id",
+      "runtime/logs.output.properties.events.items.properties.session_id",
+      "runtime/restart.input.properties.operation_id",
+      "runtime/restart.output.properties.operation_id",
+      "session/end.output.oneOf[0].properties.session.properties.session_id",
+      "session/end.output.oneOf[0].properties.session.properties.project_id",
+      "session/end.output.oneOf[1].properties.sessions.items.properties.session_id",
+      "session/end.output.oneOf[1].properties.sessions.items.properties.project_id",
+      "session/info.output.oneOf[0].properties.session.properties.session_id",
+      "session/info.output.oneOf[0].properties.session.properties.project_id",
+      "session/info.output.oneOf[1].properties.sessions.items.properties.session_id",
+      "session/info.output.oneOf[1].properties.sessions.items.properties.project_id",
+      "session/list.output.oneOf[0].properties.session.properties.session_id",
+      "session/list.output.oneOf[0].properties.session.properties.project_id",
+      "session/list.output.oneOf[1].properties.sessions.items.properties.session_id",
+      "session/list.output.oneOf[1].properties.sessions.items.properties.project_id",
+      "system/await.input.oneOf[0].properties.on_complete_input.properties.agent_id",
+      "system/await.input.oneOf[1].properties.on_complete_input.properties.agent_id",
+      "task/current.output.properties.verification.properties.operation_id",
+      "task/dispatch.output.properties.verification.properties.operation_id",
+      "task/integrate.output.properties.operation_id",
+      "task/integrate.output.properties.result.properties.verification.properties.operation_id",
+      "task/review_decide.output.properties.verification.properties.operation_id",
+      "task/rework.output.properties.verification.properties.operation_id",
+      "task/status.output.properties.verification.properties.operation_id",
+      "task/submit-code.output.properties.verification.properties.operation_id",
+      "task/submit-rebase.output.properties.verification.properties.operation_id",
+      "task/test.output.properties.operation_id",
+      "task/test.output.properties.result.properties.verification.properties.operation_id"
+    ],
+    "opaque_outputs_to_close": ["gateway/status"],
+    "remove_details": [
+      {
+        "path": "system/call",
+        "why": "Duplicate nested transport wrapper; canonical call remains the top-level MCP transport tool, not an action that recursively calls itself."
+      },
+      {
+        "path": "system/schema",
+        "why": "Duplicate nested transport wrapper; canonical schema remains the top-level MCP transport tool."
+      }
+    ]
+  },
+  "track_milestone_contract": {
+    "track_lifecycle_actions": ["track/create", "track/read", "track/update", "track/list", "track/query", "track/archive", "track/history", "track/append_task", "track/remove_task", "track/cancel", "track/submit", "track/accept"],
+    "milestone_actions": ["milestone/create", "milestone/read", "milestone/update", "milestone/list", "milestone/query", "milestone/archive", "milestone/history", "milestone/activate", "milestone/complete", "milestone/append_task", "milestone/remove_task"],
+    "membership": {
+      "track": ["track/append_task", "track/remove_task"],
+      "milestone": ["milestone/append_task", "milestone/remove_task"],
+      "meaning": "Track and Milestone are separately keyed/revisioned first-class entities. A Track references its parent Milestone and owns its Task membership; a Milestone owns its Task membership. No Milestone-embedded Track collection or legacy Milestone-owned Track lifecycle is frozen."
+    },
+    "track_review_public_snapshot": ["head", "tree", "track_revision", "tasks[{key,revision}]", "submitted_at", "submitted_by"],
+    "track_review_internal_authority": ["full head", "full tree", "full digest", "full per-Task revision_sha256", "ordered Task membership", "track revision", "submitter", "timestamp"],
+    "track_statuses": ["planned", "active", "ready", "review_pending", "accepted", "stale", "cancelled", "archived"]
+  },
+  "selector_contract": {
+    "typed_path_exact_selector": "key",
+    "cross_domain_reference_names": ["project", "task", "milestone", "track", "operation", "session", "agent", "rule", "journal", "message", "callback"],
+    "forbidden_unapproved_identity_fields": ["id", "*_id", "*_key", "duplicate identity aliases"],
+    "debug_exception": "agent_ref is retained only on the five conditional debug actions while Debug.Enabled is true; it is a break-glass direct Airelay reference, not a normal workflow selector. Normal action schemas contain no agent_ref/runtime_ref selector.",
+    "semantic_identifier_values_unchanged": ["GTW-TSK*", "GTW-TRK*", "GTW-MIL*", "GTW-RUL*", "GTW-ADR*", "*-OPR*", "*-JRN*", "HOM_*", "paths", "titles", "timestamps"]
+  },
+  "conditional_debug_actions": {
+    "enabled_when": "Debug.Enabled == true",
+    "observed_count": 5,
+    "keep": ["debug/activate", "debug/await", "debug/prompt", "debug/tail"],
+    "change": ["debug/status"],
+    "remove": [],
+    "change_details": [
+      {"path": "debug/status", "field_migrations": {"gateway_id": "gateway"}}
+    ],
+    "current_declared_identity_aliases": ["debug/status.output.properties.gateway_id"],
+    "debug_ref_scope": "debug/prompt, debug/tail, and debug/await accept and return agent_ref only in this explicitly enabled break-glass surface. No normal action may use a runtime/agent reference selector."
+  },
+  "retired_or_not_registered": [
+    {"surface": "queue, Train, Hotfix, Attempt, and Wave action families", "decision": "REMOVE", "current": "No normal registered action path; immutable historical records remain data, not active action contracts."},
+    {"surface": "project/deploy and deploy action families", "decision": "REMOVE", "current": "No normal registered action path."},
+    {"surface": "task/submit-tests", "decision": "REMOVE", "current": "Not registered; normal Worker implementation handoff is task/submit-code. Do not make a tests submission stage mandatory."},
+    {"surface": "debug/task_legacy_revision_list and debug/task_legacy_revision_read", "decision": "REMOVE", "current": "Not registered in normal or Debug.Enabled action registries; legacy source-only schema/handler fragments are not contracts."},
+    {"surface": "direct git_refs, git_log, git_tree MCP handlers", "decision": "REMOVE", "current": "Filtered from the six canonical top-level tools and absent from the generic action registry, so they are not YAML action contracts. Their current collection schemas already place continuation in the outer pagination envelope; source cleanup is deferred to TSK599 parity."},
+    {"surface": "distributed schema-visible role gates", "decision": "REMOVE", "current": "No action-specific role gate is exposed in model-facing schemas. Keep server-side authority enforcement; share WorkflowRole once."},
+    {"surface": "result-level next_cursor, has_more, and _pagination", "decision": "REMOVE", "current": "Absent from registered generic action output schemas; only outer call.pagination.next_cursor is canonical."}
+  ],
+  "shared_definitions": [
+    {
+      "name": "WorkflowRole",
+      "owner": "internal/workflowrole",
+      "state": "canonical",
+      "values": ["planner", "lead", "advisor", "worker"],
+      "notes": "admin is an administrative session role, not a WorkflowRole. Action authorization remains server-enforced and is not duplicated as model-facing per-action schema prose."
+    },
+    {
+      "name": "EntityKeyAndReference",
+      "owner": "entity model validators plus ADR83 naming rule",
+      "state": "canonical",
+      "values": {"typed_path_selector": "key", "cross_domain_fields": ["project", "task", "milestone", "track", "operation", "session", "agent"]},
+      "notes": "Preserve semantic key values and their entity-owned validators. No generic id, *_id, *_key, or parallel identity aliases unless separately owner-approved."
+    },
+    {
+      "name": "Track",
+      "owner": "internal/model.Track and Track lifecycle service",
+      "state": "canonical",
+      "values": {"identity": "key", "revision": "positive integer", "milestone": "Milestone reference", "tasks": "ordered Task key list"},
+      "statuses": ["planned", "active", "ready", "review_pending", "accepted", "stale", "cancelled", "archived"],
+      "notes": "Track is independently keyed/revisioned and owns its Task membership and review snapshot."
+    },
+    {
+      "name": "Milestone",
+      "owner": "internal/model.Milestone and Milestone lifecycle service",
+      "state": "canonical",
+      "values": {"identity": "key", "revision": "positive integer", "tasks": "Task key set"},
+      "statuses": ["planned", "active", "completed", "archived"],
+      "notes": "Milestone is independently keyed/revisioned; it owns Task membership and does not embed Track lifecycle state."
+    },
+    {
+      "name": "Revision",
+      "owner": "entity lifecycle/CAS authorities",
+      "state": "canonical",
+      "values": {"wire_type": "integer", "minimum": 1, "semantics": "entity revision or explicitly named execution/review revision; not a public hash authority"},
+      "notes": "CAS and exact revision hashes remain full internal authority."
+    },
+    {
+      "name": "CursorAndCompactHandle",
+      "owner": "ADR84 transport plus ADR100 server-owned handle registry",
+      "state": "canonical",
+      "values": {"continuation_output": "call.pagination.next_cursor", "action_input": "cursor", "public_handle_max_ascii_length": 8, "current_handle_length": 8, "current_alphabet": "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789", "self_contained_public_state": false},
+      "failure": "Unknown, stale, ambiguous, exhausted, or scope-mismatched handles fail closed. No cursor state is encoded into a public token."
+    },
+    {
+      "name": "GitFingerprint",
+      "owner": "ADR100 publicprojection with Git authority retained by Git/model/service",
+      "state": "canonical",
+      "values": {"wire_length": 8, "pattern": "^[0-9a-f]{8}$", "authority": "exact full Git object ID internally"},
+      "failure": "A compact value resolves only against exact authoritative state; unknown, stale, or ambiguous values fail closed."
+    },
+    {
+      "name": "NonGitDigestOrHandle",
+      "owner": "server-owned durable authority and publicprojection",
+      "state": "canonical",
+      "values": {"default": "omit if caller does not need it", "needed_reference": "at most 8 ASCII characters, server-owned and resolvable to exact full state"},
+      "failure": "Never use naive truncation as authority; preserve full SHA-256/CAS/review/verification values internally and fail closed on ambiguity/staleness."
+    },
+    {
+      "name": "MutationReason",
+      "owner": "shared action definition; entity lifecycle validators remain authoritative",
+      "state": "canonical",
+      "values": {"wire_type": "string", "minimum_length": 1, "maximum_length": 1024},
+      "notes": "Required where the current mutation contract requires reason; preserve exact action-specific server validation and do not weaken it during schema migration."
+    },
+    {
+      "name": "Timestamp",
+      "owner": "model time.Time fields and shared action definition",
+      "state": "canonical",
+      "values": {"wire_type": "string", "json_schema_format": "date-time", "authority": "durable server timestamp; UTC for Task verification proof"},
+      "notes": "Do not compact or rename timestamp values."
+    },
+    {
+      "name": "Duration",
+      "owner": "existing action-specific bounded wait contracts",
+      "state": "canonical",
+      "values": {"wire_type": "integer", "unit": "seconds or minutes explicitly named by the action", "bounds": "preserve each action's current minimum, maximum, and default; do not infer one global range"},
+      "notes": "TSK597 represents duration bounds through the same typed definition model without widening current action limits."
+    },
+    {
+      "name": "TrackReviewSnapshot",
+      "owner": "internal/model.TrackReview and Track lifecycle service",
+      "state": "canonical",
+      "public_fields": ["head", "tree", "track_revision", "tasks[{key,revision}]", "submitted_at", "submitted_by"],
+      "internal_authority": ["full Git head/tree", "full digest", "full per-Task revision_sha256", "ordered Task membership", "Track revision"]
+    },
+    {
+      "name": "TaskExecution",
+      "owner": "internal/model.TaskExecutionState and durable execution service",
+      "state": "canonical",
+      "statuses": ["planned", "dispatched", "in_progress", "awaiting_review", "changes_requested", "ready_for_verification", "verifying", "verified", "integrating", "integrated", "done", "blocked", "failed"],
+      "stages": ["code", "tests", "rebase"],
+      "internal_authority": ["full base/head Git IDs", "full Task revision SHA-256", "branch", "execution_revision", "Agent", "worktree"]
+    },
+    {
+      "name": "TaskVerification",
+      "owner": "internal/model.TaskExecutionVerification and durable verification service",
+      "state": "canonical",
+      "outcomes": ["succeeded", "failed", "interrupted"],
+      "internal_authority": ["full Task revision SHA-256", "full base/candidate head/tree", "full gate-profile SHA-256", "Operation key", "review/attempt revisions", "gate evidence", "timestamps"],
+      "public_projection": "Only needed compact Git fingerprints and semantic cross-domain references; do not expose unnecessary full non-Git digests."
+    },
+    {
+      "name": "Operation",
+      "owner": "durable local Operation store and operation action service",
+      "state": "canonical",
+      "key_pattern": "<project-code>-OPR<number>",
+      "states": ["accepted", "running", "completed", "failed", "outcome_unknown"],
+      "selectors": {"operation/read": "key only", "operation/await": "key only"},
+      "timestamps": ["created_at", "updated_at"]
+    }
+  ],
+  "workflow_contract": {
+    "authority": "Guide/RUL, not action descriptions",
+    "planner": "Own WHAT/WHY, Task scope, Track composition, and final Track acceptance.",
+    "lead": "Own sequential Track execution: dependency/priority eligibility, Worker dispatch and supervision, review, testing/verification, integration, and server-ready Track submission; stop for Planner acceptance.",
+    "worker": "Implement the assigned Task, run focused checks, and make one normal submit-code handoff. Normal submit-tests is not mandatory.",
+    "runtime_behavior_change_in_tsk595": false
+  },
+  "schema_cost": {
+    "method": "Marshal each model-facing genericSchemaV2 response as compact JSON and count with internal/tokenizer.Counter using o200k_base. Domain full totals sum the token counts of each separate exact-action response. tools/list counts the six canonical descriptors serialized as JSON.",
+    "base": "78c693d9",
+    "measurements": [
+      {"view": "tools/list", "tokens": 1844, "json_bytes": 8197},
+      {"view": "task", "tokens": 438, "json_bytes": 2374},
+      {"view": "task/full_actions", "tokens": 8288, "json_bytes": 32503},
+      {"view": "task/create", "tokens": 432, "json_bytes": 1791},
+      {"view": "track", "tokens": 249, "json_bytes": 1373},
+      {"view": "track/full_actions", "tokens": 3573, "json_bytes": 14438},
+      {"view": "track/read", "tokens": 600, "json_bytes": 2466},
+      {"view": "operation", "tokens": 56, "json_bytes": 294},
+      {"view": "operation/full_actions", "tokens": 457, "json_bytes": 2033},
+      {"view": "operation/read", "tokens": 209, "json_bytes": 939}
+    ],
+    "implication": "Compact input-first discovery is materially smaller than expanding every action: task discovery is about 94.7% fewer tokens than its 22 exact contracts combined; Track is about 93.0% fewer than 13; Operation is about 87.7% fewer than 2. Exact action schemas remain available on demand."
+  },
+  "implementation_slices": [
+    {
+      "task": "GTW-TSK597",
+      "sequence": 1,
+      "scope": "Implement the ADR127 YAML DSL/compiler, single shared definitions registry, typed compiled model, deterministic fail-closed parsing/validation, and compiler tests. No action migration or public behavior/schema change."
+    },
+    {
+      "task": "GTW-TSK598",
+      "sequence": 2,
+      "scope": "Migrate exactly the KEEP and CHANGE target actions above to one YAML contract each, generate MCP schema/runtime validation/compact discovery/output conformance from the compiled model, enforce parity both directions, and implement the listed selector/field hard cuts. Do not encode REMOVE entries or duplicate workflow prose."
+    },
+    {
+      "task": "GTW-TSK599",
+      "sequence": 3,
+      "scope": "After TSK598 parity, delete superseded Go schema builders, duplicate registries, transitional bridges, and source-only retired action fragments. Do not add compatibility fallback or delete immutable historical records."
+    }
+  ]
+}
