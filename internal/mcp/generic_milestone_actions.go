@@ -233,6 +233,25 @@ func (s *Server) registerMilestoneActions() error {
 	}); err != nil {
 		return err
 	}
+	if err := registerRead(GenericAction{
+		Path: "milestone/plan",
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				ProjectID string `json:"project_id"`
+				Key       string `json:"key"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			markdown, err := s.Service.MilestoneLifecyclePlan(ctx, in.ProjectID, in.Key)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"markdown": markdown}, nil
+		},
+	}); err != nil {
+		return err
+	}
 	if err := registerPlanner(GenericAction{
 		Path:                 "milestone/update",
 		Description:          "Update Milestone metadata without changing Task membership.",

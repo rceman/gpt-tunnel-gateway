@@ -2901,6 +2901,35 @@ domains:
             required:
                 - items
             type: object
+        - description: Render a bounded Markdown plan from current Milestone, Track, and Task state.
+          input:
+            additional_properties: false
+            properties:
+                key:
+                    ref: EntityKeyAndReference
+            required:
+                - key
+            type: object
+          metadata:
+            annotations:
+                destructive: false
+                idempotent: true
+                open_world: false
+                read_only: true
+            selector: key
+            surface: normal
+          name: plan
+          output:
+            additional_properties: false
+            properties:
+                markdown:
+                    description: Deterministic bounded current-state Markdown plan.
+                    max_length: 32768
+                    min_length: 1
+                    type: string
+            required:
+                - markdown
+            type: object
         - description: Query bounded Milestone reports.
           input:
             additional_properties: false

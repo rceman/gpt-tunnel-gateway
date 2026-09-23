@@ -97,6 +97,7 @@ func loadTSK595Inventory(t *testing.T) tsk595Inventory {
 func TestTSK595FrozenActionInventory(t *testing.T) {
 	inventory := loadTSK595Inventory(t)
 	wantNormal := append(append([]string{}, inventory.NormalActions.Keep...), inventory.NormalActions.Change...)
+	wantNormal = append(wantNormal, tsk663MilestonePlanAction)
 	server := newSessionTestServer(t)
 	entries := server.genericActionRegistry(server.tools())
 	if !equalTSK595Strings(sortedTSK595Keys(entries), sortedTSK595Strings(wantNormal)) {
@@ -132,7 +133,7 @@ func TestTSK595FrozenActionInventory(t *testing.T) {
 		t.Fatalf("Track action set=%v, want lifecycle plus guide=%v", trackPaths, wantTracks)
 	}
 	milestonePaths := actionPathsWithPrefix(entries, "milestone/")
-	wantMilestones := append(append([]string{}, inventory.TrackMilestone.Milestone...), "milestone/guide")
+	wantMilestones := append(append([]string{}, inventory.TrackMilestone.Milestone...), "milestone/guide", tsk663MilestonePlanAction)
 	if !equalTSK595Strings(milestonePaths, sortedTSK595Strings(wantMilestones)) {
 		t.Fatalf("Milestone action set=%v, want membership/lifecycle plus guide=%v", milestonePaths, wantMilestones)
 	}

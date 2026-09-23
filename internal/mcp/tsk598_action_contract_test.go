@@ -25,6 +25,7 @@ func TestTSK598FrozenActionContractsAndRegisteredHandlers(t *testing.T) {
 		}
 		want[path] = "debug"
 	}
+	want[tsk663MilestonePlanAction] = "normal"
 
 	server := newSessionTestServer(t)
 	server.Service.Config.Debug.Enabled = true

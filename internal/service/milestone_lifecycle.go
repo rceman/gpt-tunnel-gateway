@@ -21,6 +21,7 @@ type MilestoneTaskProjection struct {
 	Title    string `json:"title"`
 	Status   string `json:"status"`
 	Priority string `json:"priority,omitempty"`
+	Archived bool   `json:"-"`
 }
 
 type MilestoneView struct {
@@ -489,6 +490,7 @@ func (s *Service) milestoneView(ctx context.Context, milestone model.Milestone) 
 			Title:    task.Title,
 			Status:   status,
 			Priority: task.Priority,
+			Archived: task.Status == model.TaskAuthoringArchived,
 		})
 	}
 	sort.SliceStable(tasks, func(i, j int) bool {
