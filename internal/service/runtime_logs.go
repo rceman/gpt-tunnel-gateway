@@ -22,8 +22,8 @@ type RuntimeLogsInput struct {
 type RuntimeLogsResult struct {
 	Events         []runtime_log.Event `json:"events"`
 	MalformedLines int                 `json:"malformed_lines"`
-	NextCursor     string              `json:"next_cursor"`
-	HasMore        bool                `json:"has_more"`
+	NextCursor     string              `json:"-"`
+	HasMore        bool                `json:"-"`
 }
 
 func (s *Service) RuntimeLogs(ctx context.Context, input RuntimeLogsInput) (RuntimeLogsResult, error) {

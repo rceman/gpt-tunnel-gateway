@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
 )
 
 func testEvent(n string) Event {
@@ -104,7 +106,7 @@ func TestStoreNewestWindowFiltersAndContinuation(t *testing.T) {
 		SessionID: "session-a",
 		ProjectID: "example",
 	})
-	if err != nil || len(window.Events) != 2 || window.Events[0].RequestID != "req-three" || window.Events[1].RequestID != "req-two" || !window.HasMore || window.NextCursor == "" {
+	if err != nil || len(window.Events) != 2 || window.Events[0].RequestID != "req-three" || window.Events[1].RequestID != "req-two" || !window.HasMore || !pagination.ValidServerCursor(window.NextCursor) {
 		t.Fatalf("newest window=%#v err=%v", window, err)
 	}
 	continued, err := store.Read(Filter{
@@ -116,6 +118,19 @@ func TestStoreNewestWindowFiltersAndContinuation(t *testing.T) {
 	})
 	if err != nil || len(continued.Events) != 1 || continued.Events[0].RequestID != "req-one" || continued.HasMore {
 		t.Fatalf("continuation=%#v err=%v", continued, err)
+	}
+	if _, err := store.Read(Filter{
+		Limit:     2,
+		Action:    "different",
+		SessionID: "session-a",
+		ProjectID: "example",
+		Cursor:    window.NextCursor,
+	}); err == nil {
+		t.Fatal("runtime log cursor was reusable under a different filter")
+	}
+	encoded, err := json.Marshal(window)
+	if err != nil || strings.Contains(string(encoded), "next_cursor") || strings.Contains(string(encoded), "has_more") {
+		t.Fatalf("runtime log continuation leaked into result JSON: %s %v", encoded, err)
 	}
 	missing, err := store.Read(Filter{
 		Limit:     5,

@@ -1,11 +1,13 @@
 package mcp
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"time"
 	"unicode/utf8"
 )
@@ -17,6 +19,9 @@ func validateOutputValue(schema map[string]any, value any) error {
 func validateSchemaValue(schema map[string]any, value any, path string) error {
 	if schema == nil {
 		return fmt.Errorf("%s: missing schema", path)
+	}
+	if excluded, ok := schema["not"].(map[string]any); ok && validateSchemaValue(excluded, value, path) == nil {
+		return fmt.Errorf("%s: value matches excluded schema", path)
 	}
 	if options, ok := schema["anyOf"].([]any); ok {
 		matched := false
@@ -54,7 +59,7 @@ func validateSchemaValue(schema map[string]any, value any, path string) error {
 	if expected, ok := schema["type"]; ok && !schemaTypeMatches(expected, value) {
 		return fmt.Errorf("%s: value has wrong type %T", path, value)
 	}
-	if number, ok := value.(float64); ok {
+	if number, ok := schemaNumericValue(value); ok {
 		if math.IsNaN(number) || math.IsInf(number, 0) {
 			return fmt.Errorf("%s: number is not finite", path)
 		}
@@ -192,13 +197,31 @@ func schemaTypeMatches(typeValue any, value any) bool {
 		_, ok := value.(bool)
 		return ok
 	case "integer":
-		n, ok := value.(float64)
+		n, ok := schemaNumericValue(value)
 		return ok && !math.IsNaN(n) && !math.IsInf(n, 0) && math.Trunc(n) == n
 	case "number":
-		n, ok := value.(float64)
+		n, ok := schemaNumericValue(value)
 		return ok && !math.IsNaN(n) && !math.IsInf(n, 0)
 	default:
 		return false
+	}
+}
+
+func schemaNumericValue(value any) (float64, bool) {
+	switch number := value.(type) {
+	case json.Number:
+		parsed, err := strconv.ParseFloat(string(number), 64)
+		return parsed, err == nil
+	case float64:
+		return number, true
+	case int:
+		return float64(number), true
+	case int64:
+		return float64(number), true
+	case uint64:
+		return float64(number), true
+	default:
+		return 0, false
 	}
 }
 

@@ -237,7 +237,7 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 	old := debugActivationAcceptFn
 	defer func() { debugActivationAcceptFn = old }()
 	_, sourceRoot, _ := testutil.RepoWithBareRemote(t)
-	wantHead := strings.Repeat("a", 40)
+	var wantHead string
 	var gotHead string
 	debugActivationAcceptFn = func(c config.Config, _ string, sourceHead string, _ func(func())) (debugdomain.ActivationResult, error) {
 		gotHead = sourceHead
@@ -250,10 +250,12 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 		}, nil
 	}
 	s, _ := mcpServiceWithSQLite(t, config.Config{
-		Debug:     config.DebugConfig{Enabled: true},
-		StateDir:  t.TempDir(),
-		GatewayID: "HOM",
-		Projects:  map[string]config.ProjectConfig{gatewaySourceProjectID: {Root: sourceRoot}},
+		Debug:        config.DebugConfig{Enabled: true},
+		StateDir:     t.TempDir(),
+		GatewayID:    "HOM",
+		MaxDiffBytes: 1 << 20,
+		MaxReadBytes: 1 << 20,
+		Projects:     map[string]config.ProjectConfig{gatewaySourceProjectID: {Root: sourceRoot}},
 	})
 	server := &Server{
 		Service:          s,
@@ -261,10 +263,15 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 	}
 	store := mcpSQLiteSessionStore(t, server.Service)
 	record := debugTestSession(t, store, durableSession.RolePlanner)
+	status, err := server.Service.Git.WorktreeStatus(context.Background(), config.ProjectConfig{Root: sourceRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantHead = status.Head
 	response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{
-			"session": record.ID, "action": "debug/activate", "input": map[string]any{"main_sha": wantHead},
+			"session": record.ID, "action": "debug/activate", "input": map[string]any{"main_sha": wantHead[:8]},
 		}},
 	}))
 	structured := typedStructured(t, response)
@@ -272,11 +279,14 @@ func TestDebugActivatePublicMCPRequestUsesExactSourceAndReturnsHandoffIdentity(t
 		t.Fatalf("debug/activate failed: %#v", response)
 	}
 	result := structured["result"].(map[string]any)
-	if result["source_head"] != wantHead || result["activation"] != "accepted" || result["smoke"] != "pending" || result["outcome"] != "accepted" {
+	if result["source_head"] != wantHead[:8] || result["activation"] != "accepted" || result["smoke"] != "pending" || result["outcome"] != "accepted" {
 		t.Fatalf("unexpected debug/activate result: %#v", result)
 	}
 	if gotHead != wantHead {
 		t.Fatalf("activation worker received head=%q, want %q", gotHead, wantHead)
+	}
+	if _, exists := result["operation_id"]; exists {
+		t.Fatalf("debug/activate leaked an internal operation identity: %#v", result)
 	}
 }
 
@@ -396,6 +406,7 @@ func TestDebugActionsAuthorizeEachRoleBeforeExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker}, true, true)
+	sourceHead := strings.TrimSpace(testutil.Git(t, sourceRoot, "rev-parse", "HEAD"))
 	fixture.server.Service.Config.Debug.Enabled = true
 	if fixture.server.Service.Config.Projects == nil {
 		fixture.server.Service.Config.Projects = map[string]config.ProjectConfig{}
@@ -418,7 +429,7 @@ func TestDebugActionsAuthorizeEachRoleBeforeExecution(t *testing.T) {
 		{path: "debug/prompt", input: map[string]any{"agent_ref": "runtime-tsk628", "message": "bounded auth test"}},
 		{path: "debug/tail", input: map[string]any{"agent_ref": "runtime-tsk628", "lines": 1}},
 		{path: "debug/await", input: map[string]any{"agent_ref": "runtime-tsk628", "seconds": 1, "lines": 1}},
-		{path: "debug/activate", input: map[string]any{"main_sha": strings.Repeat("a", 40)}},
+		{path: "debug/activate", input: map[string]any{"main_sha": sourceHead[:8]}},
 	}
 	roles := []string{durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker}
 	for _, action := range actions {

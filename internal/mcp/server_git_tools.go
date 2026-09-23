@@ -11,6 +11,12 @@ import (
 func addGitTools(add func(string, string, map[string]any, func(context.Context, json.RawMessage) (any, error)), s *Server) {
 	collectionLimit := integer("Maximum collection items", 1, service.MaxPublicCollectionLimit)
 	collectionLimit["default"] = service.DefaultPublicCollectionLimit
+	publicRevision := func(description string) map[string]any {
+		revision := str(description)
+		revision["minLength"], revision["maxLength"] = 1, 512
+		revision["not"] = publicGitFingerprintExclusionSchema()
+		return revision
+	}
 	projectConfig := func(raw json.RawMessage) (string, config.ProjectConfig, error) {
 		id, e := getString(raw, "project_id")
 		if e != nil {
@@ -30,7 +36,7 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 		e = s.Service.Git.Refresh(ctx, p)
 		return map[string]any{"project_id": id, "refreshed": e == nil}, e
 	})
-	add("git_refs", "List bounded local, remote, and tag refs with deterministic continuation. New next_cursor values are compact server-owned tokens of at most 8 safe characters; legacy cursors remain input-compatible.", obj(map[string]any{"project_id": str("Project identifier"), "limit": collectionLimit, "cursor": str("Server-owned continuation cursor; new values are <=8 safe characters and legacy values are accepted")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("git_refs", "List bounded local, remote, and tag refs with deterministic continuation through outer call.pagination.next_cursor.", obj(map[string]any{"project_id": str("Project identifier"), "limit": collectionLimit, "cursor": publicServerCursorSchema()}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var args struct {
 			ProjectID string `json:"project_id"`
 			Limit     int    `json:"limit,omitempty"`
@@ -48,11 +54,14 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 			return nil, e
 		}
 		v, page, e := s.Service.Git.RefsPage(ctx, p, limit, args.Cursor)
-		return map[string]any{"refs": v, "next_cursor": page.NextCursor, "has_more": page.HasMore}, e
+		if e != nil {
+			return nil, e
+		}
+		return genericActionPageResult(map[string]any{"refs": v}, page.HasMore, page.NextCursor)
 	})
 	logLimit := integer("Maximum commits", 1, service.MaxPublicCollectionLimit)
 	logLimit["default"] = service.DefaultPublicCollectionLimit
-	add("git_log", "Read bounded commit history at a revision with deterministic continuation. New next_cursor values are compact server-owned tokens of at most 8 safe characters; legacy cursors remain input-compatible.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref"), "limit": logLimit, "cursor": str("Server-owned continuation cursor; new values are <=8 safe characters and legacy values are accepted")}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("git_log", "Read bounded commit history at a revision with deterministic continuation through outer call.pagination.next_cursor.", obj(map[string]any{"project_id": str("Project identifier"), "revision": publicRevision("Revision or ref; commit fingerprints use 8 lowercase hexadecimal characters"), "limit": logLimit, "cursor": publicServerCursorSchema()}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var args struct {
 			ProjectID string `json:"project_id"`
 			Revision  string `json:"revision"`
@@ -71,9 +80,12 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 			return nil, e
 		}
 		v, page, e := s.Service.Git.LogPage(ctx, p, args.Revision, limit, args.Cursor)
-		return map[string]any{"commits": v, "next_cursor": page.NextCursor, "has_more": page.HasMore}, e
+		if e != nil {
+			return nil, e
+		}
+		return genericActionPageResult(map[string]any{"commits": v}, page.HasMore, page.NextCursor)
 	})
-	add("git_show", "Show bounded commit metadata, summary, and stat.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref")}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("git_show", "Show bounded commit metadata, summary, and stat.", obj(map[string]any{"project_id": str("Project identifier"), "revision": publicRevision("Revision or ref; commit fingerprints use 8 lowercase hexadecimal characters")}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		_, p, e := projectConfig(raw)
 		if e != nil {
 			return nil, e
@@ -85,7 +97,7 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 		v, e := s.Service.Git.Show(ctx, p, rev)
 		return map[string]any{"text": v}, e
 	})
-	add("git_tree", "List bounded files at a revision with deterministic continuation. New next_cursor values are compact server-owned tokens of at most 8 safe characters; legacy cursors remain input-compatible.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref"), "path": str("Optional relative path"), "limit": collectionLimit, "cursor": str("Server-owned continuation cursor; new values are <=8 safe characters and legacy values are accepted")}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("git_tree", "List bounded files at a revision with deterministic continuation through outer call.pagination.next_cursor.", obj(map[string]any{"project_id": str("Project identifier"), "revision": publicRevision("Revision or ref; commit fingerprints use 8 lowercase hexadecimal characters"), "path": str("Optional relative path"), "limit": collectionLimit, "cursor": publicServerCursorSchema()}, "project_id", "revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var args struct {
 			ProjectID string `json:"project_id"`
 			Revision  string `json:"revision"`
@@ -105,7 +117,10 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 			return nil, e
 		}
 		v, page, e := s.Service.Git.TreePage(ctx, p, args.Revision, args.Path, limit, args.Cursor)
-		return map[string]any{"paths": v, "next_cursor": page.NextCursor, "has_more": page.HasMore}, e
+		if e != nil {
+			return nil, e
+		}
+		return genericActionPageResult(map[string]any{"paths": v}, page.HasMore, page.NextCursor)
 	})
 	add("git_worktree_status", "Read the local managed worktree status.", obj(map[string]any{"project_id": str("Project identifier")}, "project_id"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		_, p, e := projectConfig(raw)
@@ -114,7 +129,7 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 		}
 		return s.Service.Git.WorktreeStatus(ctx, p)
 	})
-	add("git_read_file", "Read a UTF-8 file at any revision.", obj(map[string]any{"project_id": str("Project identifier"), "revision": str("Revision or ref"), "path": str("Relative file path")}, "project_id", "revision", "path"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("git_read_file", "Read a UTF-8 file at any revision.", obj(map[string]any{"project_id": str("Project identifier"), "revision": publicRevision("Revision or ref; commit fingerprints use 8 lowercase hexadecimal characters"), "path": str("Relative file path")}, "project_id", "revision", "path"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		_, p, e := projectConfig(raw)
 		if e != nil {
 			return nil, e
@@ -130,7 +145,7 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 		v, e := s.Service.Git.ReadFile(ctx, p, rev, path)
 		return map[string]any{"path": path, "revision": rev, "content": v}, e
 	})
-	add("git_diff", "Read bounded diff between two revisions.", obj(map[string]any{"project_id": str("Project identifier"), "from_revision": str("Base revision"), "to_revision": str("Target revision"), "paths": array(str("Optional relative path"))}, "project_id", "from_revision", "to_revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("git_diff", "Read bounded diff between two revisions.", obj(map[string]any{"project_id": str("Project identifier"), "from_revision": publicRevision("Base revision or ref; commit fingerprints use 8 lowercase hexadecimal characters"), "to_revision": publicRevision("Target revision or ref; commit fingerprints use 8 lowercase hexadecimal characters"), "paths": array(str("Optional relative path"))}, "project_id", "from_revision", "to_revision"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		_, p, e := projectConfig(raw)
 		if e != nil {
 			return nil, e
@@ -147,7 +162,7 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 		v, e := s.Service.Git.Diff(ctx, p, in.From, in.To, in.Paths)
 		return map[string]any{"diff": v}, e
 	})
-	add("git_compare", "Compare divergence and merge base.", obj(map[string]any{"project_id": str("Project identifier"), "left": str("Left revision"), "right": str("Right revision")}, "project_id", "left", "right"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("git_compare", "Compare divergence and merge base.", obj(map[string]any{"project_id": str("Project identifier"), "left": publicRevision("Left revision or ref; commit fingerprints use 8 lowercase hexadecimal characters"), "right": publicRevision("Right revision or ref; commit fingerprints use 8 lowercase hexadecimal characters")}, "project_id", "left", "right"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		_, p, e := projectConfig(raw)
 		if e != nil {
 			return nil, e
@@ -162,7 +177,7 @@ func addGitTools(add func(string, string, map[string]any, func(context.Context, 
 		}
 		return s.Service.Git.Compare(ctx, p, left, right)
 	})
-	add("git_merge_base", "Find merge base.", obj(map[string]any{"project_id": str("Project identifier"), "left": str("Left revision"), "right": str("Right revision")}, "project_id", "left", "right"), func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("git_merge_base", "Find merge base.", obj(map[string]any{"project_id": str("Project identifier"), "left": publicRevision("Left revision or ref; commit fingerprints use 8 lowercase hexadecimal characters"), "right": publicRevision("Right revision or ref; commit fingerprints use 8 lowercase hexadecimal characters")}, "project_id", "left", "right"), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		_, p, e := projectConfig(raw)
 		if e != nil {
 			return nil, e

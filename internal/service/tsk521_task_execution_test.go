@@ -15,6 +15,20 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
+func TestTaskExecutionPublicOutputRejectsAmbiguousHeadFingerprint(t *testing.T) {
+	projectID := "GTW-TSK573-public-fingerprint-ambiguity"
+	first := model.TaskExecutionState{ProjectID: projectID, TaskID: "EXM-TSK1", Head: "deadbeef" + strings.Repeat("1", 32)}
+	if got := taskExecutionPublicOutput(first).Head; got != "deadbeef" {
+		t.Fatalf("first public head fingerprint=%q", got)
+	}
+	second := first
+	second.TaskID = "EXM-TSK2"
+	second.Head = "deadbeef" + strings.Repeat("2", 32)
+	if got := taskExecutionPublicOutput(second).Head; got != "" {
+		t.Fatalf("ambiguous public head fingerprint was exposed: %q", got)
+	}
+}
+
 func TestTSK521TaskDispatchCreatesOneFrozenTaskLane(t *testing.T) {
 	s, _, _ := testService(t)
 	project := s.Config.Projects["example"]

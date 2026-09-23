@@ -116,6 +116,11 @@ func TestTSK589MessageActionsAreClosedAndSessionBound(t *testing.T) {
 	if _, present := inbox["messages"]; present {
 		t.Fatalf("message/list used non-contract messages field: %#v", inbox)
 	}
+	for _, field := range []string{"cursor", "next_cursor", "has_more"} {
+		if _, present := inbox[field]; present {
+			t.Fatalf("message/list exposed result-level continuation field %q: %#v", field, inbox)
+		}
+	}
 	items, ok := inbox["items"].([]any)
 	if !ok || len(items) != 3 {
 		t.Fatalf("worker message/list items=%#v", inbox)

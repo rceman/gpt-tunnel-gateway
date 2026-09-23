@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	cursorpagination "github.com/rceman/gpt-tunnel-gateway/internal/pagination"
+	"github.com/rceman/gpt-tunnel-gateway/internal/publicprojection"
 )
 
 func operationIDFromRaw(raw json.RawMessage) string {
@@ -23,7 +26,11 @@ func genericActionError(_ string, message any) map[string]any {
 			StructuredActionError() map[string]any
 		}
 		if errors.As(err, &structured) {
-			return map[string]any{"result": map[string]any{"error": structured.StructuredActionError()}, "is_error": true}
+			projected, projectionErr := publicprojection.ProjectMap(structured.StructuredActionError())
+			if projectionErr != nil {
+				return map[string]any{"result": map[string]any{"error": "action error projection failed"}, "is_error": true}
+			}
+			return map[string]any{"result": map[string]any{"error": projected}, "is_error": true}
 		}
 	}
 	return map[string]any{"result": map[string]any{"error": fmt.Sprint(message)}, "is_error": true}
@@ -48,8 +55,8 @@ func genericActionResultWithCursor(result map[string]any, cursor string) generic
 func genericActionPageResult(result map[string]any, hasMore bool, cursor string) (genericActionContinuation, error) {
 	if !hasMore {
 		cursor = ""
-	} else if strings.TrimSpace(cursor) == "" {
-		return genericActionContinuation{}, fmt.Errorf("collection continuation cursor is required")
+	} else if !cursorpagination.ValidServerCursor(cursor) {
+		return genericActionContinuation{}, fmt.Errorf("collection continuation cursor must be a valid server-owned handle of at most 8 ASCII characters")
 	}
 	return genericActionResultWithCursor(result, cursor), nil
 }
@@ -92,7 +99,7 @@ func detachPrivateTransportMetadata(result map[string]any) (map[string]any, map[
 		return nil, nil, fmt.Errorf("invalid private pagination metadata")
 	}
 	cursor, ok := pagination["next_cursor"].(string)
-	if !ok || strings.TrimSpace(cursor) == "" {
+	if !ok || !cursorpagination.ValidServerCursor(cursor) {
 		return nil, nil, fmt.Errorf("invalid private pagination cursor")
 	}
 	return public, map[string]any{"next_cursor": cursor}, nil

@@ -2,10 +2,8 @@ package pagination
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
-	"encoding/binary"
-	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -15,26 +13,25 @@ const CompactCursorLength = 8
 const compactAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
 
 const (
-	DefaultLimit = 20
-	MaxLimit     = 100
+	DefaultLimit            = 20
+	MaxLimit                = 100
+	compactHandleCapacity   = 65536
+	maxServerCursorKeyBytes = 65535
 )
-
-const compactHandleCapacity = 4096
 
 var compactHandles = struct {
 	sync.Mutex
-	values map[string]map[string]string
-	order  []string
-}{values: make(map[string]map[string]string)}
-
-type PageInfo struct {
-	NextCursor string `json:"next_cursor"`
-	HasMore    bool   `json:"has_more"`
+	values    map[string]map[string]string
+	ambiguous map[string]map[string]struct{}
+	order     []string
+}{
+	values:    make(map[string]map[string]string),
+	ambiguous: make(map[string]map[string]struct{}),
 }
 
-type cursor struct {
-	Kind string `json:"kind"`
-	Key  string `json:"key"`
+type PageInfo struct {
+	NextCursor string `json:"-"`
+	HasMore    bool   `json:"-"`
 }
 
 func Limit(requested, configured int) (int, error) {
@@ -55,74 +52,74 @@ func Limit(requested, configured int) (int, error) {
 }
 
 func Encode(kind, key string) string {
-	return compactEncode(kind, key)
+	return EncodeServerCursor(kind, key)
 }
 
-// EncodeServerCursor publishes a scoped compact handle while retaining the
-// complete cursor key in bounded server-owned memory.
 func EncodeServerCursor(kind, key string) string {
-	handle := Encode(kind, key)
+	if kind == "" || key == "" || len(key) > maxServerCursorKeyBytes {
+		return ""
+	}
+	handle := compactEncode(kind, key)
 	compactHandles.Lock()
 	defer compactHandles.Unlock()
+	if _, exists := compactHandles.ambiguous[kind][handle]; exists {
+		return ""
+	}
 	if compactHandles.values[kind] == nil {
 		compactHandles.values[kind] = make(map[string]string)
 	}
+	if previous, exists := compactHandles.values[kind][handle]; exists {
+		if previous == key {
+			return handle
+		}
+		delete(compactHandles.values[kind], handle)
+		if compactHandles.ambiguous[kind] == nil {
+			compactHandles.ambiguous[kind] = make(map[string]struct{})
+		}
+		compactHandles.ambiguous[kind][handle] = struct{}{}
+		return ""
+	}
+	if len(compactHandles.order) >= compactHandleCapacity {
+		return ""
+	}
 	compactHandles.values[kind][handle] = key
 	compactHandles.order = append(compactHandles.order, kind+"\x00"+handle)
-	for len(compactHandles.order) > compactHandleCapacity {
-		old := compactHandles.order[0]
-		compactHandles.order = compactHandles.order[1:]
-		parts := strings.SplitN(old, "\x00", 2)
-		if len(parts) == 2 {
-			delete(compactHandles.values[parts[0]], parts[1])
-		}
-	}
 	return handle
 }
 
 func ResolveServerCursor(raw, kind string) (string, bool) {
-	if len(raw) != CompactCursorLength {
+	if kind == "" || !ValidServerCursor(raw) {
 		return "", false
 	}
 	compactHandles.Lock()
 	defer compactHandles.Unlock()
+	if _, exists := compactHandles.ambiguous[kind][raw]; exists {
+		return "", false
+	}
 	key, ok := compactHandles.values[kind][raw]
 	return key, ok
 }
 
-// EncodeFull returns a bounded opaque cursor. The scope and key digests bind
-// it to the complete server-owned query without putting that query in the
-// caller-visible token.
-func EncodeFull(kind, key string) string {
-	scope := sha256.Sum256([]byte(kind))
-	value := sha256.Sum256([]byte(kind + "\x00" + key))
-	data := make([]byte, 0, 33)
-	data = append(data, 1)
-	data = append(data, scope[:16]...)
-	data = append(data, value[:16]...)
-	return base64.RawURLEncoding.EncodeToString(data)
-}
-
-// OpaqueCursorMatches resolves a streamed cursor by comparing the candidate
-// key while the bounded source walk is in progress.
-func OpaqueCursorMatches(raw, kind, key string) bool {
-	data, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil || len(data) != 33 || data[0] != 1 {
+func ValidServerCursor(raw string) bool {
+	if len(raw) != CompactCursorLength {
 		return false
 	}
-	scope := sha256.Sum256([]byte(kind))
-	value := sha256.Sum256([]byte(kind + "\x00" + key))
-	return string(data[1:17]) == string(scope[:16]) && string(data[17:]) == string(value[:16])
+	for i := range raw {
+		if !strings.ContainsRune(compactAlphabet, rune(raw[i])) {
+			return false
+		}
+	}
+	return true
+}
+
+func OpaqueCursorMatches(raw, kind, key string) bool {
+	resolved, ok := ResolveServerCursor(raw, kind)
+	return ok && resolved == key
 }
 
 func ValidateOpaqueCursor(raw, kind string) error {
-	data, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil || len(data) != 33 || data[0] != 1 {
-		return fmt.Errorf("invalid continuation cursor")
-	}
-	scope := sha256.Sum256([]byte(kind))
-	if string(data[1:17]) != string(scope[:16]) {
-		return fmt.Errorf("continuation cursor scope does not match")
+	if _, ok := ResolveServerCursor(raw, kind); !ok {
+		return fmt.Errorf("invalid or stale continuation cursor")
 	}
 	return nil
 }
@@ -131,127 +128,97 @@ func EncodeOffset(kind string, offset int64) string {
 	if offset < 0 {
 		return ""
 	}
-	scope := sha256.Sum256([]byte(kind))
-	var raw [41]byte
-	raw[0] = 2
-	copy(raw[1:17], scope[:16])
-	binary.BigEndian.PutUint64(raw[17:25], uint64(offset))
-	digest := sha256.Sum256(append([]byte(kind+"\x00"), raw[17:25]...))
-	copy(raw[25:], digest[:16])
-	return base64.RawURLEncoding.EncodeToString(raw[:])
+	return EncodeServerCursor(kind, strconv.FormatInt(offset, 10))
 }
 
 func DecodeOffset(raw, kind string) (int64, error) {
-	data, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil || len(data) != 41 || data[0] != 2 {
+	key, ok := ResolveServerCursor(raw, kind)
+	if !ok {
+		return 0, fmt.Errorf("invalid or stale continuation cursor")
+	}
+	offset, err := strconv.ParseInt(key, 10, 64)
+	if err != nil || offset < 0 || strconv.FormatInt(offset, 10) != key {
 		return 0, fmt.Errorf("invalid continuation cursor")
 	}
-	scope := sha256.Sum256([]byte(kind))
-	if string(data[1:17]) != string(scope[:16]) {
-		return 0, fmt.Errorf("continuation cursor scope does not match")
-	}
-	digest := sha256.Sum256(append([]byte(kind+"\x00"), data[17:25]...))
-	if string(data[25:]) != string(digest[:16]) {
-		return 0, fmt.Errorf("invalid continuation cursor")
-	}
-	offset := binary.BigEndian.Uint64(data[17:25])
-	if offset > uint64(^uint64(0)>>1) {
-		return 0, fmt.Errorf("invalid continuation cursor")
-	}
-	return int64(offset), nil
+	return offset, nil
 }
 
-// EncodeRangeCursor returns a bounded cursor for a line range. The scope is
-// carried in the cursor so the caller can reject reuse for another request.
-// The scope remains tied to the complete server-owned query while the cursor
-// carries the next line and the requested range end for continuation.
 func EncodeRangeCursor(kind string, offset, end int) string {
 	if offset < 0 || end < offset {
 		return ""
 	}
-	scope := sha256.Sum256([]byte(kind))
-	var raw [49]byte
-	raw[0] = 4
-	copy(raw[1:17], scope[:16])
-	binary.BigEndian.PutUint64(raw[17:25], uint64(offset))
-	binary.BigEndian.PutUint64(raw[25:33], uint64(end))
-	digest := sha256.Sum256(append([]byte(kind+"\x00"), raw[17:33]...))
-	copy(raw[33:], digest[:16])
-	return base64.RawURLEncoding.EncodeToString(raw[:])
+	return EncodeServerCursor(kind, strconv.Itoa(offset)+":"+strconv.Itoa(end))
 }
 
-// DecodeRangeCursor validates and decodes a cursor created by
-// EncodeRangeCursor. It deliberately binds only to kind; the caller remains
-// responsible for validating the decoded line positions against its object.
 func DecodeRangeCursor(raw, kind string) (int, int, error) {
-	data, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil || len(data) != 49 || data[0] != 4 {
+	key, ok := ResolveServerCursor(raw, kind)
+	if !ok {
+		return 0, 0, fmt.Errorf("invalid or stale continuation cursor")
+	}
+	separator := strings.IndexByte(key, ':')
+	if separator < 1 || strings.IndexByte(key[separator+1:], ':') >= 0 {
 		return 0, 0, fmt.Errorf("invalid continuation cursor")
 	}
-	scope := sha256.Sum256([]byte(kind))
-	if string(data[1:17]) != string(scope[:16]) {
-		return 0, 0, fmt.Errorf("continuation cursor scope does not match")
-	}
-	digest := sha256.Sum256(append([]byte(kind+"\x00"), data[17:33]...))
-	if string(data[33:]) != string(digest[:16]) {
+	offset, offsetErr := strconv.Atoi(key[:separator])
+	end, endErr := strconv.Atoi(key[separator+1:])
+	if offsetErr != nil || endErr != nil || offset < 0 || end < offset || strconv.Itoa(offset)+":"+strconv.Itoa(end) != key {
 		return 0, 0, fmt.Errorf("invalid continuation cursor")
 	}
-	offset := binary.BigEndian.Uint64(data[17:25])
-	end := binary.BigEndian.Uint64(data[25:33])
-	maxInt := uint64(^uint(0) >> 1)
-	if offset > maxInt || end > maxInt || end < offset {
-		return 0, 0, fmt.Errorf("invalid continuation cursor")
-	}
-	return int(offset), int(end), nil
+	return offset, end, nil
 }
 
 func EncodeSearchCursor(kind, path string, line int) string {
-	if line < 0 {
+	if path == "" || line < 0 {
 		return ""
 	}
-	scope := sha256.Sum256([]byte(kind))
-	pathDigest := sha256.Sum256([]byte(kind + "\x00" + path))
-	var raw [37]byte
-	raw[0] = 3
-	copy(raw[1:17], scope[:16])
-	copy(raw[17:33], pathDigest[:16])
-	binary.BigEndian.PutUint32(raw[33:37], uint32(line))
-	return base64.RawURLEncoding.EncodeToString(raw[:])
+	return EncodeServerCursor(kind, path+"|"+strconv.Itoa(line))
 }
 
 func ValidateSearchCursor(raw, kind string) error {
-	data, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil || len(data) != 37 || data[0] != 3 {
-		return fmt.Errorf("invalid continuation cursor")
+	key, ok := ResolveServerCursor(raw, kind)
+	if !ok {
+		return fmt.Errorf("invalid or stale continuation cursor")
 	}
-	scope := sha256.Sum256([]byte(kind))
-	if string(data[1:17]) != string(scope[:16]) {
-		return fmt.Errorf("continuation cursor scope does not match")
+	if _, _, err := parseSearchKey(key); err != nil {
+		return err
 	}
 	return nil
 }
 
 func SearchCursorPathMatches(raw, kind, path string) bool {
-	if ValidateSearchCursor(raw, kind) != nil {
+	key, ok := ResolveServerCursor(raw, kind)
+	if !ok {
 		return false
 	}
-	data, _ := base64.RawURLEncoding.DecodeString(raw)
-	pathDigest := sha256.Sum256([]byte(kind + "\x00" + path))
-	return string(data[17:33]) == string(pathDigest[:16])
+	cursorPath, _, err := parseSearchKey(key)
+	return err == nil && cursorPath == path
 }
 
 func DecodeSearchCursorLine(raw, kind, path string) (int, error) {
-	if err := ValidateSearchCursor(raw, kind); err != nil {
+	key, ok := ResolveServerCursor(raw, kind)
+	if !ok {
+		return 0, fmt.Errorf("invalid or stale continuation cursor")
+	}
+	cursorPath, line, err := parseSearchKey(key)
+	if err != nil {
 		return 0, err
 	}
-	if !SearchCursorPathMatches(raw, kind, path) {
+	if cursorPath != path {
 		return 0, fmt.Errorf("continuation cursor path does not match")
 	}
-	data, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil {
-		return 0, fmt.Errorf("invalid continuation cursor")
+	return line, nil
+}
+
+func parseSearchKey(key string) (string, int, error) {
+	separator := strings.LastIndexByte(key, '|')
+	if separator < 1 {
+		return "", 0, fmt.Errorf("invalid continuation cursor")
 	}
-	return int(binary.BigEndian.Uint32(data[33:37])), nil
+	line, err := strconv.Atoi(key[separator+1:])
+	if err != nil || line < 0 || strconv.Itoa(line) != key[separator+1:] {
+		return "", 0, fmt.Errorf("invalid continuation cursor")
+	}
+	return key[:separator], line, nil
 }
 
 func compactEncode(kind, key string) string {
@@ -268,70 +235,38 @@ func compactEncode(kind, key string) string {
 	return string(encoded)
 }
 
-func Resolve(value, kind string, keys []string) (string, error) {
-	if value == "" {
-		return "", nil
-	}
-	if len(value) == CompactCursorLength && isCompact(value) {
-		match := ""
-		for _, key := range keys {
-			if compactEncode(kind, key) != value {
-				continue
-			}
-			if match != "" {
-				return "", fmt.Errorf("invalid continuation cursor")
-			}
-			match = key
-		}
-		if match == "" {
-			return "", fmt.Errorf("continuation cursor is no longer valid")
-		}
-		return match, nil
-	}
-	return Decode(value, kind)
-}
-
-func isCompact(value string) bool {
-	if len(value) != CompactCursorLength {
-		return false
-	}
-	for _, char := range value {
-		if !containsByte(compactAlphabet, byte(char)) {
-			return false
-		}
-	}
-	return true
-}
-
-func containsByte(value string, wanted byte) bool {
-	for i := 0; i < len(value); i++ {
-		if value[i] == wanted {
-			return true
-		}
-	}
-	return false
-}
-
-func decodeLegacy(value, kind string) (string, error) {
-	decoded, err := base64.RawURLEncoding.DecodeString(value)
-	if err != nil {
-		return "", fmt.Errorf("invalid continuation cursor")
-	}
-	var c cursor
-	if err := json.Unmarshal(decoded, &c); err != nil || c.Kind != kind || c.Key == "" {
-		return "", fmt.Errorf("invalid continuation cursor")
-	}
-	return c.Key, nil
-}
-
 func Decode(value, kind string) (string, error) {
 	if value == "" {
 		return "", nil
 	}
-	if isCompact(value) {
-		return "", fmt.Errorf("compact cursor requires a scoped page")
+	key, ok := ResolveServerCursor(value, kind)
+	if !ok {
+		return "", fmt.Errorf("invalid or stale continuation cursor")
 	}
-	return decodeLegacy(value, kind)
+	return key, nil
+}
+
+func Resolve(value, kind string, keys []string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	key, err := Decode(value, kind)
+	if err != nil {
+		return "", err
+	}
+	matches := 0
+	for _, candidate := range keys {
+		if candidate == key {
+			matches++
+		}
+	}
+	if matches == 0 {
+		return "", fmt.Errorf("continuation cursor is no longer valid")
+	}
+	if matches > 1 {
+		return "", fmt.Errorf("ambiguous continuation cursor")
+	}
+	return key, nil
 }
 
 func Page[T any](kind string, items []T, limit int, rawCursor string, key func(T) string) ([]T, PageInfo, error) {
@@ -351,9 +286,6 @@ func Page[T any](kind string, items []T, limit int, rawCursor string, key func(T
 				break
 			}
 		}
-		if start == 0 {
-			return nil, PageInfo{}, fmt.Errorf("continuation cursor is no longer valid")
-		}
 	}
 	end := start + limit
 	if end > len(items) {
@@ -363,7 +295,10 @@ func Page[T any](kind string, items []T, limit int, rawCursor string, key func(T
 	info := PageInfo{}
 	if end < len(items) && len(result) > 0 {
 		info.HasMore = true
-		info.NextCursor = Encode(kind, key(result[len(result)-1]))
+		info.NextCursor = EncodeServerCursor(kind, key(result[len(result)-1]))
+		if info.NextCursor == "" {
+			return nil, PageInfo{}, fmt.Errorf("could not issue an unambiguous continuation cursor")
+		}
 	}
 	return result, info, nil
 }

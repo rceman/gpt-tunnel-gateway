@@ -34,6 +34,21 @@ type TaskExecutionIntegrateInput struct {
 // the durable enqueue and the synchronous worker; it runs before any state
 // mutation. Historical mode proves an already-landed canonical commit from
 // immutable Journal evidence and never publishes.
+func validTaskExecutionCommitReference(value string) bool {
+	if model.ValidateCommitSHA(value) == nil {
+		return true
+	}
+	if len(value) != 8 || strings.ToLower(value) != value {
+		return false
+	}
+	for i := range value {
+		if !((value[i] >= '0' && value[i] <= '9') || (value[i] >= 'a' && value[i] <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
 func validateTaskExecutionIntegrateInput(in TaskExecutionIntegrateInput) error {
 	if err := validateTaskExecutionReviewInput(in.ProjectID, in.Key, "code"); err != nil {
 		return err
@@ -52,8 +67,8 @@ func validateTaskExecutionIntegrateInput(in TaskExecutionIntegrateInput) error {
 		if h == nil {
 			return fmt.Errorf("historical integration requires proof input")
 		}
-		if err := model.ValidateCommitSHA(h.IntegrationHead); err != nil {
-			return fmt.Errorf("historical integration_head: %w", err)
+		if !validTaskExecutionCommitReference(h.IntegrationHead) {
+			return fmt.Errorf("historical integration_head must be an 8-character fingerprint or exact internal commit SHA")
 		}
 		if _, _, err := model.ParseJournalID(h.Evidence); err != nil {
 			return fmt.Errorf("historical evidence: %w", err)
@@ -64,11 +79,11 @@ func validateTaskExecutionIntegrateInput(in TaskExecutionIntegrateInput) error {
 				return fmt.Errorf("legacy historical integration does not accept candidate_head or main_base")
 			}
 		case "bootstrap_full":
-			if err := model.ValidateCommitSHA(h.CandidateHead); err != nil {
-				return fmt.Errorf("historical candidate_head: %w", err)
+			if !validTaskExecutionCommitReference(h.CandidateHead) {
+				return fmt.Errorf("historical candidate_head must be an 8-character fingerprint or exact internal commit SHA")
 			}
-			if err := model.ValidateCommitSHA(h.MainBase); err != nil {
-				return fmt.Errorf("historical main_base: %w", err)
+			if !validTaskExecutionCommitReference(h.MainBase) {
+				return fmt.Errorf("historical main_base must be an 8-character fingerprint or exact internal commit SHA")
 			}
 		default:
 			return fmt.Errorf("invalid historical integration profile")

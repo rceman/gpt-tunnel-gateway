@@ -479,7 +479,8 @@ func tsk585AssertClosedObject(t *testing.T, schema map[string]any, path string) 
 func TestTSK585HistoricalIntegrateMCPSchema(t *testing.T) {
 	public := taskExecutionIntegrateSchema()
 	execution := taskExecutionIntegrateExecutionSchema(taskExecutionIntegrateSchema())
-	sha := strings.Repeat("a", 40)
+	sha := strings.Repeat("a", 8)
+	fullSHA := strings.Repeat("a", 40)
 	jrn := `"EXM-JRN1"`
 
 	acceptedPublic := map[string]string{
@@ -507,6 +508,7 @@ func TestTSK585HistoricalIntegrateMCPSchema(t *testing.T) {
 		"bootstrap missing candidate": `{"key":"EXM-TSK1","mode":"historical","historical":{"integration_head":"` + sha + `","profile":"bootstrap_full","evidence":` + jrn + `,"main_base":"` + sha + `"}}`,
 		"bootstrap missing base":      `{"key":"EXM-TSK1","mode":"historical","historical":{"integration_head":"` + sha + `","profile":"bootstrap_full","evidence":` + jrn + `,"candidate_head":"` + sha + `"}}`,
 		"bad sha":                     `{"key":"EXM-TSK1","mode":"historical","historical":{"integration_head":"ABC","profile":"legacy","evidence":` + jrn + `}}`,
+		"full public SHA":             `{"key":"EXM-TSK1","mode":"historical","historical":{"integration_head":"` + fullSHA + `","profile":"legacy","evidence":` + jrn + `}}`,
 		"bad profile":                 `{"key":"EXM-TSK1","mode":"historical","historical":{"integration_head":"` + sha + `","profile":"partial","evidence":` + jrn + `}}`,
 		"oversized comment":           `{"key":"EXM-TSK1","comment":"` + strings.Repeat("x", 1025) + `"}`,
 		"unknown top-level field":     `{"key":"EXM-TSK1","bogus":1}`,
@@ -572,7 +574,7 @@ func TestTSK585TaskIntegrateMCPDispatch(t *testing.T) {
 		}
 		return decoded
 	}
-	sha := strings.Repeat("a", 40)
+	sha := strings.Repeat("a", 8)
 	for name, input := range map[string]map[string]any{
 		"verified default":  {"key": "EXM-TSK1"},
 		"verified explicit": {"key": "EXM-TSK1", "mode": "verified", "comment": "bounded"},
@@ -589,6 +591,9 @@ func TestTSK585TaskIntegrateMCPDispatch(t *testing.T) {
 		if !ok || payload["operation_id"] == "" {
 			t.Fatalf("%s task/integrate did not enqueue a mutation receipt: %#v", name, result)
 		}
+	}
+	if rejected := call(map[string]any{"key": "EXM-TSK1", "mode": "historical", "historical": map[string]any{"integration_head": strings.Repeat("a", 40), "profile": "legacy", "evidence": "EXM-JRN1"}}); rejected["ok"] != false {
+		t.Fatalf("full Git SHA must not be accepted by the public schema: %#v", rejected)
 	}
 	if rejected := call(map[string]any{"key": "EXM-TSK1", "project_id": "other"}); rejected["ok"] != false {
 		t.Fatalf("caller-supplied foreign project_id must be rejected: %#v", rejected)

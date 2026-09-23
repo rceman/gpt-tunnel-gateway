@@ -42,7 +42,9 @@ func messageReadInputSchema() map[string]any {
 
 func messageListInputSchema() map[string]any {
 	unreadOnly := map[string]any{"type": "boolean", "description": "Return only unread messages."}
-	return obj(map[string]any{"unread_only": unreadOnly, "cursor": str("Opaque continuation cursor.")})
+	cursor := publicServerCursorSchema()
+	cursor["description"] = "Opaque continuation cursor."
+	return obj(map[string]any{"unread_only": unreadOnly, "cursor": cursor})
 }
 
 func messageCancelInputSchema() map[string]any {
@@ -83,10 +85,7 @@ func messageListRowOutputSchema() map[string]any {
 }
 
 func messageListOutputSchema() map[string]any {
-	return closedOutput(map[string]any{
-		"items":  outputArray(messageListRowOutputSchema()),
-		"cursor": outputString(),
-	}, "items")
+	return closedOutput(map[string]any{"items": outputArray(messageListRowOutputSchema())}, "items")
 }
 
 func messageCancelOutputSchema() map[string]any {
@@ -232,11 +231,7 @@ func (s *Server) registerMessageActions() error {
 			for _, message := range page.Messages {
 				items = append(items, messageListRowValue(message))
 			}
-			value := map[string]any{"items": items}
-			if page.NextCursor != "" {
-				value["cursor"] = page.NextCursor
-			}
-			return value, nil
+			return genericActionPageResult(map[string]any{"items": items}, page.HasMore, page.NextCursor)
 		},
 	}); err != nil {
 		return err

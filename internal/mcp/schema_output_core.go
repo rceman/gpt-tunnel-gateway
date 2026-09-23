@@ -8,7 +8,7 @@ func projectConfigOutputSchema() map[string]any {
 
 func projectStatusOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(), "hub_revision": outputString(), "progress": projectProgressOutputSchema(), "workflow_policy": workflowPolicyStatusOutputSchema(), "project_configuration": projectConfigurationStatusOutputSchema(),
+		"project": projectOutputSchema(), "local": projectConfigOutputSchema(), "worktree": worktreeStatusOutputSchema(), "plan": planStatusOutputSchema(), "hub_revision": publicGitFingerprintOrEmptyOutputSchema(), "progress": projectProgressOutputSchema(), "workflow_policy": workflowPolicyStatusOutputSchema(), "project_configuration": projectConfigurationStatusOutputSchema(),
 	}, "project", "local", "worktree", "plan", "hub_revision", "progress", "workflow_policy", "project_configuration")
 }
 
@@ -21,9 +21,9 @@ func projectOperationalStatusOutputSchema() map[string]any {
 			"agent_id": outputString(), "expected": outputString(), "state": outputString(), "session_ready": outputBoolean(), "last_activity": outputDateTime(), "last_activity_age_seconds": outputInteger(),
 		}, "expected", "state", "session_ready", "last_activity_age_seconds"),
 		"operation":   closedOutput(map[string]any{"kind": outputString(), "operation_id": outputString(), "status": outputString()}, "kind", "operation_id", "status"),
-		"integration": closedOutput(map[string]any{"state": outputString(), "candidate_head": outputString(), "runtime_source_sha": outputString(), "ready": outputBoolean(), "version_match": outputBoolean(), "exact_source_match": outputBoolean()}, "state", "ready", "version_match", "exact_source_match"),
+		"integration": closedOutput(map[string]any{"state": outputString(), "candidate_head": publicGitFingerprintOrEmptyOutputSchema(), "runtime_source_sha": publicGitFingerprintOrEmptyOutputSchema(), "ready": outputBoolean(), "version_match": outputBoolean(), "exact_source_match": outputBoolean()}, "state", "ready", "version_match", "exact_source_match"),
 		"rules":       closedOutput(map[string]any{"acknowledged": outputBoolean(), "fresh": outputBoolean()}, "acknowledged", "fresh"),
-		"release_ci":  closedOutput(map[string]any{"state": outputString(), "tag": outputString(), "sha": outputString(), "status": outputString()}, "state"),
+		"release_ci":  closedOutput(map[string]any{"state": outputString(), "tag": outputString(), "sha": publicGitFingerprintOrEmptyOutputSchema(), "status": outputString()}, "state"),
 		"shared_sync": closedOutput(map[string]any{"state": outputString(), "pending": outputInteger(), "retrying": outputInteger(), "last_error": outputString()}, "state", "pending", "retrying"),
 		"blocker":     outputString(), "recommended_next_action": outputString(),
 	}, "project", "state", "agent", "integration", "rules", "release_ci", "shared_sync", "recommended_next_action")
@@ -31,13 +31,12 @@ func projectOperationalStatusOutputSchema() map[string]any {
 
 func runtimeIdentityOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"gateway_pid": outputInteger(), "running_executable_path": outputString(), "running_executable_sha256": outputString(),
-		"installed_gateway_sha256": outputString(), "installed_cli_sha256": outputString(), "installed_ctl_sha256": outputString(),
+		"gateway_pid": outputInteger(), "running_executable_path": outputString(),
 		"installed_artifact_versions": map[string]any{"type": "object", "additionalProperties": outputString()},
 		"artifact_set_coherent":       outputBoolean(), "running_gateway_matches_installed": outputBoolean(),
 		"installed_version": outputString(), "running_version": outputString(), "version_match": outputBoolean(),
 		"gateway_ready": outputBoolean(), "tunnel_pid": outputInteger(), "tunnel_ready": outputBoolean(),
-		"source_sha": outputString(), "source_provenance_available": outputBoolean(), "exact_source_match": outputBoolean(),
+		"source_sha": publicGitFingerprintOrEmptyOutputSchema(), "source_provenance_available": outputBoolean(), "exact_source_match": outputBoolean(),
 		"provenance_reason": outputString(),
 	}, "artifact_set_coherent", "running_gateway_matches_installed", "version_match", "gateway_ready", "tunnel_ready", "source_provenance_available", "exact_source_match")
 }

@@ -37,6 +37,29 @@ func (r Runner) RemoteNames(ctx context.Context, p config.ProjectConfig) ([]stri
 	return lines, nil
 }
 
+func (r Runner) ResolveCommitFingerprint(ctx context.Context, p config.ProjectConfig, fingerprint string) (string, error) {
+	if len(fingerprint) != 8 || strings.ToLower(fingerprint) != fingerprint {
+		return "", fmt.Errorf("commit fingerprint must be 8 lowercase hexadecimal characters")
+	}
+	for i := range fingerprint {
+		if !((fingerprint[i] >= '0' && fingerprint[i] <= '9') || (fingerprint[i] >= 'a' && fingerprint[i] <= 'f')) {
+			return "", fmt.Errorf("commit fingerprint must be 8 lowercase hexadecimal characters")
+		}
+	}
+	if p.Root == "" {
+		return "", fmt.Errorf("configured project root is required to resolve a commit fingerprint")
+	}
+	out, err := r.command(ctx, p.Root, false, "rev-parse", "--verify", "--end-of-options", fingerprint+"^{commit}")
+	if err != nil {
+		return "", fmt.Errorf("commit fingerprint is unknown or ambiguous")
+	}
+	commit := strings.TrimSpace(string(out))
+	if model.ValidateCommitSHA(commit) != nil || !strings.HasPrefix(commit, fingerprint) {
+		return "", fmt.Errorf("commit fingerprint resolved to invalid authoritative state")
+	}
+	return commit, nil
+}
+
 func (r Runner) Show(ctx context.Context, p config.ProjectConfig, rev string) (string, error) {
 	if err := model.ValidateRevision(rev); err != nil {
 		return "", err
@@ -249,7 +272,7 @@ func (r Runner) Diff(ctx context.Context, p config.ProjectConfig, from, to strin
 	if err != nil {
 		return "", err
 	}
-	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", from, to}
+	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--full-index", "--find-renames", "--find-copies", from, to}
 	if len(paths) > 0 {
 		args = append(args, "--")
 		args = append(args, paths...)

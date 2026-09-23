@@ -19,7 +19,7 @@ func ruleActionProperties() map[string]any {
 		"description": boundedADRString("Rule narrative body.", 1, model.RuleDescriptionMaxRunes),
 		"status":      statuses, "reason": boundedADRString("Bounded mutation reason.", 1, 1024),
 		"include_archived": map[string]any{"type": "boolean"},
-		"text":             str("Case-insensitive text matched across rule content."), "cursor": str("Opaque server-owned continuation token."),
+		"text":             str("Case-insensitive text matched across rule content."), "cursor": publicServerCursorSchema(),
 	}
 }
 

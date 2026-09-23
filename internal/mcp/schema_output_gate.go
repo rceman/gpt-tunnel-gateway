@@ -8,12 +8,10 @@ import "github.com/rceman/gpt-tunnel-gateway/internal/model"
 // server-owned workflow gates use a closed enum.
 func completionGateResultOutputSchema(id map[string]any) map[string]any {
 	return closedOutput(map[string]any{
-		"id":              id,
-		"exit_code":       outputInteger(),
-		"execution":       outputEnum("executed", "reused"),
-		"tree_id":         outputString(),
-		"contract_digest": outputString(),
-		"receipt_digest":  outputString(),
+		"id":        id,
+		"exit_code": outputInteger(),
+		"execution": outputEnum("executed", "reused"),
+		"tree_id":   publicGitFingerprintOrEmptyOutputSchema(),
 	}, "id", "exit_code")
 }
 

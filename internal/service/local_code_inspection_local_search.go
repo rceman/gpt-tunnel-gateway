@@ -185,12 +185,9 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		return CodeSearchResult{}, err
 	}
 	kind := codeCursorKind("code-search", target, in.Query+"|"+strings.Join(selectedPaths, "\x00")+"|"+strings.Join(in.Include, "\x00")+"|"+strings.Join(in.Exclude, "\x00")+"|"+strconv.Itoa(in.ContextLines)+"|"+strconv.FormatBool(in.CaseInsensitive)+"|"+strconv.FormatBool(target.Live))
-	compactCursor := false
 	if in.Cursor != "" {
-		if _, compactCursor = pagination.ResolveServerCursor(in.Cursor, kind); !compactCursor {
-			if err := pagination.ValidateSearchCursor(in.Cursor, kind); err != nil {
-				return CodeSearchResult{}, err
-			}
+		if err := pagination.ValidateSearchCursor(in.Cursor, kind); err != nil {
+			return CodeSearchResult{}, err
 		}
 	}
 	result := CodeSearchResult{
@@ -212,7 +209,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 			}
 		}()
 		cursorLine := 0
-		if !afterSeen && !compactCursor {
+		if !afterSeen {
 			if !pagination.SearchCursorPathMatches(in.Cursor, kind, pathName) {
 				return nil
 			}
@@ -242,14 +239,6 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		for lineNumber, line := range lines {
 			matchAt, matchLen := parsedQuery.matchLine(line)
 			if matchAt < 0 {
-				continue
-			}
-			if !afterSeen && compactCursor {
-				if key, _ := pagination.ResolveServerCursor(in.Cursor, kind); key == pathName+"|"+strconv.Itoa(lineNumber+1) {
-					afterSeen = true
-					cursorFound = true
-					pathsScanned = 0
-				}
 				continue
 			}
 			if !afterSeen {

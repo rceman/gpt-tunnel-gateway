@@ -164,8 +164,8 @@ func (s *Server) boundCodeProject(ctx context.Context) (string, error) {
 }
 
 func codeCursorSchema() map[string]any {
-	cursor := str("Opaque server-owned continuation cursor.")
-	cursor["maxLength"] = 256
+	cursor := publicServerCursorSchema()
+	cursor["description"] = "Opaque server-owned continuation cursor."
 	return cursor
 }
 
@@ -221,23 +221,18 @@ func codeDiffInputSchema() map[string]any {
 	return obj(map[string]any{"worktree": codeSelectorSchema(), "paths": paths, "base": taskExecutionPublicHeadSchema(), "head": head, "cursor": codeCursorSchema(), "live": codeLiveSchema()}, "worktree")
 }
 
-func codePaginationOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"next_cursor": outputString()})
-}
-
 func codeWorktreeOutputSchema() map[string]any {
-	item := closedOutput(map[string]any{"selector": outputString(), "kind": outputString(), "dirty": outputBoolean(), "head": outputString(), "label": outputString()}, "selector", "kind", "dirty", "head")
-	return closedOutput(map[string]any{"items": outputArray(item), "_pagination": codePaginationOutputSchema()}, "items")
+	item := closedOutput(map[string]any{"selector": outputString(), "kind": outputString(), "dirty": outputBoolean(), "head": publicGitFingerprintOutputSchema(), "label": outputString()}, "selector", "kind", "dirty", "head")
+	return closedOutput(map[string]any{"items": outputArray(item)}, "items")
 }
 
 func codeIdentityOutputSchema() map[string]any {
-	return map[string]any{"worktree": outputString(), "dirty": outputBoolean(), "live": outputBoolean(), "head": outputString()}
+	return map[string]any{"worktree": outputString(), "dirty": outputBoolean(), "live": outputBoolean(), "head": publicGitFingerprintOutputSchema()}
 }
 
 func codeTreeOutputSchema() map[string]any {
 	properties := codeIdentityOutputSchema()
 	properties["paths"] = outputArray(outputString())
-	properties["_pagination"] = codePaginationOutputSchema()
 	return closedOutput(properties, "worktree", "dirty", "live", "head", "paths")
 }
 
@@ -248,7 +243,6 @@ func codeReadOutputSchema() map[string]any {
 	properties["end_line"] = outputInteger()
 	properties["total_lines"] = outputInteger()
 	properties["content"] = outputString()
-	properties["_pagination"] = codePaginationOutputSchema()
 	properties["file_hash"] = outputString()
 	return closedOutput(properties, "worktree", "dirty", "live", "head", "path", "start_line", "end_line", "total_lines", "content", "file_hash")
 }
@@ -258,7 +252,6 @@ func codeSearchOutputSchema() map[string]any {
 	properties := codeIdentityOutputSchema()
 	properties["paths_scanned"] = outputInteger()
 	properties["matches"] = outputArray(match)
-	properties["_pagination"] = codePaginationOutputSchema()
 	return closedOutput(properties, "worktree", "dirty", "live", "head", "paths_scanned", "matches")
 }
 
@@ -267,6 +260,5 @@ func codeDiffOutputSchema() map[string]any {
 	properties["base"] = taskExecutionPublicHeadSchema()
 	properties["paths"] = outputArray(outputString())
 	properties["diff"] = outputString()
-	properties["_pagination"] = codePaginationOutputSchema()
 	return closedOutput(properties, "worktree", "dirty", "live", "head", "base", "paths", "diff")
 }

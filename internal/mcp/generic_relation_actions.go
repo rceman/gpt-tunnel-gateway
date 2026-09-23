@@ -30,7 +30,7 @@ func relationCreateSchema() map[string]any {
 }
 
 func relationListSchema() map[string]any {
-	return obj(map[string]any{"source": str("Canonical source entity key."), "kind": relationKindSchema(), "direction": relationDirectionSchema(), "cursor": str("Opaque server-owned continuation token.")}, "source")
+	return obj(map[string]any{"source": str("Canonical source entity key."), "kind": relationKindSchema(), "direction": relationDirectionSchema(), "cursor": publicServerCursorSchema()}, "source")
 }
 
 func relationCreateOutputSchema() map[string]any {

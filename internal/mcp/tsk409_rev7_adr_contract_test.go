@@ -337,7 +337,7 @@ func TestTSK409Rev7ADRListProjectionPaginatesWithServerOwnedCursor(t *testing.T)
 			Revision: 1, RevisionCount: 1, Title: strings.Repeat("t", 120) + fmt.Sprintf("%04d", index), Summary: strings.Repeat("s", 256),
 			Status: model.ADRStatusProposed, Context: "context", Decision: "decision", Consequences: "consequences", CreatedAt: now, UpdatedAt: now})
 	}
-	page, err := adrPublicPageValue(service.ADRListPageResult{ADRs: adrs, NextCursor: "unused", HasMore: true, CursorKind: kind})
+	page, err := adrPublicPageValue(service.ADRListPageResult{ADRs: adrs, NextCursor: pagination.EncodeServerCursor(kind, adrs[len(adrs)-1].ID), HasMore: true, CursorKind: kind})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +374,7 @@ func TestTSK409Rev7ADRListProjectionPaginatesWithServerOwnedCursor(t *testing.T)
 	remaining := adrs[len(items):]
 	walked := len(items)
 	for len(remaining) > 0 {
-		next, err := adrPublicPageValue(service.ADRListPageResult{ADRs: remaining, NextCursor: "unused", HasMore: true, CursorKind: kind})
+		next, err := adrPublicPageValue(service.ADRListPageResult{ADRs: remaining, NextCursor: pagination.EncodeServerCursor(kind, remaining[len(remaining)-1].ID), HasMore: true, CursorKind: kind})
 		if err != nil {
 			t.Fatal(err)
 		}

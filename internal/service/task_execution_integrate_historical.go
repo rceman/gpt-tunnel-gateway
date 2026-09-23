@@ -67,34 +67,42 @@ func taskExecutionHistoricalPhaseComment(in TaskExecutionIntegrateInput) (string
 // by a durable active Planner session. It performs read-only Git proofs,
 // never publishes, never reconciles, and never writes a verification receipt;
 // the only mutation is the atomic state+phase transition to integrated.
+func resolveTaskExecutionHistoricalCommitReference(reference string, commits []string) (string, error) {
+	if !validTaskExecutionCommitReference(reference) {
+		return "", fmt.Errorf("invalid Git fingerprint")
+	}
+	matches := make(map[string]struct{})
+	for _, commit := range commits {
+		if model.ValidateCommitSHA(commit) != nil {
+			return "", fmt.Errorf("authoritative Journal commit reference is invalid")
+		}
+		if (len(reference) == 40 && commit == reference) || (len(reference) == 8 && strings.HasPrefix(commit, reference)) {
+			matches[commit] = struct{}{}
+		}
+	}
+	if len(matches) == 0 {
+		return "", fmt.Errorf("Git fingerprint is unknown or stale in authoritative Journal evidence")
+	}
+	if len(matches) != 1 {
+		return "", fmt.Errorf("Git fingerprint is ambiguous in authoritative Journal evidence")
+	}
+	for commit := range matches {
+		return commit, nil
+	}
+	return "", fmt.Errorf("Git fingerprint is unresolved")
+}
+
 func (s *Service) taskExecutionHistoricalIntegrate(ctx context.Context, in TaskExecutionIntegrateInput, project config.ProjectConfig, state model.TaskExecutionState) (TaskExecutionPublicOutput, error) {
 	h := in.Historical
-	envelopeComment, err := taskExecutionHistoricalPhaseComment(in)
-	if err != nil {
-		return TaskExecutionPublicOutput{}, err
-	}
-	phases, err := s.Durability.ReadTaskExecutionPhases(ctx, in.ProjectID, in.Key, "integration")
-	if err != nil {
-		return TaskExecutionPublicOutput{}, err
-	}
-	if state.Status == model.TaskExecutionIntegrated {
-		if len(phases) != 1 || phases[0].Comment != envelopeComment || phases[0].Head != h.IntegrationHead || phases[0].Status != model.TaskExecutionIntegrated || phases[0].Stage != "integration" || phases[0].EventKind != "integration" || phases[0].Decision != "accept" || phases[0].TaskRevisionSHA256 != state.TaskRevisionSHA256 || phases[0].Branch != state.Branch || phases[0].ExecutionRevision != state.ExecutionRevision {
-			return TaskExecutionPublicOutput{}, fmt.Errorf("recorded Task integration evidence conflicts with the historical recognition request; explicit evidence reconciliation is required")
-		}
-		return taskExecutionPublicOutput(state), nil
-	}
 	switch h.Profile {
 	case "legacy":
-		if state.Status != model.TaskExecutionReadyForVerification && state.Status != model.TaskExecutionVerified {
+		if state.Status != model.TaskExecutionReadyForVerification && state.Status != model.TaskExecutionVerified && state.Status != model.TaskExecutionIntegrated {
 			return TaskExecutionPublicOutput{}, fmt.Errorf("Task is not ready for historical integration recognition")
 		}
 	case "bootstrap_full":
-		if state.Status != model.TaskExecutionDispatched && state.Status != model.TaskExecutionReadyForVerification && state.Status != model.TaskExecutionVerified {
+		if state.Status != model.TaskExecutionDispatched && state.Status != model.TaskExecutionReadyForVerification && state.Status != model.TaskExecutionVerified && state.Status != model.TaskExecutionIntegrated {
 			return TaskExecutionPublicOutput{}, fmt.Errorf("Task is not ready for historical integration recognition")
 		}
-	}
-	if len(phases) != 0 {
-		return TaskExecutionPublicOutput{}, fmt.Errorf("Task records integration phase evidence without an integrated state; explicit evidence reconciliation is required")
 	}
 	identifiers, err := s.ProjectIdentifiersRead(ctx, in.ProjectID)
 	if err != nil {
@@ -126,6 +134,39 @@ func (s *Service) taskExecutionHistoricalIntegrate(ctx context.Context, in TaskE
 	// recorded: a later-created session cannot retroactively grant authority.
 	if session.CreatedAt.After(event.RecordedAt) || session.StartedAt.After(event.RecordedAt) {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("historical evidence Planner Session postdates the Journal record")
+	}
+	resolved := *h
+	resolved.IntegrationHead, err = resolveTaskExecutionHistoricalCommitReference(h.IntegrationHead, event.References.Commits)
+	if err != nil {
+		return TaskExecutionPublicOutput{}, fmt.Errorf("historical integration_head: %w", err)
+	}
+	if h.Profile == "bootstrap_full" {
+		resolved.CandidateHead, err = resolveTaskExecutionHistoricalCommitReference(h.CandidateHead, event.References.Commits)
+		if err != nil {
+			return TaskExecutionPublicOutput{}, fmt.Errorf("historical candidate_head: %w", err)
+		}
+		resolved.MainBase, err = resolveTaskExecutionHistoricalCommitReference(h.MainBase, event.References.Commits)
+		if err != nil {
+			return TaskExecutionPublicOutput{}, fmt.Errorf("historical main_base: %w", err)
+		}
+	}
+	in.Historical = &resolved
+	h = in.Historical
+	envelopeComment, err := taskExecutionHistoricalPhaseComment(in)
+	if err != nil {
+		return TaskExecutionPublicOutput{}, err
+	}
+	phases, err := s.Durability.ReadTaskExecutionPhases(ctx, in.ProjectID, in.Key, "integration")
+	if err != nil {
+		return TaskExecutionPublicOutput{}, err
+	}
+	alreadyIntegrated := state.Status == model.TaskExecutionIntegrated
+	if alreadyIntegrated {
+		if len(phases) != 1 || phases[0].Comment != envelopeComment || phases[0].Head != h.IntegrationHead || phases[0].Status != model.TaskExecutionIntegrated || phases[0].Stage != "integration" || phases[0].EventKind != "integration" || phases[0].Decision != "accept" || phases[0].TaskRevisionSHA256 != state.TaskRevisionSHA256 || phases[0].Branch != state.Branch || phases[0].ExecutionRevision != state.ExecutionRevision {
+			return TaskExecutionPublicOutput{}, fmt.Errorf("recorded Task integration evidence conflicts with the historical recognition request; explicit evidence reconciliation is required")
+		}
+	} else if len(phases) != 0 {
+		return TaskExecutionPublicOutput{}, fmt.Errorf("Task records integration phase evidence without an integrated state; explicit evidence reconciliation is required")
 	}
 	if h.Profile == "bootstrap_full" && event.Kind != model.OperatorTaskReview {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("historical bootstrap evidence is not a task review Journal event")
@@ -217,6 +258,9 @@ func (s *Service) taskExecutionHistoricalIntegrate(ctx context.Context, in TaskE
 		if finalSnapshot.branch != bootstrapSnapshot.branch || finalSnapshot.head != bootstrapSnapshot.head || finalSnapshot.tree != bootstrapSnapshot.tree || !finalSnapshot.clean {
 			return TaskExecutionPublicOutput{}, fmt.Errorf("assigned Task lane changed after historical bootstrap proof")
 		}
+	}
+	if alreadyIntegrated {
+		return taskExecutionPublicOutput(state), nil
 	}
 	state.Status = model.TaskExecutionIntegrated
 	state.ExecutionRevision++

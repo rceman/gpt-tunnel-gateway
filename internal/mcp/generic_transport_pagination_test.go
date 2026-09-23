@@ -9,6 +9,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
 func registerTransportProbeActions(t *testing.T, server *Server) {
@@ -17,7 +18,7 @@ func registerTransportProbeActions(t *testing.T, server *Server) {
 		"items":       outputArray(outputString()),
 		"payload":     map[string]any{"type": "object", "additionalProperties": true},
 		"nested":      map[string]any{"type": "object", "properties": map[string]any{"_pagination": outputString(), "_metrics": outputString()}},
-		"_pagination": map[string]any{"type": "object", "properties": map[string]any{"next_cursor": outputString()}},
+		"_pagination": map[string]any{"type": "object", "properties": map[string]any{"next_cursor": publicServerCursorSchema()}},
 		"_metrics":    map[string]any{"type": "object"},
 	}, "items")
 	input := obj(map[string]any{})
@@ -45,7 +46,7 @@ func registerTransportProbeActions(t *testing.T, server *Server) {
 				"_metrics":    "nested-metrics",
 				"value":       "preserved",
 			},
-			"_pagination": map[string]any{"next_cursor": "opaque-1"},
+			"_pagination": map[string]any{"next_cursor": "ABCDEFGH"},
 			"_metrics":    map[string]any{"private": true},
 		}, nil
 	})
@@ -70,7 +71,7 @@ func TestGenericCallPublicDetachesContinuationAndPreservesPayload(t *testing.T) 
 		t.Fatal(err)
 	}
 	responseMap := response.(map[string]any)
-	if got := responseMap["pagination"]; !reflect.DeepEqual(got, map[string]any{"next_cursor": "opaque-1"}) {
+	if got := responseMap["pagination"]; !reflect.DeepEqual(got, map[string]any{"next_cursor": "ABCDEFGH"}) {
 		t.Fatalf("unexpected top-level pagination: %#v", responseMap)
 	}
 	result := responseMap["result"].(map[string]any)
@@ -83,6 +84,46 @@ func TestGenericCallPublicDetachesContinuationAndPreservesPayload(t *testing.T) 
 	wantPayload := map[string]any{"_pagination": "nested-pagination", "_metrics": "nested-metrics", "value": "preserved"}
 	if !reflect.DeepEqual(result["payload"], wantPayload) {
 		t.Fatalf("nested payload changed: got=%#v want=%#v", result["payload"], wantPayload)
+	}
+}
+
+func TestToolResultValidatesProjectedNumericCallMetrics(t *testing.T) {
+	tool := Tool{
+		Name:         "call",
+		OutputSchema: genericCallOutputSchema(),
+	}
+	response := toolResult(tool, publicCallFailure("CALL_FAILED", "expected failure", 0), false)
+	if response["isError"] == true {
+		t.Fatalf("projected numeric call metrics violated schema: %#v", response)
+	}
+}
+
+func TestGitToolPaginationIsOutsideTheCollectionResult(t *testing.T) {
+	server := &Server{Service: service.New(config.Config{})}
+	tool, ok := server.tools()["git_refs"]
+	if !ok {
+		t.Fatal("git_refs tool is not registered")
+	}
+	page, err := genericActionPageResult(map[string]any{"refs": []any{}}, true, "ABCDEFGH")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := toolResult(tool, page, false)
+	if response["isError"] == true {
+		t.Fatalf("git_refs output contract failed: %#v", response)
+	}
+	structured := response["structuredContent"].(map[string]any)
+	if !reflect.DeepEqual(structured["result"], map[string]any{"refs": []any{}}) {
+		t.Fatalf("unexpected collection result: %#v", structured)
+	}
+	if !reflect.DeepEqual(structured["pagination"], map[string]any{"next_cursor": "ABCDEFGH"}) {
+		t.Fatalf("unexpected outer pagination: %#v", structured)
+	}
+	result := structured["result"].(map[string]any)
+	for _, field := range []string{"next_cursor", "has_more", "_pagination"} {
+		if _, exists := result[field]; exists {
+			t.Fatalf("collection result retained continuation field %q", field)
+		}
 	}
 }
 

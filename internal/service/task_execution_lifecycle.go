@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/publicprojection"
 )
 
 type TaskExecutionDispatchInput struct {
@@ -164,10 +165,7 @@ func taskExecutionWorktree(key, head string) string {
 }
 
 func taskExecutionPublicOutput(state model.TaskExecutionState) TaskExecutionPublicOutput {
-	head := ""
-	if len(state.Head) >= 8 {
-		head = strings.ToLower(state.Head[:8])
-	}
+	head, _ := publicprojection.CompactGitFingerprint(state.ProjectID, state.Head)
 	return TaskExecutionPublicOutput{
 		Key:               state.TaskID,
 		Status:            state.Status,

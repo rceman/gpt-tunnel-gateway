@@ -197,6 +197,7 @@ func (h publicCodeCallHarness) callResponse(t *testing.T, action string, input m
 
 func assertPublicCodeHead(t *testing.T, result map[string]any, want string) {
 	t.Helper()
+	want = strings.ToLower(want[:8])
 	if result["head"] != want {
 		t.Fatalf("public code result head=%#v want %q: %#v", result["head"], want, result)
 	}

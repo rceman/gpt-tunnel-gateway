@@ -82,6 +82,38 @@ func (s *Server) RegisterGenericAction(action GenericAction) error {
 	s.genericActions[action.Path] = action
 	return nil
 }
+func compactCursorContractSchema(schema map[string]any) map[string]any {
+	if schema == nil {
+		return nil
+	}
+	compacted, _ := compactCursorContractValue(schema, "").(map[string]any)
+	return compacted
+}
+
+func compactCursorContractValue(value any, field string) any {
+	switch current := value.(type) {
+	case map[string]any:
+		result := make(map[string]any, len(current)+3)
+		for key, child := range current {
+			result[key] = compactCursorContractValue(child, key)
+		}
+		if field == "cursor" || field == "next_cursor" {
+			result["minLength"] = 8
+			result["maxLength"] = 8
+			result["pattern"] = `^[ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789]{8}$`
+		}
+		return result
+	case []any:
+		result := make([]any, len(current))
+		for index, child := range current {
+			result[index] = compactCursorContractValue(child, field)
+		}
+		return result
+	default:
+		return value
+	}
+}
+
 func validGenericActionPath(path string) bool {
 	parts := strings.Split(path, "/")
 	if len(parts) < 2 || len(parts) > 3 || parts[0] == "" || parts[1] == "" || (len(parts) == 3 && parts[0] != "admin") {
@@ -183,6 +215,11 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		entries[path] = entry
 	}
 	for path, entry := range entries {
+		entry.InputSchema = compactCursorContractSchema(entry.InputSchema)
+		entry.ExecutionInputSchema = compactCursorContractSchema(entry.ExecutionInputSchema)
+		entry.LegacyInputSchema = compactCursorContractSchema(entry.LegacyInputSchema)
+		entry.OutputSchema = sanitizeTransportOutputSchema(entry.OutputSchema)
+		entry.LegacyOutputSchema = sanitizeTransportOutputSchema(entry.LegacyOutputSchema)
 		if projectionDetailAction(path) {
 			entry.InputSchema = withProjectionDetail(entry.InputSchema)
 			entry.ExecutionInputSchema = withProjectionDetail(entry.ExecutionInputSchema)

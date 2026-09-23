@@ -9,8 +9,9 @@ import (
 )
 
 func taskExecutionIntegrateSHA(desc string) map[string]any {
-	schema := str(desc)
-	schema["pattern"] = `^[0-9a-f]{40}$`
+	schema := str(desc + " Public commit fingerprints are exactly 8 lowercase hexadecimal characters.")
+	schema["minLength"], schema["maxLength"] = 8, 8
+	schema["pattern"] = `^[0-9a-f]{8}$`
 	return schema
 }
 

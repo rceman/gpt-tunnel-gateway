@@ -28,7 +28,7 @@ func projectProgressOutputSchema() map[string]any {
 
 func worktreeStatusOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"branch": outputString(), "head": outputString(), "upstream": outputString(), "ahead": outputInteger(), "behind": outputInteger(),
+		"branch": outputString(), "head": publicGitFingerprintOutputSchema(), "upstream": outputString(), "ahead": outputInteger(), "behind": outputInteger(),
 		"porcelain": outputString(), "clean": outputBoolean(),
 	}, "branch", "head", "ahead", "behind", "porcelain", "clean")
 }

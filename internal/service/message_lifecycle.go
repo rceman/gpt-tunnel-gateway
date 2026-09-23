@@ -28,8 +28,9 @@ type MessageListInput struct {
 }
 
 type MessageListResult struct {
-	Messages   []model.Message
-	NextCursor string
+	Messages   []model.Message `json:"messages"`
+	NextCursor string          `json:"-"`
+	HasMore    bool            `json:"-"`
 }
 
 type MessageNotification struct {
@@ -161,7 +162,10 @@ func (s *Service) MessageList(ctx context.Context, in MessageListInput) (Message
 	if err != nil {
 		return MessageListResult{}, err
 	}
-	result := MessageListResult{Messages: messages}
+	result := MessageListResult{
+		Messages: messages,
+		HasMore:  hasMore,
+	}
 	if hasMore && len(messages) > 0 {
 		last := messages[len(messages)-1]
 		result.NextCursor = pagination.EncodeOpaqueKeyset(kind, last.CreatedAt.UTC().Format(time.RFC3339Nano)+"\x00"+last.ID)

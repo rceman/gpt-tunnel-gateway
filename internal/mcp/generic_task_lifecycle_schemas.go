@@ -25,16 +25,16 @@ func taskLifecycleUpdateSchema() map[string]any {
 	return obj(p, "key", "reason")
 }
 func taskLifecycleListSchema() map[string]any {
-	return obj(map[string]any{"cursor": outputString(), "include_archived": outputBoolean()})
+	return obj(map[string]any{"cursor": publicServerCursorSchema(), "include_archived": outputBoolean()})
 }
 func taskLifecycleQuerySchema() map[string]any {
-	return obj(map[string]any{"cursor": outputString(), "text": outputString(), "status": outputEnum(model.TaskAuthoringPlanned, model.TaskAuthoringReady, model.TaskAuthoringDone, model.TaskAuthoringArchived), "type": taskTypeSchema()})
+	return obj(map[string]any{"cursor": publicServerCursorSchema(), "text": outputString(), "status": outputEnum(model.TaskAuthoringPlanned, model.TaskAuthoringReady, model.TaskAuthoringDone, model.TaskAuthoringArchived), "type": taskTypeSchema()})
 }
 func taskLifecycleArchiveSchema() map[string]any {
 	return obj(map[string]any{"key": outputString(), "reason": boundedADRString("Archive reason.", 1, 1024)}, "key", "reason")
 }
 func taskLifecycleHistorySchema() map[string]any {
-	return obj(map[string]any{"key": outputString(), "cursor": outputString()}, "key")
+	return obj(map[string]any{"key": outputString(), "cursor": publicServerCursorSchema()}, "key")
 }
 
 func taskLifecycleReadOutputSchema() map[string]any {

@@ -86,7 +86,7 @@ func (r Runner) VisitDiffLocalCommits(ctx context.Context, p config.ProjectConfi
 	if offset < 0 || visit == nil {
 		return false, fmt.Errorf("invalid diff stream")
 	}
-	args := []string{"diff", "--no-ext-diff", "--no-textconv", from, to, "--"}
+	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--full-index", from, to, "--"}
 	for _, path := range paths {
 		if err := model.ValidateRelativePath(path); err != nil {
 			return false, err
@@ -123,7 +123,7 @@ func (r Runner) VisitDiffWorkingFromBase(ctx context.Context, p config.ProjectCo
 		visitor:         visit,
 		maxPendingBytes: r.MaxDiffBytes,
 	}
-	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", base}
+	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--full-index", "--find-renames", "--find-copies", base}
 	if len(paths) > 0 {
 		args = append(args, "--")
 		args = append(args, paths...)
@@ -159,7 +159,7 @@ func (r Runner) VisitDiffWorkingFromBase(ctx context.Context, p config.ProjectCo
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-		code, err := r.streamCommand(ctx, p.Root, false, []string{"diff", "--no-ext-diff", "--no-textconv", "--no-index", "--", "/dev/null", filepath.ToSlash(path)}, stream.write)
+		code, err := r.streamCommand(ctx, p.Root, false, []string{"diff", "--no-ext-diff", "--no-textconv", "--full-index", "--no-index", "--", "/dev/null", filepath.ToSlash(path)}, stream.write)
 		if err != nil {
 			return err
 		}
@@ -335,7 +335,7 @@ func hashWorktreeFile(path string) (string, error) {
 }
 
 func (r Runner) WorktreeDiff(ctx context.Context, p config.ProjectConfig, staged bool) (string, error) {
-	args := []string{"diff", "--no-ext-diff", "--no-textconv"}
+	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--full-index"}
 	if staged {
 		args = append(args, "--cached")
 	}

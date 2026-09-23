@@ -63,6 +63,12 @@ func TestCursorRejectsAmbiguousSlidingAnchor(t *testing.T) {
 	}
 }
 
+func TestCursorRejectsSelfContainedLegacyState(t *testing.T) {
+	if _, err := decode(strings.Repeat("A", 64), "project:demo", "demo_master"); err == nil {
+		t.Fatal("self-contained legacy cursor was accepted")
+	}
+}
+
 func TestCursorRejectsInvalidScopeSessionAndTruncation(t *testing.T) {
 	page, err := Initial("project:demo", "demo_master", []string{"one", "two"}, 1, 0)
 	if err != nil {

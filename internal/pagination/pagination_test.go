@@ -1,20 +1,30 @@
 package pagination
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"strings"
 	"testing"
 )
 
+func resetCompactHandles() {
+	compactHandles.Lock()
+	compactHandles.values = make(map[string]map[string]string)
+	compactHandles.ambiguous = make(map[string]map[string]struct{})
+	compactHandles.order = nil
+	compactHandles.Unlock()
+}
+
 func TestPageUsesOpaqueDeterministicContinuation(t *testing.T) {
+	resetCompactHandles()
 	items := []string{"a", "b", "c"}
 	page, info, err := Page("items", items, 2, "", func(item string) string { return item })
 	if err != nil || len(page) != 2 || page[0] != "a" || page[1] != "b" || !info.HasMore || info.NextCursor == "" {
 		t.Fatalf("unexpected first page: %#v %#v %v", page, info, err)
 	}
-	if len(info.NextCursor) != CompactCursorLength || strings.ContainsAny(info.NextCursor, "Il1O0+/=") {
-		t.Fatalf("cursor is not compact and agent-safe: %q", info.NextCursor)
+	if !ValidServerCursor(info.NextCursor) {
+		t.Fatalf("cursor is not a compact server-owned handle: %q", info.NextCursor)
+	}
+	if info.NextCursor != EncodeServerCursor("items", "b") {
+		t.Fatalf("cursor handle was not deterministic: %q", info.NextCursor)
 	}
 	page, info, err = Page("items", items, 2, info.NextCursor, func(item string) string { return item })
 	if err != nil || len(page) != 1 || page[0] != "c" || info.HasMore || info.NextCursor != "" {
@@ -25,65 +35,65 @@ func TestPageUsesOpaqueDeterministicContinuation(t *testing.T) {
 	}
 }
 
-func TestPageAcceptsLegacyCursorAndRejectsStaleCompactCursor(t *testing.T) {
-	legacy, err := jsonLegacyCursor("items", "b")
-	if err != nil {
-		t.Fatal(err)
+func TestPageRejectsLegacyUnknownAndStaleCursors(t *testing.T) {
+	resetCompactHandles()
+	legacy := strings.Repeat("A", 40)
+	if _, _, err := Page("items", []string{"a", "b", "c"}, 2, legacy, func(item string) string { return item }); err == nil {
+		t.Fatal("legacy self-contained cursor was accepted")
 	}
-	page, _, err := Page("items", []string{"a", "b", "c"}, 2, legacy, func(item string) string { return item })
-	if err != nil || len(page) != 1 || page[0] != "c" {
-		t.Fatalf("legacy cursor continuation=%#v err=%v", page, err)
+	unknown := "ABCDEFGH"
+	if _, ok := ResolveServerCursor(unknown, "items"); ok {
+		t.Fatal("unknown handle resolved")
 	}
-	if _, _, err := Page("items", []string{"a", "c"}, 2, Encode("items", "b"), func(item string) string { return item }); err == nil {
+	cursor := EncodeServerCursor("items", "b")
+	if _, _, err := Page("items", []string{"a", "c"}, 2, cursor, func(item string) string { return item }); err == nil {
 		t.Fatal("stale compact cursor accepted")
 	}
 }
 
-func TestOpaqueCursorsAreBoundedAndScopeBound(t *testing.T) {
+func TestOpaqueKeysetsResolveOnlyWithinExactScope(t *testing.T) {
+	resetCompactHandles()
 	kind := "code-diff|gpt-tunnel-gateway|WT-TRN63-abcdef12|" + strings.Repeat("a", 40) + "|" + strings.Repeat("b", 40) + "|query"
-	cursor := EncodeFull(kind, strings.Repeat("nested/path/", 40))
-	if len(cursor) > 256 || !OpaqueCursorMatches(cursor, kind, strings.Repeat("nested/path/", 40)) {
-		t.Fatalf("opaque cursor is not bounded or does not resolve: %d", len(cursor))
+	key := strings.Repeat("nested/path/", 40)
+	cursor := EncodeOpaqueKeyset(kind, key)
+	if !ValidServerCursor(cursor) || strings.Contains(cursor, key) {
+		t.Fatalf("opaque cursor disclosed or exceeded its public contract: %q", cursor)
 	}
-	if err := ValidateOpaqueCursor(cursor, kind+"-changed-head"); err == nil {
-		t.Fatal("cursor accepted a different full scope")
+	if resolved, err := DecodeOpaqueKeyset(cursor, kind); err != nil || resolved != key {
+		t.Fatalf("server handle failed exact resolution: %d bytes, %v", len(resolved), err)
 	}
-	offset := EncodeOffset(kind, 123456)
-	if len(offset) > 256 {
-		t.Fatalf("offset cursor is not bounded: %d", len(offset))
+	if _, err := DecodeOpaqueKeyset(cursor, kind+"-changed-head"); err == nil {
+		t.Fatal("cursor accepted an incompatible scope")
 	}
-	if got, err := DecodeOffset(offset, kind); err != nil || got != 123456 {
-		t.Fatalf("offset cursor did not round-trip: %d %v", got, err)
-	}
-	rangeCursor := EncodeRangeCursor(kind, 17, 33)
-	if len(rangeCursor) > 256 {
-		t.Fatalf("range cursor is not bounded: %d", len(rangeCursor))
-	}
-	if got, end, err := DecodeRangeCursor(rangeCursor, kind); err != nil || got != 17 || end != 33 {
-		t.Fatalf("range cursor did not round-trip: %d %d %v", got, end, err)
-	}
-	if _, _, err := DecodeRangeCursor(rangeCursor, kind+"-changed-head"); err == nil {
-		t.Fatal("range cursor accepted a different full scope")
-	}
-	tampered, err := base64.RawURLEncoding.DecodeString(rangeCursor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tampered[24]++
-	if _, _, err := DecodeRangeCursor(base64.RawURLEncoding.EncodeToString(tampered), kind); err == nil {
-		t.Fatal("range cursor accepted tampered integrity bytes")
+	if _, err := DecodeOpaqueKeyset("ABCDEFGH", kind); err == nil {
+		t.Fatal("unknown compact handle resolved")
 	}
 }
 
-func jsonLegacyCursor(kind, key string) (string, error) {
-	data, err := json.Marshal(cursor{
-		Kind: kind,
-		Key:  key,
-	})
-	if err != nil {
-		return "", err
+func TestAmbiguousAndCapacityExhaustedServerHandlesFailClosed(t *testing.T) {
+	resetCompactHandles()
+	handle := EncodeServerCursor("ambiguous", "first")
+	compactHandles.Lock()
+	compactHandles.values["ambiguous"][handle] = "different"
+	compactHandles.Unlock()
+	if got := EncodeServerCursor("ambiguous", "first"); got != "" {
+		t.Fatalf("ambiguous handle was reissued: %q", got)
 	}
-	return base64.RawURLEncoding.EncodeToString(data), nil
+	if _, ok := ResolveServerCursor(handle, "ambiguous"); ok {
+		t.Fatal("ambiguous handle resolved")
+	}
+
+	resetCompactHandles()
+	stale := EncodeServerCursor("stale", "first")
+	compactHandles.Lock()
+	compactHandles.order = make([]string, compactHandleCapacity)
+	compactHandles.Unlock()
+	if key, ok := ResolveServerCursor(stale, "stale"); !ok || key != "first" {
+		t.Fatal("capacity pressure invalidated an issued cursor")
+	}
+	if got := EncodeServerCursor("full", "new"); got != "" {
+		t.Fatalf("issued a cursor after fail-closed capacity limit: %q", got)
+	}
 }
 
 func TestLimitHasDefaultAndHardMaximum(t *testing.T) {

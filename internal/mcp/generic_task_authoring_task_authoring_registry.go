@@ -31,9 +31,8 @@ func taskAuthoringProperties() map[string]any {
 		"preparation_references": array(str("Preparation reference.")), "metadata": metadata,
 		"adr_relation": relation, "adr_references": array(str("Accepted ADR identifier.")),
 		"created_by": str("Author identity."), "updated_by": str("Author identity."), "ready_by": str("Ready seal author identity."),
-		"expected_revision":        integer("Expected authoring revision.", 1, 1000000),
-		"expected_revision_sha256": str("Optional exact authoring revision hash."),
-		"expected_hub_revision":    str("Optimistic Hub revision."),
+		"expected_revision":     integer("Expected authoring revision.", 1, 1000000),
+		"expected_hub_revision": str("Optimistic Hub revision."),
 	}
 }
 
@@ -50,7 +49,7 @@ func taskExecutionSchema() map[string]any {
 }
 func taskAuthoringCreateSchema() map[string]any {
 	all := taskAuthoringProperties()
-	for _, key := range []string{"task_id", "execution", "updated_by", "ready_by", "expected_revision", "expected_revision_sha256"} {
+	for _, key := range []string{"task_id", "execution", "updated_by", "ready_by", "expected_revision"} {
 		delete(all, key)
 	}
 	return obj(all, "project_id", "title", "objective", "adr_relation", "created_by")

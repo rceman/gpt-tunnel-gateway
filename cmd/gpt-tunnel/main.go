@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/publicprojection"
 	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
@@ -87,7 +88,11 @@ func usage() {
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "gpt-tunnel:", err); os.Exit(1) }
 func output(v any) {
-	data, err := json.MarshalIndent(v, "", "  ")
+	projected, err := publicprojection.Project(v)
+	if err != nil {
+		fatal(err)
+	}
+	data, err := json.MarshalIndent(projected, "", "  ")
 	if err != nil {
 		fatal(err)
 	}

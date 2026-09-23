@@ -2,7 +2,6 @@ package tailcursor
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,10 +12,10 @@ import (
 const (
 	Version          = 1
 	MaxSnapshotLines = 200
-	MaxCursorBytes   = 4096
 	AnchorLines      = 8
 	CompactCursorLen = 8
-	maxStoredCursors = 256
+	MaxCursorBytes   = CompactCursorLen
+	maxStoredCursors = 65536
 )
 
 const compactAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
@@ -162,12 +161,12 @@ func encode(value state) (string, error) {
 		previous, exists := cursorStore.values[encoded]
 		if !exists || previous == value {
 			if !exists {
+				if len(cursorStore.order) >= maxStoredCursors {
+					cursorStore.Unlock()
+					return "", fmt.Errorf("tail cursor capacity exhausted")
+				}
 				cursorStore.values[encoded] = value
 				cursorStore.order = append(cursorStore.order, encoded)
-				if len(cursorStore.order) > maxStoredCursors {
-					delete(cursorStore.values, cursorStore.order[0])
-					cursorStore.order = cursorStore.order[1:]
-				}
 			}
 			cursorStore.Unlock()
 			return encoded, nil
@@ -180,27 +179,13 @@ func encode(value state) (string, error) {
 }
 
 func decode(raw, scope, session string) (state, error) {
-	if raw == "" || len(raw) > MaxCursorBytes {
+	if len(raw) != CompactCursorLen || !isCompact(raw) {
 		return state{}, fmt.Errorf("invalid tail cursor")
 	}
-	if len(raw) == CompactCursorLen && isCompact(raw) {
-		cursorStore.Lock()
-		value, ok := cursorStore.values[raw]
-		cursorStore.Unlock()
-		if !ok {
-			return state{}, fmt.Errorf("invalid tail cursor")
-		}
-		if err := validateState(value, scope, session); err != nil {
-			return state{}, err
-		}
-		return value, nil
-	}
-	data, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil {
-		return state{}, fmt.Errorf("invalid tail cursor")
-	}
-	var value state
-	if json.Unmarshal(data, &value) != nil {
+	cursorStore.Lock()
+	value, ok := cursorStore.values[raw]
+	cursorStore.Unlock()
+	if !ok {
 		return state{}, fmt.Errorf("invalid tail cursor")
 	}
 	if err := validateState(value, scope, session); err != nil {

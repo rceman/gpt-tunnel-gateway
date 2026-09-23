@@ -4,19 +4,19 @@ import durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 
 func refOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"name": outputString(), "object_type": outputString(), "object_name": outputString(), "subject": outputString(), "committer_date": outputString(),
+		"name": outputString(), "object_type": outputString(), "object_name": publicGitFingerprintOutputSchema(), "subject": outputString(), "committer_date": outputString(),
 	}, "name", "object_type", "object_name")
 }
 
 func commitOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"sha": outputString(), "parents": outputArray(outputString()), "author_name": outputString(), "author_email": outputString(),
+		"sha": publicGitFingerprintOutputSchema(), "parents": outputArray(publicGitFingerprintOutputSchema()), "author_name": outputString(), "author_email": outputString(),
 		"author_date": outputString(), "subject": outputString(),
 	}, "sha", "parents", "author_name", "author_email", "author_date", "subject")
 }
 
 func compareOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"merge_base": outputString(), "left_only": outputInteger(), "right_only": outputInteger()}, "merge_base", "left_only", "right_only")
+	return closedOutput(map[string]any{"merge_base": publicGitFingerprintOutputSchema(), "left_only": outputInteger(), "right_only": outputInteger()}, "merge_base", "left_only", "right_only")
 }
 
 func sessionInputSchema() map[string]any {

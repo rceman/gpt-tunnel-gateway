@@ -33,6 +33,15 @@ func TestRuntimeLogsIsBoundedReadOnlyGenericAction(t *testing.T) {
 	if _, ok := properties["path"]; ok {
 		t.Fatal("runtime/logs exposed an arbitrary path")
 	}
+	cursor := properties["cursor"].(map[string]any)
+	if cursor["minLength"] != 8 || cursor["maxLength"] != 8 {
+		t.Fatalf("runtime/logs cursor is not compact: %#v", cursor)
+	}
+	for _, field := range []string{"next_cursor", "has_more"} {
+		if _, ok := entry.OutputSchema["properties"].(map[string]any)[field]; ok {
+			t.Fatalf("runtime/logs exposed result-level %q", field)
+		}
+	}
 	if _, ok := server.publicTools()["runtime/logs"]; ok {
 		t.Fatal("runtime/logs became a top-level MCP tool")
 	}

@@ -17,5 +17,5 @@ func ownerSummaryInputSchema() map[string]any {
 }
 
 func taskRefsInputSchema() map[string]any {
-	return array(obj(map[string]any{"task_id": str("Task identifier"), "task_sha256": str("Exact durable task hash")}, "task_id", "task_sha256"))
+	return array(obj(map[string]any{"task_id": str("Task identifier")}, "task_id"))
 }

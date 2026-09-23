@@ -56,10 +56,7 @@ func sessionStartPublicOutputSchema() map[string]any {
 		"gateway": gateway,
 		"project": project,
 		"role":    durableSession.WorkflowRoleOutputSchema(),
-		"rules": closedOutput(map[string]any{
-			"digest": outputString(),
-			"items":  outputArray(rule),
-		}, "digest", "items"),
+		"rules":   closedOutput(map[string]any{"items": outputArray(rule)}, "items"),
 	}, "session", "gateway", "project", "role", "rules")
 }
 
@@ -113,7 +110,6 @@ func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (a
 func publicSessionRules() map[string]any {
 	content, _ := globalWorkflowRules()["content"].(string)
 	return map[string]any{
-		"digest": globalWorkflowDigest(),
 		"items": []map[string]any{{
 			"key":      "workflow",
 			"revision": 1,

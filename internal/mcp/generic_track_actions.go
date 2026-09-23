@@ -21,7 +21,7 @@ func trackProperties() map[string]any {
 		"tasks":            outputArray(boundedADRString("Canonical Task key.", 8, 128)),
 		"status":           outputEnum(model.TrackStatuses()...),
 		"reason":           boundedADRString("Bounded mutation reason.", 1, 1024),
-		"cursor":           outputString(),
+		"cursor":           publicServerCursorSchema(),
 		"text":             outputString(),
 		"include_archived": outputBoolean(),
 	}
@@ -77,8 +77,8 @@ func trackTaskOutputSchema() map[string]any {
 }
 
 func trackReviewOutputSchema() map[string]any {
-	task := closedOutput(map[string]any{"key": outputString(), "revision": outputInteger(), "revision_sha256": outputString()}, "key", "revision", "revision_sha256")
-	return closedOutput(map[string]any{"head": outputString(), "tree": outputString(), "digest": outputString(), "track_revision": outputInteger(), "tasks": outputArray(task), "submitted_at": outputDateTime(), "submitted_by": outputString()}, "head", "tree", "digest", "track_revision", "tasks", "submitted_at", "submitted_by")
+	task := closedOutput(map[string]any{"key": outputString(), "revision": outputInteger()}, "key", "revision")
+	return closedOutput(map[string]any{"head": publicGitFingerprintOutputSchema(), "tree": publicGitFingerprintOutputSchema(), "track_revision": outputInteger(), "tasks": outputArray(task), "submitted_at": outputDateTime(), "submitted_by": outputString()}, "head", "tree", "track_revision", "tasks", "submitted_at", "submitted_by")
 }
 
 func trackReadOutputSchema() map[string]any {
@@ -114,9 +114,9 @@ func trackReviewValue(review *model.TrackReview) any {
 	}
 	tasks := make([]any, 0, len(review.Tasks))
 	for _, task := range review.Tasks {
-		tasks = append(tasks, map[string]any{"key": task.Key, "revision": task.Revision, "revision_sha256": task.RevisionSHA256})
+		tasks = append(tasks, map[string]any{"key": task.Key, "revision": task.Revision})
 	}
-	return map[string]any{"head": review.Head, "tree": review.Tree, "digest": review.Digest, "track_revision": review.TrackRevision, "tasks": tasks, "submitted_at": review.SubmittedAt, "submitted_by": review.SubmittedBy}
+	return map[string]any{"head": review.Head, "tree": review.Tree, "track_revision": review.TrackRevision, "tasks": tasks, "submitted_at": review.SubmittedAt, "submitted_by": review.SubmittedBy}
 }
 
 func trackViewValue(view service.TrackView) map[string]any {

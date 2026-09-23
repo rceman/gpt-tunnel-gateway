@@ -169,7 +169,7 @@ func journalListSchema() map[string]any {
 	return obj(map[string]any{
 		"stream": stream,
 		"limit":  integer("Maximum journal entries", 1, 256),
-		"cursor": str("Opaque keyset continuation cursor."),
+		"cursor": publicServerCursorSchema(),
 	})
 }
 

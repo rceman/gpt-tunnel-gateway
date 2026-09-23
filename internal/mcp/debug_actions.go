@@ -11,6 +11,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	debugdomain "github.com/rceman/gpt-tunnel-gateway/internal/debug"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/publicprojection"
 )
 
 const (
@@ -191,7 +192,22 @@ func (s *Server) registerDebugActions() error {
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			_, err := configuredGatewaySourceProject(s.Service.Config)
+			project, err := configuredGatewaySourceProject(s.Service.Config)
+			if err != nil {
+				return nil, err
+			}
+			sourceHead, err := s.Service.Git.ResolveCommitFingerprint(ctx, project, in.MainSHA)
+			if err != nil {
+				return nil, err
+			}
+			fingerprint, err := publicprojection.CompactGitFingerprint(gatewaySourceProjectID, sourceHead)
+			if err != nil {
+				return nil, err
+			}
+			if fingerprint != in.MainSHA {
+				return nil, fmt.Errorf("debug activation fingerprint is stale or invalid")
+			}
+			sourceHead, err = publicprojection.ResolveGitFingerprint(gatewaySourceProjectID, in.MainSHA, []string{sourceHead})
 			if err != nil {
 				return nil, err
 			}
@@ -199,7 +215,14 @@ func (s *Server) registerDebugActions() error {
 			if !ok {
 				return nil, fmt.Errorf("debug activation requires an HTTP response release boundary")
 			}
-			return debugActivationAcceptFn(s.Service.Config, s.Service.ConfigPath, in.MainSHA, release)
+			result, err := debugActivationAcceptFn(s.Service.Config, s.Service.ConfigPath, sourceHead, release)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{
+				"source_head": result.SourceHead, "activation": result.Activation, "smoke": result.Smoke,
+				"tunnel_pid": result.TunnelPID, "gateway_pid": result.GatewayPID, "outcome": result.Outcome,
+			}, nil
 		},
 	})
 }
@@ -363,15 +386,14 @@ func (s *Server) debugAwaitAction(ctx context.Context, raw json.RawMessage) (any
 }
 
 func debugActivateInputSchema() map[string]any {
-	mainSHA := str("Exact 40-hex source HEAD on the configured main branch.")
-	mainSHA["minLength"], mainSHA["maxLength"] = 40, 40
-	mainSHA["pattern"] = "^[0-9a-f]{40}$"
+	mainSHA := publicGitFingerprintOutputSchema()
+	mainSHA["description"] = "8-character lowercase hexadecimal fingerprint of the exact source HEAD on the configured main branch."
 	return obj(map[string]any{"main_sha": mainSHA}, "main_sha")
 }
 
 func debugStatusOutputSchema() map[string]any {
 	source := closedOutput(map[string]any{
-		"root": outputString(), "branch": outputString(), "head": outputString(), "clean": outputBoolean(), "error": outputString(),
+		"root": outputString(), "branch": outputString(), "head": publicGitFingerprintOutputSchema(), "clean": outputBoolean(), "error": outputString(),
 	}, "root", "branch", "head", "clean")
 	return closedOutput(map[string]any{
 		"gateway_id":    outputString(),
@@ -385,10 +407,6 @@ func debugRuntimeOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"gateway_pid":                       outputInteger(),
 		"running_executable_path":           outputString(),
-		"running_executable_sha256":         outputString(),
-		"installed_gateway_sha256":          outputString(),
-		"installed_cli_sha256":              outputString(),
-		"installed_ctl_sha256":              outputString(),
 		"installed_artifact_versions":       map[string]any{"type": "object", "additionalProperties": true},
 		"artifact_set_coherent":             outputBoolean(),
 		"running_gateway_matches_installed": outputBoolean(),
@@ -398,7 +416,7 @@ func debugRuntimeOutputSchema() map[string]any {
 		"gateway_ready":                     outputBoolean(),
 		"tunnel_pid":                        outputInteger(),
 		"tunnel_ready":                      outputBoolean(),
-		"source_sha":                        outputString(),
+		"source_sha":                        publicGitFingerprintOrEmptyOutputSchema(),
 		"source_provenance_available":       outputBoolean(),
 		"exact_source_match":                outputBoolean(),
 		"provenance_reason":                 outputString(),
@@ -413,6 +431,6 @@ func debugPromptOutputSchema() map[string]any {
 
 func debugActivateOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
-		"operation_id": outputString(), "source_head": outputString(), "activation": outputString(), "smoke": outputString(), "tunnel_pid": integer("Preserved Tunnel PID.", 0, 1<<31-1), "gateway_pid": integer("Activated Gateway PID.", 0, 1<<31-1), "outcome": outputString(),
-	}, "operation_id", "source_head", "activation", "smoke", "outcome")
+		"source_head": publicGitFingerprintOutputSchema(), "activation": outputString(), "smoke": outputString(), "tunnel_pid": integer("Preserved Tunnel PID.", 0, 1<<31-1), "gateway_pid": integer("Activated Gateway PID.", 0, 1<<31-1), "outcome": outputString(),
+	}, "source_head", "activation", "smoke", "outcome")
 }

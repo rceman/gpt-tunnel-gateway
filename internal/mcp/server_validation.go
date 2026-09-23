@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	cursorpagination "github.com/rceman/gpt-tunnel-gateway/internal/pagination"
+	"github.com/rceman/gpt-tunnel-gateway/internal/publicprojection"
 )
 
 func requireToolAuthority(ctx context.Context, toolName string) error {
@@ -112,7 +115,29 @@ func toolResult(tool Tool, value any, isError bool) map[string]any {
 		}
 		return map[string]any{"content": []map[string]any{{"type": "text", "text": text}}, "isError": false}
 	}
-	obj := normalizeObject(value)
+	var obj map[string]any
+	if page, ok := value.(genericActionContinuation); ok {
+		if page.Result == nil {
+			return map[string]any{"content": []map[string]any{{"type": "text", "text": "tool output contract violation: missing paginated result"}}, "isError": true}
+		}
+		obj = map[string]any{"result": normalizeObject(page.Result)}
+		if page.Pagination != nil {
+			cursor, ok := page.Pagination["next_cursor"].(string)
+			if !ok || !cursorpagination.ValidServerCursor(cursor) {
+				return map[string]any{"content": []map[string]any{{"type": "text", "text": "tool output contract violation: invalid pagination cursor"}}, "isError": true}
+			}
+			obj["pagination"] = map[string]any{"next_cursor": cursor}
+		}
+	} else {
+		obj = normalizeObject(value)
+	}
+	projected, err := publicprojection.ProjectMapForAction(obj, "", tool.Name)
+	if err != nil {
+		failure := map[string]any{"error": "tool output projection failed"}
+		failureText, _ := json.MarshalIndent(failure, "", "  ")
+		return map[string]any{"content": []map[string]any{{"type": "text", "text": string(failureText)}}, "isError": true}
+	}
+	obj = projected
 	text, _ := json.MarshalIndent(obj, "", "  ")
 	result := map[string]any{"content": []map[string]any{{"type": "text", "text": string(text)}}, "isError": isError}
 	if isError {

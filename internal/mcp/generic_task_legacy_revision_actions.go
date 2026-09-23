@@ -48,12 +48,11 @@ func (s *Server) registerTaskLegacyRevisionActions() error {
 					return nil, fmt.Errorf("legacy TaskRevision project or task ownership mismatch")
 				}
 				items = append(items, map[string]any{
-					"revision_id":     revision.ID,
-					"revision":        revision.TaskRevision,
-					"revision_sha256": revision.RevisionSHA256,
-					"title":           revision.Title,
-					"status":          revision.Status,
-					"created_at":      revision.CreatedAt,
+					"revision_id": revision.ID,
+					"revision":    revision.TaskRevision,
+					"title":       revision.Title,
+					"status":      revision.Status,
+					"created_at":  revision.CreatedAt,
 				})
 			}
 			result := map[string]any{"task": in.Task, "revisions": items}
@@ -105,7 +104,7 @@ func taskLegacyRevisionIDSchema() map[string]any {
 }
 
 func taskLegacyRevisionListSchema() map[string]any {
-	return obj(map[string]any{"task": taskLegacyRevisionTaskSchema(), "cursor": str("Opaque legacy TaskRevision continuation token.")}, "task")
+	return obj(map[string]any{"task": taskLegacyRevisionTaskSchema(), "cursor": publicServerCursorSchema()}, "task")
 }
 
 func taskLegacyRevisionReadSchema() map[string]any {
@@ -128,9 +127,9 @@ func taskLegacyRevisionExecutionSchema(public map[string]any) map[string]any {
 
 func taskLegacyRevisionListOutputSchema() map[string]any {
 	item := closedOutput(map[string]any{
-		"revision_id": outputString(), "revision": outputInteger(), "revision_sha256": outputString(),
+		"revision_id": outputString(), "revision": outputInteger(),
 		"title": outputString(), "status": outputString(), "created_at": outputDateTime(),
-	}, "revision_id", "revision", "revision_sha256", "title", "status", "created_at")
+	}, "revision_id", "revision", "title", "status", "created_at")
 	return closedOutput(map[string]any{
 		"task": outputString(), "revisions": outputArray(item),
 	}, "task", "revisions")
@@ -139,15 +138,15 @@ func taskLegacyRevisionListOutputSchema() map[string]any {
 func taskLegacyRevisionReadOutputSchema() map[string]any {
 	legacy := closedOutput(map[string]any{
 		"schema_version": outputInteger(), "id": outputString(), "task_id": outputString(), "task_revision": outputInteger(),
-		"revision_sha256": outputString(), "parent_task_revision": outputInteger(), "parent_task_sha256": outputString(),
-		"project_id": outputString(), "title": outputString(), "type": outputString(), "objective": outputString(),
-		"branch": outputString(), "base_revision": outputString(), "acceptance_criteria": outputArray(outputString()),
+		"parent_task_revision": outputInteger(),
+		"project_id":           outputString(), "title": outputString(), "type": outputString(), "objective": outputString(),
+		"branch": outputString(), "base_revision": publicGitFingerprintOrEmptyOutputSchema(), "acceptance_criteria": outputArray(outputString()),
 		"constraints": outputArray(outputString()), "required_gates": outputArray(outputString()),
 		"workflow_policy_revision": outputInteger(), "operation_class": outputString(), "effective_ci_field": outputString(),
 		"effective_ci_mode": outputString(), "wait_for_ci": outputBoolean(), "ci_blocking": outputBoolean(),
 		"agent_may_wait": outputBoolean(), "status": outputString(), "source_train_id": outputString(),
 		"source_item_position": outputInteger(), "source_attempt_number": outputInteger(), "source_run_id": outputString(), "source_report_id": outputString(), "created_by": outputString(),
 		"created_at": outputDateTime(),
-	}, "schema_version", "id", "task_id", "task_revision", "revision_sha256", "project_id", "title", "objective", "branch", "acceptance_criteria", "constraints", "workflow_policy_revision", "operation_class", "effective_ci_field", "effective_ci_mode", "wait_for_ci", "ci_blocking", "agent_may_wait", "status", "created_by", "created_at")
+	}, "schema_version", "id", "task_id", "task_revision", "project_id", "title", "objective", "branch", "acceptance_criteria", "constraints", "workflow_policy_revision", "operation_class", "effective_ci_field", "effective_ci_mode", "wait_for_ci", "ci_blocking", "agent_may_wait", "status", "created_by", "created_at")
 	return closedOutput(map[string]any{"revision": legacy}, "revision")
 }

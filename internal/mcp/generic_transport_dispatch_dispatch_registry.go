@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
+	"github.com/rceman/gpt-tunnel-gateway/internal/publicprojection"
 	"github.com/rceman/gpt-tunnel-gateway/internal/runtime_log"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
@@ -137,6 +138,10 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 				return genericActionError(action, err.Error()), nil
 			}
 			result = compactActionResult(action, result, detail)
+			result, err = publicprojection.ProjectMapForAction(result, genericProjectionScope(record, raw, action), action)
+			if err != nil {
+				return genericActionError(action, "action output projection failed"), nil
+			}
 			var publicResult map[string]any
 			if continuation == nil {
 				publicResult, continuation, err = detachPrivateTransportMetadata(result)
@@ -188,6 +193,10 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		return genericActionError(action, err), nil
 	}
 	result = compactActionResult(action, result, detail)
+	result, err = publicprojection.ProjectMapForAction(result, genericProjectionScope(record, raw, action), action)
+	if err != nil {
+		return genericActionError(action, "action output projection failed"), nil
+	}
 	if err := enforceCodeOutputTokenBudget(action, result); err != nil {
 		return genericActionError(action, err), nil
 	}
@@ -205,6 +214,20 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	}
 	return genericActionSuccessWithPagination(publicResult, continuation), nil
 }
+func genericProjectionScope(record durableSession.Record, raw json.RawMessage, action string) string {
+	if action == "debug/status" || action == "debug/runtime" || action == "debug/activate" {
+		return gatewaySourceProjectID
+	}
+	if record.ProjectID != "" {
+		return record.ProjectID
+	}
+	var input struct {
+		ProjectID string `json:"project_id"`
+	}
+	_ = json.Unmarshal(raw, &input)
+	return input.ProjectID
+}
+
 func (s *Server) recordRuntimeAction(ctx context.Context, sessionRecord durableSession.Record, event, level, action string, cause error, result map[string]any) {
 	if s.Service == nil {
 		return

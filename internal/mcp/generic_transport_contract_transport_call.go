@@ -142,7 +142,7 @@ func genericCallOutputSchema() map[string]any {
 	success := closedOutput(map[string]any{
 		"ok":         map[string]any{"const": true},
 		"result":     map[string]any{"type": "object", "additionalProperties": true},
-		"pagination": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"next_cursor": outputString()}, "required": []string{"next_cursor"}},
+		"pagination": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"next_cursor": publicServerCursorSchema()}, "required": []string{"next_cursor"}},
 		"metrics":    metrics,
 	}, "ok", "result", "metrics")
 	failure := closedOutput(map[string]any{

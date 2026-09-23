@@ -17,13 +17,11 @@ func taskExecutionVerificationOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"operation_id":   outputString(),
 		"task_revision":  revision,
-		"task_digest":    taskExecutionPublicHeadSchema(),
 		"candidate_head": taskExecutionPublicHeadSchema(),
 		"candidate_tree": taskExecutionPublicHeadSchema(),
 		"main_base":      taskExecutionPublicHeadSchema(),
-		"gate_profile":   taskExecutionPublicHeadSchema(),
 		"verified_at":    outputDateTime(),
-	}, "operation_id", "task_revision", "task_digest", "candidate_head", "candidate_tree", "main_base", "gate_profile", "verified_at")
+	}, "operation_id", "task_revision", "candidate_head", "candidate_tree", "main_base", "verified_at")
 }
 
 func taskExecutionTestOutputSchema() map[string]any {

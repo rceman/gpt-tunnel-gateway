@@ -14,7 +14,7 @@ const (
 	DefaultRetention   = 3
 	DefaultLimit       = 100
 	MaxLimit           = 200
-	MaxCursorBytes     = 4096
+	MaxCursorBytes     = 8
 	MaxTextBytes       = 512
 	MaxIdentifierBytes = 128
 )
@@ -64,8 +64,8 @@ type Filter struct {
 type ReadResult struct {
 	Events         []Event `json:"events"`
 	MalformedLines int     `json:"malformed_lines"`
-	NextCursor     string  `json:"next_cursor"`
-	HasMore        bool    `json:"has_more"`
+	NextCursor     string  `json:"-"`
+	HasMore        bool    `json:"-"`
 }
 
 func NewRequestID() string {

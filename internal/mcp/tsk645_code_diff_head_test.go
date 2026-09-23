@@ -60,12 +60,17 @@ func TestTSK645CodeDiffSchemaExposesAuthoritativeHead(t *testing.T) {
 		t.Fatalf("code/diff output is not closed: %#v", output)
 	}
 	outputProperties := schemaProperties(output)
-	for _, field := range []string{"worktree", "dirty", "live", "head", "base", "paths", "diff", "_pagination"} {
+	for _, field := range []string{"worktree", "dirty", "live", "head", "base", "paths", "diff"} {
 		if _, has := outputProperties[field]; !has {
 			t.Fatalf("code/diff output lost field %q: %#v", field, outputProperties)
 		}
 	}
-	if len(outputProperties) != 8 {
+	for _, field := range []string{"_pagination", "next_cursor", "has_more"} {
+		if _, has := outputProperties[field]; has {
+			t.Fatalf("code/diff result exposes continuation field %q: %#v", field, outputProperties)
+		}
+	}
+	if len(outputProperties) != 7 {
 		t.Fatalf("code/diff output envelope changed: %#v", outputProperties)
 	}
 	if outputProperties["base"].(map[string]any)["pattern"] != "^[a-f0-9]{8}$" {

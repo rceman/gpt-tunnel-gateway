@@ -36,7 +36,7 @@ func milestoneProperties() map[string]any {
 		"evidence_refs":    outputArray(boundedADRString("Canonical evidence entity reference.", 8, 128)),
 		"include_archived": outputBoolean(),
 		"text":             outputString(),
-		"cursor":           outputString(),
+		"cursor":           publicServerCursorSchema(),
 	}
 }
 

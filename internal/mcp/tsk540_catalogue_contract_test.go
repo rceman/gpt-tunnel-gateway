@@ -56,8 +56,11 @@ func TestTSK540CatalogueSchemasUseOuterContinuationAndCompactMilestones(t *testi
 			}
 		}
 	}
-	if _, ok := schemaProperties(entries["message/list"].OutputSchema)["cursor"]; !ok {
-		t.Fatal("message/list lost its approved domain cursor")
+	messageListOutput := schemaProperties(entries["message/list"].OutputSchema)
+	for _, field := range []string{"cursor", "next_cursor", "has_more"} {
+		if _, ok := messageListOutput[field]; ok {
+			t.Fatalf("message/list retained result-level continuation field %q", field)
+		}
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/gates"
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/publicprojection"
 )
 
 type TaskExecutionTestInput struct {
@@ -25,11 +26,9 @@ type TaskExecutionTestInput struct {
 type TaskExecutionVerificationPublic struct {
 	OperationID   string `json:"operation_id"`
 	TaskRevision  int    `json:"task_revision"`
-	TaskDigest    string `json:"task_digest"`
 	CandidateHead string `json:"candidate_head"`
 	CandidateTree string `json:"candidate_tree"`
 	MainBase      string `json:"main_base"`
-	GateProfile   string `json:"gate_profile"`
 	VerifiedAt    string `json:"verified_at"`
 }
 
@@ -161,7 +160,10 @@ func (s *Service) reuseCurrentTaskExecutionVerification(ctx context.Context, sta
 		return TaskExecutionTestReceipt{}, false, nil
 	}
 	result := taskExecutionPublicOutput(state)
-	projection := taskExecutionVerificationProjection(receipt)
+	projection, err := taskExecutionVerificationProjection(receipt)
+	if err != nil {
+		return TaskExecutionTestReceipt{}, false, err
+	}
 	result.Verification = &projection
 	return TaskExecutionTestReceipt{
 		OperationID: receipt.OperationID,
@@ -457,23 +459,33 @@ func (s *Service) taskExecutionVerificationProofCurrent(ctx context.Context, sta
 	return receipt, true, "", nil
 }
 
-func taskExecutionVerificationProjection(receipt model.TaskExecutionVerification) TaskExecutionVerificationPublic {
-	short := func(hash string) string {
-		if len(hash) >= 8 {
-			return strings.ToLower(hash[:8])
+func taskExecutionVerificationProjection(receipt model.TaskExecutionVerification) (TaskExecutionVerificationPublic, error) {
+	compact := func(commit string) (string, error) {
+		if model.ValidateCommitSHA(commit) != nil {
+			return "", fmt.Errorf("invalid Git object ID in verification receipt")
 		}
-		return ""
+		return publicprojection.CompactGitFingerprint(receipt.ProjectID, commit)
+	}
+	candidateHead, err := compact(receipt.CandidateHead)
+	if err != nil {
+		return TaskExecutionVerificationPublic{}, err
+	}
+	candidateTree, err := compact(receipt.CandidateTree)
+	if err != nil {
+		return TaskExecutionVerificationPublic{}, err
+	}
+	mainBase, err := compact(receipt.BaseHead)
+	if err != nil {
+		return TaskExecutionVerificationPublic{}, err
 	}
 	return TaskExecutionVerificationPublic{
 		OperationID:   receipt.OperationID,
 		TaskRevision:  receipt.TaskRevision,
-		TaskDigest:    short(receipt.TaskRevisionSHA256),
-		CandidateHead: short(receipt.CandidateHead),
-		CandidateTree: short(receipt.CandidateTree),
-		MainBase:      short(receipt.BaseHead),
-		GateProfile:   short(receipt.GateProfileSHA256),
+		CandidateHead: candidateHead,
+		CandidateTree: candidateTree,
+		MainBase:      mainBase,
 		VerifiedAt:    receipt.CompletedAt.UTC().Format(time.RFC3339Nano),
-	}
+	}, nil
 }
 
 func (s *Service) taskExecutionVerificationProjectionFor(ctx context.Context, state model.TaskExecutionState) (TaskExecutionVerificationPublic, bool, error) {
@@ -484,7 +496,11 @@ func (s *Service) taskExecutionVerificationProjectionFor(ctx context.Context, st
 	if err != nil || !current {
 		return TaskExecutionVerificationPublic{}, false, err
 	}
-	return taskExecutionVerificationProjection(receipt), true, nil
+	projection, err := taskExecutionVerificationProjection(receipt)
+	if err != nil {
+		return TaskExecutionVerificationPublic{}, false, err
+	}
+	return projection, true, nil
 }
 
 func taskExecutionCapturedIdentity(raw string) (taskExecutionTestIdentity, error) {
@@ -586,7 +602,11 @@ func (s *Service) taskExecutionTestRun(ctx context.Context, in TaskExecutionTest
 		live := current && receipt.BaseHead == admission.canonical && receipt.GateProfileSHA256 == admission.profile && admission.snapshot.clean && admission.snapshot.head == receipt.CandidateHead && admission.snapshot.tree == receipt.CandidateTree
 		if live {
 			out := taskExecutionPublicOutput(state)
-			projection := taskExecutionVerificationProjection(receipt)
+			projection, err := taskExecutionVerificationProjection(receipt)
+			if err != nil {
+				s.taskExecutionMu.Unlock()
+				return TaskExecutionPublicOutput{}, err
+			}
 			out.Verification = &projection
 			s.taskExecutionMu.Unlock()
 			return out, nil
@@ -714,7 +734,10 @@ func (s *Service) taskExecutionTestRun(ctx context.Context, in TaskExecutionTest
 	}
 	if outcome == model.TaskExecutionVerificationSucceeded {
 		out := taskExecutionPublicOutput(next)
-		projection := taskExecutionVerificationProjection(receipt)
+		projection, err := taskExecutionVerificationProjection(receipt)
+		if err != nil {
+			return TaskExecutionPublicOutput{}, err
+		}
 		out.Verification = &projection
 		return out, nil
 	}

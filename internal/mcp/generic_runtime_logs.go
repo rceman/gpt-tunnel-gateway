@@ -19,8 +19,8 @@ func (s *Server) ensureRuntimeLogActions() {
 		return
 	}
 	s.runtimeLogActions.Do(func() {
-		cursor := str("Opaque server-owned continuation cursor.")
-		cursor["maxLength"] = runtime_log.MaxCursorBytes
+		cursor := publicServerCursorSchema()
+		cursor["description"] = "Opaque server-owned continuation cursor of at most 8 ASCII characters."
 		filterString := func(description string) map[string]any {
 			value := str(description)
 			value["maxLength"] = runtime_log.MaxIdentifierBytes
@@ -48,7 +48,11 @@ func (s *Server) ensureRuntimeLogActions() {
 				if err := decode(raw, &input); err != nil {
 					return nil, err
 				}
-				return s.Service.RuntimeLogs(ctx, input)
+				result, err := s.Service.RuntimeLogs(ctx, input)
+				if err != nil {
+					return nil, err
+				}
+				return genericActionPageResult(map[string]any{"events": result.Events, "malformed_lines": result.MalformedLines}, result.HasMore, result.NextCursor)
 			},
 		})
 		if s.runtimeLogActionErr == nil {
@@ -98,7 +102,5 @@ func runtimeLogsOutputSchema() map[string]any {
 		"project_id": outputString(), "pid": outputInteger(), "start_time_ticks": outputInteger(), "source": outputString(),
 		"version": outputString(), "signal": outputString(), "message": outputString(), "error": outputString(),
 	}, "timestamp", "level", "component", "event")
-	return closedOutput(map[string]any{
-		"events": outputArray(event), "malformed_lines": outputInteger(), "next_cursor": outputString(), "has_more": outputBoolean(),
-	}, "events", "malformed_lines", "next_cursor", "has_more")
+	return closedOutput(map[string]any{"events": outputArray(event), "malformed_lines": outputInteger()}, "events", "malformed_lines")
 }

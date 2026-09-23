@@ -124,7 +124,7 @@ func (s Store) Read(filter Filter) (ReadResult, error) {
 		}
 		return entries[i].Event.Timestamp.After(entries[j].Event.Timestamp)
 	})
-	page, nextCursor, hasMore, err := pageLogEntries(entries, filter.Limit, filter.Cursor)
+	page, nextCursor, hasMore, err := pageLogEntries(entries, filter.Limit, filter.Cursor, runtimeLogCursorScope(filter))
 	if err != nil {
 		return ReadResult{}, err
 	}
@@ -148,12 +148,16 @@ func logEntryKey(event Event, fileRank, lineNumber int) string {
 	return event.Timestamp.UTC().Format(time.RFC3339Nano) + "\x00" + strconv.Itoa(fileRank) + "\x00" + strconv.Itoa(lineNumber)
 }
 
-func pageLogEntries(entries []logEntry, limit int, rawCursor string) ([]logEntry, string, bool, error) {
+func runtimeLogCursorScope(filter Filter) string {
+	return fmt.Sprintf("runtime-log:%d:%s:%s:%s:%s:%s:%s:%s:%s", filter.Limit, filter.Level, filter.Component, filter.Event, filter.Action, filter.RequestID, filter.SessionID, filter.ProjectID, filter.OperationID)
+}
+
+func pageLogEntries(entries []logEntry, limit int, rawCursor, scope string) ([]logEntry, string, bool, error) {
 	keys := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		keys = append(keys, entry.Key)
 	}
-	after, err := pagination.Resolve(rawCursor, "runtime-log", keys)
+	after, err := pagination.Resolve(rawCursor, scope, keys)
 	if err != nil {
 		return nil, "", false, err
 	}
@@ -178,7 +182,11 @@ func pageLogEntries(entries []logEntry, limit int, rawCursor string) ([]logEntry
 	if end == len(entries) || len(page) == 0 {
 		return page, "", false, nil
 	}
-	return page, pagination.Encode("runtime-log", page[len(page)-1].Key), true, nil
+	cursor := pagination.EncodeServerCursor(scope, page[len(page)-1].Key)
+	if cursor == "" {
+		return nil, "", false, fmt.Errorf("could not issue an unambiguous continuation cursor")
+	}
+	return page, cursor, true, nil
 }
 
 func (s Store) rotateIfNeeded(incoming int64) error {
