@@ -1,0 +1,206 @@
+version: 1
+definitions:
+  WorkflowRole:
+    schema:
+      type: string
+      min_length: 1
+      max_length: 16
+      enum: [planner, lead, advisor, worker]
+    metadata:
+      kind: enum
+  EntityKeyAndReference:
+    schema:
+      type: string
+      min_length: 1
+      max_length: 256
+    metadata:
+      kind: entity-reference
+      selector_field: key
+      cross_domain_fields: [project, task, milestone, track, operation, session, agent, rule, journal, message, callback]
+  Track:
+    schema:
+      type: object
+      properties:
+        key: {ref: EntityKeyAndReference}
+        revision: {ref: Revision}
+        milestone: {ref: EntityKeyAndReference}
+        tasks:
+          type: array
+          min_items: 1
+          max_items: 256
+          unique_items: true
+          items: {ref: EntityKeyAndReference}
+        status:
+          type: string
+          enum: [planned, active, ready, review_pending, accepted, stale, cancelled, archived]
+        review: {ref: TrackReviewSnapshot}
+        title: {type: string, min_length: 3, max_length: 128}
+        summary: {type: string, max_length: 256}
+      required: [key, revision, milestone, tasks, status, title]
+      additional_properties: false
+    metadata:
+      kind: entity
+  Milestone:
+    schema:
+      type: object
+      properties:
+        key: {ref: EntityKeyAndReference}
+        revision: {ref: Revision}
+        tasks:
+          type: array
+          max_items: 256
+          unique_items: true
+          items: {ref: EntityKeyAndReference}
+        status:
+          type: string
+          enum: [planned, active, completed, archived]
+        title: {type: string, min_length: 3, max_length: 128}
+        summary: {type: string, max_length: 256}
+      required: [key, revision, tasks, status, title]
+      additional_properties: false
+    metadata:
+      kind: entity
+  Revision:
+    schema:
+      type: integer
+      minimum: 1
+    metadata:
+      kind: scalar
+  CursorAndCompactHandle:
+    schema:
+      type: string
+      min_length: 8
+      max_length: 8
+      pattern: '^[ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789]{8}$'
+    metadata:
+      kind: cursor
+      continuation_output: call.pagination.next_cursor
+  GitFingerprint:
+    schema:
+      type: string
+      min_length: 8
+      max_length: 8
+      pattern: '^[0-9a-f]{8}$'
+    metadata:
+      kind: fingerprint
+      authority: exact-full-git-object-id-internally
+  NonGitDigestOrHandle:
+    schema:
+      type: string
+      min_length: 1
+      max_length: 8
+      pattern: '^[\x20-\x7E]{1,8}$'
+    metadata:
+      kind: compact-reference
+      authority: server-owned-handle-resolves-to-exact-full-state
+  MutationReason:
+    schema:
+      type: string
+      min_length: 1
+      max_length: 1024
+    metadata:
+      kind: scalar
+  Timestamp:
+    schema:
+      type: string
+      min_length: 17
+      max_length: 17
+      pattern: '^[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$'
+      format: gtw-timestamp
+    metadata:
+      kind: timestamp
+      timezone: UTC-implicit
+      precision: whole-seconds
+      year_mapping: 2000-2099
+  Duration:
+    schema:
+      type: integer
+    metadata:
+      kind: duration
+      unit: per-action-seconds-or-minutes
+  TrackReviewSnapshot:
+    schema:
+      type: object
+      properties:
+        head: {ref: GitFingerprint}
+        tree: {ref: GitFingerprint}
+        track_revision: {ref: Revision}
+        tasks:
+          type: array
+          min_items: 1
+          max_items: 256
+          unique_items: true
+          items:
+            type: object
+            properties:
+              key: {ref: EntityKeyAndReference}
+              revision: {ref: Revision}
+            required: [key, revision]
+            additional_properties: false
+        submitted_at: {ref: Timestamp}
+        submitted_by: {ref: EntityKeyAndReference}
+      required: [head, tree, track_revision, tasks, submitted_at, submitted_by]
+      additional_properties: false
+    metadata:
+      kind: public-review-snapshot
+  TaskExecution:
+    schema:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [planned, dispatched, in_progress, awaiting_review, changes_requested, ready_for_verification, verifying, verified, integrating, integrated, done, blocked, failed]
+        stage:
+          type: string
+          enum: [code, tests, rebase]
+        execution_revision: {ref: Revision}
+        agent: {ref: EntityKeyAndReference}
+        worktree:
+          type: string
+          min_length: 16
+          max_length: 31
+          pattern: '^WT-TSK[0-9]+-[a-f0-9]{8}$'
+        updated_at: {ref: Timestamp}
+      required: [status, stage, execution_revision, agent, worktree, updated_at]
+      additional_properties: false
+    metadata:
+      kind: public-task-execution
+  TaskVerification:
+    schema:
+      type: object
+      properties:
+        outcome:
+          type: string
+          enum: [succeeded, failed, interrupted]
+        operation: {ref: EntityKeyAndReference}
+        task_revision: {ref: Revision}
+        candidate_head: {ref: GitFingerprint}
+        candidate_tree: {ref: GitFingerprint}
+        main_base: {ref: GitFingerprint}
+        verified_at: {ref: Timestamp}
+      required: [outcome, operation, task_revision, candidate_head, candidate_tree, main_base, verified_at]
+      additional_properties: false
+    metadata:
+      kind: task-verification
+  Operation:
+    schema:
+      type: object
+      properties:
+        key:
+          type: string
+          min_length: 8
+          max_length: 32
+          pattern: '^[A-Z]{3}-OPR[1-9][0-9]*$'
+        kind:
+          type: string
+          enum: [task-create, task-authoring-update, task-authoring-ready, task-supersede, task-execution-test, task-execution-integrate, task-execution-submit, project-configuration-update, agent-update, agent-disable, adr-create, agent-prompt, agent-interrupt]
+        status:
+          type: string
+          enum: [accepted, running, completed, failed, outcome_unknown]
+        created_at: {ref: Timestamp}
+        updated_at: {ref: Timestamp}
+      required: [key, kind, status, created_at, updated_at]
+      additional_properties: false
+    metadata:
+      kind: durable-operation
+      kind_values_source: current-local-operation-producers

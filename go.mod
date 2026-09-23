@@ -5,6 +5,7 @@ go 1.23
 require (
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/rceman/go-sqlite-store v0.0.0-20260817182756-f0df65dfff2f
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

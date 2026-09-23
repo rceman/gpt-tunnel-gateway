@@ -1,0 +1,50 @@
+version: 1
+domains:
+  - name: sample
+    actions:
+      - name: inspect
+        description: Inspect one typed sample contract.
+        metadata:
+          surface: normal
+          selector: key
+          annotations:
+            read_only: true
+            destructive: false
+            idempotent: true
+            open_world: false
+        input:
+          type: object
+          properties:
+            key: {ref: EntityKeyAndReference}
+            role: {ref: WorkflowRole}
+            at: {ref: Timestamp}
+            cursor: {ref: CursorAndCompactHandle}
+            limit:
+              type: integer
+              minimum: 1
+              maximum: 100
+              default: 20
+              default_override:
+                value: 25
+                reason: Explicit compiler fixture override.
+            settings:
+              type: object
+              properties:
+                mode: {type: string, enum: [safe, fast]}
+              required: [mode]
+              additional_properties: false
+              default: {mode: safe}
+          required: [key, role, at]
+          additional_properties: false
+        output:
+          type: object
+          properties:
+            task: {ref: EntityKeyAndReference}
+            finished_at: {ref: Timestamp}
+            fingerprint: {ref: GitFingerprint}
+            handle: {ref: NonGitDigestOrHandle}
+            duration: {ref: Duration, unit: seconds, minimum: 0, description: "Elapsed seconds."}
+            revision: {ref: Revision}
+            status: {type: string, enum: [accepted, failed]}
+          required: [task, finished_at, fingerprint, duration, revision, status]
+          additional_properties: false
