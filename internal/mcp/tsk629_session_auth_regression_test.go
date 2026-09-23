@@ -203,7 +203,8 @@ func TestTSK629PublicBoundaryInventoryHasNoInternalSelectors(t *testing.T) {
 			}
 		}
 	}
-	sessionStartInput := sessionStartPublicInputSchema()["properties"].(map[string]any)
+	sessionStartTool := server.publicTools()["session_start"]
+	sessionStartInput := sessionStartTool.InputSchema["properties"].(map[string]any)
 	if len(sessionStartInput) != 1 {
 		t.Fatalf("session_start exposes caller-selected fields: %#v", sessionStartInput)
 	}
@@ -215,17 +216,18 @@ func TestTSK629PublicBoundaryInventoryHasNoInternalSelectors(t *testing.T) {
 			t.Fatalf("session_start exposes caller-selected %q", forbidden)
 		}
 	}
-	outputProperties := sessionStartPublicOutputSchema()["properties"].(map[string]any)
+	outputProperties := sessionStartTool.OutputSchema["properties"].(map[string]any)
 	if _, ok := outputProperties["ref"]; ok {
 		t.Fatal("session_start output retains the internal ref projection")
 	}
 	if _, ok := outputProperties["label"]; !ok {
 		t.Fatal("session_start output omits bounded Session labels")
 	}
-	sessionInput := sessionInputSchema()
-	encodedSessionInput, _ := json.Marshal(sessionInput)
-	if strings.Contains(string(encodedSessionInput), "session_ref") {
-		t.Fatalf("session action schema exposes session_ref: %s", encodedSessionInput)
+	for _, path := range []string{"session/info", "session/end"} {
+		encoded, _ := json.Marshal(entries[path].InputSchema)
+		if strings.Contains(string(encoded), "session_ref") {
+			t.Fatalf("%s contract exposes session_ref: %s", path, encoded)
+		}
 	}
 	for _, path := range []string{"agent/prompt", "agent/interrupt"} {
 		entry, ok := entries[path]

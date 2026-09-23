@@ -14,12 +14,17 @@ func TestTSK578RoleRegistryFeedsPublicSchemasAndProjections(t *testing.T) {
 		wantAny[i] = role
 	}
 
-	startProperties := sessionStartPublicInputSchema()["properties"].(map[string]any)
+	server := newSessionTestServer(t)
+	start, ok := server.actionContractSet().Action("session/start")
+	if !ok {
+		t.Fatal("compiled session/start contract is missing")
+	}
+	startProperties := start.Input.JSONSchema()["properties"].(map[string]any)
 	if len(startProperties) != 1 || startProperties["token"] == nil {
 		t.Fatalf("session_start bootstrap schema=%#v", startProperties)
 	}
-	if got := sessionRecordSchema()["properties"].(map[string]any)["role"].(map[string]any)["enum"]; !reflect.DeepEqual(got, wantAny) {
-		t.Fatalf("session record role enum=%#v want registry=%#v", got, wantAny)
+	if got := start.Output.JSONSchema()["properties"].(map[string]any)["role"].(map[string]any)["enum"]; !reflect.DeepEqual(got, wantAny) {
+		t.Fatalf("session start role enum=%#v want registry=%#v", got, wantAny)
 	}
 	guideRole := guidePublicOutputSchema()["properties"].(map[string]any)["roles"].(map[string]any)
 	if guideRole["type"] != "array" {

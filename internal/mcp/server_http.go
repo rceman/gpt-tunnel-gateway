@@ -320,48 +320,12 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		trustedContext := authority.Attach(r.Context(), s.AuthorityContext)
-		executionContext := trustedContext
-		executionArguments := call.Arguments
 		var err error
 		if authorityErr := requireToolAuthority(trustedContext, call.Name); authorityErr != nil {
-			_, typed := typedSessionAuthorityContract(call.Name)
-			if !typed {
-				s.write(w, response{
-					JSONRPC: "2.0",
-					ID:      req.ID,
-					Result:  toolResult(tool, map[string]any{"error": authorityErr.Error()}, true),
-				})
-				return
-			}
-			if _, ok := sessionIDFromRaw(call.Arguments); !ok {
-				s.write(w, response{
-					JSONRPC: "2.0",
-					ID:      req.ID,
-					Result:  toolResult(tool, map[string]any{"error": authorityErr.Error()}, true),
-				})
-				return
-			}
-			bootstrapContext, bootstrapErr := authority.BootstrapSessionAuthority(trustedContext)
-			if bootstrapErr != nil {
-				s.write(w, response{
-					JSONRPC: "2.0",
-					ID:      req.ID,
-					Result:  toolResult(tool, map[string]any{"error": authorityErr.Error()}, true),
-				})
-				return
-			}
-			executionContext, executionArguments, err = s.resolveTypedSessionAuthority(bootstrapContext, call.Name, tool.InputSchema, call.Arguments)
-			if err == nil {
-				err = requireToolAuthority(executionContext, call.Name)
-			}
-		} else {
-			executionContext, executionArguments, err = s.resolveTypedSessionAuthority(trustedContext, call.Name, tool.InputSchema, call.Arguments)
-		}
-		if err != nil {
 			s.write(w, response{
 				JSONRPC: "2.0",
 				ID:      req.ID,
-				Result:  toolResult(tool, map[string]any{"error": err.Error()}, true),
+				Result:  toolResult(tool, map[string]any{"error": authorityErr.Error()}, true),
 			})
 			return
 		}
@@ -377,7 +341,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		value, err := tool.Execute(executionContext, executionArguments)
+		value, err := tool.Execute(trustedContext, call.Arguments)
 		if err != nil {
 			s.write(w, response{
 				JSONRPC: "2.0",

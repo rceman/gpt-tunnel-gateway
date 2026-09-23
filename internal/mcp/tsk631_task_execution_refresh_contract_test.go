@@ -20,24 +20,18 @@ func TestTSK631TaskRefreshHasClosedLeadContract(t *testing.T) {
 			t.Fatalf("task/refresh rejected %s", role)
 		}
 	}
-	for name, candidate := range map[string]struct {
-		schema map[string]any
-		count  int
-	}{"input": {schema: entry.InputSchema, count: 2}, "execution input": {schema: entry.ExecutionInputSchema, count: 3}} {
-		schema := candidate.schema
-		if schema["additionalProperties"] != false {
-			t.Fatalf("%s schema is not closed: %#v", name, schema)
-		}
-		properties, ok := schema["properties"].(map[string]any)
-		if !ok || len(properties) != candidate.count {
-			t.Fatalf("%s properties=%#v", name, schema)
-		}
-		reason, ok := properties["reason"].(map[string]any)
-		if !ok || reason["minLength"] != 1 || reason["maxLength"] != 1024 {
-			t.Fatalf("%s reason schema=%#v", name, reason)
-		}
+	if entry.InputSchema["additionalProperties"] != false || !entry.InjectSessionProjectID {
+		t.Fatalf("task/refresh public input or session project binding is incomplete: %#v", entry)
 	}
-	properties, ok := entry.OutputSchema["properties"].(map[string]any)
+	properties, ok := entry.InputSchema["properties"].(map[string]any)
+	if !ok || len(properties) != 2 {
+		t.Fatalf("task/refresh properties=%#v", entry.InputSchema)
+	}
+	reason, ok := properties["reason"].(map[string]any)
+	if !ok || reason["minLength"] != 1 || reason["maxLength"] != 1024 {
+		t.Fatalf("task/refresh reason schema=%#v", reason)
+	}
+	properties, ok = entry.OutputSchema["properties"].(map[string]any)
 	if !ok || properties["reason"] == nil || entry.OutputSchema["additionalProperties"] != false {
 		t.Fatalf("task/refresh output=%#v", entry.OutputSchema)
 	}

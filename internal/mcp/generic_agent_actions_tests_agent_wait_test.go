@@ -103,9 +103,6 @@ func TestCanonicalAgentActionsHaveExactADR85Surface(t *testing.T) {
 		if _, ok := server.tools()[name]; ok {
 			t.Fatalf("legacy Agent route remains registered: %s", name)
 		}
-		if _, ok := toolOutputSchemas[name]; ok {
-			t.Fatalf("legacy Agent output schema remains registered: %s", name)
-		}
 	}
 }
 

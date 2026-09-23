@@ -11,58 +11,38 @@ import (
 )
 
 func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, legacy map[string]Tool) {
-	add := func(path, description string, schema map[string]any, required bool, execute func(context.Context, json.RawMessage) (any, error)) {
+	add := func(path string, required bool, execute func(context.Context, json.RawMessage) (any, error)) {
 		if _, exists := entries[path]; exists {
 			return
 		}
-		entry := genericActionEntry{GenericAction: GenericAction{
-			Path:                 path,
-			Description:          description,
-			InputSchema:          schema,
-			OutputSchema:         map[string]any{"type": "object", "additionalProperties": true},
-			SessionBound:         required,
-			SessionRequired:      required,
-			ExecutionInputSchema: schema,
-			Execute:              execute,
-		}}
-		if path == "project/status" {
-			entry.OutputSchema = projectOperationalStatusOutputSchema()
+		action := GenericAction{
+			Path:            path,
+			SessionBound:    required,
+			SessionRequired: required,
+			Execute:         execute,
 		}
-		if path == "operation/read" || path == "operation/await" {
-			entry.OutputSchema = operationReadOutputSchema()
+		if path == "session/info" || path == "operation/read" || path == "operation/await" {
+			action.LocalReadOnly = true
 		}
-		if path == "session/info" {
-			entry.LocalReadOnly = true
-		}
-		if path == "session/list" || path == "session/info" || path == "session/end" {
-			entry.OutputSchema = sessionOutputSchema()
-		}
-		if path == "operation/read" || path == "operation/await" {
-			entry.LocalReadOnly = true
-			entry.Annotations.ReadOnlyHint = true
-			entry.Annotations.IdempotentHint = true
-		}
-		entries[path] = entry
+		entries[path] = genericActionEntry{GenericAction: action}
 	}
-	add("project/status", "Read the compact operational status of the project bound to this Session.", obj(map[string]any{}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("project/status", true, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.Service.ProjectOperationalStatus(ctx)
 	})
-	add("session/list", "List active durable sessions.", obj(map[string]any{}), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("session/list", false, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		result, err := s.Service.SessionList(ctx)
 		if err != nil {
 			return nil, err
 		}
 		return publicSessionResult(result), nil
 	})
-	add("session/info", "Read the durable session bound to the public session.", obj(map[string]any{}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("session/info", true, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.sessionActionForContext(ctx, "info")
 	})
-	add("session/end", "End the durable session bound to the public session.", obj(map[string]any{}), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("session/end", true, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.sessionActionForContext(ctx, "end")
 	})
-	add("operation/read", "Read one authorized durable asynchronous mutation receipt.", obj(map[string]any{
-		"operation_id": str("Canonical project-scoped Operation key."),
-	}, "operation_id"), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("operation/read", true, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var input struct {
 			OperationID string `json:"operation_id"`
 		}
@@ -71,10 +51,7 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		}
 		return s.Service.OperationRead(ctx, input.OperationID)
 	})
-	add("operation/await", "Wait for one authorized durable Operation without replaying its mutation.", obj(map[string]any{
-		"operation_id": str("Canonical project-scoped Operation key."),
-		"seconds":      integer("Maximum bounded wait in seconds; defaults to 30 and is capped at 60.", 1, 60),
-	}, "operation_id"), true, func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("operation/await", true, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var input struct {
 			OperationID string `json:"operation_id"`
 			Seconds     int    `json:"seconds,omitempty"`
@@ -85,7 +62,7 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		return s.Service.OperationAwait(ctx, input.OperationID, time.Duration(input.Seconds)*time.Second)
 	})
 	if tool, ok := legacy["system_ping"]; ok {
-		add("gateway/status", "Read Gateway health and runtime status.", obj(map[string]any{}), false, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		add("gateway/status", false, func(ctx context.Context, raw json.RawMessage) (any, error) {
 			baseValue, err := tool.Execute(ctx, []byte(`{}`))
 			if err != nil {
 				return nil, err

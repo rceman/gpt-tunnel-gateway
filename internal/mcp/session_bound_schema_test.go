@@ -14,8 +14,8 @@ func TestSessionBoundActionSchemasDoNotExposeProjectID(t *testing.T) {
 		if !entry.SessionBound {
 			continue
 		}
-		if entry.ExecutionInputSchema == nil {
-			t.Fatalf("session-bound action %s has no internal execution schema", path)
+		if entry.InjectSessionProjectID != sessionProjectInjectionActionPath(path) {
+			t.Fatalf("session-bound action %s has inconsistent session-project binding", path)
 		}
 		if schemaContainsPropertyForTest(entry.InputSchema, "project_id") {
 			t.Fatalf("session-bound action %s exposes project_id in its public schema: %#v", path, entry.InputSchema)

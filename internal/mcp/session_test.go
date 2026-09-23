@@ -115,7 +115,7 @@ func TestSessionInputSchemaAdvertisesCanonicalActionsAndIDs(t *testing.T) {
 		delete(wantActions, action)
 		if action == "info" || action == "update" || action == "end" {
 			idSchema := properties["session_id"].(map[string]any)
-			if idSchema["pattern"] != sessionIDPattern {
+			if idSchema["pattern"] != durableSession.CanonicalSessionIDPattern() {
 				t.Fatalf("%s session ID pattern=%v", action, idSchema["pattern"])
 			}
 		}

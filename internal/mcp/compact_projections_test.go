@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"sort"
 	"testing"
 
@@ -31,31 +30,30 @@ func TestControlAndReceiptActionsDoNotAdvertiseDetailProjection(t *testing.T) {
 	}
 }
 
-func TestSchemaDomainDiscoveryIsCompactUnlessDetailRequested(t *testing.T) {
+func TestSchemaDomainDiscoveryIsCompactFromContracts(t *testing.T) {
 	server := &Server{
 		Service:          service.New(config.Config{GatewayID: "compact-test", StateDir: t.TempDir()}),
 		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	entries := server.genericActionRegistry(server.tools())
-	compact, err := server.genericSchema(server.tools(), json.RawMessage(`{"path":"task"}`))
+	compact, err := genericSchemaV2(entries, "task")
 	if err != nil {
 		t.Fatal(err)
 	}
-	complete, err := server.genericSchema(server.tools(), json.RawMessage(`{"path":"task","detail":true}`))
+	complete, err := genericSchemaV2(entries, "task/create")
 	if err != nil {
 		t.Fatal(err)
 	}
-	compactActions := compact.(map[string]any)["actions"].([]map[string]any)
-	_ = entries
+	compactActions := compact["actions"].([]map[string]any)
 	if len(compactActions) == 0 {
 		t.Fatal("compact task domain omitted actions")
 	}
 	if _, ok := compactActions[0]["input_schema"]; ok {
 		t.Fatalf("compact domain leaked input schema: %#v", compactActions[0])
 	}
-	completeActions := complete.(map[string]any)["actions"].([]map[string]any)
-	if _, ok := completeActions[0]["input_schema"]; !ok {
-		t.Fatalf("detailed domain omitted input schema: %#v", completeActions[0])
+	contract := complete["contract"].(map[string]any)
+	if _, ok := contract["input_schema"]; !ok {
+		t.Fatalf("exact action omitted input schema: %#v", contract)
 	}
 }
 
@@ -65,7 +63,7 @@ func TestCanonicalTaskReadPreservesFullPayload(t *testing.T) {
 		"status": "planned", "objective": "The complete canonical objective.",
 		"acceptance_criteria": []any{"large detail"}, "created_at": "2026-01-01T00:00:00Z",
 	}
-	result := compactActionResult("task/read", value, false)
+	result := compactActionResult("task/read", value)
 	if _, ok := result["objective"]; !ok {
 		t.Fatalf("canonical task read lost objective: %#v", result)
 	}
@@ -85,7 +83,7 @@ func TestCompactSuccessfulAgentPromptKeepsOnlyProjectID(t *testing.T) {
 			"stdout": "large execution output", "stderr": "large diagnostic output",
 		},
 	}
-	compact := compactActionResult("agent/prompt", value, false)
+	compact := compactActionResult("agent/prompt", value)
 	result, ok := compact["result"].(map[string]any)
 	if !ok || len(result) != 1 || result["project_id"] != "example" {
 		t.Fatalf("compact successful Agent result was not project-only: %#v", compact)
@@ -101,7 +99,7 @@ func TestCompactMutationDoesNotLeakNestedDurablePayloads(t *testing.T) {
 		"identifiers":   map[string]any{"project_id": "example", "project_code": "EXM", "next_task_number": float64(2), "secret": "counter-detail"},
 		"adr":           map[string]any{"id": "GTW-ADR1", "title": "ADR", "context": "full context"},
 	}
-	compact := compactActionResult("journal/add", value, false)
+	compact := compactActionResult("journal/add", value)
 	for key, forbidden := range map[string]string{
 		"agent": "secret", "guide": "content", "configuration": "gate_commands", "policy": "secret", "identifiers": "secret", "adr": "context",
 	} {

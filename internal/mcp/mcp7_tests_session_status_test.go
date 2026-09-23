@@ -78,7 +78,7 @@ func TestPublicSessionStartTokenContract(t *testing.T) {
 
 func TestPublicSessionStartRejectsCallerSelectedRole(t *testing.T) {
 	server := newSessionTestServer(t)
-	properties := sessionStartPublicInputSchema()["properties"].(map[string]any)
+	properties := server.publicTools()["session_start"].InputSchema["properties"].(map[string]any)
 	if len(properties) != 1 || properties["token"] == nil {
 		t.Fatalf("public session_start schema=%#v", properties)
 	}

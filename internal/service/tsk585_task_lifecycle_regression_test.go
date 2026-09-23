@@ -229,6 +229,45 @@ func TestTSK585TaskCompleteIntegrated(t *testing.T) {
 		t.Fatal("conflicting mode must reject")
 	}
 }
+func TestTSK585TaskCompleteRejectsTimestampRegressionBeforeCommit(t *testing.T) {
+	s, db := tsk585Setup(t)
+	defer db.Close()
+	ctx := context.Background()
+	task, integration := tsk585IntegratedCompleteFixture(t, s, "tsk585-clock-regression")
+	phase, found, err := db.ReadLatestTaskExecutionPhase(ctx, "example", task.ID, "integration")
+	if err != nil || !found || phase.Head != integration {
+		t.Fatalf("integration phase=%#v found=%v err=%v", phase, found, err)
+	}
+	sessionID := tsk585PlannerSession(t, s)
+	event := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task, 1, "integrated", integration, "")}, []string{integration})
+	s.clock = func() time.Time { return phase.CreatedAt.Add(-time.Millisecond) }
+	_, err = s.TaskComplete(ctx, tsk585CompletionInput(task, "integrated", "all criteria accepted", event.ID), "planner")
+	if err == nil || !strings.Contains(err.Error(), "timestamp ordering") {
+		t.Fatalf("completion with a timestamp before integration phase returned %v", err)
+	}
+	entity, err := db.ReadSharedTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var current model.TaskAuthoring
+	if err := json.Unmarshal(entity.Payload, &current); err != nil {
+		t.Fatal(err)
+	}
+	if current.Status != task.Status {
+		t.Fatalf("timestamp rejection mutated Task status: %#v", current)
+	}
+	state, _, err := db.ReadTaskExecutionState(ctx, "example", task.ID)
+	if err != nil || state.Status != model.TaskExecutionIntegrated {
+		t.Fatalf("timestamp rejection mutated execution: %#v err=%v", state, err)
+	}
+	if _, found, err := db.ReadTaskCompletionEvent(ctx, "example", task.ID); err != nil || found {
+		t.Fatalf("timestamp rejection persisted a completion event: found=%v err=%v", found, err)
+	}
+	if got := tsk585CompletionOutbox(t, db, task.ID); got != 0 {
+		t.Fatalf("timestamp rejection wrote %d completion outbox rows", got)
+	}
+}
+
 func TestTSK585TaskCompleteNonCode(t *testing.T) {
 	s, db := tsk585Setup(t)
 	defer db.Close()

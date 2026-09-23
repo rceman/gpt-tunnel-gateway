@@ -17,7 +17,7 @@ func TestTSK433JournalActionSurfaceIsCanonicalAndSessionBound(t *testing.T) {
 		if !ok {
 			t.Fatalf("canonical journal action %q is not registered", path)
 		}
-		if entry.InputSchema == nil || entry.OutputSchema == nil || entry.ExecutionInputSchema == nil {
+		if entry.InputSchema == nil || entry.OutputSchema == nil {
 			t.Fatalf("journal action %q has an incomplete contract", path)
 		}
 		if !entry.SessionBound {

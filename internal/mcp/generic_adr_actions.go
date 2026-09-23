@@ -21,7 +21,6 @@ func (s *Server) registerADRActions() error {
 		a.AuthorityRole = actionRoleWorkflow
 		a.SessionBound = true
 		a.LocalReceiptOnly = true
-		a.AllowLegacyOverride = true
 		return s.RegisterGenericAction(a)
 	}
 	if err := register(GenericAction{
@@ -67,7 +66,6 @@ func (s *Server) registerADRActions() error {
 		Description:          "Read an ADR revision.",
 		InputSchema:          adrReadSchema(),
 		ExecutionInputSchema: adrExecutionSchema(adrReadSchema()),
-		OutputSchema:         adrOutputSchema(),
 		Annotations: ToolAnnotations{
 			ReadOnlyHint:   true,
 			IdempotentHint: true,

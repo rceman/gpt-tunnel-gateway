@@ -16,7 +16,7 @@ func TestTSK384RuleActionSurfaceIsCanonicalAndComplete(t *testing.T) {
 		if !ok {
 			t.Fatalf("canonical rule action %q is not registered", path)
 		}
-		if entry.InputSchema == nil || entry.OutputSchema == nil || entry.ExecutionInputSchema == nil {
+		if entry.InputSchema == nil || entry.OutputSchema == nil || !entry.InjectSessionProjectID {
 			t.Fatalf("rule action %q has an incomplete contract", path)
 		}
 		if !entry.SessionBound {
@@ -37,14 +37,12 @@ func TestTSK384RuleInputSchemasAreClosed(t *testing.T) {
 		if len(path) < 5 || path[:5] != "rule/" {
 			continue
 		}
-		for _, schema := range []map[string]any{entry.InputSchema, entry.ExecutionInputSchema} {
-			properties, _ := schema["properties"].(map[string]any)
-			if _, ok := properties["expected_revision"]; ok {
-				t.Fatalf("%s exposes caller-owned CAS input", path)
-			}
-			if _, ok := properties["name"]; ok && path == "rule/update" {
-				t.Fatalf("rule/update exposes immutable name input")
-			}
+		properties, _ := entry.InputSchema["properties"].(map[string]any)
+		if _, ok := properties["expected_revision"]; ok {
+			t.Fatalf("%s exposes caller-owned CAS input", path)
+		}
+		if _, ok := properties["name"]; ok && path == "rule/update" {
+			t.Fatalf("rule/update exposes immutable name input")
 		}
 	}
 	create := entries["rule/create"].InputSchema

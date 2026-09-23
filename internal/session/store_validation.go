@@ -7,8 +7,16 @@ import (
 	"strings"
 )
 
-var sessionIDRE = regexp.MustCompile(`^[A-Z]{3}_[A-Z]{3}_[PLAW]_[a-z0-9]{5}$`)
-var adminSessionIDRE = regexp.MustCompile(`^[A-Z]{3}_ADM_[a-z0-9]{32}$`)
+const workflowSessionIDPattern = `[A-Z]{3}_[A-Z]{3}_[PLAW]_[a-z0-9]{5}`
+const adminSessionIDPattern = `[A-Z]{3}_ADM_[a-z0-9]{32}`
+
+var sessionIDRE = regexp.MustCompile("^" + workflowSessionIDPattern + "$")
+var adminSessionIDRE = regexp.MustCompile("^" + adminSessionIDPattern + "$")
+
+func CanonicalSessionIDPattern() string {
+	return "^(?:" + workflowSessionIDPattern + "|" + adminSessionIDPattern + ")$"
+}
+
 var sessionGatewayKeyRE = regexp.MustCompile(`^[A-Z]{3}$`)
 var sessionProjectCodeRE = regexp.MustCompile(`^[A-Z]{3}$`)
 

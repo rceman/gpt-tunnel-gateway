@@ -80,27 +80,32 @@ func TestPublicGitFingerprintsRequireEightLowercaseHexCharacters(t *testing.T) {
 
 func TestCollectionOutputSchemasKeepContinuationInTheEnvelope(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{})}
-	tools := server.tools()
+	tools := server.publicTools()
 	for _, name := range []string{"git_refs", "git_log", "git_tree"} {
-		tool, ok := tools[name]
-		if !ok {
-			t.Fatalf("missing collection tool %q", name)
+		if _, ok := tools[name]; ok {
+			t.Fatalf("internal Git tool %q leaked into the public tool manifest", name)
 		}
-		properties, _ := tool.OutputSchema["properties"].(map[string]any)
-		result, _ := properties["result"].(map[string]any)
+	}
+	call := tools["call"]
+	branches := call.OutputSchema["oneOf"].([]any)
+	for _, branch := range branches {
+		properties := branch.(map[string]any)["properties"].(map[string]any)
+		result, hasResult := properties["result"].(map[string]any)
+		if !hasResult {
+			continue
+		}
 		resultProperties, _ := result["properties"].(map[string]any)
 		for _, field := range []string{"cursor", "next_cursor", "has_more", "_pagination"} {
 			if _, exists := resultProperties[field]; exists {
-				t.Fatalf("%s result schema exposes continuation field %q", name, field)
+				t.Fatalf("call result schema exposes continuation field %q", field)
 			}
 		}
-		pagination, _ := properties["pagination"].(map[string]any)
-		paginationProperties, _ := pagination["properties"].(map[string]any)
+		paginationProperties := properties["pagination"].(map[string]any)["properties"].(map[string]any)
 		if _, ok := paginationProperties["next_cursor"]; !ok {
-			t.Fatalf("%s outer pagination schema has no next_cursor", name)
+			t.Fatal("call outer pagination schema has no next_cursor")
 		}
 	}
-	entries := server.genericActionRegistry(tools)
+	entries := server.genericActionRegistry(server.tools())
 	for _, path := range []string{"runtime/logs", "message/list", "code/worktree", "code/tree", "code/read", "code/search", "code/diff", "task/list", "track/list"} {
 		entry, ok := entries[path]
 		if !ok {

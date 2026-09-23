@@ -56,11 +56,17 @@ func TestEveryToolDeclaresOutputSchemaAndExplicitAnnotations(t *testing.T) {
 		if _, ok := tool.InputSchema["additionalProperties"]; !ok {
 			t.Errorf("%s input schema is not explicit", name)
 		}
-		if _, ok := toolOutputSchemas[name]; !ok {
-			t.Errorf("%s missing output schema registry entry", name)
+		wantAnnotations := transportToolAnnotations(name)
+		if contract, ok := srv.actionContractSet().Action(legacyActionPath(name)); ok {
+			wantAnnotations = ToolAnnotations{
+				ReadOnlyHint:    contract.Metadata.Annotations.ReadOnly,
+				DestructiveHint: contract.Metadata.Annotations.Destructive,
+				IdempotentHint:  contract.Metadata.Annotations.Idempotent,
+				OpenWorldHint:   contract.Metadata.Annotations.OpenWorld,
+			}
 		}
-		if _, ok := toolAnnotations[name]; !ok {
-			t.Errorf("%s missing annotation registry entry", name)
+		if tool.Annotations != wantAnnotations {
+			t.Errorf("%s annotations=%+v want %+v", name, tool.Annotations, wantAnnotations)
 		}
 	}
 	if _, ok := tools["call"]; !ok {

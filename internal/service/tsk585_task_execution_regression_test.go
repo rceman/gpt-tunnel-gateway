@@ -22,6 +22,7 @@ import (
 func tsk585Setup(t *testing.T) (*Service, *sqlitestore.Databases) {
 	t.Helper()
 	s, _, _ := testServiceSerial(t)
+	tsk585InstallMonotonicClock(s)
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project

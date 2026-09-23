@@ -605,10 +605,9 @@ func TestTSK585TaskIntegrateMCPDispatch(t *testing.T) {
 		t.Fatalf("unknown property must remain rejected: %#v", rejected)
 	}
 
-	execution := taskExecutionIntegrateExecutionSchema(taskExecutionIntegrateSchema())
 	bind := func(raw string) (map[string]any, error) {
 		t.Helper()
-		bound, err := inheritSessionProject(execution, "example", json.RawMessage(raw))
+		bound, err := inheritSessionProject("example", json.RawMessage(raw))
 		if err != nil {
 			return nil, err
 		}

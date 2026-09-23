@@ -30,8 +30,8 @@ func TestTSK625TaskBlockResumeHaveClosedBoundedLeadContracts(t *testing.T) {
 		if entry.AuthorityRole != "lead" || !entry.SessionBound || !entry.LocalReceiptOnly {
 			t.Fatalf("%s authority binding=%#v", path, entry)
 		}
-		if entry.InputSchema["additionalProperties"] != false || entry.ExecutionInputSchema["additionalProperties"] != false {
-			t.Fatalf("%s input schema is not closed", path)
+		if entry.InputSchema["additionalProperties"] != false || !entry.InjectSessionProjectID {
+			t.Fatalf("%s input contract or project binding is incomplete", path)
 		}
 		properties, ok := entry.InputSchema["properties"].(map[string]any)
 		if !ok || len(properties) != 2 {

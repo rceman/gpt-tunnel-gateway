@@ -130,6 +130,17 @@ func (compiled *CompiledSet) DefinitionNames() []string {
 	return result
 }
 
+func (compiled *CompiledSet) DefinitionSchema(name string) (map[string]any, bool) {
+	if compiled == nil {
+		return nil, false
+	}
+	schema, ok := compiled.definitions[name]
+	if !ok || schema == nil {
+		return nil, false
+	}
+	return schema.JSONSchema(), true
+}
+
 func (compiled *CompiledSet) Actions() []CompiledAction {
 	if compiled == nil {
 		return nil

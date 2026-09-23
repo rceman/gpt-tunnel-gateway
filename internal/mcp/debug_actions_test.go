@@ -67,26 +67,24 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 			t.Fatal("debug/activate must advertise idempotent source-keyed ensure semantics")
 		}
 	}
-	legacy := server.tools()
-	root, err := server.genericSchema(legacy, []byte(`{"path":""}`))
+	root, err := genericSchemaV2(entries, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	foundDomain := false
-	rootObject := root.(map[string]any)
-	for _, raw := range rootObject["domains"].([]string) {
-		if raw == "debug" {
+	for _, raw := range root["domains"].([]map[string]any) {
+		if raw["key"] == "debug" {
 			foundDomain = true
 		}
 	}
 	if !foundDomain {
 		t.Fatal("enabled debug domain was not discoverable")
 	}
-	domain, err := server.genericSchema(legacy, []byte(`{"path":"debug"}`))
+	domain, err := genericSchemaV2(entries, "debug")
 	if err != nil {
 		t.Fatal(err)
 	}
-	actions := domain.(map[string]any)["actions"].([]map[string]any)
+	actions := domain["actions"].([]map[string]any)
 	if len(actions) != len(want) {
 		t.Fatalf("debug schema actions=%#v want=%v", actions, want)
 	}

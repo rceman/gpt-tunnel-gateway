@@ -24,45 +24,30 @@ func additiveExternalAnnotations() ToolAnnotations {
 		OpenWorldHint:   true,
 	}
 }
-func idempotentMutationAnnotations() ToolAnnotations {
-	return ToolAnnotations{
-		ReadOnlyHint:    false,
-		DestructiveHint: false,
-		IdempotentHint:  true,
-		OpenWorldHint:   true,
-	}
-}
-func destructiveExternalAnnotations() ToolAnnotations {
-	return ToolAnnotations{
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  false,
-		OpenWorldHint:   true,
+func transportToolOutputSchema(name string) map[string]any {
+	switch name {
+	case "call":
+		return genericCallOutputSchema()
+	case "schema":
+		return genericSchemaOutputSchema()
+	case "status":
+		return statusPublicOutputSchema()
+	case "guide":
+		return guidePublicOutputSchema()
+	case "projects":
+		return projectsPublicOutputSchema()
+	default:
+		return nil
 	}
 }
 
-var toolAnnotations = func() map[string]ToolAnnotations {
-	result := map[string]ToolAnnotations{}
-	result["schema"] = readOnlyAnnotations()
-	result["guide"] = readOnlyAnnotations()
-	result["projects"] = readOnlyAnnotations()
-	result["session_start"] = additiveExternalAnnotations()
-	result["session_update"] = idempotentMutationAnnotations()
-	result["call"] = additiveExternalAnnotations()
-	result["status"] = readOnlyAnnotations()
-	result["session"] = destructiveExternalAnnotations()
-	for _, name := range []string{
-		"system_ping", "gateway_capabilities",
-		"git_refs", "git_log", "git_show", "git_tree", "git_read_file", "git_diff", "git_compare",
-		"git_merge_base", "git_worktree_status", "git_worktree_diff",
-	} {
-		result[name] = readOnlyAnnotations()
+func transportToolAnnotations(name string) ToolAnnotations {
+	switch name {
+	case "call":
+		return additiveExternalAnnotations()
+	case "schema", "guide", "projects", "status":
+		return readOnlyAnnotations()
+	default:
+		return ToolAnnotations{}
 	}
-	result["git_refresh"] = ToolAnnotations{
-		ReadOnlyHint:    false,
-		DestructiveHint: false,
-		IdempotentHint:  true,
-		OpenWorldHint:   true,
-	}
-	return result
-}()
+}

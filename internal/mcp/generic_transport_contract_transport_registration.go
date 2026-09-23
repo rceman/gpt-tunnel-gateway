@@ -26,20 +26,15 @@ type GenericAction struct {
 	RequiresWorkflowPolicy bool
 	LocalReceiptOnly       bool
 	LocalReadOnly          bool
-	AllowLegacyOverride    bool
 	SessionBound           bool
 	SessionRequired        bool
+	InjectSessionProjectID bool
 	ExecutionInputSchema   map[string]any
 	Execute                func(context.Context, json.RawMessage) (any, error)
 }
 type genericActionEntry struct {
 	GenericAction
-	Contract                  actioncontract.CompiledAction
-	LegacyTool                string
-	LegacyInputSchema         map[string]any
-	LegacyOutputSchema        map[string]any
-	LegacyExecute             func(context.Context, json.RawMessage) (any, error)
-	RouteLegacyByProjectModel bool
+	Contract actioncontract.CompiledAction
 }
 type genericCallInput struct {
 	SessionID string          `json:"session"`
@@ -66,16 +61,11 @@ func (s *Server) RegisterGenericAction(action GenericAction) error {
 	if _, exists := s.actionContractSet().Action(action.Path); !exists {
 		return fmt.Errorf("generic action %q has no canonical action contract", action.Path)
 	}
-	if action.Description == "" || action.InputSchema == nil || action.OutputSchema == nil || action.Execute == nil {
-		return fmt.Errorf("generic action %q is incomplete", action.Path)
+	if action.Execute == nil {
+		return fmt.Errorf("generic action %q has no handler", action.Path)
 	}
 	if err := validateActionAuthorityRole(action.AuthorityRole); err != nil {
 		return fmt.Errorf("generic action %q: %w", action.Path, err)
-	}
-	for toolName := range toolOutputSchemas {
-		if legacyActionPath(toolName) == action.Path && !action.AllowLegacyOverride {
-			return fmt.Errorf("generic action %q conflicts with legacy tool %q", action.Path, toolName)
-		}
 	}
 	s.genericActionMu.Lock()
 	defer s.genericActionMu.Unlock()
@@ -88,36 +78,13 @@ func (s *Server) RegisterGenericAction(action GenericAction) error {
 	s.genericActions[action.Path] = action
 	return nil
 }
-func compactCursorContractSchema(schema map[string]any) map[string]any {
-	if schema == nil {
-		return nil
+func sessionProjectInjectionActionPath(path string) bool {
+	for _, prefix := range []string{"adr/", "milestone/", "relation/", "rule/", "task/", "track/"} {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
 	}
-	compacted, _ := compactCursorContractValue(schema, "").(map[string]any)
-	return compacted
-}
-
-func compactCursorContractValue(value any, field string) any {
-	switch current := value.(type) {
-	case map[string]any:
-		result := make(map[string]any, len(current)+3)
-		for key, child := range current {
-			result[key] = compactCursorContractValue(child, key)
-		}
-		if field == "cursor" || field == "next_cursor" {
-			result["minLength"] = 8
-			result["maxLength"] = 8
-			result["pattern"] = `^[ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789]{8}$`
-		}
-		return result
-	case []any:
-		result := make([]any, len(current))
-		for index, child := range current {
-			result[index] = compactCursorContractValue(child, field)
-		}
-		return result
-	default:
-		return value
-	}
+	return path == "project/guide_bind" || path == "agent/guide"
 }
 
 func validGenericActionPath(path string) bool {
@@ -187,17 +154,15 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 				Authority: func(ctx context.Context) error {
 					return requireToolAuthority(ctx, toolName)
 				},
-				Execute:              tool.Execute,
-				ExecutionInputSchema: tool.InputSchema,
+				Execute: tool.Execute,
 			},
-			LegacyTool: toolName,
 		}
 		entries[path] = entry
 	}
 	s.genericActionMu.RLock()
 	defer s.genericActionMu.RUnlock()
 	for path, action := range s.genericActions {
-		if _, exists := entries[path]; exists && !action.AllowLegacyOverride {
+		if _, exists := entries[path]; exists {
 			panic(fmt.Sprintf("generic action %q duplicates a registered legacy handler", path))
 		}
 		if strings.HasPrefix(path, "git/") {
@@ -210,40 +175,13 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 			continue
 		}
 		entry := genericActionEntry{GenericAction: action}
-		entry.OutputSchema = sanitizeTransportOutputSchema(entry.OutputSchema)
-		if entry.ExecutionInputSchema == nil {
-			entry.ExecutionInputSchema = action.InputSchema
-		}
-		if path == "task/create" {
-			if legacy, ok := legacy["task_create"]; ok {
-				entry.LegacyTool = "task_create"
-				entry.LegacyInputSchema = legacy.InputSchema
-				entry.LegacyOutputSchema = legacy.OutputSchema
-				entry.LegacyOutputSchema = sanitizeTransportOutputSchema(entry.LegacyOutputSchema)
-				entry.LegacyExecute = legacy.Execute
-				entry.RouteLegacyByProjectModel = true
-			}
-		}
 		entries[path] = entry
 	}
 	for path, entry := range entries {
-		entry.InputSchema = compactCursorContractSchema(entry.InputSchema)
-		entry.ExecutionInputSchema = compactCursorContractSchema(entry.ExecutionInputSchema)
-		entry.LegacyInputSchema = compactCursorContractSchema(entry.LegacyInputSchema)
-		entry.OutputSchema = sanitizeTransportOutputSchema(entry.OutputSchema)
-		entry.LegacyOutputSchema = sanitizeTransportOutputSchema(entry.LegacyOutputSchema)
-		if projectionDetailAction(path) {
-			entry.InputSchema = withProjectionDetail(entry.InputSchema)
-			entry.ExecutionInputSchema = withProjectionDetail(entry.ExecutionInputSchema)
-		}
-		if !sessionlessActionPath(path) && !strings.HasPrefix(path, "runtime/") && (sessionBoundActionPath(path) || schemaHasProperty(entry.InputSchema, "project_id")) {
+		if !sessionlessActionPath(path) && !strings.HasPrefix(path, "runtime/") && sessionBoundActionPath(path) {
 			entry.SessionBound = true
-			entry.InputSchema = withoutProjectID(entry.InputSchema)
-			if entry.LegacyInputSchema != nil {
-				entry.LegacyInputSchema = entry.ExecutionInputSchema
-			}
-			entries[path] = entry
 		}
+		entry.InjectSessionProjectID = sessionProjectInjectionActionPath(path)
 		entry.SessionRequired = entry.SessionRequired || entry.SessionBound
 		entries[path] = entry
 	}

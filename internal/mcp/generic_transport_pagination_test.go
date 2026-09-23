@@ -4,9 +4,6 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
-
-	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
 func TestGenericCallEnvelopeDetachesContinuationAndPreservesPayload(t *testing.T) {
@@ -55,21 +52,12 @@ func TestGenericCallTerminalAndFailureOmitPagination(t *testing.T) {
 	}
 }
 
-func TestGitToolPaginationIsOutsideTheCollectionResult(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{})}
-	tool, ok := server.tools()["git_refs"]
-	if !ok {
-		t.Fatal("git_refs tool is not registered")
-	}
+func TestGenericTransportPaginationIsOutsideTheCollectionResult(t *testing.T) {
 	page, err := genericActionPageResult(map[string]any{"refs": []any{}}, true, "ABCDEFGH")
 	if err != nil {
 		t.Fatal(err)
 	}
-	response := toolResult(tool, page, false)
-	if response["isError"] == true {
-		t.Fatalf("git_refs output contract failed: %#v", response)
-	}
-	structured := response["structuredContent"].(map[string]any)
+	structured := genericActionSuccessWithPagination(page.Result, page.Pagination)
 	if !reflect.DeepEqual(structured["result"], map[string]any{"refs": []any{}}) {
 		t.Fatalf("unexpected collection result: %#v", structured)
 	}

@@ -28,38 +28,6 @@ func globalWorkflowDigest() string {
 	return hex.EncodeToString(h[:])
 }
 
-func sessionStartPublicInputSchema() map[string]any {
-	token := str("Per-project Planner bootstrap grant returned by the authenticated gpt-tunnel project token operator command.")
-	token["minLength"] = 24
-	token["maxLength"] = 256
-	return obj(map[string]any{"token": token}, "token")
-}
-
-func sessionStartPublicOutputSchema() map[string]any {
-	gateway := closedOutput(map[string]any{
-		"key":   outputString(),
-		"label": outputString(),
-	}, "key")
-	project := closedOutput(map[string]any{
-		"key":  outputString(),
-		"name": outputString(),
-	}, "key", "name")
-	rule := closedOutput(map[string]any{
-		"key":      outputString(),
-		"revision": outputInteger(),
-		"text":     outputString(),
-	}, "key", "revision", "text")
-	return closedOutput(map[string]any{
-		"agent":   outputString(),
-		"label":   outputString(),
-		"session": sessionIDOutputSchema(),
-		"gateway": gateway,
-		"project": project,
-		"role":    durableSession.WorkflowRoleOutputSchema(),
-		"rules":   closedOutput(map[string]any{"items": outputArray(rule)}, "items"),
-	}, "session", "gateway", "project", "role", "rules")
-}
-
 func (s *Server) sessionStartPublic(ctx context.Context, raw json.RawMessage) (any, error) {
 	var in struct {
 		Token string `json:"token"`

@@ -127,10 +127,18 @@ func (s *Server) tools() map[string]Tool {
 	s.ensureTrackActions()
 	t := map[string]Tool{}
 	add := toolAdder(func(name, description string, schema map[string]any, fn func(context.Context, json.RawMessage) (any, error)) {
-		output, outputOK := toolOutputSchemas[name]
-		annotations, annotationsOK := toolAnnotations[name]
-		if !outputOK || !annotationsOK {
-			panic("missing MCP contract for tool " + name)
+		output := transportToolOutputSchema(name)
+		annotations := transportToolAnnotations(name)
+		if contract, ok := s.actionContractSet().Action(legacyActionPath(name)); ok {
+			description = contract.Description
+			schema = contract.Input.JSONSchema()
+			output = contract.Output.JSONSchema()
+			annotations = ToolAnnotations{
+				ReadOnlyHint:    contract.Metadata.Annotations.ReadOnly,
+				DestructiveHint: contract.Metadata.Annotations.Destructive,
+				IdempotentHint:  contract.Metadata.Annotations.Idempotent,
+				OpenWorldHint:   contract.Metadata.Annotations.OpenWorld,
+			}
 		}
 		t[name] = Tool{
 			Name:         name,
@@ -151,26 +159,11 @@ func (s *Server) tools() map[string]Tool {
 	}
 	addGenericTransportTools(add, s, legacyTools)
 	if tool, ok := t["session_start"]; ok {
-		contract, exists := s.actionContractSet().Action("session/start")
-		if !exists {
+		if _, exists := s.actionContractSet().Action("session/start"); !exists {
 			panic("session/start action contract is missing")
-		}
-		tool.InputSchema = contract.Input.JSONSchema()
-		tool.OutputSchema = contract.Output.JSONSchema()
-		tool.Annotations = ToolAnnotations{
-			ReadOnlyHint:    contract.Metadata.Annotations.ReadOnly,
-			DestructiveHint: contract.Metadata.Annotations.Destructive,
-			IdempotentHint:  contract.Metadata.Annotations.Idempotent,
-			OpenWorldHint:   contract.Metadata.Annotations.OpenWorld,
 		}
 		tool.Execute = s.contractTransportHandler("session/start", tool.Execute)
 		t["session_start"] = tool
-	}
-	for name, tool := range t {
-		if _, required := typedSessionAuthorityContract(name); required {
-			tool.InputSchema = typedSessionInputSchema(tool.InputSchema)
-			t[name] = tool
-		}
 	}
 	return t
 }
@@ -201,14 +194,12 @@ func validateCanonicalToolManifest(tools map[string]Tool) error {
 		return fmt.Errorf("MCP manifest registration mismatch: registered=%d manifest=%d", len(tools), len(want))
 	}
 	for name := range want {
-		if _, ok := tools[name]; !ok {
+		tool, ok := tools[name]
+		if !ok {
 			return fmt.Errorf("MCP manifest tool is not registered: %s", name)
 		}
-		if _, ok := toolOutputSchemas[name]; !ok {
-			return fmt.Errorf("MCP manifest output schema is missing: %s", name)
-		}
-		if _, ok := toolAnnotations[name]; !ok {
-			return fmt.Errorf("MCP manifest annotations are missing: %s", name)
+		if tool.Description == "" || tool.InputSchema == nil || tool.OutputSchema == nil || tool.Execute == nil {
+			return fmt.Errorf("MCP manifest tool %s has an incomplete contract", name)
 		}
 	}
 	return nil

@@ -13,79 +13,22 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
-func inheritSessionProject(schema map[string]any, projectID string, raw json.RawMessage) (json.RawMessage, error) {
-	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
+func inheritSessionProject(projectID string, raw json.RawMessage) (json.RawMessage, error) {
+	if projectID == "" {
+		return nil, fmt.Errorf("session project is required")
+	}
+	var value map[string]any
+	if err := json.Unmarshal(raw, &value); err != nil || value == nil {
 		return nil, fmt.Errorf("input must be an object")
 	}
-	bound, err := bindProjectValue(schema, value, projectID)
-	if err != nil {
-		return nil, err
+	if supplied, exists := value["project_id"]; exists {
+		if suppliedProjectID, ok := supplied.(string); !ok || suppliedProjectID != projectID {
+			return nil, fmt.Errorf("project_id does not match session project")
+		}
+	} else {
+		value["project_id"] = projectID
 	}
-	return json.Marshal(bound)
-}
-
-func bindProjectValue(schema map[string]any, value any, projectID string) (any, error) {
-	properties, _ := schema["properties"].(map[string]any)
-	switch current := value.(type) {
-	case map[string]any:
-		result := make(map[string]any, len(current)+1)
-		for key, child := range current {
-			childSchema, _ := properties[key].(map[string]any)
-			bound, err := bindProjectValue(childSchema, child, projectID)
-			if err != nil {
-				return nil, err
-			}
-			result[key] = bound
-		}
-		if _, ok := properties["project_id"]; ok {
-			if supplied, exists := current["project_id"]; exists {
-				if suppliedString, ok := supplied.(string); !ok || suppliedString != projectID {
-					return nil, fmt.Errorf("project_id does not match session project")
-				}
-			} else if containsRequired(stringList(schema["required"]), "project_id") {
-				result["project_id"] = projectID
-			}
-		} else if branches, ok := schema["oneOf"].([]any); ok && len(branches) > 0 {
-			declared := false
-			allRequired := true
-			for _, raw := range branches {
-				branch, _ := raw.(map[string]any)
-				branchProperties, _ := branch["properties"].(map[string]any)
-				if _, exists := branchProperties["project_id"]; !exists {
-					allRequired = false
-					continue
-				}
-				declared = true
-				if !containsRequired(stringList(branch["required"]), "project_id") {
-					allRequired = false
-				}
-			}
-			if declared {
-				if supplied, exists := current["project_id"]; exists {
-					if suppliedString, ok := supplied.(string); !ok || suppliedString != projectID {
-						return nil, fmt.Errorf("project_id does not match session project")
-					}
-				} else if allRequired {
-					result["project_id"] = projectID
-				}
-			}
-		}
-		return result, nil
-	case []any:
-		items, _ := schema["items"].(map[string]any)
-		result := make([]any, len(current))
-		for i, child := range current {
-			bound, err := bindProjectValue(items, child, projectID)
-			if err != nil {
-				return nil, err
-			}
-			result[i] = bound
-		}
-		return result, nil
-	default:
-		return value, nil
-	}
+	return json.Marshal(value)
 }
 
 func containsRequired(values []string, want string) bool {

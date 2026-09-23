@@ -147,20 +147,16 @@ func TestGitMCPIsAbsentFromGenericSurfaceAndCodeRemainsCallable(t *testing.T) {
 			t.Fatalf("Git action leaked into generic registry: %s", path)
 		}
 	}
-	root, err := fixture.server.genericSchema(fixture.server.tools(), json.RawMessage(`{"path":""}`))
+	root, err := genericSchemaV2(entries, "")
 	if err != nil {
 		t.Fatalf("generic root schema failed: %v", err)
 	}
-	rootMap, ok := root.(map[string]any)
-	if !ok {
-		t.Fatalf("generic root schema has unexpected type: %#v", root)
-	}
-	for _, domain := range rootMap["domains"].([]string) {
-		if domain == "git" {
+	for _, domain := range root["domains"].([]map[string]any) {
+		if domain["key"] == "git" {
 			t.Fatal("Git domain leaked into generic schema")
 		}
 	}
-	if _, err := fixture.server.genericSchema(fixture.server.tools(), json.RawMessage(`{"path":"git/show"}`)); err == nil {
+	if _, err := genericSchemaV2(entries, "git/show"); err == nil {
 		t.Fatal("retired Git action remained discoverable")
 	}
 
@@ -175,15 +171,11 @@ func TestGitMCPIsAbsentFromGenericSurfaceAndCodeRemainsCallable(t *testing.T) {
 		t.Fatalf("retired Git action was callable: %#v", gitStructured)
 	}
 
-	codeSchema, err := fixture.server.genericSchema(fixture.server.tools(), json.RawMessage(`{"path":"code"}`))
+	codeSchema, err := genericSchemaV2(entries, "code")
 	if err != nil {
 		t.Fatalf("code schema failed: %v", err)
 	}
-	codeMap, ok := codeSchema.(map[string]any)
-	if !ok {
-		t.Fatalf("code schema has unexpected type: %#v", codeSchema)
-	}
-	if len(codeMap["actions"].([]map[string]any)) == 0 {
+	if len(codeSchema["actions"].([]map[string]any)) == 0 {
 		t.Fatal("code actions were removed from schema")
 	}
 	codeCall := callMCPRaw(t, fixture.server, mustJSON(t, map[string]any{

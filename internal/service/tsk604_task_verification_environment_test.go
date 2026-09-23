@@ -25,6 +25,7 @@ func TestTSK604TaskCompleteAfterRestartIgnoresEnvironmentDrift(t *testing.T) {
 	t.Setenv("PWD", filepath.Join(t.TempDir(), "changed", "slash"))
 
 	restarted := NewWithDurabilityDeferredWorkers(s.Config, db)
+	restarted.clock = s.clock
 	restarted.gateExecutorWithProjectCommands = func(context.Context, string, []string, model.ProjectGateCommands, string) ([]model.CompletionGateResult, error) {
 		t.Fatal("task/complete must not rerun mutable verification gates")
 		return nil, nil

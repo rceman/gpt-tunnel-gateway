@@ -51,8 +51,8 @@ func TestTSK532GuideActionsExposeApplicableSubjectsAndPlannerBinding(t *testing.
 		!reflectStringList(stringList(subjectSchema["enum"]), model.GuideSubjects()) {
 		t.Fatalf("binding input bounds/enums: rule=%#v reason=%#v subject=%#v", ruleIDSchema, reasonSchema, subjectSchema)
 	}
-	if bind.OutputSchema["additionalProperties"] != false || bind.ExecutionInputSchema["additionalProperties"] != false || len(schemaProperties(bind.ExecutionInputSchema)) != 4 {
-		t.Fatalf("binding schema projection: output=%#v execution=%#v", bind.OutputSchema, bind.ExecutionInputSchema)
+	if bind.OutputSchema["additionalProperties"] != false || !bind.InjectSessionProjectID {
+		t.Fatalf("binding schema projection: output=%#v project binding=%t", bind.OutputSchema, bind.InjectSessionProjectID)
 	}
 }
 

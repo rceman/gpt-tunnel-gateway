@@ -56,9 +56,8 @@ func (s *Server) agent_action_set4() error {
 			ReadOnlyHint:   true,
 			IdempotentHint: true,
 		},
-		AuthorityRole:       actionRolePlannerOrLead,
-		LocalReadOnly:       true,
-		AllowLegacyOverride: true,
+		AuthorityRole: actionRolePlannerOrLead,
+		LocalReadOnly: true,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			return s.canonicalAgentStatusAction(ctx, raw)
 		},

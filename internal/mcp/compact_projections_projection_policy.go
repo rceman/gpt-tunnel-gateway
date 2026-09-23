@@ -1,10 +1,5 @@
 package mcp
 
-import (
-	"encoding/json"
-	"fmt"
-)
-
 type projectionClass uint8
 
 const (
@@ -48,65 +43,8 @@ var projectionClasses = map[string]projectionClass{
 func compactProjectionAction(path string) bool {
 	return projectionClasses[path] == projectionCompactDefault
 }
-func projectionDetailAction(path string) bool {
-	return false
-}
-func withProjectionDetail(schema map[string]any) map[string]any {
-	if schema == nil {
-		return nil
-	}
-	result := make(map[string]any, len(schema)+1)
-	for key, value := range schema {
-		result[key] = value
-	}
-	properties, _ := schema["properties"].(map[string]any)
-	if properties != nil {
-		copyProperties := make(map[string]any, len(properties)+1)
-		for key, value := range properties {
-			copyProperties[key] = value
-		}
-		copyProperties["detail"] = map[string]any{
-			"type":        "boolean",
-			"description": "Return the complete durable payload instead of the compact projection.",
-			"default":     false,
-		}
-		result["properties"] = copyProperties
-	}
-	if branches, ok := schema["oneOf"].([]any); ok {
-		copyBranches := make([]any, len(branches))
-		for i, branch := range branches {
-			if object, ok := branch.(map[string]any); ok {
-				copyBranches[i] = withProjectionDetail(object)
-			} else {
-				copyBranches[i] = branch
-			}
-		}
-		result["oneOf"] = copyBranches
-	}
-	return result
-}
-func stripProjectionDetail(raw json.RawMessage) (json.RawMessage, bool, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return nil, false, err
-	}
-	detailRaw, ok := fields["detail"]
-	if !ok {
-		return raw, false, nil
-	}
-	var detail bool
-	if err := json.Unmarshal(detailRaw, &detail); err != nil {
-		return nil, false, fmt.Errorf("detail must be a boolean: %w", err)
-	}
-	delete(fields, "detail")
-	clean, err := json.Marshal(fields)
-	if err != nil {
-		return nil, false, err
-	}
-	return clean, detail, nil
-}
-func compactActionResult(action string, value map[string]any, detail bool) map[string]any {
-	if detail || !compactProjectionAction(action) {
+func compactActionResult(action string, value map[string]any) map[string]any {
+	if !compactProjectionAction(action) {
 		return value
 	}
 	switch action {

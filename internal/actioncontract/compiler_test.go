@@ -51,6 +51,16 @@ func TestCanonicalContractTreeAndSharedDefinitionCoverage(t *testing.T) {
 	if got := compiled.DefinitionNames(); !reflect.DeepEqual(got, expectedDefinitions) {
 		t.Fatalf("shared definition names = %v, want %v", got, expectedDefinitions)
 	}
+	for name, pattern := range map[string]string{
+		"CursorAndCompactHandle": `^[ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789]{8}$`,
+		"GitFingerprint":         `^[0-9a-f]{8}$`,
+		"Timestamp":              `^[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$`,
+	} {
+		schema, ok := compiled.DefinitionSchema(name)
+		if !ok || schema["pattern"] != pattern {
+			t.Fatalf("shared definition %s schema=%#v", name, schema)
+		}
+	}
 	actionsList := compiled.Actions()
 	if len(actionsList) == 0 {
 		t.Fatal("canonical action catalog is empty")

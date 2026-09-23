@@ -61,14 +61,6 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	if !ok {
 		return genericActionError(action, fmt.Sprintf("unknown action %q; inspect schema with path=\"\"", action)), nil
 	}
-	detail := false
-	if projectionDetailAction(action) {
-		var err error
-		raw, detail, err = stripProjectionDetail(raw)
-		if err != nil {
-			return genericActionError(action, err.Error()), nil
-		}
-	}
 	if entry.SessionRequired && record.ID == "" {
 		return genericActionError(action, "SESSION_REQUIRED: provide the public session field"), nil
 	}
@@ -91,9 +83,9 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 		ctx = runtime_log.WithOperationID(ctx, operationID)
 	}
 	if record.ID != "" {
-		if entry.SessionBound {
+		if entry.InjectSessionProjectID {
 			var err error
-			raw, err = inheritSessionProject(entry.ExecutionInputSchema, record.ProjectID, raw)
+			raw, err = inheritSessionProject(record.ProjectID, raw)
 			if err != nil {
 				return genericActionError(action, err.Error()), nil
 			}
@@ -102,49 +94,6 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 			if err := s.validateSessionRules(ctx, record, action); err != nil {
 				return genericActionError(action, err.Error()), nil
 			}
-		}
-	}
-	if entry.RouteLegacyByProjectModel && entry.LegacyExecute != nil && !entry.LocalReceiptOnly {
-		projectID := ""
-		if record.ID != "" {
-			projectID = record.ProjectID
-		} else {
-			var args map[string]json.RawMessage
-			if err := json.Unmarshal(raw, &args); err == nil {
-				_ = json.Unmarshal(args["project_id"], &projectID)
-			}
-		}
-		enabled, err := s.Service.CanonicalExecutionEnabled(ctx, projectID)
-		if err != nil {
-			return genericActionError(action, err.Error()), nil
-		}
-		if !enabled {
-			if err := requireToolAuthority(ctx, entry.LegacyTool); err != nil {
-				return genericActionError(action, err.Error()), nil
-			}
-			value, err := entry.LegacyExecute(ctx, raw)
-			if err != nil {
-				return genericActionError(action, err.Error()), nil
-			}
-			result, continuation, err := genericActionValue(value)
-			if err != nil {
-				return genericActionError(action, err.Error()), nil
-			}
-			result = compactActionResult(action, result, detail)
-			var publicResult map[string]any
-			if continuation == nil {
-				publicResult, continuation, err = detachPrivateTransportMetadata(result)
-			} else {
-				publicResult = result
-			}
-			if err != nil {
-				return genericActionError(action, err.Error()), nil
-			}
-			publicResult, err = s.projectContractOutput(action, publicResult, genericProjectionScope(record, raw, action))
-			if err != nil {
-				return genericActionError(action, "action output contract violation: "+err.Error()), nil
-			}
-			return genericActionSuccessWithPagination(publicResult, continuation), nil
 		}
 	}
 	if entry.Authority != nil {
@@ -175,7 +124,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	if err != nil {
 		return genericActionError(action, err), nil
 	}
-	result = compactActionResult(action, result, detail)
+	result = compactActionResult(action, result)
 	var publicResult map[string]any
 	if continuation == nil {
 		publicResult, continuation, err = detachPrivateTransportMetadata(result)

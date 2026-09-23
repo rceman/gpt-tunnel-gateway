@@ -87,7 +87,7 @@ func (s *Server) contractTransportHandler(action string, execute func(context.Co
 		if continuation != nil {
 			return nil, fmt.Errorf("non-collection transport action returned pagination")
 		}
-		result = compactActionResult(action, result, false)
+		result = compactActionResult(action, result)
 		return s.projectContractOutput(action, result, "")
 	}
 }

@@ -206,6 +206,9 @@ func (s *Service) TaskComplete(ctx context.Context, in TaskCompleteInput, actor 
 		}
 	}
 	now := s.durableNow()
+	if in.Mode != "non_code" && len(phases) == 1 && now.Before(phases[0].CreatedAt) {
+		return TaskCompleteOutput{}, fmt.Errorf("Task completion evidence timestamp ordering conflicts with the recorded contract; evidence reconciliation is required")
+	}
 	finalTask := task
 	finalTask.Status = model.TaskAuthoringDone
 	finalTask.UpdatedAt = now

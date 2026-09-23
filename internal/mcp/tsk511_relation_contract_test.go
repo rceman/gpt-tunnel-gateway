@@ -53,13 +53,9 @@ func TestTSK511RelationActionContract(t *testing.T) {
 	tsk511SchemaKeys(t, "relation/create input", create.InputSchema, []string{"source", "kind", "target"})
 	tsk511SchemaKeys(t, "relation/list input", list.InputSchema, []string{"source", "kind", "direction", "cursor"})
 	for path, entry := range map[string]genericActionEntry{"relation/create": create, "relation/list": list} {
-		required := stringList(entry.ExecutionInputSchema["required"])
-		if len(required) == 0 || required[0] != "project_id" {
-			t.Fatalf("%s execution required=%v", path, required)
+		if !entry.InjectSessionProjectID {
+			t.Fatalf("%s does not bind the session project into its handler input", path)
 		}
-	}
-	if required := stringList(create.ExecutionInputSchema["required"]); len(required) != 4 {
-		t.Fatalf("relation/create execution required=%v", required)
 	}
 	kindSchema, ok := schemaProperties(create.InputSchema)["kind"].(map[string]any)
 	if !ok {
