@@ -31,62 +31,31 @@ func TestGuideIsZeroStateAndMatchesCanonicalContent(t *testing.T) {
 		t.Fatalf("guide CLI usage omitted exact Task read command: %q", got.CLIUsage)
 	}
 	for _, text := range []string{
-		"Planner owns WHAT/WHY, architecture, durable semantics, ADR/Task/RULE plus Milestone/Track composition and scope, acceptance, dependencies/priority, final Track semantic review, and executable-work curation",
-		"it is not the dispatcher/supervisor/review/test/integrate proxy",
-		"Lead owns HOW: dispatch, Worker supervision, technical review/rework, verification, integration, continuation and lifecycle decisions",
-		"never mutates Planner semantics",
-		"never creates or updates Planner-owned Tasks, Tracks, ADRs, or Rules",
-		"never hand-mutates lanes or canonical source via shell Git; canonical Task actions own mechanics",
-		"Worker owns implementation/testing and submits one production+tests candidate only via CLI gpt-tunnel task submit-code|submit-rebase, never native MCP",
-		"Before submit-code, Worker runs only focused/affected deterministic tests plus cache-aware scripts/test-fast.py",
+		"Zero-state: gpt-tunnel guide",
+		"project-bound agent/guide and task/guide",
+		"Never scan Gateway Hub/SQLite or unrelated home directories",
+		"active durable Session fixes the role",
+		"Planner owns durable WHAT/WHY",
+		"Planner is not the dispatcher, Worker supervisor, technical reviewer, tester, or integration proxy",
+		"Lead owns dispatch, Worker supervision, technical review/rework, verification, integration, continuation, Track submission",
+		"Worker implements assigned Tasks and makes one production+tests candidate handoff through gpt-tunnel task submit-code",
+		"Planner delegates one Track through durable MSG carrying only its key",
+		"reuses persistent execution after restart",
+		"focused/affected deterministic tests plus scripts/test-fast.py",
 		"Do not run go test ./..., scripts/test-full.sh, race, performance, profile, or live E2E",
-		"Lead owns task/test full verification",
-		"Milestone Track is the Planner-to-Lead delegation unit, not a queue or Wave",
-		"Planner delegates one Track via durable MSG carrying only its key",
-		"Ordered membership is intent, not FIFO",
-		"choose eligible members by live dependencies, priority, execution status/stage, and Worker availability",
-		"Reuse existing execution, dispatch one member",
-		"never dispatch while Worker has an actionable Task",
-		"No queue, Wave, duplicate semantic state, Planner proxy, or role bypass",
-		"Sidekicks/advisors hold no lane",
-		"Lead never proxies Worker submission or impersonates a Session",
-		"ADR138 permissive runtime does not transfer role semantics",
-		"ADR72 Gates 1-20 remain the sole gate taxonomy, including the Gates 9/12/14/19/20 public-response evidence requirements",
-		"there is no parallel gate taxonomy",
-		"journal/contract is the sole stream-rules authority",
-		"No direct Lead-to-Planner channel exists",
-		"owner/operator relay is only for semantic blockers and completed Track handoff, not execution proxy",
-		"Final project activate/release waits for source-bound Planner Track review",
-		"bounded ADR138 debug break-glass is only approved recovery",
-		"Lead may run authorized non-final staging, disposable E2E, or preflight, including focused post-Task integration checks after risky Tasks, subsets, or Track end",
-		"Keep diagnostics bounded and retries explicit and bounded",
-		"git branch --show-current",
-		"Never scan ~/.local/share/gpt-tunnel-gateway",
-		"roughly 2-3 commands",
-		"immutable checkpoint",
-		"deterministic fakes or mocks",
-		"gpt-tunnel project list",
-		"The CLI has no Task list surface",
-		"task work/finalize are execution mutations",
-		"GOOD reposuite README-only proof",
-		"BAD: git log --all",
-		"Prefer rg for source search",
-		"repo-local grep, find, or sed",
-		"Agent-native bounded read/search tools are also valid",
+		"Gateway action schemas and accepted project Rules govern workflow",
+		"ADR72 Gates 1-20 are the sole review taxonomy",
+		"journal/contract is the sole journal stream-rules authority",
+		"Final project activation/release waits for source-bound Planner Track review",
 	} {
 		if !strings.Contains(string(output), text) {
-			t.Fatalf("guide omitted critical text %q", text)
+			t.Fatalf("zero-state guide omitted %q", text)
 		}
 	}
-	assertTSK658GuideSingleSubmitWorkflow(t, string(output))
-	for _, stale := range []string{"Planner alone", "under Planner authority", "canonical wave", "Agent/Worker queue"} {
-		if strings.Contains(string(output), stale) {
-			t.Fatalf("guide retains stale concept %q: %s", stale, output)
+	for _, stale := range []string{"queue", "train", "hotfix", "wave", "submit-tests", "runtime-ref", "submit-rebase"} {
+		if strings.Contains(strings.ToLower(string(output)), stale) {
+			t.Fatalf("zero-state guide retains stale workflow guidance %q", stale)
 		}
-	}
-	lower := strings.ToLower(string(output))
-	if strings.Contains(string(output), "rg --files") || strings.Contains(lower, "fallback") || strings.Contains(lower, "install rg") || strings.Contains(lower, "sudo ") || strings.Contains(lower, "package manager") {
-		t.Fatalf("guide contains an unavailable or prohibited instruction: %s", output)
 	}
 }
 
@@ -100,57 +69,16 @@ func TestGuideRejectsArgumentsBeforeLoadingConfig(t *testing.T) {
 	}
 }
 
-func TestGuideDocumentsBoundedAlternativeWhenRGIsUnavailable(t *testing.T) {
+func TestGuideIsAvailableWithoutSearchUtilities(t *testing.T) {
 	bin := buildGuideCLI(t)
 	cmd := exec.Command(bin, "guide")
 	cmd.Env = []string{"PATH=" + t.TempDir(), "GPT_TUNNEL_CONFIG=/definitely/missing.json"}
 	output, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("guide failed without rg on PATH: %v", err)
+		t.Fatalf("zero-state guide failed without search utilities: %v", err)
 	}
-	text := string(output)
-	for _, required := range []string{
-		"Prefer rg for source search",
-		"if it is absent",
-		"repo-local grep, find, or sed",
-		"tool absence never broadens scope",
-		"assigned repository/worktree",
-	} {
-		if !strings.Contains(text, required) {
-			t.Fatalf("no-rg guide omitted %q: %s", required, text)
-		}
-	}
-	lower := strings.ToLower(text)
-	if strings.Contains(text, "rg --files") || strings.Contains(lower, "fallback") || strings.Contains(lower, "install rg") || strings.Contains(lower, "sudo ") || strings.Contains(lower, "package manager") {
-		t.Fatalf("no-rg guide contains an unavailable or prohibited instruction: %s", text)
-	}
-}
-
-func assertTSK658GuideSingleSubmitWorkflow(t *testing.T, text string) {
-	t.Helper()
-	for _, required := range []string{
-		"submit-code",
-		"submit-rebase",
-		"production+tests",
-		"focused/affected",
-		"scripts/test-fast.py",
-		"go test ./...",
-		"scripts/test-full.sh",
-		"race",
-		"performance",
-		"profile",
-		"E2E",
-		"Lead owns task/test full verification",
-		"stop for Lead review",
-	} {
-		if !strings.Contains(text, required) {
-			t.Fatalf("guide omitted single-submit invariant %q", required)
-		}
-	}
-	for _, stale := range []string{"submit-tests", "submit tests", "production-first", "production first", "tests-only checkpoint", "test artifact", "tests artifact", "separate test", "separate tests", "distinct test", "distinct tests", "mandatory tests"} {
-		if strings.Contains(strings.ToLower(text), stale) {
-			t.Fatalf("guide retains stale submit workflow %q", stale)
-		}
+	if !strings.Contains(string(output), "gpt-tunnel guide") {
+		t.Fatalf("zero-state guide output=%s", output)
 	}
 }
 

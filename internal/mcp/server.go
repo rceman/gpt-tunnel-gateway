@@ -47,6 +47,8 @@ type Server struct {
 	milestoneActionErr     error
 	trackActions           sync.Once
 	trackActionErr         error
+	guideActions           sync.Once
+	guideActionErr         error
 	adminActions           sync.Once
 	adminActionErr         error
 }

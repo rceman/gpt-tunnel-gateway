@@ -164,6 +164,12 @@ func applyProjectConfigurationPatch(configuration *model.ProjectConfiguration, p
 	if patch.Integration != nil {
 		configuration.Integration = *patch.Integration
 	}
+	if patch.GuideBindings != nil {
+		configuration.GuideBindings = make(map[string]string, len(*patch.GuideBindings))
+		for subject, ruleID := range *patch.GuideBindings {
+			configuration.GuideBindings[subject] = ruleID
+		}
+	}
 	if patch.Callbacks != nil {
 		configuration.Callbacks = append([]model.ProjectCallback(nil), (*patch.Callbacks)...)
 	}

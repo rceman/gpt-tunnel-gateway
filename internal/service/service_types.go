@@ -288,6 +288,7 @@ type ProjectConfigurationPatch struct {
 	GateCommands         *model.ProjectGateCommands             `json:"gate_commands,omitempty"`
 	Checkpoint           *model.ProjectCheckpointProfile        `json:"checkpoint,omitempty"`
 	Integration          *model.ProjectIntegrationConfiguration `json:"integration,omitempty"`
+	GuideBindings        *map[string]string                     `json:"guide_bindings,omitempty"`
 	Callbacks            *[]model.ProjectCallback               `json:"callbacks,omitempty"`
 	ActivationProfileRef *string                                `json:"activation_profile_ref,omitempty"`
 }

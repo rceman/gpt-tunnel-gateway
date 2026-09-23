@@ -11,6 +11,7 @@ const (
 	MessageIDPattern    = `^[A-Z]{3}-MSG(` + OperatorJournalNumberPattern + `)$`
 	JournalIDPattern    = `^[A-Z]{3}-JRN(` + OperatorJournalNumberPattern + `)$`
 	MaxRuleNameBytes    = 256
+	MaxRuleIDLength     = 27
 	MaxMessageTextBytes = 16384
 )
 

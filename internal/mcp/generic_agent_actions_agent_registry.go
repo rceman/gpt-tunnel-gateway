@@ -12,6 +12,7 @@ func (s *Server) ensureAgentActions() {
 	if s.agentActionErr != nil {
 		panic(s.agentActionErr)
 	}
+	s.ensureGuideActions()
 }
 func agentInputSchema() map[string]any {
 	return obj(map[string]any{

@@ -67,6 +67,7 @@ type ProjectConfiguration struct {
 	Workflow             ProjectConfigurationWorkflow    `json:"workflow"`
 	Checkpoint           ProjectCheckpointProfile        `json:"checkpoint"`
 	Integration          ProjectIntegrationConfiguration `json:"integration"`
+	GuideBindings        map[string]string               `json:"guide_bindings"`
 	Callbacks            []ProjectCallback               `json:"callbacks,omitempty"`
 	ActivationProfileRef string                          `json:"activation_profile_ref,omitempty"`
 	UpdatedBy            string                          `json:"updated_by"`
@@ -99,6 +100,7 @@ func DefaultProjectConfiguration(projectID string, now time.Time) ProjectConfigu
 		Integration: ProjectIntegrationConfiguration{
 			TargetBranch: "main",
 		},
+		GuideBindings:        map[string]string{},
 		ActivationProfileRef: "default",
 		UpdatedBy:            "gateway",
 		UpdatedAt:            now.UTC(),
@@ -223,6 +225,9 @@ func ValidateProjectConfiguration(v ProjectConfiguration) error {
 	}
 	if err := ValidateProjectCallbacks(v.Callbacks); err != nil {
 		return fmt.Errorf("callback configuration: %w", err)
+	}
+	if err := ValidateGuideBindings(v.GuideBindings); err != nil {
+		return err
 	}
 	return nil
 }

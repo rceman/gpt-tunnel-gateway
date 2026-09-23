@@ -228,51 +228,19 @@ func (s *Server) registerTaskExecutionReviewActions() error {
 			return err
 		}
 	}
-	return s.RegisterGenericAction(GenericAction{
-		Path:                 "task/guide",
-		Description:          "Read the builtin Task execution workflow guide.",
-		InputSchema:          taskGuideSchema(),
-		ExecutionInputSchema: adrExecutionSchema(taskGuideSchema()),
-		OutputSchema:         taskGuideOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		LocalReadOnly:   true,
-		SessionBound:    true,
-		SessionRequired: true,
-		AuthorityRole:   actionRoleWorkflow,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in struct {
-				ProjectID string `json:"project_id"`
-			}
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			_ = in.ProjectID
-			return map[string]any{"source": "builtin", "workflow": taskGuideWorkflow, "review": taskGuideReview, "verification": taskGuideVerification, "completion": taskGuideCompletion, "boundaries": taskGuideBoundaries}, nil
-		},
-	})
+	return nil
 }
 
-const taskGuideWorkflow = "Planner owns WHAT/WHY and semantic scope: architecture, Task/Track scope, acceptance, dependencies/priority, and final Track review; never execution proxy. Lead owns HOW: choose eligible members dynamically from dependencies, priority, and live status; order is intent, not FIFO. Planner delegates one Track by durable MSG carrying its key only. On restart, reread track/read and task/status; reuse existing execution and dispatch no new Task while the persistent Worker has an actionable one. Prompt/supervise the Worker with agent/prompt and agent/status|tail|await; review/rework, verify, integrate, then reread Track. No queue/Wave or ordinary Planner round-trip. ADR138 permissive runtime does not transfer semantic authority."
-const taskGuideReview = "Lead performs technical review and rework at each stage: call task/review, then inspect relevant files with code/read, code/tree, code/search, or code/diff. Worker submits one production+tests candidate through submit-code after focused/affected checks plus scripts/test-fast.py only; never go test ./..., scripts/test-full.sh, race, performance, profile, or live E2E, then stops for Lead review. Rebase compares the accepted prior artifact to the rebased candidate; any changed artifact requires review and reverification. Lead may run authorized non-final staging, disposable E2E, or preflight, including focused post-Task integration checks after risky Tasks, subsets, or Track end; final project activate/release waits for source-bound Planner Track review."
-const taskGuideVerification = "After accepted code and any rebase review, Lead owns task/test full verification and integrates only verified evidence. After each integration reread track/read and continue; on server-derived ready, call track/submit, send only any required concise handoff MSG, then stop for Planner track/accept. Evidence goes through canonical journal/* actions; journal/contract is the sole stream-rules authority; Planner receives durable MSG only for genuine semantic/public-contract/security/persistence/scope blockers or completed handoff; use task/block with exact Track/Task/evidence, then task/resume the same execution after reply. ADR72 Gates 1-20 remain the sole taxonomy. Canonical drift requires controlled rebase, renewed review, and fresh verification."
-const taskGuideCompletion = "A verified integration moves the Task to integrated and pending Planner acceptance, not done. Reuse the same bound Worker sequentially across Track members. Planner acceptance uses one concise same-project planner-notes journal reference plus the applicable integration proof in task/complete; exact candidate, verification, integration and Task revision facts remain in their authoritative receipts. Completion and archive are status-only lifecycle events at the unchanged content revision; task/read(revision) remains immutable content while task/history includes lifecycle events."
-const taskGuideBoundaries = "Lead owns lifecycle decisions but never hand-mutates Task lanes or canonical source via shell Git; canonical Task actions own the mechanics. Lead never proxies a Worker submit or impersonates a Session, and never creates or updates Planner-owned Tasks, Tracks, ADRs, or Rules. Planner owns acceptance, completion, and historical bootstrap. Agents submit assigned-lane artifacts only through the fixed CLI gpt-tunnel task submit-code|submit-rebase, never native MCP, and cannot choose bases, refs, or paths outside bounded inspection, or fabricate reviews or verification. bootstrap_full proves the live assigned candidate from its frozen base and full gates; legacy historical recognition cannot manufacture missing evidence."
+const taskGuideWorkflow = "Planner owns durable WHAT/WHY: architecture, ADR/Task/Rule and Milestone/Track composition, scope, acceptance, dependencies/priority, final Track review, and executable-work curation. Planner is not the dispatch, Worker-supervision, technical-review, test, or integration proxy. Lead owns ordinary Task dispatch, Worker supervision, technical review/rework, verification, integration, continuation, Track submission, and Task lifecycle mechanics without changing Planner-owned semantics. Worker implements the assigned Task and makes one production+tests submit-code handoff."
+const taskGuideReview = "Planner delegates one Track through durable MSG carrying only its key. Ordered membership is planning intent, not FIFO. Lead rereads membership and live Task dependencies, priority, status/execution stage, and Worker availability; selects eligible members sequentially, reuses persistent execution after restart, never dispatches while Worker has an actionable Task, and continues without ordinary Planner round-trips. Lead reviews each submission with task/review and bounded code/read, code/tree, code/search, and code/diff."
+const taskGuideVerification = "Before one submit-code handoff, Worker runs only focused/affected deterministic tests plus scripts/test-fast.py; the candidate includes production and tests. Do not run go test ./..., scripts/test-full.sh, race, performance, profile, or live E2E. Lead performs project-required full Task verification after submission, requests bounded rework through Task actions, integrates verified evidence, rereads Track state, and continues to the next eligible member."
+const taskGuideCompletion = "Server derives Track readiness; Lead calls track/submit and stops for Planner track/accept. Planner accepts with a concise same-project planner-notes journal reference and applicable integration proof in task/complete. Candidate, verification, integration, and Task revision facts remain in authoritative receipts. Completion and archive are status-only lifecycle events at unchanged content revision; task/read(revision) is immutable content while task/history includes lifecycle events."
+const taskGuideBoundaries = "Planner owns semantic decisions and final Track acceptance. Lead never mutates Planner-owned semantics, creates or updates Planner-owned Tasks, Tracks, ADRs, or Rules, or proxies Worker implementation or submission. Durable MSG is only for genuine semantic, public-contract, security, persistence, or scope blockers and completed Track handoff; there is no ordinary Lead-to-Planner channel. Evidence uses canonical journal/* actions; journal/contract is the sole stream-rules authority, and ADR72 Gates 1-20 are the sole review taxonomy. Final project activation/release waits for source-bound Planner Track review. Keep diagnostics and retries bounded."
 
 func taskGuideSchema() map[string]any {
 	return obj(map[string]any{})
 }
 
 func taskGuideOutputSchema() map[string]any {
-	source := outputString()
-	source["const"] = "builtin"
-	bounded := func() map[string]any {
-		s := outputString()
-		s["minLength"] = 1
-		s["maxLength"] = 768
-		return s
-	}
-	return closedOutput(map[string]any{"source": source, "workflow": bounded(), "review": bounded(), "verification": bounded(), "completion": bounded(), "boundaries": bounded()}, "source", "workflow", "review", "verification", "completion", "boundaries")
+	return projectGuideOutputSchema("task")
 }

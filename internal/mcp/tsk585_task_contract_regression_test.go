@@ -265,22 +265,34 @@ func TestTSK585TaskGuideMCP(t *testing.T) {
 	public := taskGuideSchema()
 	out := taskGuideOutputSchema()
 	tsk585AssertClosedObject(t, public, "taskGuide")
-	tsk585AssertClosedObject(t, out, "taskGuideOutput")
 	if required, has := public["required"].([]string); has && len(required) != 0 {
 		t.Fatalf("task/guide public input required=%v", required)
 	}
 	if len(public["properties"].(map[string]any)) != 0 {
 		t.Fatal("task/guide public input must have no properties")
 	}
-	props := out["properties"].(map[string]any)
-	source := props["source"].(map[string]any)
-	if source["const"] != "builtin" {
-		t.Fatalf("source=%v", source)
+	variants, ok := out["oneOf"].([]any)
+	if !ok || len(variants) != 2 {
+		t.Fatalf("task/guide output variants=%#v", out)
 	}
-	for _, field := range []string{"workflow", "review", "verification", "completion", "boundaries"} {
-		schema := props[field].(map[string]any)
-		if schema["minLength"] != 1 || schema["maxLength"] != 768 {
-			t.Fatalf("%s bounds=%v", field, schema)
+	for _, variant := range variants {
+		schema := variant.(map[string]any)
+		tsk585AssertClosedObject(t, schema, "taskGuideOutput")
+		props := schema["properties"].(map[string]any)
+		source := props["source"].(map[string]any)
+		if source["const"] != "builtin" && source["const"] != "rule" {
+			t.Fatalf("source=%v", source)
+		}
+		for _, field := range []string{"workflow", "review", "verification", "completion", "boundaries"} {
+			fieldSchema := props[field].(map[string]any)
+			if fieldSchema["minLength"] != 1 || fieldSchema["maxLength"] != model.GuideTextMaxRunes {
+				t.Fatalf("%s bounds=%v", field, fieldSchema)
+			}
+		}
+		if source["const"] == "rule" {
+			if _, ok := props["rule"]; !ok || props["rule_revision"] == nil {
+				t.Fatalf("RUL projection omits provenance: %#v", props)
+			}
 		}
 	}
 	reviewOut := taskExecutionReviewOutputSchema()
@@ -299,7 +311,7 @@ func TestTSK585TaskGuideMCP(t *testing.T) {
 	if _, has := codeReadOutputSchema()["properties"].(map[string]any)["base"]; has {
 		t.Fatal("code/read output must not gain base")
 	}
-	server := tsk585BrowseFixture(t)
+	server := newSessionTestServer(t)
 	server.ensureTaskAuthoringActions()
 	server.genericActionMu.RLock()
 	action, ok := server.genericActions["task/guide"]
@@ -316,7 +328,7 @@ func TestTSK585TaskGuideMCP(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc, _ := json.Marshal(value)
-	var decoded map[string]string
+	var decoded map[string]any
 	if err := json.Unmarshal(doc, &decoded); err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +336,11 @@ func TestTSK585TaskGuideMCP(t *testing.T) {
 		t.Fatalf("source=%q", decoded["source"])
 	}
 	for _, field := range []string{"workflow", "review", "verification", "completion", "boundaries"} {
-		if n := utf8.RuneCountInString(decoded[field]); n < 1 || n > 768 {
+		text, ok := decoded[field].(string)
+		if !ok {
+			t.Fatalf("%s value=%#v", field, decoded[field])
+		}
+		if n := utf8.RuneCountInString(text); n < 1 || n > model.GuideTextMaxRunes {
 			t.Fatalf("%s runes=%d", field, n)
 		}
 	}

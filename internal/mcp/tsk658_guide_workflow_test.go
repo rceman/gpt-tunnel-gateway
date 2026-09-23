@@ -4,13 +4,10 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
 func TestTSK658TaskGuideSingleSubmitWorkflow(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "HOM", StateDir: t.TempDir()})}
+	server := newSessionTestServer(t)
 	value, err := tsk585ExecuteGeneric(t, server, "task/guide", map[string]any{"project_id": "example"})
 	if err != nil {
 		t.Fatal(err)
@@ -35,22 +32,30 @@ func TestTSK658TaskGuideSingleSubmitWorkflow(t *testing.T) {
 func assertTSK658SingleSubmitWorkflowGuide(t *testing.T, text string) {
 	t.Helper()
 	for _, required := range []string{
-		"submit-code",
-		"submit-rebase",
-		"production+tests",
-		"focused/affected",
-		"scripts/test-fast.py",
-		"never go test ./..., scripts/test-full.sh, race, performance, profile, or live E2E",
-		"stops for Lead review",
-		"Lead owns task/test full verification",
+		"Planner owns durable WHAT/WHY:",
+		"ADR/Task/Rule and Milestone/Track composition",
+		"Planner is not the dispatch",
+		"Lead owns ordinary Task dispatch, Worker supervision, technical review/rework, verification, integration, continuation, Track submission",
+		"Worker implements the assigned Task",
+		"one production+tests submit-code handoff",
+		"focused/affected deterministic tests plus scripts/test-fast.py",
+		"Do not run go test ./..., scripts/test-full.sh, race, performance, profile, or live E2E",
+		"Lead performs project-required full Task verification after submission",
+		"Server derives Track readiness",
+		"track/submit",
+		"Planner track/accept",
+		"Lead never mutates Planner-owned semantics",
+		"journal/contract is the sole stream-rules authority",
+		"ADR72 Gates 1-20 are the sole review taxonomy",
+		"Final project activation/release waits for source-bound Planner Track review",
 	} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("task/guide omitted single-submit invariant %q", required)
+			t.Fatalf("task/guide omitted PLAW workflow invariant %q", required)
 		}
 	}
-	for _, stale := range []string{"submit-tests", "submit tests", "production-first", "production first", "tests-only checkpoint", "test artifact", "tests artifact", "separate test", "separate tests", "distinct test", "distinct tests", "mandatory tests"} {
-		if strings.Contains(strings.ToLower(text), stale) {
-			t.Fatalf("task/guide retains stale submit workflow %q", stale)
+	for _, stale := range []string{"queue", "train", "hotfix", "wave", "submit-tests", "runtime-ref", "submit-rebase", "tests-only checkpoint", "separate tests", "mandatory tests"} {
+		if strings.Contains(strings.ToLower(text), strings.ToLower(stale)) {
+			t.Fatalf("task/guide retains stale workflow guidance %q", stale)
 		}
 	}
 }

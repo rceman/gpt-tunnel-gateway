@@ -48,27 +48,6 @@ func (s *Server) agent_action_set4() error {
 		return err
 	}
 	if err := register(GenericAction{
-		Path:         "agent/guide",
-		Description:  "Read the bounded canonical Planner, Lead, and coding Agent supervision contract.",
-		InputSchema:  obj(map[string]any{}),
-		OutputSchema: canonicalAgentGuideOutputSchema(),
-		Annotations: ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-		},
-		AuthorityRole: actionRolePlannerOrLead,
-		LocalReadOnly: true,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var in struct{}
-			if err := decode(raw, &in); err != nil {
-				return nil, err
-			}
-			return canonicalAgentGuide(), nil
-		},
-	}); err != nil {
-		return err
-	}
-	if err := register(GenericAction{
 		Path:         "agent/status",
 		Description:  "Read the compact current status of one server-selected Agent.",
 		InputSchema:  canonicalAgentStatusInputSchema(),

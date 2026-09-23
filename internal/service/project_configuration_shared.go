@@ -34,6 +34,9 @@ func (s *Service) projectConfigurationReadShared(ctx context.Context, projectID 
 }
 
 func normalizeProjectConfiguration(configuration *model.ProjectConfiguration) {
+	if configuration.GuideBindings == nil {
+		configuration.GuideBindings = map[string]string{}
+	}
 	if configuration.Workflow.GateCommands.IsZero() {
 		configuration.Workflow.GateCommands = model.DefaultProjectGateCommands()
 	}
@@ -169,7 +172,7 @@ func validateProjectConfigurationUpdateInput(in ProjectConfigurationUpdateInput)
 	if in.UpdatedBy == "" || containsControl(in.UpdatedBy) {
 		return fmt.Errorf("updated_by is required")
 	}
-	if in.Patch.AgentRouting == nil && in.Patch.Workflow == nil && in.Patch.GateCommands == nil && in.Patch.Checkpoint == nil && in.Patch.Integration == nil && in.Patch.Callbacks == nil && in.Patch.ActivationProfileRef == nil {
+	if in.Patch.AgentRouting == nil && in.Patch.Workflow == nil && in.Patch.GateCommands == nil && in.Patch.Checkpoint == nil && in.Patch.Integration == nil && in.Patch.GuideBindings == nil && in.Patch.Callbacks == nil && in.Patch.ActivationProfileRef == nil {
 		return fmt.Errorf("project configuration patch is empty")
 	}
 	return nil

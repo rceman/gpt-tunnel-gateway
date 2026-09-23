@@ -11,6 +11,7 @@ func (s *Server) ensureTaskAuthoringActions() {
 	if s.taskAuthoringActionErr != nil {
 		panic(s.taskAuthoringActionErr)
 	}
+	s.ensureGuideActions()
 }
 func taskAuthoringProperties() map[string]any {
 	priority := taskPrioritySchema()

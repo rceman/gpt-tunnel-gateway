@@ -10,13 +10,12 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/agentguide"
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
-	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/service"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 func TestTSK545AgentGuideIsClosedBoundedAndRoleAware(t *testing.T) {
-	server := &Server{Service: service.New(config.Config{GatewayID: "HOM", StateDir: t.TempDir()})}
+	server := newSessionTestServer(t)
 	entry, ok := server.genericActionRegistry(server.tools())["agent/guide"]
 	if !ok {
 		t.Fatal("agent/guide is not registered")
@@ -30,89 +29,66 @@ func TestTSK545AgentGuideIsClosedBoundedAndRoleAware(t *testing.T) {
 	if entry.InputSchema["additionalProperties"] != false || len(schemaProperties(entry.InputSchema)) != 0 || len(stringList(entry.InputSchema["required"])) != 0 {
 		t.Fatalf("agent/guide input schema=%#v", entry.InputSchema)
 	}
-	if entry.OutputSchema["additionalProperties"] != false {
-		t.Fatalf("agent/guide output is not closed: %#v", entry.OutputSchema)
+	variants, ok := entry.OutputSchema["oneOf"].([]any)
+	if !ok || len(variants) != 2 {
+		t.Fatalf("agent/guide output variants=%#v", entry.OutputSchema)
 	}
-	properties := schemaProperties(entry.OutputSchema)
-	want := []string{"role_authority", "delegation", "startup", "canonical_state", "exploration_budget", "stop_fast", "checkpoints", "testing", "execution_example", "cli_usage", "architecture", "tail", "status_await", "prompt_interrupt", "authority"}
-	if len(properties) != len(want) {
-		t.Fatalf("agent/guide fields=%v", properties)
-	}
-	for _, field := range want {
-		value, ok := properties[field].(map[string]any)
-		if !ok || value["type"] != "string" || value["maxLength"] != 768 {
-			t.Fatalf("agent/guide output field %q=%#v", field, properties[field])
+	wantFields := []string{"role_authority", "delegation", "startup", "canonical_state", "exploration_budget", "stop_fast", "checkpoints", "testing", "execution_example", "cli_usage", "architecture", "tail", "status_await", "prompt_interrupt", "authority"}
+	for _, variant := range variants {
+		schema, ok := variant.(map[string]any)
+		if !ok || schema["additionalProperties"] != false {
+			t.Fatalf("agent/guide variant is not closed: %#v", variant)
+		}
+		properties := schemaProperties(schema)
+		source := properties["source"].(map[string]any)
+		if source["const"] != "builtin" && source["const"] != "rule" {
+			t.Fatalf("agent/guide source schema=%#v", source)
+		}
+		for _, field := range wantFields {
+			value, ok := properties[field].(map[string]any)
+			if !ok || value["type"] != "string" || value["maxLength"] != model.GuideTextMaxRunes {
+				t.Fatalf("agent/guide output field %q=%#v", field, properties[field])
+			}
+		}
+		if source["const"] == "rule" {
+			ruleID, ok := properties["rule"].(map[string]any)
+			if !ok || ruleID["minLength"] != 8 || ruleID["maxLength"] != model.MaxRuleIDLength || ruleID["pattern"] != model.RuleIDPattern {
+				t.Fatalf("RUL projection identity schema=%#v", ruleID)
+			}
+			revision, ok := properties["rule_revision"].(map[string]any)
+			if !ok || revision["type"] != "integer" || revision["minimum"] != 1 {
+				t.Fatalf("RUL projection revision schema=%#v", revision)
+			}
 		}
 	}
-	if got := stringList(entry.OutputSchema["required"]); !reflect.DeepEqual(got, want) {
-		t.Fatalf("agent/guide required=%v", got)
-	}
-	value, err := entry.Execute(authority.WithPlanner(context.Background()), json.RawMessage(`{}`))
+	value, err := entry.Execute(authority.WithPlanner(context.Background()), json.RawMessage(`{"project_id":"example"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	guide, ok := value.(map[string]any)
-	if !ok {
-		t.Fatalf("agent/guide result=%#v", value)
+	if !ok || guide["source"] != "builtin" {
+		t.Fatalf("unbound agent/guide result=%#v", value)
 	}
 	canonical := agentguide.Canonical()
 	wantContent := map[string]string{
 		"role_authority": canonical.RoleAuthority, "delegation": canonical.Delegation,
-		"startup":         canonical.Startup,
-		"canonical_state": canonical.CanonicalState, "exploration_budget": canonical.Exploration,
-		"stop_fast": canonical.StopFast, "checkpoints": canonical.Checkpoints,
-		"testing": canonical.Testing, "execution_example": canonical.ExecutionExample,
-		"cli_usage": canonical.CLIUsage, "architecture": canonical.Architecture,
-		"authority": canonical.Authority, "prompt_interrupt": canonical.PromptInterrupt,
-		"status_await": canonical.StatusAwait, "tail": canonical.Tail,
+		"startup": canonical.Startup, "canonical_state": canonical.CanonicalState,
+		"exploration_budget": canonical.Exploration, "stop_fast": canonical.StopFast,
+		"checkpoints": canonical.Checkpoints, "testing": canonical.Testing,
+		"execution_example": canonical.ExecutionExample, "cli_usage": canonical.CLIUsage,
+		"architecture": canonical.Architecture, "tail": canonical.Tail,
+		"status_await": canonical.StatusAwait, "prompt_interrupt": canonical.PromptInterrupt,
+		"authority": canonical.Authority,
 	}
 	for field, wantText := range wantContent {
 		if gotText, ok := guide[field].(string); !ok || gotText != wantText {
 			t.Fatalf("agent/guide field %q=%#v want=%q", field, guide[field], wantText)
 		}
 	}
-	for _, text := range []string{
-		"durable Planner, Lead, Advisor, and Worker",
-		"Agent is a logical project identity",
-		"Callers cannot select a durable Session",
-		"logical Agent selector",
-		"Train and watcher",
-		"repo guide file",
-		"Prefer rg for source search",
-		"repo-local grep, find, or sed",
-		"Agent-native bounded read/search tools are also valid",
-	} {
-		requireGuideConcept(t, guide, text)
-	}
-	for _, text := range []string{
-		"planner alone", "planner-only", "under planner authority",
-		"canonical wave", "agent/worker queue", "worker queue",
-	} {
-		forbidGuideConcept(t, guide, text)
-	}
-}
-
-func guideText(guide map[string]any) string {
-	parts := make([]string, 0, len(guide))
-	for _, raw := range guide {
-		if text, ok := raw.(string); ok {
-			parts = append(parts, text)
+	for _, stale := range []string{"queue", "train", "hotfix", "wave", "submit-tests", "runtime-ref", "submit-rebase"} {
+		if strings.Contains(strings.ToLower(guideText(guide)), stale) {
+			t.Fatalf("agent/guide retains stale guidance %q", stale)
 		}
-	}
-	return strings.Join(parts, "\n")
-}
-
-func requireGuideConcept(t *testing.T, guide map[string]any, concept string) {
-	t.Helper()
-	if !strings.Contains(guideText(guide), concept) {
-		t.Fatalf("guide omitted %q: %#v", concept, guide)
-	}
-}
-
-func forbidGuideConcept(t *testing.T, guide map[string]any, concept string) {
-	t.Helper()
-	if strings.Contains(strings.ToLower(guideText(guide)), strings.ToLower(concept)) {
-		t.Fatalf("guide retains stale concept %q: %#v", concept, guide)
 	}
 }
 
@@ -146,89 +122,85 @@ func TestTSK594GuidesStateCurrentRoleDelegationAndEvidenceAuthority(t *testing.T
 		"verification": taskGuideVerification, "completion": taskGuideCompletion,
 		"boundaries": taskGuideBoundaries,
 	}
+	agentText := guideText(agent)
 	for _, concept := range []string{
-		"Planner owns WHAT/WHY, architecture, durable semantics, ADR/Task/RULE plus Milestone/Track composition and scope, acceptance, dependencies/priority, final Track semantic review, and executable-work curation",
-		"it is not the dispatcher/supervisor/review/test/integrate proxy",
-		"Lead owns HOW: dispatch, Worker supervision, technical review/rework, verification, integration, continuation and lifecycle decisions",
-		"never mutates Planner semantics",
-		"never creates or updates Planner-owned Tasks, Tracks, ADRs, or Rules",
-		"never hand-mutates lanes or canonical source via shell Git; canonical Task actions own mechanics",
-		"Worker owns implementation/testing and submits one production+tests candidate only via CLI gpt-tunnel task submit-code|submit-rebase, never native MCP",
-		"Before submit-code, Worker runs only focused/affected deterministic tests plus cache-aware scripts/test-fast.py",
+		"Planner owns durable WHAT/WHY",
+		"ADR/Task/Rule and Milestone/Track composition",
+		"final Track review, and executable-work curation",
+		"Planner is not the dispatcher, Worker supervisor, technical reviewer, tester, or integration proxy",
+		"Lead owns dispatch, Worker supervision, technical review/rework, verification, integration, continuation, Track submission",
+		"never mutates Planner-owned semantics",
+		"Worker implements assigned Tasks and makes one production+tests candidate handoff through gpt-tunnel task submit-code",
+		"Planner delegates one Track through durable MSG carrying only its key",
+		"Ordered membership is planning intent, not FIFO",
+		"reuses persistent execution after restart",
+		"never dispatches while Worker has an actionable Task",
+		"continues without ordinary Planner round-trips",
+		"Never scan Gateway Hub/SQLite or unrelated home directories",
+		"before work, use gpt-tunnel task read <key>",
+		"Callers cannot select a durable Session",
 		"Do not run go test ./..., scripts/test-full.sh, race, performance, profile, or live E2E",
-		"Lead owns task/test full verification",
-		"Milestone Track is the Planner-to-Lead delegation unit, not a queue or Wave",
-		"Planner delegates one Track via durable MSG carrying only its key",
-		"Ordered membership is intent, not FIFO",
-		"choose eligible members by live dependencies, priority, execution status/stage, and Worker availability",
-		"Reuse existing execution, dispatch one member",
-		"never dispatch while Worker has an actionable Task",
-		"Sidekicks/advisors hold no lane",
-		"Lead never proxies Worker submission or impersonates a Session",
-		"ADR138 permissive runtime does not transfer role semantics",
-		"No queue, Wave, duplicate semantic state, Planner proxy, or role bypass",
-		"ADR72 Gates 1-20 remain the sole gate taxonomy, including the Gates 9/12/14/19/20 public-response evidence requirements",
-		"there is no parallel gate taxonomy",
-		"Friction, lesson, and decision evidence goes through canonical journal/* actions; journal/contract is the sole stream-rules authority",
-		"No direct Lead-to-Planner channel exists; owner/operator relay is only for semantic blockers and completed Track handoff, not execution proxy",
-		"Final project activate/release waits for source-bound Planner Track review",
-		"bounded ADR138 debug break-glass is only approved recovery",
-		"Lead may run authorized non-final staging, disposable E2E, or preflight, including focused post-Task integration checks after risky Tasks, subsets, or Track end",
-		"that is coding Agent/Worker lane discipline, not Lead integration",
-		"Keep diagnostics bounded and retries explicit and bounded",
-		"deterministic fakes or mocks",
 	} {
-		requireGuideConcept(t, agent, concept)
+		if !strings.Contains(agentText, concept) {
+			t.Fatalf("agent guide omitted current workflow concept %q: %s", concept, agentText)
+		}
 	}
+	taskText := guideText(task)
 	for _, concept := range []string{
-		"Planner owns WHAT/WHY and semantic scope: architecture, Task/Track scope, acceptance, dependencies/priority, and final Track review; never execution proxy",
-		"Lead owns HOW",
-		"choose eligible members dynamically from dependencies, priority, and live status; order is intent, not FIFO",
-		"Planner delegates one Track by durable MSG carrying its key only",
-		"On restart, reread track/read and task/status",
-		"dispatch no new Task while the persistent Worker has an actionable one",
-		"agent/prompt and agent/status|tail|await",
-		"No queue/Wave or ordinary Planner round-trip",
-		"Lead may run authorized non-final staging, disposable E2E, or preflight, including focused post-Task integration checks after risky Tasks, subsets, or Track end",
-		"ADR138 permissive runtime does not transfer semantic authority",
-		"final project activate/release waits for source-bound Planner Track review",
-		"Lead performs technical review and rework",
-		"Worker submits one production+tests candidate through submit-code",
-		"focused/affected checks plus scripts/test-fast.py only",
-		"stops for Lead review",
-		"After accepted code and any rebase review, Lead owns task/test full verification",
-		"on server-derived ready, call track/submit, send only any required concise handoff MSG, then stop for Planner track/accept",
+		"Planner owns durable WHAT/WHY:",
+		"ADR/Task/Rule and Milestone/Track composition",
+		"Lead owns ordinary Task dispatch, Worker supervision, technical review/rework, verification, integration, continuation, Track submission",
+		"Worker implements the assigned Task",
+		"one production+tests submit-code handoff",
+		"focused/affected deterministic tests plus scripts/test-fast.py",
+		"Do not run go test ./..., scripts/test-full.sh, race, performance, profile, or live E2E",
+		"Lead performs project-required full Task verification after submission",
+		"reuses persistent execution after restart",
+		"never dispatches while Worker has an actionable Task",
+		"continues without ordinary Planner round-trips",
+		"Server derives Track readiness",
+		"track/submit",
+		"Planner track/accept",
+		"genuine semantic, public-contract, security, persistence, or scope blockers",
+		"Lead never mutates Planner-owned semantics, creates or updates Planner-owned Tasks, Tracks, ADRs, or Rules",
+		"there is no ordinary Lead-to-Planner channel",
+		"Final project activation/release waits for source-bound Planner Track review",
+		"Keep diagnostics and retries bounded",
 		"journal/contract is the sole stream-rules authority",
-		"Planner receives durable MSG only for genuine semantic/public-contract/security/persistence/scope blockers or completed handoff",
-		"use task/block with exact Track/Task/evidence",
-		"ADR72 Gates 1-20 remain the sole taxonomy",
-		"Lead owns lifecycle decisions but never hand-mutates Task lanes or canonical source via shell Git; canonical Task actions own the mechanics",
-		"Lead never proxies a Worker submit or impersonates a Session",
-		"Agents submit assigned-lane artifacts only through the fixed CLI gpt-tunnel task submit-code|submit-rebase, never native MCP",
-		"pending Planner acceptance",
-		"bootstrap_full proves the live assigned candidate from its frozen base and full gates",
+		"ADR72 Gates 1-20 are the sole review taxonomy",
 	} {
-		requireGuideConcept(t, task, concept)
+		if !strings.Contains(taskText, concept) {
+			t.Fatalf("task guide omitted current workflow concept %q: %s", concept, taskText)
+		}
 	}
 	for name, guide := range map[string]map[string]any{"agent": agent, "task": task} {
-		for _, concept := range []string{
-			"planner alone", "planner-only", "under planner authority",
-			"planner review", "planner integration", "planner dispatches",
-			"canonical wave", "agent/worker queue", "worker queue", "track is a wave",
-		} {
-			forbidGuideConcept(t, guide, concept)
+		text := strings.ToLower(guideText(guide))
+		for _, stale := range []string{"queue", "train", "hotfix", "wave", "submit-tests", "runtime-ref", "submit-rebase"} {
+			if strings.Contains(text, stale) {
+				t.Fatalf("%s guide retains stale guidance %q: %s", name, stale, text)
+			}
 		}
 		for field, raw := range guide {
 			text, ok := raw.(string)
 			if !ok {
 				continue
 			}
-			if n := utf8.RuneCountInString(text); n < 1 || n > 768 {
+			if n := utf8.RuneCountInString(text); n < 1 || n > model.GuideTextMaxRunes {
 				t.Fatalf("%s guide %s runes=%d", name, field, n)
-			}
-			if strings.Contains(text, "Wave") && !strings.Contains(text, "not ") {
-				t.Fatalf("%s guide %s claims a Wave without negation: %q", name, field, text)
 			}
 		}
 	}
+	if !reflect.DeepEqual(model.GuideSubjects(), []string{"adr", "agent", "journal", "milestone", "rule", "task", "track"}) {
+		t.Fatalf("guide subject order=%v", model.GuideSubjects())
+	}
+}
+
+func guideText(guide map[string]any) string {
+	parts := make([]string, 0, len(guide))
+	for _, raw := range guide {
+		if text, ok := raw.(string); ok {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
