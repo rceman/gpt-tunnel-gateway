@@ -61,19 +61,3 @@ const (
 	DefaultTaskListLimit = 10
 	MaxTaskListLimit     = 10
 )
-
-type TaskListInput struct {
-	ProjectID string              `json:"project_id"`
-	Query     string              `json:"query,omitempty"`
-	Status    string              `json:"status,omitempty"`
-	Type      model.TaskType      `json:"type,omitempty"`
-	Execution model.TaskExecution `json:"execution,omitempty"`
-	Limit     int                 `json:"limit,omitempty"`
-	Cursor    string              `json:"cursor,omitempty"`
-}
-
-type TaskListResult struct {
-	Tasks      []TaskRecord `json:"tasks"`
-	NextCursor string       `json:"next_cursor"`
-	HasMore    bool         `json:"has_more"`
-}

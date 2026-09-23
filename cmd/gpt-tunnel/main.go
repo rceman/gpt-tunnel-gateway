@@ -68,8 +68,6 @@ func main() {
 		journal(ctx, s, args)
 	case "git":
 		gitcmd(ctx, s, args)
-	case "query":
-		query(ctx, s, args)
 	case "daemon":
 		daemon(ctx, args)
 	default:
@@ -77,7 +75,7 @@ func main() {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {help|guide|format|check|test|verify|work|project|plan|adr|task|agent|journal|git|query|admin|daemon} [args]")
+	fmt.Fprintln(os.Stderr, "usage: gpt-tunnel {help|guide|format|check|test|verify|work|project|plan|adr|task|agent|journal|git|admin|daemon} [args]")
 	fmt.Fprintln(os.Stderr, "new operational IDs: CODE-TSK<N>, CODE-TSK<N>-RUN<M>, CODE-ADR<N>, CODE-JRN<N>")
 	fmt.Fprintln(os.Stderr, "project onboard [--root ROOT] <PROJECT_CODE> <WORKER_RELAY>")
 	fmt.Fprintln(os.Stderr, "project token (from a registered repository cwd)")
