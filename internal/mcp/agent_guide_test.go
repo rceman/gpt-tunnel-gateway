@@ -21,7 +21,7 @@ func TestTSK545AgentGuideIsClosedBoundedAndRoleAware(t *testing.T) {
 	if !ok {
 		t.Fatal("agent/guide is not registered")
 	}
-	if entry.AuthorityRole != durableSession.RolePlanner || !entry.LocalReadOnly || !entry.Annotations.ReadOnlyHint || !entry.Annotations.IdempotentHint {
+	if entry.AuthorityRole != actionRolePlannerOrLead || !entry.LocalReadOnly || !entry.Annotations.ReadOnlyHint || !entry.Annotations.IdempotentHint {
 		t.Fatalf("agent/guide metadata=%#v", entry)
 	}
 	if !entry.SessionBound || !entry.SessionRequired {
@@ -157,14 +157,16 @@ func TestTSK594GuidesStateCurrentRoleDelegationAndEvidenceAuthority(t *testing.T
 		"Before submit-code, Worker runs only focused/affected deterministic tests plus cache-aware scripts/test-fast.py",
 		"Do not run go test ./..., scripts/test-full.sh, race, performance, profile, or live E2E",
 		"Lead owns task/test full verification",
-		"ADR138 role-permissive runtime does not transfer semantic authority between PLAW roles or make Worker-owned submit actions Lead-owned",
-		"Lead never proxies a Worker submit or impersonates a Session",
-		"Milestone Track is the Planner-to-Lead delegation unit, not an Agent/Worker/ad-hoc queue and not a Wave",
-		"Track order is planning intent, not FIFO",
-		"Lead weighs membership, dependencies, priority, status, and Worker availability",
-		"Any multiple Workers are assigned at dispatch time",
-		"a sidekick or advisor is advisory only and holds no lane or Task authority",
-		"No task/queue/Agent queue, Planner/Worker impersonation, or alternate-role bypass",
+		"Milestone Track is the Planner-to-Lead delegation unit, not a queue or Wave",
+		"Planner delegates one Track via durable MSG carrying only its key",
+		"Ordered membership is intent, not FIFO",
+		"choose eligible members by live dependencies, priority, execution status/stage, and Worker availability",
+		"Reuse existing execution, dispatch one member",
+		"never dispatch while Worker has an actionable Task",
+		"Sidekicks/advisors hold no lane",
+		"Lead never proxies Worker submission or impersonates a Session",
+		"ADR138 permissive runtime does not transfer role semantics",
+		"No queue, Wave, duplicate semantic state, Planner proxy, or role bypass",
 		"ADR72 Gates 1-20 remain the sole gate taxonomy, including the Gates 9/12/14/19/20 public-response evidence requirements",
 		"there is no parallel gate taxonomy",
 		"Friction, lesson, and decision evidence goes through canonical journal/* actions; journal/contract is the sole stream-rules authority",
@@ -179,24 +181,27 @@ func TestTSK594GuidesStateCurrentRoleDelegationAndEvidenceAuthority(t *testing.T
 		requireGuideConcept(t, agent, concept)
 	}
 	for _, concept := range []string{
-		"Planner owns architecture, Task/Track scope, acceptance, dependencies/priority, and final Track semantic review, and is not the dispatch, supervision, review, test, or integration proxy",
+		"Planner owns WHAT/WHY and semantic scope: architecture, Task/Track scope, acceptance, dependencies/priority, and final Track review; never execution proxy",
 		"Lead owns HOW",
-		"Milestone Track is the Planner-to-Lead delegation unit, not an Agent/Worker/ad-hoc queue or a Wave",
-		"Track order is planning intent, not FIFO",
-		"Lead weighs membership, dependencies, priority, status, and Worker availability",
-		"Any multiple Workers are assigned at dispatch",
+		"choose eligible members dynamically from dependencies, priority, and live status; order is intent, not FIFO",
+		"Planner delegates one Track by durable MSG carrying its key only",
+		"On restart, reread track/read and task/status",
+		"dispatch no new Task while the persistent Worker has an actionable one",
+		"agent/prompt and agent/status|tail|await",
+		"No queue/Wave or ordinary Planner round-trip",
 		"Lead may run authorized non-final staging, disposable E2E, or preflight, including focused post-Task integration checks after risky Tasks, subsets, or Track end",
-		"ADR138 role-permissive runtime does not transfer semantic authority between PLAW roles or make Worker-owned submit actions Lead-owned",
+		"ADR138 permissive runtime does not transfer semantic authority",
 		"final project activate/release waits for source-bound Planner Track review",
 		"Lead performs technical review and rework",
 		"Worker submits one production+tests candidate through submit-code",
 		"focused/affected checks plus scripts/test-fast.py only",
 		"stops for Lead review",
-		"After accepted code, plus any required rebase review, Lead owns task/test full verification",
+		"After accepted code and any rebase review, Lead owns task/test full verification",
+		"on server-derived ready, call track/submit, send only any required concise handoff MSG, then stop for Planner track/accept",
 		"journal/contract is the sole stream-rules authority",
-		"there is no direct Lead-to-Planner channel",
-		"owner/operator relay is only for semantic blockers or completed Track handoff, not execution proxy",
-		"ADR72 Gates 1-20, including the Gates 9/12/14/19/20 public-response evidence requirements, are the sole gate taxonomy",
+		"Planner receives durable MSG only for genuine semantic/public-contract/security/persistence/scope blockers or completed handoff",
+		"use task/block with exact Track/Task/evidence",
+		"ADR72 Gates 1-20 remain the sole taxonomy",
 		"Lead owns lifecycle decisions but never hand-mutates Task lanes or canonical source via shell Git; canonical Task actions own the mechanics",
 		"Lead never proxies a Worker submit or impersonates a Session",
 		"Agents submit assigned-lane artifacts only through the fixed CLI gpt-tunnel task submit-code|submit-rebase, never native MCP",

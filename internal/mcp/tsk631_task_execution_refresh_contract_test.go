@@ -6,13 +6,13 @@ import (
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
-func TestTSK631TaskRefreshHasClosedLeadPlannerContract(t *testing.T) {
+func TestTSK631TaskRefreshHasClosedLeadContract(t *testing.T) {
 	server := newSessionTestServer(t)
 	entry, ok := server.genericActionRegistry(server.tools())["task/refresh"]
 	if !ok {
 		t.Fatal("task/refresh is not registered")
 	}
-	if entry.AuthorityRole != actionRolePlannerOrLead || !entry.SessionBound || !entry.LocalReceiptOnly {
+	if entry.AuthorityRole != durableSession.RoleLead || !entry.SessionBound || !entry.LocalReceiptOnly {
 		t.Fatalf("task/refresh authority=%#v", entry)
 	}
 	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker} {

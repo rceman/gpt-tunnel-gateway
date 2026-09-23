@@ -40,6 +40,7 @@ func TestTSK629LogicalAgentAndTaskRoutingStaySeparate(t *testing.T) {
 	fixture.server.Service.Config.ProjectAgentBindings[fixture.projectID]["coding-worker"] = config.AgentBinding{SessionKey: workerRuntime}
 	workerSession := fixture.addSession(t, fixture.projectID, "EXM", durableSession.RoleWorker, workerRuntime)
 	planner := fixture.sessions[durableSession.RolePlanner]
+	lead := fixture.sessions[durableSession.RoleLead]
 
 	for _, agent := range []string{fixture.agentID, "coding-worker"} {
 		status := fixture.call(t, planner, "agent/status", map[string]any{"agent": agent})
@@ -47,7 +48,7 @@ func TestTSK629LogicalAgentAndTaskRoutingStaySeparate(t *testing.T) {
 			t.Fatalf("Planner could not address logical Agent %s: %#v", agent, status)
 		}
 	}
-	dispatched := fixture.call(t, planner, "task/dispatch", map[string]any{"key": fixture.task.ID})
+	dispatched := fixture.call(t, lead, "task/dispatch", map[string]any{"key": fixture.task.ID})
 	if dispatched["ok"] != true {
 		t.Fatalf("Task dispatch failed with distinct Lead and Worker Agents: %#v", dispatched)
 	}

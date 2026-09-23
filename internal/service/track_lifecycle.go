@@ -15,13 +15,20 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
+type TrackTaskExecutionProjection struct {
+	Status            string `json:"status"`
+	Stage             string `json:"stage,omitempty"`
+	ExecutionRevision int    `json:"execution_revision,omitempty"`
+}
+
 type TrackTaskProjection struct {
-	Key          string   `json:"key"`
-	Title        string   `json:"title"`
-	Priority     string   `json:"priority,omitempty"`
-	Dependencies []string `json:"dependencies,omitempty"`
-	Status       string   `json:"status"`
-	Revision     int      `json:"revision"`
+	Key          string                       `json:"key"`
+	Title        string                       `json:"title"`
+	Priority     string                       `json:"priority,omitempty"`
+	Dependencies []string                     `json:"dependencies,omitempty"`
+	Status       string                       `json:"status"`
+	Execution    TrackTaskExecutionProjection `json:"execution"`
+	Revision     int                          `json:"revision"`
 }
 
 type TrackView struct {
@@ -717,10 +724,16 @@ func (s *Service) trackView(ctx context.Context, track model.Track) (TrackView, 
 			return TrackView{}, err
 		}
 		status := task.Status
+		execution := TrackTaskExecutionProjection{Status: model.TaskExecutionPlanned}
 		if state, found, stateErr := s.Durability.ReadTaskExecutionState(ctx, track.ProjectID, taskID); stateErr != nil {
 			return TrackView{}, stateErr
 		} else if found {
 			status = state.Status
+			execution = TrackTaskExecutionProjection{
+				Status:            state.Status,
+				Stage:             state.Stage,
+				ExecutionRevision: state.ExecutionRevision,
+			}
 		}
 		items = append(items, TrackTaskProjection{
 			Key:          task.ID,
@@ -728,6 +741,7 @@ func (s *Service) trackView(ctx context.Context, track model.Track) (TrackView, 
 			Priority:     task.Priority,
 			Dependencies: append([]string{}, task.Dependencies...),
 			Status:       status,
+			Execution:    execution,
 			Revision:     task.Revision,
 		})
 	}

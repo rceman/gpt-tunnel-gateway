@@ -37,9 +37,9 @@ esac
 	fixture.server.Service.Airelay.Timeout = time.Second
 }
 
-func TestTSK629PlannerControlsLogicalAgentThroughDurableSession(t *testing.T) {
+func TestTSK629PlannerObservesAndLeadControlsLogicalAgentThroughDurableSession(t *testing.T) {
 	t.Setenv("GPT_TUNNEL_SESSION", "")
-	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleWorker}, true, true)
+	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleWorker}, true, true)
 	installTSK563Airelay(t, fixture)
 
 	for _, action := range []struct {
@@ -49,12 +49,15 @@ func TestTSK629PlannerControlsLogicalAgentThroughDurableSession(t *testing.T) {
 		{name: "agent/status", input: map[string]any{"agent": fixture.agentID}},
 		{name: "agent/await", input: map[string]any{"agent": fixture.agentID, "seconds": 1}},
 		{name: "agent/tail", input: map[string]any{"agent": fixture.agentID, "lines": 1}},
-		{name: "agent/prompt", input: map[string]any{"agent": fixture.agentID, "message": "TSK629 logical Agent control"}},
 	} {
 		result := fixture.call(t, fixture.sessions[durableSession.RolePlanner], action.name, action.input)
 		if result["ok"] != true {
 			t.Fatalf("%s was not reachable through durable Planner Session: %#v", action.name, result)
 		}
+	}
+	prompt := fixture.call(t, fixture.sessions[durableSession.RoleLead], "agent/prompt", map[string]any{"agent": fixture.agentID, "message": "TSK629 bounded Worker supervision"})
+	if prompt["ok"] != true {
+		t.Fatalf("Lead could not prompt the selected logical Agent: %#v", prompt)
 	}
 }
 
@@ -76,7 +79,7 @@ func TestTSK563SharedAgentKeepsRoleSessionsDistinct(t *testing.T) {
 
 func TestTSK629LogicalAgentTargetRejectsPrivateSelectors(t *testing.T) {
 	t.Setenv("GPT_TUNNEL_SESSION", "")
-	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleWorker}, true, true)
+	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleWorker}, true, true)
 	installTSK563Airelay(t, fixture)
 
 	for _, input := range []map[string]any{
@@ -97,7 +100,7 @@ func TestTSK629LogicalAgentTargetRejectsPrivateSelectors(t *testing.T) {
 
 func TestTSK563TaskDispatchUsesAttachedWorkerAndHidesAgentSelector(t *testing.T) {
 	t.Setenv("GPT_TUNNEL_SESSION", "")
-	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleWorker}, true, true)
+	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleWorker}, true, true)
 	installTSK563Airelay(t, fixture)
 
 	entry, ok := fixture.server.genericActionRegistry(fixture.server.tools())["task/dispatch"]
@@ -112,7 +115,7 @@ func TestTSK563TaskDispatchUsesAttachedWorkerAndHidesAgentSelector(t *testing.T)
 		t.Fatalf("task/dispatch still exposes caller-selected Agent: %#v", entry.InputSchema)
 	}
 
-	dispatched := fixture.call(t, fixture.sessions[durableSession.RolePlanner], "task/dispatch", map[string]any{"key": fixture.task.ID})
+	dispatched := fixture.call(t, fixture.sessions[durableSession.RoleLead], "task/dispatch", map[string]any{"key": fixture.task.ID})
 	if dispatched["ok"] != true {
 		t.Fatalf("Task dispatch did not resolve the attached Worker: %#v", dispatched)
 	}
@@ -120,7 +123,7 @@ func TestTSK563TaskDispatchUsesAttachedWorkerAndHidesAgentSelector(t *testing.T)
 		t.Fatalf("Task dispatch used unexpected runtime: %#v", dispatched)
 	}
 
-	unknownSelector := fixture.call(t, fixture.sessions[durableSession.RolePlanner], "task/dispatch", map[string]any{"key": fixture.task.ID, "agent": "other-agent"})
+	unknownSelector := fixture.call(t, fixture.sessions[durableSession.RoleLead], "task/dispatch", map[string]any{"key": fixture.task.ID, "agent": "other-agent"})
 	message := tsk571ErrorMessage(t, unknownSelector)
 	if !strings.Contains(message, "unknown argument") || !strings.Contains(message, "agent") {
 		t.Fatalf("caller-selected Agent field was accepted: %q", message)
@@ -129,11 +132,11 @@ func TestTSK563TaskDispatchUsesAttachedWorkerAndHidesAgentSelector(t *testing.T)
 
 func TestTSK563TaskDispatchFailsClosedOnAmbiguousAttachedWorker(t *testing.T) {
 	t.Setenv("GPT_TUNNEL_SESSION", "")
-	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleWorker}, true, true)
+	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleWorker}, true, true)
 	installTSK563Airelay(t, fixture)
 	fixture.addSession(t, fixture.projectID, "EXM", durableSession.RoleWorker, fixture.runtime)
 
-	result := fixture.call(t, fixture.sessions[durableSession.RolePlanner], "task/dispatch", map[string]any{"key": fixture.task.ID})
+	result := fixture.call(t, fixture.sessions[durableSession.RoleLead], "task/dispatch", map[string]any{"key": fixture.task.ID})
 	message := tsk571ErrorMessage(t, result)
 	if !strings.Contains(message, "RUNTIME_SESSION_AMBIGUOUS") {
 		t.Fatalf("ambiguous attached Worker did not fail closed: %q", message)

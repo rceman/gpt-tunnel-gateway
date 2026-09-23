@@ -43,7 +43,7 @@ func (s *Server) registerTaskExecutionTestAction() error {
 	return s.RegisterGenericAction(GenericAction{
 		Path:                 "task/test",
 		Description:          "Run the full repository suite and every integration-class required gate on the exact reviewed Task candidate, recording durable verification proof.",
-		AuthorityRole:        "planner",
+		AuthorityRole:        "lead",
 		SessionBound:         true,
 		LocalReceiptOnly:     true,
 		InputSchema:          taskExecutionTestSchema(),

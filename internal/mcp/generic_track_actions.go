@@ -72,7 +72,8 @@ func trackHistorySchema() map[string]any {
 }
 
 func trackTaskOutputSchema() map[string]any {
-	return closedOutput(map[string]any{"key": outputString(), "title": outputString(), "priority": outputString(), "dependencies": outputArray(outputString()), "status": outputString(), "revision": outputInteger()}, "key", "title", "status", "revision")
+	execution := closedOutput(map[string]any{"status": outputString(), "stage": outputString(), "execution_revision": outputInteger()}, "status")
+	return closedOutput(map[string]any{"key": outputString(), "title": outputString(), "priority": outputString(), "dependencies": outputArray(outputString()), "status": outputString(), "execution": execution, "revision": outputInteger()}, "key", "title", "status", "execution", "revision")
 }
 
 func trackReviewOutputSchema() map[string]any {
@@ -122,7 +123,14 @@ func trackViewValue(view service.TrackView) map[string]any {
 	track := view.Track
 	tasks := make([]any, 0, len(view.Tasks))
 	for _, task := range view.Tasks {
-		value := map[string]any{"key": task.Key, "title": task.Title, "status": task.Status, "revision": task.Revision}
+		execution := map[string]any{"status": task.Execution.Status}
+		if task.Execution.Stage != "" {
+			execution["stage"] = task.Execution.Stage
+		}
+		if task.Execution.ExecutionRevision > 0 {
+			execution["execution_revision"] = task.Execution.ExecutionRevision
+		}
+		value := map[string]any{"key": task.Key, "title": task.Title, "status": task.Status, "execution": execution, "revision": task.Revision}
 		if task.Priority != "" {
 			value["priority"] = task.Priority
 		}
@@ -285,7 +293,7 @@ func (s *Server) registerTrackActions() error {
 		appendTasks       bool
 	}{{"track/append_task", "Append ordered Tasks to a started Track.", true}, {"track/remove_task", "Remove only never-dispatched Tasks from a started Track.", false}} {
 		spec := spec
-		if err := lead(GenericAction{
+		if err := planner(GenericAction{
 			Path:                 spec.path,
 			Description:          spec.description,
 			InputSchema:          trackMembershipSchema(),

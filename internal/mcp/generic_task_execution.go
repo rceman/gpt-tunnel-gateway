@@ -34,7 +34,7 @@ func taskExecutionOutputSchema() map[string]any {
 
 func (s *Server) registerTaskExecutionActions() error {
 	register := func(action GenericAction) error {
-		action.AuthorityRole = durableSession.RolePlanner
+		action.AuthorityRole = durableSession.RoleLead
 		if action.Path == "task/status" {
 			action.AuthorityRole = actionRolePlannerOrLead
 		}

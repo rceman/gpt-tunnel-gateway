@@ -148,10 +148,23 @@ func TestTSK590LeadAndWorkerRoleAuthorityIsolatedOverHTTP(t *testing.T) {
 	}
 }
 
-func TestTSK590PlannerAddressesLeadThroughGenericAgentControls(t *testing.T) {
+func TestTSK590PlannerDelegatesTrackThroughDurableMessage(t *testing.T) {
 	t.Setenv("GPT_TUNNEL_SESSION", "")
 	fixture := newTSK571HTTPFixture(t, []string{durableSession.RolePlanner, durableSession.RoleLead}, true, true)
 	installTSK563Airelay(t, fixture)
+	ctx := context.Background()
+	milestone, _, err := fixture.server.Service.MilestoneLifecycleCreate(ctx, service.MilestoneCreateInput{
+		ProjectID: fixture.projectID, Title: "TSK590 delegation milestone", Tasks: []string{fixture.task.ID}, CreatedBy: "planner",
+	}, "tsk590-delegation-milestone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, _, err := fixture.server.Service.TrackLifecycleCreate(ctx, service.TrackCreateInput{
+		ProjectID: fixture.projectID, Milestone: milestone.ID, Title: "TSK590 delegation Track", Tasks: []string{fixture.task.ID}, CreatedBy: "planner",
+	}, "tsk590-delegation-track")
+	if err != nil {
+		t.Fatal(err)
+	}
 	planner := fixture.sessions[durableSession.RolePlanner]
 	for _, action := range []struct {
 		name  string
@@ -160,11 +173,27 @@ func TestTSK590PlannerAddressesLeadThroughGenericAgentControls(t *testing.T) {
 		{name: "agent/status", input: map[string]any{"agent": fixture.agentID}},
 		{name: "agent/await", input: map[string]any{"agent": fixture.agentID, "seconds": 1}},
 		{name: "agent/tail", input: map[string]any{"agent": fixture.agentID, "lines": 1}},
-		{name: "agent/prompt", input: map[string]any{"agent": fixture.agentID, "message": "TSK590 bounded Lead supervision"}},
 	} {
 		result := fixture.call(t, planner, action.name, action.input)
 		if result["ok"] != true {
-			t.Fatalf("Planner could not use generic %s for Lead runtime: %#v", action.name, result)
+			t.Fatalf("Planner could not use generic %s for observation: %#v", action.name, result)
 		}
+	}
+	delegation := fixture.call(t, planner, "message/create", map[string]any{"to_role": durableSession.RoleLead, "body": track.ID})
+	if delegation["ok"] != true {
+		t.Fatalf("Planner could not durably delegate the Track: %#v", delegation)
+	}
+	created, ok := delegation["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("message/create result=%#v", delegation)
+	}
+	messageID, _ := created["message"].(string)
+	read := fixture.call(t, fixture.sessions[durableSession.RoleLead], "message/read", map[string]any{"message": messageID})
+	if read["ok"] != true {
+		t.Fatalf("Lead could not read durable Track delegation: %#v", read)
+	}
+	message, _ := read["result"].(map[string]any)
+	if message["body"] != track.ID {
+		t.Fatalf("durable delegation body=%#v", read)
 	}
 }

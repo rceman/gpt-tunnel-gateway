@@ -19,7 +19,7 @@ func TestTSK625TaskStatusCarriesOptionalBlockedReason(t *testing.T) {
 	}
 }
 
-func TestTSK625TaskBlockResumeHaveClosedBoundedPlannerContracts(t *testing.T) {
+func TestTSK625TaskBlockResumeHaveClosedBoundedLeadContracts(t *testing.T) {
 	server := newSessionTestServer(t)
 	entries := server.genericActionRegistry(server.tools())
 	for _, path := range []string{"task/block", "task/resume"} {
@@ -27,7 +27,7 @@ func TestTSK625TaskBlockResumeHaveClosedBoundedPlannerContracts(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s is not registered", path)
 		}
-		if entry.AuthorityRole != actionRolePlannerOrLead || !entry.SessionBound || !entry.LocalReceiptOnly {
+		if entry.AuthorityRole != "lead" || !entry.SessionBound || !entry.LocalReceiptOnly {
 			t.Fatalf("%s authority binding=%#v", path, entry)
 		}
 		if entry.InputSchema["additionalProperties"] != false || entry.ExecutionInputSchema["additionalProperties"] != false {

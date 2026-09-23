@@ -86,7 +86,7 @@ func (s *Server) registerTaskExecutionIntegrateAction() error {
 	return s.RegisterGenericAction(GenericAction{
 		Path:                 "task/integrate",
 		Description:          "Integrate one fully reviewed Task lane into canonical main, or recognize an already-landed integration from canonical Journal evidence.",
-		AuthorityRole:        "planner",
+		AuthorityRole:        "lead",
 		SessionBound:         true,
 		LocalReceiptOnly:     true,
 		InputSchema:          taskExecutionIntegrateSchema(),
