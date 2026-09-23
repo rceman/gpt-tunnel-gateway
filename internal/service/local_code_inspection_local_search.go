@@ -198,9 +198,12 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		Matches:      make([]CodeSearchMatch, 0),
 	}
 	continuation := false
+	scanContinuation := ""
+	lastScannedPath := ""
 	pathsScanned := 0
 	afterSeen := in.Cursor == ""
 	walkErr := s.walkCodePaths(ctx, target, selectedPaths, "", in.Include, in.Exclude, func(pathName string) (visitErr error) {
+		lastScannedPath = pathName
 		pathsScanned++
 		cursorFound := false
 		defer func() {
@@ -287,7 +290,11 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		return nil
 	})
 	if errors.Is(walkErr, errCodeScanLimit) {
-		return CodeSearchResult{}, fmt.Errorf("code search scan exceeded bounded work; narrow the paths or patterns")
+		if lastScannedPath == "" {
+			return CodeSearchResult{}, fmt.Errorf("code search scan exhausted without a continuation path")
+		}
+		scanContinuation = pagination.EncodeSearchCursor(kind, lastScannedPath, 0)
+		walkErr = nil
 	}
 	if walkErr != nil && !errors.Is(walkErr, errCodePageDone) {
 		return CodeSearchResult{}, walkErr
@@ -296,7 +303,7 @@ func (s *Service) CodeSearch(ctx context.Context, in CodeSearchInput) (CodeSearc
 		return CodeSearchResult{}, fmt.Errorf("continuation cursor is no longer valid")
 	}
 	result.PathsScanned = pathsScanned
-	resultCursor := ""
+	resultCursor := scanContinuation
 	if continuation {
 		last := result.Matches[len(result.Matches)-1]
 		resultCursor = pagination.EncodeServerCursor(kind, last.Path+"|"+strconv.Itoa(last.Line))

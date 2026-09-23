@@ -155,10 +155,13 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 		}
 	}
 	paths := make([]string, 0, LocalCodeMaxScanPaths)
+	scanContinuation := ""
+	lastScannedPath := ""
 	hasCursor := in.Cursor != ""
 	afterSeen := !hasCursor
 	scanPaths := 0
 	walkErr := s.walkCodePaths(ctx, target, nil, in.Path, nil, nil, func(pathName string) (visitErr error) {
+		lastScannedPath = pathName
 		scanPaths++
 		cursorFound := false
 		defer func() {
@@ -191,7 +194,11 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 		return nil
 	})
 	if errors.Is(walkErr, errCodeScanLimit) {
-		return CodeTreeResult{}, fmt.Errorf("code tree scan exceeded bounded work; narrow the path or query")
+		if lastScannedPath == "" {
+			return CodeTreeResult{}, fmt.Errorf("code tree scan exhausted without a continuation path")
+		}
+		scanContinuation = pagination.EncodeServerCursor(kind, lastScannedPath)
+		walkErr = nil
 	}
 	if walkErr != nil && !errors.Is(walkErr, errCodePageDone) {
 		return CodeTreeResult{}, walkErr
@@ -213,7 +220,7 @@ func (s *Service) CodeTree(ctx context.Context, in CodeTreeInput) (CodeTreeResul
 	if fitErr != nil {
 		return CodeTreeResult{}, fitErr
 	}
-	pageCursor := ""
+	pageCursor := scanContinuation
 	if pageSize < len(paths) {
 		pageCursor = pagination.EncodeServerCursor(kind, paths[pageSize-1])
 	}

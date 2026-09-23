@@ -7,26 +7,34 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func (s *Service) resolveExactTaskCodeTarget(ctx context.Context, projectID, selector string, live bool) (localCodeTarget, error) {
 	if s.Durability == nil {
 		return localCodeTarget{}, fmt.Errorf("shared durability is unavailable")
 	}
-	states, err := s.Durability.ListTaskExecutionStates(ctx, projectID)
-	if err != nil {
-		return localCodeTarget{}, err
-	}
 	var state *model.TaskExecutionState
-	for index := range states {
-		if states[index].Worktree != selector {
-			continue
+	var after sqlitestore.TaskExecutionStatePageCursor
+	for {
+		page, err := s.Durability.ListTaskExecutionStatesPage(ctx, projectID, selector, after, sqlitestore.TaskExecutionStatePageMaxRows)
+		if err != nil {
+			return localCodeTarget{}, err
 		}
-		if state != nil {
-			return localCodeTarget{}, fmt.Errorf("ambiguous Task worktree selector %q", selector)
+		for index := range page.States {
+			if page.States[index].Worktree != selector {
+				continue
+			}
+			if state != nil {
+				return localCodeTarget{}, fmt.Errorf("ambiguous Task worktree selector %q", selector)
+			}
+			candidate := page.States[index]
+			state = &candidate
 		}
-		candidate := states[index]
-		state = &candidate
+		if !page.HasMore {
+			break
+		}
+		after = page.NextCursor
 	}
 	if state == nil {
 		return localCodeTarget{}, &CodeSelectorError{
