@@ -15,6 +15,9 @@ import (
 )
 
 func addMCP7BootstrapTools(add func(string, string, map[string]any, func(context.Context, json.RawMessage) (any, error)), s *Server) {
+	add("session_start", "Create a durable Planner session from a host-local bootstrap token; Gateway, project, and role are resolved server-side.", sessionStartPublicInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return s.sessionStartPublic(ctx, raw)
+	})
 	add("status", "Return bounded Gateway readiness and identity without a durable session.", statusPublicInputSchema(), func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.statusPublic(ctx)
 	})

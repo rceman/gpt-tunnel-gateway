@@ -90,7 +90,7 @@ func TestTSK589MessageActionsAreClosedAndSessionBound(t *testing.T) {
 		created = append(created, result["message"].(string))
 	}
 	for _, messageID := range created {
-		result, ok := tsk589MessageCall(t, server, sessions[durableSession.RoleWorker], "message/read", map[string]any{"message": messageID})
+		result, ok := tsk589MessageCall(t, server, sessions[durableSession.RoleWorker], "message/read", map[string]any{"key": messageID})
 		if messageID == created[len(created)-1] {
 			if ok {
 				t.Fatal("worker read a Planner-targeted message")

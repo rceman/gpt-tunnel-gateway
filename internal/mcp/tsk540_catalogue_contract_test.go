@@ -28,7 +28,7 @@ func TestTSK540CatalogueSchemasUseOuterContinuationAndCompactMilestones(t *testi
 		t.Fatalf("milestone catalogue item has unexpected fields: %#v", milestoneProperties)
 	}
 	required := stringList(milestoneItem["required"])
-	if len(required) != 4 || required[0] != "key" || required[1] != "revision" || required[2] != "title" || required[3] != "status" {
+	if len(required) != 4 || required[0] != "key" || required[1] != "revision" || required[2] != "status" || required[3] != "title" {
 		t.Fatalf("milestone catalogue required=%v", required)
 	}
 	for _, path := range []string{"milestone/list", "milestone/query"} {
@@ -67,11 +67,11 @@ func TestTSK540CatalogueSchemasUseOuterContinuationAndCompactMilestones(t *testi
 func TestTSK540MilestoneListUsesOuterPaginationAcrossDeterministicPages(t *testing.T) {
 	server := newSessionTestServer(t)
 	server.AuthorityContext = authority.WithPlanner(context.Background())
-	_ = server.tools()
+	tools := server.tools()
 	sessionID := genericSession(t, server.Service, "example")
 	call := func(id int, action string, input map[string]any) map[string]any {
 		t.Helper()
-		value, err := server.genericCallPublic(server.AuthorityContext, nil, mustJSON(t, map[string]any{
+		value, err := server.genericCallPublic(server.AuthorityContext, tools, mustJSON(t, map[string]any{
 			"session": sessionID,
 			"action":  action,
 			"input":   input,

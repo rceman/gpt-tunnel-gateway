@@ -170,9 +170,9 @@ func TestTSK590PlannerDelegatesTrackThroughDurableMessage(t *testing.T) {
 		name  string
 		input map[string]any
 	}{
-		{name: "agent/status", input: map[string]any{"agent": fixture.agentID}},
-		{name: "agent/await", input: map[string]any{"agent": fixture.agentID, "seconds": 1}},
-		{name: "agent/tail", input: map[string]any{"agent": fixture.agentID, "lines": 1}},
+		{name: "agent/status", input: map[string]any{"key": fixture.agentID}},
+		{name: "agent/await", input: map[string]any{"key": fixture.agentID, "seconds": 1}},
+		{name: "agent/tail", input: map[string]any{"key": fixture.agentID, "lines": 1}},
 	} {
 		result := fixture.call(t, planner, action.name, action.input)
 		if result["ok"] != true {
@@ -188,7 +188,7 @@ func TestTSK590PlannerDelegatesTrackThroughDurableMessage(t *testing.T) {
 		t.Fatalf("message/create result=%#v", delegation)
 	}
 	messageID, _ := created["message"].(string)
-	read := fixture.call(t, fixture.sessions[durableSession.RoleLead], "message/read", map[string]any{"message": messageID})
+	read := fixture.call(t, fixture.sessions[durableSession.RoleLead], "message/read", map[string]any{"key": messageID})
 	if read["ok"] != true {
 		t.Fatalf("Lead could not read durable Track delegation: %#v", read)
 	}

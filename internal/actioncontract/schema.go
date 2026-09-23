@@ -137,10 +137,13 @@ func (compiled *CompiledSet) Actions() []CompiledAction {
 	result := make([]CompiledAction, 0, len(compiled.paths))
 	for _, path := range compiled.paths {
 		action := compiled.actions[path]
+		metadata := action.Metadata
+		metadata.HandlerInputMappings = append([]FieldMapping(nil), action.Metadata.HandlerInputMappings...)
+		metadata.HandlerOutputMappings = append([]FieldMapping(nil), action.Metadata.HandlerOutputMappings...)
 		result = append(result, CompiledAction{
 			Path:        path,
 			Description: action.Description,
-			Metadata:    action.Metadata,
+			Metadata:    metadata,
 			Input:       cloneSchema(action.Input),
 			Output:      cloneSchema(action.Output),
 		})
@@ -162,6 +165,43 @@ func (compiled *CompiledSet) ActionOutputSchema(path string) (map[string]any, er
 		return nil, fmt.Errorf("unknown action %q", path)
 	}
 	return action.Output.JSONSchema(), nil
+}
+
+func (compiled *CompiledSet) CompactInputSchema(path string) (map[string]any, error) {
+	action, ok := compiled.Action(path)
+	if !ok {
+		return nil, fmt.Errorf("unknown action %q", path)
+	}
+	return action.CompactInputSchema(), nil
+}
+
+func (action CompiledAction) CompactInputSchema() map[string]any {
+	if action.Input == nil {
+		return nil
+	}
+	return compactSchema(action.Input.JSONSchema()).(map[string]any)
+}
+
+func (compiled *CompiledSet) Paths() []string {
+	if compiled == nil {
+		return nil
+	}
+	return append([]string(nil), compiled.paths...)
+}
+
+func (compiled *CompiledSet) Action(path string) (CompiledAction, bool) {
+	if compiled == nil {
+		return CompiledAction{}, false
+	}
+	action, ok := compiled.actions[path]
+	if !ok {
+		return CompiledAction{}, false
+	}
+	action.Input = cloneSchema(action.Input)
+	action.Output = cloneSchema(action.Output)
+	action.Metadata.HandlerInputMappings = append([]FieldMapping(nil), action.Metadata.HandlerInputMappings...)
+	action.Metadata.HandlerOutputMappings = append([]FieldMapping(nil), action.Metadata.HandlerOutputMappings...)
+	return action, true
 }
 
 func (compiled *CompiledSet) CompactDiscovery(domain string) (Discovery, error) {
@@ -189,9 +229,11 @@ func (compiled *CompiledSet) CompactDiscovery(domain string) (Discovery, error) 
 		name, _, _ := splitActionPath(path)
 		if name == domain {
 			action := compiled.actions[path]
+			input, _ := compiled.CompactInputSchema(path)
 			result.Actions = append(result.Actions, ActionSummary{
 				Path:        path,
 				Description: action.Description,
+				Input:       input,
 			})
 		}
 	}

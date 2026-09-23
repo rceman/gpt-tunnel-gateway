@@ -43,7 +43,7 @@ func TestTSK521TaskExecutionSchemasAreClosedAndPubliclyBounded(t *testing.T) {
 	for name, schema := range map[string]map[string]any{"dispatch": dispatch.OutputSchema, "status": status.OutputSchema} {
 		properties := schema["properties"].(map[string]any)
 		head := properties["head"].(map[string]any)
-		if head["pattern"] != "^[a-f0-9]{8}$" {
+		if head["pattern"] != "^[0-9a-f]{8}$" {
 			t.Fatalf("%s head schema=%v", name, head)
 		}
 	}

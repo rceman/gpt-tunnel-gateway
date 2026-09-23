@@ -17,13 +17,13 @@ func TestTSK608OperationActionsAreBoundedReadOnlyAndDistinctFromAgentAwait(t *te
 		if !ok {
 			t.Fatalf("%s input schema has no properties: %#v", path, entry.InputSchema)
 		}
-		_, hasKey := properties["key"]
-		_, hasCurrentSelector := properties["operation_id"]
-		if hasKey == hasCurrentSelector {
-			t.Fatalf("%s must expose exactly one Operation selector during the approved key cutover: %#v", path, properties)
+		if properties["key"] == nil {
+			t.Fatalf("%s is missing the canonical Operation selector: %#v", path, properties)
 		}
-		if properties["operation"] != nil || properties["id"] != nil {
-			t.Fatalf("%s exposes an unapproved Operation selector alias: %#v", path, properties)
+		for _, alias := range []string{"operation_id", "operation", "id"} {
+			if properties[alias] != nil {
+				t.Fatalf("%s exposes an unapproved Operation selector alias %q: %#v", path, alias, properties)
+			}
 		}
 		if path == "operation/await" && properties["seconds"] == nil {
 			t.Fatalf("%s omitted its bounded wait input", path)

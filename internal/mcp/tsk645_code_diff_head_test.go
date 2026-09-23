@@ -22,7 +22,7 @@ func TestTSK645CodeDiffSchemaExposesAuthoritativeHead(t *testing.T) {
 	}
 	properties := schemaProperties(entry.InputSchema)
 	head, ok := properties["head"].(map[string]any)
-	if !ok || head["type"] != "string" || head["pattern"] != "^[a-f0-9]{8}$" {
+	if !ok || head["type"] != "string" || head["pattern"] != "^[0-9a-f]{8}$" {
 		t.Fatalf("code/diff head schema=%#v", properties["head"])
 	}
 	if _, has := head["default"]; has {
@@ -33,7 +33,7 @@ func TestTSK645CodeDiffSchemaExposesAuthoritativeHead(t *testing.T) {
 		t.Fatalf("code/diff head description omitted its semantics: %q", description)
 	}
 	base, ok := properties["base"].(map[string]any)
-	if !ok || base["pattern"] != "^[a-f0-9]{8}$" {
+	if !ok || base["pattern"] != "^[0-9a-f]{8}$" {
 		t.Fatalf("code/diff base schema=%#v", properties["base"])
 	}
 	live, ok := properties["live"].(map[string]any)
@@ -55,7 +55,7 @@ func TestTSK645CodeDiffSchemaExposesAuthoritativeHead(t *testing.T) {
 		t.Fatalf("code/diff description omitted the optional recorded head: %q", entry.Description)
 	}
 
-	output := codeDiffOutputSchema()
+	output := entry.OutputSchema
 	if output["additionalProperties"] != false {
 		t.Fatalf("code/diff output is not closed: %#v", output)
 	}
@@ -73,7 +73,7 @@ func TestTSK645CodeDiffSchemaExposesAuthoritativeHead(t *testing.T) {
 	if len(outputProperties) != 7 {
 		t.Fatalf("code/diff output envelope changed: %#v", outputProperties)
 	}
-	if outputProperties["base"].(map[string]any)["pattern"] != "^[a-f0-9]{8}$" {
+	if outputProperties["base"].(map[string]any)["pattern"] != "^[0-9a-f]{8}$" {
 		t.Fatalf("code/diff output base schema=%#v", outputProperties["base"])
 	}
 }

@@ -202,8 +202,8 @@ func (resolver *definitionResolver) compileAction(path string, spec actionSpec) 
 		return CompiledAction{}, fmt.Errorf("action %s: input and output roots must be objects", path)
 	}
 	key, hasKey := input.Properties["key"]
-	if metadata.Selector == "key" && (!hasKey || !containsString(input.Required, "key") || key.RefName != "EntityKeyAndReference") {
-		return CompiledAction{}, fmt.Errorf("action %s: selector key must be required and reference EntityKeyAndReference", path)
+	if metadata.Selector == "key" && (!hasKey || key.RefName != "EntityKeyAndReference") {
+		return CompiledAction{}, fmt.Errorf("action %s: selector key must reference EntityKeyAndReference", path)
 	}
 	if metadata.Selector == "none" && hasKey {
 		return CompiledAction{}, fmt.Errorf("action %s: top-level key requires selector metadata", path)
@@ -217,6 +217,12 @@ func (resolver *definitionResolver) compileAction(path string, spec actionSpec) 
 				return CompiledAction{}, fmt.Errorf("action %s: unapproved Operation selector alias %q", path, alias)
 			}
 		}
+	}
+	if err := validateFieldMappingPaths(path, "handler_input", metadata.HandlerInputMappings, input, true); err != nil {
+		return CompiledAction{}, err
+	}
+	if err := validateFieldMappingPaths(path, "handler_output", metadata.HandlerOutputMappings, output, false); err != nil {
+		return CompiledAction{}, err
 	}
 	if err := validateDurationUnits(input, path+".input"); err != nil {
 		return CompiledAction{}, err
@@ -242,6 +248,15 @@ func (resolver *definitionResolver) compileSchema(spec *schemaSpec, path string,
 	}
 	if depth > 64 {
 		return nil, fmt.Errorf("%s: schema exceeds maximum nesting depth", path)
+	}
+	if spec.JSONValue {
+		if !isJSONValueOnly(spec) {
+			return nil, fmt.Errorf("%s: json_value cannot be combined with other schema constraints", path)
+		}
+		return &CompiledSchema{
+			JSONValue:   true,
+			Description: spec.Description,
+		}, nil
 	}
 	if spec.Ref != "" {
 		if hasRefStructuralFields(spec) {
@@ -671,7 +686,7 @@ func validateSchemaLiterals(schema *CompiledSchema, path string) error {
 
 func validateConstraintKinds(schema *CompiledSchema, path string) error {
 	if schema.Pattern != "" {
-		if len(schema.Pattern) > 256 {
+		if len(schema.Pattern) > 512 {
 			return fmt.Errorf("%s: pattern exceeds maximum length", path)
 		}
 		if schema.Type != "string" {
@@ -742,11 +757,25 @@ func compileMetadata(path string, spec metadataSpec) (ActionMetadata, error) {
 	if hints.ReadOnly && hints.Destructive {
 		return ActionMetadata{}, fmt.Errorf("action %s: a destructive action cannot be read-only", path)
 	}
+	handlerInput, err := compileFieldMappings(path, "handler_input", spec.HandlerInput)
+	if err != nil {
+		return ActionMetadata{}, err
+	}
+	handlerOutput, err := compileFieldMappings(path, "handler_output", spec.HandlerOutput)
+	if err != nil {
+		return ActionMetadata{}, err
+	}
 	return ActionMetadata{
-		Surface:     spec.Surface,
-		Selector:    *spec.Selector,
-		Annotations: hints,
+		Surface:               spec.Surface,
+		Selector:              *spec.Selector,
+		Annotations:           hints,
+		HandlerInputMappings:  handlerInput,
+		HandlerOutputMappings: handlerOutput,
 	}, nil
+}
+
+func isJSONValueOnly(spec *schemaSpec) bool {
+	return spec.Type == "" && spec.Ref == "" && spec.Properties == nil && spec.Required == nil && spec.Items == nil && spec.AdditionalProperties == nil && spec.AdditionalPropertySchema == nil && spec.Enum == nil && spec.Pattern == "" && spec.MinLength == nil && spec.MaxLength == nil && spec.Minimum == nil && spec.Maximum == nil && spec.MinItems == nil && spec.MaxItems == nil && spec.UniqueItems == nil && spec.Format == "" && spec.Unit == "" && spec.Default.Kind == 0 && spec.DefaultOverride == nil && spec.Const.Kind == 0 && spec.AllOf == nil && spec.OneOf == nil && spec.AnyOf == nil && spec.Not == nil && spec.If == nil && spec.Then == nil
 }
 
 func validateDefinitionMetadata(name string, metadata definitionMetadata) error {
@@ -1067,7 +1096,7 @@ func validateActionSchemaFields(actionPath, direction string, schema *CompiledSc
 		if direction == "input" && key == "cursor" && child.RefName != "CursorAndCompactHandle" {
 			return fmt.Errorf("action %s.input: cursor must reference CursorAndCompactHandle", actionPath)
 		}
-		if isKnownCrossDomainField(crossDomainFields, key) && !isEntityReference(child) {
+		if isKnownCrossDomainField(crossDomainFields, key) && !isEntityReference(child) && !isMessageBodyField(key, child) {
 			return fmt.Errorf("action %s.%s: cross-domain field %q must use a semantic EntityKeyAndReference", actionPath, direction, key)
 		}
 		if err := validateActionSchemaFields(actionPath, direction, child, surface, crossDomainFields, seen); err != nil {
@@ -1116,6 +1145,10 @@ func isEntityReference(schema *CompiledSchema) bool {
 	return schema.Type == "object" && key != nil && key.RefName == "EntityKeyAndReference"
 }
 
+func isMessageBodyField(name string, schema *CompiledSchema) bool {
+	return name == "message" && schema != nil && schema.Type == "string" && schema.MaxLength != nil && *schema.MaxLength > 256
+}
+
 func hasTimestampPattern(pattern string) bool {
 	return strings.Contains(pattern, "T") && strings.Contains(pattern, ":")
 }
@@ -1135,6 +1168,9 @@ func isDigestField(name string) bool {
 func schemaAllowsUnknownProperties(schema *CompiledSchema) bool {
 	if schema == nil {
 		return false
+	}
+	if schema.JSONValue {
+		return true
 	}
 	if schema.AdditionalProperties != nil && *schema.AdditionalProperties {
 		return true

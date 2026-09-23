@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/actioncontract"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
@@ -51,6 +52,9 @@ type Server struct {
 	guideActionErr         error
 	adminActions           sync.Once
 	adminActionErr         error
+	actionContractOnce     sync.Once
+	actionContracts        *actioncontract.CompiledSet
+	actionContractErr      error
 }
 type request struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -146,6 +150,22 @@ func (s *Server) tools() map[string]Tool {
 		legacyTools[name] = tool
 	}
 	addGenericTransportTools(add, s, legacyTools)
+	if tool, ok := t["session_start"]; ok {
+		contract, exists := s.actionContractSet().Action("session/start")
+		if !exists {
+			panic("session/start action contract is missing")
+		}
+		tool.InputSchema = contract.Input.JSONSchema()
+		tool.OutputSchema = contract.Output.JSONSchema()
+		tool.Annotations = ToolAnnotations{
+			ReadOnlyHint:    contract.Metadata.Annotations.ReadOnly,
+			DestructiveHint: contract.Metadata.Annotations.Destructive,
+			IdempotentHint:  contract.Metadata.Annotations.Idempotent,
+			OpenWorldHint:   contract.Metadata.Annotations.OpenWorld,
+		}
+		tool.Execute = s.contractTransportHandler("session/start", tool.Execute)
+		t["session_start"] = tool
+	}
 	for name, tool := range t {
 		if _, required := typedSessionAuthorityContract(name); required {
 			tool.InputSchema = typedSessionInputSchema(tool.InputSchema)

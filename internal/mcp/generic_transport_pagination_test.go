@@ -1,80 +1,33 @@
 package mcp
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"testing"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
-func registerTransportProbeActions(t *testing.T, server *Server) {
-	t.Helper()
-	output := closedOutput(map[string]any{
-		"items":       outputArray(outputString()),
-		"payload":     map[string]any{"type": "object", "additionalProperties": true},
-		"nested":      map[string]any{"type": "object", "properties": map[string]any{"_pagination": outputString(), "_metrics": outputString()}},
-		"_pagination": map[string]any{"type": "object", "properties": map[string]any{"next_cursor": publicServerCursorSchema()}},
-		"_metrics":    map[string]any{"type": "object"},
-	}, "items")
-	input := obj(map[string]any{})
-	register := func(path string, execute func(context.Context, any) (any, error)) {
-		err := server.RegisterGenericAction(GenericAction{
-			Path:             path,
-			Description:      "transport probe",
-			InputSchema:      input,
-			OutputSchema:     output,
-			AuthorityRole:    actionRoleWorkflow,
-			LocalReceiptOnly: true,
-			Execute: func(ctx context.Context, _ json.RawMessage) (any, error) {
-				return execute(ctx, nil)
-			},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	register("probe/page", func(context.Context, any) (any, error) {
-		return map[string]any{
-			"items": []any{"one"},
-			"payload": map[string]any{
-				"_pagination": "nested-pagination",
-				"_metrics":    "nested-metrics",
-				"value":       "preserved",
-			},
-			"_pagination": map[string]any{"next_cursor": "ABCDEFGH"},
-			"_metrics":    map[string]any{"private": true},
-		}, nil
+func TestGenericCallEnvelopeDetachesContinuationAndPreservesPayload(t *testing.T) {
+	result, pagination, err := detachPrivateTransportMetadata(map[string]any{
+		"items": []any{"one"},
+		"payload": map[string]any{
+			"_pagination": "nested-pagination",
+			"_metrics":    "nested-metrics",
+			"value":       "preserved",
+		},
+		"_pagination": map[string]any{"next_cursor": "ABCDEFGH"},
+		"_metrics":    map[string]any{"private": true},
 	})
-	register("probe/terminal", func(context.Context, any) (any, error) {
-		return map[string]any{"items": []any{"terminal"}, "payload": map[string]any{"value": "preserved"}}, nil
-	})
-	register("probe/failure", func(context.Context, any) (any, error) {
-		return nil, fmt.Errorf("probe failure")
-	})
-}
-
-func TestGenericCallPublicDetachesContinuationAndPreservesPayload(t *testing.T) {
-	server := newSessionTestServer(t)
-	server.AuthorityContext = authority.WithPlanner(context.Background())
-	sessionID := genericSession(t, server.Service, "example")
-	registerTransportProbeActions(t, server)
-
-	response, err := server.genericCallPublic(server.AuthorityContext, nil, mustJSON(t, map[string]any{
-		"session": sessionID, "action": "probe/page", "input": map[string]any{},
-	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	responseMap := response.(map[string]any)
-	if got := responseMap["pagination"]; !reflect.DeepEqual(got, map[string]any{"next_cursor": "ABCDEFGH"}) {
-		t.Fatalf("unexpected top-level pagination: %#v", responseMap)
+	response := genericActionSuccessWithPagination(result, pagination)
+	if got := response["pagination"]; !reflect.DeepEqual(got, map[string]any{"next_cursor": "ABCDEFGH"}) {
+		t.Fatalf("unexpected top-level pagination: %#v", response)
 	}
-	result := responseMap["result"].(map[string]any)
+	result = response["result"].(map[string]any)
 	if _, ok := result["_pagination"]; ok {
 		t.Fatalf("private pagination leaked into public result: %#v", result)
 	}
@@ -87,14 +40,18 @@ func TestGenericCallPublicDetachesContinuationAndPreservesPayload(t *testing.T) 
 	}
 }
 
-func TestToolResultValidatesProjectedNumericCallMetrics(t *testing.T) {
-	tool := Tool{
-		Name:         "call",
-		OutputSchema: genericCallOutputSchema(),
+func TestGenericCallTerminalAndFailureOmitPagination(t *testing.T) {
+	terminal, err := genericActionPageResult(map[string]any{"items": []any{"terminal"}}, false, "ABCDEFGH")
+	if err != nil {
+		t.Fatal(err)
 	}
-	response := toolResult(tool, publicCallFailure("CALL_FAILED", "expected failure", 0), false)
-	if response["isError"] == true {
-		t.Fatalf("projected numeric call metrics violated schema: %#v", response)
+	for _, response := range []map[string]any{
+		genericActionSuccessWithPagination(terminal.Result, terminal.Pagination),
+		genericActionError("probe/failure", "probe failure"),
+	} {
+		if _, ok := response["pagination"]; ok {
+			t.Fatalf("terminal or failed response unexpectedly returned pagination: %#v", response)
+		}
 	}
 }
 
@@ -127,31 +84,27 @@ func TestGitToolPaginationIsOutsideTheCollectionResult(t *testing.T) {
 	}
 }
 
-func TestGenericCallPublicTerminalAndFailureOmitPagination(t *testing.T) {
-	server := newSessionTestServer(t)
-	server.AuthorityContext = authority.WithPlanner(context.Background())
-	sessionID := genericSession(t, server.Service, "example")
-	registerTransportProbeActions(t, server)
-
-	for _, action := range []string{"probe/terminal", "probe/failure"} {
-		response, err := server.genericCallPublic(server.AuthorityContext, nil, mustJSON(t, map[string]any{
-			"session": sessionID, "action": action, "input": map[string]any{},
-		}))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, ok := response.(map[string]any)["pagination"]; ok {
-			t.Fatalf("%s unexpectedly returned pagination: %#v", action, response)
-		}
-	}
-}
-
 func TestGenericTransportSchemaSanitizesOnlyRootMetadata(t *testing.T) {
-	service, _ := mcpServiceWithSQLite(t, config.Config{GatewayID: "transport-schema"})
-	server := &Server{Service: service}
-	registerTransportProbeActions(t, server)
-	entry := server.genericActionRegistry(nil)["probe/page"]
-	properties := entry.OutputSchema["properties"].(map[string]any)
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"items":       map[string]any{"type": "array"},
+			"_pagination": map[string]any{"type": "object"},
+			"_metrics":    map[string]any{"type": "object"},
+			"nested": map[string]any{"type": "object", "properties": map[string]any{
+				"_pagination": outputString(), "_metrics": outputString(),
+			}},
+		},
+	}
+	encoded, err := json.Marshal(sanitizeTransportOutputSchema(schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sanitized map[string]any
+	if err := json.Unmarshal(encoded, &sanitized); err != nil {
+		t.Fatal(err)
+	}
+	properties := sanitized["properties"].(map[string]any)
 	if _, ok := properties["_pagination"]; ok {
 		t.Fatal("root _pagination remained in registered output schema")
 	}
@@ -164,5 +117,13 @@ func TestGenericTransportSchemaSanitizesOnlyRootMetadata(t *testing.T) {
 	}
 	if _, ok := nested["_metrics"]; !ok {
 		t.Fatal("nested _metrics was incorrectly removed")
+	}
+}
+
+func TestGenericActionRegistrationRejectsUnfrozenPath(t *testing.T) {
+	server := newSessionTestServer(t)
+	err := server.RegisterGenericAction(GenericAction{Path: "probe/page"})
+	if err == nil || err.Error() != `generic action "probe/page" has no canonical action contract` {
+		t.Fatalf("unfrozen action registration error=%v", err)
 	}
 }

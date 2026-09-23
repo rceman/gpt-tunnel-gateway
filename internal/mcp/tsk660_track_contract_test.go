@@ -31,7 +31,7 @@ func TestTSK660TrackAndMilestoneActionContracts(t *testing.T) {
 		t.Fatal("milestone/update exposes forbidden tasks membership field")
 	}
 	createRequired := stringList(entries["track/create"].InputSchema["required"])
-	if len(createRequired) != 3 || createRequired[0] != "milestone" || createRequired[1] != "title" || createRequired[2] != "tasks" {
+	if len(createRequired) != 3 || createRequired[0] != "milestone" || createRequired[1] != "tasks" || createRequired[2] != "title" {
 		t.Fatalf("track/create required=%v", createRequired)
 	}
 	readProperties := schemaProperties(entries["track/read"].OutputSchema)

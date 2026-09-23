@@ -131,13 +131,13 @@ func TestGenericAgentTailTranscriptDedupe(t *testing.T) {
 	s.Config.ProjectAgentBindings = map[string]map[string]config.AgentBinding{
 		"example": {"coding-example": {SessionKey: ref}},
 	}
-	tailInput := map[string]any{"agent": "coding-example", "lines": 2}
+	tailInput := map[string]any{"key": "coding-example", "lines": 2}
 	tailCall := func(id int, caller string) map[string]any {
 		t.Helper()
 		return genericActionResult(t, callMCP(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": id, "method": "tools/call",
 			"params": map[string]any{"name": "call", "arguments": map[string]any{
-				"session_id": caller, "action": "agent/tail", "input": tailInput,
+				"session": caller, "action": "agent/tail", "input": tailInput,
 			}},
 		})))
 	}
@@ -163,7 +163,7 @@ func TestGenericAgentTailTranscriptDedupe(t *testing.T) {
 	if !ok || len(independentLines) != 2 {
 		t.Fatalf("different durable session did not receive an independent first window=%#v", independent)
 	}
-	unknownOverride := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"session": "example_master", "lines": 2, "dedupe": false}}}})))
+	unknownOverride := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "agent/tail", "input": map[string]any{"session": "example_master", "lines": 2, "dedupe": false}}}})))
 	if unknownOverride["is_error"] != true {
 		t.Fatalf("caller-controlled dedupe override was accepted=%#v", unknownOverride)
 	}

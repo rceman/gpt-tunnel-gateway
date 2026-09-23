@@ -28,7 +28,7 @@ func TestProjectStatusIsSessionBoundCompactOperationalRead(t *testing.T) {
 		t.Fatalf("project/status result=%#v", status)
 	}
 	project, ok := payload["project"].(map[string]any)
-	if !ok || project["project_id"] != "example" {
+	if !ok || project["key"] != "example" {
 		t.Fatalf("project/status was not derived from Session: %#v", status)
 	}
 	for _, forbidden := range []string{"tasks", "trains", "tail", "history", "project_configuration"} {

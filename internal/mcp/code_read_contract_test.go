@@ -75,12 +75,12 @@ func TestCodeActionsUseTokenBudgetPaginationWithoutPublicLineOrByteControls(t *t
 	}
 	readProperties := entries["code/read"].InputSchema["properties"].(map[string]any)
 	lineCount, ok := readProperties["line_count"].(map[string]any)
-	if !ok || lineCount["type"] != "integer" || lineCount["minimum"] != 1 {
+	if !ok || lineCount["type"] != "integer" || lineCount["minimum"] != float64(1) {
 		t.Fatalf("code/read does not expose an optional positive line_count range: %#v", readProperties)
 	}
 	searchProperties := entries["code/search"].InputSchema["properties"].(map[string]any)
 	contextLines, ok := searchProperties["context_lines"].(map[string]any)
-	if !ok || contextLines["type"] != "integer" || contextLines["minimum"] != 0 || contextLines["maximum"] != 3 {
+	if !ok || contextLines["type"] != "integer" || contextLines["minimum"] != float64(0) || contextLines["maximum"] != float64(3) {
 		t.Fatalf("code/search context_lines schema drifted: %#v", searchProperties)
 	}
 	if required, ok := entries["code/read"].InputSchema["required"].([]string); ok {

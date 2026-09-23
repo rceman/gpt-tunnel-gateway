@@ -2,62 +2,42 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
-func registerAuthorityTestAction(t *testing.T, server *Server, path, role string, policy bool, calls *int) {
-	t.Helper()
-	err := server.RegisterGenericAction(GenericAction{
-		Path:                   path,
-		Description:            "authority test action",
-		InputSchema:            obj(map[string]any{"value": str("value")}, "value"),
-		OutputSchema:           closedOutput(map[string]any{"ok": outputBoolean()}, "ok"),
-		AuthorityRole:          role,
-		RequiresWorkflowPolicy: policy,
-		Execute: func(context.Context, json.RawMessage) (any, error) {
-			*calls++
-			return map[string]any{"ok": true}, nil
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
+func TestGenericCallValidatesCompiledInputBeforeActionExecution(t *testing.T) {
+	server := newSessionTestServer(t)
+	server.AuthorityContext = authority.WithPlanner(context.Background())
+	sessionID := genericSessionWithRole(t, server.Service, "example", durableSession.RolePlanner)
+	invalid := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{
+			"session": sessionID, "action": "operation/read", "input": map[string]any{"operation_id": "EXM-OPR1"},
+		}},
+	})))
+	message := invalid["result"].(map[string]any)["error"].(map[string]any)["message"].(string)
+	if invalid["is_error"] != true || !strings.Contains(message, `schema with path="operation/read"`) {
+		t.Fatalf("invalid contract input was not rejected before handler execution: %#v", invalid)
 	}
 }
 
-func TestGenericCallUsesDurableSessionRoleBeforeInputDecode(t *testing.T) {
+func TestGenericCallAuthenticatesEachActionAgainstDurableSession(t *testing.T) {
 	server := newSessionTestServer(t)
 	server.AuthorityContext = authority.WithPlanner(context.Background())
-	var calls int
-	registerAuthorityTestAction(t, server, "test/planner", durableSession.RolePlanner, false, &calls)
-	registerAuthorityTestAction(t, server, "test/agent", durableSession.RoleWorker, false, &calls)
-	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RolePlanner, "session_type": durableSession.SessionTypeChatGPT}))
-	sessionID := started["session"].(map[string]any)["session_id"].(string)
-	ok := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/planner", "input": map[string]any{"value": "ok"}}}})))
-	if ok["is_error"] != false || calls != 1 {
-		t.Fatalf("durable planner session was not accepted: result=%#v calls=%d", ok, calls)
-	}
-	wrong := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/agent", "input": map[string]any{"unknown": true}}}})))
-	message := wrong["result"].(map[string]any)["error"].(map[string]any)["message"].(string)
-	if wrong["is_error"] != true || message != `unknown argument "unknown"; inspect schema with path="test/agent"` || calls != 1 {
-		t.Fatalf("invalid input was not rejected before handler: result=%#v calls=%d", wrong, calls)
-	}
-}
-
-func TestGenericCallChecksEveryActionAgainstDurableSession(t *testing.T) {
-	server := newSessionTestServer(t)
-	server.AuthorityContext = authority.WithPlanner(context.Background())
-	var plannerCalls, deliveryCalls int
-	registerAuthorityTestAction(t, server, "test/planner", durableSession.RolePlanner, false, &plannerCalls)
-	registerAuthorityTestAction(t, server, "test/agent", durableSession.RoleWorker, false, &deliveryCalls)
-	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": durableSession.RolePlanner, "session_type": durableSession.SessionTypeChatGPT}))
-	sessionID := started["session"].(map[string]any)["session_id"].(string)
-	allowed := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/planner", "input": map[string]any{"value": "ok"}}}})))
-	denied := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/agent", "input": map[string]any{"value": "denied"}}}})))
-	if allowed["is_error"] != false || denied["is_error"] != false || plannerCalls != 1 || deliveryCalls != 1 {
-		t.Fatalf("authenticated action mismatch: allowed=%#v second=%#v planner=%d delivery=%d", allowed, denied, plannerCalls, deliveryCalls)
+	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker} {
+		sessionID := genericSessionWithRole(t, server.Service, "example", role)
+		result := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
+			"jsonrpc": "2.0", "id": role, "method": "tools/call",
+			"params": map[string]any{"name": "call", "arguments": map[string]any{
+				"session": sessionID, "action": "session/info", "input": map[string]any{},
+			}},
+		})))
+		if result["is_error"] == true {
+			t.Fatalf("durable %s Session failed action authentication: %#v", role, result)
+		}
 	}
 }

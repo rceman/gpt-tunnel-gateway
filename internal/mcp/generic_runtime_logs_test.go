@@ -67,7 +67,7 @@ func TestRuntimeRestartResponseBoundaryFlushesBeforeWorker(t *testing.T) {
 	body := mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": map[string]any{
-			"session": sessionID, "action": "runtime/restart", "input": map[string]any{"operation_id": "restart-http"},
+			"session": sessionID, "action": "runtime/restart", "input": map[string]any{"operation": "restart-http"},
 		}},
 	})
 	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:1/mcp", bytes.NewReader(body))
@@ -114,7 +114,7 @@ func TestRuntimeRestartNetworkReturnsStableReceipt(t *testing.T) {
 		methods:  map[string]int{},
 	}
 	response := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "runtime/restart", "input": map[string]any{"operation_id": "restart-network"}},
+		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "runtime/restart", "input": map[string]any{"operation": "restart-network"}},
 	}))
 	result, ok := response["result"].(map[string]any)
 	if !ok || result["outcome"] != "accepted" || result["tunnel_pid"] != float64(9123) {
@@ -124,7 +124,7 @@ func TestRuntimeRestartNetworkReturnsStableReceipt(t *testing.T) {
 		t.Fatalf("network runtime/restart worker runs=%d, want 1", workerRuns.Load())
 	}
 	second := frozenResult(t, client.request(t, "tools/call", map[string]any{
-		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "runtime/restart", "input": map[string]any{"operation_id": "restart-network"}},
+		"name": "call", "arguments": map[string]any{"session": sessionID, "action": "runtime/restart", "input": map[string]any{"operation": "restart-network"}},
 	}))
 	secondResult, ok := second["result"].(map[string]any)
 	if !ok || secondResult["outcome"] != "accepted" {

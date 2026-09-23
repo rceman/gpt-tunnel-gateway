@@ -43,7 +43,7 @@ func TestTSK636AuthenticatedWorkflowRolesShareSchemaAndActionAuthorization(t *te
 		}{
 			{path: "task/read", input: map[string]any{"key": fixture.task.ID}},
 			{path: "adr/list", input: map[string]any{}},
-			{path: "agent/status", input: map[string]any{"agent": fixture.agentID}},
+			{path: "agent/status", input: map[string]any{"key": fixture.agentID}},
 		} {
 			result := fixture.call(t, sessionID, action.path, action.input)
 			if result["ok"] != true {

@@ -204,7 +204,7 @@ func TestTSK629DurableWorkflowSessionsOverHTTP(t *testing.T) {
 		}
 	}
 	installTSK563Airelay(t, fixture)
-	leadAwait := fixture.call(t, fixture.sessions[durableSession.RoleLead], "agent/await", map[string]any{"agent": fixture.agentID, "seconds": 1})
+	leadAwait := fixture.call(t, fixture.sessions[durableSession.RoleLead], "agent/await", map[string]any{"key": fixture.agentID, "seconds": 1})
 	if leadAwait["ok"] != true {
 		t.Fatalf("durable Lead agent/await failed: %#v", leadAwait)
 	}
@@ -297,7 +297,7 @@ func TestTSK629AgentOperationsUseLogicalAgentTarget(t *testing.T) {
 	if wrongSession["ok"] != false {
 		t.Fatalf("private Session selector was accepted: %#v", wrongSession)
 	}
-	status := fixture.call(t, fixture.sessions[durableSession.RolePlanner], "agent/status", map[string]any{"agent": fixture.agentID})
+	status := fixture.call(t, fixture.sessions[durableSession.RolePlanner], "agent/status", map[string]any{"key": fixture.agentID})
 	if status["ok"] != true || status["result"].(map[string]any)["agent"] != fixture.agentID {
 		t.Fatalf("logical Agent status failed: %#v", status)
 	}

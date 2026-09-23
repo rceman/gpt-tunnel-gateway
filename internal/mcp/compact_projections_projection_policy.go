@@ -36,7 +36,6 @@ var projectionClasses = map[string]projectionClass{
 	"rule/list": projectionClosedDefault, "rule/query": projectionClosedDefault, "rule/read": projectionIntentionalPayload, "rule/update": projectionCompactDefault,
 	"runtime/logs": projectionIntentionalPayload, "runtime/restart": projectionCompactDefault,
 	"session/end": projectionClosedDefault, "session/info": projectionClosedDefault, "session/list": projectionClosedDefault, "session/start": projectionClosedDefault, "system/await": projectionClosedDefault,
-	"system/call": projectionClosedDefault, "system/schema": projectionClosedDefault,
 	"task/archive": projectionClosedDefault, "task/create": projectionClosedDefault, "task/integrate": projectionClosedDefault,
 	"task/complete": projectionClosedDefault, "task/guide": projectionClosedDefault, "task/test": projectionClosedDefault,
 	"task/current": projectionClosedDefault, "task/dispatch": projectionClosedDefault, "task/history": projectionClosedDefault, "task/list": projectionClosedDefault,

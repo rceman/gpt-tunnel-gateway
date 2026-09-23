@@ -16,7 +16,7 @@ definitions:
     metadata:
       kind: entity-reference
       selector_field: key
-      cross_domain_fields: [project, task, milestone, track, operation, session, agent, rule, journal, message, callback]
+      cross_domain_fields: [project, task, milestone, track, operation, session, agent, rule, journal, message, callback, gateway, request]
   Track:
     schema:
       type: object

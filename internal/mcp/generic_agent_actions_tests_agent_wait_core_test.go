@@ -185,12 +185,12 @@ func TestCanonicalAgentPublicMCPContractE2E(t *testing.T) {
 	if list["envelope"].(map[string]any)["is_error"] != false || len(list["result"].(map[string]any)["agents"].([]any)) != 1 {
 		t.Fatalf("agent/list failed: %#v", list)
 	}
-	status := call(3, "agent/status", map[string]any{"agent": "coding-example"})
+	status := call(3, "agent/status", map[string]any{"key": "coding-example"})
 	statusResult := status["result"].(map[string]any)
 	if status["envelope"].(map[string]any)["is_error"] != false || statusResult["agent"] != "coding-example" {
 		t.Fatalf("agent/status failed: %#v", status)
 	}
-	tail := call(4, "agent/tail", map[string]any{"agent": "coding-example", "lines": 1})
+	tail := call(4, "agent/tail", map[string]any{"key": "coding-example", "lines": 1})
 	if tail["envelope"].(map[string]any)["is_error"] != false || tail["result"].(map[string]any)["agent"] != "coding-example" {
 		t.Fatalf("agent/tail failed: %#v", tail)
 	}
@@ -205,16 +205,16 @@ func TestCanonicalAgentPublicMCPContractE2E(t *testing.T) {
 			t.Fatalf("agent/tail accepted legacy selector %q: %#v", legacyField, legacyTail)
 		}
 	}
-	prompt := call(5, "agent/prompt", map[string]any{"agent": "coding-example", "message": "contract"})
+	prompt := call(5, "agent/prompt", map[string]any{"key": "coding-example", "message": "contract"})
 	promptResult := prompt["result"].(map[string]any)
 	if prompt["envelope"].(map[string]any)["is_error"] != false || promptResult["operation"] == "" || promptResult["status"] != "accepted" {
 		t.Fatalf("agent/prompt failed: %#v", prompt)
 	}
-	awaited := call(6, "agent/await", map[string]any{"agent": "coding-example", "seconds": 1})
+	awaited := call(6, "agent/await", map[string]any{"key": "coding-example", "seconds": 1})
 	if awaited["envelope"].(map[string]any)["is_error"] != false || awaited["result"].(map[string]any)["agent"] != "coding-example" {
 		t.Fatalf("agent/await failed: %#v", awaited)
 	}
-	interrupt := call(7, "agent/interrupt", map[string]any{"agent": "coding-example"})
+	interrupt := call(7, "agent/interrupt", map[string]any{"key": "coding-example"})
 	if interrupt["envelope"].(map[string]any)["is_error"] != false {
 		t.Fatalf("agent/interrupt did not enqueue a current-Agent operation: %#v", interrupt)
 	}

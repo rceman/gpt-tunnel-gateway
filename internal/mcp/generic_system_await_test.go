@@ -64,10 +64,10 @@ func TestSystemAwaitSchemaIsBoundedAndRegistered(t *testing.T) {
 	}
 	minutes := branches[0].(map[string]any)["properties"].(map[string]any)["minutes"].(map[string]any)
 	seconds := branches[1].(map[string]any)["properties"].(map[string]any)["seconds"].(map[string]any)
-	if minutes["minimum"] != minAwaitMinutes || minutes["maximum"] != maxAwaitMinutes {
+	if !schemaIntegerEquals(minutes["minimum"], minAwaitMinutes) || !schemaIntegerEquals(minutes["maximum"], maxAwaitMinutes) {
 		t.Fatalf("unexpected await minute bounds: %#v", minutes)
 	}
-	if seconds["minimum"] != minAwaitSeconds || seconds["maximum"] != maxAwaitSeconds {
+	if !schemaIntegerEquals(seconds["minimum"], minAwaitSeconds) || !schemaIntegerEquals(seconds["maximum"], maxAwaitSeconds) {
 		t.Fatalf("unexpected await second bounds: %#v", seconds)
 	}
 	onComplete := branches[1].(map[string]any)["properties"].(map[string]any)["on_complete"].(map[string]any)["enum"].([]any)
@@ -136,18 +136,10 @@ func TestSystemAwaitRejectsInvalidBoundsThroughGenericDispatch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("minutes=%d dispatch error: %v", minutes, err)
 		}
-		encoded, _ := json.Marshal(result)
-		if !containsAny(string(encoded), "minutes", "between", "matching output shape") {
-			t.Fatalf("minutes=%d was not rejected by generic dispatch: %s", minutes, encoded)
+		errorResult, _ := result["result"].(map[string]any)
+		message, _ := errorResult["error"].(string)
+		if result["is_error"] != true || !strings.Contains(message, "one_of schema match") {
+			t.Fatalf("minutes=%d was not rejected by the compiled action contract: %#v", minutes, result)
 		}
 	}
-}
-
-func containsAny(value string, parts ...string) bool {
-	for _, part := range parts {
-		if strings.Contains(value, part) {
-			return true
-		}
-	}
-	return false
 }

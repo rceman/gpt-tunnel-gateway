@@ -148,7 +148,8 @@ func genericSchemaV2(entries map[string]genericActionEntry, path string) (map[st
 		if ok && domain == path {
 			actions = append(actions, map[string]any{
 				"path":        actionPath,
-				"description": entry.Description,
+				"description": entry.Contract.Description,
+				"input":       entry.Contract.CompactInputSchema(),
 			})
 		}
 	}
@@ -166,9 +167,9 @@ func genericSchemaV2(entries map[string]genericActionEntry, path string) (map[st
 
 func genericActionContractV2(entry genericActionEntry) map[string]any {
 	return map[string]any{
-		"description":   entry.Description,
-		"input_schema":  entry.InputSchema,
-		"output_schema": entry.OutputSchema,
+		"description":   entry.Contract.Description,
+		"input_schema":  entry.Contract.Input.JSONSchema(),
+		"output_schema": entry.Contract.Output.JSONSchema(),
 		"annotations": map[string]any{
 			"read_only":   entry.Annotations.ReadOnlyHint,
 			"destructive": entry.Annotations.DestructiveHint,
@@ -185,16 +186,16 @@ func genericActionContract(entry genericActionEntry) map[string]any {
 func genericActionCompactSummary(path string, entry genericActionEntry) map[string]any {
 	domain, name, _ := genericActionParts(path)
 	return map[string]any{
-		"path": path, "domain": domain, "name": name, "description": entry.Description,
-		"annotations": entry.Annotations, "session_required": entry.SessionRequired,
+		"path": path, "domain": domain, "name": name, "description": entry.Contract.Description,
+		"input": entry.Contract.CompactInputSchema(), "annotations": entry.Annotations, "session_required": entry.SessionRequired,
 	}
 }
 
 func genericActionSummary(path string, entry genericActionEntry) map[string]any {
 	domain, name, _ := genericActionParts(path)
 	return map[string]any{
-		"path": path, "domain": domain, "name": name, "description": entry.Description,
-		"input_schema": entry.InputSchema, "output_schema": entry.OutputSchema, "annotations": entry.Annotations,
+		"path": path, "domain": domain, "name": name, "description": entry.Contract.Description,
+		"input_schema": entry.Contract.Input.JSONSchema(), "output_schema": entry.Contract.Output.JSONSchema(), "annotations": entry.Annotations,
 		"session_required": entry.SessionRequired,
 	}
 }

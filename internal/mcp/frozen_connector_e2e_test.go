@@ -233,23 +233,16 @@ func TestADR84RuntimeActionDoesNotRefreshConnector(t *testing.T) {
 	started := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "session_start", "arguments": map[string]any{"token": grant.Token}}))
 	sessionID := started["session"].(string)
 	connectionsBefore := connections.Load()
-	if err := server.RegisterGenericAction(GenericAction{
-		Path:          "frozen/runtime_probe",
-		Description:   "Runtime action registered after connector bootstrap.",
-		AuthorityRole: durableSession.RolePlanner,
-		InputSchema:   obj(map[string]any{}),
-		OutputSchema:  closedOutput(map[string]any{"ok": outputBoolean()}, "ok"),
-		Execute:       func(context.Context, json.RawMessage) (any, error) { return map[string]any{"ok": true}, nil },
-	}); err != nil {
-		t.Fatal(err)
+	if err := server.RegisterGenericAction(GenericAction{Path: "frozen/runtime_probe"}); err == nil {
+		t.Fatal("unfrozen runtime action registration was accepted")
 	}
-	contract := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "schema", "arguments": map[string]any{"session": sessionID, "path": "frozen/runtime_probe"}}))
-	if contract["path"] != "frozen/runtime_probe" {
-		t.Fatalf("runtime action was not discovered: %#v", contract)
+	contract := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "schema", "arguments": map[string]any{"session": sessionID, "path": "session/info"}}))
+	if contract["path"] != "session/info" {
+		t.Fatalf("canonical action was not discovered: %#v", contract)
 	}
-	call := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "frozen/runtime_probe", "input": map[string]any{}}}))
-	if call["ok"] != true || call["result"].(map[string]any)["ok"] != true {
-		t.Fatalf("runtime action call failed: %#v", call)
+	call := frozenResult(t, client.request(t, "tools/call", map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "session/info", "input": map[string]any{}}}))
+	if call["ok"] != true || call["result"].(map[string]any)["session"] == nil {
+		t.Fatalf("canonical action call failed: %#v", call)
 	}
 	if client.methods["initialize"] != 1 || client.methods["tools/list"] != 1 || connections.Load() != connectionsBefore {
 		t.Fatalf("connector refreshed or reconnected: methods=%v connections=%d before=%d", client.methods, connections.Load(), connectionsBefore)

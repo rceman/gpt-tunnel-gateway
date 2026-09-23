@@ -39,11 +39,11 @@ func TestGenericAgentTailSelectsOnlyUnambiguousDurableAgentSession(t *testing.T)
 		return genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": id, "method": "tools/call",
 			"params": map[string]any{"name": "call", "arguments": map[string]any{
-				"session_id": plannerID, "action": "agent/tail", "input": input,
+				"session": plannerID, "action": "agent/tail", "input": input,
 			}},
 		})))
 	}
-	selected := call(1, map[string]any{"agent": "coding-example", "lines": 1})
+	selected := call(1, map[string]any{"key": "coding-example", "lines": 1})
 	selectedResult := selected["result"].(map[string]any)
 	if selected["is_error"] != false || selectedResult["agent"] != "coding-example" {
 		t.Fatalf("logical Agent did not select the configured durable target: %#v", selected)
@@ -55,7 +55,7 @@ func TestGenericAgentTailSelectsOnlyUnambiguousDurableAgentSession(t *testing.T)
 	if err := os.Remove(marker); err != nil {
 		t.Fatal(err)
 	}
-	noAgent := call(2, map[string]any{"agent": "coding-example", "lines": 1})
+	noAgent := call(2, map[string]any{"key": "coding-example", "lines": 1})
 	if noAgent["is_error"] != true {
 		t.Fatalf("unbound logical Agent was not rejected: %#v", noAgent)
 	}
@@ -71,7 +71,7 @@ func TestGenericAgentTailSelectsOnlyUnambiguousDurableAgentSession(t *testing.T)
 		t.Fatal(err)
 	}
 	s.Config.ProjectAgentBindings["example"]["coding-example"] = config.AgentBinding{SessionKey: refB}
-	selectedAgain := call(3, map[string]any{"agent": "coding-example", "lines": 1})
+	selectedAgain := call(3, map[string]any{"key": "coding-example", "lines": 1})
 	if selectedAgain["is_error"] != false || selectedAgain["result"].(map[string]any)["agent"] != "coding-example" {
 		t.Fatalf("configured logical Agent did not resolve its current target: %#v", selectedAgain)
 	}

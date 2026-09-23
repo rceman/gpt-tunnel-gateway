@@ -38,7 +38,7 @@ func TestTSK532GuideActionsExposeApplicableSubjectsAndPlannerBinding(t *testing.
 	}
 	properties := schemaProperties(bind.InputSchema)
 	if bind.InputSchema["additionalProperties"] != false || len(properties) != 3 ||
-		!reflectStringList(stringList(bind.InputSchema["required"]), []string{"subject", "rule", "reason"}) {
+		!reflectStringList(stringList(bind.InputSchema["required"]), []string{"reason", "rule", "subject"}) {
 		t.Fatalf("project/guide_bind input=%#v", bind.InputSchema)
 	}
 	if _, exposed := properties["project_id"]; exposed {

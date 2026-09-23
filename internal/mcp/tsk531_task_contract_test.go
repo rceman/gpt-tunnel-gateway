@@ -135,7 +135,7 @@ func TestTSK531TaskHistoryOutputIsUniversalKeyAndItems(t *testing.T) {
 		t.Fatalf("task/history output is not closed: %#v", schema)
 	}
 	required := stringList(schema["required"])
-	if len(required) != 2 || required[0] != "key" || required[1] != "items" {
+	if len(required) != 2 || required[0] != "items" || required[1] != "key" {
 		t.Fatalf("task/history required=%v", required)
 	}
 	row := properties["items"].(map[string]any)["items"].(map[string]any)

@@ -85,10 +85,10 @@ func tsk593ActionResult(t *testing.T, response map[string]any) map[string]any {
 func tsk593PromptAndAwait(t *testing.T, fixture *tsk571HTTPFixture, workerID, taskID string) {
 	t.Helper()
 	lead := fixture.sessions[durableSession.RoleLead]
-	if result := fixture.call(t, lead, "agent/prompt", map[string]any{"agent": workerID, "message": "Implement Task " + taskID + " from its canonical contract."}); result["ok"] != true {
+	if result := fixture.call(t, lead, "agent/prompt", map[string]any{"key": workerID, "message": "Implement Task " + taskID + " from its canonical contract."}); result["ok"] != true {
 		t.Fatalf("Lead could not supervise the bound Worker: %#v", result)
 	}
-	if result := fixture.call(t, lead, "agent/await", map[string]any{"agent": workerID, "seconds": 1}); result["ok"] != true {
+	if result := fixture.call(t, lead, "agent/await", map[string]any{"key": workerID, "seconds": 1}); result["ok"] != true {
 		t.Fatalf("Lead could not observe completion of the Worker turn: %#v", result)
 	}
 }
@@ -205,7 +205,7 @@ func TestTSK593SemanticBlockerUsesDurableMSGAndResumesAfterRestart(t *testing.T)
 
 	delegation := tsk593ActionResult(t, fixture.call(t, planner, "message/create", map[string]any{"to_role": durableSession.RoleLead, "body": track.ID}))
 	assignmentID, _ := delegation["message"].(string)
-	assignment := tsk593ActionResult(t, fixture.call(t, lead, "message/read", map[string]any{"message": assignmentID}))
+	assignment := tsk593ActionResult(t, fixture.call(t, lead, "message/read", map[string]any{"key": assignmentID}))
 	if assignment["body"] != track.ID {
 		t.Fatalf("durable assignment did not preserve Track reference: %#v", assignment)
 	}
@@ -220,7 +220,7 @@ func TestTSK593SemanticBlockerUsesDurableMSGAndResumesAfterRestart(t *testing.T)
 	body := "Track " + track.ID + "; Task " + fixture.task.ID + " is blocked. Decision required: confirm the existing API scope. Evidence: task/status reason=" + reason
 	blocker := tsk593ActionResult(t, fixture.call(t, lead, "message/create", map[string]any{"to_role": durableSession.RolePlanner, "title": "Track semantic blocker", "body": body}))
 	blockerID, _ := blocker["message"].(string)
-	plannerRead := tsk593ActionResult(t, fixture.call(t, planner, "message/read", map[string]any{"message": blockerID}))
+	plannerRead := tsk593ActionResult(t, fixture.call(t, planner, "message/read", map[string]any{"key": blockerID}))
 	if plannerRead["body"] != body || strings.Contains(body, fixture.task.Summary) {
 		t.Fatalf("blocker MSG duplicated Task content or lost exact evidence: %#v", plannerRead)
 	}
@@ -236,7 +236,7 @@ func TestTSK593SemanticBlockerUsesDurableMSGAndResumesAfterRestart(t *testing.T)
 	if len(items) != 1 {
 		t.Fatalf("restart lost Planner reply inbox state: %#v", resumedMessages)
 	}
-	readReply := tsk593ActionResult(t, fixture.call(t, lead, "message/read", map[string]any{"message": replyID}))
+	readReply := tsk593ActionResult(t, fixture.call(t, lead, "message/read", map[string]any{"key": replyID}))
 	if !strings.Contains(readReply["body"].(string), "accepted scope unchanged") {
 		t.Fatalf("Planner reply was not durable after restart: %#v", readReply)
 	}

@@ -56,7 +56,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	}
 
 	sessionID := genericSession(t, s, "example")
-	send := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/prompt", "input": map[string]any{"message": "hello"}}}}))
+	send := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "agent/prompt", "input": map[string]any{"key": "coding-example", "message": "hello"}}}}))
 	sendResult := genericStructured(t, send)
 	if sendResult["is_error"] != false {
 		t.Fatalf("send failed: %#v", send)
@@ -68,7 +68,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		status := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "operation/read", "input": map[string]any{"operation_id": operationID}}}}))
+		status := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "operation/read", "input": map[string]any{"key": operationID}}}}))
 		statusResult := genericStructured(t, status)
 		if statusResult["is_error"] == true {
 			t.Fatalf("agent/prompt status failed: %#v", status)
@@ -87,7 +87,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		service.WithAgentSessionID(context.Background(), sessionID),
 		5*time.Millisecond,
 		"agent/status",
-		mustJSON(t, map[string]any{}),
+		mustJSON(t, map[string]any{"agent_id": "coding-example"}),
 	)
 	if err != nil {
 		t.Fatalf("first heartbeat failed: %v", err)
@@ -100,13 +100,13 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatalf("first heartbeat omitted new tail lines: %#v", firstProjection)
 	}
 
-	tail := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/tail", "input": map[string]any{"agent": "coding-example", "lines": 4}}}}))
+	tail := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "agent/tail", "input": map[string]any{"key": "coding-example", "lines": 4}}}}))
 	tailResult := genericStructured(t, tail)
 	if tailResult["is_error"] != false {
 		t.Fatalf("tail failed: %#v", tail)
 	}
 
-	status := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/status", "input": map[string]any{"agent": "coding-example"}}}}))
+	status := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "agent/status", "input": map[string]any{"key": "coding-example"}}}}))
 	statusResult := genericStructured(t, status)
 	statusContent := statusResult["result"].(map[string]any)
 	if statusResult["is_error"] != false || statusContent["agent"] != "coding-example" {
@@ -119,7 +119,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		service.WithAgentSessionID(context.Background(), sessionID),
 		5*time.Millisecond,
 		"agent/status",
-		mustJSON(t, map[string]any{}),
+		mustJSON(t, map[string]any{"agent_id": "coding-example"}),
 	)
 	if err != nil {
 		t.Fatalf("unchanged heartbeat failed: %v", err)
@@ -140,7 +140,7 @@ func TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow(t *t
 		t.Fatalf("session-bound project rules read failed: %#v", rules)
 	}
 
-	unknown := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "agent/prompt", "input": map[string]any{"message": "hello", "session_key": "arbitrary"}}}}))
+	unknown := callMCP(t, srv, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "agent/prompt", "input": map[string]any{"key": "coding-example", "message": "hello", "session_key": "arbitrary"}}}}))
 	unknownResult := genericStructured(t, unknown)
 	if unknownResult["is_error"] != true {
 		t.Fatalf("caller-supplied session key was accepted: %#v", unknown)
@@ -162,8 +162,8 @@ func TestTailToolSchemaIsSessionBoundAndCursorFree(t *testing.T) {
 	if _, ok := properties["project_id"]; ok {
 		t.Fatal("agent/tail exposes project_id")
 	}
-	if _, ok := properties["agent"]; !ok {
-		t.Fatal("agent/tail omits logical Agent selector")
+	if _, ok := properties["key"]; !ok {
+		t.Fatal("agent/tail omits canonical Agent selector")
 	}
 	for _, field := range []string{"session", "session_key", "airelay_session", "skip", "cursor", "dedupe"} {
 		if _, ok := properties[field]; ok {

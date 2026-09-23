@@ -52,9 +52,21 @@ type actionSpec struct {
 }
 
 type metadataSpec struct {
-	Surface     string           `yaml:"surface"`
-	Selector    *string          `yaml:"selector"`
-	Annotations *annotationsSpec `yaml:"annotations"`
+	Surface       string             `yaml:"surface"`
+	Selector      *string            `yaml:"selector"`
+	Annotations   *annotationsSpec   `yaml:"annotations"`
+	HandlerInput  []fieldMappingSpec `yaml:"handler_input,omitempty"`
+	HandlerOutput []fieldMappingSpec `yaml:"handler_output,omitempty"`
+}
+
+type fieldMappingSpec struct {
+	From string `yaml:"from"`
+	To   string `yaml:"to"`
+}
+
+type FieldMapping struct {
+	From string
+	To   string
 }
 
 type annotationsSpec struct {
@@ -66,6 +78,7 @@ type annotationsSpec struct {
 
 type schemaSpec struct {
 	Type                     string                `yaml:"type,omitempty"`
+	JSONValue                bool                  `yaml:"json_value,omitempty"`
 	Ref                      string                `yaml:"ref,omitempty"`
 	Description              string                `yaml:"description,omitempty"`
 	Properties               map[string]schemaSpec `yaml:"properties,omitempty"`
@@ -108,13 +121,16 @@ type AnnotationHints struct {
 }
 
 type ActionMetadata struct {
-	Surface     string
-	Selector    string
-	Annotations AnnotationHints
+	Surface               string
+	Selector              string
+	Annotations           AnnotationHints
+	HandlerInputMappings  []FieldMapping
+	HandlerOutputMappings []FieldMapping
 }
 
 type CompiledSchema struct {
 	Type                     string
+	JSONValue                bool
 	RefName                  string
 	Description              string
 	Properties               map[string]*CompiledSchema
@@ -168,6 +184,7 @@ type Discovery struct {
 }
 
 type ActionSummary struct {
-	Path        string `json:"path"`
-	Description string `json:"description"`
+	Path        string         `json:"path"`
+	Description string         `json:"description"`
+	Input       map[string]any `json:"input"`
 }

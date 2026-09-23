@@ -63,22 +63,6 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 	serviceConfig := config.Config{StateDir: state, Hub: config.HubConfig{RepositoryURL: bare, Branch: "main", AuthorName: "test", AuthorEmail: "test@example.invalid"}}
 	svc, _ := mcpServiceWithSQLite(t, serviceConfig)
 	server := &Server{Service: svc}
-	if err := server.RegisterGenericAction(GenericAction{
-		Path:          "test/authority",
-		Description:   "authority boundary test",
-		InputSchema:   obj(map[string]any{}),
-		OutputSchema:  closedOutput(map[string]any{"ok": outputBoolean()}, "ok"),
-		AuthorityRole: durableSession.RolePlanner,
-		Authority:     authority.RequirePlanner,
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			if err := authority.RequirePlanner(ctx); err != nil {
-				return nil, err
-			}
-			return map[string]any{"ok": true}, nil
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
 	record, err := mcpSQLiteSessionStore(t, svc).Create(durableSession.CreateInput{ProjectID: "example", ProjectCode: "EXM", Role: durableSession.RolePlanner, SessionType: durableSession.SessionTypeChatGPT})
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +78,7 @@ func TestMCPServerAuthorityBoundaryIsTrustedAndNonSerialized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	arguments := map[string]any{"session": record.ID, "action": "test/authority", "input": map[string]any{}}
+	arguments := map[string]any{"session": record.ID, "action": "task/create", "input": map[string]any{}}
 	body := mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "call", "arguments": arguments, "_meta": map[string]any{"role": "delivery"}},

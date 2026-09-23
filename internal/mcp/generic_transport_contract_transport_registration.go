@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/actioncontract"
 )
 
 const genericSchemaRevision = "generic-mcp-v2"
@@ -32,6 +34,7 @@ type GenericAction struct {
 }
 type genericActionEntry struct {
 	GenericAction
+	Contract                  actioncontract.CompiledAction
 	LegacyTool                string
 	LegacyInputSchema         map[string]any
 	LegacyOutputSchema        map[string]any
@@ -59,6 +62,9 @@ func (s *Server) RegisterGenericAction(action GenericAction) error {
 	}
 	if strings.HasPrefix(action.Path, "plan/") {
 		return fmt.Errorf("plan actions are retired from the canonical action registry")
+	}
+	if _, exists := s.actionContractSet().Action(action.Path); !exists {
+		return fmt.Errorf("generic action %q has no canonical action contract", action.Path)
 	}
 	if action.Description == "" || action.InputSchema == nil || action.OutputSchema == nil || action.Execute == nil {
 		return fmt.Errorf("generic action %q is incomplete", action.Path)
@@ -147,7 +153,7 @@ func legacyActionPath(toolName string) string {
 func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]genericActionEntry {
 	entries := make(map[string]genericActionEntry, len(legacy))
 	for toolName, tool := range legacy {
-		if toolName == "system_ping" || toolName == "session" || toolName == "status" || toolName == "guide" || toolName == "projects" || toolName == "project" || toolName == "project_list" || toolName == "project_status" || isRetiredPlanAction(toolName) {
+		if toolName == "call" || toolName == "schema" || toolName == "system_ping" || toolName == "session" || toolName == "status" || toolName == "guide" || toolName == "projects" || toolName == "project" || toolName == "project_list" || toolName == "project_status" || isRetiredPlanAction(toolName) {
 			continue
 		}
 		path := legacyActionPath(toolName)
@@ -165,6 +171,9 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		}
 		toolName, tool := toolName, tool
 		contract := actionAuthorityContractFor(toolName)
+		if _, exists := entries[path]; exists {
+			panic(fmt.Sprintf("multiple legacy handlers register action %q", path))
+		}
 		entry := genericActionEntry{
 			GenericAction: GenericAction{
 				Path:                   path,
@@ -188,6 +197,9 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 	s.genericActionMu.RLock()
 	defer s.genericActionMu.RUnlock()
 	for path, action := range s.genericActions {
+		if _, exists := entries[path]; exists && !action.AllowLegacyOverride {
+			panic(fmt.Sprintf("generic action %q duplicates a registered legacy handler", path))
+		}
 		if strings.HasPrefix(path, "git/") {
 			continue
 		}
@@ -236,5 +248,6 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		entries[path] = entry
 	}
 	s.addBootstrapActions(entries, legacy)
+	s.applyActionContracts(entries)
 	return entries
 }

@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,7 +9,6 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
-	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 )
 
 func TestGenericRegisteredActionDiscoveryAndCall(t *testing.T) {
@@ -22,59 +20,52 @@ func TestGenericRegisteredActionDiscoveryAndCall(t *testing.T) {
 		AuthorityContext: authority.WithPlanner(context.Background()),
 	}
 	sessionID := genericSession(t, server.Service, "example")
-	if err := server.RegisterGenericAction(GenericAction{
-		Path:        "test/echo",
-		Description: "Echo one value for transport testing.",
-		InputSchema: obj(map[string]any{"value": str("Value")}, "value"),
-		OutputSchema: closedOutput(map[string]any{
-			"value": outputString(),
-		}, "value"),
-		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var input struct {
-				Value string `json:"value"`
-			}
-			if err := decode(raw, &input); err != nil {
-				return nil, err
-			}
-			return map[string]any{"value": input.Value}, nil
-		},
-	}); err != nil {
-		t.Fatal(err)
+	if err := server.RegisterGenericAction(GenericAction{Path: "test/echo"}); err == nil {
+		t.Fatal("unfrozen action registration was accepted")
 	}
 
 	contract := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "schema", "arguments": map[string]any{"session": sessionID, "path": "test/echo"}},
+		"params": map[string]any{"name": "schema", "arguments": map[string]any{"session": sessionID, "path": "session/info"}},
 	})))
-	if contract["kind"] != "action" || contract["path"] != "test/echo" {
-		t.Fatalf("unexpected action contract: %#v", contract)
+	if contract["kind"] != "action" || contract["path"] != "session/info" {
+		t.Fatalf("unexpected compiled action contract: %#v", contract)
+	}
+	inputSchema := contract["contract"].(map[string]any)["input_schema"].(map[string]any)
+	if len(schemaProperties(inputSchema)) != 0 {
+		t.Fatalf("session/info discovery did not use its compiled empty input schema: %#v", inputSchema)
 	}
 
 	call := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/echo", "input": map[string]any{"value": "ok"}}},
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "session/info", "input": map[string]any{}}},
 	})))
-	if _, ok := call["action"]; ok || call["is_error"] != false {
-		t.Fatalf("unexpected generic call: %#v", call)
+	if call["is_error"] != false {
+		t.Fatalf("compiled action call failed: %#v", call)
 	}
+	if _, ok := call["result"].(map[string]any)["session"]; !ok {
+		t.Fatalf("session/info omitted its contract result: %#v", call)
+	}
+
 	invalid := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/echo", "input": map[string]any{"wrong": true}}},
+		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "operation/read", "input": map[string]any{"operation_id": "EXM-OPR1"}}},
 	})))
-	errorValue, _ := invalid["result"].(map[string]any)["error"].(map[string]any)
-	if _, ok := invalid["action"]; ok || invalid["is_error"] != true || !strings.Contains(errorValue["message"].(string), `schema with path="test/echo"`) {
-		t.Fatalf("generic validation error was not actionable: %#v", invalid)
+	invalidError, _ := invalid["result"].(map[string]any)["error"].(map[string]any)
+	if invalid["is_error"] != true || !strings.Contains(invalidError["message"].(string), `schema with path="operation/read"`) {
+		t.Fatalf("compiled runtime validation did not reject the compatibility alias: %#v", invalid)
 	}
 
 	unknown := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "missing/action", "input": map[string]any{}}},
+		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "missing/action", "input": map[string]any{}}},
 	})))
 	unknownError, _ := unknown["result"].(map[string]any)["error"].(map[string]any)
 	if unknown["is_error"] != true || !strings.Contains(unknownError["message"].(string), "unknown action") {
 		t.Fatalf("unknown action did not fail closed: %#v", unknown)
 	}
 }
+
 func TestGenericLegacyReadAndMutationAuthorityReuse(t *testing.T) {
 	server := &Server{
 		Service: func() *service.Service {
@@ -86,7 +77,7 @@ func TestGenericLegacyReadAndMutationAuthorityReuse(t *testing.T) {
 	sessionID := genericSession(t, server.Service, "example")
 	generic := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "system/ping", "input": map[string]any{}}},
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "system/ping", "input": map[string]any{}}},
 	})))
 	genericError, _ := generic["result"].(map[string]any)["error"].(map[string]any)
 	if generic["is_error"] != true || !strings.Contains(genericError["message"].(string), "unknown action") {
@@ -94,18 +85,16 @@ func TestGenericLegacyReadAndMutationAuthorityReuse(t *testing.T) {
 	}
 
 	unauthorizedServer := &Server{Service: server.Service}
-	var calls int
-	registerAuthorityTestAction(t, unauthorizedServer, "test/policy", durableSession.RolePlanner, true, &calls)
-	unauthorized := callMCP(t, unauthorizedServer, mustJSON(t, map[string]any{
+	unauthorized := genericStructured(t, callMCP(t, unauthorizedServer, mustJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session_id": sessionID, "action": "test/policy", "input": map[string]any{"value": "ok"}}},
-	}))
-	unauthorizedResult := genericStructured(t, unauthorized)
-	unauthorizedError, _ := unauthorizedResult["result"].(map[string]any)["error"].(map[string]any)
-	if unauthorizedResult["is_error"] != true || !strings.Contains(unauthorizedError["message"].(string), "AUTHORITY_UNAVAILABLE") {
-		t.Fatalf("generic mutation did not reuse authority enforcement: %#v", unauthorizedResult)
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": sessionID, "action": "task/create", "input": map[string]any{}}},
+	})))
+	unauthorizedError, _ := unauthorized["result"].(map[string]any)["error"].(map[string]any)
+	if unauthorized["is_error"] != true || !strings.Contains(unauthorizedError["message"].(string), "AUTHORITY_UNAVAILABLE") {
+		t.Fatalf("generic mutation did not reuse authority enforcement: %#v", unauthorized)
 	}
 }
+
 func TestGenericTransportEnvelopeAndActionPathContracts(t *testing.T) {
 	callSchema := genericCallOutputSchema()
 	if callSchema["type"] != "object" {
@@ -126,7 +115,8 @@ func TestGenericTransportEnvelopeAndActionPathContracts(t *testing.T) {
 			t.Fatalf("genericActionParts(%q) ok=%v, want %v", test.path, ok, test.want)
 		}
 	}
-	if _, err := (&Server{}).genericSchema(nil, json.RawMessage(`{"path":"query/run"}`)); err == nil {
+	server := newSessionTestServer(t)
+	if _, ok := server.genericActionRegistry(server.tools())["query/run"]; ok {
 		t.Fatal("retired query/run action remains publicly discoverable")
 	}
 }

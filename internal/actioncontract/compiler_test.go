@@ -13,6 +13,33 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/workflowrole"
 )
 
+func TestCompositionOnlyObjectDelegatesPropertiesToBranches(t *testing.T) {
+	closed := false
+	action := &CompiledSchema{Type: "string"}
+	sessionBranch := &CompiledSchema{
+		Type:                 "object",
+		Properties:           map[string]*CompiledSchema{"action": action, "session": action},
+		Required:             []string{"action", "session"},
+		AdditionalProperties: &closed,
+	}
+	listBranch := &CompiledSchema{
+		Type:                 "object",
+		Properties:           map[string]*CompiledSchema{"action": action, "sessions": {Type: "array"}},
+		Required:             []string{"action", "sessions"},
+		AdditionalProperties: &closed,
+	}
+	composed := &CompiledSchema{
+		Type:  "object",
+		OneOf: []*CompiledSchema{sessionBranch, listBranch},
+	}
+	if err := validateCompiledSchema(composed, map[string]any{"action": "info", "session": "HOM_EXM_P_1"}, "output"); err != nil {
+		t.Fatalf("valid one_of branch rejected by composed object: %v", err)
+	}
+	if err := validateCompiledSchema(composed, map[string]any{"action": "info", "session": "HOM_EXM_P_1", "extra": true}, "output"); err == nil {
+		t.Fatal("composed one_of accepted a property outside all closed branches")
+	}
+}
+
 func TestCanonicalContractTreeAndSharedDefinitionCoverage(t *testing.T) {
 	shared, actions := readContractInputs(t, filepath.Join("..", "..", "contracts", "shared-definitions.yaml"), filepath.Join("..", "..", "contracts", "actions.yaml"))
 	compiled, err := Compile(shared, actions)
@@ -24,8 +51,30 @@ func TestCanonicalContractTreeAndSharedDefinitionCoverage(t *testing.T) {
 	if got := compiled.DefinitionNames(); !reflect.DeepEqual(got, expectedDefinitions) {
 		t.Fatalf("shared definition names = %v, want %v", got, expectedDefinitions)
 	}
-	if got := compiled.Actions(); len(got) != 0 {
-		t.Fatalf("foundation catalog must not migrate live actions: %#v", got)
+	actionsList := compiled.Actions()
+	if len(actionsList) == 0 {
+		t.Fatal("canonical action catalog is empty")
+	}
+	for _, action := range actionsList {
+		if action.Path == "system/call" || action.Path == "system/schema" {
+			t.Fatalf("retired action %q remains in the canonical catalog", action.Path)
+		}
+	}
+	agentPrompt, ok := compiled.Action("agent/prompt")
+	if !ok {
+		t.Fatal("agent/prompt contract is missing")
+	}
+	promptMessage := agentPrompt.Input.Properties["message"]
+	if promptMessage == nil || promptMessage.Type != "string" || promptMessage.MaxLength == nil || *promptMessage.MaxLength != 4096 {
+		t.Fatalf("Agent prompt message body is not a bounded string: %#v", agentPrompt.Input.Properties)
+	}
+	messageRead, ok := compiled.Action("message/read")
+	if !ok {
+		t.Fatal("message/read contract is missing")
+	}
+	messageIdentity := messageRead.Output.Properties["message"]
+	if messageIdentity == nil || messageIdentity.RefName != "EntityKeyAndReference" {
+		t.Fatalf("Message identity does not reuse its shared semantic reference: %#v", messageRead.Output.Properties)
 	}
 	if got := compiled.definitions["WorkflowRole"].Enum; !reflect.DeepEqual(got, stringValues(workflowrole.Names())) {
 		t.Fatalf("WorkflowRole values = %v, want current workflow roles %v", got, workflowrole.Names())
@@ -96,6 +145,15 @@ func TestCompiledFixtureDrivesSchemasDiscoveryAndConformance(t *testing.T) {
 	if _, err := Compile(shared, []byte(mutationReasonCatalog)); err != nil {
 		t.Fatalf("MutationReason reference rejected: %v", err)
 	}
+	optionalSelectorActions := replaceContract("required: [key, role, at]", "required: [role, at]")(string(actions))
+	optionalSelectorSet, err := Compile(shared, []byte(optionalSelectorActions))
+	if err != nil {
+		t.Fatalf("optional typed-path selector failed to compile: %v", err)
+	}
+	if err := optionalSelectorSet.ValidateInput("sample/inspect", map[string]any{"role": "worker", "at": "26-09-23T13:42:12"}); err != nil {
+		t.Fatalf("optional typed-path selector was treated as required: %v", err)
+	}
+
 	inputSchema, err := compiled.ActionInputSchema("sample/inspect")
 	if err != nil {
 		t.Fatal(err)

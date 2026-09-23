@@ -38,7 +38,7 @@ func TestTSK644CodeSearchSchemaExposesLiteralAlternativesAndCaseMode(t *testing.
 		}
 	}
 	required := stringList(entry.InputSchema["required"])
-	if len(required) != 2 || required[0] != "worktree" || required[1] != "query" {
+	if len(required) != 2 || required[0] != "query" || required[1] != "worktree" {
 		t.Fatalf("code/search required=%v", required)
 	}
 	for _, field := range required {

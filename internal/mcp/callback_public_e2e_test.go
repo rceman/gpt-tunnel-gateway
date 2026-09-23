@@ -147,14 +147,14 @@ func TestCallbackActionsUsePublicCallAndSharedRegistry(t *testing.T) {
 	if combined["key"] != "combined-hook" || combined["url"] == nil || combined["script"] == nil {
 		t.Fatalf("combined callback summary=%#v", combined)
 	}
-	removed := publicCallbackCall(t, server, session, "callback/remove", map[string]any{"callback": "http-hook"})
+	removed := publicCallbackCall(t, server, session, "callback/remove", map[string]any{"key": "http-hook"})
 	if removed["status"] != "removed" {
 		t.Fatalf("remove=%#v", removed)
 	}
 	if removed["key"] != "http-hook" || removed["callback"] != nil {
 		t.Fatalf("remove response=%#v", removed)
 	}
-	missing := genericStructured(t, publicCallbackEnvelope(t, server, session, "callback/remove", map[string]any{"callback": "http-hook"}))
+	missing := genericStructured(t, publicCallbackEnvelope(t, server, session, "callback/remove", map[string]any{"key": "http-hook"}))
 	if missing["is_error"] != true {
 		t.Fatalf("missing remove=%#v", missing)
 	}

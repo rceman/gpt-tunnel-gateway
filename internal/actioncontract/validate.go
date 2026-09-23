@@ -69,6 +69,9 @@ func validateCompiledSchema(schema *CompiledSchema, value any, path string) erro
 	if schema == nil {
 		return fmt.Errorf("%s: missing compiled schema", path)
 	}
+	if schema.JSONValue {
+		return nil
+	}
 	if schema.Not != nil && validateCompiledSchema(schema.Not, value, path) == nil {
 		return fmt.Errorf("%s: value matches excluded schema", path)
 	}
@@ -153,6 +156,10 @@ func validateCompiledSchema(schema *CompiledSchema, value any, path string) erro
 		}
 	}
 	if object, ok := value.(map[string]any); ok {
+		composedOnly := len(schema.Properties) == 0 && len(schema.Required) == 0 && schema.AdditionalPropertySchema == nil && (len(schema.AllOf) > 0 || len(schema.OneOf) > 0 || len(schema.AnyOf) > 0)
+		if composedOnly {
+			return nil
+		}
 		for _, required := range schema.Required {
 			if _, exists := object[required]; !exists {
 				return fmt.Errorf("%s: missing required property %q", path, required)

@@ -139,11 +139,11 @@ func TestCanonicalAgentSchemasAreClosedAndBounded(t *testing.T) {
 		}
 	}
 	assertFields("agent/list", []string{}, []string{})
-	assertFields("agent/status", []string{"agent"}, []string{})
-	assertFields("agent/await", []string{"agent", "seconds"}, []string{})
-	assertFields("agent/tail", []string{"agent", "lines"}, []string{})
-	assertFields("agent/prompt", []string{"agent", "message"}, []string{"message"})
-	assertFields("agent/interrupt", []string{"agent", "message"}, []string{})
+	assertFields("agent/status", []string{"key"}, []string{})
+	assertFields("agent/await", []string{"key", "seconds"}, []string{})
+	assertFields("agent/tail", []string{"key", "lines"}, []string{})
+	assertFields("agent/prompt", []string{"key", "message"}, []string{"message"})
+	assertFields("agent/interrupt", []string{"key", "message"}, []string{})
 
 	for _, path := range []string{"agent/prompt", "agent/interrupt"} {
 		message := schemaProperties(entries[path].InputSchema)["message"].(map[string]any)
@@ -152,7 +152,7 @@ func TestCanonicalAgentSchemasAreClosedAndBounded(t *testing.T) {
 		}
 	}
 	seconds := schemaProperties(entries["agent/await"].InputSchema)["seconds"].(map[string]any)
-	if seconds["minimum"] != 1 || seconds["maximum"] != 600 || seconds["default"] != canonicalAgentAwaitDefaultSeconds {
+	if !schemaIntegerEquals(seconds["minimum"], 1) || !schemaIntegerEquals(seconds["maximum"], 600) || !schemaIntegerEquals(seconds["default"], canonicalAgentAwaitDefaultSeconds) {
 		t.Fatalf("await seconds contract=%#v", seconds)
 	}
 	for _, path := range []string{"agent/list", "agent/status", "agent/await", "agent/tail", "agent/prompt", "agent/interrupt"} {
@@ -264,6 +264,19 @@ func TestCanonicalAgentAwaitOneSecondEntersFinalProbeImmediately(t *testing.T) {
 	}
 	if result := value.(map[string]any); result["status"] != "idle" {
 		t.Fatalf("one-second await result=%#v", result)
+	}
+}
+
+func schemaIntegerEquals(value any, want int) bool {
+	switch number := value.(type) {
+	case int:
+		return number == want
+	case int64:
+		return number == int64(want)
+	case float64:
+		return number == float64(want)
+	default:
+		return false
 	}
 }
 

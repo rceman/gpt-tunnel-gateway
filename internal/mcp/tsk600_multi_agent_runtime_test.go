@@ -43,7 +43,7 @@ func TestTSK629LogicalAgentAndTaskRoutingStaySeparate(t *testing.T) {
 	lead := fixture.sessions[durableSession.RoleLead]
 
 	for _, agent := range []string{fixture.agentID, "coding-worker"} {
-		status := fixture.call(t, planner, "agent/status", map[string]any{"agent": agent})
+		status := fixture.call(t, planner, "agent/status", map[string]any{"key": agent})
 		if status["ok"] != true {
 			t.Fatalf("Planner could not address logical Agent %s: %#v", agent, status)
 		}

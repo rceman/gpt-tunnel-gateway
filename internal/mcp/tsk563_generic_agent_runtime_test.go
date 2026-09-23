@@ -46,16 +46,16 @@ func TestTSK629PlannerObservesAndLeadControlsLogicalAgentThroughDurableSession(t
 		name  string
 		input map[string]any
 	}{
-		{name: "agent/status", input: map[string]any{"agent": fixture.agentID}},
-		{name: "agent/await", input: map[string]any{"agent": fixture.agentID, "seconds": 1}},
-		{name: "agent/tail", input: map[string]any{"agent": fixture.agentID, "lines": 1}},
+		{name: "agent/status", input: map[string]any{"key": fixture.agentID}},
+		{name: "agent/await", input: map[string]any{"key": fixture.agentID, "seconds": 1}},
+		{name: "agent/tail", input: map[string]any{"key": fixture.agentID, "lines": 1}},
 	} {
 		result := fixture.call(t, fixture.sessions[durableSession.RolePlanner], action.name, action.input)
 		if result["ok"] != true {
 			t.Fatalf("%s was not reachable through durable Planner Session: %#v", action.name, result)
 		}
 	}
-	prompt := fixture.call(t, fixture.sessions[durableSession.RoleLead], "agent/prompt", map[string]any{"agent": fixture.agentID, "message": "TSK629 bounded Worker supervision"})
+	prompt := fixture.call(t, fixture.sessions[durableSession.RoleLead], "agent/prompt", map[string]any{"key": fixture.agentID, "message": "TSK629 bounded Worker supervision"})
 	if prompt["ok"] != true {
 		t.Fatalf("Lead could not prompt the selected logical Agent: %#v", prompt)
 	}
@@ -83,7 +83,7 @@ func TestTSK629LogicalAgentTargetRejectsPrivateSelectors(t *testing.T) {
 	installTSK563Airelay(t, fixture)
 
 	for _, input := range []map[string]any{
-		{"agent": "missing-agent", "lines": 1},
+		{"key": "missing-agent", "lines": 1},
 		{"session": fixture.sessions[durableSession.RoleWorker], "lines": 1},
 		{"airelay_session": fixture.runtime, "lines": 1},
 	} {
@@ -92,7 +92,7 @@ func TestTSK629LogicalAgentTargetRejectsPrivateSelectors(t *testing.T) {
 			t.Fatalf("private or unknown Agent target was accepted: input=%#v result=%#v", input, result)
 		}
 	}
-	runtimeResult := fixture.call(t, fixture.runtime, "agent/tail", map[string]any{"agent": fixture.agentID, "lines": 1})
+	runtimeResult := fixture.call(t, fixture.runtime, "agent/tail", map[string]any{"key": fixture.agentID, "lines": 1})
 	if runtimeResult["ok"] != false {
 		t.Fatalf("runtime-key caller was accepted: %#v", runtimeResult)
 	}
@@ -125,7 +125,7 @@ func TestTSK563TaskDispatchUsesAttachedWorkerAndHidesAgentSelector(t *testing.T)
 
 	unknownSelector := fixture.call(t, fixture.sessions[durableSession.RoleLead], "task/dispatch", map[string]any{"key": fixture.task.ID, "agent": "other-agent"})
 	message := tsk571ErrorMessage(t, unknownSelector)
-	if !strings.Contains(message, "unknown argument") || !strings.Contains(message, "agent") {
+	if !strings.Contains(message, "agent") || (!strings.Contains(message, "unknown argument") && !strings.Contains(message, "unknown property")) {
 		t.Fatalf("caller-selected Agent field was accepted: %q", message)
 	}
 }

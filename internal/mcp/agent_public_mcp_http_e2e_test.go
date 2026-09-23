@@ -183,25 +183,25 @@ func TestCanonicalAgentPublicMCPHTTPContractCoversAllActions(t *testing.T) {
 	if agents, ok := list["agents"].([]any); !ok || len(agents) != 1 {
 		t.Fatalf("agent/list result=%#v", list)
 	}
-	status := call("agent/status", map[string]any{"agent": "coding-example"}, "ADR81 traces compact status naming under the ADR84/ADR83 Agent surface.")
+	status := call("agent/status", map[string]any{"key": "coding-example"}, "ADR81 traces compact status naming under the ADR84/ADR83 Agent surface.")
 	if status["agent"] != "coding-example" {
 		t.Fatalf("agent/status result=%#v", status)
 	}
-	awaited := call("agent/await", map[string]any{"agent": "coding-example", "seconds": 1}, "ADR81 traces bounded await under the ADR85/ADR83 Agent supervision contract.")
+	awaited := call("agent/await", map[string]any{"key": "coding-example", "seconds": 1}, "ADR81 traces bounded await under the ADR85/ADR83 Agent supervision contract.")
 	if awaited["agent"] != "coding-example" {
 		t.Fatalf("agent/await result=%#v", awaited)
 	}
-	tail := call("agent/tail", map[string]any{"agent": "coding-example", "lines": 1}, "TSK546 traces logical Agent transcript reads.")
+	tail := call("agent/tail", map[string]any{"key": "coding-example", "lines": 1}, "TSK546 traces logical Agent transcript reads.")
 	if tail["agent"] != "coding-example" {
 		t.Fatalf("agent/tail result=%#v", tail)
 	}
-	prompt := call("agent/prompt", map[string]any{"agent": "coding-example", "message": "tsk443 public E2E"}, "ADR81 traces prompt dispatch through the ADR84/ADR83 Agent contract.")
+	prompt := call("agent/prompt", map[string]any{"key": "coding-example", "message": "tsk443 public E2E"}, "ADR81 traces prompt dispatch through the ADR84/ADR83 Agent contract.")
 	promptOperation, ok := prompt["operation"].(string)
 	if !ok || promptOperation == "" || prompt["status"] != "accepted" {
 		t.Fatalf("agent/prompt result=%#v", prompt)
 	}
 	waitAgentOperationTerminal(t, s, sessionID, promptOperation, "agent-prompt")
-	interrupt := call("agent/interrupt", map[string]any{"agent": "coding-example"}, "ADR81 traces interrupt dispatch through the ADR84/ADR83 Agent contract.")
+	interrupt := call("agent/interrupt", map[string]any{"key": "coding-example"}, "ADR81 traces interrupt dispatch through the ADR84/ADR83 Agent contract.")
 	interruptOperation, ok := interrupt["operation"].(string)
 	if !ok || interruptOperation == "" || interrupt["status"] != "accepted" {
 		t.Fatalf("agent/interrupt result=%#v", interrupt)

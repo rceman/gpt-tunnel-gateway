@@ -156,7 +156,8 @@ func genericSchemaOutputSchema() map[string]any {
 	action := closedOutput(map[string]any{
 		"path":        outputString(),
 		"description": outputString(),
-	}, "path", "description")
+		"input":       map[string]any{"type": "object", "additionalProperties": true},
+	}, "path", "description", "input")
 	annotations := closedOutput(map[string]any{
 		"read_only":   outputBoolean(),
 		"destructive": outputBoolean(),

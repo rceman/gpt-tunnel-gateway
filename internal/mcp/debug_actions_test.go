@@ -67,7 +67,8 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 			t.Fatal("debug/activate must advertise idempotent source-keyed ensure semantics")
 		}
 	}
-	root, err := server.genericSchema(nil, []byte(`{"path":""}`))
+	legacy := server.tools()
+	root, err := server.genericSchema(legacy, []byte(`{"path":""}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +82,7 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 	if !foundDomain {
 		t.Fatal("enabled debug domain was not discoverable")
 	}
-	domain, err := server.genericSchema(nil, []byte(`{"path":"debug"}`))
+	domain, err := server.genericSchema(legacy, []byte(`{"path":"debug"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,8 +226,8 @@ func TestDebugStatusUsesOnlyConfiguredHostLocalState(t *testing.T) {
 	if result["debug_enabled"] != true || result["source"].(map[string]any)["root"] != sourceRoot {
 		t.Fatalf("debug/status omitted host-local source identity: %#v", result)
 	}
-	if result["gateway_id"] != "HOM" {
-		t.Fatalf("debug/status gateway_id=%#v want debug-test", result["gateway_id"])
+	if result["gateway"] != "HOM" {
+		t.Fatalf("debug/status gateway=%#v want HOM", result["gateway"])
 	}
 	if result["source"].(map[string]any)["clean"] != true {
 		t.Fatalf("debug/status reported clean fixture as dirty: %#v", result["source"])

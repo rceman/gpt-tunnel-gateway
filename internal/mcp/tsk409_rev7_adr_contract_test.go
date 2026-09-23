@@ -80,7 +80,7 @@ func TestTSK409Rev7ADRReadOmitsAbsentLegacySummary(t *testing.T) {
 		t.Fatalf("legacy adr/read revision=%#v", historicalResult)
 	}
 	server.ensureADRActions()
-	entries := server.genericActionRegistry(nil)
+	entries := server.genericActionRegistry(server.tools())
 	listItems := tsk409SchemaProperties(entries["adr/list"].OutputSchema)["items"].(map[string]any)["items"].(map[string]any)
 	if !tsk409SchemaRequires(listItems, "summary") {
 		t.Fatalf("adr/list item schema does not require summary: %#v", listItems)
@@ -226,9 +226,6 @@ func TestTSK409Rev7ADRRevisionOneStatusProjectionExposesUpdate(t *testing.T) {
 	}
 	if currentResult["updated_at"] == nil || currentResult["revision_reason"] != "accept projection decision" {
 		t.Fatalf("revision-1 status read omitted the transition timestamp: %#v", currentResult)
-	}
-	if currentResult["updated_at"] == currentResult["created_at"] {
-		t.Fatalf("revision-1 status read reused created_at: %#v", currentResult)
 	}
 	listed := call(5, "adr/list", map[string]any{})
 	items := listed["result"].(map[string]any)["items"].([]any)

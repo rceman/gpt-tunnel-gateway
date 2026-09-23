@@ -8,7 +8,7 @@ import (
 func TestTSK409ADRPublicSchemasAreClosedAndTransportNeutral(t *testing.T) {
 	server := newSessionTestServer(t)
 	server.ensureADRActions()
-	entries := server.genericActionRegistry(nil)
+	entries := server.genericActionRegistry(server.tools())
 	want := map[string][]string{
 		"adr/create":  {"title", "summary", "context", "decision", "consequences", "status", "relation_type", "relation_target"},
 		"adr/read":    {"key", "revision"},

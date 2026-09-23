@@ -132,6 +132,7 @@ func (s *Server) agentStatusActionWithTail(ctx context.Context, raw json.RawMess
 	}
 	resolved, err := s.Service.ResolveAgent(ctx, service.AgentResolveInput{
 		ProjectID:     in.ProjectID,
+		Role:          model.AgentRoleCoding,
 		AgentID:       in.AgentID,
 		RequireUsable: false,
 	})

@@ -184,8 +184,8 @@ func TestSessionListIsSessionlessAndHidesInternalBinding(t *testing.T) {
 	if !ok || len(sessions) != 2 {
 		t.Fatalf("session.list did not discover both active sessions: %#v", listed)
 	}
-	first := sessions[0].(map[string]any)["session_id"].(string)
-	second := sessions[1].(map[string]any)["session_id"].(string)
+	first := sessions[0].(map[string]any)["key"].(string)
+	second := sessions[1].(map[string]any)["key"].(string)
 	if first > second {
 		t.Fatalf("session.list ordering is not deterministic: %#v", sessions)
 	}
@@ -210,7 +210,7 @@ func TestSessionListIsSessionlessAndHidesInternalBinding(t *testing.T) {
 		t.Fatalf("session.list included ended session: %#v", listed)
 	}
 	item := sessions[0].(map[string]any)
-	if item["session_id"] != plannerID || item["role"] != "planner" || item["project_id"] != "example" {
+	if item["key"] != plannerID || item["role"] != "planner" || item["project"] != "example" {
 		t.Fatalf("session.list projection=%#v", item)
 	}
 	if _, ok := item["ref"]; ok {

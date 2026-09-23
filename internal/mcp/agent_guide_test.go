@@ -56,7 +56,7 @@ func TestTSK545AgentGuideIsClosedBoundedAndRoleAware(t *testing.T) {
 				t.Fatalf("RUL projection identity schema=%#v", ruleID)
 			}
 			revision, ok := properties["rule_revision"].(map[string]any)
-			if !ok || revision["type"] != "integer" || revision["minimum"] != 1 {
+			if !ok || revision["type"] != "integer" || revision["minimum"] != float64(1) {
 				t.Fatalf("RUL projection revision schema=%#v", revision)
 			}
 		}

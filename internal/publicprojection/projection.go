@@ -107,7 +107,7 @@ func projectValue(value any, field, scope, action string) (any, error) {
 	case map[string]any:
 		result := make(map[string]any, len(current))
 		for key, child := range current {
-			if omitNonGitIdentifier(key, child) {
+			if omitNonGitIdentifier(key, child) || omitEmptyGitFingerprint(key, child) {
 				continue
 			}
 			projected, err := projectValue(child, key, scope, action)
@@ -308,6 +308,11 @@ func validFingerprint(value string, length int) bool {
 		}
 	}
 	return true
+}
+
+func omitEmptyGitFingerprint(field string, value any) bool {
+	text, ok := value.(string)
+	return ok && text == "" && gitFingerprintField(field)
 }
 
 func omitNonGitIdentifier(field string, value any) bool {

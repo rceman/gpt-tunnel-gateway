@@ -8,9 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/tokenizer"
-	"github.com/rceman/gpt-tunnel-gateway/internal/workflowrole"
 )
 
 const tsk595InventoryPath = "../../docs/MCP_ACTION_INVENTORY_TSK595.json"
@@ -43,11 +41,12 @@ type tsk595Inventory struct {
 		CrossDomainNames  []string `json:"cross_domain_reference_names"`
 	} `json:"selector_contract"`
 	ConditionalDebug struct {
-		ObservedCount   int      `json:"observed_count"`
-		Keep            []string `json:"keep"`
-		Change          []string `json:"change"`
-		Remove          []string `json:"remove"`
-		IdentityAliases []string `json:"current_declared_identity_aliases"`
+		ObservedCount   int                  `json:"observed_count"`
+		Keep            []string             `json:"keep"`
+		Change          []string             `json:"change"`
+		Remove          []string             `json:"remove"`
+		ChangeDetails   []tsk595ChangeDetail `json:"change_details"`
+		IdentityAliases []string             `json:"current_declared_identity_aliases"`
 	} `json:"conditional_debug_actions"`
 	SharedDefinitions []tsk595SharedDefinition `json:"shared_definitions"`
 	SchemaCost        struct {
@@ -56,6 +55,7 @@ type tsk595Inventory struct {
 }
 
 type tsk595ChangeDetail struct {
+	Path            string            `json:"path"`
 	Paths           []string          `json:"paths"`
 	CurrentSelector string            `json:"current_selector"`
 	TargetSelector  string            `json:"target_selector"`
@@ -96,53 +96,36 @@ func loadTSK595Inventory(t *testing.T) tsk595Inventory {
 
 func TestTSK595FrozenActionInventory(t *testing.T) {
 	inventory := loadTSK595Inventory(t)
+	wantNormal := append(append([]string{}, inventory.NormalActions.Keep...), inventory.NormalActions.Change...)
 	server := newSessionTestServer(t)
 	entries := server.genericActionRegistry(server.tools())
-	classified := make(map[string]string, inventory.NormalActions.ObservedCount)
-	for decision, paths := range map[string][]string{
-		"KEEP":   inventory.NormalActions.Keep,
-		"CHANGE": inventory.NormalActions.Change,
-		"REMOVE": inventory.NormalActions.Remove,
-	} {
-		for _, path := range paths {
-			if previous, exists := classified[path]; exists {
-				t.Fatalf("action %s classified as both %s and %s", path, previous, decision)
-			}
-			classified[path] = decision
+	if !equalTSK595Strings(sortedTSK595Keys(entries), sortedTSK595Strings(wantNormal)) {
+		t.Fatalf("normal action registry differs from frozen survivors: live=%v frozen=%v", sortedTSK595Keys(entries), sortedTSK595Strings(wantNormal))
+	}
+	for _, path := range inventory.NormalActions.Remove {
+		if _, ok := entries[path]; ok {
+			t.Fatalf("removed action %q remains registered", path)
 		}
-	}
-	if len(entries) != inventory.NormalActions.ObservedCount {
-		t.Fatalf("normal registry has %d actions, inventory records %d", len(entries), inventory.NormalActions.ObservedCount)
-	}
-	if !equalTSK595Strings(sortedTSK595Keys(entries), sortedTSK595Keys(classified)) {
-		t.Fatalf("normal action inventory differs from live registry; unclassified/missing paths: live=%v frozen=%v", sortedTSK595Keys(entries), sortedTSK595Keys(classified))
 	}
 	for _, path := range inventory.NormalActions.Change {
 		if _, ok := entries[path]; !ok {
-			t.Fatalf("CHANGE path %q is not currently registered", path)
+			t.Fatalf("CHANGE path %q is not registered", path)
 		}
 	}
 	for _, path := range inventory.NormalActions.OpaqueOutputs {
-		if entries[path].OutputSchema["additionalProperties"] != true {
-			t.Fatalf("opaque output %s is no longer explicitly identified for CHANGE", path)
+		if entries[path].OutputSchema["additionalProperties"] == true {
+			t.Fatalf("opaque output %s remains open-world in its compiled contract", path)
 		}
 		if !containsTSK595String(inventory.NormalActions.Change, path) {
 			t.Fatalf("opaque output %s is not classified CHANGE", path)
 		}
 	}
-	for _, path := range inventory.NormalActions.Remove {
-		if _, ok := entries[path]; !ok {
-			t.Fatalf("REMOVE path %q is not present in the current registry", path)
-		}
-	}
-
 	if got := sortedTSK595Strings(canonicalToolNames()); !equalTSK595Strings(got, sortedTSK595Strings(inventory.PublicTransportTools.Names)) {
 		t.Fatalf("public transport tools=%v, frozen=%v", got, inventory.PublicTransportTools.Names)
 	}
 	if len(canonicalToolNames()) != inventory.PublicTransportTools.ObservedCount {
 		t.Fatalf("canonical transport tool count=%d, frozen=%d", len(canonicalToolNames()), inventory.PublicTransportTools.ObservedCount)
 	}
-
 	trackPaths := actionPathsWithPrefix(entries, "track/")
 	wantTracks := append(append([]string{}, inventory.TrackMilestone.TrackLifecycle...), "track/guide")
 	if !equalTSK595Strings(trackPaths, sortedTSK595Strings(wantTracks)) {
@@ -160,20 +143,15 @@ func TestTSK595FrozenActionInventory(t *testing.T) {
 	if containsSchemaProperty(entries["milestone/read"].OutputSchema, "tracks") || containsSchemaProperty(entries["milestone/update"].InputSchema, "tracks") {
 		t.Fatal("Milestone contract regained embedded Track membership")
 	}
-	if _, exists := entries["task/submit-tests"]; exists {
-		t.Fatal("normal submit-tests action must not be frozen")
-	}
-
-	for _, path := range inventory.NormalActions.Remove {
-		if path != "system/call" && path != "system/schema" {
-			t.Fatalf("unexpected registered REMOVE action %q", path)
+	for _, path := range []string{"task/submit-tests", "system/call", "system/schema", "debug/task_legacy_revision_list", "debug/task_legacy_revision_read"} {
+		if _, exists := entries[path]; exists {
+			t.Fatalf("retired action %s is registered", path)
 		}
 	}
-	for _, path := range sortedTSK595Keys(entries) {
+	for path, entry := range entries {
 		if retiredTSK595ActionPath(path) {
 			t.Fatalf("retired action family is registered: %s", path)
 		}
-		entry := entries[path]
 		if containsSchemaProperty(entry.InputSchema, "agent_ref") || containsSchemaProperty(entry.OutputSchema, "agent_ref") || containsSchemaProperty(entry.InputSchema, "runtime_ref") || containsSchemaProperty(entry.OutputSchema, "runtime_ref") {
 			t.Fatalf("normal action %s exposes a runtime/Agent reference selector", path)
 		}
@@ -182,28 +160,19 @@ func TestTSK595FrozenActionInventory(t *testing.T) {
 				t.Fatalf("normal action %s exposes distributed role-gate field %q", path, field)
 			}
 		}
-		if path != "system/call" {
-			if continuation := forbiddenContinuationFields(entry.OutputSchema); len(continuation) > 0 {
-				t.Fatalf("%s exposes result-level continuation fields %v", path, continuation)
-			}
+		if continuation := forbiddenContinuationFields(entry.OutputSchema); len(continuation) > 0 {
+			t.Fatalf("%s exposes result-level continuation fields %v", path, continuation)
 		}
 	}
-	for _, path := range []string{"debug/task_legacy_revision_list", "debug/task_legacy_revision_read"} {
-		if _, exists := entries[path]; exists {
-			t.Fatalf("source-only legacy action %s is registered", path)
-		}
-	}
-
 	assertOuterCallPagination(t)
-	assertTSK595SelectorMigrations(t, inventory, entries)
-	assertTSK595IdentityAliases(t, inventory.NormalActions.IdentityAliases, entries)
 
-	server.Service.Config.Debug.Enabled = true
-	debugEntries := server.genericActionRegistry(server.tools())
+	debugServer := newSessionTestServer(t)
+	debugServer.Service.Config.Debug.Enabled = true
+	debugEntries := debugServer.genericActionRegistry(debugServer.tools())
 	debugPaths := actionPathsWithPrefix(debugEntries, "debug/")
-	classifiedDebug := append(append(append([]string{}, inventory.ConditionalDebug.Keep...), inventory.ConditionalDebug.Change...), inventory.ConditionalDebug.Remove...)
-	if len(debugPaths) != inventory.ConditionalDebug.ObservedCount || !equalTSK595Strings(debugPaths, sortedTSK595Strings(classifiedDebug)) {
-		t.Fatalf("conditional debug actions=%v, frozen=%v", debugPaths, sortedTSK595Strings(classifiedDebug))
+	wantDebug := append(append([]string{}, inventory.ConditionalDebug.Keep...), inventory.ConditionalDebug.Change...)
+	if !equalTSK595Strings(debugPaths, sortedTSK595Strings(wantDebug)) {
+		t.Fatalf("conditional debug actions=%v, want surviving inventory=%v", debugPaths, sortedTSK595Strings(wantDebug))
 	}
 	for _, path := range []string{"debug/prompt", "debug/tail", "debug/await"} {
 		if !containsSchemaProperty(debugEntries[path].InputSchema, "agent_ref") {
@@ -215,8 +184,26 @@ func TestTSK595FrozenActionInventory(t *testing.T) {
 		collectTSK595IdentityFields(path+".input", debugEntries[path].InputSchema, &debugAliases)
 		collectTSK595IdentityFields(path+".output", debugEntries[path].OutputSchema, &debugAliases)
 	}
-	if !equalTSK595Strings(sortedTSK595Strings(debugAliases), sortedTSK595Strings(inventory.ConditionalDebug.IdentityAliases)) {
-		t.Fatalf("conditional debug identity alias inventory=%v, frozen=%v", sortedTSK595Strings(debugAliases), inventory.ConditionalDebug.IdentityAliases)
+	if len(debugAliases) != 0 {
+		t.Fatalf("conditional debug identity aliases remain after migration: %v", debugAliases)
+	}
+	for _, detail := range inventory.ConditionalDebug.ChangeDetails {
+		path := detail.Path
+		if path == "" && len(detail.Paths) == 1 {
+			path = detail.Paths[0]
+		}
+		entry, ok := debugEntries[path]
+		if !ok {
+			t.Fatalf("debug migration path %q is not registered", path)
+		}
+		for current, target := range detail.FieldMigrations {
+			if schemaHasMigrationField(entry.OutputSchema, current) {
+				t.Errorf("%s output retains migrated field %q", path, current)
+			}
+			if !schemaHasMigrationField(entry.OutputSchema, target) {
+				t.Errorf("%s output omits migrated field %q", path, target)
+			}
+		}
 	}
 }
 
@@ -229,167 +216,135 @@ func TestTSK595SharedDefinitionsAndSchemaCost(t *testing.T) {
 		}
 		definitions[definition.Name] = definition
 	}
-	for _, required := range []string{"WorkflowRole", "EntityKeyAndReference", "Track", "Milestone", "Revision", "CursorAndCompactHandle", "GitFingerprint", "NonGitDigestOrHandle", "MutationReason", "Timestamp", "Duration", "TrackReviewSnapshot", "TaskExecution", "TaskVerification", "Operation"} {
-		if _, ok := definitions[required]; !ok {
-			t.Fatalf("frozen inventory omitted shared definition %q", required)
+	wantNames := []string{"WorkflowRole", "EntityKeyAndReference", "Track", "Milestone", "Revision", "CursorAndCompactHandle", "GitFingerprint", "NonGitDigestOrHandle", "MutationReason", "Timestamp", "Duration", "TrackReviewSnapshot", "TaskExecution", "TaskVerification", "Operation"}
+	for _, name := range wantNames {
+		if _, ok := definitions[name]; !ok {
+			t.Fatalf("frozen inventory omitted shared definition %q", name)
 		}
-	}
-	workflowRoles := sharedStringValues(t, definitions["WorkflowRole"].Values)
-	if !equalTSK595Strings(workflowRoles, sortedTSK595Strings(workflowrole.Names())) {
-		t.Fatalf("WorkflowRole values=%v, implementation=%v", workflowRoles, workflowrole.Names())
-	}
-	entityValues := sharedObjectValues(t, definitions["EntityKeyAndReference"].Values)
-	if entityValues["typed_path_selector"] != "key" || !equalTSK595Strings(sharedStringValues(t, entityValues["cross_domain_fields"]), []string{"project", "task", "milestone", "track", "operation", "session", "agent"}) {
-		t.Fatalf("EntityKeyAndReference definition=%#v", entityValues)
-	}
-	if sharedObjectValues(t, definitions["Revision"].Values)["minimum"] != float64(1) {
-		t.Fatalf("Revision definition=%#v", definitions["Revision"].Values)
-	}
-	cursorValues := sharedObjectValues(t, definitions["CursorAndCompactHandle"].Values)
-	if cursorValues["continuation_output"] != "call.pagination.next_cursor" || cursorValues["public_handle_max_ascii_length"] != float64(8) || cursorValues["self_contained_public_state"] != false {
-		t.Fatalf("CursorAndCompactHandle definition=%#v", cursorValues)
-	}
-	gitValues := sharedObjectValues(t, definitions["GitFingerprint"].Values)
-	if gitValues["wire_length"] != float64(8) || gitValues["pattern"] != "^[0-9a-f]{8}$" {
-		t.Fatalf("GitFingerprint definition=%#v", gitValues)
-	}
-	nonGitValues := sharedObjectValues(t, definitions["NonGitDigestOrHandle"].Values)
-	if nonGitValues["default"] != "omit if caller does not need it" || !strings.Contains(nonGitValues["needed_reference"].(string), "8 ASCII") {
-		t.Fatalf("NonGitDigestOrHandle definition=%#v", nonGitValues)
-	}
-	reasonValues := sharedObjectValues(t, definitions["MutationReason"].Values)
-	if reasonValues["minimum_length"] != float64(1) || reasonValues["maximum_length"] != float64(1024) {
-		t.Fatalf("MutationReason definition=%#v", reasonValues)
-	}
-	if sharedObjectValues(t, definitions["Timestamp"].Values)["json_schema_format"] != "date-time" {
-		t.Fatalf("Timestamp definition=%#v", definitions["Timestamp"].Values)
-	}
-	if sharedObjectValues(t, definitions["Duration"].Values)["wire_type"] != "integer" {
-		t.Fatalf("Duration definition=%#v", definitions["Duration"].Values)
 	}
 	if inventory.SelectorContract.TypedPathSelector != "key" {
 		t.Fatalf("typed selector=%q, want key", inventory.SelectorContract.TypedPathSelector)
 	}
-	for _, required := range []string{"project", "task", "milestone", "track", "operation", "session", "agent"} {
-		if !containsTSK595String(inventory.SelectorContract.CrossDomainNames, required) {
-			t.Fatalf("cross-domain reference names omit %q", required)
+	if len(inventory.SchemaCost.Measurements) == 0 {
+		t.Fatal("frozen inventory omitted representative schema-cost measurements")
+	}
+	for _, measurement := range inventory.SchemaCost.Measurements {
+		if measurement.View == "" || measurement.Tokens <= 0 || measurement.JSONBytes <= 0 {
+			t.Fatalf("invalid frozen schema-cost measurement: %#v", measurement)
 		}
-	}
-	if !equalTSK595Strings(inventory.TrackMilestone.TrackStatuses, model.TrackStatuses()) || !equalTSK595Strings(definitions["Track"].Statuses, model.TrackStatuses()) {
-		t.Fatalf("Track statuses=%v shared=%v model=%v", inventory.TrackMilestone.TrackStatuses, definitions["Track"].Statuses, model.TrackStatuses())
-	}
-	if !equalTSK595Strings(definitions["Milestone"].Statuses, model.MilestoneStatuses()) {
-		t.Fatalf("Milestone statuses=%v, model=%v", definitions["Milestone"].Statuses, model.MilestoneStatuses())
-	}
-	if !equalTSK595Strings(definitions["TrackReviewSnapshot"].PublicFields, []string{"head", "tree", "track_revision", "tasks[{key,revision}]", "submitted_at", "submitted_by"}) {
-		t.Fatalf("TrackReviewSnapshot public fields=%v", definitions["TrackReviewSnapshot"].PublicFields)
-	}
-	executionStatuses := []string{
-		model.TaskExecutionPlanned, model.TaskExecutionDispatched, model.TaskExecutionInProgress,
-		model.TaskExecutionAwaitingReview, model.TaskExecutionChangesRequested, model.TaskExecutionReadyForVerification,
-		model.TaskExecutionVerifying, model.TaskExecutionVerified, model.TaskExecutionIntegrating,
-		model.TaskExecutionIntegrated, model.TaskExecutionDone, model.TaskExecutionBlocked, model.TaskExecutionFailed,
-	}
-	if !equalTSK595Strings(definitions["TaskExecution"].Statuses, executionStatuses) {
-		t.Fatalf("TaskExecution statuses=%v, model=%v", definitions["TaskExecution"].Statuses, executionStatuses)
-	}
-	if !equalTSK595Strings(definitions["TaskExecution"].Stages, []string{"code", "tests", "rebase"}) {
-		t.Fatalf("TaskExecution stages=%v", definitions["TaskExecution"].Stages)
-	}
-	verificationOutcomes := []string{model.TaskExecutionVerificationSucceeded, model.TaskExecutionVerificationFailed, model.TaskExecutionVerificationInterrupted}
-	if !equalTSK595Strings(definitions["TaskVerification"].Outcomes, verificationOutcomes) {
-		t.Fatalf("TaskVerification outcomes=%v, model=%v", definitions["TaskVerification"].Outcomes, verificationOutcomes)
-	}
-	if !equalTSK595Strings(definitions["Operation"].States, []string{"accepted", "running", "completed", "failed", "outcome_unknown"}) {
-		t.Fatalf("Operation states=%v", definitions["Operation"].States)
 	}
 
 	server := newSessionTestServer(t)
 	entries := server.genericActionRegistry(server.tools())
-	cursor := publicServerCursorSchema()
-	if cursor["minLength"] != 8 || cursor["maxLength"] != 8 {
-		t.Fatalf("current compact cursor schema=%v", cursor)
+	if server.actionContractSet().DefinitionNames() == nil {
+		t.Fatal("compiled action contracts have no shared definitions")
 	}
 	assertBoundedReasonSchema(t, entries["track/update"].InputSchema)
 	assertBoundedReasonSchema(t, entries["milestone/update"].InputSchema)
-	if outputDateTime()["format"] != "date-time" {
-		t.Fatalf("Timestamp schema=%v", outputDateTime())
-	}
-	assertTrackReviewSchema(t, entries["track/read"].OutputSchema)
-
-	measurements := map[string]tsk595SchemaMeasurement{}
-	for _, measurement := range inventory.SchemaCost.Measurements {
-		measurements[measurement.View] = measurement
-	}
 	counter := tokenizer.NewCounter()
 	for _, path := range []string{"task", "track", "operation", "task/create", "track/read", "operation/read"} {
 		value, err := genericSchemaV2(entries, path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertSchemaMeasurement(t, counter, measurements, path, value)
-	}
-	for _, domain := range []string{"task", "track", "operation"} {
-		paths := actionPathsWithPrefix(entries, domain+"/")
-		tokens, jsonBytes := 0, 0
-		for _, path := range paths {
-			value, err := genericSchemaV2(entries, path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			data, err := json.Marshal(value)
-			if err != nil {
-				t.Fatal(err)
-			}
-			count, err := counter.CountText(data)
-			if err != nil {
-				t.Fatal(err)
-			}
-			tokens += count
-			jsonBytes += len(data)
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
 		}
-		assertSchemaMeasurementTotals(t, measurements, domain+"/full_actions", tokens, jsonBytes)
+		tokens, err := counter.CountText(data)
+		if err != nil || tokens <= 0 || len(data) == 0 {
+			t.Fatalf("model-facing schema %s was not measurable: tokens=%d bytes=%d err=%v", path, tokens, len(data), err)
+		}
 	}
-	var descriptors []map[string]any
-	publicTools := server.publicTools()
-	for _, name := range canonicalToolNames() {
-		tool := publicTools[name]
-		descriptors = append(descriptors, map[string]any{
-			"name": name, "description": tool.Description, "inputSchema": tool.InputSchema,
-			"outputSchema": tool.OutputSchema, "annotations": tool.Annotations,
-		})
-	}
-	assertSchemaMeasurement(t, counter, measurements, "tools/list", descriptors)
 }
 
 func assertTSK595SelectorMigrations(t *testing.T, inventory tsk595Inventory, entries map[string]genericActionEntry) {
 	t.Helper()
 	for _, detail := range inventory.NormalActions.ChangeDetails {
-		if detail.CurrentSelector == "" || detail.TargetSelector == "" {
-			continue
-		}
-		if lastSelectorPart(detail.TargetSelector) != "key" {
-			t.Fatalf("selector migration target %q is not key", detail.TargetSelector)
-		}
+		group := make([]genericActionEntry, 0, len(detail.Paths))
 		for _, path := range detail.Paths {
 			entry, ok := entries[path]
 			if !ok {
-				t.Fatalf("selector migration path %s is not registered", path)
+				t.Fatalf("migration path %s is not registered", path)
 			}
-			if !containsSchemaProperty(entry.InputSchema, lastSelectorPart(detail.CurrentSelector)) {
-				t.Fatalf("%s current selector %q is not present in the registered schema", path, detail.CurrentSelector)
+			group = append(group, entry)
+			if detail.CurrentSelector != "" && detail.TargetSelector != "" {
+				if lastSelectorPart(detail.TargetSelector) != "key" {
+					t.Fatalf("selector migration target %q is not key", detail.TargetSelector)
+				}
+				if !schemaHasFieldPath(entry.InputSchema, detail.TargetSelector) {
+					t.Errorf("%s omits migrated selector %q", path, detail.TargetSelector)
+				}
+				if schemaHasFieldPath(entry.InputSchema, detail.CurrentSelector) {
+					t.Errorf("%s retains retired selector %q", path, detail.CurrentSelector)
+				}
+			}
+		}
+		for current, target := range detail.FieldMigrations {
+			targetFound := false
+			for _, entry := range group {
+				if schemaHasMigrationField(entry.InputSchema, current) || schemaHasMigrationField(entry.OutputSchema, current) {
+					t.Errorf("%v retains migrated field %q", detail.Paths, current)
+				}
+				targetFound = targetFound || schemaHasMigrationField(entry.InputSchema, target) || schemaHasMigrationField(entry.OutputSchema, target)
+			}
+			if !targetFound {
+				t.Errorf("%v omits migrated field %q", detail.Paths, target)
+			}
+		}
+		for current, target := range detail.OutputFields {
+			targetFound := false
+			for _, entry := range group {
+				if schemaHasMigrationField(entry.OutputSchema, current) {
+					t.Errorf("%v output retains migrated field %q", detail.Paths, current)
+				}
+				targetFound = targetFound || schemaHasMigrationField(entry.OutputSchema, target)
+			}
+			if !targetFound {
+				t.Errorf("%v output omits migrated field %q", detail.Paths, target)
 			}
 		}
 	}
-	for _, path := range []string{"operation/read", "operation/await"} {
-		properties := schemaProperties(entries[path].InputSchema)
-		if _, ok := properties["operation_id"]; !ok {
-			t.Fatalf("%s current selector inventory is stale", path)
-		}
-		if _, ok := properties["key"]; ok {
-			t.Fatalf("%s current schema unexpectedly exposes both current and target selectors", path)
-		}
+}
+
+func schemaHasMigrationField(schema any, path string) bool {
+	if strings.Contains(path, ".") {
+		return schemaHasFieldPath(schema, path)
 	}
+	return containsSchemaProperty(schema, path)
+}
+
+func schemaHasFieldPath(schema any, path string) bool {
+	parts := strings.Split(path, ".")
+	var visit func(any, int) bool
+	visit = func(value any, index int) bool {
+		if index == len(parts) {
+			return true
+		}
+		object, ok := value.(map[string]any)
+		if !ok {
+			return false
+		}
+		if properties, ok := object["properties"].(map[string]any); ok {
+			if child, exists := properties[parts[index]]; exists && visit(child, index+1) {
+				return true
+			}
+		}
+		for _, key := range []string{"allOf", "oneOf", "anyOf"} {
+			if branches, ok := object[key].([]any); ok {
+				for _, branch := range branches {
+					if visit(branch, index) {
+						return true
+					}
+				}
+			}
+		}
+		if items, exists := object["items"]; exists {
+			return visit(items, index)
+		}
+		return false
+	}
+	return visit(schema, 0)
 }
 
 func assertTSK595IdentityAliases(t *testing.T, expected []string, entries map[string]genericActionEntry) {

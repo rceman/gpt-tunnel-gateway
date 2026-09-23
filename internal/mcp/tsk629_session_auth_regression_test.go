@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -37,35 +36,16 @@ func TestTSK629PublicCallHardCutsRuntimeSessionFallback(t *testing.T) {
 
 func TestTSK629AllWorkflowRolesAuthenticateThroughDurableSession(t *testing.T) {
 	server := newSessionTestServer(t)
-	calls := map[string]int{}
-	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker} {
-		role := role
-		if err := server.RegisterGenericAction(GenericAction{
-			Path:        "test/" + role,
-			Description: "TSK629 durable Session authentication test action.",
-			InputSchema: obj(map[string]any{"value": str("value")}, "value"),
-			OutputSchema: closedOutput(map[string]any{
-				"role": outputString(),
-			}, "role"),
-			AuthorityRole: role,
-			Execute: func(context.Context, json.RawMessage) (any, error) {
-				calls[role]++
-				return map[string]any{"role": role}, nil
-			},
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
 	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleLead, durableSession.RoleAdvisor, durableSession.RoleWorker} {
 		sessionID := genericSessionWithRole(t, server.Service, "example", role)
 		result := genericStructured(t, callMCP(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": role, "method": "tools/call",
 			"params": map[string]any{"name": "call", "arguments": map[string]any{
-				"session": sessionID, "action": "test/" + role, "input": map[string]any{"value": "ok"},
+				"session": sessionID, "action": "agent/guide", "input": map[string]any{},
 			}},
 		})))
-		if result["is_error"] == true || calls[role] != 1 {
-			t.Fatalf("durable %s Session authentication failed: result=%#v calls=%d", role, result, calls[role])
+		if result["is_error"] == true {
+			t.Fatalf("durable %s Session authentication failed: %#v", role, result)
 		}
 	}
 }
@@ -79,15 +59,15 @@ func TestTSK629RoleActionMatrixIsPermissiveAfterSessionAuthentication(t *testing
 		action string
 		input  map[string]any
 	}{
-		{durableSession.RoleLead, "agent/status", map[string]any{"agent": fixture.agentID}},
-		{durableSession.RoleLead, "agent/prompt", map[string]any{"agent": fixture.agentID, "message": "bounded"}},
-		{durableSession.RoleLead, "agent/interrupt", map[string]any{"agent": fixture.agentID}},
-		{durableSession.RoleAdvisor, "agent/status", map[string]any{"agent": fixture.agentID}},
-		{durableSession.RoleAdvisor, "agent/prompt", map[string]any{"agent": fixture.agentID, "message": "bounded"}},
-		{durableSession.RoleAdvisor, "agent/interrupt", map[string]any{"agent": fixture.agentID}},
-		{durableSession.RoleWorker, "agent/status", map[string]any{"agent": fixture.agentID}},
-		{durableSession.RoleWorker, "agent/prompt", map[string]any{"agent": fixture.agentID, "message": "bounded"}},
-		{durableSession.RoleWorker, "agent/interrupt", map[string]any{"agent": fixture.agentID}},
+		{durableSession.RoleLead, "agent/status", map[string]any{"key": fixture.agentID}},
+		{durableSession.RoleLead, "agent/prompt", map[string]any{"key": fixture.agentID, "message": "bounded"}},
+		{durableSession.RoleLead, "agent/interrupt", map[string]any{"key": fixture.agentID}},
+		{durableSession.RoleAdvisor, "agent/status", map[string]any{"key": fixture.agentID}},
+		{durableSession.RoleAdvisor, "agent/prompt", map[string]any{"key": fixture.agentID, "message": "bounded"}},
+		{durableSession.RoleAdvisor, "agent/interrupt", map[string]any{"key": fixture.agentID}},
+		{durableSession.RoleWorker, "agent/status", map[string]any{"key": fixture.agentID}},
+		{durableSession.RoleWorker, "agent/prompt", map[string]any{"key": fixture.agentID, "message": "bounded"}},
+		{durableSession.RoleWorker, "agent/interrupt", map[string]any{"key": fixture.agentID}},
 	}
 	for _, tc := range cases {
 		result := fixture.call(t, fixture.sessions[tc.role], tc.action, tc.input)
@@ -95,7 +75,7 @@ func TestTSK629RoleActionMatrixIsPermissiveAfterSessionAuthentication(t *testing
 			t.Fatalf("authenticated %s/%s action was rejected: %#v", tc.role, tc.action, result)
 		}
 	}
-	leadAwait := fixture.call(t, fixture.sessions[durableSession.RoleLead], "agent/await", map[string]any{"agent": fixture.agentID, "seconds": 1})
+	leadAwait := fixture.call(t, fixture.sessions[durableSession.RoleLead], "agent/await", map[string]any{"key": fixture.agentID, "seconds": 1})
 	if leadAwait["ok"] != true {
 		t.Fatalf("Lead agent/await was rejected: %#v", leadAwait)
 	}
@@ -256,7 +236,7 @@ func TestTSK629PublicBoundaryInventoryHasNoInternalSelectors(t *testing.T) {
 		if _, ok := properties["agent_id"]; ok {
 			t.Fatalf("Agent action %s retains agent_id targeting", path)
 		}
-		if _, ok := properties["agent"]; !ok {
+		if _, ok := properties["key"]; !ok {
 			t.Fatalf("Agent action %s omits logical Agent targeting", path)
 		}
 	}
