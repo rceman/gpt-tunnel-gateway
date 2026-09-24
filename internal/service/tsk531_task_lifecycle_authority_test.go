@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/pagination"
@@ -53,7 +54,7 @@ func TestTSK531TaskArchiveSurvivesDegradedHub(t *testing.T) {
 	if err := s.publishSharedOutboxEntry(ctx, entries[0]); err == nil {
 		t.Fatal("degraded Hub publication unexpectedly succeeded")
 	}
-	if err := s.Durability.MarkOutboxRetry(ctx, entries[0].ID, s.durableNow(), errSharedOutboxNoop); err != nil {
+	if err := s.Durability.MarkOutboxRetry(ctx, entries[0].ID, time.Now().UTC().Add(-time.Second), errSharedOutboxNoop); err != nil {
 		t.Fatal(err)
 	}
 	retry, err := s.Durability.PendingOutbox(ctx, 32)

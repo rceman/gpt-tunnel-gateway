@@ -3,6 +3,8 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,16 +67,23 @@ func (s *Service) sharedOutboxWorker() {
 		if err == nil {
 			for _, entry := range entries {
 				workerCtx, workerCancel := s.asyncMutationContext("shared-outbox", entry.ID)
-				if err := s.publishSharedOutboxEntry(workerCtx, entry); err == nil || errors.Is(err, errSharedOutboxNoop) {
-					_ = s.Durability.MarkOutboxPublished(context.Background(), entry.ID, time.Now().UTC())
-				} else {
-					_ = s.Durability.MarkOutboxRetry(context.Background(), entry.ID, time.Now().UTC().Add(sharedOutboxRetryDelay(entry.Attempts+1)), err)
-				}
+				_ = s.deliverSharedOutboxEntry(workerCtx, entry)
 				workerCancel()
 			}
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
+}
+
+func (s *Service) deliverSharedOutboxEntry(ctx context.Context, entry sqlitestore.OutboxEntry) error {
+	publicationErr := s.publishSharedOutboxEntry(ctx, entry)
+	if publicationErr == nil || errors.Is(publicationErr, errSharedOutboxNoop) {
+		return s.Durability.MarkOutboxPublished(context.Background(), entry.ID, time.Now().UTC())
+	}
+	if err := s.Durability.MarkOutboxRetry(context.Background(), entry.ID, time.Now().UTC().Add(sharedOutboxRetryDelay(entry.Attempts+1)), publicationErr); err != nil {
+		return fmt.Errorf("publish shared outbox %s: %v; record retry: %w", entry.ID, publicationErr, err)
+	}
+	return publicationErr
 }
 
 func sharedOutboxRetryDelay(attempt int64) time.Duration {
@@ -301,10 +310,15 @@ func (s *Service) publishSharedTrackOutbox(ctx context.Context, entry sqlitestor
 			case latest.Revision > track.Revision:
 				return nil, errSharedOutboxNoop
 			case latest.Revision == track.Revision:
-				if reflect.DeepEqual(latest, track) {
+				if tracksSemanticallyEqual(latest, track) {
 					return nil, errSharedOutboxNoop
 				}
-				return nil, fmt.Errorf("Hub Track conflicts at revision %d", track.Revision)
+				hubDigest, hubDigestErr := trackSemanticDigest(latest)
+				outboxDigest, outboxDigestErr := trackSemanticDigest(track)
+				if hubDigestErr != nil || outboxDigestErr != nil {
+					return nil, fmt.Errorf("Hub Track %q conflicts at revision %d and semantic digests could not be computed", track.ID, track.Revision)
+				}
+				return nil, fmt.Errorf("Hub Track %q conflicts at revision %d (Hub semantic sha256=%s, Shared outbox semantic sha256=%s)", track.ID, track.Revision, hubDigest, outboxDigest)
 			}
 		} else if !IsNotFound(readErr) {
 			return nil, readErr
@@ -315,6 +329,35 @@ func (s *Service) publishSharedTrackOutbox(ctx context.Context, entry sqlitestor
 		return []string{path}, nil
 	})
 	return err
+}
+
+func tracksSemanticallyEqual(left, right model.Track) bool {
+	return reflect.DeepEqual(normalizeTrackTimes(left), normalizeTrackTimes(right))
+}
+
+func trackSemanticDigest(track model.Track) (string, error) {
+	payload, err := json.Marshal(normalizeTrackTimes(track))
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func normalizeTrackTimes(track model.Track) model.Track {
+	track.CreatedAt = track.CreatedAt.UTC()
+	track.UpdatedAt = track.UpdatedAt.UTC()
+	if track.CancelledAt != nil {
+		cancelledAt := track.CancelledAt.UTC()
+		track.CancelledAt = &cancelledAt
+	}
+	if track.Review != nil {
+		review := *track.Review
+		review.SubmittedAt = review.SubmittedAt.UTC()
+		review.Tasks = append([]model.TrackTaskSnapshot(nil), review.Tasks...)
+		track.Review = &review
+	}
+	return track
 }
 
 func (s *Service) publishSharedRelationOutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {

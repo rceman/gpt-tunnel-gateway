@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
@@ -75,6 +76,131 @@ func TestSharedOutboxEqualTaskADRAndConfigurationAreTerminalNoOps(t *testing.T) 
 	if err := s.publishSharedProjectConfigurationOutbox(ctx, configurationEntry); !errors.Is(err, errSharedOutboxNoop) {
 		t.Fatalf("equal project configuration publication error=%v, want terminal no-op", err)
 	}
+}
+
+func TestTSK666Gate20TrackAcceptedOutboxConverges(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiersSetup(t)
+	db, err := sqlitestore.Open(s.Config.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	s.Durability = db
+	ctx := context.Background()
+	track := tsk666AcceptedTrack()
+	payload, err := json.Marshal(track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := s.trackPath(track.ProjectID, track.ID)
+	if _, err := s.Hub.Transact(ctx, "", "test: seed already-applied Track acceptance", func(worktree string) ([]string, error) {
+		if err := hub.WriteJSON(worktree, path, tsk666TrackWithOffsetTimes(track)); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	createdAt := track.UpdatedAt.Format(time.RFC3339Nano)
+	if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_tracks(id,revision,payload,updated_at) VALUES(?,?,?,?)`, track.ID, track.Revision, payload, createdAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Shared.Exec(ctx, `INSERT INTO hub_outbox(id,entity_type,entity_id,project_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?,?)`, "track-accept-GTW-TRK1-r8", "track", track.ID, track.ProjectID, track.Revision, "track-accept", payload, createdAt); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := db.PendingOutbox(ctx, 10)
+	var delivery *sqlitestore.OutboxEntry
+	for index := range pending {
+		if pending[index].ID == "track-accept-GTW-TRK1-r8" {
+			delivery = &pending[index]
+			break
+		}
+	}
+	if err != nil || delivery == nil {
+		var ids []string
+		for _, item := range pending {
+			ids = append(ids, item.ID)
+		}
+		t.Fatalf("pending stale Track delivery IDs=%v err=%v", ids, err)
+	}
+	if err := s.deliverSharedOutboxEntry(ctx, *delivery); err != nil {
+		t.Fatalf("deliver already-applied Track acceptance: %v", err)
+	}
+	stored, found, err := db.ReadSharedOutboxEntry(ctx, delivery.ID)
+	if err != nil || !found || stored.PublishedAt == "" {
+		t.Fatalf("stale Track delivery was not marked published: entry=%#v found=%v err=%v", stored, found, err)
+	}
+	health, err := db.SharedSyncHealth(ctx)
+	if err != nil || health.Pending != 0 || health.Retrying != 0 {
+		t.Fatalf("shared sync health after convergence=%#v err=%v", health, err)
+	}
+}
+
+func TestTSK666Gate20TrackSameRevisionDivergenceEvidence(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiersSetup(t)
+	ctx := context.Background()
+	track := tsk666AcceptedTrack()
+	payload, err := json.Marshal(track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	divergent := track
+	divergent.Title = "Divergent Track title"
+	path := s.trackPath(track.ProjectID, track.ID)
+	if _, err := s.Hub.Transact(ctx, "", "test: seed divergent same-revision Track", func(worktree string) ([]string, error) {
+		if err := hub.WriteJSON(worktree, path, divergent); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	entry := sqlitestore.OutboxEntry{ID: "track-accept-GTW-TRK1-r8", EntityType: "track", EntityID: track.ID, Revision: int64(track.Revision), Payload: payload}
+	publicationErr := s.publishSharedTrackOutbox(ctx, entry)
+	if publicationErr == nil || errors.Is(publicationErr, errSharedOutboxNoop) || !strings.Contains(publicationErr.Error(), "Hub Track \"GTW-TRK1\" conflicts at revision 8") || !strings.Contains(publicationErr.Error(), "Hub semantic sha256=") || !strings.Contains(publicationErr.Error(), "Shared outbox semantic sha256=") {
+		t.Fatalf("same-revision divergence error=%v", publicationErr)
+	}
+}
+
+func tsk666AcceptedTrack() model.Track {
+	createdAt := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	updatedAt := createdAt.Add(time.Hour)
+	return model.Track{
+		SchemaVersion: model.TrackSchemaVersion,
+		ID:            "GTW-TRK1",
+		ProjectID:     "gpt-tunnel-gateway",
+		Revision:      8,
+		Milestone:     "GTW-MIL1",
+		Title:         "Track acceptance fixture",
+		Summary:       "Converges an already-applied acceptance delivery.",
+		Tasks:         []string{"GTW-TSK1"},
+		Status:        model.TrackAccepted,
+		Review: &model.TrackReview{
+			Head:          strings.Repeat("a", 40),
+			Tree:          strings.Repeat("b", 40),
+			Digest:        strings.Repeat("c", 64),
+			TrackRevision: 8,
+			Tasks:         []model.TrackTaskSnapshot{{Key: "GTW-TSK1", Revision: 1, RevisionSHA256: strings.Repeat("d", 64)}},
+			SubmittedAt:   updatedAt,
+			SubmittedBy:   "planner",
+		},
+		CreatedBy: "planner",
+		CreatedAt: createdAt,
+		UpdatedBy: "planner",
+		UpdatedAt: updatedAt,
+	}
+}
+
+func tsk666TrackWithOffsetTimes(track model.Track) model.Track {
+	offset := time.FixedZone("UTC+02", 2*60*60)
+	track.CreatedAt = track.CreatedAt.In(offset)
+	track.UpdatedAt = track.UpdatedAt.In(offset)
+	if track.Review != nil {
+		review := *track.Review
+		review.SubmittedAt = review.SubmittedAt.In(offset)
+		track.Review = &review
+	}
+	return track
 }
 
 func TestSharedOutboxNewADRRevisionPublishesAndFailuresRemainRetryable(t *testing.T) {

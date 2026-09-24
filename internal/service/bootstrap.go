@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	workflowSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
@@ -260,45 +258,9 @@ func (s *Service) reconcileOnboardedProjectShared(ctx context.Context, projectID
 	if identifiers.ProjectCode != code {
 		return fmt.Errorf("Hub project code %q conflicts with requested %q", identifiers.ProjectCode, code)
 	}
-	var configurationRaw json.RawMessage
-	configurationPath := s.projectConfigurationPath(projectID)
-	if err := s.Hub.ReadJSON(ctx, configurationPath, &configurationRaw); err != nil {
-		return fmt.Errorf("read Hub project configuration: %w", err)
-	}
-	configuration, canonicalConfiguration, err := sqlitestore.MigrateProjectConfigurationPayload(configurationRaw)
+	configuration, err := s.migrateHubProjectConfiguration(ctx, projectID)
 	if err != nil {
 		return fmt.Errorf("migrate Hub project configuration: %w", err)
-	}
-	if configuration.ProjectID != projectID {
-		return fmt.Errorf("Hub project configuration project_id mismatch")
-	}
-	if err := model.ValidateProjectConfiguration(configuration); err != nil {
-		return fmt.Errorf("validate Hub project configuration: %w", err)
-	}
-	var compactConfiguration bytes.Buffer
-	if err := json.Compact(&compactConfiguration, configurationRaw); err != nil {
-		return fmt.Errorf("compact Hub project configuration: %w", err)
-	}
-	if !bytes.Equal(compactConfiguration.Bytes(), canonicalConfiguration) {
-		if _, err := s.Hub.Transact(ctx, "", "gateway: migrate Hub project configuration", func(worktree string) ([]string, error) {
-			var latestRaw json.RawMessage
-			if err := readWorktreeJSON(worktree, configurationPath, &latestRaw); err != nil {
-				return nil, err
-			}
-			_, latestCanonical, err := sqlitestore.MigrateProjectConfigurationPayload(latestRaw)
-			if err != nil {
-				return nil, err
-			}
-			if !bytes.Equal(latestCanonical, canonicalConfiguration) {
-				return nil, fmt.Errorf("Hub project configuration changed during migration")
-			}
-			if err := hub.WriteJSON(worktree, configurationPath, configuration); err != nil {
-				return nil, err
-			}
-			return []string{configurationPath}, nil
-		}); err != nil {
-			return fmt.Errorf("migrate Hub project configuration: %w", err)
-		}
 	}
 	if err := s.Durability.ReconcileProjectBootstrap(ctx, sqlitestore.ProjectBootstrapUpdate{
 		ProjectID: projectID, PreviousProjectCode: code, ProjectCode: code,

@@ -144,10 +144,18 @@ func newService(c config.Config, durability *sqlitestore.Databases, startWorkers
 // StartBackgroundWorkers replays and serves durable operations after local
 // startup has reached HTTP readiness.
 func (s *Service) StartBackgroundWorkers() {
+	s.StartBackgroundWorkersWithoutSharedOutbox()
+	s.StartSharedOutboxWorker()
+}
+
+func (s *Service) StartBackgroundWorkersWithoutSharedOutbox() {
 	s.startTaskCreateWorker()
 	s.startDurableMutationWorker()
-	s.startSharedOutboxWorker()
 	s.startCallbackWorker()
+}
+
+func (s *Service) StartSharedOutboxWorker() {
+	s.startSharedOutboxWorker()
 }
 
 type TaskActivationResult struct {

@@ -77,7 +77,7 @@ func main() {
 	// HTTP_READY is the local bootstrap boundary. Recovery workers may start
 	// only after it; Hub synchronization remains an independent post-ready
 	// activity and must not gate listener readiness.
-	svc.StartBackgroundWorkers()
+	svc.StartBackgroundWorkersWithoutSharedOutbox()
 	startupPhase("POST_READY_RECOVERY_WORKERS")
 	syncCtx, cancelSync := context.WithCancel(context.Background())
 	defer cancelSync()
@@ -148,7 +148,11 @@ func bootstrapGateway(c config.Config, observe func(string)) (*gatewayRuntime, e
 func postReadyHubSync(ctx context.Context, svc *service.Service) {
 	_ = postReadyHubSyncLoop(ctx, startupPhase,
 		func(attemptCtx context.Context) error {
-			return postReadyHubEnsureAndReconcileContext(svc, attemptCtx, startupPhase)
+			if err := postReadyHubEnsureAndReconcileContext(svc, attemptCtx, startupPhase); err != nil {
+				return err
+			}
+			svc.StartSharedOutboxWorker()
+			return nil
 		},
 		func(attemptCtx context.Context) error {
 			return postReadyHubStateCheckContext(svc, attemptCtx, startupPhase)
@@ -185,6 +189,11 @@ func postReadyHubEnsureContext(svc *service.Service, ctx context.Context, phase 
 	phase("POST_READY_HUB_ENSURE")
 	if err := svc.Hub.EnsureWithObserver(ctx, phase); err != nil {
 		startupErrorForPhase("POST_READY_HUB_ENSURE", err)
+		return err
+	}
+	phase("POST_READY_PROJECT_CONFIGURATION_MIGRATION")
+	if err := svc.MigrateHubProjectConfigurations(ctx); err != nil {
+		startupErrorForPhase("POST_READY_PROJECT_CONFIGURATION_MIGRATION", err)
 		return err
 	}
 	return nil

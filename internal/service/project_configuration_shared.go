@@ -173,18 +173,25 @@ func (s *Service) publishSharedProjectConfiguration(ctx context.Context, configu
 	if err := model.ValidateProjectConfiguration(configuration); err != nil {
 		return err
 	}
+	if _, err := s.migrateHubProjectConfiguration(ctx, configuration.ProjectID); err != nil && !IsNotFound(err) {
+		return fmt.Errorf("migrate Hub project configuration before publication: %w", err)
+	}
 	path := s.projectConfigurationPath(configuration.ProjectID)
 	_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared project configuration "+configuration.ProjectID, func(worktree string) ([]string, error) {
 		var latestRaw json.RawMessage
 		readErr := readWorktreeJSON(worktree, path, &latestRaw)
 		if readErr == nil {
-			latest, canonical, migrateErr := sqlitestore.MigrateProjectConfigurationPayload(latestRaw)
-			if migrateErr != nil {
-				return nil, fmt.Errorf("Hub project configuration is malformed: %w", migrateErr)
+			latest, decodeErr := sqlitestore.DecodeCanonicalProjectConfigurationPayload(latestRaw)
+			if decodeErr != nil {
+				return nil, fmt.Errorf("Hub project configuration is malformed: %w", decodeErr)
 			}
 			var compact bytes.Buffer
 			if err := json.Compact(&compact, latestRaw); err != nil {
 				return nil, fmt.Errorf("compact Hub project configuration: %w", err)
+			}
+			canonical, err := json.Marshal(latest)
+			if err != nil {
+				return nil, fmt.Errorf("encode Hub project configuration: %w", err)
 			}
 			if latest.ProjectID != configuration.ProjectID {
 				return nil, fmt.Errorf("Hub project configuration identity conflicts with Shared outbox")

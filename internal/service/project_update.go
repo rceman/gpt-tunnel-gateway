@@ -56,7 +56,7 @@ func (s *Service) ProjectUpdate(ctx context.Context, in ProjectUpdateInput) (Pro
 		if err := snapshot.ReadJSON(readCtx, s.projectConfigurationPath(in.ProjectID), &configurationRaw); err != nil {
 			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, fmt.Errorf("Hub project configuration is unavailable: %w", err)
 		}
-		configuration, _, err := sqlitestore.MigrateProjectConfigurationPayload(configurationRaw)
+		configuration, err := sqlitestore.DecodeCanonicalProjectConfigurationPayload(configurationRaw)
 		if err != nil {
 			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, err
 		}

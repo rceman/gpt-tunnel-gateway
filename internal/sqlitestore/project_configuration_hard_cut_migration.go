@@ -12,16 +12,21 @@ import (
 )
 
 const projectConfigurationHardCutMigrationID = "project_configuration_v1_to_v2"
+const projectConfigurationRetiredFieldMigrationID = "project_configuration_retired_fields_v1"
 const projectConfigurationHardCutMaxRows = 4096
 const projectConfigurationHardCutBatchSize = 128
+const projectConfigurationHardCutMaxPayloadBytes = 1 << 20
 
 var projectConfigurationV1Fields = map[string]struct{}{
 	"schema_version": {}, "project_id": {}, "revision": {}, "execution_model": {}, "agent_routing": {},
 	"workflow": {}, "checkpoint": {}, "integration": {}, "guide_bindings": {}, "callbacks": {},
-	"activation_profile_ref": {}, "updated_by": {}, "updated_at": {},
+	"activation_profile_ref": {}, "updated_by": {}, "updated_at": {}, "watcher": {},
 }
 
 func MigrateProjectConfigurationPayload(data []byte) (model.ProjectConfiguration, []byte, error) {
+	if len(data) == 0 || len(data) > projectConfigurationHardCutMaxPayloadBytes {
+		return model.ProjectConfiguration{}, nil, fmt.Errorf("ProjectConfiguration migration payload exceeds bounds")
+	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil || fields == nil {
 		return model.ProjectConfiguration{}, nil, fmt.Errorf("decode ProjectConfiguration migration payload")
@@ -30,6 +35,10 @@ func MigrateProjectConfigurationPayload(data []byte) (model.ProjectConfiguration
 		if _, ok := projectConfigurationV1Fields[field]; !ok {
 			return model.ProjectConfiguration{}, nil, fmt.Errorf("unknown ProjectConfiguration migration field %q", field)
 		}
+	}
+	delete(fields, "watcher")
+	if err := removeRetiredProjectConfigurationTrainGate(fields); err != nil {
+		return model.ProjectConfiguration{}, nil, err
 	}
 	var version int
 	if err := json.Unmarshal(fields["schema_version"], &version); err != nil {
@@ -83,6 +92,53 @@ func MigrateProjectConfigurationPayload(data []byte) (model.ProjectConfiguration
 	return configuration, canonical, nil
 }
 
+func removeRetiredProjectConfigurationTrainGate(fields map[string]json.RawMessage) error {
+	workflowPayload, present := fields["workflow"]
+	if !present {
+		return nil
+	}
+	var workflow map[string]json.RawMessage
+	if err := json.Unmarshal(workflowPayload, &workflow); err != nil || workflow == nil {
+		return fmt.Errorf("invalid ProjectConfiguration workflow migration payload")
+	}
+	gateCommandsPayload, present := workflow["gate_commands"]
+	if !present {
+		return nil
+	}
+	var gateCommands map[string]json.RawMessage
+	if err := json.Unmarshal(gateCommandsPayload, &gateCommands); err != nil || gateCommands == nil {
+		return fmt.Errorf("invalid ProjectConfiguration gate commands migration payload")
+	}
+	testPayload, present := gateCommands["test"]
+	if !present {
+		return nil
+	}
+	var test map[string]json.RawMessage
+	if err := json.Unmarshal(testPayload, &test); err != nil || test == nil {
+		return fmt.Errorf("invalid ProjectConfiguration test gate migration payload")
+	}
+	if _, present := test["train"]; !present {
+		return nil
+	}
+	delete(test, "train")
+	canonicalTest, err := json.Marshal(test)
+	if err != nil {
+		return err
+	}
+	gateCommands["test"] = canonicalTest
+	canonicalGateCommands, err := json.Marshal(gateCommands)
+	if err != nil {
+		return err
+	}
+	workflow["gate_commands"] = canonicalGateCommands
+	canonicalWorkflow, err := json.Marshal(workflow)
+	if err != nil {
+		return err
+	}
+	fields["workflow"] = canonicalWorkflow
+	return nil
+}
+
 func DecodeCanonicalProjectConfigurationPayload(data []byte) (model.ProjectConfiguration, error) {
 	var configuration model.ProjectConfiguration
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -99,16 +155,37 @@ func DecodeCanonicalProjectConfigurationPayload(data []byte) (model.ProjectConfi
 	return configuration, nil
 }
 
+func (d *Databases) projectConfigurationMigrationState(ctx context.Context) (string, error) {
+	rows, err := d.Shared.Query(ctx, `SELECT state FROM shared_upgrade_migrations WHERE migration_id=?`, projectConfigurationRetiredFieldMigrationID)
+	if err != nil {
+		return "", err
+	}
+	if len(rows.Rows) == 0 {
+		return "", nil
+	}
+	if len(rows.Rows) != 1 || len(rows.Rows[0]) != 1 {
+		return "", fmt.Errorf("invalid ProjectConfiguration migration marker")
+	}
+	state, ok := rows.Rows[0][0].(string)
+	if !ok || state != "in_progress" && state != "complete" {
+		return "", fmt.Errorf("invalid ProjectConfiguration migration state")
+	}
+	return state, nil
+}
+
 func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) error {
 	if d == nil || d.Shared == nil {
 		return fmt.Errorf("Shared store is required for ProjectConfiguration migration")
 	}
-	state, err := d.sharedUpgradeMigrationState(ctx, projectConfigurationHardCutMigrationID)
+	state, err := d.projectConfigurationMigrationState(ctx)
 	if err != nil {
 		return err
 	}
 	if state == "complete" {
 		return nil
+	}
+	if err := d.setSharedUpgradeMigrationState(ctx, projectConfigurationRetiredFieldMigrationID, "in_progress"); err != nil {
+		return err
 	}
 	statements := make([]upstream.Statement, 0, 3*projectConfigurationHardCutMaxRows+1)
 	rows, err := d.Shared.Query(ctx, `SELECT id,revision,payload FROM shared_project_configurations ORDER BY id LIMIT ?`, int64(projectConfigurationHardCutMaxRows+1))
@@ -215,7 +292,7 @@ func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) 
 			return fmt.Errorf("migrate canonical ProjectConfiguration payloads: %w", err)
 		}
 	}
-	if err := d.setSharedUpgradeMigrationState(ctx, projectConfigurationHardCutMigrationID, "complete"); err != nil {
+	if err := d.setSharedUpgradeMigrationState(ctx, projectConfigurationRetiredFieldMigrationID, "complete"); err != nil {
 		return err
 	}
 	return nil
