@@ -40,7 +40,7 @@ func tsk384WriteSeedProvenance(t *testing.T, db *Databases) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Shared.Exec(ctx, `INSERT OR IGNORE INTO shared_project_identifiers(project_id,project_code,next_task_number,next_adr_number,next_rule_number,next_journal_number,next_train_number) VALUES(?,?,?,?,?,?,?)`, "example", "EXM", 1, 1, 1, 1, 1); err != nil {
+	if _, err := db.Shared.Exec(ctx, `INSERT OR IGNORE INTO shared_project_identifiers(project_id,project_code) VALUES(?,?)`, "example", "EXM"); err != nil {
 		t.Fatal(err)
 	}
 }

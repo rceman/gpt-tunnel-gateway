@@ -195,6 +195,46 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 			Err:      err,
 		}
 	}
+	if err := db.MigrateNoncanonicalLocalSessions(ctx); err != nil {
+		return &OpenError{
+			Stage:    "migration",
+			Database: "noncanonical_sessions",
+			Path:     db.localPath,
+			Err:      err,
+		}
+	}
+	if err := db.MigrateTaskExecutionStateToLocal(ctx); err != nil {
+		return &OpenError{
+			Stage:    "migration",
+			Database: "task_execution",
+			Path:     db.localPath,
+			Err:      err,
+		}
+	}
+	if err := db.MigrateProjectConfigurationToCanonical(ctx); err != nil {
+		return &OpenError{
+			Stage:    "migration",
+			Database: "project_configuration",
+			Path:     db.sharedPath,
+			Err:      err,
+		}
+	}
+	if err := db.MigrateLegacySharedSequences(ctx); err != nil {
+		return &OpenError{
+			Stage:    "migration",
+			Database: "shared_sequences",
+			Path:     db.sharedPath,
+			Err:      err,
+		}
+	}
+	if err := db.MigrateSharedRelationsToHubOutbox(ctx); err != nil {
+		return &OpenError{
+			Stage:    "migration",
+			Database: "shared_relations",
+			Path:     db.sharedPath,
+			Err:      err,
+		}
+	}
 	return nil
 }
 
@@ -229,6 +269,10 @@ const (
 	sharedMilestoneMigrationName                          = "create shared milestones"
 	sharedTrackMigrationVersion                     int64 = 202609221000
 	sharedTrackMigrationName                              = "create shared tracks"
+	sharedUpgradeMigrationVersion                   int64 = 202609231100
+	sharedUpgradeMigrationName                            = "create Shared upgrade markers"
+	sharedRelationOutboxMigrationVersion            int64 = 202609231110
+	sharedRelationOutboxMigrationName                     = "publish Shared relations to Hub outbox"
 	localBaselineVersion                            int64 = 202609080505
 	localBaselineName                                     = "create local baseline"
 	localTokenUsageMigrationVersion                 int64 = 202609102010
@@ -245,4 +289,6 @@ const (
 	localMessageMigrationName                             = "create PLAW message authority"
 	localMessageCancellationMigrationVersion        int64 = 202609211010
 	localMessageCancellationMigrationName                 = "add PLAW message cancellation actor"
+	localTaskExecutionMigrationVersion              int64 = 202609231200
+	localTaskExecutionMigrationName                       = "create Local TaskExecution authority"
 )

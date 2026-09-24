@@ -8,17 +8,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
-func (s *Service) agentPath(projectID, agentID string) string {
-	if model.ValidateProjectIdentifier(projectID) != nil || model.ValidateObjectIdentifier(agentID) != nil {
-		return "../invalid-agent"
+func (s *Service) localStateStore() *sqlitestore.Databases {
+	if s == nil {
+		return nil
 	}
-	return s.projectPrefix(projectID) + "/agents/" + agentID + ".json"
+	if s.Durability != nil && s.Durability.Local != nil {
+		return s.Durability
+	}
+	return s.localState
 }
 
 func (s *Service) AgentRead(ctx context.Context, projectID, agentID string) (model.Agent, error) {
@@ -28,62 +30,34 @@ func (s *Service) AgentRead(ctx context.Context, projectID, agentID string) (mod
 	if err := model.ValidateObjectIdentifier(agentID); err != nil {
 		return model.Agent{}, err
 	}
-	if s.Durability != nil {
-		if _, err := s.projectConfig(projectID); err != nil {
-			return model.Agent{}, err
-		}
-		return s.readLocalAgent(ctx, projectID, agentID)
+	if s.localStateStore() == nil {
+		return model.Agent{}, fmt.Errorf("Local durability is required for Agent reads")
 	}
-	if _, err := s.ProjectRead(ctx, projectID); err != nil {
+	if _, err := s.projectConfig(projectID); err != nil {
 		return model.Agent{}, err
 	}
-	var agent model.Agent
-	if err := s.Hub.ReadJSON(ctx, s.agentPath(projectID, agentID), &agent); err != nil {
-		return model.Agent{}, err
-	}
-	if err := model.ValidateAgent(agent); err != nil || agent.ProjectID != projectID || agent.AgentID != agentID {
-		return model.Agent{}, fmt.Errorf("invalid agent %q/%q", projectID, agentID)
-	}
-	return agent, nil
+	return s.readLocalAgent(ctx, projectID, agentID)
 }
 
 func (s *Service) AgentList(ctx context.Context, projectID string) ([]model.Agent, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return nil, err
 	}
-	if s.Durability != nil {
-		if _, err := s.projectConfig(projectID); err != nil {
-			return nil, err
-		}
-		return s.listLocalAgents(ctx, projectID)
+	if s.localStateStore() == nil {
+		return nil, fmt.Errorf("Local durability is required for Agent lists")
 	}
-	if _, err := s.ProjectRead(ctx, projectID); err != nil {
+	if _, err := s.projectConfig(projectID); err != nil {
 		return nil, err
 	}
-	paths, err := s.Hub.List(ctx, s.projectPrefix(projectID)+"/agents", ".json")
-	if err != nil {
-		return nil, err
-	}
-	result := make([]model.Agent, 0, len(paths))
-	for _, path := range paths {
-		var agent model.Agent
-		if err := s.Hub.ReadJSON(ctx, path, &agent); err != nil {
-			return nil, err
-		}
-		if agent.Role != model.AgentRoleCoding {
-			continue
-		}
-		if err := model.ValidateAgent(agent); err != nil || agent.ProjectID != projectID {
-			return nil, fmt.Errorf("invalid project agent record %q", path)
-		}
-		result = append(result, agent)
-	}
-	sort.Slice(result, func(i, j int) bool { return result[i].AgentID < result[j].AgentID })
-	return result, nil
+	return s.listLocalAgents(ctx, projectID)
 }
 
 func (s *Service) readLocalAgent(ctx context.Context, projectID, agentID string) (model.Agent, error) {
-	record, err := s.Durability.ReadLocalAgent(ctx, projectID, agentID)
+	store := s.localStateStore()
+	if store == nil {
+		return model.Agent{}, fmt.Errorf("Local Agent store is unavailable")
+	}
+	record, err := store.ReadLocalAgent(ctx, projectID, agentID)
 	if err != nil {
 		return model.Agent{}, err
 	}
@@ -102,7 +76,11 @@ func (s *Service) listLocalAgents(ctx context.Context, projectID string) ([]mode
 	if limit < 1 {
 		return nil, fmt.Errorf("invalid configured Agent list limit")
 	}
-	records, err := s.Durability.ListLocalAgents(ctx, projectID, limit)
+	store := s.localStateStore()
+	if store == nil {
+		return nil, fmt.Errorf("Local Agent store is unavailable")
+	}
+	records, err := store.ListLocalAgents(ctx, projectID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +112,11 @@ func (s *Service) AgentUpdate(ctx context.Context, in AgentUpdateInput) (model.A
 	if strings.TrimSpace(in.UpdatedBy) == "" {
 		return model.Agent{}, OperationResult{}, fmt.Errorf("updated_by is required")
 	}
-	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
+	store := s.localStateStore()
+	if store == nil {
+		return model.Agent{}, OperationResult{}, fmt.Errorf("Local durability is required for Agent updates")
+	}
+	if _, err := s.EffectiveProjectConfig(in.ProjectID); err != nil {
 		return model.Agent{}, OperationResult{}, err
 	}
 	existing, err := s.AgentRead(ctx, in.ProjectID, in.AgentID)
@@ -160,77 +142,32 @@ func (s *Service) AgentUpdate(ctx context.Context, in AgentUpdateInput) (model.A
 	if err := s.validateManagedRuntimeBindingCollision(ctx, candidate); err != nil {
 		return model.Agent{}, OperationResult{}, err
 	}
-	path := s.agentPath(in.ProjectID, in.AgentID)
-	var updated model.Agent
-	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: update agent "+in.ProjectID+"/"+in.AgentID, func(worktree string) ([]string, error) {
-		if err := readWorktreeJSON(worktree, path, &updated); err != nil {
-			return nil, err
-		}
-		if err := model.ValidateAgent(updated); err != nil || updated.ProjectID != in.ProjectID || updated.AgentID != in.AgentID {
-			return nil, fmt.Errorf("invalid existing agent")
-		}
-		if in.Enabled != nil {
-			updated.Enabled = *in.Enabled
-		}
-		if in.Role != nil {
-			updated.Role = *in.Role
-		}
-		if in.RecommendedReasoning != nil {
-			updated.RecommendedReasoning = *in.RecommendedReasoning
-		}
-		if in.Capabilities != nil {
-			updated.Capabilities = model.NormalizeAgentCapabilities(*in.Capabilities)
-		}
-		updatedAt := time.Now().UTC()
-		if updatedAt.Before(updated.CreatedAt) {
-			updatedAt = updated.CreatedAt
-		}
-		updated.UpdatedAt = updatedAt
-		if err := model.ValidateAgent(updated); err != nil {
-			return nil, err
-		}
-		agentPaths, err := listWorktreeAgents(worktree, s.projectPrefix(in.ProjectID))
-		if err != nil {
-			return nil, err
-		}
-		existingAgents := make([]model.Agent, 0, len(agentPaths))
-		for _, existingPath := range agentPaths {
-			var existing model.Agent
-			if err := readWorktreeJSON(worktree, existingPath, &existing); err != nil {
-				return nil, err
-			}
-			if err := model.ValidateAgent(existing); err != nil || existing.ProjectID != in.ProjectID {
-				return nil, fmt.Errorf("invalid existing Agent record %q", existingPath)
-			}
-			existingAgents = append(existingAgents, existing)
-		}
-		if err := s.validateManagedRuntimeBindingAgainst(updated, existingAgents); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(worktree, path, updated); err != nil {
-			return nil, err
-		}
-		return []string{path}, nil
-	})
+	updated := candidate
+	updatedAt := time.Now().UTC()
+	if updatedAt.Before(updated.CreatedAt) {
+		updatedAt = updated.CreatedAt
+	}
+	updated.UpdatedAt = updatedAt
+	if err := model.ValidateAgent(updated); err != nil {
+		return model.Agent{}, OperationResult{}, err
+	}
+	stored, err := store.ReadLocalAgent(ctx, in.ProjectID, in.AgentID)
 	if err != nil {
 		return model.Agent{}, OperationResult{}, err
 	}
-	if s.Durability != nil {
-		payload, marshalErr := json.Marshal(updated)
-		if marshalErr != nil {
-			return model.Agent{}, OperationResult{}, fmt.Errorf("encode local Agent projection: %w", marshalErr)
-		}
-		if localErr := s.Durability.UpsertLocalAgent(ctx, sqlitestore.LocalAgent{
-			ProjectID: in.ProjectID,
-			AgentID:   updated.AgentID,
-			Payload:   payload,
-			UpdatedAt: updated.UpdatedAt.UTC().Format(time.RFC3339Nano),
-		}); localErr != nil {
-			return model.Agent{}, OperationResult{}, fmt.Errorf("update local Agent projection: %w", localErr)
-		}
+	payload, err := json.Marshal(updated)
+	if err != nil {
+		return model.Agent{}, OperationResult{}, fmt.Errorf("encode Local Agent projection: %w", err)
+	}
+	if err := store.UpdateLocalAgent(ctx, sqlitestore.LocalAgent{
+		ProjectID: in.ProjectID,
+		AgentID:   updated.AgentID,
+		Payload:   payload,
+		UpdatedAt: updated.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}, stored.Payload); err != nil {
+		return model.Agent{}, OperationResult{}, fmt.Errorf("update Local Agent projection: %w", err)
 	}
 	return updated, OperationResult{
-		Hub:       tx,
 		ProjectID: in.ProjectID,
 		Status:    "updated",
 	}, nil
@@ -239,11 +176,10 @@ func (s *Service) AgentUpdate(ctx context.Context, in AgentUpdateInput) (model.A
 func (s *Service) AgentDisable(ctx context.Context, in AgentDisableInput) (model.Agent, OperationResult, error) {
 	disabled := false
 	return s.AgentUpdate(ctx, AgentUpdateInput{
-		ProjectID:    in.ProjectID,
-		AgentID:      in.AgentID,
-		Enabled:      &disabled,
-		UpdatedBy:    in.UpdatedBy,
-		WriteOptions: in.WriteOptions,
+		ProjectID: in.ProjectID,
+		AgentID:   in.AgentID,
+		Enabled:   &disabled,
+		UpdatedBy: in.UpdatedBy,
 	})
 }
 
@@ -261,14 +197,15 @@ func (s *Service) AgentRegistryStatus(ctx context.Context, projectID, agentID st
 		Enabled:       agent.Enabled,
 		State:         "registered",
 	}
-	if sessionID := AgentSessionID(ctx); sessionID != "" {
-		record, sessionErr := durableSession.NewStoreWithDurability(s.Durability).Get(sessionID)
+	localStore := s.localStateStore()
+	if sessionID := AgentSessionID(ctx); sessionID != "" && localStore != nil {
+		record, sessionErr := durableSession.NewStoreWithDurability(localStore).Get(sessionID)
 		if sessionErr == nil && isWorkerSession(record) {
 			return s.workerAgentRegistryStatus(ctx, projectID, agent, status)
 		}
 	}
-	if s.Durability != nil {
-		if states, statesErr := s.Durability.ListTaskExecutionStates(ctx, projectID); statesErr == nil {
+	if localStore != nil {
+		if states, statesErr := localStore.ListTaskExecutionStates(ctx, projectID); statesErr == nil {
 			for _, state := range states {
 				if state.Agent == agentID && model.IsTaskExecutionAgentOwned(state.Status) {
 					status.TaskID = state.TaskID
@@ -327,7 +264,11 @@ func (s *Service) workerAgentRegistryStatus(ctx context.Context, projectID strin
 	status.Bound = true
 	status.SessionState = worker.RuntimeState
 	status.State, status.Usable, status.Reason = "usable", true, "ready"
-	states, statesErr := s.Durability.ListTaskExecutionStates(ctx, projectID)
+	localStore := s.localStateStore()
+	if localStore == nil {
+		return status, nil
+	}
+	states, statesErr := localStore.ListTaskExecutionStates(ctx, projectID)
 	if statesErr != nil {
 		return status, nil
 	}

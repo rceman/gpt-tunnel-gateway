@@ -88,6 +88,31 @@ func trustedWorkflowPolicyContext(ctx context.Context, role string) context.Cont
 	}
 }
 
+func TestWorkflowPolicyReadDoesNotUseRetiredHubAuthority(t *testing.T) {
+	s, revision, _ := testServiceWithoutIdentifiers(t)
+	ctx := context.Background()
+	policy, err := s.ProjectWorkflowPolicyRead(ctx, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	configurationPath := s.projectConfigurationPath("example")
+	legacyPath := s.workflowPolicyPath("example")
+	if _, err := s.Hub.Transact(ctx, revision, "test: retire workflow policy authority", func(worktree string) ([]string, error) {
+		if err := os.Remove(filepath.Join(worktree, filepath.FromSlash(configurationPath))); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(worktree, legacyPath, policy); err != nil {
+			return nil, err
+		}
+		return []string{configurationPath, legacyPath}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ProjectWorkflowPolicyRead(ctx, "example"); err == nil || !IsNotFound(err) {
+		t.Fatalf("retired Hub workflow policy remained an authority: %v", err)
+	}
+}
+
 func TestWorkflowPolicyRevisionAndTaskProjection(t *testing.T) {
 	s, revision, _ := testService(t)
 	ctx := context.Background()

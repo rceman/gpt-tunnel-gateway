@@ -3,6 +3,8 @@ package model
 import (
 	"fmt"
 	"regexp"
+	"strings"
+	"time"
 )
 
 // Canonical relation kinds form a closed server-owned v1 enum. Arbitrary
@@ -17,11 +19,36 @@ const (
 // Relation endpoint families. PMT is a Local-only family: PMT relation rows are
 // persisted in the Local store and are never Shared/Hub replicated.
 const (
-	RelationFamilyTask = "TSK"
-	RelationFamilyADR  = "ADR"
-	RelationFamilyRule = "RUL"
-	RelationFamilyPMT  = "PMT"
+	RelationSchemaVersion = SchemaVersion
+	RelationFamilyTask    = "TSK"
+	RelationFamilyADR     = "ADR"
+	RelationFamilyRule    = "RUL"
+	RelationFamilyPMT     = "PMT"
 )
+
+type Relation struct {
+	SchemaVersion int       `json:"schema_version"`
+	ProjectID     string    `json:"project_id"`
+	Kind          string    `json:"kind"`
+	Source        string    `json:"source"`
+	Target        string    `json:"target"`
+	CreatedAt     time.Time `json:"created_at"`
+	CreatedBy     string    `json:"created_by"`
+}
+
+func (v Relation) Identity() string {
+	return v.ProjectID + "|" + v.Kind + "|" + v.Source + "|" + v.Target
+}
+
+func ValidateRelation(v Relation) error {
+	if v.SchemaVersion != RelationSchemaVersion || ValidateProjectIdentifier(v.ProjectID) != nil || v.CreatedAt.IsZero() || strings.ContainsAny(v.CreatedBy, "\x00\r\n") || strings.TrimSpace(v.CreatedBy) == "" {
+		return fmt.Errorf("invalid relation metadata")
+	}
+	if _, _, err := ValidateRelationEndpoints(v.Kind, v.Source, v.Target); err != nil {
+		return err
+	}
+	return nil
+}
 
 const relationPMTIDPattern = `^[A-Z]{3}-PMT(` + OperatorJournalNumberPattern + `)$`
 

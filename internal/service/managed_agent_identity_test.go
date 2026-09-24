@@ -21,7 +21,7 @@ func tsk620WorkerMigrationFixture(t *testing.T) (*Service, *sqlitestore.Database
 	projectConfig.ProjectCode = "GTW"
 	projectConfig.AirelaySessionKey = "gpt-tunnel-gateway_master"
 	s.Config.Projects[config.GTWProjectID] = projectConfig
-	registered, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{
+	_, err := s.ProjectRegister(context.Background(), ProjectRegisterInput{
 		Project: model.Project{
 			SchemaVersion:      1,
 			ID:                 config.GTWProjectID,
@@ -52,11 +52,8 @@ func tsk620WorkerMigrationFixture(t *testing.T) (*Service, *sqlitestore.Database
 	if _, _, err := s.AgentRegister(context.Background(), AgentRegisterInput{
 		ProjectID: config.GTWProjectID,
 		AgentID:   config.LegacyGTWWorkerAgentID,
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: registered.Hub.After,
-		},
 	}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("register legacy GTW Worker Local Agent: %v", err)
 	}
 	workerSession, err := durableSession.NewStoreWithDurability(db).Create(durableSession.CreateInput{
 		ProjectID: config.GTWProjectID, ProjectCode: "GTW", Role: durableSession.RoleWorker,
@@ -79,8 +76,8 @@ func TestTSK620ManagedAgentMigrationPreservesWorkerSessionAndRestarts(t *testing
 		t.Fatal(err)
 	}
 	paths, err := s.Hub.List(context.Background(), s.projectPrefix(config.GTWProjectID)+"/agents", ".json")
-	if err != nil || !containsPath(paths, s.projectPrefix(config.GTWProjectID)+"/agents/"+config.LegacyGTWWorkerAgentID+".json") || containsPath(paths, s.projectPrefix(config.GTWProjectID)+"/agents/"+config.GTWWorkerAgentID+".json") {
-		t.Fatalf("local-first migration touched Hub before reconciliation: paths=%#v err=%v", paths, err)
+	if (err != nil && !IsNotFound(err)) || len(paths) != 0 {
+		t.Fatalf("Local Agent migration published Hub current state: paths=%#v err=%v", paths, err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
@@ -98,8 +95,8 @@ func TestTSK620ManagedAgentMigrationPreservesWorkerSessionAndRestarts(t *testing
 		t.Fatal(err)
 	}
 	paths, err = s.Hub.List(context.Background(), s.projectPrefix(config.GTWProjectID)+"/agents", ".json")
-	if err != nil || containsPath(paths, s.projectPrefix(config.GTWProjectID)+"/agents/"+config.LegacyGTWWorkerAgentID+".json") || !containsPath(paths, s.projectPrefix(config.GTWProjectID)+"/agents/"+config.GTWWorkerAgentID+".json") {
-		t.Fatalf("restart reconciliation was not idempotent: paths=%#v err=%v", paths, err)
+	if (err != nil && !IsNotFound(err)) || len(paths) != 0 {
+		t.Fatalf("restart reconciliation published Hub Agent state: paths=%#v err=%v", paths, err)
 	}
 	restarted, err := s.ResolveProjectWorker(context.Background(), config.GTWProjectID)
 	if err != nil {
@@ -114,42 +111,26 @@ func TestTSK620ManagedAgentMigrationPreservesWorkerSessionAndRestarts(t *testing
 	}
 }
 
-func TestTSK620AsyncHubReconciliationRejectsCollisionAfterLocalMigration(t *testing.T) {
+func TestTSK620LocalAgentIdentityMigrationRejectsCollision(t *testing.T) {
 	s, db, _ := tsk620WorkerMigrationFixture(t)
-	revision, err := s.Hub.RemoteRevision(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
 	s.Config.ProjectAgentBindings[config.GTWProjectID][config.GTWWorkerAgentID] = config.AgentBinding{SessionKey: "gpt-tunnel-gateway_other"}
 	if _, _, err := s.AgentRegister(context.Background(), AgentRegisterInput{
 		ProjectID: config.GTWProjectID,
 		AgentID:   config.GTWWorkerAgentID,
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: revision,
-		},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Local.Exec(context.Background(), `DELETE FROM local_agents WHERE project_id=? AND agent_id=?`, config.GTWProjectID, config.GTWWorkerAgentID); err != nil {
-		t.Fatal(err)
+	if err := s.MigrateGTWWorkerIdentityLocalShared(context.Background()); err == nil {
+		t.Fatal("Local Agent identity collision was accepted")
 	}
-	s.Config.ProjectAgentBindings[config.GTWProjectID] = map[string]config.AgentBinding{
-		config.GTWWorkerAgentID: {SessionKey: "gpt-tunnel-gateway_master"},
-	}
-	if err := s.MigrateGTWWorkerIdentityLocalShared(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.ReconcileGTWWorkerIdentity(context.Background()); err == nil {
-		t.Fatal("Hub Agent identity collision was accepted")
-	}
-	if _, err := db.ReadLocalAgent(context.Background(), config.GTWProjectID, config.LegacyGTWWorkerAgentID); err == nil {
-		t.Fatal("legacy Local Agent projection survived local migration")
+	if _, err := db.ReadLocalAgent(context.Background(), config.GTWProjectID, config.LegacyGTWWorkerAgentID); err != nil {
+		t.Fatalf("failed migration removed legacy Local Agent: %v", err)
 	}
 	if _, err := db.ReadLocalAgent(context.Background(), config.GTWProjectID, config.GTWWorkerAgentID); err != nil {
-		t.Fatalf("local migration removed canonical Local Agent: %v", err)
+		t.Fatalf("failed migration removed canonical Local Agent: %v", err)
 	}
 	paths, err := s.Hub.List(context.Background(), s.projectPrefix(config.GTWProjectID)+"/agents", ".json")
-	if err != nil || !containsPath(paths, s.projectPrefix(config.GTWProjectID)+"/agents/"+config.LegacyGTWWorkerAgentID+".json") || !containsPath(paths, s.projectPrefix(config.GTWProjectID)+"/agents/"+config.GTWWorkerAgentID+".json") {
-		t.Fatalf("Hub collision changed authoritative records: paths=%#v err=%v", paths, err)
+	if (err != nil && !IsNotFound(err)) || len(paths) != 0 {
+		t.Fatalf("local Agent identity migration published Hub records: paths=%#v err=%v", paths, err)
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 const workflowSessionIDPattern = `[A-Z]{3}_[A-Z]{3}_[PLAW]_[a-z0-9]{5}`
@@ -28,7 +30,7 @@ var (
 
 // IsCanonicalSessionID reports whether value uses the durable workflow Session identity format.
 func IsCanonicalSessionID(value string) bool {
-	return sessionIDRE.MatchString(value) || adminSessionIDRE.MatchString(value)
+	return model.IsCanonicalSessionID(value)
 }
 
 func IsAdminSessionID(value string) bool {

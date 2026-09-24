@@ -23,14 +23,14 @@ type TaskExecutionStatePage struct {
 }
 
 func (d *Databases) ListTaskExecutionStatesPage(ctx context.Context, projectID, query string, after TaskExecutionStatePageCursor, limit int) (TaskExecutionStatePage, error) {
-	if d == nil || d.Shared == nil {
-		return TaskExecutionStatePage{}, fmt.Errorf("shared store is unavailable")
+	if d == nil || d.Local == nil {
+		return TaskExecutionStatePage{}, fmt.Errorf("local store is unavailable")
 	}
 	if limit < 1 || limit > TaskExecutionStatePageMaxRows {
 		return TaskExecutionStatePage{}, fmt.Errorf("invalid Task execution state page limit")
 	}
 	if after.TaskID != "" {
-		rows, err := d.Shared.Query(ctx, `SELECT COUNT(*) FROM shared_task_execution_states WHERE project_id=? AND task_id=? AND worktree=? AND updated_at=? AND status NOT IN (?,?)`, projectID, after.TaskID, after.Worktree, after.UpdatedAt, model.TaskExecutionDone, model.TaskExecutionFailed)
+		rows, err := d.Local.Query(ctx, `SELECT COUNT(*) FROM local_task_execution_states WHERE project_id=? AND task_id=? AND worktree=? AND updated_at=? AND status NOT IN (?,?)`, projectID, after.TaskID, after.Worktree, after.UpdatedAt, model.TaskExecutionDone, model.TaskExecutionFailed)
 		if err != nil {
 			return TaskExecutionStatePage{}, err
 		}
@@ -49,7 +49,7 @@ func (d *Databases) ListTaskExecutionStatesPage(ctx context.Context, projectID, 
 		args = append(args, after.UpdatedAt, after.UpdatedAt, after.TaskID)
 	}
 	args = append(args, limit+1)
-	rows, err := d.Shared.Query(ctx, `SELECT task_id,project_id,task_revision,task_revision_sha256,status,stage,worktree,base_head_sha,head_sha,branch,agent,execution_revision,updated_at FROM shared_task_execution_states WHERE `+where+` ORDER BY updated_at DESC,task_id DESC LIMIT ?`, args...)
+	rows, err := d.Local.Query(ctx, `SELECT task_id,project_id,task_revision,task_revision_sha256,status,stage,worktree,base_head_sha,head_sha,branch,agent,execution_revision,updated_at FROM local_task_execution_states WHERE `+where+` ORDER BY updated_at DESC,task_id DESC LIMIT ?`, args...)
 	if err != nil {
 		return TaskExecutionStatePage{}, err
 	}

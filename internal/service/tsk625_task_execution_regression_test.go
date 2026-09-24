@@ -168,8 +168,8 @@ func TestTSK625BlockedStatusFailsClosedWithoutDurableBlockEvidence(t *testing.T)
 		name  string
 		query string
 	}{
-		{name: "missing", query: `DELETE FROM shared_task_execution_phases WHERE project_id=? AND task_id=? AND event_kind='block'`},
-		{name: "inconsistent", query: `UPDATE shared_task_execution_phases SET status=? WHERE project_id=? AND task_id=? AND event_kind='block'`},
+		{name: "missing", query: `DELETE FROM local_task_execution_phases WHERE project_id=? AND task_id=? AND event_kind='block'`},
+		{name: "inconsistent", query: `UPDATE local_task_execution_phases SET status=? WHERE project_id=? AND task_id=? AND event_kind='block'`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, db := tsk585Setup(t)
@@ -186,9 +186,9 @@ func TestTSK625BlockedStatusFailsClosedWithoutDurableBlockEvidence(t *testing.T)
 			}
 			var err error
 			if tc.name == "missing" {
-				_, err = db.Shared.Exec(ctx, tc.query, "example", task.ID)
+				_, err = db.Local.Exec(ctx, tc.query, "example", task.ID)
 			} else {
-				_, err = db.Shared.Exec(ctx, tc.query, model.TaskExecutionDispatched, "example", task.ID)
+				_, err = db.Local.Exec(ctx, tc.query, model.TaskExecutionDispatched, "example", task.ID)
 			}
 			if err != nil {
 				t.Fatal(err)

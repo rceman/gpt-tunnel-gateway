@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func seedTrackTask(t *testing.T, s *Service, key, title, priority string) model.TaskAuthoring {
@@ -217,5 +219,45 @@ func TestTSK660MilestoneUnorderedSetAndTrackLifecycle(t *testing.T) {
 		Reason:    "immutable",
 	}); err == nil {
 		t.Fatal("accepted Track mutation was accepted")
+	}
+}
+
+func TestTrackOutboxPublishesCanonicalHubRecord(t *testing.T) {
+	s, _, _ := testServiceSerial(t)
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	track := model.Track{
+		SchemaVersion: model.TrackSchemaVersion,
+		ID:            "EXM-TRK1",
+		ProjectID:     "example",
+		Revision:      1,
+		Milestone:     "EXM-MIL1",
+		Title:         "Delivery",
+		Tasks:         []string{"EXM-TSK1"},
+		Status:        model.TrackPlanned,
+		CreatedBy:     "planner",
+		CreatedAt:     now,
+		UpdatedBy:     "planner",
+		UpdatedAt:     now,
+	}
+	payload, err := json.Marshal(track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := sqlitestore.OutboxEntry{EntityType: "track", EntityID: track.ID, Revision: int64(track.Revision), Payload: payload}
+	if _, ok := sharedOutboxPublishers["track"]; !ok {
+		t.Fatal("Track has no Shared outbox publisher")
+	}
+	if err := s.publishSharedOutboxEntry(context.Background(), entry); err != nil {
+		t.Fatal(err)
+	}
+	var published model.Track
+	if err := s.Hub.ReadJSON(context.Background(), s.trackPath(track.ProjectID, track.ID), &published); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(published, track) {
+		t.Fatalf("published Track=%#v want %#v", published, track)
+	}
+	if err := s.publishSharedOutboxEntry(context.Background(), entry); err != errSharedOutboxNoop {
+		t.Fatalf("duplicate Track publication error=%v, want terminal no-op", err)
 	}
 }

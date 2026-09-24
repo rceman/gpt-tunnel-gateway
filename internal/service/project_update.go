@@ -52,11 +52,14 @@ func (s *Service) ProjectUpdate(ctx context.Context, in ProjectUpdateInput) (Pro
 		if identifiers.NextTaskNumber != 1 || identifiers.NextADRNumber != 1 {
 			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, fmt.Errorf("project code correction requires virgin Hub identifier counters")
 		}
-		var configuration model.ProjectConfiguration
-		if err := snapshot.ReadJSON(readCtx, s.projectConfigurationPath(in.ProjectID), &configuration); err != nil {
+		var configurationRaw json.RawMessage
+		if err := snapshot.ReadJSON(readCtx, s.projectConfigurationPath(in.ProjectID), &configurationRaw); err != nil {
 			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, fmt.Errorf("Hub project configuration is unavailable: %w", err)
 		}
-		normalizeProjectConfiguration(&configuration)
+		configuration, _, err := sqlitestore.MigrateProjectConfigurationPayload(configurationRaw)
+		if err != nil {
+			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, err
+		}
 		if err := model.ValidateProjectConfiguration(configuration); err != nil {
 			return model.ProjectIdentifiers{}, model.ProjectConfiguration{}, err
 		}
@@ -104,7 +107,11 @@ func (s *Service) ProjectUpdate(ctx context.Context, in ProjectUpdateInput) (Pro
 		if err := hub.WriteJSON(worktree, path, current); err != nil {
 			return nil, err
 		}
-		return []string{path}, nil
+		configurationPath := s.projectConfigurationPath(in.ProjectID)
+		if err := hub.WriteJSON(worktree, configurationPath, configuration); err != nil {
+			return nil, err
+		}
+		return []string{path, configurationPath}, nil
 	})
 	if err != nil {
 		_ = config.Restore(s.ConfigPath, originalConfig)
@@ -146,7 +153,7 @@ func (s *Service) rollbackProjectCode(ctx context.Context, expected, projectID, 
 }
 
 func validateVirginHub(ctx context.Context, snapshot *hub.ReadSnapshot, projectID, newCode string) error {
-	for _, suffix := range []string{"/tasks-v2/", "/tasks/", "/adrs/", "/agents/", "/trains-v2/", "/train-v2-starts/", "/train-attempts/", "/runs/", "/operations/", "/releases/", "/deployments/"} {
+	for _, suffix := range []string{"/tasks-v2/", "/tasks/", "/adrs/", "/trains-v2/", "/train-v2-starts/", "/train-attempts/", "/runs/", "/operations/", "/releases/", "/deployments/"} {
 		paths, err := snapshot.List(ctx, "gpt-tunnel/v1/projects/"+projectID+suffix, ".json")
 		if err != nil && !IsNotFound(err) {
 			return err

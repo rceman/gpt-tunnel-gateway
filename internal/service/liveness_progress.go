@@ -15,7 +15,7 @@ func appendComponentError(errors *[]string, name string, err error) {
 	}
 }
 
-func projectProgressFromInputs(tasks []TaskRecord, tasksErr error, status airelay.SessionStatus, statusErr error, tail airelay.Result, tailErr error) ProjectProgress {
+func projectProgressFromInputs(status airelay.SessionStatus, statusErr error, tail airelay.Result, tailErr error) ProjectProgress {
 	progress := ProjectProgress{
 		AgentState:            status.State,
 		ControllerReachable:   status.ControllerReachable,
@@ -34,10 +34,6 @@ func projectProgressFromInputs(tasks []TaskRecord, tasksErr error, status airela
 	if tailErr != nil {
 		appendComponentError(&progress.ComponentErrors, "agent_tail", tailErr)
 	}
-	if tasksErr != nil {
-		appendComponentError(&progress.ComponentErrors, "tasks", tasksErr)
-	}
-	_ = tasks
 	if len(progress.ComponentErrors) > 0 && progress.BlockerClassification == "none" {
 		progress.BlockerClassification = "PROGRESS_COMPONENT_ERROR"
 	}

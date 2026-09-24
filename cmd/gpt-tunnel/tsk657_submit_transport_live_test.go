@@ -194,7 +194,7 @@ func seedTSK657LiveGateway(t *testing.T, gateway *testutil.LiveGateway) string {
 	if _, _, err := s.ProjectIdentifiersAdopt(authority.WithPlanner(ctx), service.ProjectIdentifiersAdoptInput{ProjectID: "example", ProjectCode: "EXM", WriteOptions: service.WriteOptions{ExpectedHubRevision: hubRevision(t, s)}}); err != nil {
 		t.Fatalf("adopt live identifiers: %v", err)
 	}
-	if _, _, err := s.AgentRegister(authority.WithPlanner(ctx), service.AgentRegisterInput{ProjectID: "example", AgentID: "coding-live", WorkflowRole: durableSession.RoleWorker, WriteOptions: service.WriteOptions{ExpectedHubRevision: hubRevision(t, s)}}); err != nil {
+	if _, _, err := s.AgentRegister(authority.WithPlanner(ctx), service.AgentRegisterInput{ProjectID: "example", AgentID: "coding-live", WorkflowRole: durableSession.RoleWorker}); err != nil {
 		t.Fatalf("register live Worker: %v", err)
 	}
 	runtimeKey := "live-runtime"

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
@@ -176,31 +175,52 @@ func testServiceWithDurability(t *testing.T, s *Service) *sqlitestore.Databases 
 		project.ProjectCode = "EXM"
 	}
 	s.Config.Projects["example"] = project
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	db := s.Durability
+	if db == nil {
+		db, err = sqlitestore.Open(s.Config.StateDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+	}
+	if s.localState != nil && s.localState != db {
+		for projectID := range s.Config.Projects {
+			agents, err := s.localState.ListLocalAgents(context.Background(), projectID, 256)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, agent := range agents {
+				if err := db.UpsertLocalAgent(context.Background(), agent); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
 	}
 	payload, err := json.Marshal(configuration)
 	if err != nil {
-		db.Close()
 		t.Fatal(err)
 	}
 	if err := db.PutSharedProjection(context.Background(), "project_configuration", sqlitestore.SharedEntity{ID: "example", Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
-		db.Close()
 		t.Fatal(err)
 	}
 	if err := db.SeedSharedRulesFromConfiguration(context.Background(), configuration, project.ProjectCode); err != nil {
-		db.Close()
 		t.Fatal(err)
 	}
 	if identifiersErr == nil {
-		if _, err := db.Shared.Exec(context.Background(), `INSERT OR IGNORE INTO shared_project_identifiers(project_id,project_code,next_task_number,next_adr_number,next_rule_number,next_journal_number,next_train_number) VALUES(?,?,?,?,?,?,?)`, "example", identifiers.ProjectCode, identifiers.NextTaskNumber, identifiers.NextADRNumber, 1, 1, 1); err != nil {
-			db.Close()
+		if _, err := db.Shared.Exec(context.Background(), `INSERT OR IGNORE INTO shared_project_identifiers(project_id,project_code) VALUES(?,?)`, "example", identifiers.ProjectCode); err != nil {
 			t.Fatal(err)
+		}
+		for _, sequence := range []struct {
+			entityType string
+			next       uint64
+		}{{"task", identifiers.NextTaskNumber}, {"adr", identifiers.NextADRNumber}} {
+			if err := db.ReconcileSharedSequence(context.Background(), sequence.entityType, "example", identifiers.ProjectCode, int64(sequence.next)); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	s.Durability = db
-	t.Cleanup(func() { _ = db.Close() })
+	s.localState = db
 	return db
 }
 
@@ -227,22 +247,29 @@ func testServiceSetup(t *testing.T) (*Service, string, string) {
 	}
 	installServiceExecutionSessionFixture(t, s, filepath.Join(t.TempDir(), "prompts"))
 	s.Config.ProjectAgentBindings["example"]["coder-example"] = config.AgentBinding{SessionKey: "example_master"}
+	db, err := sqlitestore.Open(filepath.Join(t.TempDir(), "local-state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.localState = db
+	t.Cleanup(func() { _ = db.Close() })
 	now := time.Now().UTC()
 	revision = result.Hub.After
 	for _, agent := range []model.Agent{
 		{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coder-example", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now},
 	} {
-		path := s.agentPath("example", agent.AgentID)
-		tx, err := s.Hub.Transact(context.Background(), revision, "test: seed agent "+agent.AgentID, func(worktree string) ([]string, error) {
-			if err := hub.WriteJSON(worktree, path, agent); err != nil {
-				return nil, err
-			}
-			return []string{path}, nil
-		})
+		payload, err := json.Marshal(agent)
 		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.CreateLocalAgent(context.Background(), sqlitestore.LocalAgent{
+			ProjectID: agent.ProjectID,
+			AgentID:   agent.AgentID,
+			Payload:   payload,
+			UpdatedAt: agent.UpdatedAt.Format(time.RFC3339Nano),
+		}); err != nil {
 			t.Fatalf("seed test agent %s: %v", agent.AgentID, err)
 		}
-		revision = tx.After
 	}
 	return s, revision, projectHead
 }

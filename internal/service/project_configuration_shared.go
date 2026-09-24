@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,30 +20,17 @@ func (s *Service) projectConfigurationReadShared(ctx context.Context, projectID 
 	if err != nil {
 		return model.ProjectConfiguration{}, err
 	}
-	var configuration model.ProjectConfiguration
-	if err := json.Unmarshal(entity.Payload, &configuration); err != nil {
+	configuration, err := sqlitestore.DecodeCanonicalProjectConfigurationPayload(entity.Payload)
+	if err != nil {
 		return model.ProjectConfiguration{}, fmt.Errorf("decode Shared project configuration %s: %w", projectID, err)
 	}
 	if configuration.ProjectID != projectID || int64(configuration.Revision) != entity.Revision {
 		return model.ProjectConfiguration{}, fmt.Errorf("Shared project configuration identity mismatch")
 	}
-	normalizeProjectConfiguration(&configuration)
 	if err := model.ValidateProjectConfiguration(configuration); err != nil {
 		return model.ProjectConfiguration{}, err
 	}
 	return configuration, nil
-}
-
-func normalizeProjectConfiguration(configuration *model.ProjectConfiguration) {
-	if configuration.GuideBindings == nil {
-		configuration.GuideBindings = map[string]string{}
-	}
-	if configuration.Workflow.GateCommands.IsZero() {
-		configuration.Workflow.GateCommands = model.DefaultProjectGateCommands()
-	}
-	if configuration.Integration.TargetBranch == "" {
-		configuration.Integration.TargetBranch = configuration.Workflow.IntegrationBranch
-	}
 }
 
 func (s *Service) projectConfigurationUpdateShared(ctx context.Context, in ProjectConfigurationUpdateInput) (model.ProjectConfiguration, OperationResult, error) {
@@ -62,11 +50,10 @@ func (s *Service) projectConfigurationUpdateShared(ctx context.Context, in Proje
 		if existing.EntityType != "project_configuration" || existing.EntityID != in.ProjectID || existing.Kind != "project-configuration-update" {
 			return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("shared project configuration operation identity mismatch")
 		}
-		var committed model.ProjectConfiguration
-		if err := json.Unmarshal(existing.Payload, &committed); err != nil {
+		committed, err := sqlitestore.DecodeCanonicalProjectConfigurationPayload(existing.Payload)
+		if err != nil {
 			return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("decode committed Shared project configuration %s: %w", in.ProjectID, err)
 		}
-		normalizeProjectConfiguration(&committed)
 		if committed.ProjectID != in.ProjectID || int64(committed.Revision) != existing.Revision {
 			return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("committed Shared project configuration identity mismatch")
 		}
@@ -188,18 +175,33 @@ func (s *Service) publishSharedProjectConfiguration(ctx context.Context, configu
 	}
 	path := s.projectConfigurationPath(configuration.ProjectID)
 	_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared project configuration "+configuration.ProjectID, func(worktree string) ([]string, error) {
-		var latest model.ProjectConfiguration
-		readErr := readWorktreeJSON(worktree, path, &latest)
+		var latestRaw json.RawMessage
+		readErr := readWorktreeJSON(worktree, path, &latestRaw)
 		if readErr == nil {
-			normalizeProjectConfiguration(&latest)
+			latest, canonical, migrateErr := sqlitestore.MigrateProjectConfigurationPayload(latestRaw)
+			if migrateErr != nil {
+				return nil, fmt.Errorf("Hub project configuration is malformed: %w", migrateErr)
+			}
+			var compact bytes.Buffer
+			if err := json.Compact(&compact, latestRaw); err != nil {
+				return nil, fmt.Errorf("compact Hub project configuration: %w", err)
+			}
+			if latest.ProjectID != configuration.ProjectID {
+				return nil, fmt.Errorf("Hub project configuration identity conflicts with Shared outbox")
+			}
+			if err := model.ValidateProjectConfiguration(latest); err != nil {
+				return nil, fmt.Errorf("Hub project configuration is invalid: %w", err)
+			}
 			if latest.Revision > configuration.Revision {
 				return nil, fmt.Errorf("Hub project configuration is newer than Shared outbox")
 			}
-			if latest.Revision == configuration.Revision && reflect.DeepEqual(latest, configuration) {
-				return nil, errSharedOutboxNoop
-			}
 			if latest.Revision == configuration.Revision {
-				return nil, fmt.Errorf("Hub project configuration conflicts with Shared outbox")
+				if !reflect.DeepEqual(latest, configuration) {
+					return nil, fmt.Errorf("Hub project configuration conflicts with Shared outbox")
+				}
+				if bytes.Equal(compact.Bytes(), canonical) {
+					return nil, errSharedOutboxNoop
+				}
 			}
 		} else if !IsNotFound(readErr) {
 			return nil, readErr

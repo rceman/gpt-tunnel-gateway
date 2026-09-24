@@ -12,13 +12,13 @@ import (
 )
 
 func (d *Databases) MigrateTaskExecutionAgentIdentity(ctx context.Context, projectID, legacyAgentID, canonicalAgentID string) error {
-	if d == nil || d.Shared == nil {
-		return fmt.Errorf("shared store is unavailable")
+	if d == nil || d.Local == nil {
+		return fmt.Errorf("local store is unavailable")
 	}
 	if projectID == "" || legacyAgentID == "" || canonicalAgentID == "" || legacyAgentID == canonicalAgentID {
 		return fmt.Errorf("invalid Task execution Agent identity migration")
 	}
-	rows, err := d.Shared.Query(ctx, `SELECT task_id,status,agent FROM shared_task_execution_states WHERE project_id=? AND agent=? AND status NOT IN (?,?) ORDER BY task_id`, projectID, legacyAgentID, model.TaskExecutionDone, model.TaskExecutionFailed)
+	rows, err := d.Local.Query(ctx, `SELECT task_id,status,agent FROM local_task_execution_states WHERE project_id=? AND agent=? AND status NOT IN (?,?) ORDER BY task_id`, projectID, legacyAgentID, model.TaskExecutionDone, model.TaskExecutionFailed)
 	if err != nil {
 		return err
 	}
@@ -34,14 +34,14 @@ func (d *Databases) MigrateTaskExecutionAgentIdentity(ctx context.Context, proje
 			return fmt.Errorf("invalid Task execution Agent migration identity")
 		}
 		statements = append(statements, upstream.Statement{
-			SQL:  `UPDATE shared_task_execution_states SET agent=? WHERE project_id=? AND task_id=? AND agent=? AND status NOT IN (?,?)`,
+			SQL:  `UPDATE local_task_execution_states SET agent=? WHERE project_id=? AND task_id=? AND agent=? AND status NOT IN (?,?)`,
 			Args: []any{canonicalAgentID, projectID, taskID, legacyAgentID, model.TaskExecutionDone, model.TaskExecutionFailed}, RequireRowsAffected: 1,
 		})
 	}
 	if len(statements) == 0 {
 		return nil
 	}
-	_, err = d.Shared.Batch(ctx, statements)
+	_, err = d.Local.Batch(ctx, statements)
 	return err
 }
 

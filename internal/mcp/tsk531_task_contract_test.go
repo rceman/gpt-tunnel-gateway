@@ -172,6 +172,12 @@ func TestTSK531TaskHistoryReadsSharedLifecycleAuthority(t *testing.T) {
 		"title": "Shared history Task", "summary": "Shared history summary.", "objective": "Read shared history.", "adr_relation": "no_adr_required",
 	})
 	key := created["result"].(map[string]any)["key"].(string)
+	if _, err := server.Service.Hub.ReadFile(context.Background(), "gpt-tunnel/v1/projects/example/tasks/"+key+".json"); err == nil || !service.IsNotFound(err) {
+		t.Fatalf("canonical task/create wrote the retired Hub tasks family: %v", err)
+	}
+	if _, err := server.Service.Durability.ReadSharedEntity(context.Background(), "task", key); err != nil {
+		t.Fatalf("canonical task/create did not persist Shared authority: %v", err)
+	}
 	if _, err := server.Service.TaskLifecycleArchive(context.Background(), "example", key, "planner", "retire"); err != nil {
 		t.Fatal(err)
 	}

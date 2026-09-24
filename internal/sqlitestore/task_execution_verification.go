@@ -11,10 +11,10 @@ import (
 )
 
 func (d *Databases) ReadLatestTaskExecutionVerification(ctx context.Context, projectID, taskID string) (model.TaskExecutionVerification, bool, error) {
-	if d == nil || d.Shared == nil {
-		return model.TaskExecutionVerification{}, false, fmt.Errorf("shared store is unavailable")
+	if d == nil || d.Local == nil {
+		return model.TaskExecutionVerification{}, false, fmt.Errorf("local store is unavailable")
 	}
-	rows, err := d.Shared.Query(ctx, `SELECT receipt_json FROM shared_task_execution_verifications WHERE project_id=? AND task_id=? ORDER BY attempt_revision DESC LIMIT 1`, projectID, taskID)
+	rows, err := d.Local.Query(ctx, `SELECT receipt_json FROM local_task_execution_verifications WHERE project_id=? AND task_id=? ORDER BY attempt_revision DESC LIMIT 1`, projectID, taskID)
 	if err != nil {
 		return model.TaskExecutionVerification{}, false, err
 	}
@@ -39,8 +39,8 @@ func (d *Databases) ReadLatestTaskExecutionVerification(ctx context.Context, pro
 }
 
 func (d *Databases) FinishTaskExecutionVerification(ctx context.Context, nextState model.TaskExecutionState, expectedRevision int, receipt model.TaskExecutionVerification) error {
-	if d == nil || d.Shared == nil {
-		return fmt.Errorf("shared store is unavailable")
+	if d == nil || d.Local == nil {
+		return fmt.Errorf("local store is unavailable")
 	}
 	if err := model.ValidateTaskExecutionVerification(receipt); err != nil {
 		return err
@@ -71,9 +71,9 @@ func (d *Databases) FinishTaskExecutionVerification(ctx context.Context, nextSta
 	} else if found {
 		return d.reuseTaskExecutionVerification(ctx, nextState, receiptJSON, existing)
 	}
-	_, err = d.Shared.Batch(ctx, []upstream.Statement{
-		{SQL: `UPDATE shared_task_execution_states SET task_revision=?,task_revision_sha256=?,status=?,stage=?,worktree=?,base_head_sha=?,head_sha=?,branch=?,agent=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND task_revision=? AND task_revision_sha256=? AND status=? AND stage=? AND worktree=? AND base_head_sha=? AND head_sha=? AND branch=? AND agent=? AND execution_revision=?`, Args: []any{nextState.TaskRevision, nextState.TaskRevisionSHA256, nextState.Status, nextState.Stage, nextState.Worktree, nextState.BaseHead, nextState.Head, nextState.Branch, nextState.Agent, nextState.ExecutionRevision, nextState.UpdatedAt.UTC().Format(time.RFC3339Nano), nextState.ProjectID, nextState.TaskID, nextState.TaskRevision, nextState.TaskRevisionSHA256, model.TaskExecutionVerifying, nextState.Stage, nextState.Worktree, nextState.BaseHead, nextState.Head, nextState.Branch, nextState.Agent, expectedRevision}, RequireRowsAffected: 1},
-		{SQL: `INSERT INTO shared_task_execution_verifications(project_id,task_id,operation_id,attempt_revision,outcome,receipt_json,created_at) VALUES(?,?,?,?,?,?,?)`, Args: []any{receipt.ProjectID, receipt.TaskID, receipt.OperationID, receipt.AttemptRevision, receipt.Outcome, receiptJSON, receipt.CompletedAt.UTC().Format(time.RFC3339Nano)}, RequireRowsAffected: 1},
+	_, err = d.Local.Batch(ctx, []upstream.Statement{
+		{SQL: `UPDATE local_task_execution_states SET task_revision=?,task_revision_sha256=?,status=?,stage=?,worktree=?,base_head_sha=?,head_sha=?,branch=?,agent=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND task_revision=? AND task_revision_sha256=? AND status=? AND stage=? AND worktree=? AND base_head_sha=? AND head_sha=? AND branch=? AND agent=? AND execution_revision=?`, Args: []any{nextState.TaskRevision, nextState.TaskRevisionSHA256, nextState.Status, nextState.Stage, nextState.Worktree, nextState.BaseHead, nextState.Head, nextState.Branch, nextState.Agent, nextState.ExecutionRevision, nextState.UpdatedAt.UTC().Format(time.RFC3339Nano), nextState.ProjectID, nextState.TaskID, nextState.TaskRevision, nextState.TaskRevisionSHA256, model.TaskExecutionVerifying, nextState.Stage, nextState.Worktree, nextState.BaseHead, nextState.Head, nextState.Branch, nextState.Agent, expectedRevision}, RequireRowsAffected: 1},
+		{SQL: `INSERT INTO local_task_execution_verifications(project_id,task_id,operation_id,attempt_revision,outcome,receipt_json,created_at) VALUES(?,?,?,?,?,?,?)`, Args: []any{receipt.ProjectID, receipt.TaskID, receipt.OperationID, receipt.AttemptRevision, receipt.Outcome, receiptJSON, receipt.CompletedAt.UTC().Format(time.RFC3339Nano)}, RequireRowsAffected: 1},
 	})
 	if err != nil {
 		if existing, found, readErr := d.taskExecutionVerificationReceipt(ctx, receipt.ProjectID, receipt.TaskID, receipt.OperationID, receipt.AttemptRevision); readErr == nil && found {
@@ -85,7 +85,7 @@ func (d *Databases) FinishTaskExecutionVerification(ctx context.Context, nextSta
 }
 
 func (d *Databases) taskExecutionVerificationReceipt(ctx context.Context, projectID, taskID, operationID string, attemptRevision int) (string, bool, error) {
-	rows, err := d.Shared.Query(ctx, `SELECT receipt_json FROM shared_task_execution_verifications WHERE project_id=? AND task_id=? AND operation_id=? AND attempt_revision=?`, projectID, taskID, operationID, attemptRevision)
+	rows, err := d.Local.Query(ctx, `SELECT receipt_json FROM local_task_execution_verifications WHERE project_id=? AND task_id=? AND operation_id=? AND attempt_revision=?`, projectID, taskID, operationID, attemptRevision)
 	if err != nil {
 		return "", false, err
 	}

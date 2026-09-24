@@ -39,7 +39,7 @@ func compactNestedRecord(key string, value map[string]any) map[string]any {
 	case "guide":
 		return selectProjectionFields(value, "schema_version", "project_id", "revision", "updated_by", "updated_at")
 	case "configuration":
-		return selectProjectionFields(value, "schema_version", "project_id", "revision", "execution_model", "activation_profile_ref", "updated_by", "updated_at")
+		return selectProjectionFields(value, "schema_version", "project_id", "revision", "activation_profile_ref", "updated_by", "updated_at")
 	case "policy":
 		return selectProjectionFields(value, "schema_version", "project_id", "revision", "workflow_stage", "integration_branch", "agent", "ci", "gates", "updated_by", "updated_at")
 	case "identifiers":

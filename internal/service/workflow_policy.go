@@ -175,52 +175,13 @@ func (s *Service) projectWorkflowPolicyReadDetailed(ctx context.Context, project
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return model.ProjectWorkflowPolicy{}, "", err
 	}
-	configuration, configurationErr := s.ProjectConfigurationRead(ctx, projectID)
-	var canonical model.ProjectWorkflowPolicy
-	if configurationErr == nil {
-		var err error
-		canonical, err = s.workflowPolicyFromAuthority(ctx, configuration)
-		if err != nil {
-			return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("project workflow authority is invalid: %w", err)
-		}
-		if s.Durability != nil {
-			return canonical, "project_configuration", nil
-		}
-	}
-	legacyPath := s.workflowPolicyPath(projectID)
-	var policy model.ProjectWorkflowPolicy
-	legacyErr := s.readLegacyWorkflowPolicy(ctx, legacyPath, &policy)
-	if configurationErr == nil {
-		if legacyErr == nil {
-			if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
-				return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("legacy workflow policy is invalid: %w", err)
-			}
-			if !workflowPoliciesEquivalent(canonical, policy) {
-				return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("conflicting project configuration and legacy workflow policy")
-			}
-		} else if !IsNotFound(legacyErr) {
-			return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("legacy workflow policy is invalid: %w", legacyErr)
-		}
-		return canonical, "project_configuration", nil
-	}
-	if !IsNotFound(configurationErr) {
-		return model.ProjectWorkflowPolicy{}, "", configurationErr
-	}
-	if legacyErr != nil {
-		return model.ProjectWorkflowPolicy{}, "", configurationErr
-	}
-	if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
+	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
+	if err != nil {
 		return model.ProjectWorkflowPolicy{}, "", err
 	}
-	if policy.ProjectID != projectID {
-		return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("workflow policy project_id mismatch")
+	policy, err := s.workflowPolicyFromAuthority(ctx, configuration)
+	if err != nil {
+		return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("project workflow authority is invalid: %w", err)
 	}
-	return policy, "legacy_compatibility", nil
-}
-
-func (s *Service) readLegacyWorkflowPolicy(ctx context.Context, path string, policy *model.ProjectWorkflowPolicy) error {
-	if s.legacyWorkflowPolicyRead != nil {
-		return s.legacyWorkflowPolicyRead(ctx, path, policy)
-	}
-	return s.Hub.ReadJSON(ctx, path, policy)
+	return policy, "project_configuration", nil
 }

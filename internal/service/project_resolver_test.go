@@ -205,7 +205,7 @@ func TestProjectResolutionFailsClosedWithoutStaticFallback(t *testing.T) {
 	}
 }
 
-func TestValidateConfiguredProjectRecordsRequiresManagedProjectAndPlan(t *testing.T) {
+func TestValidateConfiguredProjectRecordsRequiresManagedProject(t *testing.T) {
 	s, _, _ := testService(t)
 	root := t.TempDir()
 	writeManagedServiceTestRegistry(t, s, map[string]config.ManagedProjectEntry{"managed": managedServiceTestEntry(root, "managed")})
@@ -227,6 +227,9 @@ func TestValidateConfiguredProjectRecordsRequiresManagedProjectAndPlan(t *testin
 		t.Fatalf("register managed durable project: %v", err)
 	}
 	if err := s.ValidateConfiguredProjectRecords(context.Background()); err != nil {
-		t.Fatalf("managed durable project and plan were not accepted: %v", err)
+		t.Fatalf("managed durable project was not accepted: %v", err)
+	}
+	if _, err := s.Hub.ReadFile(context.Background(), s.planPath("managed")); err == nil || !IsNotFound(err) {
+		t.Fatalf("new project registration retained a Plan authority: %v", err)
 	}
 }

@@ -48,7 +48,7 @@ func (s *Service) ResolveRuntimeRoleSession(ctx context.Context, runtimeKey, rol
 }
 
 func (s *Service) resolveManagedAgentForRuntime(ctx context.Context, runtimeKey string) (runtimeAgentCandidate, error) {
-	if s.Durability == nil || s.Durability.Local == nil {
+	if s.localStateStore() == nil {
 		return runtimeAgentCandidate{}, fmt.Errorf("RUNTIME_IDENTITY_UNAVAILABLE: local session authority is unavailable")
 	}
 	projectIDs, err := s.EffectiveProjectIDs()
@@ -180,7 +180,11 @@ func (s *Service) resolveRuntimeRoleSessionForAgentShared(selected runtimeAgentC
 }
 
 func (s *Service) resolveRuntimeRoleSessionForAgentSelector(selected runtimeAgentCandidate, role, sessionID string, allowShared bool) (RuntimeRoleSession, error) {
-	sessions, err := durableSession.NewStoreWithDurability(s.Durability).List()
+	localStore := s.localStateStore()
+	if localStore == nil {
+		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: local Session authority is unavailable")
+	}
+	sessions, err := durableSession.NewStoreWithDurability(localStore).List()
 	if err != nil {
 		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: durable role Session authority is unavailable: %w", err)
 	}
@@ -227,7 +231,8 @@ func (s *Service) resolveProjectRoleSession(ctx context.Context, projectID, role
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return RuntimeRoleSession{}, err
 	}
-	if s.Durability == nil || s.Durability.Local == nil {
+	localStore := s.localStateStore()
+	if localStore == nil {
 		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_IDENTITY_UNAVAILABLE: local session authority is unavailable")
 	}
 	project, err := s.ProjectRead(ctx, projectID)
@@ -241,7 +246,7 @@ func (s *Service) resolveProjectRoleSession(ctx context.Context, projectID, role
 	if err != nil {
 		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_IDENTITY_UNAVAILABLE: managed Agent registry is unavailable: %w", err)
 	}
-	sessions, err := durableSession.NewStoreWithDurability(s.Durability).List()
+	sessions, err := durableSession.NewStoreWithDurability(localStore).List()
 	if err != nil {
 		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: durable role Session authority is unavailable: %w", err)
 	}
@@ -305,7 +310,11 @@ func (s *Service) resolveRoleSession(ctx context.Context, projectID, sessionID, 
 	if sessionID == "" {
 		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: %s Session is required", roleLabel)
 	}
-	record, err := durableSession.NewStoreWithDurability(s.Durability).Get(sessionID)
+	localStore := s.localStateStore()
+	if localStore == nil {
+		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: local Session authority is unavailable")
+	}
+	record, err := durableSession.NewStoreWithDurability(localStore).Get(sessionID)
 	if err != nil {
 		return RuntimeRoleSession{}, fmt.Errorf("RUNTIME_SESSION_UNAVAILABLE: %s Session is unavailable: %w", roleLabel, err)
 	}

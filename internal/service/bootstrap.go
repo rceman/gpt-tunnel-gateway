@@ -1,14 +1,17 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	workflowSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
@@ -257,22 +260,54 @@ func (s *Service) reconcileOnboardedProjectShared(ctx context.Context, projectID
 	if identifiers.ProjectCode != code {
 		return fmt.Errorf("Hub project code %q conflicts with requested %q", identifiers.ProjectCode, code)
 	}
-	var configuration model.ProjectConfiguration
-	if err := s.Hub.ReadJSON(ctx, s.projectConfigurationPath(projectID), &configuration); err != nil {
+	var configurationRaw json.RawMessage
+	configurationPath := s.projectConfigurationPath(projectID)
+	if err := s.Hub.ReadJSON(ctx, configurationPath, &configurationRaw); err != nil {
 		return fmt.Errorf("read Hub project configuration: %w", err)
 	}
-	normalizeProjectConfiguration(&configuration)
-	if err := model.ValidateProjectConfiguration(configuration); err != nil {
-		return fmt.Errorf("validate Hub project configuration: %w", err)
+	configuration, canonicalConfiguration, err := sqlitestore.MigrateProjectConfigurationPayload(configurationRaw)
+	if err != nil {
+		return fmt.Errorf("migrate Hub project configuration: %w", err)
 	}
 	if configuration.ProjectID != projectID {
 		return fmt.Errorf("Hub project configuration project_id mismatch")
+	}
+	if err := model.ValidateProjectConfiguration(configuration); err != nil {
+		return fmt.Errorf("validate Hub project configuration: %w", err)
+	}
+	var compactConfiguration bytes.Buffer
+	if err := json.Compact(&compactConfiguration, configurationRaw); err != nil {
+		return fmt.Errorf("compact Hub project configuration: %w", err)
+	}
+	if !bytes.Equal(compactConfiguration.Bytes(), canonicalConfiguration) {
+		if _, err := s.Hub.Transact(ctx, "", "gateway: migrate Hub project configuration", func(worktree string) ([]string, error) {
+			var latestRaw json.RawMessage
+			if err := readWorktreeJSON(worktree, configurationPath, &latestRaw); err != nil {
+				return nil, err
+			}
+			_, latestCanonical, err := sqlitestore.MigrateProjectConfigurationPayload(latestRaw)
+			if err != nil {
+				return nil, err
+			}
+			if !bytes.Equal(latestCanonical, canonicalConfiguration) {
+				return nil, fmt.Errorf("Hub project configuration changed during migration")
+			}
+			if err := hub.WriteJSON(worktree, configurationPath, configuration); err != nil {
+				return nil, err
+			}
+			return []string{configurationPath}, nil
+		}); err != nil {
+			return fmt.Errorf("migrate Hub project configuration: %w", err)
+		}
 	}
 	if err := s.Durability.ReconcileProjectBootstrap(ctx, sqlitestore.ProjectBootstrapUpdate{
 		ProjectID: projectID, PreviousProjectCode: code, ProjectCode: code,
 		HubIdentifiers: identifiers, Configuration: configuration,
 	}); err != nil {
 		return fmt.Errorf("reconcile Shared project bootstrap: %w", err)
+	}
+	if err := s.restoreHubProjectSemantics(ctx, projectID, code); err != nil {
+		return fmt.Errorf("restore portable Shared project semantics: %w", err)
 	}
 	return nil
 }
@@ -341,7 +376,7 @@ func cloneManagedProjects(input map[string]config.ManagedProjectEntry) map[strin
 
 func (s *Service) rollbackOnboardHub(ctx context.Context, expected, projectID string) error {
 	_, err := s.Hub.Transact(ctx, expected, "gateway: rollback project onboarding "+projectID, func(worktree string) ([]string, error) {
-		paths := []string{s.projectPath(projectID), s.planPath(projectID), s.projectConfigurationPath(projectID), s.projectIdentifiersPath(projectID)}
+		paths := []string{s.projectPath(projectID), s.projectConfigurationPath(projectID), s.projectIdentifiersPath(projectID)}
 		for _, path := range paths {
 			if err := os.Remove(filepath.Join(worktree, filepath.FromSlash(path))); err != nil && !os.IsNotExist(err) {
 				return nil, err
@@ -418,18 +453,14 @@ func (s *Service) AgentBootstrap(ctx context.Context, in AgentBootstrapInput) (A
 	}
 	agent, readErr := s.AgentRead(ctx, in.ProjectID, agentID)
 	status := "registered"
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		return AgentBootstrapResult{}, readErr
+	}
 	if readErr != nil {
-		hubRevision, err := s.Hub.RemoteRevision(ctx)
-		if err != nil {
-			return AgentBootstrapResult{}, err
-		}
 		agent, _, err = s.AgentRegister(ctx, AgentRegisterInput{
 			ProjectID:    in.ProjectID,
 			AgentID:      agentID,
 			WorkflowRole: role,
-			WriteOptions: WriteOptions{
-				ExpectedHubRevision: hubRevision,
-			},
 		})
 		if err != nil {
 			return AgentBootstrapResult{}, err

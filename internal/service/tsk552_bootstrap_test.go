@@ -222,17 +222,10 @@ func TestTSK552LegacyEmptyWorkflowRoleRejectsConflictingActiveSession(t *testing
 	s.Durability = db
 	s.ConfigPath = filepath.Join(t.TempDir(), "missing-config.json")
 	projectID := filepath.Base(root)
-	hubRevision, err := s.Hub.RemoteRevision(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, _, err := s.AgentRegister(context.Background(), AgentRegisterInput{
 		ProjectID:    projectID,
 		AgentID:      "LEGACY-AGENT",
 		WorkflowRole: "",
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: hubRevision,
-		},
 	}); err != nil {
 		t.Fatal(err)
 	}

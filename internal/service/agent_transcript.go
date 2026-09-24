@@ -68,10 +68,11 @@ func (s *Service) ResolveAgentTailSession(ctx context.Context, projectID, sessio
 	if model.ValidateObjectIdentifier(sessionID) != nil {
 		return "", fmt.Errorf("invalid exact workflow Session %q", sessionID)
 	}
-	if s.Durability == nil {
+	localStore := s.localStateStore()
+	if localStore == nil {
 		return "", fmt.Errorf("Agent tail session %q is unavailable: local session authority is unavailable", sessionID)
 	}
-	record, err := durableSession.NewStoreWithDurability(s.Durability).Get(sessionID)
+	record, err := durableSession.NewStoreWithDurability(localStore).Get(sessionID)
 	if err != nil {
 		return "", fmt.Errorf("Agent tail session %q is unavailable: %w", sessionID, err)
 	}
@@ -85,10 +86,11 @@ func (s *Service) ResolveAgentTailSession(ctx context.Context, projectID, sessio
 }
 
 func (s *Service) ResolveAgentTailSessionForProject(ctx context.Context, projectID string) (string, error) {
-	if s.Durability == nil {
+	localStore := s.localStateStore()
+	if localStore == nil {
 		return "", fmt.Errorf("no active Agent session for project %q: local session authority is unavailable", projectID)
 	}
-	records, err := durableSession.NewStoreWithDurability(s.Durability).List()
+	records, err := durableSession.NewStoreWithDurability(localStore).List()
 	if err != nil {
 		return "", fmt.Errorf("cannot inspect Agent sessions for project %q: %w", projectID, err)
 	}

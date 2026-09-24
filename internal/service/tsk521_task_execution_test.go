@@ -9,7 +9,6 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
@@ -127,22 +126,21 @@ func TestTSK521TaskDispatchCreatesOneFrozenTaskLane(t *testing.T) {
 
 func seedTSK521Agent(t *testing.T, s *Service, agentID string) {
 	t.Helper()
-	snapshot, err := s.Hub.ReadSnapshot(context.Background())
+	now := time.Now().UTC()
+	agent := model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: agentID, Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now}
+	payload, err := json.Marshal(agent)
 	if err != nil {
 		t.Fatal(err)
 	}
-	revision := snapshot.Revision()
-	if err := snapshot.Close(); err != nil {
-		t.Fatal(err)
+	localStore := s.localStateStore()
+	if localStore == nil {
+		t.Fatal("Local Agent store is unavailable")
 	}
-	now := time.Now().UTC()
-	agent := model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: agentID, Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now}
-	path := s.agentPath("example", agentID)
-	if _, err := s.Hub.Transact(context.Background(), revision, "test: seed TSK521 Agent "+agentID, func(worktree string) ([]string, error) {
-		if err := hub.WriteJSON(worktree, path, agent); err != nil {
-			return nil, err
-		}
-		return []string{path}, nil
+	if err := localStore.CreateLocalAgent(context.Background(), sqlitestore.LocalAgent{
+		ProjectID: agent.ProjectID,
+		AgentID:   agent.AgentID,
+		Payload:   payload,
+		UpdatedAt: agent.UpdatedAt.Format(time.RFC3339Nano),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -158,11 +156,6 @@ func seedTSK521Agent(t *testing.T, s *Service, agentID string) {
 func TestTSK521TaskDispatchAgentSelectionFailsClosedAndExplicitlySelects(t *testing.T) {
 	t.Run("zero attached", func(t *testing.T) {
 		s, _, _ := testServiceSerial(t)
-		s.Config.Projects["example"] = func() config.ProjectConfig {
-			project := s.Config.Projects["example"]
-			project.AirelaySessionKey = ""
-			return project
-		}()
 		delete(s.Config.ProjectAgentBindings["example"], "coder-example")
 		if _, err := s.ResolveAgent(context.Background(), AgentResolveInput{
 			ProjectID:       "example",

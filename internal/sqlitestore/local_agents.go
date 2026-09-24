@@ -2,15 +2,19 @@ package sqlitestore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
 	upstream "github.com/rceman/go-sqlite-store/store"
 )
 
-// LocalAgent is the gateway-local projection of one portable Agent record.
-// The projection is operational read authority; Hub synchronization replaces
-// the complete project set atomically during bootstrap/replication.
+// LocalAgent is the gateway-local authority for one concrete Agent record.
+var (
+	ErrLocalAgentExists  = errors.New("local agent already exists")
+	ErrLocalAgentChanged = errors.New("local agent changed concurrently")
+)
+
 type LocalAgent struct {
 	ProjectID string
 	AgentID   string
@@ -101,9 +105,41 @@ func (d *Databases) ReplaceLocalAgents(ctx context.Context, projectID string, ag
 	return err
 }
 
-// UpsertLocalAgent updates one locally authoritative Agent projection. Hub
-// mutations may refresh this row after their admin transaction commits; live
-// reads never need to consult that transaction's repository.
+func (d *Databases) CreateLocalAgent(ctx context.Context, agent LocalAgent) error {
+	if d == nil || d.Local == nil {
+		return fmt.Errorf("local store is unavailable")
+	}
+	if agent.ProjectID == "" || agent.AgentID == "" || len(agent.Payload) == 0 || agent.UpdatedAt == "" {
+		return fmt.Errorf("invalid local agent projection")
+	}
+	_, err := d.Local.Exec(ctx, `INSERT INTO local_agents(project_id,agent_id,payload,updated_at) VALUES(?,?,?,?)`, agent.ProjectID, agent.AgentID, agent.Payload, agent.UpdatedAt)
+	if err != nil {
+		if _, readErr := d.ReadLocalAgent(ctx, agent.ProjectID, agent.AgentID); readErr == nil {
+			return ErrLocalAgentExists
+		}
+		return err
+	}
+	return nil
+}
+
+func (d *Databases) UpdateLocalAgent(ctx context.Context, agent LocalAgent, oldPayload []byte) error {
+	if d == nil || d.Local == nil {
+		return fmt.Errorf("local store is unavailable")
+	}
+	if agent.ProjectID == "" || agent.AgentID == "" || len(agent.Payload) == 0 || len(oldPayload) == 0 || agent.UpdatedAt == "" {
+		return fmt.Errorf("invalid local agent update")
+	}
+	result, err := d.Local.Exec(ctx, `UPDATE local_agents SET payload=?,updated_at=? WHERE project_id=? AND agent_id=? AND payload=?`, agent.Payload, agent.UpdatedAt, agent.ProjectID, agent.AgentID, oldPayload)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected != 1 {
+		return ErrLocalAgentChanged
+	}
+	return nil
+}
+
+// UpsertLocalAgent updates one locally authoritative Agent record.
 func (d *Databases) UpsertLocalAgent(ctx context.Context, agent LocalAgent) error {
 	if d == nil || d.Local == nil {
 		return fmt.Errorf("local store is unavailable")

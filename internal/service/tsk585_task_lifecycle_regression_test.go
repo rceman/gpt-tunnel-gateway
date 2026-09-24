@@ -554,7 +554,7 @@ func TestTSK611TaskCompleteWithHistoricalVerificationProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Shared.Exec(ctx, `UPDATE shared_task_execution_verifications SET receipt_json=? WHERE project_id=? AND task_id=? AND operation_id=?`, string(mutated), "example", task.ID, receipt.OperationID); err != nil {
+	if _, err := db.Local.Exec(ctx, `UPDATE local_task_execution_verifications SET receipt_json=? WHERE project_id=? AND task_id=? AND operation_id=?`, string(mutated), "example", task.ID, receipt.OperationID); err != nil {
 		t.Fatal(err)
 	}
 	sessionID := tsk585PlannerSession(t, s)
@@ -591,7 +591,7 @@ func TestTSK611TaskCompleteRejectsInconsistentStoredVerificationEvidence(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Shared.Exec(ctx, `UPDATE shared_task_execution_verifications SET receipt_json=? WHERE project_id=? AND task_id=? AND operation_id=?`, string(mutated), "example", task.ID, receipt.OperationID); err != nil {
+	if _, err := db.Local.Exec(ctx, `UPDATE local_task_execution_verifications SET receipt_json=? WHERE project_id=? AND task_id=? AND operation_id=?`, string(mutated), "example", task.ID, receipt.OperationID); err != nil {
 		t.Fatal(err)
 	}
 	sessionID := tsk585PlannerSession(t, s)
@@ -683,7 +683,7 @@ func TestTSK585TaskCompleteIntegrationObjectProof(t *testing.T) {
 		state, _, _ := db.ReadTaskExecutionState(ctx, "example", task.ID)
 		wrong := tsk585CommitTree(t, project.Root, strings.TrimSpace(testutil.Git(t, project.Root, "rev-parse", integration+"^{tree}")), tsk585MainHead(t, s), "wrong parent landing")
 		tsk585SetRemoteMain(t, s, wrong)
-		if _, err := db.Shared.Exec(ctx, `UPDATE shared_task_execution_phases SET head_sha=? WHERE project_id=? AND task_id=? AND stage='integration'`, wrong, "example", task.ID); err != nil {
+		if _, err := db.Local.Exec(ctx, `UPDATE local_task_execution_phases SET head_sha=? WHERE project_id=? AND task_id=? AND stage='integration'`, wrong, "example", task.ID); err != nil {
 			t.Fatal(err)
 		}
 		sessionID := tsk585PlannerSession(t, s)
@@ -708,7 +708,7 @@ func TestTSK585TaskCompleteIntegrationObjectProof(t *testing.T) {
 		otherTree := tsk585EmptyTree(t, s)
 		wrong := tsk585CommitTree(t, project.Root, otherTree, state.BaseHead, "wrong tree landing")
 		tsk585SetRemoteMain(t, s, wrong)
-		if _, err := db.Shared.Exec(ctx, `UPDATE shared_task_execution_phases SET head_sha=? WHERE project_id=? AND task_id=? AND stage='integration'`, wrong, "example", task.ID); err != nil {
+		if _, err := db.Local.Exec(ctx, `UPDATE local_task_execution_phases SET head_sha=? WHERE project_id=? AND task_id=? AND stage='integration'`, wrong, "example", task.ID); err != nil {
 			t.Fatal(err)
 		}
 		sessionID := tsk585PlannerSession(t, s)

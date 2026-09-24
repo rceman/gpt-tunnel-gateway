@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
@@ -50,9 +51,13 @@ func TestProjectStatusDoesNotReadCurrentPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	title, summary := "Plan", "Summary"
-	_, err = s.PlanUpdate(context.Background(), service.PlanUpdateInput{ProjectID: "example", Title: &title, Summary: &summary, UpdatedBy: "gpt", WriteOptions: service.WriteOptions{ExpectedHubRevision: registered.Hub.After}})
-	if err != nil {
+	if _, err := s.Hub.Transact(context.Background(), registered.Hub.After, "test: install malformed retired plan", func(worktree string) ([]string, error) {
+		path := "gpt-tunnel/v1/projects/example/plan/current.json"
+		if err := hub.WriteText(worktree, path, "{"); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	status, err := s.ProjectStatus(context.Background(), "example")
@@ -62,7 +67,7 @@ func TestProjectStatusDoesNotReadCurrentPlan(t *testing.T) {
 	if status.Plan.Revision != 0 || len(status.Plan.Queue) != 0 || len(status.Plan.Sections) != 0 {
 		t.Fatalf("project status retained current Plan authority: %#v", status.Plan)
 	}
-	if _, err := s.PlanRead(context.Background(), "example"); err != nil {
-		t.Fatalf("historical Plan read was lost: %v", err)
+	if _, err := s.PlanRead(context.Background(), "example"); err == nil {
+		t.Fatal("retired Plan authority was readable")
 	}
 }

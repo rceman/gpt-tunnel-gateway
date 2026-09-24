@@ -146,114 +146,10 @@ func TestPlanCutoverUsesCurrentDurableQueueShape(t *testing.T) {
 	}
 }
 
-func TestPlanSectionsSupportPartialUpdatesIndependentConflictsAndRender(t *testing.T) {
-	s, hubRevision, _ := testService(t)
-	title, summary, objective, queue, activeTask := "Plan", "Summary", "Objective", []string{"first", "second"}, "EXM-TSK1"
-	operation, err := s.PlanUpdate(context.Background(), PlanUpdateInput{
-		ProjectID:        "example",
-		Title:            &title,
-		Summary:          &summary,
-		CurrentObjective: &objective,
-		Queue:            &queue,
-		ActiveTaskID:     &activeTask,
-		UpdatedBy:        "gpt",
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: hubRevision,
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	create := func(id, heading string) model.PlanSection {
-		result, err := s.PlanSectionCreate(context.Background(), PlanSectionCreateInput{
-			ProjectID:        "example",
-			SectionID:        id,
-			Title:            heading,
-			ShortDescription: "Short " + id,
-			Description:      "Description " + id,
-			UpdatedBy:        "gpt",
-			WriteOptions: WriteOptions{
-				ExpectedHubRevision: operation.Hub.After,
-			},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		operation = result
-		section, err := s.PlanSectionRead(context.Background(), "example", id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return section
-	}
-	first := create("first", "First")
-	second := create("second", "Second")
-	staleHubRevision := operation.Hub.After
-	newDescription := "Updated first description"
-	newShort := "Updated second short description"
-	if _, err := s.PlanSectionUpdate(context.Background(), PlanSectionUpdateInput{
-		ProjectID:               "example",
-		SectionID:               second.ID,
-		ShortDescription:        &newShort,
-		UpdatedBy:               "gpt",
-		ExpectedSectionRevision: second.Revision,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.PlanSectionUpdate(context.Background(), PlanSectionUpdateInput{
-		ProjectID:               "example",
-		SectionID:               first.ID,
-		Description:             &newDescription,
-		UpdatedBy:               "gpt",
-		ExpectedSectionRevision: first.Revision,
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: staleHubRevision,
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.PlanSectionUpdate(context.Background(), PlanSectionUpdateInput{
-		ProjectID:               "example",
-		SectionID:               first.ID,
-		Description:             &newDescription,
-		UpdatedBy:               "gpt",
-		ExpectedSectionRevision: first.Revision,
-	}); err == nil || !strings.Contains(err.Error(), "SECTION_REVISION_CONFLICT") {
-		t.Fatalf("stale section revision was not rejected: %v", err)
-	}
-	updatedPlan, err := s.PlanUpdate(context.Background(), PlanUpdateInput{
-		ProjectID: "example",
-		Summary:   planString("Updated summary"),
-		UpdatedBy: "gpt",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = updatedPlan
-	plan, err := s.PlanRead(context.Background(), "example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if plan.Title != title || plan.CurrentObjective != objective || strings.Join(plan.Queue, ",") != "first,second" {
-		t.Fatalf("partial manifest update did not preserve fields: %#v", plan)
-	}
-	rendered, err := s.PlanRender(context.Background(), "example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Index(rendered.Text, "## First") > strings.Index(rendered.Text, "## Second") || !strings.Contains(rendered.Text, "Updated first description") || !strings.Contains(rendered.Text, "Updated second short description") {
-		t.Fatalf("render ordering/content incorrect: %q", rendered.Text)
-	}
-	history, err := s.Hub.History(context.Background(), s.planSectionPath("example", first.ID), 20)
-	if err != nil || len(history) < 2 {
-		t.Fatalf("section Git history not retained: %v %#v", err, history)
-	}
-}
-
-func TestProjectStatusRetiresCurrentPlanProjection(t *testing.T) {
+func TestPlanMutationsAreRetired(t *testing.T) {
 	s, hubRevision, _ := testService(t)
 	title, summary := "Plan", "Summary"
-	operation, err := s.PlanUpdate(context.Background(), PlanUpdateInput{
+	if _, err := s.PlanUpdate(context.Background(), PlanUpdateInput{
 		ProjectID: "example",
 		Title:     &title,
 		Summary:   &summary,
@@ -261,37 +157,42 @@ func TestProjectStatusRetiresCurrentPlanProjection(t *testing.T) {
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: hubRevision,
 		},
-	})
-	if err != nil {
+	}); err == nil || !strings.Contains(err.Error(), "PLAN_AUTHORITY_RETIRED") {
+		t.Fatalf("retired Plan update error=%v", err)
+	}
+	if _, err := s.PlanSectionCreate(context.Background(), PlanSectionCreateInput{
+		ProjectID: "example",
+		SectionID: "retired",
+		Title:     "Retired",
+		UpdatedBy: "gpt",
+	}); err == nil || !strings.Contains(err.Error(), "PLAN_AUTHORITY_RETIRED") {
+		t.Fatalf("retired Plan section create error=%v", err)
+	}
+	after, err := s.hubRevision(context.Background())
+	if err != nil || after != hubRevision {
+		t.Fatalf("rejected Plan mutations changed Hub revision: before=%s after=%s err=%v", hubRevision, after, err)
+	}
+}
+
+func TestProjectStatusIgnoresRetiredPlanAuthority(t *testing.T) {
+	s, hubRevision, _ := testService(t)
+	if _, err := s.Hub.Transact(context.Background(), hubRevision, "test: install malformed retired plan", func(worktree string) ([]string, error) {
+		path := s.planPath("example")
+		if err := hub.WriteText(worktree, path, "{"); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	}); err != nil {
 		t.Fatal(err)
 	}
-	section, err := s.PlanSectionCreate(context.Background(), PlanSectionCreateInput{
-		ProjectID:        "example",
-		SectionID:        "compact",
-		Title:            "Compact",
-		ShortDescription: "Status line",
-		Description:      strings.Repeat("full description ", 100),
-		UpdatedBy:        "gpt",
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: operation.Hub.After,
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = section
 	status, err := s.ProjectStatus(context.Background(), "example")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if status.Plan.Revision != 0 || len(status.Plan.Queue) != 0 || len(status.Plan.Sections) != 0 {
-		t.Fatalf("project status retained current Plan projection: %#v", status.Plan)
+		t.Fatalf("project status retained retired Plan projection: %#v", status.Plan)
 	}
-	encoded, err := json.Marshal(status)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(encoded), "full description") {
-		t.Fatal("project status loaded full section description")
+	if _, err := s.PlanRead(context.Background(), "example"); err == nil {
+		t.Fatal("retired Plan authority was readable")
 	}
 }

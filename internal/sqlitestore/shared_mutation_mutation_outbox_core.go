@@ -223,7 +223,7 @@ func (d *Databases) CommitSharedTaskCreate(ctx context.Context, request SharedTa
 			return SharedMutationReceipt{}, "", nil, fmt.Errorf("shared task payload is empty")
 		}
 		_, err = d.Shared.Batch(ctx, []upstream.Statement{
-			{SQL: `UPDATE shared_task_sequences SET next_task_number=? WHERE project_id=? AND project_code=? AND next_task_number=?`, Args: []any{next + 1, request.ProjectID, request.ProjectCode, next}, RequireRowsAffected: 1},
+			{SQL: `UPDATE shared_entity_sequences SET next_number=? WHERE entity_type='task' AND project_id=? AND project_code=? AND next_number=?`, Args: []any{next + 1, request.ProjectID, request.ProjectCode, next}, RequireRowsAffected: 1},
 			{SQL: `INSERT INTO shared_tasks(id,revision,payload,updated_at) VALUES(?,?,?,?)`, Args: []any{entityID, 1, payload, created}, RequireRowsAffected: 1},
 			{SQL: `INSERT INTO hub_outbox(id,entity_type,entity_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?)`, Args: []any{request.OperationID, "task", entityID, 1, request.Kind, payload, created}, RequireRowsAffected: 1},
 		})

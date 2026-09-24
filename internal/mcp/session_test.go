@@ -10,7 +10,6 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
@@ -64,29 +63,24 @@ func seedMCPTestCodingAgent(t *testing.T, s *service.Service, revision string) s
 	t.Helper()
 	now := time.Now().UTC()
 	agent := model.Agent{SchemaVersion: model.AgentSchemaVersion, ProjectID: "example", AgentID: "coding-example", Role: model.AgentRoleCoding, Enabled: true, RecommendedReasoning: model.ReasoningHigh, CreatedAt: now, UpdatedAt: now}
-	tx, err := s.Hub.Transact(context.Background(), revision, "test: seed coding Agent", func(worktree string) ([]string, error) {
-		path := filepath.ToSlash(filepath.Join(hub.ProtocolRoot, "projects", "example", "agents", "coding-example.json"))
-		if err := hub.WriteJSON(worktree, path, agent); err != nil {
-			return nil, err
-		}
-		return []string{path}, nil
-	})
+	payload, err := json.Marshal(agent)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Durability != nil && s.Durability.Local != nil {
-		payload, err := json.Marshal(agent)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := s.Durability.UpsertLocalAgent(context.Background(), sqlitestore.LocalAgent{
-			ProjectID: "example", AgentID: agent.AgentID, Payload: payload,
-			UpdatedAt: now.Format(time.RFC3339Nano),
-		}); err != nil {
-			t.Fatal(err)
-		}
+	if s.Durability == nil || s.Durability.Local == nil {
+		t.Fatal("Local Agent store is unavailable")
 	}
-	return tx.After
+	if err := s.Durability.UpsertLocalAgent(context.Background(), sqlitestore.LocalAgent{
+		ProjectID: "example", AgentID: agent.AgentID, Payload: payload,
+		UpdatedAt: now.Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	head, err := s.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return head
 }
 
 func sessionCall(t *testing.T, server *Server, args map[string]any) map[string]any {

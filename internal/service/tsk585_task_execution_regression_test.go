@@ -2099,7 +2099,7 @@ func TestTSK585TaskReviewStaleRejections(t *testing.T) {
 		if state.TaskRevisionSHA256[:1] == "f" {
 			corrupt = "e"
 		}
-		if _, err := db.Shared.Exec(ctx, `UPDATE shared_task_execution_states SET task_revision_sha256=? WHERE task_id=?`, corrupt+state.TaskRevisionSHA256[1:], task.ID); err != nil {
+		if _, err := db.Local.Exec(ctx, `UPDATE local_task_execution_states SET task_revision_sha256=? WHERE task_id=?`, corrupt+state.TaskRevisionSHA256[1:], task.ID); err != nil {
 			t.Fatal(err)
 		}
 		if err := tsk585ReviewErr(t, s, task, "code"); err == nil {
@@ -2132,7 +2132,7 @@ func TestTSK585TaskReviewAcceptedArtifactRejections(t *testing.T) {
 	t.Run("missing accepted code", func(t *testing.T) {
 		s, db, task, _ := tsk585AwaitingTestsReview(t, "tsk585-ra-missing")
 		defer db.Close()
-		if _, err := db.Shared.Exec(ctx, `DELETE FROM shared_task_execution_phases WHERE task_id=? AND stage='code' AND decision='accept'`, task.ID); err != nil {
+		if _, err := db.Local.Exec(ctx, `DELETE FROM local_task_execution_phases WHERE task_id=? AND stage='code' AND decision='accept'`, task.ID); err != nil {
 			t.Fatal(err)
 		}
 		if err := tsk585ReviewErr(t, s, task, "tests"); err == nil {
@@ -2142,7 +2142,7 @@ func TestTSK585TaskReviewAcceptedArtifactRejections(t *testing.T) {
 	t.Run("accepted wrong status", func(t *testing.T) {
 		s, db, task, _ := tsk585AwaitingTestsReview(t, "tsk585-ra-status")
 		defer db.Close()
-		if _, err := db.Shared.Exec(ctx, `UPDATE shared_task_execution_phases SET status='awaiting_review' WHERE task_id=? AND stage='code' AND decision='accept'`, task.ID); err != nil {
+		if _, err := db.Local.Exec(ctx, `UPDATE local_task_execution_phases SET status='awaiting_review' WHERE task_id=? AND stage='code' AND decision='accept'`, task.ID); err != nil {
 			t.Fatal(err)
 		}
 		if err := tsk585ReviewErr(t, s, task, "tests"); err == nil {
@@ -2152,7 +2152,7 @@ func TestTSK585TaskReviewAcceptedArtifactRejections(t *testing.T) {
 	t.Run("accepted future revision", func(t *testing.T) {
 		s, db, task, _ := tsk585AwaitingTestsReview(t, "tsk585-ra-rev")
 		defer db.Close()
-		if _, err := db.Shared.Exec(ctx, `UPDATE shared_task_execution_phases SET execution_revision=999 WHERE task_id=? AND stage='code' AND decision='accept'`, task.ID); err != nil {
+		if _, err := db.Local.Exec(ctx, `UPDATE local_task_execution_phases SET execution_revision=999 WHERE task_id=? AND stage='code' AND decision='accept'`, task.ID); err != nil {
 			t.Fatal(err)
 		}
 		if err := tsk585ReviewErr(t, s, task, "tests"); err == nil {
@@ -2189,7 +2189,7 @@ func TestTSK585TaskReviewAcceptedArtifactRejections(t *testing.T) {
 		if _, err := s.TaskExecutionSubmitRebase(ctx, "example", task.ID); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Shared.Exec(ctx, `UPDATE shared_task_execution_states SET base_head_sha=? WHERE task_id=?`, unrelated, task.ID); err != nil {
+		if _, err := db.Local.Exec(ctx, `UPDATE local_task_execution_states SET base_head_sha=? WHERE task_id=?`, unrelated, task.ID); err != nil {
 			t.Fatal(err)
 		}
 		if err := tsk585ReviewErr(t, s, task, "rebase"); err == nil {

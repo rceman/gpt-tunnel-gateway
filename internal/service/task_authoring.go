@@ -15,14 +15,10 @@ func requireCanonicalTaskAuthoring(ctx context.Context, s *Service, projectID st
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return err
 	}
-	enabled, err := s.canonicalExecutionModel(ctx, projectID)
-	if err != nil {
-		return err
+	if s.Durability == nil {
+		return fmt.Errorf("Shared task authoring is unavailable")
 	}
-	if !enabled {
-		return fmt.Errorf("canonical task authoring is not active for project %q", projectID)
-	}
-	return nil
+	return s.requireLocalTaskAuthoring(ctx, projectID)
 }
 
 func (s *Service) TaskAuthoringRead(ctx context.Context, projectID, taskID string) (model.TaskAuthoring, error) {

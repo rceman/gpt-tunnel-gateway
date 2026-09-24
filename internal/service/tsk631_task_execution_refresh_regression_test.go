@@ -354,7 +354,7 @@ func TestTSK631RefreshChainRejectsCorruptIntermediateEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Shared.Exec(ctx, `UPDATE shared_task_execution_phases SET comment=? WHERE id=?`, string(comment), phasesBefore[refreshIndex].ID); err != nil {
+	if _, err := db.Local.Exec(ctx, `UPDATE local_task_execution_phases SET comment=? WHERE id=?`, string(comment), phasesBefore[refreshIndex].ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.TaskExecutionStatus(ctx, "example", task.ID); err == nil {

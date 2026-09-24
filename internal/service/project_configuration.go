@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -23,11 +24,14 @@ func (s *Service) ProjectConfigurationRead(ctx context.Context, projectID string
 	if s.Durability != nil {
 		return s.projectConfigurationReadShared(ctx, projectID)
 	}
-	var configuration model.ProjectConfiguration
-	if err := s.Hub.ReadJSON(ctx, s.projectConfigurationPath(projectID), &configuration); err != nil {
+	data, err := s.Hub.ReadFile(ctx, s.projectConfigurationPath(projectID))
+	if err != nil {
 		return model.ProjectConfiguration{}, err
 	}
-	normalizeProjectConfiguration(&configuration)
+	var configuration model.ProjectConfiguration
+	if err := decodeStrict(data, &configuration); err != nil {
+		return model.ProjectConfiguration{}, err
+	}
 	if err := model.ValidateProjectConfiguration(configuration); err != nil {
 		return model.ProjectConfiguration{}, err
 	}
@@ -35,27 +39,6 @@ func (s *Service) ProjectConfigurationRead(ctx context.Context, projectID string
 		return model.ProjectConfiguration{}, fmt.Errorf("project configuration project_id mismatch")
 	}
 	return configuration, nil
-}
-
-// canonicalExecutionModel reports whether the project configuration carries
-// the canonical post-cutover execution marker. The stored value "train_v2" is
-// historical provenance for existing configurations; no Train authority
-// remains behind it.
-func (s *Service) canonicalExecutionModel(ctx context.Context, projectID string) (bool, error) {
-	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
-	if err != nil {
-		if IsNotFound(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	return configuration.ExecutionModel == "train_v2", nil
-}
-
-// CanonicalExecutionEnabled reports whether the project runs the canonical
-// post-cutover execution model (the stored "train_v2" marker is provenance).
-func (s *Service) CanonicalExecutionEnabled(ctx context.Context, projectID string) (bool, error) {
-	return s.canonicalExecutionModel(ctx, projectID)
 }
 
 func (s *Service) projectConfigurationStatus(ctx context.Context, projectID string) ProjectConfigurationStatus {
@@ -113,11 +96,14 @@ func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConf
 	}
 	path := s.projectConfigurationPath(in.ProjectID)
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: update project configuration "+in.ProjectID, func(worktree string) ([]string, error) {
-		var latest model.ProjectConfiguration
-		if err := readWorktreeJSON(worktree, path, &latest); err != nil {
+		var latestRaw json.RawMessage
+		if err := readWorktreeJSON(worktree, path, &latestRaw); err != nil {
 			return nil, fmt.Errorf("read project configuration: %w", err)
 		}
-		normalizeProjectConfiguration(&latest)
+		var latest model.ProjectConfiguration
+		if err := decodeStrict(latestRaw, &latest); err != nil {
+			return nil, fmt.Errorf("decode project configuration: %w", err)
+		}
 		if err := model.ValidateProjectConfiguration(latest); err != nil {
 			return nil, fmt.Errorf("current project configuration is invalid: %w", err)
 		}

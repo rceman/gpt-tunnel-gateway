@@ -82,11 +82,12 @@ func sharedRuleSeedMigration(ctx context.Context, db *upstream.Store) (migrate.M
 		default:
 			return migration, fmt.Errorf("invalid shared project configuration payload")
 		}
-		var configuration model.ProjectConfiguration
-		if err := json.Unmarshal(payloadBytes, &configuration); err != nil {
-			return migration, fmt.Errorf("decode project configuration %s: %w", projectID, err)
+		configuration, _, err := MigrateProjectConfigurationPayload(payloadBytes)
+		if err != nil {
+			return migration, fmt.Errorf("migrate project configuration %s: %w", projectID, err)
 		}
-		if configuration.ProjectID != projectID {
+		revision, revisionOK := row[1].(int64)
+		if !revisionOK || configuration.ProjectID != projectID || int64(configuration.Revision) != revision {
 			return migration, fmt.Errorf("project configuration %s identity mismatch", projectID)
 		}
 		projectCode, ok := identifiers[projectID]

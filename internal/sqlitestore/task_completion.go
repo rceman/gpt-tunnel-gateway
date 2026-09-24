@@ -11,7 +11,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	upstream "github.com/rceman/go-sqlite-store/store"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -188,7 +187,6 @@ func (d *Databases) CommitTaskCompletion(ctx context.Context, req CommitTaskComp
 	if !reflect.DeepEqual(expectedTask, finalTask) {
 		return fmt.Errorf("task completion payload drifts beyond the done transition")
 	}
-	var sideEffects []upstream.Statement
 	if req.FinalExecution != nil {
 		prev := req.PreviousExecution
 		final := req.FinalExecution
@@ -211,12 +209,6 @@ func (d *Databases) CommitTaskCompletion(ctx context.Context, req CommitTaskComp
 		if !reflect.DeepEqual(expectedExecution, *final) {
 			return fmt.Errorf("task completion execution state drifts beyond the done transition")
 		}
-		sideEffects = append(sideEffects, upstream.Statement{
-			SQL: `UPDATE shared_task_execution_states SET status=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND status=? AND stage=? AND worktree=? AND base_head_sha=? AND head_sha=? AND branch=? AND agent=? AND task_revision=? AND task_revision_sha256=? AND execution_revision=?`,
-			Args: []any{final.Status, final.ExecutionRevision, final.UpdatedAt.UTC().Format(time.RFC3339Nano),
-				prev.ProjectID, prev.TaskID, prev.Status, prev.Stage, prev.Worktree, prev.BaseHead, prev.Head, prev.Branch, prev.Agent, prev.TaskRevision, prev.TaskRevisionSHA256, prev.ExecutionRevision},
-			RequireRowsAffected: 1,
-		})
 	}
 	_, err := d.CommitSharedLifecycleEvent(ctx, SharedLifecycleEventRequest{
 		OperationID:           req.OperationID,
@@ -238,9 +230,44 @@ func (d *Databases) CommitTaskCompletion(ctx context.Context, req CommitTaskComp
 		ChangedFields:         taskLifecycleChangedFields(req.FromStatus),
 		Contract:              req.Contract,
 		CreatedAt:             req.RecordedAt,
-		ExtraStatements:       sideEffects,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	if req.FinalExecution != nil {
+		return d.completeTaskExecutionState(ctx, *req.PreviousExecution, *req.FinalExecution)
+	}
+	return nil
+}
+
+func (d *Databases) completeTaskExecutionState(ctx context.Context, previous, final model.TaskExecutionState) error {
+	current, found, err := d.ReadTaskExecutionState(ctx, previous.ProjectID, previous.TaskID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("Task completion Local execution state is missing")
+	}
+	if sameTaskExecutionState(current, final) {
+		return nil
+	}
+	if !sameTaskExecutionState(current, previous) {
+		return fmt.Errorf("Task completion Local execution state changed concurrently")
+	}
+	result, err := d.Local.Exec(ctx, `UPDATE local_task_execution_states SET status=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND status=? AND stage=? AND worktree=? AND base_head_sha=? AND head_sha=? AND branch=? AND agent=? AND task_revision=? AND task_revision_sha256=? AND execution_revision=? AND updated_at=?`,
+		final.Status, final.ExecutionRevision, final.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		previous.ProjectID, previous.TaskID, previous.Status, previous.Stage, previous.Worktree, previous.BaseHead, previous.Head, previous.Branch, previous.Agent, previous.TaskRevision, previous.TaskRevisionSHA256, previous.ExecutionRevision, previous.UpdatedAt.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected != 1 {
+		return fmt.Errorf("Task completion Local execution state changed concurrently")
+	}
+	return nil
+}
+
+func sameTaskExecutionState(a, b model.TaskExecutionState) bool {
+	return a.TaskID == b.TaskID && a.ProjectID == b.ProjectID && a.Status == b.Status && a.Stage == b.Stage && a.Worktree == b.Worktree && a.BaseHead == b.BaseHead && a.Head == b.Head && a.Branch == b.Branch && a.TaskRevision == b.TaskRevision && a.TaskRevisionSHA256 == b.TaskRevisionSHA256 && a.Agent == b.Agent && a.ExecutionRevision == b.ExecutionRevision && a.UpdatedAt.Equal(b.UpdatedAt)
 }
 
 func taskLifecycleChangedFields(fromStatus string) []string {

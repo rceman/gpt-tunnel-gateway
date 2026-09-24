@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
@@ -34,16 +33,6 @@ func seedTSK640Agent(t *testing.T, s *service.Service, revision, agentID, workfl
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}
-	tx, err := s.Hub.Transact(context.Background(), revision, "test: seed TSK640 Agent", func(worktree string) ([]string, error) {
-		path := filepath.ToSlash(filepath.Join(hub.ProtocolRoot, "projects", "example", "agents", agentID+".json"))
-		if err := hub.WriteJSON(worktree, path, agent); err != nil {
-			return nil, err
-		}
-		return []string{path}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	payload, err := json.Marshal(agent)
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +42,11 @@ func seedTSK640Agent(t *testing.T, s *service.Service, revision, agentID, workfl
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return tx.After
+	head, err := s.Hub.RemoteRevision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return head
 }
 
 func installTSK640Airelay(t *testing.T, s *service.Service) {

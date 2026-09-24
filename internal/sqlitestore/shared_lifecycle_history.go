@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 // EnsureSharedLifecycleHistory inserts one immutable history row without
@@ -77,6 +79,22 @@ func (d *Databases) nextSharedLifecycleNumber(ctx context.Context, definition sh
 		return 0, fmt.Errorf("invalid shared %s sequence", definition.EntityType)
 	}
 	return next, nil
+}
+
+func (d *Databases) ReconcileSharedSequence(ctx context.Context, entityType, projectID, projectCode string, next int64) error {
+	definition, ok := sharedLifecycle(entityType)
+	if !ok || definition.SequenceTable == "" || d == nil || d.Shared == nil || model.ValidateProjectIdentifier(projectID) != nil || model.ValidateProjectCode(projectCode) != nil || next < 1 || uint64(next) > model.MaxSafeInteger {
+		return fmt.Errorf("invalid shared %s sequence reconciliation", entityType)
+	}
+	query := fmt.Sprintf("INSERT INTO %s(%s,project_id,%s,%s) VALUES(?,?,?,?) ON CONFLICT(%s,project_id) DO UPDATE SET %s=MAX(%s.%s,excluded.%s) WHERE %s.%s=excluded.%s", definition.SequenceTable, definition.SequenceEntityColumn, definition.SequenceCodeColumn, definition.SequenceNumberColumn, definition.SequenceEntityColumn, definition.SequenceNumberColumn, definition.SequenceTable, definition.SequenceNumberColumn, definition.SequenceNumberColumn, definition.SequenceTable, definition.SequenceCodeColumn, definition.SequenceCodeColumn)
+	if _, err := d.Shared.Exec(ctx, query, definition.EntityType, projectID, projectCode, next); err != nil {
+		return err
+	}
+	code, current, found, err := d.ReadSharedSequence(ctx, entityType, projectID)
+	if err != nil || !found || code != projectCode || current < next {
+		return fmt.Errorf("Shared %s sequence reconciliation did not persist", entityType)
+	}
+	return nil
 }
 
 func (d *Databases) ReadSharedSequence(ctx context.Context, entityType, projectID string) (string, int64, bool, error) {

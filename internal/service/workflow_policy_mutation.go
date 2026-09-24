@@ -33,11 +33,13 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 		return model.ProjectWorkflowPolicy{}, OperationResult{}, configurationErr
 	}
 	status := "adopted"
+	var currentPolicy model.ProjectWorkflowPolicy
 	if configurationErr == nil {
 		current, err := s.workflowPolicyFromAuthority(ctx, configuration)
 		if err != nil {
 			return model.ProjectWorkflowPolicy{}, OperationResult{}, err
 		}
+		currentPolicy = current
 		// Under Shared durability the six machine leaves are governed by the
 		// named-rule effective set: this legacy path may only write the
 		// non-rule configuration fields and provenance metadata. A policy
@@ -83,6 +85,37 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 	configuration.UpdatedAt = policy.UpdatedAt
 	if err := model.ValidateProjectConfiguration(configuration); err != nil {
 		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
+	}
+	if s.Durability != nil {
+		if currentPolicy.Revision == policy.Revision && workflowPoliciesEquivalent(currentPolicy, policy) {
+			_ = s.cacheProjectWorkflowPolicy(currentPolicy)
+			return currentPolicy, OperationResult{
+				ProjectID: policy.ProjectID,
+				Status:    "adopted",
+			}, nil
+		}
+		if currentPolicy.Revision+1 != policy.Revision {
+			return model.ProjectWorkflowPolicy{}, OperationResult{}, fmt.Errorf("workflow policy revision must advance from %d to %d", currentPolicy.Revision, currentPolicy.Revision+1)
+		}
+		workflow := configuration.Workflow
+		updated, result, err := s.ProjectConfigurationUpdate(ctx, ProjectConfigurationUpdateInput{
+			ProjectID:        policy.ProjectID,
+			ExpectedRevision: currentPolicy.Revision,
+			Patch: ProjectConfigurationPatch{
+				Workflow: &workflow,
+			},
+			UpdatedBy: policy.UpdatedBy,
+		})
+		if err != nil {
+			return model.ProjectWorkflowPolicy{}, OperationResult{}, err
+		}
+		updatedPolicy, err := s.workflowPolicyFromAuthority(ctx, updated)
+		if err != nil {
+			return model.ProjectWorkflowPolicy{}, OperationResult{}, err
+		}
+		_ = s.cacheProjectWorkflowPolicy(updatedPolicy)
+		result.Status = status
+		return updatedPolicy, result, nil
 	}
 	configurationPath := s.projectConfigurationPath(policy.ProjectID)
 	legacyPath := s.workflowPolicyPath(policy.ProjectID)
@@ -176,7 +209,7 @@ func (s *Service) deriveTaskWorkflowPolicy(ctx context.Context, projectID, opera
 	return policy, effective, nil
 }
 
-func workflowPolicyStatus(policy model.ProjectWorkflowPolicy, err error, tasks []TaskRecord) ProjectWorkflowPolicyStatus {
+func workflowPolicyStatus(policy model.ProjectWorkflowPolicy, err error) ProjectWorkflowPolicyStatus {
 	effectiveGates := model.EffectiveProjectWorkflowGates(nil)
 	if err != nil {
 		failClosedCI := model.WorkflowPolicyCI{
@@ -211,18 +244,6 @@ func workflowPolicyStatus(policy model.ProjectWorkflowPolicy, err error, tasks [
 		Gates:             model.EffectiveProjectWorkflowGates(policy.Gates),
 		Conflicts:         []string{},
 		CorrectiveAction:  "none",
-	}
-	for _, item := range tasks {
-		if item.Task.OperationClass == "" || (item.State.Status != "dispatched" && item.State.Status != "running" && item.State.Status != "ready") {
-			continue
-		}
-		// The task projection is immutable evidence of the policy used when the
-		// task was created. Do not recompute it from the current policy: a later
-		// policy revision must remain visible separately above without changing
-		// the meaning of an active task.
-		status.ActiveOperationClass = item.Task.OperationClass
-		status.ActiveCIMode = item.Task.EffectiveCIMode
-		status.CIBlocking = item.Task.CIBlocking
 	}
 	return status
 }

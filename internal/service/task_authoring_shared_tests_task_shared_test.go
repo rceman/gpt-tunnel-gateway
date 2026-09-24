@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -122,7 +123,7 @@ func TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync(t *testing.T) {
 		t.Fatalf("task mutation wrote Hub synchronously: %v", err)
 	}
 	for _, entry := range pending {
-		if err := s.publishSharedOutboxEntry(context.Background(), entry); err != nil {
+		if err := s.publishSharedOutboxEntry(context.Background(), entry); err != nil && !errors.Is(err, errSharedOutboxNoop) {
 			t.Fatalf("publish outbox %s: %v", entry.ID, err)
 		}
 		if err := db.MarkOutboxPublished(context.Background(), entry.ID, time.Now().UTC()); err != nil {

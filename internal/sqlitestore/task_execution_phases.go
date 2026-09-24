@@ -27,8 +27,8 @@ type TaskExecutionPhase struct {
 }
 
 func (d *Databases) AppendTaskExecutionPhase(ctx context.Context, phase TaskExecutionPhase) error {
-	if d == nil || d.Shared == nil {
-		return fmt.Errorf("shared store is unavailable")
+	if d == nil || d.Local == nil {
+		return fmt.Errorf("local store is unavailable")
 	}
 	if err := validateTaskExecutionPhase(phase); err != nil {
 		return err
@@ -36,15 +36,15 @@ func (d *Databases) AppendTaskExecutionPhase(ctx context.Context, phase TaskExec
 	if phase.CreatedAt.IsZero() {
 		return fmt.Errorf("incomplete Task execution phase")
 	}
-	_, err := d.Shared.Batch(ctx, []upstream.Statement{{SQL: `INSERT INTO shared_task_execution_phases(task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,decision,comment,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, Args: []any{phase.TaskID, phase.ProjectID, phase.ExecutionRevision, phase.Stage, phase.Status, phase.Head, phase.Branch, phase.TaskRevisionSHA256, phase.EventKind, phase.Decision, phase.Comment, phase.CreatedAt.UTC().Format(time.RFC3339Nano)}}})
+	_, err := d.Local.Batch(ctx, []upstream.Statement{{SQL: `INSERT INTO local_task_execution_phases(task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,decision,comment,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, Args: []any{phase.TaskID, phase.ProjectID, phase.ExecutionRevision, phase.Stage, phase.Status, phase.Head, phase.Branch, phase.TaskRevisionSHA256, phase.EventKind, phase.Decision, phase.Comment, phase.CreatedAt.UTC().Format(time.RFC3339Nano)}}})
 	return err
 }
 
 func (d *Databases) ReadLatestTaskExecutionPhase(ctx context.Context, projectID, taskID, stage string) (TaskExecutionPhase, bool, error) {
-	if d == nil || d.Shared == nil {
-		return TaskExecutionPhase{}, false, fmt.Errorf("shared store is unavailable")
+	if d == nil || d.Local == nil {
+		return TaskExecutionPhase{}, false, fmt.Errorf("local store is unavailable")
 	}
-	rows, err := d.Shared.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM shared_task_execution_phases WHERE project_id=? AND task_id=? AND stage=? ORDER BY id DESC LIMIT 1`, projectID, taskID, stage)
+	rows, err := d.Local.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM local_task_execution_phases WHERE project_id=? AND task_id=? AND stage=? ORDER BY id DESC LIMIT 1`, projectID, taskID, stage)
 	if err != nil {
 		return TaskExecutionPhase{}, false, err
 	}
@@ -105,7 +105,7 @@ func (d *Databases) ReadLatestTaskExecutionParkPhase(ctx context.Context, projec
 }
 
 func (d *Databases) readTaskExecutionPhaseWhere(ctx context.Context, projectID, taskID, stage, predicate string) (TaskExecutionPhase, bool, error) {
-	rows, err := d.Shared.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM shared_task_execution_phases WHERE project_id=? AND task_id=? AND stage=? AND `+predicate+` ORDER BY id DESC LIMIT 1`, projectID, taskID, stage)
+	rows, err := d.Local.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM local_task_execution_phases WHERE project_id=? AND task_id=? AND stage=? AND `+predicate+` ORDER BY id DESC LIMIT 1`, projectID, taskID, stage)
 	if err != nil {
 		return TaskExecutionPhase{}, false, err
 	}
@@ -162,10 +162,10 @@ const taskExecutionPhaseHistoryBound = 256
 // ReadTaskExecutionPhases returns every recorded phase for one stage ordered
 // by insertion; more than 256 rows fails closed rather than truncating.
 func (d *Databases) ReadTaskExecutionPhases(ctx context.Context, projectID, taskID, stage string) ([]TaskExecutionPhase, error) {
-	if d == nil || d.Shared == nil {
-		return nil, fmt.Errorf("shared store is unavailable")
+	if d == nil || d.Local == nil {
+		return nil, fmt.Errorf("local store is unavailable")
 	}
-	rows, err := d.Shared.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM shared_task_execution_phases WHERE project_id=? AND task_id=? AND stage=? ORDER BY id ASC LIMIT ?`, projectID, taskID, stage, taskExecutionPhaseHistoryBound+1)
+	rows, err := d.Local.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM local_task_execution_phases WHERE project_id=? AND task_id=? AND stage=? ORDER BY id ASC LIMIT ?`, projectID, taskID, stage, taskExecutionPhaseHistoryBound+1)
 	if err != nil {
 		return nil, err
 	}
@@ -211,19 +211,19 @@ func validateTaskExecutionPhase(phase TaskExecutionPhase) error {
 }
 
 func (d *Databases) UpdateTaskExecutionState(ctx context.Context, state model.TaskExecutionState, expectedRevision int) error {
-	if d == nil || d.Shared == nil {
-		return fmt.Errorf("shared store is unavailable")
+	if d == nil || d.Local == nil {
+		return fmt.Errorf("local store is unavailable")
 	}
 	if err := model.ValidateTaskExecutionState(state); err != nil {
 		return err
 	}
-	_, err := d.Shared.Batch(ctx, []upstream.Statement{{SQL: `UPDATE shared_task_execution_states SET task_revision=?,task_revision_sha256=?,status=?,stage=?,worktree=?,base_head_sha=?,head_sha=?,branch=?,agent=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND execution_revision=?`, Args: []any{state.TaskRevision, state.TaskRevisionSHA256, state.Status, state.Stage, state.Worktree, state.BaseHead, state.Head, state.Branch, state.Agent, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano), state.ProjectID, state.TaskID, expectedRevision}, RequireRowsAffected: 1}})
+	_, err := d.Local.Batch(ctx, []upstream.Statement{{SQL: `UPDATE local_task_execution_states SET task_revision=?,task_revision_sha256=?,status=?,stage=?,worktree=?,base_head_sha=?,head_sha=?,branch=?,agent=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND execution_revision=?`, Args: []any{state.TaskRevision, state.TaskRevisionSHA256, state.Status, state.Stage, state.Worktree, state.BaseHead, state.Head, state.Branch, state.Agent, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano), state.ProjectID, state.TaskID, expectedRevision}, RequireRowsAffected: 1}})
 	return err
 }
 
 func (d *Databases) TransitionTaskExecutionState(ctx context.Context, state model.TaskExecutionState, expectedRevision int, phase TaskExecutionPhase) error {
-	if d == nil || d.Shared == nil {
-		return fmt.Errorf("shared store is unavailable")
+	if d == nil || d.Local == nil {
+		return fmt.Errorf("local store is unavailable")
 	}
 	if err := model.ValidateTaskExecutionState(state); err != nil {
 		return err
@@ -234,9 +234,9 @@ func (d *Databases) TransitionTaskExecutionState(ctx context.Context, state mode
 	if err := validateTaskExecutionPhase(phase); err != nil {
 		return err
 	}
-	_, err := d.Shared.Batch(ctx, []upstream.Statement{
-		{SQL: `UPDATE shared_task_execution_states SET task_revision=?,task_revision_sha256=?,status=?,stage=?,worktree=?,base_head_sha=?,head_sha=?,branch=?,agent=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND execution_revision=?`, Args: []any{state.TaskRevision, state.TaskRevisionSHA256, state.Status, state.Stage, state.Worktree, state.BaseHead, state.Head, state.Branch, state.Agent, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano), state.ProjectID, state.TaskID, expectedRevision}, RequireRowsAffected: 1},
-		{SQL: `INSERT INTO shared_task_execution_phases(task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,decision,comment,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, Args: []any{phase.TaskID, phase.ProjectID, phase.ExecutionRevision, phase.Stage, phase.Status, phase.Head, phase.Branch, phase.TaskRevisionSHA256, phase.EventKind, phase.Decision, phase.Comment, phase.CreatedAt.UTC().Format(time.RFC3339Nano)}, RequireRowsAffected: 1},
+	_, err := d.Local.Batch(ctx, []upstream.Statement{
+		{SQL: `UPDATE local_task_execution_states SET task_revision=?,task_revision_sha256=?,status=?,stage=?,worktree=?,base_head_sha=?,head_sha=?,branch=?,agent=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND execution_revision=?`, Args: []any{state.TaskRevision, state.TaskRevisionSHA256, state.Status, state.Stage, state.Worktree, state.BaseHead, state.Head, state.Branch, state.Agent, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano), state.ProjectID, state.TaskID, expectedRevision}, RequireRowsAffected: 1},
+		{SQL: `INSERT INTO local_task_execution_phases(task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,decision,comment,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, Args: []any{phase.TaskID, phase.ProjectID, phase.ExecutionRevision, phase.Stage, phase.Status, phase.Head, phase.Branch, phase.TaskRevisionSHA256, phase.EventKind, phase.Decision, phase.Comment, phase.CreatedAt.UTC().Format(time.RFC3339Nano)}, RequireRowsAffected: 1},
 	})
 	return err
 }

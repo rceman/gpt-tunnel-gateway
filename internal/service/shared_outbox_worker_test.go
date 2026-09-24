@@ -138,3 +138,38 @@ func TestSharedOutboxNewADRRevisionPublishesAndFailuresRemainRetryable(t *testin
 		t.Fatalf("retry error=%q", retried.LastError)
 	}
 }
+
+func TestSharedRelationOutboxPublishesCanonicalHubRecord(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiersSetup(t)
+	ctx := context.Background()
+	relation := model.Relation{
+		SchemaVersion: model.RelationSchemaVersion,
+		ProjectID:     "example",
+		Kind:          model.RelationKindCorrects,
+		Source:        "EXM-TSK11",
+		Target:        "EXM-TSK12",
+		CreatedAt:     time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC),
+		CreatedBy:     "planner",
+	}
+	payload, err := json.Marshal(relation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := sqlitestore.OutboxEntry{ID: "relation-" + relation.Identity(), EntityType: "relation", EntityID: relation.Identity(), Revision: 1, Kind: "relation-create", Payload: payload}
+	if _, ok := sharedOutboxPublishers["relation"]; !ok {
+		t.Fatal("relation has no Shared outbox publisher")
+	}
+	if err := s.publishSharedOutboxEntry(ctx, entry); err != nil {
+		t.Fatal(err)
+	}
+	var published model.Relation
+	if err := s.Hub.ReadJSON(ctx, s.relationPath(relation), &published); err != nil {
+		t.Fatal(err)
+	}
+	if published != relation {
+		t.Fatalf("published relation=%#v want %#v", published, relation)
+	}
+	if err := s.publishSharedOutboxEntry(ctx, entry); !errors.Is(err, errSharedOutboxNoop) {
+		t.Fatalf("duplicate relation publication error=%v, want terminal no-op", err)
+	}
+}

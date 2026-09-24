@@ -33,13 +33,13 @@ func TestTSK521TaskExecutionStorageRejectsCorruption(t *testing.T) {
 	if err != nil || !found || got.TaskRevision != state.TaskRevision {
 		t.Fatalf("read state=%#v found=%v err=%v", got, found, err)
 	}
-	if _, err := db.Shared.Exec(ctx, `UPDATE shared_task_execution_states SET task_revision_sha256=? WHERE task_id=?`, strings.Repeat("A", 64), state.TaskID); err != nil {
+	if _, err := db.Local.Exec(ctx, `UPDATE local_task_execution_states SET task_revision_sha256=? WHERE task_id=?`, strings.Repeat("A", 64), state.TaskID); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := db.ReadTaskExecutionState(ctx, state.ProjectID, state.TaskID); err == nil {
 		t.Fatal("corrupted Task hash was accepted")
 	}
-	if _, err := db.Shared.Exec(ctx, `UPDATE shared_task_execution_states SET task_revision_sha256=?, execution_revision=? WHERE task_id=?`, state.TaskRevisionSHA256, "not-an-integer", state.TaskID); err != nil {
+	if _, err := db.Local.Exec(ctx, `UPDATE local_task_execution_states SET task_revision_sha256=?, execution_revision=? WHERE task_id=?`, state.TaskRevisionSHA256, "not-an-integer", state.TaskID); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := db.ReadTaskExecutionState(ctx, state.ProjectID, state.TaskID); err == nil {

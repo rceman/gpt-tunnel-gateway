@@ -31,6 +31,7 @@ type Service struct {
 	ConfigPath                              string
 	Hub                                     hub.Store
 	Durability                              *sqlitestore.Databases
+	localState                              *sqlitestore.Databases
 	Git                                     gitx.Runner
 	Airelay                                 airelay.Client
 	clock                                   func() time.Time
@@ -65,7 +66,6 @@ type Service struct {
 	durableMutationWake                     chan string
 	durableMutationActive                   map[string]struct{}
 	workflowPolicyCacheMu                   sync.RWMutex
-	legacyWorkflowPolicyRead                func(context.Context, string, *model.ProjectWorkflowPolicy) error
 	hostConfigRefreshEnabled                bool
 	hostConfigRefreshMu                     sync.Mutex
 }
@@ -265,21 +265,18 @@ type AgentUpdateInput struct {
 	RecommendedReasoning *string   `json:"recommended_reasoning,omitempty"`
 	Capabilities         *[]string `json:"capabilities,omitempty"`
 	UpdatedBy            string    `json:"updated_by"`
-	WriteOptions
 }
 
 type AgentRegisterInput struct {
 	ProjectID    string `json:"project_id"`
 	AgentID      string `json:"agent_id"`
 	WorkflowRole string `json:"workflow_role,omitempty"`
-	WriteOptions
 }
 
 type AgentDisableInput struct {
 	ProjectID string `json:"project_id"`
 	AgentID   string `json:"agent_id"`
 	UpdatedBy string `json:"updated_by"`
-	WriteOptions
 }
 
 type ProjectConfigurationPatch struct {

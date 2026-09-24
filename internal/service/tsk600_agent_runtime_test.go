@@ -143,18 +143,11 @@ func TestTSK600RuntimeBindingCollisionRejectedOnRegisterAndUpdate(t *testing.T) 
 		tsk600Binding(s, "second-agent", "runtime-worker")
 		registerTSK600Agent(t, s, "second-agent")
 		tsk600Binding(s, "second-agent", "runtime-lead")
-		revision, err := s.Hub.RemoteRevision(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
 		if _, _, err := s.AgentUpdate(authority.WithPlanner(context.Background()), AgentUpdateInput{
 			ProjectID:            "example",
 			AgentID:              "second-agent",
 			RecommendedReasoning: pointer(model.ReasoningMax),
 			UpdatedBy:            "planner",
-			WriteOptions: WriteOptions{
-				ExpectedHubRevision: revision,
-			},
 		}); err == nil || !strings.Contains(err.Error(), "RUNTIME_IDENTITY_AMBIGUOUS") {
 			t.Fatalf("runtime binding collision was accepted during update: %v", err)
 		}
@@ -170,19 +163,12 @@ func TestTSK600DisableEnablePreservesBindingInvariants(t *testing.T) {
 	ctx := context.Background()
 	mutationCtx := authority.WithPlanner(ctx)
 
-	revision, err := s.Hub.RemoteRevision(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
 	disabled := false
 	if _, _, err := s.AgentUpdate(mutationCtx, AgentUpdateInput{
 		ProjectID: "example",
 		AgentID:   "second-agent",
 		Enabled:   &disabled,
 		UpdatedBy: "planner",
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: revision,
-		},
 	}); err != nil {
 		t.Fatalf("disable Worker Agent: %v", err)
 	}
@@ -190,19 +176,12 @@ func TestTSK600DisableEnablePreservesBindingInvariants(t *testing.T) {
 		t.Fatalf("disabled Worker Agent remained resolvable: %v", err)
 	}
 
-	revision, err = s.Hub.RemoteRevision(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
 	enabled := true
 	if _, _, err := s.AgentUpdate(mutationCtx, AgentUpdateInput{
 		ProjectID: "example",
 		AgentID:   "second-agent",
 		Enabled:   &enabled,
 		UpdatedBy: "planner",
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: revision,
-		},
 	}); err != nil {
 		t.Fatalf("re-enable Worker Agent: %v", err)
 	}

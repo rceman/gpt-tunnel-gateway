@@ -37,7 +37,8 @@ func (d *Databases) CommitSharedADRCreate(ctx context.Context, request SharedADR
 		}, existing)
 		return receipt, existing.EntityID, append([]byte(nil), existing.Payload...), reuseErr
 	}
-	next, err := d.nextADRNumber(ctx, request.ProjectID, request.ProjectCode, request.InitialNextADRNumber)
+	definition, _ := sharedLifecycle("adr")
+	next, err := d.nextSharedLifecycleNumber(ctx, definition, request.ProjectID, request.ProjectCode, request.InitialNextADRNumber)
 	if err != nil {
 		return SharedMutationReceipt{}, "", nil, err
 	}
@@ -50,7 +51,7 @@ func (d *Databases) CommitSharedADRCreate(ctx context.Context, request SharedADR
 		return SharedMutationReceipt{}, "", nil, fmt.Errorf("shared ADR payload is empty")
 	}
 	_, err = d.Shared.Batch(ctx, []upstream.Statement{
-		{SQL: `UPDATE shared_adr_sequences SET next_adr_number=? WHERE project_id=? AND project_code=? AND next_adr_number=?`, Args: []any{next + 1, request.ProjectID, request.ProjectCode, next}, RequireRowsAffected: 1},
+		{SQL: `UPDATE shared_entity_sequences SET next_number=? WHERE entity_type='adr' AND project_id=? AND project_code=? AND next_number=?`, Args: []any{next + 1, request.ProjectID, request.ProjectCode, next}, RequireRowsAffected: 1},
 		{SQL: `INSERT INTO shared_adrs(id,revision,payload,updated_at) VALUES(?,?,?,?)`, Args: []any{id, 1, payload, created}, RequireRowsAffected: 1},
 		{SQL: `INSERT INTO hub_outbox(id,entity_type,entity_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?)`, Args: []any{request.OperationID, "adr", id, 1, request.Kind, payload, created}, RequireRowsAffected: 1},
 	})
@@ -78,87 +79,24 @@ func (d *Databases) CommitSharedADRCreate(ctx context.Context, request SharedADR
 }
 
 func (d *Databases) nextADRNumber(ctx context.Context, projectID, projectCode string, initial int64) (int64, error) {
-	rows, err := d.Shared.Query(ctx, `SELECT project_code,next_adr_number FROM shared_adr_sequences WHERE project_id=?`, projectID)
-	if err != nil {
-		return 0, err
-	}
-	if len(rows.Rows) == 0 {
-		if initial < 1 {
-			initial = 1
-		}
-		if _, err := d.Shared.Exec(ctx, `INSERT OR IGNORE INTO shared_adr_sequences(project_id,project_code,next_adr_number) VALUES(?,?,?)`, projectID, projectCode, initial); err != nil {
-			return 0, err
-		}
-		rows, err = d.Shared.Query(ctx, `SELECT project_code,next_adr_number FROM shared_adr_sequences WHERE project_id=?`, projectID)
-		if err != nil {
-			return 0, err
-		}
-	}
-	if len(rows.Rows) != 1 || rows.Rows[0][0] != projectCode {
-		return 0, fmt.Errorf("shared ADR project code mismatch")
-	}
-	next, ok := rows.Rows[0][1].(int64)
-	if !ok || next < 1 {
-		return 0, fmt.Errorf("invalid shared ADR sequence")
-	}
-	return next, nil
+	definition, _ := sharedLifecycle("adr")
+	return d.nextSharedLifecycleNumber(ctx, definition, projectID, projectCode, initial)
 }
 
 func (d *Databases) PutSharedADRSequence(ctx context.Context, projectID, projectCode string, next int64) error {
 	if d == nil || d.Shared == nil || projectID == "" || len(projectCode) != 3 || strings.ToUpper(projectCode) != projectCode || next < 1 {
 		return fmt.Errorf("invalid shared ADR sequence")
 	}
-	_, err := d.Shared.Exec(ctx, `INSERT INTO shared_adr_sequences(project_id,project_code,next_adr_number) VALUES(?,?,?) ON CONFLICT(project_id) DO UPDATE SET project_code=excluded.project_code,next_adr_number=CASE WHEN excluded.next_adr_number > shared_adr_sequences.next_adr_number THEN excluded.next_adr_number ELSE shared_adr_sequences.next_adr_number END`, projectID, projectCode, next)
-	return err
+	return d.ReconcileSharedSequence(ctx, "adr", projectID, projectCode, next)
 }
 
 func (d *Databases) nextTaskNumber(ctx context.Context, projectID, projectCode string, initial int64) (int64, error) {
-	rows, err := d.Shared.Query(ctx, `SELECT project_code,next_task_number FROM shared_task_sequences WHERE project_id=?`, projectID)
-	if err != nil {
-		return 0, err
-	}
-	if len(rows.Rows) == 0 {
-		if initial < 1 {
-			initial = 1
-		}
-		if _, err := d.Shared.Exec(ctx, `INSERT OR IGNORE INTO shared_task_sequences(project_id,project_code,next_task_number) VALUES(?,?,?)`, projectID, projectCode, initial); err != nil {
-			return 0, err
-		}
-		rows, err = d.Shared.Query(ctx, `SELECT project_code,next_task_number FROM shared_task_sequences WHERE project_id=?`, projectID)
-		if err != nil {
-			return 0, err
-		}
-	}
-	if len(rows.Rows) != 1 || rows.Rows[0][0] != projectCode {
-		return 0, fmt.Errorf("shared task project code mismatch")
-	}
-	next, ok := rows.Rows[0][1].(int64)
-	if !ok || next < 1 {
-		return 0, fmt.Errorf("invalid shared task sequence")
-	}
-	return next, nil
+	definition, _ := sharedLifecycle("task")
+	return d.nextSharedLifecycleNumber(ctx, definition, projectID, projectCode, initial)
 }
 
 func (d *Databases) ReadSharedTaskSequence(ctx context.Context, projectID string) (string, int64, bool, error) {
-	if d == nil || d.Shared == nil {
-		return "", 0, false, fmt.Errorf("shared store is unavailable")
-	}
-	rows, err := d.Shared.Query(ctx, `SELECT project_code,next_task_number FROM shared_task_sequences WHERE project_id=?`, projectID)
-	if err != nil {
-		return "", 0, false, err
-	}
-	if len(rows.Rows) == 0 {
-		return "", 0, false, nil
-	}
-	if len(rows.Rows) != 1 {
-		return "", 0, false, fmt.Errorf("invalid shared task sequence")
-	}
-	code, codeOK := rows.Rows[0][0].(string)
-	next, nextOK := rows.Rows[0][1].(int64)
-	if !codeOK || !nextOK || next < 1 {
-		return "", 0, false, fmt.Errorf("invalid shared task sequence")
-	}
-	return code, next, true, nil
+	return d.ReadSharedSequence(ctx, "task", projectID)
 }
 
 func (d *Databases) PutSharedTaskSequence(ctx context.Context, projectID, projectCode string, next int64) error {
@@ -168,8 +106,7 @@ func (d *Databases) PutSharedTaskSequence(ctx context.Context, projectID, projec
 	if projectID == "" || len(projectCode) != 3 || strings.ToUpper(projectCode) != projectCode || next < 1 {
 		return fmt.Errorf("invalid shared task sequence")
 	}
-	_, err := d.Shared.Exec(ctx, `INSERT INTO shared_task_sequences(project_id,project_code,next_task_number) VALUES(?,?,?) ON CONFLICT(project_id) DO UPDATE SET project_code=excluded.project_code,next_task_number=CASE WHEN excluded.next_task_number > shared_task_sequences.next_task_number THEN excluded.next_task_number ELSE shared_task_sequences.next_task_number END`, projectID, projectCode, next)
-	return err
+	return d.ReconcileSharedSequence(ctx, "task", projectID, projectCode, next)
 }
 
 func (d *Databases) MarkSharedBootstrapComplete(ctx context.Context, marker SharedBootstrapMarker) error {

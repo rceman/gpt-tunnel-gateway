@@ -63,13 +63,13 @@ func TestProjectStatusDelayedComponentsCompleteConcurrently(t *testing.T) {
 	}
 }
 
-func TestProjectStatusUsesStatusOnlyTaskProjection(t *testing.T) {
+func TestProjectStatusDoesNotReadRetiredTaskHubFamilies(t *testing.T) {
 	s, hubRevision, _ := testService(t)
-	task, _, err := s.TaskCreate(context.Background(), TaskCreateInput{
+	_, _, err := s.TaskCreate(context.Background(), TaskCreateInput{
 		ProjectID:          "example",
 		Slug:               "status-only-task",
 		Title:              "Status-only task",
-		Objective:          "Exercise the bounded project status task projection.",
+		Objective:          "Ensure project status does not depend on retired Task Hub files.",
 		AcceptanceCriteria: []string{"bounded"},
 		OperationClass:     "implementation",
 		CreatedBy:          "test",
@@ -80,35 +80,18 @@ func TestProjectStatusUsesStatusOnlyTaskProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	items, err := s.taskStatusList(context.Background(), "example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var found *TaskRecord
-	for i := range items {
-		if items[i].Task.ID == task.ID {
-			found = &items[i]
-			break
-		}
-	}
-	if found == nil {
-		t.Fatalf("status-only task projection omitted %s", task.ID)
-	}
-	if found.CurrentRevision != nil {
-		t.Fatalf("status-only projection performed enrichment: %#v", *found)
-	}
 	status, err := s.ProjectStatus(context.Background(), "example")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, component := range status.Progress.ComponentErrors {
-		if component == "tasks_unavailable" {
-			t.Fatalf("healthy status-only task projection became unavailable: %#v", status.Progress)
+		if strings.HasPrefix(component, "tasks:") {
+			t.Fatalf("project status read a retired Task family: %#v", status.Progress)
 		}
 	}
 }
 
-func TestProjectStatusStatusOnlyTaskFailureRemainsUnavailable(t *testing.T) {
+func TestProjectStatusIgnoresRetiredTaskStateCorruption(t *testing.T) {
 	s, hubRevision, _ := testService(t)
 	task, created, err := s.TaskCreate(context.Background(), TaskCreateInput{
 		ProjectID:          "example",
@@ -145,14 +128,9 @@ func TestProjectStatusStatusOnlyTaskFailureRemainsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := false
 	for _, component := range status.Progress.ComponentErrors {
 		if strings.HasPrefix(component, "tasks:") {
-			found = true
-			break
+			t.Fatalf("project status still depends on corrupted retired Task state: %#v", status.Progress)
 		}
-	}
-	if !found || status.Progress.BlockerClassification != "PROGRESS_COMPONENT_ERROR" {
-		t.Fatalf("task failure was not preserved as a component error: %#v", status.Progress)
 	}
 }

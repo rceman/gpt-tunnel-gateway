@@ -3,12 +3,14 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -54,6 +56,48 @@ func (s *Service) milestonePath(project, id string) string {
 		return "../invalid-milestone-id"
 	}
 	return s.projectPrefix(project) + "/milestones/" + id + ".json"
+}
+
+func (s *Service) trackPath(project, id string) string {
+	if model.ValidateProjectIdentifier(project) != nil || model.ValidateTrackID(id) != nil {
+		return "../invalid-track-id"
+	}
+	return s.projectPrefix(project) + "/tracks/" + id + ".json"
+}
+
+func (s *Service) relationPath(relation model.Relation) string {
+	if model.ValidateRelation(relation) != nil {
+		return "../invalid-relation"
+	}
+	if family, err := model.RelationFamilyOf(relation.Source); err != nil || family == model.RelationFamilyPMT {
+		return "../invalid-relation"
+	}
+	return s.projectPrefix(relation.ProjectID) + "/relations/" + relation.Kind + "/" + relation.Source + "/" + relation.Target + ".json"
+}
+
+func (s *Service) sharedRevisionPath(projectID, entityType, entityID string, revision int64) string {
+	if model.ValidateProjectIdentifier(projectID) != nil || model.ValidateObjectIdentifier(entityID) != nil || revision < 1 {
+		return "../invalid-shared-revision"
+	}
+	switch entityType {
+	case "project_configuration", "task", "adr", "rule", "journal", "milestone", "track":
+	default:
+		return "../invalid-shared-revision"
+	}
+	return s.projectPrefix(projectID) + "/entity-revisions/" + entityType + "/" + entityID + "/REV" + strconv.FormatInt(revision, 10) + ".json"
+}
+
+func (s *Service) sharedLifecycleEventPath(projectID, entityType, entityID, operationID string) string {
+	if model.ValidateProjectIdentifier(projectID) != nil || model.ValidateObjectIdentifier(entityID) != nil || operationID == "" {
+		return "../invalid-shared-lifecycle-event"
+	}
+	switch entityType {
+	case "task", "adr", "rule", "milestone", "track":
+	default:
+		return "../invalid-shared-lifecycle-event"
+	}
+	identity := sha256.Sum256([]byte(operationID))
+	return s.projectPrefix(projectID) + "/lifecycle-events/" + entityType + "/" + entityID + "/" + fmt.Sprintf("%x", identity) + ".json"
 }
 
 func (s *Service) rulePath(project, id string) string {
@@ -181,10 +225,6 @@ func (s *Service) ValidateConfiguredProjectRecords(ctx context.Context) error {
 		if !seen[id] {
 			missing = append(missing, id)
 			continue
-		}
-		var plan model.Plan
-		if err := s.Hub.ReadJSON(ctx, s.planPath(id), &plan); err != nil {
-			return fmt.Errorf("durable hub plan missing or invalid for project %q: %w", id, err)
 		}
 	}
 	if len(missing) > 0 {

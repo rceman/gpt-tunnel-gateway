@@ -618,7 +618,7 @@ func TestTSK531TaskCompletionAdoptsSharedLifecycleAuthorityAndKeepsExecutionSepa
 		t.Fatal(err)
 	}
 	execution.TaskRevisionSHA256 = task.RevisionSHA256
-	if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_task_execution_states(project_id,task_id,task_revision,task_revision_sha256,status,stage,worktree,base_head_sha,head_sha,branch,agent,execution_revision,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	if _, err := db.Local.Exec(ctx, `INSERT INTO local_task_execution_states(project_id,task_id,task_revision,task_revision_sha256,status,stage,worktree,base_head_sha,head_sha,branch,agent,execution_revision,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		execution.ProjectID, execution.TaskID, execution.TaskRevision, execution.TaskRevisionSHA256, execution.Status, execution.Stage, execution.Worktree, execution.BaseHead, execution.Head, execution.Branch, execution.Agent, execution.ExecutionRevision, execution.UpdatedAt.Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
@@ -668,7 +668,7 @@ func TestTSK531TaskCompletionExecutionSideEffectRollsBackWithLifecycleEvent(t *t
 		TaskRevision: 1, TaskRevisionSHA256: task.RevisionSHA256, Status: model.TaskExecutionIntegrated, Stage: "code",
 		Worktree: "WT-TSK1-bbbbbbbb", BaseHead: strings.Repeat("a", 40), Head: strings.Repeat("b", 40), Branch: "task/EXM-TSK1-authority", Agent: "gtw-worker", ExecutionRevision: 1, UpdatedAt: req.RecordedAt.Add(-time.Minute),
 	}
-	if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_task_execution_states(project_id,task_id,task_revision,task_revision_sha256,status,stage,worktree,base_head_sha,head_sha,branch,agent,execution_revision,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	if _, err := db.Local.Exec(ctx, `INSERT INTO local_task_execution_states(project_id,task_id,task_revision,task_revision_sha256,status,stage,worktree,base_head_sha,head_sha,branch,agent,execution_revision,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		execution.ProjectID, execution.TaskID, execution.TaskRevision, execution.TaskRevisionSHA256, execution.Status, execution.Stage, execution.Worktree, execution.BaseHead, execution.Head, execution.Branch, execution.Agent, execution.ExecutionRevision, execution.UpdatedAt.Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}

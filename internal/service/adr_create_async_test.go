@@ -84,11 +84,13 @@ func attachTSK409SharedDurability(t *testing.T, s *Service) {
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
-	if _, err := db.Shared.Exec(context.Background(), `INSERT OR REPLACE INTO shared_project_identifiers(project_id,project_code,next_task_number,next_adr_number,next_rule_number,next_train_number,next_journal_number) VALUES(?,?,?,?,?,?,?)`, "example", "EXM", 1, 1, 1, 1, 1); err != nil {
+	if _, err := db.Shared.Exec(context.Background(), `INSERT OR REPLACE INTO shared_project_identifiers(project_id,project_code) VALUES(?,?)`, "example", "EXM"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Shared.Exec(context.Background(), `INSERT OR REPLACE INTO shared_entity_sequences(entity_type,project_id,project_code,next_number) VALUES(?,?,?,?)`, "adr", "example", "EXM", 1); err != nil {
-		t.Fatal(err)
+	for _, entityType := range []string{"task", "adr"} {
+		if err := db.ReconcileSharedSequence(context.Background(), entityType, "example", "EXM", 1); err != nil {
+			t.Fatal(err)
+		}
 	}
 	payload, err := json.Marshal(configuration)
 	if err != nil {

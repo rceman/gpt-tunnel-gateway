@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -182,6 +183,63 @@ func validateSharedLifecycleChangedFields(fields []string) error {
 		seen[field] = true
 	}
 	return nil
+}
+
+func (d *Databases) EnsureSharedLifecycleEvent(ctx context.Context, event SharedLifecycleEvent) error {
+	changedFields, err := json.Marshal(event.ChangedFields)
+	if err != nil {
+		return err
+	}
+	recordedAt := event.RecordedAt.UTC().Format(time.RFC3339Nano)
+	validated, err := decodeSharedLifecycleEvent([]any{
+		int64(1), event.OperationID, event.EntityType, event.ProjectID, event.EntityID, event.Revision,
+		event.EventKind, event.FromStatus, event.ToStatus, event.Actor, event.Reason, event.Contract,
+		recordedAt, event.MutationKind, changedFields,
+	})
+	if err != nil {
+		return err
+	}
+	current, err := d.ReadSharedEntity(ctx, event.EntityType, event.EntityID)
+	if err != nil {
+		return err
+	}
+	if current.Revision < event.Revision {
+		return fmt.Errorf("Shared %s lifecycle event exceeds current revision", event.EntityType)
+	}
+	read := func() (SharedLifecycleEvent, bool, error) {
+		rows, err := d.Shared.Query(ctx, sharedLifecycleEventColumns+` WHERE operation_id=?`, event.OperationID)
+		if err != nil {
+			return SharedLifecycleEvent{}, false, err
+		}
+		if len(rows.Rows) == 0 {
+			return SharedLifecycleEvent{}, false, nil
+		}
+		if len(rows.Rows) != 1 {
+			return SharedLifecycleEvent{}, false, fmt.Errorf("duplicate Shared lifecycle operation identity")
+		}
+		stored, err := decodeSharedLifecycleEvent(rows.Rows[0])
+		return stored, err == nil, err
+	}
+	if stored, found, err := read(); err != nil {
+		return err
+	} else if found {
+		if sameSharedLifecycleEvent(stored, validated) {
+			return nil
+		}
+		return fmt.Errorf("conflicting Shared lifecycle operation %q", event.OperationID)
+	}
+	_, err = d.Shared.Exec(ctx, `INSERT INTO shared_lifecycle_events(operation_id,entity_type,project_id,entity_id,revision,event_kind,from_status,to_status,actor,reason,contract,recorded_at,mutation_kind,changed_fields) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, validated.OperationID, validated.EntityType, validated.ProjectID, validated.EntityID, validated.Revision, validated.EventKind, validated.FromStatus, validated.ToStatus, validated.Actor, validated.Reason, validated.Contract, recordedAt, validated.MutationKind, changedFields)
+	if err != nil {
+		if stored, found, readErr := read(); readErr == nil && found && sameSharedLifecycleEvent(stored, validated) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func sameSharedLifecycleEvent(left, right SharedLifecycleEvent) bool {
+	return left.OperationID == right.OperationID && left.EntityType == right.EntityType && left.ProjectID == right.ProjectID && left.EntityID == right.EntityID && left.Revision == right.Revision && left.EventKind == right.EventKind && left.MutationKind == right.MutationKind && left.FromStatus == right.FromStatus && left.ToStatus == right.ToStatus && left.Actor == right.Actor && left.Reason == right.Reason && bytes.Equal(left.Contract, right.Contract) && reflect.DeepEqual(left.ChangedFields, right.ChangedFields) && left.RecordedAt.Equal(right.RecordedAt)
 }
 
 func (d *Databases) ListSharedLifecycleEvents(ctx context.Context, entityType, projectID, entityID string, limit int) ([]SharedLifecycleEvent, error) {
