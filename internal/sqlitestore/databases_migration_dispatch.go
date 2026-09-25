@@ -119,7 +119,8 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 			}
 		}
 		migrations := append(append(append(append(append(append(append(append([]migrate.Migration(nil), released...), sharedTaskLifecycleHardCutMigrationMarker()), relations), ruleSeed), priority), milestone), track), sharedUpgradeMigration())
-		return applyActiveMigrations(ctx, db, append(migrations, sharedRelationOutboxMigration())...)
+		migrations = append(migrations, sharedRelationOutboxMigration(), sharedRelationOutboxBlobMigration())
+		return applyActiveMigrations(ctx, db, migrations...)
 	}
 	if err := applyActiveMigrations(ctx, db, released...); err != nil {
 		return err
@@ -135,7 +136,8 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 		}
 	}
 	migrations := append(append(append(append(append(append(append(append([]migrate.Migration(nil), released...), hardCut), relations), ruleSeed), priority), milestone), track), sharedUpgradeMigration())
-	return applyActiveMigrations(ctx, db, append(migrations, sharedRelationOutboxMigration())...)
+	migrations = append(migrations, sharedRelationOutboxMigration(), sharedRelationOutboxBlobMigration())
+	return applyActiveMigrations(ctx, db, migrations...)
 }
 
 func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {

@@ -62,7 +62,7 @@ func (s *Service) startSharedOutboxWorker() {
 func (s *Service) sharedOutboxWorker() {
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		entries, err := s.Durability.PendingOutbox(ctx, 32)
+		entries, err := s.readPendingSharedOutbox(ctx)
 		cancel()
 		if err == nil {
 			for _, entry := range entries {
@@ -73,6 +73,35 @@ func (s *Service) sharedOutboxWorker() {
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
+}
+
+func (s *Service) readPendingSharedOutbox(ctx context.Context) ([]sqlitestore.OutboxEntry, error) {
+	if s == nil || s.Durability == nil {
+		return nil, errors.New("shared store is unavailable")
+	}
+	entries, err := s.Durability.PendingOutbox(ctx, 32)
+	var diagnostic string
+	if err != nil {
+		var decodeErr sqlitestore.OutboxRowDecodeError
+		if errors.As(err, &decodeErr) {
+			diagnostic = "outbox polling decode failure: " + decodeErr.Error()
+		} else {
+			diagnostic = "outbox polling storage read failure"
+		}
+		if len(diagnostic) > 512 {
+			diagnostic = diagnostic[:512]
+		}
+	}
+	s.sharedOutboxPollMu.Lock()
+	s.sharedOutboxPollDiagnostic = diagnostic
+	s.sharedOutboxPollMu.Unlock()
+	return entries, err
+}
+
+func (s *Service) sharedOutboxPollFailure() string {
+	s.sharedOutboxPollMu.RLock()
+	defer s.sharedOutboxPollMu.RUnlock()
+	return s.sharedOutboxPollDiagnostic
 }
 
 func (s *Service) deliverSharedOutboxEntry(ctx context.Context, entry sqlitestore.OutboxEntry) error {

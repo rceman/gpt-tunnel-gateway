@@ -86,6 +86,7 @@ func TestTSK665Gate20OperatorCLIDurabilityInventory(t *testing.T) {
 		{Path: "test-only tsk655_live_gateway_test.go", Boundary: "SQLite read after daemon stop", Access: "TEST_ONLY_SETUP_INSPECTION", Rationale: "asserts daemon-down CLI did not create an active Admin Session"},
 		{Path: "test-only tsk657_submit_transport_live_test.go", Boundary: "fixture seed before daemon start", Access: "TEST_ONLY_SETUP_INSPECTION", Rationale: "seeds disposable Shared/Local fixtures before exercising live submit transport"},
 		{Path: "test-only tsk659_sequential_submit_live_test.go", Boundary: "fixture seed before daemon start", Access: "TEST_ONLY_SETUP_INSPECTION", Rationale: "seeds disposable sequential Task and Session fixtures before daemon startup"},
+		{Path: "test-only tsk667_live_outbox_text_test.go", Boundary: "fixture seed before daemon start and SQLite inspection after daemon stop", Access: "TEST_ONLY_SETUP_INSPECTION", Rationale: "creates a disposable Shared TEXT outbox row before startup and verifies canonical publication and drain after stop"},
 	}
 	seen := make(map[string]struct{}, len(inventory))
 	for _, item := range inventory {

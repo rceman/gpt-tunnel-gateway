@@ -273,6 +273,8 @@ const (
 	sharedUpgradeMigrationName                            = "create Shared upgrade markers"
 	sharedRelationOutboxMigrationVersion            int64 = 202609231110
 	sharedRelationOutboxMigrationName                     = "publish Shared relations to Hub outbox"
+	sharedRelationOutboxBlobMigrationVersion        int64 = 202609251345
+	sharedRelationOutboxBlobMigrationName                 = "store Shared relation outbox payloads as BLOB"
 	localBaselineVersion                            int64 = 202609080505
 	localBaselineName                                     = "create local baseline"
 	localTokenUsageMigrationVersion                 int64 = 202609102010

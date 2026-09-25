@@ -105,4 +105,27 @@ func TestProjectOperationalStatusUsesLocalSharedStateWhenHubUnavailable(t *testi
 	if result.TaskID != "" {
 		t.Fatalf("Task projection leaked without worker identity: %#v", result.TaskID)
 	}
+	if _, err := db.Shared.Exec(context.Background(), `INSERT INTO hub_outbox(id,entity_type,entity_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?)`, "invalid-outbox-payload", "relation", "example|corrects|EXM-TSK7|EXM-TSK8", 1, "relation-create", int64(8675309), "0001-01-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.readPendingSharedOutbox(context.Background()); err == nil {
+		t.Fatal("PendingOutbox accepted an unsupported payload storage type")
+	}
+	result, err = s.ProjectOperationalStatus(WithAgentSessionID(context.Background(), session.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SharedSync.State != "degraded" || result.SharedSync.Pending == 0 || !strings.Contains(result.SharedSync.LastError, "decode failure") || !strings.Contains(result.SharedSync.LastError, "payload") || !strings.Contains(result.SharedSync.LastError, "int64") || len(result.SharedSync.LastError) > 512 || strings.Contains(result.SharedSync.LastError, "8675309") {
+		t.Fatalf("PendingOutbox failure was not exposed as bounded, payload-safe shared_sync diagnostics: %#v", result.SharedSync)
+	}
+	if _, err := db.Shared.Exec(context.Background(), `DELETE FROM hub_outbox WHERE id=?`, "invalid-outbox-payload"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.readPendingSharedOutbox(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	result, err = s.ProjectOperationalStatus(WithAgentSessionID(context.Background(), session.ID))
+	if err != nil || result.SharedSync.LastError != "" {
+		t.Fatalf("shared_sync did not clear recovered poll diagnostic: %#v err=%v", result.SharedSync, err)
+	}
 }

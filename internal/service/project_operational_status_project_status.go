@@ -146,6 +146,10 @@ func (s *Service) ProjectOperationalStatus(ctx context.Context) (ProjectOperatio
 		} else {
 			result.SharedSync = sqlitestore.SharedSyncHealth{State: "degraded", LastError: "shared sync health unavailable"}
 		}
+		if pollFailure := s.sharedOutboxPollFailure(); pollFailure != "" {
+			result.SharedSync.State = "degraded"
+			result.SharedSync.LastError = pollFailure
+		}
 	}
 	if sessionID := AgentSessionID(ctx); sessionID != "" {
 		if session, sessionErr := s.SessionInfo(ctx, sessionID); sessionErr == nil {

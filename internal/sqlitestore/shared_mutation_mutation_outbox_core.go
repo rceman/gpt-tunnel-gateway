@@ -266,45 +266,72 @@ func (d *Databases) outboxEntry(ctx context.Context, id string) (OutboxEntry, bo
 	return entry, true, err
 }
 
+type OutboxRowDecodeError struct {
+	Field  string
+	Reason string
+}
+
+func (e OutboxRowDecodeError) Error() string {
+	return fmt.Sprintf("invalid Hub outbox %s: %s", e.Field, e.Reason)
+}
+
+func outboxRowTypeError(field string, value any) error {
+	return OutboxRowDecodeError{
+		Field:  field,
+		Reason: fmt.Sprintf("unsupported SQLite value type %T", value),
+	}
+}
+
 func decodeOutboxRow(row []any) (OutboxEntry, error) {
 	if len(row) != 11 {
-		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox row")
+		return OutboxEntry{}, OutboxRowDecodeError{
+			Field:  "row",
+			Reason: fmt.Sprintf("expected 11 columns, got %d", len(row)),
+		}
 	}
 	revision, ok := row[3].(int64)
 	if !ok {
-		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox revision")
+		return OutboxEntry{}, outboxRowTypeError("revision", row[3])
 	}
-	payload, ok := row[5].([]byte)
-	if !ok {
-		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox payload")
+	var payload []byte
+	switch value := row[5].(type) {
+	case []byte:
+		payload = append([]byte(nil), value...)
+	case string:
+		payload = []byte(value)
+	default:
+		return OutboxEntry{}, outboxRowTypeError("payload", row[5])
 	}
 	values := make([]string, 0, 4)
-	for _, index := range []int{0, 1, 2, 4} {
-		value, ok := row[index].(string)
+	for _, field := range []struct {
+		index int
+		name  string
+	}{{index: 0, name: "id"}, {index: 1, name: "entity_type"}, {index: 2, name: "entity_id"}, {index: 4, name: "kind"}} {
+		value, ok := row[field.index].(string)
 		if !ok {
-			return OutboxEntry{}, fmt.Errorf("invalid Hub outbox text field")
+			return OutboxEntry{}, outboxRowTypeError(field.name, row[field.index])
 		}
 		values = append(values, value)
 	}
 	created, ok := row[6].(string)
 	if !ok {
-		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox created_at")
+		return OutboxEntry{}, outboxRowTypeError("created_at", row[6])
 	}
 	published, ok := row[7].(string)
 	if !ok {
-		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox published_at")
+		return OutboxEntry{}, outboxRowTypeError("published_at", row[7])
 	}
 	attempts, ok := row[8].(int64)
 	if !ok {
-		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox attempts")
+		return OutboxEntry{}, outboxRowTypeError("attempts", row[8])
 	}
 	nextAttempt, ok := row[9].(string)
 	if !ok {
-		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox next attempt")
+		return OutboxEntry{}, outboxRowTypeError("next_attempt_at", row[9])
 	}
 	lastError, ok := row[10].(string)
 	if !ok {
-		return OutboxEntry{}, fmt.Errorf("invalid Hub outbox last error")
+		return OutboxEntry{}, outboxRowTypeError("last_error", row[10])
 	}
 	return OutboxEntry{
 		ID:            values[0],

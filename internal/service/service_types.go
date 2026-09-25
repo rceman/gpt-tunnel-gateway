@@ -61,6 +61,8 @@ type Service struct {
 	taskCreateActive                        map[string]struct{}
 	durableMutationWorkerOnce               sync.Once
 	sharedOutboxWorkerOnce                  sync.Once
+	sharedOutboxPollMu                      sync.RWMutex
+	sharedOutboxPollDiagnostic              string
 	callbackWorkerOnce                      sync.Once
 	durableMutationMu                       sync.Mutex
 	durableMutationWake                     chan string
