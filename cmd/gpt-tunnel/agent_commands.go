@@ -6,8 +6,23 @@ import (
 	"strconv"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
-	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
+
+type operatorAgentRegisterCLIRequest struct {
+	Root    string `json:"root"`
+	AgentID string `json:"agent_id,omitempty"`
+	Role    string `json:"role"`
+	Relay   string `json:"relay"`
+}
+
+type operatorAgentCLIRequest struct {
+	ProjectID string `json:"project_id"`
+}
+
+type operatorAgentSendCLIRequest struct {
+	ProjectID string `json:"project_id"`
+	Message   string `json:"message"`
+}
 
 func agent(ctx context.Context, s *service.Service, args []string) {
 	require(args, 2)
@@ -17,18 +32,12 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 		if err != nil {
 			usage()
 		}
-		projectID, err := s.ProjectIDForRoot(ctx, "")
-		if err != nil {
-			fatal(err)
-		}
-		db, err := sqlitestore.Open(s.Config.StateDir)
-		if err != nil {
-			fatal(fmt.Errorf("open Shared/Local durability for Agent registration: %w", err))
-		}
-		defer db.Close()
-		s.Durability = db
-		input.ProjectID = projectID
-		result, err := s.AgentBootstrap(ctx, input)
+		result, err := operatorCLIRequest[service.AgentBootstrapResult](ctx, s.Config, "/operator/agent/register", operatorAgentRegisterCLIRequest{
+			Root:    mustWorkingDirectory(),
+			AgentID: input.AgentID,
+			Role:    input.Role,
+			Relay:   input.Relay,
+		})
 		if err != nil {
 			fatal(err)
 		}
@@ -37,11 +46,14 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 		if len(args) != 4 || args[2] != "--text" {
 			usage()
 		}
-		v, err := s.AgentSend(ctx, args[1], args[3])
+		result, err := operatorCLIRequest[service.AgentSendResult](ctx, s.Config, "/operator/agent/send", operatorAgentSendCLIRequest{
+			ProjectID: args[1],
+			Message:   args[3],
+		})
 		if err != nil {
 			fatal(err)
 		}
-		output(v)
+		output(result)
 	case "tail":
 		seenLines := false
 		seenSession := false
@@ -77,11 +89,11 @@ func agent(ctx context.Context, s *service.Service, args []string) {
 		if len(args) != 2 {
 			usage()
 		}
-		v, err := s.AgentStatus(ctx, args[1])
+		result, err := operatorCLIRequest[service.AgentStatusResult](ctx, s.Config, "/operator/agent/status", operatorAgentCLIRequest{ProjectID: args[1]})
 		if err != nil {
 			fatal(err)
 		}
-		output(v)
+		output(result)
 	default:
 		usage()
 	}

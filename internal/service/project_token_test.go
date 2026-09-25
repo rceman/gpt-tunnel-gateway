@@ -44,6 +44,14 @@ func TestProjectTokenStaticGrantIsStableAndIdentityBound(t *testing.T) {
 	if err != nil || second.Token != first.Token {
 		t.Fatalf("repeat static token=%#v err=%v", second, err)
 	}
+	byCode, err := svc.ProjectToken(ctx, ProjectTokenInput{
+		Project: "EXM",
+		Root:    filepath.Join(stateDir, "not-a-repository"),
+		Remote:  "ignored",
+	})
+	if err != nil || byCode.ProjectID != "example" || byCode.Token != first.Token {
+		t.Fatalf("explicit project-code token=%#v err=%v", byCode, err)
+	}
 	if _, err := svc.ProjectToken(ctx, ProjectTokenInput{
 		Root:   root,
 		Remote: "ssh://conflicting.invalid/example.git",

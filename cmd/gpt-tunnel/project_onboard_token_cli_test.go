@@ -1,75 +1,44 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
-	"github.com/rceman/gpt-tunnel-gateway/internal/mcp"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
-	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
 
 func TestProjectOnboardCLIExposesDurablePlannerToken(t *testing.T) {
-	workdir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
+	gateway := testutil.NewLiveGateway(t, testutil.LiveGatewayHooks{
+		BeforeStart: func(gateway *testutil.LiveGateway) {
+			airelay := filepath.Join(gateway.BaseDir, "airelay")
+			script := "#!/bin/sh\ncase \"$1\" in\nsession-status) printf '{\"sessionKey\":\"%s\",\"profile\":\"coding\",\"controllerReachable\":true,\"state\":\"idle\"}' \"$2\" ;;\n*) exit 99 ;;\nesac\n"
+			if err := os.WriteFile(airelay, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			gateway.Config.AirelayCommand = airelay
+			gateway.WriteConfig(t)
+			if err := (hub.Store{Config: gateway.Config}).Ensure(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			seedProjectOnboardHubRule(t, gateway)
+		},
+	})
+	projectRemote := strings.TrimSpace(testutil.Git(t, gateway.ProjectRoot, "remote", "get-url", "origin"))
+	if projectRemote == gateway.HubRemote {
+		t.Fatal("live gateway Hub and project repositories share one remote")
 	}
-	bin := filepath.Join(t.TempDir(), "gpt-tunnel")
-	build := exec.Command("go", "build", "-o", bin, ".")
-	build.Dir = workdir
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build CLI: %v\n%s", err, output)
-	}
-	hubBare, projectRoot, _ := testutil.RepoWithBareRemote(t)
-	testutil.Git(t, projectRoot, "remote", "set-head", "origin", "main")
-	stateDir := filepath.Join(t.TempDir(), "state")
-	airelay := filepath.Join(t.TempDir(), "airelay")
-	if err := os.WriteFile(airelay, []byte("#!/bin/sh\ncase \"$1\" in\nsession-status) if [ \"$3\" = --json ]; then printf '{\"sessionKey\":\"%s\",\"profile\":\"coding\",\"controllerReachable\":true,\"state\":\"idle\"}' \"$2\"; else printf 'Controller: reachable\\nState: idle\\n'; fi ;;\nstatus) printf 'Controller: reachable\\nState: idle\\n' ;;\n*) exit 99 ;;\nesac\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.Config{
-		SchemaVersion: 1, GatewayID: "HOM", ListenAddr: "127.0.0.1:8875", StateDir: stateDir, MaxReadBytes: 1 << 20, MaxDiffBytes: 1 << 20,
-		MaxListItems: 1000, DispatchTimeoutSeconds: 5, RunTimeoutSeconds: 60, AirelayCommand: airelay,
-		Hub:        config.HubConfig{RepositoryURL: hubBare, Branch: "main", AuthorName: "Gateway", AuthorEmail: "gateway@example.invalid"},
-		Controller: config.ControllerConfig{TunnelHealthListenAddr: "127.0.0.1:8876"},
-		Projects:   map[string]config.ProjectConfig{},
-	}
-	configJSON, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(configPath, configJSON, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := (hub.Store{Config: cfg}).Ensure(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	run := func(args ...string) string {
-		t.Helper()
-		cmd := exec.Command(bin, args...)
-		cmd.Dir = workdir
-		cmd.Env = append(os.Environ(), "GPT_TUNNEL_CONFIG="+configPath)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("gpt-tunnel %v failed: %v\n%s", args, err, output)
-		}
-		return string(output)
-	}
-	var first, retry map[string]any
-	if err := json.Unmarshal([]byte(run("project", "onboard", "--root", projectRoot, "AIR", "agentir_worker")), &first); err != nil {
+	firstResult := gateway.MustCLI(t, testutil.LiveCommandOptions{}, "project", "onboard", "--root", gateway.ProjectRoot, "AIR", "agentir_worker")
+	var first map[string]any
+	if err := json.Unmarshal([]byte(firstResult.Stdout), &first); err != nil {
 		t.Fatal(err)
 	}
 	if first["status"] != "onboarded" || first["token"] == "" || first["token_usage"] != service.ProjectOnboardTokenUsage {
@@ -79,77 +48,108 @@ func TestProjectOnboardCLIExposesDurablePlannerToken(t *testing.T) {
 	if agents, ok := first["agents"].([]any); !ok || len(agents) != 1 || agents[0].(map[string]any)["agent"] != "AIR-WORKER" {
 		t.Fatalf("onboard agents=%#v", first["agents"])
 	}
-	if err := json.Unmarshal([]byte(run("project", "onboard", "--root", projectRoot, "AIR", "agentir_worker")), &retry); err != nil {
+	projectID := filepath.Base(gateway.ProjectRoot)
+	persisted, err := config.Load(gateway.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, ok := persisted.ProjectAgentBindings[projectID]["AIR-WORKER"]
+	if !ok || binding.SessionKey != "agentir_worker" {
+		t.Fatalf("onboard Agent binding was not persisted through daemon host config %q: %#v", gateway.ConfigPath, persisted.ProjectAgentBindings)
+	}
+	retryResult := gateway.MustCLI(t, testutil.LiveCommandOptions{}, "project", "onboard", "--root", gateway.ProjectRoot, "AIR", "agentir_worker")
+	var retry map[string]any
+	if err := json.Unmarshal([]byte(retryResult.Stdout), &retry); err != nil {
 		t.Fatal(err)
 	}
 	if retry["status"] != "already_registered" || retry["token"] != token || retry["token_usage"] != service.ProjectOnboardTokenUsage {
 		t.Fatal("repeat onboarding did not return the stable token contract")
 	}
-	loaded, err := config.Load(configPath)
+	conflict := gateway.RunCLI(testutil.LiveCommandOptions{}, "project", "onboard", "--root", gateway.ProjectRoot, "BAD", "agentir_worker")
+	if conflict.Err == nil || !strings.Contains(conflict.Stderr, "conflicts with repository identity or project code") || strings.Contains(conflict.Stderr, "the requested operator operation failed") {
+		t.Fatalf("project onboard did not surface the daemon-side conflict: stderr=%q err=%v", conflict.Stderr, conflict.Err)
+	}
+	started, err := gateway.MCPCall(context.Background(), "session_start", map[string]any{"token": token})
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sqlitestore.Open(loaded.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	svc := service.NewWithDurabilityDeferredWorkers(loaded, db)
-	svc.ConfigPath = configPath
-	server := &mcp.Server{Service: svc, AuthorityContext: authority.WithPlanner(context.Background())}
-	started := tsk652MCPTool(t, server, "session_start", map[string]any{"token": token})
 	sessionID, _ := started["session"].(string)
 	if sessionID == "" || started["role"] != "planner" {
 		t.Fatalf("session_start output=%#v", started)
 	}
-	mcpSurfaces := []any{started, tsk652MCPTool(t, server, "call", map[string]any{"session": sessionID, "action": "project/status", "input": map[string]any{}}), tsk652MCPTool(t, server, "call", map[string]any{"session": sessionID, "action": "session/list", "input": map[string]any{}}), tsk652MCPTool(t, server, "call", map[string]any{"session": sessionID, "action": "session/info", "input": map[string]any{}}), tsk652MCPTool(t, server, "call", map[string]any{"session": sessionID, "action": "agent/guide", "input": map[string]any{}}), tsk652MCPTool(t, server, "call", map[string]any{"session": sessionID, "action": "runtime/logs", "input": map[string]any{}}), tsk652MCPTool(t, server, "tools/list", map[string]any{})}
-	encoded, err := json.Marshal(mcpSurfaces)
+	mcpSurfaces := []any{started}
+	for _, action := range []string{"project/status", "session/list", "session/info", "agent/guide", "runtime/logs"} {
+		value, err := gateway.MCPCall(context.Background(), "call", map[string]any{"session": sessionID, "action": action, "input": map[string]any{}})
+		if err != nil {
+			t.Fatalf("MCP %s: %v", action, err)
+		}
+		mcpSurfaces = append(mcpSurfaces, value)
+	}
+	projects, err := gateway.MCPCall(context.Background(), "projects", map[string]any{"gateway": "HOM"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	guide, err := gateway.MCPCall(context.Background(), "guide", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(append(mcpSurfaces, projects, guide))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(encoded), token) {
-		t.Fatal("project bootstrap token leaked through MCP output")
+		t.Fatal("project bootstrap token leaked through public MCP projections")
 	}
 }
 
-func tsk652MCPTool(t *testing.T, server *mcp.Server, name string, arguments map[string]any) map[string]any {
+func seedProjectOnboardHubRule(t *testing.T, gateway *testutil.LiveGateway) {
 	t.Helper()
-	request := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call"}
-	if name == "tools/list" {
-		request["method"] = "tools/list"
-	} else {
-		request["params"] = map[string]any{"name": name, "arguments": arguments}
+	ctx := context.Background()
+	projectID := filepath.Base(gateway.ProjectRoot)
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	rule := model.Rule{
+		SchemaVersion: model.SchemaVersion, ID: "AIR-RUL9", ProjectID: projectID, Revision: 1,
+		Title: "Existing portable Rule", Status: model.RuleStatusProposed, Name: "onboarding.fixture", Value: json.RawMessage(`true`),
+		CreatedBy: "planner", CreatedAt: now, UpdatedBy: "planner", UpdatedAt: now,
 	}
-	body, err := json.Marshal(request)
+	payload, err := json.Marshal(rule)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:1/mcp", bytes.NewReader(body))
-	req.Host = "127.0.0.1:1"
-	req.RemoteAddr = "127.0.0.1:1234"
-	recorder := httptest.NewRecorder()
-	server.Router().ServeHTTP(recorder, req)
-	var response map[string]any
-	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode MCP response: %v\n%s", err, recorder.Body.String())
+	portable := struct {
+		EntityType    string          `json:"entity_type"`
+		EntityID      string          `json:"entity_id"`
+		ProjectID     string          `json:"project_id"`
+		Revision      int64           `json:"revision"`
+		MutationKind  string          `json:"mutation_kind"`
+		Actor         string          `json:"actor"`
+		Reason        string          `json:"reason"`
+		ChangedFields []string        `json:"changed_fields"`
+		Payload       json.RawMessage `json:"payload"`
+		RecordedAt    string          `json:"recorded_at"`
+	}{
+		EntityType:    "rule",
+		EntityID:      rule.ID,
+		ProjectID:     projectID,
+		Revision:      1,
+		MutationKind:  "create",
+		Actor:         "planner",
+		Reason:        "created",
+		ChangedFields: []string{"title", "summary", "name", "value", "description"},
+		Payload:       payload,
+		RecordedAt:    now.Format(time.RFC3339Nano),
 	}
-	result, ok := response["result"].(map[string]any)
-	if !ok || result["isError"] == true {
-		t.Fatalf("MCP %s failed: %#v", name, response)
-	}
-	structured, ok := result["structuredContent"].(map[string]any)
-	if !ok {
-		return result
-	}
-	if name == "call" {
-		if structured["is_error"] == true {
-			t.Fatalf("MCP call failed: %#v", structured)
+	prefix := "projects/" + projectID
+	paths := []string{prefix + "/rules/" + rule.ID + ".json", prefix + "/entity-revisions/rule/" + rule.ID + "/REV1.json"}
+	if _, err := (hub.Store{Config: gateway.Config}).Transact(ctx, "", "seed existing portable Rule", func(worktree string) ([]string, error) {
+		if err := hub.WriteJSON(worktree, paths[0], rule); err != nil {
+			return nil, err
 		}
-		actionResult, ok := structured["result"].(map[string]any)
-		if !ok {
-			t.Fatalf("MCP call omitted action result: %#v", structured)
+		if err := hub.WriteJSON(worktree, paths[1], portable); err != nil {
+			return nil, err
 		}
-		return actionResult
+		return paths, nil
+	}); err != nil {
+		t.Fatal(err)
 	}
-	return structured
 }

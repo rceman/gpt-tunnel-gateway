@@ -4,17 +4,28 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
+
+type operatorPlanHistoryCLIRequest struct {
+	ProjectID string `json:"project_id"`
+	Limit     int    `json:"limit"`
+}
+
+type operatorPlanSectionCLIRequest struct {
+	ProjectID string `json:"project_id"`
+	SectionID string `json:"section_id"`
+}
 
 func plan(ctx context.Context, s *service.Service, args []string) {
 	require(args, 1)
 	switch args[0] {
 	case "read":
 		require(args, 2)
-		v, e := s.PlanRead(ctx, args[1])
-		if e != nil {
-			fatal(e)
+		v, err := operatorCLIRequest[model.Plan](ctx, s.Config, "/operator/plan/read", map[string]string{"project_id": args[1]})
+		if err != nil {
+			fatal(err)
 		}
 		output(v)
 	case "history":
@@ -23,9 +34,12 @@ func plan(ctx context.Context, s *service.Service, args []string) {
 		if len(args) > 2 {
 			limit, _ = strconv.Atoi(args[2])
 		}
-		v, e := s.PlanHistory(ctx, args[1], limit)
-		if e != nil {
-			fatal(e)
+		v, err := operatorCLIRequest[[]map[string]string](ctx, s.Config, "/operator/plan/history", operatorPlanHistoryCLIRequest{
+			ProjectID: args[1],
+			Limit:     limit,
+		})
+		if err != nil {
+			fatal(err)
 		}
 		output(map[string]any{"history": v})
 	case "cutover":
@@ -39,9 +53,9 @@ func plan(ctx context.Context, s *service.Service, args []string) {
 		if ex != "" {
 			in.ExpectedHubRevision = ex
 		}
-		v, e := s.PlanCutover(ctx, in)
-		if e != nil {
-			fatal(e)
+		v, err := operatorCLIRequest[service.OperationResult](ctx, s.Config, "/operator/plan/cutover", in)
+		if err != nil {
+			fatal(err)
 		}
 		output(v)
 	case "update":
@@ -51,16 +65,19 @@ func plan(ctx context.Context, s *service.Service, args []string) {
 		}
 		var in service.PlanUpdateInput
 		readFile(f, &in)
-		v, e := s.PlanUpdate(ctx, in)
-		if e != nil {
-			fatal(e)
+		v, err := operatorCLIRequest[service.OperationResult](ctx, s.Config, "/operator/plan/update", in)
+		if err != nil {
+			fatal(err)
 		}
 		output(v)
 	case "section-read":
 		require(args, 3)
-		v, e := s.PlanSectionRead(ctx, args[1], args[2])
-		if e != nil {
-			fatal(e)
+		v, err := operatorCLIRequest[model.PlanSection](ctx, s.Config, "/operator/plan/section-read", operatorPlanSectionCLIRequest{
+			ProjectID: args[1],
+			SectionID: args[2],
+		})
+		if err != nil {
+			fatal(err)
 		}
 		output(v)
 	case "section-create":
@@ -74,9 +91,9 @@ func plan(ctx context.Context, s *service.Service, args []string) {
 		if ex != "" {
 			in.ExpectedHubRevision = ex
 		}
-		v, e := s.PlanSectionCreate(ctx, in)
-		if e != nil {
-			fatal(e)
+		v, err := operatorCLIRequest[service.OperationResult](ctx, s.Config, "/operator/plan/section-create", in)
+		if err != nil {
+			fatal(err)
 		}
 		output(v)
 	case "section-update":
@@ -90,16 +107,16 @@ func plan(ctx context.Context, s *service.Service, args []string) {
 		if ex != "" {
 			in.ExpectedHubRevision = ex
 		}
-		v, e := s.PlanSectionUpdate(ctx, in)
-		if e != nil {
-			fatal(e)
+		v, err := operatorCLIRequest[service.OperationResult](ctx, s.Config, "/operator/plan/section-update", in)
+		if err != nil {
+			fatal(err)
 		}
 		output(v)
 	case "render":
 		require(args, 2)
-		v, e := s.PlanRender(ctx, args[1])
-		if e != nil {
-			fatal(e)
+		v, err := operatorCLIRequest[model.PlanRender](ctx, s.Config, "/operator/plan/render", map[string]string{"project_id": args[1]})
+		if err != nil {
+			fatal(err)
 		}
 		output(v)
 	default:

@@ -57,7 +57,7 @@ func (s *Service) taskExecutionReviewSelection(ctx context.Context, projectID, k
 		acceptedStatus := accepted.Status == model.TaskExecutionReadyForVerification || (previous == "code" && accepted.Status == model.TaskExecutionDispatched)
 		if !acceptedFound || accepted.ProjectID != projectID || accepted.TaskID != key || accepted.Stage != previous ||
 			accepted.EventKind != "review" || accepted.Decision != "accept" || !acceptedStatus ||
-			accepted.ExecutionRevision >= phase.ExecutionRevision || accepted.CreatedAt.After(phase.CreatedAt) ||
+			accepted.ExecutionRevision >= phase.ExecutionRevision ||
 			accepted.TaskRevisionSHA256 != state.TaskRevisionSHA256 || model.ValidateCommitSHA(accepted.Head) != nil || accepted.Branch != state.Branch {
 			return sqlitestore.TaskExecutionPhase{}, "", fmt.Errorf("accepted %s submission is required for review", previous)
 		}

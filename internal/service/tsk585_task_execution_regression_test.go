@@ -1953,6 +1953,10 @@ func TestTSK585TaskReviewBases(t *testing.T) {
 	if err != nil || !found {
 		t.Fatal(err)
 	}
+	clockSkewedAcceptedAt := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339Nano)
+	if _, err := db.Local.Exec(ctx, `UPDATE local_task_execution_phases SET created_at=? WHERE project_id=? AND task_id=? AND stage='tests' AND event_kind='review' AND decision='accept'`, clockSkewedAcceptedAt, "example", task.ID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.TaskExecutionSubmitRebase(ctx, "example", task.ID); err != nil {
 		t.Fatal(err)
 	}

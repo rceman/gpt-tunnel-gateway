@@ -173,6 +173,10 @@ func (s *Service) restoreHubRevisionFamily(ctx context.Context, snapshot *hub.Re
 		if err := validatePortableRevisionPayload(portable); err != nil {
 			return err
 		}
+		var compactPayload bytes.Buffer
+		if err := json.Compact(&compactPayload, portable.Payload); err != nil {
+			return fmt.Errorf("Hub %s revision payload is invalid", entityType)
+		}
 		current, err := s.Durability.ReadSharedEntity(ctx, entityType, portable.EntityID)
 		if err != nil {
 			return err
@@ -183,7 +187,7 @@ func (s *Service) restoreHubRevisionFamily(ctx context.Context, snapshot *hub.Re
 		record := sqlitestore.SharedRevisionRecord{
 			EntityID: portable.EntityID, ProjectID: portable.ProjectID, Revision: portable.Revision,
 			MutationKind: portable.MutationKind, Actor: portable.Actor, Reason: portable.Reason,
-			ChangedFields: portable.ChangedFields, Payload: append([]byte(nil), portable.Payload...), RecordedAt: portable.RecordedAt,
+			ChangedFields: portable.ChangedFields, Payload: append([]byte(nil), compactPayload.Bytes()...), RecordedAt: portable.RecordedAt,
 		}
 		if err := s.Durability.EnsureSharedLifecycleHistory(ctx, entityType, record); err != nil {
 			return err

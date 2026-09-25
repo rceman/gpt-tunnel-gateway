@@ -62,7 +62,8 @@ type LiveCommandResult struct {
 func NewLiveGateway(t *testing.T, hooks LiveGatewayHooks) *LiveGateway {
 	t.Helper()
 	base := t.TempDir()
-	hubRemote, projectRoot, _ := RepoWithBareRemote(t)
+	_, projectRoot, _ := RepoWithBareRemote(t)
+	hubRemote, _, _ := RepoWithBareRemote(t)
 	Git(t, projectRoot, "remote", "set-head", "origin", "main")
 	stateDir := filepath.Join(base, "state")
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {

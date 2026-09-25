@@ -43,6 +43,19 @@ func testBootstrapConfig(t *testing.T) config.Config {
 	}
 }
 
+func writeBootstrapConfig(t *testing.T, c config.Config) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.json")
+	data, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestBootstrapGTWIdentityMigrationDoesNotRequireHub(t *testing.T) {
 	c := testBootstrapConfig(t)
 	c.Projects = map[string]config.ProjectConfig{
@@ -94,11 +107,15 @@ func TestBootstrapGTWIdentityMigrationDoesNotRequireHub(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := bootstrapGateway(c, nil)
+	configPath := writeBootstrapConfig(t, c)
+	runtime, err := bootstrapGateway(c, nil, configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer closeBootstrap(t, runtime)
+	if runtime.service.ConfigPath != configPath {
+		t.Fatalf("service ConfigPath=%q want %q", runtime.service.ConfigPath, configPath)
+	}
 	if _, err := runtime.service.Durability.ReadLocalAgent(context.Background(), config.GTWProjectID, config.LegacyGTWWorkerAgentID); err == nil {
 		t.Fatal("startup left the legacy Local Agent projection active")
 	}
@@ -147,7 +164,8 @@ func TestBootstrapReachesHTTPReadyWithHubLockHeldByAnotherProcess(t *testing.T) 
 	if err != nil || line != "ready\n" {
 		t.Fatalf("lock helper readiness=%q err=%v", line, err)
 	}
-	runtime, err := bootstrapGateway(c, nil)
+	configPath := writeBootstrapConfig(t, c)
+	runtime, err := bootstrapGateway(c, nil, configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +190,9 @@ func TestBootstrapReachesHTTPReadyWithHubLockHeldByAnotherProcess(t *testing.T) 
 }
 
 func TestPostReadyHubUnavailableDegradesWithoutBlockingLocalStore(t *testing.T) {
-	runtime, err := bootstrapGateway(testBootstrapConfig(t), nil)
+	c := testBootstrapConfig(t)
+	configPath := writeBootstrapConfig(t, c)
+	runtime, err := bootstrapGateway(c, nil, configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +250,7 @@ func TestBootstrapFailsBeforeHTTPReadyOnCorruptSQLite(t *testing.T) {
 	if err := os.WriteFile(sharedPath, []byte("not a SQLite database"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bootstrapGateway(c, nil); err == nil {
+	if _, err := bootstrapGateway(c, nil, writeBootstrapConfig(t, c)); err == nil {
 		t.Fatal("corrupt SQLite state reached bootstrap readiness")
 	}
 }

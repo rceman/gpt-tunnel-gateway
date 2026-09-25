@@ -8,19 +8,33 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
+type operatorVerifyCLIRequest struct {
+	Root      string   `json:"root"`
+	ProjectID string   `json:"project_id,omitempty"`
+	Scope     string   `json:"scope,omitempty"`
+	Packages  []string `json:"packages,omitempty"`
+}
+
+type operatorVerifyStatusCLIRequest struct {
+	OperationID string `json:"operation_id"`
+}
+
 func verify(ctx context.Context, s *service.Service, args []string) {
 	if len(args) > 0 && args[0] == "status" {
 		if len(args) != 2 {
 			fatalf("verify status requires an operation ID")
 		}
-		receipt, err := s.VerifyStatus(ctx, args[1])
+		receipt, err := operatorCLIRequest[service.VerifyReceipt](ctx, s.Config, "/operator/verify/status", operatorVerifyStatusCLIRequest{OperationID: args[1]})
 		output(receipt)
 		if err != nil || receipt.Status == "failed" {
 			os.Exit(1)
 		}
 		return
 	}
-	in := service.VerifyInput{Root: mustWorkingDirectory(), Scope: "full"}
+	in := operatorVerifyCLIRequest{
+		Root:  mustWorkingDirectory(),
+		Scope: "full",
+	}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--scope":
@@ -45,9 +59,12 @@ func verify(ctx context.Context, s *service.Service, args []string) {
 			fatalf("unexpected verify argument %q", args[i])
 		}
 	}
-	receipt, err := s.Verify(ctx, in)
+	receipt, err := operatorCLIRequest[service.VerifyReceipt](ctx, s.Config, "/operator/verify", in)
 	output(receipt)
 	if err != nil || receipt.Status != "completed" {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "gpt-tunnel:", err)
+		}
 		os.Exit(1)
 	}
 }

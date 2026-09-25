@@ -8,6 +8,11 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
+type operatorWorkCLIRequest struct {
+	Root      string `json:"root"`
+	ProjectID string `json:"project_id"`
+}
+
 func work(ctx context.Context, s *service.Service, args []string) {
 	if len(args) == 0 || (args[0] != "checkpoint" && args[0] != "status") {
 		fatalf("usage: gpt-tunnel work {checkpoint|status} --project PROJECT_ID")
@@ -23,16 +28,19 @@ func work(ctx context.Context, s *service.Service, args []string) {
 	if projectID == "" {
 		fatalf("--project is required")
 	}
-	input := service.WorkCheckpointInput{Root: mustWorkingDirectory(), ProjectID: projectID}
+	input := operatorWorkCLIRequest{
+		Root:      mustWorkingDirectory(),
+		ProjectID: projectID,
+	}
 	if args[0] == "status" {
-		status, err := s.WorkCheckpointStatus(ctx, input)
+		status, err := operatorCLIRequest[service.WorkCheckpointStatus](ctx, s.Config, "/operator/work/status", input)
 		if err != nil {
 			fatal(err)
 		}
 		output(status)
 		return
 	}
-	receipt, err := s.WorkCheckpoint(ctx, input)
+	receipt, err := operatorCLIRequest[service.WorkProgressReceipt](ctx, s.Config, "/operator/work/checkpoint", input)
 	output(receipt)
 	if err == nil && receipt.Status == "running" {
 		fmt.Fprintf(os.Stderr, "gpt-tunnel: checkpoint %s is running; use `gpt-tunnel work status --project %s` for progress\n", receipt.OperationID, projectID)

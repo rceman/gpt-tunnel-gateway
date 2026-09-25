@@ -5,15 +5,25 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
 
+type operatorGitProjectCLIResult struct {
+	Root          string `json:"root"`
+	Mirror        string `json:"mirror"`
+	Remote        string `json:"remote"`
+	DefaultBranch string `json:"default_branch"`
+	ProjectCode   string `json:"project_code"`
+}
+
 func gitcmd(ctx context.Context, s *service.Service, args []string) {
 	require(args, 2)
-	p, err := s.EffectiveProjectConfig(args[1])
+	resolved, err := operatorCLIRequest[operatorGitProjectCLIResult](ctx, s.Config, "/operator/project/git-config", map[string]string{"project_id": args[1]})
 	if err != nil {
 		fatal(err)
 	}
+	p := config.ProjectConfig{Root: resolved.Root, Mirror: resolved.Mirror, Remote: resolved.Remote, DefaultBranch: resolved.DefaultBranch, ProjectCode: resolved.ProjectCode}
 	switch args[0] {
 	case "refresh":
 		if e := s.Git.Refresh(ctx, p); e != nil {

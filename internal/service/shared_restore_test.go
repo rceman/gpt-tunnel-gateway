@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 func TestPortableHubRestoreHydratesTrackRelationsAndSequences(t *testing.T) {
@@ -140,5 +142,80 @@ func TestPortableHubRestoreHydratesTrackRelationsAndSequences(t *testing.T) {
 	revision, err := db.ReadSharedRevision(ctx, "task", "example", task.ID, 1)
 	if err != nil || revision.MutationKind != history.MutationKind || revision.Actor != history.Actor || revision.Reason != history.Reason {
 		t.Fatalf("restored Task revision=%#v err=%v", revision, err)
+	}
+}
+
+func TestPortableRuleHistoryRestoreConvergesAfterHubJSONIndentation(t *testing.T) {
+	s, _, _ := testServiceSerial(t)
+	db := testServiceWithDurability(t, s)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	rule := model.Rule{
+		SchemaVersion: model.SchemaVersion, ID: "EXM-RUL99", ProjectID: "example", Revision: 1,
+		Title: "Restored rule", Status: model.RuleStatusProposed, Name: "restore.test", Value: json.RawMessage(`true`),
+		CreatedBy: "planner", CreatedAt: now, UpdatedBy: "planner", UpdatedAt: now,
+	}
+	payload, err := json.Marshal(rule)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(ctx, "rule", sqlitestore.SharedEntity{ID: rule.ID, Revision: 1, Payload: payload, UpdatedAt: now.Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	recordedAt := now.Format(time.RFC3339Nano)
+	history := sqlitestore.SharedRevisionRecord{
+		EntityID: rule.ID, ProjectID: rule.ProjectID, Revision: 1, MutationKind: "create", Actor: "planner", Reason: "created",
+		ChangedFields: []string{"title", "summary", "name", "value", "description"}, Payload: payload, RecordedAt: recordedAt,
+	}
+	if err := db.EnsureSharedLifecycleHistory(ctx, "rule", history); err != nil {
+		t.Fatal(err)
+	}
+	portable := portableSharedRevision{
+		EntityType:    "rule",
+		EntityID:      rule.ID,
+		ProjectID:     rule.ProjectID,
+		Revision:      1,
+		MutationKind:  history.MutationKind,
+		Actor:         history.Actor,
+		Reason:        history.Reason,
+		ChangedFields: history.ChangedFields,
+		Payload:       payload,
+		RecordedAt:    recordedAt,
+	}
+	paths := []string{s.rulePath(rule.ProjectID, rule.ID), s.sharedRevisionPath(rule.ProjectID, "rule", rule.ID, 1)}
+	if _, err := s.Hub.Transact(ctx, "", "seed portable Rule history restore fixture", func(worktree string) ([]string, error) {
+		if err := hub.WriteJSON(worktree, paths[0], rule); err != nil {
+			return nil, err
+		}
+		if err := hub.WriteJSON(worktree, paths[1], portable); err != nil {
+			return nil, err
+		}
+		return paths, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := s.Hub.ReadSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hubPayload, err := snapshot.ReadFile(ctx, paths[1])
+	_ = snapshot.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored portableSharedRevision
+	if err := json.Unmarshal(hubPayload, &stored); err != nil {
+		t.Fatal(err)
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, stored.Payload); err != nil || bytes.Equal(stored.Payload, payload) || !bytes.Equal(compact.Bytes(), payload) {
+		t.Fatalf("fixture did not reproduce Hub JSON indentation: payload=%q compact=%q err=%v", stored.Payload, compact.Bytes(), err)
+	}
+	if err := s.restoreHubProjectSemantics(ctx, "example", "EXM"); err != nil {
+		t.Fatalf("restore equivalent Hub rule history: %v", err)
+	}
+	restored, err := db.ReadSharedRevision(ctx, "rule", rule.ProjectID, rule.ID, 1)
+	if err != nil || !bytes.Equal(restored.Payload, payload) {
+		t.Fatalf("restored Rule history=%#v err=%v", restored, err)
 	}
 }

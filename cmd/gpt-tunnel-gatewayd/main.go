@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -67,7 +68,7 @@ func main() {
 		}
 		return
 	}
-	runtime, err := bootstrapGateway(c, startupPhase)
+	runtime, err := bootstrapGateway(c, startupPhase, *configPath)
 	if err != nil {
 		startupErrorForPhase("LOCAL_BOOTSTRAP", err)
 		fatal(err)
@@ -97,7 +98,14 @@ type gatewayRuntime struct {
 	serveErr   chan error
 }
 
-func bootstrapGateway(c config.Config, observe func(string)) (*gatewayRuntime, error) {
+func bootstrapGateway(c config.Config, observe func(string), configPath string) (*gatewayRuntime, error) {
+	if configPath == "" {
+		return nil, errors.New("gateway config path is required")
+	}
+	configPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve gateway config path: %w", err)
+	}
 	startup := func(phase string) {
 		if observe != nil {
 			observe(phase)
@@ -113,6 +121,11 @@ func bootstrapGateway(c config.Config, observe func(string)) (*gatewayRuntime, e
 		return nil, fmt.Errorf("legacy session cutover: %w", err)
 	}
 	svc := service.NewWithDurabilityDeferredWorkers(c, durability)
+	svc.ConfigPath = configPath
+	if _, err := service.EnsureOperatorToken(c.StateDir); err != nil {
+		_ = durability.Close()
+		return nil, fmt.Errorf("operator credential bootstrap: %w", err)
+	}
 	svc.EnableHostConfigRefresh()
 	startup("LOCAL_SHARED_AGENT_IDENTITY_MIGRATION")
 	if err := svc.MigrateGTWWorkerIdentityLocalShared(context.Background()); err != nil {
