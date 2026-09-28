@@ -124,6 +124,9 @@ func loadPackageGraph(ctx context.Context, root string) (packageGraph, error) {
 	}
 	for target, node := range graph.nodes {
 		for _, imported := range node.Imports {
+			if imported == "C" {
+				continue
+			}
 			if _, exists := all[imported]; !exists {
 				return packageGraph{}, fmt.Errorf("package %q imports unresolved package %q", node.ImportPath, imported)
 			}

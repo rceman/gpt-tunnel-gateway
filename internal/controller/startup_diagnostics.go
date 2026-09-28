@@ -27,6 +27,19 @@ func (c Controller) RestartGatewayAfterUpgradeDiagnostics() (GatewayStartupDiagn
 		return diagnostics, err
 	}
 	defer lock.Release()
+	return c.restartGatewayAfterUpgradeDiagnosticsLocked(false, started)
+}
+
+func (c Controller) startGatewayAfterStopDiagnostics() (GatewayStartupDiagnostics, error) {
+	c.processEvent("gateway", c.Config.Controller.GatewayBinary, "info", "restart_requested", 0, "gateway restart after upgrade requested", nil)
+	return c.restartGatewayAfterUpgradeDiagnosticsLocked(true, time.Now())
+}
+
+func (c Controller) restartGatewayAfterUpgradeDiagnosticsLocked(stopped bool, started time.Time) (GatewayStartupDiagnostics, error) {
+	diagnostics := GatewayStartupDiagnostics{
+		Phase:         "TARGET_STARTUP",
+		CaptureStatus: "not_attempted",
+	}
 	logPath := c.logPath("gateway")
 	var logOffset int64
 	var logStatErr error
@@ -58,8 +71,10 @@ func (c Controller) RestartGatewayAfterUpgradeDiagnostics() (GatewayStartupDiagn
 		capture()
 		return diagnostics, startErr
 	}
-	if err := restartGatewayStopFn(c); err != nil {
-		return failed(err)
+	if !stopped {
+		if err := restartGatewayStopFn(c); err != nil {
+			return failed(err)
+		}
 	}
 	if info, statErr := os.Lstat(logPath); statErr == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
+	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
 const candidateSmokeTimeout = 15 * time.Second
@@ -24,6 +25,10 @@ const candidateSmokeTimeout = 15 * time.Second
 // are replaced. Candidate durability and Hub locks are isolated from the
 // production StateDir for the entire process lifetime.
 func SmokeCandidate(ctx context.Context, c config.Config, gatewayPath, expectedVersion string) error {
+	return smokeCandidateAtStateDir(ctx, c, gatewayPath, expectedVersion, "")
+}
+
+func smokeCandidateAtStateDir(ctx context.Context, c config.Config, gatewayPath, expectedVersion, candidateStateDir string) error {
 	probeCtx, cancel := context.WithTimeout(ctx, candidateSmokeTimeout)
 	defer cancel()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -34,11 +39,19 @@ func SmokeCandidate(ctx context.Context, c config.Config, gatewayPath, expectedV
 	_ = listener.Close()
 	candidate := c
 	candidate.ListenAddr = addr
-	candidateStateDir, err := os.MkdirTemp("", "gpt-tunnel-candidate-state-")
-	if err != nil {
-		return err
+	removeCandidateState := candidateStateDir == ""
+	if removeCandidateState {
+		candidateStateDir, err = os.MkdirTemp("", "gpt-tunnel-candidate-state-")
+		if err != nil {
+			return err
+		}
 	}
-	defer os.RemoveAll(candidateStateDir)
+	if removeCandidateState {
+		defer os.RemoveAll(candidateStateDir)
+	}
+	if err := sqlitestore.SnapshotDatabases(probeCtx, c.StateDir, candidateStateDir); err != nil {
+		return fmt.Errorf("candidate durable-state snapshot: %w", err)
+	}
 	candidate.StateDir = candidateStateDir
 	candidateHubPath, cleanupHub, err := createOfflineCandidateHub(probeCtx, c.Hub)
 	if err != nil {
@@ -71,13 +84,24 @@ func SmokeCandidate(ctx context.Context, c config.Config, gatewayPath, expectedV
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("candidate start: %w", err)
 	}
+	processDone := make(chan struct{})
+	var processErr error
+	go func() {
+		processErr = command.Wait()
+		close(processDone)
+	}()
 	defer func() {
 		_ = command.Process.Kill()
-		_, _ = command.Process.Wait()
+		<-processDone
 	}()
 	readyURL := "http://" + addr + "/readyz"
 	client := &http.Client{Timeout: 500 * time.Millisecond}
 	for {
+		select {
+		case <-processDone:
+			return fmt.Errorf("candidate exited before readiness: %v (%s)", processErr, BoundedOutput(output.Bytes()))
+		default:
+		}
 		request, requestErr := http.NewRequestWithContext(probeCtx, http.MethodGet, readyURL, nil)
 		if requestErr == nil {
 			response, getErr := client.Do(request)
@@ -88,12 +112,19 @@ func SmokeCandidate(ctx context.Context, c config.Config, gatewayPath, expectedV
 					if err := LiveMCPSmoke(probeCtx, candidate, expectedVersion); err != nil {
 						return fmt.Errorf("candidate MCP smoke: %w", err)
 					}
-					return nil
+					select {
+					case <-processDone:
+						return fmt.Errorf("candidate exited after readiness: %v (%s)", processErr, BoundedOutput(output.Bytes()))
+					default:
+						return nil
+					}
 				}
 			}
 		}
 		select {
 		case <-probeCtx.Done():
+			_ = command.Process.Kill()
+			<-processDone
 			return fmt.Errorf("candidate readiness failed: %w (%s)", probeCtx.Err(), BoundedOutput(output.Bytes()))
 		case <-time.After(50 * time.Millisecond):
 		}

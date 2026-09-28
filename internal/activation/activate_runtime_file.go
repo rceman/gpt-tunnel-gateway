@@ -190,16 +190,39 @@ func selfActivate(ctx context.Context, c config.Config, configPath string, proje
 	if err != nil {
 		return Result{}, err
 	}
+	recovery, err := CreateRecoverySnapshot(c.Controller.PIDDir, release, targetVersion, sourceHead, old)
+	if err != nil {
+		return Result{}, err
+	}
 	var after controller.Status
-	err = ctl.ActivateGateway(controller.GatewayActivation{
+	outcome, activationErr := ctl.ActivateGateway(controller.GatewayActivation{
+		ValidateBeforeStop: func() error {
+			current, err := ctl.Status(ctx)
+			if err != nil {
+				return err
+			}
+			if !current.Tunnel.Running || !current.TunnelReady || current.Tunnel.PID != before.Tunnel.PID {
+				return fmt.Errorf("Tunnel identity or readiness changed after candidate preflight")
+			}
+			if requireGatewayHealthy && (!current.Gateway.Running || !current.GatewayReady || !current.VersionMatch || !current.RuntimeIdentity.ArtifactSetCoherent || !current.RuntimeIdentity.RunningGatewayMatchesInstall || current.RuntimeIdentity.RunningExecutableSHA256 != current.RuntimeIdentity.InstalledGatewaySHA256 || current.Gateway.PID != before.Gateway.PID) {
+				return fmt.Errorf("serving Gateway changed after candidate preflight")
+			}
+			return recovery.VerifyPrevious(paths)
+		},
+		SnapshotState: func() error {
+			return recovery.CaptureDurableState(ctx, c.StateDir)
+		},
+		RestoreState: func() error {
+			return recovery.RestoreDurableState(c.StateDir)
+		},
 		Replace: func() error {
-			return releaseartifacts.ReplaceAll(release, paths, old)
+			return recovery.ReplaceCandidate(paths)
 		},
 		Restore: func() error {
-			return releaseartifacts.RestoreAll(paths, old)
+			return recovery.RestorePrevious(paths)
 		},
 		Verify: func() error {
-			if err := releaseartifacts.VerifyInstalled(release, paths); err != nil {
+			if err := recovery.VerifyCandidate(paths); err != nil {
 				return err
 			}
 			var statusErr error
@@ -207,7 +230,7 @@ func selfActivate(ctx context.Context, c config.Config, configPath string, proje
 			if statusErr != nil {
 				return statusErr
 			}
-			if after.Tunnel.PID != before.Tunnel.PID || !after.GatewayReady || !after.TunnelReady || !after.VersionMatch || !after.RuntimeIdentity.ExactSourceMatch || after.RuntimeIdentity.SourceSHA != sourceHead {
+			if after.Tunnel.PID != before.Tunnel.PID || !after.Gateway.Running || !after.GatewayReady || !after.TunnelReady || !after.VersionMatch || after.InstalledVersion != targetVersion || after.RunningVersion != targetVersion || !after.RuntimeIdentity.ExactSourceMatch || after.RuntimeIdentity.SourceSHA != sourceHead || !after.RuntimeIdentity.ArtifactSetCoherent || !after.RuntimeIdentity.RunningGatewayMatchesInstall || after.RuntimeIdentity.RunningExecutableSHA256 != after.RuntimeIdentity.InstalledGatewaySHA256 {
 				return fmt.Errorf("activation runtime identity/readiness/source proof failed")
 			}
 			if err := ctl.Doctor(ctx); err != nil {
@@ -215,9 +238,40 @@ func selfActivate(ctx context.Context, c config.Config, configPath string, proje
 			}
 			return LiveMCPSmoke(ctx, c, targetVersion)
 		},
+		VerifyRollback: func() error {
+			if !before.Gateway.Running || !before.GatewayReady || !before.VersionMatch {
+				return fmt.Errorf("previous Gateway was not healthy; compatible-forward recovery is required")
+			}
+			if err := recovery.VerifyPrevious(paths); err != nil {
+				return err
+			}
+			previous, err := ctl.Status(ctx)
+			if err != nil {
+				return err
+			}
+			if previous.Tunnel.PID != before.Tunnel.PID || !previous.Gateway.Running || !previous.GatewayReady || !previous.TunnelReady || !previous.VersionMatch || previous.InstalledVersion != before.InstalledVersion || previous.RunningVersion != before.RunningVersion || !previous.RuntimeIdentity.RunningGatewayMatchesInstall || previous.RuntimeIdentity.RunningExecutableSHA256 != previous.RuntimeIdentity.InstalledGatewaySHA256 {
+				return fmt.Errorf("previous Gateway artifact and Tunnel identity proof failed")
+			}
+			if before.RuntimeIdentity.ExactSourceMatch && (!previous.RuntimeIdentity.ExactSourceMatch || previous.RuntimeIdentity.SourceSHA != before.RuntimeIdentity.SourceSHA) {
+				return fmt.Errorf("previous Gateway source identity proof failed")
+			}
+			if err := ctl.Doctor(ctx); err != nil {
+				return err
+			}
+			return LiveMCPSmoke(ctx, c, before.InstalledVersion)
+		},
 	})
-	if err != nil {
-		return Result{}, err
+	if activationErr != nil {
+		if outcome.ForwardRecovery == controller.GatewayForwardRecoveryRequired || outcome.ForwardRecovery == controller.GatewayForwardRecoveryServingCandidate {
+			return Result{}, fmt.Errorf("%w; activation recovery snapshot retained id=%s", activationErr, recovery.ID())
+		}
+		if cleanupErr := recovery.Cleanup(); cleanupErr != nil {
+			return Result{}, fmt.Errorf("%w; activation recovery snapshot %s cleanup failed: %v", activationErr, recovery.ID(), cleanupErr)
+		}
+		return Result{}, activationErr
+	}
+	if err := recovery.Cleanup(); err != nil {
+		return Result{}, fmt.Errorf("activation succeeded; recovery snapshot %s retained: %w", recovery.ID(), err)
 	}
 	return Result{
 		SourceHead: sourceHead,

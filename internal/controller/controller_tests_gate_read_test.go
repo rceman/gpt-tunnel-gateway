@@ -99,15 +99,19 @@ func TestActivateGatewayOrdersStopSwapStartReadyAndVerify(t *testing.T) {
 	restartGatewayStartFn = func(Controller) error { steps = append(steps, "start"); return nil }
 	restartGatewayWaitFn = func(string, bool, time.Duration) error { steps = append(steps, "ready"); return nil }
 	c := Controller{Config: config.Config{Controller: config.ControllerConfig{PIDDir: t.TempDir()}}}
-	err := c.ActivateGateway(GatewayActivation{
-		Replace: func() error { steps = append(steps, "swap"); return nil },
-		Restore: func() error { steps = append(steps, "restore"); return nil },
-		Verify:  func() error { steps = append(steps, "verify"); return nil },
+	_, err := c.ActivateGateway(GatewayActivation{
+		ValidateBeforeStop: func() error { steps = append(steps, "preflight"); return nil },
+		SnapshotState:      func() error { steps = append(steps, "snapshot"); return nil },
+		RestoreState:       func() error { steps = append(steps, "restore-state"); return nil },
+		Replace:            func() error { steps = append(steps, "swap"); return nil },
+		Restore:            func() error { steps = append(steps, "restore"); return nil },
+		Verify:             func() error { steps = append(steps, "verify"); return nil },
+		VerifyRollback:     func() error { steps = append(steps, "verify-rollback"); return nil },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(steps, ","), "stop,swap,start,ready,verify"; got != want {
+	if got, want := strings.Join(steps, ","), "preflight,stop,snapshot,swap,start,ready,verify"; got != want {
 		t.Fatalf("activation order=%q want=%q", got, want)
 	}
 }
@@ -128,15 +132,19 @@ func TestActivateGatewayRestoresPreviousArtifactsAfterReadinessFailure(t *testin
 		return nil
 	}
 	c := Controller{Config: config.Config{Controller: config.ControllerConfig{PIDDir: t.TempDir()}}}
-	err := c.ActivateGateway(GatewayActivation{
-		Replace: func() error { steps = append(steps, "swap"); return nil },
-		Restore: func() error { steps = append(steps, "restore"); return nil },
-		Verify:  func() error { t.Fatal("verification ran after readiness failure"); return nil },
+	_, err := c.ActivateGateway(GatewayActivation{
+		ValidateBeforeStop: func() error { steps = append(steps, "preflight"); return nil },
+		SnapshotState:      func() error { steps = append(steps, "snapshot"); return nil },
+		RestoreState:       func() error { steps = append(steps, "restore-state"); return nil },
+		Replace:            func() error { steps = append(steps, "swap"); return nil },
+		Restore:            func() error { steps = append(steps, "restore"); return nil },
+		Verify:             func() error { t.Fatal("verification ran after readiness failure"); return nil },
+		VerifyRollback:     func() error { steps = append(steps, "verify-rollback"); return nil },
 	})
 	if err == nil || !strings.Contains(err.Error(), "candidate not ready") {
 		t.Fatalf("activation error=%v", err)
 	}
-	if got, want := strings.Join(steps, ","), "stop,swap,start,ready,stop,restore,start,ready"; got != want {
+	if got, want := strings.Join(steps, ","), "preflight,stop,snapshot,swap,start,ready,stop,restore-state,restore,start,ready,verify-rollback"; got != want {
 		t.Fatalf("rollback order=%q want=%q", got, want)
 	}
 }
@@ -152,13 +160,17 @@ func TestDebugActivationRollbackPreservesGatewayOnlyHandoffIdentity(t *testing.T
 	restartGatewayWaitFn = func(string, bool, time.Duration) error { steps = append(steps, "gateway-ready"); return nil }
 	c := Controller{Config: config.Config{Controller: config.ControllerConfig{PIDDir: t.TempDir()}}}
 	restored := false
-	err := c.ActivateGateway(GatewayActivation{
+	_, err := c.ActivateGateway(GatewayActivation{
+		ValidateBeforeStop: func() error { steps = append(steps, "gateway-preflight"); return nil },
+		SnapshotState:      func() error { steps = append(steps, "snapshot"); return nil },
+		RestoreState:       func() error { steps = append(steps, "restore-state"); return nil },
 		Replace: func() error {
 			steps = append(steps, "replace:"+candidateSource)
 			return nil
 		},
-		Restore: func() error { restored = true; steps = append(steps, "restore"); return nil },
-		Verify:  func() error { return fmt.Errorf("candidate source proof failed") },
+		Restore:        func() error { restored = true; steps = append(steps, "restore"); return nil },
+		Verify:         func() error { return fmt.Errorf("candidate source proof failed") },
+		VerifyRollback: func() error { steps = append(steps, "gateway-verify-rollback"); return nil },
 	})
 	if err == nil || !strings.Contains(err.Error(), "candidate source proof failed") {
 		t.Fatalf("debug activation error=%v", err)
@@ -166,7 +178,7 @@ func TestDebugActivationRollbackPreservesGatewayOnlyHandoffIdentity(t *testing.T
 	if !restored || tunnelPID != 7123 {
 		t.Fatalf("rollback restored=%v tunnelPID=%d", restored, tunnelPID)
 	}
-	if got, want := strings.Join(steps, ","), "gateway-stop,replace:"+candidateSource+",gateway-start,gateway-ready,gateway-stop,restore,gateway-start,gateway-ready"; got != want {
+	if got, want := strings.Join(steps, ","), "gateway-preflight,gateway-stop,snapshot,replace:"+candidateSource+",gateway-start,gateway-ready,gateway-stop,restore-state,restore,gateway-start,gateway-ready,gateway-verify-rollback"; got != want {
 		t.Fatalf("gateway-only rollback order=%q want=%q", got, want)
 	}
 }

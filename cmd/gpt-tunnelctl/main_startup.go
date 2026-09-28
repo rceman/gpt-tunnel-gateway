@@ -193,55 +193,154 @@ func installAndRestartGateway(args []string) {
 	if err := releaseartifacts.ValidateRelease(releaseDir, target); err != nil {
 		emitActivationFailure("artifact_validation", err, nil, nil)
 	}
+	targetSource, err := releaseSourceRevision(releaseDir)
+	if err != nil {
+		emitActivationFailure("artifact_source_proof", err, nil, nil)
+	}
 	if err := activation.SmokeCandidate(ctx, c, *gateway, target); err != nil {
 		emitActivationFailure("candidate_smoke", err, nil, nil)
 	}
+	before, err := ctl.Status(ctx)
+	if err != nil {
+		emitActivationFailure("preflight", err, nil, nil)
+	}
+	if !healthyGatewayRuntime(before) {
+		emitActivationFailure("preflight", fmt.Errorf("the existing Gateway and Tunnel are not healthy and mapped to the installed artifact set"), nil, nil)
+	}
 	paths := releaseartifacts.Paths(c.Controller.GatewayBinary)
-	old, err := releaseartifacts.SnapshotAll(paths)
+	previousArtifacts, err := releaseartifacts.SnapshotAll(paths)
 	if err != nil {
 		emitActivationFailure("artifact_snapshot", err, nil, nil)
 	}
-	if err := releaseartifacts.ReplaceAll(releaseDir, paths, old); err != nil {
-		emitActivationFailure("artifact_replacement", err, nil, nil)
+	snapshot, err := activation.CreateRecoverySnapshot(c.Controller.PIDDir, releaseDir, target, targetSource, previousArtifacts)
+	if err != nil {
+		emitActivationFailure("recovery_snapshot_prepare", err, nil, nil)
 	}
-	rollback := func(failedPhase string, cause error, restartDiagnostics *controller.GatewayStartupDiagnostics) {
-		restoreErr := releaseartifacts.RestoreAll(paths, old)
-		rollbackDiagnostics, restartErr := ctl.RestartGatewayAfterUpgradeDiagnostics()
+	var after controller.Status
+	outcome, activationErr := ctl.ActivateGateway(controller.GatewayActivation{
+		ValidateBeforeStop: func() error {
+			current, err := ctl.Status(ctx)
+			if err != nil {
+				return err
+			}
+			if !healthyGatewayRuntime(current) || current.Gateway.PID != before.Gateway.PID || current.Tunnel.PID != before.Tunnel.PID || current.InstalledVersion != before.InstalledVersion {
+				return fmt.Errorf("serving runtime changed after candidate preflight")
+			}
+			return snapshot.VerifyPrevious(paths)
+		},
+		SnapshotState: func() error {
+			return snapshot.CaptureDurableState(ctx, c.StateDir)
+		},
+		RestoreState: func() error {
+			return snapshot.RestoreDurableState(c.StateDir)
+		},
+		Replace: func() error {
+			return snapshot.ReplaceCandidate(paths)
+		},
+		Restore: func() error {
+			return snapshot.RestorePrevious(paths)
+		},
+		Verify: func() error {
+			if err := snapshot.VerifyCandidate(paths); err != nil {
+				return err
+			}
+			var statusErr error
+			after, statusErr = ctl.Status(ctx)
+			if statusErr != nil {
+				return statusErr
+			}
+			if after.Tunnel.PID != before.Tunnel.PID || !healthyGatewayRuntime(after) || after.InstalledVersion != target || after.RunningVersion != target || !after.RuntimeIdentity.ExactSourceMatch || after.RuntimeIdentity.SourceSHA != targetSource || !after.RuntimeIdentity.ArtifactSetCoherent || !after.RuntimeIdentity.RunningGatewayMatchesInstall || after.RuntimeIdentity.RunningExecutableSHA256 != after.RuntimeIdentity.InstalledGatewaySHA256 {
+				return fmt.Errorf("candidate readiness or installed artifact/source identity proof failed")
+			}
+			if err := ctl.Doctor(ctx); err != nil {
+				return err
+			}
+			return activation.LiveMCPSmoke(ctx, c, target)
+		},
+		VerifyRollback: func() error {
+			if err := snapshot.VerifyPrevious(paths); err != nil {
+				return err
+			}
+			previous, err := ctl.Status(ctx)
+			if err != nil {
+				return err
+			}
+			if previous.Tunnel.PID != before.Tunnel.PID || !healthyGatewayRuntime(previous) || previous.InstalledVersion != before.InstalledVersion || previous.RunningVersion != before.RunningVersion || previous.RuntimeIdentity.InstalledGatewaySHA256 != before.RuntimeIdentity.InstalledGatewaySHA256 || !previous.RuntimeIdentity.RunningGatewayMatchesInstall || previous.RuntimeIdentity.RunningExecutableSHA256 != previous.RuntimeIdentity.InstalledGatewaySHA256 {
+				return fmt.Errorf("previous Gateway artifact and Tunnel identity proof failed")
+			}
+			if before.RuntimeIdentity.ExactSourceMatch && (!previous.RuntimeIdentity.ExactSourceMatch || previous.RuntimeIdentity.SourceSHA != before.RuntimeIdentity.SourceSHA) {
+				return fmt.Errorf("previous Gateway source identity proof failed")
+			}
+			if err := ctl.Doctor(ctx); err != nil {
+				return err
+			}
+			return activation.LiveMCPSmoke(ctx, c, before.InstalledVersion)
+		},
+	})
+	if activationErr != nil {
+		preserveSnapshot := outcome.ForwardRecovery == controller.GatewayForwardRecoveryRequired || outcome.ForwardRecovery == controller.GatewayForwardRecoveryServingCandidate
 		rollbackState := &activationRollbackDiagnostics{
-			ArtifactsRestored: restoreErr == nil,
-			GatewayRestarted:  restartErr == nil,
+			ArtifactsRestored:         outcome.PreviousArtifactsRestored,
+			GatewayRestarted:          outcome.PreviousGatewayRestarted,
+			DurableSnapshotAvailable:  outcome.DurableSnapshotAvailable,
+			DurableStateRestored:      outcome.DurableStateRestored,
+			ForwardRecovery:           outcome.ForwardRecovery,
+			RecoverySnapshotAvailable: preserveSnapshot,
 		}
-		if restoreErr != nil {
-			rollbackState.RestoreError = boundedError(restoreErr)
+		if preserveSnapshot {
+			rollbackState.RecoverySnapshotID = snapshot.ID()
+		} else if err := snapshot.Cleanup(); err != nil {
+			rollbackState.RecoverySnapshotAvailable = true
+			rollbackState.RecoverySnapshotID = snapshot.ID()
+			rollbackState.RestoreError = boundedError(err)
 		}
-		if restartErr != nil {
-			rollbackState.RestartError = boundedError(restartErr)
+		if outcome.RollbackStartup != nil {
+			rollbackState.RestartDiagnostics = startupDiagnostics(*outcome.RollbackStartup)
 		}
-		rollbackState.RestartDiagnostics = startupDiagnostics(rollbackDiagnostics)
-		if restoreErr != nil || restartErr != nil {
-			emitActivationFailure("rollback", fmt.Errorf("rollback failed after %s: restore=%v restart=%v; original failure: %v", failedPhase, restoreErr, restartErr, cause), rollbackState, restartDiagnostics)
+		if outcome.ForwardStartup != nil {
+			rollbackState.ForwardStartupDiagnostics = startupDiagnostics(*outcome.ForwardStartup)
 		}
-		emitActivationFailure(failedPhase, cause, rollbackState, restartDiagnostics)
+		phase := outcome.FailurePhase
+		if phase == "" {
+			phase = "gateway_cutover"
+		}
+		if outcome.ForwardRecovery == controller.GatewayForwardRecoveryRequired || outcome.ForwardRecovery == controller.GatewayForwardRecoveryServingCandidate {
+			phase = "compatible_forward_recovery"
+		}
+		var targetStartup *controller.GatewayStartupDiagnostics
+		if outcome.TargetStartup != nil {
+			targetStartup = outcome.TargetStartup
+		}
+		emitActivationFailure(phase, activationErr, rollbackState, targetStartup)
 	}
-	before, err := ctl.Status(ctx)
-	if err != nil {
-		rollback("preflight", err, nil)
-	}
-	restartDiagnostics, restartErr := ctl.RestartGatewayAfterUpgradeDiagnostics()
-	if restartErr != nil {
-		rollback("gateway_restart_readiness", fmt.Errorf("gateway candidate startup failed: %w", restartErr), &restartDiagnostics)
-	}
-	after, err := ctl.Status(ctx)
-	if err != nil {
-		rollback("gateway_restart_readiness", err, &restartDiagnostics)
-	}
-	if after.Tunnel.PID != before.Tunnel.PID || !after.GatewayReady || !after.TunnelReady || !after.VersionMatch {
-		rollback("gateway_restart_readiness", fmt.Errorf("candidate readiness or Tunnel identity proof failed"), &restartDiagnostics)
-	}
-	if err := ctl.Doctor(ctx); err != nil {
-		rollback("doctor", err, &restartDiagnostics)
+	if err := snapshot.Cleanup(); err != nil {
+		fmt.Fprintf(os.Stderr, "gpt-tunnelctl: activation_snapshot_retained id=%s reason=cleanup_failed\n", snapshot.ID())
 	}
 	output(after)
+}
+
+func releaseSourceRevision(releaseDir string) (string, error) {
+	var sourceRevision string
+	for _, name := range releaseartifacts.BinaryNames {
+		source, modified, err := releaseartifacts.BinarySourceRevision(filepath.Join(releaseDir, name))
+		if err != nil || modified {
+			return "", fmt.Errorf("release artifact %s has no exact source provenance", name)
+		}
+		if sourceRevision == "" {
+			sourceRevision = source
+		} else if source != sourceRevision {
+			return "", fmt.Errorf("release artifacts do not share one source revision")
+		}
+	}
+	if sourceRevision == "" {
+		return "", fmt.Errorf("release source revision is unavailable")
+	}
+	return sourceRevision, nil
+}
+
+func healthyGatewayRuntime(status controller.Status) bool {
+	identity := status.RuntimeIdentity
+	return status.Gateway.Running && status.Tunnel.Running && status.GatewayReady && status.TunnelReady && status.VersionMatch && identity.ArtifactSetCoherent && identity.RunningGatewayMatchesInstall && identity.RunningExecutableSHA256 != "" && identity.RunningExecutableSHA256 == identity.InstalledGatewaySHA256
 }
 
 type activationFailureDiagnostics struct {
@@ -253,11 +352,17 @@ type activationFailureDiagnostics struct {
 	Restart        *activationStartupDiagnostics  `json:"restart,omitempty"`
 }
 type activationRollbackDiagnostics struct {
-	ArtifactsRestored  bool                          `json:"artifacts_restored"`
-	GatewayRestarted   bool                          `json:"gateway_restarted"`
-	RestoreError       string                        `json:"restore_error,omitempty"`
-	RestartError       string                        `json:"restart_error,omitempty"`
-	RestartDiagnostics *activationStartupDiagnostics `json:"restart_diagnostics,omitempty"`
+	ArtifactsRestored         bool                          `json:"artifacts_restored"`
+	GatewayRestarted          bool                          `json:"gateway_restarted"`
+	DurableSnapshotAvailable  bool                          `json:"durable_snapshot_available"`
+	DurableStateRestored      bool                          `json:"durable_state_restored"`
+	ForwardRecovery           string                        `json:"forward_recovery"`
+	RecoverySnapshotID        string                        `json:"recovery_snapshot_id,omitempty"`
+	RecoverySnapshotAvailable bool                          `json:"recovery_snapshot_available"`
+	RestoreError              string                        `json:"restore_error,omitempty"`
+	RestartError              string                        `json:"restart_error,omitempty"`
+	RestartDiagnostics        *activationStartupDiagnostics `json:"restart_diagnostics,omitempty"`
+	ForwardStartupDiagnostics *activationStartupDiagnostics `json:"forward_startup_diagnostics,omitempty"`
 }
 type activationStartupDiagnostics struct {
 	Phase                  string `json:"phase"`
