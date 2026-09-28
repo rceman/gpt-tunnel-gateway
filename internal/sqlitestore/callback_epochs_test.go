@@ -41,13 +41,17 @@ func TestCallbackEpochRequiresRealWorkAndSurvivesRestart(t *testing.T) {
 	if ready, err := db.ObserveCallbackEpoch(context.Background(), epoch.ID, "idle"); err != nil || !ready {
 		t.Fatalf("second idle after restart ready=%v err=%v", ready, err)
 	}
-	claimed, err := db.ClaimCallbackEpoch(context.Background(), epoch.ID, time.Now().UTC())
+	claimed, err := db.ClaimCallbackEpochWithoutHook(context.Background(), epoch.ID, time.Now().UTC())
 	if err != nil || !claimed {
-		t.Fatalf("claim=%v err=%v", claimed, err)
+		t.Fatalf("unbound Hook claim=%v err=%v", claimed, err)
 	}
-	claimed, err = db.ClaimCallbackEpoch(context.Background(), epoch.ID, time.Now().UTC())
+	claimed, err = db.ClaimCallbackEpochWithoutHook(context.Background(), epoch.ID, time.Now().UTC())
 	if err != nil || claimed {
-		t.Fatalf("duplicate claim=%v err=%v", claimed, err)
+		t.Fatalf("duplicate unbound Hook claim=%v err=%v", claimed, err)
+	}
+	terminal, err := db.ReadCallbackEpoch(context.Background(), epoch.ID)
+	if err != nil || terminal.Outcome != "unbound" || terminal.OperationID != "" {
+		t.Fatalf("unbound Hook created an Operation or lacked a terminal marker: %#v err=%v", terminal, err)
 	}
 	pending, err := db.PendingCallbackEpochs(context.Background(), 10)
 	if err != nil || len(pending) != 0 {

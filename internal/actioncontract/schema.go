@@ -154,6 +154,7 @@ func (compiled *CompiledSet) Actions() []CompiledAction {
 		result = append(result, CompiledAction{
 			Path:        path,
 			Description: action.Description,
+			Guide:       action.Guide,
 			Metadata:    metadata,
 			Input:       cloneSchema(action.Input),
 			Output:      cloneSchema(action.Output),

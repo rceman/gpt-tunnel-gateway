@@ -3,173 +3,119 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
-	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
-	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
-func newCallbackPublicServer(t *testing.T) (*Server, *sqlitestore.Databases) {
-	t.Helper()
-	server := newSessionTestServer(t)
-	db := server.Service.Durability
-	if db == nil {
-		t.Fatal("session test server has no Local durability")
-	}
-	now := time.Now().UTC()
-	if err := db.MarkSharedBootstrapComplete(context.Background(), sqlitestore.SharedBootstrapMarker{ProjectID: "example", HubRevision: "fixture", CompletedAt: now.Format(time.RFC3339Nano)}); err != nil {
-		t.Fatal(err)
-	}
-	c := server.Service.Config
-	project := c.Projects["example"]
-	project.ProjectCode = "EXM"
-	c.Projects["example"] = project
-	server.Service = service.NewWithDurabilityDeferredWorkers(c, db)
-	server.AuthorityContext = authority.WithPlanner(context.Background())
-	return server, db
-}
-
-func publicCallbackCall(t *testing.T, server *Server, session, action string, input map[string]any) map[string]any {
-	t.Helper()
-	return genericActionResult(t, publicCallbackEnvelope(t, server, session, action, input))
-}
-
-func publicCallbackEnvelope(t *testing.T, server *Server, session, action string, input map[string]any) map[string]any {
-	t.Helper()
-	return callMCP(t, server, mustJSON(t, map[string]any{
-		"jsonrpc": "2.0", "id": time.Now().UnixNano(), "method": "tools/call",
-		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": session, "action": action, "input": input}, "_meta": callbackADR81Metadata(t, "ADR81 traces the public callback schema, decoder and dispatch path for the ADR87 callback registry using ADR83 typed projection naming.")},
-	}))
-}
-
-func callbackADR81Metadata(t *testing.T, why string) map[string]any {
-	t.Helper()
-	if strings.TrimSpace(why) == "" {
-		t.Fatal("callback ADR81 metadata requires why")
-	}
-	return map[string]any{"adr": "GTW-ADR81", "references": []string{"GTW-ADR87", "GTW-ADR83"}, "why": why}
-}
-
-func TestCallbackActionsPublicSchemasAndLifecycle(t *testing.T) {
+func TestCallbackActionsAreRemovedInFavorOfConfigurationHooks(t *testing.T) {
 	server := newSessionTestServer(t)
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"callback/events", "callback/list", "callback/register", "callback/remove"} {
+	for _, path := range []string{"callback/events", "callback/list", "callback/register", "callback/remove", "gateway/capabilities", "gateway/status", "project/guide_bind"} {
+		if _, ok := entries[path]; ok {
+			t.Fatalf("retired callback action %q remains registered", path)
+		}
+	}
+	for _, path := range []string{
+		"config/procedure_list", "config/procedure_read", "config/procedure_create", "config/procedure_update", "config/procedure_remove",
+		"config/hook_list", "config/hook_read", "config/hook_bind", "config/hook_unbind", "config/guide_bind", "runtime/status",
+	} {
 		if _, ok := entries[path]; !ok {
-			t.Fatalf("missing callback action %q", path)
+			t.Fatalf("missing canonical configuration action %q", path)
 		}
 	}
-	if _, ok := entries["callback/read"]; ok {
-		t.Fatal("retired callback/read was registered")
+	runtimeStatus := entries["runtime/status"]
+	runtimeStatusRequired := stringList(runtimeStatus.OutputSchema["required"])
+	if runtimeStatus.InputSchema["additionalProperties"] != false || runtimeStatus.OutputSchema["additionalProperties"] != false || len(runtimeStatusRequired) != 4 {
+		t.Fatalf("runtime/status is not a closed canonical contract: %#v", runtimeStatus)
 	}
-	if required := stringList(entries["callback/register"].InputSchema["required"]); len(required) != 2 || required[0] != "callback" || required[1] != "event" {
-		t.Fatalf("register required=%v", required)
+	for _, required := range []string{"service", "gateway", "time", "runtime_identity"} {
+		if !containsRequired(runtimeStatusRequired, required) {
+			t.Fatalf("runtime/status contract lacks %q: %#v", required, runtimeStatusRequired)
+		}
 	}
-	if len(server.publicTools()) != len(canonicalToolManifest) {
-		t.Fatal("callback actions leaked into top-level MCP tools")
+	for _, path := range []string{"config/procedure_create", "config/procedure_update", "config/procedure_remove", "config/hook_bind", "config/hook_unbind", "config/guide_bind"} {
+		entry := entries[path]
+		properties := schemaProperties(entry.InputSchema)
+		if entry.InputSchema["additionalProperties"] != false || len(properties) == 0 || !containsRequired(stringList(entry.InputSchema["required"]), "reason") {
+			t.Fatalf("configuration mutation %s is not closed with mandatory reason: %#v", path, entry.InputSchema)
+		}
+		if _, ok := properties["expected_revision"]; ok {
+			t.Fatalf("configuration mutation %s exposes caller-owned CAS", path)
+		}
+		outputProperties := schemaProperties(entry.OutputSchema)
+		if entry.OutputSchema["additionalProperties"] != false || len(outputProperties) != 1 || outputProperties["revision"] == nil || !reflectStringList(stringList(entry.OutputSchema["required"]), []string{"revision"}) {
+			t.Fatalf("configuration mutation %s output is not the compact revision receipt: %#v", path, entry.OutputSchema)
+		}
 	}
 }
 
-func TestCallbackActionsUsePublicCallAndSharedRegistry(t *testing.T) {
-	server, _ := newCallbackPublicServer(t)
-	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt"}))
-	session := started["session"].(map[string]any)["session_id"].(string)
-	events := publicCallbackCall(t, server, session, "callback/events", map[string]any{})
-	if len(events["events"].([]any)) != 1 {
-		t.Fatalf("events=%#v", events)
+func TestDynamicProcedureNamedReadIsDiscoveredAndCallable(t *testing.T) {
+	server := newSessionTestServer(t)
+	planner := genericSession(t, server.Service, "example")
+	root := server.Service.Config.Projects["example"].Root
+	scriptPath := filepath.Join(root, "scripts", "read.sh")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	list := publicCallbackCall(t, server, session, "callback/list", map[string]any{})
-	if len(list["callbacks"].([]any)) != 0 {
-		t.Fatalf("empty list=%#v", list)
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nprintf '{\"ok\":true}' > \"$GTW_PROCEDURE_OUTPUT_FILE\"\n"), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	registered := publicCallbackCall(t, server, session, "callback/register", map[string]any{
-		"callback": "http-hook", "event": model.ProjectCallbackWorkFinishedEvent,
-		"url": map[string]any{"method": "POST", "url": "https://example.invalid/hook", "body": "{}"},
-	})
-	if registered["status"] != "registered" {
-		t.Fatalf("register=%#v", registered)
+	definition := map[string]any{
+		"script": "scripts/read.sh", "summary": "Read through a named Procedure", "guide": "Returns a structured success result.",
+		"input":  map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
+		"output": map[string]any{"type": "object", "properties": map[string]any{"ok": map[string]any{"type": "boolean"}}, "required": []string{"ok"}, "additionalProperties": false},
 	}
-	if registered["key"] != "http-hook" || registered["callback"] != nil {
-		t.Fatalf("register response=%#v", registered)
+	if _, ok := tsk532CallResult(t, server, planner, "config/procedure_create", map[string]any{"name": "read", "definition": definition, "reason": "Test the reserved-looking Procedure name."}); !ok {
+		t.Fatal("Procedure create action failed")
 	}
-	repeated := publicCallbackCall(t, server, session, "callback/register", map[string]any{
-		"callback": "http-hook", "event": model.ProjectCallbackWorkFinishedEvent,
-		"url": map[string]any{"method": "POST", "url": "https://example.invalid/hook", "body": "{}"},
-	})
-	if repeated["status"] != "already_registered" {
-		t.Fatalf("repeat=%#v", repeated)
+	catalog, ok := tsk532CallResult(t, server, planner, "config/procedure_list", map[string]any{})
+	if !ok {
+		t.Fatal("Procedure catalogue action failed")
 	}
-	scriptRegistered := publicCallbackCall(t, server, session, "callback/register", map[string]any{
-		"callback": "script-hook", "event": model.ProjectCallbackWorkFinishedEvent,
-		"script": map[string]any{"path": "scripts/callback", "args": []any{}},
-	})
-	if scriptRegistered["status"] != "registered" {
-		t.Fatalf("script register=%#v", scriptRegistered)
+	if len(catalog["procedures"].([]any)) != 1 {
+		t.Fatalf("authoritative Procedure catalogue=%#v", catalog)
 	}
-	combinedRegistered := publicCallbackCall(t, server, session, "callback/register", map[string]any{
-		"callback": "combined-hook", "event": model.ProjectCallbackWorkFinishedEvent,
-		"url":    map[string]any{"method": "PUT", "url": "https://example.invalid/combined", "body": "{}"},
-		"script": map[string]any{"path": "scripts/combined", "args": []any{}},
-	})
-	if combinedRegistered["status"] != "registered" {
-		t.Fatalf("combined register=%#v", combinedRegistered)
+	domain, err := server.genericSchemaPublic(server.AuthorityContext, server.tools(), mustJSON(t, map[string]any{"session": planner, "path": "procedure"}))
+	if err != nil {
+		t.Fatal(err)
 	}
-	conflict := genericStructured(t, publicCallbackEnvelope(t, server, session, "callback/register", map[string]any{
-		"callback": "http-hook", "event": model.ProjectCallbackWorkFinishedEvent,
-		"url": map[string]any{"method": "PUT", "url": "https://example.invalid/hook", "body": "{}"},
+	domainResult := domain.(map[string]any)
+	if domainResult["kind"] != "domain" || len(domainResult["actions"].([]any)) != 0 {
+		t.Fatalf("procedure domain disclosed a catalogue: %#v", domainResult)
+	}
+	contract, err := server.genericSchemaPublic(server.AuthorityContext, server.tools(), mustJSON(t, map[string]any{"session": planner, "path": "procedure/read"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contractJSON, err := json.Marshal(contract)
+	if err != nil || strings.Contains(string(contractJSON), "scripts/read.sh") {
+		t.Fatalf("dynamic Procedure contract leaked internal execution configuration: %s err=%v", contractJSON, err)
+	}
+	call, err := server.genericCallPublic(server.AuthorityContext, server.tools(), mustJSON(t, map[string]any{
+		"session": planner, "action": "procedure/read", "input": map[string]any{},
 	}))
-	if conflict["is_error"] != true {
-		t.Fatalf("conflict=%#v", conflict)
+	if err != nil {
+		t.Fatal(err)
 	}
-	list = publicCallbackCall(t, server, session, "callback/list", map[string]any{})
-
-	serialized, _ := json.Marshal(list)
-	if string(serialized) == "" || string(serialized) == "{}" {
-		t.Fatal("list did not return a compact result")
+	callResult, ok := call.(map[string]any)
+	if !ok || callResult["ok"] != true {
+		t.Fatalf("dynamic Procedure call=%#v", call)
 	}
-	callbacks := list["callbacks"].([]any)
-	if len(callbacks) != 3 {
-		t.Fatalf("callback list=%#v", list)
+	result, ok := callResult["result"].(map[string]any)
+	if !ok || result["status"] != "accepted" && result["status"] != "running" {
+		t.Fatalf("Procedure call did not allocate its durable Operation: %#v", call)
 	}
-	for _, raw := range callbacks {
-		entry := raw.(map[string]any)
-		if _, ok := entry["body"]; ok {
-			t.Fatalf("callback list leaked URL body: %#v", entry)
-		}
-		if _, ok := entry["args"]; ok {
-			t.Fatalf("callback list leaked script args: %#v", entry)
-		}
+	operationID, ok := result["operation"].(string)
+	if !ok || operationID == "" {
+		t.Fatalf("Procedure call Operation=%#v", result)
 	}
-	combined := callbacks[0].(map[string]any)
-	if combined["key"] != "combined-hook" || combined["url"] == nil || combined["script"] == nil {
-		t.Fatalf("combined callback summary=%#v", combined)
-	}
-	removed := publicCallbackCall(t, server, session, "callback/remove", map[string]any{"key": "http-hook"})
-	if removed["status"] != "removed" {
-		t.Fatalf("remove=%#v", removed)
-	}
-	if removed["key"] != "http-hook" || removed["callback"] != nil {
-		t.Fatalf("remove response=%#v", removed)
-	}
-	missing := genericStructured(t, publicCallbackEnvelope(t, server, session, "callback/remove", map[string]any{"key": "http-hook"}))
-	if missing["is_error"] != true {
-		t.Fatalf("missing remove=%#v", missing)
-	}
-}
-
-func TestCallbackActionsRequireBoundSessionAndAllowAuthenticatedWorkflowRoles(t *testing.T) {
-	server, _ := newCallbackPublicServer(t)
-	response := callMCP(t, server, mustJSON(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "call", "arguments": map[string]any{"action": "callback/list", "input": map[string]any{}}}}))
-	if response["error"] == nil && !strings.Contains(string(mustJSON(t, response)), "session") {
-		t.Fatalf("unbound callback action was not rejected: %#v", response)
-	}
-	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "worker", "session_type": "chatgpt", "agent": "coding-example"}))
-	session := started["session"].(map[string]any)["session_id"].(string)
-	result := genericStructured(t, publicCallbackEnvelope(t, server, session, "callback/register", map[string]any{"callback": "delivery", "event": model.ProjectCallbackWorkFinishedEvent, "url": map[string]any{"method": "POST", "url": "https://example.invalid", "body": "{}"}}))
-	if result["is_error"] != false {
-		t.Fatalf("authenticated Worker callback registration was rejected: %#v", result)
+	await, err := server.Service.OperationAwait(service.WithAgentSessionID(context.Background(), planner), operationID, 5*time.Second)
+	if err != nil || await.Status != "completed" {
+		t.Fatalf("Procedure Operation receipt=%#v err=%v", await, err)
 	}
 }

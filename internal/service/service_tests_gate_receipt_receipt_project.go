@@ -212,11 +212,7 @@ func (s *Service) writeTestPassReceiptLocked(ctx context.Context, projectID, roo
 		CommandDigests: map[string]string{},
 		RecordedAt:     s.durableNow(),
 	}
-	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
-	if err != nil {
-		return testPassReceipt{}, "", err
-	}
-	digest, err := gates.ProjectGateCommandDigest(configuration.Workflow.GateCommands, model.WorkflowGateTest, "task", normalizedScope)
+	digest, err := gates.ProjectGateCommandDigest(model.DefaultProjectGateCommands(), model.WorkflowGateTest, "task", normalizedScope)
 	if err != nil {
 		return testPassReceipt{}, "", err
 	}

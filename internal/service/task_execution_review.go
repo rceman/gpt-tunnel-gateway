@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -89,8 +90,8 @@ func (s *Service) submitTaskExecution(ctx context.Context, projectID, key, stage
 	if err != nil || !clean || branch != state.Branch {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("assigned Task worktree must be clean on its server-owned branch")
 	}
-	now := time.Now().UTC()
 	state.Head = actual
+	now := time.Now().UTC()
 	state.Worktree = taskExecutionWorktree(key, actual[:8])
 	state.Status = model.TaskExecutionAwaitingReview
 	state.ExecutionRevision++
@@ -128,10 +129,18 @@ func (s *Service) submitTaskExecution(ctx context.Context, projectID, key, stage
 			return TaskExecutionPublicOutput{}, fmt.Errorf("%s submission must descend from accepted %s head", stage, previousStage)
 		}
 	}
+	beforePayload := taskLifecycleHookPayload(projectID, key, AgentSessionID(ctx), durableMutationOperationID(ctx), stage, state.TaskRevision, state.ExecutionRevision-1, actual, "", "", "", "", "")
+	if err := s.runTaskLifecycleProcedureHook(ctx, model.HookPreTaskSubmit, "before", beforePayload, "", nil, ""); err != nil {
+		return TaskExecutionPublicOutput{}, err
+	}
 	if err := s.Durability.TransitionTaskExecutionState(ctx, state, state.ExecutionRevision-1, phase); err != nil {
 		return TaskExecutionPublicOutput{}, err
 	}
-	return taskExecutionPublicOutput(state), nil
+	output := taskExecutionPublicOutput(state)
+	result, _ := json.Marshal(output)
+	afterPayload := taskLifecycleHookPayload(projectID, key, AgentSessionID(ctx), durableMutationOperationID(ctx), stage, state.TaskRevision, state.ExecutionRevision, actual, "awaiting_review", "", "", "", "")
+	_ = s.runTaskLifecycleProcedureHook(ctx, model.HookPostTaskSubmit, "after", afterPayload, "completed", result, "")
+	return output, nil
 }
 
 func (s *Service) TaskExecutionReview(ctx context.Context, in TaskExecutionReviewInput) (TaskExecutionReviewOutput, error) {

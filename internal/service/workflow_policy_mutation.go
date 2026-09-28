@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -28,122 +27,65 @@ func (s *Service) ProjectWorkflowPolicyAdopt(ctx context.Context, in ProjectWork
 	if err := s.rejectActiveWorkflowExecution(ctx, policy.ProjectID); err != nil {
 		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
 	}
-	configuration, configurationErr := s.ProjectConfigurationRead(ctx, policy.ProjectID)
-	if configurationErr != nil && !IsNotFound(configurationErr) {
-		return model.ProjectWorkflowPolicy{}, OperationResult{}, configurationErr
-	}
-	status := "adopted"
-	var currentPolicy model.ProjectWorkflowPolicy
-	if configurationErr == nil {
-		current, err := s.workflowPolicyFromAuthority(ctx, configuration)
+	if s.Durability != nil {
+		current, err := s.ProjectWorkflowPolicyRead(ctx, policy.ProjectID)
 		if err != nil {
 			return model.ProjectWorkflowPolicy{}, OperationResult{}, err
 		}
-		currentPolicy = current
-		// Under Shared durability the six machine leaves are governed by the
-		// named-rule effective set: this legacy path may only write the
-		// non-rule configuration fields and provenance metadata. A policy
-		// that diverges from rule authority is rejected — leaf changes must
-		// be routed through rule/update.
-		if s.Durability != nil && !workflowPolicyLeavesEquivalent(current, policy) {
-			return model.ProjectWorkflowPolicy{}, OperationResult{}, fmt.Errorf("workflow policy leaf fields are governed by durable rules; change them through rule/update")
+		if !workflowPolicyLeavesEquivalent(current, policy) {
+			return model.ProjectWorkflowPolicy{}, OperationResult{}, fmt.Errorf("workflow policy leaves are governed by canonical Rules; change them through rule/update")
 		}
-		if configuration.Revision != policy.Revision && configuration.Revision+1 != policy.Revision {
-			return model.ProjectWorkflowPolicy{}, OperationResult{}, fmt.Errorf("workflow policy revision must advance from %d to %d", configuration.Revision, policy.Revision)
+		if !workflowPoliciesEquivalent(current, policy) {
+			return model.ProjectWorkflowPolicy{}, OperationResult{}, fmt.Errorf("Shared workflow policy is a read-only projection of canonical Rules")
 		}
-		if configuration.Revision == policy.Revision && workflowPoliciesEquivalent(current, policy) {
-			status = "adopted"
-		} else if configuration.Revision == policy.Revision && configuration.Revision == 1 {
-			status = "adopted"
-		} else {
-			status = "updated"
-		}
-	} else {
-		if s.Durability != nil {
-			// Under Shared durability this legacy path cannot establish a
-			// configuration without the seeded machine-policy leaf Rules —
-			// a configured project must never have a vacuous effective set.
-			return model.ProjectWorkflowPolicy{}, OperationResult{}, configurationErr
-		}
-		if policy.Revision != 1 && policy.Revision < 1 {
-			return model.ProjectWorkflowPolicy{}, OperationResult{}, fmt.Errorf("initial workflow policy revision must be 1")
-		}
-		configuration = model.DefaultProjectConfiguration(policy.ProjectID, policy.UpdatedAt)
+		_ = s.cacheProjectWorkflowPolicy(current)
+		return current, OperationResult{
+			ProjectID: policy.ProjectID,
+			Status:    "adopted",
+		}, nil
 	}
-	configuration.SchemaVersion = model.ProjectConfigurationSchemaVersion
-	configuration.ProjectID = policy.ProjectID
-	configuration.Revision = policy.Revision
-	// The workflow leaf fields written here are provenance only under Shared
-	// durability (the named-rule effective set is the authority); under the
-	// legacy-compatibility path they remain the leaf authority.
-	configuration.Workflow.WorkflowStage = policy.WorkflowStage
-	configuration.Workflow.IntegrationBranch = policy.IntegrationBranch
-	configuration.Workflow.CI = policy.CI
-	configuration.Workflow.Gates = append([]string{}, policy.Gates...)
-	configuration.Workflow.WaitForCI = policy.Agent.WaitForCI
-	configuration.UpdatedBy = policy.UpdatedBy
-	configuration.UpdatedAt = policy.UpdatedAt
-	if err := model.ValidateProjectConfiguration(configuration); err != nil {
-		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
+	path := s.workflowPolicyPath(policy.ProjectID)
+	current, readErr := s.readHubWorkflowPolicy(ctx, policy.ProjectID)
+	if readErr != nil && !IsNotFound(readErr) {
+		return model.ProjectWorkflowPolicy{}, OperationResult{}, readErr
 	}
-	if s.Durability != nil {
-		if currentPolicy.Revision == policy.Revision && workflowPoliciesEquivalent(currentPolicy, policy) {
-			_ = s.cacheProjectWorkflowPolicy(currentPolicy)
-			return currentPolicy, OperationResult{
+	expectedPolicyRevision := 0
+	status := "adopted"
+	if readErr == nil {
+		expectedPolicyRevision = current.Revision
+		if policy.Revision == current.Revision && workflowPoliciesEquivalent(current, policy) {
+			_ = s.cacheProjectWorkflowPolicy(current)
+			return current, OperationResult{
 				ProjectID: policy.ProjectID,
 				Status:    "adopted",
 			}, nil
 		}
-		if currentPolicy.Revision+1 != policy.Revision {
-			return model.ProjectWorkflowPolicy{}, OperationResult{}, fmt.Errorf("workflow policy revision must advance from %d to %d", currentPolicy.Revision, currentPolicy.Revision+1)
+		if policy.Revision != current.Revision+1 {
+			return model.ProjectWorkflowPolicy{}, OperationResult{}, fmt.Errorf("workflow policy revision must advance from %d to %d", current.Revision, current.Revision+1)
 		}
-		workflow := configuration.Workflow
-		updated, result, err := s.ProjectConfigurationUpdate(ctx, ProjectConfigurationUpdateInput{
-			ProjectID:        policy.ProjectID,
-			ExpectedRevision: currentPolicy.Revision,
-			Patch: ProjectConfigurationPatch{
-				Workflow: &workflow,
-			},
-			UpdatedBy: policy.UpdatedBy,
-		})
-		if err != nil {
-			return model.ProjectWorkflowPolicy{}, OperationResult{}, err
-		}
-		updatedPolicy, err := s.workflowPolicyFromAuthority(ctx, updated)
-		if err != nil {
-			return model.ProjectWorkflowPolicy{}, OperationResult{}, err
-		}
-		_ = s.cacheProjectWorkflowPolicy(updatedPolicy)
-		result.Status = status
-		return updatedPolicy, result, nil
+		status = "updated"
+	} else if policy.Revision != 1 {
+		return model.ProjectWorkflowPolicy{}, OperationResult{}, fmt.Errorf("initial workflow policy revision must be 1")
 	}
-	configurationPath := s.projectConfigurationPath(policy.ProjectID)
-	legacyPath := s.workflowPolicyPath(policy.ProjectID)
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: adopt workflow policy "+policy.ProjectID, func(worktree string) ([]string, error) {
-		if err := s.rejectActiveWorkflowExecution(ctx, policy.ProjectID); err != nil {
-			return nil, err
-		}
-		projectPath := s.projectPath(policy.ProjectID)
-		var project model.Project
-		if err := readWorktreeJSON(worktree, projectPath, &project); err != nil {
-			return nil, fmt.Errorf("project %q is not durable: %w", policy.ProjectID, err)
-		}
-		if err := model.ValidateProject(project); err != nil || project.ID != policy.ProjectID {
-			if err == nil {
-				err = fmt.Errorf("project ID mismatch")
+		var latest model.ProjectWorkflowPolicy
+		if err := readWorktreeJSON(worktree, path, &latest); err != nil {
+			if expectedPolicyRevision != 0 || !IsNotFound(err) {
+				return nil, &LifecycleConflictError{
+					Code:  "conflict",
+					Phase: "workflow_policy.cas",
+				}
 			}
-			return nil, fmt.Errorf("project %q is invalid: %w", policy.ProjectID, err)
+		} else if err := model.ValidateProjectWorkflowPolicy(latest); err != nil || latest.ProjectID != policy.ProjectID || latest.Revision != expectedPolicyRevision {
+			return nil, &LifecycleConflictError{
+				Code:  "conflict",
+				Phase: "workflow_policy.cas",
+			}
 		}
-		if err := hub.WriteJSON(worktree, configurationPath, configuration); err != nil {
+		if err := hub.WriteJSON(worktree, path, policy); err != nil {
 			return nil, err
 		}
-		paths := []string{configurationPath}
-		if err := os.Remove(filepath.Join(worktree, filepath.FromSlash(legacyPath))); err == nil {
-			paths = append(paths, legacyPath)
-		} else if !os.IsNotExist(err) {
-			return nil, err
-		}
-		return paths, nil
+		return []string{path}, nil
 	})
 	if err != nil {
 		return model.ProjectWorkflowPolicy{}, OperationResult{}, err
@@ -192,11 +134,11 @@ func (s *Service) deriveTaskWorkflowPolicy(ctx context.Context, projectID, opera
 	if err != nil {
 		return model.ProjectWorkflowPolicy{}, model.EffectiveWorkflowPolicy{}, fmt.Errorf("project configuration is required: %w", err)
 	}
-	policy, _, err := s.projectWorkflowPolicyReadDetailed(ctx, projectID)
+	policy, err := s.ProjectWorkflowPolicyRead(ctx, projectID)
 	if err != nil {
 		return model.ProjectWorkflowPolicy{}, model.EffectiveWorkflowPolicy{}, err
 	}
-	if policy.Revision != configuration.Revision {
+	if s.Durability != nil && policy.Revision != configuration.Revision {
 		return model.ProjectWorkflowPolicy{}, model.EffectiveWorkflowPolicy{}, fmt.Errorf("project workflow policy adapter revision mismatch")
 	}
 	effective, err := model.WorkflowPolicyForOperation(policy, operationClass)
@@ -234,16 +176,15 @@ func workflowPolicyStatus(policy model.ProjectWorkflowPolicy, err error) Project
 			CorrectiveAction: "repair or re-adopt the durable project workflow policy",
 		}
 	}
-	status := ProjectWorkflowPolicyStatus{
+	return ProjectWorkflowPolicyStatus{
 		State:             "adopted",
 		Revision:          policy.Revision,
 		WorkflowStage:     policy.WorkflowStage,
 		IntegrationBranch: policy.IntegrationBranch,
 		AgentWaitForCI:    policy.Agent.WaitForCI,
 		CI:                policy.CI,
-		Gates:             model.EffectiveProjectWorkflowGates(policy.Gates),
+		Gates:             effectiveGates,
 		Conflicts:         []string{},
 		CorrectiveAction:  "none",
 	}
-	return status
 }

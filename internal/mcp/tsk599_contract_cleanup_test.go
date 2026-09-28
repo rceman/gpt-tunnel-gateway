@@ -18,7 +18,7 @@ func TestTSK670SchemaCostFitsResetContractBudget(t *testing.T) {
 	baseline := map[string]int{
 		"task": 2844, "track": 1115, "operation": 148,
 		"task/create": 446, "track/read": 1024, "operation/read": 396,
-		"tools/list": 1888,
+		"tools/list": 1909,
 	}
 	assertCost := func(name string, value any) {
 		t.Helper()

@@ -201,11 +201,10 @@ func (s *Service) resolveProjectGateProfile(ctx context.Context, projectID strin
 	if err != nil {
 		return nil, "", err
 	}
-	effective, err := model.WorkflowPolicyForOperation(policy, "implementation")
-	if err != nil {
+	if _, err := model.WorkflowPolicyForOperation(policy, "implementation"); err != nil {
 		return nil, "", err
 	}
-	names := append([]string{}, effective.Gates...)
+	names := model.StandardWorkflowGates()
 	identity, err := json.Marshal(struct {
 		GateNames     []string
 		Configuration model.ProjectConfiguration

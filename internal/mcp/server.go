@@ -32,8 +32,8 @@ type Server struct {
 	systemAwaitActionErr   error
 	codeActions            sync.Once
 	codeActionErr          error
-	callbackActions        sync.Once
-	callbackActionErr      error
+	configurationActions   sync.Once
+	configurationActionErr error
 	debugActions           sync.Once
 	debugActionErr         error
 	adrActions             sync.Once
@@ -117,7 +117,6 @@ func (s *Server) tools() map[string]Tool {
 	s.ensureRuntimeLogActions()
 	s.ensureSystemAwaitActions()
 	s.ensureCodeActions()
-	s.ensureCallbackActions()
 	s.ensureDebugActions()
 	s.ensureADRActions()
 	s.ensureRuleActions()
@@ -125,6 +124,8 @@ func (s *Server) tools() map[string]Tool {
 	s.ensureRelationActions()
 	s.ensureMilestoneActions()
 	s.ensureTrackActions()
+	s.ensureGuideActions()
+	s.ensureConfigurationActions()
 	t := map[string]Tool{}
 	add := toolAdder(func(name, description string, schema map[string]any, fn func(context.Context, json.RawMessage) (any, error)) {
 		output := transportToolOutputSchema(name)

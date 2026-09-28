@@ -32,27 +32,27 @@ func TestTSK532GuideActionsExposeApplicableSubjectsAndPlannerBinding(t *testing.
 			t.Fatalf("intentionally omitted guide action %s/guide was registered", item.Subject)
 		}
 	}
-	bind, ok := registry["project/guide_bind"]
-	if !ok || bind.AuthorityRole != durableSession.RolePlanner || !bind.SessionBound || !bind.SessionRequired || !bind.LocalReceiptOnly || !bind.Annotations.IdempotentHint {
+	bind, ok := registry["config/guide_bind"]
+	if !ok || bind.AuthorityRole != durableSession.RolePlanner || !bind.SessionBound || !bind.SessionRequired || bind.LocalReceiptOnly || bind.Annotations.IdempotentHint || bind.InjectSessionProjectID {
 		t.Fatalf("Planner binding action=%#v present=%t", bind, ok)
 	}
 	properties := schemaProperties(bind.InputSchema)
 	if bind.InputSchema["additionalProperties"] != false || len(properties) != 3 ||
 		!reflectStringList(stringList(bind.InputSchema["required"]), []string{"reason", "rule", "subject"}) {
-		t.Fatalf("project/guide_bind input=%#v", bind.InputSchema)
+		t.Fatalf("config/guide_bind input=%#v", bind.InputSchema)
 	}
 	if _, exposed := properties["project_id"]; exposed {
-		t.Fatal("project/guide_bind must inherit project identity from the authenticated Session")
+		t.Fatal("config/guide_bind must inherit project identity from the authenticated Session")
 	}
 	ruleIDSchema := properties["rule"].(map[string]any)
 	reasonSchema := properties["reason"].(map[string]any)
 	subjectSchema := properties["subject"].(map[string]any)
-	if ruleIDSchema["maxLength"] != model.MaxRuleIDLength || ruleIDSchema["pattern"] != model.RuleIDPattern || reasonSchema["maxLength"] != model.MaxDeferredReasonBytes ||
+	if ruleIDSchema["type"] != "string" || reasonSchema["maxLength"] != model.MaxDeferredReasonBytes ||
 		!reflectStringList(stringList(subjectSchema["enum"]), model.GuideSubjects()) {
 		t.Fatalf("binding input bounds/enums: rule=%#v reason=%#v subject=%#v", ruleIDSchema, reasonSchema, subjectSchema)
 	}
-	if bind.OutputSchema["additionalProperties"] != false || !bind.InjectSessionProjectID {
-		t.Fatalf("binding schema projection: output=%#v project binding=%t", bind.OutputSchema, bind.InjectSessionProjectID)
+	if bind.OutputSchema["additionalProperties"] != false || !reflectStringList(stringList(bind.OutputSchema["required"]), []string{"revision"}) {
+		t.Fatalf("binding schema projection: output=%#v", bind.OutputSchema)
 	}
 }
 
@@ -84,35 +84,36 @@ func TestTSK532GuideBindingProvenanceFailClosedAndRoleAuthority(t *testing.T) {
 	}); err == nil {
 		t.Fatal("missing Rule was bound")
 	}
-	workerResponse := tsk532Call(t, server, worker, "project/guide_bind", map[string]any{
+	workerResponse := tsk532Call(t, server, worker, "config/guide_bind", map[string]any{
 		"subject": "task", "rule": rule.ID, "reason": "Worker cannot bind policy",
 	})
 	workerStructured, ok := workerResponse["structuredContent"].(map[string]any)
 	if !ok || workerStructured["ok"] != false {
-		t.Fatalf("Worker project/guide_bind response=%#v", workerResponse)
+		t.Fatalf("Worker config/guide_bind response=%#v", workerResponse)
 	}
 	before, err := server.Service.ProjectConfigurationRead(context.Background(), "example")
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound, ok := tsk532CallResult(t, server, planner, "project/guide_bind", map[string]any{
+	bound, ok := tsk532CallResult(t, server, planner, "config/guide_bind", map[string]any{
 		"subject": "task", "rule": rule.ID, "reason": "Bind the accepted Task workflow guide",
 	})
-	if !ok || bound["subject"] != "task" || bound["rule"] != rule.ID {
-		t.Fatalf("Planner guide binding result=%#v ok=%t", bound, ok)
+	if !ok || bound["revision"] != float64(before.Revision+1) {
+		t.Fatalf("Planner guide binding receipt=%#v ok=%t", bound, ok)
 	}
 	after, err := server.Service.ProjectConfigurationRead(context.Background(), "example")
 	if err != nil || after.Revision != before.Revision+1 || after.GuideBindings["task"] != rule.ID {
 		t.Fatalf("binding configuration=%#v err=%v before=%d", after, err, before.Revision)
 	}
-	if _, ok := tsk532CallResult(t, server, planner, "project/guide_bind", map[string]any{
+	retryReceipt, ok := tsk532CallResult(t, server, planner, "config/guide_bind", map[string]any{
 		"subject": "task", "rule": rule.ID, "reason": "Retry the identical binding",
-	}); !ok {
-		t.Fatal("identical binding retry was rejected")
+	})
+	if !ok || retryReceipt["revision"] != float64(after.Revision+1) {
+		t.Fatalf("identical binding retry receipt=%#v ok=%t", retryReceipt, ok)
 	}
 	retried, err := server.Service.ProjectConfigurationRead(context.Background(), "example")
-	if err != nil || retried.Revision != after.Revision {
-		t.Fatalf("identical binding retry changed revision: before=%d after=%#v err=%v", after.Revision, retried, err)
+	if err != nil || retried.Revision != after.Revision+1 {
+		t.Fatalf("identical binding retry did not return its resulting revision: before=%d after=%#v err=%v", after.Revision, retried, err)
 	}
 	guide, ok := tsk532CallResult(t, server, planner, "task/guide", map[string]any{})
 	if !ok || guide["source"] != "rule" || guide["rule"] != rule.ID || guide["rule_revision"] != float64(rule.Revision) || guide["workflow"] != value["workflow"] {
@@ -125,7 +126,7 @@ func TestTSK532GuideBindingProvenanceFailClosedAndRoleAuthority(t *testing.T) {
 		t.Fatalf("guide copied the Rule description: %#v", guide)
 	}
 	adrRule := tsk532CreateAcceptedGuideRule(t, server.Service, "guide.adr", map[string]string{"guidance": "ADR projection guidance."})
-	if _, ok := tsk532CallResult(t, server, planner, "project/guide_bind", map[string]any{
+	if _, ok := tsk532CallResult(t, server, planner, "config/guide_bind", map[string]any{
 		"subject": "adr", "rule": adrRule.ID, "reason": "Bind the accepted ADR guide",
 	}); !ok {
 		t.Fatal("ADR guide binding was rejected")
@@ -160,7 +161,7 @@ func TestTSK532GuideBindingProvenanceFailClosedAndRoleAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := tsk532CallResult(t, server, planner, "project/guide_bind", map[string]any{
+	if _, ok := tsk532CallResult(t, server, planner, "config/guide_bind", map[string]any{
 		"subject": "task", "rule": other.ID, "reason": "Rebind after the guide revision was updated",
 	}); !ok {
 		t.Fatal("reasoned rebind was rejected")
@@ -184,7 +185,7 @@ func TestTSK532GuideBindingProvenanceFailClosedAndRoleAuthority(t *testing.T) {
 		t.Fatalf("projection mismatch fell back to builtin: %#v", result)
 	}
 	archivedRule := tsk532CreateAcceptedGuideRule(t, server.Service, "guide.task.archived", taskGuideRuleValue("accepted before archival"))
-	if _, ok := tsk532CallResult(t, server, planner, "project/guide_bind", map[string]any{
+	if _, ok := tsk532CallResult(t, server, planner, "config/guide_bind", map[string]any{
 		"subject": "task", "rule": archivedRule.ID, "reason": "test rebind to accepted Rule",
 	}); !ok {
 		t.Fatal("rebind before archival was rejected")
@@ -197,16 +198,10 @@ func TestTSK532GuideBindingProvenanceFailClosedAndRoleAuthority(t *testing.T) {
 	if result, ok := tsk532CallResult(t, server, planner, "task/guide", map[string]any{}); ok {
 		t.Fatalf("archived bound Rule fell back to builtin: %#v", result)
 	}
-	configuration, err := server.Service.ProjectConfigurationRead(context.Background(), "example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	missing := map[string]string{"task": "EXM-RUL999999"}
-	if _, _, err := server.Service.ProjectConfigurationUpdate(authority.WithPlanner(context.Background()), service.ProjectConfigurationUpdateInput{
-		ProjectID: "example", ExpectedRevision: configuration.Revision,
-		Patch: service.ProjectConfigurationPatch{GuideBindings: &missing}, UpdatedBy: "planner",
-	}); err != nil {
-		t.Fatal(err)
+	if _, err := server.Service.ConfigGuideBind(authority.WithPlanner(context.Background()), service.ConfigGuideBindInput{
+		ProjectID: "example", Subject: "task", RuleID: "EXM-RUL999999", Reason: "Reject a binding to a missing Rule.",
+	}); err == nil {
+		t.Fatal("guide binding accepted a missing Rule")
 	}
 	if result, ok := tsk532CallResult(t, server, planner, "task/guide", map[string]any{}); ok {
 		t.Fatalf("missing bound Rule fell back to builtin: %#v", result)

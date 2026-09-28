@@ -42,7 +42,7 @@ func containsRequired(values []string, want string) bool {
 
 func sessionlessActionPath(path string) bool {
 	switch path {
-	case "gateway/status", "project/list", "session/list", "session/info", "session/end":
+	case "runtime/status", "project/list", "session/list", "session/info", "session/end":
 		return true
 	default:
 		return false
@@ -53,7 +53,7 @@ func unboundActionAllowed(path string) bool {
 		return true
 	}
 	switch path {
-	case "gateway/status", "project/list", "session/list", "session/info", "session/end", "debug/status", "debug/prompt", "debug/activate":
+	case "runtime/status", "project/list", "session/list", "session/info", "session/end", "debug/status", "debug/prompt", "debug/activate":
 		return true
 	default:
 		return false
@@ -109,6 +109,7 @@ func genericSchemaOutputSchema() map[string]any {
 	}, "read_only", "destructive", "idempotent", "open_world")
 	contract := closedOutput(map[string]any{
 		"description":   outputString(),
+		"guide":         outputString(),
 		"input_schema":  map[string]any{"type": "object", "additionalProperties": true},
 		"output_schema": map[string]any{"type": "object", "additionalProperties": true},
 		"annotations":   annotations,
@@ -119,7 +120,7 @@ func genericSchemaOutputSchema() map[string]any {
 	}, "revision", "kind", "path", "domains")
 	domain := closedOutput(map[string]any{
 		"revision": outputString(), "kind": outputString(), "path": outputString(),
-		"actions": outputArray(action),
+		"description": outputString(), "guide": outputString(), "actions": outputArray(action),
 	}, "revision", "kind", "path", "actions")
 	actionResult := closedOutput(map[string]any{
 		"revision": outputString(), "kind": outputString(), "path": outputString(),
@@ -163,12 +164,15 @@ func (s *Server) genericCall(ctx context.Context, legacy map[string]Tool, raw js
 		return nil, fmt.Errorf("session is required")
 	}
 	entries := s.genericActionRegistry(legacy)
-	if _, ok := entries[input.Action]; !ok {
-		return genericActionError(input.Action, fmt.Sprintf("unknown action %q; inspect schema with path=\"\"", input.Action)), nil
-	}
 	record, err := s.activeSession(input.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("durable Session authentication failed: %w", err)
+	}
+	if err := s.prepareProcedureActionEntries(ctx, entries, record, input.Action); err != nil {
+		return nil, err
+	}
+	if _, ok := entries[input.Action]; !ok {
+		return genericActionError(input.Action, fmt.Sprintf("unknown action %q; inspect schema with path=\"\"", input.Action)), nil
 	}
 	ctx, err = s.authenticateSession(ctx, entries, record, input.Action)
 	if err != nil {

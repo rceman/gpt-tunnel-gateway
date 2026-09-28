@@ -355,11 +355,7 @@ func taskExecutionVerificationFullSuiteArgv(argv []string) bool {
 // for a Task verification attempt. The caller reuses a valid unchanged
 // exact-candidate receipt before reaching this fresh execution path.
 func (s *Service) executeTaskVerificationGates(ctx context.Context, projectID, root string, names []string) ([]model.CompletionGateResult, error) {
-	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	results, err := s.executeProjectTaskGatesFresh(ctx, projectID, root, names, configuration.Workflow.GateCommands, gates.FullTestScope())
+	results, err := s.executeProjectTaskGatesFresh(ctx, projectID, root, names, model.DefaultProjectGateCommands(), gates.FullTestScope())
 	if err != nil {
 		return results, err
 	}
@@ -377,21 +373,17 @@ func (s *Service) taskExecutionGateProfile(ctx context.Context, projectID string
 	if !containsGate(names, model.WorkflowGateTest) {
 		return nil, "", fmt.Errorf("Task verification requires full-suite test gate coverage")
 	}
-	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
-	if err != nil {
-		return nil, "", err
-	}
 	normalized, err := gates.FullTestScope().Normalize()
 	if err != nil {
 		return nil, "", err
 	}
 	commands := make(map[string]string, len(names))
 	for _, name := range names {
-		argv, err := gates.ProjectGateCommandArgs(configuration.Workflow.GateCommands, name, "task", normalized)
+		argv, err := gates.ProjectGateCommandArgs(model.DefaultProjectGateCommands(), name, "task", normalized)
 		if err != nil {
 			return nil, "", err
 		}
-		digest, err := gates.ProjectGateCommandDigest(configuration.Workflow.GateCommands, name, "task", normalized)
+		digest, err := gates.ProjectGateCommandDigest(model.DefaultProjectGateCommands(), name, "task", normalized)
 		if err != nil {
 			return nil, "", err
 		}
@@ -637,6 +629,11 @@ func (s *Service) taskExecutionTestRun(ctx context.Context, in TaskExecutionTest
 		s.taskExecutionMu.Unlock()
 		return TaskExecutionPublicOutput{}, fmt.Errorf("Task verification is already in flight")
 	}
+	beforePayload := taskLifecycleHookPayload(in.ProjectID, in.Key, AgentSessionID(ctx), operationID, "", state.TaskRevision, state.ExecutionRevision, state.Head, admission.snapshot.tree, state.BaseHead, "", "", "")
+	if err := s.runTaskLifecycleProcedureHook(ctx, model.HookPreTaskVerify, "before", beforePayload, "", nil, ""); err != nil {
+		s.taskExecutionMu.Unlock()
+		return TaskExecutionPublicOutput{}, err
+	}
 	s.taskExecutionVerifyInFlight[in.Key] = operationID
 	if state.Status == model.TaskExecutionReadyForVerification {
 		state.Status = model.TaskExecutionVerifying
@@ -732,6 +729,7 @@ func (s *Service) taskExecutionTestRun(ctx context.Context, in TaskExecutionTest
 	if err := s.Durability.FinishTaskExecutionVerification(finishCtx, next, attempt, receipt); err != nil {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("Task verification finish could not be recorded: %w", err)
 	}
+	postPayload := taskLifecycleHookPayload(in.ProjectID, in.Key, AgentSessionID(ctx), operationID, "", receipt.TaskRevision, receipt.AttemptRevision, receipt.CandidateHead, receipt.CandidateTree, receipt.BaseHead, string(receipt.Outcome), "", "")
 	if outcome == model.TaskExecutionVerificationSucceeded {
 		out := taskExecutionPublicOutput(next)
 		projection, err := taskExecutionVerificationProjection(receipt)
@@ -739,8 +737,15 @@ func (s *Service) taskExecutionTestRun(ctx context.Context, in TaskExecutionTest
 			return TaskExecutionPublicOutput{}, err
 		}
 		out.Verification = &projection
+		result, _ := json.Marshal(out)
+		_ = s.runTaskLifecycleProcedureHook(ctx, model.HookPostTaskVerify, "after", postPayload, "completed", result, "")
 		return out, nil
 	}
+	parentStatus := "failed"
+	if asyncMutationOutcomeUnknown(runErr) || ctx.Err() != nil {
+		parentStatus = "outcome_unknown"
+	}
+	_ = s.runTaskLifecycleProcedureHook(ctx, model.HookPostTaskVerify, "after", postPayload, parentStatus, nil, boundedTaskVerificationError(runErr.Error()))
 	if advancedCanonical != "" {
 		if reconcileErr := s.reconcileTaskExecutionBase(finishCtx, next, admission.project, advancedCanonical); reconcileErr != nil {
 			return TaskExecutionPublicOutput{}, fmt.Errorf("%w (controlled rebase coordination: %v)", runErr, reconcileErr)

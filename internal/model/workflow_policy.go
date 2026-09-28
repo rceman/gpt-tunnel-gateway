@@ -21,6 +21,54 @@ const (
 	WorkflowGateTest   = "test"
 )
 
+type ProjectGateCommand struct {
+	Command []string `json:"command"`
+}
+
+type ProjectGateTestCommands struct {
+	Task ProjectGateCommand `json:"task"`
+}
+
+type ProjectGateCommands struct {
+	Format ProjectGateCommand      `json:"format"`
+	Check  ProjectGateCommand      `json:"check"`
+	Test   ProjectGateTestCommands `json:"test"`
+}
+
+func DefaultProjectGateCommands() ProjectGateCommands {
+	return ProjectGateCommands{
+		Format: ProjectGateCommand{
+			Command: []string{"./scripts/check-go-format.sh"},
+		},
+		Check: ProjectGateCommand{
+			Command: []string{"python3", "scripts/static-check.py"},
+		},
+		Test: ProjectGateTestCommands{
+			Task: ProjectGateCommand{
+				Command: []string{"./scripts/test-full.sh"},
+			},
+		},
+	}
+}
+
+func (v ProjectGateCommands) IsZero() bool {
+	return len(v.Format.Command) == 0 && len(v.Check.Command) == 0 && len(v.Test.Task.Command) == 0
+}
+
+func (v ProjectGateCommands) Validate() error {
+	for name, command := range map[string]ProjectGateCommand{"format": v.Format, "check": v.Check, "test.task": v.Test.Task} {
+		if len(command.Command) == 0 || len(command.Command[0]) == 0 {
+			return fmt.Errorf("invalid %s gate command", name)
+		}
+		for _, part := range command.Command {
+			if part == "" || strings.ContainsAny(part, "\r\n\x00") {
+				return fmt.Errorf("invalid %s gate command", name)
+			}
+		}
+	}
+	return nil
+}
+
 var workflowOperationClasses = map[string]string{
 	"implementation": "task",
 	"correction":     "task",
@@ -50,20 +98,18 @@ type ProjectWorkflowPolicy struct {
 	IntegrationBranch string              `json:"integration_branch"`
 	Agent             WorkflowPolicyAgent `json:"agent"`
 	CI                WorkflowPolicyCI    `json:"ci"`
-	Gates             []string            `json:"gates,omitempty"`
 	UpdatedBy         string              `json:"updated_by"`
 	UpdatedAt         time.Time           `json:"updated_at"`
 }
 
 type EffectiveWorkflowPolicy struct {
-	WorkflowPolicyRevision int      `json:"workflow_policy_revision"`
-	OperationClass         string   `json:"operation_class"`
-	EffectiveCIField       string   `json:"effective_ci_field"`
-	EffectiveCIMode        string   `json:"effective_ci_mode"`
-	WaitForCI              bool     `json:"wait_for_ci"`
-	CIBlocking             bool     `json:"ci_blocking"`
-	AgentMayWait           bool     `json:"agent_may_wait"`
-	Gates                  []string `json:"gates"`
+	WorkflowPolicyRevision int    `json:"workflow_policy_revision"`
+	OperationClass         string `json:"operation_class"`
+	EffectiveCIField       string `json:"effective_ci_field"`
+	EffectiveCIMode        string `json:"effective_ci_mode"`
+	WaitForCI              bool   `json:"wait_for_ci"`
+	CIBlocking             bool   `json:"ci_blocking"`
+	AgentMayWait           bool   `json:"agent_may_wait"`
 }
 
 func StandardWorkflowGates() []string {
@@ -161,9 +207,6 @@ func ValidateProjectWorkflowPolicy(v ProjectWorkflowPolicy) error {
 	if strings.TrimSpace(v.UpdatedBy) == "" || strings.ContainsAny(v.UpdatedBy, "\r\n\x00") || v.UpdatedAt.IsZero() {
 		return fmt.Errorf("invalid workflow policy update metadata")
 	}
-	if err := ValidateWorkflowGates(v.Gates); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -184,7 +227,6 @@ func WorkflowPolicyForOperation(policy ProjectWorkflowPolicy, operationClass str
 			WaitForCI:              false,
 			CIBlocking:             false,
 			AgentMayWait:           false,
-			Gates:                  EffectiveProjectWorkflowGates(policy.Gates),
 		}, nil
 	}
 	mode := policy.CI.Task
@@ -204,7 +246,6 @@ func WorkflowPolicyForOperation(policy ProjectWorkflowPolicy, operationClass str
 		WaitForCI:              wait,
 		CIBlocking:             blocking,
 		AgentMayWait:           wait,
-		Gates:                  EffectiveProjectWorkflowGates(policy.Gates),
 	}, nil
 }
 

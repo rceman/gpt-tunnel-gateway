@@ -2,11 +2,8 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"time"
 
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -58,108 +55,5 @@ func (s *Service) projectConfigurationStatus(ctx context.Context, projectID stri
 	return ProjectConfigurationStatus{
 		State:     state,
 		Conflicts: []string{err.Error()},
-	}
-}
-
-func (s *Service) ProjectConfigurationUpdate(ctx context.Context, in ProjectConfigurationUpdateInput) (model.ProjectConfiguration, OperationResult, error) {
-	if s.Durability != nil {
-		return s.projectConfigurationUpdateShared(ctx, in)
-	}
-	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
-		return model.ProjectConfiguration{}, OperationResult{}, err
-	}
-	if _, err := s.ProjectRead(ctx, in.ProjectID); err != nil {
-		return model.ProjectConfiguration{}, OperationResult{}, err
-	}
-	current, err := s.ProjectConfigurationRead(ctx, in.ProjectID)
-	if err != nil {
-		return model.ProjectConfiguration{}, OperationResult{}, err
-	}
-	if current.Revision != in.ExpectedRevision {
-		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("project configuration revision conflict: expected %d, current %d", in.ExpectedRevision, current.Revision)
-	}
-
-	updated := current
-	applyProjectConfigurationPatch(&updated, in.Patch)
-	updated.Revision = current.Revision + 1
-	updated.UpdatedBy = in.UpdatedBy
-	updated.UpdatedAt = time.Now().UTC()
-	if err := model.ValidateProjectConfiguration(updated); err != nil {
-		return model.ProjectConfiguration{}, OperationResult{}, err
-	}
-	active, err := s.projectHasActiveTaskExecution(ctx, in.ProjectID)
-	if err != nil {
-		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("inspect active Task execution: %w", err)
-	}
-	if active && projectConfigurationPatchIsExecutionSensitive(in.Patch) {
-		return model.ProjectConfiguration{}, OperationResult{}, fmt.Errorf("execution-sensitive project configuration cannot change while an active Task execution exists")
-	}
-	path := s.projectConfigurationPath(in.ProjectID)
-	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: update project configuration "+in.ProjectID, func(worktree string) ([]string, error) {
-		var latestRaw json.RawMessage
-		if err := readWorktreeJSON(worktree, path, &latestRaw); err != nil {
-			return nil, fmt.Errorf("read project configuration: %w", err)
-		}
-		var latest model.ProjectConfiguration
-		if err := decodeStrict(latestRaw, &latest); err != nil {
-			return nil, fmt.Errorf("decode project configuration: %w", err)
-		}
-		if err := model.ValidateProjectConfiguration(latest); err != nil {
-			return nil, fmt.Errorf("current project configuration is invalid: %w", err)
-		}
-		if latest.Revision != in.ExpectedRevision {
-			return nil, fmt.Errorf("project configuration revision conflict: expected %d, current %d", in.ExpectedRevision, latest.Revision)
-		}
-		candidate := latest
-		applyProjectConfigurationPatch(&candidate, in.Patch)
-		candidate.Revision = latest.Revision + 1
-		candidate.UpdatedBy = in.UpdatedBy
-		candidate.UpdatedAt = updated.UpdatedAt
-		if err := model.ValidateProjectConfiguration(candidate); err != nil {
-			return nil, err
-		}
-		if err := hub.WriteJSON(worktree, path, candidate); err != nil {
-			return nil, err
-		}
-		updated = candidate
-		return []string{path}, nil
-	})
-	if err != nil {
-		return model.ProjectConfiguration{}, OperationResult{}, err
-	}
-	return updated, OperationResult{
-		Hub:       tx,
-		ProjectID: in.ProjectID,
-		Status:    "updated",
-	}, nil
-}
-
-func applyProjectConfigurationPatch(configuration *model.ProjectConfiguration, patch ProjectConfigurationPatch) {
-	if patch.AgentRouting != nil {
-		configuration.AgentRouting = *patch.AgentRouting
-	}
-	if patch.Workflow != nil {
-		configuration.Workflow = *patch.Workflow
-	}
-	if patch.GateCommands != nil {
-		configuration.Workflow.GateCommands = *patch.GateCommands
-	}
-	if patch.Checkpoint != nil {
-		configuration.Checkpoint = *patch.Checkpoint
-	}
-	if patch.Integration != nil {
-		configuration.Integration = *patch.Integration
-	}
-	if patch.GuideBindings != nil {
-		configuration.GuideBindings = make(map[string]string, len(*patch.GuideBindings))
-		for subject, ruleID := range *patch.GuideBindings {
-			configuration.GuideBindings[subject] = ruleID
-		}
-	}
-	if patch.Callbacks != nil {
-		configuration.Callbacks = append([]model.ProjectCallback(nil), (*patch.Callbacks)...)
-	}
-	if patch.ActivationProfileRef != nil {
-		configuration.ActivationProfileRef = *patch.ActivationProfileRef
 	}
 }

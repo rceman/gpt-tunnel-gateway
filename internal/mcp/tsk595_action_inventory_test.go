@@ -97,7 +97,17 @@ func loadTSK595Inventory(t *testing.T) tsk595Inventory {
 func TestTSK595FrozenActionInventory(t *testing.T) {
 	inventory := loadTSK595Inventory(t)
 	wantNormal := append(append([]string{}, inventory.NormalActions.Keep...), inventory.NormalActions.Change...)
-	wantNormal = append(wantNormal, tsk663MilestonePlanAction, tsk670TaskResetAction)
+	filtered := wantNormal[:0]
+	for _, path := range wantNormal {
+		if !projectConfigurationV3RemovedAction(path) {
+			filtered = append(filtered, path)
+		}
+	}
+	wantNormal = append(filtered,
+		"config/procedure_list", "config/procedure_read", "config/procedure_create", "config/procedure_update", "config/procedure_remove",
+		"config/hook_list", "config/hook_read", "config/hook_bind", "config/hook_unbind", "config/guide_bind", "runtime/status",
+		tsk663MilestonePlanAction, tsk670TaskResetAction,
+	)
 	server := newSessionTestServer(t)
 	entries := server.genericActionRegistry(server.tools())
 	if !equalTSK595Strings(sortedTSK595Keys(entries), sortedTSK595Strings(wantNormal)) {
@@ -109,6 +119,9 @@ func TestTSK595FrozenActionInventory(t *testing.T) {
 		}
 	}
 	for _, path := range inventory.NormalActions.Change {
+		if projectConfigurationV3RemovedAction(path) {
+			continue
+		}
 		if _, ok := entries[path]; !ok {
 			t.Fatalf("CHANGE path %q is not registered", path)
 		}
@@ -262,8 +275,14 @@ func TestTSK595SharedDefinitionsAndSchemaCost(t *testing.T) {
 func assertTSK595SelectorMigrations(t *testing.T, inventory tsk595Inventory, entries map[string]genericActionEntry) {
 	t.Helper()
 	for _, detail := range inventory.NormalActions.ChangeDetails {
+		if len(detail.Paths) == 1 && detail.Paths[0] == "project/status" {
+			continue
+		}
 		group := make([]genericActionEntry, 0, len(detail.Paths))
 		for _, path := range detail.Paths {
+			if projectConfigurationV3RemovedAction(path) {
+				continue
+			}
 			entry, ok := entries[path]
 			if !ok {
 				t.Fatalf("migration path %s is not registered", path)
@@ -280,6 +299,9 @@ func assertTSK595SelectorMigrations(t *testing.T, inventory tsk595Inventory, ent
 					t.Errorf("%s retains retired selector %q", path, detail.CurrentSelector)
 				}
 			}
+		}
+		if len(group) == 0 {
+			continue
 		}
 		for current, target := range detail.FieldMigrations {
 			targetFound := false
@@ -361,8 +383,8 @@ func assertTSK595IdentityAliases(t *testing.T, expected []string, entries map[st
 	}
 	changed := make(map[string]bool, len(entries))
 	for _, path := range []string{
-		"agent/await", "agent/interrupt", "agent/prompt", "agent/status", "agent/tail", "callback/remove",
-		"gateway/capabilities", "gateway/status", "operation/await", "operation/read", "project/status",
+		"agent/await", "agent/interrupt", "agent/prompt", "agent/status", "agent/tail",
+		"operation/await", "operation/read", "project/status", "runtime/status",
 		"runtime/logs", "runtime/restart", "session/end", "session/info", "session/list", "system/await",
 		"task/current", "task/dispatch", "task/integrate", "task/review_decide", "task/rework", "task/status",
 		"task/submit-code", "task/submit-rebase", "task/test",

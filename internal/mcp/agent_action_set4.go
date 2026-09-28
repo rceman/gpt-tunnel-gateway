@@ -164,6 +164,13 @@ func (s *Server) agentStatusProjectionWithTail(ctx context.Context, projectID, a
 		return nil, err
 	}
 	projection["runtime_state"] = status.SessionState
+	hookStatus, err := s.Service.AgentWorkFinishedHookStatus(ctx, projectID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if hookStatus != nil {
+		projection["work_finished_hook"] = hookStatus
+	}
 	projection["tail"] = tail.Lines
 	projection["tail_count"] = tail.Count
 	projection["tail_has_new_info"] = tail.HasNewInfo
@@ -208,7 +215,7 @@ func sparseAgentStatusProjection(full map[string]any) map[string]any {
 	if value, ok := full["error"].(string); ok && value != "" {
 		sparse["error"] = value
 	}
-	for _, field := range []string{"task_id", "recoverable", "recovery_reason"} {
+	for _, field := range []string{"task_id", "recoverable", "recovery_reason", "work_finished_hook"} {
 		if value, ok := full[field]; ok {
 			sparse[field] = value
 		}

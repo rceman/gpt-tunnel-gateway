@@ -51,13 +51,10 @@ func TestManagedProjectResolutionMCPCapabilitiesAndGitAreDynamic(t *testing.T) {
 	server := &Server{Service: service.New(c)}
 	registry := writeMCPManagedRegistry(t, server.Service, rootOne, "managed", "git@example.invalid:managed.git")
 
-	capabilities, err := executeMCPTool(t, server, "gateway_capabilities", map[string]any{})
-	if err != nil {
-		t.Fatalf("managed capabilities failed: %v", err)
-	}
-	capabilityJSON, _ := json.Marshal(capabilities)
-	if !strings.Contains(string(capabilityJSON), "managed") || strings.Contains(string(capabilityJSON), rootOne) || strings.Contains(string(capabilityJSON), "managed_master") || strings.Contains(string(capabilityJSON), config.ManagedProjectMirrorPath(stateDir, "managed")) {
-		t.Fatalf("capabilities leaked or omitted managed project: %s", capabilityJSON)
+	for _, tool := range server.tools() {
+		if tool.Name == "gateway_capabilities" {
+			t.Fatal("redundant gateway capabilities tool remains exposed")
+		}
 	}
 
 	if err := os.WriteFile(filepath.Join(rootOne, "dirty.txt"), []byte("dirty\n"), 0o600); err != nil {
@@ -100,14 +97,14 @@ func TestManagedProjectResolutionMCPCapabilitiesAndGitAreDynamic(t *testing.T) {
 func TestManagedProjectResolutionMCPFailsClosedAndDoesNotWriteAbsentRegistry(t *testing.T) {
 	stateDir := t.TempDir()
 	server := &Server{Service: service.New(config.Config{GatewayID: "HOM", StateDir: stateDir})}
-	if _, err := executeMCPTool(t, server, "gateway_capabilities", map[string]any{}); err != nil {
-		t.Fatalf("static-only capabilities failed without registry: %v", err)
+	if _, err := executeMCPTool(t, server, "git_worktree_status", map[string]any{"project_id": "managed"}); err == nil {
+		t.Fatal("managed Git resolution succeeded without a registry")
 	}
 	if _, err := os.Stat(config.ManagedProjectRegistryPath(stateDir)); !os.IsNotExist(err) {
-		t.Fatalf("capabilities created registry, stat error=%v", err)
+		t.Fatalf("read-only Git resolution created registry, stat error=%v", err)
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, "locks")); !os.IsNotExist(err) {
-		t.Fatalf("capabilities created registry lock directory, stat error=%v", err)
+		t.Fatalf("read-only Git resolution created registry lock directory, stat error=%v", err)
 	}
 
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
@@ -115,9 +112,6 @@ func TestManagedProjectResolutionMCPFailsClosedAndDoesNotWriteAbsentRegistry(t *
 	}
 	if err := os.WriteFile(config.ManagedProjectRegistryPath(stateDir), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
-	}
-	if _, err := executeMCPTool(t, server, "gateway_capabilities", map[string]any{}); err == nil {
-		t.Fatal("malformed registry fell back to static capabilities")
 	}
 	if _, err := executeMCPTool(t, server, "git_worktree_status", map[string]any{"project_id": "managed"}); err == nil {
 		t.Fatal("malformed registry fell back to static Git resolution")

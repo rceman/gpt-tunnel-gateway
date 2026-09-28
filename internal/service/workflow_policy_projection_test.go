@@ -16,8 +16,8 @@ import (
 
 func assertWorkflowPolicyStatusCI(t *testing.T, status ProjectWorkflowPolicyStatus) {
 	t.Helper()
-	if status.CI.Task != model.WorkflowCIModeDisabled || status.CI.TaskMerge != model.WorkflowCIModeDisabled || status.CI.Release != model.WorkflowCIModeDisabled {
-		t.Fatalf("workflow policy status exposed invalid CI modes: %#v", status)
+	if status.CI.Task != model.WorkflowCIModeDisabled || status.CI.TaskMerge != model.WorkflowCIModeObserve || status.CI.Release != model.WorkflowCIModeObserve {
+		t.Fatalf("workflow policy status lost its canonical Hub projection: %#v", status)
 	}
 	encoded, err := json.Marshal(status)
 	if err != nil {
@@ -28,9 +28,14 @@ func assertWorkflowPolicyStatusCI(t *testing.T, status ProjectWorkflowPolicyStat
 		t.Fatal(err)
 	}
 	ci := wire["ci"].(map[string]any)
-	for _, field := range []string{"task", "task_merge", "release"} {
-		if ci[field] != string(model.WorkflowCIModeDisabled) {
-			t.Fatalf("serialized %s CI mode=%v: %s", field, ci[field], encoded)
+	expected := map[string]string{
+		"task":       string(model.WorkflowCIModeDisabled),
+		"task_merge": string(model.WorkflowCIModeObserve),
+		"release":    string(model.WorkflowCIModeObserve),
+	}
+	for field, mode := range expected {
+		if ci[field] != mode {
+			t.Fatalf("serialized %s CI mode=%v, want %s: %s", field, ci[field], mode, encoded)
 		}
 	}
 }
@@ -69,7 +74,7 @@ func TestProjectStatusWorkflowPolicyStateMatrixUsesDeterministicCIProjection(t *
 			if err != nil {
 				t.Fatal(err)
 			}
-			if status.HubRevision != txRevision || status.WorkflowPolicy.State != state {
+			if status.HubRevision != txRevision || status.ProjectConfiguration.State != state || status.WorkflowPolicy.State != "adopted" {
 				t.Fatalf("unexpected %s status: %#v", state, status)
 			}
 			assertWorkflowPolicyStatusCI(t, status.WorkflowPolicy)
@@ -89,27 +94,34 @@ func trustedWorkflowPolicyContext(ctx context.Context, role string) context.Cont
 }
 
 func TestWorkflowPolicyReadDoesNotUseRetiredHubAuthority(t *testing.T) {
-	s, revision, _ := testServiceWithoutIdentifiers(t)
+	s, _ := tsk384ConfiguredFixture(t)
 	ctx := context.Background()
 	policy, err := s.ProjectWorkflowPolicyRead(ctx, "example")
 	if err != nil {
 		t.Fatal(err)
 	}
-	configurationPath := s.projectConfigurationPath("example")
+	divergent := policy
+	if divergent.CI.Release == model.WorkflowCIModeDisabled {
+		divergent.CI.Release = model.WorkflowCIModeObserve
+	} else {
+		divergent.CI.Release = model.WorkflowCIModeDisabled
+	}
+	revision, err := s.Hub.RemoteRevision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	legacyPath := s.workflowPolicyPath("example")
-	if _, err := s.Hub.Transact(ctx, revision, "test: retire workflow policy authority", func(worktree string) ([]string, error) {
-		if err := os.Remove(filepath.Join(worktree, filepath.FromSlash(configurationPath))); err != nil {
+	if _, err := s.Hub.Transact(ctx, revision, "test: write a retired workflow policy projection", func(worktree string) ([]string, error) {
+		if err := hub.WriteJSON(worktree, legacyPath, divergent); err != nil {
 			return nil, err
 		}
-		if err := hub.WriteJSON(worktree, legacyPath, policy); err != nil {
-			return nil, err
-		}
-		return []string{configurationPath, legacyPath}, nil
+		return []string{legacyPath}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ProjectWorkflowPolicyRead(ctx, "example"); err == nil || !IsNotFound(err) {
-		t.Fatalf("retired Hub workflow policy remained an authority: %v", err)
+	current, err := s.ProjectWorkflowPolicyRead(ctx, "example")
+	if err != nil || !workflowPoliciesEquivalent(current, policy) {
+		t.Fatalf("retired Hub workflow policy altered the Shared Rule projection: current=%#v err=%v", current, err)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
@@ -192,16 +193,16 @@ func configureGoCheckpoint(t *testing.T, s *Service, hubRevision string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = s.ProjectConfigurationUpdate(trustedWorkflowPolicyContext(context.Background(), "planner"), ProjectConfigurationUpdateInput{
-		ProjectID:        "example",
-		ExpectedRevision: configuration.Revision,
-		Patch: ProjectConfigurationPatch{
-			Checkpoint: &model.ProjectCheckpointProfile{Adapter: "go"},
-		},
-		UpdatedBy: "test",
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: hubRevision,
-		},
+	configuration.Checkpoint = model.ProjectCheckpointProfile{Adapter: "go"}
+	configuration.Revision++
+	configuration.UpdatedBy = "test"
+	configuration.UpdatedAt = time.Now().UTC()
+	_, err = s.Hub.Transact(context.Background(), hubRevision, "test: configure Go checkpoint fixture", func(worktree string) ([]string, error) {
+		path := s.projectConfigurationPath("example")
+		if err := hub.WriteJSON(worktree, path, configuration); err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
 	})
 	if err != nil {
 		t.Fatal(err)

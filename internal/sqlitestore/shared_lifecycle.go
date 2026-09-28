@@ -172,10 +172,13 @@ var sharedLifecycleRegistry = map[string]sharedLifecycleDefinition{
 		AllowedTransitions:    map[string][]string{},
 	},
 	"project_configuration": {
-		EntityType:   "project_configuration",
-		StateTable:   "shared_project_configurations",
-		SearchFields: []string{"id", "name", "description", "status"},
-		FilterFields: []string{"status"},
+		EntityType:          "project_configuration",
+		StateTable:          "shared_project_configurations",
+		HistoryTable:        "shared_entity_revisions",
+		HistoryEntityColumn: "entity_type",
+		HistoryIDColumn:     "entity_id",
+		SearchFields:        []string{"id"},
+		FilterFields:        []string{},
 	},
 }
 

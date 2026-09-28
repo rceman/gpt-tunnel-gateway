@@ -52,7 +52,7 @@ func (s *Server) RegisterGenericAction(action GenericAction) error {
 	if strings.HasSuffix(action.Path, "_status") {
 		return fmt.Errorf("generic action %q uses retired *_status receipt path; use operation/read", action.Path)
 	}
-	if strings.HasPrefix(action.Path, "project/") && action.Path != "project/status" && action.Path != "project/guide_bind" {
+	if strings.HasPrefix(action.Path, "project/") && action.Path != "project/status" {
 		return fmt.Errorf("generic action %q is not part of the active project action surface", action.Path)
 	}
 	if strings.HasPrefix(action.Path, "plan/") {
@@ -84,7 +84,7 @@ func sessionProjectInjectionActionPath(path string) bool {
 			return true
 		}
 	}
-	return path == "project/guide_bind" || path == "agent/guide"
+	return path == "agent/guide"
 }
 
 func validGenericActionPath(path string) bool {
@@ -130,7 +130,7 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		if strings.HasPrefix(path, "git/") {
 			continue
 		}
-		if strings.HasPrefix(path, "project/") && path != "project/status" && path != "project/guide_bind" {
+		if strings.HasPrefix(path, "project/") && path != "project/status" {
 			continue
 		}
 		if strings.HasSuffix(path, "_status") && toolName != "git_worktree_status" {
@@ -171,7 +171,7 @@ func (s *Server) genericActionRegistry(legacy map[string]Tool) map[string]generi
 		if strings.HasPrefix(path, "plan/") {
 			continue
 		}
-		if strings.HasPrefix(path, "project/") && path != "project/status" && path != "project/guide_bind" {
+		if strings.HasPrefix(path, "project/") && path != "project/status" {
 			continue
 		}
 		entry := genericActionEntry{GenericAction: action}

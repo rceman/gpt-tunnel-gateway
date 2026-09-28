@@ -25,14 +25,13 @@ type sharedRuleSeedLeaf struct {
 }
 
 func sharedRuleSeedLeaves(configuration model.ProjectConfiguration) []sharedRuleSeedLeaf {
-	workflow := configuration.Workflow
 	return []sharedRuleSeedLeaf{
-		{number: 1, name: "agent.wait_for_ci", summary: "Agent may wait for CI", value: workflow.WaitForCI},
-		{number: 2, name: "ci.release", summary: "Release CI mode", value: workflow.CI.Release},
-		{number: 3, name: "ci.task", summary: "Task CI mode", value: workflow.CI.Task},
-		{number: 4, name: "ci.task_merge", summary: "Integration CI mode", value: workflow.CI.TaskMerge},
-		{number: 5, name: "integration_branch", summary: "Integration branch", value: workflow.IntegrationBranch},
-		{number: 6, name: "workflow_stage", summary: "Workflow stage", value: workflow.WorkflowStage},
+		{number: 1, name: "agent.wait_for_ci", summary: "Agent may wait for CI", value: false},
+		{number: 2, name: "ci.release", summary: "Release CI mode", value: model.WorkflowCIModeDisabled},
+		{number: 3, name: "ci.task", summary: "Task CI mode", value: model.WorkflowCIModeDisabled},
+		{number: 4, name: "ci.task_merge", summary: "Integration CI mode", value: model.WorkflowCIModeDisabled},
+		{number: 5, name: "integration_branch", summary: "Integration branch", value: "main"},
+		{number: 6, name: "workflow_stage", summary: "Workflow stage", value: model.WorkflowStageTransitionalMain},
 	}
 }
 
@@ -46,59 +45,51 @@ func sharedRuleSeedMigration(ctx context.Context, db *upstream.Store) (migrate.M
 	if !ok || definition.StateTable == "" || definition.HistoryTable == "" || definition.SequenceTable == "" {
 		return migration, fmt.Errorf("shared rule lifecycle descriptor is unavailable")
 	}
-	// Names are immutable machine identities, unique per project and never
-	// reused: the unique index reserves them across every lifecycle status
-	// including archived.
 	migration.Statements = append(migration.Statements, upstream.Statement{SQL: `CREATE UNIQUE INDEX IF NOT EXISTS shared_rules_name_idx ON shared_rules(json_extract(payload,'$.project_id'), json_extract(payload,'$.name')) WHERE json_extract(payload,'$.name') IS NOT NULL`})
-	identifiers, err := readSharedRuleSeedIdentifiers(ctx, db)
-	if err != nil {
-		return migration, err
-	}
-	seeded, err := readSharedRuleSeedExisting(ctx, db)
-	if err != nil {
-		return migration, err
-	}
-	rows, err := db.Query(ctx, `SELECT id,revision,payload,updated_at FROM shared_project_configurations ORDER BY id LIMIT ?`, int64(sharedRuleSeedMaxProjects+1))
+	projects, err := db.Query(ctx, `SELECT id FROM shared_project_configurations ORDER BY id LIMIT ?`, int64(sharedRuleSeedMaxProjects+1))
 	if err != nil {
 		return migration, fmt.Errorf("read retained project configurations: %w", err)
 	}
-	if len(rows.Rows) > sharedRuleSeedMaxProjects {
+	if len(projects.Rows) > sharedRuleSeedMaxProjects {
 		return migration, fmt.Errorf("project configuration inventory exceeds bounded migration maximum %d", sharedRuleSeedMaxProjects)
 	}
-	for _, row := range rows.Rows {
-		if len(row) != 4 {
+	for _, row := range projects.Rows {
+		if len(row) != 1 {
 			return migration, fmt.Errorf("invalid shared project configuration row")
 		}
 		projectID, ok := row[0].(string)
-		if !ok {
+		if !ok || model.ValidateProjectIdentifier(projectID) != nil {
 			return migration, fmt.Errorf("invalid shared project configuration id")
 		}
-		var payloadBytes []byte
-		switch value := row[2].(type) {
-		case []byte:
-			payloadBytes = value
-		case string:
-			payloadBytes = []byte(value)
-		default:
-			return migration, fmt.Errorf("invalid shared project configuration payload")
-		}
-		configuration, _, err := MigrateProjectConfigurationPayload(payloadBytes)
+		rules, err := db.Query(ctx, `SELECT payload FROM shared_rules WHERE json_extract(payload,'$.project_id')=? AND json_extract(payload,'$.name') IN ('agent.wait_for_ci','ci.release','ci.task','ci.task_merge','integration_branch','workflow_stage')`, projectID)
 		if err != nil {
-			return migration, fmt.Errorf("migrate project configuration %s: %w", projectID, err)
+			return migration, fmt.Errorf("read canonical workflow Rules for %s: %w", projectID, err)
 		}
-		revision, revisionOK := row[1].(int64)
-		if !revisionOK || configuration.ProjectID != projectID || int64(configuration.Revision) != revision {
-			return migration, fmt.Errorf("project configuration %s identity mismatch", projectID)
+		found := make(map[string]bool, len(rules.Rows))
+		for _, ruleRow := range rules.Rows {
+			if len(ruleRow) != 1 {
+				return migration, fmt.Errorf("invalid canonical workflow Rule row for %s", projectID)
+			}
+			payload, ok := ruleRow[0].([]byte)
+			if !ok {
+				if text, isText := ruleRow[0].(string); isText {
+					payload, ok = []byte(text), true
+				}
+			}
+			if !ok {
+				return migration, fmt.Errorf("invalid canonical workflow Rule payload for %s", projectID)
+			}
+			var rule model.Rule
+			if err := json.Unmarshal(payload, &rule); err != nil || model.ValidateRule(rule) != nil || rule.ProjectID != projectID {
+				return migration, fmt.Errorf("canonical workflow Rule for %s is invalid", projectID)
+			}
+			found[rule.Name] = true
 		}
-		projectCode, ok := identifiers[projectID]
-		if !ok || seeded[projectID] {
-			continue
+		for _, name := range []string{"agent.wait_for_ci", "ci.release", "ci.task", "ci.task_merge", "integration_branch", "workflow_stage"} {
+			if !found[name] {
+				return migration, fmt.Errorf("canonical workflow Rule %q is missing for %s; refusing to invent policy defaults", name, projectID)
+			}
 		}
-		statements, err := sharedRuleSeedStatements(definition, configuration, projectCode)
-		if err != nil {
-			return migration, err
-		}
-		migration.Statements = append(migration.Statements, statements...)
 	}
 	return migration, nil
 }

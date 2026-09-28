@@ -294,14 +294,16 @@ func TestTSK574SharedAgentRolesDoNotInterfereWithWorkerStatusReadiness(t *testin
 		t.Fatalf("project/status failed: %#v", projectStatus)
 	}
 	projectResult := projectStatus["result"].(map[string]any)
-	projectAgent := projectResult["agent"].(map[string]any)
+	if len(projectResult) != 3 || projectResult["configuration_revision"] != float64(1) || projectResult["procedure_count"] != float64(0) || projectResult["bound_hook_count"] != float64(0) {
+		t.Fatalf("project/status is not the compact configuration projection: %#v", projectResult)
+	}
 	agentStatus := fixture.call(t, fixture.sessions[durableSession.RolePlanner], "agent/status", map[string]any{"key": fixture.agentID})
 	if agentStatus["ok"] != true {
 		t.Fatalf("agent/status failed: %#v", agentStatus)
 	}
 	agentResult := agentStatus["result"].(map[string]any)
-	if projectAgent["session_ready"] != true || projectAgent["state"] != "idle" || agentResult["status"] != "idle" {
-		t.Fatalf("readiness parity mismatch: project=%#v agent=%#v", projectAgent, agentResult)
+	if agentResult["status"] != "idle" {
+		t.Fatalf("idle Agent status mismatch: %#v", agentResult)
 	}
 
 	installTSK574Airelay(t, fixture, "running", true)
@@ -310,13 +312,15 @@ func TestTSK574SharedAgentRolesDoNotInterfereWithWorkerStatusReadiness(t *testin
 		t.Fatalf("busy project/status failed: %#v", projectStatus)
 	}
 	projectResult = projectStatus["result"].(map[string]any)
-	projectAgent = projectResult["agent"].(map[string]any)
+	if len(projectResult) != 3 || projectResult["configuration_revision"] != float64(1) || projectResult["procedure_count"] != float64(0) || projectResult["bound_hook_count"] != float64(0) {
+		t.Fatalf("busy project/status changed its compact configuration projection: %#v", projectResult)
+	}
 	agentStatus = fixture.call(t, fixture.sessions[durableSession.RolePlanner], "agent/status", map[string]any{"key": fixture.agentID})
 	if agentStatus["ok"] != true {
 		t.Fatalf("busy agent/status failed: %#v", agentStatus)
 	}
 	agentResult = agentStatus["result"].(map[string]any)
-	if projectAgent["session_ready"] != true || projectAgent["task_id"] != nil || agentResult["task"] != nil || agentResult["status"] != "busy" {
-		t.Fatalf("busy transcript was projected as canonical Task work: project=%#v agent=%#v", projectAgent, agentResult)
+	if agentResult["task"] != nil || agentResult["status"] != "busy" {
+		t.Fatalf("busy transcript was projected as canonical Task work: %#v", agentResult)
 	}
 }

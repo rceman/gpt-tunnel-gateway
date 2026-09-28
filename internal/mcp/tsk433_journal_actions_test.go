@@ -3,10 +3,19 @@ package mcp
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 )
+
+func journalPublicActionEnvelope(t *testing.T, server *Server, session, action string, input map[string]any) map[string]any {
+	t.Helper()
+	return callMCP(t, server, mustJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": time.Now().UnixNano(), "method": "tools/call",
+		"params": map[string]any{"name": "call", "arguments": map[string]any{"session": session, "action": action, "input": input}},
+	}))
+}
 
 func TestTSK433JournalActionSurfaceIsCanonicalAndSessionBound(t *testing.T) {
 	server := &Server{Service: service.New(config.Config{GatewayID: "journal-test", StateDir: t.TempDir()})}
@@ -76,12 +85,12 @@ func TestTSK433JournalActionsRoundTripThroughPublicTransport(t *testing.T) {
 	started := genericStructured(t, sessionCall(t, server, map[string]any{"action": "start", "project_id": "example", "role": "planner", "session_type": "chatgpt"}))
 	session := started["session"].(map[string]any)["session_id"].(string)
 
-	contract := genericActionResult(t, publicCallbackEnvelope(t, server, session, "journal/contract", map[string]any{"stream": "planner-notes"}))
+	contract := genericActionResult(t, journalPublicActionEnvelope(t, server, session, "journal/contract", map[string]any{"stream": "planner-notes"}))
 	if contract["stream"] != "planner-notes" || contract["purpose"] == "" || contract["writer_authority"] == nil {
 		t.Fatalf("journal/contract=%#v", contract)
 	}
 
-	added := genericActionResult(t, publicCallbackEnvelope(t, server, session, "journal/add", map[string]any{
+	added := genericActionResult(t, journalPublicActionEnvelope(t, server, session, "journal/add", map[string]any{
 		"stream": "planner-notes",
 		"data": map[string]any{
 			"summary": "e2e note", "decisions": []any{"d"}, "commitments": []any{}, "facts": []any{},
@@ -93,7 +102,7 @@ func TestTSK433JournalActionsRoundTripThroughPublicTransport(t *testing.T) {
 		t.Fatalf("journal/add=%#v, want key EXM-JRN1", added)
 	}
 
-	read := genericActionResult(t, publicCallbackEnvelope(t, server, session, "journal/read", map[string]any{"key": key}))
+	read := genericActionResult(t, journalPublicActionEnvelope(t, server, session, "journal/read", map[string]any{"key": key}))
 	if read["key"] != key || read["stream"] != "planner-notes" || read["role"] != "planner" || read["sequence"] != float64(1) {
 		t.Fatalf("journal/read=%#v", read)
 	}
@@ -102,13 +111,13 @@ func TestTSK433JournalActionsRoundTripThroughPublicTransport(t *testing.T) {
 		t.Fatalf("journal/read data=%#v", data)
 	}
 
-	list := genericActionResult(t, publicCallbackEnvelope(t, server, session, "journal/list", map[string]any{"stream": "planner-notes"}))
+	list := genericActionResult(t, journalPublicActionEnvelope(t, server, session, "journal/list", map[string]any{"stream": "planner-notes"}))
 	items, _ := list["items"].([]any)
 	if len(items) != 1 {
 		t.Fatalf("journal/list items=%#v", list)
 	}
 
-	rejected := genericStructured(t, publicCallbackEnvelope(t, server, session, "journal/add", map[string]any{
+	rejected := genericStructured(t, journalPublicActionEnvelope(t, server, session, "journal/add", map[string]any{
 		"stream": "planner-notes",
 		"data":   map[string]any{"summary": "incomplete"},
 	}))

@@ -4,237 +4,36 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
-
-	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
-	"github.com/rceman/gpt-tunnel-gateway/internal/model"
-	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
-func TestProjectConfigurationUpdateAsyncIsBoundedAndIdempotent(t *testing.T) {
-	s, revision, _ := testServiceWithoutIdentifiers(t)
-	_ = testServiceWithDurability(t, s)
-	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
-	current, err := s.ProjectConfigurationRead(ctx, "example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	routing := current.AgentRouting
-	routing.SingletonRecommendedReasoning = model.ReasoningMedium
-	in := ProjectConfigurationUpdateInput{
-		ProjectID:        "example",
-		ExpectedRevision: current.Revision,
-		Patch: ProjectConfigurationPatch{
-			AgentRouting: &routing,
-		},
-		UpdatedBy: "planner",
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: revision,
-		},
-	}
-	first, err := s.ProjectConfigurationUpdateAsync(ctx, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := s.ProjectConfigurationUpdateAsync(ctx, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.OperationID == "" || first.OperationID != second.OperationID {
-		t.Fatalf("project/update initiation was not idempotent: first=%#v second=%#v", first, second)
-	}
-
-	deadline := time.Now().Add(10 * time.Second)
-	var completed ProjectConfigurationMutationReceipt
-	for time.Now().Before(deadline) {
-		completed, err = s.ProjectConfigurationUpdateOperationStatus(ctx, first.OperationID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if completed.Status == "completed" || completed.Status == "failed" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if completed.Status != "completed" || completed.Configuration == nil || completed.Configuration.Revision != current.Revision+1 {
-		t.Fatalf("project/update worker did not complete: %#v", completed)
-	}
-}
-
-func TestProjectConfigurationCheckpointUpdateAdvancesRevisionAndUsesSchemaValidPaths(t *testing.T) {
-	s, revision, _ := testServiceWithoutIdentifiers(t)
-	_ = testServiceWithDurability(t, s)
-	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
-	current, err := s.ProjectConfigurationRead(ctx, "example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkpoint := current.Checkpoint
-	checkpoint.Adapter = "go"
-	input := ProjectConfigurationUpdateInput{
-		ProjectID:        "example",
-		ExpectedRevision: current.Revision,
-		Patch: ProjectConfigurationPatch{
-			Checkpoint: &checkpoint,
-		},
-		UpdatedBy: "planner",
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: revision,
-		},
-	}
-	receipt, err := s.ProjectConfigurationUpdateAsync(ctx, input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if receipt.Operation.Hub.Paths == nil {
-		t.Fatal("initial project/update receipt has null operation.hub.paths")
-	}
-
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		receipt, err = s.ProjectConfigurationUpdateOperationStatus(ctx, receipt.OperationID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if receipt.Status == "completed" || receipt.Status == "failed" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if receipt.Status != "completed" {
-		t.Fatalf("checkpoint project/update did not complete: %#v", receipt)
-	}
-	if receipt.Configuration == nil || receipt.Configuration.Revision != current.Revision+1 {
-		t.Fatalf("checkpoint update did not advance revision: current=%d receipt=%#v", current.Revision, receipt)
-	}
-	if receipt.Configuration.Checkpoint.Adapter != "go" {
-		t.Fatalf("checkpoint patch was not persisted: %#v", receipt.Configuration.Checkpoint)
-	}
-	if receipt.Operation.Hub.Paths == nil {
-		t.Fatal("completed project/update receipt has null operation.hub.paths")
-	}
-
-	wire, err := json.Marshal(receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var decoded struct {
-		Operation struct {
-			Hub struct {
-				Paths []string `json:"paths"`
-			} `json:"hub"`
-		} `json:"operation"`
-	}
-	if err := json.Unmarshal(wire, &decoded); err != nil {
-		t.Fatal(err)
-	}
-	if decoded.Operation.Hub.Paths == nil {
-		t.Fatalf("project/update receipt did not encode paths as an array: %s", wire)
-	}
-}
-
-func TestProjectConfigurationMutationReceiptPreservesErrorAndSchemaValidPaths(t *testing.T) {
-	receipt := projectConfigurationMutationReceipt(durableMutationOperation{
-		OperationID: "mutation-project-update",
-		Status:      "failed",
-		Error:       "hub unavailable",
-		CreatedAt:   time.Unix(1, 0).UTC(),
-		UpdatedAt:   time.Unix(2, 0).UTC(),
-	})
-	if receipt.Status != "failed" || receipt.Error != "hub unavailable" {
-		t.Fatalf("receipt error/status was not preserved: %#v", receipt)
-	}
-	if receipt.Operation.Hub.Paths == nil {
-		t.Fatal("failed project/update receipt has null operation.hub.paths")
-	}
-}
-
 func TestProjectConfigurationReadUsesSharedWhenHubUnavailable(t *testing.T) {
-	s, revision, _ := testServiceWithoutIdentifiers(t)
-	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
-	configuration, err := s.ProjectConfigurationRead(ctx, "example")
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	configuration, err := s.ProjectConfigurationRead(context.Background(), "example")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Hub.Transact(ctx, revision, "test: invalidate legacy workflow policy", func(worktree string) ([]string, error) {
-		if err := hub.WriteText(worktree, s.workflowPolicyPath("example"), "{"); err != nil {
-			return nil, err
-		}
-		return []string{s.workflowPolicyPath("example")}, nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	s.Durability = db
-	payload, err := json.Marshal(configuration)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.PutSharedProjection(ctx, "project_configuration", sqlitestore.SharedEntity{
-		ID: configuration.ProjectID, Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.SeedSharedRulesFromConfiguration(ctx, configuration, "EXM"); err != nil {
-		t.Fatal(err)
-	}
+	testServiceWithDurability(t, s)
 	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
-	read, err := s.ProjectConfigurationRead(ctx, "example")
+	read, err := s.ProjectConfigurationRead(context.Background(), "example")
 	if err != nil || read.Revision != configuration.Revision {
 		t.Fatalf("Shared project configuration read failed without Hub: %#v %v", read, err)
 	}
-	policy, err := s.ProjectWorkflowPolicyRead(ctx, "example")
-	if err != nil || policy.ProjectID != "example" || policy.Revision != configuration.Revision {
-		t.Fatalf("Shared workflow policy read failed without Hub: %#v %v", policy, err)
-	}
 }
 
-func TestProjectConfigurationUpdateUsesSharedCASAndOutbox(t *testing.T) {
+func TestProjectConfigurationMutationUsesSharedCASAndOutbox(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
-	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
-	configuration, err := s.ProjectConfigurationRead(ctx, "example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.Durability = db
-	payload, err := json.Marshal(configuration)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.PutSharedProjection(ctx, "project_configuration", sqlitestore.SharedEntity{
-		ID: configuration.ProjectID, Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.SeedSharedRulesFromConfiguration(ctx, configuration, "EXM"); err != nil {
-		t.Fatal(err)
-	}
-	s.Hub.Config.Hub.RepositoryURL = filepath.Join(t.TempDir(), "unavailable-hub.git")
-	routing := configuration.AgentRouting
-	routing.SingletonRecommendedReasoning = model.ReasoningMedium
-	updated, operation, err := s.ProjectConfigurationUpdate(ctx, ProjectConfigurationUpdateInput{
-		ProjectID:        "example",
-		ExpectedRevision: configuration.Revision,
-		Patch: ProjectConfigurationPatch{
-			AgentRouting: &routing,
-		},
-		UpdatedBy: "planner",
+	db := testServiceWithDurability(t, s)
+	defer db.Close()
+	ctx := WithAgentSessionID(trustedWorkflowPolicyContext(context.Background(), "planner"), "planner-test")
+	first, err := s.ConfigProcedureCreate(ctx, ConfigProcedureCreateInput{
+		ProjectID:  "example",
+		Name:       "notify_work_finished",
+		Definition: workFinishedProcedureDefinition(),
+		Reason:     "Add the project work-finished action.",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if updated.Revision != configuration.Revision+1 || operation.OperationID == "" {
-		t.Fatalf("unexpected Shared project update: updated=%#v operation=%#v", updated, operation)
+	if err != nil || first.Revision != 2 {
+		t.Fatalf("Procedure create=%#v err=%v", first, err)
 	}
 	entries, err := db.PendingOutbox(ctx, 20)
 	if err != nil {
@@ -244,7 +43,7 @@ func TestProjectConfigurationUpdateUsesSharedCASAndOutbox(t *testing.T) {
 	for _, entry := range entries {
 		if entry.EntityType == "project_configuration" {
 			configEntries++
-			if entry.EntityID != "example" {
+			if entry.EntityID != "example" || entry.Revision != int64(first.Revision) {
 				t.Fatalf("project configuration outbox=%#v", entries)
 			}
 		}
@@ -252,61 +51,53 @@ func TestProjectConfigurationUpdateUsesSharedCASAndOutbox(t *testing.T) {
 	if configEntries != 1 {
 		t.Fatalf("project configuration outbox=%#v", entries)
 	}
-	if _, _, err := s.ProjectConfigurationUpdate(ctx, ProjectConfigurationUpdateInput{
-		ProjectID:        "example",
-		ExpectedRevision: configuration.Revision,
-		Patch: ProjectConfigurationPatch{
-			AgentRouting: &routing,
-		},
-		UpdatedBy: "other",
-	}); err == nil {
-		t.Fatal("stale project configuration update unexpectedly passed Shared CAS")
+	second, err := s.ConfigProcedureUpdate(ctx, ConfigProcedureUpdateInput{
+		ProjectID:  "example",
+		Name:       "notify_work_finished",
+		Definition: workFinishedProcedureDefinition(),
+		Reason:     "Refresh the project work-finished action.",
+	})
+	if err != nil || second.Revision != 3 {
+		t.Fatalf("Procedure update=%#v err=%v", second, err)
 	}
 }
 
-func TestProjectConfigurationUpdateUsesSharedActiveExecutionGuard(t *testing.T) {
+func TestProjectConfigurationMutationRequiresPlannerAndReason(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
-	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
-	configuration, err := s.ProjectConfigurationRead(ctx, "example")
-	if err != nil {
-		t.Fatal(err)
+	ctx := WithAgentSessionID(context.Background(), "worker-session")
+	input := ConfigProcedureCreateInput{
+		ProjectID:  "example",
+		Name:       "notify_work_finished",
+		Definition: workFinishedProcedureDefinition(),
+		Reason:     "Add the project work-finished action.",
 	}
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := s.ConfigProcedureCreate(ctx, input); err == nil {
+		t.Fatal("non-Planner Procedure mutation succeeded")
 	}
+	ctx = WithAgentSessionID(trustedWorkflowPolicyContext(context.Background(), "planner"), "planner-session")
+	input.Reason = ""
+	if _, err := s.ConfigProcedureCreate(ctx, input); err == nil {
+		t.Fatal("Procedure mutation without a reason succeeded")
+	}
+}
+
+func TestProjectConfigurationSharedPayloadRemainsCanonicalJSON(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	db := testServiceWithDurability(t, s)
 	defer db.Close()
-	s.Durability = db
-	payload, err := json.Marshal(configuration)
-	if err != nil {
-		t.Fatal(err)
+	entities, err := db.ListSharedEntities(context.Background(), "project_configuration", 20)
+	if err != nil || len(entities) != 1 {
+		t.Fatalf("configuration projection=%#v err=%v", entities, err)
 	}
-	if err := db.PutSharedProjection(ctx, "project_configuration", sqlitestore.SharedEntity{
-		ID: configuration.ProjectID, Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano),
-	}); err != nil {
-		t.Fatal(err)
+	var configuration struct {
+		SchemaVersion int               `json:"schema_version"`
+		Hooks         map[string]string `json:"hooks"`
+		Procedures    map[string]any    `json:"procedures"`
 	}
-	if err := db.SeedSharedRulesFromConfiguration(ctx, configuration, "EXM"); err != nil {
-		t.Fatal(err)
+	if err := json.Unmarshal(entities[0].Payload, &configuration); err != nil || configuration.SchemaVersion != 3 || configuration.Hooks == nil || configuration.Procedures == nil {
+		t.Fatalf("noncanonical v3 payload: %#v err=%v", configuration, err)
 	}
-	head := strings.Repeat("b", 40)
-	if err := db.CreateTaskExecutionState(ctx, model.TaskExecutionState{
-		TaskID: "EXM-TSK1", ProjectID: "example", TaskRevision: 1, TaskRevisionSHA256: strings.Repeat("a", 64),
-		Status: model.TaskExecutionInProgress, Stage: "code", Worktree: "WT-TSK1-" + head[:8],
-		BaseHead: strings.Repeat("a", 40), Head: head, Branch: "task/EXM-TSK1-lane", Agent: "gtw-worker",
-		ExecutionRevision: 1, UpdatedAt: time.Now().UTC(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	workflow := configuration.Workflow
-	if _, _, err := s.ProjectConfigurationUpdate(ctx, ProjectConfigurationUpdateInput{
-		ProjectID:        "example",
-		ExpectedRevision: configuration.Revision,
-		Patch: ProjectConfigurationPatch{
-			Workflow: &workflow,
-		},
-		UpdatedBy: "planner",
-	}); err == nil {
-		t.Fatal("execution-sensitive project update passed with active Task execution")
+	if entities[0].UpdatedAt == "" {
+		t.Fatal("project configuration projection omitted UpdatedAt")
 	}
 }

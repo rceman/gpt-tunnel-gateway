@@ -53,41 +53,9 @@ func (s *Service) ProjectWorkflowPolicyReadFast(ctx context.Context, projectID s
 	return s.ProjectWorkflowPolicyRead(ctx, projectID)
 }
 
-// workflowPolicyFromConfiguration derives the workflow policy directly from
-// the configuration document. It is the legacy-compatibility path used when
-// Shared durability is absent. Under Shared durability the configuration
-// document's workflow leaf fields (workflow_stage, integration_branch,
-// agent.wait_for_ci, ci.release, ci.task, ci.task_merge) are provenance
-// retained for the seed migration — the named-rule effective set is the only
-// authority for them.
-func workflowPolicyFromConfiguration(configuration model.ProjectConfiguration) (model.ProjectWorkflowPolicy, error) {
-	policy := model.ProjectWorkflowPolicy{
-		SchemaVersion:     model.SchemaVersion,
-		ProjectID:         configuration.ProjectID,
-		Revision:          configuration.Revision,
-		WorkflowStage:     configuration.Workflow.WorkflowStage,
-		IntegrationBranch: configuration.Workflow.IntegrationBranch,
-		Agent:             model.WorkflowPolicyAgent{WaitForCI: configuration.Workflow.WaitForCI},
-		CI:                configuration.Workflow.CI,
-		Gates:             append([]string{}, configuration.Workflow.Gates...),
-		UpdatedBy:         configuration.UpdatedBy,
-		UpdatedAt:         configuration.UpdatedAt,
-	}
-	if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
-		return model.ProjectWorkflowPolicy{}, err
-	}
-	return policy, nil
-}
-
-// workflowPolicyFromAuthority derives the effective workflow policy for a
-// configured project. Under Shared durability the six machine-policy leaves
-// are sourced exclusively from the named-rule effective set; the
-// configuration document contributes only non-rule fields (gates,
-// revision/updated provenance). Without Shared durability the configuration
-// document remains the leaf authority.
 func (s *Service) workflowPolicyFromAuthority(ctx context.Context, configuration model.ProjectConfiguration) (model.ProjectWorkflowPolicy, error) {
 	if s.Durability == nil {
-		return workflowPolicyFromConfiguration(configuration)
+		return s.readHubWorkflowPolicy(ctx, configuration.ProjectID)
 	}
 	effective, _, err := s.ruleEffectiveSetShared(ctx, configuration.ProjectID)
 	if err != nil {
@@ -96,10 +64,6 @@ func (s *Service) workflowPolicyFromAuthority(ctx context.Context, configuration
 	return workflowPolicyFromEffectiveRules(configuration, effective)
 }
 
-// workflowPolicyFromEffectiveRules composes the effective workflow policy
-// from the named-rule effective set. Every machine leaf is required; a
-// missing or invalid leaf fails closed so a configured project can never run
-// on a vacuous or half-seeded effective set.
 func workflowPolicyFromEffectiveRules(configuration model.ProjectConfiguration, effective []model.Rule) (model.ProjectWorkflowPolicy, error) {
 	leaves := make(map[string]json.RawMessage, len(effective))
 	for _, rule := range effective {
@@ -109,7 +73,6 @@ func workflowPolicyFromEffectiveRules(configuration model.ProjectConfiguration, 
 		SchemaVersion: model.SchemaVersion,
 		ProjectID:     configuration.ProjectID,
 		Revision:      configuration.Revision,
-		Gates:         append([]string{}, configuration.Workflow.Gates...),
 		UpdatedBy:     configuration.UpdatedBy,
 		UpdatedAt:     configuration.UpdatedAt,
 	}
@@ -147,33 +110,42 @@ func workflowPolicyFromEffectiveRules(configuration model.ProjectConfiguration, 
 	return policy, nil
 }
 
-// workflowPolicyLeavesEquivalent compares the six rule-governed machine
-// leaves between two policies; provenance fields (gates, revision, updated
-// metadata) are excluded.
+func (s *Service) readHubWorkflowPolicy(ctx context.Context, projectID string) (model.ProjectWorkflowPolicy, error) {
+	data, err := s.Hub.ReadFile(ctx, s.workflowPolicyPath(projectID))
+	if err != nil {
+		return model.ProjectWorkflowPolicy{}, err
+	}
+	var policy model.ProjectWorkflowPolicy
+	if err := decodeStrict(data, &policy); err != nil {
+		return model.ProjectWorkflowPolicy{}, err
+	}
+	if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
+		return model.ProjectWorkflowPolicy{}, err
+	}
+	if policy.ProjectID != projectID {
+		return model.ProjectWorkflowPolicy{}, fmt.Errorf("workflow policy project_id mismatch")
+	}
+	return policy, nil
+}
+
 func workflowPolicyLeavesEquivalent(left, right model.ProjectWorkflowPolicy) bool {
 	return left.WorkflowStage == right.WorkflowStage && left.IntegrationBranch == right.IntegrationBranch && left.Agent.WaitForCI == right.Agent.WaitForCI && left.CI == right.CI
 }
 
 func workflowPoliciesEquivalent(left, right model.ProjectWorkflowPolicy) bool {
-	if left.ProjectID != right.ProjectID || left.Revision != right.Revision || left.WorkflowStage != right.WorkflowStage || left.IntegrationBranch != right.IntegrationBranch || left.Agent.WaitForCI != right.Agent.WaitForCI || left.CI != right.CI {
-		return false
-	}
-	leftGates := model.EffectiveProjectWorkflowGates(left.Gates)
-	rightGates := model.EffectiveProjectWorkflowGates(right.Gates)
-	if len(leftGates) != len(rightGates) {
-		return false
-	}
-	for i := range leftGates {
-		if leftGates[i] != rightGates[i] {
-			return false
-		}
-	}
-	return true
+	return left.ProjectID == right.ProjectID && left.Revision == right.Revision && workflowPolicyLeavesEquivalent(left, right)
 }
 
 func (s *Service) projectWorkflowPolicyReadDetailed(ctx context.Context, projectID string) (model.ProjectWorkflowPolicy, string, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return model.ProjectWorkflowPolicy{}, "", err
+	}
+	if s.Durability == nil {
+		policy, err := s.readHubWorkflowPolicy(ctx, projectID)
+		if err != nil {
+			return model.ProjectWorkflowPolicy{}, "", err
+		}
+		return policy, "workflow_policy", nil
 	}
 	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
 	if err != nil {
@@ -183,5 +155,5 @@ func (s *Service) projectWorkflowPolicyReadDetailed(ctx context.Context, project
 	if err != nil {
 		return model.ProjectWorkflowPolicy{}, "", fmt.Errorf("project workflow authority is invalid: %w", err)
 	}
-	return policy, "project_configuration", nil
+	return policy, "shared_rules", nil
 }

@@ -2,89 +2,40 @@ package service
 
 import (
 	"context"
-	"encoding/json"
-	"reflect"
 	"testing"
-	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
-	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
-func TestProjectConfigurationUpdateSameOperationRetryReusesCommittedResult(t *testing.T) {
+func TestProjectConfigurationMutationsDoNotAllocateOperations(t *testing.T) {
 	s, _, _ := testServiceWithoutIdentifiers(t)
-	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
+	db := testServiceWithDurability(t, s)
+	ctx := WithAgentSessionID(trustedWorkflowPolicyContext(context.Background(), "planner"), "planner-test")
+	before, err := db.ListLocalOperations(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.ConfigProcedureCreate(ctx, ConfigProcedureCreateInput{
+		ProjectID:  "example",
+		Name:       "notify_work_finished",
+		Definition: workFinishedProcedureDefinition(),
+		Reason:     "Add the project work-finished action.",
+	})
+	if err != nil || result.Revision != 2 {
+		t.Fatalf("Procedure create=%#v err=%v", result, err)
+	}
+	after, err := db.ListLocalOperations(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("synchronous configuration mutation allocated a Local Operation: before=%d after=%d", len(before), len(after))
+	}
 	configuration, err := s.ProjectConfigurationRead(ctx, "example")
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || configuration.Procedures["notify_work_finished"].Script == "" || configuration.Revision != result.Revision {
+		t.Fatalf("configuration after mutation=%#v err=%v", configuration, err)
 	}
-	db, err := sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.Durability = db
-	payload, err := json.Marshal(configuration)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.PutSharedProjection(ctx, "project_configuration", sqlitestore.SharedEntity{
-		ID: configuration.ProjectID, Revision: int64(configuration.Revision), Payload: payload, UpdatedAt: configuration.UpdatedAt.UTC().Format(time.RFC3339Nano),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.SeedSharedRulesFromConfiguration(ctx, configuration, "EXM"); err != nil {
-		t.Fatal(err)
-	}
-	operationCtx := withDurableMutationOperationID(ctx, "mutation-project-configuration-retry")
-	routing := configuration.AgentRouting
-	routing.SingletonRecommendedReasoning = model.ReasoningMedium
-	input := ProjectConfigurationUpdateInput{
-		ProjectID:        "example",
-		ExpectedRevision: configuration.Revision,
-		Patch: ProjectConfigurationPatch{
-			AgentRouting: &routing,
-		},
-		UpdatedBy: "planner",
-	}
-	first, firstOperation, err := s.ProjectConfigurationUpdate(operationCtx, input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	db, err = sqlitestore.Open(s.Config.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	restarted := New(s.Config)
-	restarted.Durability = db
-	second, secondOperation, err := restarted.ProjectConfigurationUpdate(operationCtx, input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.Revision != configuration.Revision+1 || second.Revision != first.Revision || !first.UpdatedAt.Equal(second.UpdatedAt) {
-		t.Fatalf("same operation retry rebuilt result: first=%#v second=%#v", first, second)
-	}
-	if firstOperation.OperationID != secondOperation.OperationID || !reflect.DeepEqual(firstOperation.Hub, secondOperation.Hub) {
-		t.Fatalf("same operation retry changed receipt: first=%#v second=%#v", firstOperation, secondOperation)
-	}
-	entries, err := db.PendingOutbox(ctx, 20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	configEntries := 0
-	for _, entry := range entries {
-		if entry.EntityType != "project_configuration" {
-			continue
-		}
-		configEntries++
-		if entry.Revision != int64(first.Revision) {
-			t.Fatalf("same operation retry duplicated or changed outbox: %#v", entries)
-		}
-	}
-	if configEntries != 1 {
-		t.Fatalf("same operation retry duplicated or changed outbox: %#v", entries)
+	if err := model.ValidateProjectConfiguration(configuration); err != nil {
+		t.Fatalf("persisted configuration is invalid: %v", err)
 	}
 }

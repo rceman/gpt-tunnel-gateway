@@ -123,7 +123,7 @@ func TestADR84PublicBootstrapAndBoundCallUseExactEnvelopes(t *testing.T) {
 func TestADR84ApplicationDomainsRemainBehindSchemaAndCall(t *testing.T) {
 	server := newSessionTestServer(t)
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"agent/list", "callback/list", "system/await"} {
+	for _, path := range []string{"agent/list", "config/hook_list", "system/await"} {
 		if _, ok := entries[path]; !ok {
 			t.Fatalf("application action %q is not registered behind schema/call", path)
 		}
@@ -145,7 +145,7 @@ func TestADR84ApplicationDomainsRemainBehindSchemaAndCall(t *testing.T) {
 	}
 	startedResult := call("session_start")
 	sessionID := startedResult["session"].(string)
-	for _, domain := range []string{"agent", "callback", "system"} {
+	for _, domain := range []string{"agent", "procedure", "system"} {
 		response := callMCPRaw(t, server, mustJSON(t, map[string]any{
 			"jsonrpc": "2.0", "id": domain, "method": "tools/call",
 			"params": map[string]any{"name": "schema", "arguments": map[string]any{

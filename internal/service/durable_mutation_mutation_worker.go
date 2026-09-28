@@ -39,10 +39,33 @@ func (s *Service) startDurableMutationWorker() {
 						operation = adopted
 					}
 				}
+				if durableMutationTerminal(operation.Status) {
+					if operation.Kind == procedureExecutionKind {
+						_ = s.recordAgentWorkFinishedOperationOutcome(operation)
+					}
+					if recovered, changed := reconcilePendingTaskLifecycleHook(operation); changed {
+						_ = s.writeDurableMutation(recovered)
+					}
+					continue
+				}
 				if !replayDurableMutationOnStartup(operation.Status) {
 					continue
 				}
-				if operation.Status == "running" {
+				if operation.Kind == procedureExecutionKind {
+					if err := s.recoverNonReplayableProcedureOperation(operation); err != nil {
+						continue
+					}
+					continue
+				} else if operation.Status == "running" {
+					if pendingTaskLifecycleHookPhase(operation) != "" {
+						operation, _ = reconcilePendingTaskLifecycleHook(operation)
+						operation.Status = "outcome_unknown"
+						operation.Error = "Task lifecycle Hook outcome was not proven before Gateway restart"
+						operation.RecoveryReason = "a claimed Hook invocation is never replayed"
+						operation.UpdatedAt = s.durableNow()
+						_ = s.writeDurableMutation(operation)
+						continue
+					}
 					if err := s.recoverRunningDurableMutation(operation); err != nil {
 						continue
 					}
@@ -213,7 +236,7 @@ func (s *Service) enqueueTypedDurableMutationWithPolicy(ctx context.Context, kin
 				digest = operation.RequestSHA256
 				operationID = operation.OperationID
 			}
-			if !found || durableMutationTerminal(operation.Status) {
+			if !found || operation.Status == "completed" {
 				digest, err = freshDurableMutationDigest(kind, sessionID, raw)
 				if err != nil {
 					return durableMutationOperation{}, err
@@ -328,7 +351,7 @@ func (s *Service) enqueueTypedDurableMutationWithPolicy(ctx context.Context, kin
 }
 
 func durableMutationTerminal(status string) bool {
-	return status == "completed"
+	return status == "completed" || status == "failed" || status == "outcome_unknown"
 }
 
 func (s *Service) findLatestEquivalentDurableMutation(ctx context.Context, kind, projectID, projectCode, sessionID string, input []byte) (durableMutationOperation, bool, error) {

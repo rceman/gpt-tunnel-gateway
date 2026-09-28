@@ -14,7 +14,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
-func TestGatewayStatusUsesSharedProjectProjectionWithoutHub(t *testing.T) {
+func TestRuntimeStatusExposesRuntimeOnlyProjectionWithoutHub(t *testing.T) {
 	stateDir := t.TempDir()
 	db, err := sqlitestore.Open(stateDir)
 	if err != nil {
@@ -79,16 +79,18 @@ func TestGatewayStatusUsesSharedProjectProjectionWithoutHub(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(service.WithAgentSessionID(context.Background(), session.ID), time.Second)
 	defer cancel()
-	value, err := entries["gateway/status"].Execute(ctx, nil)
+	value, err := entries["runtime/status"].Execute(ctx, nil)
 	if err != nil {
-		t.Fatalf("gateway/status failed with unavailable Hub: %v", err)
+		t.Fatalf("runtime/status failed with unavailable Hub: %v", err)
 	}
 	base, ok := value.(map[string]any)
 	if !ok {
-		t.Fatalf("gateway/status result=%#v", value)
+		t.Fatalf("runtime/status result=%#v", value)
 	}
-	projectStatus, ok := base["project_status"].(service.ProjectOperationalStatus)
-	if !ok || projectStatus.Project.ID != projectID || projectStatus.Project.Code != "EXM" {
-		t.Fatalf("gateway/status did not use Shared project projection: %#v", base)
+	if _, ok := base["runtime_identity"]; !ok {
+		t.Fatalf("runtime/status omitted runtime identity: %#v", base)
+	}
+	if _, ok := base["project_status"]; ok {
+		t.Fatalf("runtime/status included project-owned status: %#v", base)
 	}
 }

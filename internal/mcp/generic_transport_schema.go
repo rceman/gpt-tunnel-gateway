@@ -19,12 +19,18 @@ func (s *Server) genericSchemaPublic(ctx context.Context, legacy map[string]Tool
 		return nil, err
 	}
 	entries := s.genericActionRegistry(legacy)
+	if input.Path == "procedure" {
+		return genericSchemaV2(entries, input.Path)
+	}
 	if input.Session == "" {
 		return genericSchemaV2(entries, input.Path)
 	}
 	record, err := s.activeSession(input.Session)
 	if err != nil {
 		return nil, fmt.Errorf("schema session is invalid: durable Session authentication failed: %w", err)
+	}
+	if err := s.prepareProcedureActionEntries(ctx, entries, record, input.Path); err != nil {
+		return nil, err
 	}
 	ctx, err = s.authenticateSession(ctx, entries, record, input.Path)
 	if err != nil {
@@ -62,6 +68,16 @@ func schemaEntriesForSessionRole(entries map[string]genericActionEntry, role str
 }
 
 func genericSchemaV2(entries map[string]genericActionEntry, path string) (map[string]any, error) {
+	if path == "procedure" {
+		return map[string]any{
+			"revision":    genericSchemaRevision,
+			"kind":        "domain",
+			"path":        "procedure",
+			"description": "Project-defined Procedure actions are generated from the bound project's canonical configuration.",
+			"guide":       procedureDomainGuide,
+			"actions":     []any{},
+		}, nil
+	}
 	if entry, ok := entries[path]; ok {
 		return map[string]any{
 			"revision": genericSchemaRevision,
@@ -78,6 +94,7 @@ func genericSchemaV2(entries map[string]genericActionEntry, path string) (map[st
 				domains[domain] = struct{}{}
 			}
 		}
+		domains["procedure"] = struct{}{}
 		keys := make([]string, 0, len(domains))
 		for domain := range domains {
 			keys = append(keys, domain)
@@ -118,7 +135,7 @@ func genericSchemaV2(entries map[string]genericActionEntry, path string) (map[st
 }
 
 func genericActionContractV2(entry genericActionEntry) map[string]any {
-	return map[string]any{
+	result := map[string]any{
 		"description":   entry.Contract.Description,
 		"input_schema":  entry.Contract.Input.JSONSchema(),
 		"output_schema": entry.Contract.Output.JSONSchema(),
@@ -129,4 +146,8 @@ func genericActionContractV2(entry genericActionEntry) map[string]any {
 			"open_world":  entry.Annotations.OpenWorldHint,
 		},
 	}
+	if isProcedureAction(entry.Path) {
+		result["guide"] = entry.Contract.Guide
+	}
+	return result
 }

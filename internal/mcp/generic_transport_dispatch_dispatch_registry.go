@@ -32,6 +32,9 @@ func (s *Server) genericCallWithEntries(ctx context.Context, entries map[string]
 	if err != nil {
 		return nil, fmt.Errorf("durable Session authentication failed: %w", err)
 	}
+	if err := s.prepareProcedureActionEntries(ctx, entries, record, input.Action); err != nil {
+		return nil, err
+	}
 	ctx, err = s.authenticateSession(ctx, entries, record, input.Action)
 	if err != nil {
 		return nil, err
@@ -67,18 +70,11 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	if record.ID != "" && record.ProjectID == "" && !unboundActionAllowed(action) {
 		return genericActionError(action, "PROJECT_BINDING_REQUIRED: bind the session before project work"), nil
 	}
-	contracts := s.actionContractSet()
-	if err := contracts.ValidateInput(action, raw); err != nil {
+	adapted, err := s.validateActionEntryInput(entry, action, raw)
+	if err != nil {
 		return genericActionError(action, err.Error()+"; inspect schema with path=\""+action+"\""), nil
 	}
-	adaptedInput, err := contracts.AdaptInput(action, raw)
-	if err != nil {
-		return genericActionError(action, "action input adaptation failed: "+err.Error()), nil
-	}
-	raw, err = json.Marshal(adaptedInput)
-	if err != nil {
-		return genericActionError(action, "action input adaptation failed"), nil
-	}
+	raw = adapted
 	if operationID := operationIDFromRaw(raw); operationID != "" {
 		ctx = runtime_log.WithOperationID(ctx, operationID)
 	}
@@ -134,7 +130,7 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	if err != nil {
 		return genericActionError(action, err.Error()), nil
 	}
-	publicResult, err = s.projectContractOutput(action, publicResult, genericProjectionScope(record, raw, action))
+	publicResult, err = s.projectEntryContractOutput(entry, action, publicResult, genericProjectionScope(record, raw, action))
 	if err != nil {
 		return genericActionError(action, "action output contract violation: "+err.Error()), nil
 	}

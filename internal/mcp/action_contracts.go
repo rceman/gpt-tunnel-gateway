@@ -92,6 +92,43 @@ func (s *Server) contractTransportHandler(action string, execute func(context.Co
 	}
 }
 
+func (s *Server) validateActionEntryInput(entry genericActionEntry, action string, raw json.RawMessage) (json.RawMessage, error) {
+	if strings.HasPrefix(action, "procedure/") {
+		if err := actioncontract.ValidateCompiledActionInput(entry.Contract, json.RawMessage(raw)); err != nil {
+			return nil, err
+		}
+		return raw, nil
+	}
+	contracts := s.actionContractSet()
+	if err := contracts.ValidateInput(action, raw); err != nil {
+		return nil, err
+	}
+	adapted, err := contracts.AdaptInput(action, raw)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(adapted)
+	return encoded, err
+}
+
+func (s *Server) projectEntryContractOutput(entry genericActionEntry, action string, result map[string]any, scope string) (map[string]any, error) {
+	if !strings.HasPrefix(action, "procedure/") {
+		return s.projectContractOutput(action, result, scope)
+	}
+	projected, err := actioncontract.ProjectCompiledActionOutput(entry.Contract, result)
+	if err != nil {
+		return nil, err
+	}
+	object, ok := projected.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("Procedure action output is not an object")
+	}
+	if err := actioncontract.ValidateCompiledActionOutput(entry.Contract, object); err != nil {
+		return nil, err
+	}
+	return object, nil
+}
+
 func (s *Server) projectContractOutput(action string, result map[string]any, scope string) (map[string]any, error) {
 	contracts := s.actionContractSet()
 	adapted, err := contracts.AdaptOutput(action, result)

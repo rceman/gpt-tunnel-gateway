@@ -165,6 +165,7 @@ type CompiledSchema struct {
 type CompiledAction struct {
 	Path        string
 	Description string
+	Guide       string
 	Metadata    ActionMetadata
 	Input       *CompiledSchema
 	Output      *CompiledSchema

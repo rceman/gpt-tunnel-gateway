@@ -16,7 +16,7 @@ func (s *Service) durableMutationWorker() {
 func (s *Service) processDurableMutation(operationID string) {
 	s.durableMutationMu.Lock()
 	operation, err := s.readDurableMutation(operationID)
-	if err != nil || operation.Status == "completed" {
+	if err != nil || durableMutationTerminal(operation.Status) {
 		s.durableMutationMu.Unlock()
 		return
 	}
@@ -27,7 +27,11 @@ func (s *Service) processDurableMutation(operationID string) {
 	s.durableMutationActive[operationID] = struct{}{}
 	operation.Status = "running"
 	operation.UpdatedAt = time.Now().UTC()
-	_ = s.writeDurableMutation(operation)
+	if err := s.writeDurableMutation(operation); err != nil {
+		delete(s.durableMutationActive, operationID)
+		s.durableMutationMu.Unlock()
+		return
+	}
 	s.durableMutationMu.Unlock()
 	defer func() {
 		s.durableMutationMu.Lock()
@@ -59,22 +63,32 @@ func (s *Service) processDurableMutation(operationID string) {
 		return
 	}
 	operation.UpdatedAt = time.Now().UTC()
+	hookAttempts := taskLifecycleHookAttempts(operation.Result)
 	if runErr != nil {
 		operation.Status = "failed"
-		if errors.Is(runErr, context.DeadlineExceeded) || errors.Is(runErr, context.Canceled) {
+		var procedureErr *procedureExecutionError
+		if errors.As(runErr, &procedureErr) && procedureErr.OutcomeUnknown {
 			operation.Status = "outcome_unknown"
-			operation.RecoveryReason = "bounded worker context ended before Hub outcome was proven; retry is idempotent"
+			operation.RecoveryReason = "Procedure outcome was not proven before the bounded execution ended"
+		} else if errors.Is(runErr, context.DeadlineExceeded) || errors.Is(runErr, context.Canceled) {
+			operation.Status = "outcome_unknown"
+			operation.RecoveryReason = "bounded worker context ended before the Operation outcome was proven"
 		}
 		operation.Error = runErr.Error()
-		operation.Result = nil
+		operation.Result = mergeTaskLifecycleHookAttempts(nil, hookAttempts)
 	} else {
 		operation.Status = "completed"
 		operation.Error = ""
-		operation.Result = result
+		operation.Result = mergeTaskLifecycleHookAttempts(result, hookAttempts)
 	}
-	_ = s.writeDurableMutation(operation)
+	if err := s.writeDurableMutation(operation); err == nil && operation.Kind == procedureExecutionKind {
+		_ = s.recordAgentWorkFinishedOperationOutcome(operation)
+	}
 }
 func (s *Service) executeDurableMutation(ctx context.Context, operation durableMutationOperation) (json.RawMessage, error) {
+	if operation.Kind == procedureExecutionKind {
+		return s.executeProcedureOperation(ctx, operation)
+	}
 	switch operation.Kind {
 	case taskExecutionSubmitKind, "task-execution-integrate", "task-execution-test", "task-authoring-update", "task-authoring-ready":
 		return s.durableMutationExecutionSet1(ctx, operation)

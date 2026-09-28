@@ -2,12 +2,10 @@ package model
 
 import (
 	"fmt"
-	"path/filepath"
-	"strings"
 	"time"
 )
 
-const ProjectConfigurationSchemaVersion = 2
+const ProjectConfigurationSchemaVersion = 3
 
 type ProjectAgentRouting struct {
 	SingletonRecommendedReasoning string `json:"singleton_recommended_reasoning"`
@@ -15,38 +13,8 @@ type ProjectAgentRouting struct {
 	Fallback                      string `json:"fallback"`
 }
 
-// ProjectGateCommand is a repository-owned executable plus its fixed argv.
-// It is deliberately an argv vector rather than a shell command so project
-// configuration cannot introduce shell expansion or pipelines.
-type ProjectGateCommand struct {
-	Command []string `json:"command"`
-}
-
-type ProjectTestGateCommands struct {
-	Task ProjectGateCommand `json:"task"`
-}
-
-// ProjectGateCommands is the complete configurable gate surface. Gateway
-// invariants are intentionally not represented here.
-type ProjectGateCommands struct {
-	Format ProjectGateCommand      `json:"format"`
-	Check  ProjectGateCommand      `json:"check"`
-	Test   ProjectTestGateCommands `json:"test"`
-}
-
 type ProjectIntegrationConfiguration struct {
-	TargetBranch string             `json:"target_branch"`
-	Pre          ProjectGateCommand `json:"pre"`
-	Post         ProjectGateCommand `json:"post"`
-}
-
-type ProjectConfigurationWorkflow struct {
-	WorkflowStage     string              `json:"workflow_stage"`
-	IntegrationBranch string              `json:"integration_branch"`
-	CI                WorkflowPolicyCI    `json:"ci"`
-	Gates             []string            `json:"gates"`
-	GateCommands      ProjectGateCommands `json:"gate_commands"`
-	WaitForCI         bool                `json:"wait_for_ci"`
+	TargetBranch string `json:"target_branch"`
 }
 
 // ProjectCheckpointProfile selects the explicit adapter used by the neutral
@@ -59,18 +27,17 @@ type ProjectCheckpointProfile struct {
 // Host paths, provider/model/session bindings, process IDs and secrets remain
 // in config.Config and are intentionally absent from this model.
 type ProjectConfiguration struct {
-	SchemaVersion        int                             `json:"schema_version"`
-	ProjectID            string                          `json:"project_id"`
-	Revision             int                             `json:"revision"`
-	AgentRouting         ProjectAgentRouting             `json:"agent_routing"`
-	Workflow             ProjectConfigurationWorkflow    `json:"workflow"`
-	Checkpoint           ProjectCheckpointProfile        `json:"checkpoint"`
-	Integration          ProjectIntegrationConfiguration `json:"integration"`
-	GuideBindings        map[string]string               `json:"guide_bindings"`
-	Callbacks            []ProjectCallback               `json:"callbacks,omitempty"`
-	ActivationProfileRef string                          `json:"activation_profile_ref,omitempty"`
-	UpdatedBy            string                          `json:"updated_by"`
-	UpdatedAt            time.Time                       `json:"updated_at"`
+	SchemaVersion int                                   `json:"schema_version"`
+	ProjectID     string                                `json:"project_id"`
+	Revision      int                                   `json:"revision"`
+	AgentRouting  ProjectAgentRouting                   `json:"agent_routing"`
+	Checkpoint    ProjectCheckpointProfile              `json:"checkpoint"`
+	Integration   ProjectIntegrationConfiguration       `json:"integration"`
+	GuideBindings map[string]string                     `json:"guide_bindings"`
+	Procedures    map[string]ProjectProcedureDefinition `json:"procedures"`
+	Hooks         map[string]string                     `json:"hooks"`
+	UpdatedBy     string                                `json:"updated_by"`
+	UpdatedAt     time.Time                             `json:"updated_at"`
 }
 
 func DefaultProjectConfiguration(projectID string, now time.Time) ProjectConfiguration {
@@ -83,93 +50,15 @@ func DefaultProjectConfiguration(projectID string, now time.Time) ProjectConfigu
 			GroupRecommendedReasoning:     ReasoningMax,
 			Fallback:                      ReasoningBestAvailable,
 		},
-		Workflow: ProjectConfigurationWorkflow{
-			WorkflowStage:     WorkflowStageTransitionalMain,
-			IntegrationBranch: "main",
-			CI: WorkflowPolicyCI{
-				Task:      WorkflowCIModeDisabled,
-				TaskMerge: WorkflowCIModeDisabled,
-				Release:   WorkflowCIModeDisabled,
-			},
-			Gates:        StandardWorkflowGates(),
-			GateCommands: DefaultProjectGateCommands(),
-			WaitForCI:    false,
-		},
 		Integration: ProjectIntegrationConfiguration{
 			TargetBranch: "main",
 		},
-		GuideBindings:        map[string]string{},
-		ActivationProfileRef: "default",
-		UpdatedBy:            "gateway",
-		UpdatedAt:            now.UTC(),
+		GuideBindings: map[string]string{},
+		Procedures:    map[string]ProjectProcedureDefinition{},
+		Hooks:         map[string]string{},
+		UpdatedBy:     "gateway",
+		UpdatedAt:     now.UTC(),
 	}
-}
-
-func DefaultProjectGateCommands() ProjectGateCommands {
-	return ProjectGateCommands{
-		Format: ProjectGateCommand{
-			Command: []string{"go", "run", "./cmd/gofmt-struct", "--check", "."},
-		},
-		Check: ProjectGateCommand{
-			Command: []string{"python3", "scripts/static-check.py"},
-		},
-		Test: ProjectTestGateCommands{
-			Task: ProjectGateCommand{
-				Command: []string{"./scripts/test-full.sh"},
-			},
-		},
-	}
-}
-
-func (v ProjectGateCommands) IsZero() bool {
-	return len(v.Format.Command) == 0 && len(v.Check.Command) == 0 && len(v.Test.Task.Command) == 0
-}
-
-func (v ProjectGateCommands) Validate() error {
-	if err := v.Format.Validate("format"); err != nil {
-		return err
-	}
-	if err := v.Check.Validate("check"); err != nil {
-		return err
-	}
-	return v.Test.Task.Validate("test.task")
-}
-
-func (v ProjectGateCommand) Validate(name string) error {
-	if len(v.Command) == 0 || len(v.Command) > 32 || v.Command[0] == "" {
-		return fmt.Errorf("invalid project gate command %s", name)
-	}
-	for _, arg := range v.Command {
-		if arg == "" || containsUnsafeText(arg) || len(arg) > 512 || filepath.IsAbs(arg) || arg == ".." || strings.HasPrefix(arg, "../") || strings.Contains(arg, "/../") {
-			return fmt.Errorf("invalid project gate command %s", name)
-		}
-	}
-	if strings.ContainsAny(v.Command[0], "/\\") && !strings.HasPrefix(v.Command[0], "./") {
-		return fmt.Errorf("project gate command %s must use a repository-relative executable", name)
-	}
-	if (v.Command[0] == "sh" || v.Command[0] == "bash" || v.Command[0] == "zsh") && len(v.Command) > 1 && v.Command[1] == "-c" {
-		return fmt.Errorf("project gate command %s may not invoke a shell string", name)
-	}
-	return nil
-}
-
-func (v ProjectIntegrationConfiguration) Validate() error {
-	if v.TargetBranch != "" {
-		if err := ValidateBranch(v.TargetBranch); err != nil {
-			return fmt.Errorf("integration target branch: %w", err)
-		}
-	}
-	if len(v.Pre.Command) > 0 {
-		if err := v.Pre.Validate("integration.pre"); err != nil {
-			return err
-		}
-	}
-	if len(v.Post.Command) > 0 {
-		if err := v.Post.Validate("integration.post"); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func ValidateProjectConfiguration(v ProjectConfiguration) error {
@@ -179,7 +68,7 @@ func ValidateProjectConfiguration(v ProjectConfiguration) error {
 	if v.UpdatedBy == "" || containsUnsafeText(v.UpdatedBy) {
 		return fmt.Errorf("invalid project configuration update metadata")
 	}
-	if v.GuideBindings == nil || v.Workflow.GateCommands.IsZero() || v.Integration.TargetBranch == "" {
+	if v.GuideBindings == nil || v.Procedures == nil || v.Hooks == nil || v.Integration.TargetBranch == "" {
 		return fmt.Errorf("project configuration is missing canonical fields")
 	}
 	if err := validateReasoningTier(v.AgentRouting.SingletonRecommendedReasoning); err != nil {
@@ -191,38 +80,14 @@ func ValidateProjectConfiguration(v ProjectConfiguration) error {
 	if v.AgentRouting.Fallback != ReasoningBestAvailable {
 		return fmt.Errorf("project agent fallback must be best_available")
 	}
-	gateCommands := v.Workflow.GateCommands
-	if gateCommands.IsZero() {
-		gateCommands = DefaultProjectGateCommands()
+	if err := ValidateBranch(v.Integration.TargetBranch); err != nil {
+		return fmt.Errorf("integration target branch: %w", err)
 	}
-	if err := gateCommands.Validate(); err != nil {
-		return fmt.Errorf("gate configuration: %w", err)
+	if err := ValidateProjectProcedures(v.Procedures); err != nil {
+		return err
 	}
-	policy := ProjectWorkflowPolicy{
-		SchemaVersion:     SchemaVersion,
-		ProjectID:         v.ProjectID,
-		Revision:          v.Revision,
-		WorkflowStage:     v.Workflow.WorkflowStage,
-		IntegrationBranch: v.Workflow.IntegrationBranch,
-		Agent: WorkflowPolicyAgent{
-			WaitForCI: v.Workflow.WaitForCI,
-		},
-		CI:        v.Workflow.CI,
-		Gates:     v.Workflow.Gates,
-		UpdatedBy: v.UpdatedBy,
-		UpdatedAt: v.UpdatedAt,
-	}
-	if err := ValidateProjectWorkflowPolicy(policy); err != nil {
-		return fmt.Errorf("workflow configuration: %w", err)
-	}
-	if v.ActivationProfileRef != "" && ValidateObjectIdentifier(v.ActivationProfileRef) != nil {
-		return fmt.Errorf("invalid activation_profile_ref")
-	}
-	if err := v.Integration.Validate(); err != nil {
-		return fmt.Errorf("integration configuration: %w", err)
-	}
-	if err := ValidateProjectCallbacks(v.Callbacks); err != nil {
-		return fmt.Errorf("callback configuration: %w", err)
+	if err := ValidateProjectHooks(v.Hooks, v.Procedures); err != nil {
+		return err
 	}
 	if err := ValidateGuideBindings(v.GuideBindings); err != nil {
 		return err

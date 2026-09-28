@@ -525,26 +525,30 @@ func TestTSK384WorkflowPolicyAdoptRejectsLeafDivergence(t *testing.T) {
 		t.Fatal(err)
 	}
 	divergent := policy
-	divergent.CI.Release = model.WorkflowCIModeDisabled
+	if divergent.CI.Release == model.WorkflowCIModeDisabled {
+		divergent.CI.Release = model.WorkflowCIModeObserve
+	} else {
+		divergent.CI.Release = model.WorkflowCIModeDisabled
+	}
 	if _, _, err := s.ProjectWorkflowPolicyAdopt(ctx, ProjectWorkflowPolicyInput{
 		Policy: divergent,
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: revision,
 		},
-	}); err == nil || !strings.Contains(err.Error(), "governed by durable rules") {
+	}); err == nil || !strings.Contains(err.Error(), "governed by canonical Rules") {
 		t.Fatalf("leaf-divergent adopt was not rejected: %v", err)
 	}
 	policy.Revision++
-	_, result, err := s.ProjectWorkflowPolicyAdopt(ctx, ProjectWorkflowPolicyInput{
+	if _, _, err := s.ProjectWorkflowPolicyAdopt(ctx, ProjectWorkflowPolicyInput{
 		Policy: policy,
 		WriteOptions: WriteOptions{
 			ExpectedHubRevision: revision,
 		},
-	})
-	if err != nil {
-		t.Fatal(err)
+	}); err == nil || !strings.Contains(err.Error(), "read-only projection") {
+		t.Fatalf("Shared workflow policy projection accepted mutation: %v", err)
 	}
-	if result.Status != "adopted" && result.Status != "updated" {
-		t.Fatalf("unexpected adopt status: %#v", result)
+	currentRevision, err := s.Hub.RemoteRevision(ctx)
+	if err != nil || currentRevision != revision {
+		t.Fatalf("rejected workflow policy mutations changed Hub: revision=%s err=%v", currentRevision, err)
 	}
 }

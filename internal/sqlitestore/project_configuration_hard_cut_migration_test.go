@@ -40,7 +40,7 @@ func TestTSK666Gate20SharedConfigurationOutboxRevisionMigration(t *testing.T) {
 	fields["execution_model"] = "train_v2"
 	delete(fields, "guide_bindings")
 	integration := fields["integration"].(map[string]any)
-	delete(integration, "target_branch")
+	integration["target_branch"] = "main"
 	legacy, err := json.Marshal(fields)
 	if err != nil {
 		t.Fatal(err)
@@ -94,10 +94,10 @@ func TestTSK666Gate20SharedConfigurationOutboxRevisionMigration(t *testing.T) {
 			t.Fatalf("%s payload has type %T", query.name, rows.Rows[0][0])
 		}
 		got, err := DecodeCanonicalProjectConfigurationPayload(payload)
-		if err != nil || got.SchemaVersion != model.ProjectConfigurationSchemaVersion || bytes.Contains(payload, []byte(`"execution_model"`)) || bytes.Contains(payload, []byte(`"watcher"`)) || bytes.Contains(payload, []byte(`"train"`)) {
+		if err != nil || got.SchemaVersion != model.ProjectConfigurationSchemaVersion || bytes.Contains(payload, []byte(`"execution_model"`)) || bytes.Contains(payload, []byte(`"watcher"`)) || bytes.Contains(payload, []byte(`"workflow"`)) {
 			t.Fatalf("%s payload was not canonical: %#v err=%v", query.name, got, err)
 		}
-		if got.GuideBindings == nil || got.Workflow.GateCommands.IsZero() || got.Integration.TargetBranch != got.Workflow.IntegrationBranch {
+		if got.GuideBindings == nil || got.Procedures == nil || got.Hooks == nil || got.Integration.TargetBranch == "" {
 			t.Fatalf("%s payload missed migrated defaults: %#v", query.name, got)
 		}
 	}
@@ -110,6 +110,60 @@ func TestTSK666Gate20SharedConfigurationOutboxRevisionMigration(t *testing.T) {
 	}
 }
 
+func TestProjectConfigurationCallbackMigrationRequiresSemanticMapping(t *testing.T) {
+	configuration := model.DefaultProjectConfiguration("example", time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC))
+	data, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["schema_version"] = 2
+	fields["callbacks"] = []any{map[string]any{
+		"callback": "legacy_notify",
+		"event":    "agent.work_finished",
+		"url":      map[string]any{"method": "POST", "url": "https://example.invalid/hook", "body": "{}"},
+	}}
+	legacy, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := MigrateProjectConfigurationPayload(legacy); err == nil {
+		t.Fatal("legacy callback without explicit semantic Procedure mapping was migrated")
+	}
+	input := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"epoch":   map[string]any{"type": "string", "minLength": 47, "maxLength": 47},
+			"project": map[string]any{"$ref": "EntityKeyAndReference"},
+			"agent":   map[string]any{"$ref": "EntityKeyAndReference"},
+		},
+		"required":             []any{"epoch", "project"},
+		"additionalProperties": false,
+	}
+	fields["procedures"] = map[string]any{
+		"notify": map[string]any{
+			"script": "scripts/notify.sh", "summary": "Notify after Agent work", "guide": "Sends the project's semantic work-finished notification.",
+			"input":  input,
+			"output": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
+		},
+	}
+	fields["hooks"] = map[string]string{model.HookPostAgentWorkFinished: "notify"}
+	mapped, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration, canonical, err := MigrateProjectConfigurationPayload(mapped)
+	if err != nil || configuration.Hooks[model.HookPostAgentWorkFinished] != "notify" {
+		t.Fatalf("explicit callback Procedure mapping failed: configuration=%#v err=%v", configuration, err)
+	}
+	if bytes.Contains(canonical, []byte(`"callbacks"`)) {
+		t.Fatalf("canonical ProjectConfiguration retained callbacks: %s", canonical)
+	}
+}
+
 func projectConfigurationRetiredFieldsFixture(t *testing.T, data []byte) []byte {
 	t.Helper()
 	var fields map[string]any
@@ -117,10 +171,6 @@ func projectConfigurationRetiredFieldsFixture(t *testing.T, data []byte) []byte 
 		t.Fatal(err)
 	}
 	fields["watcher"] = map[string]any{"enabled": true, "interval_seconds": 15}
-	workflow := fields["workflow"].(map[string]any)
-	gateCommands := workflow["gate_commands"].(map[string]any)
-	testGate := gateCommands["test"].(map[string]any)
-	testGate["train"] = map[string]any{"command": []string{"go", "test", "./..."}}
 	payload, err := json.Marshal(fields)
 	if err != nil {
 		t.Fatal(err)

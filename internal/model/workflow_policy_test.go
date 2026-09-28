@@ -1,11 +1,12 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
 
-func TestProjectFormatSelectionRetainsMandatoryCheck(t *testing.T) {
+func TestProjectWorkflowPolicyHasNoGenericGateSelection(t *testing.T) {
 	policy := ProjectWorkflowPolicy{
 		SchemaVersion:     SchemaVersion,
 		ProjectID:         "example",
@@ -19,13 +20,22 @@ func TestProjectFormatSelectionRetainsMandatoryCheck(t *testing.T) {
 		},
 		UpdatedBy: "test",
 		UpdatedAt: time.Now().UTC(),
-		Gates:     []string{WorkflowGateFormat},
 	}
-	effective, err := WorkflowPolicyForOperation(policy, "implementation")
+	if err := ValidateProjectWorkflowPolicy(policy); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(policy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(effective.Gates) != 2 || effective.Gates[0] != WorkflowGateFormat || effective.Gates[1] != WorkflowGateCheck {
-		t.Fatalf("effective gates=%v", effective.Gates)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fields["gates"]; ok {
+		t.Fatalf("ProjectWorkflowPolicy exposes generic gates: %s", encoded)
+	}
+	if _, err := WorkflowPolicyForOperation(policy, "implementation"); err != nil {
+		t.Fatal(err)
 	}
 }

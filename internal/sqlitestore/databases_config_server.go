@@ -293,4 +293,6 @@ const (
 	localMessageCancellationMigrationName                 = "add PLAW message cancellation actor"
 	localTaskExecutionMigrationVersion              int64 = 202609231200
 	localTaskExecutionMigrationName                       = "create Local TaskExecution authority"
+	localAgentWorkHookMigrationVersion              int64 = 202609241300
+	localAgentWorkHookMigrationName                       = "link Agent-work Hook epochs to Procedure Operations"
 )

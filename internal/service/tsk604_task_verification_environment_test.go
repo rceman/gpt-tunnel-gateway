@@ -39,29 +39,18 @@ func TestTSK604TaskCompleteAfterRestartIgnoresEnvironmentDrift(t *testing.T) {
 	}
 }
 
-func TestTSK604GateProfileTracksConfiguredDefinition(t *testing.T) {
-	s, hubRevision, _ := testServiceWithoutIdentifiers(t)
-	ctx := trustedWorkflowPolicyContext(context.Background(), "planner")
+func TestTSK604GateProfileIsIndependentOfProcedureCatalogue(t *testing.T) {
+	s, _, _ := testServiceWithoutIdentifiers(t)
+	ctx := WithAgentSessionID(trustedWorkflowPolicyContext(context.Background(), "planner"), "planner-test")
 	_, before, err := s.taskExecutionGateProfile(ctx, "example")
 	if err != nil {
 		t.Fatal(err)
 	}
-	configuration, err := s.ProjectConfigurationRead(ctx, "example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	commands := configuration.Workflow.GateCommands
-	commands.Format.Command = append(append([]string{}, commands.Format.Command...), "--profile-change")
-	if _, _, err := s.ProjectConfigurationUpdate(ctx, ProjectConfigurationUpdateInput{
-		ProjectID:        "example",
-		ExpectedRevision: configuration.Revision,
-		Patch: ProjectConfigurationPatch{
-			GateCommands: &commands,
-		},
-		UpdatedBy: "planner",
-		WriteOptions: WriteOptions{
-			ExpectedHubRevision: hubRevision,
-		},
+	if _, err := s.ConfigProcedureCreate(ctx, ConfigProcedureCreateInput{
+		ProjectID:  "example",
+		Name:       "notify_work_finished",
+		Definition: workFinishedProcedureDefinition(),
+		Reason:     "Add a Procedure without changing the server-owned verification contract.",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +58,7 @@ func TestTSK604GateProfileTracksConfiguredDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before == after {
-		t.Fatalf("configured gate definition did not change profile digest: %s", before)
+	if before != after {
+		t.Fatalf("Procedure catalogue changed the fixed verification profile: before=%s after=%s", before, after)
 	}
 }

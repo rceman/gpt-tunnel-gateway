@@ -63,7 +63,7 @@ type Service struct {
 	sharedOutboxWorkerOnce                  sync.Once
 	sharedOutboxPollMu                      sync.RWMutex
 	sharedOutboxPollDiagnostic              string
-	callbackWorkerOnce                      sync.Once
+	agentWorkFinishedHookWorkerOnce         sync.Once
 	durableMutationMu                       sync.Mutex
 	durableMutationWake                     chan string
 	durableMutationActive                   map[string]struct{}
@@ -153,7 +153,7 @@ func (s *Service) StartBackgroundWorkers() {
 func (s *Service) StartBackgroundWorkersWithoutSharedOutbox() {
 	s.startTaskCreateWorker()
 	s.startDurableMutationWorker()
-	s.startCallbackWorker()
+	s.startAgentWorkFinishedHookWorker()
 }
 
 func (s *Service) StartSharedOutboxWorker() {
@@ -287,23 +287,4 @@ type AgentDisableInput struct {
 	ProjectID string `json:"project_id"`
 	AgentID   string `json:"agent_id"`
 	UpdatedBy string `json:"updated_by"`
-}
-
-type ProjectConfigurationPatch struct {
-	AgentRouting         *model.ProjectAgentRouting             `json:"agent_routing,omitempty"`
-	Workflow             *model.ProjectConfigurationWorkflow    `json:"workflow,omitempty"`
-	GateCommands         *model.ProjectGateCommands             `json:"gate_commands,omitempty"`
-	Checkpoint           *model.ProjectCheckpointProfile        `json:"checkpoint,omitempty"`
-	Integration          *model.ProjectIntegrationConfiguration `json:"integration,omitempty"`
-	GuideBindings        *map[string]string                     `json:"guide_bindings,omitempty"`
-	Callbacks            *[]model.ProjectCallback               `json:"callbacks,omitempty"`
-	ActivationProfileRef *string                                `json:"activation_profile_ref,omitempty"`
-}
-
-type ProjectConfigurationUpdateInput struct {
-	ProjectID        string                    `json:"project_id"`
-	ExpectedRevision int                       `json:"expected_revision"`
-	Patch            ProjectConfigurationPatch `json:"patch"`
-	UpdatedBy        string                    `json:"updated_by"`
-	WriteOptions
 }

@@ -21,13 +21,17 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 			SessionRequired: required,
 			Execute:         execute,
 		}
-		if path == "session/info" || path == "operation/read" || path == "operation/await" {
+		if path == "runtime/status" || path == "session/info" || path == "operation/read" || path == "operation/await" {
 			action.LocalReadOnly = true
 		}
 		entries[path] = genericActionEntry{GenericAction: action}
 	}
 	add("project/status", true, func(ctx context.Context, raw json.RawMessage) (any, error) {
-		return s.Service.ProjectOperationalStatus(ctx)
+		projectID, err := s.boundConfigurationProject(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return s.Service.ProjectConfigurationSummary(ctx, projectID)
 	})
 	add("session/list", false, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		result, err := s.Service.SessionList(ctx)
@@ -62,7 +66,7 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 		return s.Service.OperationAwait(ctx, input.OperationID, time.Duration(input.Seconds)*time.Second)
 	})
 	if tool, ok := legacy["system_ping"]; ok {
-		add("gateway/status", false, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		add("runtime/status", false, func(ctx context.Context, raw json.RawMessage) (any, error) {
 			baseValue, err := tool.Execute(ctx, []byte(`{}`))
 			if err != nil {
 				return nil, err
@@ -78,22 +82,6 @@ func (s *Server) addBootstrapActions(entries map[string]genericActionEntry, lega
 			} else if runtime.InstalledVersion != "" {
 				base["version"] = runtime.InstalledVersion
 			}
-			sessionID := service.AgentSessionID(ctx)
-			if sessionID == "" {
-				return base, nil
-			}
-			session, err := s.activeSession(sessionID)
-			if err != nil {
-				return nil, fmt.Errorf("status session is invalid: %w", err)
-			}
-			if session.ProjectID == "" {
-				return base, nil
-			}
-			projectStatus, err := s.Service.ProjectOperationalStatus(ctx)
-			if err != nil {
-				return nil, err
-			}
-			base["project_status"] = projectStatus
 			return base, nil
 		})
 	}

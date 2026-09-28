@@ -143,7 +143,7 @@ func normalizeLegacyTransportTestRequest(t *testing.T, body []byte) []byte {
 	var action string
 	switch name {
 	case "status", "system_ping":
-		action = "gateway/status"
+		action = "runtime/status"
 	case "rules":
 		action = "rule/effective"
 	case "project":

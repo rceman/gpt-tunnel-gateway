@@ -34,10 +34,16 @@ func canonicalAgentListOutputSchema() map[string]any {
 }
 
 func canonicalAgentStatusOutputSchema() map[string]any {
+	hook := closedOutput(map[string]any{
+		"epoch":     outputString(),
+		"operation": outputString(),
+		"outcome":   outputEnum("completed", "failed", "outcome_unknown"),
+	}, "epoch", "operation", "outcome")
 	properties := map[string]any{
-		"agent":  outputString(),
-		"status": outputEnum("idle", "busy", "unavailable", "disabled"),
-		"task":   outputString(),
+		"agent":              outputString(),
+		"status":             outputEnum("idle", "busy", "unavailable", "disabled"),
+		"task":               outputString(),
+		"work_finished_hook": hook,
 	}
 	return closedOutput(properties, "agent", "status")
 }

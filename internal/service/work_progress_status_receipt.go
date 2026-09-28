@@ -23,14 +23,10 @@ func (s *Service) executeGoWorkCheckpoint(ctx context.Context, projectID, root s
 	if err != nil {
 		return nil, err
 	}
-	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
 	if s.gateExecutorWithProjectCommandsAndScope == nil {
 		return nil, fmt.Errorf("project checkpoint adapter executor is not configured")
 	}
-	results, err := s.gateExecutorWithProjectCommandsAndScope(ctx, root, gateNames, configuration.Workflow.GateCommands, "task", scope)
+	results, err := s.gateExecutorWithProjectCommandsAndScope(ctx, root, gateNames, model.DefaultProjectGateCommands(), "task", scope)
 	if err != nil {
 		return results, err
 	}

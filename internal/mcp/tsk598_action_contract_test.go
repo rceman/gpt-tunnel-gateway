@@ -14,9 +14,18 @@ func TestTSK598FrozenActionContractsAndRegisteredHandlers(t *testing.T) {
 	inventory := loadTSK595Inventory(t)
 	want := map[string]string{}
 	for _, path := range append(append([]string{}, inventory.NormalActions.Keep...), inventory.NormalActions.Change...) {
+		if projectConfigurationV3RemovedAction(path) {
+			continue
+		}
 		if _, exists := want[path]; exists {
 			t.Fatalf("duplicate normal inventory action %q", path)
 		}
+		want[path] = "normal"
+	}
+	for _, path := range []string{
+		"config/procedure_list", "config/procedure_read", "config/procedure_create", "config/procedure_update", "config/procedure_remove",
+		"config/hook_list", "config/hook_read", "config/hook_bind", "config/hook_unbind", "config/guide_bind", "runtime/status",
+	} {
 		want[path] = "normal"
 	}
 	for _, path := range append(append([]string{}, inventory.ConditionalDebug.Keep...), inventory.ConditionalDebug.Change...) {
@@ -84,6 +93,15 @@ func TestTSK598FrozenActionContractsAndRegisteredHandlers(t *testing.T) {
 		if _, ok := contracts.Action(retired); ok {
 			t.Errorf("retired transport action %q remains compiled", retired)
 		}
+	}
+}
+
+func projectConfigurationV3RemovedAction(path string) bool {
+	switch path {
+	case "callback/events", "callback/list", "callback/register", "callback/remove", "gateway/capabilities", "gateway/status", "project/guide_bind":
+		return true
+	default:
+		return false
 	}
 }
 

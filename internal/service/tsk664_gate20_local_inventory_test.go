@@ -25,7 +25,7 @@ var tsk664LocalFamilies = []tsk664LocalFamily{
 	{"Runtime logs", "stateDir/runtime", "Local process/runtime logs", "LOCAL_ONLY"},
 	{"Gate receipts", "stateDir/gate-receipts", "Local verification evidence", "LOCAL_ONLY"},
 	{"Workflow policy cache", "stateDir/cache/workflow-policy", "Derived local cache", "LOCAL_ONLY"},
-	{"Callbacks and callback epochs", "local_project_callbacks and local_callback_epochs", "Machine callbacks and delivery cursors, migrated out of portable ProjectConfiguration", "LOCAL_ONLY"},
+	{"Agent work-finished epochs", "local_callback_epochs", "Local Hook claim, durable Operation linkage, and outcome evidence", "LOCAL_ONLY"},
 	{"Sessions and messages", "local_sessions, local_session_bootstrap_grants, local_messages, plaw_messages", "Concrete Sessions and machine-local coordination", "LOCAL_ONLY"},
 	{"TaskExecution", "local TaskExecution tables and stateDir/task-worktrees", "Live execution state, lanes, worktrees, and runtime bindings", "LOCAL_ONLY"},
 	{"Token usage", "local_token_usage and local_token_usage_events", "Machine/provider usage evidence", "LOCAL_ONLY"},

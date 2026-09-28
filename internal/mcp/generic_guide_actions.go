@@ -155,46 +155,35 @@ func (s *Server) registerProjectGuideBindAction() error {
 	reason["minLength"], reason["maxLength"] = 1, model.MaxDeferredReasonBytes
 	inputSchema := obj(map[string]any{"subject": subject, "rule": rule, "reason": reason}, "subject", "rule", "reason")
 	return s.RegisterGenericAction(GenericAction{
-		Path:                 "project/guide_bind",
-		Description:          "Bind one applicable project guide to a same-project accepted Rule using a reasoned Planner decision.",
-		InputSchema:          inputSchema,
-		ExecutionInputSchema: adrExecutionSchema(inputSchema),
-		OutputSchema: closedOutput(map[string]any{
-			"subject": outputEnum(model.GuideSubjects()...),
-			"rule": func() map[string]any {
-				value := outputString()
-				value["minLength"], value["maxLength"], value["pattern"] = 8, model.MaxRuleIDLength, model.RuleIDPattern
-				return value
-			}(),
-		}, "subject", "rule"),
+		Path:         "config/guide_bind",
+		Description:  "Bind one applicable project guide to a same-project accepted Rule using a reasoned Planner decision.",
+		InputSchema:  inputSchema,
+		OutputSchema: closedOutput(map[string]any{"revision": outputInteger()}, "revision"),
 		Annotations: ToolAnnotations{
-			IdempotentHint: true,
+			IdempotentHint: false,
 		},
-		LocalReceiptOnly: true,
-		SessionBound:     true,
-		SessionRequired:  true,
-		AuthorityRole:    durableSession.RolePlanner,
+		SessionBound:    true,
+		SessionRequired: true,
+		AuthorityRole:   durableSession.RolePlanner,
 		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			if err := requireGuideBindingPlanner(ctx); err != nil {
 				return nil, err
 			}
 			var in struct {
-				ProjectID string `json:"project_id"`
-				Subject   string `json:"subject"`
-				RuleID    string `json:"rule"`
-				Reason    string `json:"reason"`
+				Subject string `json:"subject"`
+				RuleID  string `json:"rule"`
+				Reason  string `json:"reason"`
 			}
 			if err := decode(raw, &in); err != nil {
 				return nil, err
 			}
-			binding, err := s.Service.ProjectGuideBind(ctx, service.ProjectGuideBindingInput{
-				ProjectID: in.ProjectID, Subject: in.Subject, RuleID: in.RuleID,
-				Reason: in.Reason, UpdatedBy: service.AgentSessionID(ctx),
-			})
+			projectID, err := s.boundConfigurationProject(ctx)
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"subject": binding.Subject, "rule": binding.Rule}, nil
+			return s.Service.ConfigGuideBind(ctx, service.ConfigGuideBindInput{
+				ProjectID: projectID, Subject: in.Subject, RuleID: in.RuleID, Reason: in.Reason,
+			})
 		},
 	})
 }
@@ -202,7 +191,7 @@ func (s *Server) registerProjectGuideBindAction() error {
 func requireGuideBindingPlanner(ctx context.Context) error {
 	if resolved, ok := resolvedSessionAuthorityFromContext(ctx); ok {
 		if resolved.Session.Role != durableSession.RolePlanner {
-			return fmt.Errorf("project/guide_bind requires a Planner Session")
+			return fmt.Errorf("config/guide_bind requires a Planner Session")
 		}
 		return nil
 	}

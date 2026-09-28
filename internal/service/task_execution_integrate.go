@@ -316,6 +316,10 @@ func (s *Service) TaskExecutionIntegrate(ctx context.Context, in TaskExecutionIn
 				Gates:              receipt.Gates,
 			}
 			if state.Status == model.TaskExecutionVerified {
+				beforePayload := taskLifecycleHookPayload(in.ProjectID, in.Key, AgentSessionID(ctx), durableMutationOperationID(ctx), "", operationCapture.TaskRevision, state.ExecutionRevision, operationCapture.CandidateHead, operationCapture.CandidateTree, operationCapture.BaseHead, "", "", "")
+				if err := s.runTaskLifecycleProcedureHook(ctx, model.HookPreTaskIntegrate, "before", beforePayload, "", nil, ""); err != nil {
+					return TaskExecutionPublicOutput{}, err
+				}
 				state.Status = model.TaskExecutionIntegrating
 				state.ExecutionRevision++
 				state.UpdatedAt = s.durableNow()
@@ -444,7 +448,11 @@ func (s *Service) TaskExecutionIntegrate(ctx context.Context, in TaskExecutionIn
 	if err := s.Durability.TransitionTaskExecutionState(ctx, state, state.ExecutionRevision-1, phase); err != nil {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("Task integration landing state remains pending; retry is required: %w", err)
 	}
-	return taskExecutionPublicOutput(state), nil
+	output := taskExecutionPublicOutput(state)
+	result, _ := json.Marshal(output)
+	afterPayload := taskLifecycleHookPayload(in.ProjectID, in.Key, AgentSessionID(ctx), durableMutationOperationID(ctx), "", operationCapture.TaskRevision, state.ExecutionRevision, operationCapture.CandidateHead, operationCapture.CandidateTree, operationCapture.BaseHead, "", operationCapture.IntegrationHead, string(model.TaskExecutionIntegrated))
+	_ = s.runTaskLifecycleProcedureHook(ctx, model.HookPostTaskIntegrate, "after", afterPayload, "completed", result, "")
+	return output, nil
 }
 
 // taskIntegrationCommitExact proves the recorded prepared commit still has its

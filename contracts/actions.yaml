@@ -822,6 +822,27 @@ domains:
                     type: string
                 task:
                     ref: EntityKeyAndReference
+                work_finished_hook:
+                    additional_properties: false
+                    properties:
+                        epoch:
+                            max_length: 47
+                            min_length: 47
+                            pattern: '^agent-work-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                            type: string
+                        operation:
+                            ref: EntityKeyAndReference
+                        outcome:
+                            enum:
+                                - completed
+                                - failed
+                                - outcome_unknown
+                            type: string
+                    required:
+                        - epoch
+                        - operation
+                        - outcome
+                    type: object
             required:
                 - agent
                 - status
@@ -867,326 +888,6 @@ domains:
                 - lines
             type: object
       name: agent
-    - actions:
-        - description: List the bounded project callback events supported by Gateway.
-          input:
-            additional_properties: false
-            properties: {}
-            type: object
-          metadata:
-            annotations:
-                destructive: false
-                idempotent: true
-                open_world: false
-                read_only: true
-            selector: none
-            surface: normal
-          name: events
-          output:
-            additional_properties: false
-            properties:
-                events:
-                    items:
-                        additional_properties: false
-                        properties:
-                            description:
-                                type: string
-                            key:
-                                ref: EntityKeyAndReference
-                        required:
-                            - key
-                            - description
-                        type: object
-                    type: array
-            required:
-                - events
-            type: object
-        - description: List deterministic compact callback registrations for the bound project.
-          input:
-            additional_properties: false
-            properties: {}
-            type: object
-          metadata:
-            annotations:
-                destructive: false
-                idempotent: true
-                open_world: false
-                read_only: true
-            selector: none
-            surface: normal
-          name: list
-          output:
-            additional_properties: false
-            properties:
-                callbacks:
-                    items:
-                        additional_properties: false
-                        properties:
-                            event:
-                                type: string
-                            key:
-                                ref: EntityKeyAndReference
-                            script:
-                                additional_properties: false
-                                properties:
-                                    path:
-                                        type: string
-                                required:
-                                    - path
-                                type: object
-                            url:
-                                additional_properties: false
-                                properties:
-                                    method:
-                                        enum:
-                                            - POST
-                                            - PUT
-                                        type: string
-                                    url:
-                                        type: string
-                                required:
-                                    - method
-                                    - url
-                                type: object
-                        required:
-                            - key
-                            - event
-                        type: object
-                    type: array
-            required:
-                - callbacks
-            type: object
-        - description: Register one bounded project callback for an Agent work-finished event.
-          input:
-            additional_properties: false
-            any_of:
-                - additional_properties: false
-                  properties:
-                    callback:
-                        ref: EntityKeyAndReference
-                    event:
-                        enum:
-                            - agent.work_finished
-                        type: string
-                    script:
-                        additional_properties: false
-                        properties:
-                            args:
-                                items:
-                                    description: One bounded script argument.
-                                    max_length: 256
-                                    type: string
-                                max_items: 16
-                                type: array
-                            path:
-                                description: Repository-relative callback script path.
-                                max_length: 4096
-                                min_length: 1
-                                type: string
-                        required:
-                            - path
-                            - args
-                        type: object
-                    url:
-                        additional_properties: false
-                        properties:
-                            body:
-                                description: Exact callback request body.
-                                max_length: 16384
-                                type: string
-                            method:
-                                enum:
-                                    - POST
-                                    - PUT
-                                type: string
-                            url:
-                                description: Absolute HTTP or HTTPS callback URL.
-                                max_length: 2048
-                                min_length: 1
-                                type: string
-                        required:
-                            - method
-                            - url
-                            - body
-                        type: object
-                  required:
-                    - callback
-                    - event
-                    - url
-                  type: object
-                - additional_properties: false
-                  properties:
-                    callback:
-                        ref: EntityKeyAndReference
-                    event:
-                        enum:
-                            - agent.work_finished
-                        type: string
-                    script:
-                        additional_properties: false
-                        properties:
-                            args:
-                                items:
-                                    description: One bounded script argument.
-                                    max_length: 256
-                                    type: string
-                                max_items: 16
-                                type: array
-                            path:
-                                description: Repository-relative callback script path.
-                                max_length: 4096
-                                min_length: 1
-                                type: string
-                        required:
-                            - path
-                            - args
-                        type: object
-                    url:
-                        additional_properties: false
-                        properties:
-                            body:
-                                description: Exact callback request body.
-                                max_length: 16384
-                                type: string
-                            method:
-                                enum:
-                                    - POST
-                                    - PUT
-                                type: string
-                            url:
-                                description: Absolute HTTP or HTTPS callback URL.
-                                max_length: 2048
-                                min_length: 1
-                                type: string
-                        required:
-                            - method
-                            - url
-                            - body
-                        type: object
-                  required:
-                    - callback
-                    - event
-                    - script
-                  type: object
-            properties:
-                callback:
-                    ref: EntityKeyAndReference
-                event:
-                    enum:
-                        - agent.work_finished
-                    type: string
-                script:
-                    additional_properties: false
-                    properties:
-                        args:
-                            items:
-                                description: One bounded script argument.
-                                max_length: 256
-                                type: string
-                            max_items: 16
-                            type: array
-                        path:
-                            description: Repository-relative callback script path.
-                            max_length: 4096
-                            min_length: 1
-                            type: string
-                    required:
-                        - path
-                        - args
-                    type: object
-                url:
-                    additional_properties: false
-                    properties:
-                        body:
-                            description: Exact callback request body.
-                            max_length: 16384
-                            type: string
-                        method:
-                            enum:
-                                - POST
-                                - PUT
-                            type: string
-                        url:
-                            description: Absolute HTTP or HTTPS callback URL.
-                            max_length: 2048
-                            min_length: 1
-                            type: string
-                    required:
-                        - method
-                        - url
-                        - body
-                    type: object
-            required:
-                - callback
-                - event
-            type: object
-          metadata:
-            annotations:
-                destructive: true
-                idempotent: true
-                open_world: false
-                read_only: false
-            selector: none
-            surface: normal
-          name: register
-          output:
-            additional_properties: false
-            properties:
-                event:
-                    type: string
-                key:
-                    ref: EntityKeyAndReference
-                status:
-                    enum:
-                        - registered
-                        - already_registered
-                        - removed
-                    type: string
-            required:
-                - key
-                - event
-                - status
-            type: object
-        - description: Remove one exact project callback registration.
-          input:
-            additional_properties: false
-            properties:
-                key:
-                    ref: EntityKeyAndReference
-            required:
-                - key
-            type: object
-          metadata:
-            annotations:
-                destructive: true
-                idempotent: true
-                open_world: false
-                read_only: false
-            handler_input:
-                - from: key
-                  to: callback
-            selector: key
-            surface: normal
-          name: remove
-          output:
-            additional_properties: false
-            properties:
-                event:
-                    type: string
-                key:
-                    ref: EntityKeyAndReference
-                status:
-                    enum:
-                        - registered
-                        - already_registered
-                        - removed
-                    type: string
-            required:
-                - key
-                - event
-                - status
-            type: object
-      name: callback
     - actions:
         - description: Read a bounded diff from an authoritative local worktree base to the current head or an optional authoritative recorded head.
           input:
@@ -1835,283 +1536,6 @@ domains:
                 - exit_code
             type: object
       name: debug
-    - actions:
-        - description: Describe configured limits, projects, and transport.
-          input:
-            additional_properties: false
-            properties: {}
-            type: object
-          metadata:
-            annotations:
-                destructive: false
-                idempotent: true
-                open_world: false
-                read_only: true
-            handler_output:
-                - from: gateway_id
-                  to: gateway
-            selector: none
-            surface: normal
-          name: capabilities
-          output:
-            additional_properties: false
-            properties:
-                airelay_control_only:
-                    type: boolean
-                gateway:
-                    ref: EntityKeyAndReference
-                generic_shell_available:
-                    type: boolean
-                hub_branch:
-                    type: string
-                hub_managed_root:
-                    type: string
-                hub_protocol_root:
-                    type: string
-                hub_repository_url:
-                    type: string
-                listen_addr:
-                    type: string
-                projects:
-                    items:
-                        type: string
-                    type: array
-            required:
-                - gateway
-                - listen_addr
-                - projects
-                - hub_protocol_root
-                - hub_repository_url
-                - hub_branch
-                - hub_managed_root
-                - airelay_control_only
-                - generic_shell_available
-            type: object
-        - description: Read Gateway health and runtime status.
-          input:
-            additional_properties: false
-            properties: {}
-            type: object
-          metadata:
-            annotations:
-                destructive: false
-                idempotent: false
-                open_world: true
-                read_only: false
-            handler_output:
-                - from: gateway_id
-                  to: gateway
-                - from: project_status.agent.agent_id
-                  to: project_status.agent.key
-                - from: project_status.operation.operation_id
-                  to: project_status.operation.key
-                - from: project_status.project.project_id
-                  to: project_status.project.key
-                - from: project_status.task_id
-                  to: project_status.task
-            selector: none
-            surface: normal
-          name: status
-          output:
-            additional_properties: false
-            properties:
-                gateway:
-                    ref: EntityKeyAndReference
-                project_status:
-                    additional_properties: false
-                    properties:
-                        agent:
-                            additional_properties: false
-                            properties:
-                                expected:
-                                    type: string
-                                key:
-                                    ref: EntityKeyAndReference
-                                last_activity:
-                                    ref: Timestamp
-                                last_activity_age_seconds:
-                                    ref: Duration
-                                    unit: seconds
-                                session_ready:
-                                    type: boolean
-                                state:
-                                    type: string
-                            required:
-                                - expected
-                                - state
-                                - session_ready
-                                - last_activity_age_seconds
-                            type: object
-                        blocker:
-                            type: string
-                        integration:
-                            additional_properties: false
-                            properties:
-                                candidate_head:
-                                    ref: GitFingerprint
-                                exact_source_match:
-                                    type: boolean
-                                ready:
-                                    type: boolean
-                                runtime_source_sha:
-                                    ref: GitFingerprint
-                                state:
-                                    type: string
-                                version_match:
-                                    type: boolean
-                            required:
-                                - state
-                                - ready
-                                - version_match
-                                - exact_source_match
-                            type: object
-                        operation:
-                            additional_properties: false
-                            properties:
-                                key:
-                                    ref: EntityKeyAndReference
-                                kind:
-                                    type: string
-                                status:
-                                    type: string
-                            required:
-                                - kind
-                                - key
-                                - status
-                            type: object
-                        project:
-                            additional_properties: false
-                            properties:
-                                key:
-                                    ref: EntityKeyAndReference
-                                project_code:
-                                    type: string
-                            required:
-                                - key
-                                - project_code
-                            type: object
-                        recommended_next_action:
-                            type: string
-                        release_ci:
-                            additional_properties: false
-                            properties:
-                                sha:
-                                    any_of:
-                                        - max_length: 8
-                                          min_length: 8
-                                          pattern: ^[0-9a-f]{8}$
-                                          type: string
-                                        - const: ""
-                                          type: string
-                                state:
-                                    type: string
-                                status:
-                                    type: string
-                                tag:
-                                    type: string
-                            required:
-                                - state
-                            type: object
-                        rules:
-                            additional_properties: false
-                            properties:
-                                acknowledged:
-                                    type: boolean
-                                fresh:
-                                    type: boolean
-                            required:
-                                - acknowledged
-                                - fresh
-                            type: object
-                        shared_sync:
-                            additional_properties: false
-                            properties:
-                                last_error:
-                                    type: string
-                                pending:
-                                    type: integer
-                                retrying:
-                                    type: integer
-                                state:
-                                    type: string
-                            required:
-                                - state
-                                - pending
-                                - retrying
-                            type: object
-                        state:
-                            type: string
-                        task:
-                            ref: EntityKeyAndReference
-                        task_state:
-                            type: string
-                    required:
-                        - project
-                        - state
-                        - agent
-                        - integration
-                        - rules
-                        - release_ci
-                        - shared_sync
-                        - recommended_next_action
-                    type: object
-                runtime_identity:
-                    additional_properties: false
-                    properties:
-                        artifact_set_coherent:
-                            type: boolean
-                        exact_source_match:
-                            type: boolean
-                        gateway_pid:
-                            type: integer
-                        gateway_ready:
-                            type: boolean
-                        installed_artifact_versions:
-                            additional_property_schema:
-                                type: string
-                            type: object
-                        installed_version:
-                            type: string
-                        provenance_reason:
-                            type: string
-                        running_executable_path:
-                            type: string
-                        running_gateway_matches_installed:
-                            type: boolean
-                        running_version:
-                            type: string
-                        source_provenance_available:
-                            type: boolean
-                        source_sha:
-                            ref: GitFingerprint
-                        tunnel_pid:
-                            type: integer
-                        tunnel_ready:
-                            type: boolean
-                        version_match:
-                            type: boolean
-                    required:
-                        - artifact_set_coherent
-                        - running_gateway_matches_installed
-                        - version_match
-                        - gateway_ready
-                        - tunnel_ready
-                        - source_provenance_available
-                        - exact_source_match
-                    type: object
-                service:
-                    type: string
-                time:
-                    ref: Timestamp
-                version:
-                    type: string
-            required:
-                - service
-                - gateway
-                - time
-                - runtime_identity
-            type: object
-      name: gateway
     - actions:
         - description: Append one contract-validated immutable entry to a journal stream.
           input:
@@ -3287,64 +2711,6 @@ domains:
             type: object
       name: operation
     - actions:
-        - description: Bind one applicable project guide to a same-project accepted Rule using a reasoned Planner decision.
-          input:
-            additional_properties: false
-            properties:
-                reason:
-                    ref: MutationReason
-                rule:
-                    max_length: 27
-                    min_length: 8
-                    pattern: '^[A-Z]{3}-RUL([1-9][0-9]{0,14}|[1-8][0-9]{15}|900[0-6][0-9]{12}|90070[0-9]{11}|90071[0-8][0-9]{10}|900719[0-8][0-9]{9}|9007199[0-1][0-9]{8}|90071992[0-4][0-9]{7}|900719925[0-3][0-9]{6}|9007199254[0-6][0-9]{5}|90071992547[0-3][0-9]{4}|9007199254740[0-8][0-9]{2}|90071992547409[0-8][0-9]|9007199254740990|9007199254740991)$'
-                    ref: EntityKeyAndReference
-                subject:
-                    description: Applicable durable guide subject.
-                    enum:
-                        - adr
-                        - agent
-                        - journal
-                        - milestone
-                        - rule
-                        - task
-                        - track
-                    type: string
-            required:
-                - subject
-                - rule
-                - reason
-            type: object
-          metadata:
-            annotations:
-                destructive: false
-                idempotent: true
-                open_world: false
-                read_only: false
-            selector: none
-            surface: normal
-          name: guide_bind
-          output:
-            additional_properties: false
-            properties:
-                rule:
-                    max_length: 27
-                    min_length: 8
-                    pattern: '^[A-Z]{3}-RUL([1-9][0-9]{0,14}|[1-8][0-9]{15}|900[0-6][0-9]{12}|90070[0-9]{11}|90071[0-8][0-9]{10}|900719[0-8][0-9]{9}|9007199[0-1][0-9]{8}|90071992[0-4][0-9]{7}|900719925[0-3][0-9]{6}|9007199254[0-6][0-9]{5}|90071992547[0-3][0-9]{4}|9007199254740[0-8][0-9]{2}|90071992547409[0-8][0-9]|9007199254740990|9007199254740991)$'
-                    ref: EntityKeyAndReference
-                subject:
-                    enum:
-                        - adr
-                        - agent
-                        - journal
-                        - milestone
-                        - rule
-                        - task
-                        - track
-                    type: string
-            required:
-                - subject
-                - rule
-            type: object
         - description: Read the compact operational status of the project bound to this Session.
           input:
             additional_properties: false
@@ -3353,158 +2719,27 @@ domains:
           metadata:
             annotations:
                 destructive: false
-                idempotent: false
+                idempotent: true
                 open_world: false
-                read_only: false
-            handler_output:
-                - from: agent.agent_id
-                  to: agent.key
-                - from: operation.operation_id
-                  to: operation.key
-                - from: project.project_id
-                  to: project.key
-                - from: task_id
-                  to: task
+                read_only: true
             selector: none
             surface: normal
           name: status
           output:
             additional_properties: false
             properties:
-                agent:
-                    additional_properties: false
-                    properties:
-                        expected:
-                            type: string
-                        key:
-                            ref: EntityKeyAndReference
-                        last_activity:
-                            ref: Timestamp
-                        last_activity_age_seconds:
-                            ref: Duration
-                            unit: seconds
-                        session_ready:
-                            type: boolean
-                        state:
-                            type: string
-                    required:
-                        - expected
-                        - state
-                        - session_ready
-                        - last_activity_age_seconds
-                    type: object
-                blocker:
-                    type: string
-                integration:
-                    additional_properties: false
-                    properties:
-                        candidate_head:
-                            ref: GitFingerprint
-                        exact_source_match:
-                            type: boolean
-                        ready:
-                            type: boolean
-                        runtime_source_sha:
-                            ref: GitFingerprint
-                        state:
-                            type: string
-                        version_match:
-                            type: boolean
-                    required:
-                        - state
-                        - ready
-                        - version_match
-                        - exact_source_match
-                    type: object
-                operation:
-                    additional_properties: false
-                    properties:
-                        key:
-                            ref: EntityKeyAndReference
-                        kind:
-                            type: string
-                        status:
-                            type: string
-                    required:
-                        - kind
-                        - key
-                        - status
-                    type: object
-                project:
-                    additional_properties: false
-                    properties:
-                        key:
-                            ref: EntityKeyAndReference
-                        project_code:
-                            type: string
-                    required:
-                        - key
-                        - project_code
-                    type: object
-                recommended_next_action:
-                    type: string
-                release_ci:
-                    additional_properties: false
-                    properties:
-                        sha:
-                            any_of:
-                                - max_length: 8
-                                  min_length: 8
-                                  pattern: ^[0-9a-f]{8}$
-                                  type: string
-                                - const: ""
-                                  type: string
-                        state:
-                            type: string
-                        status:
-                            type: string
-                        tag:
-                            type: string
-                    required:
-                        - state
-                    type: object
-                rules:
-                    additional_properties: false
-                    properties:
-                        acknowledged:
-                            type: boolean
-                        fresh:
-                            type: boolean
-                    required:
-                        - acknowledged
-                        - fresh
-                    type: object
-                shared_sync:
-                    additional_properties: false
-                    properties:
-                        last_error:
-                            type: string
-                        pending:
-                            type: integer
-                        retrying:
-                            type: integer
-                        state:
-                            type: string
-                    required:
-                        - state
-                        - pending
-                        - retrying
-                    type: object
-                state:
-                    type: string
-                task:
-                    ref: EntityKeyAndReference
-                task_state:
-                    type: string
+                bound_hook_count:
+                    type: integer
+                    minimum: 0
+                configuration_revision:
+                    ref: Revision
+                procedure_count:
+                    type: integer
+                    minimum: 0
             required:
-                - project
-                - state
-                - agent
-                - integration
-                - rules
-                - release_ci
-                - shared_sync
-                - recommended_next_action
+                - configuration_revision
+                - procedure_count
+                - bound_hook_count
             type: object
       name: project
     - actions:
@@ -4066,6 +3301,84 @@ domains:
             type: object
       name: rule
     - actions:
+        - description: Read the bounded Gateway runtime and source identity status.
+          input:
+            additional_properties: false
+            properties: {}
+            type: object
+          metadata:
+            annotations:
+                destructive: false
+                idempotent: true
+                open_world: true
+                read_only: true
+            handler_output:
+                - from: gateway_id
+                  to: gateway
+            selector: none
+            surface: normal
+          name: status
+          output:
+            additional_properties: false
+            properties:
+                gateway:
+                    ref: EntityKeyAndReference
+                runtime_identity:
+                    additional_properties: false
+                    properties:
+                        artifact_set_coherent:
+                            type: boolean
+                        exact_source_match:
+                            type: boolean
+                        gateway_pid:
+                            type: integer
+                        gateway_ready:
+                            type: boolean
+                        installed_artifact_versions:
+                            additional_property_schema:
+                                type: string
+                            type: object
+                        installed_version:
+                            type: string
+                        provenance_reason:
+                            type: string
+                        running_executable_path:
+                            type: string
+                        running_gateway_matches_installed:
+                            type: boolean
+                        running_version:
+                            type: string
+                        source_provenance_available:
+                            type: boolean
+                        source_sha:
+                            ref: GitFingerprint
+                        tunnel_pid:
+                            type: integer
+                        tunnel_ready:
+                            type: boolean
+                        version_match:
+                            type: boolean
+                    required:
+                        - artifact_set_coherent
+                        - running_gateway_matches_installed
+                        - version_match
+                        - gateway_ready
+                        - tunnel_ready
+                        - source_provenance_available
+                        - exact_source_match
+                    type: object
+                service:
+                    type: string
+                time:
+                    ref: Timestamp
+                version:
+                    type: string
+            required:
+                - service
+                - gateway
+                - time
+                - runtime_identity
+            type: object
         - description: Read bounded structured Gateway lifecycle and action events.
           input:
             additional_properties: false
@@ -7106,4 +6419,235 @@ domains:
                 - revision
             type: object
       name: track
+    - actions:
+        - name: guide_bind
+          description: Bind one same-project accepted Rule as a durable project guide.
+          input:
+            type: object
+            properties:
+              subject:
+                type: string
+                enum: [adr, agent, journal, milestone, rule, task, track]
+              rule: {ref: EntityKeyAndReference}
+              reason: {ref: MutationReason}
+            required: [subject, rule, reason]
+            additional_properties: false
+          output:
+            type: object
+            properties:
+              revision: {ref: Revision}
+            required: [revision]
+            additional_properties: false
+          metadata:
+            selector: none
+            surface: normal
+            annotations: {read_only: false, destructive: true, idempotent: false, open_world: false}
+        - name: hook_bind
+          description: Bind one server-owned lifecycle Hook to one configured Procedure.
+          input:
+            type: object
+            properties:
+              hook: {type: string, enum: [pre_task_submit, post_task_submit, pre_task_verify, post_task_verify, pre_task_integrate, post_task_integrate, post_agent_work_finished]}
+              procedure: {type: string, min_length: 1, max_length: 64, pattern: '^[a-z][a-z0-9_]{0,63}$'}
+              reason: {ref: MutationReason}
+            required: [hook, procedure, reason]
+            additional_properties: false
+          output:
+            type: object
+            properties: {revision: {ref: Revision}}
+            required: [revision]
+            additional_properties: false
+          metadata:
+            selector: none
+            surface: normal
+            annotations: {read_only: false, destructive: true, idempotent: false, open_world: false}
+        - name: hook_list
+          description: List the server-owned lifecycle Hook catalogue and compact bindings.
+          input: {type: object, properties: {}, additional_properties: false}
+          output:
+            type: object
+            properties:
+              configuration_revision: {ref: Revision}
+              hooks:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    hook: {type: string, enum: [pre_task_submit, post_task_submit, pre_task_verify, post_task_verify, pre_task_integrate, post_task_integrate, post_agent_work_finished]}
+                    description: {type: string}
+                    procedure: {type: string, min_length: 1, max_length: 64, pattern: '^[a-z][a-z0-9_]{0,63}$'}
+                  required: [hook, description]
+                  additional_properties: false
+            required: [configuration_revision, hooks]
+            additional_properties: false
+          metadata:
+            selector: none
+            surface: normal
+            annotations: {read_only: true, destructive: false, idempotent: true, open_world: false}
+        - name: hook_read
+          description: Read the server-owned description and canonical payload for one Hook.
+          input:
+            type: object
+            properties:
+              hook: {type: string, enum: [pre_task_submit, post_task_submit, pre_task_verify, post_task_verify, pre_task_integrate, post_task_integrate, post_agent_work_finished]}
+            required: [hook]
+            additional_properties: false
+          output:
+            type: object
+            properties:
+              configuration_revision: {ref: Revision}
+              hook: {type: string, enum: [pre_task_submit, post_task_submit, pre_task_verify, post_task_verify, pre_task_integrate, post_task_integrate, post_agent_work_finished]}
+              description: {type: string}
+              payload_schema: {json_value: true}
+              procedure: {type: string, min_length: 1, max_length: 64, pattern: '^[a-z][a-z0-9_]{0,63}$'}
+            required: [configuration_revision, hook, description, payload_schema]
+            additional_properties: false
+          metadata:
+            selector: none
+            surface: normal
+            annotations: {read_only: true, destructive: false, idempotent: true, open_world: true}
+        - name: hook_unbind
+          description: Remove one configured lifecycle Hook binding.
+          input:
+            type: object
+            properties:
+              hook: {type: string, enum: [pre_task_submit, post_task_submit, pre_task_verify, post_task_verify, pre_task_integrate, post_task_integrate, post_agent_work_finished]}
+              reason: {ref: MutationReason}
+            required: [hook, reason]
+            additional_properties: false
+          output:
+            type: object
+            properties: {revision: {ref: Revision}}
+            required: [revision]
+            additional_properties: false
+          metadata:
+            selector: none
+            surface: normal
+            annotations: {read_only: false, destructive: true, idempotent: false, open_world: false}
+        - name: procedure_create
+          description: Create one typed project Procedure with one trusted repository-local executable script.
+          input:
+            type: object
+            properties:
+              name: {type: string, min_length: 1, max_length: 64, pattern: '^[a-z][a-z0-9_]{0,63}$'}
+              definition:
+                type: object
+                properties:
+                  script: {type: string, min_length: 1, max_length: 512}
+                  summary: {type: string, min_length: 1, max_length: 256}
+                  guide: {type: string, min_length: 1, max_length: 768}
+                  input: {json_value: true}
+                  output: {json_value: true}
+                required: [script, summary, guide, input, output]
+                additional_properties: false
+              reason: {ref: MutationReason}
+            required: [name, definition, reason]
+            additional_properties: false
+          output:
+            type: object
+            properties: {revision: {ref: Revision}}
+            required: [revision]
+            additional_properties: false
+          metadata:
+            selector: none
+            surface: normal
+            annotations: {read_only: false, destructive: true, idempotent: true, open_world: true}
+        - name: procedure_list
+          description: List the authoritative configured Procedure catalogue with bounded summaries.
+          input: {type: object, properties: {}, additional_properties: false}
+          output:
+            type: object
+            properties:
+              configuration_revision: {ref: Revision}
+              procedures:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: {type: string, min_length: 1, max_length: 64, pattern: '^[a-z][a-z0-9_]{0,63}$'}
+                    summary: {type: string, min_length: 1, max_length: 256}
+                  required: [name, summary]
+                  additional_properties: false
+            required: [configuration_revision, procedures]
+            additional_properties: false
+          metadata:
+            selector: none
+            surface: normal
+            annotations: {read_only: true, destructive: false, idempotent: true, open_world: false}
+        - name: procedure_read
+          description: Read one configured Procedure definition.
+          input:
+            type: object
+            properties:
+              name: {type: string, min_length: 1, max_length: 64, pattern: '^[a-z][a-z0-9_]{0,63}$'}
+            required: [name]
+            additional_properties: false
+          output:
+            type: object
+            properties:
+              configuration_revision: {ref: Revision}
+              name: {type: string, min_length: 1, max_length: 64, pattern: '^[a-z][a-z0-9_]{0,63}$'}
+              definition:
+                type: object
+                properties:
+                  script: {type: string, min_length: 1, max_length: 512}
+                  summary: {type: string, min_length: 1, max_length: 256}
+                  guide: {type: string, min_length: 1, max_length: 768}
+                  input: {json_value: true}
+                  output: {json_value: true}
+                required: [script, summary, guide, input, output]
+                additional_properties: false
+            required: [configuration_revision, name, definition]
+            additional_properties: false
+          metadata:
+            selector: none
+            surface: normal
+            annotations: {read_only: true, destructive: false, idempotent: true, open_world: true}
+        - name: procedure_remove
+          description: Remove one Procedure that is not bound to any lifecycle Hook.
+          input:
+            type: object
+            properties:
+              name: {type: string, min_length: 1, max_length: 64, pattern: '^[a-z][a-z0-9_]{0,63}$'}
+              reason: {ref: MutationReason}
+            required: [name, reason]
+            additional_properties: false
+          output:
+            type: object
+            properties: {revision: {ref: Revision}}
+            required: [revision]
+            additional_properties: false
+          metadata:
+            selector: none
+            surface: normal
+            annotations: {read_only: false, destructive: true, idempotent: false, open_world: false}
+        - name: procedure_update
+          description: Replace one configured Procedure definition.
+          input:
+            type: object
+            properties:
+              name: {type: string, min_length: 1, max_length: 64, pattern: '^[a-z][a-z0-9_]{0,63}$'}
+              definition:
+                type: object
+                properties:
+                  script: {type: string, min_length: 1, max_length: 512}
+                  summary: {type: string, min_length: 1, max_length: 256}
+                  guide: {type: string, min_length: 1, max_length: 768}
+                  input: {json_value: true}
+                  output: {json_value: true}
+                required: [script, summary, guide, input, output]
+                additional_properties: false
+              reason: {ref: MutationReason}
+            required: [name, definition, reason]
+            additional_properties: false
+          output:
+            type: object
+            properties: {revision: {ref: Revision}}
+            required: [revision]
+            additional_properties: false
+          metadata:
+            selector: none
+            surface: normal
+            annotations: {read_only: false, destructive: true, idempotent: true, open_world: true}
+      name: config
 version: 1

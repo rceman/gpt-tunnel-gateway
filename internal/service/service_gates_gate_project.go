@@ -19,11 +19,10 @@ func (s *Service) ResolveProjectGates(ctx context.Context, projectID, operationC
 	if err != nil {
 		return nil, fmt.Errorf("project workflow policy is required: %w", err)
 	}
-	effective, err := model.WorkflowPolicyForOperation(policy, operationClass)
-	if err != nil {
+	if _, err := model.WorkflowPolicyForOperation(policy, operationClass); err != nil {
 		return nil, err
 	}
-	return append([]string{}, effective.Gates...), nil
+	return model.StandardWorkflowGates(), nil
 }
 
 func (s *Service) ExecuteProjectGates(ctx context.Context, projectID, operationClass, root string) ([]model.CompletionGateResult, error) {
@@ -39,15 +38,11 @@ func (s *Service) executeProjectGatesWithProjectCommands(ctx context.Context, pr
 }
 
 func (s *Service) executeProjectGatesWithProjectCommandsAndScope(ctx context.Context, projectID, root string, names []string, testMode string, scope gates.TestScope) ([]model.CompletionGateResult, error) {
-	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
 	if s.gateExecutorWithProjectCommands == nil && s.gateExecutorWithProjectCommandsAndScope == nil {
 		return nil, fmt.Errorf("project gate executor is not configured")
 	}
 	if testMode == "task" && containsGate(names, model.WorkflowGateTest) {
-		results, err := s.executeProjectTaskGatesWithTestReuse(ctx, projectID, root, names, configuration.Workflow.GateCommands, scope)
+		results, err := s.executeProjectTaskGatesWithTestReuse(ctx, projectID, root, names, model.DefaultProjectGateCommands(), scope)
 		if err != nil {
 			return results, err
 		}
@@ -56,7 +51,7 @@ func (s *Service) executeProjectGatesWithProjectCommandsAndScope(ctx context.Con
 		}
 		return results, nil
 	}
-	results, err := s.executeProjectGatesCommandSet(ctx, root, names, configuration.Workflow.GateCommands, testMode, scope)
+	results, err := s.executeProjectGatesCommandSet(ctx, root, names, model.DefaultProjectGateCommands(), testMode, scope)
 	if err != nil {
 		return results, err
 	}

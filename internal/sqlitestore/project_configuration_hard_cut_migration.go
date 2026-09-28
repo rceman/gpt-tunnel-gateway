@@ -11,8 +11,8 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-const projectConfigurationHardCutMigrationID = "project_configuration_v1_to_v2"
-const projectConfigurationRetiredFieldMigrationID = "project_configuration_retired_fields_v1"
+const projectConfigurationHardCutMigrationID = "project_configuration_v2_to_v3"
+const projectConfigurationRetiredFieldMigrationID = "project_configuration_retired_fields_v3"
 const projectConfigurationHardCutMaxRows = 4096
 const projectConfigurationHardCutBatchSize = 128
 const projectConfigurationHardCutMaxPayloadBytes = 1 << 20
@@ -24,119 +24,7 @@ var projectConfigurationV1Fields = map[string]struct{}{
 }
 
 func MigrateProjectConfigurationPayload(data []byte) (model.ProjectConfiguration, []byte, error) {
-	if len(data) == 0 || len(data) > projectConfigurationHardCutMaxPayloadBytes {
-		return model.ProjectConfiguration{}, nil, fmt.Errorf("ProjectConfiguration migration payload exceeds bounds")
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil || fields == nil {
-		return model.ProjectConfiguration{}, nil, fmt.Errorf("decode ProjectConfiguration migration payload")
-	}
-	for field := range fields {
-		if _, ok := projectConfigurationV1Fields[field]; !ok {
-			return model.ProjectConfiguration{}, nil, fmt.Errorf("unknown ProjectConfiguration migration field %q", field)
-		}
-	}
-	delete(fields, "watcher")
-	if err := removeRetiredProjectConfigurationTrainGate(fields); err != nil {
-		return model.ProjectConfiguration{}, nil, err
-	}
-	var version int
-	if err := json.Unmarshal(fields["schema_version"], &version); err != nil {
-		return model.ProjectConfiguration{}, nil, fmt.Errorf("invalid ProjectConfiguration schema version")
-	}
-	switch version {
-	case 1:
-		if marker, present := fields["execution_model"]; present {
-			var value string
-			if err := json.Unmarshal(marker, &value); err != nil || value != "legacy" && value != "train_v2" {
-				return model.ProjectConfiguration{}, nil, fmt.Errorf("unsupported retired ProjectConfiguration execution model")
-			}
-			delete(fields, "execution_model")
-		}
-		fields["schema_version"], _ = json.Marshal(model.ProjectConfigurationSchemaVersion)
-	case model.ProjectConfigurationSchemaVersion:
-		if _, present := fields["execution_model"]; present {
-			return model.ProjectConfiguration{}, nil, fmt.Errorf("canonical ProjectConfiguration contains retired execution_model")
-		}
-	default:
-		return model.ProjectConfiguration{}, nil, fmt.Errorf("unsupported ProjectConfiguration schema version %d", version)
-	}
-	canonicalInput, err := json.Marshal(fields)
-	if err != nil {
-		return model.ProjectConfiguration{}, nil, err
-	}
-	var configuration model.ProjectConfiguration
-	decoder := json.NewDecoder(bytes.NewReader(canonicalInput))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&configuration); err != nil {
-		return model.ProjectConfiguration{}, nil, fmt.Errorf("decode canonical ProjectConfiguration: %w", err)
-	}
-	if version == 1 {
-		if configuration.GuideBindings == nil {
-			configuration.GuideBindings = map[string]string{}
-		}
-		if configuration.Workflow.GateCommands.IsZero() {
-			configuration.Workflow.GateCommands = model.DefaultProjectGateCommands()
-		}
-		if configuration.Integration.TargetBranch == "" {
-			configuration.Integration.TargetBranch = configuration.Workflow.IntegrationBranch
-		}
-	}
-	if configuration.SchemaVersion != model.ProjectConfigurationSchemaVersion || model.ValidateProjectIdentifier(configuration.ProjectID) != nil || configuration.Revision < 1 || configuration.UpdatedAt.IsZero() || configuration.UpdatedBy == "" || configuration.GuideBindings == nil || configuration.Workflow.GateCommands.IsZero() || configuration.Integration.TargetBranch == "" {
-		return model.ProjectConfiguration{}, nil, fmt.Errorf("ProjectConfiguration migration produced an incomplete canonical record")
-	}
-	canonical, err := json.Marshal(configuration)
-	if err != nil {
-		return model.ProjectConfiguration{}, nil, err
-	}
-	return configuration, canonical, nil
-}
-
-func removeRetiredProjectConfigurationTrainGate(fields map[string]json.RawMessage) error {
-	workflowPayload, present := fields["workflow"]
-	if !present {
-		return nil
-	}
-	var workflow map[string]json.RawMessage
-	if err := json.Unmarshal(workflowPayload, &workflow); err != nil || workflow == nil {
-		return fmt.Errorf("invalid ProjectConfiguration workflow migration payload")
-	}
-	gateCommandsPayload, present := workflow["gate_commands"]
-	if !present {
-		return nil
-	}
-	var gateCommands map[string]json.RawMessage
-	if err := json.Unmarshal(gateCommandsPayload, &gateCommands); err != nil || gateCommands == nil {
-		return fmt.Errorf("invalid ProjectConfiguration gate commands migration payload")
-	}
-	testPayload, present := gateCommands["test"]
-	if !present {
-		return nil
-	}
-	var test map[string]json.RawMessage
-	if err := json.Unmarshal(testPayload, &test); err != nil || test == nil {
-		return fmt.Errorf("invalid ProjectConfiguration test gate migration payload")
-	}
-	if _, present := test["train"]; !present {
-		return nil
-	}
-	delete(test, "train")
-	canonicalTest, err := json.Marshal(test)
-	if err != nil {
-		return err
-	}
-	gateCommands["test"] = canonicalTest
-	canonicalGateCommands, err := json.Marshal(gateCommands)
-	if err != nil {
-		return err
-	}
-	workflow["gate_commands"] = canonicalGateCommands
-	canonicalWorkflow, err := json.Marshal(workflow)
-	if err != nil {
-		return err
-	}
-	fields["workflow"] = canonicalWorkflow
-	return nil
+	return MigrateProjectConfigurationPayloadWithPolicy(data, nil)
 }
 
 func DecodeCanonicalProjectConfigurationPayload(data []byte) (model.ProjectConfiguration, error) {
@@ -188,6 +76,26 @@ func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) 
 		return err
 	}
 	statements := make([]upstream.Statement, 0, 3*projectConfigurationHardCutMaxRows+1)
+	policyCache := make(map[string]model.ProjectWorkflowPolicy)
+	migratePayload := func(projectID string, payload []byte) (model.ProjectConfiguration, []byte, error) {
+		var policy *model.ProjectWorkflowPolicy
+		if ProjectConfigurationPayloadRequiresWorkflowPolicy(payload) {
+			cached, ok := policyCache[projectID]
+			if !ok {
+				var policyErr error
+				cached, policyErr = sharedProjectWorkflowPolicyForMigration(ctx, d.Shared, projectID)
+				if policyErr != nil {
+					return model.ProjectConfiguration{}, nil, policyErr
+				}
+				policyCache[projectID] = cached
+			}
+			policy = &cached
+		}
+		if policy == nil {
+			return MigrateProjectConfigurationPayload(payload)
+		}
+		return MigrateProjectConfigurationPayloadWithPolicy(payload, policy)
+	}
 	rows, err := d.Shared.Query(ctx, `SELECT id,revision,payload FROM shared_project_configurations ORDER BY id LIMIT ?`, int64(projectConfigurationHardCutMaxRows+1))
 	if err != nil {
 		return err
@@ -210,7 +118,7 @@ func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) 
 		if !idOK || !revisionOK || !payloadOK {
 			return fmt.Errorf("invalid Shared ProjectConfiguration row types")
 		}
-		configuration, canonical, err := MigrateProjectConfigurationPayload(payload)
+		configuration, canonical, err := migratePayload(id, payload)
 		if err != nil {
 			return fmt.Errorf("migrate Shared ProjectConfiguration %q: %w", id, err)
 		}
@@ -242,7 +150,7 @@ func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) 
 		if !idOK || !entityOK || !revisionOK || !payloadOK {
 			return fmt.Errorf("invalid ProjectConfiguration outbox value types")
 		}
-		configuration, canonical, err := MigrateProjectConfigurationPayload(payload)
+		configuration, canonical, err := migratePayload(entityID, payload)
 		if err != nil {
 			return fmt.Errorf("migrate ProjectConfiguration outbox %q: %w", id, err)
 		}
@@ -274,7 +182,7 @@ func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) 
 		if !entityOK || !projectOK || !revisionOK || !payloadOK {
 			return fmt.Errorf("invalid Shared ProjectConfiguration revision value types")
 		}
-		configuration, canonical, err := MigrateProjectConfigurationPayload(payload)
+		configuration, canonical, err := migratePayload(entityID, payload)
 		if err != nil {
 			return fmt.Errorf("migrate Shared ProjectConfiguration revision: %w", err)
 		}

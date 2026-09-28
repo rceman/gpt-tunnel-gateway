@@ -893,15 +893,11 @@ func TestTSK585VerificationDoesNotSubstitutePriorGatePassReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	configuration, err := s.ProjectConfigurationRead(ctx, "example")
-	if err != nil {
-		t.Fatal(err)
-	}
 	seeded := make([]model.CompletionGateResult, len(names))
 	for i, name := range names {
 		seeded[i] = model.CompletionGateResult{ID: name, ExitCode: 0}
 	}
-	if _, _, err := s.writeProjectGatePassReceiptLocked(ctx, "example", lanePath, names, configuration.Workflow.GateCommands, "task", gates.FullTestScope(), seeded); err != nil {
+	if _, _, err := s.writeProjectGatePassReceiptLocked(ctx, "example", lanePath, names, model.DefaultProjectGateCommands(), "task", gates.FullTestScope(), seeded); err != nil {
 		t.Fatalf("seed matching pass receipt: %v", err)
 	}
 	executed := 0

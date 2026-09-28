@@ -3,7 +3,7 @@ package sqlitestore
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,12 +15,6 @@ func tsk384SeedFixtureConfig() model.ProjectConfiguration {
 	configuration := model.DefaultProjectConfiguration("example", now)
 	configuration.ProjectID = "example"
 	configuration.Revision = 3
-	configuration.Workflow.CI.Release = model.WorkflowCIModeRequire
-	configuration.Workflow.CI.Task = model.WorkflowCIModeObserve
-	configuration.Workflow.CI.TaskMerge = model.WorkflowCIModeDisabled
-	configuration.Workflow.WaitForCI = true
-	configuration.Workflow.IntegrationBranch = "integration/1"
-	configuration.Workflow.WorkflowStage = model.WorkflowStageTransitionalMain
 	return configuration
 }
 
@@ -66,104 +60,37 @@ func tsk384SeededRules(t *testing.T, db *Databases) map[string]model.Rule {
 	return rules
 }
 
-func TestTSK384RuleSeedMigrationDecomposesExactPolicyLeaves(t *testing.T) {
+func TestTSK384RuleSeedMigrationFailsClosedWithoutCanonicalPolicy(t *testing.T) {
 	state := t.TempDir()
 	db, err := Open(state)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
+	configuration := model.DefaultProjectConfiguration("example", time.Date(2026, 9, 18, 13, 39, 0, 0, time.UTC))
+	payload, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutSharedProjection(ctx, "project_configuration", SharedEntity{
+		ID:        configuration.ProjectID,
+		Revision:  int64(configuration.Revision),
+		Payload:   payload,
+		UpdatedAt: configuration.UpdatedAt.Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Shared.Exec(ctx, `DELETE FROM schema_migrations WHERE version=?`, sharedRuleSeedMigrationVersion); err != nil {
 		t.Fatal(err)
 	}
-	tsk384WriteSeedProvenance(t, db)
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	db, err = Open(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	rules := tsk384SeededRules(t, db)
-	want := map[string]string{
-		"agent.wait_for_ci":  `true`,
-		"ci.release":         `"require"`,
-		"ci.task":            `"observe"`,
-		"ci.task_merge":      `"disabled"`,
-		"integration_branch": `"integration/1"`,
-		"workflow_stage":     `"transitional_main"`,
-	}
-	configuration := tsk384SeedFixtureConfig()
-	if len(rules) != len(want) {
-		t.Fatalf("seeded rules=%#v", rules)
-	}
-	for name, wantValue := range want {
-		rule, ok := rules[name]
-		if !ok {
-			t.Fatalf("missing seeded rule %q: %#v", name, rules)
-		}
-		if rule.Status != model.RuleStatusAccepted || rule.Title != name || rule.ProjectID != "example" || rule.Revision != 1 {
-			t.Fatalf("seeded rule %q has wrong shape: %#v", name, rule)
-		}
-		if string(rule.Value) != wantValue {
-			t.Fatalf("seeded rule %q value=%s want=%s", name, rule.Value, wantValue)
-		}
-		var decoded any
-		if err := json.Unmarshal(rule.Value, &decoded); err != nil {
-			t.Fatal(err)
-		}
-		if name == "agent.wait_for_ci" {
-			if value, ok := decoded.(bool); !ok || !value {
-				t.Fatalf("boolean policy leaf was not preserved as a typed value: %#v", decoded)
-			}
-		}
-		if !rule.CreatedAt.Equal(configuration.UpdatedAt) {
-			t.Fatalf("seeded rule %q does not carry provenance timestamps: %#v", name, rule)
-		}
-	}
-	// deterministic GTW-RUL<n> key allocation in sorted leaf order
-	for index, name := range []string{"agent.wait_for_ci", "ci.release", "ci.task", "ci.task_merge", "integration_branch", "workflow_stage"} {
-		wantID := fmt.Sprintf("EXM-RUL%d", index+1)
-		if rules[name].ID != wantID {
-			t.Fatalf("seeded rule %q id=%s want=%s", name, rules[name].ID, wantID)
-		}
-	}
-	// lifecycle history + outbox + sequence for the seeded entities
-	history, err := db.Shared.Query(ctx, `SELECT COUNT(*) FROM shared_entity_revisions WHERE entity_type='rule' AND mutation_kind='create' AND project_id='example'`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count, _ := history.Rows[0][0].(int64); count != int64(len(want)) {
-		t.Fatalf("seeded rule history rows=%v", history.Rows)
-	}
-	outbox, err := db.Shared.Query(ctx, `SELECT COUNT(*) FROM hub_outbox WHERE entity_type='rule' AND kind='rule-create'`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count, _ := outbox.Rows[0][0].(int64); count != int64(len(want)) {
-		t.Fatalf("seeded rule outbox rows=%v", outbox.Rows)
-	}
-	sequence, err := db.Shared.Query(ctx, `SELECT next_number FROM shared_entity_sequences WHERE entity_type='rule' AND project_id='example'`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if next, _ := sequence.Rows[0][0].(int64); next != 7 {
-		t.Fatalf("seeded rule sequence=%v", sequence.Rows)
-	}
-
-	// reopen does not duplicate seeds
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	db, err = Open(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if rules := tsk384SeededRules(t, db); len(rules) != len(want) {
-		t.Fatalf("reopen duplicated seeded rules: %#v", rules)
+	if reopened, err := Open(state); err == nil {
+		reopened.Close()
+		t.Fatal("migration invented workflow policy defaults without canonical Rules")
+	} else if !strings.Contains(err.Error(), "refusing to invent policy defaults") {
+		t.Fatalf("unexpected migration failure: %v", err)
 	}
 }
 

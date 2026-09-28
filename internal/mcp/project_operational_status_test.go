@@ -27,13 +27,7 @@ func TestProjectStatusIsSessionBoundCompactOperationalRead(t *testing.T) {
 	if !ok {
 		t.Fatalf("project/status result=%#v", status)
 	}
-	project, ok := payload["project"].(map[string]any)
-	if !ok || project["key"] != "example" {
-		t.Fatalf("project/status was not derived from Session: %#v", status)
-	}
-	for _, forbidden := range []string{"tasks", "trains", "tail", "history", "project_configuration"} {
-		if _, exists := payload[forbidden]; exists {
-			t.Fatalf("project/status leaked full field %q: %#v", forbidden, status)
-		}
+	if len(payload) != 3 || payload["configuration_revision"] != float64(1) || payload["procedure_count"] != float64(0) || payload["bound_hook_count"] != float64(0) {
+		t.Fatalf("project/status was not the compact Session-bound configuration projection: %#v", status)
 	}
 }

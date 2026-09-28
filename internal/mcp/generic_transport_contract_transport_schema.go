@@ -8,7 +8,7 @@ func isRetiredPlanAction(toolName string) bool {
 	return strings.HasPrefix(toolName, "plan_")
 }
 func sessionBoundActionPath(path string) bool {
-	for _, prefix := range []string{"adr/", "agent/", "callback/", "git/", "plan/", "task/"} {
+	for _, prefix := range []string{"adr/", "agent/", "config/", "git/", "plan/", "procedure/", "task/"} {
 		if strings.HasPrefix(path, prefix) {
 			return true
 		}

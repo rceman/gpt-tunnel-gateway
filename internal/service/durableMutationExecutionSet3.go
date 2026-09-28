@@ -19,16 +19,6 @@ func (s *Service) durableMutationExecutionSet3(ctx context.Context, operation du
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"agent": agent, "operation": result})
-	case "project-configuration-update":
-		var input ProjectConfigurationUpdateInput
-		if err := json.Unmarshal(operation.Input, &input); err != nil {
-			return nil, err
-		}
-		configuration, result, err := s.ProjectConfigurationUpdate(projectConfigurationMutationContext(ctx), input)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(map[string]any{"configuration": configuration, "operation": result})
 	case "task-supersede":
 		var input TaskSupersedeInput
 		if err := json.Unmarshal(operation.Input, &input); err != nil {

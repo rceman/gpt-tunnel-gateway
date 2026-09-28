@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -84,6 +85,55 @@ func TestOutcomeUnknownIsNotReplayedOnStartup(t *testing.T) {
 	}
 	if !replayDurableMutationOnStartup("accepted") || !replayDurableMutationOnStartup("running") {
 		t.Fatal("accepted/running operations must remain restart-recoverable")
+	}
+}
+
+func TestProcedureExecutionOperationIsNotReplayedAfterRestart(t *testing.T) {
+	for _, status := range []string{"accepted", "running"} {
+		t.Run(status, func(t *testing.T) {
+			s, _, _ := testServiceWithoutIdentifiersSetup(t)
+			db := testServiceWithDurability(t, s)
+			var executions atomic.Int32
+			digest := sha256.Sum256([]byte("procedure restart " + status))
+			mutationID := hex.EncodeToString(digest[:])
+			allocated, err := db.AllocateLocalOperation(context.Background(), "example", "EXM", mutationID, procedureExecutionKind, time.Now().UTC())
+			if err != nil {
+				t.Fatal(err)
+			}
+			operation := durableMutationOperation{
+				SchemaVersion: durableMutationSchemaVersion,
+				OperationID:   allocated.OperationID,
+				MutationID:    allocated.MutationID,
+				Kind:          procedureExecutionKind,
+				RequestSHA256: mutationID,
+				ProjectID:     "example",
+				Input:         json.RawMessage(`{"version":"procedure-execution/v1","project_id":"example","name":"side_effect","input":{}}`),
+				Status:        status,
+				CreatedAt:     time.Now().UTC(),
+				UpdatedAt:     time.Now().UTC(),
+			}
+			if err := s.writeDurableMutation(operation); err != nil {
+				t.Fatal(err)
+			}
+			restarted := NewWithDurabilityDeferredWorkers(s.Config, db)
+			restarted.durableMutationExecutor = func(context.Context, durableMutationOperation) (json.RawMessage, error) {
+				executions.Add(1)
+				return json.RawMessage(`{}`), nil
+			}
+			restarted.startDurableMutationWorker()
+			deadline := time.Now().Add(5 * time.Second)
+			var recovered durableMutationOperation
+			for time.Now().Before(deadline) {
+				recovered, err = restarted.readDurableMutation(operation.OperationID)
+				if err == nil && recovered.Status == "outcome_unknown" {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if err != nil || recovered.Status != "outcome_unknown" || recovered.Error == "" || recovered.RecoveryReason == "" || executions.Load() != 0 {
+				t.Fatalf("Procedure restart recovery=%#v executions=%d err=%v", recovered, executions.Load(), err)
+			}
+		})
 	}
 }
 

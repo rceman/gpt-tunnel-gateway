@@ -132,8 +132,8 @@ func TestProjectUpdateBootstrapCorrectionPreservesAuthoritiesAndCounters(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if policy.IntegrationBranch != shared.Workflow.IntegrationBranch || policy.CI != shared.Workflow.CI || policy.Agent.WaitForCI != shared.Workflow.WaitForCI || policy.WorkflowStage != shared.Workflow.WorkflowStage {
-		t.Fatalf("derived policy does not track the seeded leaf rules: policy=%#v", policy)
+	if policy.IntegrationBranch != shared.Integration.TargetBranch || policy.WorkflowStage != model.WorkflowStageTransitionalMain || policy.CI.Task != model.WorkflowCIModeDisabled || policy.CI.TaskMerge != model.WorkflowCIModeDisabled || policy.CI.Release != model.WorkflowCIModeDisabled {
+		t.Fatalf("derived workflow policy does not match the canonical project bootstrap: policy=%#v configuration=%#v", policy, shared)
 	}
 }
 
