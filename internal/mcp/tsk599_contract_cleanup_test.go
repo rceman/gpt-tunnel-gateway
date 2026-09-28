@@ -11,12 +11,12 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/tokenizer"
 )
 
-func TestTSK599SchemaCostDoesNotExceedTSK598(t *testing.T) {
+func TestTSK670SchemaCostFitsResetContractBudget(t *testing.T) {
 	server := newSessionTestServer(t)
 	entries := server.genericActionRegistry(server.tools())
 	counter := tokenizer.NewCounter()
 	baseline := map[string]int{
-		"task": 2765, "track": 1115, "operation": 148,
+		"task": 2844, "track": 1115, "operation": 148,
 		"task/create": 446, "track/read": 1024, "operation/read": 396,
 		"tools/list": 1888,
 	}
@@ -31,7 +31,7 @@ func TestTSK599SchemaCostDoesNotExceedTSK598(t *testing.T) {
 			t.Fatal(err)
 		}
 		if tokens > baseline[name] {
-			t.Errorf("%s schema cost=%d tokens, exceeds TSK598 baseline %d", name, tokens, baseline[name])
+			t.Errorf("%s schema cost=%d tokens, exceeds approved budget %d", name, tokens, baseline[name])
 		}
 		t.Logf("%s: tokens=%d bytes=%d baseline=%d", name, tokens, len(data), baseline[name])
 	}

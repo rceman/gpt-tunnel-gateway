@@ -35,7 +35,7 @@ var projectionClasses = map[string]projectionClass{
 	"task/complete": projectionClosedDefault, "task/guide": projectionClosedDefault, "task/test": projectionClosedDefault,
 	"task/current": projectionClosedDefault, "task/dispatch": projectionClosedDefault, "task/history": projectionClosedDefault, "task/list": projectionClosedDefault,
 	"task/query": projectionClosedDefault,
-	"task/read":  projectionClosedDefault, "task/review": projectionClosedDefault, "task/review_decide": projectionClosedDefault, "task/rework": projectionClosedDefault, "task/block": projectionClosedDefault, "task/resume": projectionClosedDefault, "task/refresh": projectionClosedDefault,
+	"task/read":  projectionClosedDefault, "task/review": projectionClosedDefault, "task/review_decide": projectionClosedDefault, "task/rework": projectionClosedDefault, "task/reset": projectionClosedDefault, "task/block": projectionClosedDefault, "task/resume": projectionClosedDefault, "task/refresh": projectionClosedDefault,
 	"task/submit-code": projectionClosedDefault, "task/submit-rebase": projectionClosedDefault,
 	"task/status": projectionClosedDefault, "task/update": projectionClosedDefault,
 }

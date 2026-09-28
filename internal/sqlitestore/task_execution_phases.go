@@ -104,6 +104,32 @@ func (d *Databases) ReadLatestTaskExecutionParkPhase(ctx context.Context, projec
 	return d.readTaskExecutionPhaseWhere(ctx, projectID, taskID, stage, `event_kind IN ('block','resume')`)
 }
 
+func (d *Databases) ReadLatestTaskExecutionResetPhase(ctx context.Context, projectID, taskID string) (TaskExecutionPhase, bool, error) {
+	return d.readTaskExecutionPhaseAcrossStages(ctx, projectID, taskID, `event_kind IN ('reset_start','reset')`)
+}
+
+func (d *Databases) ReadLatestTaskExecutionResetTerminalPhase(ctx context.Context, projectID, taskID string) (TaskExecutionPhase, bool, error) {
+	return d.readTaskExecutionPhaseAcrossStages(ctx, projectID, taskID, `event_kind='reset'`)
+}
+
+func (d *Databases) readTaskExecutionPhaseAcrossStages(ctx context.Context, projectID, taskID, predicate string) (TaskExecutionPhase, bool, error) {
+	if d == nil || d.Local == nil {
+		return TaskExecutionPhase{}, false, fmt.Errorf("local store is unavailable")
+	}
+	rows, err := d.Local.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM local_task_execution_phases WHERE project_id=? AND task_id=? AND `+predicate+` ORDER BY id DESC LIMIT 1`, projectID, taskID)
+	if err != nil {
+		return TaskExecutionPhase{}, false, err
+	}
+	if len(rows.Rows) == 0 {
+		return TaskExecutionPhase{}, false, nil
+	}
+	phase, err := decodeTaskExecutionPhaseRow(rows.Rows[0])
+	if err != nil {
+		return TaskExecutionPhase{}, false, err
+	}
+	return phase, true, nil
+}
+
 func (d *Databases) readTaskExecutionPhaseWhere(ctx context.Context, projectID, taskID, stage, predicate string) (TaskExecutionPhase, bool, error) {
 	rows, err := d.Local.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM local_task_execution_phases WHERE project_id=? AND task_id=? AND stage=? AND `+predicate+` ORDER BY id DESC LIMIT 1`, projectID, taskID, stage)
 	if err != nil {
@@ -187,7 +213,7 @@ func validateTaskExecutionPhase(phase TaskExecutionPhase) error {
 	if model.ValidateProjectIdentifier(phase.ProjectID) != nil || model.ValidateCanonicalTaskID(phase.TaskID) != nil || phase.Stage == "" || phase.Status == "" || phase.ExecutionRevision < 1 || phase.Head == "" || phase.Branch == "" || phase.TaskRevisionSHA256 == "" {
 		return fmt.Errorf("incomplete Task execution phase")
 	}
-	if phase.EventKind != "submission" && phase.EventKind != "review" && phase.EventKind != "rework" && phase.EventKind != "integration" && phase.EventKind != "block" && phase.EventKind != "resume" && phase.EventKind != "refresh" {
+	if phase.EventKind != "submission" && phase.EventKind != "review" && phase.EventKind != "rework" && phase.EventKind != "integration" && phase.EventKind != "block" && phase.EventKind != "resume" && phase.EventKind != "refresh" && phase.EventKind != "reset_start" && phase.EventKind != "reset" {
 		return fmt.Errorf("invalid Task execution phase event kind")
 	}
 	if phase.EventKind == "block" || phase.EventKind == "resume" {
@@ -197,6 +223,14 @@ func validateTaskExecutionPhase(phase TaskExecutionPhase) error {
 	} else if phase.EventKind == "refresh" {
 		if phase.Stage == "integration" || phase.Decision != "" || strings.TrimSpace(phase.Comment) == "" {
 			return fmt.Errorf("invalid Task execution refresh evidence")
+		}
+	} else if phase.EventKind == "reset_start" || phase.EventKind == "reset" {
+		wantStatus := model.TaskExecutionResetting
+		if phase.EventKind == "reset" {
+			wantStatus = model.TaskExecutionAbandoned
+		}
+		if phase.Stage != "code" || phase.Status != wantStatus || (phase.Decision != model.TaskExecutionDispatched && phase.Decision != model.TaskExecutionInProgress && phase.Decision != model.TaskExecutionBlocked) || strings.TrimSpace(phase.Comment) == "" || len([]rune(phase.Comment)) > 8192 {
+			return fmt.Errorf("invalid Task execution reset evidence")
 		}
 	} else if phase.Decision != "" && phase.Decision != "accept" && phase.Decision != "reject" {
 		return fmt.Errorf("invalid Task execution phase decision")

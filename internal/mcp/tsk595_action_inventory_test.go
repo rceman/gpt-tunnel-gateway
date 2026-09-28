@@ -97,7 +97,7 @@ func loadTSK595Inventory(t *testing.T) tsk595Inventory {
 func TestTSK595FrozenActionInventory(t *testing.T) {
 	inventory := loadTSK595Inventory(t)
 	wantNormal := append(append([]string{}, inventory.NormalActions.Keep...), inventory.NormalActions.Change...)
-	wantNormal = append(wantNormal, tsk663MilestonePlanAction)
+	wantNormal = append(wantNormal, tsk663MilestonePlanAction, tsk670TaskResetAction)
 	server := newSessionTestServer(t)
 	entries := server.genericActionRegistry(server.tools())
 	if !equalTSK595Strings(sortedTSK595Keys(entries), sortedTSK595Strings(wantNormal)) {

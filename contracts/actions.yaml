@@ -5690,6 +5690,43 @@ domains:
                 - execution_revision
                 - reason
             type: object
+        - description: Safely retire one resettable nonterminal execution and return its Task to planned.
+          input:
+            additional_properties: false
+            properties:
+                key:
+                    ref: EntityKeyAndReference
+                reason:
+                    ref: MutationReason
+            required:
+                - key
+                - reason
+            type: object
+          metadata:
+            annotations:
+                destructive: true
+                idempotent: true
+                open_world: false
+                read_only: false
+            selector: key
+            surface: normal
+          name: reset
+          output:
+            additional_properties: false
+            properties:
+                execution_revision:
+                    ref: Revision
+                key:
+                    ref: EntityKeyAndReference
+                status:
+                    enum:
+                        - planned
+                    type: string
+            required:
+                - key
+                - status
+                - execution_revision
+            type: object
         - description: Resume one durably blocked Task lane after a bounded Planner decision.
           input:
             additional_properties: false

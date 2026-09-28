@@ -262,7 +262,7 @@ func TestTSK593LeadActionBoundaryHasNoQueueOrRoleNamespace(t *testing.T) {
 			t.Fatalf("Lead execution authority for %s=%#v", path, entries[path])
 		}
 	}
-	for _, path := range []string{"task/create", "task/update", "task/complete", "track/create", "track/update", "track/append_task", "track/remove_task", "track/cancel", "track/accept"} {
+	for _, path := range []string{"task/create", "task/update", "task/complete", "task/reset", "track/create", "track/update", "track/append_task", "track/remove_task", "track/cancel", "track/accept"} {
 		if entries[path].AuthorityRole != durableSession.RolePlanner {
 			t.Fatalf("Planner semantic authority for %s=%#v", path, entries[path])
 		}

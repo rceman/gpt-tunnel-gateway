@@ -16,8 +16,8 @@ var taskWorktreeSlugPattern = regexp.MustCompile(`[^a-z0-9-]+`)
 
 // CreateTaskWorktree creates a server-owned Task lane from the exact
 // mirror-authoritative default-branch commit.
-func (r Runner) CreateTaskWorktree(ctx context.Context, p config.ProjectConfig, stateDir, projectID, taskID string, taskType model.TaskType, title, base string) (config.ProjectConfig, string, string, error) {
-	path, branch, err := taskWorktreePath(stateDir, projectID, taskID, taskType, title)
+func (r Runner) CreateTaskWorktree(ctx context.Context, p config.ProjectConfig, stateDir, projectID, taskID string, taskType model.TaskType, title, base string, executionRevision ...int) (config.ProjectConfig, string, string, error) {
+	path, branch, err := taskWorktreePath(stateDir, projectID, taskID, taskType, title, executionRevision...)
 	if err != nil {
 		return config.ProjectConfig{}, "", "", err
 	}
@@ -104,6 +104,35 @@ func (r Runner) ReconcileTaskLane(ctx context.Context, p config.ProjectConfig, t
 	return head, nil
 }
 
+func (r Runner) TaskRebaseInProgress(ctx context.Context, p config.ProjectConfig) (bool, error) {
+	for _, state := range []string{"rebase-merge", "rebase-apply"} {
+		out, err := r.command(ctx, p.Root, false, "rev-parse", "--git-path", state)
+		if err != nil {
+			return false, err
+		}
+		rel := strings.TrimSpace(string(out))
+		path := rel
+		if !filepath.IsAbs(path) {
+			if !filepath.IsLocal(rel) {
+				return false, fmt.Errorf("invalid rebase state path")
+			}
+			path = filepath.Join(p.Root, rel)
+		}
+		info, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		if !info.IsDir() {
+			return false, fmt.Errorf("invalid rebase state directory")
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
 // RebaseOnto returns the in-progress rebase target (rebase-merge/onto) or an
 // empty string when the lane is not mid-rebase.
 func (r Runner) RebaseOnto(ctx context.Context, p config.ProjectConfig) (string, error) {
@@ -161,8 +190,8 @@ func hasUnmergedPaths(porcelain string) bool {
 	}
 	return false
 }
-func (r Runner) RemoveTaskWorktree(ctx context.Context, p config.ProjectConfig, stateDir, projectID, taskID string, taskType model.TaskType, title, base string) error {
-	path, branch, err := taskWorktreePath(stateDir, projectID, taskID, taskType, title)
+func (r Runner) RemoveTaskWorktree(ctx context.Context, p config.ProjectConfig, stateDir, projectID, taskID string, taskType model.TaskType, title, base string, executionRevision ...int) error {
+	path, branch, err := taskWorktreePath(stateDir, projectID, taskID, taskType, title, executionRevision...)
 	if err != nil {
 		return err
 	}
@@ -178,8 +207,8 @@ func (r Runner) RemoveTaskWorktree(ctx context.Context, p config.ProjectConfig, 
 	return r.DeleteManagedBranch(ctx, p, branch, base)
 }
 
-func (r Runner) RemoveTaskWorktreeAfterIntegration(ctx context.Context, p config.ProjectConfig, stateDir, projectID, taskID string, taskType model.TaskType, title, head, branch string) error {
-	path, expectedBranch, err := taskWorktreePath(stateDir, projectID, taskID, taskType, title)
+func (r Runner) RemoveTaskWorktreeAfterIntegration(ctx context.Context, p config.ProjectConfig, stateDir, projectID, taskID string, taskType model.TaskType, title, head, branch string, executionRevision ...int) error {
+	path, expectedBranch, err := taskWorktreePath(stateDir, projectID, taskID, taskType, title, executionRevision...)
 	if err != nil || expectedBranch != branch {
 		return fmt.Errorf("Task worktree identity is invalid")
 	}
@@ -200,7 +229,57 @@ func (r Runner) RemoveTaskWorktreeAfterIntegration(ctx context.Context, p config
 	return r.DeleteManagedBranch(ctx, p, branch, head)
 }
 
-func taskWorktreePath(stateDir, projectID, taskID string, taskType model.TaskType, title string) (string, string, error) {
+func (r Runner) RemoveTaskWorktreeForReset(ctx context.Context, p config.ProjectConfig, stateDir, projectID, taskID, head, branch string) error {
+	path, err := TaskWorktreePath(stateDir, projectID, taskID)
+	if err != nil || model.ValidateBranch(branch) != nil || !strings.HasPrefix(branch, "task/"+taskID+"-") {
+		return fmt.Errorf("Task reset worktree identity is invalid")
+	}
+	lane := p
+	lane.Root = path
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		if err := r.DeleteManagedBranchAtExpectedHead(ctx, p, branch, head); err != nil {
+			return err
+		}
+		_, found, err := r.ManagedBranchHead(ctx, p, branch)
+		if err != nil || found {
+			return fmt.Errorf("Task reset branch cleanup is incomplete")
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("Task reset worktree path is not a managed directory")
+	}
+	rebasing, err := r.TaskRebaseInProgress(ctx, lane)
+	if err != nil || rebasing {
+		return fmt.Errorf("Task reset worktree is in an unsafe rebase state")
+	}
+	actual, actualBranch, clean, err := r.CurrentHead(ctx, lane)
+	if err != nil || !clean || actualBranch != branch || actual != head {
+		return fmt.Errorf("Task reset worktree cleanup authority is invalid")
+	}
+	if err := r.removeManagedWorktree(ctx, p, path); err != nil {
+		return err
+	}
+	if err := r.DeleteManagedBranchAtExpectedHead(ctx, p, branch, head); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("Task reset worktree remains after removal")
+	}
+	if _, found, err := r.ManagedBranchHead(ctx, p, branch); err != nil || found {
+		return fmt.Errorf("Task reset branch cleanup is incomplete")
+	}
+	return nil
+}
+
+func taskWorktreePath(stateDir, projectID, taskID string, taskType model.TaskType, title string, executionRevision ...int) (string, string, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return "", "", err
 	}
@@ -210,6 +289,13 @@ func taskWorktreePath(stateDir, projectID, taskID string, taskType model.TaskTyp
 	if stateDir == "" {
 		return "", "", fmt.Errorf("Task worktree state directory is required")
 	}
+	if len(executionRevision) > 1 || len(executionRevision) == 1 && executionRevision[0] < 1 {
+		return "", "", fmt.Errorf("Task execution revision is invalid")
+	}
+	revisionPrefix := ""
+	if len(executionRevision) == 1 && executionRevision[0] > 1 {
+		revisionPrefix = fmt.Sprintf("r%d-", executionRevision[0])
+	}
 	slug := strings.ToLower(string(taskType) + "-" + title)
 	slug = strings.Trim(taskWorktreeSlugPattern.ReplaceAllString(slug, "-"), "-")
 	if len(slug) > 48 {
@@ -218,7 +304,7 @@ func taskWorktreePath(stateDir, projectID, taskID string, taskType model.TaskTyp
 	if slug == "" {
 		slug = "task"
 	}
-	branch := "task/" + taskID + "-" + slug
+	branch := "task/" + taskID + "-" + revisionPrefix + slug
 	path, err := TaskWorktreePath(stateDir, projectID, taskID)
 	return path, branch, err
 }

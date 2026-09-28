@@ -149,7 +149,7 @@ definitions:
       properties:
         status:
           type: string
-          enum: [planned, dispatched, in_progress, awaiting_review, changes_requested, ready_for_verification, verifying, verified, integrating, integrated, done, blocked, failed]
+          enum: [planned, dispatched, in_progress, awaiting_review, changes_requested, ready_for_verification, verifying, verified, integrating, integrated, done, blocked, failed, resetting, abandoned]
         stage:
           type: string
           enum: [code, tests, rebase]

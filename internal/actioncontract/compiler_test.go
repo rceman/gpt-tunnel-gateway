@@ -95,7 +95,7 @@ func TestCanonicalContractTreeAndSharedDefinitionCoverage(t *testing.T) {
 	if got := compiled.definitions["Milestone"].Properties["status"].Enum; !reflect.DeepEqual(got, stringValues(model.MilestoneStatuses())) {
 		t.Fatalf("Milestone statuses = %v, want %v", got, model.MilestoneStatuses())
 	}
-	executionStatuses := []string{model.TaskExecutionPlanned, model.TaskExecutionDispatched, model.TaskExecutionInProgress, model.TaskExecutionAwaitingReview, model.TaskExecutionChangesRequested, model.TaskExecutionReadyForVerification, model.TaskExecutionVerifying, model.TaskExecutionVerified, model.TaskExecutionIntegrating, model.TaskExecutionIntegrated, model.TaskExecutionDone, model.TaskExecutionBlocked, model.TaskExecutionFailed}
+	executionStatuses := []string{model.TaskExecutionPlanned, model.TaskExecutionDispatched, model.TaskExecutionInProgress, model.TaskExecutionAwaitingReview, model.TaskExecutionChangesRequested, model.TaskExecutionReadyForVerification, model.TaskExecutionVerifying, model.TaskExecutionVerified, model.TaskExecutionIntegrating, model.TaskExecutionIntegrated, model.TaskExecutionDone, model.TaskExecutionBlocked, model.TaskExecutionFailed, model.TaskExecutionResetting, model.TaskExecutionAbandoned}
 	if got := compiled.definitions["TaskExecution"].Properties["status"].Enum; !reflect.DeepEqual(got, stringValues(executionStatuses)) {
 		t.Fatalf("TaskExecution statuses = %v, want %v", got, executionStatuses)
 	}

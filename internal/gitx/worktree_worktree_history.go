@@ -19,16 +19,52 @@ func (r Runner) DeleteManagedBranch(ctx context.Context, p config.ProjectConfig,
 	if err := model.ValidateCommitSHA(expectedHead); err != nil {
 		return err
 	}
-	ref := "refs/heads/" + branch
-	if _, err := r.command(ctx, p.Root, false, "show-ref", "--verify", "--quiet", ref); err != nil {
-		return nil
+	return r.DeleteManagedBranchAtExpectedHead(ctx, p, branch, expectedHead)
+}
+
+func (r Runner) ManagedBranchHead(ctx context.Context, p config.ProjectConfig, branch string) (string, bool, error) {
+	if err := model.ValidateBranch(branch); err != nil {
+		return "", false, err
 	}
-	resolved, err := r.Resolve(ctx, p.Root, ref)
-	if err != nil || resolved != expectedHead {
-		return fmt.Errorf("server-owned managed branch is not at the expected integrated head")
+	out, err := r.command(ctx, p.Root, false, "for-each-ref", "--format=%(objectname)", "refs/heads/"+branch)
+	if err != nil {
+		return "", false, err
 	}
-	_, err = r.command(ctx, p.Root, false, "update-ref", "-d", "refs/heads/"+branch, expectedHead)
-	return err
+	resolved := strings.TrimSpace(string(out))
+	if resolved == "" {
+		return "", false, nil
+	}
+	if strings.ContainsAny(resolved, "\r\n") || model.ValidateCommitSHA(resolved) != nil {
+		return "", false, fmt.Errorf("invalid server-owned managed branch head")
+	}
+	return resolved, true, nil
+}
+
+func (r Runner) DeleteManagedBranchAtExpectedHead(ctx context.Context, p config.ProjectConfig, branch, expectedHead string) error {
+	if err := model.ValidateBranch(branch); err != nil {
+		return err
+	}
+	if err := model.ValidateCommitSHA(expectedHead); err != nil {
+		return err
+	}
+	resolved, found, err := r.ManagedBranchHead(ctx, p, branch)
+	if err != nil || !found {
+		return err
+	}
+	if resolved != expectedHead {
+		return fmt.Errorf("server-owned managed branch is not at the expected head")
+	}
+	if _, err := r.command(ctx, p.Root, false, "update-ref", "-d", "refs/heads/"+branch, expectedHead); err != nil {
+		return err
+	}
+	_, found, err = r.ManagedBranchHead(ctx, p, branch)
+	if err != nil {
+		return err
+	}
+	if found {
+		return fmt.Errorf("server-owned managed branch remains after deletion")
+	}
+	return nil
 }
 func (r Runner) IsAncestor(ctx context.Context, root, ancestor, descendant string) (bool, error) {
 	if err := model.ValidateRevision(ancestor); err != nil {

@@ -39,6 +39,8 @@ const (
 	TaskExecutionDone                 = "done"
 	TaskExecutionBlocked              = "blocked"
 	TaskExecutionFailed               = "failed"
+	TaskExecutionResetting            = "resetting"
+	TaskExecutionAbandoned            = "abandoned"
 )
 
 var taskExecutionWorktreePattern = regexp.MustCompile(`^WT-TSK[0-9]+-[a-f0-9]{8}$`)
@@ -83,7 +85,7 @@ func ValidateTaskExecutionState(v TaskExecutionState) error {
 
 func validTaskExecutionStatus(value string) bool {
 	switch value {
-	case TaskExecutionDispatched, TaskExecutionInProgress, TaskExecutionAwaitingReview, TaskExecutionChangesRequested, TaskExecutionReadyForVerification, TaskExecutionVerifying, TaskExecutionVerified, TaskExecutionIntegrating, TaskExecutionIntegrated, TaskExecutionDone, TaskExecutionBlocked, TaskExecutionFailed:
+	case TaskExecutionDispatched, TaskExecutionInProgress, TaskExecutionAwaitingReview, TaskExecutionChangesRequested, TaskExecutionReadyForVerification, TaskExecutionVerifying, TaskExecutionVerified, TaskExecutionIntegrating, TaskExecutionIntegrated, TaskExecutionDone, TaskExecutionBlocked, TaskExecutionFailed, TaskExecutionResetting, TaskExecutionAbandoned:
 		return true
 	default:
 		return false
@@ -91,9 +93,9 @@ func validTaskExecutionStatus(value string) bool {
 }
 
 // IsTaskExecutionTerminal is the single authority for current-task
-// eligibility. Failed and done executions are terminal.
+// eligibility. Done, failed, and abandoned executions are terminal.
 func IsTaskExecutionTerminal(status string) bool {
-	return status == TaskExecutionDone || status == TaskExecutionFailed
+	return status == TaskExecutionDone || status == TaskExecutionFailed || status == TaskExecutionAbandoned
 }
 
 func IsTaskExecutionNonTerminal(status string) bool {

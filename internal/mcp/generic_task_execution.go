@@ -16,6 +16,26 @@ func taskExecutionStatusSchema() map[string]any {
 	return obj(map[string]any{"key": str("Canonical Task identifier.")}, "key")
 }
 
+func taskExecutionResetInputSchema() map[string]any {
+	reason := str("Planner reason for retiring the nonterminal execution.")
+	reason["minLength"] = 1
+	reason["maxLength"] = 1024
+	return obj(map[string]any{
+		"key":    str("Canonical Task identifier."),
+		"reason": reason,
+	}, "key", "reason")
+}
+
+func taskExecutionResetOutputSchema() map[string]any {
+	revision := outputInteger()
+	revision["minimum"] = 1
+	return closedOutput(map[string]any{
+		"key":                outputString(),
+		"status":             map[string]any{"type": "string", "const": "planned"},
+		"execution_revision": revision,
+	}, "key", "status", "execution_revision")
+}
+
 func taskExecutionPublicHeadSchema() map[string]any {
 	return map[string]any{"type": "string", "pattern": "^[a-f0-9]{8}$"}
 }
@@ -37,6 +57,9 @@ func (s *Server) registerTaskExecutionActions() error {
 		action.AuthorityRole = durableSession.RoleLead
 		if action.Path == "task/status" {
 			action.AuthorityRole = actionRolePlannerOrLead
+		}
+		if action.Path == "task/reset" {
+			action.AuthorityRole = durableSession.RolePlanner
 		}
 		action.SessionBound = true
 		action.LocalReceiptOnly = true
@@ -85,6 +108,30 @@ func (s *Server) registerTaskExecutionActions() error {
 				return nil, err
 			}
 			return s.Service.TaskExecutionStatus(ctx, in.ProjectID, in.Key)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := register(GenericAction{
+		Path:                 "task/reset",
+		Description:          "Safely retire one resettable Task execution and return its Task to planned.",
+		InputSchema:          taskExecutionResetInputSchema(),
+		ExecutionInputSchema: adrExecutionSchema(taskExecutionResetInputSchema()),
+		OutputSchema:         taskExecutionResetOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				ProjectID string `json:"project_id"`
+				Key       string `json:"key"`
+				Reason    string `json:"reason"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.TaskExecutionReset(ctx, service.TaskExecutionResetInput{ProjectID: in.ProjectID, Key: in.Key, Reason: in.Reason})
 		},
 	}); err != nil {
 		return err

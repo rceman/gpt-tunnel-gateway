@@ -193,11 +193,16 @@ func (s *Service) taskExecutionBlockedPhase(ctx context.Context, state model.Tas
 }
 
 func (s *Service) ensureTaskExecutionRefreshChain(ctx context.Context, state model.TaskExecutionState) error {
+	resetRevision, err := s.latestTaskExecutionResetRevision(ctx, state.ProjectID, state.TaskID)
+	if err != nil {
+		return err
+	}
 	phases, err := s.Durability.ReadTaskExecutionPhases(ctx, state.ProjectID, state.TaskID, state.Stage)
 	if err != nil {
 		return err
 	}
-	if _, err := validateTaskExecutionRefreshChain(state, phases); err != nil {
+	phases = taskExecutionPhasesAfterRevision(phases, resetRevision)
+	if _, err := validateTaskExecutionRefreshChain(state, phases, resetRevision); err != nil {
 		return fmt.Errorf("Task blocked state has invalid refresh authority: %w", err)
 	}
 	return nil

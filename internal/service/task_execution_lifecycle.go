@@ -45,13 +45,28 @@ func (s *Service) TaskExecutionDispatch(ctx context.Context, in TaskExecutionDis
 	if err != nil {
 		return TaskExecutionPublicOutput{}, err
 	}
+	var previous *model.TaskExecutionState
 	if existing, found, readErr := s.Durability.ReadTaskExecutionState(ctx, in.ProjectID, in.Key); readErr != nil {
 		return TaskExecutionPublicOutput{}, readErr
 	} else if found {
-		if in.Agent != "" && existing.Agent != in.Agent {
-			return TaskExecutionPublicOutput{}, fmt.Errorf("Task is already dispatched to logical Agent %q", existing.Agent)
+		switch existing.Status {
+		case model.TaskExecutionAbandoned:
+			if err := s.validateTaskExecutionResetTerminalState(ctx, existing); err != nil {
+				return TaskExecutionPublicOutput{}, err
+			}
+			previous = &existing
+		case model.TaskExecutionResetting:
+			return TaskExecutionPublicOutput{}, fmt.Errorf("Task execution reset is incomplete")
+		default:
+			if in.Agent != "" && existing.Agent != in.Agent {
+				return TaskExecutionPublicOutput{}, fmt.Errorf("Task is already dispatched to logical Agent %q", existing.Agent)
+			}
+			return taskExecutionPublicOutput(existing), nil
 		}
-		return taskExecutionPublicOutput(existing), nil
+	} else if _, phaseFound, phaseErr := s.Durability.ReadLatestTaskExecutionResetPhase(ctx, in.ProjectID, in.Key); phaseErr != nil {
+		return TaskExecutionPublicOutput{}, phaseErr
+	} else if phaseFound {
+		return TaskExecutionPublicOutput{}, fmt.Errorf("Task reset history exists without current execution state")
 	}
 	agent, err := s.resolveTaskExecutionAgent(ctx, in.ProjectID, in.Agent)
 	if err != nil {
@@ -68,28 +83,37 @@ func (s *Service) TaskExecutionDispatch(ctx context.Context, in TaskExecutionDis
 	if err != nil {
 		return TaskExecutionPublicOutput{}, err
 	}
+	executionRevision := 1
+	if previous != nil {
+		executionRevision = previous.ExecutionRevision + 1
+	}
 	short := strings.ToLower(base[:8])
-	lane, _, branch, err := s.Git.CreateTaskWorktree(ctx, project, s.Config.StateDir, in.ProjectID, in.Key, task.Type, task.Title, base)
+	lane, _, branch, err := s.Git.CreateTaskWorktree(ctx, project, s.Config.StateDir, in.ProjectID, in.Key, task.Type, task.Title, base, executionRevision)
 	if err != nil {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("create Task worktree: %w", err)
 	}
 	actual, actualBranch, clean, err := s.Git.CurrentHead(ctx, lane)
 	if err != nil || !clean || actualBranch != branch || actual != base {
-		_ = s.Git.RemoveTaskWorktree(ctx, project, s.Config.StateDir, in.ProjectID, in.Key, task.Type, task.Title, base)
+		_ = s.Git.RemoveTaskWorktree(ctx, project, s.Config.StateDir, in.ProjectID, in.Key, task.Type, task.Title, base, executionRevision)
 		return TaskExecutionPublicOutput{}, fmt.Errorf("created Task worktree failed identity validation")
 	}
-	worktree := taskExecutionWorktree(in.Key, short)
-	now := time.Now().UTC()
-	state := model.TaskExecutionState{TaskID: in.Key, ProjectID: in.ProjectID, TaskRevision: task.Revision, TaskRevisionSHA256: task.RevisionSHA256, Status: model.TaskExecutionDispatched, Stage: "code", Worktree: worktree, BaseHead: base, Head: actual, Branch: branch, Agent: agent, ExecutionRevision: 1, UpdatedAt: now}
-	if err := s.Durability.CreateTaskExecutionState(ctx, state); err != nil {
-		if existing, found, readErr := s.Durability.ReadTaskExecutionState(ctx, in.ProjectID, in.Key); readErr == nil && found {
-			if in.Agent != "" && existing.Agent != in.Agent {
-				return TaskExecutionPublicOutput{}, fmt.Errorf("concurrent Task dispatch selected logical Agent %q", existing.Agent)
-			}
+	state := model.TaskExecutionState{TaskID: in.Key, ProjectID: in.ProjectID, TaskRevision: task.Revision, TaskRevisionSHA256: task.RevisionSHA256, Status: model.TaskExecutionDispatched, Stage: "code", Worktree: taskExecutionWorktree(in.Key, short), BaseHead: base, Head: actual, Branch: branch, Agent: agent, ExecutionRevision: executionRevision, UpdatedAt: time.Now().UTC()}
+	var persistErr error
+	if previous == nil {
+		persistErr = s.Durability.CreateTaskExecutionState(ctx, state)
+	} else {
+		persistErr = s.Durability.UpdateTaskExecutionState(ctx, state, previous.ExecutionRevision)
+	}
+	if persistErr != nil {
+		if existing, found, readErr := s.Durability.ReadTaskExecutionState(ctx, in.ProjectID, in.Key); readErr == nil && found && existing.ExecutionRevision > executionRevision {
 			return taskExecutionPublicOutput(existing), nil
 		}
-		_ = s.Git.RemoveTaskWorktree(ctx, project, s.Config.StateDir, in.ProjectID, in.Key, task.Type, task.Title, base)
-		return TaskExecutionPublicOutput{}, err
+		if previous == nil {
+			_ = s.Git.RemoveTaskWorktree(ctx, project, s.Config.StateDir, in.ProjectID, in.Key, task.Type, task.Title, base, executionRevision)
+		} else {
+			_ = s.Git.RemoveTaskWorktreeAfterIntegration(ctx, project, s.Config.StateDir, in.ProjectID, in.Key, task.Type, task.Title, actual, branch, executionRevision)
+		}
+		return TaskExecutionPublicOutput{}, persistErr
 	}
 	if err := s.recordTrackTaskDispatch(ctx, in.ProjectID, in.Key); err != nil {
 		return TaskExecutionPublicOutput{}, err
@@ -126,6 +150,31 @@ func (s *Service) TaskExecutionStatus(ctx context.Context, projectID, key string
 	if state, found, err := s.Durability.ReadTaskExecutionState(ctx, projectID, key); err != nil {
 		return TaskExecutionPublicOutput{}, err
 	} else if found {
+		if state.Status == model.TaskExecutionAbandoned {
+			if err := s.validateTaskExecutionResetTerminalState(ctx, state); err != nil {
+				return TaskExecutionPublicOutput{}, err
+			}
+			return TaskExecutionPublicOutput{
+				Key:    key,
+				Status: model.TaskExecutionPlanned,
+			}, nil
+		}
+		if state.Status == model.TaskExecutionResetting {
+			phase, phaseFound, phaseErr := s.Durability.ReadLatestTaskExecutionResetPhase(ctx, projectID, key)
+			if phaseErr != nil {
+				return TaskExecutionPublicOutput{}, phaseErr
+			}
+			if !phaseFound || phase.EventKind != "reset_start" || phase.ExecutionRevision != state.ExecutionRevision {
+				return TaskExecutionPublicOutput{}, fmt.Errorf("Task execution reset has no matching durable start evidence")
+			}
+			evidence, evidenceErr := validateTaskExecutionResetPhase(phase)
+			if evidenceErr != nil || !taskExecutionResetEvidenceBindsState(evidence, state, model.TaskExecutionResetting) {
+				return TaskExecutionPublicOutput{}, fmt.Errorf("Task execution reset start evidence does not match its state")
+			}
+			out := taskExecutionPublicOutput(state)
+			out.Reason = evidence.Reason
+			return out, nil
+		}
 		out := taskExecutionPublicOutput(state)
 		verification, ok, err := s.taskExecutionVerificationProjectionFor(ctx, state)
 		if err != nil {
@@ -142,6 +191,13 @@ func (s *Service) TaskExecutionStatus(ctx context.Context, projectID, key string
 			out.Reason = reason
 		}
 		return out, nil
+	}
+	_, phaseFound, phaseErr := s.Durability.ReadLatestTaskExecutionResetPhase(ctx, projectID, key)
+	if phaseErr != nil {
+		return TaskExecutionPublicOutput{}, phaseErr
+	}
+	if phaseFound {
+		return TaskExecutionPublicOutput{}, fmt.Errorf("Task reset history exists without current execution state")
 	}
 	return TaskExecutionPublicOutput{
 		Key:    key,

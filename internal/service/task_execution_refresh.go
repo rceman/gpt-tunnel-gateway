@@ -195,6 +195,10 @@ func validateTaskExecutionRefreshInput(in TaskExecutionRefreshInput) (string, er
 }
 
 func (s *Service) ensureTaskExecutionRefreshable(ctx context.Context, state model.TaskExecutionState) error {
+	resetRevision, err := s.latestTaskExecutionResetRevision(ctx, state.ProjectID, state.TaskID)
+	if err != nil {
+		return fmt.Errorf("inspect Task reset history: %w", err)
+	}
 	switch state.Status {
 	case model.TaskExecutionDispatched, model.TaskExecutionInProgress:
 	case model.TaskExecutionBlocked:
@@ -215,12 +219,13 @@ func (s *Service) ensureTaskExecutionRefreshable(ctx context.Context, state mode
 		if err != nil {
 			return fmt.Errorf("inspect Task refresh evidence: %w", err)
 		}
+		phases = taskExecutionPhasesAfterRevision(phases, resetRevision)
 		for _, phase := range phases {
 			if phase.EventKind != "block" && phase.EventKind != "resume" && phase.EventKind != "refresh" {
 				return fmt.Errorf("Task execution has immutable lifecycle evidence")
 			}
 		}
-		if _, err := validateTaskExecutionRefreshChain(state, phases); err != nil {
+		if _, err := validateTaskExecutionRefreshChain(state, phases, resetRevision); err != nil {
 			return err
 		}
 	}
@@ -234,7 +239,7 @@ func (s *Service) ensureTaskExecutionRefreshable(ctx context.Context, state mode
 	return nil
 }
 
-func validateTaskExecutionRefreshChain(state model.TaskExecutionState, phases []sqlitestore.TaskExecutionPhase) (taskExecutionRefreshEvidence, error) {
+func validateTaskExecutionRefreshChain(state model.TaskExecutionState, phases []sqlitestore.TaskExecutionPhase, resetRevision int) (taskExecutionRefreshEvidence, error) {
 	var latest taskExecutionRefreshEvidence
 	foundRefresh := false
 	for i, phase := range phases {
@@ -246,7 +251,7 @@ func validateTaskExecutionRefreshChain(state model.TaskExecutionState, phases []
 			return taskExecutionRefreshEvidence{}, fmt.Errorf("Task refresh evidence does not match its phase")
 		}
 		var priorBase, priorHead string
-		wantRevision := 2
+		wantRevision := resetRevision + 2
 		if i > 0 {
 			previous := phases[i-1]
 			wantRevision = previous.ExecutionRevision + 1
