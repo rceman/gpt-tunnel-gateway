@@ -728,7 +728,11 @@ func (s *Service) trackView(ctx context.Context, track model.Track) (TrackView, 
 		if state, found, stateErr := s.Durability.ReadTaskExecutionState(ctx, track.ProjectID, taskID); stateErr != nil {
 			return TrackView{}, stateErr
 		} else if found {
-			status = state.Status
+			projectedStatus, projectionErr := s.taskExecutionProjectedStatus(ctx, state)
+			if projectionErr != nil {
+				return TrackView{}, projectionErr
+			}
+			status = projectedStatus
 			execution = TrackTaskExecutionProjection{
 				Status:            state.Status,
 				Stage:             state.Stage,

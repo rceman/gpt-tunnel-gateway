@@ -134,6 +134,16 @@ func (s *Service) ensureWorkerActionableSlot(ctx context.Context, projectID, age
 	return nil
 }
 
+func (s *Service) taskExecutionProjectedStatus(ctx context.Context, state model.TaskExecutionState) (string, error) {
+	if state.Status != model.TaskExecutionAbandoned {
+		return state.Status, nil
+	}
+	if err := s.validateTaskExecutionResetTerminalState(ctx, state); err != nil {
+		return "", err
+	}
+	return model.TaskExecutionPlanned, nil
+}
+
 func (s *Service) TaskExecutionStatus(ctx context.Context, projectID, key string) (TaskExecutionPublicOutput, error) {
 	if s.Durability == nil {
 		return TaskExecutionPublicOutput{}, fmt.Errorf("shared durability is unavailable")
@@ -151,12 +161,13 @@ func (s *Service) TaskExecutionStatus(ctx context.Context, projectID, key string
 		return TaskExecutionPublicOutput{}, err
 	} else if found {
 		if state.Status == model.TaskExecutionAbandoned {
-			if err := s.validateTaskExecutionResetTerminalState(ctx, state); err != nil {
-				return TaskExecutionPublicOutput{}, err
+			status, statusErr := s.taskExecutionProjectedStatus(ctx, state)
+			if statusErr != nil {
+				return TaskExecutionPublicOutput{}, statusErr
 			}
 			return TaskExecutionPublicOutput{
 				Key:    key,
-				Status: model.TaskExecutionPlanned,
+				Status: status,
 			}, nil
 		}
 		if state.Status == model.TaskExecutionResetting {

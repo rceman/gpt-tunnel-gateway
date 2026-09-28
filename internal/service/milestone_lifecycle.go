@@ -483,7 +483,11 @@ func (s *Service) milestoneView(ctx context.Context, milestone model.Milestone) 
 		if state, found, stateErr := s.Durability.ReadTaskExecutionState(ctx, milestone.ProjectID, taskID); stateErr != nil {
 			return MilestoneView{}, stateErr
 		} else if found && state.Status != model.TaskExecutionDone {
-			status = string(state.Status)
+			projectedStatus, projectionErr := s.taskExecutionProjectedStatus(ctx, state)
+			if projectionErr != nil {
+				return MilestoneView{}, projectionErr
+			}
+			status = projectedStatus
 		}
 		tasks = append(tasks, MilestoneTaskProjection{
 			Key:      task.ID,
