@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/gates"
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
@@ -26,9 +25,30 @@ func tsk585Setup(t *testing.T) (*Service, *sqlitestore.Databases) {
 	project := s.Config.Projects["example"]
 	project.ProjectCode = "EXM"
 	s.Config.Projects["example"] = project
+	tsk585InstallVerificationFixture(t, project.Root)
+	tsk585RefreshProjectMirror(t, s, project)
 	configuration, err := s.ProjectConfigurationRead(context.Background(), "example")
 	if err != nil {
 		t.Fatal(err)
+	}
+	input, ok := model.ProjectHookPayloadSchema(model.HookPreTaskVerify)
+	if !ok {
+		t.Fatal("canonical pre_task_verify input schema is unavailable")
+	}
+	output, err := model.TaskVerificationProcedureOutputSchema([]string{"fixture_check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration.Procedures["fixture_verify"] = model.ProjectProcedureDefinition{
+		Script: "scripts/task-verify-fixture.py", Summary: "Verify a non-Go fixture Task.",
+		Guide: "Checks the exact candidate and returns one bounded fixture gate result.", Input: input, Output: output,
+	}
+	configuration.Hooks[model.HookPreTaskVerify] = "fixture_verify"
+	configuration.Revision++
+	configuration.UpdatedBy = "test"
+	configuration.UpdatedAt = time.Now().UTC()
+	if err := model.ValidateProjectConfiguration(configuration); err != nil {
+		t.Fatalf("fixture ProjectConfiguration: %v", err)
 	}
 	agent, err := s.AgentRead(context.Background(), "example", "coder-example")
 	if err != nil {
@@ -62,18 +82,96 @@ func tsk585Setup(t *testing.T) (*Service, *sqlitestore.Databases) {
 	if err := db.UpsertLocalAgent(context.Background(), sqlitestore.LocalAgent{ProjectID: "example", AgentID: agent.AgentID, Payload: agentPayload, UpdatedAt: agent.UpdatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
 		t.Fatal(err)
 	}
-	s.gateExecutorWithProjectCommands = func(ctx context.Context, root string, names []string, _ model.ProjectGateCommands, _ string) ([]model.CompletionGateResult, error) {
-		tree, err := s.Git.TreeID(ctx, config.ProjectConfig{Root: root})
-		if err != nil {
-			return nil, err
-		}
-		out := make([]model.CompletionGateResult, len(names))
-		for i, name := range names {
-			out[i] = model.CompletionGateResult{ID: name, ExitCode: 0, TreeID: tree}
-		}
-		return out, nil
-	}
 	return s, db
+}
+
+func tsk585InstallVerificationFixture(t *testing.T, root string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+import time
+
+with open(os.environ["GTW_PROCEDURE_INPUT_FILE"], "r", encoding="utf-8") as stream:
+    envelope = json.load(stream)
+payload = envelope.get("input", {})
+context = envelope.get("context", {})
+if context.get("hook") != "pre_task_verify":
+    sys.exit(41)
+try:
+    head = subprocess.check_output(["git", "rev-parse", "--verify", "HEAD"], text=True).strip()
+    tree = subprocess.check_output(["git", "rev-parse", "--verify", "HEAD^{tree}"], text=True).strip()
+    dirty = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], text=True)
+except (OSError, subprocess.CalledProcessError):
+    sys.exit(42)
+if not head.startswith(payload.get("candidate_head", "")) or not tree.startswith(payload.get("candidate_tree", "")) or dirty:
+    sys.exit(43)
+if os.path.exists(".task-verify-slow"):
+    open(os.path.join(os.environ["TMPDIR"], "started"), "w", encoding="utf-8").close()
+    time.sleep(0.5)
+with open(os.environ["GTW_PROCEDURE_OUTPUT_FILE"], "w", encoding="utf-8") as stream:
+    json.dump({"gates": [{"id": "fixture_check", "exit_code": 0, "duration_ms": 1}]}, stream, separators=(",", ":"))
+`
+	path := filepath.Join(root, "scripts", "task-verify-fixture.py")
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, root, "add", "scripts/task-verify-fixture.py")
+	testutil.Git(t, root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "test: add non-Go verification fixture")
+}
+
+func tsk585RefreshProjectMirror(t *testing.T, s *Service, project config.ProjectConfig) {
+	t.Helper()
+	testutil.Git(t, project.Root, "push", project.Remote, "HEAD:refs/heads/"+project.DefaultBranch)
+	remote, err := s.Git.RemoteURL(context.Background(), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Git.ReconcileManagedMirror(context.Background(), project, remote, project.DefaultBranch); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func tsk585EnableSlowVerificationFixture(t *testing.T, s *Service) {
+	t.Helper()
+	project := s.Config.Projects["example"]
+	root := project.Root
+	if err := os.WriteFile(filepath.Join(root, ".task-verify-slow"), []byte("slow\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, root, "add", ".task-verify-slow")
+	testutil.Git(t, root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "test: synchronize verification fixture")
+	tsk585RefreshProjectMirror(t, s, project)
+}
+
+func tsk585WaitProcedureStarted(t *testing.T, s *Service) {
+	t.Helper()
+	runtimeDir := filepath.Join(s.Config.StateDir, "procedure-runs")
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		entries, err := os.ReadDir(runtimeDir)
+		if err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					if _, err := os.Stat(filepath.Join(runtimeDir, entry.Name(), "started")); err == nil {
+						return
+					}
+				}
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("verification Procedure did not reach its synchronization point")
+}
+
+func tsk585WorkerContext(t *testing.T, s *Service) context.Context {
+	t.Helper()
+	return WithAgentSessionID(context.Background(), tsk622AssertWorkerSessionCount(t, s.Durability))
 }
 func tsk585Task(t *testing.T, s *Service, idem, title string) model.TaskAuthoring {
 	t.Helper()
@@ -125,10 +223,16 @@ func tsk622AssertWorkerSessionCount(t *testing.T, db *sqlitestore.Databases) str
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 1 || records[0].Role != durableSession.RoleWorker {
+	var workers []durableSession.Record
+	for _, record := range records {
+		if record.Role == durableSession.RoleWorker && record.Status == durableSession.StatusActive {
+			workers = append(workers, record)
+		}
+	}
+	if len(workers) != 1 {
 		t.Fatalf("Worker Session records=%#v", records)
 	}
-	return records[0].ID
+	return workers[0].ID
 }
 
 func TestTSK622DispatchUsesWorkerActionableOwnership(t *testing.T) {
@@ -424,7 +528,7 @@ func TestTSK656CodeAcceptReachesVerificationWithTestsInCandidate(t *testing.T) {
 	tsk585Dispatch(t, s, task.ID)
 	tsk585LaneWrite(t, s, task.ID, "implementation.go", "package fixture\n")
 	tsk585LaneWrite(t, s, task.ID, "implementation_test.go", "package fixture\n")
-	if _, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
+	if _, err := s.TaskExecutionTestAsync(tsk585WorkerContext(t, s), TaskExecutionTestInput{
 		ProjectID: "example",
 		Key:       task.ID,
 	}); err == nil || !strings.Contains(err.Error(), "not ready for verification") {
@@ -433,7 +537,7 @@ func TestTSK656CodeAcceptReachesVerificationWithTestsInCandidate(t *testing.T) {
 	if _, err := s.TaskExecutionSubmitCode(ctx, "example", task.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
+	if _, err := s.TaskExecutionTestAsync(tsk585WorkerContext(t, s), TaskExecutionTestInput{
 		ProjectID: "example",
 		Key:       task.ID,
 	}); err == nil || !strings.Contains(err.Error(), "not ready for verification") {
@@ -494,7 +598,7 @@ func TestTSK585TaskTestEndToEnd(t *testing.T) {
 	task := tsk585Task(t, s, "tsk585-e2e", "Verify Task")
 	tsk585Dispatch(t, s, task.ID)
 	tsk585LaneCommit(t, s, task.ID, "candidate work")
-	if _, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
+	if _, err := s.TaskExecutionTestAsync(tsk585WorkerContext(t, s), TaskExecutionTestInput{
 		ProjectID: "example",
 		Key:       task.ID,
 	}); err == nil {
@@ -531,7 +635,7 @@ func TestTSK585TaskTestEndToEnd(t *testing.T) {
 		t.Fatalf("remove completed durable operation: %v", err)
 	}
 
-	duplicate, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
+	duplicate, err := s.TaskExecutionTestAsync(tsk585WorkerContext(t, s), TaskExecutionTestInput{
 		ProjectID: "example",
 		Key:       task.ID,
 	})
@@ -573,7 +677,7 @@ func TestTSK585TaskTestEndToEnd(t *testing.T) {
 	}); err == nil {
 		t.Fatal("rework on an integrated Task must fail")
 	}
-	if _, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
+	if _, err := s.TaskExecutionTestAsync(tsk585WorkerContext(t, s), TaskExecutionTestInput{
 		ProjectID: "example",
 		Key:       task.ID,
 	}); err == nil {
@@ -699,7 +803,7 @@ func TestTSK585RebaseConflictPreservesLane(t *testing.T) {
 	if _, err := s.TaskExecutionSubmitRebase(ctx, "example", task.ID); err == nil {
 		t.Fatal("submit-rebase on an unresolved conflict must fail")
 	}
-	if _, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
+	if _, err := s.TaskExecutionTestAsync(tsk585WorkerContext(t, s), TaskExecutionTestInput{
 		ProjectID: "example",
 		Key:       task.ID,
 	}); err == nil {
@@ -739,90 +843,51 @@ func TestTSK585RebaseConflictPreservesLane(t *testing.T) {
 		t.Fatalf("post-resolution receipt=%#v found=%v", latest, found)
 	}
 }
-func TestTSK585FullSuiteArgv(t *testing.T) {
-	accepted := [][]string{
-		{"./scripts/test-full.sh"},
-		{"go", "test", "./...", "-count=1"},
-		{"go", "test", "./...", "-count=1", "-race", "-timeout=2m", "-coverprofile=cover.out"},
-		{"go", "test", "./...", "-count=3", "-parallel=4", "-shuffle=on"},
+func TestTSK585ProcedureGateEvidenceIsOrderedAndTreeBound(t *testing.T) {
+	names := []string{"format", "static_check", "full_test"}
+	tree := strings.Repeat("b", 40)
+	profile := strings.Repeat("a", 64)
+	valid := json.RawMessage(`{"gates":[{"id":"format","exit_code":0,"duration_ms":1},{"id":"static_check","exit_code":0,"duration_ms":2},{"id":"full_test","exit_code":0,"duration_ms":3}]}`)
+	results, err := taskExecutionProcedureGateEvidence(valid, names, tree, profile)
+	if err != nil || len(results) != len(names) {
+		t.Fatalf("valid Procedure evidence=%#v err=%v", results, err)
 	}
-	for _, argv := range accepted {
-		if !taskExecutionVerificationFullSuiteArgv(argv) {
-			t.Fatalf("full-suite argv %v must be accepted", argv)
+	for i, result := range results {
+		if result.ID != names[i] || result.Execution != "executed" || result.TreeID != tree || result.ContractDigest != profile || result.ReceiptDigest == "" {
+			t.Fatalf("Procedure gate result=%#v", result)
 		}
 	}
-	rejected := [][]string{
-		{"go", "test", "./internal/service"},
-		{"go", "test", "./...", "./internal/service"},
-		{"go", "test", "./...", "-run=^$"},
-		{"go", "test", "./...", "-run", "^$"},
-		{"go", "test", "./..."},
-		{"go", "test", "./...", "-count=0"},
-		{"go", "test", "./...", "-count=-1"},
-		{"go", "test", "./...", "-count"},
-		{"go", "test", "./...", "-count", "1"},
-		{"go", "test", "./...", "-timeout=0"},
-		{"go", "test", "./...", "-parallel=0"},
-		{"go", "test", "./...", "-coverprofile"},
-		{"go", "test", "./...", "-list=."},
-		{"go", "test", "./...", "-short"},
-		{"go", "test", "./...", "-skip=x"},
-		{"go", "test", "./...", "-bench=."},
-		{"go", "test", "./...", "-fuzz=."},
-		{"go", "test", "./...", "-exec=wrapper"},
-		{"go", "test", "./...", "--", "-test.run=x"},
-		{"go", "test", "-run=^$", "./..."},
-		{"go", "test"},
-		{"go", "build", "./..."},
-		{"bash", "-c", "go test ./..."},
+	reordered := json.RawMessage(`{"gates":[{"id":"static_check","exit_code":0,"duration_ms":1},{"id":"format","exit_code":0,"duration_ms":2},{"id":"full_test","exit_code":0,"duration_ms":3}]}`)
+	if _, err := taskExecutionProcedureGateEvidence(reordered, names, tree, profile); err == nil {
+		t.Fatal("reordered Procedure evidence was accepted")
 	}
-	for _, argv := range rejected {
-		if taskExecutionVerificationFullSuiteArgv(argv) {
-			t.Fatalf("narrowed argv %v must be rejected", argv)
-		}
+	failed := json.RawMessage(`{"gates":[{"id":"format","exit_code":7,"duration_ms":1},{"id":"static_check","exit_code":0,"duration_ms":2},{"id":"full_test","exit_code":0,"duration_ms":3}]}`)
+	if _, err := taskExecutionProcedureGateEvidence(failed, names, tree, profile); err == nil {
+		t.Fatal("failed Procedure gate was accepted")
 	}
 }
-func TestTSK585FrozenTaskMutationDuringGates(t *testing.T) {
+func TestTSK585FrozenTaskMutationDuringProcedure(t *testing.T) {
 	s, db := tsk585Setup(t)
 	defer db.Close()
 	ctx := context.Background()
-	gateStarted := make(chan struct{})
-	releaseGates := make(chan struct{})
-	s.gateExecutorWithProjectCommands = func(ctx context.Context, root string, names []string, _ model.ProjectGateCommands, _ string) ([]model.CompletionGateResult, error) {
-		select {
-		case <-gateStarted:
-		default:
-			close(gateStarted)
-		}
-		select {
-		case <-releaseGates:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-		tree, err := s.Git.TreeID(ctx, config.ProjectConfig{Root: root})
-		if err != nil {
-			return nil, err
-		}
-		out := make([]model.CompletionGateResult, len(names))
-		for i, name := range names {
-			out[i] = model.CompletionGateResult{ID: name, ExitCode: 0, TreeID: tree}
-		}
-		return out, nil
-	}
+	tsk585EnableSlowVerificationFixture(t, s)
 	task := tsk585Task(t, s, "tsk585-frozen", "Frozen Task")
 	tsk585Dispatch(t, s, task.ID)
 	tsk585DriveToVerification(t, s, task.ID)
-	receipt, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
+	receipt, err := s.TaskExecutionTestAsync(tsk585WorkerContext(t, s), TaskExecutionTestInput{
 		ProjectID: "example",
 		Key:       task.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case <-gateStarted:
-	case <-time.After(10 * time.Second):
-		t.Fatal("verification gates did not start")
+	tsk585WaitProcedureStarted(t, s)
+	if _, err := s.TaskExecutionReset(trustedWorkflowPolicyContext(ctx, "planner"), TaskExecutionResetInput{
+		ProjectID: "example",
+		Key:       task.ID,
+		Reason:    "Attempt reset while pre_task_verify is active.",
+	}); err == nil || !strings.Contains(err.Error(), "verification is in flight") {
+		t.Fatalf("Task reset was not blocked by in-flight verification: %v", err)
 	}
 
 	shared, err := db.ReadSharedTask(ctx, task.ID)
@@ -845,14 +910,13 @@ func TestTSK585FrozenTaskMutationDuringGates(t *testing.T) {
 	if _, err := db.Shared.Exec(ctx, `UPDATE shared_tasks SET revision=?,payload=?,updated_at=? WHERE id=?`, mutated.Revision, payload, mutated.UpdatedAt.UTC().Format(time.RFC3339Nano), task.ID); err != nil {
 		t.Fatal(err)
 	}
-	close(releaseGates)
 	operation := tsk585WaitOperation(t, s, receipt.OperationID)
 	if operation.Status == "completed" {
-		t.Fatalf("frozen Task mutation during gates must not produce success: %#v", operation)
+		t.Fatalf("frozen Task mutation during Procedure must not produce success: %#v", operation)
 	}
 	state, _, _ := db.ReadTaskExecutionState(ctx, "example", task.ID)
-	if state.Status == model.TaskExecutionVerified {
-		t.Fatalf("state=%#v must not be verified after Task mutation", state)
+	if state.Status != model.TaskExecutionReadyForVerification {
+		t.Fatalf("pre_task_verify must not transition mutated Task state: %#v", state)
 	}
 	latest, found, _ := db.ReadLatestTaskExecutionVerification(ctx, "example", task.ID)
 	if found && latest.Outcome == model.TaskExecutionVerificationSucceeded {
@@ -878,61 +942,75 @@ func TestTSK604GateProfileIgnoresDaemonEnvironment(t *testing.T) {
 		t.Fatalf("daemon environment changed the gate profile: before=%s after=%s", before, after)
 	}
 }
-func TestTSK585VerificationDoesNotSubstitutePriorGatePassReceipt(t *testing.T) {
+func TestTSK585TaskVerificationUsesOnlyTheBoundProjectProcedure(t *testing.T) {
 	s, db := tsk585Setup(t)
 	defer db.Close()
 	ctx := context.Background()
-	task := tsk585Task(t, s, "tsk585-noreuse", "No Reuse Task")
+	task := tsk585Task(t, s, "tsk585-project-procedure", "Project Procedure Task")
 	tsk585Dispatch(t, s, task.ID)
 	tsk585DriveToVerification(t, s, task.ID)
-	lanePath, err := gitx.TaskWorktreePath(s.Config.StateDir, "example", task.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	names, err := s.ResolveProjectGates(ctx, "example", "integration")
-	if err != nil {
-		t.Fatal(err)
-	}
-	seeded := make([]model.CompletionGateResult, len(names))
-	for i, name := range names {
-		seeded[i] = model.CompletionGateResult{ID: name, ExitCode: 0}
-	}
-	if _, _, err := s.writeProjectGatePassReceiptLocked(ctx, "example", lanePath, names, model.DefaultProjectGateCommands(), "task", gates.FullTestScope(), seeded); err != nil {
-		t.Fatalf("seed matching pass receipt: %v", err)
-	}
-	executed := 0
-	s.gateExecutorWithProjectCommands = func(_ context.Context, _ string, gateNames []string, _ model.ProjectGateCommands, _ string) ([]model.CompletionGateResult, error) {
-		executed++
-		out := make([]model.CompletionGateResult, len(gateNames))
-		for i, name := range gateNames {
-			out[i] = model.CompletionGateResult{ID: name, ExitCode: 0}
-		}
-		return out, nil
+	s.gateExecutorWithProjectCommands = func(context.Context, string, []string, model.ProjectGateCommands, string) ([]model.CompletionGateResult, error) {
+		t.Fatal("generic Task verification must not invoke project gate command defaults")
+		return nil, nil
 	}
 	operation := tsk585VerifyTask(t, s, task.ID)
 	if operation.Status != "completed" {
 		t.Fatalf("verification status=%q error=%q", operation.Status, operation.Error)
 	}
-	if executed == 0 {
-		t.Fatal("a matching pass receipt must not substitute for fresh gate execution")
+	latest, found, err := db.ReadLatestTaskExecutionVerification(ctx, "example", task.ID)
+	if err != nil || !found || latest.Outcome != model.TaskExecutionVerificationSucceeded || len(latest.Gates) != 1 {
+		t.Fatalf("Procedure verification receipt=%#v found=%v err=%v", latest, found, err)
 	}
-	latest, found, _ := db.ReadLatestTaskExecutionVerification(ctx, "example", task.ID)
-	if !found || latest.Outcome != model.TaskExecutionVerificationSucceeded {
-		t.Fatalf("receipt=%#v found=%v", latest, found)
+	if latest.Gates[0].ID != "fixture_check" || latest.Gates[0].Execution != "executed" {
+		t.Fatalf("non-Go fixture did not use its project Procedure: %#v", latest.Gates)
 	}
-	for _, result := range latest.Gates {
-		if result.Execution == "reused" {
-			t.Fatalf("verification must not reuse prior gate evidence: %#v", result)
-		}
-	}
-	if _, _, err := s.loadTestPassReceipt("example"); err != nil {
-		t.Fatalf("fresh execution must leave pass-receipt evidence on disk: %v", err)
+	attempts := taskLifecycleHookAttempts(operation.Result)
+	if len(attempts) < 1 || attempts[0].Hook != model.HookPreTaskVerify || attempts[0].Outcome != "completed" || !json.Valid(attempts[0].Output) {
+		t.Fatalf("pre_task_verify output was not durably recorded: %#v", attempts)
 	}
 }
+
+func TestTSK675ProcedureProfileChangeInvalidatesVerificationReceipt(t *testing.T) {
+	s, db := tsk585Setup(t)
+	defer db.Close()
+	ctx := context.Background()
+	task := tsk585Task(t, s, "tsk675-profile-change", "Profile-bound verification Task")
+	tsk585Dispatch(t, s, task.ID)
+	tsk585DriveToVerification(t, s, task.ID)
+	operation := tsk585VerifyTask(t, s, task.ID)
+	if operation.Status != "completed" {
+		t.Fatalf("initial verification did not complete: %#v", operation)
+	}
+	state, found, err := db.ReadTaskExecutionState(ctx, "example", task.ID)
+	if err != nil || !found || state.Status != model.TaskExecutionVerified {
+		t.Fatalf("verified Task state=%#v found=%v err=%v", state, found, err)
+	}
+	configuration, err := s.ProjectConfigurationRead(ctx, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	procedure := configuration.Procedures["fixture_verify"]
+	procedure.Guide += " The verification profile changed."
+	configuration.Procedures["fixture_verify"] = procedure
+	configuration.Revision++
+	configuration.UpdatedAt = configuration.UpdatedAt.Add(time.Second)
+	payload, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Shared.Exec(ctx, `UPDATE shared_project_configurations SET revision=?,payload=?,updated_at=? WHERE id=?`, configuration.Revision, payload, configuration.UpdatedAt.UTC().Format(time.RFC3339Nano), configuration.ProjectID); err != nil {
+		t.Fatal(err)
+	}
+	_, current, reason, err := s.taskExecutionVerificationProofCurrent(ctx, state)
+	if err != nil || current {
+		t.Fatalf("receipt remained current after Procedure definition changed: current=%v reason=%q err=%v", current, reason, err)
+	}
+}
+
 func tsk585VerifyTask(t *testing.T, s *Service, key string) durableMutationOperation {
 	t.Helper()
 	for attempt := 0; attempt < 3; attempt++ {
-		receipt, err := s.TaskExecutionTestAsync(context.Background(), TaskExecutionTestInput{
+		receipt, err := s.TaskExecutionTestAsync(tsk585WorkerContext(t, s), TaskExecutionTestInput{
 			ProjectID: "example",
 			Key:       key,
 		})
@@ -1428,7 +1506,7 @@ func TestTSK585IntegrateConfirmedPublicationThenReplacementHolds(t *testing.T) {
 	if state.Status != model.TaskExecutionIntegrating {
 		t.Fatalf("a confirmed C landing must hold integrating, never reopen verification: %#v", state)
 	}
-	if _, err := s.TaskExecutionTestAsync(ctx, TaskExecutionTestInput{
+	if _, err := s.TaskExecutionTestAsync(tsk585WorkerContext(t, s), TaskExecutionTestInput{
 		ProjectID: "example",
 		Key:       task.ID,
 	}); err == nil {
@@ -1517,7 +1595,7 @@ func tsk585HistoricalGatesFact(t *testing.T, s *Service, state model.TaskExecuti
 	if gates == nil {
 		gates = make([]model.CompletionGateResult, len(names))
 		for i, name := range names {
-			gates[i] = model.CompletionGateResult{ID: name, Execution: "executed", ExitCode: 0, TreeID: candidateTree, ContractDigest: strings.Repeat("c", 64), ReceiptDigest: strings.Repeat("d", 64)}
+			gates[i] = model.CompletionGateResult{ID: name, Execution: "executed", ExitCode: 0, TreeID: candidateTree, ContractDigest: profile, ReceiptDigest: strings.Repeat("d", 64), DurationMS: 1}
 		}
 	}
 	raw, err := json.Marshal(taskExecutionHistoricalFullGates{

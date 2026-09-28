@@ -67,21 +67,18 @@ func ValidateTaskExecutionVerification(v TaskExecutionVerification) error {
 		if v.Error != "" {
 			return fmt.Errorf("successful Task verification must not record an error")
 		}
-		if len(v.Gates) == 0 {
-			return fmt.Errorf("successful Task verification requires gate evidence")
+		if len(v.Gates) == 0 || len(v.Gates) > MaxTaskVerificationProcedureGates {
+			return fmt.Errorf("successful Task verification requires bounded gate evidence")
 		}
 		seen := make(map[string]struct{}, len(v.Gates))
 		for _, gate := range v.Gates {
-			if gate.ID == "" || gate.ExitCode != 0 {
-				return fmt.Errorf("successful Task verification requires all-passing gate evidence")
+			if ValidateProcedureName(gate.ID) != nil || gate.ExitCode != 0 || gate.Execution != "executed" || gate.TreeID != v.CandidateTree || gate.ContractDigest != v.GateProfileSHA256 || ValidateSHA256(gate.ReceiptDigest) != nil || gate.DurationMS < 0 || gate.DurationMS > MaxTaskVerificationGateDurationMS {
+				return fmt.Errorf("successful Task verification requires passing Procedure gate evidence")
 			}
 			if _, exists := seen[gate.ID]; exists {
 				return fmt.Errorf("duplicate Task verification gate evidence")
 			}
 			seen[gate.ID] = struct{}{}
-			if gate.TreeID != "" && gate.TreeID != v.CandidateTree {
-				return fmt.Errorf("Task verification gate evidence does not match candidate tree")
-			}
 		}
 	case TaskExecutionVerificationFailed, TaskExecutionVerificationInterrupted:
 		if v.Error == "" {

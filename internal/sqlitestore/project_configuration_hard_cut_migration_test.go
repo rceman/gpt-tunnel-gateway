@@ -200,3 +200,211 @@ func TestProjectConfigurationHardCutRejectsUnknownRetiredForms(t *testing.T) {
 		t.Fatal("canonical decoder accepted a retired execution model")
 	}
 }
+
+func TestTSK675ExactGTWLegacyGateConfigurationMigratesAcrossSharedSurfaces(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	base := model.DefaultProjectConfiguration("gpt-tunnel-gateway", now)
+	if err := db.SeedSharedRulesFromConfiguration(ctx, base, "GTW"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.setSharedUpgradeMigrationState(ctx, projectConfigurationHardCutMigrationID, "complete"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Shared.Exec(ctx, `DELETE FROM shared_upgrade_migrations WHERE migration_id=?`, projectConfigurationRetiredFieldMigrationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.setSharedUpgradeMigrationState(ctx, projectConfigurationRetiredFieldMigrationID, "in_progress"); err != nil {
+		t.Fatal(err)
+	}
+	policy := model.ProjectWorkflowPolicy{
+		SchemaVersion: model.SchemaVersion, ProjectID: base.ProjectID, Revision: 1,
+		WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main",
+		Agent:     model.WorkflowPolicyAgent{WaitForCI: false},
+		CI:        model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeDisabled, Release: model.WorkflowCIModeDisabled},
+		UpdatedBy: base.UpdatedBy, UpdatedAt: base.UpdatedAt,
+	}
+	legacyPayload := func(revision int, updatedAt time.Time) []byte {
+		t.Helper()
+		configuration := base
+		configuration.Revision = revision
+		configuration.UpdatedAt = updatedAt
+		data, err := json.Marshal(configuration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			t.Fatal(err)
+		}
+		fields["schema_version"] = json.RawMessage(`2`)
+		fields["activation_profile_ref"] = json.RawMessage(`"default"`)
+		fields["watcher"] = json.RawMessage(`{"enabled":true,"interval_seconds":15}`)
+		integration := map[string]json.RawMessage{}
+		if err := json.Unmarshal(fields["integration"], &integration); err != nil {
+			t.Fatal(err)
+		}
+		integration["pre"] = json.RawMessage(`{"command":["./scripts/integration_activate.py","pre"]}`)
+		integration["post"] = json.RawMessage(`{"command":["./scripts/integration_activate.py","post"]}`)
+		fields["integration"], err = json.Marshal(integration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		workflow, err := json.Marshal(map[string]any{
+			"workflow_stage": policy.WorkflowStage, "integration_branch": policy.IntegrationBranch,
+			"wait_for_ci": policy.Agent.WaitForCI, "ci": policy.CI, "gates": model.StandardWorkflowGates(),
+			"gate_commands": tsk675ExactLegacyGateCommands(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		fields["workflow"] = workflow
+		payload, err := json.Marshal(fields)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return payload
+	}
+	firstTime := now.UTC()
+	secondTime := now.Add(time.Minute).UTC()
+	first := legacyPayload(1, firstTime)
+	second := legacyPayload(2, secondTime)
+	rejectIntegration := func(pre json.RawMessage, message string) {
+		t.Helper()
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(first, &fields); err != nil {
+			t.Fatal(err)
+		}
+		var integration map[string]json.RawMessage
+		if err := json.Unmarshal(fields["integration"], &integration); err != nil {
+			t.Fatal(err)
+		}
+		integration["pre"] = pre
+		integrationPayload, err := json.Marshal(integration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fields["integration"] = integrationPayload
+		legacy, err := json.Marshal(fields)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := MigrateProjectConfigurationPayloadWithPolicy(legacy, &policy); err == nil {
+			t.Fatal(message)
+		}
+	}
+	rejectIntegration(json.RawMessage(`{"command":"unsafe"}`), "non-array legacy integration command was accepted")
+	rejectIntegration(json.RawMessage(`{"command":[]}`), "empty legacy integration argv was accepted")
+	rejectIntegration(json.RawMessage(`{"command":["./scripts/integration_activate.py","pre\n"]}`), "unsafe legacy integration argv was accepted")
+	if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_project_configurations(id,revision,payload,updated_at) VALUES(?,?,?,?)`, base.ProjectID, 1, first, firstTime.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	for _, outbox := range []struct {
+		id       string
+		revision int
+		payload  []byte
+		created  time.Time
+	}{{"gtw-config-current", 1, first, firstTime}, {"gtw-config-pending", 2, second, secondTime}} {
+		if _, err := db.Shared.Exec(ctx, `INSERT INTO hub_outbox(id,entity_type,entity_id,project_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?,?)`, outbox.id, "project_configuration", base.ProjectID, base.ProjectID, outbox.revision, "project-configuration-update", outbox.payload, outbox.created.Format(time.RFC3339Nano)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, history := range []struct {
+		revision int
+		payload  []byte
+		recorded time.Time
+	}{{1, first, firstTime}, {2, second, secondTime}} {
+		if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_entity_revisions(entity_type,entity_id,project_id,revision,mutation_kind,actor,reason,changed_fields,payload,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, "project_configuration", base.ProjectID, base.ProjectID, history.revision, "update", "planner", "legacy configuration", []byte(`[]`), history.payload, history.recorded.Format(time.RFC3339Nano)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.MigrateProjectConfigurationToCanonical(ctx); err != nil {
+		t.Fatal(err)
+	}
+	queries := []struct {
+		name string
+		sql  string
+		args []any
+	}{
+		{"current", `SELECT payload FROM shared_project_configurations WHERE id=?`, []any{base.ProjectID}},
+		{"outbox-current", `SELECT payload FROM hub_outbox WHERE id=?`, []any{"gtw-config-current"}},
+		{"outbox-pending", `SELECT payload FROM hub_outbox WHERE id=?`, []any{"gtw-config-pending"}},
+		{"history-current", `SELECT payload FROM shared_entity_revisions WHERE entity_type='project_configuration' AND entity_id=? AND revision=1`, []any{base.ProjectID}},
+		{"history-pending", `SELECT payload FROM shared_entity_revisions WHERE entity_type='project_configuration' AND entity_id=? AND revision=2`, []any{base.ProjectID}},
+	}
+	for _, query := range queries {
+		rows, err := db.Shared.Query(ctx, query.sql, query.args...)
+		if err != nil || len(rows.Rows) != 1 || len(rows.Rows[0]) != 1 {
+			t.Fatalf("%s canonical payload rows=%#v err=%v", query.name, rows, err)
+		}
+		payload, ok := rows.Rows[0][0].([]byte)
+		if !ok {
+			t.Fatalf("%s payload type=%T", query.name, rows.Rows[0][0])
+		}
+		configuration, err := DecodeCanonicalProjectConfigurationPayload(payload)
+		if err != nil || configuration.Hooks[model.HookPreTaskVerify] != "task_verify" || configuration.Procedures["task_verify"].Script != "scripts/task-verify.py" || configuration.Integration.TargetBranch != "main" {
+			t.Fatalf("%s did not receive canonical Procedure mapping: configuration=%#v err=%v", query.name, configuration, err)
+		}
+		for _, retired := range [][]byte{[]byte(`"activation_profile_ref"`), []byte(`"gate_commands"`), []byte(`"watcher"`), []byte(`"workflow"`)} {
+			if bytes.Contains(payload, retired) {
+				t.Fatalf("%s retained retired field %s", query.name, retired)
+			}
+		}
+	}
+	if err := db.MigrateProjectConfigurationToCanonical(ctx); err != nil {
+		t.Fatalf("idempotent migration replay: %v", err)
+	}
+}
+
+func TestTSK675GTWMigrationRejectsNoncanonicalGateCommandMapping(t *testing.T) {
+	base := model.DefaultProjectConfiguration("gpt-tunnel-gateway", time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC))
+	policy := model.ProjectWorkflowPolicy{
+		SchemaVersion: model.SchemaVersion, ProjectID: base.ProjectID, Revision: 1,
+		WorkflowStage: model.WorkflowStageTransitionalMain, IntegrationBranch: "main",
+		Agent:     model.WorkflowPolicyAgent{WaitForCI: false},
+		CI:        model.WorkflowPolicyCI{Task: model.WorkflowCIModeDisabled, TaskMerge: model.WorkflowCIModeDisabled, Release: model.WorkflowCIModeDisabled},
+		UpdatedBy: base.UpdatedBy, UpdatedAt: base.UpdatedAt,
+	}
+	data, err := json.Marshal(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["schema_version"] = json.RawMessage(`2`)
+	commands := tsk675ExactLegacyGateCommands()
+	commands.Test.Task.Command = []string{"go", "test", "./..."}
+	workflow, err := json.Marshal(map[string]any{
+		"workflow_stage": policy.WorkflowStage, "integration_branch": policy.IntegrationBranch,
+		"wait_for_ci": policy.Agent.WaitForCI, "ci": policy.CI, "gates": model.StandardWorkflowGates(),
+		"gate_commands": commands,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields["workflow"] = workflow
+	legacy, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := MigrateProjectConfigurationPayloadWithPolicy(legacy, &policy); err == nil {
+		t.Fatal("noncanonical GTW gate command was mapped into a Procedure")
+	}
+}
+
+func tsk675ExactLegacyGateCommands() model.ProjectGateCommands {
+	return model.ProjectGateCommands{
+		Format: model.ProjectGateCommand{Command: []string{"go", "run", "./cmd/gofmt-struct", "--check", "."}},
+		Check:  model.ProjectGateCommand{Command: []string{"python3", "scripts/static-check.py"}},
+		Test: model.ProjectGateTestCommands{
+			Task: model.ProjectGateCommand{Command: []string{"go", "test", "./...", "-count=1"}},
+		},
+	}
+}

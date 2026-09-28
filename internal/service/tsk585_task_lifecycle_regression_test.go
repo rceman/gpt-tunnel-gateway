@@ -540,7 +540,7 @@ func TestTSK585TaskCompleteHistoricalBootstrap(t *testing.T) {
 		t.Fatal("historical completion must not fabricate a verification receipt")
 	}
 }
-func TestTSK611TaskCompleteWithHistoricalVerificationProfile(t *testing.T) {
+func TestTSK675TaskCompleteRejectsChangedVerificationProcedureProfile(t *testing.T) {
 	s, db := tsk585Setup(t)
 	defer db.Close()
 	ctx := context.Background()
@@ -550,6 +550,9 @@ func TestTSK611TaskCompleteWithHistoricalVerificationProfile(t *testing.T) {
 		t.Fatalf("fixture requires a verification receipt: %v", err)
 	}
 	receipt.GateProfileSHA256 = strings.Repeat("f", 64)
+	for index := range receipt.Gates {
+		receipt.Gates[index].ContractDigest = receipt.GateProfileSHA256
+	}
 	mutated, err := json.Marshal(receipt)
 	if err != nil {
 		t.Fatal(err)
@@ -559,16 +562,20 @@ func TestTSK611TaskCompleteWithHistoricalVerificationProfile(t *testing.T) {
 	}
 	sessionID := tsk585PlannerSession(t, s)
 	ev := tsk585CompleteEvidence(t, s, task, &sessionID, model.OperatorTaskReview, []string{tsk585ReviewRationale(t, task, 1, "integrated", integration, "")}, []string{integration})
-	out, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "integrated", "ok", ev.ID), "planner")
-	if err != nil {
-		t.Fatalf("valid stored verification with an older profile must complete: %v", err)
+	if _, err := s.TaskComplete(ctx, tsk585CompletionInput(task, "integrated", "ok", ev.ID), "planner"); err == nil {
+		t.Fatal("completion accepted verification evidence bound to a changed Procedure profile")
 	}
-	if out.Status != model.TaskAuthoringDone || out.Key != task.ID {
-		t.Fatalf("completion output=%#v", out)
+	entity, err := db.ReadSharedTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var after model.TaskAuthoring
+	if err := json.Unmarshal(entity.Payload, &after); err != nil || after.Status == model.TaskAuthoringDone {
+		t.Fatalf("stale verification evidence completed the Task: task=%#v err=%v", after, err)
 	}
 	phases, err := db.ReadTaskExecutionPhases(ctx, "example", task.ID, "integration")
 	if err != nil || len(phases) != 1 {
-		t.Fatalf("completion must not integrate again: phases=%#v err=%v", phases, err)
+		t.Fatalf("rejected completion must not integrate again: phases=%#v err=%v", phases, err)
 	}
 }
 

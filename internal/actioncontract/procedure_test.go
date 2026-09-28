@@ -46,6 +46,42 @@ func TestDynamicProcedureActionCompilesAgainstCanonicalReferences(t *testing.T) 
 	}
 }
 
+func TestDynamicProcedureAllowsOnlyCanonicalVerificationGateID(t *testing.T) {
+	contracts, err := LoadCanonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}
+	output := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"gates": map[string]any{
+				"type": "array", "minItems": 1, "maxItems": 1,
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"id":          map[string]any{"type": "string", "enum": []any{"format"}},
+						"exit_code":   map[string]any{"type": "integer", "minimum": 0, "maximum": 255},
+						"duration_ms": map[string]any{"type": "integer", "minimum": 0, "maximum": 1800000},
+					},
+					"required": []any{"id", "exit_code", "duration_ms"}, "additionalProperties": false,
+				},
+			},
+		},
+		"required": []any{"gates"}, "additionalProperties": false,
+	}
+	if _, err := contracts.CompileProcedureAction("procedure/read", "Run verification", "Returns bounded verification gates.", input, output); err != nil {
+		t.Fatalf("canonical gate evidence schema was rejected: %v", err)
+	}
+	invalid := map[string]any{
+		"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}},
+		"additionalProperties": false,
+	}
+	if _, err := contracts.CompileProcedureAction("procedure/read", "Read", "Reads bounded data.", input, invalid); err == nil {
+		t.Fatal("unscoped Procedure id field was accepted")
+	}
+}
+
 func TestDynamicProcedureActionRejectsInvalidPathsAndSchema(t *testing.T) {
 	contracts, err := LoadCanonical()
 	if err != nil {

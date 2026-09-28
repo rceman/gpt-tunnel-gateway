@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"reflect"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -36,6 +37,10 @@ func MigrateProjectConfigurationPayloadWithPolicy(data []byte, policy *model.Pro
 	}
 	if version != 1 && version != 2 {
 		return model.ProjectConfiguration{}, nil, fmt.Errorf("unsupported ProjectConfiguration schema version %d", version)
+	}
+	var projectID string
+	if err := json.Unmarshal(fields["project_id"], &projectID); err != nil || model.ValidateProjectIdentifier(projectID) != nil {
+		return model.ProjectConfiguration{}, nil, fmt.Errorf("invalid ProjectConfiguration migration identity")
 	}
 	allowed := map[string]struct{}{
 		"schema_version": {}, "project_id": {}, "revision": {}, "execution_model": {}, "agent_routing": {},
@@ -96,8 +101,8 @@ func MigrateProjectConfigurationPayloadWithPolicy(data []byte, policy *model.Pro
 	}
 	if raw, ok := fields["activation_profile_ref"]; ok {
 		var reference string
-		if err := json.Unmarshal(raw, &reference); err != nil || reference != "" {
-			return model.ProjectConfiguration{}, nil, fmt.Errorf("legacy activation profile requires an explicit Procedure migration")
+		if err := json.Unmarshal(raw, &reference); err != nil || reference != "" && (projectID != "gpt-tunnel-gateway" || reference != "default") {
+			return model.ProjectConfiguration{}, nil, fmt.Errorf("legacy activation profile is unsupported")
 		}
 		delete(fields, "activation_profile_ref")
 	}
@@ -105,8 +110,14 @@ func MigrateProjectConfigurationPayloadWithPolicy(data []byte, policy *model.Pro
 		if policy == nil {
 			return model.ProjectConfiguration{}, nil, fmt.Errorf("canonical ProjectWorkflowPolicy is required to migrate legacy workflow data")
 		}
-		if err := validateLegacyWorkflow(raw, fields, *policy); err != nil {
+		mapped, err := migrateLegacyWorkflow(raw, fields, *policy)
+		if err != nil {
 			return model.ProjectConfiguration{}, nil, err
+		}
+		if mapped {
+			if err := installGTWTaskVerificationProcedure(fields); err != nil {
+				return model.ProjectConfiguration{}, nil, err
+			}
 		}
 		delete(fields, "workflow")
 	}
@@ -117,14 +128,23 @@ func MigrateProjectConfigurationPayloadWithPolicy(data []byte, policy *model.Pro
 		}
 		for name, value := range integration {
 			if name == "target_branch" {
+				var branch string
+				if json.Unmarshal(value, &branch) != nil || branch == "" || policy != nil && branch != policy.IntegrationBranch {
+					return model.ProjectConfiguration{}, nil, fmt.Errorf("legacy integration target conflicts with canonical ProjectWorkflowPolicy")
+				}
 				continue
 			}
 			if name != "pre" && name != "post" && name != "command" && name != "commands" {
 				return model.ProjectConfiguration{}, nil, fmt.Errorf("unknown legacy integration field %q", name)
 			}
 			empty, err := migrationValueEmpty(value)
-			if err != nil || !empty {
-				return model.ProjectConfiguration{}, nil, fmt.Errorf("legacy integration argv requires an explicit Procedure migration")
+			if err != nil {
+				return model.ProjectConfiguration{}, nil, fmt.Errorf("invalid legacy integration field %q", name)
+			}
+			if !empty {
+				if (name != "pre" && name != "post") || projectID != "gpt-tunnel-gateway" || validateRetiredIntegrationCommandObject(value) != nil {
+					return model.ProjectConfiguration{}, nil, fmt.Errorf("legacy integration argv has no canonical migration")
+				}
 			}
 			delete(integration, name)
 		}
@@ -181,63 +201,192 @@ func ProjectConfigurationPayloadRequiresWorkflowPolicy(data []byte) bool {
 	return ok && len(bytes.TrimSpace(workflow)) > 0 && !bytes.Equal(bytes.TrimSpace(workflow), []byte("null"))
 }
 
-func validateLegacyWorkflow(raw json.RawMessage, projectFields map[string]json.RawMessage, policy model.ProjectWorkflowPolicy) error {
+func migrateLegacyWorkflow(raw json.RawMessage, projectFields map[string]json.RawMessage, policy model.ProjectWorkflowPolicy) (bool, error) {
 	var workflow map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &workflow); err != nil || workflow == nil {
-		return fmt.Errorf("invalid legacy workflow configuration")
+		return false, fmt.Errorf("invalid legacy workflow configuration")
+	}
+	var projectID string
+	if err := json.Unmarshal(projectFields["project_id"], &projectID); err != nil || policy.ProjectID != projectID {
+		return false, fmt.Errorf("canonical ProjectWorkflowPolicy identity does not match legacy configuration")
+	}
+	if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
+		return false, fmt.Errorf("canonical ProjectWorkflowPolicy is invalid: %w", err)
 	}
 	allowed := map[string]bool{
 		"workflow_stage": true, "integration_branch": true, "wait_for_ci": true, "agent": true, "ci": true,
 		"gates": true, "gate_commands": true, "task_submission": true, "task_verification": true,
 	}
-	for name, value := range workflow {
+	for name := range workflow {
 		if !allowed[name] {
-			return fmt.Errorf("unknown legacy workflow field %q", name)
+			return false, fmt.Errorf("unknown legacy workflow field %q", name)
 		}
-		if name == "gates" || name == "gate_commands" || name == "task_submission" || name == "task_verification" {
+	}
+	mapped := false
+	if rawCommands, ok := workflow["gate_commands"]; ok {
+		empty, err := migrationValueEmpty(rawCommands)
+		if err != nil {
+			return false, fmt.Errorf("invalid legacy workflow gate_commands")
+		}
+		if !empty {
+			if projectID != "gpt-tunnel-gateway" || !matchesLegacyGTWTaskGateCommands(rawCommands) {
+				return false, fmt.Errorf("legacy workflow gate_commands have no exact Procedure migration")
+			}
+			mapped = true
+		}
+		delete(workflow, "gate_commands")
+	}
+	if rawGates, ok := workflow["gates"]; ok {
+		var gates []string
+		if err := decodeMigrationStrict(rawGates, &gates); err != nil || model.ValidateWorkflowGates(gates) != nil || !reflect.DeepEqual(model.EffectiveProjectWorkflowGates(gates), model.StandardWorkflowGates()) {
+			return false, fmt.Errorf("legacy workflow gates do not match the canonical verification Procedure")
+		}
+		if len(gates) > 0 && (!mapped || projectID != "gpt-tunnel-gateway") {
+			return false, fmt.Errorf("legacy workflow gates have no exact Procedure migration")
+		}
+		delete(workflow, "gates")
+	}
+	for _, name := range []string{"task_submission", "task_verification"} {
+		if value, ok := workflow[name]; ok {
 			empty, err := migrationValueEmpty(value)
 			if err != nil || !empty {
-				return fmt.Errorf("legacy workflow %s requires explicit migration", name)
+				return false, fmt.Errorf("legacy workflow %s requires explicit migration", name)
 			}
 			delete(workflow, name)
 		}
 	}
-	projectID := ""
-	if err := json.Unmarshal(projectFields["project_id"], &projectID); err != nil || policy.ProjectID != projectID {
-		return fmt.Errorf("canonical ProjectWorkflowPolicy identity does not match legacy configuration")
-	}
-	if err := model.ValidateProjectWorkflowPolicy(policy); err != nil {
-		return fmt.Errorf("canonical ProjectWorkflowPolicy is invalid: %w", err)
-	}
 	var stage, branch string
-	var waitForCI bool
-	var ci model.WorkflowPolicyCI
-	if err := json.Unmarshal(workflow["workflow_stage"], &stage); err != nil || stage == "" {
-		return fmt.Errorf("legacy workflow policy is incomplete: workflow_stage")
+	if decodeMigrationStrict(workflow["workflow_stage"], &stage) != nil || stage == "" {
+		return false, fmt.Errorf("legacy workflow policy is incomplete: workflow_stage")
 	}
-	if err := json.Unmarshal(workflow["integration_branch"], &branch); err != nil || branch == "" {
-		return fmt.Errorf("legacy workflow policy is incomplete: integration_branch")
+	if decodeMigrationStrict(workflow["integration_branch"], &branch) != nil || branch == "" {
+		return false, fmt.Errorf("legacy workflow policy is incomplete: integration_branch")
 	}
+	waitForCI, waitFound := false, false
 	if rawWait, ok := workflow["wait_for_ci"]; ok {
-		if err := json.Unmarshal(rawWait, &waitForCI); err != nil {
-			return fmt.Errorf("invalid legacy workflow policy wait_for_ci")
+		if string(bytes.TrimSpace(rawWait)) != "true" && string(bytes.TrimSpace(rawWait)) != "false" || json.Unmarshal(rawWait, &waitForCI) != nil {
+			return false, fmt.Errorf("invalid legacy workflow policy wait_for_ci")
 		}
-	} else if rawAgent, ok := workflow["agent"]; ok {
+		waitFound = true
+	}
+	if rawAgent, ok := workflow["agent"]; ok {
 		var agent struct {
 			WaitForCI *bool `json:"wait_for_ci"`
 		}
-		if err := json.Unmarshal(rawAgent, &agent); err != nil || agent.WaitForCI == nil {
-			return fmt.Errorf("legacy workflow policy is incomplete: agent.wait_for_ci")
+		if decodeMigrationStrict(rawAgent, &agent) != nil || agent.WaitForCI == nil {
+			return false, fmt.Errorf("legacy workflow policy is incomplete: agent.wait_for_ci")
+		}
+		if waitFound && waitForCI != *agent.WaitForCI {
+			return false, fmt.Errorf("legacy workflow wait_for_ci fields conflict")
 		}
 		waitForCI = *agent.WaitForCI
-	} else {
-		return fmt.Errorf("legacy workflow policy is incomplete: wait_for_ci")
+		waitFound = true
 	}
-	if err := json.Unmarshal(workflow["ci"], &ci); err != nil || ci.Task == "" || ci.TaskMerge == "" || ci.Release == "" {
-		return fmt.Errorf("legacy workflow policy is incomplete: ci")
+	if !waitFound {
+		return false, fmt.Errorf("legacy workflow policy is incomplete: wait_for_ci")
+	}
+	var ci model.WorkflowPolicyCI
+	if decodeMigrationStrict(workflow["ci"], &ci) != nil || ci.Task == "" || ci.TaskMerge == "" || ci.Release == "" {
+		return false, fmt.Errorf("legacy workflow policy is incomplete: ci")
 	}
 	if stage != policy.WorkflowStage || branch != policy.IntegrationBranch || waitForCI != policy.Agent.WaitForCI || ci != policy.CI {
-		return fmt.Errorf("legacy workflow conflicts with canonical ProjectWorkflowPolicy")
+		return false, fmt.Errorf("legacy workflow conflicts with canonical ProjectWorkflowPolicy")
+	}
+	return mapped, nil
+}
+
+func installGTWTaskVerificationProcedure(fields map[string]json.RawMessage) error {
+	input, ok := model.ProjectHookPayloadSchema(model.HookPreTaskVerify)
+	if !ok {
+		return fmt.Errorf("canonical pre_task_verify payload is unavailable")
+	}
+	output, err := model.TaskVerificationProcedureOutputSchema([]string{"format", "static_check", "full_test"})
+	if err != nil {
+		return err
+	}
+	definition := model.ProjectProcedureDefinition{
+		Script:  "scripts/task-verify.py",
+		Summary: "Verify the exact Task candidate with the canonical project checks.",
+		Guide:   "Runs whole-tree keyed-struct formatting, repository static checks, and the canonical full test suite in order; returns bounded structured gate evidence.",
+		Input:   input,
+		Output:  output,
+	}
+	procedures := map[string]model.ProjectProcedureDefinition{}
+	if raw, ok := fields["procedures"]; ok {
+		if err := decodeMigrationStrict(raw, &procedures); err != nil || procedures == nil {
+			return fmt.Errorf("invalid legacy Procedure catalogue")
+		}
+	}
+	const name = "task_verify"
+	if existing, exists := procedures[name]; exists {
+		current, _ := json.Marshal(existing)
+		wanted, _ := json.Marshal(definition)
+		if !bytes.Equal(current, wanted) {
+			return fmt.Errorf("existing task_verify Procedure conflicts with the canonical migration")
+		}
+	}
+	procedures[name] = definition
+	hooks := map[string]string{}
+	if raw, ok := fields["hooks"]; ok {
+		if err := decodeMigrationStrict(raw, &hooks); err != nil || hooks == nil {
+			return fmt.Errorf("invalid legacy Hook bindings")
+		}
+	}
+	if existing, exists := hooks[model.HookPreTaskVerify]; exists && existing != name {
+		return fmt.Errorf("existing pre_task_verify binding conflicts with the canonical migration")
+	}
+	hooks[model.HookPreTaskVerify] = name
+	procedurePayload, err := json.Marshal(procedures)
+	if err != nil {
+		return err
+	}
+	hookPayload, err := json.Marshal(hooks)
+	if err != nil {
+		return err
+	}
+	fields["procedures"] = procedurePayload
+	fields["hooks"] = hookPayload
+	return nil
+}
+
+func matchesLegacyGTWTaskGateCommands(raw json.RawMessage) bool {
+	var commands model.ProjectGateCommands
+	if decodeMigrationStrict(raw, &commands) != nil {
+		return false
+	}
+	expected := model.ProjectGateCommands{
+		Format: model.ProjectGateCommand{Command: []string{"go", "run", "./cmd/gofmt-struct", "--check", "."}},
+		Check:  model.ProjectGateCommand{Command: []string{"python3", "scripts/static-check.py"}},
+		Test: model.ProjectGateTestCommands{
+			Task: model.ProjectGateCommand{Command: []string{"go", "test", "./...", "-count=1"}},
+		},
+	}
+	return reflect.DeepEqual(commands, expected)
+}
+
+func validateRetiredIntegrationCommandObject(raw json.RawMessage) error {
+	var command struct {
+		Argv []string `json:"command"`
+	}
+	if err := decodeMigrationStrict(raw, &command); err != nil || len(command.Argv) == 0 || len(command.Argv) > 64 {
+		return fmt.Errorf("invalid retired integration command")
+	}
+	for _, arg := range command.Argv {
+		if len(arg) == 0 || len(arg) > 1024 || bytes.ContainsAny([]byte(arg), "\x00\r\n") {
+			return fmt.Errorf("invalid retired integration command")
+		}
+	}
+	return nil
+}
+
+func decodeMigrationStrict(raw []byte, value any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(value); err != nil {
+		return err
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return fmt.Errorf("unexpected migration JSON suffix")
 	}
 	return nil
 }

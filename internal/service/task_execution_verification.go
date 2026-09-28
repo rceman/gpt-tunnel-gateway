@@ -6,13 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
-	"github.com/rceman/gpt-tunnel-gateway/internal/gates"
 	"github.com/rceman/gpt-tunnel-gateway/internal/gitx"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/publicprojection"
@@ -287,127 +285,33 @@ func (s *Service) taskExecutionVerificationReviews(ctx context.Context, projectI
 	return reviews, nil
 }
 
-func taskExecutionVerificationAllowedTestFlag(arg string) bool {
-	if !strings.HasPrefix(arg, "-") {
-		return false
-	}
-	name := strings.TrimLeft(arg, "-")
-	value := ""
-	hasValue := false
-	if idx := strings.Index(name, "="); idx >= 0 {
-		name, value, hasValue = name[:idx], name[idx+1:], true
-	}
-	switch name {
-	case "count", "parallel", "p":
-		if !hasValue {
-			return false
-		}
-		n, err := strconv.Atoi(value)
-		return err == nil && n >= 1
-	case "timeout":
-		if !hasValue {
-			return false
-		}
-		d, err := time.ParseDuration(value)
-		return err == nil && d > 0
-	case "v", "race", "cover", "failfast", "json", "fullpath", "shuffle":
-		return true
-	case "covermode", "coverprofile", "tags":
-		return hasValue && value != ""
-	default:
-		return false
-	}
-}
-
-// taskExecutionVerificationFullSuiteArgv requires the canonical full runner,
-// or its legacy equivalent: complete repository coverage plus an explicit
-// positive -count whenever a new exact-candidate verification is required.
-// An unchanged exact candidate may reuse its authoritative verification receipt.
-func taskExecutionVerificationFullSuiteArgv(argv []string) bool {
-	if len(argv) == 1 && argv[0] == "./scripts/test-full.sh" {
-		return true
-	}
-	if len(argv) < 3 || argv[0] != "go" || argv[1] != "test" {
-		return false
-	}
-	full := false
-	fresh := false
-	for _, arg := range argv[2:] {
-		switch {
-		case arg == "./...":
-			full = true
-		case strings.HasPrefix(strings.TrimLeft(arg, "-"), "count="):
-			value := strings.TrimPrefix(strings.TrimLeft(arg, "-"), "count=")
-			n, err := strconv.Atoi(value)
-			if err != nil || n < 1 {
-				return false
-			}
-			fresh = true
-		case taskExecutionVerificationAllowedTestFlag(arg):
-		default:
-			return false
-		}
-	}
-	return full && fresh
-}
-
-// executeTaskVerificationGates runs the effective integration-class gate set
-// for a Task verification attempt. The caller reuses a valid unchanged
-// exact-candidate receipt before reaching this fresh execution path.
-func (s *Service) executeTaskVerificationGates(ctx context.Context, projectID, root string, names []string) ([]model.CompletionGateResult, error) {
-	results, err := s.executeProjectTaskGatesFresh(ctx, projectID, root, names, model.DefaultProjectGateCommands(), gates.FullTestScope())
-	if err != nil {
-		return results, err
-	}
-	if err := validateProjectGateEvidence(results, names); err != nil {
-		return nil, err
-	}
-	return results, nil
-}
-
 func (s *Service) taskExecutionGateProfile(ctx context.Context, projectID string) ([]string, string, error) {
-	names, err := s.ResolveProjectGates(ctx, projectID, "integration")
+	configuration, err := s.ProjectConfigurationRead(ctx, projectID)
 	if err != nil {
 		return nil, "", err
 	}
-	if !containsGate(names, model.WorkflowGateTest) {
-		return nil, "", fmt.Errorf("Task verification requires full-suite test gate coverage")
+	procedureName, bound := configuration.Hooks[model.HookPreTaskVerify]
+	if !bound {
+		return nil, "", fmt.Errorf("ProjectConfiguration has no pre_task_verify Procedure")
 	}
-	normalized, err := gates.FullTestScope().Normalize()
+	definition, found := configuration.Procedures[procedureName]
+	if !found {
+		return nil, "", fmt.Errorf("pre_task_verify Procedure is unavailable")
+	}
+	names, err := taskVerificationProcedureGateIDs(definition.Output)
 	if err != nil {
 		return nil, "", err
-	}
-	commands := make(map[string]string, len(names))
-	for _, name := range names {
-		argv, err := gates.ProjectGateCommandArgs(model.DefaultProjectGateCommands(), name, "task", normalized)
-		if err != nil {
-			return nil, "", err
-		}
-		digest, err := gates.ProjectGateCommandDigest(model.DefaultProjectGateCommands(), name, "task", normalized)
-		if err != nil {
-			return nil, "", err
-		}
-		if name == model.WorkflowGateTest && !taskExecutionVerificationFullSuiteArgv(argv) {
-			return nil, "", fmt.Errorf("Task verification requires the configured test gate to target the full repository suite")
-		}
-		commands[name] = digest
 	}
 	profile := struct {
-		Version        string            `json:"version"`
-		Mode           string            `json:"mode"`
-		Gates          []string          `json:"gates"`
-		Commands       map[string]string `json:"commands"`
-		Scope          string            `json:"scope"`
-		Packages       []string          `json:"packages,omitempty"`
-		RunnerContract string            `json:"runner_contract"`
+		Version    string                           `json:"version"`
+		Hook       string                           `json:"hook"`
+		Procedure  string                           `json:"procedure"`
+		Definition model.ProjectProcedureDefinition `json:"definition"`
 	}{
-		Version:        "task-execution-verification/v3",
-		Mode:           "task",
-		Gates:          names,
-		Commands:       commands,
-		Scope:          normalized.Mode,
-		Packages:       normalized.Packages,
-		RunnerContract: gates.TestGateRunnerContractVersion,
+		Version:    "task-execution-verification/v4",
+		Hook:       model.HookPreTaskVerify,
+		Procedure:  procedureName,
+		Definition: definition,
 	}
 	raw, err := json.Marshal(profile)
 	if err != nil {
@@ -415,6 +319,123 @@ func (s *Service) taskExecutionGateProfile(ctx context.Context, projectID string
 	}
 	sum := sha256.Sum256(raw)
 	return names, hex.EncodeToString(sum[:]), nil
+}
+
+func taskVerificationProcedureGateIDs(output map[string]any) ([]string, error) {
+	properties, ok := output["properties"].(map[string]any)
+	if !ok || len(output) != 4 || output["type"] != "object" || output["additionalProperties"] != false || !taskVerificationSchemaRequired(output["required"], "gates") || len(properties) != 1 {
+		return nil, fmt.Errorf("pre_task_verify Procedure output contract is not canonical")
+	}
+	gatesSchema, ok := properties["gates"].(map[string]any)
+	if !ok || gatesSchema["type"] != "array" {
+		return nil, fmt.Errorf("pre_task_verify Procedure output contract is not canonical")
+	}
+	minimum, minOK := taskVerificationSchemaInteger(gatesSchema["minItems"])
+	maximum, maxOK := taskVerificationSchemaInteger(gatesSchema["maxItems"])
+	itemSchema, ok := gatesSchema["items"].(map[string]any)
+	if !minOK || !maxOK || minimum < 1 || minimum > model.MaxTaskVerificationProcedureGates || minimum != maximum || !ok || itemSchema["type"] != "object" || itemSchema["additionalProperties"] != false {
+		return nil, fmt.Errorf("pre_task_verify Procedure output contract is not canonical")
+	}
+	itemProperties, ok := itemSchema["properties"].(map[string]any)
+	if !ok || len(itemProperties) != 3 || len(itemSchema) != 4 || !taskVerificationSchemaRequired(itemSchema["required"], "id", "exit_code", "duration_ms") {
+		return nil, fmt.Errorf("pre_task_verify Procedure output contract is not canonical")
+	}
+	idSchema, ok := itemProperties["id"].(map[string]any)
+	if !ok || idSchema["type"] != "string" {
+		return nil, fmt.Errorf("pre_task_verify Procedure gate ids are invalid")
+	}
+	enum, ok := idSchema["enum"].([]any)
+	if !ok || len(enum) != minimum {
+		return nil, fmt.Errorf("pre_task_verify Procedure gate ids are invalid")
+	}
+	exitSchema, exitOK := itemProperties["exit_code"].(map[string]any)
+	durationSchema, durationOK := itemProperties["duration_ms"].(map[string]any)
+	exitMin, exitMinOK := taskVerificationSchemaInteger(exitSchema["minimum"])
+	exitMax, exitMaxOK := taskVerificationSchemaInteger(exitSchema["maximum"])
+	durationMin, durationMinOK := taskVerificationSchemaInteger(durationSchema["minimum"])
+	durationMax, durationMaxOK := taskVerificationSchemaInteger(durationSchema["maximum"])
+	if !exitOK || !durationOK || exitSchema["type"] != "integer" || durationSchema["type"] != "integer" || !exitMinOK || !exitMaxOK || exitMin != 0 || exitMax != 255 || !durationMinOK || !durationMaxOK || durationMin != 0 || durationMax != model.MaxTaskVerificationGateDurationMS {
+		return nil, fmt.Errorf("pre_task_verify Procedure gate result contract is invalid")
+	}
+	names := make([]string, len(enum))
+	seen := map[string]bool{}
+	for index, value := range enum {
+		name, ok := value.(string)
+		if !ok || model.ValidateProcedureName(name) != nil || seen[name] {
+			return nil, fmt.Errorf("pre_task_verify Procedure gate ids are invalid")
+		}
+		seen[name] = true
+		names[index] = name
+	}
+	return names, nil
+}
+
+func taskVerificationSchemaRequired(value any, names ...string) bool {
+	required, ok := value.([]any)
+	if !ok || len(required) != len(names) {
+		return false
+	}
+	for index, name := range names {
+		if required[index] != name {
+			return false
+		}
+	}
+	return true
+}
+
+func taskVerificationSchemaInteger(value any) (int, bool) {
+	switch number := value.(type) {
+	case int:
+		return number, true
+	case int64:
+		return int(number), int64(int(number)) == number
+	case float64:
+		converted := int(number)
+		return converted, float64(converted) == number
+	default:
+		return 0, false
+	}
+}
+
+func taskExecutionProcedureGateEvidence(raw json.RawMessage, names []string, candidateTree, profile string) ([]model.CompletionGateResult, error) {
+	var output struct {
+		Gates []struct {
+			ID         string `json:"id"`
+			ExitCode   int    `json:"exit_code"`
+			DurationMS int64  `json:"duration_ms"`
+		} `json:"gates"`
+	}
+	if err := json.Unmarshal(raw, &output); err != nil || len(output.Gates) != len(names) || model.ValidateCommitSHA(candidateTree) != nil || model.ValidateSHA256(profile) != nil {
+		return nil, fmt.Errorf("pre_task_verify Procedure returned invalid gate evidence")
+	}
+	digest := sha256.Sum256(raw)
+	receiptDigest := hex.EncodeToString(digest[:])
+	results := make([]model.CompletionGateResult, len(output.Gates))
+	for index, gate := range output.Gates {
+		if gate.ID != names[index] || gate.ExitCode < 0 || gate.ExitCode > 255 || gate.DurationMS < 0 || gate.DurationMS > model.MaxTaskVerificationGateDurationMS {
+			return nil, fmt.Errorf("pre_task_verify Procedure returned invalid or reordered gate evidence")
+		}
+		results[index] = model.CompletionGateResult{
+			ID: gate.ID, ExitCode: gate.ExitCode, Execution: "executed", TreeID: candidateTree,
+			ContractDigest: profile, ReceiptDigest: receiptDigest, DurationMS: gate.DurationMS,
+		}
+		if gate.ExitCode != 0 {
+			return results, fmt.Errorf("Task verification gate %q failed", gate.ID)
+		}
+	}
+	return results, nil
+}
+
+func validateTaskVerificationGateResults(gates []model.CompletionGateResult, expected []string, candidateTree, profile string) error {
+	if len(gates) == 0 || len(gates) != len(expected) || model.ValidateCommitSHA(candidateTree) != nil || model.ValidateSHA256(profile) != nil {
+		return fmt.Errorf("Task verification gate coverage is invalid")
+	}
+	for index, gate := range gates {
+		if gate.ID != expected[index] || gate.Execution != "executed" || gate.ExitCode != 0 || gate.TreeID != candidateTree || gate.ContractDigest != profile || model.ValidateSHA256(gate.ReceiptDigest) != nil || gate.DurationMS < 0 || gate.DurationMS > model.MaxTaskVerificationGateDurationMS {
+			return fmt.Errorf("Task verification gate evidence is not a passing Procedure receipt")
+		}
+	}
+	return nil
 }
 
 func taskExecutionVerificationBinds(receipt model.TaskExecutionVerification, state model.TaskExecutionState) bool {
@@ -434,6 +455,16 @@ func (s *Service) taskExecutionVerificationProofCurrent(ctx context.Context, sta
 	}
 	if !taskExecutionVerificationBinds(receipt, state) {
 		return receipt, false, "receipt does not bind the integrated execution state", nil
+	}
+	names, profile, err := s.taskExecutionGateProfile(ctx, state.ProjectID)
+	if err != nil {
+		return model.TaskExecutionVerification{}, false, "", err
+	}
+	if receipt.GateProfileSHA256 != profile {
+		return receipt, false, "verification Procedure changed after the receipt", nil
+	}
+	if err := validateTaskVerificationGateResults(receipt.Gates, names, receipt.CandidateTree, profile); err != nil {
+		return receipt, false, "receipt gate evidence is invalid", nil
 	}
 	latestPhaseRev := 0
 	for _, stage := range []string{"code", "tests", "rebase"} {
@@ -629,97 +660,86 @@ func (s *Service) taskExecutionTestRun(ctx context.Context, in TaskExecutionTest
 		s.taskExecutionMu.Unlock()
 		return TaskExecutionPublicOutput{}, fmt.Errorf("Task verification is already in flight")
 	}
-	beforePayload := taskLifecycleHookPayload(in.ProjectID, in.Key, AgentSessionID(ctx), operationID, "", state.TaskRevision, state.ExecutionRevision, state.Head, admission.snapshot.tree, state.BaseHead, "", "", "")
-	if err := s.runTaskLifecycleProcedureHook(ctx, model.HookPreTaskVerify, "before", beforePayload, "", nil, ""); err != nil {
+	s.taskExecutionVerifyInFlight[in.Key] = operationID
+	verificationRevision := state.ExecutionRevision
+	if state.Status == model.TaskExecutionReadyForVerification {
+		verificationRevision++
+	}
+	s.taskExecutionMu.Unlock()
+
+	beforePayload := taskLifecycleHookPayload(in.ProjectID, in.Key, AgentSessionID(ctx), operationID, "", state.TaskRevision, verificationRevision, state.Head, admission.snapshot.tree, state.BaseHead, "", "", "")
+	procedureOutput, runErr := s.runTaskLifecycleProcedureHookWithOutput(ctx, model.HookPreTaskVerify, "before", beforePayload, "", nil, "", admission.lane.Root)
+	var gateResults []model.CompletionGateResult
+	if runErr == nil {
+		gateResults, runErr = taskExecutionProcedureGateEvidence(procedureOutput, admission.names, admission.snapshot.tree, admission.profile)
+		if runErr != nil && len(procedureOutput) > 0 {
+			if evidenceErr := s.failTaskVerificationHookAttempt(operationID); evidenceErr != nil {
+				runErr = fmt.Errorf("Task verification Procedure failed and its evidence could not be updated: %w", evidenceErr)
+			}
+		}
+	}
+	if runErr != nil {
+		s.releaseTaskVerificationInFlight(in.Key, operationID)
+		return TaskExecutionPublicOutput{}, runErr
+	}
+
+	s.taskExecutionMu.Lock()
+	defer func() {
+		if s.taskExecutionVerifyInFlight[in.Key] == operationID {
+			delete(s.taskExecutionVerifyInFlight, in.Key)
+		}
 		s.taskExecutionMu.Unlock()
+	}()
+	current, foundCurrent, readErr := s.Durability.ReadTaskExecutionState(ctx, in.ProjectID, in.Key)
+	if readErr != nil {
+		return TaskExecutionPublicOutput{}, readErr
+	}
+	if !foundCurrent || current.Status != state.Status || current.ExecutionRevision != state.ExecutionRevision {
+		return TaskExecutionPublicOutput{}, fmt.Errorf("Task execution state changed during pre_task_verify Procedure")
+	}
+	after, err := s.taskExecutionVerificationAdmissionFor(ctx, in.ProjectID, current)
+	if err != nil {
 		return TaskExecutionPublicOutput{}, err
 	}
-	s.taskExecutionVerifyInFlight[in.Key] = operationID
+	if after.identity != admission.identity {
+		if after.identity.CanonicalHead != admission.identity.CanonicalHead {
+			if err := s.reconcileTaskExecutionBase(ctx, current, admission.project, after.identity.CanonicalHead); err != nil {
+				return TaskExecutionPublicOutput{}, err
+			}
+			return TaskExecutionPublicOutput{}, fmt.Errorf("canonical default branch advanced during Task verification")
+		}
+		return TaskExecutionPublicOutput{}, fmt.Errorf("Task verification authority changed during pre_task_verify Procedure")
+	}
+	if err := ctx.Err(); err != nil {
+		return TaskExecutionPublicOutput{}, err
+	}
+	state = current
 	if state.Status == model.TaskExecutionReadyForVerification {
 		state.Status = model.TaskExecutionVerifying
 		state.ExecutionRevision++
 		state.UpdatedAt = s.durableNow()
 		if err := s.Durability.UpdateTaskExecutionState(ctx, state, state.ExecutionRevision-1); err != nil {
-			delete(s.taskExecutionVerifyInFlight, in.Key)
-			s.taskExecutionMu.Unlock()
 			return TaskExecutionPublicOutput{}, err
 		}
 	}
 	attempt := state.ExecutionRevision
-	s.taskExecutionMu.Unlock()
-
-	gateResults, gateErr := s.executeTaskVerificationGates(ctx, in.ProjectID, admission.lane.Root, admission.names)
-
-	s.taskExecutionMu.Lock()
-	defer func() { delete(s.taskExecutionVerifyInFlight, in.Key); s.taskExecutionMu.Unlock() }()
 	completedAt := time.Now().UTC()
-	runErr := gateErr
-	if runErr == nil {
-		for _, gate := range gateResults {
-			if gate.ExitCode != 0 {
-				runErr = fmt.Errorf("Task verification gate %q failed", gate.ID)
-				break
-			}
-		}
-	}
-	current, foundCurrent, readErr := s.Durability.ReadTaskExecutionState(ctx, in.ProjectID, in.Key)
-	var advancedCanonical string
-	if runErr == nil {
-		switch {
-		case readErr != nil:
-			runErr = readErr
-		case !foundCurrent || current.Status != model.TaskExecutionVerifying || current.ExecutionRevision != attempt:
-			runErr = fmt.Errorf("Task execution state changed during verification")
-		default:
-			after, admErr := s.taskExecutionVerificationAdmissionFor(ctx, in.ProjectID, current)
-			if admErr != nil {
-				runErr = admErr
-			} else if after.identity != admission.identity {
-				if after.identity.CanonicalHead != admission.identity.CanonicalHead {
-					advancedCanonical = after.identity.CanonicalHead
-					runErr = fmt.Errorf("canonical default branch advanced during Task verification")
-				} else {
-					runErr = fmt.Errorf("Task verification authority changed during execution")
-				}
-			}
-		}
-	}
-	outcome := model.TaskExecutionVerificationSucceeded
-	receiptError := ""
-	if runErr == nil {
-		if err := ctx.Err(); err != nil {
-			runErr = err
-		}
-	}
-	if runErr != nil {
-		outcome = model.TaskExecutionVerificationFailed
-		if asyncMutationOutcomeUnknown(runErr) || ctx.Err() != nil {
-			outcome = model.TaskExecutionVerificationInterrupted
-		}
-		receiptError = boundedTaskVerificationError(runErr.Error())
-	}
-	if outcome == model.TaskExecutionVerificationSucceeded && !completedAt.After(startedAt) {
-		outcome = model.TaskExecutionVerificationInterrupted
-		runErr = fmt.Errorf("Task verification timing is not ordered; proof cannot be recorded")
-		receiptError = boundedTaskVerificationError(runErr.Error())
+	if !completedAt.After(startedAt) {
+		return TaskExecutionPublicOutput{}, fmt.Errorf("Task verification timing is not ordered; proof cannot be recorded")
 	}
 	receipt := model.TaskExecutionVerification{
 		ProjectID: in.ProjectID, TaskID: in.Key, OperationID: operationID,
 		TaskRevision: state.TaskRevision, TaskRevisionSHA256: state.TaskRevisionSHA256,
 		BaseHead: state.BaseHead, CandidateHead: state.Head, CandidateTree: admission.snapshot.tree,
 		Branch: state.Branch, GateProfileSHA256: admission.profile,
-		Outcome: outcome, Error: receiptError, AttemptRevision: attempt,
+		Outcome: model.TaskExecutionVerificationSucceeded, AttemptRevision: attempt,
 		CodeReviewID: admission.reviews.code, TestsReviewID: admission.reviews.tests, RebaseReviewID: admission.reviews.rebase,
 		Gates: gateResults, StartedAt: startedAt, CompletedAt: completedAt,
 	}
 	next := state
 	next.ExecutionRevision = attempt + 1
+	next.Status = model.TaskExecutionVerified
 	next.UpdatedAt = completedAt
-	if outcome == model.TaskExecutionVerificationSucceeded {
-		next.Status = model.TaskExecutionVerified
-	} else {
-		next.Status = model.TaskExecutionReadyForVerification
-	}
 	finishCtx := ctx
 	if ctx.Err() != nil {
 		var cancel context.CancelFunc
@@ -730,26 +750,34 @@ func (s *Service) taskExecutionTestRun(ctx context.Context, in TaskExecutionTest
 		return TaskExecutionPublicOutput{}, fmt.Errorf("Task verification finish could not be recorded: %w", err)
 	}
 	postPayload := taskLifecycleHookPayload(in.ProjectID, in.Key, AgentSessionID(ctx), operationID, "", receipt.TaskRevision, receipt.AttemptRevision, receipt.CandidateHead, receipt.CandidateTree, receipt.BaseHead, string(receipt.Outcome), "", "")
-	if outcome == model.TaskExecutionVerificationSucceeded {
-		out := taskExecutionPublicOutput(next)
-		projection, err := taskExecutionVerificationProjection(receipt)
-		if err != nil {
-			return TaskExecutionPublicOutput{}, err
-		}
-		out.Verification = &projection
-		result, _ := json.Marshal(out)
-		_ = s.runTaskLifecycleProcedureHook(ctx, model.HookPostTaskVerify, "after", postPayload, "completed", result, "")
-		return out, nil
+	out := taskExecutionPublicOutput(next)
+	projection, err := taskExecutionVerificationProjection(receipt)
+	if err != nil {
+		return TaskExecutionPublicOutput{}, err
 	}
-	parentStatus := "failed"
-	if asyncMutationOutcomeUnknown(runErr) || ctx.Err() != nil {
-		parentStatus = "outcome_unknown"
+	out.Verification = &projection
+	result, _ := json.Marshal(out)
+	_ = s.runTaskLifecycleProcedureHook(ctx, model.HookPostTaskVerify, "after", postPayload, "completed", result, "")
+	return out, nil
+}
+
+func (s *Service) releaseTaskVerificationInFlight(key, operationID string) {
+	s.taskExecutionMu.Lock()
+	if s.taskExecutionVerifyInFlight[key] == operationID {
+		delete(s.taskExecutionVerifyInFlight, key)
 	}
-	_ = s.runTaskLifecycleProcedureHook(ctx, model.HookPostTaskVerify, "after", postPayload, parentStatus, nil, boundedTaskVerificationError(runErr.Error()))
-	if advancedCanonical != "" {
-		if reconcileErr := s.reconcileTaskExecutionBase(finishCtx, next, admission.project, advancedCanonical); reconcileErr != nil {
-			return TaskExecutionPublicOutput{}, fmt.Errorf("%w (controlled rebase coordination: %v)", runErr, reconcileErr)
-		}
+	s.taskExecutionMu.Unlock()
+}
+
+func (s *Service) failTaskVerificationHookAttempt(operationID string) error {
+	attempt, err := s.readTaskLifecycleHookAttempt(operationID, model.HookPreTaskVerify)
+	if err != nil {
+		return err
 	}
-	return TaskExecutionPublicOutput{}, runErr
+	if attempt.Outcome != "completed" || !json.Valid(attempt.Output) {
+		return fmt.Errorf("completed pre_task_verify evidence is unavailable")
+	}
+	attempt.Outcome = "failed"
+	attempt.Reason = "Project verification Procedure reported unsuccessful or invalid gate evidence"
+	return s.writeTaskLifecycleHookAttempt(operationID, attempt)
 }

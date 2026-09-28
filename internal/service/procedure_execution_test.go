@@ -472,9 +472,17 @@ func TestTaskVerifyAndIntegrateHooksEnforceBeforeAndPreserveAfter(t *testing.T) 
 		if !ok {
 			t.Fatalf("missing payload schema for Hook %q", hook)
 		}
+		output := map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}
+		if hook == model.HookPreTaskVerify {
+			var err error
+			output, err = model.TaskVerificationProcedureOutputSchema([]string{"fixture_check"})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
 		definition := model.ProjectProcedureDefinition{
 			Script: procedureTestScript(t, root, script), Summary: "Exercise a Task lifecycle Hook.", Guide: "Accepts its canonical lifecycle payload.",
-			Input: input, Output: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
+			Input: input, Output: output,
 		}
 		if _, err := s.ConfigProcedureCreate(plannerCtx, ConfigProcedureCreateInput{
 			ProjectID:  "example",
@@ -504,8 +512,10 @@ func TestTaskVerifyAndIntegrateHooksEnforceBeforeAndPreserveAfter(t *testing.T) 
 			}
 			last = operation
 			attempts := taskLifecycleHookAttempts(operation.Result)
-			if len(attempts) == 1 && attempts[0].Hook == hook && attempts[0].Outcome != "pending" && durableMutationTerminal(operation.Status) {
-				return operation, attempts[0]
+			for _, attempt := range attempts {
+				if attempt.Hook == hook && attempt.Outcome != "pending" && durableMutationTerminal(operation.Status) {
+					return operation, attempt
+				}
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -525,10 +535,11 @@ func TestTaskVerifyAndIntegrateHooksEnforceBeforeAndPreserveAfter(t *testing.T) 
 	if err != nil || !found || preVerify.Status != "failed" || state.Status != model.TaskExecutionReadyForVerification || preVerifyAttempt.Outcome != "failed" {
 		t.Fatalf("pre-verify Hook did not block verification: operation=%#v attempt=%#v state=%#v found=%v err=%v", preVerify, preVerifyAttempt, state, found, err)
 	}
-	if _, err := s.ConfigHookUnbind(plannerCtx, ConfigHookUnbindInput{
+	if _, err := s.ConfigHookBind(plannerCtx, ConfigHookBindInput{
 		ProjectID: "example",
 		Hook:      model.HookPreTaskVerify,
-		Reason:    "Move the failure test to post-verify.",
+		Procedure: "fixture_verify",
+		Reason:    "Restore the non-Go verification Procedure for the post-Hook test.",
 	}); err != nil {
 		t.Fatal(err)
 	}

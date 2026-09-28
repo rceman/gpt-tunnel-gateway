@@ -372,21 +372,8 @@ func (s *Service) taskExecutionHistoricalBootstrapProof(ctx context.Context, pro
 	if gates.GateProfileSHA256 != profile || model.ValidateSHA256(gates.GateProfileSHA256) != nil {
 		return fmt.Errorf("historical full-gates fact does not bind the current gate profile")
 	}
-	if err := model.ValidateServerGateEvidence(gates.Gates); err != nil {
+	if err := validateTaskVerificationGateResults(gates.Gates, required, candidateTree, profile); err != nil {
 		return fmt.Errorf("historical full-gates fact is malformed: %w", err)
-	}
-	if len(gates.Gates) != len(required) {
-		return fmt.Errorf("historical full-gates fact does not cover the required gates")
-	}
-	seen := map[string]bool{}
-	for _, gate := range gates.Gates {
-		if !slices.Contains(required, gate.ID) || seen[gate.ID] {
-			return fmt.Errorf("historical full-gates fact has unexpected gate evidence")
-		}
-		seen[gate.ID] = true
-		if gate.Execution != "executed" || gate.ExitCode != 0 || gate.TreeID != candidateTree || model.ValidateSHA256(gate.ContractDigest) != nil || model.ValidateSHA256(gate.ReceiptDigest) != nil {
-			return fmt.Errorf("historical full-gates fact does not prove a passing tree-bound executed gate")
-		}
 	}
 	*proven = snapshot
 	return nil

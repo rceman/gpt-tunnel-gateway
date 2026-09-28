@@ -436,7 +436,10 @@ func tsk670SeedVerificationEvidence(t *testing.T, s *Service, db *sqlitestore.Da
 		BaseHead: state.BaseHead, CandidateHead: state.Head, CandidateTree: state.Head, Branch: state.Branch,
 		GateProfileSHA256: strings.Repeat("a", 64), Outcome: model.TaskExecutionVerificationSucceeded,
 		TaskRevision: state.TaskRevision, AttemptRevision: state.ExecutionRevision, CodeReviewID: 1,
-		Gates: []model.CompletionGateResult{{ID: "unit", ExitCode: 0}}, StartedAt: now, CompletedAt: now.Add(time.Second),
+		Gates: []model.CompletionGateResult{{
+			ID: "unit", Execution: "executed", ExitCode: 0, TreeID: state.Head,
+			ContractDigest: strings.Repeat("a", 64), ReceiptDigest: strings.Repeat("b", 64), DurationMS: 1,
+		}}, StartedAt: now, CompletedAt: now.Add(time.Second),
 	}
 	next := state
 	next.Status = model.TaskExecutionVerified

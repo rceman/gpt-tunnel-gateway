@@ -3,32 +3,41 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-func TestTSK646TaskTestFullProfileUsesOnlyDeterministicRunner(t *testing.T) {
-	commands := model.DefaultProjectGateCommands()
-	for _, argv := range [][]string{commands.Test.Task.Command} {
-		if len(argv) != 1 || argv[0] != "./scripts/test-full.sh" {
-			t.Fatalf("default task test gate command=%v, want the deterministic ./scripts/test-full.sh runner", argv)
+func TestTSK646TaskVerificationUsesOrderedProjectProcedureChecks(t *testing.T) {
+	path := filepath.Join("..", "..", "scripts", "task-verify.py")
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("project verification Procedure script missing: %v", err)
+	}
+	text := string(source)
+	checks := []string{
+		`("format", ["go", "run", "./cmd/gofmt-struct", "--check", "."])`,
+		`("static_check", ["python3", "scripts/static-check.py"])`,
+		`("full_test", ["./scripts/test-full.sh"])`,
+	}
+	previous := -1
+	for _, check := range checks {
+		position := strings.Index(text, check)
+		if position <= previous {
+			t.Fatalf("verification checks are absent or out of order: %q", check)
 		}
-		for _, arg := range argv {
-			if arg == "-race" || arg == "-tags" || arg == "-tags=livee2e" || arg == "-tags=liveperformance" {
-				t.Fatalf("full test gate command selects a specialist lane: %v", argv)
-			}
-		}
-		if !taskExecutionVerificationFullSuiteArgv(argv) {
-			t.Fatalf("default test gate command is not a valid full-suite argv: %v", argv)
-		}
+		previous = position
+	}
+	output, err := model.TaskVerificationProcedureOutputSchema([]string{"format", "static_check", "full_test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := taskVerificationProcedureGateIDs(output)
+	if err != nil || strings.Join(ids, ",") != strings.Join([]string{"format", "static_check", "full_test"}, ",") {
+		t.Fatalf("project Procedure result schema ids=%v err=%v", ids, err)
 	}
 	if _, err := os.Stat(filepath.Join("..", "..", "scripts", "test-full.sh")); err != nil {
-		t.Fatalf("deterministic full runner script missing: %v", err)
-	}
-	for _, lane := range []string{"test-race.sh", "test-e2e.sh", "test-performance.py", "test-profile.py"} {
-		if _, err := os.Stat(filepath.Join("..", "..", "scripts", lane)); err != nil {
-			t.Fatalf("specialist lane script %s missing: %v", lane, err)
-		}
+		t.Fatalf("canonical full test runner missing: %v", err)
 	}
 }

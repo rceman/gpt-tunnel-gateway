@@ -1047,6 +1047,38 @@ func validatePublicContract(path, surface string, input, output *CompiledSchema,
 }
 
 func validateActionSchemaFields(actionPath, direction string, schema *CompiledSchema, surface string, crossDomainFields []string, seen map[string]bool) error {
+	return validateActionSchemaFieldsWithGateID(actionPath, direction, schema, surface, crossDomainFields, seen, false)
+}
+
+func validTaskVerificationGateRecordCompiledSchema(schema *CompiledSchema) bool {
+	if schema == nil || schema.Type != "object" || schema.AdditionalProperties == nil || *schema.AdditionalProperties || len(schema.Properties) != 3 || len(schema.Required) != 3 || schema.Required[0] != "id" || schema.Required[1] != "exit_code" || schema.Required[2] != "duration_ms" {
+		return false
+	}
+	id := schema.Properties["id"]
+	if id == nil || id.Type != "string" || len(id.Enum) == 0 || len(id.Enum) > 16 {
+		return false
+	}
+	seen := map[string]struct{}{}
+	for _, value := range id.Enum {
+		name, ok := value.(string)
+		if !ok || !namePattern.MatchString(name) {
+			return false
+		}
+		if _, exists := seen[name]; exists {
+			return false
+		}
+		seen[name] = struct{}{}
+	}
+	for name, maximum := range map[string]float64{"exit_code": 255, "duration_ms": 1800000} {
+		property := schema.Properties[name]
+		if property == nil || property.Type != "integer" || property.Minimum == nil || *property.Minimum != 0 || property.Maximum == nil || *property.Maximum != maximum {
+			return false
+		}
+	}
+	return true
+}
+
+func validateActionSchemaFieldsWithGateID(actionPath, direction string, schema *CompiledSchema, surface string, crossDomainFields []string, seen map[string]bool, gateRecord bool) error {
 	if schema == nil {
 		return nil
 	}
@@ -1072,7 +1104,7 @@ func validateActionSchemaFields(actionPath, direction string, schema *CompiledSc
 		if key == "role_gate" || key == "required_role" || key == "allowed_roles" || key == "authority_role" {
 			return fmt.Errorf("action %s.%s: distributed role-gate fields are not contract-authorized", actionPath, direction)
 		}
-		if key == "id" || strings.HasSuffix(key, "_id") || strings.HasSuffix(key, "_key") {
+		if key == "id" && !gateRecord || strings.HasSuffix(key, "_id") || strings.HasSuffix(key, "_key") {
 			return fmt.Errorf("action %s.%s: identity alias field %q is not allowed", actionPath, direction, key)
 		}
 		if isTimestampField(key) && child.RefName != "Timestamp" {
@@ -1104,7 +1136,8 @@ func validateActionSchemaFields(actionPath, direction string, schema *CompiledSc
 		}
 	}
 	if schema.Items != nil {
-		if err := validateActionSchemaFields(actionPath, direction, schema.Items, surface, crossDomainFields, seen); err != nil {
+		gateRecord := direction == "output" && strings.HasPrefix(actionPath, "procedure/") && validTaskVerificationGateRecordCompiledSchema(schema.Items)
+		if err := validateActionSchemaFieldsWithGateID(actionPath, direction, schema.Items, surface, crossDomainFields, seen, gateRecord); err != nil {
 			return err
 		}
 	}

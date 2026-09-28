@@ -21,7 +21,7 @@ type tsk664HubFamily struct {
 var tsk664HubFamilies = []tsk664HubFamily{
 	{"project.json", "KEEP", "Hub-first project register/update", "no full Shared project import", "Shared project identity", "project code and repository metadata; no entity allocator"},
 	{"identifiers.json", "MIGRATE", "legacy Task/ADR writers", "bootstrap imports identity and reconciles canonical sequence high-water marks", "Shared project identity plus shared_entity_sequences", "project code; legacy NextTask/NextADR values are restore inputs only"},
-	{"configuration", "KEEP", "Shared current/outbox/revision payloads use the bounded retired-field migration for watcher and workflow.gate_commands.test.train", "Hub current-state startup migration runs before Shared outbox recovery; restore remains strict canonical ProjectConfiguration", "canonical ProjectConfiguration without retired fields", "new restart-safe marker reruns after the TSK664 marker; configuration revision remains authoritative"},
+	{"configuration", "KEEP", "Shared current/outbox/revision payloads use the bounded retired-field migration for watcher and workflow.gate_commands.format/check/test.task", "Hub current-state startup migration runs before Shared outbox recovery; restore remains strict canonical ProjectConfiguration", "canonical ProjectConfiguration without retired fields", "new restart-safe marker reruns after the TSK664 marker; configuration revision remains authoritative"},
 	{"adrs", "KEEP", "ADR Shared outbox", "Hub-to-Shared current-state and revision restore", "shared_adrs plus revisions/events/relations", "ADR payload revision; shared_entity_sequences; migrated legacy shared_adr_sequences and NextADRNumber"},
 	{"rules", "KEEP", "Rule Shared outbox", "Hub-to-Shared current-state and revision restore", "shared_rules plus revisions/events/relations", "Rule payload revision and shared_entity_sequences"},
 	{"tasks-v2", "KEEP", "Task Shared outbox; TaskRevision paths are legacy", "Hub-to-Shared current-state and revision restore", "shared_tasks plus revisions/events/relations", "Task payload/store revision; shared_entity_sequences; migrated legacy task sequence and NextTaskNumber"},
@@ -73,7 +73,7 @@ func TestTSK664Gate20HubFamiliesHaveExplicitDisposition(t *testing.T) {
 		}
 	}
 	configuration := families["configuration"]
-	if configuration.disposition != "KEEP" || !strings.Contains(configuration.publisher, "watcher") || !strings.Contains(configuration.publisher, "workflow.gate_commands.test.train") || !strings.Contains(configuration.restore, "before Shared outbox recovery") {
+	if configuration.disposition != "KEEP" || !strings.Contains(configuration.publisher, "watcher") || !strings.Contains(configuration.publisher, "workflow.gate_commands.format/check/test.task") || !strings.Contains(configuration.restore, "before Shared outbox recovery") {
 		t.Errorf("ProjectConfiguration live defect migration is missing from Gate-20 inventory: %#v", configuration)
 	}
 	tracks := families["tracks"]

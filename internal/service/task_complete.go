@@ -503,21 +503,8 @@ func (s *Service) taskCompleteIntegratedProof(ctx context.Context, task model.Ta
 	if receipt.CompletedAt.After(phase.CreatedAt) {
 		return taskCompleteIntegratedEvidence{}, fmt.Errorf("integrated Task verification postdates the integration phase")
 	}
-	if err := model.ValidateServerGateEvidence(receipt.Gates); err != nil {
+	if err := model.ValidateTaskExecutionVerification(receipt); err != nil {
 		return taskCompleteIntegratedEvidence{}, fmt.Errorf("Task verification gate evidence is malformed: %w", err)
-	}
-	if len(receipt.Gates) == 0 {
-		return taskCompleteIntegratedEvidence{}, fmt.Errorf("Task verification gate evidence is empty")
-	}
-	seen := map[string]bool{}
-	for _, gate := range receipt.Gates {
-		if seen[gate.ID] {
-			return taskCompleteIntegratedEvidence{}, fmt.Errorf("Task verification has duplicate gate evidence")
-		}
-		seen[gate.ID] = true
-		if gate.Execution != "executed" || gate.ExitCode != 0 || gate.TreeID != receipt.CandidateTree || model.ValidateSHA256(gate.ContractDigest) != nil || model.ValidateSHA256(gate.ReceiptDigest) != nil {
-			return taskCompleteIntegratedEvidence{}, fmt.Errorf("Task verification does not prove a passing tree-bound executed gate")
-		}
 	}
 	project, err := s.EffectiveProjectConfig(task.ProjectID)
 	if err != nil {

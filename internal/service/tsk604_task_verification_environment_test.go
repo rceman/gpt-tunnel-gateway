@@ -40,7 +40,8 @@ func TestTSK604TaskCompleteAfterRestartIgnoresEnvironmentDrift(t *testing.T) {
 }
 
 func TestTSK604GateProfileIsIndependentOfProcedureCatalogue(t *testing.T) {
-	s, _, _ := testServiceWithoutIdentifiers(t)
+	s, db := tsk585Setup(t)
+	defer db.Close()
 	ctx := WithAgentSessionID(trustedWorkflowPolicyContext(context.Background(), "planner"), "planner-test")
 	_, before, err := s.taskExecutionGateProfile(ctx, "example")
 	if err != nil {

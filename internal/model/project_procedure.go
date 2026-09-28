@@ -309,6 +309,51 @@ type procedureSchemaValidation struct {
 	nodes int
 }
 
+func validTaskVerificationGateRecordSchema(schema map[string]any) bool {
+	if len(schema) != 4 || schema["type"] != "object" || schema["additionalProperties"] != false {
+		return false
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok || len(properties) != 3 {
+		return false
+	}
+	required, ok := schema["required"].([]any)
+	if !ok || len(required) != 3 || required[0] != "id" || required[1] != "exit_code" || required[2] != "duration_ms" {
+		return false
+	}
+	id, ok := properties["id"].(map[string]any)
+	if !ok || len(id) != 2 || id["type"] != "string" {
+		return false
+	}
+	enum, ok := id["enum"].([]any)
+	if !ok || len(enum) == 0 || len(enum) > MaxTaskVerificationProcedureGates {
+		return false
+	}
+	seen := make(map[string]struct{}, len(enum))
+	for _, value := range enum {
+		name, ok := value.(string)
+		if !ok || ValidateProcedureName(name) != nil {
+			return false
+		}
+		if _, exists := seen[name]; exists {
+			return false
+		}
+		seen[name] = struct{}{}
+	}
+	for name, maximum := range map[string]float64{"exit_code": 255, "duration_ms": MaxTaskVerificationGateDurationMS} {
+		property, ok := properties[name].(map[string]any)
+		if !ok || len(property) != 3 || property["type"] != "integer" {
+			return false
+		}
+		minimum, minOK := schemaNumber(property["minimum"])
+		limit, maxOK := schemaNumber(property["maximum"])
+		if !minOK || !maxOK || minimum != 0 || limit != maximum {
+			return false
+		}
+	}
+	return true
+}
+
 func (state *procedureSchemaValidation) validate(schema map[string]any, depth int, inArrayItem bool) error {
 	state.nodes++
 	if depth > 8 || state.nodes > 256 {
@@ -362,6 +407,7 @@ func (state *procedureSchemaValidation) validate(schema map[string]any, depth in
 		if !exists || len(properties) > 32 {
 			return fmt.Errorf("object properties exceed structural bounds")
 		}
+		gateRecord := inArrayItem && validTaskVerificationGateRecordSchema(schema)
 		required := map[string]struct{}{}
 		if rawRequired, exists := schema["required"]; exists {
 			values, ok := rawRequired.([]any)
@@ -383,7 +429,7 @@ func (state *procedureSchemaValidation) validate(schema map[string]any, depth in
 			}
 		}
 		for name, rawProperty := range properties {
-			if !procedurePropertyPattern.MatchString(name) || name == "id" || strings.HasSuffix(name, "_id") || strings.HasSuffix(name, "_key") {
+			if !procedurePropertyPattern.MatchString(name) || name == "id" && !gateRecord || strings.HasSuffix(name, "_id") || strings.HasSuffix(name, "_key") {
 				return fmt.Errorf("invalid or aliased property name %q", name)
 			}
 			property, ok := rawProperty.(map[string]any)

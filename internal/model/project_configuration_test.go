@@ -64,6 +64,30 @@ func TestProjectProcedureSchemaSubsetAndHookCompatibility(t *testing.T) {
 	}
 }
 
+func TestTaskVerificationProcedureSchemaAllowsOnlyCanonicalGateID(t *testing.T) {
+	output, err := TaskVerificationProcedureOutputSchema([]string{"format", "full_test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateProcedureSchema(output); err != nil {
+		t.Fatalf("canonical Task verification output schema was rejected: %v", err)
+	}
+	invalid := map[string]any{
+		"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}},
+		"required": []any{"id"}, "additionalProperties": false,
+	}
+	if err := ValidateProcedureSchema(invalid); err == nil {
+		t.Fatal("unscoped id property was accepted")
+	}
+	properties := output["properties"].(map[string]any)
+	gates := properties["gates"].(map[string]any)
+	item := gates["items"].(map[string]any)
+	item["properties"].(map[string]any)["unexpected"] = map[string]any{"type": "string"}
+	if err := ValidateProcedureSchema(output); err == nil {
+		t.Fatal("noncanonical Task verification gate record was accepted")
+	}
+}
+
 func TestProjectProcedureSchemaRejectsOpenOrUnsupportedShapes(t *testing.T) {
 	validRoot := func(properties map[string]any) map[string]any {
 		return map[string]any{"type": "object", "properties": properties, "additionalProperties": false}

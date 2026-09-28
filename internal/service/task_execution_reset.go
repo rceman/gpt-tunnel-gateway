@@ -68,6 +68,9 @@ func (s *Service) TaskExecutionReset(ctx context.Context, in TaskExecutionResetI
 	defer s.durableMutationMu.Unlock()
 	s.taskExecutionMu.Lock()
 	defer s.taskExecutionMu.Unlock()
+	if _, active := s.taskExecutionVerifyInFlight[in.Key]; active {
+		return TaskExecutionResetOutput{}, fmt.Errorf("Task verification is in flight")
+	}
 
 	state, found, err := s.Durability.ReadTaskExecutionState(ctx, in.ProjectID, in.Key)
 	if err != nil {
